@@ -22,7 +22,7 @@
  * - Keep async delays short (5-15ms) — the specs own the settle waits.
  */
 import { createSignal, createMemo, createStore, Show, For, Loading, Errored } from "solid-js";
-import { Portal } from "@solidjs/web";
+import { Portal, httpStatus, httpHeader, clientOnly } from "@solidjs/web";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -578,6 +578,77 @@ function ClientSourceDerivedStore() {
   return <div>Inputs: {store.inputs.join(",") || "none"}</div>;
 }
 
+// ---------------------------------------------------------------------------
+// HTTP response primitives among id-bearing siblings. `httpStatus`/`httpHeader`
+// are bare scope-tied calls: the ssr compile of this file resolves them to the
+// server implementations (writing to the request event's response head — the
+// harness server spec provides one), the dom compile to the client no-ops.
+// Neither side may allocate anything reactive: a no-op that consumed a
+// hydration id would shift every sibling key after the call site — the bug
+// class that bit client-only reactive work twice recently (Portal, clientOnly).
+let setHttpLabel!: (v: string) => void;
+function HttpPrimitivesSiblings() {
+  const [label, set] = createSignal("ok");
+  setHttpLabel = set;
+  httpStatus(404, "Not Found");
+  httpHeader("cache-control", "no-store");
+  return (
+    <div>
+      <span>before </span>
+      <b>{label()}</b>
+      <span> after</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Same primitives called INSIDE a streamed <Loading> boundary's content — the
+// region where hydration-id drift historically surfaces (placeholder shell,
+// late <template> + $df swap, claims racing the reveal).
+let refreshHttpStream!: () => void;
+function HttpPrimitivesStreamed() {
+  const [version, setVersion] = createSignal(0);
+  refreshHttpStream = () => setVersion(v => v + 1);
+  const data = createMemo(async () => {
+    const v = version();
+    await sleep(10);
+    return 42 + v;
+  });
+  const Inner = () => {
+    httpStatus(404, "Not Found");
+    httpHeader("x-streamed", "yes");
+    return (
+      <div>
+        <span>head</span> Value: {data()} <span>tail</span>
+      </div>
+    );
+  };
+  return (
+    <Loading fallback={<p>loading</p>}>
+      <Inner />
+    </Loading>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// clientOnly with an ELEMENT fallback between id-bearing siblings. The server
+// renders only the fallback (never invokes the importer); the import never
+// resolves on the client, so the fallback is the settled state — the
+// server-rendered <button> must be ADOPTED by the hydration pass (same node,
+// claimed, no fresh client DOM), not orphaned and replaced by a client copy.
+// This is the load-bearing property of clientOnly's hydration gate: the
+// fallback renders DURING the walk so its compiled template claims server DOM.
+const NeverWidget = clientOnly(() => new Promise<{ default: (props: {}) => any }>(() => {}));
+function ClientOnlyElementFallback() {
+  return (
+    <div>
+      <span>lead </span>
+      <NeverWidget fallback={<button>fb</button>} />
+      <span> tail</span>
+    </div>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -796,5 +867,28 @@ export const scenarios: Scenario[] = [
     expectedText: "Inputs: piano",
     serverText: "Inputs: none",
     stableSelector: "div"
+  },
+  {
+    name: "http-primitives-siblings",
+    App: HttpPrimitivesSiblings,
+    expectedText: "before ok after",
+    update: () => setHttpLabel("done"),
+    expectedTextAfterUpdate: "before done after",
+    stableSelector: "div, span, b"
+  },
+  {
+    name: "http-primitives-streamed-loading",
+    App: HttpPrimitivesStreamed,
+    async: true,
+    expectedText: "head Value: 42 tail",
+    update: () => refreshHttpStream(),
+    expectedTextAfterUpdate: "head Value: 43 tail",
+    stableSelector: "div, span"
+  },
+  {
+    name: "client-only-element-fallback",
+    App: ClientOnlyElementFallback,
+    expectedText: "lead fb tail",
+    stableSelector: "div, span, button"
   }
 ];

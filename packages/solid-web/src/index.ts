@@ -16,7 +16,9 @@ import {
   createMemo,
   createOwner,
   createRoot,
+  createSignal,
   getOwner,
+  onSettled,
   runWithOwner,
   untrack,
   omit,
@@ -28,7 +30,8 @@ import {
   Component,
   createEffect,
   createRenderEffect,
-  type Owner
+  type Owner,
+  type Setter
 } from "solid-js";
 import type { JSX } from "./jsx.js";
 
@@ -383,3 +386,125 @@ function createElement(tagName: string, is = undefined): HTMLElement | SVGElemen
         : document.createElement(tagName, { is })
   ) as HTMLElement | SVGElement | MathMLElement;
 }
+
+function loadClientOnly<T>(fn: () => Promise<{ default: T }>, setComp: Setter<T | undefined>) {
+  fn().then(m => setComp(() => m.default));
+}
+
+/**
+ * Wraps a dynamically imported component so it renders only in the browser.
+ * The server renders `props.fallback` (and nothing else); the client shows
+ * the fallback until the import resolves and the tree has mounted, then
+ * swaps the real component in.
+ *
+ * Unlike `lazy()`, this avoids Suspense entirely and never server-renders
+ * the wrapped component — only the fallback — so the component participates
+ * in no hydration asset manifest and its code is guaranteed to never run on
+ * the server (safe for browser-only libraries touching `window`, DOM
+ * measurement, etc.). The mount gate keeps hydration safe: during hydration
+ * the fallback is rendered exactly as the server did, and the swap happens
+ * only after settle, so there is no mismatch.
+ *
+ * By default the import starts as soon as `clientOnly` is called (module
+ * load); pass `{ lazy: true }` to defer the import to the component's first
+ * render.
+ *
+ * @example
+ * ```tsx
+ * const Chart = clientOnly(() => import("./Chart.jsx"));
+ * // <Chart fallback={<div>Loading chart…</div>} data={data()} />
+ * ```
+ */
+export function clientOnly<T extends Component<any>>(
+  fn: () => Promise<{ default: T }>,
+  options: { lazy?: boolean } = {}
+): Component<ComponentProps<T> & { fallback?: JSX.Element }> {
+  const [comp, setComp] = createSignal<T>();
+  let started = !options.lazy;
+  started && loadClientOnly(fn, setComp);
+  return props => {
+    let Comp: T | undefined;
+    let m: boolean;
+    const rest = omit(props, "fallback") as ComponentProps<T>;
+    // The deferred import starts on the FIRST instance only — all instances
+    // share the module signal, so a second invocation of the importer could
+    // at best duplicate a request the browser dedupes anyway, and at worst
+    // re-run a side-effectful importer.
+    if (!started) {
+      started = true;
+      loadClientOnly(fn, setComp);
+    }
+    // Deliberately untracked fast path: an already-loaded module (fresh
+    // render after the import settled) skips the gate machinery entirely.
+    if ((Comp = untrack(comp)) && !sharedConfig.hydrating) return Comp(rest);
+    // This hand-rolled gate is NOT replaceable with `ssrSource: "client"`
+    // (the Portal pattern): that defers the compute past hydration, so the
+    // fallback would first evaluate with hydration over and its compiled
+    // templates would CREATE fresh DOM instead of claiming the
+    // server-rendered fallback — observed as an orphaned server fallback
+    // duplicated next to a fresh client copy. Portal can defer because its
+    // server half renders nothing; clientOnly's renders the fallback, so the
+    // fallback must render DURING the walk (mounted=false branch) to adopt
+    // that DOM, and only the post-settle swap is deferred.
+    const [mounted, setMounted] = createSignal(!sharedConfig.hydrating);
+    // The gate memo must be the component's FIRST id-consuming child so the
+    // fallback's elements derive the same hydration ids as under the server
+    // half's mirror memo and get claimed instead of duplicated. onSettled
+    // creates a tracked effect (an id-consuming owner), so it registers
+    // AFTER the memo.
+    const gate = createMemo(
+      () => (
+        (Comp = comp()),
+        (m = mounted()),
+        untrack(() => (Comp && m ? Comp(rest) : props.fallback))
+      )
+    ) as unknown as JSX.Element;
+    onSettled(() => {
+      setMounted(true);
+    });
+    return gate;
+  };
+}
+
+/**
+ * Declares the HTTP response status (and optional status text) for the
+ * lifetime of the current reactive scope during SSR — call it bare in a
+ * component or reactive-scope body where the status is decided (a 404
+ * route, an error fallback). Client build: a no-op — the response head was
+ * sent long ago.
+ *
+ * Naming note — this is a scope-tied *declaration*, not a mutation: "while
+ * this reactive scope is live, the response has this status." Solid
+ * reserves `set*` verbs for event-time mutation; like
+ * `createSignal`/`onCleanup` this is called in scope bodies and un-declares
+ * on scope disposal.
+ *
+ * Retraction semantics (server): the write snapshots the previous
+ * `event.response` status at write time and restores it when the owning
+ * scope is disposed — so a boundary that errored, declared a status, and
+ * then recovered retracts its write instead of stomping a status a
+ * surviving part of the tree legitimately set. Once the integration marks
+ * the response head `committed` (head derived/sent), writes and
+ * retractions are no-ops.
+ */
+export function httpStatus(_code: number, _text?: string): void {}
+
+/**
+ * Declares an HTTP response header (or with `append`, appends to one) for
+ * the lifetime of the current reactive scope during SSR — call it bare in a
+ * component or reactive-scope body. Client build: a no-op — the response
+ * head was sent long ago.
+ *
+ * Naming note — this is a scope-tied *declaration*, not a mutation: "while
+ * this reactive scope is live, the response has this header." Solid
+ * reserves `set*` verbs for event-time mutation; like
+ * `createSignal`/`onCleanup` this is called in scope bodies and un-declares
+ * on scope disposal.
+ *
+ * Retraction semantics (server): the header's prior value is snapshotted at
+ * write time and restored when the owning scope is disposed (deleted if
+ * there was none) — a boundary that errors or recovers retracts its writes.
+ * Once the integration marks the response head `committed` (head
+ * derived/sent), writes and retractions are no-ops.
+ */
+export function httpHeader(_name: string, _value: string, _options?: { append?: boolean }): void {}

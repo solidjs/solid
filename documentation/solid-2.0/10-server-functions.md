@@ -64,7 +64,7 @@ The handler resolves the function id, decodes arguments, runs the function under
 - **`collectFlightData(event, outcome)`** — the single-flight hook (below).
 - **`handleNoJS(result, request, args, thrown?)`** — build the response for unscripted calls (below).
 
-Inside a function body, `getRequestEvent()` (from `@solidjs/web`) reads the current event and `getServerFunctionMeta()` reads the calling function’s id — usable for keying caches or logs. In-process SSR calls run the original function directly (no HTTP loopback) under a derived event marked `serverOnly`.
+Inside a function body, `getRequestEvent()` (from `@solidjs/web`) reads the current event and `getServerFunctionInvocation()` reads the in-flight call’s id — usable for keying caches or logs. (Renamed from `getServerFunctionMeta` to keep clear of `getServerFunctionMetadata(fn)`, which reads a reference’s *static declaration* metadata; the invocation accessor describes the call currently executing.) In-process SSR calls run the original function directly (no HTTP loopback) under a derived event marked `serverOnly`.
 
 `registerServerFunction(id, fn)` / `getServerFunction(id)` remain exported for integrations building custom dispatch or introspection. Registry *mutation* as a userland extension pattern is rejected (see Alternatives).
 
@@ -203,6 +203,19 @@ The intended shape, in brief: a non-throwing `validate(schema, value)` helper ov
 | **Userland** | Per-function server concerns as body code (validation, auth guards, logging, rate limiting); `prepareRequest` composition |
 
 Unprivileged patterns that need neither core nor router access — the validation helper above being the canonical example — ship as standalone packages.
+
+### What belongs in `@solidjs/web` (decision record)
+
+`@solidjs/web` deliberately owns the HTTP exchange itself. Peer ecosystems park Request/Response in a metaframework (React→Next/Remix, Vue→Nuxt, Svelte→SvelteKit); Solid 2.0 collapses that layer, so the exchange vocabulary lives in core:
+
+- `getRequestEvent` — the request coming in.
+- `ResponseStub` / `committed` — the response head as it forms.
+- `redirect` / `reload` / `respond` — the response going out.
+- Server functions — the RPC exchange.
+- Frames — the streaming exchange.
+- `httpStatus` / `httpHeader` — the render tree's authority over the response head, with scope-tied retraction.
+
+The boundary rule for future additions: **own the exchange, not the application semantics above it.** Status, headers, redirects, streaming commitment are core's. Caching policy, routing, sessions, cookie conveniences with options bags, data layers (query/action) belong to the layer above, where routers and libraries legitimately differ. Scope-tied declarations over the core response contract (`httpStatus`/`httpHeader`) are the last stop on that line, not the first step — proposals that carry policy, or that duplicate one-liners without a correctness story, should be declined.
 
 ### Compiler implications
 

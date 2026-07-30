@@ -86,7 +86,10 @@ export function renderToStringAsync<T>(
  * boundaries settle. Good for time-to-first-byte sensitive pages.
  *
  * Returns an object with `pipe`/`pipeTo` for piping to a Node `Writable` or
- * a Web `WritableStream`, plus a `then` for awaiting full completion.
+ * a Web `WritableStream`, a lazy `readable` byte-stream view for
+ * `new Response(stream.readable)`, plus a `then` for awaiting full
+ * completion. `pipe`, `pipeTo`, and `readable` each consume the render —
+ * use exactly one of the three.
  *
  * @example
  * ```tsx
@@ -96,7 +99,7 @@ export function renderToStringAsync<T>(
  * renderToStream(() => <App />).pipe(res);
  *
  * // Web (Workers / Deno):
- * await renderToStream(() => <App />).pipeTo(stream.writable);
+ * return new Response(renderToStream(() => <App />).readable);
  * ```
  */
 export function renderToStream<T>(
@@ -124,6 +127,7 @@ export function renderToStream<T>(
   then: (fn: (html: string) => void) => void;
   pipe: (writable: { write: (v: string) => void; end: () => void }) => void;
   pipeTo: (writable: WritableStream) => Promise<void>;
+  readonly readable: ReadableStream<Uint8Array>;
 } {
   throwInBrowser(renderToStream);
 }

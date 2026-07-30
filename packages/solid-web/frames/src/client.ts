@@ -316,6 +316,20 @@ function revealSeam(owner: any) {
     );
 }
 
+// The frame invokes slots and element-claim sweeps through `ownerScope`
+// two ways: from stream microtasks with no owner of their own — those get
+// the boundary's owner, so consumer cleanup disposes with the boundary —
+// and from inside a live render (the t=0 adoption sync, a reveal
+// boundary's content render), where the ambient owner is already the
+// right scope and MUST stay it: the reconstructed segment `<Loading>`
+// owns its content render, and re-parenting the fill to the frame's outer
+// owner would let an unboundaried async fill escape the boundary that
+// exists to cover it (revealing the segment with a hole instead of
+// holding the server fallback).
+function boundaryScope(owner: any) {
+  return (fn: () => any) => (getOwner() ? fn() : runWithOwner(owner, fn));
+}
+
 function boundaryComponent(host: any, id: string) {
   return (props: Record<string, any>) => {
     // Element-claim sweeps (router link-state contract) run under this
@@ -330,12 +344,7 @@ function boundaryComponent(host: any, id: string) {
       host,
       id,
       slots: slotsFor(props),
-      // Ambient-preserving: only supply the boundary's owner when the frame
-      // invokes from an ownerless context (stream microtasks). A caller that
-      // established its own owner — the reveal seam's reconstructed segment
-      // boundary running a fill — must keep it, or async fills escalate past
-      // the segment fallback to an already-latched outer boundary.
-      ownerScope: (fn: () => any) => (getOwner() ? fn() : runWithOwner(owner, fn)),
+      ownerScope: boundaryScope(owner),
       reveal: revealSeam(owner)
     });
     onCleanup(dispose);
@@ -495,16 +504,15 @@ function adoptBoundary(host: any, id: string, el: Element, props: Record<string,
   }
   // ownerScope: element-claim sweeps — both the adoption sweep over the
   // SSR'd element (whose anchors never ran compiled creation) and later
-  // streamed morphs — bind consumer cleanup to this boundary's owner.
-  // Ambient-preserving (see boundaryComponent): a caller with its own owner
-  // — a reveal seam's reconstructed segment boundary — keeps it.
+  // streamed morphs — bind consumer cleanup to this boundary's owner (see
+  // boundaryScope for the ambient-preserving rule).
   const owner = getOwner();
   const frame = createFrame(el, {
     adopt: true,
     host,
     id,
     slots: slotsFor(props),
-    ownerScope: (fn: () => any) => (getOwner() ? fn() : runWithOwner(owner, fn)),
+    ownerScope: boundaryScope(owner),
     reveal: revealSeam(owner)
   });
   onCleanup(() => frame.dispose());
