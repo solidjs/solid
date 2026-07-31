@@ -145,6 +145,12 @@ function claimRender(prefix: string, existing: Node[], render: () => any) {
   const prevRegistry = sc.registry;
   const prevHydrating = sc.hydrating;
   const prevClaimRoots = sc.claimRoots;
+  // The enclosing pass gathered these same nodes: gatherHydratable sweeps the
+  // whole document for `_hk`, frame regions included, so every slot root ends
+  // up in the root registry too. Only this scoped registry ever claims them,
+  // so hand ownership over — otherwise the root's completion check reports
+  // each claimed slot node as unclaimed server markup.
+  if (prevRegistry) for (const key of registry.keys()) prevRegistry.delete(key);
   sc.registry = registry;
   sc.hydrating = true;
   // The range may be DETACHED right now (an async slot fill renders before
