@@ -18,7 +18,8 @@ overrides:
   '@solidjs/signals': workspace:*
   solid-js: workspace:*
   '@solidjs/web': workspace:*
-  # TEMPORARY: local link while the call-site handoff work (frame rebind +
-  # COMPONENT_HANDOFF transport contract) rides unreleased dom-expressions
-  # changes; drop once the release after 0.50.0-next.34 is published.
+  # TEMPORARY: local link while the call-site handoff + live slot props work
+  # (frame rebind, COMPONENT_HANDOFF, ctx.onUpdate) rides unreleased
+  # dom-expressions changes; drop once the release after 0.50.0-next.34 is
+  # published.
   '@dom-expressions/runtime': link:../dom-expressions/packages/runtime

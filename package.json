@@ -62,7 +62,7 @@
     "tsconfig-replace-paths": "^0.0.11",
     "turbo": "^2.0.0",
     "typescript": "^6.0.3",
-    "vite-plugin-solid": "3.0.0-next.13",
+    "vite-plugin-solid": "3.0.0-next.21",
     "vitest": "^4.1.6"
   },
   "simple-git-hooks": {
