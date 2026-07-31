@@ -29,6 +29,15 @@ export async function noteListView(searchText: string) {
     note => !searchText || note.title.toLowerCase().includes(searchText.toLowerCase())
   );
 
+  // The sidebar filter IS the `?searchText` query param, so a note-open link
+  // that drops it would clear the search box on click. This component
+  // re-renders with the current searchText on every change, so it can bake
+  // the carry-forward href right into the slot args — no client-side URL
+  // plumbing. (The app shell's New/Edit anchors render once and never see
+  // the live query, so entering the editor intentionally leaves the browse
+  // filter behind.)
+  const search = searchText ? `?searchText=${encodeURIComponent(searchText)}` : "";
+
   return (props: { item: ItemSlot }) =>
     notes.length ? (
       <ul class="notes-list">
@@ -41,6 +50,7 @@ export async function noteListView(searchText: string) {
                 $key={note.id}
                 id={note.id}
                 title={note.title}
+                href={`/notes/${note.id}${search}`}
                 expandedChildren={
                   <p class="sidebar-note-excerpt">{summary || <i>(No content)</i>}</p>
                 }

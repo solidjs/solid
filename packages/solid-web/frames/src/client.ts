@@ -15,6 +15,7 @@ import {
   createLoadingBoundary,
   createMemo,
   createOwner,
+  createSignal,
   getOwner,
   onCleanup,
   runWithOwner,
@@ -167,6 +168,30 @@ function claimRender(prefix: string, existing: Node[], render: () => any) {
   }
 }
 
+/**
+ * Live props for an invoked render prop: a signal-backed proxy the frame
+ * pushes re-resolved args into when a re-sent record's args CHANGE
+ * (ctx.onUpdate) — instead of re-calling the occurrence. Prop reads are
+ * reactive getters over the latest record, so the component instance (and
+ * its client state) survives server morphs that change its args, and
+ * effects over e.g. `props.title` fire on the change — the same "new props
+ * into the same instance" semantic compiled components already have.
+ */
+function liveSlotProps(initial: Record<string, any>, ctx: any) {
+  const [args, setArgs] = createSignal(initial);
+  ctx.onUpdate((next: Record<string, any>) => setArgs(() => next));
+  return new Proxy(
+    {},
+    {
+      get: (_, key) => (args() as any)[key],
+      has: (_, key) => key in args(),
+      ownKeys: () => Reflect.ownKeys(args()),
+      getOwnPropertyDescriptor: (_, key) =>
+        key in args() ? { enumerable: true, configurable: true } : undefined
+    }
+  );
+}
+
 /** Whether a resolved slot value is reactive at the top level. */
 function isReactiveContent(value: any): boolean {
   if (typeof value === "function") return true;
@@ -221,7 +246,13 @@ function slotsFor(props: Record<string, any>) {
           // state of it.
           const evaluate = () => {
             const v = props[prop];
-            return typeof v === "function" && ctx && ctx.invoked ? v(slotProps) : v;
+            if (typeof v === "function" && ctx && ctx.invoked) {
+              // Render-prop calls get LIVE props (see liveSlotProps): the
+              // frame updates them in place on an args change rather than
+              // re-calling, so occurrence state survives entity morphs.
+              return v(ctx.onUpdate ? liveSlotProps(slotProps, ctx) : slotProps);
+            }
+            return v;
           };
           const adopted = !!(
             ctx &&

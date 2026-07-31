@@ -167,6 +167,134 @@ describe("server components through dynamic", () => {
     container.remove();
   });
 
+  test("an ARGS-CHANGE handoff whose stream carries changed slot args updates the live occurrence (notes-search shape)", async () => {
+    // The notes sidebar search: the call's args change (searchText), the
+    // call site is live so the boundary rebinds (handoff), AND the new
+    // stream re-sends the occurrence's record with a changed arg value (the
+    // server-baked href). The occurrence must update in place — state and
+    // node identity survive — not re-call.
+    const [story, setStory] = createSignal(1);
+    vi.stubGlobal("fetch", async (_base: any, init: any) => {
+      const v = JSON.parse(String(init.body))[0];
+      return storyResponse(v, `Story ${v}`, `comment-${v}`);
+    });
+
+    let mounts = 0;
+    const Story = dynamic(() => getStory(story()) as any);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={div}>
+        <Loading fallback={<span>...</span>}>
+          <Story
+            comment={(p: any) => {
+              mounts++;
+              return <li>{p.text}</li>;
+            }}
+          >
+            <button>toggle</button>
+          </Story>
+        </Loading>
+      </div>;
+      container.appendChild(div);
+      return d;
+    });
+    flush();
+    await settle();
+    flush();
+    await settle();
+
+    const li = div.querySelector("ul li")! as HTMLElement;
+    expect(li.textContent).toBe("comment-1");
+    expect(mounts).toBe(1);
+    li.dataset.keep = "yes";
+
+    setStory(2);
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(div.querySelector("h1")!.textContent).toBe("Story 2");
+    expect(mounts).toBe(1);
+    expect(div.querySelector("ul li")).toBe(li);
+    expect(li.textContent).toBe("comment-2");
+    expect(li.dataset.keep).toBe("yes");
+
+    dispose();
+    flush();
+    container.remove();
+  });
+
+  test("a re-sent slot record with CHANGED args updates the live occurrence in place (no re-call)", async () => {
+    // The entity-identity promise: when a morph re-sends an occurrence's
+    // record with different arg VALUES (a renamed note, a search-dependent
+    // href), the mounted instance receives the new props reactively — it is
+    // NOT re-called, so its client state and DOM identity survive and
+    // effects over the changed prop fire.
+    const [tick, setTick] = createSignal(0);
+    const comments = ["first!", "edited!"];
+    let call = 0;
+    vi.stubGlobal("fetch", async () => {
+      const v = ++call;
+      return storyResponse(v, "Story 1", comments[v - 1]);
+    });
+
+    let mounts = 0;
+    const seen: string[] = [];
+    const Story = dynamic(() => (tick(), getStory(1) as any));
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={div}>
+        <Loading fallback={<span>...</span>}>
+          <Story
+            comment={(p: any) => {
+              mounts++;
+              createMemo(() => seen.push(p.text));
+              return <li>{p.text}</li>;
+            }}
+          >
+            <button>toggle</button>
+          </Story>
+        </Loading>
+      </div>;
+      container.appendChild(div);
+      return d;
+    });
+    flush();
+    await settle();
+    flush();
+    await settle();
+
+    const li = div.querySelector("ul li")! as HTMLElement;
+    expect(li.textContent).toBe("first!");
+    expect(mounts).toBe(1);
+    // Client-only state on the occurrence's own DOM.
+    li.dataset.keep = "yes";
+
+    // Same-args refetch; the new stream re-sends the record with a CHANGED
+    // arg value. The occurrence updates in place: same invocation, same
+    // node, new text — and the reactive read saw the change.
+    setTick(1);
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(mounts).toBe(1);
+    expect(div.querySelector("ul li")).toBe(li);
+    expect(li.textContent).toBe("edited!");
+    expect(li.dataset.keep).toBe("yes");
+    expect(seen).toEqual(["first!", "edited!"]);
+
+    dispose();
+    flush();
+    container.remove();
+  });
+
   test("covers an unboundaried async client fill revealed in a deferred segment (no orphan)", async () => {
     // The #1 case: a deferred segment reveals content containing a client fill
     // that is async and has NO <Loading> of its own. The reveal reconstructs a

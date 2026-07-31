@@ -2,12 +2,15 @@
  * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  */
-// #547, facade half: ctx.adopted gates hydration claims to the adoption
-// attach — a stream re-call must render for REAL, and {$frame} args
-// resolved during it must mount and keep morphing. (The claim-in-place +
-// no-re-call halves are pinned in the runtime suites: this vitest config
-// doesn't compile hydratable JSX, so claimRender's registry path — which
-// needs `_hk` on the adopted wrapper — can't engage here.)
+// #547, facade half — updated for live slot props: an invoked occurrence
+// registers ctx.onUpdate, so a changed record no longer re-calls at all.
+// The adopted instance receives the re-resolved props reactively; a
+// {$frame} arg introduced by the change resolves to a live region element
+// the instance's own `{p.children}` insert places — nothing is displaced,
+// which is a stronger form of the #547 guarantee. (The claim-in-place and
+// genuine-re-call halves are pinned in the runtime suites: this vitest
+// config doesn't compile hydratable JSX, so claimRender's registry path —
+// which needs `_hk` on the adopted wrapper — can't engage here.)
 // Own spec file: the boundary marker index is a once-per-boot module cache.
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRoot, flush, Loading } from "solid-js";
@@ -36,7 +39,7 @@ describe("adopted boundary stream re-calls (#547)", () => {
     document.body.innerHTML = "";
   });
 
-  test("an identical re-sent record does not re-call; a changed record re-renders for real and its {$frame} region mounts and morphs", async () => {
+  test("an identical re-sent record does not re-call; a changed record updates the live instance and its {$frame} region mounts and morphs", async () => {
     document.body.innerHTML =
       '<div id="app"><dx-frame data-fid="occ/used" style="display:contents">' +
       "<article><!--slot:comment#c1:start-->" +
@@ -96,8 +99,10 @@ describe("adopted boundary stream re-calls (#547)", () => {
     await settle();
     expect(renders).toEqual(["c1"]);
 
-    // A GENUINE change re-renders for real — ctx.adopted no longer claims —
-    // and the {$frame} arg resolves to a live region range in the output.
+    // A GENUINE change flows into the LIVE instance (no re-call): the same
+    // invocation's reactive props pick up the new cid, and the added
+    // {$frame} arg resolves to a live region element its own `{p.children}`
+    // insert places.
     host.apply({
       type: "slot",
       id: "occ/used",
@@ -108,10 +113,10 @@ describe("adopted boundary stream re-calls (#547)", () => {
     flush();
     await settle();
     flush();
-    expect(renders).toEqual(["c1", "c2"]);
+    expect(renders).toEqual(["c1"]);
     expect(appEl.querySelector(".comment.fresh")).toBeTruthy();
 
-    // The region streams content into the re-rendered wrapper and morphs.
+    // The region streams content into the live wrapper and morphs.
     host.apply({
       type: "html",
       id: "occ/used.comment#c1.children",

@@ -7,35 +7,31 @@
  */
 // The React demo's SidebarNoteContent.client.js: the per-note client shell.
 // `children` (the header) and `expandedChildren` (the excerpt) arrive as
-// server markup through the slot; `id` and `title` ride as slot args. The
+// server markup through the slot; `id`, `title`, and the note-open `href`
+// (search filter already baked in by the server) ride as slot args. The
 // flash animation fires when the title arg CHANGES on the same occurrence —
 // entity identity across single-flight morphs, courtesy of the `$key` the
 // server names each occurrence with.
 import { useLocation } from "@solidjs/router";
 import { createEffect, createSignal, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { useSearchLink } from "~/lib/links";
 
 export default function SidebarNoteContent(props: {
   id: number;
   title: string;
+  href: string;
   children: JSX.Element;
   expandedChildren: JSX.Element;
 }) {
   const location = useLocation();
-  const searchLink = useSearchLink();
   const [isExpanded, setIsExpanded] = createSignal(false);
   const isActive = () => location.pathname.startsWith(`/notes/${props.id}`);
   let itemRef!: HTMLDivElement;
 
-  let title = props.title;
   createEffect(
     () => props.title,
-    newTitle => {
-      if (newTitle !== title) {
-        title = newTitle;
-        itemRef.classList.add("flash");
-      }
+    (title, prev) => {
+      if (prev !== undefined && title !== prev) itemRef.classList.add("flash");
     }
   );
 
@@ -50,7 +46,7 @@ export default function SidebarNoteContent(props: {
     >
       {props.children}
       <a
-        href={searchLink(`/notes/${props.id}`)}
+        href={props.href}
         class="sidebar-note-open"
         style={{
           "background-color": isActive() ? "var(--tertiary-blue)" : "",
