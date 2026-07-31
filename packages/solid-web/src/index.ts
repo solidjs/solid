@@ -461,7 +461,11 @@ function loadClientOnly<T>(fn: () => Promise<{ default: T }>, setComp: Setter<T 
  */
 export function clientOnly<T extends Component<any>>(
   fn: () => Promise<{ default: T }>,
-  options: { lazy?: boolean } = {}
+  options: { lazy?: boolean } = {},
+  // Injected by the bundler's module-URL pass; consumed only by the server
+  // half (early modulepreload hints). The client ignores it — the import
+  // thunk itself is the loader here.
+  _moduleUrl?: string
 ): Component<ComponentProps<T> & { fallback?: JSX.Element }> {
   const [comp, setComp] = createSignal<T>();
   let started = !options.lazy;

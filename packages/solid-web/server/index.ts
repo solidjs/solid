@@ -7,6 +7,7 @@ import {
   getOwner,
   getNextChildId,
   NotReadyError,
+  sharedConfig,
   type Component
 } from "solid-js";
 import type { JSX } from "../src/jsx.js";
@@ -119,21 +120,84 @@ export function Portal(props: { mount?: Element; children: JSX.Element }) {
 }
 
 /**
+ * Emits early preload hints for a `clientOnly` module: resolves the module's
+ * client assets through the manifest seam lazy() uses and registers them as
+ * plain link hints (`modulepreload` for js, stylesheet links / inline styles
+ * for css) so the browser can start fetching when the HTML arrives instead
+ * of when the client bundle evaluates the `clientOnly()` call.
+ *
+ * Deliberately NOT `registerModule`: that files the module into the
+ * serialized hydration asset map, whose contract is "required before
+ * hydration" — a clientOnly module is not (the fallback is what hydrates;
+ * the real component mounts post-settle). Filing it there would make the
+ * client's "was not preloaded before hydration" check lie. Plain hints only.
+ *
+ * Rendering is never gated on resolution (unlike lazy, nothing downstream
+ * needs these assets to hydrate): an async resolver (dev manifest bridge)
+ * applies on settle under the boundary that owned the render, best-effort.
+ */
+function registerClientOnlyPreload(moduleUrl: string): void {
+  const ctx = sharedConfig.context;
+  if (!ctx?.registerAsset || !ctx.resolveAssets) return;
+  const registerAsset = ctx.registerAsset;
+  const resolve = ctx.resolveAssets;
+  const apply = (assets: Awaited<ReturnType<typeof resolve>> | undefined) => {
+    if (!assets) return;
+    for (let i = 0; i < assets.css.length; i++) {
+      const css = assets.css[i];
+      if (typeof css === "string") registerAsset("style", css);
+      else registerAsset("inline-style", css);
+    }
+    for (let i = 0; i < assets.js.length; i++) registerAsset("module", assets.js[i]);
+  };
+  const assets = resolve(moduleUrl);
+  if (assets && typeof (assets as Promise<unknown>).then === "function") {
+    const boundary = ctx._currentBoundaryId;
+    (assets as Promise<Awaited<ReturnType<typeof resolve>>>).then(
+      resolved => {
+        const current = ctx._currentBoundaryId;
+        ctx._currentBoundaryId = boundary;
+        try {
+          apply(resolved);
+        } finally {
+          ctx._currentBoundaryId = current;
+        }
+      },
+      // Hint only — a failed resolution already warns at the manifest seam.
+      () => {}
+    );
+  } else {
+    apply(assets as Awaited<ReturnType<typeof resolve>>);
+  }
+}
+
+/**
  * Server half of `clientOnly`: the wrapped component never renders on the
  * server — the import is never even started — only `props.fallback` is
  * SSR'd. The client build swaps the real component in after load + mount.
  * See the client entry's JSDoc for the full contract.
+ *
+ * `moduleUrl` is injected by the bundler's module-URL pass (the same one
+ * that annotates `lazy()`, padding the options slot when a call site omits
+ * it); when present and an asset manifest is set, the render emits early
+ * preload hints for the module — see `registerClientOnlyPreload` for why
+ * they stay out of the hydration asset map. Without it (untransformed code)
+ * or without a manifest, behavior is unchanged.
  */
 export function clientOnly<T extends Component<any>>(
   _fn: () => Promise<{ default: T }>,
-  _options: { lazy?: boolean } = {}
+  _options: { lazy?: boolean } = {},
+  moduleUrl?: string
 ): Component<ComponentProps<T> & { fallback?: JSX.Element }> {
-  // The memo is not caching anything — it mirrors the client half's gate
-  // memo so the fallback's elements derive their hydration ids at the same
-  // owner depth on both sides and the client claims them instead of
-  // duplicating (the same id-alignment trick as lazy(), see
-  // solid/src/server/component.ts).
-  return props => createMemo(() => props.fallback as JSX.Element) as unknown as JSX.Element;
+  return props => {
+    if (moduleUrl) registerClientOnlyPreload(moduleUrl);
+    // The memo is not caching anything — it mirrors the client half's gate
+    // memo so the fallback's elements derive their hydration ids at the same
+    // owner depth on both sides and the client claims them instead of
+    // duplicating (the same id-alignment trick as lazy(), see
+    // solid/src/server/component.ts).
+    return createMemo(() => props.fallback as JSX.Element) as unknown as JSX.Element;
+  };
 }
 
 /**
