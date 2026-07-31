@@ -14,6 +14,7 @@
 import { useLocation } from "@solidjs/router";
 import { createEffect, createSignal, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
+import { useSearchLink } from "~/lib/links";
 
 export default function SidebarNoteContent(props: {
   id: number;
@@ -22,6 +23,7 @@ export default function SidebarNoteContent(props: {
   expandedChildren: JSX.Element;
 }) {
   const location = useLocation();
+  const searchLink = useSearchLink();
   const [isExpanded, setIsExpanded] = createSignal(false);
   const isActive = () => location.pathname.startsWith(`/notes/${props.id}`);
   let itemRef!: HTMLDivElement;
@@ -48,7 +50,7 @@ export default function SidebarNoteContent(props: {
     >
       {props.children}
       <a
-        href={`/notes/${props.id}`}
+        href={searchLink(`/notes/${props.id}`)}
         class="sidebar-note-open"
         style={{
           "background-color": isActive() ? "var(--tertiary-blue)" : "",

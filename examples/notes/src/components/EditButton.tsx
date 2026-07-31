@@ -6,12 +6,14 @@
  *
  */
 import type { JSX } from "@solidjs/web";
+import { useSearchLink } from "~/lib/links";
 
 export default function EditButton(props: { noteId?: number; children: JSX.Element }) {
+  const searchLink = useSearchLink();
   const isDraft = !("noteId" in props);
   return (
     <a
-      href={!isDraft ? `/notes/${props.noteId}/edit` : `/new`}
+      href={searchLink(!isDraft ? `/notes/${props.noteId}/edit` : `/new`)}
       class={["edit-button", isDraft ? "edit-button--solid" : "edit-button--outline"].join(" ")}
       role="menuitem"
     >
