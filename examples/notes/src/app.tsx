@@ -1,15 +1,16 @@
 // The client side of the app. Compare with the React demo's App.server.js:
 // the same composition, but the shell's markup lives in server/App.tsx and
-// this file only fills its client positions — the search field, the New
-// button, the notes list (a server component of its own, keyed by the search
-// param), and the route outlet. Nothing here fetches data; every read goes
-// through a `dynamic()` over a server-component query.
+// this file only fills its client positions — the search field, the notes
+// list (a server component of its own, keyed by the search param), and the
+// route outlet. Nothing here fetches data; every read goes through a
+// `dynamic()` over a server-component query. Links (the New/Edit buttons)
+// aren't client positions at all: the router intercepts plain anchors, so
+// they render entirely on the server.
 import { createRouter } from "@solidjs/router";
 import { Loading } from "solid-js";
 import { dynamic } from "@solidjs/web";
 import { appView } from "~/server/App";
 import { getNoteList } from "~/lib/api";
-import EditButton from "~/components/EditButton";
 import SearchField from "~/components/SearchField";
 import SidebarNoteContent from "~/components/SidebarNoteContent";
 import { preload, routes } from "~/routes";
@@ -31,7 +32,6 @@ export default function App() {
           <Loading fallback={<div class="main">Loading...</div>}>
             <AppShell
               search={<SearchField />}
-              editButton={<EditButton>New</EditButton>}
               noteList={
                 <Loading fallback="Loading Notes..">
                   <NoteList item={p => <SidebarNoteContent {...p} />} />
