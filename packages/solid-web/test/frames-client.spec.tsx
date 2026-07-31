@@ -141,19 +141,24 @@ describe("server components through dynamic", () => {
     // Equivalent re-sent slot args: the occurrence was not re-called.
     expect(mounts).toBe(1);
 
-    // An ARGS change is a different call, so it resolves a DIFFERENT
-    // boundary (per-args identity, mirroring the query cache): the swap
-    // replaces the content and the new boundary's slots mount fresh —
-    // story 1's client state does not leak into story 2.
+    // An ARGS change resolves a DIFFERENT component (per-args identity,
+    // mirroring the query cache) — but this call site is LIVE, so dynamic
+    // offers its previous value and the incoming component takes the mount:
+    // the frame rebinds to the new call and story 2 morphs into the SAME
+    // element. Client node identity and state survive the argument change
+    // (the notes-search semantics), and equivalent slot args still don't
+    // re-call the occurrence.
     setStory(2);
     flush();
     await settle();
     flush();
     await settle();
     expect(fetched).toEqual([1, 1, 2]);
-    expect(div.querySelector("h1")!.textContent).toBe("Story 2");
-    expect(div.querySelector("h1")).not.toBe(h1);
-    expect(mounts).toBe(2);
+    expect(div.querySelector("h1")).toBe(h1);
+    expect(h1!.textContent).toBe("Story 2");
+    expect(div.querySelector("footer button")).toBe(button);
+    expect((button as HTMLElement).dataset.on).toBe("yes");
+    expect(mounts).toBe(1);
 
     // Owner disposal tears the boundary down.
     dispose();
