@@ -136,8 +136,8 @@ importers:
   examples/hackernews:
     dependencies:
       '@solidjs/router':
-        specifier: 2.0.0-next.12
-        version: 2.0.0-next.12(@solidjs/web@packages+solid-web)(solid-js@packages+solid)
+        specifier: 2.0.0-next.13
+        version: 2.0.0-next.13(@solidjs/web@packages+solid-web)(solid-js@packages+solid)
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/solid-web
@@ -155,8 +155,8 @@ importers:
   examples/hackernews-spa:
     dependencies:
       '@solidjs/router':
-        specifier: 2.0.0-next.12
-        version: 2.0.0-next.12(@solidjs/web@packages+solid-web)(solid-js@packages+solid)
+        specifier: 2.0.0-next.13
+        version: 2.0.0-next.13(@solidjs/web@packages+solid-web)(solid-js@packages+solid)
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/solid-web
@@ -195,8 +195,8 @@ importers:
   examples/notes:
     dependencies:
       '@solidjs/router':
-        specifier: 2.0.0-next.12
-        version: 2.0.0-next.12(@solidjs/web@packages+solid-web)(solid-js@packages+solid)
+        specifier: 2.0.0-next.13
+        version: 2.0.0-next.13(@solidjs/web@packages+solid-web)(solid-js@packages+solid)
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/solid-web
@@ -1878,8 +1878,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@solidjs/router@2.0.0-next.12':
-    resolution: {integrity: sha512-q2diWCxm72GypdogCNzmJSy5P9REMYU820c4z6ROHxamOCt2dkZVCEEEqCW9RIMNJEvcyPWEruthn7Koz5xi0A==}
+  '@solidjs/router@2.0.0-next.13':
+    resolution: {integrity: sha512-vNTXv/A+dhQMeJm/TuFZmnmXBOvoL6Y+anuEPXxMI6wSg/FMQ81Q3feNCoXxd5lFieIJx5dhZhmdLXfTrlUc3w==}
     peerDependencies:
       '@solidjs/web': workspace:*
       solid-js: workspace:*
@@ -5346,7 +5346,7 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.59.0':
     optional: true
 
-  '@solidjs/router@2.0.0-next.12(@solidjs/web@packages+solid-web)(solid-js@packages+solid)':
+  '@solidjs/router@2.0.0-next.13(@solidjs/web@packages+solid-web)(solid-js@packages+solid)':
     dependencies:
       '@solidjs/web': link:packages/solid-web
       solid-js: link:packages/solid
