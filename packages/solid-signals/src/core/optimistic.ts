@@ -19,7 +19,6 @@ import {
   REACTIVE_MANUAL_WRITE,
   unwrapOverride,
   REACTIVE_OPTIMISTIC_DIRTY,
-  REACTIVE_ZOMBIE,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
