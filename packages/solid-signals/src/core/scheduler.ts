@@ -4,7 +4,11 @@ import {
   EFFECT_TRACKED,
   EFFECT_USER,
   NOT_PENDING,
+  REACTIVE_CHECK,
+  REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
+  REACTIVE_IN_HEAP,
+  REACTIVE_IN_HEAP_HEIGHT,
   REACTIVE_MANUAL_WRITE,
   REACTIVE_OPTIMISTIC_DIRTY,
   REACTIVE_REASK,
@@ -16,7 +20,7 @@ import {
 import { currentOptimisticLane } from "./core.js";
 import { DEV, emitDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
-import { enqueueSub, runHeap, type Heap } from "./heap.js";
+import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
 import {
   activeLanes,
   assignOrMergeLane,
@@ -51,6 +55,18 @@ export const zombieQueue: Heap = {
   _min: 0,
   _max: 0
 };
+
+/** runHeap callback that discards a queued zombie recompute instead of running
+ * it: unlink pure recompute entries; strip just the recompute bit from dirtied
+ * height-adjust entries so their height work still happens. */
+function cancelZombieRecompute(el: Computed<unknown>): void {
+  if (el._flags & REACTIVE_IN_HEAP_HEIGHT)
+    el._flags &= ~(REACTIVE_IN_HEAP | REACTIVE_DIRTY | REACTIVE_CHECK);
+  else {
+    deleteFromHeap(el, zombieQueue);
+    el._flags &= ~(REACTIVE_DIRTY | REACTIVE_CHECK);
+  }
+}
 
 export let clock = 0;
 export let activeTransition: Transition | null = null;
@@ -442,7 +458,18 @@ export class GlobalQueue extends Queue {
         const isComplete = transitionComplete(activeTransition);
         if (!isComplete) {
           const stashedTransition = activeTransition!;
-          runHeap(zombieQueue, GlobalQueue._update);
+          // When the parking batch IS the transition, all of its writes commit
+          // only with it — every zombie recompute they queued would run against
+          // a world the zombie never displays (zombies render mainline until
+          // commit), so cancel them instead of running them. Only an ambient
+          // batch's mainline writes (the #2916 shape below) legitimately reach
+          // zombies here. Height-adjust entries still process normally: a
+          // dirtied one keeps its height flag and falls through to runHeap's
+          // adjustHeight path on the next pass of the bucket.
+          runHeap(
+            zombieQueue,
+            this._batch === stashedTransition ? cancelZombieRecompute : GlobalQueue._update
+          );
           // Detach: the stashed transition keeps its batch; ambient work that
           // follows lands in a fresh one. If the batch is already a separate
           // ambient one — action done() restored activeTransition without
