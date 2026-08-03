@@ -1420,6 +1420,11 @@ function initBoundaryResume(
     released = true;
     _pendingBoundaries--;
     sharedConfig.boundaryScopes?.delete(id);
+    // Retire any fragment-claimant mark (see markFragmentClaim): after this
+    // boundary resumes or is disposed, a late swap must fall back to the
+    // held/discard policy rather than landing in a range nobody will claim.
+    const hy = (globalThis as any)._$HY;
+    if (hy && hy.fk) delete hy.fk[id];
     return true;
   };
   onCleanup(() => {
@@ -1433,6 +1438,23 @@ function initBoundaryResume(
     shouldHydrate => resumeBoundaryHydration(o, id, set, release, shouldHydrate),
     release
   ];
+}
+
+// Claimant registration against the streaming layer's fragment swapper. Once
+// `_$HY.done` flips, $df refuses to swap late fragments into the document —
+// unless a claimant is on record for that id (`_$HY.fk`). A swap that arrived
+// before its claimant registered was held (`_$HY.hq`) rather than discarded;
+// replay it now so the content is in the DOM before this boundary's resume
+// claims it. The mark is cleared by release() when the boundary resumes or
+// is disposed.
+function markFragmentClaim(id: string) {
+  const hy = (globalThis as any)._$HY;
+  if (!hy) return;
+  (hy.fk || (hy.fk = {}))[id] = 1;
+  if (hy.hq && hy.hq[id]) {
+    delete hy.hq[id];
+    (globalThis as any).$df(id);
+  }
 }
 
 function waitAndResume(
@@ -1640,6 +1662,15 @@ function hydratedCreateLoadingBoundary<T, U>(
         return undefined;
       }
 
+      // The fragment is still streaming, and global hydration may already
+      // read as "done" — this boundary can be rendering inside a deferred
+      // claim scope (a frames slot fill, behind a lazy route module) that
+      // runs after the root sync pass (#2964). Go on record as the
+      // fragment's claimant so the streaming layer's $df swaps the late
+      // content in for this resume to claim instead of discarding it; if
+      // the swap already arrived and was held awaiting a claimant, replay
+      // it now.
+      markFragmentClaim(id);
       waitAndResume(fr, resume, assetPromise, false);
       return fallback();
     }

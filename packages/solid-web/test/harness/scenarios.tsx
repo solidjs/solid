@@ -649,6 +649,38 @@ function ClientOnlyElementFallback() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// A <Loading> whose fragment settles AFTER hydration completes (#2964). The
+// boundary renders behind an async gate with NO boundary above it — the
+// frames-slot / lazy-route shape: the root pass suspends on the gate without
+// registering a pending boundary, so global hydration reads "done" while the
+// inner boundary (and its still-pending `_fr` fragment) only materialize on
+// a later microtask. $df used to discard the late fragment's content once
+// done; the claimant protocol (markFragmentClaim → _$HY.fk, with _$HY.hq
+// hold/replay for swaps that arrive before their claimant) keeps it
+// claimable. Without it, this scenario settles blank where the boundary was.
+function LateBoundaryAfterDone() {
+  const gate = createMemo(async () => {
+    await sleep(5);
+    return 1;
+  });
+  const inner = createMemo(async () => {
+    await sleep(15);
+    return "late content";
+  });
+  return (
+    <div>
+      <span>lead </span>
+      {gate() && (
+        <Loading fallback={<p>waiting</p>}>
+          <section>{inner()}</section>
+        </Loading>
+      )}
+      <span> tail</span>
+    </div>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -890,5 +922,13 @@ export const scenarios: Scenario[] = [
     App: ClientOnlyElementFallback,
     expectedText: "lead fb tail",
     stableSelector: "div, span, button"
+  },
+  {
+    name: "late-boundary-after-done",
+    App: LateBoundaryAfterDone,
+    async: true,
+    expectedText: "lead late content tail",
+    serverText: "waiting",
+    stableSelector: "div, span"
   }
 ];

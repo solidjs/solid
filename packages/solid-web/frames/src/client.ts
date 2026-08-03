@@ -121,8 +121,8 @@ function normalizeSlotContent(value: any): Node | Node[] {
  * Scoped hydration re-entry for one slot range (the late-boundary-resume
  * pattern): gather the range's `_hk` nodes into a registry, flip the
  * hydration window on for the synchronous render, and run under an owner
- * whose id chain reproduces the document producer's keys. No nodes in the
- * range → plain client render (CSR boot, post-load streams).
+ * whose id chain reproduces the document producer's keys. No claimable
+ * nodes in the range → plain client render (CSR boot, post-load streams).
  */
 function gatherClaims(el: Element, registry: Map<string, Element>) {
   if (el.hasAttribute("_hk")) registry.set(el.getAttribute("_hk")!, el);
@@ -134,6 +134,24 @@ function gatherClaims(el: Element, registry: Map<string, Element>) {
   for (let c = el.firstElementChild; c; c = c.nextElementSibling) gatherClaims(c, registry);
 }
 
+// A deferred-fragment placeholder (`<template id="pl-*">`) in the range means
+// a <Loading> inside this slot's content is still waiting on a streamed
+// fragment. The claim scope must engage even when the visible fallback has no
+// `_hk` elements to gather (plain text fallbacks): the boundary has to render
+// under the producer's id chain so it finds its pending `<key>_fr`
+// registration, goes on record as the fragment's claimant (#2964), and
+// resumes into the swapped content instead of eagerly re-rendering on the
+// client over a fragment that then has no owner.
+function hasPendingFragment(existing: Node[]) {
+  for (const n of existing) {
+    if (n.nodeType !== 1) continue;
+    const el = n as Element;
+    if (el.tagName === "TEMPLATE" && el.id.startsWith("pl-")) return true;
+    if (el.querySelector?.('template[id^="pl-"]')) return true;
+  }
+  return false;
+}
+
 function claimRender(prefix: string, existing: Node[], render: () => any) {
   const sc: any = sharedConfig;
   if (!sc.getNextContextId) return render();
@@ -142,7 +160,7 @@ function claimRender(prefix: string, existing: Node[], render: () => any) {
     if (n.nodeType !== 1) continue;
     gatherClaims(n as Element, registry);
   }
-  if (!registry.size) return render();
+  if (!registry.size && !hasPendingFragment(existing)) return render();
   const prevRegistry = sc.registry;
   const prevHydrating = sc.hydrating;
   const prevClaimRoots = sc.claimRoots;
