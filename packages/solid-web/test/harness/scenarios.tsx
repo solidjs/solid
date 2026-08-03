@@ -656,9 +656,10 @@ function ClientOnlyElementFallback() {
 // registering a pending boundary, so global hydration reads "done" while the
 // inner boundary (and its still-pending `_fr` fragment) only materialize on
 // a later microtask. $df used to discard the late fragment's content once
-// done; the claimant protocol (markFragmentClaim → _$HY.fk, with _$HY.hq
-// hold/replay for swaps that arrive before their claimant) keeps it
-// claimable. Without it, this scenario settles blank where the boundary was.
+// done; the hydration runtime's reveal policy (`_$HY.f`: claimed or in-
+// progress swaps proceed, unclaimed post-done arrivals are held and replayed
+// when their boundary registers) keeps it claimable. Without it, this
+// scenario settles blank where the boundary was.
 function LateBoundaryAfterDone() {
   const gate = createMemo(async () => {
     await sleep(5);

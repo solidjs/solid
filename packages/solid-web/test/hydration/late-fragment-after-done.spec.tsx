@@ -6,22 +6,29 @@
  * hydration completes must remain claimable by the boundary waiting on it.
  *
  * In a single classic hydrate pass this ordering cannot arise — a Loading
- * that renders during the sync pass registers pending and holds `_$HY.done`
+ * that renders during the sync pass registers pending and holds hydration
  * open until its fragment settles. It arises when the boundary renders in a
  * DEFERRED claim scope: a frames slot fill or a lazy route module mounts the
- * boundary after an earlier hydrate pass already latched `_$HY.done`. $df
+ * boundary after an earlier hydrate pass already completed. The stream's $df
  * used to discard late content once done. For plain client content the
  * boundary papers over the loss by re-rendering from data; for server
  * components the markup IS the content and the region settles permanently
- * blank. The distinguishing observable here is node provenance: with the
- * claimant protocol (markFragmentClaim → `_$HY.fk`, held swaps in `_$HY.hq`
- * replayed on registration) the settled content is the CLAIMED
- * server-rendered node (carries `_hk`); with the discard it is fresh client
- * DOM.
+ * blank.
+ *
+ * The reveal policy now lives in the hydration runtime (`_$HY.f`, installed
+ * by enableHydration; the inline script keeps only the swap mechanics in
+ * $dfr): swaps proceed while hydration is in progress or the fragment has a
+ * claimant on record; unclaimed post-done arrivals are HELD — placeholder,
+ * fallback, and template intact — and replayed the moment their boundary
+ * shows up, before any of its paths read the DOM.
+ *
+ * The distinguishing observable is node provenance: the settled content must
+ * be the CLAIMED server-rendered node (carries `_hk`); with a discard it
+ * would be fresh client DOM.
  *
  * Replays the real server-rendered chunk artifact (late-boundary-after-done
- * in the parity harness) so the $df under test is the actual emitted script;
- * `_$HY.done` is latched by hand to stand in for the earlier completed pass.
+ * in the parity harness) so the scripts under test are the actual emitted
+ * ones.
  */
 import { describe, expect, test, vi } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
@@ -63,9 +70,8 @@ function fragmentKey(shell: string): string {
 }
 
 describe("late fragment after hydration completes (#2964)", () => {
-  test("with a claimant on record, the late swap proceeds and the boundary claims server content", async () => {
+  test("boundary registered first: the late swap proceeds and the boundary claims server content", async () => {
     const { shell, rest } = loadArtifact(scenario.name);
-    const key = fragmentKey(shell);
     const container = document.createElement("div");
     document.body.appendChild(container);
     (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
@@ -77,11 +83,10 @@ describe("late fragment after hydration completes (#2964)", () => {
     await sleep(10);
     flush();
 
-    // The boundary rendered and went on record as the fragment's claimant.
-    expect((globalThis as any)._$HY.fk).toEqual({ [key]: 1 });
-
-    // Stand-in for the frames condition: an earlier hydrate pass latched
-    // done while this boundary still waits on its fragment.
+    // The boundary registered against the pending `<key>_fr` and holds
+    // hydration open; its claim is on record with the reveal policy. The
+    // stand-in for the frames condition — an earlier pass latched the global
+    // done flag — must not confuse the policy into holding a claimed swap.
     (globalThis as any)._$HY.done = true;
 
     for (const s of applyChunk(container, rest, false)) {
@@ -99,8 +104,6 @@ describe("late fragment after hydration completes (#2964)", () => {
     // fragment. (Server nodes carry `_hk`; client-created ones never do.)
     const section = container.querySelector("section")!;
     expect(section.hasAttribute("_hk")).toBe(true);
-    // The claimant mark was retired when the boundary resumed.
-    expect((globalThis as any)._$HY.fk[key]).toBeUndefined();
 
     const orphanWarns = warn.mock.calls.filter(
       (c: unknown[]) => typeof c[0] === "string" && c[0].includes("unclaimed server-rendered node")
@@ -111,33 +114,61 @@ describe("late fragment after hydration completes (#2964)", () => {
     container.remove();
   });
 
-  test("a swap held before the claimant registered is replayed at registration", async () => {
-    const { shell } = loadArtifact(scenario.name);
+  test("fragment arrived first: the swap is held intact and replayed when the boundary shows up", async () => {
+    const { shell, rest } = loadArtifact(scenario.name);
     const key = fragmentKey(shell);
     const container = document.createElement("div");
     document.body.appendChild(container);
     (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    // The fragment arrived post-done before this boundary existed: $df held
-    // it (placeholder and template intact) and queued the id.
-    (globalThis as any)._$HY.hq = { [key]: 1 };
-    const replay = vi.fn();
-    (globalThis as any).$df = replay;
-
+    // Shell lands (fallback showing, `<key>_fr` pending) but its boundary
+    // does not render yet — it lives behind a deferred claim scope. An
+    // unrelated hydrate pass completes, latching global hydration done.
     for (const s of applyChunk(container, shell, true)) (0, eval)(s);
-    const dispose = hydrate(() => <scenario.App />, container);
+    const other = document.createElement("div");
+    document.body.appendChild(other);
+    hydrate(() => null, other)();
     flush();
     await sleep(10);
+
+    // The fragment now arrives — content template, $df, and the script that
+    // RESOLVES the `_fr` ref, all in one chunk. Post-done with no claimant,
+    // the policy holds the swap: fallback, placeholder, and template all
+    // stay in place instead of being discarded.
+    for (const s of applyChunk(container, rest, false)) {
+      (0, eval)(s);
+      await Promise.resolve();
+    }
+    expect(container.textContent).toBe("lead waiting tail");
+    expect(container.querySelector(`template[id="pl-${key}"]`)).not.toBe(null);
+    expect(container.querySelector(`template[id="${key}"]`)).not.toBe(null);
+
+    // The deferred scope finally runs. The boundary sees a SETTLED `_fr`
+    // ref — the path that assumes the swap already ran — so the held swap
+    // must replay before it reads the DOM, and the boundary must claim the
+    // server-rendered content in place. In production this scope is a frames
+    // slot fill (claimRender), which engages the hydration machinery
+    // directly and never passes hydrate()'s post-done degrade-to-render
+    // guard — clear the latch so this hydrate() stands in for it.
+    delete (globalThis as any)._$HY.done;
+    const dispose = hydrate(() => <scenario.App />, container);
+    flush();
+    await sleep(50);
     flush();
 
-    // Registration marked the claim, consumed the hold, and replayed the
-    // swap so the content is in the DOM before this boundary's resume.
-    expect((globalThis as any)._$HY.fk).toEqual({ [key]: 1 });
-    expect((globalThis as any)._$HY.hq[key]).toBeUndefined();
-    expect(replay).toHaveBeenCalledWith(key);
+    expect(container.textContent).toBe(scenario.expectedText);
+    const section = container.querySelector("section")!;
+    expect(section.hasAttribute("_hk")).toBe(true);
+    expect(container.querySelector(`template[id="pl-${key}"]`)).toBe(null);
 
+    const orphanWarns = warn.mock.calls.filter(
+      (c: unknown[]) => typeof c[0] === "string" && c[0].includes("unclaimed server-rendered node")
+    );
+    expect(orphanWarns).toHaveLength(0);
+    warn.mockRestore();
     dispose();
     container.remove();
-    delete (globalThis as any).$df;
+    other.remove();
   });
 });

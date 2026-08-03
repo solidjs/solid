@@ -859,6 +859,13 @@ export function enableHydration() {
   _lazyHydrationLookup = lazyHydrationLookup;
   sharedConfig.getNextContextId = hydrationGetNextContextId;
 
+  // Take ownership of streamed-fragment reveals (see fragmentPolicy). The
+  // header script creates `_$HY` before any module runs, so the hook is in
+  // place before the first `$df` the stream can emit under hydration — and
+  // installing here (not module load) keeps CSR bundles free of it.
+  const hy = (globalThis as any)._$HY;
+  if (hy && !hy.f) hy.f = fragmentPolicy;
+
   _hydratingValue = sharedConfig.hydrating;
   _doneValue = sharedConfig.done;
   Object.defineProperty(sharedConfig, "hydrating", {
@@ -1420,11 +1427,10 @@ function initBoundaryResume(
     released = true;
     _pendingBoundaries--;
     sharedConfig.boundaryScopes?.delete(id);
-    // Retire any fragment-claimant mark (see markFragmentClaim): after this
-    // boundary resumes or is disposed, a late swap must fall back to the
-    // held/discard policy rather than landing in a range nobody will claim.
-    const hy = (globalThis as any)._$HY;
-    if (hy && hy.fk) delete hy.fk[id];
+    // Retire the fragment claim (see claimFragment): after this boundary
+    // resumes or is disposed, a late swap must be held rather than landing
+    // in a range nobody will claim.
+    _fragmentClaims.delete(id);
     return true;
   };
   onCleanup(() => {
@@ -1440,21 +1446,47 @@ function initBoundaryResume(
   ];
 }
 
-// Claimant registration against the streaming layer's fragment swapper. Once
-// `_$HY.done` flips, $df refuses to swap late fragments into the document —
-// unless a claimant is on record for that id (`_$HY.fk`). A swap that arrived
-// before its claimant registered was held (`_$HY.hq`) rather than discarded;
-// replay it now so the content is in the DOM before this boundary's resume
-// claims it. The mark is cleared by release() when the boundary resumes or
-// is disposed.
-function markFragmentClaim(id: string) {
-  const hy = (globalThis as any)._$HY;
-  if (!hy) return;
-  (hy.fk || (hy.fk = {}))[id] = 1;
-  if (hy.hq && hy.hq[id]) {
-    delete hy.hq[id];
-    (globalThis as any).$df(id);
-  }
+// === Streamed-fragment reveal policy ===
+//
+// The streaming layer's inline script owns only the parse-time swap
+// MECHANICS ($dfr: replace the `pl-*` range with the template payload); this
+// module owns the reveal POLICY. enableHydration() installs `_$HY.f`, and
+// from that moment every `$df(id)` the stream emits routes here (the same
+// one-owner handoff the head-patch runtime uses via `_$HY.h`).
+//
+// Policy: while global hydration is still in progress, swaps proceed —
+// boundaries are coming to claim them. Once hydration completes, a swap only
+// proceeds when a claimant is on record for the id: a boundary inside a
+// deferred claim scope (a frames slot fill, a lazy route module) can still
+// be waiting on the fragment after global hydration reads as done, and its
+// markup IS the boundary's content — swapping it with no claimant would
+// leave inert nodes in a range the client may re-render (#2964). Unclaimed
+// late swaps are HELD (placeholder, fallback, and template all stay in
+// place) and replayed when their claimant registers.
+const _fragmentClaims = new Set<string>();
+const _heldFragments = new Set<string>();
+
+function fragmentPolicy(id: string) {
+  if (!_hydrationDone || _fragmentClaims.has(id)) return (globalThis as any).$dfr(id);
+  _heldFragments.add(id);
+  return 0;
+}
+
+// A held swap replays the moment its boundary shows up — BEFORE any of the
+// boundary's paths walk the DOM. This covers the settled path too: a held
+// swap arrives in the same chunk that resolves the `<id>_fr` ref, so a
+// boundary rendering later sees a settled ref and hydrates straight through
+// assuming the content is in the DOM. It is, once this runs.
+function replayHeldFragment(id: string) {
+  if (_heldFragments.delete(id)) (globalThis as any).$dfr(id);
+}
+
+// A boundary registering against a still-pending `<id>_fr` goes on record as
+// the fragment's claimant, so a late swap lands for its resume to claim. The
+// claim is cleared by release() when the boundary resumes or is disposed.
+function claimFragment(id: string) {
+  _fragmentClaims.add(id);
+  replayHeldFragment(id);
 }
 
 function waitAndResume(
@@ -1628,6 +1660,10 @@ function hydratedCreateLoadingBoundary<T, U>(
       !settledSerializationResumeQueued
     ) {
       const fr = sharedConfig.load!(id + "_fr");
+      // A swap held for this boundary (arrived post-done, pre-claim) must
+      // land before any branch below reads the DOM — the settled branches
+      // all assume $df already ran.
+      replayHeldFragment(id);
 
       if (fr && typeof fr === "object" && fr.s === 1 && !assetPromise) {
         // Fragment already settled and swapped in ($df ran before hydration):
@@ -1666,11 +1702,10 @@ function hydratedCreateLoadingBoundary<T, U>(
       // read as "done" — this boundary can be rendering inside a deferred
       // claim scope (a frames slot fill, behind a lazy route module) that
       // runs after the root sync pass (#2964). Go on record as the
-      // fragment's claimant so the streaming layer's $df swaps the late
-      // content in for this resume to claim instead of discarding it; if
-      // the swap already arrived and was held awaiting a claimant, replay
-      // it now.
-      markFragmentClaim(id);
+      // fragment's claimant so the reveal policy swaps the late content in
+      // for this resume to claim instead of holding it; if the swap already
+      // arrived and was held awaiting a claimant, replay it now.
+      claimFragment(id);
       waitAndResume(fr, resume, assetPromise, false);
       return fallback();
     }
