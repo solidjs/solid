@@ -650,6 +650,31 @@ function ClientOnlyElementFallback() {
 }
 
 // ---------------------------------------------------------------------------
+// clientOnly whose module RESOLVES, followed by a reactive element hole. The
+// post-settle swap (fallback → widget) must not desync insert bookkeeping for
+// siblings AFTER the clientOnly: when the sibling's hole later flips its
+// element, insert must REPLACE the old element (single node), not leave it
+// orphaned in place and append a fresh copy beside it. Found via a refresh
+// hot-swap of a component following a hydrated clientOnly (the duplicated
+// node surfaced there first), but any signal-driven element swap hits it.
+const ResolvingWidget = clientOnly(() =>
+  Promise.resolve({ default: (_props: {}) => <b>widget</b> })
+);
+let setSiblingSwap: (v: boolean) => void;
+function ClientOnlySiblingUpdate() {
+  const [sw, setSw] = createSignal(true);
+  setSiblingSwap = setSw;
+  return (
+    <div>
+      <span>lead </span>
+      <ResolvingWidget fallback={<button>fb</button>} />
+      {sw() ? <em>one</em> : <q>two</q>}
+      <span> tail</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // A <Loading> whose fragment settles AFTER hydration completes (#2964). The
 // boundary renders behind an async gate with NO boundary above it — the
 // frames-slot / lazy-route shape: the root pass suspends on the gate without
@@ -923,6 +948,16 @@ export const scenarios: Scenario[] = [
     App: ClientOnlyElementFallback,
     expectedText: "lead fb tail",
     stableSelector: "div, span, button"
+  },
+  {
+    name: "client-only-sibling-update",
+    App: ClientOnlySiblingUpdate,
+    async: true,
+    expectedText: "lead widgetone tail",
+    serverText: "lead fbone tail",
+    update: () => setSiblingSwap(false),
+    expectedTextAfterUpdate: "lead widgettwo tail",
+    stableSelector: "div, span"
   },
   {
     name: "late-boundary-after-done",

@@ -18,7 +18,6 @@ import {
   createRoot,
   createSignal,
   getOwner,
-  onSettled,
   runWithOwner,
   untrack,
   omit,
@@ -495,11 +494,9 @@ export function clientOnly<T extends Component<any>>(
     // fallback must render DURING the walk (mounted=false branch) to adopt
     // that DOM, and only the post-settle swap is deferred.
     const [mounted, setMounted] = createSignal(!sharedConfig.hydrating);
-    // The gate memo must be the component's FIRST id-consuming child so the
+    // The gate memo must be the component's ONLY id-consuming child so the
     // fallback's elements derive the same hydration ids as under the server
-    // half's mirror memo and get claimed instead of duplicated. onSettled
-    // creates a tracked effect (an id-consuming owner), so it registers
-    // AFTER the memo.
+    // half's mirror memo and get claimed instead of duplicated.
     const gate = createMemo(
       () => (
         (Comp = comp()),
@@ -507,9 +504,18 @@ export function clientOnly<T extends Component<any>>(
         untrack(() => (Comp && m ? Comp(rest) : props.fallback))
       )
     ) as unknown as JSX.Element;
-    onSettled(() => {
-      setMounted(true);
-    });
+    // The swap trigger must NOT hold an owner: onSettled registers a tracked
+    // effect, and every non-transparent owner consumes one of the component's
+    // child ids — an id the server half (whose only owner is the mirror memo)
+    // never mints. That shifted the hydration ids of every sibling AFTER a
+    // hydrated clientOnly by one slot, so their template claims missed the
+    // registry and insert tracked never-inserted phantom nodes: the sibling's
+    // first post-hydration re-render then reconciled against the phantom and
+    // inserted beside the orphaned server node instead of replacing it.
+    // onHydrationEnd is the ownerless "all hydration complete" channel
+    // (waits for pending streamed boundaries; microtask-fires if already
+    // done) — exactly the gate's semantics, and it consumes nothing.
+    sharedConfig.onHydrationEnd!(() => setMounted(true));
     return gate;
   };
 }

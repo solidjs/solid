@@ -1,0 +1,5 @@
+{
+  "name": "client-only-sibling-update",
+  "shell": "<div _hk=0><span>lead </span><!--$--><button _hk=10>fb</button><!--/--><!--$--><em _hk=30>one</em><!--/--><span> tail</span></div>",
+  "rest": ""
+}
