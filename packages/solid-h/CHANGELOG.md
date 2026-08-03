@@ -1,5 +1,18 @@
 # @solidjs/h
 
+## 2.0.0-beta.30
+
+### Patch Changes
+
+- c3fa949: Update dom-expressions to 0.50.0-next.35. Pulls in: live slot props (args changes rebind the mounted slot instead of re-creating it), call-site handoff for dynamic's live mount when a server component changes arguments, streamed-fragment reveals routed through the runtime reveal policy (`_$HY.f`) so late-arriving fragments are held for their claimant instead of discarded, and the morph fix that restores displaced slot ranges into wholesale-inserted parents (regrown list rows no longer render blank after clearing a search).
+- Updated dependencies [8c8b591]
+- Updated dependencies [51f971b]
+- Updated dependencies [9cbdb85]
+- Updated dependencies [4533813]
+- Updated dependencies
+- Updated dependencies [c3fa949]
+  - @solidjs/web@2.0.0-beta.30
+
 ## 2.0.0-beta.29
 
 ### Patch Changes

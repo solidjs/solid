@@ -1,5 +1,33 @@
 # @solidjs/web
 
+## 2.0.0-beta.30
+
+### Patch Changes
+
+- 8c8b591: Emit early preload hints for `clientOnly` modules. The bundler's module-URL
+  pass (the same one that annotates `lazy()`) now also annotates
+  `clientOnly(() => import("x"))` calls, and the server half resolves the
+  module's client assets through the manifest seam lazy uses, emitting plain
+  link hints (`modulepreload` for js, stylesheet links for css) so the browser
+  fetch starts on HTML arrival instead of when the client bundle evaluates the
+  `clientOnly()` call. Deliberately not filed into the hydration asset map:
+  the module is not required for hydration — the fallback is what hydrates —
+  so mapping it would make the "preloaded before hydration" contract lie.
+  Without an injected module URL (untransformed code) or an asset manifest,
+  behavior is unchanged.
+- 51f971b: Server-component boundaries that settle after the shell flush now mount (#2964). A boundary waiting on a pending streamed fragment registers as its claimant (`_$HY.fk`), so the fragment swap proceeds — or is held and replayed at registration — even after global hydration completes, instead of being discarded. The frames claim scope now also engages when a slot's server content is a pending fragment placeholder with no hydratable elements (a plain-text `Loading` fallback), so the deferred fragment resumes with hydration rather than falling through to a fresh client mount.
+- 9cbdb85: Offer dynamic's previous component to the incoming one so same-function server components hand off the live mount
+
+  When a `dynamic` call site's source resolves to a new server component for the same function under different arguments, the previous value is offered through the `COMPONENT_HANDOFF` contract before the swap: the mounted boundary rebinds to the new call and morphs in place instead of remounting, so client slot state (an expanded sidebar note while typing in search) survives argument changes. Async resolutions transform inside the source promise's own microtask via a transparent thenable — no added resolution hop — and a token guards superseded resolutions from handing off stale content.
+
+- 4533813: Give invoked slot render props live, signal-backed props: the frames binding registers the runtime's `ctx.onUpdate` so a server morph that changes an occurrence's args updates the mounted component's props reactively instead of re-creating it — client state (expansion, focus) follows the entity across morphs and effects over changed args (e.g. a title flash) fire, matching compiled component semantics.
+- Hand slot claims over from the enclosing hydration registry. `hydrate()`'s page-wide sweep gathers every `_hk` node including client slot roots inside server component frames, but adoption only ever claims them through its scoped registry — the root registry's copies survived to the end of hydration and every page load warned about "unclaimed" nodes that were claimed and live. The claim scope now removes its keys from the enclosing registry when it takes ownership of a range.
+- c3fa949: Update dom-expressions to 0.50.0-next.35. Pulls in: live slot props (args changes rebind the mounted slot instead of re-creating it), call-site handoff for dynamic's live mount when a server component changes arguments, streamed-fragment reveals routed through the runtime reveal policy (`_$HY.f`) so late-arriving fragments are held for their claimant instead of discarded, and the morph fix that restores displaced slot ranges into wholesale-inserted parents (regrown list rows no longer render blank after clearing a search).
+- Updated dependencies [51f971b]
+- Updated dependencies [40af691]
+- Updated dependencies [c3fa949]
+  - solid-js@2.0.0-beta.30
+
 ## 2.0.0-beta.29
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # solid-js
 
+## 2.0.0-beta.30
+
+### Patch Changes
+
+- 51f971b: Server-component boundaries that settle after the shell flush now mount (#2964). A boundary waiting on a pending streamed fragment registers as its claimant (`_$HY.fk`), so the fragment swap proceeds — or is held and replayed at registration — even after global hydration completes, instead of being discarded. The frames claim scope now also engages when a slot's server content is a pending fragment placeholder with no hydratable elements (a plain-text `Loading` fallback), so the deferred fragment resumes with hydration rather than falling through to a fresh client mount.
+- 40af691: Own streamed-fragment reveal policy in the hydration runtime. `enableHydration()` installs `_$HY.f`, and every `$df(id)` the stream emits routes through it: swaps proceed while hydration is in progress or the fragment's boundary is on record as its claimant; unclaimed post-done arrivals are held intact and replayed the moment their boundary registers — before any of its paths read the DOM. This replaces the `markFragmentClaim`/`_$HY.fk`/`_$HY.hq` flag protocol from #2964 with a single owner, and closes a hole in it: a held swap arrives in the same chunk that settles the `<id>_fr` ref, so a boundary rendering later took the settled path (which assumes the swap already ran) and never consulted the hold queue.
+- c3fa949: Update dom-expressions to 0.50.0-next.35. Pulls in: live slot props (args changes rebind the mounted slot instead of re-creating it), call-site handoff for dynamic's live mount when a server component changes arguments, streamed-fragment reveals routed through the runtime reveal policy (`_$HY.f`) so late-arriving fragments are held for their claimant instead of discarded, and the morph fix that restores displaced slot ranges into wholesale-inserted parents (regrown list rows no longer render blank after clearing a search).
+  - @solidjs/signals@2.0.0-beta.30
+
 ## 2.0.0-beta.29
 
 ### Patch Changes
