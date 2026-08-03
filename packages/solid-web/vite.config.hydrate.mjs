@@ -25,6 +25,11 @@ export default defineConfig({
     conditions: ["development", "browser"],
     alias: {
       rxcore: [resolve(rootDir, "../../packages/solid-web/src/core")],
+      // Subpaths first: aliases match by prefix in order, so the bare
+      // "@solidjs/web" entry below would otherwise swallow them. Specs that
+      // pull in frames/src/client.ts (which imports the shared server-function
+      // client) need these to resolve to source, like the entry itself.
+      "@solidjs/web/server-functions/client": resolve(rootDir, "server-functions/src/client.ts"),
       "@solidjs/web": resolve(rootDir, "src/index.ts")
     }
   }
