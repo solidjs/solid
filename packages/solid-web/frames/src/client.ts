@@ -572,12 +572,20 @@ function adoptBoundary(host: any, id: string, el: Element, props: Record<string,
   // markup. Apply the records BEFORE binding the frame — the host buffers
   // them per id and drains at registration, so the first slot sync claims
   // WITH real args and the wrapper can render the occluded region later
-  // from the frame store.
-  const hy = (globalThis as any)._$HY;
-  if (hy && hy.r) {
+  // from the frame store. Re-drainable (each key applies once): nothing on
+  // the wire formally orders a record's data script before the event that
+  // triggers adoption, so the frame re-drains before classifying a
+  // recordless occurrence it deferred (#2968 — the frame's recordsPending/
+  // drainRecords seam below).
+  const appliedRecords = new Set<string>();
+  const drainRecords = () => {
+    const hy = (globalThis as any)._$HY;
+    if (!hy || !hy.r) return;
     const slotPrefix = `sc:slot:${id}:`;
     for (const key of Object.keys(hy.r)) {
+      if (appliedRecords.has(key)) continue;
       if (key.startsWith(slotPrefix)) {
+        appliedRecords.add(key);
         host.apply({
           type: "slot",
           id,
@@ -588,6 +596,7 @@ function adoptBoundary(host: any, id: string, el: Element, props: Record<string,
       } else if (key.startsWith("sc:region:")) {
         const childId = key.slice("sc:region:".length);
         if (childId.startsWith(id + ".")) {
+          appliedRecords.add(key);
           // Async-occluded regions arrive as promises (the producer held
           // the stream on them); the host buffers per id either way, so a
           // late apply still lands before the region binds on expand.
@@ -597,7 +606,8 @@ function adoptBoundary(host: any, id: string, el: Element, props: Record<string,
         }
       }
     }
-  }
+  };
+  drainRecords();
   // ownerScope: element-claim sweeps — both the adoption sweep over the
   // SSR'd element (whose anchors never ran compiled creation) and later
   // streamed morphs — bind consumer cleanup to this boundary's owner (see
@@ -609,7 +619,12 @@ function adoptBoundary(host: any, id: string, el: Element, props: Record<string,
     id,
     slots: slotsFor(props),
     ownerScope: boundaryScope(owner),
-    reveal: revealSeam(owner)
+    reveal: revealSeam(owner),
+    // May the document still run scripts that assign records? While the
+    // parser is running (or fragments are still held) the answer is yes, and
+    // a recordless occurrence defers instead of misclassifying as content.
+    recordsPending: () => document.readyState === "loading" || boundaryMayArrive(),
+    drainRecords
   });
   onCleanup(() => frame.dispose());
   // The boundary IS the element — hand hydration the single SSR'd node so it
