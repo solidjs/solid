@@ -308,22 +308,25 @@ function slotsFor(props: Record<string, any>) {
           // positions) and return undefined so the frame leaves the interior
           // alone. `existing` seeds insert's tracked array: an accessor that
           // yields the claimed nodes reconciles to a zero-mutation no-op, one
-          // that yields new content swaps it in place. The accessor's FIRST
-          // evaluation re-enters the claim scope — boundary-deferred children
-          // (route content behind <Loading>) create on that read and must see
-          // the producer's hydration keys.
+          // that yields new content swaps it in place.
+          //
+          // The claim scope wraps the insert CALL, not the accessor: the
+          // binding's first evaluation is insert's own render effect computing
+          // synchronously, so it still creates under the producer's hydration
+          // keys — boundary-deferred children (route content behind
+          // <Loading>) create on that read — while the reads it makes belong
+          // to the effect and stay tracked. Claiming inside the accessor
+          // instead put that first read inside runWithOwner's UNTRACKED window
+          // (it clears `tracking` along with the owner). Whenever the value it
+          // returned was not itself an accessor for insert to re-read — a
+          // <Loading> answering a still-pending streamed fragment returns its
+          // fallback NODES — the effect ended up with no dependency at all and
+          // the range went permanently inert: the boundary's own resume still
+          // claimed the swapped-in server markup, so the region looked right,
+          // but nothing downstream (a route change out of it) ever re-rendered
+          // it again.
           if (ctx && ctx.range) {
-            let claim = adopted;
             const source = value;
-            const accessor = () => {
-              if (claim) {
-                claim = false;
-                return claimRender(prefix, ctx.existing, () =>
-                  typeof source === "function" ? source() : source
-                );
-              }
-              return typeof source === "function" ? source() : source;
-            };
             const owner = createOwner();
             bindings.set(key, owner);
             ctx.onCleanup(() => {
@@ -331,9 +334,14 @@ function slotsFor(props: Record<string, any>) {
               owner.dispose();
             });
             const end = ctx.range.end;
-            runWithOwner(owner, () =>
-              insert(end.parentNode as any, accessor, end, [...ctx.existing])
-            );
+            const bind = () =>
+              insert(
+                end.parentNode as any,
+                () => (typeof source === "function" ? source() : source),
+                end,
+                [...ctx.existing]
+              );
+            runWithOwner(owner, () => (adopted ? claimRender(prefix, ctx.existing, bind) : bind()));
             return undefined;
           }
           // No range handle (a consumer-constructed frame without markers):
@@ -455,12 +463,31 @@ function findBoundaryElement(id: string): Element | undefined {
 // that carries it. One waiter per id: a second mount while the first is still
 // waiting takes the fresh-frame path, since only one frame may adopt an
 // element.
-const boundaryWaiters = new Map<string, (el: Element) => void>();
+const boundaryWaiters = new Map<string, (el?: Element) => void>();
 
-/** Whether the document may still deliver boundary elements. */
-function documentStreaming() {
+/** An unresolved deferred fragment (`<template id="pl-*">`) anywhere in the page. */
+function pendingFragmentInDocument() {
+  return typeof document !== "undefined" && !!document.querySelector('template[id^="pl-"]');
+}
+
+/**
+ * Whether the document may still deliver boundary elements.
+ *
+ * `_$HY.done` alone stopped being that answer with the held-swap policy
+ * (#2964): a fragment that settles after global hydration completes is HELD —
+ * placeholder, fallback and template all left in place — until its boundary
+ * registers as the claimant, and the replay that follows is what puts this
+ * element in the page. A boundary rendering in that window (a frames slot fill
+ * or lazy route module running after the root pass) would read done as "the
+ * page is complete", mount a fresh frame, and orphan the markup on the way:
+ * the region goes inert, and because the id is never claimed, every later call
+ * for this function resolves back to the document placeholder instead of
+ * fetching. So an unresolved `pl-*` placeholder keeps the answer "not yet".
+ */
+function boundaryMayArrive() {
   const hy = (globalThis as any)._$HY;
-  return !!hy && !hy.done;
+  if (!hy) return false;
+  return !hy.done || pendingFragmentInDocument();
 }
 
 /**
@@ -489,9 +516,15 @@ function installRevealHook() {
     const root = parent || (typeof document !== "undefined" ? document.body : null);
     if (!root) return;
     indexBoundaries(root);
+    if (!boundaryWaiters.size) return;
+    // A waiter the page can no longer answer must not wait forever: once the
+    // document is done and no deferred fragment is left to reveal, nothing
+    // else can deliver this element, so release the waiter to mount fresh
+    // (the client-only shape) instead of holding the fallback on screen.
+    const exhausted = hy.done && !pendingFragmentInDocument();
     for (const [id, notify] of boundaryWaiters) {
       const el = boundaryIndex.get(id);
-      if (!el) continue;
+      if (!el && !exhausted) continue;
       boundaryWaiters.delete(id);
       notify(el);
     }
@@ -502,20 +535,28 @@ function documentBoundary(host: any, id: string, props: Record<string, any>) {
   const claimed = claimedBoundaries.has(id);
   const el = !claimed ? findBoundaryElement(id) : undefined;
   if (el) return adoptBoundary(host, id, el, props);
-  // Not in the page (yet). While the document is still streaming, this is a
-  // boundary whose content settled after the shell flush: its markup is on the
-  // way and will be swapped over the fallback that is on screen right now.
-  // Mounting a fresh frame here is unrecoverable — the markup arrives owned by
-  // nothing (visible but inert) while the stream drives an element outside the
-  // page, so the boundary never updates again. Suspend instead and adopt on
-  // delivery; the enclosing <Loading> goes on showing the server's fallback,
-  // which is exactly what the document is displaying.
-  if (!claimed && !boundaryWaiters.has(id) && documentStreaming()) {
+  // Not in the page (yet). While the page can still deliver it (the document is
+  // streaming, or a deferred fragment is still holding its markup — see
+  // boundaryMayArrive), this is a boundary whose content settled after the
+  // shell flush: its markup is on the way and will be swapped over the
+  // fallback that is on screen right now. Mounting a fresh frame here is
+  // unrecoverable — the markup arrives owned by nothing (visible but inert)
+  // while the stream drives an element outside the page, so the boundary never
+  // updates again. Suspend instead and adopt on delivery; the enclosing
+  // <Loading> goes on showing the server's fallback, which is exactly what the
+  // document is displaying.
+  if (!claimed && !boundaryWaiters.has(id) && boundaryMayArrive()) {
     const owner = getOwner();
-    const arrival = new Promise<Element>(resolve => boundaryWaiters.set(id, resolve));
+    const arrival = new Promise<Element | undefined>(resolve => boundaryWaiters.set(id, resolve));
     onCleanup(() => boundaryWaiters.delete(id));
     return createMemo(() =>
-      arrival.then(node => runWithOwner(owner, () => adoptBoundary(host, id, node, props)))
+      arrival.then(node =>
+        runWithOwner(owner, () =>
+          // No element after all (the page ran out of reveals): mount fresh,
+          // exactly as an unwaited miss would have.
+          node ? adoptBoundary(host, id, node, props) : boundaryComponent(host, id)(props)
+        )
+      )
     ) as unknown as SolidElement;
   }
   // No SSR'd boundary on the page (client-only boot, or already claimed):
