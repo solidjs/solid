@@ -1040,7 +1040,13 @@ function processResult<T>(
     return;
   }
 
-  // Synchronous value
+  // Synchronous value. Explicit "server" serializes it so the client adopts
+  // instead of re-running (async results already do, via the deferred
+  // promise) — without this, a non-client-safe sync compute re-runs during
+  // hydration and silently diverges from the claimed DOM (#2971, memo/signal/
+  // effect parity with the store fix). Absent ssrSource stays lean.
+  if (ssrSource === "server" && ctx?.async && ctx.serialize && id && !noHydrate)
+    ctx.serialize(id, result, deferStream);
   comp.value = result;
 }
 
@@ -1211,14 +1217,19 @@ export function createStore<T extends object>(
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object>(
   fn: (store: T) => void | T | Promise<void | T>,
-  store: Partial<T> | Store<T>
+  store: Partial<T> | Store<T>,
+  options?: ServerSsrOptions & { name?: string; shallow?: boolean }
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object>(
   first: T | Store<T> | ((store: T) => void | T | Promise<void | T>),
-  second?: T | Store<T>
+  second?: T | Store<T>,
+  options?: ServerSsrOptions & { name?: string; shallow?: boolean }
 ): [get: Store<T>, set: StoreSetter<T>] {
   if (typeof first === "function") {
-    const store = createProjection(first as any, second as T);
+    // Forward options: dropping them made ssrSource inert for derived stores —
+    // "client" sources ran on the server (#2972) and "server" ones lost their
+    // deferStream/serialization hints (#2971).
+    const store = createProjection(first as any, second as T, options);
     return [store as Store<T>, ((fn: (state: T) => void) => fn(store as T)) as StoreSetter<T>];
   }
   const state = first as T;
@@ -1480,6 +1491,14 @@ export function createProjection<T extends object>(
   if (result !== undefined && result !== state && result !== draft) {
     replaceState(state, result as T);
   }
+  // Explicit "server" promises the client adopts this value without re-running
+  // the source. Async results keep that promise through the deferred-promise
+  // serialization above; sync results must ride the payload too, or the client
+  // re-runs a source that may not be client-safe and silently diverges from
+  // the claimed DOM (#2971). Default (no ssrSource) stays lean: sync sources
+  // recompute on the client as their own parity mechanism.
+  if (ssrSource === "server" && ctx?.async && !getContext(NoHydrateContext) && owner.id)
+    ctx.serialize(owner.id, state, options?.deferStream);
   return state;
 }
 

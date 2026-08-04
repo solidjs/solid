@@ -22,7 +22,7 @@
  * - Keep async delays short (5-15ms) — the specs own the settle waits.
  */
 import { createSignal, createMemo, createStore, Show, For, Loading, Errored } from "solid-js";
-import { Portal, httpStatus, httpHeader, clientOnly } from "@solidjs/web";
+import { Portal, httpStatus, httpHeader, clientOnly, isServer } from "@solidjs/web";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -707,6 +707,59 @@ function LateBoundaryAfterDone() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Derived store with ssrSource:"client" (#2972): the server must never run
+// the source — it renders the seed and serializes nothing — and the client
+// re-derives after hydration. The source is async, so a server-side run would
+// also hold the stream; the serverText probe catches both failure modes.
+function StoreSsrSourceClient() {
+  const [store] = createStore<{ v: string }>(
+    async () => {
+      await sleep(10);
+      return { v: "computed" };
+    },
+    { v: "seed" },
+    { ssrSource: "client" }
+  );
+  return <div>V: {store.v}</div>;
+}
+
+// ---------------------------------------------------------------------------
+// Derived async store with ssrSource:"server" (#2971): the server awaits the
+// source and serializes the settled state; the client adopts it and never
+// re-runs the source (the isServer probe would flip the text if it did).
+function StoreSsrSourceServer() {
+  const [store] = createStore<{ v: string }>(
+    async () => {
+      await sleep(10);
+      return { v: isServer ? "fromServer" : "fromClient" };
+    },
+    { v: "seed" },
+    { ssrSource: "server" }
+  );
+  return <div>V: {store.v}</div>;
+}
+
+// ---------------------------------------------------------------------------
+// SYNC source with ssrSource:"server": serialization is async-only, so
+// nothing rides the payload. The probe surfaces the client store's actual
+// in-memory value post-hydration to detect a silent DOM/store divergence.
+let probeSyncStore!: () => void;
+function StoreSsrSourceServerSync() {
+  const [label, setLabel] = createSignal("?");
+  const [store] = createStore<{ v: string }>(
+    () => ({ v: isServer ? "fromServer" : "fromClient" }),
+    { v: "seed" },
+    { ssrSource: "server" }
+  );
+  probeSyncStore = () => setLabel(store.v);
+  return (
+    <div>
+      V: {store.v} P: {label()}
+    </div>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -966,5 +1019,30 @@ export const scenarios: Scenario[] = [
     expectedText: "lead late content tail",
     serverText: "waiting",
     stableSelector: "div, span"
+  },
+  {
+    name: "store-ssr-source-client",
+    App: StoreSsrSourceClient,
+    async: true,
+    expectedText: "V: computed",
+    serverText: "V: seed",
+    stableSelector: "div"
+  },
+  {
+    name: "store-ssr-source-server",
+    App: StoreSsrSourceServer,
+    async: true,
+    expectedText: "V: fromServer",
+    serverText: "V: fromServer",
+    stableSelector: "div"
+  },
+  {
+    name: "store-ssr-source-server-sync",
+    App: StoreSsrSourceServerSync,
+    expectedText: "V: fromServer P: ?",
+    serverText: "V: fromServer P: ?",
+    update: () => probeSyncStore(),
+    expectedTextAfterUpdate: "V: fromServer P: fromServer",
+    stableSelector: "div"
   }
 ];

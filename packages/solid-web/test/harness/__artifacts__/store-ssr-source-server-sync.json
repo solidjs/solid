@@ -1,0 +1,5 @@
+{
+  "name": "store-ssr-source-server-sync",
+  "shell": "<div _hk=1>V: <!--$-->fromServer<!--/--> P: <!--$-->?<!--/--></div><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=($R[0]={v:\"fromServer\"});</script>",
+  "rest": ""
+}
