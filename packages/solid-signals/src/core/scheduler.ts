@@ -623,6 +623,12 @@ export class GlobalQueue extends Queue {
       }
       if (batch._affectsNodes.length) activeTransition._affectsNodes.push(...batch._affectsNodes);
       for (const store of batch._optimisticStores) activeTransition._optimisticStores.add(store);
+      // Gated readers recorded against the ambient batch move with it: their
+      // replay-at-commit now happens at the transaction's completion.
+      if (batch._gatedSubs.size) {
+        for (const sub of batch._gatedSubs) activeTransition._gatedSubs.add(sub);
+        batch._gatedSubs.clear();
+      }
       currentBatch = this._batch = activeTransition;
     }
     for (const lane of activeLanes) {
@@ -723,13 +729,19 @@ export function finalizePureQueue(
     // which installed the engine's hooks.
     if (batch._optimisticNodes.length) GlobalQueue._resolveOptimistic!(batch._optimisticNodes);
     // Replay entanglement: subs recorded by the read-time gate get rescheduled
-    // so they re-run with the now-committed values visible.
-    if (completingTransition && completingTransition._gatedSubs.size) {
-      for (const sub of completingTransition._gatedSubs) {
+    // so they re-run with the now-committed values visible. The ambient batch
+    // replays too — laneReadsCommitted records readers whose committed-view
+    // read hid a same-tick plain write that just committed above (#2963).
+    if (batch._gatedSubs.size) {
+      for (const sub of batch._gatedSubs) {
         if (sub._flags & REACTIVE_DISPOSED) continue;
         enqueueSub(sub);
       }
-      completingTransition._gatedSubs.clear();
+      batch._gatedSubs.clear();
+      // A completing transition keeps the outer flush loop alive by itself;
+      // the ambient batch needs the re-arm or the replay sits in the heap
+      // until the next unrelated write.
+      schedule();
     }
     // Declared motion ends with the transaction: settle (or plain flush end
     // for ambient marks) releases each registration's refcount. A non-empty

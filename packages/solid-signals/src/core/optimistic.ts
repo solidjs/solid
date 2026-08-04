@@ -227,12 +227,25 @@ function gatedRead(el: Signal<any>, owner: OptimisticNode, c: Computed<any>): bo
  * optimistic/lane-assigned signals, stale-mode reads, and pending owners.
  */
 function laneReadsCommitted(el: OptimisticNode, owner: OptimisticNode, c: Computed<any>): boolean {
-  return (
+  if (
     el._overrideValue !== undefined ||
     !!(el as any)._optimisticLane ||
-    (owner === el && stale && (c as Computed<any>)._parentSource !== el) ||
     !!((owner as Computed<any>)._statusFlags & STATUS_PENDING)
-  );
+  )
+    return true;
+  if (owner === el && stale && (c as Computed<any>)._parentSource !== el) {
+    // The committed view can hide a same-tick ambient write (a lane member —
+    // even just an isPending companion flip — puts the reader "under a lane"
+    // against unrelated plain writes). With no transaction the write commits
+    // at THIS flush's end with no re-delivery, so record the reader for
+    // replay at commit — the same contract gatedRead provides when a
+    // transaction is active (#2963). If a transaction forms mid-flush,
+    // initTransition carries the recording over to it.
+    if (el._pendingValue !== NOT_PENDING && activeTransition === null)
+      globalQueue._batch._gatedSubs.add(c);
+    return true;
+  }
+  return false;
 }
 
 /**

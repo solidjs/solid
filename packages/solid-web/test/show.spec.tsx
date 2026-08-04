@@ -3,7 +3,8 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { createRoot, createSignal, Show, flush } from "solid-js";
+import { createRoot, createSignal, Show, flush, isPending } from "solid-js";
+import { render } from "../src/index.js";
 
 describe("Testing an only child show control flow", () => {
   let div!: HTMLDivElement, disposer: () => void;
@@ -401,4 +402,39 @@ describe("Testing an only child show control flow with DOM children and fallback
   });
 
   test("dispose", () => disposer());
+});
+
+describe("Sibling Shows with isPending in a fragment (#2963)", () => {
+  // The isPending companion flip puts the fragment's insert effect under an
+  // optimistic lane; without replay-at-commit the unrelated `data` write went
+  // stale for a tick, so the second Show never rendered its settled branch
+  // (the healed value equaled what was already in the DOM).
+  test("settled branch renders the same flush as the write", () => {
+    const div = document.createElement("div");
+    const [state, setState] = createSignal<{ promise?: Promise<string>; data?: string }>({});
+
+    const dispose = render(
+      () => (
+        <>
+          <Show when={isPending(state) || !!state().promise}>
+            <span>submitting</span>
+          </Show>
+          <Show when={state().data}>{d => <span>result:{d()}</span>}</Show>
+        </>
+      ),
+      div
+    );
+    flush();
+    expect(div.textContent).toBe("");
+
+    setState({ promise: Promise.resolve("ok") });
+    flush();
+    expect(div.textContent).toBe("submitting");
+
+    setState({ data: "ok" });
+    flush();
+    expect(div.textContent).toBe("result:ok");
+
+    dispose();
+  });
 });
