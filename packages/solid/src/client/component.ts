@@ -63,7 +63,7 @@ export type ComponentProps<T extends ValidComponent> = T extends Component<infer
  *
  * @example Component<{ref: Ref<Element>}>
  */
-export type Ref<T> = T | ((val: T) => void);
+export type Ref<T> = T | ((val: T) => void) | undefined | Ref<T>[];
 
 /**
  * Invokes a component, wrapping the call in `untrack` so that reactive reads
