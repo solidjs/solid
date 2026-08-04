@@ -23,7 +23,7 @@
 // So a missing element must mean WAIT, not "render fresh": adopt when the swap
 // delivers it, and stream into that same element afterwards.
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { createRoot, flush, Loading } from "solid-js";
+import { createRoot, enableHydration, flush, Loading } from "solid-js";
 import {
   installServerComponents,
   createFrameHost,
@@ -47,15 +47,24 @@ const FID = "late/feed";
 const FID_HELD = "late/held";
 const FID_EXHAUSTED = "late/exhausted";
 
+/** A pending `<id>_fr` declaration as the serializer writes it: an unsettled
+ *  promise ref — the ledger reads `.s` for settlement, never awaits it. */
+function declareFragment(id: string) {
+  (window as any)._$HY.r[`${id}_fr`] = { then() {} };
+}
+
 /** The `$df` swap, reduced to what matters here: retire the fragment's
- *  placeholder, put the server's boundary element in the live document, then
- *  announce the reveal. */
+ *  placeholder, put the server's boundary element in the live document,
+ *  record the reveal in the ledger (`_$HY.v`, what the real $dfr marks;
+ *  seroval settles the `_fr` ref in the same batch), then announce it. */
 function swapIn(parent: HTMLElement, html: string) {
   document.getElementById("pl-1902")?.remove();
   const tpl = document.createElement("template");
   tpl.innerHTML = html;
   parent.appendChild(tpl.content);
   const hy = (window as any)._$HY;
+  (hy.v = hy.v || {})["1902"] = 1;
+  if (hy.r["1902_fr"]) hy.r["1902_fr"].s = 1;
   hy.fe && hy.fe("1902", parent);
 }
 
@@ -86,6 +95,8 @@ describe("boundary that arrives after the shell flush", () => {
   test("adopts the swapped-in element, and later streams morph it", async () => {
     document.body.innerHTML = '<div id="app"></div>';
     (window as any)._$HY = { r: {}, fe() {} };
+    enableHydration();
+    declareFragment("1902");
     // The t=0 story is the document's; a boundary waiting for its element must
     // not go to the network to fill itself.
     vi.stubGlobal("fetch", () => {
@@ -164,6 +175,8 @@ describe("boundary that arrives after the shell flush", () => {
     document.body.innerHTML =
       '<div id="app"><template id="pl-1902"></template>fallback<!--pl-1902--></div>';
     (window as any)._$HY = { r: {}, fe() {}, done: true };
+    enableHydration();
+    declareFragment("1902");
     vi.stubGlobal("fetch", () => {
       throw new Error("fetch must not be called while awaiting the swap");
     });
@@ -226,6 +239,8 @@ describe("boundary that arrives after the shell flush", () => {
     document.body.innerHTML =
       '<div id="app"><template id="pl-1902"></template>fallback<!--pl-1902--></div>';
     (window as any)._$HY = { r: {}, fe() {}, done: true };
+    enableHydration();
+    declareFragment("1902");
     const host = makeHost();
     installServerComponents(host);
 

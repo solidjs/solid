@@ -482,13 +482,11 @@ function findBoundaryElement(id: string): Element | undefined {
 // element.
 const boundaryWaiters = new Map<string, (el?: Element) => void>();
 
-/** An unresolved deferred fragment (`<template id="pl-*">`) anywhere in the page. */
-function pendingFragmentInDocument() {
-  return typeof document !== "undefined" && !!document.querySelector('template[id^="pl-"]');
-}
-
 /**
- * Whether the document may still deliver boundary elements.
+ * Whether the document may still deliver boundary elements — the hydration
+ * runtime's fragment ledger's answer (`_$HY.fr.pending()`: any declared
+ * `_fr` fragment not yet swapped in, held, style-gated, and in-flight
+ * states included).
  *
  * `_$HY.done` alone stopped being that answer with the held-swap policy
  * (#2964): a fragment that settles after global hydration completes is HELD —
@@ -499,53 +497,48 @@ function pendingFragmentInDocument() {
  * page is complete", mount a fresh frame, and orphan the markup on the way:
  * the region goes inert, and because the id is never claimed, every later call
  * for this function resolves back to the document placeholder instead of
- * fetching. So an unresolved `pl-*` placeholder keeps the answer "not yet".
+ * fetching. So an outstanding fragment keeps the answer "not yet".
  */
 function boundaryMayArrive() {
   const hy = (globalThis as any)._$HY;
   if (!hy) return false;
-  return !hy.done || pendingFragmentInDocument();
+  return !hy.done || !!(hy.fr && hy.fr.pending());
 }
 
 /**
- * Subscribe to fragment reveals to learn when a late boundary lands.
+ * Subscribe to the fragment ledger to learn when a late boundary lands.
  *
- * `_$HY.fe(fragmentId, parent)` is called by the streaming layer's `$df`
- * immediately after it swaps a settled fragment's content into the live
- * document — the only moment a boundary element can enter the page after the
- * initial parse. It is a shared notification rather than our slot, so
- * whatever was installed stays installed.
- *
- * Scoping the rescan to the revealed fragment's parent (rather than the
- * document) keeps this proportional to what just arrived; older producers
- * that pass no parent fall back to the body.
+ * The ledger notifies on every fragment reveal — the only moment a boundary
+ * element can enter the page after the initial parse — with the revealed
+ * fragment's parent, and on truncation (no parent) so waiters the page can
+ * no longer answer re-evaluate. Scoping the rescan to the revealed
+ * fragment's parent (rather than the document) keeps this proportional to
+ * what just arrived.
  */
 function installRevealHook() {
   const hy = (globalThis as any)._$HY;
-  if (!hy || hy.$sc) return;
+  if (!hy || hy.$sc || !hy.fr) return;
   hy.$sc = true;
-  const prev = hy.fe;
-  hy.fe = (fragmentId: string, parent?: ParentNode) => {
-    if (prev) prev(fragmentId, parent);
+  hy.fr.subscribe((_id: string, parent?: ParentNode) => {
     // Nothing has looked a boundary up yet, so there is nothing to keep
     // current — the first lookup scans the document as it stands then.
     if (!boundaryIndex) return;
     const root = parent || (typeof document !== "undefined" ? document.body : null);
-    if (!root) return;
-    indexBoundaries(root);
+    if (root) indexBoundaries(root);
     if (!boundaryWaiters.size) return;
     // A waiter the page can no longer answer must not wait forever: once the
-    // document is done and no deferred fragment is left to reveal, nothing
-    // else can deliver this element, so release the waiter to mount fresh
-    // (the client-only shape) instead of holding the fallback on screen.
-    const exhausted = hy.done && !pendingFragmentInDocument();
+    // document is done and no fragment is left outstanding (truncated ones
+    // included), nothing else can deliver this element, so release the
+    // waiter to mount fresh (the client-only shape) instead of holding the
+    // fallback on screen.
+    const exhausted = hy.done && !hy.fr.pending();
     for (const [id, notify] of boundaryWaiters) {
-      const el = boundaryIndex.get(id);
+      const el = boundaryIndex && boundaryIndex.get(id);
       if (!el && !exhausted) continue;
       boundaryWaiters.delete(id);
       notify(el);
     }
-  };
+  });
 }
 
 function documentBoundary(
@@ -554,6 +547,10 @@ function documentBoundary(
   props: Record<string, any>,
   binding?: () => string
 ) {
+  // The ledger installs with enableHydration(), which may postdate the
+  // client entry's installServerComponents() call — re-attempt here, where
+  // hydration is necessarily live (idempotent via the $sc flag).
+  installRevealHook();
   const claimed = claimedBoundaries.has(id);
   const el = !claimed ? findBoundaryElement(id) : undefined;
   if (el) return adoptBoundary(host, id, el, props, binding);
@@ -727,8 +724,9 @@ export function installServerComponents(host: any = getFrameHost()) {
   }
   g._$SC.impl = (id: string, props: any, binding?: () => string) =>
     documentBoundary(host, id, props, binding);
-  // Late boundaries arrive with the reveals, so subscribe before the first one
-  // can land (this runs from the client entry, during document parse).
+  // Late boundaries arrive with the reveals, so subscribe as early as the
+  // ledger allows (it installs with enableHydration; when this entry call
+  // precedes it, the first documentBoundary re-attempts).
   installRevealHook();
   const handler = createServerComponentHandler({
     host,
