@@ -141,9 +141,29 @@ Measured, min+gzip, CI-guarded in dom-expressions: the whole client machinery �
 - **Serialized component trees (RSC-style flight data)** — rejected on the single-copy invariant; templates never ship as data. The claim *is* the transfer at t = 0.
 - **Event-based router integration instead of element claims** — rejected: `frame:applied` alone loses claim-time owner scoping and morph-precision, and would split anchors into two mechanisms depending on who rendered them.
 
+## The derivation pass
+
+The accumulated implementation was re-derived from explicit axioms in
+dom-expressions `docs/server-components-principles.md` — the async-data treatment
+applied to server components. Two headline changes to this document's earlier text:
+
+- **Identity is split** (DR-1 there): the `(function, arguments)` address keys the
+  *content store* — cache honesty, retention, and preload isolation are structural —
+  while the *mount* belongs to the consumption site. An argument change at a live
+  site delivers a new binding into the same instance (the semantics compiled
+  components already have) instead of a component swap papered over by handoff
+  machinery. Everything in this document about per-args caching, morph-in-place,
+  and state survival holds unchanged; the mechanism underneath is derived rather
+  than patched.
+- **Async slot args are data, not holes** (DR-2/DR-3 there): plain promises and
+  async iterables cross as pending records without blocking the server stream and
+  suspend at the client's consumption point; reactive primitives either pass through
+  as a live channel or are resolved server-side like content holes — never handed
+  over raw. Async args are never reverse-templated.
+
 ## Open questions
 
 1. **Template/block payload mode** — the wire supports send-markup-once/instantiate-many; the producer doesn’t emit it yet. Post-stabilization optimization.
-2. **Reverse-templating** — recovering more t = 0 slot args from rendered content (the current recoverability check is a conservative interim).
-3. **Router retention semantics** — *resolved since first draft, in the protocol rather than the router*: the frame host retains an unmounted boundary’s store and re-materializes the next mount from it (replay-after-unregister — a fresh cache hit with no new stream renders what the call last showed instead of blank), and single-flight mutations ship multi-frame envelopes (invalidated regions addressed by call, the `{ value, data }` outcome riding the same response, component entries as references). What remains router-side is composition only: `query` wrapping, preload wiring, revalidation bookkeeping.
-4. **Stabilization criteria** — what graduates this from experimental: wire-format freeze, router integration shipping, and the `enableHydration` granularity work.
+2. **Reverse-templating** — recovering more t = 0 slot args from rendered content (the current recoverability check is a conservative interim). *Constrained by the derivation:* async args always ship as typed records (DR-3); recoverability applies to settled plain values only.
+3. **Router retention semantics** — *resolved, now structurally*: content stores are keyed per `(function, arguments)` and outlive mounts, so a fresh cache hit re-materializes from the warm store with no request and no snapshot mechanism; single-flight mutations ship multi-frame envelopes (invalidated regions addressed by call, the `{ value, data }` outcome riding the same response, component entries as references). What remains router-side is composition only: `query` wrapping, preload wiring, revalidation bookkeeping.
+4. **Stabilization criteria** — what graduates this from experimental: completion of the derivation pass (principles doc stages 2–4), wire-format freeze, router integration shipping, and the `enableHydration` granularity work.
