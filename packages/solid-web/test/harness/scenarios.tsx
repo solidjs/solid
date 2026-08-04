@@ -741,9 +741,13 @@ function StoreSsrSourceServer() {
 }
 
 // ---------------------------------------------------------------------------
-// SYNC source with ssrSource:"server": serialization is async-only, so
-// nothing rides the payload. The probe surfaces the client store's actual
-// in-memory value post-hydration to detect a silent DOM/store divergence.
+// SYNC source with ssrSource:"server" (the default spelled out): serialization
+// is async-only — the code itself is the value transport for sync computes, so
+// the client re-runs the source during hydration rather than paying payload
+// bytes for a reproducible value. The isServer branch here deliberately breaks
+// the purity contract sync computes live under, to make the re-run observable:
+// the claimed DOM keeps the server text while the in-memory store holds the
+// client value (the probe surfaces it). A deterministic source converges.
 let probeSyncStore!: () => void;
 function StoreSsrSourceServerSync() {
   const [label, setLabel] = createSignal("?");
@@ -1042,7 +1046,7 @@ export const scenarios: Scenario[] = [
     expectedText: "V: fromServer P: ?",
     serverText: "V: fromServer P: ?",
     update: () => probeSyncStore(),
-    expectedTextAfterUpdate: "V: fromServer P: fromServer",
+    expectedTextAfterUpdate: "V: fromServer P: fromClient",
     stableSelector: "div"
   }
 ];

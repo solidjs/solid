@@ -1040,13 +1040,11 @@ function processResult<T>(
     return;
   }
 
-  // Synchronous value. Explicit "server" serializes it so the client adopts
-  // instead of re-running (async results already do, via the deferred
-  // promise) — without this, a non-client-safe sync compute re-runs during
-  // hydration and silently diverges from the claimed DOM (#2971, memo/signal/
-  // effect parity with the store fix). Absent ssrSource stays lean.
-  if (ssrSource === "server" && ctx?.async && ctx.serialize && id && !noHydrate)
-    ctx.serialize(id, result, deferStream);
+  // Synchronous value — never serialized, even under explicit ssrSource:
+  // "server" (which is just the default spelled out). The code itself is the
+  // value transport for sync computes: the client re-runs them on hydrated
+  // inputs, and the purity contract they already live under makes that
+  // converge. Serialization is the async mechanism only.
   comp.value = result;
 }
 
@@ -1491,14 +1489,6 @@ export function createProjection<T extends object>(
   if (result !== undefined && result !== state && result !== draft) {
     replaceState(state, result as T);
   }
-  // Explicit "server" promises the client adopts this value without re-running
-  // the source. Async results keep that promise through the deferred-promise
-  // serialization above; sync results must ride the payload too, or the client
-  // re-runs a source that may not be client-safe and silently diverges from
-  // the claimed DOM (#2971). Default (no ssrSource) stays lean: sync sources
-  // recompute on the client as their own parity mechanism.
-  if (ssrSource === "server" && ctx?.async && !getContext(NoHydrateContext) && owner.id)
-    ctx.serialize(owner.id, state, options?.deferStream);
   return state;
 }
 
