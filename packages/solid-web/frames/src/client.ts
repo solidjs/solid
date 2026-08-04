@@ -15,6 +15,7 @@ import {
   createLoadingBoundary,
   createMemo,
   createOwner,
+  createRenderEffect,
   createSignal,
   getOwner,
   onCleanup,
@@ -393,8 +394,20 @@ function boundaryScope(owner: any) {
   return (fn: () => any) => (getOwner() ? fn() : runWithOwner(owner, fn));
 }
 
-function boundaryComponent(host: any, id: string) {
-  return (props: Record<string, any>) => {
+/**
+ * Follow a live address binding (the identity split's delivery path): a
+ * `dynamic` site whose call switched arguments keeps this instance and
+ * pushes the new address through the accessor — the frame re-binds its pull
+ * to the new address's resident store (warm content re-materializes
+ * instantly; an in-flight stream morphs in; slot occurrences whose ids
+ * persist keep their client state). `rebind` no-ops on the same address.
+ */
+function followBinding(frame: { rebind(id: string): void }, binding: () => string) {
+  createRenderEffect(binding, address => frame.rebind(address));
+}
+
+function boundaryComponent(host: any, fnId: string) {
+  return (props: Record<string, any>, binding?: () => string) => {
     // Element-claim sweeps (router link-state contract) run under this
     // boundary's owner: consumers' per-element onCleanup disposes with the
     // boundary, and streamed chunks — applied from microtasks with no owner
@@ -403,13 +416,17 @@ function boundaryComponent(host: any, id: string) {
     // The boundary is a DOM element (`<dx-frame>`), not a branded value:
     // `insert` places it natively in any position (array/fragment/single —
     // no #550), and the frame mounts INTO it. Return the element itself.
-    const { element, dispose } = createFrameElement({
+    const { element, frame, dispose } = createFrameElement({
       host,
-      id,
+      // The mount binds the ADDRESS's store (content is keyed by call, the
+      // mount by site); an unbound render (no gated reader, e.g. a direct
+      // placeholder mount) binds the function id — the argless address.
+      id: binding ? binding() : fnId,
       slots: slotsFor(props),
       ownerScope: boundaryScope(owner),
       reveal: revealSeam(owner)
     });
+    if (binding) followBinding(frame, binding);
     onCleanup(dispose);
     return element as unknown as SolidElement;
   };
@@ -531,10 +548,15 @@ function installRevealHook() {
   };
 }
 
-function documentBoundary(host: any, id: string, props: Record<string, any>) {
+function documentBoundary(
+  host: any,
+  id: string,
+  props: Record<string, any>,
+  binding?: () => string
+) {
   const claimed = claimedBoundaries.has(id);
   const el = !claimed ? findBoundaryElement(id) : undefined;
-  if (el) return adoptBoundary(host, id, el, props);
+  if (el) return adoptBoundary(host, id, el, props, binding);
   // Not in the page (yet). While the page can still deliver it (the document is
   // streaming, or a deferred fragment is still holding its markup — see
   // boundaryMayArrive), this is a boundary whose content settled after the
@@ -554,7 +576,9 @@ function documentBoundary(host: any, id: string, props: Record<string, any>) {
         runWithOwner(owner, () =>
           // No element after all (the page ran out of reveals): mount fresh,
           // exactly as an unwaited miss would have.
-          node ? adoptBoundary(host, id, node, props) : boundaryComponent(host, id)(props)
+          node
+            ? adoptBoundary(host, id, node, props, binding)
+            : boundaryComponent(host, id)(props, binding)
         )
       )
     ) as unknown as SolidElement;
@@ -562,11 +586,37 @@ function documentBoundary(host: any, id: string, props: Record<string, any>) {
   // No SSR'd boundary on the page (client-only boot, or already claimed):
   // mount fresh — the pending/late stream fills it exactly like the
   // non-document path.
-  return boundaryComponent(host, id)(props);
+  return boundaryComponent(host, id)(props, binding);
 }
 
-function adoptBoundary(host: any, id: string, el: Element, props: Record<string, any>) {
+/**
+ * The address a document boundary's content is keyed under: the call's
+ * address as the hydration references recorded it (`_$SC.a`, address -> id).
+ * A mount without a live binding (a direct placeholder render at t=0) reads
+ * it from those records; an argless call's address IS the function id, so
+ * the common shell case needs no record at all.
+ */
+function documentAddress(id: string) {
+  const records = (globalThis as any)._$SC?.a;
+  if (records) {
+    for (const address in records) if (records[address] === id) return address;
+  }
+  return id;
+}
+
+function adoptBoundary(
+  host: any,
+  id: string,
+  el: Element,
+  props: Record<string, any>,
+  binding?: () => string
+) {
   claimedBoundaries.add(id);
+  // Content is keyed by the CALL's address (the identity split): the frame
+  // binds the address's resident store, while `id` — the function id, the
+  // document's wire name — stays the key records and region ids on the page
+  // are written under.
+  const address = binding ? binding() : documentAddress(id);
   // Occlusion records (case 3, document face): content a client wrapper
   // never rendered during SSR shipped ONCE as hydration data instead of
   // markup. Apply the records BEFORE binding the frame — the host buffers
@@ -586,9 +636,11 @@ function adoptBoundary(host: any, id: string, el: Element, props: Record<string,
       if (appliedRecords.has(key)) continue;
       if (key.startsWith(slotPrefix)) {
         appliedRecords.add(key);
+        // Slot records land in the ADDRESS's store (where the frame binds);
+        // the wire keys them by function id, the document's producer name.
         host.apply({
           type: "slot",
-          id,
+          id: address,
           version: 0,
           key: key.slice(slotPrefix.length),
           args: hy.r[key]
@@ -598,8 +650,10 @@ function adoptBoundary(host: any, id: string, el: Element, props: Record<string,
         if (childId.startsWith(id + ".")) {
           appliedRecords.add(key);
           // Async-occluded regions arrive as promises (the producer held
-          // the stream on them); the host buffers per id either way, so a
-          // late apply still lands before the region binds on expand.
+          // the stream on them); regions keep their producer-relative ids
+          // (the records reference them by those), and the store warms per
+          // id either way, so a late apply still lands before the region
+          // binds on expand.
           const val = hy.r[key];
           const apply = (html: any) => host.apply({ type: "html", id: childId, version: 0, html });
           val && typeof val.then === "function" ? val.then(apply) : apply(val);
@@ -616,7 +670,7 @@ function adoptBoundary(host: any, id: string, el: Element, props: Record<string,
   const frame = createFrame(el, {
     adopt: true,
     host,
-    id,
+    id: address,
     slots: slotsFor(props),
     ownerScope: boundaryScope(owner),
     reveal: revealSeam(owner),
@@ -630,6 +684,7 @@ function adoptBoundary(host: any, id: string, el: Element, props: Record<string,
       drainRecords
     } as {})
   });
+  if (binding) followBinding(frame, binding);
   onCleanup(() => frame.dispose());
   // The boundary IS the element — hand hydration the single SSR'd node so it
   // claims it in place rather than re-rendering.
@@ -638,13 +693,15 @@ function adoptBoundary(host: any, id: string, el: Element, props: Record<string,
 
 /**
  * Installs the server-component transport policy on the server-function
- * client: boundary identity is the call's intrinsic (function, arguments)
- * address — per-args, exactly like the query cache, so a cached component
- * always mounts the boundary showing the call it was cached for. Repeat
- * calls for the same args resolve the identical component (refetches morph
- * in place, cache hits pass `dynamic`'s equals-gate); a source switching
- * args swaps boundaries, re-materialized instantly from the host's
- * retained state.
+ * client — the identity split (DR-1): CONTENT is keyed by the call's
+ * intrinsic (function, arguments) address — per-args, exactly like the
+ * query cache, so a cached resolution always names the content it was
+ * cached for — while the MOUNT belongs to the call site. Every call of a
+ * function resolves a binding wrapping the same per-function component
+ * (the document placeholder), so `dynamic` keeps its instance across both
+ * refetches AND argument changes; the instance follows delivered addresses
+ * by re-binding its frame's pull, and a preload for unshown args only ever
+ * warms that address's resident store.
  *
  * Call once in the client entry (an explicit call — the package is
  * `sideEffects: false`, so a bare import would be tree-shaken away);
@@ -664,31 +721,30 @@ export function installServerComponents(host: any = getFrameHost()) {
           g._$SC.a[a] = i;
           g._$SC.reg && g._$SC.reg(a, i);
         }
-        return g._$SC.c[i] || (g._$SC.c[i] = (p: any) => g._$SC.impl(i, p));
+        return g._$SC.c[i] || (g._$SC.c[i] = (p: any, b?: () => string) => g._$SC.impl(i, p, b));
       }
     };
   }
-  g._$SC.impl = (id: string, props: any) => documentBoundary(host, id, props);
+  g._$SC.impl = (id: string, props: any, binding?: () => string) =>
+    documentBoundary(host, id, props, binding);
   // Late boundaries arrive with the reveals, so subscribe before the first one
   // can land (this runs from the client entry, during document parse).
   installRevealHook();
   const handler = createServerComponentHandler({
     host,
-    component: (frameId: string) => boundaryComponent(host, frameId),
-    onStream: (frameId: string) => beginStream(frameId),
-    // Only while the document boundary is UNCLAIMED: once a mount has
-    // bound it, the transport's address entries are the only way back to
-    // it — answering here again would hand the mounted boundary to a call
-    // with OTHER args (a hover preload), whose stream would then morph
-    // what the page is showing.
-    documentComponent: (functionId: string) =>
-      claimedBoundaries.has(functionId) ? undefined : g._$SC.c[functionId],
+    // ONE mount component per function, and it IS the document placeholder:
+    // hydration-data references, t=0 local answers, and post-load streams
+    // all resolve bindings wrapping this same identity, so `dynamic`'s
+    // equals-gate holds across every path. Its mounts adopt the SSR'd
+    // boundary while one is unclaimed and mount fresh after — always bound
+    // to the delivered call address.
+    component: (fnId: string) => g._$SC.r(fnId),
+    onStream: (address: string) => beginStream(address),
     // The page IS the t=0 record: a call whose function has an unclaimed
-    // SSR'd boundary in the document resolves locally with the stable
-    // placeholder — the source re-runs during hydration per dynamic's
-    // contract, but no request leaves the browser. The boundary is
-    // consumed on adoption, so navigations fetch normally and (via
-    // documentComponent above) resolve to the SAME placeholder.
+    // SSR'd boundary in the document is answered locally — the source
+    // re-runs during hydration per dynamic's contract, but no request
+    // leaves the browser. The boundary is consumed on adoption, so
+    // navigations fetch normally.
     intercept: ({ id }: { id: string }) => {
       if (claimedBoundaries.has(id) || !findBoundaryElement(id)) return undefined;
       return g._$SC.r(id);
@@ -702,10 +758,10 @@ export function installServerComponents(host: any = getFrameHost()) {
   // Which calls the document is showing: hydration references carry their
   // call's address (`_$SC.r(id, address)`), and those records — never seen
   // by the transport, since hydration data seeds caches directly — are what
-  // route a post-load refetch of the same call back to its adopted boundary.
-  // Drain what the bootstrap collected before this ran, then register live
-  // for references still streaming in.
-  const showing = (address: string, id: string) => handler.showing(address, id, g._$SC.r(id));
+  // key a post-load refetch of the same call to the adopted content. Drain
+  // what the bootstrap collected before this ran, then register live for
+  // references still streaming in.
+  const showing = (address: string, id: string) => handler.showing(address, id);
   const records = g._$SC.a || (g._$SC.a = {});
   for (const address in records) showing(address, records[address]);
   g._$SC.reg = showing;

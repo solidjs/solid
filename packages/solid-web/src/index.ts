@@ -18,6 +18,7 @@ import {
   createRoot,
   createSignal,
   getOwner,
+  onCleanup,
   runWithOwner,
   untrack,
   omit,
@@ -327,48 +328,67 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
  *
  * @description https://docs.solidjs.com/reference/components/dynamic
  */
-// The server-component transport's handoff contract (`Symbol.for`, so no
-// import ties this entry to the frames transport): a component the transport
-// resolved carries `{ take(prev) }` — offered the reader's previous value, it
-// rebinds the live mounted boundary to the incoming call when both are
-// server-component boundaries of the same function, and answers "keep prev".
-// See dom-expressions frame-transport.js (COMPONENT_HANDOFF).
-const COMPONENT_HANDOFF = Symbol.for("dom-expressions.component-handoff");
-function resolveHandoff(next: any, prev: any) {
-  const handoff = typeof next === "function" && next !== null && next[COMPONENT_HANDOFF];
-  return handoff && handoff.take(prev) ? prev : next;
+// The server-component transport's binding contract (`Symbol.for`, so no
+// import ties this entry to the frames transport): a value the transport
+// resolved carries `{ component, address }` — `component` is the MOUNT
+// identity, one per server function; `address` names the call's content
+// store. Same component across resolutions means "same instance, new
+// binding". See dom-expressions frame-transport.js (COMPONENT_BINDING).
+const COMPONENT_BINDING = Symbol.for("dom-expressions.component-binding");
+function bindingOf(value: any): { component: Function; address: string } | undefined {
+  return (
+    (value !== null &&
+      (typeof value === "function" || typeof value === "object") &&
+      value[COMPONENT_BINDING]) ||
+    undefined
+  );
 }
 
 export function dynamic<T extends ValidComponent>(
   source: () => T | Promise<T> | null | undefined | false
 ): Component<ComponentProps<T>> {
   // `prev` threads into the resolution so a source switching server-component
-  // calls of the same function HANDS OFF instead of swapping: the transport
-  // rebinds the mounted boundary to the new call (its stream — or retained
-  // state, on a cache hit — morphs the element in place, keyed slot state
-  // surviving), and the memo keeps its previous value so the mount below
-  // never re-renders. Everything else resolves to `next` and swaps normally.
-  // Async resolutions run the handoff in the promise chain — an ownerless
+  // calls of the same function DELIVERS instead of swapping: the memo keeps
+  // its previous value (the mount below never re-renders) and the new call's
+  // address flows into the live accessor the instance mounted with — the
+  // instance re-binds its frame's pull to the new address's store (warm
+  // store re-materializes instantly; an in-flight stream morphs in; keyed
+  // slot state survives). Everything else resolves to `next` and swaps.
+  // Async resolutions run the delivery in the promise chain — an ownerless
   // microtask, exactly where frame writes already happen — rather than in the
   // equals gate, whose argument order differs between sync and async commits.
-  // The token pins the handoff to the LATEST computation: a superseded
-  // source's late resolution must not rebind the mount to stale content (the
+  // The token pins the delivery to the LATEST computation: a superseded
+  // source's late resolution must not re-bind the mount to stale content (the
   // async machinery discards its value; the side effect has to be discarded
-  // here), and a transition's forked re-compute of the same source hands off
+  // here), and a transition's forked re-compute of the same source delivers
   // once, not per fork. The thenable is transparent — it transforms the value
   // inside the SAME microtask as the source promise's own handlers (a `.then`
   // chain would add a hop, observably deferring every async resolution).
   let latest = 0;
+  // Live delivery channels, one per mounted site: this component may be
+  // mounted more than once (each mount is its own instance with its own
+  // address accessor), and a kept resolution must reach every one.
+  const sites = new Set<Setter<string>>();
+  const resolveBinding = (next: any, prev: any) => {
+    const binding = bindingOf(next);
+    if (!binding) return next;
+    const prevBinding = bindingOf(prev);
+    if (prevBinding && prevBinding.component === binding.component) {
+      for (const deliver of sites) deliver(binding.address);
+      return prev;
+    }
+    return next;
+  };
   const cached = createMemo<Function | string | undefined>(
     (prev: any) => {
       const next = source() as any;
-      if (!next || typeof next.then !== "function") return resolveHandoff(next, prev);
+      if (!next || typeof next.then !== "function") return resolveBinding(next, prev);
       const token = ++latest;
       return {
         then: (onFulfilled: any, onRejected: any) =>
           next.then(
             (resolved: any) =>
-              onFulfilled(token === latest ? resolveHandoff(resolved, prev) : resolved),
+              onFulfilled(token === latest ? resolveBinding(resolved, prev) : resolved),
             onRejected
           )
       };
@@ -379,9 +399,21 @@ export function dynamic<T extends ValidComponent>(
     return createMemo(() => {
       const component = cached();
       switch (typeof component) {
-        case "function":
+        case "function": {
           if (isDev) Object.assign(component, { [$DEVCOMP]: true });
+          const binding = bindingOf(component);
+          if (binding) {
+            // Mount the per-function component with a LIVE address accessor
+            // (the transport's second-argument convention); kept resolutions
+            // above deliver into it, and the instance follows — no re-render
+            // at this seam.
+            const [address, setAddress] = createSignal(binding.address);
+            sites.add(setAddress);
+            onCleanup(() => sites.delete(setAddress));
+            return untrack(() => (binding.component as any)(props, address));
+          }
           return untrack(() => (component as Function)(props));
+        }
 
         case "string":
           const el = sharedConfig.hydrating
