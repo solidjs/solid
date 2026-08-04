@@ -623,8 +623,12 @@ function adoptBoundary(host: any, id: string, el: Element, props: Record<string,
     // May the document still run scripts that assign records? While the
     // parser is running (or fragments are still held) the answer is yes, and
     // a recordless occurrence defers instead of misclassifying as content.
-    recordsPending: () => document.readyState === "loading" || boundaryMayArrive(),
-    drainRecords
+    // Spread-cast: the published FrameOptions predates this seam; a runtime
+    // without it simply never calls the hooks (drop once the pin catches up).
+    ...({
+      recordsPending: () => document.readyState === "loading" || boundaryMayArrive(),
+      drainRecords
+    } as {})
   });
   onCleanup(() => frame.dispose());
   // The boundary IS the element — hand hydration the single SSR'd node so it
