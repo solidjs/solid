@@ -10,11 +10,14 @@
  * zero-argument accessor. A callback that reads `props.id` then halted the
  * reactive system (`TypeError: Cannot read properties of undefined`).
  *
- * The fix: while the document may still deliver records (parser running, or
- * fragments still pending), a recordless adopt-time occurrence defers one
- * macrotask, the boundary re-drains `_$HY.r`, and classification happens
- * with the record present. The server-rendered DOM stays in place across the
- * deferral, so the wait is invisible.
+ * The fix: while the document may still deliver records (parser running —
+ * `document.readyState === "loading"` — or fragments still pending), a
+ * recordless adopt-time occurrence defers, the boundary re-drains `_$HY.r`
+ * each beat, and classification happens with the record present. The
+ * server-rendered DOM stays in place across the deferral, so the wait is
+ * invisible. NOT gated on `_$HY.done`: holding classification until client
+ * hydration completes pushes adopted mounts past the hydrate window (see
+ * adopted-slot-live.spec).
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { flush } from "solid-js";
@@ -39,6 +42,7 @@ const FID = "late-record/about";
 
 describe("adopted invoked slot whose record script runs after adoption", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     delete (globalThis as any)._$HY;
     delete (globalThis as any)._$SC;
@@ -48,7 +52,10 @@ describe("adopted invoked slot whose record script runs after adoption", () => {
   test("waits for the record instead of invoking the callback argless", async () => {
     // The document as the server left it: the boundary's markup has parsed,
     // but the `_$HY.r` data script carrying button#0's args has NOT executed
-    // yet (`hy.done` unset — the parser is still delivering).
+    // yet — the parser is still delivering, which in a real browser reads as
+    // `document.readyState === "loading"` (jsdom reports "complete", so pin
+    // the real signal).
+    vi.spyOn(document, "readyState", "get").mockReturnValue("loading");
     const container = document.createElement("div");
     container.innerHTML =
       `<dx-frame data-fid="${FID}" style="display:contents">` +

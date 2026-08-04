@@ -672,12 +672,23 @@ function adoptBoundary(
     ownerScope: boundaryScope(owner),
     reveal: revealSeam(owner),
     // May the document still run scripts that assign records? While the
-    // parser is running (or fragments are still held) the answer is yes, and
-    // a recordless occurrence defers instead of misclassifying as content.
+    // parser is running the answer is yes, and a held fragment's replay can
+    // still deliver one — so a recordless occurrence defers instead of
+    // misclassifying as content (the runtime re-checks until this flips
+    // false). Deliberately NOT boundaryMayArrive(): its `!_$HY.done` term
+    // answers a different question (can this boundary's ELEMENT still
+    // appear), and holding classification until client hydration completes
+    // pushes the adopted mount past the hydrate window — the claim then
+    // adopts markup the client's state has already moved past (the
+    // adopted-slot-live spec pins the working ordering).
     // Spread-cast: the published FrameOptions predates this seam; a runtime
     // without it simply never calls the hooks (drop once the pin catches up).
     ...({
-      recordsPending: () => document.readyState === "loading" || boundaryMayArrive(),
+      recordsPending: () => {
+        if (document.readyState === "loading") return true;
+        const hy = (globalThis as any)._$HY;
+        return !!(hy && hy.fr && hy.fr.pending());
+      },
       drainRecords
     } as {})
   });
