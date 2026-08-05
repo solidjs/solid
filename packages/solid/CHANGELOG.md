@@ -1,5 +1,25 @@
 # solid-js
 
+## 2.0.0-beta.31
+
+### Patch Changes
+
+- a60b288: Fix `ssrSource` on derived stores during SSR: the server `createStore` dropped the options argument entirely, so `ssrSource: "client"` sources still ran on the server (#2972) and `ssrSource: "server"` async sources were not awaited or serialized (#2971). Sync sources are unaffected: their code is the value transport, so the client re-runs them on hydrated inputs as before.
+- 40b05e1: One reveal owner for streamed document fragments (DR-4): the hydration
+  runtime now keeps a fragment ledger — declarations are the serializer's
+  `<id>_fr` records, settlement is seroval's status marks, reveals are the
+  inline script's `_$HY.v` marks — published as `_$HY.fr` ({ pending,
+  subscribe }). The frames client's document adoption reads "may a boundary
+  still arrive" and learns of reveals from the ledger instead of scanning the
+  page for `pl-*` templates and monkey-patching `_$HY.fe`. The ledger also
+  detects truncation (#2958): a declaration still unsettled when the parser
+  finishes is marked rejected with a truncation error, releasing its boundary
+  through the normal rejection path instead of hanging on the fallback
+  forever, and letting document-adoption waiters give up and mount fresh.
+- 15b512f: Accept ref array in component ref type
+- Updated dependencies [0cd35f0]
+  - @solidjs/signals@2.0.0-beta.31
+
 ## 2.0.0-beta.30
 
 ### Patch Changes

@@ -1,5 +1,36 @@
 # @solidjs/web
 
+## 2.0.0-beta.31
+
+### Minor Changes
+
+- bcbe7e5: Server components Stage 2 (identity split): `dynamic` now consumes the transport's binding contract — a resolution branded `{ component, address }` whose component matches the mounted instance's keeps the instance and delivers the new address into a per-site live accessor ("same component, new props"), replacing the mount-stealing handoff protocol. The frames client mounts per-function components bound to per-call addresses (`followBinding` drives `frame.rebind`), document adoption binds the call's address from the hydration records, and the transport install drops the `documentComponent` seam — the document placeholder IS the per-function component. Argument changes at a live site, hover preloads, back-navigation re-materialization, and single-flight saves all flow through the one store-keyed-by-address model.
+
+### Patch Changes
+
+- 977b176: Thread the document wire id down as the adopted frame's claim scope. The identity split binds the frame to the call ADDRESS (function id + args hash), but the document producer stamps `_hk` hydration keys and region fids under the bare wire id — so every adopted claim on an args-bearing call (e.g. a note list keyed by search text) derived a `:hash`-suffixed prefix, missed the registry, and re-rendered fresh clones whose inserts moved the server-rendered `{$frame}` regions into a discarded detached tree: streamed content flashed and went blank. `claimScope` is the runtime's existing seam for exactly this (nested region frames already thread the root's scope down); adoptBoundary now passes the wire id through it.
+- 70d0da6: frames: keep an adopted boundary's slot range reactive. The claim scope wrapped insert's accessor, so the binding's first read ran inside `runWithOwner`'s untracked window — reactive only by accident, via the re-read of whatever accessor that first read returned. A `<Loading>` answering a still-pending streamed fragment returns fallback NODES instead, leaving the effect with no dependency at all and the range permanently inert: the boundary's own resume still claimed the swapped-in server markup, so the region looked right, but nothing downstream ever re-rendered it (in the notes example, every navigation out of a late-settling note changed the URL and nothing else). The claim now wraps the insert CALL, so the first evaluation is the render effect's own compute — still under the producer's hydration keys, but tracked.
+- edb3e36: Fix hydrated `clientOnly` desyncing DOM bookkeeping for following siblings. The client half's post-settle swap was armed with `onSettled`, which registers a tracked effect — an id-consuming owner the server half (whose only owner is the fallback mirror memo) never mints. Every sibling created after a hydrated `clientOnly` therefore derived its hydration id one slot past the server's, its template claim missed the registry, and `insert` tracked a never-inserted phantom node: the sibling's first post-hydration re-render reconciled against the phantom and inserted the new content beside the orphaned server node instead of replacing it (first surfaced as duplicated nodes after an HMR hot-swap of a component following a `clientOnly`). The swap is now armed through `sharedConfig.onHydrationEnd` — the ownerless "all hydration complete" channel — so `clientOnly` consumes exactly one child id on both sides.
+- 38e2e72: Make the document boundary's record drain re-drainable and wire the adopt-time record-race seam (#2968). `adoptBoundary` previously absorbed `_$HY.r` slot/region records exactly once, synchronously at adoption — so a record whose data script ran after adoption was never delivered, and the frames client misclassified the invoked slot as argless content (halting the reactive system on the first props read). The drain now applies each key once but can run again, and the frame receives `recordsPending` (parser still running, or fragments still pending) plus `drainRecords`, letting a recordless occurrence wait one macrotask and classify with the record present.
+- 40b05e1: One reveal owner for streamed document fragments (DR-4): the hydration
+  runtime now keeps a fragment ledger — declarations are the serializer's
+  `<id>_fr` records, settlement is seroval's status marks, reveals are the
+  inline script's `_$HY.v` marks — published as `_$HY.fr` ({ pending,
+  subscribe }). The frames client's document adoption reads "may a boundary
+  still arrive" and learns of reveals from the ledger instead of scanning the
+  page for `pl-*` templates and monkey-patching `_$HY.fe`. The ledger also
+  detects truncation (#2958): a declaration still unsettled when the parser
+  finishes is marked rejected with a truncation error, releasing its boundary
+  through the normal rejection path instead of hanging on the fallback
+  forever, and letting document-adoption waiters give up and mount fresh.
+- 70d0da6: frames: keep waiting for a document boundary whose element is still held by a deferred fragment. `_$HY.done` stopped meaning "the page is complete" once post-done swaps became held-until-claimed (#2964) — a boundary rendering in that window mounted a fresh frame, orphaning the markup the replay then delivered, and left the id unclaimed so every later call resolved back to the document placeholder instead of fetching (a server-component region that never updates again). An unresolved `pl-*` placeholder now keeps the answer "not yet"; a reveal that exhausts the page's deferred fragments releases the waiter to mount fresh.
+- 3ba6c86: Update dom-expressions to 0.50.0-next.36 (identity split, fragment reveal ledger, identity-first morph grafts, held recordless-occurrence classification) and drop the temporary local runtime link. With the runtime now re-checking a recordless adopted occurrence until records can no longer arrive, the frames integration's `recordsPending` answers the actual question — parser still running (`document.readyState === "loading"`) or fragments still pending — instead of borrowing `boundaryMayArrive()`'s `!_$HY.done` term: holding classification until client hydration completes pushed adopted mounts past the hydrate window, where the claim adopted markup the client's state had already moved past.
+- ce60796: Update dom-expressions to 0.50.0-next.37. Serialized server-component references now self-bootstrap the `_$SC` registry — each hydration script's first reference carries it as an idempotent expression — so no integration needs to splice a bootstrap script into `<head>`. The old head-open splice (vite-plugin-solid) put a script ahead of the authored head elements, where the hydration walk claimed it as the first walked child and drifted every positional claim in the head by one (metas claimed as title, title as link), warning in dev and silently drifting in production. The compiler also picks up the directive-DCE fix for type-only import remnants (solid-start #2273): pruning the last value specifier out of a mixed import now removes the whole declaration instead of leaving a bare server-module edge in the client bundle.
+- Updated dependencies [a60b288]
+- Updated dependencies [40b05e1]
+- Updated dependencies [15b512f]
+  - solid-js@2.0.0-beta.31
+
 ## 2.0.0-beta.30
 
 ### Patch Changes
