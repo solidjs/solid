@@ -332,8 +332,7 @@
     "coverage": "vitest run --coverage",
     "bench": "vitest bench --run",
     "bench:server": "vitest bench --run --config vite.config.server-bench.mjs",
-    "test-types": "npm-run-all -nl types test-types:tsc",
-    "test-types:tsc": "tsc --project tsconfig.test.json"
+    "test-types": "tsc --project tsconfig.test.json"
   },
   "dependencies": {
     "seroval": "~1.5.4",
