@@ -132,6 +132,25 @@ importers:
         specifier: ^4.1.6
         version: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.25.12)(terser@5.49.0))
 
+  examples/chat:
+    dependencies:
+      '@solidjs/web':
+        specifier: workspace:*
+        version: link:../../packages/solid-web
+      marked:
+        specifier: ^12.0.2
+        version: 12.0.2
+      solid-js:
+        specifier: workspace:*
+        version: link:../../packages/solid
+    devDependencies:
+      vite:
+        specifier: ^8.0.0
+        version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
+      vite-plugin-solid:
+        specifier: 3.0.0-next.22
+        version: 3.0.0-next.22(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+
   examples/hackernews:
     dependencies:
       '@solidjs/router':
@@ -1081,13 +1100,29 @@ packages:
     cpu: [arm64]
     os: [darwin]
 
+  '@dom-expressions/compiler-darwin-arm64@0.50.0-next.37':
+    resolution: {integrity: sha512-v3Hoq7UmsZHQ/4riVjHVejVShgsU/V34IhdHo1/55o0t2NbO94zzRVUNtwiRNc/hisef6deYLF/p6Y3z0vjoCQ==}
+    cpu: [arm64]
+    os: [darwin]
+
   '@dom-expressions/compiler-darwin-x64@0.50.0-next.34':
     resolution: {integrity: sha512-T7epwdLa+0WZBWvme3vHvYPz3Zc8APFsDAZh0N+OPlQywRjsIKymqP9Z5DAOScSIkZP3FERgThHk++vbv6pMhQ==}
     cpu: [x64]
     os: [darwin]
 
+  '@dom-expressions/compiler-darwin-x64@0.50.0-next.37':
+    resolution: {integrity: sha512-SdiByaVE3gRMik5Nsa/oCfAIVZ7mattPUL9OP7DfAw0QoseLxp63OPAikWdU9CTbagVRWgoO42s/xR/G+GOUWw==}
+    cpu: [x64]
+    os: [darwin]
+
   '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.34':
     resolution: {integrity: sha512-5Q9D+qPS/djpfRrMPxCkYKkSzIweFk72hpZcKdQnXNnttmj6pi7L4rp5ZzupX3XVGTsZGXIjjuirViysfjiIoQ==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.37':
+    resolution: {integrity: sha512-3TcT8hXeJY1N1WKGyYU+xy0XQZ0d9TFqzrOABgvhLQhXEyOs35oZTxwQJ6ENojxL2bF8RJcb3C5bkSB2ELffUw==}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
@@ -1098,8 +1133,18 @@ packages:
     os: [linux]
     libc: [glibc]
 
+  '@dom-expressions/compiler-linux-x64-gnu@0.50.0-next.37':
+    resolution: {integrity: sha512-UT9gYIOVb6VQ3Fvc9Jp/vlb/1VBFXjiWae61FpXmXM/82ROoM5VTR53P0pzc6ViMZJ5OfRrT09yGYfyk9QQj8g==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
   '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.34':
     resolution: {integrity: sha512-XpghiRyhrY5/Zxg5q1dcUCCNCSOqnNZQ1IX87MfwrDWdIZ3ZDaGrcCFUcT37veeZgzgbb3bpt5fSKwyN9VAq3w==}
+    engines: {node: '>=14.0.0'}
+
+  '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.37':
+    resolution: {integrity: sha512-O3KtOFP5Y9TjN1Ujt4lXuUd/epdb3h5sdWmlxrdptnjMAbw168vowuX5IakUQ2UMkgAB/6KemVtalzI75HvPZA==}
     engines: {node: '>=14.0.0'}
 
   '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.34':
@@ -1107,8 +1152,16 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.37':
+    resolution: {integrity: sha512-RyE6bWTp+XrI+dUNwnkaXEZ4GgJcjATg1WFz3EpHyjiYe/JRI9XWbL6HorhDWuRdKmV030aZtLGp/H5pxxIZyw==}
+    cpu: [x64]
+    os: [win32]
+
   '@dom-expressions/compiler@0.50.0-next.34':
     resolution: {integrity: sha512-XGlXicYgEKB2hesd37GT+HuctvbLRShd/G3ij2sxAIEEo6clza2jB64ZezyuuZY6iZn/QJwxAIyUVEChZ+Tl9g==}
+
+  '@dom-expressions/compiler@0.50.0-next.37':
+    resolution: {integrity: sha512-7VTx+8snF1OcYEidwh1lZxmU5iiZs60j18MgORHkFemrK8XFFgfc+GXUp+g1h/gm8C+kPMBqGl+E8cbwwqKzyg==}
 
   '@dom-expressions/hyperscript@0.50.0-next.37':
     resolution: {integrity: sha512-G+N3y0eZlT9TchzoSaiwTypGJfkvrC85qui3UlosUwWfXAFF/pLlvgAiYo6NatGvqUl4kXDDRCVwqdZbYZlwzg==}
@@ -3639,6 +3692,17 @@ packages:
       '@testing-library/jest-dom':
         optional: true
 
+  vite-plugin-solid@3.0.0-next.22:
+    resolution: {integrity: sha512-qBRRJfZfAAeb3ZTgTpHhvWZcBH2X5qE+pi9vNOSgNQEcnWZmL9sQxNOGmBw6B0CKWpiL59rI7Qa1GLu2sTZNYA==}
+    peerDependencies:
+      '@solidjs/web': workspace:*
+      '@testing-library/jest-dom': ^5.16.6 || ^5.17.0 || ^6.*
+      solid-js: workspace:*
+      vite: ^6.0.0 || ^7.0.0 || ^8.0.0
+    peerDependenciesMeta:
+      '@testing-library/jest-dom':
+        optional: true
+
   vite@7.3.3:
     resolution: {integrity: sha512-/4XH147Ui7OGTjg3HbdWe5arnZQSbfuRzdr9Ec7TQi5I7R+ir0Rlc9GIvD4v0XZurELqA035KVXJXpR61xhiTA==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -4765,13 +4829,25 @@ snapshots:
   '@dom-expressions/compiler-darwin-arm64@0.50.0-next.34':
     optional: true
 
+  '@dom-expressions/compiler-darwin-arm64@0.50.0-next.37':
+    optional: true
+
   '@dom-expressions/compiler-darwin-x64@0.50.0-next.34':
+    optional: true
+
+  '@dom-expressions/compiler-darwin-x64@0.50.0-next.37':
     optional: true
 
   '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.34':
     optional: true
 
+  '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.37':
+    optional: true
+
   '@dom-expressions/compiler-linux-x64-gnu@0.50.0-next.34':
+    optional: true
+
+  '@dom-expressions/compiler-linux-x64-gnu@0.50.0-next.37':
     optional: true
 
   '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.34':
@@ -4781,7 +4857,17 @@ snapshots:
       '@napi-rs/wasm-runtime': 1.1.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
     optional: true
 
+  '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.37':
+    dependencies:
+      '@emnapi/core': 1.11.2
+      '@emnapi/runtime': 1.11.2
+      '@napi-rs/wasm-runtime': 1.1.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
+    optional: true
+
   '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.34':
+    optional: true
+
+  '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.37':
     optional: true
 
   '@dom-expressions/compiler@0.50.0-next.34':
@@ -4792,6 +4878,15 @@ snapshots:
       '@dom-expressions/compiler-linux-x64-gnu': 0.50.0-next.34
       '@dom-expressions/compiler-wasm32-wasi': 0.50.0-next.34
       '@dom-expressions/compiler-win32-x64-msvc': 0.50.0-next.34
+
+  '@dom-expressions/compiler@0.50.0-next.37':
+    optionalDependencies:
+      '@dom-expressions/compiler-darwin-arm64': 0.50.0-next.37
+      '@dom-expressions/compiler-darwin-x64': 0.50.0-next.37
+      '@dom-expressions/compiler-linux-arm64-gnu': 0.50.0-next.37
+      '@dom-expressions/compiler-linux-x64-gnu': 0.50.0-next.37
+      '@dom-expressions/compiler-wasm32-wasi': 0.50.0-next.37
+      '@dom-expressions/compiler-win32-x64-msvc': 0.50.0-next.37
 
   '@dom-expressions/hyperscript@0.50.0-next.37': {}
 
@@ -7067,6 +7162,23 @@ snapshots:
       merge-anything: 5.1.7
       vite: 8.1.5(@types/node@25.6.0)(esbuild@0.25.12)(terser@5.49.0)
       vitefu: 1.1.3(vite@8.1.5(@types/node@25.6.0)(esbuild@0.25.12)(terser@5.49.0))
+    optionalDependencies:
+      '@testing-library/jest-dom': 6.9.1
+    transitivePeerDependencies:
+      - supports-color
+
+  vite-plugin-solid@3.0.0-next.22(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)):
+    dependencies:
+      '@ampproject/remapping': 2.3.0
+      '@babel/core': 7.29.0
+      '@dom-expressions/compiler': 0.50.0-next.37
+      '@solidjs/web': link:packages/solid-web
+      '@types/babel__core': 7.20.5
+      babel-preset-solid: link:packages/babel-preset-solid
+      merge-anything: 5.1.7
+      solid-js: link:packages/solid
+      vite: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
+      vitefu: 1.1.3(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
     optionalDependencies:
       '@testing-library/jest-dom': 6.9.1
     transitivePeerDependencies:
