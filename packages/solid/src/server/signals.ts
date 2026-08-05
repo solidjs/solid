@@ -437,6 +437,15 @@ interface ServerComputation<T = any> {
   errored: boolean;
   computed: boolean;
   disposed: boolean;
+  // Per-epoch caching for frame renders (DR-2 case 1): `sync` marks a
+  // compute whose last result was a plain synchronous value — the only kind
+  // a commit can invalidate (async results advance through their own settle
+  // machinery and must NOT be re-run, which would mint new promises /
+  // iterators). `epoch` is the commit epoch the value was computed at; a
+  // read at a later epoch recomputes. Absent outside frame renders — the
+  // hook (`ctx.commitEpoch`) only exists where a binding ledger is live.
+  sync?: boolean;
+  epoch?: number;
 }
 
 type SsrSourceMode = "server" | "hybrid" | "client";
@@ -688,6 +697,13 @@ export function createMemo<T>(
     // Lazy: compute on first read
     if (!comp.computed) {
       update();
+    } else if (comp.sync && ctx?.commitEpoch && ctx.commitEpoch() !== comp.epoch) {
+      // Per-epoch recompute (frame renders only): a sync-valued memo pulled
+      // after a commit re-runs, so a watched slot arg's sweep reads current
+      // derivations instead of the first render's cache. Memos are pure by
+      // contract — this is the client's source-driven recompute expressed
+      // as epoch comparison, no subscriber graph needed.
+      update();
     }
     if (comp.errored) {
       throw comp.error;
@@ -729,6 +745,10 @@ function createSyncMemo<T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
   options?: ServerMemoOptions<T> | ServerClientMemoOptions<T>
 ): SourceAccessor<T | undefined> {
+  // Frame renders carry a commit epoch (DR-2 case 1): sync memos cache per
+  // epoch there, for-the-render everywhere else. Captured at creation like
+  // the async memo's ctx — async continuations may outlive request swaps.
+  const ctx = sharedConfig.context;
   const owner = createOwner();
   let value: T | undefined;
   let error: unknown;
@@ -738,6 +758,8 @@ function createSyncMemo<T>(
   // Stays false while `value` reflects a previous successful run AND a later
   // pull is needed (initial: never run; after `NotReadyError`: needs retry).
   let cached = false;
+  // The commit epoch `value`/`error` was computed at (frame renders only).
+  let epoch: number | undefined;
 
   function pull(): T | undefined {
     // Inlined `runWithOwner` — avoids the per-pull `() => compute(value)`
@@ -758,12 +780,14 @@ function createSyncMemo<T>(
       error = undefined;
       errored = false;
       cached = true;
+      epoch = ctx?.commitEpoch?.();
       return value;
     } catch (err) {
       if (err instanceof NotReadyError) throw err; // don't latch — engine re-pulls
       error = err;
       errored = true;
       cached = true;
+      epoch = ctx?.commitEpoch?.();
       throw err;
     } finally {
       currentOwner = prev;
@@ -779,10 +803,13 @@ function createSyncMemo<T>(
   }
 
   return (() => {
-    if (cached) {
+    if (cached && (!ctx?.commitEpoch || ctx.commitEpoch() === epoch)) {
       if (errored) throw error;
       return value;
     }
+    // Stale epoch (a commit happened since this computed — frame renders
+    // only) or never computed: (re)pull. Purity is the memo contract, so an
+    // epoch recompute is the client's source-driven re-run, pull-paced.
     return pull();
   }) as SourceAccessor<T | undefined>;
 }
@@ -879,6 +906,9 @@ function processResult<T>(
 ) {
   if (comp.disposed) return;
   const id = owner.id;
+  // Every (re)process resets the sync mark; only the synchronous tail sets
+  // it. An epoch recompute that turned async must not stay epoch-cached.
+  comp.sync = false;
   // `serialize: false` keeps this value out of the hydration payload while the
   // subtree still hydrates normally — distinct from NoHydrateContext, which
   // opts the whole subtree out (and suppresses the id allocation this needs
@@ -915,6 +945,12 @@ function processResult<T>(
         comp.value = value;
         comp.error = undefined;
         comp.errored = false;
+        // A settle is a commit: a frame render's binding ledger (watched
+        // slot args, DR-2 case 1) re-reads memos at commits. Serialized
+        // settles reach the sink through their own data flush, but a
+        // server-owned render (noHydrate: the HTML is the data) has no
+        // flush — this hook is its only signal. No-op outside frames.
+        ctx?.commit?.();
         return value;
       },
       (error: any) => {
@@ -922,6 +958,7 @@ function processResult<T>(
         (result as any).v = error;
         comp.error = error;
         comp.errored = true;
+        ctx?.commit?.();
       },
       () => comp.disposed
     );
@@ -957,11 +994,13 @@ function processResult<T>(
           comp.value = value;
           comp.error = undefined;
           comp.errored = false;
+          ctx?.commit?.();
           return value;
         },
         (error: any) => {
           comp.error = error;
           comp.errored = true;
+          ctx?.commit?.();
         },
         () => comp.disposed
       );
@@ -1003,11 +1042,13 @@ function processResult<T>(
           }
           comp.error = undefined;
           comp.errored = false;
+          ctx?.commit?.();
           return undefined;
         },
         (error: any) => {
           comp.error = error;
           comp.errored = true;
+          ctx?.commit?.();
         },
         () => comp.disposed
       );
@@ -1025,6 +1066,14 @@ function processResult<T>(
                     : (firstResult as IteratorResult<T>)
                 );
               }
+              // Deliberately does NOT advance comp.value: the first-value
+              // lock. Document markup rendered from V1 must keep reading V1
+              // (a Loading retry re-rendering mid-stream would otherwise
+              // bake V2 into HTML the client claims against V1) — later
+              // yields are the CLIENT's to apply, through the serialized
+              // stream. Within-response liveness for watched slot args is
+              // the frame render's story (the ctx.commit pump below), where
+              // no hydration claim exists.
               return iter.next().then((r: IteratorResult<T>) => r);
             },
             return(value?: any) {
@@ -1033,6 +1082,36 @@ function processResult<T>(
           })
         };
         ctx.serialize(id, tapped, deferStream);
+      } else if (ctx?.commit) {
+        // Server-owned render (noHydrate — the HTML is the data): nothing
+        // serializes this iterable, so nothing pumps it past the first
+        // value. When a binding ledger is listening (ctx.commit — a frame
+        // render with watched slot args), keep pulling: each yield advances
+        // the memo's value and commits, so expression args reading this
+        // memo stay live for the response window. The pump never HOLDS the
+        // response — completion latches the last yielded value — and
+        // without a listener the iterator stays pull-paced (no consumer,
+        // no pump), same as before.
+        const pump = () => {
+          if (comp.disposed) {
+            closeAsyncIterator(iter);
+            return;
+          }
+          iter.next().then(
+            (r: IteratorResult<T>) => {
+              if (comp.disposed) {
+                closeAsyncIterator(iter);
+                return;
+              }
+              if (r.done) return;
+              comp.value = r.value;
+              ctx.commit();
+              pump();
+            },
+            () => {}
+          );
+        };
+        deferred.promise.then(pump, () => {});
       }
       comp.error = new NotReadyError(deferred.promise);
       comp.errored = true;
@@ -1046,6 +1125,8 @@ function processResult<T>(
   // inputs, and the purity contract they already live under makes that
   // converge. Serialization is the async mechanism only.
   comp.value = result;
+  comp.sync = true;
+  comp.epoch = ctx?.commitEpoch?.();
 }
 
 function closeAsyncIterator(iter: any, value?: any) {

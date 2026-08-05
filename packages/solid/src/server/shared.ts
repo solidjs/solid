@@ -72,6 +72,21 @@ export type HydrationContext = {
   _loadingPhase?: boolean;
   /** True only in renderToStream — enables async data serialization and streaming. */
   async?: boolean;
+  /**
+   * Frame renders only (DR-2 case 1, set by the frame sink): signal that an
+   * async value settled without a serialization flush the sink could see —
+   * the binding ledger schedules an equality-gated sweep of watched slot
+   * args. No-op semantics elsewhere; absent outside frame renders.
+   */
+  commit?: () => void;
+  /**
+   * Frame renders only (set alongside `commit`): the sink's commit epoch.
+   * Sync-valued memos cache per epoch — cached within one sweep, recomputed
+   * when pulled after a later commit — so watched-arg sweeps read current
+   * derivations. Absent outside frame renders (memos then cache for the
+   * render, the document-SSR contract).
+   */
+  commitEpoch?: () => number;
 };
 
 export const NoHydrateContext: Context<boolean> = {

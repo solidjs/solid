@@ -18,3 +18,8 @@ overrides:
   '@solidjs/signals': workspace:*
   solid-js: workspace:*
   '@solidjs/web': workspace:*
+  # DR-2 case 1 (expression bindings) rides both repos' dr2 branches: link
+  # the sibling runtime worktree so the frame tests exercise the binding
+  # ledger this branch's ctx.commit hooks feed. Drop before merge, once the
+  # runtime publishes.
+  '@dom-expressions/runtime': link:../dom-expressions-dr2/packages/runtime

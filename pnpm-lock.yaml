@@ -9,6 +9,7 @@ overrides:
   '@solidjs/signals': workspace:*
   solid-js: workspace:*
   '@solidjs/web': workspace:*
+  '@dom-expressions/runtime': link:../dom-expressions-dr2/packages/runtime
 
 importers:
 
@@ -39,8 +40,8 @@ importers:
         specifier: 0.50.0-next.37
         version: 0.50.0-next.37
       '@dom-expressions/runtime':
-        specifier: 0.50.0-next.37
-        version: 0.50.0-next.37(csstype@3.2.3)(seroval-plugins@1.5.5(seroval@1.5.5))(seroval@1.5.5)
+        specifier: link:../dom-expressions-dr2/packages/runtime
+        version: link:../dom-expressions-dr2/packages/runtime
       '@dom-expressions/tagged-jsx':
         specifier: 0.50.0-next.37
         version: 0.50.0-next.37
@@ -1165,14 +1166,6 @@ packages:
 
   '@dom-expressions/hyperscript@0.50.0-next.37':
     resolution: {integrity: sha512-G+N3y0eZlT9TchzoSaiwTypGJfkvrC85qui3UlosUwWfXAFF/pLlvgAiYo6NatGvqUl4kXDDRCVwqdZbYZlwzg==}
-
-  '@dom-expressions/runtime@0.50.0-next.37':
-    resolution: {integrity: sha512-fg4YBXKSRPwnU0AeEeoTQQpQh5M5C8/7Jx/k12gXglYyOkJF7VzzkEhDG1Ht2PaWZYSRnJPcvd/ojhxEHbv2yw==}
-    hasBin: true
-    peerDependencies:
-      csstype: ^3.0
-      seroval: ~1.5.4
-      seroval-plugins: ~1.5.4
 
   '@dom-expressions/tagged-jsx@0.50.0-next.37':
     resolution: {integrity: sha512-2nzfQiarrrkpCWtR2ADVBOoXVE0ZFPWnWB6qK93Z3EINeQAA+DLSwUGymdj6aRbAyMmYPKh+xVY6DLx1MK7prQ==}
@@ -4889,13 +4882,6 @@ snapshots:
       '@dom-expressions/compiler-win32-x64-msvc': 0.50.0-next.37
 
   '@dom-expressions/hyperscript@0.50.0-next.37': {}
-
-  '@dom-expressions/runtime@0.50.0-next.37(csstype@3.2.3)(seroval-plugins@1.5.5(seroval@1.5.5))(seroval@1.5.5)':
-    dependencies:
-      babel-plugin-transform-rename-import: 2.3.0
-      csstype: 3.2.3
-      seroval: 1.5.5
-      seroval-plugins: 1.5.5(seroval@1.5.5)
 
   '@dom-expressions/tagged-jsx@0.50.0-next.37': {}
 

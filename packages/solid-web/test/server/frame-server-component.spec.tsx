@@ -134,3 +134,110 @@ describe("server components authored with Solid JSX", () => {
     );
   });
 });
+
+describe("watched slot args through Solid's reactive core (DR-2 case 1)", () => {
+  // The authored form of the Q1 gap: `<props.slot thing={thing()} />`
+  // compiles the arg to a GETTER, and the producer opens a watched binding
+  // for it — re-evaluated at every commit the response observes, re-emitting
+  // the occurrence's record when the value changed. These tests wire the
+  // full stack: Solid's server memos advance their values (the ctx.commit
+  // hooks and the iterator pump), the sink's ledger sweeps, and the record
+  // re-emits — within the response window only.
+
+  it("a getter over an async-iterable memo stays live: later yields re-emit the record", async () => {
+    async function* ticks() {
+      yield "1";
+      await asyncValue(null, 5);
+      yield "2";
+      await asyncValue(null, 5);
+      yield "3";
+    }
+    const ServerComp = (props: any) => {
+      const progress = createMemo(() => ticks());
+      // Something else must hold the response window open past the yields:
+      // the pump never holds completion (the window latches when the
+      // response's own work is done). This boundary settles after the
+      // iterator finishes — the chat-example shape.
+      const hold = createMemo(async () => asyncValue("done", 40));
+      return (
+        <div>
+          <props.status progress={progress()} />
+          <Loading fallback={<span>…</span>}>
+            <p>{hold()}</p>
+          </Loading>
+        </div>
+      );
+    };
+    const chunks = await collect(renderServerComponent(ServerComp, { frame: { id: "live" } }));
+    const slots = chunks.filter(c => c.type === "slot" && c.key === "status#0");
+    // The record shipped immediately — the memo wasn't ready at emission, so
+    // the first record's arg is the pending ref the retry loop settles with
+    // the FIRST yield.
+    expect(slots[0].args.progress.$ref).toBe("arg:status#0:progress");
+    const table = createJSONDataTable();
+    for (const c of chunks.filter(x => x.type === "data")) table.apply(c);
+    await expect(table.resolve(slots[0].args.progress)).resolves.toBe("1");
+    // Each later yield advanced the memo and committed: the sweep re-read
+    // the getter and re-emitted the record with the new scalar inline. The
+    // last record latches the final yield before complete.
+    const inline = slots.map(s => s.args.progress).filter(v => typeof v === "string");
+    expect(inline[inline.length - 1]).toBe("3");
+    expect(chunks[chunks.length - 1].type).toBe("complete");
+  });
+
+  it("a promise memo's settle commits: a getter reading state it mutated re-emits", async () => {
+    const ServerComp = (props: any) => {
+      const state = { stage: "first" };
+      const done = createMemo(async () => {
+        await asyncValue(null, 10);
+        state.stage = "second";
+        return "ok";
+      });
+      return (
+        <div>
+          <props.row stage={state.stage} />
+          <Loading fallback={<span>…</span>}>
+            <p>{done()}</p>
+          </Loading>
+        </div>
+      );
+    };
+    const chunks = await collect(renderServerComponent(ServerComp, { frame: { id: "settle" } }));
+    const slots = chunks.filter(c => c.type === "slot" && c.key === "row#0");
+    // Emission read "first"; the memo's settle poked the commit hook (and
+    // its fragment flushed through the sink) — either way the sweep saw
+    // "second" and re-emitted before completion latched it.
+    expect(slots[0].args.stage).toBe("first");
+    expect(slots[slots.length - 1].args.stage).toBe("second");
+    expect(chunks[chunks.length - 1].type).toBe("complete");
+  });
+
+  it("a getter through a sync-derivation memo recomputes per commit (epoch caching)", async () => {
+    // The cliff the design forbids: `v={derived()}` must behave like the
+    // inlined expression. Server memos cache — per RENDER in document SSR,
+    // per commit EPOCH in frame renders — so the sweep's re-read pulls a
+    // fresh derivation instead of the first render's cache.
+    const ServerComp = (props: any) => {
+      const state = { n: 1 };
+      const derived = createMemo(() => state.n * 10);
+      const done = createMemo(async () => {
+        await asyncValue(null, 10);
+        state.n = 2;
+        return "ok";
+      });
+      return (
+        <div>
+          <props.row v={derived()} />
+          <Loading fallback={<span>…</span>}>
+            <p>{done()}</p>
+          </Loading>
+        </div>
+      );
+    };
+    const chunks = await collect(renderServerComponent(ServerComp, { frame: { id: "epoch" } }));
+    const slots = chunks.filter(c => c.type === "slot" && c.key === "row#0");
+    expect(slots[0].args.v).toBe(10);
+    expect(slots[slots.length - 1].args.v).toBe(20);
+    expect(chunks[chunks.length - 1].type).toBe("complete");
+  });
+});
