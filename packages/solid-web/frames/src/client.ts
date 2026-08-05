@@ -689,7 +689,14 @@ function adoptBoundary(
         const hy = (globalThis as any)._$HY;
         return !!(hy && hy.fr && hy.fr.pending());
       },
-      drainRecords
+      drainRecords,
+      // The identity split binds the frame to the call ADDRESS (id + args
+      // hash), but the document producer stamped `_hk` keys and region fids
+      // under the wire name — the bare function id. Hydration-claim prefixes
+      // must derive from what the producer wrote, so thread the wire id down
+      // as the claim scope; without it every adopted claim misses and the
+      // occurrence re-renders fresh clones that cannibalize the server DOM.
+      claimScope: id
     } as {})
   });
   if (binding) followBinding(frame, binding);
