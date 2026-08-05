@@ -110,6 +110,55 @@ Retraction is what makes the scope tie meaningful: each write snapshots the prio
 
 Under streaming this implies the natural constraint: status and headers must be decided by content in the shell. Anything that resolves after the shell flush is past `committed` and can no longer speak — use `deferStream` (RFC 05) on the source that decides the status if it must be waited for.
 
+### The response-head lifecycle: `createRequestEvent` / `createSSRResponse`
+
+The stub only means something if a handler actually runs the lifecycle: build the stub-backed event, render inside its scope, and derive the outgoing `Response` head at the moment it freezes on the wire. That choreography is core protocol, not integration policy — every handler that reimplements it drifts on the same edges (when exactly `committed` flips, what a redirect set before vs. after the shell flush should do) — so core ships it:
+
+```tsx
+import { renderToStream, createRequestEvent, createSSRResponse } from "@solidjs/web";
+import { provideRequestEvent } from "@solidjs/web/storage";
+
+export function handleRequest(request: Request): Promise<Response> {
+  const event = createRequestEvent(request);
+  return provideRequestEvent(event, () =>
+    createSSRResponse(renderToStream(() => <App />), event)
+  );
+}
+```
+
+- `createRequestEvent(request, init?)` builds the canonical event: `request`, `locals`, and a fresh uncommitted `response` stub (`createResponseStub()` is exported separately). `init` spreads over the defaults, so a framework extends the shape — or substitutes its own structurally-compatible `response` — while every event still looks the same to code reading it.
+- `createSSRResponse(result, event, options?)` accepts a string (from `renderToString`, or an awaited stream) or a `renderToStream` result, and runs the head lifecycle against `event.response`:
+  - **At shell flush** — the moment the head freezes — the stub is `committed` and its status/headers are merged over `options.responseInit` (`Set-Cookie` values survive as separate entries; `content-type` defaults to `text/html; charset=utf-8`).
+  - **A `Location` present before the flush** becomes a real redirect instead of an HTML response: bodyless, carrying the stub’s cookies, with the status from `getExpectedRedirectStatus` (also exported — the stub’s own status when it is a redirect status, `302` otherwise, because a status set for the page render doesn’t describe the redirect that preempts it).
+  - **A `Location` set after the flush** can only be honored client-side: stream completion appends `<script>window.location=…</script>` before closing, carrying `options.nonce` so a strict `script-src` CSP doesn’t block it.
+  - `options.transformChunk(chunk)` rewrites each outgoing HTML chunk — the seam handlers use for entry-script injection and doctype prefixes.
+
+  String results return a `Response` synchronously; stream results return a promise that resolves at shell flush, so returning it from a fetch handler sends the head at the right moment by construction.
+
+### Middleware: `composeMiddleware`
+
+Handlers compose request middleware with the same web-standard shape everything else uses — `(request, next) => Response | Promise<Response>`:
+
+```ts
+import { composeMiddleware, getRequestEvent } from "@solidjs/web";
+
+const run = composeMiddleware([
+  async (request, next) => {
+    getRequestEvent()!.locals.user = await authenticate(request);
+    const response = await next();
+    response.headers.set("x-served-by", "solid");
+    return response;
+  }
+]);
+```
+
+`next()` advances the chain (an optional `Request` argument substitutes the request downstream); the terminal `next` handed to the composed function dispatches to the actual handler. Two properties are load-bearing:
+
+- The chain runs **inside the request scope** the handler established, so `getRequestEvent()` — `locals`, the response stub — works in middleware exactly as it does in application code.
+- Nothing reaches the wire until the outermost middleware returns: a streamed body hasn’t been consumed yet when `next()` resolves, so headers on the returned `Response` are still mutable through the whole unwind. Error middleware is a plain `try { return await next(); } catch { … }`.
+
+What core deliberately does not ship: routing of middleware (per-path matching), session/cookie policy, and platform adapters — those belong to the layer above, which composes them out of this shape.
+
 ## Migration / replacement
 
 | Old (1.x / SolidStart) | New |
@@ -118,6 +167,8 @@ Under streaming this implies the natural constraint: status and headers must be 
 | `import { getRequestEvent } from "solid-js/web"` | `import { getRequestEvent } from "@solidjs/web"` |
 | Start’s `<HttpStatusCode code={404} />` / `<HttpHeader />` components (`@solidjs/start`) | `httpStatus(404)` / `httpHeader(...)` primitives from `@solidjs/web` — core ships functions only |
 | Hand-rolled `TransformStream` around `pipeTo` for `Response` bodies | `renderToStream(...).readable` |
+| Start’s `createMiddleware` (h3 `Middleware` shapes) | `composeMiddleware` over web-standard `(request, next) => Response` functions |
+| Hand-rolled head merging / redirect handling in server handlers | `createRequestEvent` + `createSSRResponse` (commit at shell flush, redirect protocol, post-flush script fallback) |
 
 ## Removals
 
