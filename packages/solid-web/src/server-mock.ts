@@ -182,14 +182,24 @@ export function getExpectedRedirectStatus(response: ResponseStub): number {
  * shell flush. Server-only.
  */
 export function createSSRResponse(
-  result: string | { pipe: (writable: { write: (v: string) => void; end: () => void }) => void },
+  result: string,
   event: { response?: ResponseStub },
   options?: {
     responseInit?: ResponseInit;
     nonce?: string;
     transformChunk?: (chunk: string) => string;
   }
-): Response | Promise<Response> {
+): Response;
+export function createSSRResponse(
+  result: { pipe: (writable: { write: (v: string) => void; end: () => void }) => void },
+  event: { response?: ResponseStub },
+  options?: {
+    responseInit?: ResponseInit;
+    nonce?: string;
+    transformChunk?: (chunk: string) => string;
+  }
+): Promise<Response>;
+export function createSSRResponse(): Response | Promise<Response> {
   throwInBrowser(createSSRResponse);
 }
 
