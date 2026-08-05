@@ -75,6 +75,18 @@ export {
 // the client bundle.
 export type { Slot } from "./server.js";
 
+/**
+ * Client-condition twin of the server face's `asyncArg` (DR-2 value tier):
+ * the identity that types an async value crossing the slot border as its
+ * settled value. Server component modules are authored in universal code and
+ * may resolve under the browser condition at typecheck/bundle time — the
+ * call never runs here (the `"use server"` body executes server-side), but
+ * the symbol must exist.
+ */
+export function asyncArg<T>(value: PromiseLike<T> | AsyncIterable<T>): T {
+  return value as T;
+}
+
 // One host per app is the norm: one chunk router, with codec data tables
 // rotated PER RESPONSE — the deserializer's cross-reference space is
 // stream-scoped by contract, so each stream into a boundary gets a fresh

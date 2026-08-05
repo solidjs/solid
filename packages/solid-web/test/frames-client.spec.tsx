@@ -451,6 +451,110 @@ describe("server components through dynamic", () => {
     container.remove();
   });
 
+  test("an async-iterable slot arg reads as the latest yield and updates per yield (DR-2 value tier)", async () => {
+    // The token-stream shape: the server passes an async iterable whole; the
+    // client prop READ goes through the async read path — suspended until
+    // the first yield (the covering boundary holds), then the read IS the
+    // latest yielded value, updating as the server's patches land. Real
+    // serializer on the producing side: seroval streams each yield as a data
+    // record.
+    const yields: ((v: IteratorResult<string>) => void)[] = [];
+    const source: AsyncIterable<string> = {
+      [Symbol.asyncIterator]: () => ({
+        next: () => new Promise<IteratorResult<string>>(r => yields.push(r))
+      })
+    };
+    const dataRecords: any[] = [];
+    const ser = createJSONSerializer({ onData: (r: any) => dataRecords.push(r) });
+    ser.write("arg:feed#0:tokens", source);
+    const initialData = dataRecords.splice(0);
+
+    let controller!: ReadableStreamDefaultController;
+    const body = new ReadableStream({ start: c => (controller = c) });
+    const send = (chunk: any) => controller.enqueue(createChunk(JSON.stringify(chunk)));
+    const drain = () => {
+      for (const r of dataRecords.splice(0)) send({ type: "data", id: "srv", version: 1, ...r });
+    };
+    vi.stubGlobal("fetch", async () => {
+      const chunks = [
+        { type: "start", id: "srv", version: 1 },
+        {
+          type: "slot",
+          id: "srv",
+          version: 1,
+          key: "feed#0",
+          args: { tokens: { $ref: "arg:feed#0:tokens" } }
+        },
+        ...initialData.map(r => ({ type: "data", id: "srv", version: 1, ...r })),
+        {
+          type: "html",
+          id: "srv",
+          version: 1,
+          html: "<section><!--slot:feed#0:start--><!--slot:feed#0:end--></section>"
+        }
+      ];
+      for (const c of chunks) send(c);
+      return new Response(body, { headers: { "X-Frame-Stream": "srv" } });
+    });
+
+    const Story = dynamic(() => getStory(1) as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={div}>
+        <Loading fallback={<span>waiting</span>}>
+          <Story feed={(p: any) => <p>{p.tokens}</p>} />
+        </Loading>
+      </div>;
+      container.appendChild(div);
+      return d;
+    });
+    flush();
+    await settle();
+    flush();
+    await settle();
+
+    // No yield yet: the read is pending, the boundary holds.
+    expect(div.textContent).toContain("waiting");
+
+    // First yield: seroval streams the enqueue; the read settles to it and
+    // the boundary reveals.
+    yields.shift()!({ value: "Hello", done: false });
+    await settle();
+    drain();
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(div.textContent).not.toContain("waiting");
+    expect(div.querySelector("p")!.textContent).toBe("Hello");
+
+    // Later yields update the SAME read in place — the LLM accumulation
+    // shape (each yield a fuller snapshot).
+    yields.shift()!({ value: "Hello world", done: false });
+    await settle();
+    drain();
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(div.querySelector("p")!.textContent).toBe("Hello world");
+
+    yields.shift()!({ value: undefined as any, done: true });
+    await settle();
+    drain();
+    send({ type: "complete", id: "srv", version: 1 });
+    controller.close();
+    flush();
+    await settle();
+    // Completion keeps the last value.
+    expect(div.querySelector("p")!.textContent).toBe("Hello world");
+
+    dispose();
+    container.remove();
+  });
+
   test("two dynamic() sources over one server function get independent boundaries", async () => {
     const queue = [storyResponse(1, "Left"), storyResponse(1, "Right")];
     vi.stubGlobal("fetch", async () => queue.shift()!);

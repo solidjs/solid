@@ -37,6 +37,25 @@ import type { Element as SolidElement } from "solid-js";
  */
 export type Slot<P = {}> = (props: P & { $key?: string | number }) => SolidElement;
 
+/**
+ * Types an async value crossing the slot border (DR-2, value tier). What you
+ * pass is what ships — the promise / async iterable itself rides the data
+ * channel — but the client's prop READ settles: it suspends into the covering
+ * boundary until first arrival (a promise's resolution, an iterable's first
+ * yield), then reads as the settled value, updating per yield for iterables.
+ *
+ * `asyncArg` is the type-level statement of that contract: identity at
+ * runtime, settled type at the border, so `Slot<P>` keeps the fill's props
+ * truthful to what its reads actually return.
+ *
+ * ```tsx
+ * props.status({ progress: asyncArg(gen.progress), stats: asyncArg(gen.stats) })
+ * ```
+ */
+export function asyncArg<T>(value: PromiseLike<T> | AsyncIterable<T>): T {
+  return value as T;
+}
+
 export {
   renderToFrameStream,
   renderServerComponent,
