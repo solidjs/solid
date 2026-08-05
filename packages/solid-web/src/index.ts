@@ -369,9 +369,19 @@ export function dynamic<T extends ValidComponent>(
   // mounted more than once (each mount is its own instance with its own
   // address accessor), and a kept resolution must reach every one.
   const sites = new Set<Setter<string>>();
+  // The latest resolution's address, tracked at THIS level because a kept
+  // resolution returns `prev` — a binding whose `.address` is frozen at the
+  // first resolution — and `sites` only reaches mounts that exist right now.
+  // A site mounting AFTER a delivery (unmount → remount over the same
+  // dynamic, the turnkey away/back cycle) must initialize from the latest
+  // delivered address, not the kept binding's original one: initializing
+  // stale binds the fresh mount to the first call's resident store (the SSR
+  // payload) while the refetched response warms a store nothing reads.
+  let deliveredAddress: string | undefined;
   const resolveBinding = (next: any, prev: any) => {
     const binding = bindingOf(next);
     if (!binding) return next;
+    deliveredAddress = binding.address;
     const prevBinding = bindingOf(prev);
     if (prevBinding && prevBinding.component === binding.component) {
       for (const deliver of sites) deliver(binding.address);
@@ -406,8 +416,10 @@ export function dynamic<T extends ValidComponent>(
             // Mount the per-function component with a LIVE address accessor
             // (the transport's second-argument convention); kept resolutions
             // above deliver into it, and the instance follows — no re-render
-            // at this seam.
-            const [address, setAddress] = createSignal(binding.address);
+            // at this seam. Initialize from the LATEST resolved address: the
+            // kept binding's own `.address` is the first resolution's and
+            // goes stale the moment a later call is kept-delivered.
+            const [address, setAddress] = createSignal(deliveredAddress ?? binding.address);
             sites.add(setAddress);
             onCleanup(() => sites.delete(setAddress));
             return untrack(() => (binding.component as any)(props, address));

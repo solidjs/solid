@@ -526,6 +526,78 @@ describe("server components through dynamic", () => {
     container.remove();
   });
 
+  test("a remounted site binds the latest call's address, not the first resolution's (away/back)", async () => {
+    // The turnkey away/back regression: dynamic's `cached` memo outlives the
+    // mounted instance (it belongs to the dynamic() call, not the JSX site),
+    // and a kept resolution (`same component`) returns `prev` — whose
+    // `.address` is frozen at the FIRST resolution — delivering the new
+    // address only to currently-mounted sites. Unmount the site, remount
+    // after the args changed: the resolution's delivery lands on nobody, and
+    // the fresh mount must NOT initialize from the stale prev binding's
+    // address (it would seed the boundary from the first call's resident
+    // store — the SSR payload in the field failure — while the refetched
+    // response warms a store nothing is bound to).
+    const [story, setStory] = createSignal(1);
+    const [show, setShow] = createSignal(true);
+    const fetched: number[] = [];
+    vi.stubGlobal("fetch", async (_base: any, init: any) => {
+      const v = JSON.parse(String(init.body))[0];
+      fetched.push(v);
+      return storyResponse(v, `Story ${v}`);
+    });
+    const Story = dynamic(() => getStory(story()) as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={div}>
+        {show() ? (
+          <Loading fallback={<span>...</span>}>
+            <Story comment={(p: any) => <li>{p.text}</li>} />
+          </Loading>
+        ) : (
+          <p>away</p>
+        )}
+      </div>;
+      container.appendChild(div);
+      return d;
+    });
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(div.querySelector("h1")!.textContent).toBe("Story 1");
+
+    // Same site, new args: morphs in place (the live-delivery path).
+    setStory(2);
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(div.querySelector("h1")!.textContent).toBe("Story 2");
+
+    // Navigate away: the boundary unmounts; the dynamic component (and its
+    // cached resolution) survive at the outer scope.
+    setShow(false);
+    flush();
+    expect(div.querySelector("article")).toBe(null);
+    expect(div.querySelector("p")!.textContent).toBe("away");
+
+    // Navigate back: the source re-runs (a fresh request goes out — the
+    // t=0 boundary was consumed on adoption in the field shape) and the
+    // remounted boundary must show the CURRENT call's content.
+    setShow(true);
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(fetched).toEqual([1, 2, 2]);
+    expect(div.querySelector("h1")!.textContent).toBe("Story 2");
+
+    dispose();
+    container.remove();
+  });
+
   test("props the server never placed stay unmounted; unknown occurrences without props stay empty", async () => {
     vi.stubGlobal("fetch", async () => storyResponse(1, "Solo"));
     const Story = dynamic(() => getStory(1) as any);
