@@ -361,6 +361,68 @@ describe("sync async iterator support", () => {
     expect(value!()).toBe(3); // Async value arrived
   });
 
+  it("should drain a next() that returns a bare IteratorResult (no thenable)", () => {
+    // The async iterator protocol says next() returns a promise, but real
+    // producers cheat: seroval's deserialized streams hand back the buffered
+    // IteratorResult BARE when a value is already queued (a promise-free fast
+    // path — `for await` tolerates it because `await` unwraps values and
+    // thenables alike). The iterate loop must extend the same tolerance
+    // instead of calling `.then` on a plain object and halting the graph.
+    const values = [1, 2, 3];
+    const bareIterator = {
+      next() {
+        const value = values.shift();
+        return (
+          value === undefined
+            ? new Promise<IteratorResult<number>>(() => {})
+            : { value, done: false }
+        ) as any;
+      },
+      [Symbol.asyncIterator]() {
+        return this as any;
+      }
+    } as AsyncIterable<number>;
+
+    let value!: () => number;
+    createRoot(() => {
+      value = createMemo(() => bareIterator);
+      createRenderEffect(value, () => {});
+    });
+    expect(value()).toBe(3); // Bare sync values drained, pending tail holds the last
+  });
+
+  it("should settle a bare done result and later bare yields after an async gap", async () => {
+    // The seroval mid-stream shape: buffered values come back bare, a drained
+    // buffer returns a real promise, and post-gap values are bare again.
+    let resolveGap!: (r: IteratorResult<number>) => void;
+    let calls = 0;
+    const iterator = {
+      next(): any {
+        calls++;
+        if (calls === 1) return { value: 1, done: false };
+        if (calls === 2) return new Promise<IteratorResult<number>>(r => (resolveGap = r));
+        if (calls === 3) return { value: 3, done: false };
+        return { value: undefined, done: true };
+      },
+      [Symbol.asyncIterator]() {
+        return this as any;
+      }
+    } as AsyncIterable<number>;
+
+    let value!: () => number;
+    createRoot(() => {
+      value = createMemo(() => iterator);
+      createRenderEffect(value, () => {});
+    });
+    expect(value()).toBe(1);
+
+    resolveGap({ value: 2, done: false });
+    await Promise.resolve();
+    flush();
+    // The post-gap pulls (bare 3, bare done) drain through the async write path.
+    expect(value()).toBe(3);
+  });
+
   it("should call async iterator return when invalidated", () => {
     let returnCalls = 0;
     const [$source, setSource] = createSignal(0);

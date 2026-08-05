@@ -442,9 +442,24 @@ export function handleAsync<T>(
         resolved = false,
         rejected = false,
         isSync = true;
-      it.next().then(
+      // Protocol tolerance, matching `for await`: `await` unwraps whatever
+      // next() returns — a thenable OR a bare IteratorResult. Real producers
+      // use the bare form as a promise-free fast path when a value is already
+      // buffered (seroval's deserialized streams do), so a bare result is
+      // assimilated as an already-settled step instead of crashing on `.then`.
+      const step = it.next();
+      const settled: PromiseLike<IteratorResult<T>> = isThenable(step)
+        ? step
+        : { then: onSettle => void onSettle!(step) as any };
+      settled.then(
         r => {
-          if (isSync) {
+          // The sync stash only serves the INITIAL drain (handleAsync's caller
+          // consumes syncValue / throws NotReady from it). A sync-settled step
+          // after an async gap — seroval buffering values between pulls, a
+          // sync-thenable producer mid-stream — has no caller reading the
+          // stash: it must write through the async path or the value is
+          // silently dropped.
+          if (isSync && initialRead) {
             syncResult = r;
             resolved = true;
             if (r.done) completed = true;
