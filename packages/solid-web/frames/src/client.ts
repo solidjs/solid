@@ -211,10 +211,50 @@ function claimRender(prefix: string, existing: Node[], render: () => any) {
 function liveSlotProps(initial: Record<string, any>, ctx: any) {
   const [args, setArgs] = createSignal(initial);
   ctx.onUpdate((next: Record<string, any>) => setArgs(() => next));
+  return slotArgsProxy(args);
+}
+
+/**
+ * Whether a slot arg value is an async value passed whole (a promise or an
+ * async iterable) — DR-2's value tier. The server never resolves these to
+ * dead values; the client suspends at the consumption read.
+ */
+function isAsyncValue(v: any): boolean {
+  return (
+    v !== null &&
+    typeof v === "object" &&
+    (typeof v.then === "function" || typeof v[Symbol.asyncIterator] === "function")
+  );
+}
+
+/**
+ * The props object handed to a render-prop occurrence. Plain values read
+ * straight through (and stay reactive over `args` for live updates); an
+ * async value reads through a lazily-created async memo, so the prop read
+ * follows the normal async read path — it suspends into the reading
+ * component's nearest `Loading` (the reveal seam's reconstructed boundary
+ * when the fill has none of its own) and settles to the value when the
+ * server's data chunk lands. Memos are created under the occurrence's owner
+ * (not the reader's), so they live as long as the occurrence: a read from a
+ * later effect or event handler reuses the same source.
+ */
+function slotArgsProxy(args: () => Record<string, any>) {
+  const owner = getOwner();
+  const asyncReads = new Map<PropertyKey, () => any>();
   return new Proxy(
     {},
     {
-      get: (_, key) => (args() as any)[key],
+      get: (_, key) => {
+        const v = (args() as any)[key];
+        if (!isAsyncValue(v)) return v;
+        let read = asyncReads.get(key);
+        if (!read) {
+          const make = () => createMemo(() => (args() as any)[key]);
+          read = owner ? runWithOwner(owner, make)! : make();
+          asyncReads.set(key, read);
+        }
+        return read();
+      },
       has: (_, key) => key in args(),
       ownKeys: () => Reflect.ownKeys(args()),
       getOwnPropertyDescriptor: (_, key) =>
@@ -321,7 +361,12 @@ function slotsFor(props: Record<string, any>) {
               // Render-prop calls get LIVE props (see liveSlotProps): the
               // frame updates them in place on an args change rather than
               // re-calling, so occurrence state survives entity morphs.
-              return v(ctx.onUpdate ? liveSlotProps(slotProps, ctx) : slotProps);
+              // Without live updates the same async-read wrap still applies
+              // over the static args (DR-2: async values suspend at the
+              // consumption read on every path).
+              return v(
+                ctx.onUpdate ? liveSlotProps(slotProps, ctx) : slotArgsProxy(() => slotProps)
+              );
             }
             return v;
           };

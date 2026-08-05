@@ -25,6 +25,7 @@ import { installServerComponents, createFrameHost } from "../frames/src/client.j
 import { createJSONDataTable } from "../serialization/src/index.js";
 import { createServerReference } from "@dom-expressions/runtime/src/server-functions/client.js";
 import { createChunk } from "@dom-expressions/runtime/src/server-functions/shared.js";
+import { createJSONSerializer } from "@dom-expressions/runtime/src/serializer.js";
 
 function frameResponse(id: string, chunks: any[]) {
   const body = new ReadableStream({
@@ -363,6 +364,88 @@ describe("server components through dynamic", () => {
     await settle();
     expect(div.textContent).not.toContain("seg-loading");
     expect(div.querySelector("b")!.textContent).toBe("hello");
+
+    dispose();
+    container.remove();
+  });
+
+  test("suspends an async slot arg at the consumption read and settles from the data chunk (DR-2 value tier)", async () => {
+    // A promise passed whole as a slot arg (DR-2 case 2): the record ships
+    // with the arg as a pending {$ref}; the fill's prop READ suspends via the
+    // async read path (never renders the raw Promise); the server's seroval
+    // patch chunk settles it. Real serializer on the producing side so the
+    // wire shape is exactly what a frame stream emits.
+    let resolveText!: (v: string) => void;
+    const textPromise = new Promise<string>(r => (resolveText = r));
+    const dataRecords: any[] = [];
+    const ser = createJSONSerializer({ onData: (r: any) => dataRecords.push(r) });
+    ser.write("arg:comment#0:text", textPromise);
+    const initialData = dataRecords.splice(0);
+
+    let controller!: ReadableStreamDefaultController;
+    const body = new ReadableStream({ start: c => (controller = c) });
+    const send = (chunk: any) => controller.enqueue(createChunk(JSON.stringify(chunk)));
+    vi.stubGlobal("fetch", async () => {
+      // Real producer order: slot + data records emit during render (the
+      // serialize happens as args classify), html at flush.
+      const chunks = [
+        { type: "start", id: "srv", version: 1 },
+        {
+          type: "slot",
+          id: "srv",
+          version: 1,
+          key: "comment#0",
+          args: { text: { $ref: "arg:comment#0:text" } }
+        },
+        ...initialData.map(r => ({ type: "data", id: "srv", version: 1, ...r })),
+        {
+          type: "html",
+          id: "srv",
+          version: 1,
+          html: "<article><ul><!--slot:comment#0:start--><!--slot:comment#0:end--></ul></article>"
+        }
+      ];
+      for (const c of chunks) send(c);
+      return new Response(body, { headers: { "X-Frame-Stream": "srv" } });
+    });
+
+    const Story = dynamic(() => getStory(1) as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={div}>
+        <Loading fallback={<span>waiting</span>}>
+          <Story comment={(p: any) => <li>{p.text}</li>} />
+        </Loading>
+      </div>;
+      container.appendChild(div);
+      return d;
+    });
+    flush();
+    await settle();
+    flush();
+    await settle();
+
+    // The arg is pending: the read suspended (fallback holds); the raw
+    // Promise never rendered as text.
+    expect(div.textContent).toContain("waiting");
+    expect(div.textContent).not.toContain("Promise");
+
+    // The server's value settles: the resolution patch rides the data
+    // channel, then the stream completes.
+    resolveText("late text");
+    await settle();
+    for (const r of dataRecords.splice(0)) send({ type: "data", id: "srv", version: 1, ...r });
+    send({ type: "complete", id: "srv", version: 1 });
+    controller.close();
+    flush();
+    await settle();
+    flush();
+    await settle();
+
+    expect(div.textContent).not.toContain("waiting");
+    expect(div.querySelector("li")!.textContent).toBe("late text");
 
     dispose();
     container.remove();
