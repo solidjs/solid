@@ -9,7 +9,7 @@ overrides:
   '@solidjs/signals': workspace:*
   solid-js: workspace:*
   '@solidjs/web': workspace:*
-  '@dom-expressions/runtime': link:../dom-expressions-dr2/packages/runtime
+  '@dom-expressions/runtime': link:../dom-expressions/packages/runtime
 
 importers:
 
@@ -40,8 +40,8 @@ importers:
         specifier: 0.50.0-next.37
         version: 0.50.0-next.37
       '@dom-expressions/runtime':
-        specifier: link:../dom-expressions-dr2/packages/runtime
-        version: link:../dom-expressions-dr2/packages/runtime
+        specifier: link:../dom-expressions/packages/runtime
+        version: link:../dom-expressions/packages/runtime
       '@dom-expressions/tagged-jsx':
         specifier: 0.50.0-next.37
         version: 0.50.0-next.37
