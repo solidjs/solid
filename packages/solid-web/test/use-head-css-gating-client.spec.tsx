@@ -13,7 +13,7 @@
 // dispatched manually and server-loaded sheets model `.sheet` directly —
 // same technique as the runtime's own head.spec.js.
 import { describe, expect, test } from "vitest";
-import { createSignal, Loading, flush } from "solid-js";
+import { createSignal, isPending, Loading, flush } from "solid-js";
 import { render, useHead } from "../src/index.js";
 
 function Route(props: { name: string; css: string }) {
@@ -100,6 +100,49 @@ describe("useHead stylesheet reveal gating — client integration", () => {
     expect(div.innerHTML).toContain("<main>B</main>");
     expect(div.innerHTML).not.toContain("<main>A</main>");
     expect(headLink("/gate-swap-b.css").getAttribute("rel")).toBe("stylesheet");
+    dispose();
+  });
+
+  test("the navigation source reads as pending while the gate holds (isPending)", async () => {
+    // The sheet itself has nothing to read — the gate pends the branch's
+    // computation, not a value. But the navigation SOURCE (a tab/route
+    // signal) is upstream state a router probes: isPending over it must
+    // report the CSS-gated transition, so "navigating…" affordances work
+    // during gated navigations with no extra wiring. The probe lives
+    // outside the boundary — a plain signal read can't be not-ready.
+    const div = document.createElement("div");
+    const [tab, setTab] = createSignal("a");
+    const dispose = render(
+      () => (
+        <div>
+          <span>{isPending(() => tab()) ? "navigating" : "idle"}</span>
+          <Loading fallback={<span>Loading...</span>}>
+            {tab() === "a" ? (
+              <Route name="A" css="/gate-pend-a.css" />
+            ) : (
+              <Route name="B" css="/gate-pend-b.css" />
+            )}
+          </Loading>
+        </div>
+      ),
+      div
+    );
+    flush();
+    await settleLoad("/gate-pend-a.css");
+    expect(div.innerHTML).toContain("<main>A</main>");
+    expect(div.innerHTML).toContain("idle");
+
+    setTab("b");
+    flush();
+    await microtasks();
+    // Held on CSS alone: the source reads pending while the committed view
+    // holds.
+    expect(div.innerHTML).toContain("<main>A</main>");
+    expect(div.innerHTML).toContain("navigating");
+
+    await settleLoad("/gate-pend-b.css");
+    expect(div.innerHTML).toContain("<main>B</main>");
+    expect(div.innerHTML).toContain("idle");
     dispose();
   });
 
