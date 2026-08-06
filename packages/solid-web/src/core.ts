@@ -42,3 +42,16 @@ export const memo = fn => createMemo(() => fn(), syncOptions);
 // slot render) yields identical `_hk` keys — which is what lets frame slot
 // claims match by key regardless of tree position.
 export const runWithHydrationScope = (id, fn) => runWithOwner(createOwner({ id }), fn);
+
+// DR-2 value tier, document face: an async slot arg's INLINE read (the fill
+// rendering server-side into the document at t=0) must suspend like any
+// server async read instead of handing the fill the raw promise. A full
+// (async-aware) memo IS that contract: the read throws `NotReadyError` until
+// the promise settles, then reads as the settled value — the engine's hole
+// machinery catches and re-pulls, so the covering boundary holds exactly as
+// it does for any pending server read. `serialize: false` keeps the memo out
+// of the hydration payload: the arg already ships once, through the slot
+// record (single-copy). The frame sink pre-taps async iterables down to a
+// promise of their first yield (markup is the V1 snapshot), so this only
+// ever sees thenables.
+export const ssrAsyncValue = value => createMemo(() => value, { serialize: false });

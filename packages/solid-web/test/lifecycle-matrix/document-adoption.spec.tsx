@@ -27,6 +27,14 @@ import { makeHost, pump } from "./harness.js";
 const getBasic = createServerReference("matrix/adopt/basic");
 const getMorph = createServerReference("matrix/adopt/morph");
 const getRecords = createServerReference("matrix/adopt/records");
+const getAsyncArg = createServerReference("matrix/adopt/async-arg");
+
+// The async arg riding the t=0 record (document-adoption × arg tiers, client
+// half): in a real page seroval deserializes the record's async value back
+// to a live promise that the document's data scripts later resolve; here the
+// deferred stands in for it.
+let resolveAsyncArg!: (v: any) => void;
+const asyncArgPromise = new Promise(r => (resolveAsyncArg = r));
 
 function boundaryHtml(fid: string, title: string) {
   return (
@@ -46,12 +54,14 @@ beforeAll(() => {
     boundaryHtml("matrix/adopt/basic", "Basic") +
     boundaryHtml("matrix/adopt/morph", "Morph") +
     boundaryHtml("matrix/adopt/records", "Records") +
+    boundaryHtml("matrix/adopt/async-arg", "AsyncArg") +
     "</div>";
   (window as any)._$HY = {
     r: {
       "sc:slot:matrix/adopt/basic:comment#c1": { cid: "c1" },
       "sc:slot:matrix/adopt/morph:comment#c1": { cid: "c1" },
-      "sc:slot:matrix/adopt/records:comment#c1": { cid: "c1" }
+      "sc:slot:matrix/adopt/records:comment#c1": { cid: "c1" },
+      "sc:slot:matrix/adopt/async-arg:comment#c1": { cid: "c1", stats: asyncArgPromise }
     }
   };
 });
@@ -224,6 +234,47 @@ describe("t=0/adopted-occurrence-records", () => {
       document.querySelector('[data-fid="matrix/adopt/records"]')!.querySelector(".live-fill")
     ).toBe(li);
     expect(li.textContent).toBe("c2");
+
+    m.cleanup();
+  });
+});
+
+describe("t=0/adopt-async-arg", () => {
+  // Document-adoption × arg tiers, client half (DR-2 value tier at t=0): an
+  // async value riding the t=0 record must reach the adopted fill through
+  // the async-read wrap — the read suspends into the fill's own covering
+  // boundary and settles when the value does — never as the raw promise.
+  // (The server half — the inline render suspending the same read during
+  // document SSR — is pinned in test/server/document-face-arg-tiers.spec.tsx.)
+  test("an async arg in the t=0 record suspends the adopted fill's read and settles in place", async () => {
+    const { host } = makeHost();
+    installServerComponents(host);
+    vi.stubGlobal("fetch", () => {
+      throw new Error("fetch must not be called at t=0");
+    });
+
+    const Page = dynamic(() => getAsyncArg() as any);
+    const m = mountUnderLoading(Page, {
+      comment: (p: any) => (
+        <Loading fallback={<li class="pending">pending</li>}>
+          <li class="live-fill">
+            stat:{p.stats}:{p.cid}
+          </li>
+        </Loading>
+      )
+    });
+    await pump();
+
+    const ssrEl = document.querySelector('[data-fid="matrix/adopt/async-arg"]')! as HTMLElement;
+    // Pending: the read suspended into the fill's own boundary — the raw
+    // promise never rendered ("[object Promise]" is the failure shape).
+    expect(ssrEl.textContent).toContain("pending");
+    expect(ssrEl.textContent).not.toContain("object Promise");
+
+    resolveAsyncArg(42);
+    await pump(2);
+    flush();
+    expect(ssrEl.textContent).toContain("stat:42:c1");
 
     m.cleanup();
   });

@@ -14,15 +14,15 @@
 //   granularity — but at t=0 it is functional and consistent with "markup is
 //   the snapshot" (generator-only-model.md §10). Pinned as PASSING.
 //
-// - An ASYNC VALUE PASSED WHOLE (the value tier: a promise/iterable arg) is
-//   handed to the inline fill RAW. The record serializes it correctly
-//   (seroval streams the resolution through the document's data scripts, so
-//   the ADOPTED client settles fine), but the t=0 markup renders the fill's
-//   read of the raw value — an empty hole where the settled value belongs,
-//   a hydration mismatch instead of a covered pending read. GAP, marked
-//   test.fails until the document face wraps the inline read so it suspends
-//   into the document's own streaming (recorded in
-//   server-components-principles.md, DR-2 known gap).
+// - An ASYNC VALUE PASSED WHOLE (the value tier: a promise/iterable arg)
+//   suspends at the inline read: the document face wraps it in a full
+//   async-aware memo (rxcore's `ssrAsyncValue`), so the read throws
+//   not-ready into the engine's hole machinery — the covering boundary
+//   holds, the re-pull delivers the settled value in markup, and the page
+//   agrees with what the adopted client will read from the record. The
+//   record itself is untouched: the async value still ships there whole,
+//   its resolution streaming through the document's data scripts.
+//   (Closed gap — this was the document face's missing value-tier half.)
 import { describe, expect, test } from "vitest";
 import { renderToStream, Loading } from "@solidjs/web";
 import { createMemo } from "solid-js";
@@ -52,36 +52,67 @@ function visible(html: string): string {
 }
 
 describe("document face × arg tiers (t=0)", () => {
-  // GAP (DR-2 value tier, document half): the inline fill must read the
-  // settled value — suspending into the covering boundary until the async
-  // arg settles — the way the client's slot-props proxy reads it after
-  // adoption. Today `resolved[key]` hands the fill the raw promise and the
-  // markup ships an empty hole.
-  test.fails(
-    "an async slot arg's inline read settles through the document's streaming (value tier)",
-    async () => {
-      const ServerComp = (props: any) => (
-        <Loading fallback={<span>GENFB</span>}>
-          <section>{props.status({ stats: wait(10).then(() => ({ tokens: 42 })) })}</section>
+  // DR-2 value tier, document half: the inline fill reads the settled value
+  // — suspending into the covering boundary until the async arg settles —
+  // the way the client's slot-props proxy reads it after adoption. Mode
+  // invariance at t=0: the same authored crossing behaves identically
+  // whether the mount is call-driven or the initial document.
+  test("an async slot arg's inline read settles through the document's streaming (value tier)", async () => {
+    const ServerComp = (props: any) => (
+      <Loading fallback={<span>GENFB</span>}>
+        <section>{props.status({ stats: wait(10).then(() => ({ tokens: 42 })) })}</section>
+      </Loading>
+    );
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dfa-value" }) as any;
+    const html = await collect(
+      () => (
+        <Loading fallback={<span>PARENTFB</span>}>
+          {Inline({ status: (p: any) => <b>tokens:{p.stats && p.stats.tokens}</b> })}
         </Loading>
-      );
-      const Inline = frameTransformDirectResult(ServerComp, { id: "dfa-value" }) as any;
-      const html = await collect(
-        () => (
-          <Loading fallback={<span>PARENTFB</span>}>
-            {Inline({ status: (p: any) => <b>tokens:{p.stats && p.stats.tokens}</b> })}
-          </Loading>
-        ),
-        [ServerComponentPlugin]
-      );
-      // The settled value belongs in the (streamed) MARKUP: the read
-      // suspends, the boundary holds, the deferred content delivers 42.
-      // Today the markup shows `tokens:` over an empty hole (the fill read
-      // the raw promise) while the data script carries the resolution — the
-      // adopted client settles, the page's markup never does.
-      expect(visible(html)).toContain("tokens:42");
+      ),
+      [ServerComponentPlugin]
+    );
+    // The settled value lands in the (streamed) MARKUP: the read
+    // suspends, the boundary holds, the deferred content delivers 42 —
+    // and the data script still carries the resolution for the adopted
+    // client. Page markup and post-hydration read now agree.
+    expect(visible(html)).toContain("tokens:42");
+    // The fallback shipped first: the pending read held the boundary.
+    expect(html).toContain("GENFB");
+  });
+
+  // The iterable tap: one cursor, two consumers. The inline read settles on
+  // the FIRST yield (markup is the V1 snapshot — later yields are the
+  // adopted client's story), while the record ships a replay wrapper so the
+  // document's data scripts still stream the complete sequence.
+  test("an async-iterable arg reads as its first yield inline; the record streams every yield", async () => {
+    async function* ticks() {
+      await wait(5);
+      yield "first";
+      await wait(5);
+      yield "second";
     }
-  );
+    const ServerComp = (props: any) => (
+      <Loading fallback={<span>GENFB</span>}>
+        <section>{props.status({ tick: ticks() })}</section>
+      </Loading>
+    );
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dfa-iter" }) as any;
+    const html = await collect(
+      () => (
+        <Loading fallback={<span>PARENTFB</span>}>
+          {Inline({ status: (p: any) => <b>tick:{p.tick}</b> })}
+        </Loading>
+      ),
+      [ServerComponentPlugin]
+    );
+    // V1 snapshot: the markup carries the first yield, never the second.
+    expect(visible(html)).toContain("tick:first");
+    expect(visible(html)).not.toContain("second");
+    // The full sequence rode the data channel (seroval's stream patches).
+    expect(html).toContain("first");
+    expect(html).toContain("second");
+  });
 
   test("a not-ready thunk arg is held by the fragment model and delivers settled (coarse holding)", async () => {
     const ServerComp = (props: any) => {
