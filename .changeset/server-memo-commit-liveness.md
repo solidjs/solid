@@ -1,5 +1,5 @@
 ---
-"solid-js": minor
+"solid-js": patch
 ---
 
 Server memos participate in the frame sink's binding ledger (DR-2 case 1, watched slot args). Frame renders install two hooks on the SSR context and the server reactive core now honors them; both are absent outside frame renders, where nothing changes:
