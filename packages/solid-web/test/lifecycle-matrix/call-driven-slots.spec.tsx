@@ -272,46 +272,42 @@ describe("call-driven/slot/keyed-reorder", () => {
 });
 
 describe("call-driven/slot/occurrence-removed", () => {
-  // GAP (cleanup half): a slot fill's solid `onCleanup` registers against the
-  // BOUNDARY owner (slot invocations run under ownerScope), and occurrence
-  // unmount only runs the frame's ctx-level cleanups — solid-web's slotsFor
-  // registers a ctx cleanup only for reactive-content bindings. So when a
-  // later response drops an occurrence, its fill's onCleanup does NOT fire
-  // (it fires later, at boundary dispose). Expected: occurrence unmount
-  // disposes the fill's reactive scope — its onCleanup runs right there.
-  test.fails(
-    "an occurrence dropped by a later response unmounts AND runs the fill's onCleanup",
-    async () => {
-      const { host } = makeHost();
-      installServerComponents(host);
-      vi.stubGlobal("fetch", async () => frameResponse("srv", storyChunks("srv", "doomed")));
+  // Closed gap (cleanup half): a STREAM-MOUNTED fill now renders under a
+  // per-occurrence owner tied to the frame's occurrence-level cleanup, so a
+  // later response dropping the occurrence disposes the fill's reactive
+  // scope right there — its `onCleanup` runs at unmount, not at boundary
+  // dispose. (Live-render fills — reveal content, adoption sync — keep
+  // their ambient owner: the covering render already owns their lifetime.)
+  test("an occurrence dropped by a later response unmounts AND runs the fill's onCleanup", async () => {
+    const { host } = makeHost();
+    installServerComponents(host);
+    vi.stubGlobal("fetch", async () => frameResponse("srv", storyChunks("srv", "doomed")));
 
-      const cleaned: string[] = [];
-      const Page = dynamic(() => getRemoved() as any);
-      const m = mountUnderLoading(Page, {
-        comment: (p: any) => {
-          onCleanup(() => cleaned.push(p.text));
-          return <li>{p.text}</li>;
-        }
-      });
-      await pump();
-      expect(m.div.querySelector("ul li")!.textContent).toBe("doomed");
+    const cleaned: string[] = [];
+    const Page = dynamic(() => getRemoved() as any);
+    const m = mountUnderLoading(Page, {
+      comment: (p: any) => {
+        onCleanup(() => cleaned.push(p.text));
+        return <li>{p.text}</li>;
+      }
+    });
+    await pump();
+    expect(m.div.querySelector("ul li")!.textContent).toBe("doomed");
 
-      // The next response's content no longer places comment#0.
-      host.apply({
-        type: "html",
-        id: "matrix/slot/removed",
-        version: 2,
-        html: "<article><ul></ul><footer><!--slot:children:start--><!--slot:children:end--></footer></article>"
-      });
-      await pump(1);
+    // The next response's content no longer places comment#0.
+    host.apply({
+      type: "html",
+      id: "matrix/slot/removed",
+      version: 2,
+      html: "<article><ul></ul><footer><!--slot:children:start--><!--slot:children:end--></footer></article>"
+    });
+    await pump(1);
 
-      expect(m.div.querySelector("ul li")).toBe(null); // unmounted
-      expect(cleaned).toEqual(["doomed"]); // GAP: stays [] until boundary dispose
+    expect(m.div.querySelector("ul li")).toBe(null); // unmounted
+    expect(cleaned).toEqual(["doomed"]); // fill's onCleanup ran at occurrence unmount
 
-      m.cleanup();
-    }
-  );
+    m.cleanup();
+  });
 
   test("a removed occurrence's DOM unmounts; re-introducing the occurrence re-invokes fresh (state reset)", async () => {
     const { host } = makeHost();

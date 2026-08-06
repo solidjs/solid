@@ -4,7 +4,10 @@
 // and the REAL server-function stub → transport → component pipeline under
 // test via installServerComponents().
 import { flush } from "solid-js";
-import { createFrameHost, createJSONDataTable } from "../../frames/src/client.js";
+import { createFrameHost } from "../../frames/src/client.js";
+// The API-freeze pass removed the frames re-export; the codec's single
+// public home is the serialization entry.
+import { createJSONDataTable } from "@dom-expressions/runtime/src/serializer.js";
 import { createChunk } from "@dom-expressions/runtime/src/server-functions/shared.js";
 import { createJSONSerializer } from "@dom-expressions/runtime/src/serializer.js";
 

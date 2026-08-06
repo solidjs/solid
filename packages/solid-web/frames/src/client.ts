@@ -239,6 +239,13 @@ function slotsFor(props: Record<string, any>) {
   // invocation takes either path — a static re-call after a reactive one must
   // not leave a binding fighting the frame for the range.
   const bindings = new Map<string, { dispose(): void }>();
+  // Each fill invocation's reactive scope, one per occurrence. The fill
+  // renders under a PER-OCCURRENCE owner (a child of the ambient scope, so
+  // context flows) whose disposal rides the frame's occurrence-level
+  // cleanup: a fill's `onCleanup` and effects live and die with the
+  // occurrence — a later response dropping it disposes right there — not
+  // with the covering boundary, which outlives every occurrence it covers.
+  const fillScopes = new Map<string, { dispose(): void }>();
   return new Proxy(
     {},
     {
@@ -250,6 +257,39 @@ function slotsFor(props: Record<string, any>) {
           if (prev) {
             bindings.delete(key);
             prev.dispose();
+          }
+          // A re-call replaces the invocation wholesale (same contract as
+          // the binding above): the outgoing fill's scope disposes before
+          // the incoming one renders.
+          const prevFill = key !== undefined && fillScopes.get(key);
+          if (prevFill) {
+            fillScopes.delete(key);
+            prevFill.dispose();
+          }
+          // Stream-mounted fills (no ambient owner at invocation — the frame
+          // called from a chunk microtask) render under a PER-OCCURRENCE
+          // owner whose disposal rides the frame's occurrence-level cleanup:
+          // the fill's `onCleanup` and effects die when a later response
+          // drops the occurrence, not at boundary dispose (they used to
+          // register on the boundary owner and leak until teardown).
+          //
+          // Live-render invocations (a reveal boundary's content render, the
+          // t=0 adoption sync) are deliberately NOT scoped this way: the
+          // ambient owner — the reconstructed segment boundary's content
+          // computation — already owns the fill with the right lifetime, and
+          // handing it to frame cleanups instead is wrong there: the frame's
+          // zombie heuristic reads "mounted nodes without a parent" as a
+          // destroyed mount, but a pending fill's nodes are legitimately
+          // detached while its covering boundary shows the fallback — the
+          // cleanup would dispose the live pending effect and release the
+          // boundary over a hole.
+          const fillOwner = streamInvoke ? createOwner() : null;
+          if (fillOwner && key !== undefined && ctx) {
+            fillScopes.set(key, fillOwner);
+            ctx.onCleanup(() => {
+              if (fillScopes.get(key) === fillOwner) fillScopes.delete(key);
+              fillOwner.dispose();
+            });
           }
           // A render whose output is already inside the range (hydration
           // claims: the nodes ARE the server-rendered DOM) is a CLAIM —
@@ -306,7 +346,13 @@ function slotsFor(props: Record<string, any>) {
           // re-call with existing nodes must render for real — claiming would
           // no-op its inserts and silently drop whatever the re-call
           // displaced, e.g. moved-out {$frame} region ranges (#547).
-          const value = adopted ? claimRender(prefix, ctx.existing, evaluate) : evaluate();
+          const value = fillOwner
+            ? runWithOwner(fillOwner, () =>
+                adopted ? claimRender(prefix, ctx.existing, evaluate) : evaluate()
+              )
+            : adopted
+              ? claimRender(prefix, ctx.existing, evaluate)
+              : evaluate();
           // Static content (the common case: render props returning component
           // roots, plain JSX with no top-level control flow): today's
           // zero-cost path — claim in place or hand the frame the nodes. No
@@ -402,8 +448,21 @@ function revealSeam(owner: any) {
 // owner would let an unboundaried async fill escape the boundary that
 // exists to cover it (revealing the segment with a hole instead of
 // holding the server fallback).
+//
+// The stream path is flagged for the fill scope in `slotsFor`: only
+// stream-mounted fills get a per-occurrence owner tied to frame cleanups
+// (live-render fills are already owned by their covering render).
+let streamInvoke = false;
 function boundaryScope(owner: any) {
-  return (fn: () => any) => (getOwner() ? fn() : runWithOwner(owner, fn));
+  return (fn: () => any) => {
+    if (getOwner()) return fn();
+    streamInvoke = true;
+    try {
+      return runWithOwner(owner, fn);
+    } finally {
+      streamInvoke = false;
+    }
+  };
 }
 
 /**
