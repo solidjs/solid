@@ -23,11 +23,18 @@ export type { HydrationContext, SSRTemplateObject } from "./shared.js";
  * Handles errors during SSR rendering.
  * Returns the promise source for NotReadyError (for async handling),
  * or delegates to the ErrorContext handler.
+ *
+ * `probe: true` is the side-effect-free identification mode: it answers the
+ * pending source for NotReady and `undefined` for anything else, never
+ * routing or rethrowing. Used where the caller only wants to know whether a
+ * throw was a pending read (e.g. the head registry's shell-hold path) while
+ * keeping real errors on their existing handling path.
  */
-export function ssrHandleError(err: any) {
+export function ssrHandleError(err: any, probe?: boolean) {
   if (err instanceof NotReadyError) {
     return (err as any).source as Promise<any>;
   }
+  if (probe) return;
   const handler = getContext(ErrorContext);
   if (handler) {
     handler(err);

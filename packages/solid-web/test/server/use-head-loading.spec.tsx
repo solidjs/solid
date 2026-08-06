@@ -5,12 +5,14 @@ import { describe, expect, test, vi } from "vitest";
 import { renderToStream, Loading, useHead } from "@solidjs/web";
 import { createMemo } from "solid-js";
 
-// Head tags with async props under a Loading boundary (issue #2975). Head
-// props are lazy descriptors nothing reads during render, so without the
-// registration-time readiness probe (dom-expressions registerHeadTags,
-// gated on the `_loadingPhase` flag set by runWithBoundaryErrorContext) a
-// pending read would surface only at flush and warn-drop the tag instead of
-// suspending the boundary.
+// Head tags with async props (issue #2975). Head props are lazy descriptors
+// nothing reads during render, so without the registration-time readiness
+// probe (dom-expressions registerHeadTags) a pending read would surface only
+// at flush and warn-drop the tag. Under a Loading boundary the probe rethrows
+// so the boundary suspends (gated on the `_loadingPhase` flag set by
+// runWithBoundaryErrorContext); at root it holds the streaming shell on the
+// pending source instead — the implicit-blocker semantics every other
+// root-level async already has.
 
 function asyncValue<T>(value: T, ms = 10): Promise<T> {
   return new Promise(r => setTimeout(() => r(value), ms));
@@ -79,10 +81,10 @@ describe("SSR Streaming — useHead under Loading (issue #2975)", () => {
     expect(full).toContain('"t","Home - World"');
   });
 
-  test("without a boundary the pending read keeps warn-and-drop; the render completes", async () => {
+  test("without a boundary a pending head prop holds the shell; the settled title renders in it", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     function App() {
-      const title = createMemo(() => asyncValue("Never Shown", 10));
+      const title = createMemo(() => asyncValue("Held Title", 10));
       return (
         <html>
           <head></head>
@@ -94,20 +96,17 @@ describe("SSR Streaming — useHead under Loading (issue #2975)", () => {
       );
     }
 
-    // Must not hang: outside a Loading discovery pass there is no retryable
-    // catch, so the probe stays off and flush warn-drops the tag.
-    const { chunks } = await collectChunks(() => <App />);
+    // Root-level async blocks the shell everywhere else (content holes,
+    // render effects) — head props are no exception. There's no retryable
+    // catch to suspend into, so the registry holds the shell on the pending
+    // source via context.block and the post-settle flush commits the tag:
+    // a shell <title>, not a patch op, and nothing warn-dropped.
+    const { shell, chunks } = await collectChunks(() => <App />);
     const full = chunks.join("");
     expect(full).toContain("<div>body</div>");
-    // The tag was dropped: no title element and no title patch op. (The
-    // resolved string itself still shows up in serialized hydration data —
-    // the async memo serializes regardless of who reads it.)
-    expect(full).not.toContain("<title");
-    expect(full).not.toContain('"t","Never Shown"');
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("error evaluating tag props"),
-      expect.anything()
-    );
+    expect(shell).toContain(">Held Title</title>");
+    expect(full).not.toContain('"t","Held Title"');
+    expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 
