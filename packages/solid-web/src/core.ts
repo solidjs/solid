@@ -55,3 +55,28 @@ export const runWithHydrationScope = (id, fn) => runWithOwner(createOwner({ id }
 // promise of their first yield (markup is the V1 snapshot), so this only
 // ever sees thenables.
 export const ssrAsyncValue = value => createMemo(() => value, { serialize: false });
+
+// Client CSS reveal gate (dom-expressions docs/client-css-reveal-gating.md):
+// reading an unsettled asset promise throws `NotReadyError` so tracked
+// contexts (transitions, boundary reveals) hold and retry when it settles;
+// no-op once settled. The runtime only calls this while the asset registry
+// reports the promise pending, so a settled promise never re-enters the
+// async machinery. One async node per promise, shared across readers and
+// dropped with the promise (WeakMap). The node is created OUTSIDE the
+// calling compute (`runWithOwner(null)`): waitAsset is called from compute
+// phases, and a node owned by the computing owner would be disposed by the
+// very retry it triggers. Detached creation also keeps it hydration-id
+// neutral — it must never consume a child id from the calling owner chain.
+const assetGates = new WeakMap();
+export const waitAsset = promise => {
+  let gate = assetGates.get(promise);
+  if (!gate) {
+    runWithOwner(null, () => {
+      // NOT sync: the node must be async-aware (the promise is the value
+      // being awaited; sync nodes reject thenable returns).
+      gate = createMemo(() => promise);
+    });
+    assetGates.set(promise, gate);
+  }
+  gate();
+};
