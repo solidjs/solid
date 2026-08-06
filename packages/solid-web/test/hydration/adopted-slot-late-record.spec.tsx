@@ -22,11 +22,8 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { flush } from "solid-js";
 import { hydrate } from "@solidjs/web";
-import {
-  installServerComponents,
-  createFrameHost,
-  createJSONDataTable
-} from "../../frames/src/client.js";
+import { installServerComponents, createFrameHost } from "../../frames/src/client.js";
+import { createJSONDataTable } from "../../serialization/src/index.js";
 
 const settle = () => new Promise(r => setTimeout(r));
 

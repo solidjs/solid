@@ -175,9 +175,8 @@ export function render(
  * and reactive bindings without reconstructing the DOM. Returns a `dispose`
  * function that tears down reactive scopes (DOM nodes are left in place).
  *
- * Use this when the page HTML was produced by `renderToString`,
- * `renderToStringAsync`, or `renderToStream`. For client-only apps, use
- * `render` instead.
+ * Use this when the page HTML was produced by `renderToString` or
+ * `renderToStream`. For client-only apps, use `render` instead.
  *
  * Pass `options.renderId` to hydrate one of multiple roots emitted by a
  * server render that used the same id.

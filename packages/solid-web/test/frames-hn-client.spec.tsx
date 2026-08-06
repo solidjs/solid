@@ -14,12 +14,8 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRoot, createSignal, flush, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
-import {
-  installServerComponents,
-  createFrame,
-  createFrameHost,
-  createJSONDataTable
-} from "../frames/src/client.js";
+import { installServerComponents, createFrame, createFrameHost } from "../frames/src/client.js";
+import { createJSONDataTable } from "../serialization/src/index.js";
 import { createServerReference } from "@dom-expressions/runtime/src/server-functions/client.js";
 import { createChunk } from "@dom-expressions/runtime/src/server-functions/shared.js";
 
@@ -71,7 +67,10 @@ describe("HN slice — collapse UX", () => {
     const getStory = createServerReference("hn/story");
     const table = createJSONDataTable();
     installServerComponents(
-      createFrameHost({ applyData: (c: any) => table.apply(c), resolve: (r: any) => table.resolve(r) })
+      createFrameHost({
+        applyData: (c: any) => table.apply(c),
+        resolve: (r: any) => table.resolve(r)
+      })
     );
     // Everything the "server" ever sees is the request itself: the story id
     // in the codec-encoded args, and nothing else.

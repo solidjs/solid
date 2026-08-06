@@ -1,6 +1,11 @@
 // @solidjs/web/frames — client half. Consume frame streams into live DOM
 // boundaries (resident store, policy-A morphs, client-owned slot ranges).
 //
+// EXPERIMENTAL — the frames/server-components surface ships as an
+// experimental preview, excluded from the 2.0 stability guarantee: API
+// shapes and the wire format may change between prereleases (RFC 11).
+// Every export in this entry is @experimental.
+//
 // There is deliberately no server-component API in this module: calling
 // installServerComponents() once in the client entry installs the transport
 // policy that makes `dynamic` + server functions the whole client surface.
@@ -62,7 +67,9 @@ export {
   isFrameStreamResponse,
   createServerComponentHandler
 } from "@dom-expressions/runtime/src/frame-transport.js";
-export { createJSONDataTable } from "@dom-expressions/runtime/src/serializer.js";
+// `createJSONDataTable` is NOT re-exported here: its single public home is
+// `@solidjs/web/serialization` (this entry consumes it internally for its
+// per-response tables).
 // Server components are authored in universal code, so the slot type has to
 // resolve under the browser condition too. Type-only, so nothing crosses into
 // the client bundle.
@@ -85,6 +92,11 @@ function tableFor(id: string) {
 function beginStream(frameId: string) {
   tables.set(frameId, createJSONDataTable());
 }
+/**
+ * The app-wide shared frame host (created lazily): one chunk router with
+ * per-response codec data tables.
+ * @experimental
+ */
 export function getFrameHost() {
   if (!sharedHost) {
     sharedHost = createFrameHost({
@@ -721,6 +733,7 @@ function adoptBoundary(
  * Call once in the client entry (an explicit call — the package is
  * `sideEffects: false`, so a bare import would be tree-shaken away);
  * call again to rebind to a custom host.
+ * @experimental
  */
 export function installServerComponents(host: any = getFrameHost()) {
   // Upgrade the document shell's placeholder bootstrap (if present): the

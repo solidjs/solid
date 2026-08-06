@@ -1,5 +1,5 @@
 //@ts-nocheck
-import type { ResponseStub } from "./client.js";
+import type { RequestEvent, ResponseStub } from "./client.js";
 
 function throwInBrowser(func: Function) {
   const err = new Error(`${func.name} is not supported in the browser, returning undefined`);
@@ -7,10 +7,55 @@ function throwInBrowser(func: Function) {
   console.error(err);
 }
 
+/** Static asset manifest produced by a build (e.g. parsed Vite manifest.json). */
+export type AssetManifest = Record<
+  string,
+  { file: string; css?: string[]; isEntry?: boolean; imports?: string[] }
+> & { _base?: string };
+
+/** Inline style content, e.g. dev CSS collected from a bundler's module graph. */
+export type InlineStyleAsset = {
+  id: string;
+  content: string;
+  attrs?: Record<string, string>;
+};
+
+export type ResolvedAssets = {
+  js: string[];
+  css: (string | InlineStyleAsset)[];
+};
+
+/**
+ * Resolver form of the manifest option — the primitive a dev server
+ * implements against its live module graph (a static manifest object is
+ * normalized into a sync resolver internally). `resolve` may return a
+ * promise (async resolvers require streaming rendering); CSS entries may be
+ * URL strings (emitted as load-gated `<link>` tags) or inline-style
+ * descriptors (emitted as `<style>` tags). A bare `resolve`-shaped function
+ * is accepted as shorthand for `{ resolve }`.
+ */
+export type AssetResolver = {
+  resolve(
+    key: string
+  ): ResolvedAssets | null | undefined | Promise<ResolvedAssets | null | undefined>;
+  /**
+   * Synchronous fast path answering with whatever is knowable without async
+   * work (typically js URLs, omitting css). Sync consumers — e.g. a lazy
+   * component's `moduleUrl` getter used by islands — use this when `resolve`
+   * would return a promise, so adapters should provide it whenever possible.
+   */
+  resolveSync?(key: string): ResolvedAssets | null | undefined;
+};
+
+/** Bare-function shorthand for `AssetResolver` (no sync fast path). */
+export type AssetResolverFn = (
+  key: string
+) => ResolvedAssets | null | undefined | Promise<ResolvedAssets | null | undefined>;
+
 /**
  * Renders a component tree synchronously to an HTML string. Async reads inside
  * `<Loading>` boundaries emit their `fallback` content; for full-graph
- * resolution use `renderToStringAsync` instead.
+ * resolution await `renderToStream` instead.
  *
  * Pair the returned HTML with `hydrate()` on the client.
  *
@@ -29,58 +74,22 @@ export function renderToString<T>(
     renderId?: string;
     noScripts?: boolean;
     plugins?: any[];
-    manifest?: Record<
-      string,
-      {
-        file: string;
-        css?: string[];
-        isEntry?: boolean;
-        isDynamicEntry?: boolean;
-        imports?: string[];
-      }
-    >;
+    manifest?: AssetManifest | AssetResolver | AssetResolverFn;
     onError?: (err: any) => void;
+    /**
+     * Embedded-render contract for hosts that own the document. When the
+     * render output contains no `</head>`, everything head-bound (resolved
+     * `useHead` winners, eager resources, tracked asset links, inline
+     * styles) is delivered here as one HTML string — prelude (charset/base)
+     * first — for the host to splice into its own `<head>` template, instead
+     * of being dropped. Called synchronously before `renderToString`
+     * returns; not called when the output has a `</head>` (splicing is
+     * automatic then).
+     */
+    onHead?: (head: string) => void;
   }
 ): string {
   throwInBrowser(renderToString);
-}
-/**
- * Renders a component tree to an HTML string and awaits all async reads in the
- * subtree before resolving. The returned HTML reflects the fully-settled state
- * — no `<Loading>` fallbacks appear in the output.
- *
- * Use this when you want a complete page in one round-trip. For incremental
- * streaming with progressive boundary resolution, use `renderToStream`.
- *
- * @example
- * ```tsx
- * import { renderToStringAsync } from "@solidjs/web";
- *
- * const html = await renderToStringAsync(() => <App />);
- * ```
- */
-export function renderToStringAsync<T>(
-  fn: () => T,
-  options?: {
-    timeoutMs?: number;
-    nonce?: string;
-    renderId?: string;
-    noScripts?: boolean;
-    plugins?: any[];
-    manifest?: Record<
-      string,
-      {
-        file: string;
-        css?: string[];
-        isEntry?: boolean;
-        isDynamicEntry?: boolean;
-        imports?: string[];
-      }
-    >;
-    onError?: (err: any) => void;
-  }
-): Promise<string> {
-  throwInBrowser(renderToStringAsync);
 }
 /**
  * Streams an HTML response, flushing the synchronous shell first and then
@@ -89,9 +98,10 @@ export function renderToStringAsync<T>(
  *
  * Returns an object with `pipe`/`pipeTo` for piping to a Node `Writable` or
  * a Web `WritableStream`, a lazy `readable` byte-stream view for
- * `new Response(stream.readable)`, plus a `then` for awaiting full
- * completion. `pipe`, `pipeTo`, and `readable` each consume the render —
- * use exactly one of the three.
+ * `new Response(stream.readable)`, plus a thenable for awaiting full
+ * completion — `await renderToStream(...)` resolves with the settled HTML
+ * (the fully-resolved-string form of the render). `pipe`, `pipeTo`, and
+ * `readable` each consume the render — use exactly one of the three.
  *
  * @example
  * ```tsx
@@ -102,6 +112,9 @@ export function renderToStringAsync<T>(
  *
  * // Web (Workers / Deno):
  * return new Response(renderToStream(() => <App />).readable);
+ *
+ * // Fully settled string:
+ * const html = await renderToStream(() => <App />);
  * ```
  */
 export function renderToStream<T>(
@@ -111,22 +124,33 @@ export function renderToStream<T>(
     renderId?: string;
     noScripts?: boolean;
     plugins?: any[];
-    manifest?: Record<
-      string,
-      {
-        file: string;
-        css?: string[];
-        isEntry?: boolean;
-        isDynamicEntry?: boolean;
-        imports?: string[];
-      }
-    >;
+    manifest?: AssetManifest | AssetResolver | AssetResolverFn;
     onCompleteShell?: (info: { write: (v: string) => void }) => void;
     onCompleteAll?: (info: { write: (v: string) => void }) => void;
     onError?: (err: any) => void;
+    /**
+     * Embedded-render contract for hosts that own the document. When the
+     * shell contains no `</head>`, everything head-bound at first flush
+     * (resolved `useHead` winners, eager resources, tracked asset links,
+     * inline styles) is delivered here as one HTML string — prelude first —
+     * before the shell chunk is emitted, so the host can write its own
+     * `<head>` ahead of piping the stream. Post-shell head updates flow
+     * through the stream itself and apply in the browser. Not called when
+     * the shell has a `</head>` (splicing is automatic then).
+     */
+    onHead?: (head: string) => void;
   }
 ): {
-  then: (fn: (html: string) => void) => void;
+  /**
+   * Awaiting the stream resolves with the complete HTML once every boundary
+   * settles — the fully-settled-string form of the render. Render errors
+   * route through `onError` and the promise resolves with whatever HTML the
+   * render produced; it never rejects.
+   */
+  then<TResult1 = string, TResult2 = never>(
+    onfulfilled?: ((html: string) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null
+  ): Promise<TResult1 | TResult2>;
   pipe: (writable: { write: (v: string) => void; end: () => void }) => void;
   pipeTo: (writable: WritableStream) => Promise<void>;
   readonly readable: ReadableStream<Uint8Array>;
@@ -157,10 +181,10 @@ export function createResponseStub(): ResponseStub {
  * Server-only: on the client the request event belongs to the server that
  * rendered the page.
  */
-export function createRequestEvent(
+export function createRequestEvent<T extends object = {}>(
   request: Request,
-  init?: { locals?: Record<string, unknown>; response?: ResponseStub } & Record<string, unknown>
-): { request: Request; locals: Record<string, unknown>; response: ResponseStub } {
+  init?: T
+): { request: Request; locals: Record<string | number | symbol, any>; response: ResponseStub } & T {
   throwInBrowser(createRequestEvent);
 }
 
@@ -183,7 +207,7 @@ export function getExpectedRedirectStatus(response: ResponseStub): number {
  */
 export function createSSRResponse(
   result: string,
-  event: { response?: ResponseStub },
+  event: RequestEvent | undefined,
   options?: {
     responseInit?: ResponseInit;
     nonce?: string;
@@ -191,8 +215,8 @@ export function createSSRResponse(
   }
 ): Response;
 export function createSSRResponse(
-  result: { pipe: (writable: { write: (v: string) => void; end: () => void }) => void },
-  event: { response?: ResponseStub },
+  result: { pipe(writable: { write: (v: string) => void; end: () => void }): void },
+  event: RequestEvent | undefined,
   options?: {
     responseInit?: ResponseInit;
     nonce?: string;
@@ -211,7 +235,10 @@ export function createSSRResponse(): Response | Promise<Response> {
  */
 export function composeMiddleware(
   middlewares: FetchMiddleware[]
-): (request: Request, next: (request?: Request) => Promise<Response>) => Promise<Response> {
+): (
+  request: Request,
+  next: (request?: Request) => Response | Promise<Response>
+) => Promise<Response> {
   throwInBrowser(composeMiddleware);
 }
 
@@ -233,23 +260,35 @@ export function ssrElement(
   needsId: boolean
 ): { t: string } {}
 /**
- * Compiler primitive — serializes a classList object for SSR output. Not
- * meant for hand-written code.
+ * Compiler primitive — serializes a class value (string, object map, or
+ * array) for SSR output. Not meant for hand-written code.
  * @internal
  */
-export function ssrClassList(value: { [k: string]: boolean }): string {}
+export function ssrClassName(value: string | { [k: string]: boolean } | Array<any>): string {}
 /**
- * Compiler primitive — serializes a style object for SSR output. Not meant
+ * Compiler primitive — serializes a style value for SSR output. Not meant
  * for hand-written code.
  * @internal
  */
-export function ssrStyle(value: { [k: string]: string }): string {}
+export function ssrStyle(value: string | { [k: string]: string }): string {}
 /**
- * Compiler primitive — serializes a boolean attribute for SSR output. Not
+ * Compiler primitive — serializes one style property for SSR output. Not
  * meant for hand-written code.
  * @internal
  */
-export function ssrAttribute(key: string, value: boolean): string {}
+export function ssrStyleProperty(name: string, value: any): string {}
+/**
+ * Compiler primitive — serializes an attribute for SSR output. Not meant
+ * for hand-written code.
+ * @internal
+ */
+export function ssrAttribute(key: string, value: any): string {}
+/**
+ * Compiler primitive — wraps a template-group closure for SSR output. Not
+ * meant for hand-written code.
+ * @internal
+ */
+export function ssrGroup<T extends () => any[]>(fn: T, n: number): T {}
 /**
  * Compiler primitive — generates the hydration-key attribute for SSR
  * output. Not meant for hand-written code.
@@ -261,10 +300,10 @@ export function ssrHydrationKey(): string {}
  * Not meant for hand-written code.
  * @internal
  */
-export function resolveSSRNode(node: any): string {}
+export function resolveSSRNode(node: any, result?: any, top?: boolean): any {}
 /**
  * Escapes a string for safe inclusion in HTML output. Used by the SSR
  * runtime; not generally part of user code.
  * @internal
  */
-export function escape(html: string): string {}
+export function escape(s: any, attr?: boolean): any {}

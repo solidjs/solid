@@ -5,7 +5,6 @@ import { describe, expect, test } from "vitest";
 import {
   renderToString,
   renderToStream,
-  renderToStringAsync,
   Loading,
   Reveal,
   Show,
@@ -982,8 +981,8 @@ describe("SSR Streaming — Chained Async", () => {
     expect(html).toContain(`["item 1"]`);
   });
 
-  test("serializes chained memo value (nested boundary, renderToStringAsync)", async () => {
-    const html = await renderToStringAsync(() => (
+  test("serializes chained memo value (nested boundary, awaited renderToStream)", async () => {
+    const html = await renderToStream(() => (
       <Loading fallback={<div>outer</div>}>
         <ChainedInner />
       </Loading>

@@ -21,11 +21,8 @@ import {
   onCleanup
 } from "solid-js";
 import { dynamic, registerElementClaim } from "../src/index.js";
-import {
-  installServerComponents,
-  createFrameHost,
-  createJSONDataTable
-} from "../frames/src/client.js";
+import { installServerComponents, createFrameHost } from "../frames/src/client.js";
+import { createJSONDataTable } from "../serialization/src/index.js";
 import { createServerReference } from "@dom-expressions/runtime/src/server-functions/client.js";
 import { createChunk } from "@dom-expressions/runtime/src/server-functions/shared.js";
 

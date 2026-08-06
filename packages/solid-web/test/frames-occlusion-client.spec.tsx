@@ -11,11 +11,8 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRoot, createSignal, flush, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
-import {
-  installServerComponents,
-  createFrameHost,
-  createJSONDataTable
-} from "../frames/src/client.js";
+import { installServerComponents, createFrameHost } from "../frames/src/client.js";
+import { createJSONDataTable } from "../serialization/src/index.js";
 import { createServerReference } from "@dom-expressions/runtime/src/server-functions/client.js";
 
 const settle = () => new Promise(r => setTimeout(r));

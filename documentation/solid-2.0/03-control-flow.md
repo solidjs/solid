@@ -191,6 +191,8 @@ Hydration is mismatch-free by construction: during hydration the client renders 
 
 By default the import starts as soon as `clientOnly(...)` is called (module load); pass `{ lazy: true }` to defer it to the component's first render. Either way the importer is invoked at most once, no matter how many instances render — all instances share the loaded module.
 
+Bundler integrations sharpen the load path further: the compiler's module-URL pass (the same one that annotates `lazy()` calls, shipped through vite-plugin-solid) recognizes `clientOnly(() => import("..."))` and injects the wrapped module's resolved URL into the call, which the server half uses to emit an early `modulepreload` hint — the browser starts fetching the component's chunk with the page instead of discovering it when the import first runs after hydration.
+
 ### Reveal timing: `Reveal`
 
 `Reveal` coordinates the reveal timing of sibling `Loading` boundaries. It replaces `SuspenseList` from 1.x.
@@ -276,7 +278,7 @@ Here the outer sequential order ensures `Header` reveals first; until it does, t
 #### SSR behavior
 
 - `renderToString` fully supports `order="sequential"` without `collapsed`, and `order="natural"`.
-- `order="together"` and `collapsed` rely on streamed activation and therefore require `renderToStream` / `renderToStringAsync` to behave correctly. Using them with `renderToString` inside a nested `Reveal` logs a warning.
+- `order="together"` and `collapsed` rely on streamed activation and therefore require `renderToStream` to behave correctly. Using them with `renderToString` inside a nested `Reveal` logs a warning.
 - Under streaming, the rules above apply identically: held fragments stream their resolved HTML into templates as data arrives, but the swap from fallback to content is deferred until the enclosing `Reveal` releases the slot. Swaps then happen in resolution order within the released group.
 
 ## Migration / replacement

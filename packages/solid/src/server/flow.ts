@@ -301,8 +301,8 @@ export type RevealProps = {
  * - `renderToString` fully supports `order="sequential"` (without `collapsed`) and
  *   `order="natural"` because neither requires streamed activation.
  * - `order="together"` and `collapsed` rely on streamed activation and require
- *   `renderToStream` / `renderToStringAsync`. Using them inside a nested `<Reveal>`
- *   under `renderToString` logs a warning.
+ *   `renderToStream`. Using them inside a nested `<Reveal>` under
+ *   `renderToString` logs a warning.
  *
  * See `documentation/solid-2.0/03-control-flow.md` for the full outer/inner
  * nesting matrix and the "minimally ready" definition per order.

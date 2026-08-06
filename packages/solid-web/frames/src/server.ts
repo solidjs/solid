@@ -2,6 +2,11 @@
 // (functions returned from server functions) to transport-agnostic chunk
 // streams, and serve them as framed HTTP responses through the
 // server-function handler's transformResult hook.
+//
+// EXPERIMENTAL — the frames/server-components surface ships as an
+// experimental preview, excluded from the 2.0 stability guarantee: API
+// shapes and the wire format may change between prereleases (RFC 11).
+// Every export in this entry is @experimental.
 
 import type { Element as SolidElement } from "solid-js";
 
@@ -28,6 +33,7 @@ import type { Element as SolidElement } from "solid-js";
  * re-creates everything. It is occurrence identity, not client data: it is
  * stripped before the client component sees its props. Positional identity is
  * the right default; `$key` matters when a live list reorders.
+ * @experimental
  */
 export type Slot<P = {}> = (props: P & { $key?: string | number }) => SolidElement;
 

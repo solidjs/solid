@@ -13,12 +13,7 @@ Solid 2.0's web platform runtime — DOM rendering, hydration, server-side rende
 import { render, hydrate, Portal, Dynamic, dynamic } from "@solidjs/web";
 
 // Server (SSR)
-import {
-  renderToString,
-  renderToStringAsync,
-  renderToStream,
-  isServer
-} from "@solidjs/web";
+import { renderToString, renderToStream, isServer } from "@solidjs/web";
 ```
 
 The control-flow components from `solid-js` (`For`, `Show`, `Switch`/`Match`, `Loading`, `Errored`, `Repeat`, `Reveal`) are also re-exported from `@solidjs/web` for convenience.

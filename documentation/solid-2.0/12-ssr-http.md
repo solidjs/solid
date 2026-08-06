@@ -6,7 +6,7 @@
 
 ## Summary
 
-`@solidjs/web` owns both halves of server rendering: the render entry points (`renderToString`, `renderToStringAsync`, `renderToStream` on the server; `render`, `hydrate` on the client) and the HTTP exchange they run inside (the request event, the response head, and the render tree’s authority over it via `httpStatus`/`httpHeader`). Any Vite app — with or without a metaframework — can server-render, stream, and shape its HTTP responses from core alone.
+`@solidjs/web` owns both halves of server rendering: the render entry points (`renderToString` and `renderToStream` on the server; `render`, `hydrate` on the client) and the HTTP exchange they run inside (the request event, the response head, and the render tree’s authority over it via `httpStatus`/`httpHeader`). Any Vite app — with or without a metaframework — can server-render, stream, and shape its HTTP responses from core alone.
 
 ## Motivation
 
@@ -24,8 +24,7 @@ Client (`@solidjs/web` in the browser):
 Server (`@solidjs/web` under the `node`/`deno`/`worker` conditions):
 
 - `renderToString(() => <App />)` — synchronous; async boundaries render their fallbacks.
-- `renderToStringAsync(() => <App />)` — resolves once the tree settles; the returned HTML carries resolved content.
-- `renderToStream(() => <App />, options?)` — the streaming renderer: the shell flushes first, and each async boundary streams its resolved fragment plus the activation script that swaps it in. A primitive marked `deferStream: true` (RFC 05) holds the shell flush until its first value resolves instead of letting the enclosing `<Loading>` fallback into the HTML.
+- `renderToStream(() => <App />, options?)` — the streaming renderer: the shell flushes first, and each async boundary streams its resolved fragment plus the activation script that swaps it in. A primitive marked `deferStream: true` (RFC 05) holds the shell flush until its first value resolves instead of letting the enclosing `<Loading>` fallback into the HTML. The returned stream is also a thenable: `await renderToStream(...)` resolves once the tree settles with the fully-resolved HTML string — the settled-string form of the render (what `renderToStringAsync` was before its removal).
 
 For hydration, the document needs the hydration script ahead of the app markup: `generateHydrationScript({ nonce?, eventNames? })` returns it as a string for hand-built documents, and `<HydrationScript />` renders it in JSX documents.
 
@@ -66,11 +65,11 @@ export interface RequestEvent {
 
 ```tsx
 import { provideRequestEvent } from "@solidjs/web/storage";
-import { renderToStringAsync } from "@solidjs/web";
+import { renderToStream } from "@solidjs/web";
 
 async function handleRequest(request: Request) {
   return provideRequestEvent({ request, locals: {} }, () =>
-    renderToStringAsync(() => <App />)
+    renderToStream(() => <App />)
   );
 }
 ```

@@ -18,7 +18,7 @@ import { isServer, RequestContext } from "@solidjs/web";
  *
  * async function handler(request: Request) {
  *   return provideRequestEvent({ request, locals: {} }, () =>
- *     renderToStringAsync(() => <App />)
+ *     renderToStream(() => <App />)
  *   );
  * }
  * ```

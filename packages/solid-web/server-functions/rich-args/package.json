@@ -1,0 +1,20 @@
+{
+  "name": "@solidjs/web/server-functions/rich-args",
+  "main": "../dist/rich-args.cjs",
+  "module": "../dist/rich-args.js",
+  "types": "../../types/server-functions/rich-args.d.ts",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "../../types/server-functions/rich-args.d.ts",
+        "default": "../dist/rich-args.js"
+      },
+      "require": {
+        "types": "../../types-cjs/server-functions/rich-args.d.cts",
+        "default": "../dist/rich-args.cjs"
+      }
+    }
+  }
+}

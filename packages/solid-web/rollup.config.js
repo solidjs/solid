@@ -63,6 +63,24 @@ const externalizeSharedTransport = {
   }
 };
 
+// The rich-args entry's imports of the server-function client (its config
+// write) and shared wire layer (codec read, serializeString) must resolve to
+// the same built instance the compiled reference proxies call through —
+// bundling a private copy would write `serializeArgs` into config module
+// state nothing reads. Same instance-identity reasoning as
+// externalizeSharedTransport above; a name the client entry stops exporting
+// fails the build loudly (missing-export), never silently.
+const externalizeSharedClient = {
+  name: "externalize-shared-client",
+  resolveId(source, importer) {
+    if (!importer || !/[\\/]rich-args\.js$/.test(importer)) return null;
+    if (source === "./client.js" || source === "./shared.js") {
+      return { id: "@solidjs/web/server-functions/client", external: true };
+    }
+    return null;
+  }
+};
+
 const assertFramesClientTransport = {
   name: "assert-frames-client-transport",
   generateBundle(_, bundle) {
@@ -175,6 +193,30 @@ export default [
     plugins
   },
   {
+    // Client opt-in for codec-encoded arguments. Tiny by construction: its
+    // client/shared imports resolve to the external client entry (see
+    // externalizeSharedClient), so the dist carries only enableRichArguments
+    // and pulls the serializer write half through the shared instance.
+    input: "server-functions/src/rich-args.ts",
+    output: [
+      {
+        file: "server-functions/dist/rich-args.cjs",
+        format: "cjs",
+        exports: "auto"
+      },
+      {
+        file: "server-functions/dist/rich-args.js",
+        format: "es"
+      }
+    ],
+    external: ["@solidjs/web/server-functions/client", "seroval", "seroval-plugins/web"],
+    plugins: [externalizeSharedClient].concat(plugins)
+  },
+  {
+    // Prod build: `_DX_DEV_` strips to false, which is what gates the
+    // handler's error sanitization (plain thrown server-function errors
+    // become a generic Error) and its dev-only diagnostic bodies. This is
+    // the default resolution — plain node, production bundles.
     input: "server-functions/src/server.ts",
     output: [
       {
@@ -188,7 +230,27 @@ export default [
       }
     ],
     external: ["solid-js", "seroval", "seroval-plugins/web"],
-    plugins
+    plugins: [replaceDev(false)].concat(plugins)
+  },
+  {
+    // Dev build (`development` export condition, what Vite dev resolves):
+    // keeps full server-function error fidelity (message, stack, own-props)
+    // and the handler's diagnostic bodies for DX and the dev toolbar —
+    // mirroring the frames client's dev/prod split.
+    input: "server-functions/src/server.ts",
+    output: [
+      {
+        file: "server-functions/dist/server.dev.cjs",
+        format: "cjs",
+        exports: "auto"
+      },
+      {
+        file: "server-functions/dist/server.dev.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js", "seroval", "seroval-plugins/web"],
+    plugins: [replaceDev(true)].concat(plugins)
   },
   // @solidjs/web/frames — the server-component transport. The client half
   // bundles the frame runtime (store/morph/host/transport; frame-client is

@@ -493,10 +493,10 @@ return <li class={cls} />;
 ## SSR (server entry)
 
 ```ts
-import { renderToString, renderToStringAsync, renderToStream, isServer, isDev } from "@solidjs/web";
+import { renderToString, renderToStream, isServer, isDev } from "@solidjs/web";
 ```
 
-`Portal` throws on the server. `Reveal` `order="together"` and `collapsed` require streaming (`renderToStream` / `renderToStringAsync`).
+`Portal` throws on the server. `Reveal` `order="together"` and `collapsed` require streaming (`renderToStream` — awaiting it yields the fully settled HTML string).
 
 ---
 

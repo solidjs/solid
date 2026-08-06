@@ -1,5 +1,5 @@
 import { expect, test, vi, beforeEach, afterAll } from "vitest";
-import { renderToString, renderToStringAsync, renderToStream } from "../src/server-mock.js";
+import { renderToString, renderToStream } from "../src/server-mock.js";
 
 const origConsoleError = console.error;
 const mockConsoleError = vi.fn();
@@ -20,17 +20,6 @@ test("renderToString", () => {
 
   expect(err.message).toContain(
     "renderToString is not supported in the browser, returning undefined"
-  );
-  expect(result).toBeUndefined();
-});
-
-test("renderToStringAsync", () => {
-  const result = renderToStringAsync(() => {});
-
-  const err: Error = mockConsoleError.mock.calls[0][0];
-
-  expect(err.message).toContain(
-    "renderToStringAsync is not supported in the browser, returning undefined"
   );
   expect(result).toBeUndefined();
 });
