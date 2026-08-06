@@ -484,6 +484,26 @@ function boundaryComponent(host: any, fnId: string) {
     // boundary, and streamed chunks — applied from microtasks with no owner
     // of their own — still claim with the right lifetime.
     const owner = getOwner();
+    // Shell gate: a fresh mount's covering <Loading> must stay open until the
+    // frame's FIRST content applies. The binding resolves at response-header
+    // time while content streams in behind it — ungated, the boundary
+    // resolves over an empty <dx-frame> (a flash), and it has LATCHED by the
+    // time the shell's fills run, orphaning any pending async slot-arg read
+    // (with no reveal seam to reconstruct, the mount's own boundary is the
+    // covering one). Ordering makes the handoff seamless: the frame notifies
+    // BEFORE it syncs slots, and the release only lands a microtask later —
+    // by then the fills' pending reads hold the queue open.
+    //
+    // Only mounts a stream has BEGUN for gate (the transport rotates the
+    // address's data table before the binding resolves, so a call-driven
+    // mount always has one). A placeholder mount with no call in flight —
+    // the exhausted late-boundary waiter, a client-only boot — must render
+    // its empty frame NOW, ready for the stream a future call fills it with:
+    // nothing is coming to release a gate.
+    const id = binding ? binding() : fnId;
+    let applied = !tables.has(id);
+    let release!: () => void;
+    const firstApply = new Promise<void>(r => (release = r));
     // The boundary is a DOM element (`<dx-frame>`), not a branded value:
     // `insert` places it natively in any position (array/fragment/single —
     // no #550), and the frame mounts INTO it. Return the element itself.
@@ -492,14 +512,27 @@ function boundaryComponent(host: any, fnId: string) {
       // The mount binds the ADDRESS's store (content is keyed by call, the
       // mount by site); an unbound render (no gated reader, e.g. a direct
       // placeholder mount) binds the function id — the argless address.
-      id: binding ? binding() : fnId,
+      id,
       slots: slotsFor(props),
       ownerScope: boundaryScope(owner),
-      reveal: revealSeam(owner)
+      reveal: revealSeam(owner),
+      // Any apply releases the gate — content ("materialize") is the normal
+      // path; an error record must release too (surfacing the frame's error
+      // state beats holding a fallback forever). The error reason requires
+      // the runtime's error-apply notification; on runtimes without it a
+      // failed stream holds the fallback.
+      onApply: () => {
+        applied = true;
+        release();
+      }
     });
     if (binding) followBinding(frame, binding);
     onCleanup(dispose);
-    return element as unknown as SolidElement;
+    // A warm mount (resident store, registration flushed synchronously) has
+    // its content before we return: no gate, no fallback flicker.
+    if (applied) return element as unknown as SolidElement;
+    const gate = createMemo(() => firstApply);
+    return createMemo(() => (gate(), element)) as unknown as SolidElement;
   };
 }
 

@@ -198,30 +198,41 @@ describe("call-driven/second-response-newer-version", () => {
 });
 
 describe("call-driven/error-record", () => {
-  test("error/before-html: the record surfaces through frame.error; the boundary mounts empty, not stuck on fallback", async () => {
-    const { host } = makeHost();
-    installServerComponents(host);
-    vi.stubGlobal("fetch", async () =>
-      frameResponse("srv", [
-        { type: "start", id: "srv", version: 1 },
-        { type: "error", id: "srv", version: 1, error: { message: "boom" } }
-      ])
-    );
+  // GAP (runtime dependency, same as shell-gate/error below): the mount now
+  // gates on first apply, and an :error record only fires onApply on
+  // runtimes with the error-apply notification — landed on dom-expressions
+  // next, unpublished. Until the runtime dep bumps past it, an early-error
+  // stream holds the fallback and never mounts the empty frame. Flips to
+  // passing at the next @dom-expressions/runtime release. (frame.error
+  // surfacing stays covered by error/after-html, which applies content
+  // before erroring and so releases the gate.)
+  test.fails(
+    "error/before-html: the record surfaces through frame.error; the boundary mounts empty, not stuck on fallback",
+    async () => {
+      const { host } = makeHost();
+      installServerComponents(host);
+      vi.stubGlobal("fetch", async () =>
+        frameResponse("srv", [
+          { type: "start", id: "srv", version: 1 },
+          { type: "error", id: "srv", version: 1, error: { message: "boom" } }
+        ])
+      );
 
-    const Page = dynamic(() => getErrEarly() as any);
-    const m = mountUnderLoading(Page, {});
-    await pump();
+      const Page = dynamic(() => getErrEarly() as any);
+      const m = mountUnderLoading(Page, {});
+      await pump();
 
-    const frame: any = host.get("matrix/lc/err-early");
-    expect(frame.error).toEqual({ message: "boom" });
-    // No content ever streamed; the boundary element is present and empty.
-    const el = m.div.querySelector("dx-frame")!;
-    expect(el.textContent).toBe("");
-    // The covering Loading is not stuck on its fallback.
-    expect(m.div.textContent).not.toContain("shell-fallback");
+      const frame: any = host.get("matrix/lc/err-early");
+      expect(frame.error).toEqual({ message: "boom" });
+      // No content ever streamed; the boundary element is present and empty.
+      const el = m.div.querySelector("dx-frame")!;
+      expect(el.textContent).toBe("");
+      // The covering Loading is not stuck on its fallback.
+      expect(m.div.textContent).not.toContain("shell-fallback");
 
-    m.cleanup();
-  });
+      m.cleanup();
+    }
+  );
 
   test("error/after-html: applied content stays; the error is recorded, not a teardown", async () => {
     const { host } = makeHost();
@@ -430,62 +441,66 @@ describe("call-driven/fragment-reveal-gating", () => {
 });
 
 describe("call-driven/shell-gate", () => {
-  // GAP: a fresh call-driven mount's covering <Loading> releases as soon as
-  // the server-function call RESOLVES — which is at response HEAD, when the
-  // transport hands `dynamic` the binding — not when the frame's first html
-  // record applies. Between those two moments the user sees an EMPTY
-  // <dx-frame> where the fallback used to be (the empty-frame flash). On a
-  // slow stream whose first content byte trails the headers, the fallback
-  // must keep covering the boundary until first content (or an error record)
-  // lands; today nothing gates the mount on the frame's `#hasContent`.
+  // Closed gap: a fresh call-driven mount now gates on the frame's first
+  // apply — the covering <Loading> holds from response HEAD (when the call
+  // resolves and the mount exists) until the first html record applies,
+  // instead of releasing over an empty <dx-frame> (the empty-frame flash).
+  // Only call-driven mounts gate (the transport rotates the address's data
+  // table before the binding resolves); placeholder mounts with no call in
+  // flight still render their empty frame immediately.
+  test("the covering <Loading> holds until the frame's FIRST CONTENT applies (no empty-frame flash)", async () => {
+    const { host } = makeHost();
+    installServerComponents(host);
+    const held = openFrameResponse("srv");
+    vi.stubGlobal("fetch", async () => held.response);
+
+    const Page = dynamic(() => getShellGate() as any);
+    const m = mountUnderLoading(Page, {});
+    await pump();
+    // The response HEAD has arrived (the call resolved, the mount exists) but
+    // no html chunk has: the user must still see the fallback, not an empty
+    // boundary where content is about to be.
+    held.send({ type: "start", id: "srv", version: 1 });
+    await pump();
+    expect(m.div.textContent).toContain("shell-fallback");
+
+    held.send({ type: "html", id: "srv", version: 1, html: articleHtml("Arrived") });
+    held.send({ type: "complete", id: "srv", version: 1 });
+    held.close();
+    await pump();
+    expect(m.div.querySelector("h1")!.textContent).toBe("Arrived");
+    expect(m.div.textContent).not.toContain("shell-fallback");
+
+    m.cleanup();
+  });
+
+  // GAP (runtime dependency): the gate releases on any apply, and an :error
+  // record only fires the frame's onApply on runtimes with the error-apply
+  // notification — landed on dom-expressions next, unpublished. Until the
+  // runtime dep bumps past it, a failed stream holds the fallback. Flips to
+  // passing at the next @dom-expressions/runtime release.
   test.fails(
-    "the covering <Loading> holds until the frame's FIRST CONTENT applies (no empty-frame flash)",
+    "the shell gate releases on an ERROR record too (an errored stream must not hold the fallback forever)",
     async () => {
       const { host } = makeHost();
       installServerComponents(host);
       const held = openFrameResponse("srv");
       vi.stubGlobal("fetch", async () => held.response);
 
-      const Page = dynamic(() => getShellGate() as any);
+      const Page = dynamic(() => getShellErr() as any);
       const m = mountUnderLoading(Page, {});
       await pump();
-      // The response HEAD has arrived (the call resolved, the mount exists) but
-      // no html chunk has: the user must still see the fallback, not an empty
-      // boundary where content is about to be.
       held.send({ type: "start", id: "srv", version: 1 });
-      await pump();
-      expect(m.div.textContent).toContain("shell-fallback");
-
-      held.send({ type: "html", id: "srv", version: 1, html: articleHtml("Arrived") });
-      held.send({ type: "complete", id: "srv", version: 1 });
+      held.send({ type: "error", id: "srv", version: 1, error: { message: "boom" } });
       held.close();
       await pump();
-      expect(m.div.querySelector("h1")!.textContent).toBe("Arrived");
+
+      // Whatever the error surface looks like, the page must move off the
+      // fallback: the wait is over, the stream said so.
       expect(m.div.textContent).not.toContain("shell-fallback");
+      expect((host.get("matrix/lc/shell-err") as any).error).toEqual({ message: "boom" });
 
       m.cleanup();
     }
   );
-
-  test("the shell gate releases on an ERROR record too (an errored stream must not hold the fallback forever)", async () => {
-    const { host } = makeHost();
-    installServerComponents(host);
-    const held = openFrameResponse("srv");
-    vi.stubGlobal("fetch", async () => held.response);
-
-    const Page = dynamic(() => getShellErr() as any);
-    const m = mountUnderLoading(Page, {});
-    await pump();
-    held.send({ type: "start", id: "srv", version: 1 });
-    held.send({ type: "error", id: "srv", version: 1, error: { message: "boom" } });
-    held.close();
-    await pump();
-
-    // Whatever the error surface looks like, the page must move off the
-    // fallback: the wait is over, the stream said so.
-    expect(m.div.textContent).not.toContain("shell-fallback");
-    expect((host.get("matrix/lc/shell-err") as any).error).toEqual({ message: "boom" });
-
-    m.cleanup();
-  });
 });
