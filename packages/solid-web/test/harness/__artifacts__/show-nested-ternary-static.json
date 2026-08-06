@@ -1,0 +1,5 @@
+{
+  "name": "show-nested-ternary-static",
+  "shell": "<div _hk=0><!--$--><span _hk=30>Optional</span><!--/--><p>tail</p></div>",
+  "rest": ""
+}

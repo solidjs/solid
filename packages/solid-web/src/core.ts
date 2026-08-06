@@ -27,7 +27,7 @@ const syncOptions = { sync: true };
 // `scope: true` (set by insert for compiler-tagged hole accessors) makes the
 // render effect non-transparent so the hole gets its own id scope, mirroring
 // the server's ssrScope owner.
-export const effect = (fn, effectFn, options) =>
+export const effect = (fn, effectFn, options?) =>
   createRenderEffect(
     fn,
     effectFn,

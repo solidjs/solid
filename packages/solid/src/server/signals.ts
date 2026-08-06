@@ -158,10 +158,6 @@ function nextChildIdFor(owner: SSROwner, consume: boolean): string {
   throw new Error("Cannot get child id from owner without an id");
 }
 
-function consumeClientComputedSlot(owner: SSROwner | null): void {
-  if (owner?.id != null) nextChildIdFor(owner, true);
-}
-
 export function getNextChildId(owner: Owner): string {
   return nextChildIdFor(owner as unknown as SSROwner, true);
 }
@@ -1674,51 +1670,60 @@ export function mapArray<T, U>(
   //    sync memos, `_$memo()`, boundaries). Their ids and captured state are
   //    snapshotted at owner-creation time, so restoring `parent.id` afterwards
   //    doesn't disturb them.
-  const parent = currentOwner;
+  // Slot layout mirrors the client exactly: the row id space is a real owner
+  // at child slot 0 (the client's internal row owner) and the memo sits at
+  // slot 1 (the client's computed node). The `list` getter is evaluated
+  // inside the memo — where the client evaluates it — because getters are
+  // allocation-capable: a compiled conditional prop creates a condition memo
+  // per evaluation (#2976). Evaluating it in the row id space would both
+  // misplace that allocation and shift the row base by one.
+  const rowOwner = createOwner() as unknown as SSROwner;
   const read = createMemo(
     () => {
       const items = list();
       const s: U[] = [];
+      // Reset per pass so retries re-synthesize row/fallback ids from 0,
+      // like the client's fresh row owners on its first successful pass.
+      rowOwner._childCount = 0;
       if (items && items.length) {
-        const parent = currentOwner!;
-        const origId = parent.id;
-        const origChildCount = parent._childCount;
-        try {
-          for (let i = 0, len = items.length; i < len; i++) {
-            if (origId !== undefined) {
-              parent.id = formatChildId(origId, origChildCount + i);
-            }
-            parent._childCount = 0;
-            s.push(
-              options.keyed === false
-                ? indexes
-                  ? (mapFn as (v: Accessor<T>, i: number) => U)(() => items[i], i)
-                  : (mapFn as (v: Accessor<T>) => U)(() => items[i])
-                : typeof options.keyed === "function"
+        runWithOwner(rowOwner as unknown as Owner, () => {
+          const origId = rowOwner.id;
+          try {
+            for (let i = 0, len = items.length; i < len; i++) {
+              if (origId !== undefined) {
+                rowOwner.id = formatChildId(origId, i);
+              }
+              rowOwner._childCount = 0;
+              s.push(
+                options.keyed === false
                   ? indexes
-                    ? (mapFn as (v: Accessor<T>, i: Accessor<number>) => U)(
-                        () => items[i],
-                        () => i
-                      )
+                    ? (mapFn as (v: Accessor<T>, i: number) => U)(() => items[i], i)
                     : (mapFn as (v: Accessor<T>) => U)(() => items[i])
-                  : indexes
-                    ? (mapFn as (v: T, i: Accessor<number>) => U)(items[i], () => i)
-                    : (mapFn as (v: T) => U)(items[i])
-            );
+                  : typeof options.keyed === "function"
+                    ? indexes
+                      ? (mapFn as (v: Accessor<T>, i: Accessor<number>) => U)(
+                          () => items[i],
+                          () => i
+                        )
+                      : (mapFn as (v: Accessor<T>) => U)(() => items[i])
+                    : indexes
+                      ? (mapFn as (v: T, i: Accessor<number>) => U)(items[i], () => i)
+                      : (mapFn as (v: T) => U)(items[i])
+              );
+            }
+          } finally {
+            rowOwner.id = origId;
+            rowOwner._childCount = items.length;
           }
-        } finally {
-          parent.id = origId;
-          parent._childCount = origChildCount + items.length;
-        }
+        });
       } else if (options.fallback) {
-        const fo = createOwner();
+        const fo = runWithOwner(rowOwner as unknown as Owner, () => createOwner());
         s.push(runWithOwner(fo, () => options.fallback!()) as U);
       }
       return s;
     },
     { sync: true }
   );
-  consumeClientComputedSlot(parent);
   return read;
 }
 
@@ -1727,38 +1732,40 @@ export function repeat<T>(
   mapFn: (i: number) => T,
   options: { fallback?: Accessor<any>; from?: Accessor<number | undefined> } = {}
 ): () => T[] {
-  // See mapArray — same per-row owner elision via id mutation.
-  const parent = currentOwner;
+  // See mapArray — same row-owner-at-slot-0 / memo-at-slot-1 layout so the
+  // `count`/`from` getters evaluate where the client's computed node
+  // evaluates them (#2976).
+  const rowOwner = createOwner() as unknown as SSROwner;
   const read = createMemo(
     () => {
       const len = count();
       const offset = options.from?.() || 0;
+      rowOwner._childCount = 0;
       if (!len) {
         if (!options.fallback) return [];
-        const fo = createOwner();
+        const fo = runWithOwner(rowOwner as unknown as Owner, () => createOwner());
         return [runWithOwner(fo, () => options.fallback!()) as T];
       }
       const out: T[] = new Array(len);
-      const parent = currentOwner!;
-      const origId = parent.id;
-      const origChildCount = parent._childCount;
-      try {
-        for (let i = 0; i < len; i++) {
-          if (origId !== undefined) {
-            parent.id = formatChildId(origId, origChildCount + i);
+      runWithOwner(rowOwner as unknown as Owner, () => {
+        const origId = rowOwner.id;
+        try {
+          for (let i = 0; i < len; i++) {
+            if (origId !== undefined) {
+              rowOwner.id = formatChildId(origId, i);
+            }
+            rowOwner._childCount = 0;
+            out[i] = mapFn(i + offset);
           }
-          parent._childCount = 0;
-          out[i] = mapFn(i + offset);
+        } finally {
+          rowOwner.id = origId;
+          rowOwner._childCount = len;
         }
-      } finally {
-        parent.id = origId;
-        parent._childCount = origChildCount + len;
-      }
+      });
       return out;
     },
     { sync: true }
   );
-  consumeClientComputedSlot(parent);
   return read;
 }
 

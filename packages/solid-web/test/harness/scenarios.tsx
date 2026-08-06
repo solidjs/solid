@@ -21,7 +21,17 @@
  *   instantiation, so the hydrate spec can drive post-hydration updates.
  * - Keep async delays short (5-15ms) — the specs own the settle waits.
  */
-import { createSignal, createMemo, createStore, Show, For, Loading, Errored } from "solid-js";
+import {
+  createSignal,
+  createMemo,
+  createStore,
+  Show,
+  Switch,
+  Match,
+  For,
+  Loading,
+  Errored
+} from "solid-js";
 import { Portal, httpStatus, httpHeader, clientOnly, isServer } from "@solidjs/web";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -764,6 +774,149 @@ function StoreSsrSourceServerSync() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Conditional component prop whose branch content consumes hydration ids
+// (#2959 sibling case). Both generates now wrap `cond() ? <A/> : <B/>`
+// component-prop conditionals in a condition memo, so the memo consumes the
+// same child id from the reading scope on server and client. Harmless for
+// primitive props, but observable when the branch itself allocates ids —
+// here an async memo whose serialized value must be found by id.
+let toggleCondProp!: () => void;
+function AsyncBadge(props: { tag: string }) {
+  const label = createMemo(async () => {
+    await sleep(10);
+    return `badge-${props.tag}`;
+  });
+  return <em>{label()}</em>;
+}
+function CondPropCard(props: { content: any }) {
+  return <section>{props.content}</section>;
+}
+function CondComponentProp() {
+  const [cond, setCond] = createSignal(true);
+  toggleCondProp = () => setCond(c => !c);
+  return (
+    <div>
+      <Loading fallback={<span>wait</span>}>
+        <CondPropCard content={cond() ? <AsyncBadge tag="a" /> : <AsyncBadge tag="b" />} />
+      </Loading>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Nested ternary in a component prop with function children (#2976): the
+// compiled `when` getter allocates a condition memo (`_$memo(() => !!cond)`)
+// on EVERY read, and consumers legitimately read a prop getter a different
+// number of times on each runtime (Show reads `when` for its condition memo
+// and again through the narrowed child accessor; the server reads it once).
+// The condition memo must therefore be hydration-id neutral (transparent) —
+// if it consumed a child id, every id allocated after the Badge would drift.
+// Async sibling content after the badge makes a drift observable (serialized
+// lookup by id + claims); the static variant catches the direct claim miss
+// (the server span is left unclaimed, the client creates a fresh one).
+let toggleBadge!: () => void;
+function Badge(props: { required?: boolean; optional?: boolean }) {
+  return (
+    <Show when={props.required ? "Required" : props.optional ? "Optional" : null}>
+      {text => <span>{text()}</span>}
+    </Show>
+  );
+}
+function ShowNestedTernary() {
+  const [req, setReq] = createSignal(true);
+  toggleBadge = () => setReq(r => !r);
+  const data = createMemo(async () => {
+    await sleep(10);
+    return "loaded";
+  });
+  return (
+    <div>
+      <Badge required={req()} optional={!req()} />
+      <p>Data: {data()}</p>
+    </div>
+  );
+}
+function ShowNestedTernaryStatic() {
+  return (
+    <div>
+      <Badge optional />
+      <p>tail</p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Same class for Switch: each Match's `when` getter is evaluated inside a
+// per-match conditionValue memo on the client (children of switchFunc), so
+// the server must evaluate them inside real memos at the same slots — a bare
+// id burn for switchFunc leaves the getters allocating inside the value memo
+// instead, drifting the content ids after them.
+let toggleRoute!: () => void;
+function SwitchNestedTernary() {
+  const [route, setRoute] = createSignal("a");
+  toggleRoute = () => setRoute(r => (r === "a" ? "b" : "a"));
+  const data = createMemo(async () => {
+    await sleep(10);
+    return "sdata";
+  });
+  // Both branches nest a ternary so the compiler memo-wraps the evaluated
+  // `when` (static-branch conditionals compile bare and never allocate).
+  return (
+    <div>
+      <Switch fallback={<span>none</span>}>
+        <Match when={route() === "a" ? "Alpha" : route() === "z" ? "Zed" : null}>
+          {t => <span>{t()}</span>}
+        </Match>
+        <Match when={route() === "b" ? "Beta" : route() === "c" ? "Gamma" : null}>
+          {t => <span>{t()}</span>}
+        </Match>
+      </Switch>
+      <p>D: {data()}</p>
+    </div>
+  );
+}
+
+// Loading: the `fallback` getter is evaluated by boundary internals on both
+// runtimes — pins that an allocation-capable fallback getter doesn't drift
+// the ids of the boundary content or anything after it.
+function LoadingFallbackTernary() {
+  const [note] = createSignal("a");
+  const data = createMemo(async () => {
+    await sleep(30);
+    return "ldata";
+  });
+  return (
+    <div>
+      <Loading fallback={note() === "a" ? "wait-a" : note() === "b" ? "wait-b" : "wait"}>
+        <p>L: {data()}</p>
+      </Loading>
+      <p>tail</p>
+    </div>
+  );
+}
+
+// For: the `each` getter goes straight into mapArray on both runtimes — this
+// pins that both implementations evaluate it under id-matched owners when the
+// getter allocates (nested ternary → compiled condition memo).
+let toggleList!: () => void;
+function ForNestedTernary() {
+  const [mode, setMode] = createSignal("a");
+  toggleList = () => setMode(m => (m === "a" ? "b" : "a"));
+  const data = createMemo(async () => {
+    await sleep(10);
+    return "fdata";
+  });
+  return (
+    <div>
+      <For each={mode() === "a" ? ["x", "y"] : mode() === "b" ? ["z"] : []}>
+        {item => <span>{item}</span>}
+      </For>
+      <p>D: {data()}</p>
+    </div>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -1048,5 +1201,55 @@ export const scenarios: Scenario[] = [
     update: () => probeSyncStore(),
     expectedTextAfterUpdate: "V: fromServer P: fromClient",
     stableSelector: "div"
+  },
+  {
+    name: "cond-component-prop",
+    App: CondComponentProp,
+    async: true,
+    expectedText: "badge-a",
+    update: () => toggleCondProp(),
+    expectedTextAfterUpdate: "badge-b",
+    stableSelector: "div, section"
+  },
+  {
+    name: "show-nested-ternary",
+    App: ShowNestedTernary,
+    async: true,
+    expectedText: "RequiredData: loaded",
+    update: () => toggleBadge(),
+    expectedTextAfterUpdate: "OptionalData: loaded",
+    stableSelector: "div, p"
+  },
+  {
+    name: "show-nested-ternary-static",
+    App: ShowNestedTernaryStatic,
+    expectedText: "Optionaltail",
+    stableSelector: "div, span, p"
+  },
+  {
+    name: "loading-fallback-ternary",
+    App: LoadingFallbackTernary,
+    async: true,
+    expectedText: "L: ldatatail",
+    serverText: "wait-a tail",
+    stableSelector: "div, p"
+  },
+  {
+    name: "for-nested-ternary",
+    App: ForNestedTernary,
+    async: true,
+    expectedText: "xyD: fdata",
+    update: () => toggleList(),
+    expectedTextAfterUpdate: "zD: fdata",
+    stableSelector: "div, p"
+  },
+  {
+    name: "switch-nested-ternary",
+    App: SwitchNestedTernary,
+    async: true,
+    expectedText: "AlphaD: sdata",
+    update: () => toggleRoute(),
+    expectedTextAfterUpdate: "BetaD: sdata",
+    stableSelector: "div, p"
   }
 ];

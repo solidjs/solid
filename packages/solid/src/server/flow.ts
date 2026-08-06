@@ -130,14 +130,22 @@ export function Show<T>(props: {
   fallback?: SolidElement;
   children: SolidElement | ((item: any) => SolidElement);
 }): SolidElement {
+  // The client reads `props.when` inside its conditionValue memo (child slot
+  // 0), and the getter is allocation-capable: a compiled conditional prop
+  // creates a condition memo per evaluation (`_$memo(() => !!cond)`) under
+  // whichever node is reading. A bare id burn would match the slot but leave
+  // the getter evaluating inside the value memo, drifting every id allocated
+  // after it (#2976) — so the server mirrors the client with a real memo.
+  // The burn stays valid for the client's condition memo: its compute only
+  // reads `conditionValue()`, never a prop getter.
+  const conditionValue = createMemo(() => props.when);
   const o = getOwner();
-  if (o?.id != null) {
-    getNextChildId(o); // match client's conditionValue memo
-    if (!props.keyed) getNextChildId(o); // match client's condition memo (non-keyed only)
+  if (o?.id != null && !props.keyed) {
+    getNextChildId(o); // match client's condition memo (non-keyed only)
   }
   return createMemo(
     () => {
-      const when = props.when;
+      const when = conditionValue();
       if (when) {
         const child = props.children;
         if (typeof child === "function" && child.length > 0) {
@@ -161,28 +169,50 @@ type EvalConditions = readonly [number, unknown, AnyMatchProps<unknown>];
  */
 export function Switch(props: { fallback?: SolidElement; children: SolidElement }): SolidElement {
   const chs = children(() => props.children);
-  const o = getOwner();
-  if (o?.id != null) getNextChildId(o); // advance ID counter
-
-  return createMemo(
+  // Mirror of the client's switchFunc memo (child slot 1): each Match's
+  // `when` getter is allocation-capable (a compiled conditional prop creates
+  // a condition memo per evaluation), so the server evaluates it inside a
+  // real per-match conditionValue memo at the same child slot as the client
+  // (#2976). The non-keyed condition memo slot stays a burn — its client
+  // compute only reads conditionValue(), never a prop getter. The prevFunc
+  // chain short-circuits like the client: once an earlier Match wins, later
+  // `when` getters are never evaluated.
+  const switchFunc = createMemo<() => EvalConditions | undefined>(
     () => {
       let conds: AnyMatchProps<unknown> | AnyMatchProps<unknown>[] = chs() as any;
       if (!Array.isArray(conds)) conds = [conds];
-
+      const o = getOwner();
+      let func: () => EvalConditions | undefined = () => undefined;
       for (let i = 0; i < conds.length; i++) {
+        const index = i;
+        const mp = conds[i];
         // Nullish slots come from conditionally excluded Matches (#2911).
-        if (conds[i] == null) continue;
-        const w = conds[i].when;
-        if (w) {
-          const c = conds[i].children;
-          return typeof c === "function" && c.length > 0
-            ? conds[i].keyed
-              ? (c as any)(w)
-              : (c as any)(() => w)
-            : c;
-        }
+        if (mp == null) continue;
+        const prevFunc = func;
+        const conditionValue = createMemo(() => (prevFunc() ? undefined : mp.when));
+        if (o?.id != null && !mp.keyed) getNextChildId(o); // match client's condition memo
+        func = () => {
+          const prev = prevFunc();
+          if (prev) return prev;
+          const w = conditionValue();
+          return w ? [index, w, mp] : undefined;
+        };
       }
-      return props.fallback;
+      return func;
+    },
+    { sync: true }
+  );
+  return createMemo(
+    () => {
+      const sel = switchFunc()();
+      if (!sel) return props.fallback;
+      const [, w, mp] = sel;
+      const c = mp.children;
+      return typeof c === "function" && c.length > 0
+        ? mp.keyed
+          ? (c as any)(w)
+          : (c as any)(() => w)
+        : c;
     },
     { sync: true }
   ) as unknown as SolidElement;

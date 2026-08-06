@@ -1,0 +1,5 @@
+{
+  "name": "show-nested-ternary",
+  "shell": "<div _hk=1><!--$--><span _hk=40>Required</span><!--/--><p>Data: <!--$-->loaded<!--/--></p></div><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n  const resolver = {\n    p: 0,\n    s: 0,\n    f: 0\n  };\n  resolver.p = new Promise((resolve, reject) => {\n    resolver.s = resolve;\n    resolver.f = reject;\n  });\n  return resolver;\n})()).p;($R[3]=(resolver, data) => {\n  resolver.s(data);\n  resolver.p.s = 1;\n  resolver.p.v = data;\n})($R[1],\"loaded\");</script>",
+  "rest": ""
+}
