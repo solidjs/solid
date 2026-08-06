@@ -198,41 +198,34 @@ describe("call-driven/second-response-newer-version", () => {
 });
 
 describe("call-driven/error-record", () => {
-  // GAP (runtime dependency, same as shell-gate/error below): the mount now
-  // gates on first apply, and an :error record only fires onApply on
-  // runtimes with the error-apply notification — landed on dom-expressions
-  // next, unpublished. Until the runtime dep bumps past it, an early-error
-  // stream holds the fallback and never mounts the empty frame. Flips to
-  // passing at the next @dom-expressions/runtime release. (frame.error
-  // surfacing stays covered by error/after-html, which applies content
-  // before erroring and so releases the gate.)
-  test.fails(
-    "error/before-html: the record surfaces through frame.error; the boundary mounts empty, not stuck on fallback",
-    async () => {
-      const { host } = makeHost();
-      installServerComponents(host);
-      vi.stubGlobal("fetch", async () =>
-        frameResponse("srv", [
-          { type: "start", id: "srv", version: 1 },
-          { type: "error", id: "srv", version: 1, error: { message: "boom" } }
-        ])
-      );
+  // Requires the runtime's error-apply notification (an :error record fires
+  // onApply so the shell gate releases and the empty frame mounts) —
+  // present in the runtime this branch links; marked test.fails on next
+  // until its dep bumps past it.
+  test("error/before-html: the record surfaces through frame.error; the boundary mounts empty, not stuck on fallback", async () => {
+    const { host } = makeHost();
+    installServerComponents(host);
+    vi.stubGlobal("fetch", async () =>
+      frameResponse("srv", [
+        { type: "start", id: "srv", version: 1 },
+        { type: "error", id: "srv", version: 1, error: { message: "boom" } }
+      ])
+    );
 
-      const Page = dynamic(() => getErrEarly() as any);
-      const m = mountUnderLoading(Page, {});
-      await pump();
+    const Page = dynamic(() => getErrEarly() as any);
+    const m = mountUnderLoading(Page, {});
+    await pump();
 
-      const frame: any = host.get("matrix/lc/err-early");
-      expect(frame.error).toEqual({ message: "boom" });
-      // No content ever streamed; the boundary element is present and empty.
-      const el = m.div.querySelector("dx-frame")!;
-      expect(el.textContent).toBe("");
-      // The covering Loading is not stuck on its fallback.
-      expect(m.div.textContent).not.toContain("shell-fallback");
+    const frame: any = host.get("matrix/lc/err-early");
+    expect(frame.error).toEqual({ message: "boom" });
+    // No content ever streamed; the boundary element is present and empty.
+    const el = m.div.querySelector("dx-frame")!;
+    expect(el.textContent).toBe("");
+    // The covering Loading is not stuck on its fallback.
+    expect(m.div.textContent).not.toContain("shell-fallback");
 
-      m.cleanup();
-    }
-  );
+    m.cleanup();
+  });
 
   test("error/after-html: applied content stays; the error is recorded, not a teardown", async () => {
     const { host } = makeHost();
@@ -474,33 +467,29 @@ describe("call-driven/shell-gate", () => {
     m.cleanup();
   });
 
-  // GAP (runtime dependency): the gate releases on any apply, and an :error
-  // record only fires the frame's onApply on runtimes with the error-apply
-  // notification — landed on dom-expressions next, unpublished. Until the
-  // runtime dep bumps past it, a failed stream holds the fallback. Flips to
-  // passing at the next @dom-expressions/runtime release.
-  test.fails(
-    "the shell gate releases on an ERROR record too (an errored stream must not hold the fallback forever)",
-    async () => {
-      const { host } = makeHost();
-      installServerComponents(host);
-      const held = openFrameResponse("srv");
-      vi.stubGlobal("fetch", async () => held.response);
+  // Requires the runtime's error-apply notification (an :error record fires
+  // onApply so the gate releases on a failed stream) — present in the
+  // runtime this branch links; marked test.fails on next until its dep
+  // bumps past it.
+  test("the shell gate releases on an ERROR record too (an errored stream must not hold the fallback forever)", async () => {
+    const { host } = makeHost();
+    installServerComponents(host);
+    const held = openFrameResponse("srv");
+    vi.stubGlobal("fetch", async () => held.response);
 
-      const Page = dynamic(() => getShellErr() as any);
-      const m = mountUnderLoading(Page, {});
-      await pump();
-      held.send({ type: "start", id: "srv", version: 1 });
-      held.send({ type: "error", id: "srv", version: 1, error: { message: "boom" } });
-      held.close();
-      await pump();
+    const Page = dynamic(() => getShellErr() as any);
+    const m = mountUnderLoading(Page, {});
+    await pump();
+    held.send({ type: "start", id: "srv", version: 1 });
+    held.send({ type: "error", id: "srv", version: 1, error: { message: "boom" } });
+    held.close();
+    await pump();
 
-      // Whatever the error surface looks like, the page must move off the
-      // fallback: the wait is over, the stream said so.
-      expect(m.div.textContent).not.toContain("shell-fallback");
-      expect((host.get("matrix/lc/shell-err") as any).error).toEqual({ message: "boom" });
+    // Whatever the error surface looks like, the page must move off the
+    // fallback: the wait is over, the stream said so.
+    expect(m.div.textContent).not.toContain("shell-fallback");
+    expect((host.get("matrix/lc/shell-err") as any).error).toEqual({ message: "boom" });
 
-      m.cleanup();
-    }
-  );
+    m.cleanup();
+  });
 });
