@@ -81,14 +81,16 @@ describe("useHead stylesheet reveal gating — client integration", () => {
     await settleLoad("/gate-swap-a.css");
     expect(div.innerHTML).toContain("<main>A</main>");
 
-    // Navigation: the new branch renders, warms its sheet, and gates. The
-    // committed view must not tear — A's content and A's applied sheet stay
-    // until B's sheet has loaded.
+    // Navigation: the new branch renders, warms its sheet, and gates. This
+    // is the transition hold — the settled boundary does NOT regress to its
+    // fallback; the committed view (A's content and A's applied sheet)
+    // holds until B's sheet has loaded.
     setRoute("b");
     flush();
     await microtasks();
     expect(div.innerHTML).toContain("<main>A</main>");
     expect(div.innerHTML).not.toContain("<main>B</main>");
+    expect(div.innerHTML).not.toContain("Loading...");
     expect(headLink("/gate-swap-b.css").getAttribute("rel")).toBe("preload");
     expect(headLink("/gate-swap-a.css").getAttribute("rel")).toBe("stylesheet");
 
@@ -121,10 +123,13 @@ describe("useHead stylesheet reveal gating — client integration", () => {
     expect(div.innerHTML).toContain("<main>A</main>");
 
     // Navigate to B, then back to A before B's sheet loads: B's apply is
-    // cancelled while still gated.
+    // cancelled mid-hold. Throughout, the transition holds the committed A
+    // view — no fallback regression.
     setRoute("b");
     flush();
     await microtasks();
+    expect(div.innerHTML).toContain("<main>A</main>");
+    expect(div.innerHTML).not.toContain("Loading...");
     expect(headLink("/gate-sup-b.css").getAttribute("rel")).toBe("preload");
     setRoute("a");
     flush();
