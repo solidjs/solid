@@ -1731,9 +1731,22 @@ export function runWithBoundaryErrorContext<T>(
 ): T {
   const prevCtx = sharedConfig.context;
   const prevBoundary = context?._currentBoundaryId;
+  const prevLoadingPhase = context?._loadingPhase;
   if (context) {
     sharedConfig.context = context;
-    if (boundaryId !== undefined) context._currentBoundaryId = boundaryId;
+    if (boundaryId !== undefined) {
+      context._currentBoundaryId = boundaryId;
+      // Marks a Loading discovery pass — the only render phase with a
+      // retryable NotReady catch. Only this call sets it (regions and lazy
+      // module attribution assign `_currentBoundaryId` directly, without any
+      // catch), so consumers that need to escalate a NotReady into a
+      // suspension (the head registry's readiness probe) gate on this flag
+      // via `sharedConfig.context` rather than on `_currentBoundaryId`.
+      // Unlike `_currentBoundaryId` (an accessor on the base context over a
+      // shared tracking slot), this is an own property on the boundary's
+      // buffered context, so it scopes to this subtree automatically.
+      context._loadingPhase = true;
+    }
   }
   try {
     return runWithOwner(owner, () => {
@@ -1743,7 +1756,10 @@ export function runWithBoundaryErrorContext<T>(
     }) as T;
   } finally {
     if (context) {
-      if (boundaryId !== undefined) context._currentBoundaryId = prevBoundary;
+      if (boundaryId !== undefined) {
+        context._currentBoundaryId = prevBoundary;
+        context._loadingPhase = prevLoadingPhase;
+      }
       sharedConfig.context = prevCtx;
     }
   }

@@ -62,7 +62,14 @@ export type HydrationContext = {
   getBoundaryModules?: (id: string) => Record<string, string> | null;
   /** @internal Tracks which Loading boundary is currently rendering. Set by dom-expressions via applyAssetTracking(). */
   _currentBoundaryId?: string | null;
-  assets: any[];
+  /**
+   * @internal True during a Loading discovery pass — the only render phase
+   * with a retryable NotReady catch. Set/restored by
+   * `runWithBoundaryErrorContext` when a boundaryId is passed; read by
+   * dom-expressions' head registry to escalate pending head-tag props into a
+   * boundary suspension instead of a flush-time warn-and-drop.
+   */
+  _loadingPhase?: boolean;
   /** True only in renderToStream — enables async data serialization and streaming. */
   async?: boolean;
 };
