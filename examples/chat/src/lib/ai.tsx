@@ -4,11 +4,18 @@
 // browser never sees `marked` or the canned answers; it receives finished
 // HTML, one paragraph at a time as generation reaches it.
 //
-// The slot call at the bottom is the DR-2 showcase: `props.status` is a
-// client position, and the args passed through it cross the border AS
-// async values — `progress` (an async iterable the client reads as its
-// latest yield) and `stats` (a promise the client read suspends on until
+// The slot at the bottom is the DR-2 showcase: `props.status` is a client
+// position, and the args passed through it cross the border AS async
+// values — `progress` (an async iterable the client reads as its latest
+// yield) and `stats` (a promise the client read suspends on until
 // generation completes). What you pass is what ships.
+//
+// Slots render as JSX (`<props.status …/>`), never as calls: the compiler
+// wraps each prop in a getter, so reads defer to the slot border where the
+// runtime owns them. A call form (`props.status({ … })`) evaluates its args
+// eagerly in this component's body — a top-level read, an error in most
+// cases — and a not-ready arg would then hold this whole section instead of
+// its own hole.
 import { createMemo, Loading } from "solid-js";
 import { asyncArg, type Slot } from "@solidjs/web/frames";
 import { marked } from "marked";
@@ -23,7 +30,7 @@ export async function reply(prompt: string) {
       {gen.parts.map(part => (
         <Part text={part} />
       ))}
-      {props.status({ progress: asyncArg(gen.progress), stats: asyncArg(gen.stats) })}
+      <props.status progress={asyncArg(gen.progress)} stats={asyncArg(gen.stats)} />
     </section>
   );
 }
