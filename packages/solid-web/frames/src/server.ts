@@ -48,8 +48,13 @@ export type Slot<P = {}> = (props: P & { $key?: string | number }) => SolidEleme
  * runtime, settled type at the border, so `Slot<P>` keeps the fill's props
  * truthful to what its reads actually return.
  *
+ * Slots render as JSX — the compiler wraps each prop in a getter so the read
+ * defers to the slot border, where the runtime owns it. A call form
+ * (`props.status({ … })`) evaluates its args eagerly in the component body —
+ * a top-level read, an error in most cases.
+ *
  * ```tsx
- * props.status({ progress: asyncArg(gen.progress), stats: asyncArg(gen.stats) })
+ * <props.status progress={asyncArg(gen.progress)} stats={asyncArg(gen.stats)} />
  * ```
  */
 export function asyncArg<T>(value: PromiseLike<T> | AsyncIterable<T>): T {

@@ -6,13 +6,18 @@
 // (createSlotProps); the document face (createDocumentSlotProps) predates
 // them. This spec pins what the document face does today, empirically:
 //
-// - A NOT-READY arg (a thunk/getter throwing not-ready at the unwrap, or an
-//   eager call suspending in the component's render) is held COARSELY by the
-//   fragment model: the server component's own <Loading> defers the section
-//   and the retry delivers the settled value in the deferred fragment. This
-//   is the "holding" alternative DR-2 rejected for the stream face's
-//   granularity — but at t=0 it is functional and consistent with "markup is
-//   the snapshot" (generator-only-model.md §10). Pinned as PASSING.
+// Slots with args render as JSX (`<props.status …/>` — the compiled getter,
+// the only correct authored form); the one call-form test below pins the
+// WRONG form's failure mode on purpose.
+//
+// - A NOT-READY arg (a compiled getter throwing not-ready at the unwrap, or
+//   the wrong-form eager call suspending in the component's render) is held
+//   COARSELY by the fragment model: the server component's own <Loading>
+//   defers the section and the retry delivers the settled value in the
+//   deferred fragment. This is the "holding" alternative DR-2 rejected for
+//   the stream face's granularity — but at t=0 it is functional and
+//   consistent with "markup is the snapshot" (generator-only-model.md §10).
+//   Pinned as PASSING.
 //
 // - An ASYNC VALUE PASSED WHOLE (the value tier: a promise/iterable arg)
 //   suspends at the inline read: the document face wraps it in a full
@@ -58,11 +63,18 @@ describe("document face × arg tiers (t=0)", () => {
   // invariance at t=0: the same authored crossing behaves identically
   // whether the mount is call-driven or the initial document.
   test("an async slot arg's inline read settles through the document's streaming (value tier)", async () => {
-    const ServerComp = (props: any) => (
-      <Loading fallback={<span>GENFB</span>}>
-        <section>{props.status({ stats: wait(10).then(() => ({ tokens: 42 })) })}</section>
-      </Loading>
-    );
+    const ServerComp = (props: any) => {
+      // Hoisted so the compiled getter reads ONE promise (a `.then()` inline
+      // in the JSX would mint a fresh promise per getter read).
+      const stats = wait(10).then(() => ({ tokens: 42 }));
+      return (
+        <Loading fallback={<span>GENFB</span>}>
+          <section>
+            <props.status stats={stats} />
+          </section>
+        </Loading>
+      );
+    };
     const Inline = frameTransformDirectResult(ServerComp, { id: "dfa-value" }) as any;
     const html = await collect(
       () => (
@@ -92,11 +104,19 @@ describe("document face × arg tiers (t=0)", () => {
       await wait(5);
       yield "second";
     }
-    const ServerComp = (props: any) => (
-      <Loading fallback={<span>GENFB</span>}>
-        <section>{props.status({ tick: ticks() })}</section>
-      </Loading>
-    );
+    const ServerComp = (props: any) => {
+      // Hoisted: the tap's whole premise is ONE cursor with two consumers —
+      // an inline `ticks()` in the JSX would mint a generator per getter
+      // read and quietly dissolve the thing under test.
+      const tick = ticks();
+      return (
+        <Loading fallback={<span>GENFB</span>}>
+          <section>
+            <props.status tick={tick} />
+          </section>
+        </Loading>
+      );
+    };
     const Inline = frameTransformDirectResult(ServerComp, { id: "dfa-iter" }) as any;
     const html = await collect(
       () => (
@@ -114,12 +134,16 @@ describe("document face × arg tiers (t=0)", () => {
     expect(html).toContain("second");
   });
 
-  test("a not-ready thunk arg is held by the fragment model and delivers settled (coarse holding)", async () => {
+  test("a not-ready getter arg is held by the fragment model and delivers settled (coarse holding)", async () => {
     const ServerComp = (props: any) => {
       const m = createMemo(() => wait(10).then(() => "READY"));
+      // `v={m()}` compiles to a getter — the common authored form: the read
+      // defers to the border, where it throws not-ready at the unwrap.
       return (
         <Loading fallback={<span>GENFB</span>}>
-          <section>{props.status({ v: () => m() })}</section>
+          <section>
+            <props.status v={m()} />
+          </section>
         </Loading>
       );
     };
@@ -141,9 +165,14 @@ describe("document face × arg tiers (t=0)", () => {
     expect(visible(html)).toContain("v:READY");
   });
 
-  test("a not-ready eager call arg suspends the component render and delivers settled (same coarse holding)", async () => {
+  test("the WRONG form — an eager call arg — suspends the whole component render (pinned failure mode)", async () => {
     const ServerComp = (props: any) => {
       const m = createMemo(() => wait(10).then(() => "READY"));
+      // The call form is the incorrect authored shape: `m()` is a top-level
+      // read, evaluated in the component body before the border. JSX can't
+      // even express this — which is the point. Pinned so the failure mode
+      // is a known quantity: the not-ready read suspends the whole section
+      // (no crash, no orphan), same coarse holding as the getter case.
       return (
         <Loading fallback={<span>GENFB</span>}>
           <section>{props.status({ v: m() })}</section>

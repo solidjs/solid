@@ -61,20 +61,20 @@ const STORIES: Record<string, { title: string; comments: CommentData[] }> = {
 // The server component a `use server` function would return: recursive
 // comments where each comment is a CLIENT position (props.comment) whose
 // children — text and replies — are SERVER content flowing as a nested
-// region. Text ships in html, once, by construction.
+// region. Text ships in html, once, by construction. Slots with args render
+// as JSX — render callbacks included — never as calls, which evaluate their
+// args eagerly in the component body (argless slots are plain prop access).
 registerServerFunction("getStory", async (storyId: string) => {
   const story = STORIES[storyId];
   return (props: any) => {
-    const renderComment = (c: CommentData): any =>
-      props.comment({
-        cid: c.id,
-        children: (
-          <div class="body">
-            <p>{c.text}</p>
-            {c.replies.map(renderComment)}
-          </div>
-        )
-      });
+    const renderComment = (c: CommentData): any => (
+      <props.comment cid={c.id}>
+        <div class="body">
+          <p>{c.text}</p>
+          {c.replies.map(renderComment)}
+        </div>
+      </props.comment>
+    );
     return (
       <article>
         <h1>{story.title}</h1>
