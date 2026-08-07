@@ -11,7 +11,7 @@
 // fresh sidebar list and (for save) the fresh note view — submit to settled
 // UI in a single round trip. The live preview reuses the same NotePreview the
 // note's server component renders — the shared-module half of the demo.
-import { createSignal } from "solid-js";
+import { createSignal, untrack } from "solid-js";
 import { deleteNote, saveNote } from "~/lib/api";
 import NotePreview from "./NotePreview";
 
@@ -20,9 +20,17 @@ export default function NoteEditor(props: {
   initialTitle: string;
   initialBody: string;
 }) {
-  const [title, setTitle] = createSignal(props.initialTitle);
-  const [body, setBody] = createSignal(props.initialBody);
-  const noteId = props.noteId;
+  // Slot args are live — a server morph can push fresh values through these
+  // props. This editor seeds its own state from them ONCE by contract (the
+  // `initial*` names), so read them under `untrack` to declare that intent.
+  const initial = untrack(() => ({
+    noteId: props.noteId,
+    title: props.initialTitle,
+    body: props.initialBody
+  }));
+  const [title, setTitle] = createSignal(initial.title);
+  const [body, setBody] = createSignal(initial.body);
+  const noteId = initial.noteId;
 
   return (
     <div class="note-editor">

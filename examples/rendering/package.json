@@ -26,6 +26,6 @@
     "solid-js": "workspace:*",
     "typescript": "^6.0.2",
     "vite": "^7.0.0",
-    "vite-plugin-solid": "3.0.0-next.21"
+    "vite-plugin-solid": "3.0.0-next.22"
   }
 }
