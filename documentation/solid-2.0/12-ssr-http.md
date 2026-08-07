@@ -6,7 +6,7 @@
 
 ## Summary
 
-`@solidjs/web` owns both halves of server rendering: the render entry points (`renderToString` and `renderToStream` on the server; `render`, `hydrate` on the client) and the HTTP exchange they run inside (the request event, the response head, and the render tree’s authority over it via `httpStatus`/`httpHeader`). Any Vite app — with or without a metaframework — can server-render, stream, and shape its HTTP responses from core alone.
+`@solidjs/web` owns both halves of server rendering: the render entry points (`renderToString` and `renderToStream` on the server; `render`, `hydrate` on the client) and the HTTP exchange they run inside (the request event, the response head, the render tree’s authority over it via `httpStatus`/`httpHeader`, and cookie access via `getCookie`/`setCookie`/`deleteCookie`). Any Vite app — with or without a metaframework — can server-render, stream, and shape its HTTP responses from core alone.
 
 ## Motivation
 
@@ -109,6 +109,83 @@ Retraction is what makes the scope tie meaningful: each write snapshots the prio
 
 Under streaming this implies the natural constraint: status and headers must be decided by content in the shell. Anything that resolves after the shell flush is past `committed` and can no longer speak — use `deferStream` (RFC 05) on the source that decides the status if it must be waited for.
 
+### Cookies: `getCookie` / `setCookie` / `deleteCookie`
+
+```ts
+import { getCookie, setCookie, deleteCookie } from "@solidjs/web";
+
+// inside a server function, loader, or handler:
+const theme = getCookie("theme"); // string | undefined
+setCookie("session", token, { httpOnly: true, secure: true, sameSite: "lax", maxAge: 60 * 60 * 24 * 7 });
+deleteCookie("session"); // empty value + Max-Age=0, honoring { path, domain }
+```
+
+Cookies are the one header where “just use `httpHeader`” has a correctness story core must own — parsing the `Cookie` grammar, encoding values that round-trip, and (below) keeping multiple `Set-Cookie` values intact through every merge — so the helpers ship from core while everything built *on* cookies (sessions, auth) stays above.
+
+All three resolve the request event the same way the response primitives do: called with a name they read `getRequestEvent()` ambiently; called with an explicit event first (`getCookie(event, name)`, `setCookie(event, name, value, options?)`) they work against exactly that event — middleware and handlers outside the ambient scope included.
+
+- **Reads are a request-only view.** `getCookie(name)` parses the `Cookie` header the client sent, decoded, or `undefined`. A `setCookie` in the same request does **not** read back — the request is what arrived, the response is what you’re building, and merging the two invents a browser round trip that hasn’t happened.
+- **Writes append `Set-Cookie` onto `event.response.headers`.** `serializeCookie` formats it: name and value percent-encoded (any string round-trips), `path` defaulting to `/`, and `domain`/`maxAge`/`expires`/`httpOnly`/`secure`/`sameSite` emitted exactly when given — no other magic. The wire-format halves (`parseCookieHeader`/`serializeCookie`) are exported for code building on the same grammar.
+- **The `set*` verbs are deliberate** where `httpStatus`/`httpHeader` avoid them: cookie writes are event-time *mutations* of the outgoing head — appends that own no scope and never retract — not scope-tied declarations.
+- **Committed is a hard line, never a silent one.** `httpStatus` past `committed` no-ops by contract — a retraction-capable declaration arriving late has nothing to say. A cookie write is imperative data (a session being established); losing it is a bug. So `setCookie` after the head went out **throws in the dev build** and reports through `console.error` (and no-ops) in production, where crashing a request that is already streaming would compound the bug.
+
+**The multi-`Set-Cookie` guarantee.** `Set-Cookie` is the one header that must never fold: multiple values are separate headers, commas are legal *inside* a single value (`Expires`), and `Headers` iteration semantics differ across runtimes. Every place core materializes a response head — `createSSRResponse`’s derivation (including its redirect paths), the server-function handler’s response encoding and forwarded `respond()`/`redirect()` metadata, the no-JS form redirect — carries `Set-Cookie` values entry-by-entry via `getSetCookie()` + append, never `get`/`set` or constructor-copy folding. That is the portability contract across Node/undici, workerd, and Deno; integrations merging headers themselves should follow the same rule.
+
+During a server function the handler folds the event’s response stub onto the outgoing response as the head freezes — cookies set by the mutation ride whatever leaves, thrown redirects included (the set-session-then-`throw redirect()` login flow works by construction) — and marks the stub `committed`, so a straggling write after the response is on the wire reports instead of vanishing.
+
+### Sessions (recipe)
+
+Sessions are deliberately **userland** — the boundary rule again: core owns the exchange (cookie in, cookie out, committed semantics), not the policy above it (what’s in the session, how it’s protected, where it lives). The primitives plus WebCrypto — available on every runtime core targets — are the whole recipe.
+
+A signed session cookie (data in the cookie, HMAC keeps it tamper-proof; it is readable, so nothing secret goes in it):
+
+```ts
+import { getCookie, setCookie, deleteCookie } from "@solidjs/web";
+
+const encoder = new TextEncoder();
+
+async function hmacKey(secret: string) {
+  return crypto.subtle.importKey(
+    "raw", encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false, ["sign", "verify"]
+  );
+}
+
+async function sign(value: string, secret: string) {
+  const mac = await crypto.subtle.sign("HMAC", await hmacKey(secret), encoder.encode(value));
+  return `${value}.${btoa(String.fromCharCode(...new Uint8Array(mac)))}`;
+}
+
+async function unsign(signed: string, secret: string) {
+  const at = signed.lastIndexOf(".");
+  if (at < 0) return undefined;
+  const value = signed.slice(0, at);
+  const mac = Uint8Array.from(atob(signed.slice(at + 1)), c => c.charCodeAt(0));
+  const valid = await crypto.subtle.verify("HMAC", await hmacKey(secret), mac, encoder.encode(value));
+  return valid ? value : undefined;
+}
+
+export async function getSession(secret: string): Promise<Record<string, unknown>> {
+  const raw = getCookie("session");
+  const value = raw && (await unsign(raw, secret));
+  return value ? JSON.parse(value) : {};
+}
+
+export async function setSession(data: Record<string, unknown>, secret: string) {
+  setCookie("session", await sign(JSON.stringify(data), secret), {
+    httpOnly: true, secure: true, sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 7
+  });
+}
+
+export function clearSession() {
+  deleteCookie("session");
+}
+```
+
+The storage-backed variant is the same shape with the payload swapped for a pointer: the cookie carries only a random id (`crypto.randomUUID()`, signed the same way if you want tamper evidence), and `getSession`/`setSession` read and write the data against your store (KV, Redis, a database row) keyed by it. That keeps the cookie small, makes sessions revocable server-side, and lets the data hold things a readable cookie never could. Which store, what’s in the session, and when it rotates are exactly the policy decisions that make this userland.
+
 ### The response-head lifecycle: `createRequestEvent` / `createSSRResponse`
 
 The stub only means something if a handler actually runs the lifecycle: build the stub-backed event, render inside its scope, and derive the outgoing `Response` head at the moment it freezes on the wire. That choreography is core protocol, not integration policy — every handler that reimplements it drifts on the same edges (when exactly `committed` flips, what a redirect set before vs. after the shell flush should do) — so core ships it:
@@ -156,7 +233,7 @@ const run = composeMiddleware([
 - The chain runs **inside the request scope** the handler established, so `getRequestEvent()` — `locals`, the response stub — works in middleware exactly as it does in application code.
 - Nothing reaches the wire until the outermost middleware returns: a streamed body hasn’t been consumed yet when `next()` resolves, so headers on the returned `Response` are still mutable through the whole unwind. Error middleware is a plain `try { return await next(); } catch { … }`.
 
-What core deliberately does not ship: routing of middleware (per-path matching), session/cookie policy, and platform adapters — those belong to the layer above, which composes them out of this shape.
+What core deliberately does not ship: routing of middleware (per-path matching), session policy (see the recipe above — cookie *access* is core, what you build on it is not), and platform adapters — those belong to the layer above, which composes them out of this shape.
 
 ## Migration / replacement
 
@@ -168,6 +245,7 @@ What core deliberately does not ship: routing of middleware (per-path matching),
 | Hand-rolled `TransformStream` around `pipeTo` for `Response` bodies | `renderToStream(...).readable` |
 | Start’s `createMiddleware` (h3 `Middleware` shapes) | `composeMiddleware` over web-standard `(request, next) => Response` functions |
 | Hand-rolled head merging / redirect handling in server handlers | `createRequestEvent` + `createSSRResponse` (commit at shell flush, redirect protocol, post-flush script fallback) |
+| Start’s `getCookie`/`setCookie` (vinxi/h3 re-exports) | `getCookie`/`setCookie`/`deleteCookie` from `@solidjs/web` — ambient or explicit-event, committed-aware |
 
 ## Removals
 
@@ -177,4 +255,4 @@ What core deliberately does not ship: routing of middleware (per-path matching),
 
 - **Leaving the exchange to metaframeworks** — rejected; see the decision record in [RFC 10](10-server-functions.md#what-belongs-in-solidjsweb-decision-record).
 - **`set`-verb naming (`setHttpStatus`)** — rejected: the primitives declare for a scope’s lifetime and retract on disposal; `set*` is reserved for event-time mutation that owns no scope.
-- **Cookie conveniences and other options-bag sugar over `httpHeader`** — declined per the boundary rule (they carry policy); proposals need a correctness story that requires core access, not just a shorter spelling.
+- **Cookie helpers as sugar over `httpHeader`** — the original decline, superseded: `getCookie`/`setCookie` ship because they cleared the bar the boundary rule sets — a correctness story requiring core access (the `Cookie` grammar, committed-aware writes, and the multi-`Set-Cookie` merge guarantee only core’s materialization paths can promise), not just a shorter spelling. Sessions and other policy atop cookies remain above the line.
