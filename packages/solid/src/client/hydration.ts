@@ -866,7 +866,17 @@ export function enableHydration() {
   const hy = (globalThis as any)._$HY;
   if (hy && !hy.fr) {
     if (!hy.f) hy.f = fragmentPolicy;
-    hy.fr = { pending: anyFragmentPending, subscribe: subscribeFragments };
+    // claim/release: the same claimant contract Loading boundaries use, for
+    // integrations that own server-rendered markup wholesale (#2978 — the
+    // frames document adoption claims the placeholders inside its region,
+    // whose <Loading> producers ran on the server and have no client
+    // boundary to ever register).
+    hy.fr = {
+      pending: anyFragmentPending,
+      subscribe: subscribeFragments,
+      claim: claimFragment,
+      release: releaseFragment
+    };
     // Every $dfr announces its swap through `_$HY.fe`; fanning it out here
     // gives ledger subscribers one channel for "content just landed".
     const prevFe = hy.fe;
@@ -1479,9 +1489,9 @@ function initBoundaryResume(
 // enableHydration() installs `_$HY.f` — from that moment every `$df(id)`
 // the stream emits routes here (the same one-owner handoff the head-patch
 // runtime uses via `_$HY.h`) — and publishes the ledger as `_$HY.fr`
-// ({ pending, subscribe }) so integrations (the frames client's document
-// adoption) share this one answer instead of scanning for `pl-*` templates
-// or patching `_$HY.fe` themselves.
+// ({ pending, subscribe, claim, release }) so integrations (the frames
+// client's document adoption) share this one answer instead of scanning for
+// `pl-*` templates or patching `_$HY.fe` themselves.
 //
 // Policy: while global hydration is still in progress, swaps proceed —
 // boundaries are coming to claim them. Once hydration completes, a swap only
@@ -1531,6 +1541,14 @@ function claimFragment(id: string) {
   replayHeldFragment(id);
 }
 
+// Retire a claim (the disposal half of the ledger's claim/release seam):
+// after the claimant is gone, a late swap must be held rather than landing
+// in a range nobody will claim.
+function releaseFragment(id: string) {
+  const f = _fragments.get(id);
+  if (f) f.claimed = false;
+}
+
 /**
  * May the document still deliver fragment `id`'s content? An unsettled
  * declaration is in flight; a settled one stays pending until its swap runs
@@ -1540,6 +1558,13 @@ function claimFragment(id: string) {
  * settled declaration with neither was inlined into the shell — it never
  * streamed, nothing is coming. (getElementById is an id-table lookup, not
  * the tree scan this ledger replaces.)
+ *
+ * Content whose `pl-*` placeholder range is GONE can never swap either
+ * (#2978, secondary defect): a frame refetch that morphs over the region
+ * removes the placeholder, and the swap has nowhere to land — the stale
+ * content template alone must not keep the ledger reading "in flight" for
+ * the rest of the page's life. The placeholder always parses before its
+ * content, so with the template present its absence can only mean removal.
  */
 function fragmentPending(hy: any, id: string): boolean {
   if (_truncated.has(id)) return false;
@@ -1547,7 +1572,8 @@ function fragmentPending(hy: any, id: string): boolean {
   if (!ref || typeof ref !== "object") return false;
   if (!ref.s) return true;
   if (hy.v && hy.v[id]) return false;
-  return !!document.getElementById(id);
+  if (!document.getElementById(id)) return false;
+  return !!document.getElementById("pl-" + id);
 }
 
 function anyFragmentPending(): boolean {

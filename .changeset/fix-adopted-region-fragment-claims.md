@@ -1,0 +1,6 @@
+---
+"solid-js": patch
+"@solidjs/web": patch
+---
+
+A `<Loading>` inside a server component now reveals on document SSR (#2978). A deferred fragment whose producer ran on the SERVER has no client boundary to ever register as its claimant, so a `$df` settling after hydration completed was held forever by the held-swap policy (#2964) — fallback frozen on screen — while the frames classification gate (#2968) deferred on the very `fr.pending()` answer that hold kept true: a deadlock between two individually-correct policies. The fragment ledger now exposes the claimant contract (`_$HY.fr.claim`/`release`, the same one Loading boundaries use internally), and the frames document adoption — which owns the markup it adopts wholesale — goes on record as the claimant for every `pl-*` placeholder in its region: at adopt time, again for content revealed into the region later (an outer fragment's payload can carry a nested pending one), retiring its claims when the frame disposes. The secondary defect is fixed in the ledger itself: content whose placeholder range was removed (a refetch morphed over the region before the document delivered) can never swap, so it no longer keeps `fr.pending()` reading "in flight" for the rest of the page's life.

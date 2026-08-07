@@ -786,6 +786,29 @@ function adoptBoundary(
   // recordless occurrence it deferred (#2968 — the frame's recordsPending/
   // drainRecords seam below).
   const appliedRecords = new Set<string>();
+  // Deferred fragments in the adopted markup (#2978): a <Loading> that
+  // suspended inside the server component during document SSR left a `pl-*`
+  // placeholder here, but its producer ran on the SERVER — no client
+  // boundary will ever register as the fragment's claimant. Post-done, the
+  // held-swap policy (#2964) would hold its $df forever: the fallback stays
+  // frozen on screen and `fr.pending()` never flips false, deadlocking the
+  // very classification gate that waits on it. The adoption owns this markup
+  // wholesale, so it goes on record as the claimant for every placeholder in
+  // its region — at adopt time, and again for content revealed into the
+  // region later (an outer fragment's payload can carry a nested pending
+  // one). Claims retire with the frame: a swap arriving after disposal must
+  // be held, not landed in a range nobody owns.
+  const claimedFragments = new Set<string>();
+  const claimRegionFragments = (root: ParentNode) => {
+    const fr = (globalThis as any)._$HY?.fr;
+    if (!fr || !fr.claim) return;
+    root.querySelectorAll('template[id^="pl-"]').forEach(tpl => {
+      const fragId = tpl.id.slice(3);
+      if (claimedFragments.has(fragId)) return;
+      claimedFragments.add(fragId);
+      fr.claim(fragId);
+    });
+  };
   const drainRecords = () => {
     const hy = (globalThis as any)._$HY;
     if (!hy || !hy.r) return;
@@ -819,6 +842,21 @@ function adoptBoundary(
       }
     }
   };
+  claimRegionFragments(el);
+  // The cascade: a reveal into this region can itself carry a pl-* (nested
+  // server async). Scoped to the revealed parent, so each sweep is
+  // proportional to what just landed.
+  const fr = (globalThis as any)._$HY?.fr;
+  const unsubscribe =
+    fr && fr.claim
+      ? fr.subscribe((_fragId: string, parent?: ParentNode) => {
+          if (parent && el.contains(parent as Node)) claimRegionFragments(parent);
+        })
+      : undefined;
+  onCleanup(() => {
+    unsubscribe && unsubscribe();
+    if (fr && fr.release) for (const fragId of claimedFragments) fr.release(fragId);
+  });
   drainRecords();
   // ownerScope: element-claim sweeps — both the adoption sweep over the
   // SSR'd element (whose anchors never ran compiled creation) and later
