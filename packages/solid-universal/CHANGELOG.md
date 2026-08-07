@@ -1,5 +1,15 @@
 # @solidjs/universal
 
+## 2.0.0-beta.32
+
+### Patch Changes
+
+- Updated dependencies [af97611]
+- Updated dependencies [dc7b5c2]
+- Updated dependencies [b6071ba]
+- Updated dependencies [3fd0499]
+  - solid-js@2.0.0-beta.32
+
 ## 2.0.0-beta.31
 
 ### Patch Changes

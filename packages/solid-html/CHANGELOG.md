@@ -1,5 +1,29 @@
 # @solidjs/html
 
+## 2.0.0-beta.32
+
+### Patch Changes
+
+- Updated dependencies [b160a5f]
+- Updated dependencies [311cc4e]
+- Updated dependencies [e999401]
+- Updated dependencies [c85b610]
+- Updated dependencies [af97611]
+- Updated dependencies [80970b7]
+- Updated dependencies [dc7b5c2]
+- Updated dependencies [8e148a8]
+- Updated dependencies [595b9e9]
+- Updated dependencies [687a993]
+- Updated dependencies [202acdd]
+- Updated dependencies [d657df1]
+- Updated dependencies [43b5aaf]
+- Updated dependencies [1c03436]
+- Updated dependencies [bef6da9]
+- Updated dependencies [0813a51]
+- Updated dependencies [0813a51]
+- Updated dependencies [0813a51]
+  - @solidjs/web@2.0.0-beta.32
+
 ## 2.0.0-beta.31
 
 ### Patch Changes

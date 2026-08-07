@@ -1,5 +1,40 @@
 # solid-js
 
+## 2.0.0-beta.32
+
+### Patch Changes
+
+- af97611: A `<Loading>` inside a server component now reveals on document SSR (#2978). A deferred fragment whose producer ran on the SERVER has no client boundary to ever register as its claimant, so a `$df` settling after hydration completed was held forever by the held-swap policy (#2964) — fallback frozen on screen — while the frames classification gate (#2968) deferred on the very `fr.pending()` answer that hold kept true: a deadlock between two individually-correct policies. The fragment ledger now exposes the claimant contract (`_$HY.fr.claim`/`release`, the same one Loading boundaries use internally), and the frames document adoption — which owns the markup it adopts wholesale — goes on record as the claimant for every `pl-*` placeholder in its region: at adopt time, again for content revealed into the region later (an outer fragment's payload can carry a nested pending one), retiring its claims when the frame disposes. The secondary defect is fixed in the ledger itself: content whose placeholder range was removed (a refetch morphed over the region before the document delivered) can never swap, so it no longer keeps `fr.pending()` reading "in flight" for the rest of the page's life.
+- dc7b5c2: Fix hydration id drift from allocation-capable prop getters in flow controls (#2976)
+
+  A compiled conditional prop (`when={a ? x : b ? y : null}`) allocates a
+  condition memo every time the getter is evaluated, under whichever node is
+  reading. The server flow controls compensated for the client's internal memo
+  slots with bare id burns, but evaluated the getters themselves under a
+  different internal node than their client twins — so the getter's allocation
+  landed in a different owner's id space on each runtime and drifted every
+  hydration id assigned after it (unclaimed nodes, dead bindings).
+
+  The server twins now evaluate each such getter inside a real node at the
+  same child slot as the client: Show reads `when` through a mirrored
+  conditionValue memo, Switch evaluates each Match's `when` inside per-match
+  conditionValue memos under a mirrored switchFunc memo, and mapArray/repeat
+  give the row id space its own owner at slot 0 with the memo at slot 1 so
+  `each`/`count`/`from` getters evaluate where the client's computed node
+  evaluates them (previously the allocation also shifted the row id base).
+  Dynamic and boundary fallback getters were audited and already aligned. The
+  compiler output is unchanged. Adds parity-harness scenarios for Show
+  (dynamic + static), Switch, For, and Loading fallback ternaries.
+
+- b6071ba: Root-level async head-tag props hold the SSR streaming shell instead of being warn-dropped (#2975 follow-up). `ssrHandleError` gains a side-effect-free probe mode (second argument) that the dom-expressions head registry uses to identify pending reads without routing real errors through the handler chain; the settled tag renders in the shell like any other root-level async content.
+- 3fd0499: Server memos participate in the frame sink's binding ledger (DR-2 case 1, watched slot args). Frame renders install two hooks on the SSR context and the server reactive core now honors them; both are absent outside frame renders, where nothing changes:
+  - `ctx.commit` — settle sites poke it: a promise memo resolving or rejecting, an iterator memo's first value, mutations those settles made. A server-owned render (noHydrate — the HTML is the data) serializes nothing, so without the hook these settles were invisible to the sink's commit funnel and watched slot args latched at first success.
+  - `ctx.commitEpoch` — per-epoch memo caching: sync-valued memos (the sync fast path and full memos whose last result was plain) cache within one sweep and recompute when pulled after a later commit, so a watched arg's re-evaluation reads current derivations instead of the first render's cache. Async results are exempt — their values advance through their own settle machinery, and re-running them would mint new promises/iterators.
+  - Iterator memos get a ledger-gated pump: in a server-owned render nothing consumes the iterator past the first value (there is no serialization tap), so when `ctx.commit` exists the core keeps pulling — each yield advances the memo's value and commits. The pump never holds the response open; completion latches the last yield. The document-SSR tapped path deliberately keeps the first-value lock: markup rendered from V1 must keep reading V1 or a mid-stream boundary retry desyncs the HTML from hydration's replay.
+
+- Updated dependencies [1313447]
+  - @solidjs/signals@2.0.0-beta.32
+
 ## 2.0.0-beta.31
 
 ### Patch Changes
