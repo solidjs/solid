@@ -132,6 +132,8 @@ function mountBoundary(fid: string) {
 }
 
 describe("deferred fragments inside an adopted region (#2978)", () => {
+  let host: any;
+
   beforeAll(() => {
     // The whole page, before any boundary lookup: one SSR'd boundary per test.
     document.body.innerHTML =
@@ -140,6 +142,7 @@ describe("deferred fragments inside an adopted region (#2978)", () => {
       boundaryHtml("deadlock/nested", "21", "outer-fallback") +
       boundaryHtml("deadlock/replaced", "31", "replaced-fallback") +
       boundaryHtml("deadlock/records", "41", "records-fallback") +
+      boundaryHtml("deadlock/refetch", "51", "refetch-fallback") +
       "</div>";
     (window as any)._$HY = { r: {}, fe() {} };
     enableHydration();
@@ -147,7 +150,8 @@ describe("deferred fragments inside an adopted region (#2978)", () => {
     vi.stubGlobal("fetch", () => {
       throw new Error("fetch must not be called at t=0");
     });
-    installServerComponents(makeHost());
+    host = makeHost();
+    installServerComponents(host);
   });
 
   afterAll(() => {
@@ -312,6 +316,73 @@ describe("deferred fragments inside an adopted region (#2978)", () => {
     const frameEl = document.querySelector('[data-fid="deadlock/records"]') as HTMLElement;
     expect(frameEl.textContent).toContain("row:settled");
     expect(frameEl.textContent).not.toContain("records-fallback");
+
+    dispose();
+  });
+
+  // #2979's follow-through: the reveal-driven drain is a one-time repair for
+  // records that rode the FRAGMENT — it must leave the region fully live.
+  // After the reveal, a refetch's stream is the region's ordinary future:
+  // its slot record updates the occurrence, its html morphs the interior,
+  // and the ledger (already resolved by the reveal) stays resolved.
+  test("reveal, then refetch: after the reveal-driven record drain a later stream still morphs and updates the occurrence", async () => {
+    declareFragment("51");
+
+    const Page = (window as any)._$SC.r("deadlock/refetch");
+    const appEl = document.getElementById("app") as HTMLElement;
+    let mount!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={mount}>
+        <Loading fallback={<span>shell-fallback</span>}>
+          <Page row={(p: { label: string }) => <b>row:{p.label}</b>} />
+        </Loading>
+      </div>;
+      appEl.appendChild(mount);
+      return d;
+    });
+    flush();
+    await settle();
+    flush();
+
+    completeHydrationPass();
+    await settle();
+
+    // The #2979 shape: the fragment's chunk carries the occurrence's markers
+    // AND the record naming its args.
+    (window as any)._$HY.r["sc:slot:deadlock/refetch:row#0"] = { label: "settled" };
+    deliverFragment("51", "<!--slot:row#0:start--><!--slot:row#0:end-->");
+    flush();
+    await settle();
+    flush();
+
+    const frameEl = document.querySelector('[data-fid="deadlock/refetch"]') as HTMLElement;
+    expect(frameEl.textContent).toContain("row:settled");
+    expect((window as any)._$HY.fr.pending()).toBe(false);
+
+    // The refetch: a navigation-shaped stream lands on the adopted boundary
+    // (the document wire id IS the argless call's address). Its record
+    // changes the occurrence's args; its html morphs around the slot range.
+    host.apply({
+      type: "slot",
+      id: "deadlock/refetch",
+      version: 1,
+      key: "row#0",
+      args: { label: "refetched" }
+    });
+    host.apply({
+      type: "html",
+      id: "deadlock/refetch",
+      version: 1,
+      html: "<h1>Page2</h1><section><!--slot:row#0:start--><!--slot:row#0:end--></section>"
+    });
+    flush();
+    await settle();
+    flush();
+
+    expect(frameEl.querySelector("h1")!.textContent).toBe("Page2");
+    expect(frameEl.textContent).toContain("row:refetched");
+    expect(frameEl.textContent).not.toContain("row:settled");
+    expect((window as any)._$HY.fr.pending()).toBe(false);
 
     dispose();
   });

@@ -32,6 +32,8 @@ const getShellErr = createServerReference("matrix/lc/shell-err");
 const getSwitch = createServerReference("matrix/lc/switch");
 const getSwitchFb = createServerReference("matrix/lc/switch-fb");
 const getSwitchErr = createServerReference("matrix/lc/switch-err");
+const getSwitchSame = createServerReference("matrix/lc/switch-same");
+const getSwitchTwice = createServerReference("matrix/lc/switch-twice");
 
 function articleHtml(title: string) {
   return (
@@ -201,10 +203,8 @@ describe("call-driven/second-response-newer-version", () => {
 });
 
 describe("call-driven/error-record", () => {
-  // Requires the runtime's error-apply notification (an :error record fires
-  // onApply so the shell gate releases and the empty frame mounts) —
-  // present in the runtime this branch links; marked test.fails on next
-  // until its dep bumps past it.
+  // Relies on the runtime's error-apply notification (an :error record fires
+  // onApply so the shell gate releases and the empty frame mounts).
   test("error/before-html: the record surfaces through frame.error; the boundary mounts empty, not stuck on fallback", async () => {
     const { host } = makeHost();
     installServerComponents(host);
@@ -470,10 +470,8 @@ describe("call-driven/shell-gate", () => {
     m.cleanup();
   });
 
-  // Requires the runtime's error-apply notification (an :error record fires
-  // onApply so the gate releases on a failed stream) — present in the
-  // runtime this branch links; marked test.fails on next until its dep
-  // bumps past it.
+  // Relies on the runtime's error-apply notification (an :error record fires
+  // onApply so the gate releases on a failed stream).
   test("the shell gate releases on an ERROR record too (an errored stream must not hold the fallback forever)", async () => {
     const { host } = makeHost();
     installServerComponents(host);
@@ -508,7 +506,7 @@ describe("call-driven/args-switch-gate", () => {
   //
   // Mounts the pending probe alongside the boundary so the test reads
   // exactly what the issue's `<button disabled={isPending(count)}>` reads.
-  function mountWithProbe(Comp: any, source: () => unknown) {
+  function mountWithProbe(Comp: any, source: () => unknown, props: Record<string, any> = {}) {
     const container = document.createElement("div");
     document.body.appendChild(container);
     let div!: HTMLDivElement;
@@ -516,7 +514,7 @@ describe("call-driven/args-switch-gate", () => {
       <div ref={div}>
         <span data-probe>{isPending(source) ? "pending" : "idle"}</span>
         <Loading fallback={<span>shell-fallback</span>}>
-          <Comp />
+          <Comp {...props} />
         </Loading>
       </div>;
       container.appendChild(div);
@@ -657,6 +655,99 @@ describe("call-driven/args-switch-gate", () => {
     // The error is recorded, not a teardown: the previous call's content
     // stays on screen (same policy as error/after-html).
     expect(m.div.querySelector("h1")!.textContent).toBe("Zero");
+
+    m.cleanup();
+  });
+
+  // dom-expressions#564: root affinity is per STREAM, not per boundary.
+  // Slot-driven content ships its differences as records, so two calls'
+  // shells can be the same bytes — a value-skip keyed to the boundary would
+  // swallow the new stream's apply and the gate would wait forever on a
+  // morph that never differs.
+  test("a byte-identical shell across the switch is still an ANSWER: the gate settles and the record-driven difference lands", async () => {
+    const { host } = makeHost();
+    installServerComponents(host);
+    const held = heldPerArg();
+
+    const [count, setCount] = createSignal(0);
+    const Page = dynamic(() => getSwitchSame(count()) as any);
+    const m = mountWithProbe(Page, count, { comment: (p: any) => <li>{p.text}</li> });
+
+    await pump();
+    held[0].send({ type: "start", id: "srv", version: 1 });
+    held[0].send({ type: "slot", id: "srv", version: 1, key: "comment#0", args: { text: "zero" } });
+    held[0].send({ type: "html", id: "srv", version: 1, html: articleHtml("Same") });
+    await pump();
+    expect(m.div.querySelector("ul li")!.textContent).toBe("zero");
+    expect(m.probe()).toBe("idle");
+
+    setCount(1);
+    await pump();
+    expect(m.probe()).toBe("pending");
+
+    // The new address's shell: identical html, only the slot record differs.
+    held[1].send({ type: "start", id: "srv", version: 1 });
+    held[1].send({ type: "slot", id: "srv", version: 1, key: "comment#0", args: { text: "one" } });
+    held[1].send({ type: "html", id: "srv", version: 1, html: articleHtml("Same") });
+    held[1].close();
+    await pump();
+    expect(m.probe()).toBe("idle");
+    expect(m.div.querySelector("h1")!.textContent).toBe("Same");
+    expect(m.div.querySelector("ul li")!.textContent).toBe("one");
+
+    m.cleanup();
+  });
+
+  test("a second switch MID-FLIGHT re-arms the gate; the superseded call's late answer warms its store but never the live boundary", async () => {
+    const { host } = makeHost();
+    installServerComponents(host);
+    const held = heldPerArg();
+
+    const [count, setCount] = createSignal(0);
+    const Page = dynamic(() => getSwitchTwice(count()) as any);
+    const m = mountWithProbe(Page, count);
+
+    await pump();
+    held[0].send({ type: "start", id: "srv", version: 1 });
+    held[0].send({ type: "html", id: "srv", version: 1, html: articleHtml("Zero") });
+    await pump();
+    expect(m.probe()).toBe("idle");
+
+    setCount(1);
+    await pump();
+    expect(m.probe()).toBe("pending");
+
+    // The user switches again before the first switch answers: still one
+    // unanswered question, still pending, still the ORIGINAL content.
+    setCount(2);
+    await pump();
+    expect(m.probe()).toBe("pending");
+    expect(m.div.querySelector("h1")!.textContent).toBe("Zero");
+
+    // Only the LIVE call's answer settles the gate.
+    held[2].send({ type: "start", id: "srv", version: 1 });
+    held[2].send({ type: "html", id: "srv", version: 1, html: articleHtml("Two") });
+    held[2].close();
+    await pump();
+    expect(m.div.querySelector("h1")!.textContent).toBe("Two");
+    expect(m.probe()).toBe("idle");
+
+    // The superseded call's stream finally answers — into its own address's
+    // store (a warm), never the boundary that moved on.
+    held[1].send({ type: "start", id: "srv", version: 1 });
+    held[1].send({ type: "html", id: "srv", version: 1, html: articleHtml("One") });
+    held[1].close();
+    await pump();
+    expect(m.div.querySelector("h1")!.textContent).toBe("Two");
+    expect(m.probe()).toBe("idle");
+
+    // And that warm is real: switching back re-materializes the superseded
+    // answer instantly (the refetch it also fires morphs later, unanswered
+    // here) — the rebind's re-registration answers synchronously.
+    setCount(1);
+    await pump();
+    expect(m.div.querySelector("h1")!.textContent).toBe("One");
+    expect(m.probe()).toBe("idle");
 
     m.cleanup();
   });

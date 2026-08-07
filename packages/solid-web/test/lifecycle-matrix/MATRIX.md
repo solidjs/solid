@@ -49,7 +49,7 @@ is mount-kind-independent; enumerated once where it is richest) · **existing**
 | args changed across responses — re-call path | `call-driven-slots` › `raw-frame/re-call-path` | pass — via a raw `createFrameElement`; unreachable through `dynamic()`: solid-web's `slotsFor` registers `ctx.onUpdate` for every invoked occurrence, so the frame never re-calls there |
 | `$key`ed occurrences across reorders (state follows key) | `call-driven-slots` › `call-driven/slot/keyed-reorder` | pass — live range relocates with its interior and signal state |
 | occurrence removed in a later response — DOM unmount | `call-driven-slots` › `call-driven/slot/occurrence-removed` (state reset half) | pass |
-| occurrence removed — fill's `onCleanup` runs at unmount | `call-driven-slots` › `call-driven/slot/occurrence-removed` (cleanup half) | **GAP** — solid `onCleanup` in a fill registers on the BOUNDARY owner; occurrence unmount runs only frame-level ctx cleanups, so consumer cleanup fires at boundary dispose, not occurrence unmount |
+| occurrence removed — fill's `onCleanup` runs at unmount | `call-driven-slots` › `call-driven/slot/occurrence-removed` (cleanup half) | pass — closed gap: a stream-mounted fill renders under a per-occurrence owner disposed at unmount (see closed-gap notes below) |
 | occurrence re-introduced after removal (fresh invocation, state reset) | `call-driven-slots` › `call-driven/slot/occurrence-removed` | pass |
 | re-sent identical record (dedupe: no re-call, no state loss) | `call-driven-slots` › `call-driven/slot/re-sent-identical-record` | pass |
 | adopted occurrence: identical re-send dedupes; changed record updates live | `document-adoption` › `t=0/adopted-occurrence-records` | pass |
@@ -86,9 +86,26 @@ is mount-kind-independent; enumerated once where it is richest) · **existing**
 | Cell | Spec / test | Status |
 | --- | --- | --- |
 | fill `onCleanup` fires on frame/boundary dispose, exactly once | `call-driven-slots` › `call-driven/cleanup-disposal` | pass |
-| fill `onCleanup` fires on occurrence unmount | `call-driven-slots` › `occurrence-removed` | **GAP** (see above) |
+| fill `onCleanup` fires on occurrence unmount | `call-driven-slots` › `occurrence-removed` | pass (see above) |
 | no double-dispose (second owner disposal is a no-op; ctx cleanups don't re-fire at frame dispose after occurrence unmount) | `call-driven-slots` › `cleanup-disposal` + `raw-frame/re-call-path` (ctx.onCleanup) | pass |
 | a disposed frame ignores late chunks (store warms; no DOM writes, no crash) | `call-driven-slots` › `cleanup-disposal` (late chunks) | pass |
+
+## Address switch on a live site
+
+The identity split (DR-1): an args change resolves to the SAME component, so
+the instance keeps its mount and rebinds to the new call's address. The
+binding resolves at response-header time — which is not an answer — so a
+re-armable gate holds the driving source's `isPending` until the new
+address's first content, server fallback, or error applies (#2977).
+
+| Cell | Spec / test | Status |
+| --- | --- | --- |
+| switch holds pending until the new address's first content applies | `call-driven-lifecycle` › `call-driven/args-switch-gate` | pass |
+| a shell carrying a server `<Loading>` fallback IS an answer (pending drops at the shell, not the late reveal) | `call-driven-lifecycle` › `args-switch-gate` (server fallback) | pass |
+| an errored stream is an answer (pending must not outlive the response) | `call-driven-lifecycle` › `args-switch-gate` (error) | pass |
+| byte-identical shell across the switch still answers (root affinity is per stream — dom-expressions#564; the difference ships as records) | `call-driven-lifecycle` › `args-switch-gate` (byte-identical) | pass |
+| double-switch mid-flight: the gate re-arms; the superseded call's late answer warms its store, never the live boundary; switching back re-materializes from that warm | `call-driven-lifecycle` › `args-switch-gate` (mid-flight) | pass |
+| adopted site: t=0 zero-network mount, then a switch holds pending until the new address answers | `document-adoption` › `t=0/adopted-switch-gate` | pass |
 
 ## Loading / reveal gating
 
@@ -96,10 +113,12 @@ is mount-kind-independent; enumerated once where it is richest) · **existing**
 | --- | --- | --- |
 | fragment + reveal sequences reveal when ready, order-independently (reveal-before-content waits; independent segments reveal as their pairs complete) | `call-driven-lifecycle` › `call-driven/fragment-reveal-gating` | pass |
 | fallback reveal materializes the placeholder template for a late fragment; the real reveal swaps it out | `call-driven-lifecycle` › `fragment-reveal-gating` (fallback) | pass |
-| shell gate: fresh call-driven mount's covering `<Loading>` holds until first content applies | `call-driven-lifecycle` › `call-driven/shell-gate` | **GAP** — the boundary releases at response HEAD (when the transport resolves the call with its binding); between head and the first html record the user sees an empty `<dx-frame>` (the empty-frame flash) |
-| shell gate releases on an error record (no eternal fallback) | `call-driven-lifecycle` › `call-driven/shell-gate` (error) | pass — note it passes *because* nothing gates today; if the gate above is added, this cell keeps it honest about the error path |
+| shell gate: fresh call-driven mount's covering `<Loading>` holds until first content applies | `call-driven-lifecycle` › `call-driven/shell-gate` | pass — closed gap: the mount gates on the frame's first apply (no empty-frame flash) |
+| shell gate releases on an error record (no eternal fallback) | `call-driven-lifecycle` › `call-driven/shell-gate` (error) | pass — an `:error` record fires the apply notification, so the gate releases on a failed stream |
 | t=0 adoption × shell gate | — | n/a — adopted content is already on screen at mount; no covering fallback ever shows |
 | deferred segment reveals covering an unboundaried async client fill | — | existing — `frames-client.spec.tsx` (reveal seam reconstructs a client `<Loading>`) |
+| post-done fragment reveals into an adopted region (held-swap claim, nested cascade, records riding the fragment) | — | existing — `frames-adopted-region-fragments.spec.tsx` (#2978/#2979) |
+| reveal, then refetch: after the reveal-driven record drain a later stream still morphs the region and updates the occurrence | — | existing — `frames-adopted-region-fragments.spec.tsx` (reveal-then-refetch) |
 
 ## Not constructible in this config
 
@@ -119,14 +138,13 @@ is mount-kind-independent; enumerated once where it is richest) · **existing**
 
 ## GAP summary
 
-1. **Shell gate / empty-frame flash** (`call-driven-lifecycle.spec.tsx`):
-   a fresh call-driven mount's covering `<Loading>` releases when the call
-   resolves (response head), not when the frame first has content — a slow
-   body shows an empty boundary instead of the fallback. Expected: hold
-   until the first html record applies, releasing on an error record too.
-2. **Occurrence-unmount cleanup** (`call-driven-slots.spec.tsx`): `onCleanup`
-   inside a slot fill does not run when a later response drops the
-   occurrence — fills' reactive scopes belong to the boundary owner and only
-   dispose with the boundary. Expected: occurrence unmount disposes the
-   fill's scope (its `onCleanup` runs there), with no double-fire at
+No open gaps. The two the matrix originally surfaced are closed:
+
+1. **Shell gate / empty-frame flash** (`call-driven-lifecycle.spec.tsx`) —
+   closed: a fresh call-driven mount holds its covering `<Loading>` from
+   response head until the frame's first content applies, releasing on an
+   error record too (the runtime's error-apply notification).
+2. **Occurrence-unmount cleanup** (`call-driven-slots.spec.tsx`) — closed:
+   a stream-mounted fill renders under a per-occurrence owner that occurrence
+   unmount disposes (its `onCleanup` runs there), with no double-fire at
    boundary dispose.
