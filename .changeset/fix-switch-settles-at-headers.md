@@ -1,0 +1,7 @@
+---
+"@solidjs/web": patch
+---
+
+`isPending` holds through a server component's args switch (#2977). An args change on a live site resolves its call at response-HEADER time — the identity split keeps the instance and rebinds the frame to the new address — but the header is not an answer: for exactly as long as the server held the shell on its own unboundaried async, the site read "settled" while the boundary still showed the PREVIOUS call's content, tearing the driving source's pending state against the screen ("count is 1" beside count-0's markup). The shell gate is now re-armable: an address switch re-pends the site until the new address's first apply — its shell content, a server-rendered `<Loading>` fallback (boundaried pends drop `isPending` as readily as a client fallback: the answer is on screen), or its error record (the pending state must never outlive the response). Async-holds-latest keeps the old content in place while the gate pends, and a warm store still answers instantly — arm-then-rebind is self-correcting, since a warm registration's synchronous seed releases the gate before any reader sees it.
+
+Both faces: the call-driven mount re-pends through its existing gate chain, and the t=0 adopted mount — whose return value is the raw SSR'd element that hydration claims in place, leaving no reader in the render graph to see an armed gate — gets a dedicated pending-observer effect that holds the delivering transition (the notes-search shape: adopted sidebar, then a search param changes the call).

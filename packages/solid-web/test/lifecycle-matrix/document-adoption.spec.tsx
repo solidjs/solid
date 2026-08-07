@@ -18,16 +18,17 @@
 // adopt-mode frame whose callback answers `undefined`); the compiled-JSX
 // claim half lives in the dom-expressions runtime suites.
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
-import { createMemo, createRoot, createSignal, flush, Loading } from "solid-js";
+import { createMemo, createRoot, createSignal, flush, isPending, Loading } from "solid-js";
 import { dynamic } from "../../src/index.js";
 import { installServerComponents, createFrame } from "../../frames/src/client.js";
 import { createServerReference } from "@dom-expressions/runtime/src/server-functions/client.js";
-import { makeHost, pump } from "./harness.js";
+import { makeHost, openFrameResponse, pump } from "./harness.js";
 
 const getBasic = createServerReference("matrix/adopt/basic");
 const getMorph = createServerReference("matrix/adopt/morph");
 const getRecords = createServerReference("matrix/adopt/records");
 const getAsyncArg = createServerReference("matrix/adopt/async-arg");
+const getSwitch = createServerReference("matrix/adopt/switch");
 
 // The async arg riding the t=0 record (document-adoption × arg tiers, client
 // half): in a real page seroval deserializes the record's async value back
@@ -55,13 +56,15 @@ beforeAll(() => {
     boundaryHtml("matrix/adopt/morph", "Morph") +
     boundaryHtml("matrix/adopt/records", "Records") +
     boundaryHtml("matrix/adopt/async-arg", "AsyncArg") +
+    boundaryHtml("matrix/adopt/switch", "AdoptedZero") +
     "</div>";
   (window as any)._$HY = {
     r: {
       "sc:slot:matrix/adopt/basic:comment#c1": { cid: "c1" },
       "sc:slot:matrix/adopt/morph:comment#c1": { cid: "c1" },
       "sc:slot:matrix/adopt/records:comment#c1": { cid: "c1" },
-      "sc:slot:matrix/adopt/async-arg:comment#c1": { cid: "c1", stats: asyncArgPromise }
+      "sc:slot:matrix/adopt/async-arg:comment#c1": { cid: "c1", stats: asyncArgPromise },
+      "sc:slot:matrix/adopt/switch:comment#c1": { cid: "c1" }
     }
   };
 });
@@ -332,5 +335,77 @@ describe("t=0/raw-frame-claim", () => {
 
     frame.dispose();
     el.remove();
+  });
+});
+
+describe("t=0/adopted-switch-gate", () => {
+  // #2977, adopted face: the t=0 mount adopted the SSR'd element with zero
+  // network, and a LATER args change on the same site resolves at response-
+  // header time — which is not an answer. Until the new address's first
+  // content applies, the boundary still shows the t=0 call's content, and
+  // the source that drove the switch must keep reading pending (this is the
+  // notes-search shape: initial adopted sidebar, then a search param). The
+  // call-driven half of this gate lives in call-driven-lifecycle.
+  test("an args switch on an adopted site holds the source's pending state until the new address's first content applies", async () => {
+    const { host } = makeHost();
+    installServerComponents(host);
+    const held = openFrameResponse("srv");
+    let calls = 0;
+    vi.stubGlobal("fetch", async () => {
+      calls++;
+      return held.response;
+    });
+
+    const [q, setQ] = createSignal<number | undefined>(undefined);
+    const Page = dynamic(() => (q() === undefined ? getSwitch() : getSwitch(q())) as any);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={div}>
+        <span data-probe>{isPending(q) ? "pending" : "idle"}</span>
+        <Loading fallback={<span>shell-fallback</span>}>
+          <Page comment={(p: any) => <li class="live-fill">live:{p.cid}</li>} />
+        </Loading>
+      </div>;
+      container.appendChild(div);
+      return d;
+    });
+    const probe = () => div.querySelector("[data-probe]")!.textContent;
+    const ssrEl = document.querySelector('[data-fid="matrix/adopt/switch"]')! as HTMLElement;
+
+    await pump();
+    // t=0: adopted in place, zero network, nothing pending.
+    expect(calls).toBe(0);
+    expect(ssrEl.querySelector("h1")!.textContent).toBe("AdoptedZero");
+    expect(probe()).toBe("idle");
+
+    // The switch: a real request this time, headers resolve immediately,
+    // content held. The adopted content stays (the morph model) and the
+    // source reads pending until the new address answers.
+    setQ(1);
+    await pump();
+    expect(calls).toBe(1);
+    expect(ssrEl.querySelector("h1")!.textContent).toBe("AdoptedZero");
+    expect(probe()).toBe("pending");
+
+    held.send({ type: "start", id: "srv", version: 1 });
+    held.send({ type: "slot", id: "srv", version: 1, key: "comment#c1", args: { cid: "c1" } });
+    held.send({
+      type: "html",
+      id: "srv",
+      version: 1,
+      html:
+        "<article><h1>SwitchedOne</h1>" +
+        "<ul><!--slot:comment#c1:start--><!--slot:comment#c1:end--></ul></article>"
+    });
+    held.close();
+    await pump();
+    expect(ssrEl.querySelector("h1")!.textContent).toBe("SwitchedOne");
+    expect(probe()).toBe("idle");
+
+    dispose();
+    container.remove();
   });
 });

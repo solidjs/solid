@@ -522,18 +522,6 @@ function boundaryScope(owner: any) {
   };
 }
 
-/**
- * Follow a live address binding (the identity split's delivery path): a
- * `dynamic` site whose call switched arguments keeps this instance and
- * pushes the new address through the accessor — the frame re-binds its pull
- * to the new address's resident store (warm content re-materializes
- * instantly; an in-flight stream morphs in; slot occurrences whose ids
- * persist keep their client state). `rebind` no-ops on the same address.
- */
-function followBinding(frame: { rebind(id: string): void }, binding: () => string) {
-  createRenderEffect(binding, address => frame.rebind(address));
-}
-
 function boundaryComponent(host: any, fnId: string) {
   return (props: Record<string, any>, binding?: () => string) => {
     // Element-claim sweeps (router link-state contract) run under this
@@ -559,8 +547,21 @@ function boundaryComponent(host: any, fnId: string) {
     // nothing is coming to release a gate.
     const id = binding ? binding() : fnId;
     let applied = !tables.has(id);
-    let release!: () => void;
-    const firstApply = new Promise<void>(r => (release = r));
+    // The gate is RE-ARMABLE (a signal of the current wait, not a one-shot
+    // promise): an address SWITCH re-pends this site (#2977, below), so the
+    // "first apply" question is asked once per bound address, not once per
+    // mount.
+    let release: (() => void) | undefined;
+    const arm = () => new Promise<void>(r => (release = r));
+    // Armed BEFORE the frame mounts (a synchronous seed's apply releases
+    // it), but the SIGNAL is created after: a warm registration fires
+    // onApply inside this component's own render, where a reactive write is
+    // illegal — mount-time state reaches the signal through its initial
+    // value instead. Post-mount releases write through `setGate`: stream
+    // applies run in ownerless microtasks and rebind seeds run in the
+    // follow effect's write-legal half.
+    const mountGate = applied ? undefined : arm();
+    let setGate: ((v: Promise<void> | undefined) => void) | undefined;
     // The boundary is a DOM element (`<dx-frame>`), not a branded value:
     // `insert` places it natively in any position (array/fragment/single —
     // no #550), and the frame mounts INTO it. Return the element itself.
@@ -580,15 +581,54 @@ function boundaryComponent(host: any, fnId: string) {
       // failed stream holds the fallback.
       onApply: () => {
         applied = true;
-        release();
+        if (release) {
+          release();
+          release = undefined;
+        }
+        setGate && setGate(undefined);
       }
     });
-    if (binding) followBinding(frame, binding);
+    const [gatePromise, setGatePromise] = createSignal<Promise<void> | undefined>(
+      applied ? undefined : mountGate
+    );
+    setGate = setGatePromise;
+    if (binding) {
+      // Follow the live address binding (the identity split's delivery
+      // path): a `dynamic` site whose call switched arguments keeps this
+      // instance and pushes the new address through the accessor — the
+      // frame re-binds its pull to the new address's resident store (warm
+      // content re-materializes instantly; an in-flight stream morphs in;
+      // slot occurrences whose ids persist keep their client state).
+      // `rebind` no-ops on the same address.
+      //
+      // An address SWITCH also re-arms the shell gate (#2977): the binding
+      // resolved at response-HEADER time, which is not an answer — until
+      // the new address's first content (or error) applies, the boundary
+      // is still showing the PREVIOUS call's content, and the source that
+      // drove the switch must keep reading pending or the UI tears ("count
+      // is 1" beside count-0's content). Async-holds-latest keeps the old
+      // content on screen while the re-armed gate pends; a server-rendered
+      // <Loading> fallback in the new shell IS content and releases it as
+      // readily as a client fallback drops isPending. Arm-then-rebind is
+      // self-correcting for warm stores: rebind's registration seeds
+      // synchronously, and the seed's apply releases the gate before any
+      // reader sees it. Only switches with a stream begun gate (same rule
+      // as the mount gate) — nothing else is coming to release one.
+      createRenderEffect(binding, (address, prev) => {
+        if (prev !== undefined && address !== prev && tables.has(address)) {
+          applied = false;
+          setGatePromise(arm());
+        }
+        frame.rebind(address);
+      });
+    }
     onCleanup(dispose);
-    // A warm mount (resident store, registration flushed synchronously) has
-    // its content before we return: no gate, no fallback flicker.
-    if (applied) return element as unknown as SolidElement;
-    const gate = createMemo(() => firstApply);
+    // A warm DIRECT mount (resident store, registration flushed
+    // synchronously, no live binding that could ever switch it) has its
+    // content before we return: no gate, no fallback flicker, no memo. A
+    // bound mount keeps the gate chain alive for re-arms even when warm.
+    if (applied && !binding) return element as unknown as SolidElement;
+    const gate = createMemo(() => gatePromise());
     return createMemo(() => (gate(), element)) as unknown as SolidElement;
   };
 }
@@ -863,6 +903,13 @@ function adoptBoundary(
   // streamed morphs — bind consumer cleanup to this boundary's owner (see
   // boundaryScope for the ambient-preserving rule).
   const owner = getOwner();
+  // Switch-gate state (armed on a later address switch, below): declared
+  // before the frame so its onApply can release, but the SIGNAL is created
+  // after — a synchronous seed at adopt time fires onApply inside this
+  // component's own render, where a reactive write is illegal, and at that
+  // point there is nothing armed to clear anyway.
+  let release: (() => void) | undefined;
+  let setGate: ((v: Promise<void> | undefined) => void) | undefined;
   const frame = createFrame(el, {
     adopt: true,
     host,
@@ -870,6 +917,15 @@ function adoptBoundary(
     slots: slotsFor(props),
     ownerScope: boundaryScope(owner),
     reveal: revealSeam(owner),
+    // Any apply for the currently bound address — a morph, a reveal, an
+    // error record — answers an armed switch gate (see below).
+    onApply: () => {
+      if (release) {
+        release();
+        release = undefined;
+      }
+      setGate && setGate(undefined);
+    },
     // May the document still run scripts that assign records? While the
     // parser is running the answer is yes, and a held fragment's replay can
     // still deliver one — so a recordless occurrence defers instead of
@@ -898,7 +954,41 @@ function adoptBoundary(
       claimScope: id
     } as {})
   });
-  if (binding) followBinding(frame, binding);
+  // Follow the live address binding (see boundaryComponent): a kept
+  // resolution delivers the new call's address and the adopted frame
+  // re-binds its pull.
+  //
+  // An address SWITCH also arms a gate (#2977, adopted face — the notes-
+  // search shape: t=0 adopted sidebar, then a search param changes the
+  // call). The binding resolved at response-header time, which is not an
+  // answer: until the new address's first content (or error) applies, the
+  // boundary still shows the t=0 call's content and the source that drove
+  // the switch must keep reading pending. Unlike the call-driven mount,
+  // this component's return value is the raw SSR'd element (hydration must
+  // claim it in place), so no reader in the render graph would ever see an
+  // armed gate — the second effect below exists to BE that reader: while
+  // its compute pends on the gate, the transition that delivered the
+  // switch stays open. Arm-then-rebind is self-correcting for warm stores
+  // (rebind's registration seeds synchronously and the seed's apply
+  // releases in the effect's write-legal half); only switches with a
+  // stream begun gate — nothing else is coming to release one.
+  if (binding) {
+    const arm = () => new Promise<void>(r => (release = r));
+    const [gatePromise, setGatePromise] = createSignal<Promise<void> | undefined>(undefined);
+    setGate = setGatePromise;
+    const gate = createMemo(() => gatePromise());
+    createRenderEffect(binding, (address: string, prev?: string) => {
+      if (prev !== undefined && address !== prev && tables.has(address)) {
+        setGatePromise(arm());
+      }
+      frame.rebind(address);
+    });
+    // The pending observer (no-op effect half: the pend IS the point).
+    createRenderEffect(
+      () => (gate(), undefined),
+      () => {}
+    );
+  }
   onCleanup(() => frame.dispose());
   // The boundary IS the element — hand hydration the single SSR'd node so it
   // claims it in place rather than re-rendering.

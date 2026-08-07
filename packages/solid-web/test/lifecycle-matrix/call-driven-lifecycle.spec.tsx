@@ -9,7 +9,7 @@
 // have their own spec files. See MATRIX.md for the full cell table.
 import { afterEach, describe, expect, test } from "vitest";
 import { vi } from "vitest";
-import { createRoot, createSignal, flush, Loading } from "solid-js";
+import { createRoot, createSignal, flush, isPending, Loading } from "solid-js";
 import { dynamic } from "../../src/index.js";
 import { installServerComponents } from "../../frames/src/client.js";
 import { createServerReference } from "@dom-expressions/runtime/src/server-functions/client.js";
@@ -29,6 +29,9 @@ const getReveal = createServerReference("matrix/lc/reveal");
 const getFallbackGate = createServerReference("matrix/lc/fallback-gate");
 const getShellGate = createServerReference("matrix/lc/shell-gate");
 const getShellErr = createServerReference("matrix/lc/shell-err");
+const getSwitch = createServerReference("matrix/lc/switch");
+const getSwitchFb = createServerReference("matrix/lc/switch-fb");
+const getSwitchErr = createServerReference("matrix/lc/switch-err");
 
 function articleHtml(title: string) {
   return (
@@ -489,6 +492,171 @@ describe("call-driven/shell-gate", () => {
     // fallback: the wait is over, the stream said so.
     expect(m.div.textContent).not.toContain("shell-fallback");
     expect((host.get("matrix/lc/shell-err") as any).error).toEqual({ message: "boom" });
+
+    m.cleanup();
+  });
+});
+
+describe("call-driven/args-switch-gate", () => {
+  // #2977: an args change on a LIVE site resolves to the same component
+  // (identity split) — the instance keeps its mount and rebinds to the new
+  // call's address. The binding resolves at response-HEADER time, but the
+  // header is not an answer: until the new address's first content (or
+  // error) applies, the boundary is still showing the PREVIOUS call's
+  // content, and the source that drove the switch must read pending —
+  // otherwise the UI tears ("count is 1" beside count-0's content).
+  //
+  // Mounts the pending probe alongside the boundary so the test reads
+  // exactly what the issue's `<button disabled={isPending(count)}>` reads.
+  function mountWithProbe(Comp: any, source: () => unknown) {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={div}>
+        <span data-probe>{isPending(source) ? "pending" : "idle"}</span>
+        <Loading fallback={<span>shell-fallback</span>}>
+          <Comp />
+        </Loading>
+      </div>;
+      container.appendChild(div);
+      return d;
+    });
+    return {
+      div,
+      probe: () => div.querySelector("[data-probe]")!.textContent,
+      cleanup() {
+        dispose();
+        container.remove();
+      }
+    };
+  }
+
+  /** fetch stub that holds one response per (single numeric) call arg. */
+  function heldPerArg() {
+    const held: Record<number, ReturnType<typeof openFrameResponse>> = {};
+    vi.stubGlobal("fetch", async (_url: any, init: any) => {
+      const n = JSON.parse(String(init.body))[0];
+      const h = openFrameResponse("srv");
+      held[n] = h;
+      return h.response;
+    });
+    return held;
+  }
+
+  test("the switch holds the source's pending state until the NEW address's first content applies", async () => {
+    const { host } = makeHost();
+    installServerComponents(host);
+    const held = heldPerArg();
+
+    const [count, setCount] = createSignal(0);
+    const Page = dynamic(() => getSwitch(count()) as any);
+    const m = mountWithProbe(Page, count);
+
+    await pump();
+    held[0].send({ type: "start", id: "srv", version: 1 });
+    held[0].send({ type: "html", id: "srv", version: 1, html: articleHtml("Zero") });
+    await pump();
+    expect(m.div.querySelector("h1")!.textContent).toBe("Zero");
+    expect(m.probe()).toBe("idle");
+
+    // The switch. The new address is cold and its stream hasn't answered:
+    // the old content stays (the morph model) and the source reads pending.
+    setCount(1);
+    await pump();
+    expect(m.div.querySelector("h1")!.textContent).toBe("Zero");
+    expect(m.probe()).toBe("pending");
+
+    // First content for the new address is the answer: morph in, settle.
+    held[1].send({ type: "start", id: "srv", version: 1 });
+    held[1].send({ type: "html", id: "srv", version: 1, html: articleHtml("One") });
+    held[1].close();
+    await pump();
+    expect(m.div.querySelector("h1")!.textContent).toBe("One");
+    expect(m.probe()).toBe("idle");
+
+    m.cleanup();
+  });
+
+  test("a shell whose server <Loading> shipped its fallback IS an answer: pending drops at the shell, not the late reveal", async () => {
+    const { host } = makeHost();
+    installServerComponents(host);
+    const held = heldPerArg();
+
+    const [count, setCount] = createSignal(0);
+    const Page = dynamic(() => getSwitchFb(count()) as any);
+    const m = mountWithProbe(Page, count);
+
+    await pump();
+    held[0].send({ type: "start", id: "srv", version: 1 });
+    held[0].send({ type: "html", id: "srv", version: 1, html: articleHtml("Zero") });
+    await pump();
+    expect(m.probe()).toBe("idle");
+
+    setCount(1);
+    await pump();
+    expect(m.probe()).toBe("pending");
+
+    // The new shell arrives carrying a server-rendered <Loading> fallback
+    // for a still-pending fragment. Boundaried pending drops isPending as
+    // readily as a client fallback would — the answer is on screen.
+    held[1].send({ type: "start", id: "srv", version: 1 });
+    held[1].send({
+      type: "html",
+      id: "srv",
+      version: 1,
+      html: '<article><h1>One</h1><template id="pl-a"><span>seg-loading</span></template><!--pl-a--></article>'
+    });
+    held[1].send({ type: "reveal", id: "srv", version: 1, keys: ["a"], fallback: true });
+    await pump();
+    expect(m.div.querySelector("h1")!.textContent).toBe("One");
+    expect(m.div.textContent).toContain("seg-loading");
+    expect(m.probe()).toBe("idle");
+
+    // The fragment reveals later, on its own schedule — pending stayed down.
+    held[1].send({
+      type: "fragment",
+      id: "srv",
+      version: 1,
+      key: "a",
+      html: "<span>seg-content</span>"
+    });
+    held[1].send({ type: "reveal", id: "srv", version: 1, keys: ["a"], waitForStyles: false });
+    held[1].close();
+    await pump();
+    expect(m.div.textContent).toContain("seg-content");
+    expect(m.probe()).toBe("idle");
+
+    m.cleanup();
+  });
+
+  test("an ERRORED stream is an answer too: the switch's pending state must not outlive the response", async () => {
+    const { host } = makeHost();
+    installServerComponents(host);
+    const held = heldPerArg();
+
+    const [count, setCount] = createSignal(0);
+    const Page = dynamic(() => getSwitchErr(count()) as any);
+    const m = mountWithProbe(Page, count);
+
+    await pump();
+    held[0].send({ type: "start", id: "srv", version: 1 });
+    held[0].send({ type: "html", id: "srv", version: 1, html: articleHtml("Zero") });
+    await pump();
+    expect(m.probe()).toBe("idle");
+
+    setCount(1);
+    await pump();
+    expect(m.probe()).toBe("pending");
+
+    held[1].send({ type: "start", id: "srv", version: 1 });
+    held[1].send({ type: "error", id: "srv", version: 1, error: { message: "boom" } });
+    held[1].close();
+    await pump();
+    expect(m.probe()).toBe("idle");
+    // The error is recorded, not a teardown: the previous call's content
+    // stays on screen (same policy as error/after-html).
+    expect(m.div.querySelector("h1")!.textContent).toBe("Zero");
 
     m.cleanup();
   });
