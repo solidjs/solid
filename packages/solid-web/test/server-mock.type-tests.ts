@@ -37,6 +37,7 @@ mutual<typeof rt.getExpectedRedirectStatus>(
   rt.getExpectedRedirectStatus
 );
 mutual<typeof rt.createSSRResponse>(mock.createSSRResponse, rt.createSSRResponse);
+mutual<typeof rt.commitEventResponse>(mock.commitEventResponse, rt.commitEventResponse);
 mutual<typeof rt.composeMiddleware>(mock.composeMiddleware, rt.composeMiddleware);
 mutual<runtime.FetchMiddleware>(
   null as unknown as mock.FetchMiddleware,

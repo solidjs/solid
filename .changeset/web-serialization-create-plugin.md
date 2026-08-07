@@ -1,0 +1,5 @@
+---
+"@solidjs/web": patch
+---
+
+`@solidjs/web/serialization` exports `createPlugin` and `OpaqueReference` — seroval's plugin-authoring API, re-exported from the runtime's own seroval instance so custom codec plugins are version-pinned by construction (a plugin built against your own `seroval` dependency edge would not fail the build; it would emit nodes the other end of the wire can't interpret — solid-start #1474). This closes the `@solidjs/start/serialization` gap for the Start retirement: author plugins from this subpath and feed them to the server-function `codec` option on both entries. `SerializerPlugin` is now generic (`SerializerPlugin<Value, Info>`; bare use unchanged), and the authoring surface is fully typed under `moduleResolution: "nodenext"` — the types are hand-declared against the pinned seroval line because seroval's own published d.ts degrade to `any` there. Deliberately excluded from Start's export list: seroval's granular context/`Plugin` type names — `createPlugin`'s generics carry the inference, and `SerializerPlugin` stays the one exported plugin type.

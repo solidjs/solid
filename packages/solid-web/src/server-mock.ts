@@ -1,5 +1,5 @@
 //@ts-nocheck
-import type { RequestEvent, ResponseStub } from "./client.js";
+import type { RequestEvent, RequestEventLocals, ResponseStub } from "./client.js";
 
 function throwInBrowser(func: Function) {
   const err = new Error(`${func.name} is not supported in the browser, returning undefined`);
@@ -184,7 +184,7 @@ export function createResponseStub(): ResponseStub {
 export function createRequestEvent<T extends object = {}>(
   request: Request,
   init?: T
-): { request: Request; locals: Record<string | number | symbol, any>; response: ResponseStub } & T {
+): { request: Request; locals: RequestEventLocals; response: ResponseStub } & T {
   throwInBrowser(createRequestEvent);
 }
 
@@ -225,6 +225,20 @@ export function createSSRResponse(
 ): Promise<Response>;
 export function createSSRResponse(): Response | Promise<Response> {
   throwInBrowser(createSSRResponse);
+}
+
+/**
+ * Handler-lifecycle plumbing — the exit for a `Response` that did not go
+ * through `createSSRResponse` (a middleware early return, an API result):
+ * folds the request event's response stub onto it (cookies append
+ * entry-by-entry, other headers gap-fill, status never) and commits the
+ * stub. Already-committed stubs pass the response through untouched, so
+ * handlers apply it unconditionally after their middleware chain unwinds.
+ * `event` defaults to the ambient `getRequestEvent()`. Application
+ * middleware never calls this. Server-only.
+ */
+export function commitEventResponse(response: Response, event?: RequestEvent): Response {
+  throwInBrowser(commitEventResponse);
 }
 
 /**

@@ -54,11 +54,27 @@ export function handler(request: Request): Response {
 The per-request context on the server is the **request event**: the incoming `Request` plus a `locals` bag integrations and middleware hang state on.
 
 ```ts
+export interface RequestEventLocals {
+  [key: string | number | symbol]: any;
+}
+
 export interface RequestEvent {
   request: Request;
-  locals: Record<string | number | symbol, any>;
+  locals: RequestEventLocals;
 }
 ```
+
+`RequestEventLocals` is the typing seam for `locals`: a plain exported interface applications **module-augment** — no ambient `App.*` namespace (Start's `App.RequestEventLocals` pattern is retired with it). The blessed augmentation target is `@solidjs/web`, and the merge flows to `getRequestEvent()!.locals` everywhere the event surfaces (the main entry, `createRequestEvent`, the server-functions event):
+
+```ts
+declare module "@solidjs/web" {
+  interface RequestEventLocals {
+    user: User;
+  }
+}
+```
+
+The index signature keeps un-augmented usage permissive — `event.locals.whatever = x` typechecks today and keeps typechecking — so augmentation adds precision for the keys it names without gating anything. The deliberate trade (over a strict empty interface intersected with `Record<string, unknown>` at use sites): unaugmented keys read as `any` rather than erroring, and the permissiveness travels with the one interface instead of depending on every use site remembering the intersection. This matches Start's precedent, whose `RequestEventLocals` carried the same index signature.
 
 - `getRequestEvent()` (from `@solidjs/web`) reads the current event anywhere under a request scope — component bodies during SSR, server function bodies, loaders. Returns `undefined` outside one.
 - `provideRequestEvent(event, cb)` (from `@solidjs/web/storage`) establishes the scope, backed by an `AsyncLocalStorage` instance parked on the global under a registered symbol — separately bundled copies of the runtime find the same one. Integrations call it around the render; it throws on the client, where there is no request to scope.
@@ -202,9 +218,9 @@ export function clearSession() {
 
 The storage-backed variant is the same shape with the payload swapped for a pointer: the cookie carries only a random id (`crypto.randomUUID()`, signed the same way if you want tamper evidence), and `getSession`/`setSession` read and write the data against your store (KV, Redis, a database row) keyed by it. That keeps the cookie small, makes sessions revocable server-side, and lets the data hold things a readable cookie never could. Which store, what’s in the session, and when it rotates are exactly the policy decisions that make this userland.
 
-### The response-head lifecycle: `createRequestEvent` / `createSSRResponse`
+### The response-head lifecycle: `createRequestEvent` / `createSSRResponse` / `commitEventResponse`
 
-The stub only means something if a handler actually runs the lifecycle: build the stub-backed event, render inside its scope, and derive the outgoing `Response` head at the moment it freezes on the wire. That choreography is core protocol, not integration policy — every handler that reimplements it drifts on the same edges (when exactly `committed` flips, what a redirect set before vs. after the shell flush should do) — so core ships it:
+The stub only means something if a handler actually runs the lifecycle: build the stub-backed event, run inside its scope, and derive the outgoing `Response` head at the moment it freezes on the wire. That choreography is core protocol, not integration policy — every handler that reimplements it drifts on the same edges (when exactly `committed` flips, what a redirect set before vs. after the shell flush should do, which stub headers may fold onto a non-page response) — so core ships it. A handler's response leaves through one of exactly **two exits**: page results through `createSSRResponse`, any other `Response` — a middleware early return, an API result — through `commitEventResponse`.
 
 ```tsx
 import { renderToStream, createRequestEvent, createSSRResponse } from "@solidjs/web";
@@ -227,7 +243,7 @@ export function handleRequest(request: Request): Promise<Response> {
 
   String results return a `Response` synchronously; stream results return a promise that resolves at shell flush, so returning it from a fetch handler sends the head at the right moment by construction.
 
-### Middleware: `composeMiddleware`
+- `commitEventResponse(response, event?)` is the **other exit** — handler-lifecycle plumbing for a `Response` that did not go through `createSSRResponse` (a middleware early return, an API result), the same fold the server-function handler's own responses take. It folds the event's stub onto the response — `Set-Cookie` appends entry-by-entry alongside the response's own, other stub headers fill gaps only (never the wire-protocol family the handlers own, never `Content-Type`/`Content-Length` on a bodiless response), the status is never taken from the stub — then commits the stub, so later writes fail loudly. `event` defaults to the ambient `getRequestEvent()`. It is **idempotent at the handler edge**: an already-committed stub passes the response through untouched, so a handler applies it unconditionally after its middleware chain fully unwinds — page responses come back from `createSSRResponse` committed and do not double-fold. Like `createResponseStub` and `getExpectedRedirectStatus`, this is an integrator-tier export: application middleware never calls it — writes to `event.response` inside the request scope are the application surface; the handler edge runs the fold once.
 
 Handlers compose request middleware with the same web-standard shape everything else uses — `(request, next) => Response | Promise<Response>`:
 
@@ -262,6 +278,8 @@ What core deliberately does not ship: routing of middleware (per-path matching),
 | Start’s `createMiddleware` (h3 `Middleware` shapes) | `composeMiddleware` over web-standard `(request, next) => Response` functions |
 | Hand-rolled head merging / redirect handling in server handlers | `createRequestEvent` + `createSSRResponse` (commit at shell flush, redirect protocol, post-flush script fallback) |
 | Start’s `getCookie`/`setCookie` (vinxi/h3 re-exports) | `parseCookieHeader`/`serializeCookie` from `@solidjs/web` over `event.request.headers` / `event.response.headers` — the codec + native `Headers`; a first-party `cookies()` jar middleware is planned as a post-freeze fast-follow |
+| Start’s ambient `App.RequestEventLocals` namespace (`@solidjs/start/env`) | module-augmented `RequestEventLocals` from `@solidjs/web`: `declare module "@solidjs/web" { interface RequestEventLocals { user: User } }` — a plain exported interface, no global `App.*` namespace; flows to `getRequestEvent()!.locals` everywhere |
+| Hand-folding stub cookies/headers onto middleware or API responses | `commitEventResponse(response, event?)` from `@solidjs/web` at the handler edge — committed stubs pass through untouched |
 
 ## Removals
 
