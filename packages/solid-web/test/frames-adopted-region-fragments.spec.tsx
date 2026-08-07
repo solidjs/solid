@@ -62,7 +62,7 @@ function installSwapRuntime() {
     let o: ChildNode | null = document.getElementById("pl-" + e);
     if (!o) return 0;
     while (o && !(o.nodeType === 8 && o.nodeValue === "pl-" + e)) {
-      const t = o.nextSibling;
+      const t: ChildNode | null = o.nextSibling;
       o.remove();
       o = t;
     }
