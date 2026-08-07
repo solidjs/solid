@@ -6,7 +6,7 @@
 
 ## Summary
 
-`@solidjs/web` owns both halves of server rendering: the render entry points (`renderToString` and `renderToStream` on the server; `render`, `hydrate` on the client) and the HTTP exchange they run inside (the request event, the response head, the render tree’s authority over it via `httpStatus`/`httpHeader`, and cookie access via `getCookie`/`setCookie`/`deleteCookie`). Any Vite app — with or without a metaframework — can server-render, stream, and shape its HTTP responses from core alone.
+`@solidjs/web` owns both halves of server rendering: the render entry points (`renderToString` and `renderToStream` on the server; `render`, `hydrate` on the client) and the HTTP exchange they run inside (the request event, the response head, the render tree’s authority over it via `httpStatus`/`httpHeader`, and the cookie codec `parseCookieHeader`/`serializeCookie` over native `Headers`). Any Vite app — with or without a metaframework — can server-render, stream, and shape its HTTP responses from core alone.
 
 ## Motivation
 
@@ -109,38 +109,48 @@ Retraction is what makes the scope tie meaningful: each write snapshots the prio
 
 Under streaming this implies the natural constraint: status and headers must be decided by content in the shell. Anything that resolves after the shell flush is past `committed` and can no longer speak — use `deferStream` (RFC 05) on the source that decides the status if it must be waited for.
 
-### Cookies: `getCookie` / `setCookie` / `deleteCookie`
+Said plainly, `httpHeader` is a **shell-time API**. Headers declared by streamed route content — anything below a `<Loading>` boundary that resolves after the shell went out — run post-flush and are committed no-ops by contract. There is no queue that holds them for a later response; the head is on the wire. If a header matters, it belongs to the shell (or to a `deferStream`-held source that keeps the shell waiting for it).
+
+### Cookies: the codec + native `Headers`
 
 ```ts
-import { getCookie, setCookie, deleteCookie } from "@solidjs/web";
+import { parseCookieHeader, serializeCookie, getRequestEvent } from "@solidjs/web";
 
 // inside a server function, loader, or handler:
-const theme = getCookie("theme"); // string | undefined
-setCookie("session", token, { httpOnly: true, secure: true, sameSite: "lax", maxAge: 60 * 60 * 24 * 7 });
-deleteCookie("session"); // empty value + Max-Age=0, honoring { path, domain }
+const event = getRequestEvent()!; // `response` is the integration-augmented stub (see above)
+
+const cookies = parseCookieHeader(event.request.headers.get("cookie"));
+const theme = cookies.theme; // string | undefined
+
+event.response.headers.append(
+  "set-cookie",
+  serializeCookie("session", token, { httpOnly: true, secure: true, sameSite: "lax", maxAge: 60 * 60 * 24 * 7 })
+);
+
+// deleting = expiring: empty value + Max-Age=0, matching the path/domain it was set under
+event.response.headers.append("set-cookie", serializeCookie("session", "", { maxAge: 0 }));
 ```
 
-Cookies are the one header where “just use `httpHeader`” has a correctness story core must own — parsing the `Cookie` grammar, encoding values that round-trip, and (below) keeping multiple `Set-Cookie` values intact through every merge — so the helpers ship from core while everything built *on* cookies (sessions, auth) stays above.
+Cookies are **not core API** — core owns the **exchange** (the request’s headers in, the response stub’s headers out) and the **codec**, nothing ambient. The web platform hands you whole `Cookie`/`Set-Cookie` headers but no codec for the pairs inside them; `parseCookieHeader`/`serializeCookie` are that codec — the platform-gap primitives — and the two lines above are the whole blessed pattern. Everything built *on* cookies (sessions, auth, an ambient jar) is policy and lives above the line.
 
-All three resolve the request event the same way the response primitives do: called with a name they read `getRequestEvent()` ambiently; called with an explicit event first (`getCookie(event, name)`, `setCookie(event, name, value, options?)`) they work against exactly that event — middleware and handlers outside the ambient scope included.
-
-- **Reads are a request-only view.** `getCookie(name)` parses the `Cookie` header the client sent, decoded, or `undefined`. A `setCookie` in the same request does **not** read back — the request is what arrived, the response is what you’re building, and merging the two invents a browser round trip that hasn’t happened.
-- **Writes append `Set-Cookie` onto `event.response.headers`.** `serializeCookie` formats it: name and value percent-encoded (any string round-trips), `path` defaulting to `/`, and `domain`/`maxAge`/`expires`/`httpOnly`/`secure`/`sameSite` emitted exactly when given — no other magic. The wire-format halves (`parseCookieHeader`/`serializeCookie`) are exported for code building on the same grammar.
-- **The `set*` verbs are deliberate** where `httpStatus`/`httpHeader` avoid them: cookie writes are event-time *mutations* of the outgoing head — appends that own no scope and never retract — not scope-tied declarations.
-- **Committed is a hard line, never a silent one.** `httpStatus` past `committed` no-ops by contract — a retraction-capable declaration arriving late has nothing to say. A cookie write is imperative data (a session being established); losing it is a bug. So `setCookie` after the head went out **throws in the dev build** and reports through `console.error` (and no-ops) in production, where crashing a request that is already streaming would compound the bug.
+- **The codec is dependency-free and does one thing.** Names and values travel percent-encoded and the parser decodes symmetrically, so any string round-trips; `path` defaults to `/` — the only default — and `domain`/`maxAge`/`expires`/`httpOnly`/`secure`/`sameSite` are emitted exactly when given. No signing, no encryption: integrity layers belong to the caller (see the sessions recipe).
+- **Both entries export the one real implementation.** A pure value transformer has legitimate browser uses (`document.cookie = serializeCookie(...)`, parsing `document.cookie`), and a client-side no-op stub would hand back silent garbage — so isomorphic code like a shared render path can call it anywhere. Nothing in the client runtime imports it internally, so it tree-shakes out of bundles that don’t.
+- **Reads are a request-only view.** The `Cookie` header is what the client sent; an appended `Set-Cookie` in the same request does **not** read back — the request is what arrived, the response is what you’re building, and merging the two invents a browser round trip that hasn’t happened.
+- **Writes are event-time mutations of the outgoing head** — `Headers.append` semantics exactly, owning no scope and never retracting. (Cookies declared through `httpHeader` are also simply correct now — its retraction snapshots and restores `set-cookie` entry-exactly instead of comma-joining — but the append above is the blessed spelling.)
+- **Committed is a hard line, never a silent one — enforced on the stub itself.** A late cookie is imperative data (a session being established); losing it is a bug. The moment the head freezes (shell flush, or the server-function commit seam), the stub’s `headers` mutating methods fail loudly: a post-commit write **throws in the dev build** and reports through `console.error` (and no-ops) in production, where crashing a request that is already streaming would compound the bug. Because the enforcement lives on the stub, it covers every writer uniformly — direct appends, middleware, anything — not just code polite enough to check `committed` first.
 
 **The multi-`Set-Cookie` guarantee.** `Set-Cookie` is the one header that must never fold: multiple values are separate headers, commas are legal *inside* a single value (`Expires`), and `Headers` iteration semantics differ across runtimes. Every place core materializes a response head — `createSSRResponse`’s derivation (including its redirect paths), the server-function handler’s response encoding and forwarded `respond()`/`redirect()` metadata, the no-JS form redirect — carries `Set-Cookie` values entry-by-entry via `getSetCookie()` + append, never `get`/`set` or constructor-copy folding. That is the portability contract across Node/undici, workerd, and Deno; integrations merging headers themselves should follow the same rule.
 
-During a server function the handler folds the event’s response stub onto the outgoing response as the head freezes — cookies set by the mutation ride whatever leaves, thrown redirects included (the set-session-then-`throw redirect()` login flow works by construction) — and marks the stub `committed`, so a straggling write after the response is on the wire reports instead of vanishing.
+During a server function the handler folds the event’s response stub onto the outgoing response as the head freezes — cookies appended by the mutation ride whatever leaves, thrown redirects included (the set-session-then-`throw redirect()` login flow works by construction) — and commits the stub, so a straggling write after the response is on the wire fails loudly instead of vanishing.
 
 ### Sessions (recipe)
 
-Sessions are deliberately **userland** — the boundary rule again: core owns the exchange (cookie in, cookie out, committed semantics), not the policy above it (what’s in the session, how it’s protected, where it lives). The primitives plus WebCrypto — available on every runtime core targets — are the whole recipe.
+Sessions are deliberately **userland** — the boundary rule again: core owns the exchange (cookie in, cookie out, committed semantics) and the codec, not the policy above it (what’s in the session, how it’s protected, where it lives). The codec plus WebCrypto — available on every runtime core targets — are the whole recipe.
 
 A signed session cookie (data in the cookie, HMAC keeps it tamper-proof; it is readable, so nothing secret goes in it):
 
 ```ts
-import { getCookie, setCookie, deleteCookie } from "@solidjs/web";
+import { parseCookieHeader, serializeCookie, getRequestEvent } from "@solidjs/web";
 
 const encoder = new TextEncoder();
 
@@ -167,20 +177,26 @@ async function unsign(signed: string, secret: string) {
 }
 
 export async function getSession(secret: string): Promise<Record<string, unknown>> {
-  const raw = getCookie("session");
+  const { request } = getRequestEvent()!;
+  const raw = parseCookieHeader(request.headers.get("cookie")).session;
   const value = raw && (await unsign(raw, secret));
   return value ? JSON.parse(value) : {};
 }
 
 export async function setSession(data: Record<string, unknown>, secret: string) {
-  setCookie("session", await sign(JSON.stringify(data), secret), {
-    httpOnly: true, secure: true, sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 7
-  });
+  const { response } = getRequestEvent()!;
+  response.headers.append(
+    "set-cookie",
+    serializeCookie("session", await sign(JSON.stringify(data), secret), {
+      httpOnly: true, secure: true, sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7
+    })
+  );
 }
 
 export function clearSession() {
-  deleteCookie("session");
+  const { response } = getRequestEvent()!;
+  response.headers.append("set-cookie", serializeCookie("session", "", { maxAge: 0 }));
 }
 ```
 
@@ -245,7 +261,7 @@ What core deliberately does not ship: routing of middleware (per-path matching),
 | Hand-rolled `TransformStream` around `pipeTo` for `Response` bodies | `renderToStream(...).readable` |
 | Start’s `createMiddleware` (h3 `Middleware` shapes) | `composeMiddleware` over web-standard `(request, next) => Response` functions |
 | Hand-rolled head merging / redirect handling in server handlers | `createRequestEvent` + `createSSRResponse` (commit at shell flush, redirect protocol, post-flush script fallback) |
-| Start’s `getCookie`/`setCookie` (vinxi/h3 re-exports) | `getCookie`/`setCookie`/`deleteCookie` from `@solidjs/web` — ambient or explicit-event, committed-aware |
+| Start’s `getCookie`/`setCookie` (vinxi/h3 re-exports) | `parseCookieHeader`/`serializeCookie` from `@solidjs/web` over `event.request.headers` / `event.response.headers` — the codec + native `Headers`; a first-party `cookies()` jar middleware is planned as a post-freeze fast-follow |
 
 ## Removals
 
@@ -255,4 +271,5 @@ What core deliberately does not ship: routing of middleware (per-path matching),
 
 - **Leaving the exchange to metaframeworks** — rejected; see the decision record in [RFC 10](10-server-functions.md#what-belongs-in-solidjsweb-decision-record).
 - **`set`-verb naming (`setHttpStatus`)** — rejected: the primitives declare for a scope’s lifetime and retract on disposal; `set*` is reserved for event-time mutation that owns no scope.
-- **Cookie helpers as sugar over `httpHeader`** — the original decline, superseded: `getCookie`/`setCookie` ship because they cleared the bar the boundary rule sets — a correctness story requiring core access (the `Cookie` grammar, committed-aware writes, and the multi-`Set-Cookie` merge guarantee only core’s materialization paths can promise), not just a shorter spelling. Sessions and other policy atop cookies remain above the line.
+- **Ambient cookie conveniences (`getCookie`/`setCookie`/`deleteCookie`)** — the final ruling, after the position moved twice. Originally declined as sugar over `httpHeader`; then briefly **added** during the C6 round (ambient helpers riding `getRequestEvent()`, committed-aware writes) on the correctness argument; then **cut before release** with the line redrawn where it stays: cookies are not core API — core owns the exchange and the codec, nothing ambient. The parts of C6 with a correctness story core alone can tell survive it (the codec’s round-trip grammar, the committed-stub loudness, the multi-`Set-Cookie` merge guarantee); the ambient *reading and writing* did not — it is convenience, and convenience over the exchange is middleware’s job. This matches the Remix/React Router precedent: the codec lives in core, ambience ships as router middleware. A first-party `cookies()` jar middleware is planned as a post-freeze fast-follow — no API commitment yet.
+- **Throw-through-boundaries for response control flow** — rejected: letting redirects/`notFound` be thrown during render and caught by `<Loading>`/`<Errored>` boundaries as the way to answer them. After the shell flush the status is frozen and a boundary may already have streamed fallback HTML, so a boundary-caught response throw has no coherent post-commit meaning — there is nothing left it could truthfully do to the exchange. The stub + data-layer model answers every case explicitly instead: pre-flush `Location` becomes a real redirect, post-flush `Location` becomes the client-side script fallback, and server functions carry thrown `Response`s to the client transport whole. A thrown `Response` is control flow for the *integration*, never an error for a boundary to swallow.
