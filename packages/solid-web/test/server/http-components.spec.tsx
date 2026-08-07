@@ -265,6 +265,56 @@ describe("httpHeader (server primitive)", () => {
     expect(event.response!.headers.get("vary")).toBe("Accept");
   });
 
+  test("set-cookie retraction is entry-exact: disposal restores the prior entry list", () => {
+    // `get("set-cookie")` comma-joins multiple entries and a `set()` restore
+    // would collapse them into ONE corrupt header (commas are legal inside a
+    // single cookie's `Expires`) — the snapshot/restore rides
+    // `getSetCookie()` + re-append instead.
+    const event = makeEvent();
+    event.response!.headers.append("set-cookie", "a=1; Path=/");
+    event.response!.headers.append("set-cookie", "b=2; Path=/");
+    storage.run(event, () => {
+      createRoot(dispose => {
+        httpHeader("set-cookie", "c=3; Path=/", { append: true });
+        expect(event.response!.headers.getSetCookie()).toEqual([
+          "a=1; Path=/",
+          "b=2; Path=/",
+          "c=3; Path=/"
+        ]);
+        dispose();
+      });
+    });
+    expect(event.response!.headers.getSetCookie()).toEqual(["a=1; Path=/", "b=2; Path=/"]);
+  });
+
+  test("set-cookie recovery: an errored sibling's retraction leaves the survivor's entries whole", () => {
+    // Two sibling scopes each append a cookie; the later one errors and
+    // recovers (its scope disposes). Its retraction must restore the exact
+    // entry list from its write time — the survivor's cookie stays a
+    // separate entry, not half of a comma-joined blob.
+    const event = makeEvent();
+    storage.run(event, () => {
+      createRoot(dispose => {
+        createRoot(() => {
+          httpHeader("set-cookie", "survivor=1; Path=/; HttpOnly", { append: true });
+        });
+        let disposeErrored!: () => void;
+        createRoot(d => {
+          disposeErrored = d;
+          httpHeader("set-cookie", "errored=1; Path=/", { append: true });
+        });
+        expect(event.response!.headers.getSetCookie()).toEqual([
+          "survivor=1; Path=/; HttpOnly",
+          "errored=1; Path=/"
+        ]);
+        // the boundary errors and recovers — only its own write retracts
+        disposeErrored();
+        expect(event.response!.headers.getSetCookie()).toEqual(["survivor=1; Path=/; HttpOnly"]);
+        dispose();
+      });
+    });
+  });
+
   test("write and retraction are no-ops once the response head is committed", () => {
     const committed = makeEvent({ headers: { "x-a": "1" }, committed: true });
     storage.run(committed, () => {

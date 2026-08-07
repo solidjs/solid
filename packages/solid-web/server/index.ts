@@ -254,7 +254,11 @@ export function httpStatus(code: number, text?: string): void {
  * Retraction semantics: the header's prior value is snapshotted at write
  * time and restored when the owning scope is disposed — deleted if there
  * was none — so a boundary that errors or recovers retracts its writes
- * without disturbing values other writers contributed before it. Both the
+ * without disturbing values other writers contributed before it. For
+ * `set-cookie` — the one header whose multiple values must survive as
+ * separate entries — the snapshot and restore are entry-exact
+ * (`getSetCookie()` + re-append; `get()`/`set()` would comma-join the
+ * entries and then collapse them into one corrupt header). Both the
  * write and the cleanup restore are no-ops once the integration marks the
  * response head `committed` (head derived/sent — headers can no longer
  * change). On the client this is a no-op.
@@ -264,12 +268,21 @@ export function httpHeader(name: string, value: string, options?: { append?: boo
   const response = event && event.response;
   if (response && !response.committed) {
     const headers = response.headers;
-    const prev = headers.get(name);
+    // Entry-exact path for set-cookie: `get()` comma-joins multiple
+    // entries, and restoring that join through `set()` would collapse them
+    // into one corrupt header (commas are legal inside a single cookie's
+    // `Expires`), so snapshot the entry list and rebuild it on retraction.
+    const setCookie = name.toLowerCase() === "set-cookie";
+    const prevCookies = setCookie ? headers.getSetCookie() : undefined;
+    const prev = setCookie ? null : headers.get(name);
     if (options && options.append) headers.append(name, value);
     else headers.set(name, value);
     onCleanup(() => {
       if (response.committed) return;
-      if (prev === null) headers.delete(name);
+      if (setCookie) {
+        headers.delete(name);
+        for (const cookie of prevCookies!) headers.append(name, cookie);
+      } else if (prev === null) headers.delete(name);
       else headers.set(name, prev);
     });
   }
