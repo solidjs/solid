@@ -9,8 +9,7 @@ overrides:
   '@solidjs/signals': workspace:*
   solid-js: workspace:*
   '@solidjs/web': workspace:*
-  '@dom-expressions/runtime': link:../dom-expressions/packages/runtime
-  '@dom-expressions/compiler': 0.50.0-next.37
+  '@dom-expressions/compiler': 0.50.0-next.40
 
 importers:
 
@@ -35,17 +34,17 @@ importers:
         specifier: ^5.4.0
         version: 5.4.0(tinybench@2.9.0)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.25.12)(terser@5.49.0))(vitest@4.1.6)
       '@dom-expressions/babel-plugin-jsx':
-        specifier: 0.50.0-next.37
-        version: 0.50.0-next.37(@babel/core@7.29.0)
+        specifier: 0.50.0-next.40
+        version: 0.50.0-next.40(@babel/core@7.29.0)
       '@dom-expressions/hyperscript':
-        specifier: 0.50.0-next.37
-        version: 0.50.0-next.37
+        specifier: 0.50.0-next.40
+        version: 0.50.0-next.40
       '@dom-expressions/runtime':
-        specifier: link:../dom-expressions/packages/runtime
-        version: link:../dom-expressions/packages/runtime
+        specifier: 0.50.0-next.40
+        version: 0.50.0-next.40(csstype@3.2.3)(seroval-plugins@1.5.5(seroval@1.5.5))(seroval@1.5.5)
       '@dom-expressions/tagged-jsx':
-        specifier: 0.50.0-next.37
-        version: 0.50.0-next.37
+        specifier: 0.50.0-next.40
+        version: 0.50.0-next.40
       '@rollup/plugin-babel':
         specifier: ^6.0.3
         version: 6.0.3(@babel/core@7.29.0)(@types/babel__core@7.20.5)(rollup@4.59.0)
@@ -312,8 +311,8 @@ importers:
         specifier: ^7.0.0
         version: 7.29.0
       '@dom-expressions/babel-plugin-jsx':
-        specifier: 0.50.0-next.37
-        version: 0.50.0-next.37(@babel/core@7.29.0)
+        specifier: 0.50.0-next.40
+        version: 0.50.0-next.40(@babel/core@7.29.0)
       solid-js:
         specifier: workspace:*
         version: link:../solid
@@ -1092,50 +1091,58 @@ packages:
     resolution: {integrity: sha512-Vd/9EVDiu6PPJt9yAh6roZP6El1xHrdvIVGjyBsHR0RYwNHgL7FJPyIIW4fANJNG6FtyZfvlRPpFI4ZM/lubvw==}
     engines: {node: '>=18'}
 
-  '@dom-expressions/babel-plugin-jsx@0.50.0-next.37':
-    resolution: {integrity: sha512-mwMSOWH3VRYTAzOFMiOJZOvx1JEB7tOJz/Yfa6y9OeX1j/7WzoN3lQtilP6ZCJKwsf093IfAjDRZehgFuUicMg==}
+  '@dom-expressions/babel-plugin-jsx@0.50.0-next.40':
+    resolution: {integrity: sha512-elH34kK5V3fm5+AztmzpyDmlgYXkboVRPtHJhDVOfk7WPXR16dvssQjrnCjo/ulkTSP9IGTsKCOjG/zRCU74yQ==}
     peerDependencies:
       '@babel/core': ^7.20.12
 
-  '@dom-expressions/compiler-darwin-arm64@0.50.0-next.37':
-    resolution: {integrity: sha512-v3Hoq7UmsZHQ/4riVjHVejVShgsU/V34IhdHo1/55o0t2NbO94zzRVUNtwiRNc/hisef6deYLF/p6Y3z0vjoCQ==}
+  '@dom-expressions/compiler-darwin-arm64@0.50.0-next.40':
+    resolution: {integrity: sha512-+3aXdhw4SVt08fvgAsEM56ky/wdCVPXT0Wtxo164Cchgg7sapPsRqo8Gwwn0UU5AhVcEp3CIhdB5+pMoUicKFg==}
     cpu: [arm64]
     os: [darwin]
 
-  '@dom-expressions/compiler-darwin-x64@0.50.0-next.37':
-    resolution: {integrity: sha512-SdiByaVE3gRMik5Nsa/oCfAIVZ7mattPUL9OP7DfAw0QoseLxp63OPAikWdU9CTbagVRWgoO42s/xR/G+GOUWw==}
+  '@dom-expressions/compiler-darwin-x64@0.50.0-next.40':
+    resolution: {integrity: sha512-Tbjg6ZQEIhKLKGd/Ep6MKqD76arPdV6SE2d3fkrP4qooIv2gYvAkvUw90qNdZxVHcuyjutrbJE0WpXYY9nSIIQ==}
     cpu: [x64]
     os: [darwin]
 
-  '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.37':
-    resolution: {integrity: sha512-3TcT8hXeJY1N1WKGyYU+xy0XQZ0d9TFqzrOABgvhLQhXEyOs35oZTxwQJ6ENojxL2bF8RJcb3C5bkSB2ELffUw==}
+  '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.40':
+    resolution: {integrity: sha512-tIJMY8dPyjiYNSL5uc4JA5l88Sw0WoMwoAilqTTHpGYdCL5GwzGq6ZOV1bndw8XKEYFYfnTr276FDHyYpLtRYQ==}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@dom-expressions/compiler-linux-x64-gnu@0.50.0-next.37':
-    resolution: {integrity: sha512-UT9gYIOVb6VQ3Fvc9Jp/vlb/1VBFXjiWae61FpXmXM/82ROoM5VTR53P0pzc6ViMZJ5OfRrT09yGYfyk9QQj8g==}
+  '@dom-expressions/compiler-linux-x64-gnu@0.50.0-next.40':
+    resolution: {integrity: sha512-H/K/3Ykk8aCSNuKDlv/sgbPdSks+zqFxZ4mzqaGJmlDqEfeaWYXan5fsvwQbACdNDJeKoKLO4GhnlnKlKWjiJg==}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.37':
-    resolution: {integrity: sha512-O3KtOFP5Y9TjN1Ujt4lXuUd/epdb3h5sdWmlxrdptnjMAbw168vowuX5IakUQ2UMkgAB/6KemVtalzI75HvPZA==}
+  '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.40':
+    resolution: {integrity: sha512-2SAfc35FEvvxkUz2yeh/4aNx0s9waZnce4KS64oUMlVpYEFtNBdfnZKCB/bgzJFvTxXjMs+HcU6OInGltH5jHA==}
     engines: {node: '>=14.0.0'}
 
-  '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.37':
-    resolution: {integrity: sha512-RyE6bWTp+XrI+dUNwnkaXEZ4GgJcjATg1WFz3EpHyjiYe/JRI9XWbL6HorhDWuRdKmV030aZtLGp/H5pxxIZyw==}
+  '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.40':
+    resolution: {integrity: sha512-bBdHMxdfUHtIrS5xrt9udqdGRnGKdYQgKxJNIts+Il3Fs8QGyNwaZpi0tjnlRjYa0+GdWEC3Gw1Pmq/HFXzFeQ==}
     cpu: [x64]
     os: [win32]
 
-  '@dom-expressions/compiler@0.50.0-next.37':
-    resolution: {integrity: sha512-7VTx+8snF1OcYEidwh1lZxmU5iiZs60j18MgORHkFemrK8XFFgfc+GXUp+g1h/gm8C+kPMBqGl+E8cbwwqKzyg==}
+  '@dom-expressions/compiler@0.50.0-next.40':
+    resolution: {integrity: sha512-RI/kHU+QkLOHo4CQyqLTn9c7sAfl/GEULMsOpS1YqkPJgy7R8MCPWXFN4sI0QDBbM6ePtEyuW+2bsdsXqyxkzQ==}
 
-  '@dom-expressions/hyperscript@0.50.0-next.37':
-    resolution: {integrity: sha512-G+N3y0eZlT9TchzoSaiwTypGJfkvrC85qui3UlosUwWfXAFF/pLlvgAiYo6NatGvqUl4kXDDRCVwqdZbYZlwzg==}
+  '@dom-expressions/hyperscript@0.50.0-next.40':
+    resolution: {integrity: sha512-z5sLoRGRb6fF4sKWz+PWAoPD1IyX4XX3/bK5N7tPO4i8GjTpHJ/+uAlWEVfa7kWvsAs3iY154KOfY8OB50MiuQ==}
 
-  '@dom-expressions/tagged-jsx@0.50.0-next.37':
-    resolution: {integrity: sha512-2nzfQiarrrkpCWtR2ADVBOoXVE0ZFPWnWB6qK93Z3EINeQAA+DLSwUGymdj6aRbAyMmYPKh+xVY6DLx1MK7prQ==}
+  '@dom-expressions/runtime@0.50.0-next.40':
+    resolution: {integrity: sha512-XFBleK2ktNS5hYCF/BVX8K8n+l80HeX8GJZJqaN77wl9HxBBNvfs5Aq9ahcOqOX9gGMzWGTe0tn5Qlug5ugi+A==}
+    hasBin: true
+    peerDependencies:
+      csstype: ^3.0
+      seroval: ~1.5.4
+      seroval-plugins: ~1.5.4
+
+  '@dom-expressions/tagged-jsx@0.50.0-next.40':
+    resolution: {integrity: sha512-ggxRDrCegfym2I3Pfhg1/ojDM8pDXROY0BqHyv+mKWkmmnuEBVvBVOAk2/VipT4LrL+P5CtcGxqvb9wVvpDMdA==}
 
   '@emnapi/core@1.11.1':
     resolution: {integrity: sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ==}
@@ -4776,7 +4783,7 @@ snapshots:
 
   '@csstools/css-tokenizer@3.0.4': {}
 
-  '@dom-expressions/babel-plugin-jsx@0.50.0-next.37(@babel/core@7.29.0)':
+  '@dom-expressions/babel-plugin-jsx@0.50.0-next.40(@babel/core@7.29.0)':
     dependencies:
       '@babel/core': 7.29.0
       '@babel/helper-module-imports': 7.18.6
@@ -4786,40 +4793,47 @@ snapshots:
       parse5: 7.3.0
       validate-html-nesting: 1.2.4
 
-  '@dom-expressions/compiler-darwin-arm64@0.50.0-next.37':
+  '@dom-expressions/compiler-darwin-arm64@0.50.0-next.40':
     optional: true
 
-  '@dom-expressions/compiler-darwin-x64@0.50.0-next.37':
+  '@dom-expressions/compiler-darwin-x64@0.50.0-next.40':
     optional: true
 
-  '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.37':
+  '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.40':
     optional: true
 
-  '@dom-expressions/compiler-linux-x64-gnu@0.50.0-next.37':
+  '@dom-expressions/compiler-linux-x64-gnu@0.50.0-next.40':
     optional: true
 
-  '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.37':
+  '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.40':
     dependencies:
       '@emnapi/core': 1.11.2
       '@emnapi/runtime': 1.11.2
       '@napi-rs/wasm-runtime': 1.1.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
     optional: true
 
-  '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.37':
+  '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.40':
     optional: true
 
-  '@dom-expressions/compiler@0.50.0-next.37':
+  '@dom-expressions/compiler@0.50.0-next.40':
     optionalDependencies:
-      '@dom-expressions/compiler-darwin-arm64': 0.50.0-next.37
-      '@dom-expressions/compiler-darwin-x64': 0.50.0-next.37
-      '@dom-expressions/compiler-linux-arm64-gnu': 0.50.0-next.37
-      '@dom-expressions/compiler-linux-x64-gnu': 0.50.0-next.37
-      '@dom-expressions/compiler-wasm32-wasi': 0.50.0-next.37
-      '@dom-expressions/compiler-win32-x64-msvc': 0.50.0-next.37
+      '@dom-expressions/compiler-darwin-arm64': 0.50.0-next.40
+      '@dom-expressions/compiler-darwin-x64': 0.50.0-next.40
+      '@dom-expressions/compiler-linux-arm64-gnu': 0.50.0-next.40
+      '@dom-expressions/compiler-linux-x64-gnu': 0.50.0-next.40
+      '@dom-expressions/compiler-wasm32-wasi': 0.50.0-next.40
+      '@dom-expressions/compiler-win32-x64-msvc': 0.50.0-next.40
 
-  '@dom-expressions/hyperscript@0.50.0-next.37': {}
+  '@dom-expressions/hyperscript@0.50.0-next.40': {}
 
-  '@dom-expressions/tagged-jsx@0.50.0-next.37': {}
+  '@dom-expressions/runtime@0.50.0-next.40(csstype@3.2.3)(seroval-plugins@1.5.5(seroval@1.5.5))(seroval@1.5.5)':
+    dependencies:
+      babel-plugin-transform-rename-import: 2.3.0
+      csstype: 3.2.3
+      seroval: 1.5.5
+      seroval-plugins: 1.5.5(seroval@1.5.5)
+
+  '@dom-expressions/tagged-jsx@0.50.0-next.40': {}
 
   '@emnapi/core@1.11.1':
     dependencies:
@@ -7043,7 +7057,7 @@ snapshots:
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@babel/core': 7.29.0
-      '@dom-expressions/compiler': 0.50.0-next.37
+      '@dom-expressions/compiler': 0.50.0-next.40
       '@solidjs/web': link:packages/solid-web
       '@types/babel__core': 7.20.5
       babel-preset-solid: link:packages/babel-preset-solid
@@ -7059,7 +7073,7 @@ snapshots:
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@babel/core': 7.29.0
-      '@dom-expressions/compiler': 0.50.0-next.37
+      '@dom-expressions/compiler': 0.50.0-next.40
       '@solidjs/web': link:packages/solid-web
       '@types/babel__core': 7.20.5
       babel-preset-solid: link:packages/babel-preset-solid
@@ -7076,7 +7090,7 @@ snapshots:
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@babel/core': 7.29.0
-      '@dom-expressions/compiler': 0.50.0-next.37
+      '@dom-expressions/compiler': 0.50.0-next.40
       '@solidjs/web': link:packages/solid-web
       '@types/babel__core': 7.20.5
       babel-preset-solid: link:packages/babel-preset-solid

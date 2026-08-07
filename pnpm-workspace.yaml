@@ -19,12 +19,8 @@ overrides:
   '@solidjs/signals': workspace:*
   solid-js: workspace:*
   '@solidjs/web': workspace:*
-  # Unreleased runtime work rides both repos' next branches (DR-2 landed,
-  # CSS reveal gating landed): link the sibling checkout so tests exercise
-  # the current runtime. Drop once the runtime publishes.
-  '@dom-expressions/runtime': link:../dom-expressions/packages/runtime
   # vite-plugin-solid pins the native compiler at next.34, which predates the
   # #2959 condition-memo symmetry fix (851ef225, in next.35+): conditional
   # component props hydrate with drifted ids under the native compiler.
   # Drop once vite-plugin-solid bumps its pin.
-  '@dom-expressions/compiler': 0.50.0-next.37
+  '@dom-expressions/compiler': 0.50.0-next.40
