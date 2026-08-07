@@ -139,6 +139,7 @@ describe("deferred fragments inside an adopted region (#2978)", () => {
       boundaryHtml("deadlock/page", "11", "loading-fallback") +
       boundaryHtml("deadlock/nested", "21", "outer-fallback") +
       boundaryHtml("deadlock/replaced", "31", "replaced-fallback") +
+      boundaryHtml("deadlock/records", "41", "records-fallback") +
       "</div>";
     (window as any)._$HY = { r: {}, fe() {} };
     enableHydration();
@@ -265,6 +266,52 @@ describe("deferred fragments inside an adopted region (#2978)", () => {
     expect(frameEl.textContent).toContain("refetched-content");
     expect(frameEl.textContent).not.toContain("stale-content");
     expect((window as any)._$HY.fr.pending()).toBe(false);
+
+    dispose();
+  });
+
+  // A slot invoked inside the server `<Loading>` ships its args record with
+  // the FRAGMENT — long after the adopt-time drain ran. The reveal is the one
+  // moment that record is both present and newly relevant, and it is not
+  // self-healing: the classification gate's only other re-drain arms on
+  // `fr.pending()`, which this very reveal flips false. Undrained, the
+  // occurrence reads recordless and a render prop classifies as a
+  // direct-insert VALUE — evaluated as a zero-arg accessor, whose props read
+  // halts the reactive system.
+  test("a record delivered with the fragment reaches the frame, so its render prop keeps its args", async () => {
+    declareFragment("41");
+
+    const Page = (window as any)._$SC.r("deadlock/records");
+    const appEl = document.getElementById("app") as HTMLElement;
+    let mount!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={mount}>
+        <Loading fallback={<span>shell-fallback</span>}>
+          <Page row={(p: { label: string }) => <b>row:{p.label}</b>} />
+        </Loading>
+      </div>;
+      appEl.appendChild(mount);
+      return d;
+    });
+    flush();
+    await settle();
+    flush();
+
+    completeHydrationPass();
+    await settle();
+
+    // The fragment's chunk carries BOTH the occurrence's markers and the
+    // record naming its args — the producer writes the data script with the
+    // markup it belongs to.
+    (window as any)._$HY.r["sc:slot:deadlock/records:row#0"] = { label: "settled" };
+    deliverFragment("41", "<!--slot:row#0:start--><!--slot:row#0:end-->");
+    flush();
+    await settle();
+    flush();
+
+    const frameEl = document.querySelector('[data-fid="deadlock/records"]') as HTMLElement;
+    expect(frameEl.textContent).toContain("row:settled");
+    expect(frameEl.textContent).not.toContain("records-fallback");
 
     dispose();
   });

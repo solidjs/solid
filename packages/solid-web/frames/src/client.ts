@@ -883,16 +883,30 @@ function adoptBoundary(
     }
   };
   claimRegionFragments(el);
-  // The cascade: a reveal into this region can itself carry a pl-* (nested
-  // server async). Scoped to the revealed parent, so each sweep is
-  // proportional to what just landed.
   const fr = (globalThis as any)._$HY?.fr;
-  const unsubscribe =
-    fr && fr.claim
-      ? fr.subscribe((_fragId: string, parent?: ParentNode) => {
-          if (parent && el.contains(parent as Node)) claimRegionFragments(parent);
-        })
-      : undefined;
+  const unsubscribe = fr
+    ? fr.subscribe((_fragId: string, parent?: ParentNode) => {
+        // The cascade: a reveal into this region can itself carry a pl-*
+        // (nested server async). Scoped to the revealed parent, so each
+        // sweep is proportional to what just landed.
+        if (fr.claim && parent && el.contains(parent as Node)) claimRegionFragments(parent);
+        // A revealed fragment also brings its occurrences' ARGS RECORDS: a
+        // slot invoked inside a server `<Loading>` ships its `sc:slot:`
+        // script with the fragment, ~the async's own delay after this
+        // boundary adopted — long after the adopt-time drain below ran. The
+        // reveal is the one moment that record is both present and newly
+        // relevant, and it is NOT self-healing: the #2968 defer loop is the
+        // only other re-drain, and it arms on `recordsPending()`, which this
+        // very reveal flips false (a revealed fragment is no longer
+        // pending). Without a drain here the record stays stranded in
+        // hydration data, and the next full sync — a refetch's stream apply
+        // — finds a recordless occurrence, classifies the render prop as
+        // direct-insert, and evaluates it as a zero-arg accessor: a props
+        // read that halts the reactive system. Re-drainable by design (each
+        // key applies once), so this is a cheap no-op once caught up.
+        drainRecords();
+      })
+    : undefined;
   onCleanup(() => {
     unsubscribe && unsubscribe();
     if (fr && fr.release) for (const fragId of claimedFragments) fr.release(fragId);
