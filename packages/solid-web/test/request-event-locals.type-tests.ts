@@ -73,6 +73,19 @@ sfEvent.locals.user satisfies AugmentedUser | undefined;
 // @ts-expect-error exact across subpaths as well
 sfEvent.locals.user satisfies number;
 
+// Keys augmented from the sibling *.augment.* files — a module-form `.d.ts`
+// and a `.ts` module that imports nothing from the package — merge with
+// their exact types too: augmentation identity must hold when the
+// augmenting file never imports the interface (this file's own import of
+// `RequestEventLocals` would otherwise mask a broken re-export chain), and
+// from declaration files, the documented home for app-level augmentation.
+event.locals.augmentedFromDts satisfies { source: "dts" } | undefined;
+// @ts-expect-error exact, not the index signature's any
+event.locals.augmentedFromDts satisfies number;
+event.locals.augmentedFromTs satisfies { source: "ts" } | undefined;
+// @ts-expect-error exact, not the index signature's any
+event.locals.augmentedFromTs satisfies number;
+
 // The exported name is the interface itself, usable directly.
 declare const locals: RequestEventLocals;
 locals.user satisfies AugmentedUser | undefined;

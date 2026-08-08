@@ -76,6 +76,13 @@ declare module "@solidjs/web" {
 
 The index signature keeps un-augmented usage permissive — `event.locals.whatever = x` typechecks today and keeps typechecking — so augmentation adds precision for the keys it names without gating anything. The deliberate trade (over a strict empty interface intersected with `Record<string, unknown>` at use sites): unaugmented keys read as `any` rather than erroring, and the permissiveness travels with the one interface instead of depending on every use site remembering the intersection. This matches Start's precedent, whose `RequestEventLocals` carried the same index signature.
 
+Two TypeScript sharp edges around the augmentation, both of which manifest as "the augmentation doesn't apply":
+
+- **The augmenting file must be a module.** A `.ts` file with any top-level import/export qualifies; a standalone `.d.ts` needs an explicit `export {}`. In a global *script* file, `declare module "@solidjs/web"` is an ambient module **declaration**, not an augmentation — TypeScript replaces the package's types with the block wholesale, so ordinary imports start failing with `has no exported member` and every augmentation of the module anywhere in the project stops applying.
+- **Don't give the declaration file a sibling `.ts` file's basename.** A `foo.d.ts` next to a `foo.ts` is treated as that file's compiled *output* and silently dropped from the program — no error, the augmentation just never applies.
+
+(The published types carry `RequestEventLocals` to the entry through a real — non-type-only — re-export, so the merge does not depend on TypeScript's `export type` alias handling across compiler versions; acceptance type tests cover augmentation from a `.ts` module that imports nothing from the package and from a module-form `.d.ts`.)
+
 - `getRequestEvent()` (from `@solidjs/web`) reads the current event anywhere under a request scope — component bodies during SSR, server function bodies, loaders. Returns `undefined` outside one.
 - `provideRequestEvent(event, cb)` (from `@solidjs/web/storage`) establishes the scope, backed by an `AsyncLocalStorage` instance parked on the global under a registered symbol — separately bundled copies of the runtime find the same one. Integrations call it around the render; it throws on the client, where there is no request to scope.
 
