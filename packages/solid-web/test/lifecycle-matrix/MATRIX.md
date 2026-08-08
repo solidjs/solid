@@ -120,6 +120,34 @@ address's first content, server fallback, or error applies (#2977).
 | post-done fragment reveals into an adopted region (held-swap claim, nested cascade, records riding the fragment) | — | existing — `frames-adopted-region-fragments.spec.tsx` (#2978/#2979) |
 | reveal, then refetch: after the reveal-driven record drain a later stream still morphs the region and updates the occurrence | — | existing — `frames-adopted-region-fragments.spec.tsx` (reveal-then-refetch) |
 
+## Live markup holes (Stage 3)
+
+The DR-2 binding ledger generalized from slot args to markup: in live frame
+renders (the call-driven face), thunk-compiled content holes are wrapped in
+identified comment pairs and watched — commits re-run them, equality-gate the
+resolved HTML, and re-emit changes as keyed `hole` chunks the client morphs
+in place. In-tag (attribute) holes are element-addressed instead (`data-lha`
+injected at the tag open) and re-emit as `attr` chunks. Engine cells are
+pinned in dom-expressions (`test/ssr/frame-live-holes.spec.js`); the
+compiled-JSX integration halves live here.
+
+| Cell | Spec / test | Status |
+| --- | --- | --- |
+| thunk content hole marked with an identified pair; eager (static-compiled) holes get no marker/binding | dom-expressions `frame-live-holes` › marking | pass |
+| slot positions never marked (getter and called-occurrence shapes); a hole that emits slot records latches (records are emit-once) | dom-expressions `frame-live-holes` › marking | pass |
+| document face unmarked: t=0 latches to the V1 snapshot (first-value lock); attr addressing injects nothing either | dom-expressions `frame-live-holes` › marking + attr cells | pass |
+| commit re-emits a changed hole keyed; unchanged holes equality-gate; template-content holes re-emit resolved subtree html | dom-expressions `frame-live-holes` › ledger | pass |
+| at most one re-emit per commit; the end latch ships the last value before `complete` | dom-expressions `frame-live-holes` › ledger | pass |
+| client morph: marked range morphs in place, markers persist; interior element identity survives; a remount replays the latched value over the warm store's shell | dom-expressions `frame-live-holes` › client morph | pass |
+| supersession: a parent re-emission retires its interior holes (updates collapse to the parent key; sweeps are mint-suppressed) | dom-expressions `frame-live-holes` › lifetime | pass |
+| a real error on sweep is terminal: the hole latches at its last markup, a hole-keyed error ships (stream still completes), the client stores it hole-scoped and warns once | dom-expressions `frame-live-holes` › lifetime | pass — boundary-region re-emission deferred with the frame error surface (stream-level errors have the same gap) |
+| attr holes: a tag with in-tag thunks is element-addressed (`data-lha`) and re-emits rebuilt attribute text on commit | dom-expressions `frame-live-holes` › attr cells | pass |
+| attr holes: a cross-element `ssrGroup` splits into per-element bindings, equality-gated per element | dom-expressions `frame-live-holes` › attr cells | pass |
+| attr holes: a toggled `ssrAttribute` ships its removal explicitly; the client patches the addressed element in place (entity decoding, removals, address preserved) | dom-expressions `frame-live-holes` › attr cells | pass |
+| compiled integration: `<Loading>`-wrapped async-iterable memo feeding an `innerHTML` hole — fragment carries the first yield inside markers, later yields ride `hole` chunks, response completes | `test/server/frame-live-holes.spec.tsx` | pass |
+| chat shape: multiple boundaried parts with iterable-fed holes + a value-tier slot arg — token chunks stream per part, `ctx.hold` keeps the window open, bounded completion | `test/server/frame-live-holes-chat.spec.tsx` | pass |
+| boundary outputs (`Loading`, error boundary accessors) are `$lhSkip`-tagged — boundary machinery is never a re-runnable hole | `test/server/frame-live-holes.spec.tsx` (structure asserted via marker shape) | pass |
+
 ## Not constructible in this config
 
 - **Compiled-JSX claim-in-place at adoption**: this vitest config doesn't
