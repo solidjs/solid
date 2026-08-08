@@ -8,7 +8,14 @@ name: Size
 # the strict tree-shaking gate; the retained-module-graph assertions in
 # packages/solid-signals/tests/treeshake.test.ts stay the which-module
 # diagnostic underneath.
+# The check job also runs on direct pushes to next: it is self-contained
+# (absolute limits, no base ref), and PR-only triggering let the
+# +createStore scenario sit failing at a release commit unnoticed — direct
+# pushes never measured. The compare job stays PR-only; it needs a PR
+# context (base branch, comment target).
 on:
+  push:
+    branches: [next]
   pull_request:
     branches: [main, next]
 
@@ -37,8 +44,11 @@ jobs:
 
   # Best-effort base-vs-head delta comment. Requires the base branch to also
   # carry scripts/size/, so it is informational and never blocks: continue-on-error
-  # keeps bootstrap PRs (and any action hiccup) green.
+  # keeps bootstrap PRs (and any action hiccup) green. PR events only — the
+  # action resolves the PR base ref and posts a PR comment, neither of which
+  # exists on a push event.
   compare:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
