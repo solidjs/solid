@@ -4,7 +4,29 @@ import cleanup from "rollup-plugin-cleanup";
 import replace from "@rollup/plugin-replace";
 import { fileURLToPath } from "node:url";
 
+// The server-function wire layer late-loads the codec (runtime
+// server-functions/shared.js loadSerializer: `import("../serializer.js")`
+// fires on the first Serialized body, never at module scope — JSON-fast-path
+// responses skip the codec entirely). These single-file outputs can't
+// code-split, so the dynamic import resolves to the public
+// `@solidjs/web/serialization` entry instead: the app's bundler splits the
+// package boundary into a lazy chunk, and the codec instance is the SAME
+// module custom plugins are authored against (the entry exists for exactly
+// that identity guarantee). Dynamic imports only — the serialization entry's
+// own static re-export of serializer.js, and frame-sink's server-side
+// static import, keep bundling as before.
+const externalizeLazySerializer = {
+  name: "externalize-lazy-serializer",
+  resolveDynamicImport(specifier) {
+    if (typeof specifier === "string" && /[\\/]serializer\.js$/.test(specifier)) {
+      return { id: "@solidjs/web/serialization", external: true };
+    }
+    return null;
+  }
+};
+
 const plugins = [
+  externalizeLazySerializer,
   nodeResolve({
     extensions: [".js", ".ts"]
   }),
