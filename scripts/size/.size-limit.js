@@ -37,7 +37,21 @@ module.exports = [
     // (#2947). Each was reviewed on its own; none is shakeable, since all sit
     // on paths `createStore` always retains. Headroom is back to the ~2% the
     // sibling scenarios carry.
-    limit: "12.85 KB",
+    //
+    // 2.0.0-beta.32: 12.85 -> 13.15 KB, measured at 12.89 KB. Same shape as
+    // the beta.27 bump: no single feature, ~300 B of correctness fixes
+    // accumulated on always-retained store/scheduler paths since the limit
+    // was set (per-commit measurement): never-wrap-platform-objects (#2952,
+    // +70 B), the projection derive-swap chain (#2941, +60 B), zombie-
+    // recompute cancellation for parking transitions (+60 B), bare
+    // IteratorResult tolerance in async-iterable reads (+60 B), the silent-
+    // recovery dependent sweep (#2949, +50 B), errored-derive memo parity
+    // (#2897, +30 B), optimistic layer holds (#2951, +10 B) — offset by the
+    // blocked-check shrink (-30 B) and lane-replay cleanup (-10 B). The
+    // breach sat unnoticed from the first over-cap landing because this
+    // gate only runs on pull_request (size.yml); direct pushes to next never
+    // measure. Headroom restored to the ~2% convention.
+    limit: "13.15 KB",
     modifyEsbuildConfig
   },
   {
