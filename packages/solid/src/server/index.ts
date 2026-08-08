@@ -11,6 +11,7 @@ export {
   createOptimisticStore,
   createErrorBoundary,
   createOwner,
+  creationStamp,
   createProjection,
   createReaction,
   createRenderEffect,

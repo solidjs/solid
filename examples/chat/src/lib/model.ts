@@ -3,8 +3,10 @@
 // bundle. `generate()` starts producing immediately and hands back three
 // async faces of one generation:
 //
-//   parts     — one promise per markdown paragraph, resolving in order as
-//               "generation" reaches it (drives the reply's streamed reveal)
+//   parts     — one async iterable per markdown paragraph, yielding the
+//               GROWING text as tokens accrue (drives the reply's live
+//               holes: the server re-renders the markdown per yield and the
+//               browser morphs the paragraph in place)
 //   progress  — an async iterable of status lines ("42 tokens…"), the
 //               live-ticker face (DR-2: an async iterable slot arg reads as
 //               its latest yield on the client)
@@ -18,7 +20,7 @@ export interface Stats {
 }
 
 export interface Generation {
-  parts: Promise<string>[];
+  parts: AsyncIterable<string>[];
   progress: AsyncIterable<string>;
   stats: Promise<Stats>;
 }
@@ -99,9 +101,9 @@ function deferred<T>() {
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 /**
- * A push-driven async iterable. `generate`'s driver pushes status lines as
- * tokens accrue; the consumer (seroval, streaming each yield to the client)
- * pulls them in order. Ends when generation completes.
+ * A push-driven async iterable. `generate`'s driver pushes into one channel
+ * per paragraph (the growing text) and one for status lines; consumers pull
+ * in order. Ends when its producer completes.
  */
 function progressChannel() {
   const queue: string[] = [];
@@ -138,7 +140,7 @@ function progressChannel() {
 
 export function generate(prompt: string): Generation {
   const paragraphs = answerFor(prompt).split(/\n\n+/);
-  const parts = paragraphs.map(() => deferred<string>());
+  const parts = paragraphs.map(() => progressChannel());
   const channel = progressChannel();
   const stats = deferred<Stats>();
 
@@ -148,13 +150,18 @@ export function generate(prompt: string): Generation {
     channel.push("thinking…");
     await sleep(700);
     for (let i = 0; i < paragraphs.length; i++) {
-      const words = paragraphs[i].split(/\s+/);
+      // Split retaining whitespace so mid-stream slices keep the newlines
+      // markdown structure depends on (lists, code fences).
+      const words = paragraphs[i].split(/(?<=\s)/);
       for (let w = 0; w < words.length; w += 4) {
         await sleep(220);
         tokens += Math.min(4, words.length - w);
+        // The growing paragraph, mid-thought: each push re-renders the
+        // part's markdown on the server and morphs it in the browser.
+        parts[i].push(words.slice(0, w + 4).join(""));
         channel.push(`${tokens} tokens…`);
       }
-      parts[i].resolve(paragraphs[i]);
+      parts[i].end();
     }
     const seconds = (Date.now() - started) / 1000;
     stats.resolve({
@@ -165,5 +172,5 @@ export function generate(prompt: string): Generation {
     channel.end();
   })();
 
-  return { parts: parts.map(p => p.promise), progress: channel.iterable, stats: stats.promise };
+  return { parts: parts.map(p => p.iterable), progress: channel.iterable, stats: stats.promise };
 }

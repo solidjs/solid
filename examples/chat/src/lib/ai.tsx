@@ -36,11 +36,15 @@ export async function reply(prompt: string) {
 }
 
 /**
- * One markdown paragraph, revealed when its promise resolves. The async
- * memo's read suspends this hole; each part gets its own `<Loading>` so the
- * reply streams paragraph by paragraph instead of waiting whole.
+ * One markdown paragraph, streaming token by token — a live markup hole
+ * (Stage 3), no client component. `props.text` is an async iterable of the
+ * GROWING text; the memo's read is its latest yield. The first read
+ * suspends this hole (each part gets its own `<Loading>`, so the reply
+ * still reveals paragraph by paragraph), and every later yield re-renders
+ * the markdown here on the server — the hole's binding re-emits the HTML
+ * and the browser morphs the paragraph in place, mid-sentence.
  */
-function Part(props: { text: Promise<string> }) {
+function Part(props: { text: AsyncIterable<string> }) {
   const text = createMemo(() => props.text);
   return (
     <Loading fallback={<p class="typing">▍</p>}>

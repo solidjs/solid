@@ -183,10 +183,17 @@ function ssrLoadingBoundary(
     }) as any;
   }
 
+  // Boundary output accessors are live-hole opt-outs (`$lhSkip`): the
+  // boundary owns its own update lifecycle (fragment write + reveal), so a
+  // live binding over its output would at best sweep a constant forever and
+  // at worst wrap the placeholder in markers that outlive the swap. Same
+  // tag, same reason as slot getters — a position some other machinery owns.
+  const skipLive = (f: () => unknown) => Object.assign(f, { $lhSkip: true });
+
   let ret = runDiscovery();
   if (!retryPromise && !ret?.p?.length) {
     commitBoundaryState();
-    return () => ret;
+    return skipLive(() => ret);
   }
 
   const regResult = revealGroup ? revealGroup.register(id) : null;
@@ -195,7 +202,7 @@ function ssrLoadingBoundary(
   if (collapseFallback && !ctx.async) {
     commitBoundaryState();
     ctx.serialize(id, "$$f");
-    return () => undefined;
+    return skipLive(() => undefined);
   }
 
   const fallbackOwner = createOwner({ id });
@@ -236,12 +243,12 @@ function ssrLoadingBoundary(
         if (revealGroup) revealGroup.onResolved(id);
       }
     })();
-    return () => fallbackResult;
+    return skipLive(() => fallbackResult);
   }
 
   commitBoundaryState();
   ctx.serialize(id, "$$f");
-  return () => fallbackResult;
+  return skipLive(() => fallbackResult);
 }
 
 export { ssrScope } from "./signals.js";

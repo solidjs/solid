@@ -166,7 +166,22 @@ export function peekNextChildId(owner: Owner): string {
   return nextChildIdFor(owner as unknown as SSROwner, false);
 }
 
+// Monotonic count of owner creations in this process — the reactive-scope
+// creation stamp. The live-hole engine (dom-expressions server runtime)
+// diffs it around a hole evaluation to detect render-once work: memos,
+// boundaries, and stateful components all allocate owners, so a hole whose
+// evaluation moves this stamp is not safely re-runnable and latches instead
+// of opening a live binding. Process-global is sufficient: the diff spans
+// one synchronous evaluation, which nothing interleaves.
+let ownerCreations = 0;
+
+/** The reactive-scope creation stamp (see `ownerCreations`). */
+export function creationStamp(): number {
+  return ownerCreations;
+}
+
 export function createOwner(options?: { id?: string; transparent?: boolean }): Owner {
+  ownerCreations++;
   const parent = currentOwner;
   const transparent = options?.transparent ?? false;
   const id =
@@ -1199,32 +1214,41 @@ function processResult<T>(
         // Server-owned render (noHydrate — the HTML is the data): nothing
         // serializes this iterable, so nothing pumps it past the first
         // value. When a binding ledger is listening (ctx.commit — a frame
-        // render with watched slot args), keep pulling: each yield advances
-        // the memo's value and commits, so expression args reading this
-        // memo stay live for the response window. The pump never HOLDS the
-        // response — completion latches the last yielded value — and
-        // without a listener the iterator stays pull-paced (no consumer,
-        // no pump), same as before.
+        // render with watched slot args or live holes), keep pulling: each
+        // yield advances the memo's value and commits, so bindings reading
+        // this memo stay live. The pump HOLDS the response window
+        // (ctx.hold): a server-consumed iterable is a bounded async trace —
+        // its later yields ARE response content (hole re-emissions), so the
+        // response must not complete under it. Completion (or error, or
+        // disposal) releases the hold and latches the last yielded value.
+        // Without a listener the iterator stays pull-paced (no consumer, no
+        // pump), same as before.
+        const release = ctx.hold?.();
         const pump = () => {
           if (comp.disposed) {
             closeAsyncIterator(iter);
+            release?.();
             return;
           }
           iter.next().then(
             (r: IteratorResult<T>) => {
               if (comp.disposed) {
                 closeAsyncIterator(iter);
+                release?.();
                 return;
               }
-              if (r.done) return;
+              if (r.done) {
+                release?.();
+                return;
+              }
               comp.value = r.value;
               ctx.commit();
               pump();
             },
-            () => {}
+            () => release?.()
           );
         };
-        deferred.promise.then(pump, () => {});
+        deferred.promise.then(pump, () => release?.());
       }
       if (loadingState) {
         loadingState.served = true;
@@ -2063,28 +2087,34 @@ export function createErrorBoundary<T, U>(
     serializeError(err);
     return renderFallback(err);
   };
-  return () => {
-    let result: any;
-    let handled = false;
-    // Disposing while resuming would tear down the very computations the
-    // stashed holes read from (marking them disposed drops their settlement).
-    if (ctx && !pending) disposeOwner(owner, false);
-    try {
-      result = ctx
-        ? runWithBoundaryErrorContext(owner, resolve, err => {
-            if (err instanceof NotReadyError) throw err;
-            handled = true;
-            result = handleError(err);
-            throw err;
-          })
-        : runWithOwner(owner, fn);
-    } catch (err) {
-      if (err instanceof NotReadyError) throw err;
-      pending = undefined;
-      result = handled ? result : handleError(err);
-    }
-    return result;
-  };
+  // `$lhSkip`: boundary machinery owns this position (see ssrLoadingBoundary)
+  // — a live binding over the boundary's output would re-run resolve(),
+  // which re-creates owners and re-enters retry plumbing per sweep.
+  return Object.assign(
+    () => {
+      let result: any;
+      let handled = false;
+      // Disposing while resuming would tear down the very computations the
+      // stashed holes read from (marking them disposed drops their settlement).
+      if (ctx && !pending) disposeOwner(owner, false);
+      try {
+        result = ctx
+          ? runWithBoundaryErrorContext(owner, resolve, err => {
+              if (err instanceof NotReadyError) throw err;
+              handled = true;
+              result = handleError(err);
+              throw err;
+            })
+          : runWithOwner(owner, fn);
+      } catch (err) {
+        if (err instanceof NotReadyError) throw err;
+        pending = undefined;
+        result = handled ? result : handleError(err);
+      }
+      return result;
+    },
+    { $lhSkip: true }
+  );
 }
 
 export function createLoadingBoundary<T, U>(

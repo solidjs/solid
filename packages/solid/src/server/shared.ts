@@ -103,6 +103,14 @@ export type HydrationContext = {
    * render, the document-SSR contract).
    */
   commitEpoch?: () => number;
+  /**
+   * Take a response-window hold; returns the release. Live work with a
+   * knowable end that isn't a fragment or a serialized promise — a
+   * server-consumed async iterable feeding live bindings (a bounded async
+   * trace) — keeps the response open until it completes. Set by
+   * dom-expressions' render core; holds gate only the end of the response.
+   */
+  hold?: () => () => void;
 };
 
 export const NoHydrateContext: Context<boolean> = {

@@ -116,6 +116,10 @@ export function ssrScope<T>(fn: () => T): () => T {
 export function runInServerComponentScope<T>(fn: () => T): T {
   return fn();
 }
+/** @internal */
+export function creationStamp(): number {
+  return 0;
+}
 
 // dev
 import { IS_DEV } from "./client/core.js";

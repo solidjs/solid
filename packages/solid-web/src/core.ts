@@ -19,7 +19,12 @@ export {
   // Context barrier for server-component render roots: user context does not
   // cross (a refetch renders standalone, so t=0 must agree), while boundary
   // plumbing (Loading/Errored/reveal coordination) still does.
-  runInServerComponentScope
+  runInServerComponentScope,
+  // Reactive-scope creation stamp: the live-hole engine diffs it around a
+  // hole evaluation to detect render-once work (owner allocations — memos,
+  // boundaries, providers) and latch instead of binding. Stubbed to 0 on the
+  // client entry, where the engine never runs.
+  creationStamp
 } from "solid-js";
 
 const transparentOptions = { transparent: true, sync: true };
