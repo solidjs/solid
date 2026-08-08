@@ -168,62 +168,63 @@ During a server function the handler folds the event’s response stub onto the 
 
 ### Sessions (recipe)
 
-Sessions are deliberately **userland** — the boundary rule again: core owns the exchange (cookie in, cookie out, committed semantics) and the codec, not the policy above it (what’s in the session, how it’s protected, where it lives). The codec plus WebCrypto — available on every runtime core targets — are the whole recipe.
+Sessions are deliberately **app-layer**, and this is the final ruling, held under pressure twice: the ambient-cookie round in the freeze pass, and a fully designed-and-built first-party session primitive retired before shipping (see Alternatives). The principle is standards vs. opinion: core ships what the web standards define — the RFC 6265 codec, the exchange, the committed-stub semantics — while a session protocol (which bytes go in the cookie, signed vs. sealed, what invalidates it) is an *invented format serving one architecture choice*. Blessing one in core is metaframework territory. What core guarantees instead is the seam: anything that can read `event.request.headers` and append to `event.response.headers` composes, in server functions, SSR handlers, and middleware alike.
 
-A signed session cookie (data in the cookie, HMAC keeps it tamper-proof; it is readable, so nothing secret goes in it):
+The recommended composition is [`@remix-run/cookie`](https://www.npmjs.com/package/@remix-run/cookie) from the remix-the-web utility line (MIT; WebCrypto only, so node/deno/bun/workerd all work; one small dependency): signed, tamper-evident cookie values with built-in secret rotation. It carries its own RFC 6265 parse/serialize, so the whole session helper is the package plus the request event:
 
 ```ts
-import { parseCookieHeader, serializeCookie, getRequestEvent } from "@solidjs/web";
+import { getRequestEvent } from "@solidjs/web";
+import { createCookie } from "@remix-run/cookie";
 
-const encoder = new TextEncoder();
-
-async function hmacKey(secret: string) {
-  return crypto.subtle.importKey(
-    "raw", encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false, ["sign", "verify"]
-  );
+export interface SessionData {
+  userId?: string;
 }
 
-async function sign(value: string, secret: string) {
-  const mac = await crypto.subtle.sign("HMAC", await hmacKey(secret), encoder.encode(value));
-  return `${value}.${btoa(String.fromCharCode(...new Uint8Array(mac)))}`;
+const MAX_AGE = 60 * 60 * 24 * 7; // seconds — drives the cookie AND the enforced expiry
+
+const cookie = createCookie("session", {
+  // secrets[0] signs; every entry verifies. Rotation = prepend the new
+  // secret and keep old ones until outstanding cookies expire.
+  secrets: process.env.SESSION_SECRET!.split(","),
+  httpOnly: true, // set explicitly — the package defaults httpOnly/secure to false
+  secure: true,
+  sameSite: "Lax",
+  maxAge: MAX_AGE
+});
+
+export async function getSession(): Promise<SessionData | null> {
+  const raw = await cookie.parse(getRequestEvent()!.request.headers.get("cookie"));
+  if (!raw) return null; // absent, tampered, or signed by a rotated-out secret
+  try {
+    const { data, exp } = JSON.parse(raw);
+    return typeof exp === "number" && Date.now() < exp * 1000 ? (data as SessionData) : null;
+  } catch {
+    return null;
+  }
 }
 
-async function unsign(signed: string, secret: string) {
-  const at = signed.lastIndexOf(".");
-  if (at < 0) return undefined;
-  const value = signed.slice(0, at);
-  const mac = Uint8Array.from(atob(signed.slice(at + 1)), c => c.charCodeAt(0));
-  const valid = await crypto.subtle.verify("HMAC", await hmacKey(secret), mac, encoder.encode(value));
-  return valid ? value : undefined;
-}
-
-export async function getSession(secret: string): Promise<Record<string, unknown>> {
-  const { request } = getRequestEvent()!;
-  const raw = parseCookieHeader(request.headers.get("cookie")).session;
-  const value = raw && (await unsign(raw, secret));
-  return value ? JSON.parse(value) : {};
-}
-
-export async function setSession(data: Record<string, unknown>, secret: string) {
-  const { response } = getRequestEvent()!;
-  response.headers.append(
+export async function setSession(data: SessionData): Promise<void> {
+  const exp = Math.floor(Date.now() / 1000) + MAX_AGE;
+  getRequestEvent()!.response.headers.append(
     "set-cookie",
-    serializeCookie("session", await sign(JSON.stringify(data), secret), {
-      httpOnly: true, secure: true, sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7
-    })
+    await cookie.serialize(JSON.stringify({ data, exp }))
   );
 }
 
-export function clearSession() {
-  const { response } = getRequestEvent()!;
-  response.headers.append("set-cookie", serializeCookie("session", "", { maxAge: 0 }));
+export async function clearSession(): Promise<void> {
+  getRequestEvent()!.response.headers.append(
+    "set-cookie",
+    await cookie.serialize("", { maxAge: 0 })
+  );
 }
 ```
 
-The storage-backed variant is the same shape with the payload swapped for a pointer: the cookie carries only a random id (`crypto.randomUUID()`, signed the same way if you want tamper evidence), and `getSession`/`setSession` read and write the data against your store (KV, Redis, a database row) keyed by it. That keeps the cookie small, makes sessions revocable server-side, and lets the data hold things a readable cookie never could. Which store, what’s in the session, and when it rotates are exactly the policy decisions that make this userland.
+- **Signed, not encrypted.** HMAC-SHA256 keeps the payload tamper-proof; it stays client-readable, so nothing secret goes in it. `parse` returns `null` for anything short of a valid signature — tampered, malformed, or rotated-out — no exceptions to catch at call sites.
+- **Rotation** is the `secrets` array: the first entry signs, every entry verifies. Prepend a new secret to rotate (`SESSION_SECRET="new,old"`), drop the old one after a `MAX_AGE` window. Dropping every old secret invalidates every outstanding session — that is the entire invalidation story, and it is a feature.
+- **Expiry is enforced server-side.** The signed format itself carries no expiry (the MAC covers the value only), so the recipe embeds `exp` in the payload and checks it on read. Cookie `Max-Age` is browser hygiene; `exp` is the guarantee — a client that keeps the cookie past `Max-Age` still gets `null`.
+- **The stub is the commit step.** No `commitSession`: `event.response` *is* the uncommitted response head, so appends ride whatever leaves — including thrown redirects in server functions (the set-session-then-`throw redirect()` login flow works by construction), and a post-commit write fails loudly per the stub contract above.
+
+The storage-backed variant is the same shape with the payload swapped for a pointer: the cookie carries only a random id (`crypto.randomUUID()`, signed the same way), and `getSession`/`setSession` read and write against your store (KV, Redis, a database row) keyed by it. That keeps the cookie small, makes sessions revocable server-side, and lets the data hold what a readable cookie never could. Migrating from Start 1.x's `useSession` (h3's *sealed* cookies): sealed values cannot be verified by a signed helper — sessions reset at the migration boundary, which for login sessions means a re-login, not data loss.
 
 ### The response-head lifecycle: `createRequestEvent` / `createSSRResponse` / `commitEventResponse`
 
@@ -284,7 +285,8 @@ What core deliberately does not ship: routing of middleware (per-path matching),
 | Hand-rolled `TransformStream` around `pipeTo` for `Response` bodies | `renderToStream(...).readable` |
 | Start’s `createMiddleware` (h3 `Middleware` shapes) | `composeMiddleware` over web-standard `(request, next) => Response` functions |
 | Hand-rolled head merging / redirect handling in server handlers | `createRequestEvent` + `createSSRResponse` (commit at shell flush, redirect protocol, post-flush script fallback) |
-| Start’s `getCookie`/`setCookie` (vinxi/h3 re-exports) | `parseCookieHeader`/`serializeCookie` from `@solidjs/web` over `event.request.headers` / `event.response.headers` — the codec + native `Headers`; a first-party `cookies()` jar middleware is planned as a post-freeze fast-follow |
+| Start’s `getCookie`/`setCookie` (vinxi/h3 re-exports) | `parseCookieHeader`/`serializeCookie` from `@solidjs/web` over `event.request.headers` / `event.response.headers` — the codec + native `Headers`; jars and sessions are app-layer by ruling (see the sessions recipe) |
+| Start’s `useSession` (vinxi/h3 sealed cookies) | app-layer composition — `@remix-run/cookie` (signed, rotating) + the request event, per the sessions recipe; sealed 1.x cookies cannot be verified by a signed helper, so sessions reset (re-login) at the migration boundary |
 | Start’s ambient `App.RequestEventLocals` namespace (`@solidjs/start/env`) | module-augmented `RequestEventLocals` from `@solidjs/web`: `declare module "@solidjs/web" { interface RequestEventLocals { user: User } }` — a plain exported interface, no global `App.*` namespace; flows to `getRequestEvent()!.locals` everywhere |
 | Hand-folding stub cookies/headers onto middleware or API responses | `commitEventResponse(response, event?)` from `@solidjs/web` at the handler edge — committed stubs pass through untouched |
 
@@ -296,5 +298,6 @@ What core deliberately does not ship: routing of middleware (per-path matching),
 
 - **Leaving the exchange to metaframeworks** — rejected; see the decision record in [RFC 10](10-server-functions.md#what-belongs-in-solidjsweb-decision-record).
 - **`set`-verb naming (`setHttpStatus`)** — rejected: the primitives declare for a scope’s lifetime and retract on disposal; `set*` is reserved for event-time mutation that owns no scope.
-- **Ambient cookie conveniences (`getCookie`/`setCookie`/`deleteCookie`)** — the final ruling, after the position moved twice. Originally declined as sugar over `httpHeader`; then briefly **added** during the C6 round (ambient helpers riding `getRequestEvent()`, committed-aware writes) on the correctness argument; then **cut before release** with the line redrawn where it stays: cookies are not core API — core owns the exchange and the codec, nothing ambient. The parts of C6 with a correctness story core alone can tell survive it (the codec’s round-trip grammar, the committed-stub loudness, the multi-`Set-Cookie` merge guarantee); the ambient *reading and writing* did not — it is convenience, and convenience over the exchange is middleware’s job. This matches the Remix/React Router precedent: the codec lives in core, ambience ships as router middleware. A first-party `cookies()` jar middleware is planned as a post-freeze fast-follow — no API commitment yet.
+- **Ambient cookie conveniences (`getCookie`/`setCookie`/`deleteCookie`)** — the final ruling, after the position moved twice. Originally declined as sugar over `httpHeader`; then briefly **added** during the C6 round (ambient helpers riding `getRequestEvent()`, committed-aware writes) on the correctness argument; then **cut before release** with the line redrawn where it stays: cookies are not core API — core owns the exchange and the codec, nothing ambient. The parts of C6 with a correctness story core alone can tell survive it (the codec’s round-trip grammar, the committed-stub loudness, the multi-`Set-Cookie` merge guarantee); the ambient *reading and writing* did not — it is convenience, and convenience over the exchange is middleware’s job. This matches the Remix/React Router precedent: the codec lives in core, ambience ships as router middleware.
+- **A first-party session primitive (`@solidjs/web/session`)** — designed, built to working code, and retired before shipping. The build: a `createSessionCookie(options)` factory over an HMAC-SHA256 WebCrypto codec with a version-prefixed wire format (`v1.<base64url JSON payload>.<base64url MAC>`, MAC covering the version tag), server-side expiry in the payload, and Remix-style `secrets`-array rotation — unit-tested for round-trip, tamper, expiry, and rotation. Retired on the standards-vs-opinion line: `parseCookieHeader`/`serializeCookie` transcribe RFC 6265 (a standard core may own), but a signed-session wire format is an *invented* protocol serving one architecture choice — exactly the opinion tier the RFC 10 decision record says to decline. The survey that settled it: h3 v2 chose to vendor-and-harden the iron algorithm rather than depend on `iron-webcrypto` (whose defaults leave password entropy as the entire security boundary); Remix ships sessions as standalone packages rather than in router core; and `@remix-run/cookie` already provides signed-with-rotation on pure WebCrypto — there is no gap a core primitive would fill that an app-layer dependency does not. The sessions recipe above is that composition.
 - **Throw-through-boundaries for response control flow** — rejected: letting redirects/`notFound` be thrown during render and caught by `<Loading>`/`<Errored>` boundaries as the way to answer them. After the shell flush the status is frozen and a boundary may already have streamed fallback HTML, so a boundary-caught response throw has no coherent post-commit meaning — there is nothing left it could truthfully do to the exchange. The stub + data-layer model answers every case explicitly instead: pre-flush `Location` becomes a real redirect, post-flush `Location` becomes the client-side script fallback, and server functions carry thrown `Response`s to the client transport whole. A thrown `Response` is control flow for the *integration*, never an error for a boundary to swallow.
