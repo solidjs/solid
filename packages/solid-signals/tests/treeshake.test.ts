@@ -9,7 +9,7 @@
  * new direct import or an unshakeable top-level side effect), not that a few
  * bytes drifted.
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -113,6 +113,88 @@ describe("pay-for-use tree-shaking (#2883)", () => {
       `export { createSignal, createEffect, createRoot, flush, isPending, latest } from "sigsrc";`
     );
     expect(retainedFrom(retained, ["core/verdict.ts"])).toEqual(["core/verdict.ts"]);
+    // The verdict layer brings the optimistic engine WITH it, by design
+    // (verdict.ts's module-scope installOptimisticEngine()): companions
+    // (pending signals / latest shadows) are optimistic nodes — their flips
+    // route through the optimistic write path and their reversion rides
+    // lanes, which is what lets a companion wake escape an incomplete
+    // transition's effect stash (#2887; also #2898/#2912). Asserted
+    // POSITIVELY so the cost is named instead of invisible: an isPending
+    // consumer pays verdict + engine (~1.6 kB gz), and if a future round
+    // decouples companion writes from the engine this expectation is the
+    // one to flip to an exclusion.
+    expect(retainedFrom(retained, ["core/optimistic.ts"])).toEqual(["core/optimistic.ts"]);
     expect(retainedFrom(retained, ["store/", "boundaries.ts", "map.ts", "affects.ts"])).toEqual([]);
+  });
+
+  // ---- dist-artifact assertions ----
+  //
+  // Everything above bundles against src/, which cannot see a coupling the
+  // PACKAGING introduces (a build transform reordering imports into side
+  // effects, a lost PURE annotation, a bundler bug). These fixtures bundle
+  // against the built dist/prod artifact — what apps actually resolve — and
+  // assert it retains no module the equivalent src bundle doesn't. Skipped
+  // when dist/prod hasn't been built (it is gitignored; run `pnpm build`).
+  const DIST = resolve(dirname(fileURLToPath(import.meta.url)), "../dist/prod/index.js");
+
+  async function bundleDistFixture(code: string): Promise<string[]> {
+    const dir = mkdtempSync(join(tmpdir(), "solid-treeshake-dist-"));
+    tempDirs.push(dir);
+    const entry = join(dir, "entry.ts");
+    writeFileSync(entry, code);
+    const result = (await build({
+      configFile: false,
+      logLevel: "silent",
+      resolve: { alias: { sigdist: DIST } },
+      build: {
+        write: false,
+        minify: false,
+        target: "esnext",
+        lib: { entry, formats: ["es"], fileName: "out" }
+      }
+    })) as Rollup.RollupOutput[];
+    const chunk = result[0].output[0];
+    const distRoot = dirname(DIST) + "/";
+    return Object.entries(chunk.modules)
+      .filter(([, mod]) => mod.renderedLength > 0)
+      .map(([id]) => id.replace(distRoot, ""));
+  }
+
+  describe.skipIf(!existsSync(DIST))("dist artifact (dist/prod)", () => {
+    it("isPending-only fixture retains the same module set as src — packaging adds no coupling", async () => {
+      const fixture = `export { createSignal, createEffect, createRoot, flush, isPending, latest } from "SPEC";`;
+      const distRetained = await bundleDistFixture(fixture.replace("SPEC", "sigdist"));
+      const { retained: srcRetained } = await bundleFixture(fixture.replace("SPEC", "sigsrc"));
+      // The by-design verdict -> engine coupling, mirrored from the src test.
+      expect(retainedFrom(distRetained, ["core/verdict.js"])).toEqual(["core/verdict.js"]);
+      expect(retainedFrom(distRetained, ["core/optimistic.js"])).toEqual(["core/optimistic.js"]);
+      expect(
+        retainedFrom(distRetained, ["store/", "boundaries.js", "map.js", "affects.js"])
+      ).toEqual([]);
+      // No dist-only re-coupling: every module the dist bundle retains, the
+      // src bundle retains too (src may retain MORE — dev-only modules that
+      // the dist build's own defines already stripped).
+      const srcNames = new Set(srcRetained.map(id => id.replace(/\.ts$/, ".js")));
+      const distOnly = distRetained.filter(id => id.includes("/") && !srcNames.has(id));
+      expect(distOnly).toEqual([]);
+    });
+
+    it("core-floor fixture keeps every optional feature module out of the dist bundle", async () => {
+      const distRetained = await bundleDistFixture(
+        `export { createSignal, createMemo, createEffect, createRoot, flush } from "sigdist";`
+      );
+      expect(
+        retainedFrom(distRetained, [
+          "store/",
+          "boundaries.js",
+          "map.js",
+          "affects.js",
+          "core/verdict.js",
+          "core/optimistic.js",
+          "core/action.js",
+          "core/context.js"
+        ])
+      ).toEqual([]);
+    });
   });
 });
