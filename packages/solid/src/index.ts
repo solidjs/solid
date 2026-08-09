@@ -120,6 +120,10 @@ export function runInServerComponentScope<T>(fn: () => T): T {
 export function creationStamp(): number {
   return 0;
 }
+/** @internal */
+export function inServerComponentScope(): boolean {
+  return false;
+}
 
 // dev
 import { IS_DEV } from "./client/core.js";

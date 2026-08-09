@@ -135,7 +135,12 @@ compiled-JSX integration halves live here.
 | --- | --- | --- |
 | thunk content hole marked with an identified pair; eager (static-compiled) holes get no marker/binding | dom-expressions `frame-live-holes` › marking | pass |
 | slot positions never marked (getter and called-occurrence shapes); a hole that emits slot records latches (records are emit-once) | dom-expressions `frame-live-holes` › marking | pass |
-| document face unmarked: t=0 latches to the V1 snapshot (first-value lock); attr addressing injects nothing either | dom-expressions `frame-live-holes` › marking + attr cells | pass |
+| hostless document fallback: without a channel host (no ReadableStream), t=0 latches to the V1 snapshot and attr addressing injects nothing | dom-expressions `frame-live-holes` › marking + attr cells | pass |
+| armed document face (t=0): holes inside a server component mark and bind; plain document content keeps its exact bytes (scope barrier); ops ride ONE `sc:live` channel record, serialized eagerly; the end latch ships last values and closes the channel before flush | dom-expressions `frame-live-holes-document` (node env) | pass |
+| document face × real core: an iterable-fed hole marks, its pump holds the response, yields ride the channel as ops (single-copy — final value appears once), and the response latches at completion | `test/server/document-live-holes.spec.tsx` | pass |
+| t=0 adoption × live ops: a hole op morphs the adopted range in place; an attr op patches its `data-lha` element | `document-live-holes` › `t=0/live-holes` | pass |
+| t=0 adoption × catch-up: an op that arrived before its boundary adopted replays from the log right after adoption (geometry routes — only the owning boundary's range matches) | `document-live-holes` › `t=0/live-holes` | pass |
+| t=0 adoption × supersession: after a call-driven version-1 apply, document ops (version 0) go quiet | `document-live-holes` › `t=0/live-holes` | pass |
 | commit re-emits a changed hole keyed; unchanged holes equality-gate; template-content holes re-emit resolved subtree html | dom-expressions `frame-live-holes` › ledger | pass |
 | at most one re-emit per commit; the end latch ships the last value before `complete` | dom-expressions `frame-live-holes` › ledger | pass |
 | client morph: marked range morphs in place, markers persist; interior element identity survives; a remount replays the latched value over the warm store's shell | dom-expressions `frame-live-holes` › client morph | pass |

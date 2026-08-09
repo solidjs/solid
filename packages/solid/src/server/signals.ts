@@ -1210,13 +1210,17 @@ function processResult<T>(
           })
         };
         ctx.serialize(id, tapped, deferStream);
-      } else if (ctx?.commit) {
+      } else if (ctx?.commit && inServerComponentScope()) {
         // Server-owned render (noHydrate — the HTML is the data): nothing
         // serializes this iterable, so nothing pumps it past the first
         // value. When a binding ledger is listening (ctx.commit — a frame
         // render with watched slot args or live holes), keep pulling: each
         // yield advances the memo's value and commits, so bindings reading
-        // this memo stay live. The pump HOLDS the response window
+        // this memo stay live. Scope-gated: on the document face ctx.commit
+        // is armed render-wide, but an iterable memo in app-level
+        // NoHydration content has no live holes reading it — pumping would
+        // hold the response for nothing, so it keeps the first-value
+        // latch. The pump HOLDS the response window
         // (ctx.hold): a server-consumed iterable is a bounded async trace —
         // its later yields ARE response content (hole re-emissions), so the
         // response must not complete under it. Completion (or error, or
@@ -2192,6 +2196,21 @@ export function runInServerComponentScope<T>(fn: () => T): T {
   }
   owner._context = scoped;
   return runWithOwner(owner as unknown as Owner, fn);
+}
+
+/**
+ * Whether the current owner is inside a server-component render scope.
+ * The live-hole engine's arming gate on the document face: a document
+ * render arms `ctx.liveHoles` once (any server component present), but
+ * only holes minted INSIDE a component's barrier may mark and bind —
+ * plain app content keeps its t=0 latch and its exact bytes. O(1): the
+ * barrier writes `ServerComponentContext` into the scope owner's context
+ * record and records inherit by spread at owner creation.
+ * @internal
+ */
+export function inServerComponentScope(): boolean {
+  const o = currentOwner;
+  return !!o && o._context[ServerComponentContext.id] === true;
 }
 
 /**

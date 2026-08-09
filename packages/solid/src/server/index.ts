@@ -42,6 +42,7 @@ export {
   resolve,
   NotReadyError,
   runInServerComponentScope,
+  inServerComponentScope,
   runWithOwner,
   snapshot,
   storePath,

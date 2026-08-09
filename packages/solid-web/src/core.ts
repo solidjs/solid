@@ -24,7 +24,11 @@ export {
   // hole evaluation to detect render-once work (owner allocations — memos,
   // boundaries, providers) and latch instead of binding. Stubbed to 0 on the
   // client entry, where the engine never runs.
-  creationStamp
+  creationStamp,
+  // Barrier membership read: the document face arms one live-hole engine
+  // for the whole render, and this gates minting to holes inside a server
+  // component's scope. Stubbed to false on the client entry.
+  inServerComponentScope
 } from "solid-js";
 
 const transparentOptions = { transparent: true, sync: true };

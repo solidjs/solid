@@ -647,6 +647,40 @@ function boundaryComponent(host: any, fnId: string) {
 // to the network like any other call.
 const claimedBoundaries = new Set<string>();
 
+// ---- the document live-hole channel (Stage 4) --------------------------
+//
+// The document face ships live-hole re-emissions as ONE `sc:live` record
+// whose value is a ReadableStream of ops ({ type: "hole" | "attr" |
+// "error", key, ... } — chunk-shaped minus addressing). A stream has one
+// reader, so the pump runs once at module level and BROADCASTS: every
+// adopted boundary applies every op into its own store at its own address,
+// and page geometry routes — hole ids are document-unique and each frame's
+// apply searches only its own range (skipping nested bare frames), so
+// exactly the owning boundary finds the target; everyone else's record
+// stays pending, harmlessly. The op log replays to boundaries that adopt
+// after ops arrived (the catch-up morph: a value that changed between
+// shell flush and adoption lands right after the claim — never a
+// hydration mismatch, hydration claimed V1 markup).
+const liveOps: any[] = [];
+const liveAppliers = new Set<(op: any) => void>();
+let livePumped: any = null;
+function pumpLiveChannel() {
+  const stream = (globalThis as any)._$HY?.r?.["sc:live"];
+  if (!stream || stream === livePumped || typeof stream.getReader !== "function") return;
+  livePumped = stream;
+  const reader = stream.getReader();
+  const pump = (): Promise<void> =>
+    reader.read().then((r: { done: boolean; value: any }) => {
+      if (r.done) return;
+      liveOps.push(r.value);
+      for (const apply of liveAppliers) apply(r.value);
+      return pump();
+    });
+  pump().catch(() => {
+    /* a truncated document stream latches at the last op applied */
+  });
+}
+
 // One document query indexes the SSR'd frame ELEMENTS by id; the intercept and
 // adoption paths become map lookups. Boundaries are static document output
 // carried as `<dx-frame data-fid>` elements — a single attribute query, no
@@ -852,6 +886,10 @@ function adoptBoundary(
   const drainRecords = () => {
     const hy = (globalThis as any)._$HY;
     if (!hy || !hy.r) return;
+    // The live channel serializes eagerly at arming, so the adopt-time
+    // drain normally starts the pump; attempted on every re-drain anyway —
+    // idempotent, and a defensive catch for a record that lands late.
+    pumpLiveChannel();
     const slotPrefix = `sc:slot:${id}:`;
     for (const key of Object.keys(hy.r)) {
       if (appliedRecords.has(key)) continue;
@@ -907,11 +945,25 @@ function adoptBoundary(
         drainRecords();
       })
     : undefined;
+  // Live-hole ops broadcast into this boundary's store at its bound
+  // address (version 0, the adopted stream — a refetch's higher version
+  // supersedes, so document ops go quiet the moment the boundary moves to
+  // a call-driven stream).
+  const applyLiveOp = (op: any) => host.apply({ ...op, id: address, version: 0 });
+  liveAppliers.add(applyLiveOp);
   onCleanup(() => {
+    liveAppliers.delete(applyLiveOp);
     unsubscribe && unsubscribe();
     if (fr && fr.release) for (const fragId of claimedFragments) fr.release(fragId);
   });
   drainRecords();
+  // Catch-up: ops that arrived before this boundary adopted (the pump may
+  // have started for an earlier boundary, or this is a re-mount over a
+  // warm page). Applier registration and this replay are one synchronous
+  // span — the pump's async reads can't interleave — so the log is exactly
+  // the pre-adoption history, and store semantics make replay idempotent
+  // (same key, last value wins).
+  for (const op of liveOps) applyLiveOp(op);
   // ownerScope: element-claim sweeps — both the adoption sweep over the
   // SSR'd element (whose anchors never ran compiled creation) and later
   // streamed morphs — bind consumer cleanup to this boundary's owner (see
