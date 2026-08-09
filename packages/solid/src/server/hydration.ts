@@ -35,7 +35,11 @@ export function ssrHandleError(err: any, probe?: boolean) {
     return (err as any).source as Promise<any>;
   }
   if (probe) return;
-  const handler = getContext(ErrorContext);
+  // Retry passes re-pull holes from flush microtasks with no ambient owner;
+  // a bare getContext there throws NoOwnerError, masking the real error on
+  // its way to the renderer's containment. No owner simply means no boundary
+  // handler.
+  const handler = getOwner() ? getContext(ErrorContext) : null;
   if (handler) {
     handler(err);
     return;
@@ -132,17 +136,33 @@ function ssrLoadingBoundary(
     );
   }
 
+  // Only ever called from the async resume loop below — there is nothing on
+  // the stack to catch a throw from here. The initial (synchronous) discovery
+  // pass propagates unhandled errors directly out of runLoadingPhase to the
+  // renderToStream caller; by resume time that caller is gone, and a throw
+  // would escape the un-awaited async function as an unhandled rejection and
+  // take the host process down. `done(undefined, err)` handles the streamed
+  // case (the fragment template swaps in and `<key>_fr` rejects, so the
+  // client error path takes over) but answers false before the shell has
+  // flushed — for that pre-shell case, and for a parent handler that itself
+  // throws, route through the renderer's containment channel instead: the
+  // request fails (onError + wind-down), the process survives.
   function finalizeError(err: any) {
     if (handledRenderError === err) {
       handledRenderError = undefined;
       return;
     }
     if (done?.(undefined, err)) return;
-    if (!parentHandler) throw err;
+    if (!parentHandler) {
+      ctx.failRender ? ctx.failRender(err) : console.error(err);
+      return;
+    }
     try {
       runWithOwner(parent!, () => parentHandler(err));
     } catch (caught) {
-      if (caught !== err) throw caught;
+      if (caught !== err) {
+        ctx.failRender ? ctx.failRender(caught) : console.error(caught);
+      }
     }
   }
 

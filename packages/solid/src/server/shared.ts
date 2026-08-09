@@ -63,6 +63,22 @@ export type HydrationContext = {
   /** @internal Tracks which Loading boundary is currently rendering. Set by dom-expressions via applyAssetTracking(). */
   _currentBoundaryId?: string | null;
   /**
+   * @internal Containment channel for errors surfacing in async resume loops
+   * (boundary retries, flush passes), where nothing is on the stack to catch
+   * a throw. Set by dom-expressions' renderToStream: reports through the
+   * render's onError and winds the render down — the request fails, the
+   * process survives.
+   */
+  failRender?: (err: any) => void;
+  /**
+   * @internal Per-request memo of `resolveAssets(moduleUrl)` results, keyed
+   * by moduleUrl. lazy() consults it so a component re-created across
+   * suspended render passes asks the manifest exactly once per module —
+   * dev-server resolvers answer from the live module graph and can do real
+   * work per call (SSR stack-overflow diagnosis amplifier).
+   */
+  _lazyAssets?: Map<string, ResolvedAssets | null | undefined | Promise<ResolvedAssets | null>>;
+  /**
    * @internal True during a Loading discovery pass — the only render phase
    * with a retryable NotReady catch. Set/restored by
    * `runWithBoundaryErrorContext` when a boundaryId is passed; read by

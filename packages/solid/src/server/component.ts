@@ -159,7 +159,21 @@ export function lazy<T extends Component<any>>(
         }
       };
       const registerLazyAssets = (id: string): Promise<void> | undefined => {
-        const assets = ctx.resolveAssets!(id);
+        // One resolver call per module per request. The component body — and
+        // with it this registration — re-runs on every re-creation across
+        // suspended render passes, and dev-server resolvers answer from the
+        // live module graph with real work per call, so re-asking multiplied
+        // that work by the retry count (and by every lazy() on the page).
+        // Only the RESOLUTION is memoized: applyAssets below still runs per
+        // creation, so per-boundary asset attribution is unchanged.
+        const cache = (ctx._lazyAssets ??= new Map());
+        let assets;
+        if (cache.has(id)) {
+          assets = cache.get(id);
+        } else {
+          assets = ctx.resolveAssets!(id);
+          cache.set(id, assets);
+        }
         if (assets && typeof (assets as Promise<ResolvedAssets | null>).then === "function") {
           // Restore the boundary that owned this render around the deferred
           // registration — by the time the resolver settles, other
