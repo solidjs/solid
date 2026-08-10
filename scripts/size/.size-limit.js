@@ -16,7 +16,17 @@ module.exports = [
     name: "signals: core floor (createSignal/Memo/Effect/Root/flush)",
     path: "../../packages/solid-signals/dist/prod/index.js",
     import: "{ createSignal, createMemo, createEffect, createRoot, flush }",
-    limit: "7.1 KB",
+    // loadingValue (commit #0): 7.1 -> 7.35 KB, measured at 7.18 KB. The
+    // loading window lives on always-retained paths by construction — it's
+    // an OPTION on createMemo/createSignal, so its support (the `_loading`
+    // field, the window checks in recompute/handleAsync, the parking of
+    // unready sources without read-visible pending) is reachable from the
+    // core entry points and cannot shake based on usage. ~110 B brotli after
+    // a dedupe pass (parkLoadingWindow shared by recompute's catch and
+    // handleError, hoisted instanceof, unconditional window clears); the
+    // alternatives (a STATUS_UNINITIALIZED ride-along, null-slot hooks)
+    // either break the born-committed invariant or don't shake anyway.
+    limit: "7.35 KB",
     modifyEsbuildConfig
   },
   {
@@ -58,7 +68,10 @@ module.exports = [
     name: "signals: + isPending/latest",
     path: "../../packages/solid-signals/dist/prod/index.js",
     import: "{ createSignal, createMemo, createEffect, createRoot, flush, isPending, latest }",
-    limit: "8.75 KB",
+    // loadingValue (commit #0): 8.75 -> 9 KB, measured at 8.84 KB — the same
+    // core-floor bytes (see above); the verdict layer itself only gained a
+    // comment (the window is verdict-quiet by design, no code).
+    limit: "9 KB",
     modifyEsbuildConfig
   },
   {

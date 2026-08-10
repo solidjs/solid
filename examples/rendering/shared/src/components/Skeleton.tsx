@@ -39,8 +39,8 @@ async function fetchFeed(): Promise<Feed> {
 function FeedCard(props: { feed: Feed }) {
   return (
     <div
-      class={["feed-card", { provisional: props.feed.provisional }]}
-      aria-busy={props.feed.provisional}
+      class={["feed-card", { provisional: !!props.feed.provisional }]}
+      aria-busy={props.feed.provisional ? "true" : "false"}
     >
       <h2>
         {props.feed.user || "Someone"}'s activity

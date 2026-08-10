@@ -347,7 +347,7 @@ function syncThenable(value: any) {
  * status `s` (1 = fulfilled, 2 = rejected) and payload `v`. The payload is
  * read directly — `v ?? ref` would leak the ref object for nullish payloads.
  */
-function readHydratedValue(initP: any, refresh: () => void, keepThenable?: boolean) {
+function readHydratedValue(initP: any, refresh: () => void, options?: any) {
   refresh();
   if (initP != null && typeof initP === "object") {
     // Commit #0 (loadingValue/seedLoadingValue): the server flushed markup
@@ -357,7 +357,8 @@ function readHydratedValue(initP: any, refresh: () => void, keepThenable?: boole
     // claim against placeholder DOM). Hand the async runtime a clean thenable
     // (the settled refs are stamped `s`/`v`, which the core would also
     // fast-adopt): the landing applies on the microtask after the walk.
-    if (keepThenable && typeof initP.then === "function") return { then: initP.then.bind(initP) };
+    if (hasLoadingWindow(options) && typeof initP.then === "function")
+      return { then: initP.then.bind(initP) };
     if (initP.s === 2) throw initP.v;
     if (initP.s === 1) return initP.v;
   }
@@ -365,7 +366,7 @@ function readHydratedValue(initP: any, refresh: () => void, keepThenable?: boole
 }
 
 /** Shared “serialized init or run compute” path for memo/signal/optimistic/effect under hydration. */
-function readSerializedOrCompute(compute: (prev: any) => any, prev: any, keepThenable?: boolean) {
+function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options?: any) {
   const o = getOwner()!;
   // A computation must adopt its serialized server value for the whole
   // hydration lifecycle (`!done`), not just inside a synchronous resume window.
@@ -374,7 +375,7 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any, keepThe
   // So short-circuit to the server value whenever one is still waiting; once
   // hydration is `done`, always compute.
   if (sharedConfig.done || !sharedConfig.has!(o.id!)) return compute(prev);
-  return readHydratedValue(sharedConfig.load!(o.id!), () => subFetch(compute, prev), keepThenable);
+  return readHydratedValue(sharedConfig.load!(o.id!), () => subFetch(compute, prev), options);
 }
 
 /** Options carry commit #0 — the loading window must hold through the claim walk. */
@@ -711,8 +712,7 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
   const aiResult = hydrateSignalFromAsyncIterable(coreFn, fn, options);
   if (aiResult !== null) return aiResult;
 
-  const loading = hasLoadingWindow(options);
-  return coreFn((prev: any) => readSerializedOrCompute(fn, prev, loading), options);
+  return coreFn((prev: any) => readSerializedOrCompute(fn, prev, options), options);
 }
 
 function hydratedCreateMemo(compute: any, options?: any) {
@@ -751,8 +751,8 @@ function hydratedCreateErrorBoundary<T, U>(
   return coreErrorBoundary(fn, fallback);
 }
 
-function wrapStoreFn(fn: any, keepThenable?: boolean) {
-  return (draft: any) => readSerializedOrCompute(() => fn(draft), draft, keepThenable);
+function wrapStoreFn(fn: any, options?: any) {
+  return (draft: any) => readSerializedOrCompute(() => fn(draft), draft, options);
 }
 
 function hydrateStoreLikeFn(
@@ -782,11 +782,7 @@ function hydrateStoreLikeFn(
         const o = getOwner()!;
         if (!hydrated()) {
           if (sharedConfig.has!(o.id!))
-            return readHydratedValue(
-              sharedConfig.load!(o.id!),
-              () => subFetch(fn, draft),
-              hasLoadingWindow(options)
-            );
+            return readHydratedValue(sharedConfig.load!(o.id!), () => subFetch(fn, draft), options);
           return fn(draft);
         }
         const { proxy, activate } = createShadowDraft(draft);
@@ -801,7 +797,7 @@ function hydrateStoreLikeFn(
   }
   const aiResult = hydrateStoreFromAsyncIterable(coreFn, fn, initialValue, options);
   if (aiResult !== null) return aiResult;
-  return coreFn(wrapStoreFn(fn, hasLoadingWindow(options)), initialValue, options);
+  return coreFn(wrapStoreFn(fn, options), initialValue, options);
 }
 
 // The store-shaped counterpart to hydrateSignalLike: one body for

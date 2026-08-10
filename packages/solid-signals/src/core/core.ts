@@ -1,9 +1,8 @@
 import {
-  addPendingSource,
   clearStatus,
   handleAsync,
   notifyStatus,
-  setPendingError,
+  parkLoadingWindow,
   settleErroredDependents
 } from "./async.js";
 import {
@@ -247,7 +246,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (!__DEV__ && el._config & CONFIG_SYNC) {
       value = el._fn(value);
       el._inFlight = null;
-      if (el._loading) el._loading = false;
+      el._loading = false;
     } else {
       // Snapshot `_inFlight` so we can detect whether `_fn` self-registered an async
       // subscription (e.g. `createProjection` calls `handleAsync` from inside its body
@@ -265,7 +264,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // results clear inside handleAsync at their own landing points, and a
         // self-registered flight (inFlightChanged — projections) clears when
         // its internal handleAsync lands.
-        if (el._loading) el._loading = false;
+        el._loading = false;
       }
     }
     // On a status-free node clearStatus is a guaranteed no-op: every branch
@@ -286,7 +285,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // _optimisticLane is only ever assigned by engine paths.
     if (el._optimisticLane) GlobalQueue._laneAsyncSettled!(el);
   } catch (e) {
-    if (e instanceof NotReadyError && el._loading) {
+    const notReady = e instanceof NotReadyError;
+    if (notReady && el._loading) {
       // Loading window with an unready sync dependency: register for the
       // source's settle (the settlePendingSource walk runs off
       // _pendingSources + _blocked alone) but take NO read-visible pending
@@ -294,24 +294,22 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // registration — the committed loading value keeps serving. If the
       // node is currently errored the error stays the answer until this
       // retry can actually run.
-      el._blocked = true;
-      if (e.source) addPendingSource(el, e.source as Computed<any>);
-      setPendingError(el, e.source as Computed<any>, e);
+      parkLoadingWindow(el, e as NotReadyError);
     } else {
       // Track pending async in the lane (not the lane's source — it creates the lane
       // but doesn't belong to it). Set lane BEFORE notifyStatus for downstream propagation.
-      if (e instanceof NotReadyError && currentOptimisticLane) GlobalQueue._laneAsyncPending!(el);
+      if (notReady && currentOptimisticLane) GlobalQueue._laneAsyncPending!(el);
       let reaskChanged = false;
-      if (e instanceof NotReadyError) {
+      if (notReady) {
         el._blocked = true;
         if (GlobalQueue._applyReask !== null) reaskChanged = GlobalQueue._applyReask(el, hadReask);
       }
       notifyStatus(
         el,
-        e instanceof NotReadyError ? STATUS_PENDING : STATUS_ERROR,
+        notReady ? STATUS_PENDING : STATUS_ERROR,
         e,
         undefined,
-        e instanceof NotReadyError ? el._optimisticLane : undefined
+        notReady ? el._optimisticLane : undefined
       );
       if (reaskChanged) GlobalQueue._repollVerdicts!(el);
     }

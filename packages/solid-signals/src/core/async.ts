@@ -69,6 +69,19 @@ function retryReaches(el: Computed<any>, source: any): boolean {
   return false;
 }
 
+/**
+ * A loading-window node hit an unready source (sync throw in recompute, or a
+ * NotReadyError-rejected flight): register for the source's settle — the
+ * settlePendingSource walk runs off `_pendingSources` + `_blocked` alone —
+ * with NO read-visible pending status, no downstream propagation, no
+ * transition, no lane registration. Commit #0 keeps serving.
+ */
+export function parkLoadingWindow(el: Computed<any>, e: NotReadyError): void {
+  el._blocked = true;
+  if (e.source) addPendingSource(el, e.source as Computed<any>);
+  setPendingError(el, e.source as Computed<any>, e);
+}
+
 export function setPendingError(el: Computed<any>, source?: Computed<any>, error?: any): void {
   if (!source) {
     el._error = null;
@@ -233,7 +246,7 @@ export function handleAsync<T>(
   if (!thenable && !iterator) {
     el._inFlight = null;
     // A sync landing is the first real answer for a loadingValue node.
-    if (el._loading) el._loading = false;
+    el._loading = false;
     return result as T;
   }
 
@@ -311,14 +324,11 @@ export function handleAsync<T>(
     }
     if (stillPending && el._loading) {
       // Loading window: the flight died waiting on an unready source. Keep
-      // serving commit #0 — register the settle/retry bookkeeping without
-      // read-visible pending status (recompute's catch has the same branch
-      // for sync dependency throws). The dead flight is released so the
-      // clock-gated error-retry pull (updateIfNecessary) can also re-ask.
+      // serving commit #0 — same parking as recompute's catch for sync
+      // dependency throws. The dead flight is released so the clock-gated
+      // error-retry pull (updateIfNecessary) can also re-ask.
       el._inFlight = null;
-      el._blocked = true;
-      if (error.source) addPendingSource(el, error.source);
-      setPendingError(el, error.source, error);
+      parkLoadingWindow(el, error);
       el._time = clock;
       return;
     }
@@ -340,7 +350,7 @@ export function handleAsync<T>(
     // First real answer landing: the loading window closes before clearStatus
     // re-derives the pending companion below, so isPending flips false with
     // this commit.
-    if (el._loading) el._loading = false;
+    el._loading = false;
     settleTransition();
     const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
     trimStaleDeps(el);
@@ -465,7 +475,7 @@ export function handleAsync<T>(
       if (el._loading) return el._value;
       globalQueue.initTransition(resolveTransition(el as any));
       throw new NotReadyError(context!);
-    } else if (el._loading) {
+    } else {
       // Synchronously-resolved promise: the first real answer landed.
       el._loading = false;
     }
@@ -575,7 +585,7 @@ export function handleAsync<T>(
     }
     // A sync first yield (or immediate empty completion) is the first real
     // answer; async yields clear inside asyncWrite.
-    if (el._loading) el._loading = false;
+    el._loading = false;
   }
 
   return syncValue!;

@@ -9,5 +9,8 @@
   "devDependencies": {
     "size-limit": "^12.1.0",
     "@size-limit/preset-small-lib": "^12.1.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
   }
 }
