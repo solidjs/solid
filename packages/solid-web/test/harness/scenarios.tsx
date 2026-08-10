@@ -957,14 +957,13 @@ function ProjectionRepeatStream() {
 }
 
 // ---------------------------------------------------------------------------
-// loadingValue under hydration: the server ignores the loading window today
-// (an async source suspends and streams the REAL value), so the hydrating
-// client must drop commit #0 and adopt the serialized value — computing
-// structure from the placeholder would claim the wrong Show branch against
-// real-data DOM (interim guard until SSR renders commit #0; stripLoadingValue
-// in solid-js client/hydration.ts). The placeholder here deliberately flips
-// the Show branch so a regression corrupts the walk instead of just
-// mismatching text.
+// loadingValue under SSR: the server serves commit #0 — markup flushes with
+// the loading value (the boundary never trips), the landing streams as data,
+// and the hydrating client is born committed with the same loading value, so
+// the claim matches by construction; the serialized landing then closes the
+// window on both sides. The placeholder here deliberately flips the Show
+// branch so any server/client disagreement about the window corrupts the
+// walk instead of just mismatching text.
 let refreshLoadingValue!: () => void;
 function LoadingValueMemo() {
   const [version, setVersion] = createSignal(0);
@@ -989,10 +988,10 @@ function LoadingValueMemo() {
   );
 }
 
-// Same guard for the store form: seedLoadingValue is dropped during
-// hydration, so the derived store adopts the streamed server state like any
-// async store instead of exposing the seed (whose `ready: false` would flip
-// the Show branch against real-data DOM).
+// Store form: seedLoadingValue promotes the seed to commit #0 on both sides —
+// server markup flushes with the seed (ready: false renders the empty branch),
+// the landing streams as snapshot/patch data, and the client store is born
+// committed with the same seed before reconciling the landing in.
 let refreshLoadingSeedStore!: () => void;
 function LoadingSeedStore() {
   const [version, setVersion] = createSignal(0);
@@ -1366,6 +1365,7 @@ export const scenarios: Scenario[] = [
     App: LoadingValueMemo,
     async: true,
     expectedText: "item-0tail",
+    serverText: "skeltail",
     update: () => refreshLoadingValue(),
     expectedTextAfterUpdate: "item-1tail",
     stableSelector: "div, span, b"
@@ -1375,6 +1375,7 @@ export const scenarios: Scenario[] = [
     App: LoadingSeedStore,
     async: true,
     expectedText: "row-0end",
+    serverText: "emptyend",
     update: () => refreshLoadingSeedStore(),
     expectedTextAfterUpdate: "row-1end",
     stableSelector: "div, p"

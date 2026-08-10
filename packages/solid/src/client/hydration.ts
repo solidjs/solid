@@ -347,9 +347,17 @@ function syncThenable(value: any) {
  * status `s` (1 = fulfilled, 2 = rejected) and payload `v`. The payload is
  * read directly — `v ?? ref` would leak the ref object for nullish payloads.
  */
-function readHydratedValue(initP: any, refresh: () => void) {
+function readHydratedValue(initP: any, refresh: () => void, keepThenable?: boolean) {
   refresh();
   if (initP != null && typeof initP === "object") {
+    // Commit #0 (loadingValue/seedLoadingValue): the server flushed markup
+    // from the loading value, so the hydrating client must serve the same
+    // value through the synchronous claim walk — a settled landing must NOT
+    // unwrap synchronously here (structure computed from the real data would
+    // claim against placeholder DOM). Hand the async runtime a clean thenable
+    // (the settled refs are stamped `s`/`v`, which the core would also
+    // fast-adopt): the landing applies on the microtask after the walk.
+    if (keepThenable && typeof initP.then === "function") return { then: initP.then.bind(initP) };
     if (initP.s === 2) throw initP.v;
     if (initP.s === 1) return initP.v;
   }
@@ -357,7 +365,7 @@ function readHydratedValue(initP: any, refresh: () => void) {
 }
 
 /** Shared “serialized init or run compute” path for memo/signal/optimistic/effect under hydration. */
-function readSerializedOrCompute(compute: (prev: any) => any, prev: any) {
+function readSerializedOrCompute(compute: (prev: any) => any, prev: any, keepThenable?: boolean) {
   const o = getOwner()!;
   // A computation must adopt its serialized server value for the whole
   // hydration lifecycle (`!done`), not just inside a synchronous resume window.
@@ -366,7 +374,16 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any) {
   // So short-circuit to the server value whenever one is still waiting; once
   // hydration is `done`, always compute.
   if (sharedConfig.done || !sharedConfig.has!(o.id!)) return compute(prev);
-  return readHydratedValue(sharedConfig.load!(o.id!), () => subFetch(compute, prev));
+  return readHydratedValue(sharedConfig.load!(o.id!), () => subFetch(compute, prev), keepThenable);
+}
+
+/** Options carry commit #0 — the loading window must hold through the claim walk. */
+function hasLoadingWindow(options: any): boolean {
+  return (
+    options != null &&
+    typeof options === "object" &&
+    ("loadingValue" in options || options.seedLoadingValue === true)
+  );
 }
 
 function forwardIteratorReturn(it: any, value?: any) {
@@ -650,31 +667,6 @@ function hydrateStoreFromAsyncIterable(
 
 // --- Hydration-aware implementations ---
 
-/**
- * Interim guard until SSR renders commit #0 (the loadingValue follow-up):
- * the server ignores loading values today — an async source suspends into
- * its Loading boundary and streams the real value — so a node hydrating
- * with an open loading window would walk DOM the server rendered from the
- * REAL data while computing structure from the placeholder (a `Show` over
- * `data.skeleton` claims the wrong branch and corrupts the walk). During
- * hydration the loading window is therefore dropped: the node adopts the
- * serialized server value exactly like any async source, and loading
- * values apply only to fresh client mounts, where commit #0 is correct by
- * construction.
- */
-function stripLoadingValue(options: any): any {
-  if (options == null || typeof options !== "object") return options;
-  if ("loadingValue" in options) {
-    const { loadingValue: _loadingValue, ...rest } = options;
-    return rest;
-  }
-  if ("seedLoadingValue" in options) {
-    const { seedLoadingValue: _seedLoadingValue, ...rest } = options;
-    return rest;
-  }
-  return options;
-}
-
 // One signal-shaped hydration body for memo/signal/optimistic — the families
 // only ever differed in which core primitive committed the result, so the
 // core function is a parameter. createOptimistic reaches this through the
@@ -682,7 +674,6 @@ function stripLoadingValue(options: any): any {
 // the optimistic engine to this body (which would drag it into CSR bundles).
 function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
   markTopLevelSnapshotScope();
-  options = stripLoadingValue(options);
 
   const ssrSource = options?.ssrSource;
 
@@ -700,7 +691,8 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
   const aiResult = hydrateSignalFromAsyncIterable(coreFn, fn, options);
   if (aiResult !== null) return aiResult;
 
-  return coreFn((prev: any) => readSerializedOrCompute(fn, prev), options);
+  const loading = hasLoadingWindow(options);
+  return coreFn((prev: any) => readSerializedOrCompute(fn, prev, loading), options);
 }
 
 function hydratedCreateMemo(compute: any, options?: any) {
@@ -739,8 +731,8 @@ function hydratedCreateErrorBoundary<T, U>(
   return coreErrorBoundary(fn, fallback);
 }
 
-function wrapStoreFn(fn: any) {
-  return (draft: any) => readSerializedOrCompute(() => fn(draft), draft);
+function wrapStoreFn(fn: any, keepThenable?: boolean) {
+  return (draft: any) => readSerializedOrCompute(() => fn(draft), draft, keepThenable);
 }
 
 function hydrateStoreLikeFn(
@@ -770,7 +762,11 @@ function hydrateStoreLikeFn(
         const o = getOwner()!;
         if (!hydrated()) {
           if (sharedConfig.has!(o.id!))
-            return readHydratedValue(sharedConfig.load!(o.id!), () => subFetch(fn, draft));
+            return readHydratedValue(
+              sharedConfig.load!(o.id!),
+              () => subFetch(fn, draft),
+              hasLoadingWindow(options)
+            );
           return fn(draft);
         }
         const { proxy, activate } = createShadowDraft(draft);
@@ -785,7 +781,7 @@ function hydrateStoreLikeFn(
   }
   const aiResult = hydrateStoreFromAsyncIterable(coreFn, fn, initialValue, options);
   if (aiResult !== null) return aiResult;
-  return coreFn(wrapStoreFn(fn), initialValue, options);
+  return coreFn(wrapStoreFn(fn, hasLoadingWindow(options)), initialValue, options);
 }
 
 // The store-shaped counterpart to hydrateSignalLike: one body for
@@ -796,7 +792,6 @@ function hydrateStoreLikeFn(
 // reached moved.
 function hydrateStoreLike(coreFn: Function, fn: any, initialValue: any, options?: any) {
   markTopLevelSnapshotScope();
-  options = stripLoadingValue(options);
   return hydrateStoreLikeFn(coreFn, fn, initialValue, options, options?.ssrSource);
 }
 

@@ -445,7 +445,17 @@ interface ServerComputation<T = any> {
 }
 
 type SsrSourceMode = "server" | "hybrid" | "client";
-type ServerSsrOptions = { deferStream?: boolean; ssrSource?: SsrSourceMode };
+type ServerSsrOptions = {
+  deferStream?: boolean;
+  ssrSource?: SsrSourceMode;
+  /**
+   * Commit #0 for derived stores: serve the seed instead of suspending. The
+   * markup flushes with the seed (locked for the whole response — the
+   * first-value lock at commit #0) and the landing streams as data for the
+   * client, whose store is born committed with the same seed.
+   */
+  seedLoadingValue?: boolean;
+};
 type ServerClientMemoOptions<T> = Omit<MemoOptions<T>, "ssrSource"> & { ssrSource: "client" };
 type ServerMemoOptions<T> = Omit<MemoOptions<T>, "ssrSource"> & {
   ssrSource?: "server" | "hybrid";
@@ -588,9 +598,14 @@ export function createSignal<T>(
   second?: SignalOptions<any>
 ): Signal<T | undefined> {
   if (typeof first === "function") {
+    const hasLoadingValue = second != null && "loadingValue" in (second as any);
     const opts =
-      second?.deferStream || second?.ssrSource
-        ? { deferStream: second?.deferStream, ssrSource: second?.ssrSource }
+      second?.deferStream || second?.ssrSource || hasLoadingValue
+        ? {
+            deferStream: second?.deferStream,
+            ssrSource: second?.ssrSource,
+            ...(hasLoadingValue ? { loadingValue: (second as any).loadingValue } : {})
+          }
         : undefined;
     const memo = createMemo<T>((prev?: T) => (first as (prev?: T) => T)(prev), opts as any);
     return [memo, (() => undefined) as Setter<T | undefined>];
@@ -632,6 +647,16 @@ export function createMemo<T>(
   // may run after a concurrent request has overwritten sharedConfig.context.
   const ctx = sharedConfig.context;
   const owner = createOwner();
+  // Commit #0 (loadingValue): the server serves the loading value instead of
+  // suspending — markup flushes with it, and the landing streams as data for
+  // the client to adopt at hydration. `served` flips the moment the loading
+  // value becomes the read-visible value; from then on the first-value lock
+  // applies (markup rendered from commit #0 keeps reading commit #0) and any
+  // landing — even a synchronous one from a NotReady retry — must serialize.
+  const loadingState =
+    options != null && typeof options === "object" && "loadingValue" in options
+      ? { value: (options as any).loadingValue as T, served: false }
+      : undefined;
   const comp: ServerComputation<T> = {
     owner,
     value: undefined as any,
@@ -669,11 +694,23 @@ export function createMemo<T>(
         options?.deferStream,
         options?.ssrSource,
         run,
-        (options as any)?.serialize
+        (options as any)?.serialize,
+        loadingState
       );
     } catch (err) {
       if (err instanceof NotReadyError) {
         subscribePendingRetry(err, update);
+        if (loadingState) {
+          // An unready sync dependency doesn't suspend a loading-value memo:
+          // serve commit #0 and let the retry produce the eventual result
+          // (which processResult then serializes — the landing is data).
+          loadingState.served = true;
+          comp.value = loadingState.value;
+          comp.error = undefined;
+          comp.errored = false;
+          comp.computed = true;
+          return;
+        }
       }
       comp.error = err;
       comp.errored = true;
@@ -685,6 +722,12 @@ export function createMemo<T>(
   if (ssrSource === "client") {
     // Skip computation and keep the value uninitialized. Owner created for ID parity.
     comp.computed = true;
+    if (loadingState) {
+      // Client-source with commit #0: markup flushes the loading value; the
+      // client serves the same value while hydrating, then runs the compute.
+      loadingState.served = true;
+      comp.value = loadingState.value;
+    }
   } else if (!options?.lazy) {
     update();
   }
@@ -898,7 +941,8 @@ function processResult<T>(
   deferStream?: boolean,
   ssrSource?: SsrSourceMode,
   rerun?: () => any,
-  serialize?: boolean
+  serialize?: boolean,
+  loadingState?: { value: T; served: boolean }
 ) {
   if (comp.disposed) return;
   const id = owner.id;
@@ -918,6 +962,8 @@ function processResult<T>(
   // runtime's detection order (`handleAsync` in @solidjs/signals core/async.ts).
   if (typeof (result as any)?.[Symbol.asyncIterator] !== "function" && isThenable<T>(result)) {
     if ((result as any).s === 1) {
+      // Sync-resolved: the window (if any) closes at birth — no loading value
+      // ever becomes visible, so normal semantics apply.
       comp.value = (result as any).v;
       comp.error = undefined;
       comp.errored = false;
@@ -929,8 +975,8 @@ function processResult<T>(
       return;
     }
     const deferred = createDeferredPromise<T>();
-    if (ctx?.async && ctx.serialize && id && !noHydrate)
-      ctx.serialize(id, deferred.promise, deferStream);
+    const serializes = !!(ctx?.async && ctx.serialize && id && !noHydrate);
+    if (serializes) ctx.serialize(id, deferred.promise, deferStream);
     settleServerAsync(
       result,
       () => (rerun ? rerun() : result),
@@ -938,9 +984,16 @@ function processResult<T>(
       (value: T) => {
         (result as any).s = 1;
         (result as any).v = value;
-        comp.value = value;
-        comp.error = undefined;
-        comp.errored = false;
+        // First-value lock for commit #0: markup rendered from the loading
+        // value keeps reading it — the landing reaches the client through the
+        // serialized promise, never through later-rendered HTML. Without a
+        // serialization channel (frames/noHydrate) the value advances as
+        // usual: no hydration claim exists there.
+        if (!(loadingState?.served && serializes)) {
+          comp.value = value;
+          comp.error = undefined;
+          comp.errored = false;
+        }
         // A settle is a commit: a frame render's binding ledger (watched
         // slot args, DR-2 case 1) re-reads memos at commits. Serialized
         // settles reach the sink through their own data flush, but a
@@ -958,13 +1011,21 @@ function processResult<T>(
       },
       () => comp.disposed
     );
-    comp.error = new NotReadyError(deferred.promise);
-    comp.errored = true;
+    if (loadingState) {
+      // Serve commit #0 instead of suspending: the boundary never trips, the
+      // markup flushes with the loading value, the landing streams as data.
+      loadingState.served = true;
+      comp.value = loadingState.value;
+    } else {
+      comp.error = new NotReadyError(deferred.promise);
+      comp.errored = true;
+    }
     return;
   }
 
   const iterator = result?.[Symbol.asyncIterator];
   if (typeof iterator === "function") {
+    const serializes = !!(ctx?.async && ctx.serialize && id && !noHydrate);
     if (ssrSource === "hybrid") {
       let currentResult = result;
       let iter: AsyncIterator<T>;
@@ -987,9 +1048,12 @@ function processResult<T>(
         runFirst,
         deferred,
         (value: T) => {
-          comp.value = value;
-          comp.error = undefined;
-          comp.errored = false;
+          // First-value lock for commit #0 (see thenable branch).
+          if (!(loadingState?.served && serializes)) {
+            comp.value = value;
+            comp.error = undefined;
+            comp.errored = false;
+          }
           ctx?.commit?.();
           return value;
         },
@@ -1000,10 +1064,14 @@ function processResult<T>(
         },
         () => comp.disposed
       );
-      if (ctx?.async && ctx.serialize && id && !noHydrate)
-        ctx.serialize(id, deferred.promise, deferStream);
-      comp.error = new NotReadyError(deferred.promise);
-      comp.errored = true;
+      if (serializes) ctx.serialize(id, deferred.promise, deferStream);
+      if (loadingState) {
+        loadingState.served = true;
+        comp.value = loadingState.value;
+      } else {
+        comp.error = new NotReadyError(deferred.promise);
+        comp.errored = true;
+      }
     } else {
       // Full streaming ("server" or default): eagerly start the first iteration.
       // Tapped wrapper replays first value, then delegates to iter for the rest.
@@ -1033,11 +1101,16 @@ function processResult<T>(
         deferred,
         () => {
           const resolved = firstResult;
-          if (resolved && !resolved.done) {
+          // First-value lock for commit #0: with a loading value on a
+          // serialized stream, HTML stays at commit #0 and the first yield
+          // (like every later one) is the client's to apply.
+          if (resolved && !resolved.done && !(loadingState?.served && serializes)) {
             comp.value = resolved.value;
           }
-          comp.error = undefined;
-          comp.errored = false;
+          if (!(loadingState?.served && serializes)) {
+            comp.error = undefined;
+            comp.errored = false;
+          }
           ctx?.commit?.();
           return undefined;
         },
@@ -1049,7 +1122,7 @@ function processResult<T>(
         () => comp.disposed
       );
 
-      if (ctx?.async && ctx.serialize && id && !noHydrate) {
+      if (serializes) {
         let tappedFirst = true;
         const tapped = {
           [Symbol.asyncIterator]: () => ({
@@ -1109,8 +1182,13 @@ function processResult<T>(
         };
         deferred.promise.then(pump, () => {});
       }
-      comp.error = new NotReadyError(deferred.promise);
-      comp.errored = true;
+      if (loadingState) {
+        loadingState.served = true;
+        comp.value = loadingState.value;
+      } else {
+        comp.error = new NotReadyError(deferred.promise);
+        comp.errored = true;
+      }
     }
     return;
   }
@@ -1120,6 +1198,18 @@ function processResult<T>(
   // value transport for sync computes: the client re-runs them on hydrated
   // inputs, and the purity contract they already live under makes that
   // converge. Serialization is the async mechanism only.
+  //
+  // ONE exception: a loading-value memo whose placeholder already flushed
+  // (an unready sync dependency served commit #0, then the retry landed
+  // synchronously). Markup rendered from commit #0 is already on the wire,
+  // so the sync landing must ship as data — the client can't re-derive its
+  // way out of DOM that was claimed against the placeholder — and the
+  // HTML-visible value stays locked at commit #0.
+  if (loadingState?.served) {
+    if (ctx?.async && ctx.serialize && id && !noHydrate)
+      ctx.serialize(id, Promise.resolve(result), deferStream);
+    return;
+  }
   comp.value = result;
   comp.sync = true;
   comp.epoch = ctx?.commitEpoch?.();
@@ -1379,6 +1469,15 @@ export function createProjection<T extends object>(
   const useProxy = ssrSource !== "hybrid";
   const patches: PatchOp[] = [];
   const draft = useProxy ? createDeepProxy(state as any, patches) : (state as any as T);
+  // seedLoadingValue = commit #0: reads never throw, they serve a frozen copy
+  // of the seed for the whole response (first-value lock — `state` still
+  // advances underneath for patch/serialization correctness, the landing is
+  // the client's to apply). Applied by immediately marking each pending
+  // proxy ready, retargeted at the frozen seed.
+  const seedLoading = !!options?.seedLoadingValue;
+  const seedLock = (markReady: (frozen?: T) => void) => {
+    if (seedLoading) markReady(JSON.parse(JSON.stringify(state)) as T);
+  };
 
   const runProjection = () => {
     resetOwnerForRerun(owner);
@@ -1392,6 +1491,7 @@ export function createProjection<T extends object>(
 
     const deferred = createDeferredPromise<T>();
     const [pending, markReady] = createPendingProxy(state, deferred.promise);
+    seedLock(markReady);
     settleServerAsync<void | T, T>(
       Promise.reject(error),
       () => runProjection() as void | T | PromiseLike<void | T>,
@@ -1421,6 +1521,7 @@ export function createProjection<T extends object>(
       let iter: AsyncIterator<void | T>;
       const deferred = createDeferredPromise<T>();
       const [pending, markReady] = createPendingProxy(state, deferred.promise);
+      seedLock(markReady);
       const runFirst = () => {
         const source = currentResult ?? runProjection();
         currentResult = undefined;
@@ -1461,6 +1562,7 @@ export function createProjection<T extends object>(
       let firstResult: IteratorResult<void | T> | undefined;
       const deferred = createDeferredPromise<void>();
       const [pending, markReady] = createPendingProxy(state, deferred.promise);
+      seedLock(markReady);
       const runFirst = () => {
         const source = currentResult ?? runProjection();
         currentResult = undefined;
@@ -1491,8 +1593,10 @@ export function createProjection<T extends object>(
             replaceState(state, resolved.value as T);
           }
           // Lock SSR-visible state at V1: subsequent generator mutations update
-          // `state` (for draft/patch correctness) but reads go through the frozen copy.
-          markReady(JSON.parse(JSON.stringify(state)) as T);
+          // `state` (for draft/patch correctness) but reads go through the frozen
+          // copy. With seedLoadingValue the lock already sits at commit #0 — the
+          // seed — so V1 must NOT retarget it (undefined keeps the read target).
+          markReady(seedLoading ? undefined : (JSON.parse(JSON.stringify(state)) as T));
           return undefined;
         },
         (error: any) => {
@@ -1541,6 +1645,7 @@ export function createProjection<T extends object>(
   if (isThenable<T>(result)) {
     const deferred = createDeferredPromise<T>();
     const [pending, markReady] = createPendingProxy(state, deferred.promise);
+    seedLock(markReady);
     settleServerAsync(
       result,
       () => runProjection() as void | T | PromiseLike<void | T>,
