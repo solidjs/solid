@@ -6,6 +6,7 @@ import {
   createRoot,
   flush,
   getOwner,
+  NotReadyError,
   createSignal as coreSignal,
   createMemo as coreMemo
 } from "@solidjs/signals";
@@ -1063,7 +1064,7 @@ describe("ssrSource client modes — createProjection", () => {
     expect(store.count).toBe(7);
   });
 
-  test("ssrSource 'client' uses initialValue during hydration", () => {
+  test("ssrSource 'client' does not leak the seeded value during hydration", () => {
     startHydration({});
 
     let store: any;
@@ -1081,8 +1082,46 @@ describe("ssrSource client modes — createProjection", () => {
     );
     flush();
 
-    // "client" mode uses identity fn during hydration — returns initialValue unchanged
-    expect(store.name).toBe("init");
+    // The seeded draft is never observable before the derive first resolves:
+    // a "client" source is pending until hydration completes, so reads throw
+    // NotReady instead of leaking the initial value (#2981).
+    expect(() => store.name).toThrow(NotReadyError);
+
+    stopHydration();
+    flush();
+
+    // Once hydration resumes, the derive runs and the store reflects it.
+    expect(store.name).toBe("computed");
+  });
+
+  test("ssrSource 'client' async projection does not leak its seed on initial render", async () => {
+    startHydration({});
+
+    let store: any;
+    createRoot(
+      () => {
+        store = createProjection(
+          async (draft: any) => {
+            await new Promise(r => setTimeout(r, 0));
+            draft.name = "resolved";
+          },
+          { name: "seed" },
+          { ssrSource: "client" }
+        );
+      },
+      { id: "t" }
+    );
+
+    // Before the async source resolves, the seeded "seed" value must not be
+    // readable — the read is pending, exactly like ssrSource "server"/
+    // "hybrid" sources waiting on the server value (#2981).
+    expect(() => store.name).toThrow(NotReadyError);
+
+    stopHydration();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+
+    expect(store.name).toBe("resolved");
   });
 });
 
@@ -1134,7 +1173,7 @@ describe("ssrSource client modes — createStore(fn)", () => {
     expect(store.name).toBe("hybrid-val");
   });
 
-  test("ssrSource 'client' uses initialValue during hydration", () => {
+  test("ssrSource 'client' does not leak the seeded value during hydration", () => {
     startHydration({});
 
     let store: any;
@@ -1152,7 +1191,14 @@ describe("ssrSource client modes — createStore(fn)", () => {
     );
     flush();
 
-    expect(store.name).toBe("init");
+    // Same contract as the projection form: the seeded draft is not readable
+    // until hydration resumes (#2981).
+    expect(() => store.name).toThrow(NotReadyError);
+
+    stopHydration();
+    flush();
+
+    expect(store.name).toBe("computed");
   });
 });
 
@@ -1792,8 +1838,9 @@ describe("ssrSource 'client' — post-hydration transition", () => {
     );
     flush();
 
-    // During hydration, fn is suppressed — initialValue used
-    expect(store.name).toBe("init");
+    // During hydration, fn is suppressed — reads stay pending (NotReady)
+    // rather than leaking the seeded value (#2981).
+    expect(() => store.name).toThrow(NotReadyError);
 
     stopHydration();
     flush();
@@ -1821,7 +1868,7 @@ describe("ssrSource 'client' — post-hydration transition", () => {
     );
     flush();
 
-    expect(store.name).toBe("init");
+    expect(() => store.name).toThrow(NotReadyError);
 
     stopHydration();
     flush();

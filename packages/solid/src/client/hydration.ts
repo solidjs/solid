@@ -6,6 +6,7 @@ import {
   runWithOwner,
   onCleanup,
   isDisposed,
+  NotReadyError,
   getNextChildId,
   peekNextChildId,
   createRevealOrder as coreRevealOrder,
@@ -726,7 +727,12 @@ function hydrateStoreLikeFn(
     const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
     const result = coreFn(
       (draft: any) => {
-        if (!hydrated()) return;
+        // The seeded draft value is never observable before the derive first
+        // resolves (#2897). While hydration is still gating the client-owned
+        // source, reads must stay pending (NotReady) — returning `undefined`
+        // settled the projection against its seed, leaking "Initial Value"
+        // on the initial render instead of showing the Loading fallback.
+        if (!hydrated()) throw new NotReadyError(getOwner()!);
         return fn(draft);
       },
       initialValue,
