@@ -19,6 +19,7 @@
 //    the process survives.
 import { describe, expect, test } from "vitest";
 import { renderToStream, Loading } from "@solidjs/web";
+import type { JSX } from "@solidjs/web";
 import { lazy, NotReadyError } from "solid-js";
 
 function renderComplete(code: () => any, options: any = {}): Promise<string> {
@@ -76,13 +77,18 @@ describe("retry wrapper flattening", () => {
     const html = await renderComplete(() => (
       <Loading fallback={<span>deep-wait</span>}>
         <div>
-          {() => {
-            if (attempts < N) {
-              attempts++;
-              throw new NotReadyError(Promise.resolve() as any);
-            }
-            return "deep-done";
-          }}
+          {/* Bare function child = the raw hole under test; a component wrapper
+              (`<X />`) would route through createComponent instead, so cast past
+              JSX.Element (which excludes callables by design). */}
+          {
+            (() => {
+              if (attempts < N) {
+                attempts++;
+                throw new NotReadyError(Promise.resolve() as any);
+              }
+              return "deep-done";
+            }) as unknown as JSX.Element
+          }
         </div>
       </Loading>
     ));
@@ -98,13 +104,15 @@ describe("real errors in retry passes fail the request, not the process", () => 
     const html = await renderComplete(
       () => (
         <div>
-          {() => {
-            if (first) {
-              first = false;
-              throw new NotReadyError(Promise.resolve() as any);
-            }
-            throw new Error("boom on retry");
-          }}
+          {
+            (() => {
+              if (first) {
+                first = false;
+                throw new NotReadyError(Promise.resolve() as any);
+              }
+              throw new Error("boom on retry");
+            }) as unknown as JSX.Element
+          }
         </div>
       ),
       { onError: (err: any) => errors.push(err) }
@@ -121,13 +129,15 @@ describe("real errors in retry passes fail the request, not the process", () => 
     const html = await renderComplete(() => (
       <Loading fallback={<span>fb</span>}>
         <div>
-          {() => {
-            if (first) {
-              first = false;
-              throw new NotReadyError(Promise.resolve() as any);
-            }
-            throw new Error("boundary boom");
-          }}
+          {
+            (() => {
+              if (first) {
+                first = false;
+                throw new NotReadyError(Promise.resolve() as any);
+              }
+              throw new Error("boundary boom");
+            }) as unknown as JSX.Element
+          }
         </div>
       </Loading>
     ));
