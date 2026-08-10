@@ -35,6 +35,7 @@ import {
   type StoreSetter,
   type RevealOrder,
   createOwner,
+  createRoot,
   getContext,
   setContext,
   type Context
@@ -736,6 +737,71 @@ function hydrateStoreFromAsyncIterable(
     initialValue,
     options
   );
+}
+
+/**
+ * Materialize a container TRACE — snapshot then patch batches, the
+ * continuation protocol a server projection serializes as when it crosses a
+ * boundary (hydration resume above; the slot border via the serializer's
+ * container plugin) — into a live local projection. The result reads like
+ * the server value did: not-ready until the snapshot lands, then a
+ * read-only store the batches keep updating, done when the trace ends.
+ *
+ * Created DETACHED (`runWithOwner(null)`): revival can run inside a render
+ * effect's owner, and the store is memoized per trace (see the plugin's
+ * WeakMap) — a store owned by its first reader would be disposed by that
+ * reader's re-render while other readers still hold it. Consumption is
+ * pull-driven and the trace is response-bounded, so the projection settles
+ * on its own; GC collects the pair with the trace.
+ *
+ * @internal — consumed by the serialization layer (@solidjs/web).
+ */
+export function materializeContainerTrace(marker: {
+  $tr: AsyncIterable<any>;
+  $ta?: number;
+}): Store<any> {
+  const src = marker.$tr;
+  // A root, not a bare null owner: the projection's async machinery routes
+  // its pending/error states through the owner's queue, and with no owner
+  // at all the internal NotReadyError (the "pending until snapshot" mark)
+  // surfaces as an unhandled error in dev. The root is never disposed —
+  // the projection settles itself when the trace ends and is collected
+  // with the store.
+  return createRoot(() =>
+    createProjection(
+      (draft: any) => ({
+        [Symbol.asyncIterator]() {
+          const srcIt = src[Symbol.asyncIterator]();
+          let first = true;
+          return {
+            next: () =>
+              Promise.resolve(srcIt.next()).then((res: any) => {
+                if (res.done) return { done: true as const, value: undefined };
+                if (first) {
+                  first = false;
+                  // The first yield is the full authoritative snapshot. The
+                  // seed is a fresh empty {}/[] minted here, so this is pure
+                  // writes — no reads of the draft, which is still PENDING
+                  // (reading a pending proxy throws NotReadyError, which
+                  // would reject this step and error the projection).
+                  if (Array.isArray(res.value)) {
+                    for (let i = 0; i < res.value.length; i++) draft[i] = res.value[i];
+                    draft.length = res.value.length;
+                  } else {
+                    Object.assign(draft, res.value);
+                  }
+                } else {
+                  applyPatches(draft, res.value);
+                }
+                return { done: false as const, value: undefined };
+              }),
+            return: (value?: any) => forwardIteratorReturn(srcIt, value)
+          };
+        }
+      }),
+      (marker.$ta ? [] : {}) as any
+    )
+  )!;
 }
 
 // --- Hydration-aware implementations ---

@@ -22,11 +22,12 @@ export async function pump(times = 2) {
   }
 }
 
-export function makeHost() {
+export function makeHost(hostOptions: Record<string, any> = {}) {
   const table = createJSONDataTable();
   const host = createFrameHost({
     applyData: (c: any) => table.apply(c),
-    resolve: (ref: any) => table.resolve(ref)
+    resolve: (ref: any) => table.resolve(ref),
+    ...hostOptions
   });
   return { host, table };
 }

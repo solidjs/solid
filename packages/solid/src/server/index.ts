@@ -43,6 +43,7 @@ export {
   NotReadyError,
   runInServerComponentScope,
   inServerComponentScope,
+  getProjectionTrace,
   runWithOwner,
   snapshot,
   storePath,
@@ -110,6 +111,14 @@ export {
   NoHydrateContext
 } from "./hydration.js";
 export type { HydrationContext } from "./hydration.js";
+
+/**
+ * @internal — client-only (see client/hydration.ts). The server stub is
+ * inert: nothing delivers a trace TO a server, so a marker passes through.
+ */
+export function materializeContainerTrace(marker: unknown): unknown {
+  return marker;
+}
 
 // Dev — no dev mode on server
 export const DEV = undefined;

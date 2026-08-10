@@ -151,8 +151,15 @@ module.exports = [
   },
   {
     name: "frames: eager client consumer (frames client + transport, lazy codec)",
+    // 10.37 KB measured after Stage 5 (container tier): the eager halves
+    // are deliberately tiny — the trace materializer install + the
+    // document-face marker reviver + the WeakSet container probe guarding
+    // the props proxy and the host's identity-only compare hook. The
+    // seroval trace plugin itself rides the codec's DEFAULT plugin set in
+    // dom-expressions, so its weight stays in the lazy codec chunk this
+    // scenario excludes.
     path: "../../packages/solid-web/frames/dist/client.js",
-    limit: "10.35 KB",
+    limit: "10.4 KB",
     modifyEsbuildConfig: framesEsbuildConfig
   }
 ];

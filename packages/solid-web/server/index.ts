@@ -11,6 +11,16 @@ import {
   type Component
 } from "solid-js";
 import type { JSX } from "../src/jsx.js";
+// The container tier's server half: the runtime's trace plugin rides every
+// render's serializer (both faces — it is part of the codec's default
+// plugin set), but it is inert until the reactive core answers "is this
+// value a traced container".
+// Installing solid's projection-trace resolver here arms it for every SSR
+// consumer of this entry — no per-app wiring.
+import { setContainerTraceResolver } from "@dom-expressions/runtime/src/frame-container-plugin.js";
+import { getProjectionTrace } from "solid-js";
+
+setContainerTraceResolver(getProjectionTrace);
 
 export * from "./server.js";
 export * from "../src/response.js";

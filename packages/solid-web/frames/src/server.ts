@@ -9,6 +9,16 @@
 // Every export in this entry is @experimental.
 
 import type { Element as SolidElement } from "solid-js";
+// The container tier's server half, installed HERE as well as in the main
+// server entry: this entry and `@solidjs/web/server` each bundle their own
+// copy of the runtime (single-file outputs can't share a chunk), so each
+// copy's trace plugin needs the resolver. Wire compatibility across copies
+// is by plugin TAG, which every seam compares; the resolver function itself
+// comes from external solid-js, so both copies answer identically.
+import { setContainerTraceResolver } from "@dom-expressions/runtime/src/frame-container-plugin.js";
+import { getProjectionTrace } from "solid-js";
+
+setContainerTraceResolver(getProjectionTrace);
 
 /**
  * A client position in a server component: a prop the server renders (as JSX

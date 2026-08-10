@@ -1,0 +1,6 @@
+---
+"solid-js": patch
+"@solidjs/web": patch
+---
+
+Container tier at the slot border (DR-2 case 3): projections passed as slot args to server components cross as bounded async traces — one snapshot, then PatchOp batches — and materialize on the client as live read-only projections. Server: the projection trace registry (`getProjectionTrace`) with a multi-consumer shared pump (one source iterator drives an append-only patch log; hydration resume and every slot crossing replay from their own cursor, snapshots captured only at stable pull boundaries). Client: `materializeContainerTrace` — a projection fed by the trace under its own root; the container reference is available synchronously, reads into it suspend until the snapshot (the fill's own `<Loading>` covers them), patch batches apply granularly, the trace's end latches the last state. The frames client installs the materializer, revives document-face `{ $tr, $ta }` marker literals at arg-read, and classifies containers FIRST and trap-safe (a pending projection's property probe throws not-ready): the slot props proxy returns the store instead of async-probing it, and the record-dedupe compare identity-tests containers through the host's `isContainer` hook.

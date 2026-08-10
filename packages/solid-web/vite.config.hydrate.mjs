@@ -30,6 +30,17 @@ export default defineConfig({
       // pull in frames/src/client.ts (which imports the shared server-function
       // client) need these to resolve to source, like the entry itself.
       "@solidjs/web/server-functions/client": resolve(rootDir, "server-functions/src/client.ts"),
+      // The frames client lazy-imports the codec through the packaged
+      // specifiers (external in its dist build); route them to the runtime
+      // source so specs get the same single instance as the client itself.
+      "@solidjs/web/serialization/decode": resolve(
+        rootDir,
+        "../../node_modules/@dom-expressions/runtime/src/serializer-decode.js"
+      ),
+      "@solidjs/web/serialization": resolve(
+        rootDir,
+        "../../node_modules/@dom-expressions/runtime/src/serializer.js"
+      ),
       "@solidjs/web": resolve(rootDir, "src/index.ts")
     }
   }

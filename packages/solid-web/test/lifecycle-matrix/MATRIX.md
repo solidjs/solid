@@ -68,6 +68,30 @@ is mount-kind-independent; enumerated once where it is richest) · **existing**
 | async-iterable arg: read updates per yield; last value holds between yields | `call-driven-args` › `call-driven/args/async-values` (iterable) | pass |
 | async-occluded region records at adoption | — | existing — `frames-occlusion-client.spec.tsx` (sync + promise-valued `sc:region:` records) |
 
+## Container tier (Stage 5)
+
+A reactive container (a server projection) crosses the slot border as its
+TRACE — an async iterable whose first yield is a full state snapshot and
+whose later yields are PatchOp batches — and materializes back into a live
+read-only store. The container REFERENCE is available synchronously; only
+reads INTO it suspend (into the reading fill's own `<Loading>`), and arg
+classification must never probe a pending container's properties (they
+throw not-ready) — containers test FIRST, by WeakSet, on both faces. The
+producer halves are pinned in dom-expressions
+`test/ssr/frame-container-trace.spec.js`, the real-core server faces in
+`test/server/container-traces.spec.tsx`, the materializer's unit semantics
+in solid `test/container-trace.spec.ts`.
+
+| Cell | Spec / test | Status |
+| --- | --- | --- |
+| container `{$ref}` arg materializes live: reference synchronous, reads suspend until the snapshot, patch batches update granularly (sibling reads don't re-fire), trace end latches | `container-args` › `call-driven/args/containers` (materializes live) | pass — closed gap: the client's arg classification (`slotArgsProxy` async probe, `#refArgsUnchanged` compare) detonated pending containers; both now classify containers first, trap-safe |
+| updates flow through the store — never a re-call, node identity survives | `container-args` › `call-driven/args/containers` (materializes live) | pass |
+| one container, many references: every `{$ref}` to the same trace resolves to the SAME live store instance | `container-args` › `call-driven/args/containers` (two arg positions) | pass |
+| re-sent record with a container arg: same materialized instance adopts silently; a re-serialized trace is a CHANGE (live-props push, identity compare only) | dom-expressions `frame-client` host `isContainer` hook (see `#refArgsUnchanged`) | shared — the compare path is the data-refs machinery with the container guard ahead of the async probe |
+| t=0 adoption: a record's `{ $tr, $ta }` marker literal revives at arg-read into a live store; nested references (any depth) share it; later yields keep updating the adopted occurrence | `container-args` › `t=0/adopted-container-args` | pass |
+| array-rooted trace seeds an array; snapshot replaces the seed wholesale | — | existing — solid `test/container-trace.spec.ts` (materializer unit semantics) |
+| pending containers never suspend the STREAM (classification is property-read safe; the trace ships, the markup flushes) | — | existing — `test/server/container-traces.spec.tsx` + dom-expressions `frame-container-trace.spec.js` |
+
 ## Client state survival / reset
 
 | Cell | Spec / test | Status |

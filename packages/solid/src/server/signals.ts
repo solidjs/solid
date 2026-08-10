@@ -1512,6 +1512,56 @@ function createPendingProxy<T extends object>(
   ];
 }
 
+// === Projection traces (the container tier at the slot border) ===
+//
+// A projection crossing a serialization boundary ships as its TRACE: an
+// async iterable whose first yield is a full state snapshot and whose later
+// yields are PatchOp batches — the same continuation protocol hydration
+// resume has always used. The registry maps each async projection's
+// returned proxy to a subscribe() factory; the serialization layer (the
+// projection seroval plugin) tests values against it, which is what lets a
+// projection serialize correctly from ANY depth of an argument graph
+// instead of crashing seroval's property walk on a pending proxy's reads.
+//
+// Sync projections never register: with no async source nothing can re-run
+// them inside a response (server render is pure — change enters only
+// through async), so they are constants and serialize as the plain data
+// they hold.
+export interface ProjectionTrace {
+  /** An independent consumer: snapshot at subscribe, then every batch after. */
+  subscribe(): AsyncIterable<any>;
+  /** Whether the projection's root is an array — the consumer's seed shape. */
+  array: boolean;
+}
+
+const projectionTraces = new WeakMap<object, ProjectionTrace>();
+
+/**
+ * The trace for a projection proxy, or `undefined` for anything that isn't
+ * an async projection (including plain stores and settled sync projections
+ * — both are constants within a response and serialize as plain data).
+ *
+ * @internal — consumed by the serialization layer (@solidjs/web).
+ */
+export function getProjectionTrace(value: unknown): ProjectionTrace | undefined {
+  return typeof value === "object" && value !== null ? projectionTraces.get(value) : undefined;
+}
+
+// Settles-once projections (promise-driven retry, thenable derives, hybrid
+// iterables): the trace is one snapshot after settlement, then done — the
+// border analogue of "reads pass through once markReady runs". A rejection
+// propagates through the iterable so the consumer's read errors rather
+// than hanging.
+function registerSettledTrace(pending: object, ready: Promise<any>, state: object) {
+  projectionTraces.set(pending, {
+    array: Array.isArray(state),
+    subscribe: async function* () {
+      await ready;
+      yield JSON.parse(JSON.stringify(state));
+    }
+  });
+}
+
 /**
  * A replacement value returned/yielded by a projection derive is an
  * authoritative snapshot, not a merge patch (client parity: the projection
@@ -1590,6 +1640,7 @@ export function createProjection<T extends object>(
       },
       () => disposed
     );
+    registerSettledTrace(pending, deferred.promise, state);
     if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
       ctx.serialize(owner.id, deferred.promise, options?.deferStream);
     return pending;
@@ -1633,6 +1684,7 @@ export function createProjection<T extends object>(
         },
         () => disposed
       );
+      registerSettledTrace(pending, deferred.promise, state);
       if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
         ctx.serialize(owner.id, deferred.promise, options?.deferStream);
       return pending;
@@ -1687,38 +1739,79 @@ export function createProjection<T extends object>(
         () => disposed
       );
 
-      if (ctx?.async && !getContext(NoHydrateContext) && owner.id) {
-        let tappedFirst = true;
-        const tapped = {
-          [Symbol.asyncIterator]: () => ({
-            next() {
-              if (tappedFirst) {
-                tappedFirst = false;
-                return deferred.promise.then(() => {
-                  if (firstResult?.done) return { done: true as const, value: undefined };
-                  return { done: false as const, value: JSON.parse(JSON.stringify(state)) };
-                });
-              }
-              return iter.next().then((r: IteratorResult<void | T>) => {
-                if (disposed) return { done: true as const, value: undefined };
-                if (!r.done) {
-                  // Apply the replacement through the patch-recording draft
-                  // BEFORE draining: its sets/deletes must ride in THIS batch,
-                  // not sit unsent behind an already-emitted empty one (#2948).
-                  if (r.value !== undefined && r.value !== draft) {
-                    replaceState(draft, r.value as T);
-                  }
-                  return { done: false as const, value: patches.splice(0) };
-                }
-                return { done: true as const, value: undefined };
-              });
-            },
-            return(value?: any) {
-              return iter.return?.(value);
+      // The trace: snapshot-then-patch-batches, MULTI-consumer. The source
+      // iterator is single-pull, but two independent consumers legitimately
+      // want the same trace — the hydration resume channel (below) and any
+      // slot-border crossing (a projection passed to a server component's
+      // slot serializes as its trace; see getProjectionTrace). So one shared
+      // pump drives `iter`, appending each drained batch to a log, and every
+      // subscriber replays the log from its own cursor. A subscriber's first
+      // yield is a snapshot of `state` captured at a STABLE point (no next()
+      // in flight — an async generator can mutate the draft across interior
+      // awaits, and a snapshot taken mid-execution would double-apply the
+      // undrained writes when their batch lands, duplicating array inserts),
+      // with its cursor at the log's end: state already contains every
+      // logged batch, so replay starts strictly after the snapshot.
+      const log: PatchOp[][] = [];
+      let logDone = false;
+      let logError: any;
+      let pumping: Promise<void> | null = null;
+      let consumers = 0;
+      const pump = () =>
+        (pumping ??= iter.next().then(
+          (r: IteratorResult<void | T>) => {
+            pumping = null;
+            if (disposed || r.done) {
+              logDone = true;
+              return;
             }
-          })
-        };
-        ctx.serialize(owner.id, tapped, options?.deferStream);
+            // Apply the replacement through the patch-recording draft BEFORE
+            // draining: its sets/deletes must ride in THIS batch, not sit
+            // unsent behind an already-emitted empty one (#2948).
+            if (r.value !== undefined && r.value !== draft) {
+              replaceState(draft, r.value as T);
+            }
+            log.push(patches.splice(0));
+          },
+          (error: any) => {
+            pumping = null;
+            logDone = true;
+            logError = error;
+          }
+        ));
+      const subscribe = async function* (): AsyncGenerator<T | PatchOp[]> {
+        await deferred.promise;
+        if (firstResult?.done) return;
+        while (pumping) await pumping;
+        // Stable point (sync block): no in-flight next(), so `patches` is
+        // drained and `state` equals the log applied in full.
+        let cursor = log.length;
+        consumers++;
+        try {
+          yield JSON.parse(JSON.stringify(state)) as T;
+          while (true) {
+            if (cursor < log.length) {
+              yield log[cursor++];
+              continue;
+            }
+            if (logDone) {
+              if (logError) throw logError;
+              return;
+            }
+            await pump();
+          }
+        } finally {
+          // A consumer cancelling early (response teardown) releases its
+          // hold; the LAST cancellation closes the source so generator
+          // finally-blocks run. Traces are response-scoped, so nobody can
+          // subscribe meaningfully after every consumer is gone.
+          if (--consumers === 0 && !logDone) closeAsyncIterator(iter);
+        }
+      };
+      projectionTraces.set(pending, { subscribe, array: Array.isArray(state) });
+
+      if (ctx?.async && !getContext(NoHydrateContext) && owner.id) {
+        ctx.serialize(owner.id, subscribe(), options?.deferStream);
       }
       return pending;
     }
@@ -1744,6 +1837,7 @@ export function createProjection<T extends object>(
       },
       () => disposed
     );
+    registerSettledTrace(pending, deferred.promise, state);
     if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
       ctx.serialize(owner.id, deferred.promise, options?.deferStream);
     return pending;

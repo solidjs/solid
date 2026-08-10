@@ -41,6 +41,22 @@ import {
   FRAME_ID_ATTR
 } from "@dom-expressions/runtime/src/frame-client.js";
 import { createServerComponentHandler } from "@dom-expressions/runtime/src/frame-transport.js";
+// The container tier (DR-2 case 3): server projections cross the border as
+// TRACES (snapshot + patch batches) and materialize back into live local
+// projections. The materializer is solid's (it owns the patch protocol);
+// this entry installs it and wires the host's literal-arg reviver (document
+// face). The seroval plugin itself needs no wiring — it rides the codec's
+// default plugin set, in the lazy codec chunk. These named imports pull
+// only the eager core (hooks + revive walk + the WeakSet probe); the
+// plugin object tree-shakes away.
+import {
+  isMaterializedContainer,
+  reviveContainerTraces,
+  setContainerTraceMaterializer
+} from "@dom-expressions/runtime/src/frame-container-plugin.js";
+import { materializeContainerTrace } from "solid-js";
+
+setContainerTraceMaterializer(materializeContainerTrace);
 // This import must resolve to the SHARED built instance, not a bundled
 // copy: configuring the server-function client only counts if it's the same
 // module the compiled reference proxies call through
@@ -141,7 +157,13 @@ export function getFrameHost() {
     sharedHost = createFrameHost({
       prepareData: loadCodec,
       applyData: (c: any) => tableFor(c.id)?.apply(c),
-      resolve: (ref: any, id: string) => tableFor(id)?.resolve(ref)
+      resolve: (ref: any, id: string) => tableFor(id)?.resolve(ref),
+      // Document-face container traces ride slot records as inline literals
+      // (never `{$ref}`s); this revives them into live stores at arg-read.
+      revive: reviveContainerTraces,
+      // Lets the record-dedupe compare identity-test containers instead of
+      // probing them (a pending container's property reads throw not-ready).
+      isContainer: isMaterializedContainer
     });
   }
   return sharedHost;
@@ -286,6 +308,11 @@ function slotArgsProxy(args: () => Record<string, any>) {
     {
       get: (_, key) => {
         const v = (args() as any)[key];
+        // Containers first (DR-2's container tier): the store IS the live
+        // value — its own reads carry the async semantics — and the async
+        // probe below would detonate a pending one (property reads throw
+        // not-ready). Mirrors the server sink's classification order.
+        if (isMaterializedContainer(v)) return v;
         if (!isAsyncValue(v)) return v;
         let read = asyncReads.get(key);
         if (!read) {

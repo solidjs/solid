@@ -102,7 +102,8 @@ export {
   createEffect,
   NoHydration,
   Hydration,
-  NoHydrateContext
+  NoHydrateContext,
+  materializeContainerTrace
 } from "./client/hydration.js";
 // Stub exports — only meaningful on the server entry; the client entry
 // satisfies the export surface so isomorphic builds don't break.
@@ -123,6 +124,12 @@ export function creationStamp(): number {
 /** @internal */
 export function inServerComponentScope(): boolean {
   return false;
+}
+/** @internal — server-only: on the client no value carries a trace. */
+export function getProjectionTrace(
+  value: unknown
+): { subscribe(): AsyncIterable<any>; array: boolean } | undefined {
+  return undefined;
 }
 
 // dev
