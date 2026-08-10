@@ -167,6 +167,52 @@ describe("httpStatus (server primitive)", () => {
     expect(html).not.toContain("404");
   });
 
+  test("out-of-order sibling disposal keeps the surviving scope's status (#2984)", () => {
+    const event = makeEvent();
+    storage.run(event, () => {
+      createRoot(disposeAll => {
+        let disposeEarly!: () => void;
+        createRoot(d => {
+          disposeEarly = d;
+          httpStatus(404, "Not Found");
+        });
+        createRoot(() => {
+          httpStatus(500, "Server Error");
+        });
+        expect(event.response!.status).toBe(500);
+        // The earlier writer recovers first; the later declaration survives.
+        disposeEarly();
+        expect(event.response!.status).toBe(500);
+        expect(event.response!.statusText).toBe("Server Error");
+        disposeAll();
+      });
+    });
+    expect(event.response!.status).toBe(200);
+    expect(event.response!.statusText).toBeUndefined();
+  });
+
+  test("retracting the later of two live declarations falls back to the earlier one (#2984)", () => {
+    const event = makeEvent();
+    storage.run(event, () => {
+      createRoot(disposeAll => {
+        createRoot(() => {
+          httpStatus(404, "Not Found");
+        });
+        let disposeLate!: () => void;
+        createRoot(d => {
+          disposeLate = d;
+          httpStatus(500, "Server Error");
+        });
+        expect(event.response!.status).toBe(500);
+        disposeLate();
+        expect(event.response!.status).toBe(404);
+        expect(event.response!.statusText).toBe("Not Found");
+        disposeAll();
+      });
+    });
+    expect(event.response!.status).toBe(200);
+  });
+
   test("streaming: status declared in the page survives the final dispose once committed", async () => {
     const event = makeEvent();
     const Page = () => {
@@ -313,6 +359,76 @@ describe("httpHeader (server primitive)", () => {
         dispose();
       });
     });
+  });
+
+  test("out-of-order sibling disposal keeps the survivor's set-cookie entries (#2984)", () => {
+    // Sibling scopes dispose out of write order when an earlier async
+    // boundary recovers while a later sibling stays live. Retraction must
+    // remove only the disposed scope's own declaration — a write-time
+    // snapshot restore would wipe the later survivor's cookie too.
+    const event = makeEvent();
+    storage.run(event, () => {
+      createRoot(disposeAll => {
+        let disposeEarly!: () => void;
+        createRoot(d => {
+          disposeEarly = d;
+          httpHeader("set-cookie", "early=1; Path=/", { append: true });
+        });
+        createRoot(() => {
+          httpHeader("set-cookie", "session=abc; Path=/; HttpOnly", { append: true });
+        });
+        expect(event.response!.headers.getSetCookie()).toEqual([
+          "early=1; Path=/",
+          "session=abc; Path=/; HttpOnly"
+        ]);
+        // The EARLIER writer recovers/disposes while the later one survives.
+        disposeEarly();
+        expect(event.response!.headers.getSetCookie()).toEqual(["session=abc; Path=/; HttpOnly"]);
+        disposeAll();
+      });
+    });
+    expect(event.response!.headers.getSetCookie()).toEqual([]);
+  });
+
+  test("out-of-order sibling disposal keeps a later append on a plain header (#2984)", () => {
+    const event = makeEvent();
+    storage.run(event, () => {
+      createRoot(disposeAll => {
+        let disposeEarly!: () => void;
+        createRoot(d => {
+          disposeEarly = d;
+          httpHeader("x-shared", "early");
+        });
+        createRoot(() => {
+          httpHeader("x-shared", "late", { append: true });
+        });
+        expect(event.response!.headers.get("x-shared")).toBe("early, late");
+        disposeEarly();
+        // The survivor's append stands alone — not null, not "early, late".
+        expect(event.response!.headers.get("x-shared")).toBe("late");
+        disposeAll();
+      });
+    });
+    expect(event.response!.headers.has("x-shared")).toBe(false);
+  });
+
+  test("a fresh declaration after full retraction re-reads the current base (#2984)", () => {
+    // Once every declaration for a header retracts, a later declaration must
+    // capture whatever the integration wrote in the meantime, not a stale base.
+    const event = makeEvent();
+    storage.run(event, () => {
+      createRoot(dispose => {
+        httpHeader("x-phase", "one");
+        dispose();
+      });
+      event.response!.headers.set("x-phase", "integration");
+      createRoot(dispose => {
+        httpHeader("x-phase", "two", { append: true });
+        expect(event.response!.headers.get("x-phase")).toBe("integration, two");
+        dispose();
+      });
+    });
+    expect(event.response!.headers.get("x-phase")).toBe("integration");
   });
 
   test("write and retraction are no-ops once the response head is committed", () => {

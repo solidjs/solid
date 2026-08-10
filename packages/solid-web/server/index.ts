@@ -200,6 +200,28 @@ export function clientOnly<T extends Component<any>>(
   };
 }
 
+// --- Declaration ledgers -------------------------------------------------
+//
+// httpStatus/httpHeader retraction must remove exactly one scope's
+// declaration, no matter what order scopes dispose in. A write-time
+// snapshot restore is only correct for LIFO disposal; with independently
+// recovering sibling SSR scopes an EARLIER writer can dispose while a later
+// one stays live, and restoring the earlier snapshot would delete the
+// survivor's contribution (silently dropping e.g. a session cookie, #2984).
+// So each response head keeps a ledger per field: the base (what was there
+// before the first declaration — the integration's own writes) plus the
+// ordered list of live declarations. Retraction removes one declaration and
+// replays the survivors over the base. When the last declaration retracts,
+// the ledger entry is dropped so a future declaration re-reads a fresh base.
+
+type StatusEntry = { status: number | undefined; statusText: string | undefined };
+type StatusLedger = { base: StatusEntry; live: StatusEntry[] };
+const statusLedgers = /* @__PURE__ */ new WeakMap<ResponseStub, StatusLedger>();
+
+type HeaderDeclaration = { value: string; append: boolean };
+type HeaderLedger = { base: string | string[] | null; live: HeaderDeclaration[] };
+const headerLedgers = /* @__PURE__ */ new WeakMap<ResponseStub, Map<string, HeaderLedger>>();
+
 /**
  * Declares the HTTP response status (and optional status text) for the
  * lifetime of the current reactive scope during SSR, writing to the request
@@ -212,14 +234,16 @@ export function clientOnly<T extends Component<any>>(
  * component or reactive-scope body (like `createSignal`/`onCleanup`) and
  * un-declares on scope disposal.
  *
- * Retraction semantics: the previous `status`/`statusText` are snapshotted
- * at write time and restored when the owning scope is disposed — a boundary
- * that errored, declared a status, and then recovered retracts its write
- * instead of stomping a status a surviving part of the tree legitimately set
- * (e.g. a 404 page whose inner boundary recovers stays a 404). Both the
- * write and the cleanup restore are no-ops once the integration marks the
- * response head `committed` (head derived/sent — status can no longer
- * change). On the client this is a no-op.
+ * Retraction semantics: disposal retracts only this scope's declaration —
+ * the response falls back to the latest still-live declaration, or to the
+ * base status the integration had set before the first declaration. A
+ * boundary that errored, declared a status, and then recovered retracts its
+ * write without stomping a status a surviving part of the tree legitimately
+ * set (e.g. a 404 page whose inner boundary recovers stays a 404), and
+ * sibling scopes may dispose in any order (#2984). Both the write and the
+ * cleanup are no-ops once the integration marks the response head
+ * `committed` (head derived/sent — status can no longer change). On the
+ * client this is a no-op.
  */
 export function httpStatus(code: number, text?: string): void {
   // `response` is an integration-augmented field (see core's ResponseStub);
@@ -227,14 +251,24 @@ export function httpStatus(code: number, text?: string): void {
   const event = getRequestEvent() as (RequestEvent & { response?: ResponseStub }) | undefined;
   const response = event && event.response;
   if (response && !response.committed) {
-    const prevStatus = response.status;
-    const prevStatusText = response.statusText;
+    let ledger = statusLedgers.get(response);
+    if (!ledger) {
+      ledger = { base: { status: response.status, statusText: response.statusText }, live: [] };
+      statusLedgers.set(response, ledger);
+    }
+    const declaration: StatusEntry = { status: code, statusText: text };
+    ledger.live.push(declaration);
     response.status = code;
     response.statusText = text;
     onCleanup(() => {
       if (response.committed) return;
-      response.status = prevStatus;
-      response.statusText = prevStatusText;
+      const index = ledger.live.indexOf(declaration);
+      if (index < 0) return;
+      ledger.live.splice(index, 1);
+      const effective = ledger.live.length ? ledger.live[ledger.live.length - 1] : ledger.base;
+      response.status = effective.status as number;
+      response.statusText = effective.statusText;
+      if (!ledger.live.length) statusLedgers.delete(response);
     });
   }
 }
@@ -251,39 +285,59 @@ export function httpStatus(code: number, text?: string): void {
  * component or reactive-scope body (like `createSignal`/`onCleanup`) and
  * un-declares on scope disposal.
  *
- * Retraction semantics: the header's prior value is snapshotted at write
- * time and restored when the owning scope is disposed — deleted if there
- * was none — so a boundary that errors or recovers retracts its writes
- * without disturbing values other writers contributed before it. For
- * `set-cookie` — the one header whose multiple values must survive as
- * separate entries — the snapshot and restore are entry-exact
- * (`getSetCookie()` + re-append; `get()`/`set()` would comma-join the
- * entries and then collapse them into one corrupt header). Both the
- * write and the cleanup restore are no-ops once the integration marks the
- * response head `committed` (head derived/sent — headers can no longer
- * change). On the client this is a no-op.
+ * Retraction semantics: disposal retracts only this scope's declaration —
+ * the header is recomputed by replaying the still-live declarations, in
+ * their original write order, over the base value the integration had set
+ * before the first declaration (deleted when there is neither). Sibling
+ * scopes may therefore dispose in any order without disturbing each
+ * other's contributions (#2984). For `set-cookie` — the one header whose
+ * multiple values must survive as separate entries — the base is captured
+ * and replayed entry-exact (`getSetCookie()` + re-append; `get()`/`set()`
+ * would comma-join the entries and then collapse them into one corrupt
+ * header). Both the write and the cleanup are no-ops once the integration
+ * marks the response head `committed` (head derived/sent — headers can no
+ * longer change). On the client this is a no-op.
  */
 export function httpHeader(name: string, value: string, options?: { append?: boolean }): void {
   const event = getRequestEvent() as (RequestEvent & { response?: ResponseStub }) | undefined;
   const response = event && event.response;
   if (response && !response.committed) {
     const headers = response.headers;
-    // Entry-exact path for set-cookie: `get()` comma-joins multiple
-    // entries, and restoring that join through `set()` would collapse them
-    // into one corrupt header (commas are legal inside a single cookie's
-    // `Expires`), so snapshot the entry list and rebuild it on retraction.
-    const setCookie = name.toLowerCase() === "set-cookie";
-    const prevCookies = setCookie ? headers.getSetCookie() : undefined;
-    const prev = setCookie ? null : headers.get(name);
-    if (options && options.append) headers.append(name, value);
+    const key = name.toLowerCase();
+    const setCookie = key === "set-cookie";
+    let ledgers = headerLedgers.get(response);
+    if (!ledgers) headerLedgers.set(response, (ledgers = new Map()));
+    let ledger = ledgers.get(key);
+    if (!ledger) {
+      // Entry-exact base for set-cookie: `get()` comma-joins multiple
+      // entries, and replaying that join through `set()` would collapse
+      // them into one corrupt header (commas are legal inside a single
+      // cookie's `Expires`), so capture the entry list instead.
+      ledger = { base: setCookie ? headers.getSetCookie() : headers.get(name), live: [] };
+      ledgers.set(key, ledger);
+    }
+    const declaration: HeaderDeclaration = { value, append: !!(options && options.append) };
+    ledger.live.push(declaration);
+    if (declaration.append) headers.append(name, value);
     else headers.set(name, value);
     onCleanup(() => {
       if (response.committed) return;
+      const index = ledger.live.indexOf(declaration);
+      if (index < 0) return;
+      ledger.live.splice(index, 1);
+      // Replay the survivors over the base — the exact sequence of writes
+      // that would have happened had the retracted scope never run.
+      headers.delete(name);
       if (setCookie) {
-        headers.delete(name);
-        for (const cookie of prevCookies!) headers.append(name, cookie);
-      } else if (prev === null) headers.delete(name);
-      else headers.set(name, prev);
+        for (const cookie of ledger.base as string[]) headers.append(name, cookie);
+      } else if (ledger.base !== null) {
+        headers.set(name, ledger.base as string);
+      }
+      for (const d of ledger.live) {
+        if (d.append) headers.append(name, d.value);
+        else headers.set(name, d.value);
+      }
+      if (!ledger.live.length) ledgers.delete(key);
     });
   }
 }
