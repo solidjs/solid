@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, isPending, Show } from "solid-js";
+import { createMemo, createSignal, createStore, For, isPending, Show } from "solid-js";
 
 interface Feed {
   skeleton: boolean;
@@ -23,13 +23,37 @@ async function fetchFeed(): Promise<Feed> {
   };
 }
 
-// The loading value is commit #0: the memo is born committed with it, so the
-// first fetch never suspends — no <Loading> boundary anywhere on this page.
-// The skeleton flag is value-channel provenance: the UI branches on the data
-// itself to decide what to show, and `isPending` stays false through the
+function SkeletonCard() {
+  return (
+    <div class="feed-card" aria-busy="true">
+      <div class="skeleton-line" style={{ width: "40%" }} />
+      <div class="skeleton-line" style={{ width: "85%" }} />
+      <div class="skeleton-line" style={{ width: "70%" }} />
+      <div class="skeleton-line" style={{ width: "75%" }} />
+    </div>
+  );
+}
+
+function FeedCard(props: { user: string; items: string[] }) {
+  return (
+    <div class="feed-card">
+      <h2>{props.user}'s activity</h2>
+      <ul>
+        <For each={props.items}>{item => <li>{item}</li>}</For>
+      </ul>
+    </div>
+  );
+}
+
+// Commit #0, both forms: the memo is born committed with its loadingValue and
+// the derived store with its seed (seedLoadingValue promotes it from draft to
+// first committed value). Neither first fetch suspends — no <Loading>
+// boundary on this page. The skeleton flag is value-channel provenance: the
+// UI branches on the data itself, and `isPending` stays false through the
 // first flight (it reports refetches of an already-answered question).
 const Skeleton = () => {
   const [version, setVersion] = createSignal(0);
+
   const feed = createMemo<Feed>(
     async () => {
       version(); // track: bumping refetches
@@ -38,34 +62,43 @@ const Skeleton = () => {
     { loadingValue: { skeleton: true, user: "", items: [] } }
   );
 
+  const [store] = createStore<Feed>(
+    async draft => {
+      version();
+      const data = await fetchFeed();
+      draft.user = data.user;
+      draft.items = data.items;
+      draft.skeleton = false;
+    },
+    { skeleton: true, user: "", items: [] },
+    { seedLoadingValue: true }
+  );
+
   return (
-    <section class={["feed", { pending: isPending(feed) }]}>
+    <section class={["feed", { pending: isPending(feed) || isPending(() => store.items) }]}>
       <h1>Loading Value</h1>
       <p>
-        This memo declares a <code>loadingValue</code> — commit #0. On first load it renders the
-        skeleton below instead of suspending to a <code>Loading</code> boundary: during SSR the
-        skeleton is what streams in the shell (the real data follows as it lands), and on client
-        navigation this page mounts fresh and opens a new loading window. Refetches are different:
-        the question is already answered, so <code>isPending</code> drives the dim instead.
+        Both cards declare commit #0 — the memo via <code>loadingValue</code>, the derived store via{" "}
+        <code>seedLoadingValue</code> — so the first load renders skeletons instead of suspending to
+        a <code>Loading</code> boundary. During SSR the skeletons are what stream in the shell (the
+        real data follows as it lands), and on client navigation this page mounts fresh and opens
+        new loading windows. Refetches are different: the question is already answered, so{" "}
+        <code>isPending</code> drives the dim instead.
       </p>
-      <Show
-        when={!feed().skeleton}
-        fallback={
-          <div class="feed-card" aria-busy="true">
-            <div class="skeleton-line" style={{ width: "40%" }} />
-            <div class="skeleton-line" style={{ width: "85%" }} />
-            <div class="skeleton-line" style={{ width: "70%" }} />
-            <div class="skeleton-line" style={{ width: "75%" }} />
-          </div>
-        }
-      >
-        <div class="feed-card">
-          <h2>{feed().user}'s activity</h2>
-          <ul>
-            <For each={feed().items}>{item => <li>{item}</li>}</For>
-          </ul>
+      <div style={{ display: "flex", gap: "2em", "flex-wrap": "wrap" }}>
+        <div>
+          <h2>createMemo + loadingValue</h2>
+          <Show when={!feed().skeleton} fallback={<SkeletonCard />}>
+            <FeedCard user={feed().user} items={feed().items} />
+          </Show>
         </div>
-      </Show>
+        <div>
+          <h2>createStore + seedLoadingValue</h2>
+          <Show when={!store.skeleton} fallback={<SkeletonCard />}>
+            <FeedCard user={store.user} items={store.items} />
+          </Show>
+        </div>
+      </div>
       <button type="button" onClick={() => setVersion(v => v + 1)}>
         Refetch
       </button>

@@ -1004,7 +1004,7 @@ function LoadingSeedStore() {
       draft.ready = true;
     },
     { items: [], ready: false },
-    { seedLoadingValue: true } as any
+    { seedLoadingValue: true }
   );
   return (
     <Loading fallback={<p>loading</p>}>
@@ -1119,7 +1119,7 @@ function LoadingSeedIteratorStore() {
       yield { items: ["iter-a", "iter-b"], ready: true };
     } as any,
     { items: [], ready: false },
-    { seedLoadingValue: true } as any
+    { seedLoadingValue: true }
   );
   return (
     <Loading fallback={<p>loading</p>}>
@@ -1148,7 +1148,7 @@ function LoadingSeedClientStore() {
       draft.ready = true;
     },
     { items: [], ready: false },
-    { ssrSource: "client", seedLoadingValue: true } as any
+    { ssrSource: "client", seedLoadingValue: true }
   );
   return (
     <Loading fallback={<p>loading</p>}>
@@ -1180,7 +1180,7 @@ function LoadingSeedHybridStore() {
       return { items: [`hyb-${v}`], ready: true };
     },
     { items: [], ready: false },
-    { ssrSource: "hybrid", seedLoadingValue: true } as any
+    { ssrSource: "hybrid", seedLoadingValue: true }
   );
   return (
     <Loading fallback={<p>loading</p>}>
