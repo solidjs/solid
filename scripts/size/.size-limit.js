@@ -90,8 +90,16 @@ module.exports = [
     // seam this fixture measured 22.60 KB (engine retained just by calling
     // hydrate()); 15.83 KB measured after, ceiling at the ~2% headroom
     // convention.
+    //
+    // loadingValue (commit #0): 16.15 -> 16.35 KB, measured at 16.04. ~210 B
+    // brotli: the signals-core loading window (~110 B, see the core-floor
+    // note) plus the hydration guards that hold commit #0 through the claim
+    // walk — the clean-thenable unwrap guard in readHydratedValue, the
+    // deferred first yield in normalizeIterator, and the hasLoadingWindow
+    // probe they key on. All sit on the shared signal-hydration body that
+    // every hydrating app retains.
     path: "hydrating-app.js",
-    limit: "16.15 KB",
+    limit: "16.35 KB",
     modifyEsbuildConfig
   },
   {
@@ -100,8 +108,12 @@ module.exports = [
     // adapters by importing the primitives, keeping today's hydration
     // behavior with zero action required. 22.62 KB measured at the seam
     // landing (byte parity with the pre-seam 22.68); ~2% headroom.
+    //
+    // loadingValue (commit #0): 23.05 -> 23.3 KB, measured at 22.83 — the
+    // same ~210 B as the no-store scenario (core window + hydration guards)
+    // plus the store-replay seed parking in hydrateStoreFromAsyncIterable.
     path: "hydrating-store-app.js",
-    limit: "23.05 KB",
+    limit: "23.3 KB",
     modifyEsbuildConfig
   },
   {
