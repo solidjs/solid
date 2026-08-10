@@ -650,6 +650,31 @@ function hydrateStoreFromAsyncIterable(
 
 // --- Hydration-aware implementations ---
 
+/**
+ * Interim guard until SSR renders commit #0 (the loadingValue follow-up):
+ * the server ignores loading values today — an async source suspends into
+ * its Loading boundary and streams the real value — so a node hydrating
+ * with an open loading window would walk DOM the server rendered from the
+ * REAL data while computing structure from the placeholder (a `Show` over
+ * `data.skeleton` claims the wrong branch and corrupts the walk). During
+ * hydration the loading window is therefore dropped: the node adopts the
+ * serialized server value exactly like any async source, and loading
+ * values apply only to fresh client mounts, where commit #0 is correct by
+ * construction.
+ */
+function stripLoadingValue(options: any): any {
+  if (options == null || typeof options !== "object") return options;
+  if ("loadingValue" in options) {
+    const { loadingValue: _loadingValue, ...rest } = options;
+    return rest;
+  }
+  if ("seedLoadingValue" in options) {
+    const { seedLoadingValue: _seedLoadingValue, ...rest } = options;
+    return rest;
+  }
+  return options;
+}
+
 // One signal-shaped hydration body for memo/signal/optimistic — the families
 // only ever differed in which core primitive committed the result, so the
 // core function is a parameter. createOptimistic reaches this through the
@@ -657,6 +682,7 @@ function hydrateStoreFromAsyncIterable(
 // the optimistic engine to this body (which would drag it into CSR bundles).
 function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
   markTopLevelSnapshotScope();
+  options = stripLoadingValue(options);
 
   const ssrSource = options?.ssrSource;
 
@@ -770,6 +796,7 @@ function hydrateStoreLikeFn(
 // reached moved.
 function hydrateStoreLike(coreFn: Function, fn: any, initialValue: any, options?: any) {
   markTopLevelSnapshotScope();
+  options = stripLoadingValue(options);
   return hydrateStoreLikeFn(coreFn, fn, initialValue, options, options?.ssrSource);
 }
 

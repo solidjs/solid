@@ -956,6 +956,69 @@ function ProjectionRepeatStream() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// loadingValue under hydration: the server ignores the loading window today
+// (an async source suspends and streams the REAL value), so the hydrating
+// client must drop commit #0 and adopt the serialized value — computing
+// structure from the placeholder would claim the wrong Show branch against
+// real-data DOM (interim guard until SSR renders commit #0; stripLoadingValue
+// in solid-js client/hydration.ts). The placeholder here deliberately flips
+// the Show branch so a regression corrupts the walk instead of just
+// mismatching text.
+let refreshLoadingValue!: () => void;
+function LoadingValueMemo() {
+  const [version, setVersion] = createSignal(0);
+  refreshLoadingValue = () => setVersion(v => v + 1);
+  const data = createMemo<{ skeleton: boolean; label: string }>(
+    async () => {
+      const v = version();
+      await sleep(5);
+      return { skeleton: false, label: `item-${v}` };
+    },
+    { loadingValue: { skeleton: true, label: "" } }
+  );
+  return (
+    <Loading fallback={<p>loading</p>}>
+      <div>
+        <Show when={!data().skeleton} fallback={<i>skel</i>}>
+          <b>{data().label}</b>
+        </Show>
+        <span>tail</span>
+      </div>
+    </Loading>
+  );
+}
+
+// Same guard for the store form: seedLoadingValue is dropped during
+// hydration, so the derived store adopts the streamed server state like any
+// async store instead of exposing the seed (whose `ready: false` would flip
+// the Show branch against real-data DOM).
+let refreshLoadingSeedStore!: () => void;
+function LoadingSeedStore() {
+  const [version, setVersion] = createSignal(0);
+  refreshLoadingSeedStore = () => setVersion(v => v + 1);
+  const [state] = createStore<{ items: string[]; ready: boolean }>(
+    async draft => {
+      const v = version();
+      await sleep(5);
+      draft.items = [`row-${v}`];
+      draft.ready = true;
+    },
+    { items: [], ready: false },
+    { seedLoadingValue: true } as any
+  );
+  return (
+    <Loading fallback={<p>loading</p>}>
+      <div>
+        <Show when={state.ready} fallback={<i>empty</i>}>
+          <For each={state.items}>{item => <span>{item}</span>}</For>
+        </Show>
+        <p>end</p>
+      </div>
+    </Loading>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -1297,5 +1360,23 @@ export const scenarios: Scenario[] = [
     async: true,
     expectedText: "1:one2:two3:three4:four5:five",
     serverText: "1:one"
+  },
+  {
+    name: "loading-value-memo",
+    App: LoadingValueMemo,
+    async: true,
+    expectedText: "item-0tail",
+    update: () => refreshLoadingValue(),
+    expectedTextAfterUpdate: "item-1tail",
+    stableSelector: "div, span, b"
+  },
+  {
+    name: "loading-seed-store",
+    App: LoadingSeedStore,
+    async: true,
+    expectedText: "row-0end",
+    update: () => refreshLoadingSeedStore(),
+    expectedTextAfterUpdate: "row-1end",
+    stableSelector: "div, p"
   }
 ];
