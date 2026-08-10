@@ -69,8 +69,12 @@ module.exports = [
   },
   {
     name: "app: CSR with Show/For/Loading/Errored/lazy",
+    // Ratcheted 12 -> 11.95 KB after the hydration-phase seam trim
+    // (isHydrationInProgress/onHydrationEnd moved from the sharedConfig
+    // literal into enableHydration(), −100 B here, 11.72 KB measured) so
+    // the win is locked in at the ~2% headroom convention.
     path: "csr-app.js",
-    limit: "12 KB",
+    limit: "11.95 KB",
     modifyEsbuildConfig
   }
 ];

@@ -557,8 +557,13 @@ export function clientOnly<T extends Component<any>>(
     // inserted beside the orphaned server node instead of replacing it.
     // onHydrationEnd is the ownerless "all hydration complete" channel
     // (waits for pending streamed boundaries; microtask-fires if already
-    // done) — exactly the gate's semantics, and it consumes nothing.
-    sharedConfig.onHydrationEnd!(() => setMounted(true));
+    // done) — exactly the gate's semantics, and it consumes nothing. It is
+    // installed by enableHydration() only, so CSR bundles shake it; absent
+    // means hydration is definitionally complete — fire on a bare microtask,
+    // which is exactly what onHydrationEnd itself does in that state.
+    const onHydrationEnd = sharedConfig.onHydrationEnd;
+    const release = () => setMounted(true);
+    onHydrationEnd ? onHydrationEnd(release) : queueMicrotask(release);
     return gate;
   };
 }

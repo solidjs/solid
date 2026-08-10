@@ -146,8 +146,10 @@ type SharedConfig = {
    * Whether a hydration pass is still claiming server-rendered DOM — true
    * from hydrate()'s synchronous walk until every streamed boundary has
    * resumed or been cancelled. Consumed by dev tooling (the refresh runtime
-   * defers hot swaps that would race the claim, #2919). Absent on the server
-   * sharedConfig. Cross-package wiring; not part of the user-facing API.
+   * defers hot swaps that would race the claim, #2919). Assigned by
+   * enableHydration(); absent in CSR bundles and on the server sharedConfig —
+   * treat absence as "not hydrating". Cross-package wiring; not part of the
+   * user-facing API.
    *
    * @internal
    */
@@ -155,8 +157,11 @@ type SharedConfig = {
   /**
    * Registers a callback to run once when all hydration completes (all
    * boundaries hydrated or cancelled). If hydration is already complete (or
-   * not hydrating), fires via queueMicrotask. Absent on the server
-   * sharedConfig. Cross-package wiring; not part of the user-facing API.
+   * not hydrating), fires via queueMicrotask. Assigned by enableHydration();
+   * absent in CSR bundles and on the server sharedConfig — when absent,
+   * hydration is definitionally complete, so fire the callback via
+   * queueMicrotask yourself. Cross-package wiring; not part of the
+   * user-facing API.
    *
    * @internal
    */
@@ -173,11 +178,7 @@ type SharedConfig = {
 export const sharedConfig: SharedConfig = {
   hydrating: false,
   registry: undefined,
-  done: false,
-  // Unlike getNextContextId (see below), these only close over module-local
-  // state, so declaring them here retains nothing extra in CSR bundles.
-  isHydrationInProgress,
-  onHydrationEnd
+  done: false
 };
 
 // Installed on sharedConfig by enableHydration(): defining it in the object
@@ -888,6 +889,13 @@ export function enableHydration() {
   _createLoadingBoundary = hydratedCreateLoadingBoundary;
   _lazyHydrationLookup = lazyHydrationLookup;
   sharedConfig.getNextContextId = hydrationGetNextContextId;
+  // Installed here rather than in the sharedConfig literal so CSR bundles
+  // shake the hydration-phase bookkeeping these close over. Consumers treat
+  // absence as "not hydrating": the refresh runtime optional-chains
+  // isHydrationInProgress, and clientOnly falls back to a bare microtask —
+  // the exact CSR behavior onHydrationEnd itself had.
+  sharedConfig.isHydrationInProgress = isHydrationInProgress;
+  sharedConfig.onHydrationEnd = onHydrationEnd;
 
   // Take ownership of streamed-fragment reveals (see the fragment ledger).
   // The header script creates `_$HY` before any module runs, so the hook is
