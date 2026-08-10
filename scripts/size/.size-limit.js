@@ -11,6 +11,24 @@ const alias = {
 };
 const modifyEsbuildConfig = config => ({ ...config, alias });
 
+// The frames scenario measures the EAGER graph a server-component consumer
+// ships: the frames client entry plus the server-function transport it
+// carries. `@solidjs/web/serialization` (the seroval codec, ~13 KB gz) is
+// external because it loads lazily via the host's `prepareData` hook — a
+// static seroval import creeping back into either dist blows this limit
+// (or fails resolution outright), which is the regression this guards.
+const framesEsbuildConfig = config => ({
+  ...config,
+  // No `alias` spread: `solid-js`/`@solidjs/web` are external here, and the
+  // "@solidjs/web" alias would prefix-clobber the subpath specifiers before
+  // `external` could match them. Only the bundled transport needs routing.
+  alias: {
+    "@solidjs/web/server-functions/client":
+      "../../packages/solid-web/server-functions/dist/client.js"
+  },
+  external: ["solid-js", "@solidjs/web", "@solidjs/web/serialization"]
+});
+
 module.exports = [
   {
     name: "signals: core floor (createSignal/Memo/Effect/Root/flush)",
@@ -125,5 +143,11 @@ module.exports = [
     path: "csr-app.js",
     limit: "11.95 KB",
     modifyEsbuildConfig
+  },
+  {
+    name: "frames: eager client consumer (frames client + transport, lazy codec)",
+    path: "../../packages/solid-web/frames/dist/client.js",
+    limit: "10.35 KB",
+    modifyEsbuildConfig: framesEsbuildConfig
   }
 ];

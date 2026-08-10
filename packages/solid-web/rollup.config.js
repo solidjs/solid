@@ -317,7 +317,10 @@ export default [
       "@solidjs/web",
       "seroval",
       "seroval-plugins/web",
-      "@solidjs/web/server-functions/client"
+      "@solidjs/web/server-functions/client",
+      // Lazily imported (`prepareData`): the codec loads only when a `data`
+      // chunk actually arrives, so the frames client ships seroval-free.
+      "@solidjs/web/serialization"
     ],
     // Prod build: strip `_DX_DEV_` like the main `dist/web.js` entry, so the
     // frame runtime's dev checks/warnings (marker-integrity diagnostics) do
@@ -347,7 +350,8 @@ export default [
       "@solidjs/web",
       "seroval",
       "seroval-plugins/web",
-      "@solidjs/web/server-functions/client"
+      "@solidjs/web/server-functions/client",
+      "@solidjs/web/serialization"
     ],
     plugins: [replaceDev(true), externalizeSharedTransport]
       .concat(plugins)

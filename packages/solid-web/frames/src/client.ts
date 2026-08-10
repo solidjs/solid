@@ -53,7 +53,14 @@ import { createServerComponentHandler } from "@dom-expressions/runtime/src/frame
 // (externalizeSharedTransport), so the codec/flight config its defaults
 // read is this instance by construction.
 import { configureServerFunctionsClient } from "@solidjs/web/server-functions/client";
-import { createJSONDataTable } from "@dom-expressions/runtime/src/serializer.js";
+// The seroval codec is the frames client's heaviest dependency (~6 kB gz
+// with the web plugin set) and the common frames traffic never needs it:
+// HTML chunks, scalar slot args and document records (the hydration
+// script's payloads are self-executing) all decode codec-free. So the
+// serialization entry loads LAZILY, through the host's `prepareData` hook —
+// the transport awaits the import before delivering the first `data` chunk
+// of a response, and the sequential chunk loop queues every later chunk
+// (the records referencing that data included) behind the load.
 
 export {
   createFrame,
@@ -92,17 +99,35 @@ export function asyncArg<T>(value: PromiseLike<T> | AsyncIterable<T>): T {
 // stream-scoped by contract, so each stream into a boundary gets a fresh
 // table (routed by root frame id; nested region ids prefix-match to their
 // root's table). Apps needing isolation pass their own host.
+//
+// Tables materialize lazily: `beginStream` only REGISTERS the stream (the
+// prefix routing needs the root id), and the table itself is created at
+// first use once the codec module is resident — `prepareData` guarantees
+// that before any `data` chunk delivers. A `resolve` ahead of the codec
+// (a record's `$ref` sighted before its data) returns undefined, which is
+// already the "not delivered yet" state the held-record contract covers.
 let sharedHost: any;
+let codec: any;
+let codecLoading: Promise<unknown> | undefined;
+function loadCodec() {
+  return (codecLoading ??= import("@solidjs/web/serialization").then(m => {
+    codec = m;
+  }));
+}
 const tables = new Map<string, any>();
+function ensureTable(root: string) {
+  let table = tables.get(root);
+  if (!table && codec) tables.set(root, (table = codec.createJSONDataTable()));
+  return table;
+}
 function tableFor(id: string) {
-  const table = tables.get(id);
-  if (table) return table;
-  for (const [root, t] of tables) if (id.startsWith(root + ".")) return t;
+  if (tables.has(id)) return ensureTable(id);
+  for (const root of tables.keys()) if (id.startsWith(root + ".")) return ensureTable(root);
   return undefined;
 }
 /** Rotate in a fresh response-scoped data table for a boundary's stream. */
 function beginStream(frameId: string) {
-  tables.set(frameId, createJSONDataTable());
+  tables.set(frameId, undefined);
 }
 /**
  * The app-wide shared frame host (created lazily): one chunk router with
@@ -112,6 +137,7 @@ function beginStream(frameId: string) {
 export function getFrameHost() {
   if (!sharedHost) {
     sharedHost = createFrameHost({
+      prepareData: loadCodec,
       applyData: (c: any) => tableFor(c.id)?.apply(c),
       resolve: (ref: any, id: string) => tableFor(id)?.resolve(ref)
     });
@@ -660,8 +686,11 @@ const claimedBoundaries = new Set<string>();
 // stays pending, harmlessly. The op log replays to boundaries that adopt
 // after ops arrived (the catch-up morph: a value that changed between
 // shell flush and adoption lands right after the claim — never a
-// hydration mismatch, hydration claimed V1 markup).
-const liveOps: any[] = [];
+// hydration mismatch, hydration claimed V1 markup). Ops are last-value-
+// wins per target, so the log COMPACTS on that key: a long generation
+// leaves one entry per hole/attr/arg-record rather than its whole history,
+// and catch-up replays the latest state instead of every stale morph.
+const liveOps = new Map<string, any>();
 const liveAppliers = new Set<(op: any) => void>();
 let livePumped: any = null;
 function pumpLiveChannel() {
@@ -672,8 +701,9 @@ function pumpLiveChannel() {
   const pump = (): Promise<void> =>
     reader.read().then((r: { done: boolean; value: any }) => {
       if (r.done) return;
-      liveOps.push(r.value);
-      for (const apply of liveAppliers) apply(r.value);
+      const op = r.value;
+      liveOps.set(`${op.type}:${op.fid || ""}:${op.key || ""}`, op);
+      for (const apply of liveAppliers) apply(op);
       return pump();
     });
   pump().catch(() => {
@@ -951,14 +981,11 @@ function adoptBoundary(
   // a call-driven stream). Hole and attr ops route themselves by DOM
   // geometry (document-unique keys, range-scoped search), but SLOT ops are
   // store-keyed — two boundaries can share an occurrence name — so they
-  // carry the producing frame's id and only the owning boundary applies.
+  // carry the producing frame's id and only the owning boundary applies
+  // (the stray `fid` field rides into the apply; records are built from
+  // key/args, so it is ignored).
   const applyLiveOp = (op: any) => {
-    if (op.type === "slot") {
-      if (op.fid !== id) return;
-      const { fid: _fid, ...chunk } = op;
-      host.apply({ ...chunk, id: address, version: 0 });
-      return;
-    }
+    if (op.type === "slot" && op.fid !== id) return;
     host.apply({ ...op, id: address, version: 0 });
   };
   liveAppliers.add(applyLiveOp);
@@ -974,7 +1001,7 @@ function adoptBoundary(
   // span — the pump's async reads can't interleave — so the log is exactly
   // the pre-adoption history, and store semantics make replay idempotent
   // (same key, last value wins).
-  for (const op of liveOps) applyLiveOp(op);
+  for (const op of liveOps.values()) applyLiveOp(op);
   // ownerScope: element-claim sweeps — both the adoption sweep over the
   // SSR'd element (whose anchors never ran compiled creation) and later
   // streamed morphs — bind consumer cleanup to this boundary's owner (see
