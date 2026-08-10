@@ -115,15 +115,9 @@ a.link {
   margin-top: 0;
   color: #337ab7;
 }
-/* Placeholder items are real rows rendered by the real template — this just
-   paints them as shimmering blocks until their text arrives. */
-.feed-card .placeholder {
-  color: transparent;
-  background: #e2e5e9;
-  border-radius: 4px;
-  user-select: none;
-  animation: skeleton-pulse 1.2s ease-in-out infinite;
-}
+/* Dummy data renders through the real template — the only loading cues are
+   dimmed text and the inline dot, both driven by the data's own
+   `provisional` flag. */
 .feed-card ul {
   padding-left: 1.25rem;
   min-width: 240px;
@@ -131,26 +125,29 @@ a.link {
 .feed-card li {
   margin: 8px 0;
 }
-.feed-card li.placeholder {
-  list-style: none;
-  margin-left: -1.25rem;
-  min-height: 14px;
+.feed-card.provisional h2,
+.feed-card.provisional li {
+  color: #99a1a9;
 }
-.feed-card li.placeholder:nth-child(1) {
-  width: 85%;
+.feed-card .loading-dot {
+  display: none;
 }
-.feed-card li.placeholder:nth-child(2) {
-  width: 70%;
+.feed-card.provisional .loading-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: #337ab7;
+  vertical-align: middle;
+  animation: loading-dot-pulse 1s ease-in-out infinite;
 }
-.feed-card li.placeholder:nth-child(3) {
-  width: 75%;
-}
-@keyframes skeleton-pulse {
+@keyframes loading-dot-pulse {
   0%,
   100% {
     opacity: 1;
   }
   50% {
-    opacity: 0.55;
+    opacity: 0.25;
   }
 }

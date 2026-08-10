@@ -1,24 +1,22 @@
 import { createMemo, createSignal, createStore, For, isPending } from "solid-js";
 
-interface FeedItem {
-  text: string;
-  placeholder?: boolean;
-}
-
 interface Feed {
   user: string;
-  items: FeedItem[];
+  provisional?: boolean;
+  items: { text: string }[];
 }
 
-// The loading value is shaped like the answer: a feed whose items just
-// haven't arrived yet. There is no fallback tree — these placeholder items
-// render through the same template as the real ones.
+// Default data, not a fallback tree: dummy items with the same shape and
+// sentence structure as the real thing, rendered by the real template. The
+// affordance is encoded in the data itself (`provisional`) — it drives a
+// small inline indicator and dimmed text, nothing structural.
 const placeholderFeed = (): Feed => ({
   user: "",
+  provisional: true,
   items: [
-    { text: "", placeholder: true },
-    { text: "", placeholder: true },
-    { text: "", placeholder: true }
+    { text: "Shipped release #—" },
+    { text: "Reviewed — pull requests" },
+    { text: "Closed — issues" }
   ]
 });
 
@@ -40,12 +38,16 @@ async function fetchFeed(): Promise<Feed> {
 
 function FeedCard(props: { feed: Feed }) {
   return (
-    <div class="feed-card" aria-busy={!props.feed.user}>
-      <h2 class={{ placeholder: !props.feed.user }}>{props.feed.user || "Someone"}'s activity</h2>
+    <div
+      class={["feed-card", { provisional: props.feed.provisional }]}
+      aria-busy={props.feed.provisional}
+    >
+      <h2>
+        {props.feed.user || "Someone"}'s activity
+        <span class="loading-dot" />
+      </h2>
       <ul>
-        <For each={props.feed.items}>
-          {item => <li class={{ placeholder: item.placeholder }}>{item.text}</li>}
-        </For>
+        <For each={props.feed.items}>{item => <li>{item.text}</li>}</For>
       </ul>
     </div>
   );
@@ -68,6 +70,7 @@ const Skeleton = () => {
       const data = await fetchFeed();
       draft.user = data.user;
       draft.items = data.items;
+      draft.provisional = false;
     },
     placeholderFeed(),
     { seedLoadingValue: true }
@@ -78,12 +81,13 @@ const Skeleton = () => {
       <h1>Loading Value</h1>
       <p>
         Both cards declare commit #0 — the memo via <code>loadingValue</code>, the derived store via{" "}
-        <code>seedLoadingValue</code>. The loading value isn't a fallback branch: it's data shaped
-        like the answer (a feed of items that haven't arrived), rendered by the exact same template
-        as the real thing. On first load nothing suspends — during SSR the placeholder rows are what
-        stream in the shell, and on client navigation this page mounts fresh and opens a new loading
-        window. Refetches are different: the question is already answered, so <code>isPending</code>{" "}
-        dims the section instead.
+        <code>seedLoadingValue</code>. This is the "default data" pattern: the real template renders
+        real-looking dummy items from frame one, and the loading affordance is encoded in the data
+        itself (a <code>provisional</code> flag driving the dot and dimmed text) — there is no
+        fallback tree and nothing suspends. During SSR the dummy items are what stream in the shell;
+        on client navigation the page mounts fresh and opens a new loading window. Refetches are
+        different: the question is already answered, so <code>isPending</code> dims the section
+        instead.
       </p>
       <div style={{ display: "flex", gap: "2em", "flex-wrap": "wrap" }}>
         <div>
