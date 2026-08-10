@@ -1365,7 +1365,7 @@ describe("Async Iterable Hydration — createProjection", () => {
     expect(store.count).toBe(42);
   });
 
-  test("server+AI: sync patches consumed greedily and applied to store", () => {
+  test("server+AI: sync patch backlog defers past the hydration pass, then applies", async () => {
     const patches = [[["name"], "Bob"]];
     const ai = createBufferedAsyncIterable([{ name: "Alice", count: 0 }, patches]);
     startHydration({ t0: ai });
@@ -1384,13 +1384,22 @@ describe("Async Iterable Hydration — createProjection", () => {
     );
     flush();
 
-    expect(store.name).toBe("Bob");
+    // The hydration window sees exactly the first yield — the state the SSR
+    // DOM shows — so claiming primitives hydrate against the right shape.
+    // The buffered patch backlog is parked until hydration completes (where
+    // a live stream's yields land).
+    expect(store.name).toBe("Alice");
     expect(store.count).toBe(0);
 
     stopHydration();
+    await Promise.resolve();
+    flush();
+
+    expect(store.name).toBe("Bob");
+    expect(store.count).toBe(0);
   });
 
-  test("server+AI: deep nested patch application", () => {
+  test("server+AI: deep nested patch application", async () => {
     const patches = [[["user", "profile", "bio"], "Updated"]];
     const ai = createBufferedAsyncIterable([
       { user: { name: "Alice", profile: { bio: "Hello" } } },
@@ -1413,9 +1422,14 @@ describe("Async Iterable Hydration — createProjection", () => {
     flush();
 
     expect(store.user.name).toBe("Alice");
-    expect(store.user.profile.bio).toBe("Updated");
+    expect(store.user.profile.bio).toBe("Hello");
 
     stopHydration();
+    await Promise.resolve();
+    flush();
+
+    expect(store.user.name).toBe("Alice");
+    expect(store.user.profile.bio).toBe("Updated");
   });
 
   test("server+AI: disposal forwards iterator return for createProjection hydration", () => {
@@ -1472,7 +1486,7 @@ describe("Async Iterable Hydration — createStore(fn)", () => {
     stopHydration();
   });
 
-  test("server+AI: first value used, patches consumed greedily", () => {
+  test("server+AI: first value used, patch backlog applies after the hydration pass", async () => {
     const patches = [[["count"], 99]];
     const ai = createBufferedAsyncIterable([{ name: "Alice", count: 0 }, patches]);
     startHydration({ t0: ai });
@@ -1492,9 +1506,14 @@ describe("Async Iterable Hydration — createStore(fn)", () => {
     flush();
 
     expect(store.name).toBe("Alice");
-    expect(store.count).toBe(99);
+    expect(store.count).toBe(0);
 
     stopHydration();
+    await Promise.resolve();
+    flush();
+
+    expect(store.name).toBe("Alice");
+    expect(store.count).toBe(99);
   });
 
   test("Promise data still works for store (no regression)", () => {
@@ -1749,10 +1768,10 @@ describe("Async Iterable Hydration — buffered multi-yield replay", () => {
     );
     flush();
 
-    // Store patches apply greedily at pull time (pinned by the "sync patches
-    // consumed greedily" test above), so plain reads already see the final
-    // state during hydration.
-    expect(store.value).toBe(3);
+    // The synchronous hydration window sees exactly the first yield — the
+    // state the SSR DOM shows; the buffered patch backlog is deferred one
+    // microtask past the claim pass (live-mode sequencing).
+    expect(store.value).toBe(1);
 
     stopHydration();
     await Promise.resolve();
@@ -1761,6 +1780,120 @@ describe("Async Iterable Hydration — buffered multi-yield replay", () => {
     // Store replay applies every buffered patch; the signal path above must
     // land on the same final state.
     expect(store.value).toBe(3);
+  });
+
+  test("store buffered backlog: hydration pass sees first-yield state, then ONE conflated update", async () => {
+    // Array-shaped projection stream, the Repeat-over-createProjection wire
+    // shape: first yield is the full snapshot (one row — what the SSR DOM
+    // shows), later yields are index+length patch lists, all buffered before
+    // hydration along with the stream's completion.
+    const ai = createCompletableBufferedIterable(
+      [
+        [{ id: 1 }],
+        [
+          [["1"], { id: 2 }],
+          [["length"], 2]
+        ],
+        [
+          [["2"], { id: 3 }],
+          [["length"], 3]
+        ]
+      ],
+      true
+    );
+    startHydration({ t0: ai });
+
+    const observed: number[] = [];
+    let store: any;
+    createRoot(
+      () => {
+        store = createProjection((_draft: any) => {}, [] as any);
+        createRenderEffect(
+          () => store.length,
+          (v: number) => {
+            observed.push(v);
+          }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    // During the synchronous hydration pass only the first yield is applied,
+    // so a claiming primitive (Repeat reading `length`) hydrates against the
+    // exact row count the server rendered. Applying the backlog here would
+    // snapshot the uncommitted seed as the pre-write base and orphan every
+    // server-rendered row.
+    expect(store.length).toBe(1);
+    expect(store[0].id).toBe(1);
+
+    stopHydration();
+    await Promise.resolve();
+    flush();
+
+    // The backlog conflates to final state in ONE visible update.
+    expect(store.length).toBe(3);
+    expect(store[2].id).toBe(3);
+    expect(observed).toEqual([1, 3]);
+  });
+
+  test("store partially-buffered: backlog conflates once, live yields apply one at a time", async () => {
+    const ai = createCompletableBufferedIterable([
+      [{ id: 1 }],
+      [
+        [["1"], { id: 2 }],
+        [["length"], 2]
+      ]
+    ]);
+    startHydration({ t0: ai });
+
+    const observed: number[] = [];
+    let store: any;
+    createRoot(
+      () => {
+        store = createProjection((_draft: any) => {}, [] as any);
+        createRenderEffect(
+          () => store.length,
+          (v: number) => {
+            observed.push(v);
+          }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(store.length).toBe(1);
+
+    stopHydration();
+    await Promise.resolve();
+    flush();
+
+    // Buffered backlog: one conflated update.
+    expect(store.length).toBe(2);
+
+    // Live yields after hydration each apply individually — unchanged.
+    ai.push([
+      [["2"], { id: 3 }],
+      [["length"], 3]
+    ]);
+    await new Promise<void>(r => setTimeout(r, 10));
+    flush();
+    expect(store.length).toBe(3);
+
+    ai.push([
+      [["3"], { id: 4 }],
+      [["length"], 4]
+    ]);
+    await new Promise<void>(r => setTimeout(r, 10));
+    flush();
+    expect(store.length).toBe(4);
+
+    ai.complete();
+    await new Promise<void>(r => setTimeout(r, 10));
+    flush();
+    expect(store.length).toBe(4);
+    expect(observed).toEqual([1, 2, 3, 4]);
   });
 });
 

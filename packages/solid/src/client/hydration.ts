@@ -589,17 +589,38 @@ function hydrateStoreFromAsyncIterable(
               if (r && typeof r.then === "function") {
                 return r.then(process);
               }
-              let result = process(r);
-              while (!r.done) {
-                const peek = srcIt.next();
-                if (peek && typeof peek.then === "function") {
-                  buffered = peek;
-                  break;
-                }
-                r = peek;
-                if (!r.done) result = process(r);
-              }
-              return Promise.resolve(result);
+              // A synchronously-available result is buffered backlog — the
+              // stream ran ahead of hydration (delayed client script). It
+              // must NOT apply while hydration is still claiming server DOM:
+              // this pull runs inside the claim pass that first reads the
+              // store (Repeat reading `length` drives it), or — for a late
+              // streamed boundary — on a microtask racing that boundary's
+              // resume. Projection draft writes stage in the override layer
+              // until the firewall commits, so write-time snapshot capture
+              // records the still-uncommitted SEED as the pre-write base
+              // (not the first-yield state the SSR DOM shows), and any claim
+              // pass after the batch hydrates against pre-stream state —
+              // orphaning every server-rendered row. Park the batch until
+              // hydration completes (a plain microtask when it already has):
+              // snapshots are cleared by then, exactly where a live stream's
+              // yields land. Conflated single-update semantics are kept —
+              // every sync-available patch list still applies in one pull,
+              // in order.
+              return new Promise(resolvePull => {
+                onHydrationEnd(() => {
+                  let result = process(r);
+                  while (!r.done) {
+                    const peek = srcIt.next();
+                    if (peek && typeof peek.then === "function") {
+                      buffered = peek;
+                      break;
+                    }
+                    r = peek;
+                    if (!r.done) result = process(r);
+                  }
+                  resolvePull(result);
+                });
+              });
             },
             return(value?: any) {
               buffered = null;

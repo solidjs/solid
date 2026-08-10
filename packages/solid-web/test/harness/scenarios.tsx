@@ -24,13 +24,15 @@
 import {
   createSignal,
   createMemo,
+  createProjection,
   createStore,
   Show,
   Switch,
   Match,
   For,
   Loading,
-  Errored
+  Errored,
+  Repeat
 } from "solid-js";
 import { Portal, httpStatus, httpHeader, clientOnly, isServer } from "@solidjs/web";
 
@@ -917,6 +919,43 @@ function ForNestedTernary() {
   );
 }
 
+// Store-shaped async iterable (createProjection over an async generator)
+// rendered via Repeat. The server serializes the first yield as the full
+// snapshot (the one row the fragment's HTML shows) and every later yield as
+// index patches on the projection's data stream. In the "loaded" replay every
+// patch is buffered before hydrate() — the delayed-client-script case — and
+// the buffered replay must not run ahead of Repeat's hydration-time claim of
+// the snapshot row.
+function ProjectionRepeatStream() {
+  const items = createProjection<{ id: number; text: string }[]>(async function* (state) {
+    const data = [
+      { id: 1, text: "one" },
+      { id: 2, text: "two" },
+      { id: 3, text: "three" },
+      { id: 4, text: "four" },
+      { id: 5, text: "five" }
+    ];
+    for (const item of data) {
+      await sleep(5);
+      state.push(item);
+      yield;
+    }
+  }, []);
+  return (
+    <Loading fallback={<p>loading</p>}>
+      <ul>
+        <Repeat count={items.length}>
+          {i => (
+            <li>
+              {items[i].id}:{items[i].text}
+            </li>
+          )}
+        </Repeat>
+      </ul>
+    </Loading>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -1251,5 +1290,12 @@ export const scenarios: Scenario[] = [
     update: () => toggleRoute(),
     expectedTextAfterUpdate: "BetaD: sdata",
     stableSelector: "div, p"
+  },
+  {
+    name: "projection-repeat-stream",
+    App: ProjectionRepeatStream,
+    async: true,
+    expectedText: "1:one2:two3:three4:four5:five",
+    serverText: "1:one"
   }
 ];
