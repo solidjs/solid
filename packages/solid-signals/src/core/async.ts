@@ -56,6 +56,19 @@ function clearPendingSources(el: Computed<any>): void {
   el._pendingSources = undefined;
 }
 
+// A rejection-pending only resolves through the settle sweep over the
+// SOURCE's subscribers, so it is retryable iff a tracked read created that
+// edge: a dep that IS the source, or one whose own pending chain carries it
+// (pending sources propagate the origin node, so this covers any depth).
+// Dev-only caller — tree-shaken from prod builds.
+function retryReaches(el: Computed<any>, source: any): boolean {
+  for (let d = el._deps; d; d = d._nextDep) {
+    const dep = ((d._dep as FirewallSignal<unknown>)._firewall || d._dep) as Computed<any>;
+    if (dep === source || dep._pendingSources?.has(source)) return true;
+  }
+  return false;
+}
+
 export function setPendingError(el: Computed<any>, source?: Computed<any>, error?: any): void {
   if (!source) {
     el._error = null;
@@ -277,7 +290,21 @@ export function handleAsync<T>(
     if (el._inFlight !== result) return;
     settleTransition();
     // NotReadyError from rejected promises should be treated as pending, not error
-    const stillPending = error instanceof NotReadyError;
+    let stillPending = error instanceof NotReadyError;
+    // Dev-only authorship diagnostic (#2987): no edge means a post-`await`
+    // FIRST read — untracked, so the source's settle sweep can never find
+    // this node and "pending" wedges it (and its boundary) forever while
+    // isPending reads false. Fail loud in dev; prod pays no bytes for the
+    // forbidden pattern (the wedge stands there, caught during development).
+    if (__DEV__ && stillPending && !retryReaches(el, (error as NotReadyError).source)) {
+      stillPending = false;
+      error = new Error(
+        "Read of an unresolved async source after an `await`. Reads inside async " +
+          "computations only register as dependencies before the first `await`; a source " +
+          "first read after it cannot retry when it settles. Read it before the first " +
+          "`await` (or restructure so the value is an input)."
+      );
+    }
     notifyStatus(el, stillPending ? STATUS_PENDING : STATUS_ERROR, error);
     el._time = clock;
     // A real error settles derivatively-pending dependents (notifyStatus
