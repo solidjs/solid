@@ -137,6 +137,16 @@ export default [
     plugins: [replaceDev(false)].concat(plugins)
   },
   {
+    // Prod build — the only node/worker/deno artifact for the main entry
+    // (SSR builds are production by convention; the server entry hard-codes
+    // isDev false). `_DX_DEV_` must strip to false here: without the
+    // replace, babel constant-folds the truthy "_DX_DEV_" string literal and
+    // the artifact permanently takes the DEV branch of every gate — most
+    // damaging the committed-stub header guard, which is spec'd to throw in
+    // dev but console.error + no-op in prod, so the shipped bundle turned a
+    // late header write into a crashed production request (#2982). Guarded
+    // behaviorally by test/server/dist-server-artifact.spec.tsx (a string
+    // scan can't catch this: the folding erases the marker either way).
     input: "server/index.ts",
     output: [
       {
@@ -149,7 +159,7 @@ export default [
       }
     ],
     external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
-    plugins
+    plugins: [replaceDev(false)].concat(plugins)
   },
   {
     input: "src/index.ts",
@@ -344,6 +354,10 @@ export default [
       .concat(assertFramesClientTransport)
   },
   {
+    // Prod build, like the main server entry above: the frame sink bundles
+    // runtime code with `_DX_DEV_` gates (useHead/insert dev warnings), and
+    // without the replace babel folds the truthy literal into the dev branch
+    // — same build-mode bug as #2982, dev-only noise shipped in prod here.
     input: "frames/src/server.ts",
     output: [
       {
@@ -357,6 +371,6 @@ export default [
       }
     ],
     external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
-    plugins
+    plugins: [replaceDev(false)].concat(plugins)
   }
 ];
