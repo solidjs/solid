@@ -83,9 +83,11 @@ export interface ProjectionOptions extends StoreOptions {
    * Treat the seed as commit #0: the store is born committed with the seed's
    * contents, shown until the derive's first real answer lands. While that
    * first answer is in flight, reads serve the seed everywhere — nothing
-   * suspends to a `<Loading>` boundary and no transition is held — while
-   * `isPending` on the store reports true. Once the first answer lands
-   * (reconciled into the seed), refetches use normal pending semantics.
+   * suspends to a `<Loading>` boundary, no transition is held, and
+   * `isPending` stays false (the seed answers by declaration; first-load
+   * affordances belong to the data, e.g. a `skeleton: true` field in the
+   * seed). Once the first answer lands (reconciled into the seed), refetches
+   * use normal pending semantics with `isPending` true.
    *
    * The store equivalent of `MemoOptions.loadingValue`; the seed already
    * carries the placeholder shape, so this is just the opt-in.

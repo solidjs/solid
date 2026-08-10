@@ -5,9 +5,13 @@
  * Commit #0 semantics: a node born with a loading value is committed from
  * birth. During the first flight it reads as a settled value everywhere —
  * no NotReadyError propagation, no Loading-boundary suspension, no
- * transition holds (loading-class work) — while isPending on the node
- * itself reports true. The first real answer replaces the loading value and
- * closes the window permanently: refetches use normal pending semantics.
+ * transition holds (loading-class work) — and the window is verdict-quiet:
+ * isPending stays false, because commit #0 answers the question by
+ * declaration. First-load affordances live in the value channel (null /
+ * skeleton provenance); isPending remains refetch truth for an answered
+ * question — `data.skeleton || isPending(data)` covers the two disjoint
+ * states. The first real answer replaces the loading value and closes the
+ * window permanently: refetches use normal pending semantics.
  */
 import {
   createEffect,
@@ -95,14 +99,16 @@ describe("createMemo with loadingValue", () => {
     expect(result).toBe(42);
   });
 
-  it("reports isPending true during the first flight and false after landing", async () => {
+  it("keeps the loading window verdict-quiet: isPending stays false through the first flight", async () => {
     const d = deferred<string>();
     let user!: () => string;
     createRoot(() => {
       user = createMemo<string>(() => d.promise, { loadingValue: "placeholder" });
     });
     flush();
-    expect(isPending(user)).toBe(true);
+    // Commit #0 answers the question by declaration; first-load affordances
+    // belong to the value channel, so the window never reads pending.
+    expect(isPending(user)).toBe(false);
 
     d.resolve("real");
     await tick();
@@ -111,7 +117,7 @@ describe("createMemo with loadingValue", () => {
     expect(isPending(user)).toBe(false);
   });
 
-  it("keeps isPending source-scoped: derived memos read as settled real answers", async () => {
+  it("derived memos read as settled real answers and stay verdict-quiet too", async () => {
     const d = deferred<{ name: string }>();
     let user!: () => { name: string };
     let label!: () => string;
@@ -124,11 +130,11 @@ describe("createMemo with loadingValue", () => {
     flush();
     // The derived memo computes a real answer from commit #0.
     expect(label()).toBe("name:...");
-    // Pending truth lives at the source (where the question is in flight)...
-    expect(isPending(user)).toBe(true);
-    expect(isPending(() => user().name)).toBe(true);
-    // ...and does NOT propagate through settled derivations. Provenance at a
-    // distance is the data's job (e.g. a skeleton flag), by design.
+    // The whole window is quiet — source, direct expression, and derivation
+    // alike. Loading provenance at any distance is the data's job (e.g. a
+    // skeleton flag), by design.
+    expect(isPending(user)).toBe(false);
+    expect(isPending(() => user().name)).toBe(false);
     expect(isPending(label)).toBe(false);
 
     d.resolve({ name: "Ada" });
@@ -296,7 +302,7 @@ describe("createMemo with loadingValue", () => {
     });
     flush();
     expect(observed).toBe("placeholder");
-    expect(isPending(user)).toBe(true);
+    expect(isPending(user)).toBe(false);
 
     d2.resolve("recovered");
     await tick();
@@ -328,7 +334,7 @@ describe("createMemo with loadingValue", () => {
     setId(2); // supersede mid-first-flight
     flush();
     expect(reads).toEqual(["placeholder"]);
-    expect(isPending(user)).toBe(true);
+    expect(isPending(user)).toBe(false); // still the loading window: quiet
 
     d1.resolve("stale"); // dead flight: must be dropped
     await tick();
@@ -362,7 +368,7 @@ describe("createMemo with loadingValue", () => {
     });
     flush();
     expect(reads).toEqual(["waiting"]);
-    expect(isPending(out)).toBe(true);
+    expect(isPending(out)).toBe(false);
 
     d.resolve(7);
     await tick();
@@ -424,7 +430,7 @@ describe("createMemo with loadingValue", () => {
     done();
   });
 
-  it("flips isPending false without notifying subscribers when the landing equals the loading value", async () => {
+  it("closes the window without notifying subscribers when the landing equals the loading value", async () => {
     const d = deferred<number>();
     let count!: () => number;
     let runs = 0;
@@ -439,7 +445,7 @@ describe("createMemo with loadingValue", () => {
     });
     flush();
     expect(runs).toBe(1);
-    expect(isPending(count)).toBe(true);
+    expect(isPending(count)).toBe(false);
 
     d.resolve(0); // equal to commit #0
     await tick();
@@ -455,7 +461,7 @@ describe("createMemo with loadingValue", () => {
         loadingValue: undefined
       });
       expect(user()).toBe(undefined);
-      expect(isPending(user)).toBe(true);
+      expect(isPending(user)).toBe(false);
     });
     flush();
   });
@@ -491,13 +497,14 @@ describe("writable forms with loadingValue", () => {
     });
     flush();
     expect(user()).toBe("placeholder");
-    expect(isPending(user)).toBe(true);
+    expect(isPending(user)).toBe(false);
 
     setUser("draft");
     flush();
     expect(user()).toBe("draft");
-    // Work is still in flight — the manual write is not the compute's answer.
-    expect(isPending(user)).toBe(true);
+    // The compute's flight is still open, but the window stays quiet — the
+    // manual write is just another committed answer inside it.
+    expect(isPending(user)).toBe(false);
 
     d.resolve("real");
     await tick();
@@ -514,7 +521,7 @@ describe("writable forms with loadingValue", () => {
     });
     flush();
     expect(user()).toBe("placeholder");
-    expect(isPending(user)).toBe(true);
+    expect(isPending(user)).toBe(false);
 
     d.resolve("real");
     await tick();
@@ -567,7 +574,7 @@ describe("projections with seedLoadingValue", () => {
     });
     flush();
     expect(reads).toEqual([0]);
-    expect(isPending(() => proj.value)).toBe(true);
+    expect(isPending(() => proj.value)).toBe(false);
 
     d.resolve();
     await tick();
@@ -671,7 +678,7 @@ describe("projections with seedLoadingValue", () => {
     });
     flush();
     expect(store.count).toBe(0);
-    expect(isPending(() => store.count)).toBe(true);
+    expect(isPending(() => store.count)).toBe(false);
 
     d.resolve();
     await tick();
@@ -701,7 +708,7 @@ describe("projections with seedLoadingValue", () => {
     });
     flush();
     expect(store.items).toEqual(["skeleton"]);
-    expect(isPending(() => store.items.length)).toBe(true);
+    expect(isPending(() => store.items.length)).toBe(false);
 
     d.resolve();
     await tick();

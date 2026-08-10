@@ -40,10 +40,10 @@ export interface NodeOptions<T> {
    * Commit #0. When present (checked with `in`, so an explicit `undefined`
    * counts), the node is born committed with this value instead of
    * STATUS_UNINITIALIZED: reads serve it everywhere, nothing suspends to
-   * Loading boundaries, and transitions are never held — while `isPending`
-   * on the node reports true until the first real answer lands. Async work
-   * before that landing is loading-class (value-driven loading); after it,
-   * normal refetch/pending semantics apply.
+   * Loading boundaries, transitions are never held, and the window is
+   * verdict-quiet (`isPending` stays false — commit #0 answers the question
+   * by declaration; first-load affordances live in the value itself). After
+   * the first real answer lands, normal refetch/pending semantics apply.
    */
   loadingValue?: T;
 }
@@ -141,11 +141,13 @@ export interface Computed<T> extends RawSignal<T>, Owner {
    * node was born committed (commit #0 = the loading value) and `handleAsync`
    * serves that committed value instead of throwing NotReadyError, so first
    * flights never suspend readers, trip boundaries, or hold transitions.
-   * `isPending` reads true off this flag alone. Cleared by the first value
-   * landing on any path (sync return, sync-resolved promise, first iterator
-   * yield, async settle); a real error leaves it set — errors answer reads
-   * but don't enter the value lineage, so a retry serves the loading value
-   * again. Once cleared, normal pending/refetch semantics apply forever.
+   * The window is verdict-quiet: `isPending` stays false, because commit #0
+   * answers the question by declaration (first-load affordances belong to
+   * the value channel). Cleared by the first value landing on any path (sync
+   * return, sync-resolved promise, first iterator yield, async settle); a
+   * real error leaves it set — errors answer reads but don't enter the value
+   * lineage, so a retry serves the loading value again. Once cleared, normal
+   * pending/refetch semantics apply forever.
    */
   _loading: boolean;
 }

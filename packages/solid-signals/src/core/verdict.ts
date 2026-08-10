@@ -150,12 +150,14 @@ function quietPending(el: Computed<any>): boolean {
   return el._reask;
 }
 
+// NOTE: a loadingValue node's open loading window (_loading) is verdict-quiet
+// on purpose: commit #0 answers the question by declaration, so the window
+// reads NOT pending — first-load affordances live in the value channel
+// (null / skeleton provenance the author encoded), and isPending stays what
+// it always was: refetch truth for an answered question. This keeps the
+// verdict fully correlated with transition-class machinery and keeps server
+// (always false) and client hydration trivially consistent.
 function newQuestionInFlight(comp: Computed<any>): boolean {
-  // A loadingValue node's first flight is status-free by design (reads serve
-  // commit #0, nothing suspends), so pending truth comes off the loading
-  // window itself. An error outranks it (A24c): the error is the settled
-  // answer until a retry actually runs.
-  if (comp._loading && !(comp._statusFlags & STATUS_ERROR)) return true;
   return (
     !!(comp._statusFlags & STATUS_PENDING) &&
     !(comp._statusFlags & STATUS_UNINITIALIZED) &&

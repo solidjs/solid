@@ -276,12 +276,15 @@ export interface MemoOptions<T> {
    * Commit #0: a committed value the memo is born with, shown until the
    * compute's first real answer lands. While that first answer is in flight
    * the memo reads as a settled value everywhere — nothing suspends to a
-   * `<Loading>` boundary and no transition is held (first-flight work is
-   * loading-class, like a boundary fallback) — while `isPending(memo)`
-   * reports true so loading affordances can be driven from the value itself.
-   * Once the first answer lands, the loading value leaves the lineage
-   * forever: refetches use normal pending semantics (stale value shown,
-   * boundaries/transitions coordinate).
+   * `<Loading>` boundary, no transition is held (first-flight work is
+   * loading-class, like a boundary fallback), and `isPending(memo)` stays
+   * **false**: commit #0 answers the question by declaration, so first-load
+   * affordances are driven from the value itself (a `null` placeholder, a
+   * `skeleton: true` field, etc.). Once the first answer lands, the loading
+   * value leaves the lineage forever: refetches use normal pending semantics
+   * (stale value shown, `isPending` true, boundaries/transitions coordinate)
+   * — the canonical guard is `data.skeleton || isPending(data)`, whose two
+   * terms cover the two disjoint states.
    *
    * Typed strictly as `T`: to use `null`/`undefined` as the placeholder,
    * declare it in the memo's type (e.g. `createMemo<User | null>(...)`), so

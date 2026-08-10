@@ -4,7 +4,6 @@ import {
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
-  STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
@@ -325,11 +324,6 @@ export function devCheckQuiescent(isQueuedForCommit: (node: AnyNode) => boolean)
     // INTERNALS-ASYNC-STATE.md §6, not a self-consistency invariant.
     const settled =
       !((node as Computed<any>)._statusFlags & STATUS_PENDING) &&
-      // A loadingValue node's open loading window is status-free by design
-      // but legitimately verdict-pending (mirrors newQuestionInFlight's gate).
-      !(
-        (node as Computed<any>)._loading && !((node as Computed<any>)._statusFlags & STATUS_ERROR)
-      ) &&
       node._pendingValue === NOT_PENDING &&
       (node._overrideValue === undefined || node._overrideValue === NOT_PENDING);
     if (!settled) continue;
