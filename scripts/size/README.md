@@ -2,7 +2,9 @@
 
 Tree-shaken import-cost tracking: `.size-limit.js` defines scenario entries
 (signals floor, +createStore, +isPending/latest, the render+one-signal simple
-app, a representative CSR app) with hard gzip-limits. CI fails when a scenario
+app, a representative CSR app, and a hydrating pair — with and without store
+primitives — that keeps the store engine pay-for-use under `hydrate()`) with
+hard gzip-limits. CI fails when a scenario
 exceeds its limit — that means tree-shaking regressed, or a deliberate feature
 landed and the limit should be bumped in the same PR with a reason. The
 simple-app scenario is pinned at 10 KB on purpose.

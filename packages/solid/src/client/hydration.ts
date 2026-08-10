@@ -264,13 +264,25 @@ let _doneValue = false;
 let _createMemo: Function | undefined;
 let _createSignal: Function | undefined;
 let _createErrorBoundary: Function | undefined;
-let _createOptimistic: Function | undefined;
-let _createProjection: Function | undefined;
-let _createStore: Function | undefined;
-let _createOptimisticStore: Function | undefined;
 let _createRenderEffect: Function | undefined;
 let _createEffect: Function | undefined;
 let _createLoadingBoundary: Function | undefined;
+// The store/optimistic families get GENERIC adapters instead of one slot per
+// primitive: the adapter is parameterized by the core implementation, and
+// each wrapper below passes its own (createStore hands in coreStore, etc.).
+// This keeps the store engine (store/reconcile/projection/optimistic in
+// @solidjs/signals, ~7 KB gz) out of enableHydration()'s reference graph —
+// it is retained by the wrapper, i.e. only when the app imports the
+// primitive. A hydrating app with no store usage shakes the whole engine; an
+// app that uses stores gets exactly the same hydration behavior as before,
+// because the adapter travels with enableHydration() and the engine with the
+// import the app already has. There is no state where a hydrating store call
+// can miss its adapter: `sharedConfig.hydrating` can only be true after
+// enableHydration() installed these.
+let _hydrateSignalLike: ((coreFn: Function, fn: any, options?: any) => any) | undefined;
+let _hydrateStoreLike:
+  | ((coreFn: Function, fn: any, initialValue: any, options?: any) => any)
+  | undefined;
 // lazy()'s server-module lookup: only meaningful under hydration, so the
 // implementation (and peekNextChildId/_$HY access behind it) installs here
 // rather than shipping in CSR bundles that use lazy() (#2883 phase 3).
@@ -638,52 +650,43 @@ function hydrateStoreFromAsyncIterable(
 
 // --- Hydration-aware implementations ---
 
-function hydratedCreateMemo(compute: any, options?: any) {
-  if (!sharedConfig.hydrating || options?.transparent) {
-    return coreMemo(compute, options);
-  }
+// One signal-shaped hydration body for memo/signal/optimistic — the families
+// only ever differed in which core primitive committed the result, so the
+// core function is a parameter. createOptimistic reaches this through the
+// _hydrateSignalLike slot precisely so the wrapper does not statically couple
+// the optimistic engine to this body (which would drag it into CSR bundles).
+function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
   markTopLevelSnapshotScope();
 
   const ssrSource = options?.ssrSource;
 
   if (ssrSource === "client") {
     const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
-    const memo = coreMemo((prev: any) => {
-      if (!hydrated()) return prev;
-      return compute(prev);
-    }, options);
-    setHydrated(true);
-    return memo;
-  }
-
-  // "server", "hybrid", or undefined — use serialized value from server
-  const aiResult = hydrateSignalFromAsyncIterable(coreMemo, compute, options);
-  if (aiResult !== null) return aiResult;
-
-  return coreMemo((prev: any) => readSerializedOrCompute(compute, prev), options);
-}
-
-function hydratedCreateSignal(fn?: any, second?: any) {
-  if (typeof fn !== "function" || !sharedConfig.hydrating) return coreSignal(fn, second);
-  markTopLevelSnapshotScope();
-
-  const ssrSource = second?.ssrSource;
-
-  if (ssrSource === "client") {
-    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
-    const sig = coreSignal((prev: any) => {
+    const sig = coreFn((prev: any) => {
       if (!hydrated()) return prev;
       return fn(prev);
-    }, second);
+    }, options);
     setHydrated(true);
     return sig;
   }
 
-  // "server", "hybrid", or undefined
-  const aiResult = hydrateSignalFromAsyncIterable(coreSignal, fn, second);
+  // "server", "hybrid", or undefined — use serialized value from server
+  const aiResult = hydrateSignalFromAsyncIterable(coreFn, fn, options);
   if (aiResult !== null) return aiResult;
 
-  return coreSignal((prev: any) => readSerializedOrCompute(fn, prev), second);
+  return coreFn((prev: any) => readSerializedOrCompute(fn, prev), options);
+}
+
+function hydratedCreateMemo(compute: any, options?: any) {
+  if (!sharedConfig.hydrating || options?.transparent) {
+    return coreMemo(compute, options);
+  }
+  return hydrateSignalLike(coreMemo, compute, options);
+}
+
+function hydratedCreateSignal(fn?: any, second?: any) {
+  if (typeof fn !== "function" || !sharedConfig.hydrating) return coreSignal(fn, second);
+  return hydrateSignalLike(coreSignal, fn, second);
 }
 
 function hydratedCreateErrorBoundary<T, U>(
@@ -708,29 +711,6 @@ function hydratedCreateErrorBoundary<T, U>(
     }
   }
   return coreErrorBoundary(fn, fallback);
-}
-
-function hydratedCreateOptimistic(fn?: any, second?: any) {
-  if (typeof fn !== "function" || !sharedConfig.hydrating) return coreOptimistic(fn, second);
-  markTopLevelSnapshotScope();
-
-  const ssrSource = second?.ssrSource;
-
-  if (ssrSource === "client") {
-    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
-    const sig = coreOptimistic((prev: any) => {
-      if (!hydrated()) return prev;
-      return fn(prev);
-    }, second);
-    setHydrated(true);
-    return sig;
-  }
-
-  // "server", "hybrid", or undefined
-  const aiResult = hydrateSignalFromAsyncIterable(coreOptimistic, fn, second);
-  if (aiResult !== null) return aiResult;
-
-  return coreOptimistic((prev: any) => readSerializedOrCompute(fn, prev), second);
 }
 
 function wrapStoreFn(fn: any) {
@@ -782,27 +762,15 @@ function hydrateStoreLikeFn(
   return coreFn(wrapStoreFn(fn), initialValue, options);
 }
 
-function hydratedCreateStore(first?: any, second?: any, third?: any) {
-  if (typeof first !== "function" || !sharedConfig.hydrating)
-    return coreStore(first, second, third);
+// The store-shaped counterpart to hydrateSignalLike: one body for
+// store/optimistic-store/projection, reached through the _hydrateStoreLike
+// slot with the core implementation passed in by the wrapper. The buffered
+// backlog parking in hydrateStoreFromAsyncIterable (and the module-local
+// onHydrationEnd it defers through) is unchanged — only how the code is
+// reached moved.
+function hydrateStoreLike(coreFn: Function, fn: any, initialValue: any, options?: any) {
   markTopLevelSnapshotScope();
-  const ssrSource = third?.ssrSource;
-  return hydrateStoreLikeFn(coreStore, first, second ?? {}, third, ssrSource);
-}
-
-function hydratedCreateOptimisticStore(first?: any, second?: any, third?: any) {
-  if (typeof first !== "function" || !sharedConfig.hydrating)
-    return coreOptimisticStore(first, second, third);
-  markTopLevelSnapshotScope();
-  const ssrSource = third?.ssrSource;
-  return hydrateStoreLikeFn(coreOptimisticStore, first, second ?? {}, third, ssrSource);
-}
-
-function hydratedCreateProjection(fn: any, initialValue?: any, options?: any) {
-  if (!sharedConfig.hydrating) return coreProjection(fn, initialValue, options);
-  markTopLevelSnapshotScope();
-  const ssrSource = options?.ssrSource;
-  return hydrateStoreLikeFn(coreProjection, fn, initialValue, options, ssrSource);
+  return hydrateStoreLikeFn(coreFn, fn, initialValue, options, options?.ssrSource);
 }
 
 // --- Hydration-aware effect implementations ---
@@ -880,10 +848,12 @@ export function enableHydration() {
   _createMemo = hydratedCreateMemo;
   _createSignal = hydratedCreateSignal;
   _createErrorBoundary = hydratedCreateErrorBoundary;
-  _createOptimistic = hydratedCreateOptimistic;
-  _createProjection = hydratedCreateProjection;
-  _createStore = hydratedCreateStore;
-  _createOptimisticStore = hydratedCreateOptimisticStore;
+  // Generic adapters only: nothing installed here references the store
+  // engine (coreStore/coreOptimisticStore/coreProjection/coreOptimistic) —
+  // the wrappers pass those in, so a hydrating app that never imports a
+  // store primitive shakes the engine entirely.
+  _hydrateSignalLike = hydrateSignalLike;
+  _hydrateStoreLike = hydrateStoreLike;
   _createRenderEffect = hydratedCreateRenderEffect;
   _createEffect = hydratedCreateEffect;
   _createLoadingBoundary = hydratedCreateLoadingBoundary;
@@ -1146,7 +1116,14 @@ export const createOptimistic: {
     fn: ComputeFunction<undefined | NoInfer<T>, T>,
     options?: HydrationSignalOptions<T>
   ): Signal<T>;
-} = ((...args: any[]) => (_createOptimistic || coreOptimistic)(...args)) as any;
+} = ((...args: any[]) =>
+  // `hydrating` can only be true once enableHydration() installed the
+  // adapter slot; passing coreOptimistic in here (instead of a dedicated
+  // hydrated impl installed by enableHydration) is what lets the optimistic
+  // engine shake out of hydrating bundles that never import this primitive.
+  typeof args[0] === "function" && sharedConfig.hydrating
+    ? _hydrateSignalLike!(coreOptimistic, args[0], args[1])
+    : (coreOptimistic as Function)(...args)) as any;
 
 /**
  * Creates a derived (projected) store — `createMemo` for stores. The
@@ -1190,7 +1167,11 @@ export const createProjection: <T extends object = {}>(
   initialValue: Partial<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ) => Refreshable<Store<T>> = ((...args: any[]) =>
-  (_createProjection || coreProjection)(...args)) as any;
+  // `hydrating` can only be true once enableHydration() installed the
+  // adapter slot (see createOptimistic above for the retention story).
+  sharedConfig.hydrating
+    ? _hydrateStoreLike!(coreProjection, args[0], args[1], args[2])
+    : (coreProjection as Function)(...args)) as any;
 
 type NoFn<T> = T extends Function ? never : T;
 
@@ -1264,7 +1245,12 @@ export const createStore: {
     store: NoFn<T> | Store<NoFn<T>>,
     options?: ProjectionOptions
   ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
-} = ((...args: any[]) => (_createStore || coreStore)(...args)) as any;
+} = ((...args: any[]) =>
+  // `hydrating` can only be true once enableHydration() installed the
+  // adapter slot (see createOptimistic above for the retention story).
+  typeof args[0] === "function" && sharedConfig.hydrating
+    ? _hydrateStoreLike!(coreStore, args[0], args[1] ?? {}, args[2])
+    : (coreStore as Function)(...args)) as any;
 
 /**
  * The store equivalent of `createOptimistic`. Writes inside an
@@ -1319,7 +1305,12 @@ export const createOptimisticStore: {
     store: NoFn<T> | Store<NoFn<T>>,
     options?: ProjectionOptions
   ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
-} = ((...args: any[]) => (_createOptimisticStore || coreOptimisticStore)(...args)) as any;
+} = ((...args: any[]) =>
+  // `hydrating` can only be true once enableHydration() installed the
+  // adapter slot (see createOptimistic above for the retention story).
+  typeof args[0] === "function" && sharedConfig.hydrating
+    ? _hydrateStoreLike!(coreOptimisticStore, args[0], args[1] ?? {}, args[2])
+    : (coreOptimisticStore as Function)(...args)) as any;
 
 /**
  * Creates a reactive computation that runs during the render phase as

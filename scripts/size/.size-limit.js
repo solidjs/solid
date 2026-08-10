@@ -68,6 +68,30 @@ module.exports = [
     modifyEsbuildConfig
   },
   {
+    name: "app: hydrating (no stores) with Show/For/Loading/Errored/lazy",
+    // The csr-app surface entered through hydrate(). Must NOT carry the
+    // store engine (store/reconcile/projection/optimistic): store hydration
+    // is reached through generic adapters parameterized by the core
+    // primitive, so enableHydration() itself retains none of it — the
+    // engine rides the wrapper the app imports to use stores. Before that
+    // seam this fixture measured 22.60 KB (engine retained just by calling
+    // hydrate()); 15.83 KB measured after, ceiling at the ~2% headroom
+    // convention.
+    path: "hydrating-app.js",
+    limit: "16.15 KB",
+    modifyEsbuildConfig
+  },
+  {
+    name: "app: hydrating + every store primitive family",
+    // The companion WITH-stores scenario: pays for the engine + hydration
+    // adapters by importing the primitives, keeping today's hydration
+    // behavior with zero action required. 22.62 KB measured at the seam
+    // landing (byte parity with the pre-seam 22.68); ~2% headroom.
+    path: "hydrating-store-app.js",
+    limit: "23.05 KB",
+    modifyEsbuildConfig
+  },
+  {
     name: "app: CSR with Show/For/Loading/Errored/lazy",
     // Ratcheted 12 -> 11.95 KB after the hydration-phase seam trim
     // (isHydrationInProgress/onHydrationEnd moved from the sharedConfig
