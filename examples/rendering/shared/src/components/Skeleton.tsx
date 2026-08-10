@@ -1,10 +1,26 @@
-import { createMemo, createSignal, createStore, For, isPending, Show } from "solid-js";
+import { createMemo, createSignal, createStore, For, isPending } from "solid-js";
+
+interface FeedItem {
+  text: string;
+  placeholder?: boolean;
+}
 
 interface Feed {
-  skeleton: boolean;
   user: string;
-  items: string[];
+  items: FeedItem[];
 }
+
+// The loading value is shaped like the answer: a feed whose items just
+// haven't arrived yet. There is no fallback tree — these placeholder items
+// render through the same template as the real ones.
+const placeholderFeed = (): Feed => ({
+  user: "",
+  items: [
+    { text: "", placeholder: true },
+    { text: "", placeholder: true },
+    { text: "", placeholder: true }
+  ]
+});
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -13,44 +29,28 @@ async function fetchFeed(): Promise<Feed> {
   await wait(1200);
   const run = ++fetchCount;
   return {
-    skeleton: false,
     user: "Ada",
     items: [
-      `Shipped release #${run}`,
-      `Reviewed ${run + 2} pull requests`,
-      `Closed ${run * 3} issues`
+      { text: `Shipped release #${run}` },
+      { text: `Reviewed ${run + 2} pull requests` },
+      { text: `Closed ${run * 3} issues` }
     ]
   };
 }
 
-function SkeletonCard() {
+function FeedCard(props: { feed: Feed }) {
   return (
-    <div class="feed-card" aria-busy="true">
-      <div class="skeleton-line" style={{ width: "40%" }} />
-      <div class="skeleton-line" style={{ width: "85%" }} />
-      <div class="skeleton-line" style={{ width: "70%" }} />
-      <div class="skeleton-line" style={{ width: "75%" }} />
-    </div>
-  );
-}
-
-function FeedCard(props: { user: string; items: string[] }) {
-  return (
-    <div class="feed-card">
-      <h2>{props.user}'s activity</h2>
+    <div class="feed-card" aria-busy={!props.feed.user}>
+      <h2 class={{ placeholder: !props.feed.user }}>{props.feed.user || "Someone"}'s activity</h2>
       <ul>
-        <For each={props.items}>{item => <li>{item}</li>}</For>
+        <For each={props.feed.items}>
+          {item => <li class={{ placeholder: item.placeholder }}>{item.text}</li>}
+        </For>
       </ul>
     </div>
   );
 }
 
-// Commit #0, both forms: the memo is born committed with its loadingValue and
-// the derived store with its seed (seedLoadingValue promotes it from draft to
-// first committed value). Neither first fetch suspends — no <Loading>
-// boundary on this page. The skeleton flag is value-channel provenance: the
-// UI branches on the data itself, and `isPending` stays false through the
-// first flight (it reports refetches of an already-answered question).
 const Skeleton = () => {
   const [version, setVersion] = createSignal(0);
 
@@ -59,7 +59,7 @@ const Skeleton = () => {
       version(); // track: bumping refetches
       return fetchFeed();
     },
-    { loadingValue: { skeleton: true, user: "", items: [] } }
+    { loadingValue: placeholderFeed() }
   );
 
   const [store] = createStore<Feed>(
@@ -68,9 +68,8 @@ const Skeleton = () => {
       const data = await fetchFeed();
       draft.user = data.user;
       draft.items = data.items;
-      draft.skeleton = false;
     },
-    { skeleton: true, user: "", items: [] },
+    placeholderFeed(),
     { seedLoadingValue: true }
   );
 
@@ -79,24 +78,21 @@ const Skeleton = () => {
       <h1>Loading Value</h1>
       <p>
         Both cards declare commit #0 — the memo via <code>loadingValue</code>, the derived store via{" "}
-        <code>seedLoadingValue</code> — so the first load renders skeletons instead of suspending to
-        a <code>Loading</code> boundary. During SSR the skeletons are what stream in the shell (the
-        real data follows as it lands), and on client navigation this page mounts fresh and opens
-        new loading windows. Refetches are different: the question is already answered, so{" "}
-        <code>isPending</code> drives the dim instead.
+        <code>seedLoadingValue</code>. The loading value isn't a fallback branch: it's data shaped
+        like the answer (a feed of items that haven't arrived), rendered by the exact same template
+        as the real thing. On first load nothing suspends — during SSR the placeholder rows are what
+        stream in the shell, and on client navigation this page mounts fresh and opens a new loading
+        window. Refetches are different: the question is already answered, so <code>isPending</code>{" "}
+        dims the section instead.
       </p>
       <div style={{ display: "flex", gap: "2em", "flex-wrap": "wrap" }}>
         <div>
           <h2>createMemo + loadingValue</h2>
-          <Show when={!feed().skeleton} fallback={<SkeletonCard />}>
-            <FeedCard user={feed().user} items={feed().items} />
-          </Show>
+          <FeedCard feed={feed()} />
         </div>
         <div>
           <h2>createStore + seedLoadingValue</h2>
-          <Show when={!store.skeleton} fallback={<SkeletonCard />}>
-            <FeedCard user={store.user} items={store.items} />
-          </Show>
+          <FeedCard feed={store} />
         </div>
       </div>
       <button type="button" onClick={() => setVersion(v => v + 1)}>
