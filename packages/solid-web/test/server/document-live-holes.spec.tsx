@@ -112,6 +112,40 @@ describe("document face — live holes against the real core", () => {
     expect(html).toContain("beta-2");
   });
 
+  test("a JSX expression slot arg stays live at t=0: record re-emissions ride the channel (DR-2 case 1)", async () => {
+    // The natural authored crossing — `<props.status text={text()}/>`, a
+    // compiled getter, the SAME shape as a markup hole — opens a document
+    // arg binding: each iterable yield lands a commit, the ledger re-runs
+    // the getter, and the occurrence's record re-ships as a fid-tagged
+    // `slot` op on the sc:live channel. Values ride inline (the hydration
+    // serializer carries them per chunk; no versioned refs on this face).
+    const ServerComp = (props: any) => {
+      const text = createMemo(async function* () {
+        yield "arg-1";
+        await wait(5);
+        yield "arg-2";
+      });
+      return (
+        <Loading fallback={<span>FB</span>}>
+          <props.status text={text()} />
+        </Loading>
+      );
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dlh/args" }) as any;
+    const html = await collect(() => Inline({ status: (p: any) => <b>{p.text}</b> }));
+
+    // First yield is the hydration truth: the fill's markup and the initial
+    // record both read it. (The fill renders inline with its hydration key.)
+    expect(html).toMatch(/<b [^>]*>arg-1<\/b>/);
+    expect(html).toContain("sc:slot:dlh/args");
+    expect(html.split("arg-1").length).toBe(3); // markup + record
+    // The second yield shipped exactly once — the slot op, not a second
+    // markup rendering — and the op carries the producing frame's id (slot
+    // ops are store-keyed; only the owning boundary applies them).
+    expect(html.split("arg-2").length).toBe(2);
+    expect(html).toContain("fid");
+  });
+
   test("plain document content around the component keeps its exact bytes", async () => {
     const ServerComp = () => {
       const tick = createMemo(async function* () {

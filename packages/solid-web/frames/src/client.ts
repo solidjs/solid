@@ -948,8 +948,19 @@ function adoptBoundary(
   // Live-hole ops broadcast into this boundary's store at its bound
   // address (version 0, the adopted stream — a refetch's higher version
   // supersedes, so document ops go quiet the moment the boundary moves to
-  // a call-driven stream).
-  const applyLiveOp = (op: any) => host.apply({ ...op, id: address, version: 0 });
+  // a call-driven stream). Hole and attr ops route themselves by DOM
+  // geometry (document-unique keys, range-scoped search), but SLOT ops are
+  // store-keyed — two boundaries can share an occurrence name — so they
+  // carry the producing frame's id and only the owning boundary applies.
+  const applyLiveOp = (op: any) => {
+    if (op.type === "slot") {
+      if (op.fid !== id) return;
+      const { fid: _fid, ...chunk } = op;
+      host.apply({ ...chunk, id: address, version: 0 });
+      return;
+    }
+    host.apply({ ...op, id: address, version: 0 });
+  };
   liveAppliers.add(applyLiveOp);
   onCleanup(() => {
     liveAppliers.delete(applyLiveOp);

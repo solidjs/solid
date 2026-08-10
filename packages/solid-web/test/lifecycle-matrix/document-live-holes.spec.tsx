@@ -19,7 +19,7 @@
 //   - a call-driven stream supersedes: after a version-1 apply, document
 //     ops (version 0) go quiet.
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
-import { createRoot, Loading } from "solid-js";
+import { createMemo, createRoot, Loading } from "solid-js";
 import { dynamic } from "../../src/index.js";
 import { installServerComponents } from "../../frames/src/client.js";
 import { createServerReference } from "@dom-expressions/runtime/src/server-functions/client.js";
@@ -29,6 +29,8 @@ const getMorph = createServerReference("matrix/lh/morph");
 const getAttr = createServerReference("matrix/lh/attr");
 const getLate = createServerReference("matrix/lh/late");
 const getStale = createServerReference("matrix/lh/stale");
+const getArgs = createServerReference("matrix/lh/args");
+const getArgs2 = createServerReference("matrix/lh/args2");
 
 function boundaryHtml(fid: string, inner: string) {
   return `<dx-frame data-fid="${fid}" style="display:contents"><article>${inner}</article></dx-frame>`;
@@ -43,6 +45,14 @@ beforeAll(() => {
     boundaryHtml("matrix/lh/attr", '<div data-lha="1" class="a" disabled="">x</div>') +
     boundaryHtml("matrix/lh/late", "<p><!--lh:2-->cold<!--lh:/2--></p>") +
     boundaryHtml("matrix/lh/stale", "<p><!--lh:3-->doc<!--lh:/3--></p>") +
+    boundaryHtml(
+      "matrix/lh/args",
+      "<ul><!--slot:status#s1:start--><!--slot:status#s1:end--></ul>"
+    ) +
+    boundaryHtml(
+      "matrix/lh/args2",
+      "<ul><!--slot:status#s1:start--><!--slot:status#s1:end--></ul>"
+    ) +
     "</div>";
   (window as any)._$HY = {
     r: {
@@ -50,7 +60,9 @@ beforeAll(() => {
         start(c) {
           liveCtl = c;
         }
-      })
+      }),
+      "sc:slot:matrix/lh/args:status#s1": { text: "t1" },
+      "sc:slot:matrix/lh/args2:status#s1": { text: "other" }
     }
   };
 });
@@ -60,14 +72,14 @@ afterAll(() => {
   document.body.innerHTML = "";
 });
 
-function mount(Comp: any) {
+function mount(Comp: any, props: Record<string, any> = {}) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   let div!: HTMLDivElement;
   const dispose = createRoot(d => {
     <div ref={div}>
       <Loading fallback={<span>shell-fallback</span>}>
-        <Comp />
+        <Comp {...props} />
       </Loading>
     </div>;
     container.appendChild(div);
@@ -136,6 +148,64 @@ describe("t=0/live-holes", () => {
     expect(lateEl.textContent).toBe("warm");
 
     m.cleanup();
+  });
+
+  test("a channel slot op updates the owning occurrence live; the fid gate keeps it out of other boundaries (DR-2 case 1)", async () => {
+    // The document arg ledger's consumer half: a re-emitted occurrence
+    // record arrives as a fid-tagged `slot` op on sc:live. Unlike hole and
+    // attr ops (geometry-routed by document-unique keys), slot ops are
+    // store-keyed — two boundaries can share an occurrence name — so only
+    // the boundary whose document id matches applies it.
+    const { host } = makeHost();
+    installServerComponents(host);
+    vi.stubGlobal("fetch", () => {
+      throw new Error("fetch must not be called at t=0");
+    });
+
+    let mounts = 0;
+    const reads: string[] = [];
+    const otherReads: string[] = [];
+    const mA = mount(
+      dynamic(() => getArgs() as any),
+      {
+        status: (p: any) => {
+          mounts++;
+          createMemo(() => reads.push(p.text));
+          return <li class="arg-fill">{p.text}</li>;
+        }
+      }
+    );
+    const mB = mount(
+      dynamic(() => getArgs2() as any),
+      {
+        status: (p: any) => {
+          createMemo(() => otherReads.push(p.text));
+          return <li>{p.text}</li>;
+        }
+      }
+    );
+    await pump();
+    expect(reads).toEqual(["t1"]);
+    expect(otherReads).toEqual(["other"]);
+    const li = document.querySelector('[data-fid="matrix/lh/args"]')!.querySelector(".arg-fill")!;
+
+    liveCtl.enqueue({
+      type: "slot",
+      fid: "matrix/lh/args",
+      key: "status#s1",
+      args: { text: "t2" }
+    });
+    await pump();
+
+    // Live props update in place: same instance, same node, new value …
+    expect(mounts).toBe(1);
+    expect(reads).toEqual(["t1", "t2"]);
+    expect(li.textContent).toBe("t2");
+    // … and the same-named occurrence in the OTHER boundary never saw it.
+    expect(otherReads).toEqual(["other"]);
+
+    mA.cleanup();
+    mB.cleanup();
   });
 
   test("a call-driven stream supersedes: document ops go quiet after a version-1 apply", async () => {
