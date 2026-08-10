@@ -272,6 +272,27 @@ export interface MemoOptions<T> {
    * stored as-is and never awaited.
    */
   sync?: boolean;
+  /**
+   * Commit #0: a committed value the memo is born with, shown until the
+   * compute's first real answer lands. While that first answer is in flight
+   * the memo reads as a settled value everywhere — nothing suspends to a
+   * `<Loading>` boundary and no transition is held (first-flight work is
+   * loading-class, like a boundary fallback) — while `isPending(memo)`
+   * reports true so loading affordances can be driven from the value itself.
+   * Once the first answer lands, the loading value leaves the lineage
+   * forever: refetches use normal pending semantics (stale value shown,
+   * boundaries/transitions coordinate).
+   *
+   * Typed strictly as `T`: to use `null`/`undefined` as the placeholder,
+   * declare it in the memo's type (e.g. `createMemo<User | null>(...)`), so
+   * every consumer sees the nullable window honestly. If the placeholder is
+   * shaped data standing in for real data, encode its provenance in the data
+   * (e.g. a `skeleton: true` field) rather than letting it impersonate truth.
+   *
+   * The loading value is also the compute's first `prev`, so `prev`-based
+   * memos fold from it.
+   */
+  loadingValue?: T;
 }
 
 // Magic type that when used at sites where generic types are inferred from, will prevent those sites from being involved in the inference.
@@ -370,6 +391,16 @@ export function createSignal<T>(
  */
 // NoInfer keeps the previous-value parameter from influencing T inference, so
 // the memo/effect result type is still driven by the compute return type.
+// With a loadingValue the compute's `prev` is never undefined — commit #0 is
+// the first prev — so that overload drops `undefined` from the parameter.
+export function createMemo<T>(
+  compute: ComputeFunction<NoInfer<T>, T>,
+  options: MemoOptions<T> & { loadingValue: T }
+): SourceAccessor<T>;
+export function createMemo<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: MemoOptions<T>
+): SourceAccessor<T>;
 export function createMemo<T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
   options?: MemoOptions<T>

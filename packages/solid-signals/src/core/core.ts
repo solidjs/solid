@@ -1,4 +1,11 @@
-import { clearStatus, handleAsync, notifyStatus, settleErroredDependents } from "./async.js";
+import {
+  addPendingSource,
+  clearStatus,
+  handleAsync,
+  notifyStatus,
+  setPendingError,
+  settleErroredDependents
+} from "./async.js";
 import {
   $REFRESH,
   CONFIG_AUTO_DISPOSE,
@@ -240,6 +247,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (!__DEV__ && el._config & CONFIG_SYNC) {
       value = el._fn(value);
       el._inFlight = null;
+      if (el._loading) el._loading = false;
     } else {
       // Snapshot `_inFlight` so we can detect whether `_fn` self-registered an async
       // subscription (e.g. `createProjection` calls `handleAsync` from inside its body
@@ -251,7 +259,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       const isAsyncResult = typeof fnResult === "object" && fnResult !== null;
       const inFlightChanged = el._inFlight !== prevInFlight;
       value = inFlightChanged || !isAsyncResult ? fnResult : handleAsync(el, fnResult);
-      if (!inFlightChanged && !isAsyncResult) el._inFlight = null;
+      if (!inFlightChanged && !isAsyncResult) {
+        el._inFlight = null;
+        // A sync (non-object) return is the first real answer; async-shaped
+        // results clear inside handleAsync at their own landing points, and a
+        // self-registered flight (inFlightChanged — projections) clears when
+        // its internal handleAsync lands.
+        if (el._loading) el._loading = false;
+      }
     }
     // On a status-free node clearStatus is a guaranteed no-op: every branch
     // in its body is gated on one of these fields, and with _statusFlags === 0
@@ -271,22 +286,35 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // _optimisticLane is only ever assigned by engine paths.
     if (el._optimisticLane) GlobalQueue._laneAsyncSettled!(el);
   } catch (e) {
-    // Track pending async in the lane (not the lane's source — it creates the lane
-    // but doesn't belong to it). Set lane BEFORE notifyStatus for downstream propagation.
-    if (e instanceof NotReadyError && currentOptimisticLane) GlobalQueue._laneAsyncPending!(el);
-    let reaskChanged = false;
-    if (e instanceof NotReadyError) {
+    if (e instanceof NotReadyError && el._loading) {
+      // Loading window with an unready sync dependency: register for the
+      // source's settle (the settlePendingSource walk runs off
+      // _pendingSources + _blocked alone) but take NO read-visible pending
+      // status, no downstream propagation, no transition, no lane
+      // registration — the committed loading value keeps serving. If the
+      // node is currently errored the error stays the answer until this
+      // retry can actually run.
       el._blocked = true;
-      if (GlobalQueue._applyReask !== null) reaskChanged = GlobalQueue._applyReask(el, hadReask);
+      if (e.source) addPendingSource(el, e.source as Computed<any>);
+      setPendingError(el, e.source as Computed<any>, e);
+    } else {
+      // Track pending async in the lane (not the lane's source — it creates the lane
+      // but doesn't belong to it). Set lane BEFORE notifyStatus for downstream propagation.
+      if (e instanceof NotReadyError && currentOptimisticLane) GlobalQueue._laneAsyncPending!(el);
+      let reaskChanged = false;
+      if (e instanceof NotReadyError) {
+        el._blocked = true;
+        if (GlobalQueue._applyReask !== null) reaskChanged = GlobalQueue._applyReask(el, hadReask);
+      }
+      notifyStatus(
+        el,
+        e instanceof NotReadyError ? STATUS_PENDING : STATUS_ERROR,
+        e,
+        undefined,
+        e instanceof NotReadyError ? el._optimisticLane : undefined
+      );
+      if (reaskChanged) GlobalQueue._repollVerdicts!(el);
     }
-    notifyStatus(
-      el,
-      e instanceof NotReadyError ? STATUS_PENDING : STATUS_ERROR,
-      e,
-      undefined,
-      e instanceof NotReadyError ? el._optimisticLane : undefined
-    );
-    if (reaskChanged) GlobalQueue._repollVerdicts!(el);
   } finally {
     tracking = prevTracking;
     latestReadActive = prevLatestRead;
@@ -450,6 +478,10 @@ export function computed<T>(
   options?: NodeOptions<T>
 ): Computed<T> {
   const transparent = options?.transparent ?? false;
+  // `in` (not `!== undefined`): an explicit `loadingValue: undefined` on a
+  // `T | undefined` node is a real commit #0. The typeof guard tolerates
+  // non-object option values that older call shapes force through `as any`.
+  const loading = options !== null && typeof options === "object" && "loadingValue" in options;
   const self: Computed<T> = {
     id: inheritId(options, transparent, context),
     _config:
@@ -466,7 +498,7 @@ export function computed<T>(
     _context: context?._context ?? defaultContext,
     _childCount: 0,
     _fn: fn,
-    _value: undefined as T,
+    _value: (loading ? options!.loadingValue : undefined) as T,
     _height: 0,
     _child: null,
     _nextHeap: undefined,
@@ -481,14 +513,16 @@ export function computed<T>(
     _prevSibling: null,
     _firstChild: null,
     _flags: options?.lazy ? REACTIVE_LAZY : REACTIVE_NONE,
-    _statusFlags: STATUS_UNINITIALIZED,
+    // A loadingValue node is born committed: commit #0 is already in _value.
+    _statusFlags: loading ? 0 : STATUS_UNINITIALIZED,
     _time: clock,
     _pendingValue: NOT_PENDING,
     _pendingDisposal: null,
     _pendingFirstChild: null,
     _inFlight: null,
     _transition: null,
-    _reask: false
+    _reask: false,
+    _loading: loading
   } as Computed<T>;
   if (__DEV__) (self as any)._name = options?.name ?? "computed";
   setupComputedNode(self, options);
@@ -547,6 +581,7 @@ export function createEffectNode<T>(
     _inFlight: null,
     _transition: null,
     _reask: false,
+    _loading: false,
     _modified: false,
     _prevValue: undefined as T | undefined,
     _effectFn: effectFn,

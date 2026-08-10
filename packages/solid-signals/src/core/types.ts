@@ -36,6 +36,16 @@ export interface NodeOptions<T> {
   unobserved?: () => void;
   lazy?: boolean;
   sync?: boolean;
+  /**
+   * Commit #0. When present (checked with `in`, so an explicit `undefined`
+   * counts), the node is born committed with this value instead of
+   * STATUS_UNINITIALIZED: reads serve it everywhere, nothing suspends to
+   * Loading boundaries, and transitions are never held — while `isPending`
+   * on the node reports true until the first real answer lands. Async work
+   * before that landing is loading-class (value-driven loading); after it,
+   * normal refetch/pending semantics apply.
+   */
+  loadingValue?: T;
 }
 
 export interface RawSignal<T> {
@@ -126,6 +136,18 @@ export interface Computed<T> extends RawSignal<T>, Owner {
    * (`clearStatus`). Meaningless while not STATUS_PENDING.
    */
   _reask: boolean;
+  /**
+   * True while a `loadingValue` node's first real answer hasn't landed: the
+   * node was born committed (commit #0 = the loading value) and `handleAsync`
+   * serves that committed value instead of throwing NotReadyError, so first
+   * flights never suspend readers, trip boundaries, or hold transitions.
+   * `isPending` reads true off this flag alone. Cleared by the first value
+   * landing on any path (sync return, sync-resolved promise, first iterator
+   * yield, async settle); a real error leaves it set — errors answer reads
+   * but don't enter the value lineage, so a retry serves the loading value
+   * again. Once cleared, normal pending/refetch semantics apply forever.
+   */
+  _loading: boolean;
 }
 
 export interface Root extends Owner {

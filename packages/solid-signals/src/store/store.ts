@@ -79,6 +79,18 @@ export interface ProjectionOptions extends StoreOptions {
   key?: string | ((item: NonNullable<any>) => any) | null;
   /** Single-layer store: root keys reactive, values raw records replaced by reference */
   shallow?: boolean;
+  /**
+   * Treat the seed as commit #0: the store is born committed with the seed's
+   * contents, shown until the derive's first real answer lands. While that
+   * first answer is in flight, reads serve the seed everywhere — nothing
+   * suspends to a `<Loading>` boundary and no transition is held — while
+   * `isPending` on the store reports true. Once the first answer lands
+   * (reconciled into the seed), refetches use normal pending semantics.
+   *
+   * The store equivalent of `MemoOptions.loadingValue`; the seed already
+   * carries the placeholder shape, so this is just the opt-in.
+   */
+  seedLoadingValue?: boolean;
 }
 export type NoFn<T> = T extends Function ? never : T;
 

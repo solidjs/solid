@@ -151,6 +151,11 @@ function quietPending(el: Computed<any>): boolean {
 }
 
 function newQuestionInFlight(comp: Computed<any>): boolean {
+  // A loadingValue node's first flight is status-free by design (reads serve
+  // commit #0, nothing suspends), so pending truth comes off the loading
+  // window itself. An error outranks it (A24c): the error is the settled
+  // answer until a retry actually runs.
+  if (comp._loading && !(comp._statusFlags & STATUS_ERROR)) return true;
   return (
     !!(comp._statusFlags & STATUS_PENDING) &&
     !(comp._statusFlags & STATUS_UNINITIALIZED) &&

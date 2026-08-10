@@ -232,6 +232,8 @@ export function handleAsync<T>(
 
   if (!thenable && !iterator) {
     el._inFlight = null;
+    // A sync landing is the first real answer for a loadingValue node.
+    if (el._loading) el._loading = false;
     return result as T;
   }
 
@@ -288,7 +290,6 @@ export function handleAsync<T>(
 
   const handleError = (error: any) => {
     if (el._inFlight !== result) return;
-    settleTransition();
     // NotReadyError from rejected promises should be treated as pending, not error
     let stillPending = error instanceof NotReadyError;
     // Dev-only authorship diagnostic (#2987): no edge means a post-`await`
@@ -296,6 +297,9 @@ export function handleAsync<T>(
     // this node and "pending" wedges it (and its boundary) forever while
     // isPending reads false. Fail loud in dev; prod pays no bytes for the
     // forbidden pattern (the wedge stands there, caught during development).
+    // Runs BEFORE the loading-window parking below: a non-retryable read is
+    // a real error, and the window must not silently park a wedge that can
+    // never settle.
     if (__DEV__ && stillPending && !retryReaches(el, (error as NotReadyError).source)) {
       stillPending = false;
       error = new Error(
@@ -305,6 +309,20 @@ export function handleAsync<T>(
           "`await` (or restructure so the value is an input)."
       );
     }
+    if (stillPending && el._loading) {
+      // Loading window: the flight died waiting on an unready source. Keep
+      // serving commit #0 — register the settle/retry bookkeeping without
+      // read-visible pending status (recompute's catch has the same branch
+      // for sync dependency throws). The dead flight is released so the
+      // clock-gated error-retry pull (updateIfNecessary) can also re-ask.
+      el._inFlight = null;
+      el._blocked = true;
+      if (error.source) addPendingSource(el, error.source);
+      setPendingError(el, error.source, error);
+      el._time = clock;
+      return;
+    }
+    settleTransition();
     notifyStatus(el, stillPending ? STATUS_PENDING : STATUS_ERROR, error);
     el._time = clock;
     // A real error settles derivatively-pending dependents (notifyStatus
@@ -319,6 +337,10 @@ export function handleAsync<T>(
     // skip this stale async result — the upcoming flush will recompute the node
     // with the new value, creating a fresh Promise that supersedes this one.
     if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY)) return;
+    // First real answer landing: the loading window closes before clearStatus
+    // re-derives the pending companion below, so isPending flips false with
+    // this commit.
+    if (el._loading) el._loading = false;
     settleTransition();
     const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
     trimStaleDeps(el);
@@ -436,8 +458,16 @@ export function handleAsync<T>(
       handleError(syncError);
       throw syncError;
     } else if (!resolved) {
+      // Loading window: serve commit #0 instead of suspending. No transition
+      // is opened — first-flight work on a loadingValue node is loading-class
+      // (invisible to boundaries and transitions); the flight itself is
+      // already registered in _inFlight and lands through asyncWrite.
+      if (el._loading) return el._value;
       globalQueue.initTransition(resolveTransition(el as any));
       throw new NotReadyError(context!);
+    } else if (el._loading) {
+      // Synchronously-resolved promise: the first real answer landed.
+      el._loading = false;
     }
   }
 
@@ -538,9 +568,14 @@ export function handleAsync<T>(
     // Later iterate() calls run from asyncWrite, where rethrowing would be unhandled.
     initialRead = false;
     if (!hadValue && !immediatelyDone) {
+      // Loading window: serve commit #0 (see the promise branch above).
+      if (el._loading) return el._value;
       globalQueue.initTransition(resolveTransition(el as any));
       throw new NotReadyError(context!);
     }
+    // A sync first yield (or immediate empty completion) is the first real
+    // answer; async yields clear inside asyncWrite.
+    if (el._loading) el._loading = false;
   }
 
   return syncValue!;

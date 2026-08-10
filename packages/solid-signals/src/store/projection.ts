@@ -58,13 +58,17 @@ export function createProjectionInternal<T extends object = {}>(
   };
   const wrappedStore = wrapProjection(seed) as Store<T>;
 
-  node = computed(
-    () => {
-      if (!node) node = getOwner();
-      runProjectionComputed(wrappedStore, fn, options?.key === undefined ? "id" : options.key);
-    },
-    __DEV__ && options?.name ? { name: options.name } : undefined
-  );
+  // seedLoadingValue: the firewall is born committed (the seed is commit #0);
+  // the internal handleAsync serves it during the derive's first flight. The
+  // node's own value channel is void, so the loading value itself is
+  // `undefined` — presence of the key is what flips the mode.
+  let nodeOptions: { name?: string; loadingValue?: void } | undefined;
+  if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
+  if (__DEV__ && options?.name) nodeOptions = { ...nodeOptions, name: options.name };
+  node = computed(() => {
+    if (!node) node = getOwner();
+    runProjectionComputed(wrappedStore, fn, options?.key === undefined ? "id" : options.key);
+  }, nodeOptions);
   node._config &= ~CONFIG_AUTO_DISPOSE;
 
   return { store: wrappedStore, node } as {

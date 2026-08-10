@@ -290,23 +290,24 @@ function createOptimisticProjectionInternal<T extends object = {}>(
         setProjectionWriteActive(wasProjectionWriteActive);
       }
     };
-    node = computed(
-      () => {
-        setProjectionWriteActive(true);
-        try {
-          runProjectionComputed(
-            wrappedStore,
-            fn,
-            options?.key === undefined ? "id" : options.key,
-            wrapCommit,
-            clearProjectionOverride
-          );
-        } finally {
-          setProjectionWriteActive(false);
-        }
-      },
-      __DEV__ && options?.name ? { name: options.name } : undefined
-    ) as Computed<void>;
+    // seedLoadingValue: born-committed firewall, same as createProjection.
+    let nodeOptions: { name?: string; loadingValue?: void } | undefined;
+    if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
+    if (__DEV__ && options?.name) nodeOptions = { ...nodeOptions, name: options.name };
+    node = computed(() => {
+      setProjectionWriteActive(true);
+      try {
+        runProjectionComputed(
+          wrappedStore,
+          fn,
+          options?.key === undefined ? "id" : options.key,
+          wrapCommit,
+          clearProjectionOverride
+        );
+      } finally {
+        setProjectionWriteActive(false);
+      }
+    }, nodeOptions) as Computed<void>;
     node._config &= ~CONFIG_AUTO_DISPOSE;
   }
 
