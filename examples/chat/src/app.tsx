@@ -56,8 +56,9 @@ export default function App() {
           {m => {
             // One server-component call per message. The prompt is the server
             // input; the `status` prop is a client position the server fills
-            // with two async values (DR-2): a progress iterable and a stats
-            // promise. The <Status> reading them is client code.
+            // with two live expression args (DR-2): progress updates on every
+            // yield, stats settles when generation completes. The <Status>
+            // reading them is client code.
             const Reply = dynamic(() => reply(m.prompt));
             return (
               <li class="exchange">

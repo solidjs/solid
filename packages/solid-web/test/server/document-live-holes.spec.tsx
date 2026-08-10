@@ -137,6 +137,10 @@ describe("document face — live holes against the real core", () => {
     // First yield is the hydration truth: the fill's markup and the initial
     // record both read it. (The fill renders inline with its hydration key.)
     expect(html).toMatch(/<b [^>]*>arg-1<\/b>/);
+    // The fill's interior is client-owned: mint-suppressed, so it grows no
+    // live-hole markers — a server op morphing inside a claimed fill would
+    // replace nodes the client's reactive bindings hold.
+    expect(html).not.toMatch(/<b [^>]*><!--lh:/);
     expect(html).toContain("sc:slot:dlh/args");
     expect(html.split("arg-1").length).toBe(3); // markup + record
     // The second yield shipped exactly once — the slot op, not a second
@@ -144,6 +148,52 @@ describe("document face — live holes against the real core", () => {
     // ops are store-keyed; only the owning boundary applies them).
     expect(html.split("arg-2").length).toBe(2);
     expect(html).toContain("fid");
+  });
+
+  test("a NOT-READY getter arg is pending per-arg, never a hold on the occurrence (DR-2 case 1 at t=0)", async () => {
+    // The welcome shape: `progress={progress()}` settles at the first yield
+    // and keeps yielding; `stats={stats()}` stays not-ready until the whole
+    // generation completes. Per-arg pending means the fill renders at the
+    // shell with its OWN boundary covering the stats read — coarse holding
+    // would render the fill only after stats settled, and the fallback
+    // would never appear anywhere in the response.
+    const ServerComp = (props: any) => {
+      const progress = createMemo(async function* () {
+        yield "p1";
+        await wait(5);
+        yield "p2";
+      });
+      const stats = createMemo(() => wait(20).then(() => "fin-stats"));
+      return (
+        <Loading fallback={<span>FB</span>}>
+          <props.status progress={progress()} stats={stats()} />
+        </Loading>
+      );
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dlh/pending" }) as any;
+    const html = await collect(() =>
+      Inline({
+        status: (p: any) => (
+          <p>
+            <span class="prog">{p.progress}</span>
+            <Loading fallback={<i>counting</i>}>
+              <b class="stats">{p.stats}</b>
+            </Loading>
+          </p>
+        )
+      })
+    );
+
+    // The per-arg proof: the fill's own stats fallback made it into the
+    // response — the occurrence rendered before stats settled.
+    expect(html).toContain("counting");
+    // Progress: first yield is the markup truth; the second rides exactly
+    // once as a slot op (the binding re-armed after its pending settle).
+    expect(html).toContain("p1");
+    expect(html.split("p2").length).toBe(2);
+    // Stats: the late settle still delivered (fragment reveal or record
+    // patch), and the response completed — the retry loop released.
+    expect(html).toContain("fin-stats");
   });
 
   test("plain document content around the component keeps its exact bytes", async () => {
