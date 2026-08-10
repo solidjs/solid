@@ -718,6 +718,120 @@ describe("projections with seedLoadingValue", () => {
   });
 });
 
+describe("loading window and transitions", () => {
+  it("is loading-class: writes concurrent with the window commit ambiently; after close the same writes are held", async () => {
+    const defs: Record<number, ReturnType<typeof deferred<string>>> = {
+      1: deferred<string>(),
+      2: deferred<string>(),
+      3: deferred<string>()
+    };
+    const [id, setId] = createSignal(1);
+    const [label, setLabel] = createSignal("a");
+    let user!: () => string;
+    const reads: string[] = [];
+    createRoot(() => {
+      user = createMemo<string>(() => defs[id()].promise, { loadingValue: "..." });
+      createRenderEffect(
+        () => user(),
+        v => {
+          reads.push(v);
+        }
+      );
+    });
+    flush();
+    expect(reads).toEqual(["..."]);
+
+    // Window open: retarget the flight and write an unrelated signal in the
+    // same batch. Nothing holds — the window never initiates a transition, so
+    // the unrelated write commits immediately (boundary-fallback semantics).
+    setId(2);
+    setLabel("b");
+    flush();
+    expect(label()).toBe("b");
+    expect(isPending(label)).toBe(false);
+    expect(reads).toEqual(["..."]);
+
+    defs[2].resolve("two");
+    await tick();
+    flush();
+    expect(reads).toEqual(["...", "two"]);
+
+    // Window closed: the identical write pair is now a normal refetch, forms
+    // a transition, and the unrelated write is held until the async lands.
+    setId(3);
+    setLabel("c");
+    flush();
+    expect(label()).toBe("b");
+    expect(isPending(label)).toBe(true);
+    expect(reads).toEqual(["...", "two"]);
+
+    defs[3].resolve("three");
+    await tick();
+    flush();
+    expect(label()).toBe("c");
+    expect(isPending(label)).toBe(false);
+    expect(reads).toEqual(["...", "two", "three"]);
+  });
+
+  it("does not extend a live transition when mounted inside it", async () => {
+    const d0 = deferred<string>();
+    const d1 = deferred<string>();
+    const [count, setCount] = createSignal(0);
+    const [flag, setFlag] = createSignal("initial");
+    let plain!: () => string;
+    const plainReads: string[] = [];
+    createRoot(() => {
+      plain = createMemo(() => (count() === 0 ? d0.promise : d1.promise));
+      createRenderEffect(
+        () => plain(),
+        v => {
+          plainReads.push(v);
+        }
+      );
+    });
+    flush();
+    d0.resolve("zero");
+    await tick();
+    flush();
+    expect(plainReads).toEqual(["zero"]);
+
+    // Form a real transition: refetch the plain async memo, hold a write.
+    setCount(1);
+    setFlag("held");
+    flush();
+    expect(flag()).toBe("initial");
+    expect(isPending(flag)).toBe(true);
+
+    // Mount a loading-window node while the transition is live. Its flight
+    // never lands — if the window were pending-class this would deadlock the
+    // transition below.
+    const never = deferred<string>();
+    let mounted!: () => string;
+    const mountedReads: string[] = [];
+    createRoot(() => {
+      mounted = createMemo<string>(() => never.promise, { loadingValue: "skeleton" });
+      createRenderEffect(
+        () => mounted(),
+        v => {
+          mountedReads.push(v);
+        }
+      );
+    });
+    flush();
+    // The mounted node renders its commit #0 immediately, mid-transition.
+    expect(mountedReads).toEqual(["skeleton"]);
+
+    // The transition completes on the plain memo's landing alone — the open
+    // loading window adds nothing to what it waits for.
+    d1.resolve("one");
+    await tick();
+    flush();
+    expect(plainReads).toEqual(["zero", "one"]);
+    expect(flag()).toBe("held");
+    expect(isPending(flag)).toBe(false);
+  });
+});
+
 // Reads a memo outside any owner/tracking scope, rethrowing its settled error.
 function untrackedRead<T>(fn: () => T): T {
   return fn();
