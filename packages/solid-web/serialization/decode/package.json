@@ -1,0 +1,20 @@
+{
+  "name": "@solidjs/web/serialization/decode",
+  "main": "../dist/decode.cjs",
+  "module": "../dist/decode.js",
+  "types": "../types/serializer-decode.d.ts",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "../types/serializer-decode.d.ts",
+        "default": "../dist/decode.js"
+      },
+      "require": {
+        "types": "../types-cjs/serializer-decode.d.cts",
+        "default": "../dist/decode.cjs"
+      }
+    }
+  }
+}

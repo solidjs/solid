@@ -110,7 +110,9 @@ let sharedHost: any;
 let codec: any;
 let codecLoading: Promise<unknown> | undefined;
 function loadCodec() {
-  return (codecLoading ??= import("@solidjs/web/serialization").then(m => {
+  // The decode-only entry: the data tables never encode, and the full
+  // serialization module costs the encoder too (~13 vs ~6.5 kB gz).
+  return (codecLoading ??= import("@solidjs/web/serialization/decode").then(m => {
     codec = m;
   }));
 }

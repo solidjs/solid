@@ -21,6 +21,12 @@ const externalizeLazySerializer = {
     if (typeof specifier === "string" && /[\\/]serializer\.js$/.test(specifier)) {
       return { id: "@solidjs/web/serialization", external: true };
     }
+    // The decode half (deserializeStream, frames data tables): reading a
+    // payload never needs the encode machinery, so those late-loads resolve
+    // to the decode-only entry (~6.5 vs ~13 kB gz).
+    if (typeof specifier === "string" && /[\\/]serializer-decode\.js$/.test(specifier)) {
+      return { id: "@solidjs/web/serialization/decode", external: true };
+    }
     return null;
   }
 };
@@ -209,6 +215,26 @@ export default [
     plugins
   },
   {
+    // The decode half on its own (frames data tables, deserializeStream):
+    // lazy client consumers import this specifier so the encode machinery
+    // never rides into a browser that only reads. The full entry above
+    // still carries everything (its serializer.js re-exports this module).
+    input: "serialization/src/decode.ts",
+    output: [
+      {
+        file: "serialization/dist/decode.cjs",
+        format: "cjs",
+        exports: "auto"
+      },
+      {
+        file: "serialization/dist/decode.js",
+        format: "es"
+      }
+    ],
+    external: ["seroval", "seroval-plugins/web"],
+    plugins
+  },
+  {
     input: "server-functions/src/client.ts",
     output: [
       {
@@ -320,7 +346,7 @@ export default [
       "@solidjs/web/server-functions/client",
       // Lazily imported (`prepareData`): the codec loads only when a `data`
       // chunk actually arrives, so the frames client ships seroval-free.
-      "@solidjs/web/serialization"
+      "@solidjs/web/serialization/decode"
     ],
     // Prod build: strip `_DX_DEV_` like the main `dist/web.js` entry, so the
     // frame runtime's dev checks/warnings (marker-integrity diagnostics) do
@@ -351,7 +377,7 @@ export default [
       "seroval",
       "seroval-plugins/web",
       "@solidjs/web/server-functions/client",
-      "@solidjs/web/serialization"
+      "@solidjs/web/serialization/decode"
     ],
     plugins: [replaceDev(true), externalizeSharedTransport]
       .concat(plugins)

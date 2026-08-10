@@ -50,8 +50,12 @@ export default defineConfig({
         "../../node_modules/@dom-expressions/runtime/src/server-functions/client.js"
       ),
       // The frames client lazy-imports the codec through the packaged
-      // specifier (external in its dist build); route it to the runtime
+      // specifiers (external in its dist build); route them to the runtime
       // source for the same one-instance reason as above.
+      "@solidjs/web/serialization/decode": resolve(
+        rootDir,
+        "../../node_modules/@dom-expressions/runtime/src/serializer-decode.js"
+      ),
       "@solidjs/web/serialization": resolve(
         rootDir,
         "../../node_modules/@dom-expressions/runtime/src/serializer.js"

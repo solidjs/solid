@@ -26,7 +26,12 @@ const framesEsbuildConfig = config => ({
     "@solidjs/web/server-functions/client":
       "../../packages/solid-web/server-functions/dist/client.js"
   },
-  external: ["solid-js", "@solidjs/web", "@solidjs/web/serialization"]
+  external: [
+    "solid-js",
+    "@solidjs/web",
+    "@solidjs/web/serialization",
+    "@solidjs/web/serialization/decode"
+  ]
 });
 
 module.exports = [
