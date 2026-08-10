@@ -19,7 +19,7 @@ import { clearSignals, DEV, emitDiagnostic } from "./dev.js";
 import { unlinkSubs } from "./graph.js";
 import { deleteFromHeap, insertIntoHeap, insertIntoHeapHeight, queueFor } from "./heap.js";
 import { dirtyQueue, GlobalQueue, globalQueue, zombieQueue } from "./scheduler.js";
-import type { Computed, Disposable, Owner, Root } from "./types.js";
+import type { Computed, Disposable, Link, Owner, Root } from "./types.js";
 
 const PENDING_OWNER = {} as Owner; // Dummy owner to trigger store's read() path
 
@@ -47,6 +47,10 @@ export function markDisposal(el: Owner): void {
 }
 
 export function dispose(node: Computed<unknown>): void {
+  // Leave every scheduler heap on disposal (mirrors `unobserved`): a node
+  // still queued here would be recomputed by the next flush, and recompute()
+  // rewriting `_flags` would clear REACTIVE_DISPOSED — resurrecting it (#2983).
+  deleteFromHeap(node, queueFor(node));
   let toRemove = node._deps;
   while (toRemove !== null) {
     toRemove = unlinkSubs(toRemove);
@@ -74,12 +78,17 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
   let child = zombie ? (node._pendingFirstChild as Owner) : node._firstChild;
   while (child) {
     const nextChild = child._nextSibling;
-    if ((child as Computed<unknown>)._deps) {
-      const n = child as Computed<unknown>;
-      deleteFromHeap(n, queueFor(n));
-      let toRemove = n._deps;
+    const n = child as Computed<unknown>;
+    // Heap removal must not be gated on `_deps`: a dependency-free
+    // computation queued by refresh() has a null dep list but still sits in
+    // the dirty heap, and left there the post-disposal flush recomputes it —
+    // recompute() rewriting `_flags` clears REACTIVE_DISPOSED and the node
+    // comes back to life (post-unmount runs, leaked cleanups, #2983).
+    if (n._flags & (REACTIVE_IN_HEAP | REACTIVE_IN_HEAP_HEIGHT)) deleteFromHeap(n, queueFor(n));
+    if (n._deps) {
+      let toRemove: Link | null = n._deps;
       do {
-        toRemove = unlinkSubs(toRemove!);
+        toRemove = unlinkSubs(toRemove);
       } while (toRemove !== null);
       n._deps = null;
       n._depsTail = null;

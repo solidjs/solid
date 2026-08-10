@@ -8,6 +8,7 @@ import {
   flush,
   getOwner,
   onCleanup,
+  refresh,
   type Accessor,
   type Owner,
   type Signal
@@ -37,6 +38,34 @@ it("should dispose of inner computations", () => {
 
   // expect($y!).toThrow();
   expect(memo).toHaveBeenCalledTimes(1);
+});
+
+it("should not resurrect a dependency-free computation queued before disposal (#2983)", () => {
+  // Owner disposal must pull queued children out of the scheduler heap even
+  // when they have no reactive dependencies. A dependency-free memo queued
+  // by refresh() and left in the heap would be recomputed by the next flush,
+  // and recompute() rewriting _flags would clear REACTIVE_DISPOSED —
+  // resurrecting the node (post-unmount runs, leaked cleanups).
+  let runs = 0;
+  let cleanups = 0;
+  let read!: Accessor<number>;
+  let dispose!: () => void;
+
+  createRoot(d => {
+    dispose = d;
+    read = createMemo(() => {
+      runs++;
+      onCleanup(() => cleanups++);
+      return runs;
+    });
+  });
+
+  refresh(read); // queue the dependency-free memo
+  dispose(); // dispose before the queued flush
+  flush();
+
+  expect(runs).toBe(1);
+  expect(cleanups).toBe(1);
 });
 
 it("should return result", () => {
