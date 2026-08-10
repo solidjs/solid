@@ -1,0 +1,5 @@
+---
+"solid-js": patch
+---
+
+Fix signal-shaped async-iterable hydration losing buffered yields when the stream completed (or advanced multiple resolutions) before client hydration began. `normalizeIterator`'s greedy batching loop advanced `latest` unconditionally, so when the buffered backlog ended in the stream's `done` result — seroval's deserialized streams buffer it synchronously right behind the data — the loop returned `{ done: true }` and every yield after the first was discarded: the hydrated `createMemo` / `createSignal(fn)` / `createOptimistic` stayed on the first resolution forever, while the store replay path (`hydrateStoreFromAsyncIterable`) correctly applied all buffered yields under the same conditions. The batching loop now tracks the last data yield separately (mirroring the store path's `if (!r.done)` guard), delivers it as the batch's value, and hands the done result to the following pull. Replay semantics are unchanged otherwise: the buffered backlog still conflates to its latest yield in one visible update — the same final state the store path's batched patch application produces — and live post-hydration yields still apply one at a time.

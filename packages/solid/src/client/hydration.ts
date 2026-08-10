@@ -380,6 +380,7 @@ function normalizeIterator(it: any) {
       }
       let latest = it.next();
       if (latest && typeof latest.then === "function") return latest;
+      let result = latest;
       while (!latest.done) {
         const peek = it.next();
         if (peek && typeof peek.then === "function") {
@@ -387,8 +388,16 @@ function normalizeIterator(it: any) {
           break;
         }
         latest = peek;
+        // Conflate the buffered backlog to its LATEST data yield — one visible
+        // update, the same final state the store path's batched patch
+        // application produces. The stream's done result must not clobber
+        // that value (a completed-before-hydration stream buffers its done
+        // result right behind the data): deliver the value from this pull and
+        // hand the done result to the next one.
+        if (!latest.done) result = latest;
+        else if (result !== latest) buffered = Promise.resolve(latest);
       }
-      return Promise.resolve(latest);
+      return Promise.resolve(result);
     },
     return(value?: any) {
       buffered = null;

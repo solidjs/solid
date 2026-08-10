@@ -16,6 +16,8 @@ import {
   createMemo,
   createOptimistic,
   createProjection,
+  createRenderEffect,
+  createSignal,
   createStore,
   createOptimisticStore
 } from "../src/client/hydration.js";
@@ -1540,6 +1542,225 @@ describe("Async Iterable Hydration — createStore(fn)", () => {
     dispose();
 
     expect(ai.returnCalls).toBe(1);
+  });
+});
+
+// === Buffered multi-yield replay ===
+//
+// Models seroval's deserialized stream iterator — the shape real streaming SSR
+// payloads hydrate through: values buffered before hydration come back as bare
+// synchronous results, a stream that completed before hydration ends in a
+// synchronous `{ done: true }`, and pulls past completion keep returning
+// `{ done: true, value: undefined }` synchronously. createBufferedAsyncIterable
+// above cannot produce a synchronously-buffered completion, which is exactly
+// the case these tests cover.
+function createCompletableBufferedIterable(values: any[], completed = false) {
+  const buffer = [...values];
+  let index = 0;
+  let done = completed;
+  let pending: { resolve: (v: any) => void } | null = null;
+  let returnCalls = 0;
+  const iter = {
+    next(): any {
+      if (index < buffer.length) return { done: false, value: buffer[index++] };
+      if (done) return { done: true, value: undefined };
+      return new Promise(r => (pending = { resolve: r }));
+    },
+    return(value?: any) {
+      returnCalls++;
+      pending = null;
+      done = true;
+      return Promise.resolve({ done: true, value });
+    }
+  };
+  return {
+    [Symbol.asyncIterator]: () => iter,
+    push(value: any) {
+      if (pending) {
+        const p = pending;
+        pending = null;
+        p.resolve({ done: false, value });
+      } else {
+        buffer.push(value);
+      }
+    },
+    complete() {
+      done = true;
+      if (pending) {
+        const p = pending;
+        pending = null;
+        p.resolve({ done: true, value: undefined });
+      }
+    },
+    get returnCalls() {
+      return returnCalls;
+    }
+  };
+}
+
+describe("Async Iterable Hydration — buffered multi-yield replay", () => {
+  afterEach(() => {
+    stopHydration();
+  });
+
+  test("all-buffered: replay lands on the latest yield when the stream completed before hydration", async () => {
+    // Stream finished before hydration began: 1, 2, 3 then done, all buffered.
+    const ai = createCompletableBufferedIterable([1, 2, 3], true);
+    startHydration({ t0: ai });
+
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => 0);
+      },
+      { id: "t" }
+    );
+    flush();
+
+    // First yield is the synchronous snapshot value the server DOM reflects.
+    expect(result()).toBe(1);
+
+    stopHydration();
+    await Promise.resolve();
+    flush();
+
+    // The batched replay must land on the LATEST buffered yield — not stay on
+    // the first, and not be clobbered by the stream's done result.
+    expect(result()).toBe(3);
+  });
+
+  test("done result does not clobber the last buffered yield", async () => {
+    // Minimal clobbering shape: one replayable yield followed directly by the
+    // buffered done result — the batching loop walks straight into done.
+    const ai = createCompletableBufferedIterable([1, 2], true);
+    startHydration({ t0: ai });
+
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => 0);
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(result()).toBe(1);
+
+    stopHydration();
+    await Promise.resolve();
+    flush();
+
+    expect(result()).toBe(2);
+  });
+
+  test("createSignal(fn): buffered replay lands on the latest yield", async () => {
+    const ai = createCompletableBufferedIterable(["a", "b", "c"], true);
+    startHydration({ t0: ai });
+
+    let read: any;
+    createRoot(
+      () => {
+        [read] = createSignal(() => "client");
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(read()).toBe("a");
+
+    stopHydration();
+    await Promise.resolve();
+    flush();
+
+    expect(read()).toBe("c");
+  });
+
+  test("partially-buffered: batched replay conflates to latest, live yields apply one at a time", async () => {
+    // 1, 2, 3 buffered before hydration; the stream is still open.
+    const ai = createCompletableBufferedIterable([1, 2, 3]);
+    startHydration({ t0: ai });
+
+    const observed: any[] = [];
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => 0);
+        createRenderEffect(
+          () => result(),
+          (v: any) => {
+            observed.push(v);
+          }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(result()).toBe(1);
+
+    stopHydration();
+    await Promise.resolve();
+    flush();
+
+    // Buffered backlog conflates to the latest yield in one visible update.
+    expect(result()).toBe(3);
+
+    // Live yields after hydration each apply individually.
+    ai.push(4);
+    await new Promise<void>(r => setTimeout(r, 10));
+    flush();
+    expect(result()).toBe(4);
+
+    ai.push(5);
+    await new Promise<void>(r => setTimeout(r, 10));
+    flush();
+    expect(result()).toBe(5);
+
+    // Live completion must not clobber the final value either.
+    ai.complete();
+    await new Promise<void>(r => setTimeout(r, 10));
+    flush();
+    expect(result()).toBe(5);
+
+    // Observers saw: snapshot, one batched replay update, then each live yield.
+    expect(observed).toEqual([1, 3, 4, 5]);
+  });
+
+  test("store path equivalence: buffered replay ends on the same final state", async () => {
+    // The store-shaped serialization of the same three-resolution stream:
+    // full snapshot, then one patch list per subsequent resolution.
+    const ai = createCompletableBufferedIterable(
+      [{ value: 1 }, [[["value"], 2]], [[["value"], 3]]],
+      true
+    );
+    startHydration({ t0: ai });
+
+    let store: any;
+    createRoot(
+      () => {
+        [store] = createStore(
+          (draft: any) => {
+            draft.value = 0;
+          },
+          { value: 0 }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    // Store patches apply greedily at pull time (pinned by the "sync patches
+    // consumed greedily" test above), so plain reads already see the final
+    // state during hydration.
+    expect(store.value).toBe(3);
+
+    stopHydration();
+    await Promise.resolve();
+    flush();
+
+    // Store replay applies every buffered patch; the signal path above must
+    // land on the same final state.
+    expect(store.value).toBe(3);
   });
 });
 
