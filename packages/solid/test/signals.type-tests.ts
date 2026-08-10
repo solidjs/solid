@@ -170,10 +170,19 @@ const memo7 = createMemo((prev?: number) => {
 }, {});
 const memo7Value: number = memo7();
 const transparentMemo: Accessor<number> = createMemo(() => 123, { transparent: true });
-const clientMemo = createMemo(() => 123, { ssrSource: "client" });
-const clientMemoValue: number | undefined = clientMemo();
-// @ts-expect-error client memo may be undefined during hydration
-const badClientMemoValue: number = clientMemo();
+// ssrSource "client" requires a declared commit #0 (#2981): no bare form.
+// @ts-expect-error "client" without loadingValue is not accepted
+const bareClientMemo = createMemo(() => 123, { ssrSource: "client" });
+const clientMemo = createMemo(() => 123, { ssrSource: "client", loadingValue: 0 });
+const clientMemoValue: number = clientMemo();
+// Declaring "nothing yet" means declaring the undefined in the type.
+const clientMemoUndef = createMemo<number | undefined>(() => 123, {
+  ssrSource: "client",
+  loadingValue: undefined
+});
+const clientMemoUndefValue: number | undefined = clientMemoUndef();
+// @ts-expect-error a declared-undefined commit #0 keeps undefined in the type
+const badClientMemoValue: number = clientMemoUndef();
 
 // @ts-expect-error the compute function must accept an undefined first prev
 const memo8 = createMemo((prev: number) => prev + 1);
@@ -202,18 +211,23 @@ const [derived, setDerived] = createSignal((prev?: number) => (prev ?? count()) 
 const derivedValue: number = derived();
 setDerived(10);
 setDerived(prev => (prev ?? 0) + 1);
-const [clientDerived] = createSignal((prev?: number) => (prev ?? count()) + 1, {
+// ssrSource "client" requires a declared commit #0 (#2981): no bare form.
+// @ts-expect-error "client" without loadingValue is not accepted
+const [bareClientDerived] = createSignal((p?: number) => (p ?? 0) + 1, { ssrSource: "client" });
+const [clientDerived] = createSignal((prev: number) => (prev ?? count()) + 1, {
+  ssrSource: "client",
+  loadingValue: 0
+});
+const clientDerivedValue: number = clientDerived();
+// @ts-expect-error "client" without loadingValue is not accepted
+const [bareClientOptimistic] = createOptimistic((p?: number) => (p ?? 0) + 1, {
   ssrSource: "client"
 });
-const clientDerivedValue: number | undefined = clientDerived();
-// @ts-expect-error client derived signal may be undefined during hydration
-const badClientDerivedValue: number = clientDerived();
-const [clientOptimistic] = createOptimistic((prev?: number) => (prev ?? count()) + 1, {
-  ssrSource: "client"
+const [clientOptimistic] = createOptimistic((prev: number) => (prev ?? count()) + 1, {
+  ssrSource: "client",
+  loadingValue: 0
 });
-const clientOptimisticValue: number | undefined = clientOptimistic();
-// @ts-expect-error client optimistic signal may be undefined during hydration
-const badClientOptimisticValue: number = clientOptimistic();
+const clientOptimisticValue: number = clientOptimistic();
 
 const [optimisticFnValue, setOptimisticFnValue] = createSignal<() => number>(() => () => 1);
 // @ts-expect-error number is not assignable to function

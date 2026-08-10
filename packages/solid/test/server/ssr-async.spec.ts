@@ -1786,17 +1786,19 @@ describe("ssrSource server modes", () => {
     sharedConfig.context = undefined;
   });
 
-  test("ssrSource 'client' skips computation on createMemo without a seeded value", () => {
+  test("ssrSource 'client' skips computation on createMemo, serving the declared commit #0", () => {
     let computeRan = false;
     let result: any;
     createRoot(
       () => {
+        // `loadingValue: undefined` is the declared commit #0 — required for
+        // "client" sources (#2981).
         const read = createMemo(
           () => {
             computeRan = true;
             return 999;
           },
-          { ssrSource: "client" }
+          { ssrSource: "client", loadingValue: undefined }
         );
         result = read();
       },
@@ -1805,6 +1807,18 @@ describe("ssrSource server modes", () => {
 
     expect(computeRan).toBe(false);
     expect(result).toBeUndefined();
+  });
+
+  test("ssrSource 'client' without a declared commit #0 throws (#2981)", () => {
+    expect(() =>
+      createRoot(() => (createMemo as any)(() => 999, { ssrSource: "client" }), { id: "t" })
+    ).toThrow(/requires a loadingValue/);
+    expect(() =>
+      createRoot(
+        () => (createProjection as any)((d: any) => (d.v = 1), { v: 0 }, { ssrSource: "client" }),
+        { id: "t" }
+      )
+    ).toThrow(/requires seedLoadingValue: true/);
   });
 
   test("ssrSource 'hybrid' runs computation (same as default for Promises)", () => {
@@ -1857,7 +1871,7 @@ describe("ssrSource server modes", () => {
     let ownerCreated = false;
     createRoot(
       () => {
-        createMemo(() => 1, { ssrSource: "client" });
+        createMemo(() => 1, { ssrSource: "client", loadingValue: undefined });
         const second = createMemo(() => 2);
         ownerCreated = second() === 2;
       },
@@ -1877,7 +1891,7 @@ describe("ssrSource server modes", () => {
             computeRan = true;
             return 999;
           },
-          { ssrSource: "client" }
+          { ssrSource: "client", loadingValue: undefined }
         );
         result = read();
       },
@@ -1899,7 +1913,7 @@ describe("ssrSource server modes", () => {
             draft.name = "computed";
           },
           { name: "initial" },
-          { ssrSource: "client" }
+          { ssrSource: "client", seedLoadingValue: true }
         );
       },
       { id: "t" }
@@ -1915,7 +1929,10 @@ describe("ssrSource server modes", () => {
 
     createRoot(
       () => {
-        createMemo(() => Promise.resolve(42), { ssrSource: "client" });
+        createMemo(() => Promise.resolve(42), {
+          ssrSource: "client",
+          loadingValue: undefined as number | undefined
+        });
       },
       { id: "t" }
     );

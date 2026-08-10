@@ -472,6 +472,33 @@ type ServerClientSignalOptions<T> = Omit<SignalOptions<T>, "ssrSource"> & { ssrS
 type ServerSignalOptions<T> = Omit<SignalOptions<T>, "ssrSource"> & {
   ssrSource?: "server" | "hybrid";
 };
+type ServerStoreOptions = Omit<ServerSsrOptions, "ssrSource"> & {
+  ssrSource?: "server" | "hybrid";
+};
+// `ssrSource: "client"` requires the seed promoted to commit #0 — mirrors the
+// client entry's HydrationClientProjectionOptions (#2981).
+type ServerClientStoreOptions = Omit<ServerSsrOptions, "ssrSource" | "seedLoadingValue"> & {
+  ssrSource: "client";
+  seedLoadingValue: true;
+};
+
+/**
+ * `ssrSource: "client"` requires a declared commit #0 — the server cannot run
+ * the source, so the author must say what it renders: `loadingValue` on
+ * signal-family sources, `seedLoadingValue: true` on store-family sources.
+ * Always-on server-side (the server bundle has no dev split, and SSR is where
+ * the implicit promotion would flush into markup); the client entry runs the
+ * same check behind IS_DEV.
+ */
+function assertClientCommitZero(options: any, seed?: boolean) {
+  if (options?.ssrSource !== "client") return;
+  if (seed ? options.seedLoadingValue === true : "loadingValue" in options) return;
+  throw new Error(
+    `ssrSource: "client" requires ${
+      seed ? "seedLoadingValue: true" : "a loadingValue"
+    } — the server cannot run this source, so you must declare what it renders (commit #0).`
+  );
+}
 
 let Observer: ServerComputation | null = null;
 
@@ -593,10 +620,6 @@ export function createSignal<T>(
   options: ServerClientSignalOptions<T> & { loadingValue: T }
 ): Signal<T>;
 export function createSignal<T>(
-  fn: ComputeFunction<undefined | NoInfer<T>, T>,
-  options: ServerClientSignalOptions<T>
-): Signal<T | undefined>;
-export function createSignal<T>(
   fn: ComputeFunction<NoInfer<T>, T>,
   options: ServerSignalOptions<T> & { loadingValue: T }
 ): Signal<T>;
@@ -630,15 +653,13 @@ export function createSignal<T>(
   ] as Signal<T | undefined>;
 }
 
-// Commit #0 (loadingValue): never undefined, `prev` is always T — see createSignal.
+// Commit #0 (loadingValue): never undefined, `prev` is always T — see
+// createSignal. No bare "client" overload: the server cannot run a client
+// source, so the author must declare what it renders (#2981).
 export function createMemo<T>(
   compute: ComputeFunction<NoInfer<T>, T>,
   options: ServerClientMemoOptions<T> & { loadingValue: T }
 ): SourceAccessor<T>;
-export function createMemo<T>(
-  compute: ComputeFunction<undefined | NoInfer<T>, T>,
-  options: ServerClientMemoOptions<T>
-): SourceAccessor<T | undefined>;
 export function createMemo<T>(
   compute: ComputeFunction<NoInfer<T>, T>,
   options: ServerMemoOptions<T> & { loadingValue: T }
@@ -663,6 +684,9 @@ export function createMemo<T>(
   if (options?.sync) {
     return createSyncMemo(compute, options);
   }
+  // Covers createSignal's and createOptimistic's function forms too — both
+  // delegate here.
+  assertClientCommitZero(options);
   // Capture SSR context at creation time — async re-computations (via .then callbacks)
   // may run after a concurrent request has overwritten sharedConfig.context.
   const ctx = sharedConfig.context;
@@ -1371,15 +1395,12 @@ export function createOptimistic<T>(
   value: Exclude<T, Function>,
   options?: SignalOptions<T>
 ): Signal<T>;
-// Commit #0 (loadingValue): never undefined, `prev` is always T — see createSignal.
+// Commit #0 (loadingValue): never undefined, `prev` is always T — and no
+// bare "client" overload; see createSignal/createMemo.
 export function createOptimistic<T>(
   fn: ComputeFunction<NoInfer<T>, T>,
   options: ServerClientSignalOptions<T> & { loadingValue: T }
 ): Signal<T>;
-export function createOptimistic<T>(
-  fn: ComputeFunction<undefined | NoInfer<T>, T>,
-  options: ServerClientSignalOptions<T>
-): Signal<T | undefined>;
 export function createOptimistic<T>(
   fn: ComputeFunction<NoInfer<T>, T>,
   options: ServerSignalOptions<T> & { loadingValue: T }
@@ -1412,7 +1433,7 @@ export function createStore<T extends object>(
 export function createStore<T extends object>(
   fn: (store: T) => void | T | Promise<void | T>,
   store: Partial<T> | Store<T>,
-  options?: ServerSsrOptions & { name?: string; shallow?: boolean }
+  options?: (ServerStoreOptions | ServerClientStoreOptions) & { name?: string; shallow?: boolean }
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object>(
   first: T | Store<T> | ((store: T) => void | T | Promise<void | T>),
@@ -1423,7 +1444,10 @@ export function createStore<T extends object>(
     // Forward options: dropping them made ssrSource inert for derived stores —
     // "client" sources ran on the server (#2972) and "server" ones lost their
     // deferStream/serialization hints (#2971).
-    const store = createProjection(first as any, second as T, options);
+    // The impl signature stays loose; the public overload above enforces the
+    // client/seedLoadingValue pairing, and createProjection re-checks at
+    // runtime.
+    const store = createProjection(first as any, second as T, options as any);
     return [store as Store<T>, ((fn: (state: T) => void) => fn(store as T)) as StoreSetter<T>];
   }
   const state = first as T;
@@ -1478,8 +1502,9 @@ function replaceState<T extends object>(target: T, next: T): void {
 export function createProjection<T extends object>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   initialValue: Partial<T> | Store<T>,
-  options?: ServerSsrOptions
+  options?: ServerStoreOptions | ServerClientStoreOptions
 ): Store<T> {
+  assertClientCommitZero(options, true);
   const ctx = sharedConfig.context;
   const owner = createOwner();
   const [state] = createStore(initialValue as T);

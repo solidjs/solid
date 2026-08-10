@@ -977,13 +977,15 @@ describe("ssrSource client modes", () => {
     expect(result).toBe(42);
   });
 
-  test("ssrSource 'client' leaves memo uninitialized during hydration", () => {
+  test("ssrSource 'client' serves the declared commit #0 during hydration", () => {
     startHydration({});
 
     let result: any;
     createRoot(
       () => {
-        result = createMemo(() => 999, { ssrSource: "client" })();
+        // `loadingValue: undefined` is the declared commit #0 — required for
+        // "client" sources (#2981); "nothing yet" must be said out loud.
+        result = createMemo(() => 999, { ssrSource: "client", loadingValue: undefined })();
       },
       { id: "t" }
     );
@@ -998,13 +1000,13 @@ describe("ssrSource client modes", () => {
     let result: any;
     createRoot(
       () => {
-        result = createMemo(() => 999, { ssrSource: "client" });
+        result = createMemo(() => 999, { ssrSource: "client", loadingValue: undefined });
       },
       { id: "t" }
     );
     flush();
 
-    // During hydration, snapshot scope protects — returns the uninitialized value
+    // During hydration, snapshot scope protects — returns commit #0 (undefined)
     expect(result()).toBeUndefined();
 
     stopHydration();
@@ -1075,7 +1077,9 @@ describe("ssrSource client modes — createProjection", () => {
             draft.name = "computed";
           },
           { name: "init" },
-          { ssrSource: "client" }
+          // seedLoadingValue is required for "client" sources: the seed IS
+          // what the pre-compute window shows, declared as commit #0 (#2981).
+          { ssrSource: "client", seedLoadingValue: true }
         );
       },
       { id: "t" }
@@ -1146,7 +1150,7 @@ describe("ssrSource client modes — createStore(fn)", () => {
             draft.name = "computed";
           },
           { name: "init" },
-          { ssrSource: "client" }
+          { ssrSource: "client", seedLoadingValue: true }
         );
       },
       { id: "t" }
@@ -1154,6 +1158,79 @@ describe("ssrSource client modes — createStore(fn)", () => {
     flush();
 
     expect(store.name).toBe("init");
+  });
+});
+
+// ssrSource "client" requires a declared commit #0 (#2981): the server can't
+// run the source, so the author must say what the pre-compute window renders —
+// `loadingValue` for signal-family sources, `seedLoadingValue: true` for
+// store-family sources. Dev-only (behind IS_DEV): zero production bytes, and
+// prod falls back to the previous gate behavior for anything that slips
+// through. Effects are exempt — nothing renders from them.
+describe("ssrSource 'client' requires declared commit #0 (dev error)", () => {
+  afterEach(() => {
+    stopHydration();
+  });
+
+  test("createMemo without loadingValue throws", () => {
+    startHydration({});
+    expect(() =>
+      createRoot(() => (createMemo as any)(() => 1, { ssrSource: "client" }), { id: "t" })
+    ).toThrow(/requires a loadingValue/);
+  });
+
+  test("throws in CSR too — the contract is about declaring commit #0, not SSR", () => {
+    // No startHydration: fresh client-side mount.
+    expect(() =>
+      createRoot(() => (createMemo as any)(() => 1, { ssrSource: "client" }), { id: "t" })
+    ).toThrow(/requires a loadingValue/);
+  });
+
+  test("createSignal/createOptimistic function forms without loadingValue throw", () => {
+    startHydration({});
+    expect(() =>
+      createRoot(() => (createSignal as any)(() => 1, { ssrSource: "client" }), { id: "t" })
+    ).toThrow(/requires a loadingValue/);
+    expect(() =>
+      createRoot(() => (createOptimistic as any)(() => 1, { ssrSource: "client" }), { id: "t" })
+    ).toThrow(/requires a loadingValue/);
+  });
+
+  test("explicit `loadingValue: undefined` is a valid declaration", () => {
+    startHydration({});
+    expect(() =>
+      createRoot(() => createMemo(() => 1, { ssrSource: "client", loadingValue: undefined }), {
+        id: "t"
+      })
+    ).not.toThrow();
+  });
+
+  test("plain value forms are exempt (no compute to defer)", () => {
+    startHydration({});
+    expect(() =>
+      createRoot(() => (createSignal as any)(1, { ssrSource: "client" }), { id: "t" })
+    ).not.toThrow();
+  });
+
+  test("createProjection/createStore/createOptimisticStore without seedLoadingValue throw", () => {
+    startHydration({});
+    expect(() =>
+      createRoot(
+        () => (createProjection as any)(() => ({ v: 1 }), { v: 0 }, { ssrSource: "client" }),
+        { id: "t" }
+      )
+    ).toThrow(/requires seedLoadingValue: true/);
+    expect(() =>
+      createRoot(() => (createStore as any)(() => ({ v: 1 }), { v: 0 }, { ssrSource: "client" }), {
+        id: "t"
+      })
+    ).toThrow(/requires seedLoadingValue: true/);
+    expect(() =>
+      createRoot(
+        () => (createOptimisticStore as any)(() => ({ v: 1 }), { v: 0 }, { ssrSource: "client" }),
+        { id: "t" }
+      )
+    ).toThrow(/requires seedLoadingValue: true/);
   });
 });
 
@@ -1919,7 +1996,7 @@ describe("ssrSource 'client' — post-hydration transition", () => {
             draft.count = 42;
           },
           { name: "init", count: 0 },
-          { ssrSource: "client" }
+          { ssrSource: "client", seedLoadingValue: true }
         );
       },
       { id: "t" }
@@ -1948,7 +2025,7 @@ describe("ssrSource 'client' — post-hydration transition", () => {
             draft.name = "from-client";
           },
           { name: "init" },
-          { ssrSource: "client" }
+          { ssrSource: "client", seedLoadingValue: true }
         );
       },
       { id: "t" }
@@ -2679,7 +2756,7 @@ describe("Snapshot Hydration", () => {
             computeCount++;
             return 999;
           },
-          { ssrSource: "client" }
+          { ssrSource: "client", loadingValue: undefined }
         );
       },
       { id: "t" }
@@ -2708,7 +2785,7 @@ describe("Snapshot Hydration", () => {
     createRoot(
       () => {
         // Trigger snapshot scope via a hydrated wrapper
-        createMemo(() => 0, { ssrSource: "client" });
+        createMemo(() => 0, { ssrSource: "client", loadingValue: undefined });
         // Raw memo in the same scope — reads x, gets snapshot
         derived = coreMemo(() => x() * 2);
       },
@@ -2740,7 +2817,7 @@ describe("Snapshot Hydration", () => {
 
     createRoot(
       () => {
-        createMemo(() => 0, { ssrSource: "client" });
+        createMemo(() => 0, { ssrSource: "client", loadingValue: undefined });
         derivedA = coreMemo(() => a() * 10);
         derivedB = coreMemo(() => b() * 10);
       },
@@ -2800,7 +2877,7 @@ describe("Snapshot Hydration", () => {
 
     createRoot(
       () => {
-        createMemo(() => 0, { ssrSource: "client" });
+        createMemo(() => 0, { ssrSource: "client", loadingValue: undefined });
         coreMemo(() => x());
         sharedConfig.onHydrationEnd!(() => {
           callbackFired = true;
@@ -2891,7 +2968,7 @@ describe("Loading + Async Iterable end-to-end pipeline", () => {
                 hydratingStates.push(sharedConfig.hydrating);
                 return 123;
               },
-              { ssrSource: "client" }
+              { ssrSource: "client", loadingValue: undefined }
             );
             return (() => memo()) as any;
           }

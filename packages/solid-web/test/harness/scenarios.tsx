@@ -578,7 +578,13 @@ function PortalUnderErrored() {
 function ClientSourceDerivedStore() {
   const connect = () =>
     new Promise<{ inputs: string[] }>(r => setTimeout(() => r({ inputs: ["piano"] }), 10));
-  const access = createMemo(() => connect(), { ssrSource: "client" });
+  // `loadingValue: undefined` is the declared commit #0 (required for
+  // "client" sources, #2981) — the "declare the undefined in the type and
+  // branch" pattern; the store derive below guards it.
+  const access = createMemo<{ inputs: string[] } | undefined>(() => connect(), {
+    ssrSource: "client",
+    loadingValue: undefined
+  });
   const [store] = createStore<{ inputs: string[] }>(
     () => {
       const a = access();
@@ -724,6 +730,8 @@ function LateBoundaryAfterDone() {
 // the source — it renders the seed and serializes nothing — and the client
 // re-derives after hydration. The source is async, so a server-side run would
 // also hold the stream; the serverText probe catches both failure modes.
+// `seedLoadingValue: true` is required for "client" stores (#2981): the seed
+// IS what the pre-compute window renders, declared as commit #0.
 function StoreSsrSourceClient() {
   const [store] = createStore<{ v: string }>(
     async () => {
@@ -731,7 +739,7 @@ function StoreSsrSourceClient() {
       return { v: "computed" };
     },
     { v: "seed" },
-    { ssrSource: "client" }
+    { ssrSource: "client", seedLoadingValue: true }
   );
   return <div>V: {store.v}</div>;
 }

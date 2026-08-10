@@ -65,7 +65,11 @@ type HydrationSsrFields = {
    * - `"client"`: skip the server value entirely. Compute is deferred
    *   until hydration completes, then runs as if first-mounted.
    *   Choose this for client-only state where serialization is
-   *   meaningless.
+   *   meaningless. Requires a declared commit #0: `loadingValue` on
+   *   signal-family sources (`loadingValue: undefined` is a valid
+   *   declaration), `seedLoadingValue: true` on store-family sources —
+   *   the server can't run the compute, so the author must say what
+   *   the pre-compute window renders.
    */
   ssrSource?: "server" | "hybrid" | "client";
 };
@@ -88,7 +92,8 @@ declare module "@solidjs/signals" {
  * - `"hybrid"`: serialized value first, then re-run the compute on
  *   the client to take over.
  * - `"client"`: skip serialization; compute runs only after hydration
- *   completes.
+ *   completes. Requires `seedLoadingValue: true` — the seed is what the
+ *   pre-compute window renders, and that promotion must be declared.
  *
  * See {@link HydrationSsrFields} for the fuller explanation.
  */
@@ -101,6 +106,19 @@ type HydrationClientSignalOptions<T> = Omit<SignalOptions<T> & MemoOptions<T>, "
 };
 type HydrationSignalOptions<T> = Omit<SignalOptions<T> & MemoOptions<T>, "ssrSource"> & {
   ssrSource?: "server" | "hybrid";
+};
+type HydrationProjectionOptions = Omit<ProjectionOptions, "ssrSource"> & {
+  ssrSource?: "server" | "hybrid";
+};
+// `ssrSource: "client"` requires the seed promoted to commit #0: the server
+// cannot run the source, so the seed is what it renders — and a seed is a
+// draft, never observable, unless the author declares otherwise (#2981).
+type HydrationClientProjectionOptions = Omit<
+  ProjectionOptions,
+  "ssrSource" | "seedLoadingValue"
+> & {
+  ssrSource: "client";
+  seedLoadingValue: true;
 };
 
 export type HydrationContext = {};
@@ -376,6 +394,27 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options
   // hydration is `done`, always compute.
   if (sharedConfig.done || !sharedConfig.has!(o.id!)) return compute(prev);
   return readHydratedValue(sharedConfig.load!(o.id!), () => subFetch(compute, prev), options);
+}
+
+/**
+ * Dev-only (every call sits behind IS_DEV, so this strips from production):
+ * `ssrSource: "client"` requires a declared commit #0 — the server cannot run
+ * the source, so the author must say what it renders. Signal-family sources
+ * declare `loadingValue` (an explicit `loadingValue: undefined` is a real
+ * declaration; put the `undefined` in the type); store-family sources promote
+ * their seed with `seedLoadingValue: true`. Effects are exempt (nothing
+ * renders). Without the declaration the seed/undefined would be implicitly
+ * promoted to an observable value (#2981) — the error makes the promotion
+ * the author's explicit call.
+ */
+function assertClientCommitZero(fn: any, options: any, seed?: boolean) {
+  if (typeof fn !== "function" || options?.ssrSource !== "client") return;
+  if (seed ? options.seedLoadingValue === true : "loadingValue" in options) return;
+  throw new Error(
+    `ssrSource: "client" requires ${
+      seed ? "seedLoadingValue: true" : "a loadingValue"
+    } — the server cannot run this source, so you must declare what it renders (commit #0).`
+  );
 }
 
 /** Options carry commit #0 — the loading window must hold through the claim walk. */
@@ -1023,15 +1062,13 @@ export const createMemo: {
   // Commit #0 (loadingValue) removes the uninitialized window: the accessor
   // never reads undefined — even for `ssrSource: "client"`, where the loading
   // value serves until the post-hydration compute lands — and `prev` is
-  // always T (the loading value seeds the first compute).
+  // always T (the loading value seeds the first compute). There is no bare
+  // "client" overload: the server cannot run a client source, so the author
+  // must declare what it renders (#2981).
   <T>(
     compute: ComputeFunction<NoInfer<T>, T>,
     options: HydrationClientMemoOptions<T> & { loadingValue: T }
   ): SourceAccessor<T>;
-  <T>(
-    compute: ComputeFunction<undefined | NoInfer<T>, T>,
-    options: HydrationClientMemoOptions<T>
-  ): SourceAccessor<T | undefined>;
   <T>(
     compute: ComputeFunction<NoInfer<T>, T>,
     options: HydrationMemoOptions<T> & { loadingValue: T }
@@ -1040,7 +1077,10 @@ export const createMemo: {
     compute: ComputeFunction<undefined | NoInfer<T>, T>,
     options?: HydrationMemoOptions<T>
   ): SourceAccessor<T>;
-} = ((...args: any[]) => (_createMemo || coreMemo)(...args)) as any;
+} = ((...args: any[]) => {
+  if (IS_DEV) assertClientCommitZero(args[0], args[1]);
+  return (_createMemo || coreMemo)(...args);
+}) as any;
 
 /**
  * Creates a simple reactive state with a getter and setter.
@@ -1079,15 +1119,12 @@ export const createMemo: {
 export const createSignal: {
   <T>(): Signal<T | undefined>;
   <T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
-  // Commit #0 (loadingValue): never undefined, `prev` is always T — see createMemo.
+  // Commit #0 (loadingValue): never undefined, `prev` is always T — and no
+  // bare "client" overload; see createMemo.
   <T>(
     fn: ComputeFunction<NoInfer<T>, T>,
     options: HydrationClientSignalOptions<T> & { loadingValue: T }
   ): Signal<T>;
-  <T>(
-    fn: ComputeFunction<undefined | NoInfer<T>, T>,
-    options: HydrationClientSignalOptions<T>
-  ): Signal<T | undefined>;
   <T>(
     fn: ComputeFunction<NoInfer<T>, T>,
     options: HydrationSignalOptions<T> & { loadingValue: T }
@@ -1096,7 +1133,10 @@ export const createSignal: {
     fn: ComputeFunction<undefined | NoInfer<T>, T>,
     options?: HydrationSignalOptions<T>
   ): Signal<T>;
-} = ((...args: any[]) => (_createSignal || coreSignal)(...args)) as any;
+} = ((...args: any[]) => {
+  if (IS_DEV) assertClientCommitZero(args[0], args[1]);
+  return (_createSignal || coreSignal)(...args);
+}) as any;
 
 /**
  * Internal primitive that backs the `<Errored>` flow control.
@@ -1167,15 +1207,12 @@ export function createRevealOrder<T>(
 export const createOptimistic: {
   <T>(): Signal<T | undefined>;
   <T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
-  // Commit #0 (loadingValue): never undefined, `prev` is always T — see createMemo.
+  // Commit #0 (loadingValue): never undefined, `prev` is always T — and no
+  // bare "client" overload; see createMemo.
   <T>(
     fn: ComputeFunction<NoInfer<T>, T>,
     options: HydrationClientSignalOptions<T> & { loadingValue: T }
   ): Signal<T>;
-  <T>(
-    fn: ComputeFunction<undefined | NoInfer<T>, T>,
-    options: HydrationClientSignalOptions<T>
-  ): Signal<T | undefined>;
   <T>(
     fn: ComputeFunction<NoInfer<T>, T>,
     options: HydrationSignalOptions<T> & { loadingValue: T }
@@ -1184,14 +1221,16 @@ export const createOptimistic: {
     fn: ComputeFunction<undefined | NoInfer<T>, T>,
     options?: HydrationSignalOptions<T>
   ): Signal<T>;
-} = ((...args: any[]) =>
+} = ((...args: any[]) => {
+  if (IS_DEV) assertClientCommitZero(args[0], args[1]);
   // `hydrating` can only be true once enableHydration() installed the
   // adapter slot; passing coreOptimistic in here (instead of a dedicated
   // hydrated impl installed by enableHydration) is what lets the optimistic
   // engine shake out of hydrating bundles that never import this primitive.
-  typeof args[0] === "function" && sharedConfig.hydrating
+  return typeof args[0] === "function" && sharedConfig.hydrating
     ? _hydrateSignalLike!(coreOptimistic, args[0], args[1])
-    : (coreOptimistic as Function)(...args)) as any;
+    : (coreOptimistic as Function)(...args);
+}) as any;
 
 /**
  * Creates a derived (projected) store — `createMemo` for stores. The
@@ -1233,13 +1272,15 @@ export const createOptimistic: {
 export const createProjection: <T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   initialValue: Partial<T> | Store<NoFn<T>>,
-  options?: ProjectionOptions
-) => Refreshable<Store<T>> = ((...args: any[]) =>
+  options?: HydrationProjectionOptions | HydrationClientProjectionOptions
+) => Refreshable<Store<T>> = ((...args: any[]) => {
+  if (IS_DEV) assertClientCommitZero(args[0], args[2], true);
   // `hydrating` can only be true once enableHydration() installed the
   // adapter slot (see createOptimistic above for the retention story).
-  sharedConfig.hydrating
+  return sharedConfig.hydrating
     ? _hydrateStoreLike!(coreProjection, args[0], args[1], args[2])
-    : (coreProjection as Function)(...args)) as any;
+    : (coreProjection as Function)(...args);
+}) as any;
 
 type NoFn<T> = T extends Function ? never : T;
 
@@ -1311,14 +1352,16 @@ export const createStore: {
   <T extends object = {}>(
     fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
     store: NoFn<T> | Store<NoFn<T>>,
-    options?: ProjectionOptions
+    options?: HydrationProjectionOptions | HydrationClientProjectionOptions
   ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
-} = ((...args: any[]) =>
+} = ((...args: any[]) => {
+  if (IS_DEV) assertClientCommitZero(args[0], args[2], true);
   // `hydrating` can only be true once enableHydration() installed the
   // adapter slot (see createOptimistic above for the retention story).
-  typeof args[0] === "function" && sharedConfig.hydrating
+  return typeof args[0] === "function" && sharedConfig.hydrating
     ? _hydrateStoreLike!(coreStore, args[0], args[1] ?? {}, args[2])
-    : (coreStore as Function)(...args)) as any;
+    : (coreStore as Function)(...args);
+}) as any;
 
 /**
  * The store equivalent of `createOptimistic`. Writes inside an
@@ -1371,14 +1414,16 @@ export const createOptimisticStore: {
   <T extends object = {}>(
     fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
     store: NoFn<T> | Store<NoFn<T>>,
-    options?: ProjectionOptions
+    options?: HydrationProjectionOptions | HydrationClientProjectionOptions
   ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
-} = ((...args: any[]) =>
+} = ((...args: any[]) => {
+  if (IS_DEV) assertClientCommitZero(args[0], args[2], true);
   // `hydrating` can only be true once enableHydration() installed the
   // adapter slot (see createOptimistic above for the retention story).
-  typeof args[0] === "function" && sharedConfig.hydrating
+  return typeof args[0] === "function" && sharedConfig.hydrating
     ? _hydrateStoreLike!(coreOptimisticStore, args[0], args[1] ?? {}, args[2])
-    : (coreOptimisticStore as Function)(...args)) as any;
+    : (coreOptimisticStore as Function)(...args);
+}) as any;
 
 /**
  * Creates a reactive computation that runs during the render phase as

@@ -237,9 +237,16 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
     // plain fresh render. Ancestor boundaries are `_initialized` by then, so
     // async discovered inside the portal forwards as ordinary pending status
     // instead of regressing anything to a fallback (#2876).
-    content = createMemo(() => [startMarker, props.children] as unknown as JSX.Element, {
-      ssrSource: "client"
-    });
+    // `loadingValue: undefined` is the declared commit #0: the server renders
+    // nothing for portals, so "nothing" is exactly what the pre-compute
+    // window shows (#2981).
+    content = createMemo<JSX.Element>(
+      () => [startMarker, props.children] as unknown as JSX.Element,
+      {
+        ssrSource: "client",
+        loadingValue: undefined
+      }
+    );
 
   createRenderEffect<[Element, JSX.Element, Owner | null]>(
     // `getOwner()` is captured in the compute-half: the effect-half runs from
@@ -301,8 +308,13 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
   // the parent's insert when fresh nodes may be placed again. A memo (not a
   // naked accessor) so the flip is equals-gated and resolved under this
   // owner, like any control-flow return.
+  // `loadingValue: undefined` = declared commit #0 ("server rendered
+  // nothing"), same as `content` above (#2981).
   if (sharedConfig.hydrating)
-    return createMemo(() => treeMarker, { ssrSource: "client" }) as unknown as JSX.Element;
+    return createMemo<Text | undefined>(() => treeMarker, {
+      ssrSource: "client",
+      loadingValue: undefined
+    }) as unknown as JSX.Element;
   return treeMarker as unknown as JSX.Element;
 }
 
