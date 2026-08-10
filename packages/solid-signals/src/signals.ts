@@ -184,6 +184,28 @@ export interface EffectOptions extends BaseEffectOptions {
    * stored as-is and never awaited.
    */
   sync?: boolean;
+  /**
+   * Advanced (integration tier). When true, the effect is invisible to the
+   * hydration id scheme: it inherits its parent's id instead of consuming a
+   * child slot, and during hydration its compute runs live instead of
+   * adopting the serialized server value (its first run is not frozen to
+   * the server's decision).
+   *
+   * For **client-only effects created while hydrating** — effects with no
+   * server-rendered counterpart (a router wiring link state, scroll
+   * restoration, etc.). An id-consuming node the server never created would
+   * shift every later sibling's hydration id, making serialized lookups and
+   * template claims after it miss. `transparent` is also the supported
+   * alternative to branching on hydration state
+   * (`if (hydrating) createEffect(...)`), which freezes whatever the first
+   * run decided: create the effect unconditionally and let it observe live
+   * state instead.
+   *
+   * SSR ignores this option (a server-side effect always allocates its id
+   * slot), so only mark effects the server does not create. Outside
+   * hydration it is a no-op.
+   */
+  transparent?: boolean;
 }
 
 /** Options for plain signals created with `createSignal(value)` or `createOptimistic(value)`. */
@@ -213,7 +235,14 @@ export interface MemoOptions<T> {
   id?: string;
   /** Debug name (dev mode only) */
   name?: string;
-  /** When true, the owner is invisible to the ID scheme -- inherits parent ID and doesn't consume a childCount slot */
+  /**
+   * Advanced (integration tier). When true, the memo is invisible to the
+   * hydration id scheme: it inherits its parent's id instead of consuming a
+   * child slot, and during hydration it computes live instead of adopting
+   * the serialized server value. For client-only memos with no
+   * server-rendered counterpart — see {@link EffectOptions.transparent} for
+   * the full semantics. No-op outside hydration.
+   */
   transparent?: boolean;
   /**
    * Custom equality function, or `false` to always notify subscribers.
@@ -316,7 +345,7 @@ export function createSignal<T>(
  * const value = createMemo<T>(compute, options?: MemoOptions<T>);
  * ```
  * @param compute a function that receives its previous value and returns a new value used to react on a computation
- * @param options `MemoOptions` -- id, name, equals, unobserved, lazy
+ * @param options `MemoOptions` -- id, name, equals, unobserved, lazy, transparent
  *
  * @example
  * ```ts
@@ -388,7 +417,7 @@ export function createMemo<T>(
  * ```
  * @param compute a function that receives its previous value and returns a new value used to react on a computation
  * @param effectFn a function that receives the new value and is used to perform side effects (return a cleanup function), or an `EffectBundle` with `effect` and `error` handlers
- * @param options `EffectOptions` -- name, defer, schedule
+ * @param options `EffectOptions` -- name, defer, schedule, transparent
  *
  * @example
  * ```ts
@@ -471,7 +500,7 @@ export function createEffect<T>(
  * ```
  * @param compute a function that receives its previous value and returns a new value used to react on a computation
  * @param effectFn a function that receives the new value and is used to perform side effects
- * @param options `EffectOptions` -- name, defer, schedule
+ * @param options `EffectOptions` -- name, defer, schedule, transparent
  *
  * @example
  * ```ts

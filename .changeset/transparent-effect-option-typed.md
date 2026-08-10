@@ -1,0 +1,6 @@
+---
+"@solidjs/signals": patch
+"solid-js": patch
+---
+
+Promote the `transparent` option on effects to typed, documented public API. The runtime has always honored it on `createEffect`/`createRenderEffect` — a transparent node is invisible to the hydration id scheme (it inherits its parent's id instead of consuming a child slot) and its compute runs live during hydration instead of adopting the serialized server value — but the flag was absent from the published `EffectOptions` type (typed only on `MemoOptions`) and documented nowhere, forcing integrations to cast on faith (`@solidjs/router` ships `{ transparent: true } as {}` on its client-only link-state and scroll-restoration effects). It exists for client-only reactive nodes created while hydrating, which have no server-rendered counterpart and would otherwise shift every later sibling's hydration id, and it is the supported alternative to branching on hydration state, which freezes whatever the first run decided. SSR ignores the option (server-side nodes always allocate their id slot), so it is documented for nodes the server does not create. Types, JSDoc, and RFC 05 docs only — no runtime change; every size scenario is byte-identical.

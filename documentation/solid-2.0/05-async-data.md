@@ -134,7 +134,7 @@ const result = await resolve(() => computedValue());
 
 2.0 treats transitions as a core scheduling concept rather than something you explicitly wrap in `startTransition`/`useTransition`. Multiple transitions can be in flight; “entangling” determines what should block what. The user-facing pieces are the observable pending state (`isPending`) and optimistic APIs (RFC 06).
 
-### SSR and hydration: `ssrSource` and `deferStream`
+### SSR and hydration: `ssrSource`, `deferStream`, and `transparent`
 
 Because async lives in ordinary computations, SSR/hydration policy is a per-primitive option rather than a resource feature. Two option fields are accepted wherever computation options are — `createMemo`, function-form `createSignal`/`createStore`, `createProjection`, the optimistic variants, and effects:
 
@@ -156,6 +156,8 @@ const draft = createMemo(() => readDraftFromStorage(key()), { ssrSource: "client
 ```
 
 **`deferStream: true`** defers the SSR stream flush until this primitive's first value has resolved. It lets a late-resolving source hold the document open rather than forcing the surrounding `<Loading>` boundary to render its fallback into the HTML. Server-only; ignored on the client.
+
+**`transparent: true`** (integration tier — accepted by effects and memos) makes the node invisible to hydration: it inherits its parent's id instead of consuming a child slot, and its compute runs live during hydration instead of adopting the serialized server value. It exists for **client-only reactive nodes created while hydrating** — nodes the server never rendered, so an id-consuming owner would shift every later sibling's hydration id and break serialized lookups and template claims (this is how `@solidjs/router` wires link state and scroll restoration). It is also the supported alternative to branching on hydration state (`if (hydrating) createEffect(...)`), which freezes the first run's decision: create the node unconditionally and mark it `transparent` so it observes live state. SSR ignores the option (server-side nodes always allocate their id slot), so only mark nodes the server does not create; outside hydration it is a no-op.
 
 ## Migration / replacement
 

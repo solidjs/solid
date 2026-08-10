@@ -51,6 +51,19 @@ createEffect(
   () => {},
   {}
 );
+// `transparent` is a typed public option: hydration-id invisible, compute
+// runs live during hydration (client-only effects the server never created).
+createEffect(
+  (prev?: number) => (prev ?? 0) + 1,
+  () => {},
+  { transparent: true }
+);
+createEffect(
+  (prev?: number) => (prev ?? 0) + 1,
+  () => {},
+  // @ts-expect-error transparent must be a boolean
+  { transparent: "yes" }
+);
 
 createEffect(
   // @ts-expect-error the compute function must accept an undefined first prev
@@ -102,6 +115,17 @@ createRenderEffect(
   () => {},
   {}
 );
+createRenderEffect(
+  (prev?: number) => (prev ?? 0) + 1,
+  () => {},
+  { transparent: true }
+);
+createRenderEffect(
+  (prev?: number) => (prev ?? 0) + 1,
+  () => {},
+  // @ts-expect-error transparent must be a boolean
+  { transparent: "yes" }
+);
 
 createRenderEffect(
   // @ts-expect-error the compute function must accept an undefined first prev
@@ -145,6 +169,7 @@ const memo7 = createMemo((prev?: number) => {
   return (prev ?? 0) + 1;
 }, {});
 const memo7Value: number = memo7();
+const transparentMemo: Accessor<number> = createMemo(() => 123, { transparent: true });
 const clientMemo = createMemo(() => 123, { ssrSource: "client" });
 const clientMemoValue: number | undefined = clientMemo();
 // @ts-expect-error client memo may be undefined during hydration

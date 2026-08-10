@@ -12,6 +12,7 @@ import {
 import {
   enableHydration,
   sharedConfig,
+  createEffect,
   createErrorBoundary,
   createMemo,
   createOptimistic,
@@ -3525,5 +3526,72 @@ describe("Loading boundary: fragment registration channel (_fr)", () => {
     flush();
 
     expect(memoB()).toBe("val-B");
+  });
+});
+
+describe("Transparent Effect Hydration", () => {
+  afterEach(() => {
+    stopHydration();
+  });
+
+  test("non-transparent effect adopts the serialized value at its id", () => {
+    // Baseline for the test below: the server serialized a value at the
+    // effect's id ("t0"); the hydrating effect's compute is replaced by it.
+    startHydration({ t0: "serialized" });
+
+    const observed: any[] = [];
+    createRoot(
+      () => {
+        createRenderEffect(
+          () => "live",
+          (v: any) => {
+            observed.push(v);
+          }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(observed).toEqual(["serialized"]);
+  });
+
+  test("transparent effect runs live and consumes no hydration id slot", () => {
+    // The router shape (claims.ts / scrollRestoration.ts): a client-only
+    // effect created while hydrating. It must not adopt serialized state
+    // (its compute runs live) and must not consume a child id — otherwise
+    // every later sibling's hydration id shifts and serialized lookups miss.
+    startHydration({ t0: "serialized" });
+
+    const renderObserved: any[] = [];
+    const userObserved: any[] = [];
+    let sibling: any;
+    createRoot(
+      () => {
+        createRenderEffect(
+          () => "live",
+          (v: any) => {
+            renderObserved.push(v);
+          },
+          { transparent: true }
+        );
+        createEffect(
+          () => "live-user",
+          (v: any) => {
+            userObserved.push(v);
+          },
+          { transparent: true }
+        );
+        // Neither transparent effect consumed a child slot, so this memo's
+        // id is "t0" and it adopts the server's serialized value.
+        sibling = createMemo(() => "computed");
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(renderObserved).toEqual(["live"]);
+    expect(userObserved).toEqual(["live-user"]);
+    expect(sibling()).toBe("serialized");
   });
 });

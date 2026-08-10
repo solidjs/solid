@@ -1327,6 +1327,10 @@ export const createOptimisticStore: {
  *
  * **Hydration:** `EffectOptions` accepts an `ssrSource` field
  * (`"server"` | `"hybrid"` | `"client"`). See {@link HydrationSsrFields}.
+ * `transparent: true` makes the effect invisible to hydration entirely —
+ * it consumes no hydration id slot and its compute runs live rather than
+ * adopting the serialized server value — for client-only effects the
+ * server never created.
  *
  * @example
  * ```ts
@@ -1395,6 +1399,10 @@ export const createRenderEffect: typeof coreRenderEffect = ((...args: any[]) =>
  *
  * **Hydration:** `EffectOptions` accepts an `ssrSource` field
  * (`"server"` | `"hybrid"` | `"client"`). See {@link HydrationSsrFields}.
+ * `transparent: true` makes the effect invisible to hydration entirely —
+ * it consumes no hydration id slot and its compute runs live rather than
+ * adopting the serialized server value — for client-only effects the
+ * server never created.
  *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-effect
  */
