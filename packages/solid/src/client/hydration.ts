@@ -1622,9 +1622,88 @@ function watchTruncation(hy: any) {
         const ref = hy.r[key];
         if (ref && typeof ref === "object" && !ref.s) markTruncated(hy, key.slice(0, -3));
       }
+      // A macrotask later, on purpose: the fragment rejections above release
+      // their boundaries through microtask chains (abort race -> resume ->
+      // fresh render), and that teardown disposes the computations that
+      // adopted pending owner-id refs while hydrating. Rejecting those refs
+      // synchronously would race the disposal and land an unhandled error in
+      // a still-live computation, halting the reactive system. After the
+      // boundaries have released, whoever still holds a pending ref (keyed
+      // consumers like the router's query channel, boundaries waiting on a
+      // sync-serialized data ref) is exactly who needs the rejection.
+      setTimeout(() => rejectTruncatedRefs(hy));
     },
     { once: true }
   );
+}
+
+// The fragment pass above releases BOUNDARIES, but the registry also carries
+// plain serialized promises — owner-id computation values and library-keyed
+// data refs (e.g. @solidjs/router's query channel). A truncated stream
+// leaves those forever-pending too. The settle scripts execute during parse,
+// so at DOMContentLoaded every still-pending seroval resolver ({p, s, f},
+// kept in the cross-reference scope `self.$R` — indexed values on the
+// global for the wire the hydration serializer emits, or inside per-scope
+// arrays for scoped renders) is dead. What each one needs depends on who is
+// left holding its promise:
+//
+// - A ref GONE from the registry was consumed one-shot by a keyed consumer
+//   (the router deletes `_$HY.r[key]` on load) — that consumer holds the
+//   bare promise and hangs permanently unless it actually rejects, and its
+//   `.then` chain is built for rejections. Reject through the resolver.
+//   Walking the resolvers rather than the registry keys is what reaches
+//   these at all.
+// - A ref STILL in the registry either was adopted by a live reactive
+//   computation (owner-id channel — never deleted) or awaits a late reader.
+//   Rejecting those promises raw lands an unhandled error inside live
+//   computations (no boundary routes it — the fragment pass already
+//   released the boundaries) and halts the reactive system. Deleting the
+//   entry instead makes every future presence check (`sharedConfig.has`)
+//   fall through to a fresh compute/fetch — recovery, not failure — while
+//   already-adopted computations keep their pre-existing stall until their
+//   sources re-run.
+//
+// Settled promises carry the status stamp (`.s`) the settle helpers write,
+// and the fragment pass stamps rejected `_fr` declarations before this
+// runs, so both are skipped.
+function rejectTruncatedRefs(hy: any) {
+  const R = (globalThis as any).$R;
+  if (!R || typeof R !== "object") return;
+  let registryKeys: Map<any, string> | undefined;
+  const sweep = (entry: any) => {
+    if (
+      !entry ||
+      typeof entry !== "object" ||
+      typeof entry.f !== "function" ||
+      !entry.p ||
+      typeof entry.p.then !== "function" ||
+      entry.p.s
+    )
+      return;
+    if (!registryKeys) {
+      registryKeys = new Map();
+      for (const key in hy.r) registryKeys.set(hy.r[key], key);
+    }
+    const key = registryKeys.get(entry.p);
+    if (key !== undefined) {
+      delete hy.r[key];
+      return;
+    }
+    const err = new Error("Hydration value was truncated: the stream ended before it settled.");
+    // Mirror seroval's failure helper: reject through the resolver and stamp
+    // the promise's status for status-based readers.
+    entry.f(err);
+    entry.p.s = 2;
+    entry.p.v = err;
+    // Guard the harness itself against an unhandled-rejection report; the
+    // consumer observes the rejection through its own chain.
+    entry.p.then(undefined, () => {});
+  };
+  for (const key in R) {
+    const value = R[key];
+    if (Array.isArray(value)) for (const entry of value) sweep(entry);
+    else sweep(value);
+  }
 }
 
 function markTruncated(hy: any, id: string) {
