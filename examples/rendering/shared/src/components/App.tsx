@@ -9,6 +9,7 @@ const Settings = lazy(() => import("./Settings"));
 const Stream = lazy(() => import("./Stream"));
 const ErrorStream = lazy(() => import("./ErrorStream"));
 const RevealPage = lazy(() => import("./Reveal"));
+const Skeleton = lazy(() => import("./Skeleton"));
 
 const App = RouteHOC(() => {
   const [location, { matches }] = useRouter();
@@ -34,6 +35,9 @@ const App = RouteHOC(() => {
         <li class={{ selected: matches("reveal") }}>
           <Link path="reveal">Reveal</Link>
         </li>
+        <li class={{ selected: matches("skeleton") }}>
+          <Link path="skeleton">Skeleton</Link>
+        </li>
       </ul>
       <div class={["tab", { pending: isPending(location) }]}>
         <Switch>
@@ -54,6 +58,9 @@ const App = RouteHOC(() => {
           </Match>
           <Match when={matches("reveal")}>
             <RevealPage />
+          </Match>
+          <Match when={matches("skeleton")}>
+            <Skeleton />
           </Match>
         </Switch>
       </div>

@@ -393,7 +393,7 @@ function forwardIteratorReturn(it: any, value?: any) {
     : syncThenable(returned ?? { done: true, value });
 }
 
-function normalizeIterator(it: any) {
+function normalizeIterator(it: any, deferFirst?: boolean) {
   let first = true;
   let buffered: any = null;
   return {
@@ -401,7 +401,14 @@ function normalizeIterator(it: any) {
       if (first) {
         first = false;
         const r = it.next();
-        return r && typeof r.then === "function" ? r : syncThenable(r);
+        if (r && typeof r.then === "function") return r;
+        // Loading window (loadingValue): commit #0 must serve through the
+        // synchronous claim walk. A fully-buffered replay (loaded mode)
+        // delivers its first yield synchronously, which would close the
+        // window mid-walk — the client would compute real-data structure
+        // against placeholder markup. Defer it one microtask; the sync
+        // delivery stays for windowless nodes, whose claim NEEDS the value.
+        return deferFirst ? Promise.resolve(r) : syncThenable(r);
       }
       if (buffered) {
         const b = buffered;
@@ -526,7 +533,7 @@ function hydrateSignalFromAsyncIterable(coreFn: Function, compute: any, options:
   const loaded = sharedConfig.load!(expectedId);
   if (!isAsyncIterable(loaded)) return null;
 
-  const it = normalizeIterator(loaded[Symbol.asyncIterator]());
+  const it = normalizeIterator(loaded[Symbol.asyncIterator](), hasLoadingWindow(options));
   const iterable = {
     [Symbol.asyncIterator]() {
       return it;
@@ -555,6 +562,7 @@ function hydrateStoreFromAsyncIterable(
   if (!isAsyncIterable(loaded)) return null;
 
   const srcIt = loaded[Symbol.asyncIterator]();
+  const loading = hasLoadingWindow(options);
   let isFirst = true;
   let buffered: any = null;
   return coreFn(
@@ -602,13 +610,25 @@ function hydrateStoreFromAsyncIterable(
             next() {
               if (isFirst) {
                 const r = srcIt.next();
-                return r && typeof r.then === "function"
-                  ? {
-                      then(fn: any, rej: any) {
-                        r.then((v: any) => fn(process(v)), rej);
-                      }
+                if (r && typeof r.then === "function")
+                  return {
+                    then(fn: any, rej: any) {
+                      r.then((v: any) => fn(process(v)), rej);
                     }
-                  : syncThenable(process(r));
+                  };
+                if (loading) {
+                  // Seed window (seedLoadingValue): the SSR DOM reflects the
+                  // SEED (commit #0), not the first-yield snapshot — the sync
+                  // application below exists precisely because for windowless
+                  // stores the snapshot IS what the DOM shows. Here applying
+                  // it mid-claim would hydrate real-data structure against
+                  // seed markup, so the snapshot parks until hydration
+                  // completes, exactly like the patch backlog.
+                  return new Promise(resolvePull => {
+                    onHydrationEnd(() => resolvePull(process(r)));
+                  });
+                }
+                return syncThenable(process(r));
               }
               if (buffered) {
                 const b = buffered;
@@ -1004,10 +1024,22 @@ export function enableHydration() {
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-memo
  */
 export const createMemo: {
+  // Commit #0 (loadingValue) removes the uninitialized window: the accessor
+  // never reads undefined — even for `ssrSource: "client"`, where the loading
+  // value serves until the post-hydration compute lands — and `prev` is
+  // always T (the loading value seeds the first compute).
+  <T>(
+    compute: ComputeFunction<NoInfer<T>, T>,
+    options: HydrationClientMemoOptions<T> & { loadingValue: T }
+  ): SourceAccessor<T>;
   <T>(
     compute: ComputeFunction<undefined | NoInfer<T>, T>,
     options: HydrationClientMemoOptions<T>
   ): SourceAccessor<T | undefined>;
+  <T>(
+    compute: ComputeFunction<NoInfer<T>, T>,
+    options: HydrationMemoOptions<T> & { loadingValue: T }
+  ): SourceAccessor<T>;
   <T>(
     compute: ComputeFunction<undefined | NoInfer<T>, T>,
     options?: HydrationMemoOptions<T>
@@ -1051,10 +1083,19 @@ export const createMemo: {
 export const createSignal: {
   <T>(): Signal<T | undefined>;
   <T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
+  // Commit #0 (loadingValue): never undefined, `prev` is always T — see createMemo.
+  <T>(
+    fn: ComputeFunction<NoInfer<T>, T>,
+    options: HydrationClientSignalOptions<T> & { loadingValue: T }
+  ): Signal<T>;
   <T>(
     fn: ComputeFunction<undefined | NoInfer<T>, T>,
     options: HydrationClientSignalOptions<T>
   ): Signal<T | undefined>;
+  <T>(
+    fn: ComputeFunction<NoInfer<T>, T>,
+    options: HydrationSignalOptions<T> & { loadingValue: T }
+  ): Signal<T>;
   <T>(
     fn: ComputeFunction<undefined | NoInfer<T>, T>,
     options?: HydrationSignalOptions<T>
@@ -1130,10 +1171,19 @@ export function createRevealOrder<T>(
 export const createOptimistic: {
   <T>(): Signal<T | undefined>;
   <T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
+  // Commit #0 (loadingValue): never undefined, `prev` is always T — see createMemo.
+  <T>(
+    fn: ComputeFunction<NoInfer<T>, T>,
+    options: HydrationClientSignalOptions<T> & { loadingValue: T }
+  ): Signal<T>;
   <T>(
     fn: ComputeFunction<undefined | NoInfer<T>, T>,
     options: HydrationClientSignalOptions<T>
   ): Signal<T | undefined>;
+  <T>(
+    fn: ComputeFunction<NoInfer<T>, T>,
+    options: HydrationSignalOptions<T> & { loadingValue: T }
+  ): Signal<T>;
   <T>(
     fn: ComputeFunction<undefined | NoInfer<T>, T>,
     options?: HydrationSignalOptions<T>

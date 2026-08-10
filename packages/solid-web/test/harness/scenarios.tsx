@@ -1018,6 +1018,182 @@ function LoadingSeedStore() {
   );
 }
 
+// Iterator form: the async-generator memo streams yields; with loadingValue
+// the shell locks at commit #0 (the placeholder — HTML never advances to V1,
+// the first-value lock generalized) while every yield rides the serialized
+// stream. The client replay is born committed with the placeholder, claims
+// against it, and conflates the buffered yields to the latest.
+function LoadingValueIterator() {
+  const data = createMemo<{ skeleton: boolean; label: string }>(
+    async function* () {
+      await sleep(5);
+      yield { skeleton: false, label: "iter-first" };
+      await sleep(5);
+      yield { skeleton: false, label: "iter-final" };
+    } as any,
+    { loadingValue: { skeleton: true, label: "" } }
+  );
+  return (
+    <Loading fallback={<p>loading</p>}>
+      <div>
+        <Show when={!data().skeleton} fallback={<i>skel</i>}>
+          <b>{data().label}</b>
+        </Show>
+        <span>tail</span>
+      </div>
+    </Loading>
+  );
+}
+
+// ssrSource "client" + loadingValue: the server skips the compute but still
+// flushes commit #0 (previously the value stayed undefined), and the
+// hydrating client's prev-serving wrapper returns the same placeholder while
+// hydration is in flight — claim matches — then runs the compute fresh.
+let refreshLoadingClientValue!: () => void;
+function LoadingValueClientMemo() {
+  const [version, setVersion] = createSignal(0);
+  refreshLoadingClientValue = () => setVersion(v => v + 1);
+  const data = createMemo<{ skeleton: boolean; label: string }>(
+    async () => {
+      const v = version();
+      await sleep(5);
+      return { skeleton: false, label: `client-${v}` };
+    },
+    // No cast: the loadingValue overload types this accessor as never-undefined
+    // even for ssrSource "client" — commit #0 covers the pre-compute window.
+    { ssrSource: "client", loadingValue: { skeleton: true, label: "" } }
+  );
+  return (
+    <Loading fallback={<p>loading</p>}>
+      <div>
+        <Show when={!data().skeleton} fallback={<i>skel</i>}>
+          <b>{data().label}</b>
+        </Show>
+        <span>tail</span>
+      </div>
+    </Loading>
+  );
+}
+
+// ssrSource "hybrid" + loadingValue on an async generator: the server locks
+// the shell at commit #0 and serializes ONLY the first yield (hybrid closes
+// the iterator server-side); the client claims against the placeholder,
+// adopts the first yield as its serialized value, and a post-hydration
+// refetch runs the raw generator client-side (conflating to its last yield).
+let refreshLoadingHybridIterator!: () => void;
+function LoadingValueHybridIterator() {
+  const [version, setVersion] = createSignal(0);
+  refreshLoadingHybridIterator = () => setVersion(v => v + 1);
+  const data = createMemo<{ skeleton: boolean; label: string }>(
+    async function* () {
+      const v = version();
+      await sleep(5);
+      yield { skeleton: false, label: `first-${v}` };
+      await sleep(5);
+      yield { skeleton: false, label: `final-${v}` };
+    } as any,
+    { ssrSource: "hybrid", loadingValue: { skeleton: true, label: "" } }
+  );
+  return (
+    <Loading fallback={<p>loading</p>}>
+      <div>
+        <Show when={!data().skeleton} fallback={<i>skel</i>}>
+          <b>{data().label}</b>
+        </Show>
+        <span>tail</span>
+      </div>
+    </Loading>
+  );
+}
+
+// Generator projection + seedLoadingValue: the shell locks at the seed
+// (commit #0) while the tapped stream serializes the V1 snapshot and patch
+// batches; the client store is born committed with the seed and reconciles
+// the stream in after the claim.
+function LoadingSeedIteratorStore() {
+  const [state] = createStore<{ items: string[]; ready: boolean }>(
+    async function* () {
+      await sleep(5);
+      yield { items: ["iter-a"], ready: true };
+      await sleep(5);
+      yield { items: ["iter-a", "iter-b"], ready: true };
+    } as any,
+    { items: [], ready: false },
+    { seedLoadingValue: true } as any
+  );
+  return (
+    <Loading fallback={<p>loading</p>}>
+      <div>
+        <Show when={state.ready} fallback={<i>empty</i>}>
+          <For each={state.items}>{item => <span>{item}</span>}</For>
+        </Show>
+        <p>end</p>
+      </div>
+    </Loading>
+  );
+}
+
+// ssrSource "client" + seedLoadingValue: the server never runs the derive and
+// serves the raw seed (shell shows it); the client's gated derive leaves the
+// seed in place through hydration — claim matches — then runs fresh.
+let refreshLoadingSeedClient!: () => void;
+function LoadingSeedClientStore() {
+  const [version, setVersion] = createSignal(0);
+  refreshLoadingSeedClient = () => setVersion(v => v + 1);
+  const [state] = createStore<{ items: string[]; ready: boolean }>(
+    async draft => {
+      const v = version();
+      await sleep(5);
+      draft.items = [`cli-${v}`];
+      draft.ready = true;
+    },
+    { items: [], ready: false },
+    { ssrSource: "client", seedLoadingValue: true } as any
+  );
+  return (
+    <Loading fallback={<p>loading</p>}>
+      <div>
+        <Show when={state.ready} fallback={<i>empty</i>}>
+          <For each={state.items}>{item => <span>{item}</span>}</For>
+        </Show>
+        <p>end</p>
+      </div>
+    </Loading>
+  );
+}
+
+// ssrSource "hybrid" + seedLoadingValue: shell locks at the seed, the landed
+// state serializes as the hybrid handoff value; the hydrating client serves
+// the seed through the claim (the settled ref must stay a thenable), and the
+// hybrid takeover re-run — which supersedes the deferred adoption — lands the
+// same data itself. RETURN-style derive: hybrid's promise-shaped takeover
+// hands values back by returning them (draft mutations on the takeover run go
+// to the discarded shadow draft — a pre-existing hybrid constraint).
+let refreshLoadingSeedHybrid!: () => void;
+function LoadingSeedHybridStore() {
+  const [version, setVersion] = createSignal(0);
+  refreshLoadingSeedHybrid = () => setVersion(v => v + 1);
+  const [state] = createStore<{ items: string[]; ready: boolean }>(
+    async () => {
+      const v = version();
+      await sleep(5);
+      return { items: [`hyb-${v}`], ready: true };
+    },
+    { items: [], ready: false },
+    { ssrSource: "hybrid", seedLoadingValue: true } as any
+  );
+  return (
+    <Loading fallback={<p>loading</p>}>
+      <div>
+        <Show when={state.ready} fallback={<i>empty</i>}>
+          <For each={state.items}>{item => <span>{item}</span>}</For>
+        </Show>
+        <p>end</p>
+      </div>
+    </Loading>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -1378,6 +1554,60 @@ export const scenarios: Scenario[] = [
     serverText: "emptyend",
     update: () => refreshLoadingSeedStore(),
     expectedTextAfterUpdate: "row-1end",
+    stableSelector: "div, p"
+  },
+  {
+    name: "loading-value-iterator",
+    App: LoadingValueIterator,
+    async: true,
+    expectedText: "iter-finaltail",
+    serverText: "skeltail"
+  },
+  {
+    name: "loading-value-client",
+    App: LoadingValueClientMemo,
+    async: true,
+    expectedText: "client-0tail",
+    serverText: "skeltail",
+    update: () => refreshLoadingClientValue(),
+    expectedTextAfterUpdate: "client-1tail",
+    stableSelector: "div, span, b"
+  },
+  {
+    name: "loading-value-hybrid-iterator",
+    App: LoadingValueHybridIterator,
+    async: true,
+    expectedText: "first-0tail",
+    serverText: "skeltail",
+    update: () => refreshLoadingHybridIterator(),
+    expectedTextAfterUpdate: "final-1tail",
+    stableSelector: "div, span, b"
+  },
+  {
+    name: "loading-seed-iterator-store",
+    App: LoadingSeedIteratorStore,
+    async: true,
+    expectedText: "iter-aiter-bend",
+    serverText: "emptyend"
+  },
+  {
+    name: "loading-seed-client-store",
+    App: LoadingSeedClientStore,
+    async: true,
+    expectedText: "cli-0end",
+    serverText: "emptyend",
+    update: () => refreshLoadingSeedClient(),
+    expectedTextAfterUpdate: "cli-1end",
+    stableSelector: "div, p"
+  },
+  {
+    name: "loading-seed-hybrid-store",
+    App: LoadingSeedHybridStore,
+    async: true,
+    expectedText: "hyb-0end",
+    serverText: "emptyend",
+    update: () => refreshLoadingSeedHybrid(),
+    expectedTextAfterUpdate: "hyb-1end",
     stableSelector: "div, p"
   }
 ];

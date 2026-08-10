@@ -1,0 +1,5 @@
+{
+  "name": "loading-value-client",
+  "shell": "<div _hk=1000><!--$--><i _hk=10030>skel</i><!--/--><span>tail</span></div>",
+  "rest": ""
+}

@@ -1,0 +1,5 @@
+---
+"solid-js": patch
+---
+
+Harden the loading window across every ssrSource mode, pinned by a full parity matrix (thenable/iterator × server/hybrid/client × memo/store, in loaded and streamed replay). Two hydration fixes fell out: a fully-buffered iterator replay delivered its first yield synchronously, closing the window mid-claim (the memo replay now defers the first yield one microtask when a loading window is open, keeping sync delivery for windowless nodes whose claim needs the value); and the buffered store replay applied the first-yield snapshot synchronously at claim — correct for windowless stores where the snapshot IS what the SSR DOM shows, but a seed-window store's DOM shows the SEED, so the snapshot now parks until hydration completes alongside the patch backlog. Types learn commit #0: `loadingValue` overloads on createMemo/createSignal/createOptimistic (client and server runtimes) drop `undefined` from the accessor — including `ssrSource: "client"`, where the loading value covers the pre-compute window — and type `prev` as `T`, matching the signals core.

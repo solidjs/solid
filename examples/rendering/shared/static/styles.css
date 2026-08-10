@@ -96,3 +96,38 @@ a.link {
   margin-top: 0;
   color: #337ab7;
 }
+.feed {
+  transition: opacity 0.2s ease-in;
+  transition-delay: 0.1s;
+}
+.feed.pending {
+  opacity: 0.6;
+}
+.feed-card {
+  max-width: 420px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+.feed-card h2 {
+  margin-top: 0;
+  color: #337ab7;
+}
+.skeleton-line {
+  height: 14px;
+  border-radius: 4px;
+  background: #e2e5e9;
+  margin: 12px 0;
+  animation: skeleton-pulse 1.2s ease-in-out infinite;
+}
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}

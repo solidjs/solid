@@ -585,10 +585,21 @@ function settleServerAsync<T, U>(
 
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
+// Commit #0 (loadingValue) removes the uninitialized window: never undefined
+// (the server flushes the loading value even for ssrSource "client"), and
+// `prev` is always T — mirrors the client wrapper and the signals core.
+export function createSignal<T>(
+  fn: ComputeFunction<NoInfer<T>, T>,
+  options: ServerClientSignalOptions<T> & { loadingValue: T }
+): Signal<T>;
 export function createSignal<T>(
   fn: ComputeFunction<undefined | NoInfer<T>, T>,
   options: ServerClientSignalOptions<T>
 ): Signal<T | undefined>;
+export function createSignal<T>(
+  fn: ComputeFunction<NoInfer<T>, T>,
+  options: ServerSignalOptions<T> & { loadingValue: T }
+): Signal<T>;
 export function createSignal<T>(
   fn: ComputeFunction<undefined | NoInfer<T>, T>,
   options?: ServerSignalOptions<T>
@@ -619,10 +630,19 @@ export function createSignal<T>(
   ] as Signal<T | undefined>;
 }
 
+// Commit #0 (loadingValue): never undefined, `prev` is always T — see createSignal.
+export function createMemo<T>(
+  compute: ComputeFunction<NoInfer<T>, T>,
+  options: ServerClientMemoOptions<T> & { loadingValue: T }
+): SourceAccessor<T>;
 export function createMemo<T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
   options: ServerClientMemoOptions<T>
 ): SourceAccessor<T | undefined>;
+export function createMemo<T>(
+  compute: ComputeFunction<NoInfer<T>, T>,
+  options: ServerMemoOptions<T> & { loadingValue: T }
+): SourceAccessor<T>;
 export function createMemo<T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
   options?: ServerMemoOptions<T>
@@ -1351,10 +1371,19 @@ export function createOptimistic<T>(
   value: Exclude<T, Function>,
   options?: SignalOptions<T>
 ): Signal<T>;
+// Commit #0 (loadingValue): never undefined, `prev` is always T — see createSignal.
+export function createOptimistic<T>(
+  fn: ComputeFunction<NoInfer<T>, T>,
+  options: ServerClientSignalOptions<T> & { loadingValue: T }
+): Signal<T>;
 export function createOptimistic<T>(
   fn: ComputeFunction<undefined | NoInfer<T>, T>,
   options: ServerClientSignalOptions<T>
 ): Signal<T | undefined>;
+export function createOptimistic<T>(
+  fn: ComputeFunction<NoInfer<T>, T>,
+  options: ServerSignalOptions<T> & { loadingValue: T }
+): Signal<T>;
 export function createOptimistic<T>(
   fn: ComputeFunction<undefined | NoInfer<T>, T>,
   options?: ServerSignalOptions<T>
