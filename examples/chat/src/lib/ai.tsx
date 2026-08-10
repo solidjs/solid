@@ -19,12 +19,35 @@
 import { createMemo, Loading } from "solid-js";
 import { asyncArg, type Slot } from "@solidjs/web/frames";
 import { marked } from "marked";
-import { generate, type Stats } from "./model";
+import { generate, greet, type Stats } from "./model";
 
 export type StatusSlot = Slot<{ progress: string; stats: Stats }>;
 
 export async function reply(prompt: string) {
   const gen = generate(prompt);
+  return (props: { status: StatusSlot }) => (
+    <section class="reply">
+      {gen.parts.map(part => (
+        <Part text={part} />
+      ))}
+      <props.status progress={asyncArg(gen.progress)} stats={asyncArg(gen.stats)} />
+    </section>
+  );
+}
+
+/**
+ * The t=0 face (Stage 4). Same component shape as `reply`, but rendered
+ * INTO the initial document rather than answering a call: at SSR the direct
+ * result renders inline, generation starts with the page, and every yield
+ * past the first re-emits over the document's own response — first tokens
+ * paint through the streamed fragments before any JavaScript runs, the rest
+ * ride the `sc:live` channel and morph in after hydration adopts this
+ * boundary (the catch-up replay covers whatever landed in between). One
+ * component, both transports: this exact markup machinery answers
+ * `reply()` calls after the page is up.
+ */
+export async function welcome() {
+  const gen = greet();
   return (props: { status: StatusSlot }) => (
     <section class="reply">
       {gen.parts.map(part => (

@@ -85,6 +85,14 @@ Under this reply there is a live ticker. While I "generate", it reads an *async 
 
 Ask me about *server components*, *signals*, or *markdown* to see a different answer.`;
 
+// The t=0 greeting (see `greet()`): generation starts when the DOCUMENT
+// renders, so these tokens stream over the page's own response — before the
+// client bundle has even loaded. Kept short and fast-paced: the document
+// response window stays open until the generation completes.
+const GREETING = `Welcome to **Solid Chat** — and yes, I am typing this *into the page itself*. This greeting is a server component rendered in the initial document: generation started before any of the page's JavaScript loaded, and these words are streaming over the document's own response as HTML.
+
+When the app hydrates it adopts this reply mid-sentence and replays whatever it missed — no fetch, no JSON twin. Ask about **server components**, **signals**, or **markdown** and the next reply arrives the other way: a server-function call streaming over its own connection.`;
+
 function answerFor(prompt: string): string {
   for (const [pattern, answer] of ANSWERS) {
     if (pattern.test(prompt)) return answer;
@@ -139,7 +147,18 @@ function progressChannel() {
 }
 
 export function generate(prompt: string): Generation {
-  const paragraphs = answerFor(prompt).split(/\n\n+/);
+  return run(answerFor(prompt), { pace: 220, think: 700 });
+}
+
+/** The t=0 generation: the greeting a document render starts producing.
+ *  Faster cadence and no thinking pause — the document response holds open
+ *  for exactly this window. */
+export function greet(): Generation {
+  return run(GREETING, { pace: 90, think: 120 });
+}
+
+function run(text: string, timing: { pace: number; think: number }): Generation {
+  const paragraphs = text.split(/\n\n+/);
   const parts = paragraphs.map(() => progressChannel());
   const channel = progressChannel();
   const stats = deferred<Stats>();
@@ -148,13 +167,13 @@ export function generate(prompt: string): Generation {
     const started = Date.now();
     let tokens = 0;
     channel.push("thinking…");
-    await sleep(700);
+    await sleep(timing.think);
     for (let i = 0; i < paragraphs.length; i++) {
       // Split retaining whitespace so mid-stream slices keep the newlines
       // markdown structure depends on (lists, code fences).
       const words = paragraphs[i].split(/(?<=\s)/);
       for (let w = 0; w < words.length; w += 4) {
-        await sleep(220);
+        await sleep(timing.pace);
         tokens += Math.min(4, words.length - w);
         // The growing paragraph, mid-thought: each push re-renders the
         // part's markdown on the server and morphs it in the browser.

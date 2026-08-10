@@ -5,7 +5,7 @@
 // streams and never exists here as templates or JSON.
 import { createSignal, For, Loading } from "solid-js";
 import { dynamic } from "@solidjs/web";
-import { reply } from "~/lib/ai";
+import { reply, welcome } from "~/lib/ai";
 import Status from "~/components/status";
 import "./app.css";
 
@@ -19,6 +19,13 @@ let nextId = 0;
 export default function App() {
   const [messages, setMessages] = createSignal<Message[]>([]);
   const [draft, setDraft] = createSignal("");
+
+  // The t=0 reply: rendered during the INITIAL document render, so the
+  // assistant is already typing as the page loads — tokens stream over the
+  // document's own response, and hydration adopts the boundary in place
+  // (zero network) and picks the generation up mid-sentence. The `reply`
+  // calls below are the same machinery on the call-driven face.
+  const Welcome = dynamic(() => welcome());
 
   const send = (e: SubmitEvent) => {
     e.preventDefault();
@@ -38,6 +45,13 @@ export default function App() {
         </p>
       </header>
       <ol class="transcript">
+        <li class="exchange">
+          <div class="bubble assistant">
+            <Loading fallback={<p class="typing">▍</p>}>
+              <Welcome status={p => <Status progress={p.progress} stats={p.stats} />} />
+            </Loading>
+          </div>
+        </li>
         <For each={messages()}>
           {m => {
             // One server-component call per message. The prompt is the server
