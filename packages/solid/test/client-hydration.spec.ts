@@ -6,6 +6,7 @@ import {
   createRoot,
   flush,
   getOwner,
+  isPending,
   createSignal as coreSignal,
   createMemo as coreMemo
 } from "@solidjs/signals";
@@ -1231,6 +1232,110 @@ describe("ssrSource 'client' requires declared commit #0 (dev error)", () => {
         { id: "t" }
       )
     ).toThrow(/requires seedLoadingValue: true/);
+  });
+});
+
+// The hydration gate must not close the loading window: a sync prev-return
+// from the gate would count as the node's first real answer, making the
+// post-hydration compute pending-class (isPending true) — but that compute IS
+// the first question. The gate returns a never-settling flight instead, so
+// commit #0 serves verdict-quiet until the real first flight lands, exactly
+// like a fresh CSR mount.
+describe("ssrSource 'client' + loading window — verdict-quiet through hydration", () => {
+  afterEach(() => {
+    stopHydration();
+  });
+
+  test("memo: post-hydration first flight serves commit #0 with isPending false", async () => {
+    startHydration({});
+
+    let read: any;
+    const resolvers: ((s: string) => void)[] = [];
+    const [v, setV] = coreSignal(0);
+    createRoot(
+      () => {
+        read = createMemo(
+          () => {
+            v();
+            return new Promise<string>(r => resolvers.push(r));
+          },
+          { ssrSource: "client", loadingValue: "commit-0" }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    // During hydration: gate holds, compute never ran, commit #0 serves.
+    expect(read()).toBe("commit-0");
+    expect(isPending(() => read())).toBe(false);
+    expect(resolvers.length).toBe(0);
+
+    stopHydration();
+    flush();
+
+    // First real flight in-flight: still commit #0, still verdict-quiet.
+    expect(resolvers.length).toBe(1);
+    expect(read()).toBe("commit-0");
+    expect(isPending(() => read())).toBe(false);
+
+    resolvers[0]("landed-1");
+    await new Promise<void>(r => setTimeout(r));
+    flush();
+    expect(read()).toBe("landed-1");
+
+    // The window closed with the first landing: the SECOND flight is
+    // pending-class like any other refetch.
+    setV(1);
+    flush();
+    expect(resolvers.length).toBe(2);
+    expect(read()).toBe("landed-1");
+    expect(isPending(() => read())).toBe(true);
+
+    resolvers[1]("landed-2");
+    await new Promise<void>(r => setTimeout(r));
+    flush();
+    expect(read()).toBe("landed-2");
+  });
+
+  test("store: post-hydration first derive serves the seed with isPending false", async () => {
+    startHydration({});
+
+    let store: any;
+    let resolveDerive!: (s: { v: string }) => void;
+    let deriveRan = 0;
+    createRoot(
+      () => {
+        [store] = createStore<{ v: string }>(
+          () => {
+            deriveRan++;
+            return new Promise<{ v: string }>(r => (resolveDerive = r));
+          },
+          { v: "seed" },
+          { ssrSource: "client", seedLoadingValue: true }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    // During hydration: gate holds, derive never ran, seed serves.
+    expect(store.v).toBe("seed");
+    expect(isPending(() => store.v)).toBe(false);
+    expect(deriveRan).toBe(0);
+
+    stopHydration();
+    flush();
+
+    // First real derive in-flight: still the seed, still verdict-quiet.
+    expect(deriveRan).toBe(1);
+    expect(store.v).toBe("seed");
+    expect(isPending(() => store.v)).toBe(false);
+
+    resolveDerive({ v: "landed" });
+    await new Promise<void>(r => setTimeout(r));
+    flush();
+    expect(store.v).toBe("landed");
   });
 });
 

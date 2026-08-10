@@ -417,6 +417,19 @@ function assertClientCommitZero(fn: any, options: any, seed?: boolean) {
   );
 }
 
+/**
+ * A thenable that never settles. The pre-hydration gate on a loading-window
+ * `ssrSource: "client"` source returns this instead of prev: a sync return
+ * would count as the node's first real answer and close the loading window,
+ * making the post-hydration compute pending-class (isPending true) — but
+ * that compute IS the node's first question. A never-landing flight keeps
+ * the window open through the gate, so commit #0 serves verdict-quiet until
+ * the real first flight lands — exactly like a fresh CSR mount. The gate
+ * flip's recompute supersedes it (`_inFlight` is replaced; the callbacks
+ * never fire), so sharing one frozen instance is safe.
+ */
+const UNASKED: PromiseLike<never> = { then() {} } as any;
+
 /** Options carry commit #0 — the loading window must hold through the claim walk. */
 function hasLoadingWindow(options: any): boolean {
   return (
@@ -738,9 +751,12 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
   const ssrSource = options?.ssrSource;
 
   if (ssrSource === "client") {
+    const windowed = hasLoadingWindow(options);
     const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
     const sig = coreFn((prev: any) => {
-      if (!hydrated()) return prev;
+      // Windowed: UNASKED (not prev) — a sync prev-return would close the
+      // loading window before the real compute ever runs.
+      if (!hydrated()) return windowed ? UNASKED : prev;
       return fn(prev);
     }, options);
     setHydrated(true);
@@ -802,10 +818,14 @@ function hydrateStoreLikeFn(
   ssrSource: string | undefined
 ): any {
   if (ssrSource === "client") {
+    const windowed = hasLoadingWindow(options);
     const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
     const result = coreFn(
       (draft: any) => {
-        if (!hydrated()) return;
+        // Windowed (seedLoadingValue): UNASKED — a sync no-op derive would
+        // close the seed window before the real derive ever runs (see the
+        // signal gate above).
+        if (!hydrated()) return windowed ? UNASKED : undefined;
         return fn(draft);
       },
       initialValue,

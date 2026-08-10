@@ -220,9 +220,7 @@ const [clientDerived] = createSignal((prev: number) => (prev ?? count()) + 1, {
 });
 const clientDerivedValue: number = clientDerived();
 // @ts-expect-error "client" without loadingValue is not accepted
-const [bareClientOptimistic] = createOptimistic((p?: number) => (p ?? 0) + 1, {
-  ssrSource: "client"
-});
+const [bareClientOptimistic] = createOptimistic((p?: number) => p ?? 0, { ssrSource: "client" });
 const [clientOptimistic] = createOptimistic((prev: number) => (prev ?? count()) + 1, {
   ssrSource: "client",
   loadingValue: 0
