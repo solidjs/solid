@@ -130,6 +130,24 @@ const user = await resolve(() => userMemo());
 const result = await resolve(() => computedValue());
 ```
 
+### `loadingValue` / `seedLoadingValue`: declared first paint (advanced)
+
+The primary pattern for first-load UI is structural: wrap the branch in `Loading`. This option is the escape hatch for the cases where the right loading UI *is* the real UI rendered with provisional data — a feed that renders placeholder rows through the same components it renders real rows, a chart drawn from default data, dimmed with an inline indicator. Instead of branching to a fallback tree, the computation declares what it renders before its first answer:
+
+```js
+const feed = createMemo(() => fetchFeed(id()), {
+  loadingValue: { provisional: true, items: placeholderItems }
+});
+```
+
+- The node is born committed with the declared value. Its first flight never suspends readers, never trips a `Loading` boundary, and never holds a transition — the placeholder renders immediately, and the answer reveals when it lands.
+- The first flight is quiet: `isPending` reads `false` while it is in flight. First-load affordances live in the value itself (e.g. a `provisional` flag driving dimmed styles), not in pending state. Once the first real answer lands the window is over — refetches and input changes use the normal pending machinery and `isPending` behaves as usual.
+- `loadingValue` is typed strictly as `T`: the placeholder must be shaped like a real answer. If it can't be, that's the signal you wanted a `Loading` boundary.
+- Store-family sources (`createStore(fn)`, `createProjection`, `createOptimisticStore`) declare it as `seedLoadingValue: true`, which promotes their existing seed to the same role.
+- SSR renders the declared value into the HTML rather than suspending, and the landing streams as data; hydration claims against it. This is also why `ssrSource: "client"` requires the declaration (below): the server can't run the compute, so the author must say what it renders.
+
+The guardrail is honesty: this is for *default data the user can tell is provisional*, not for impersonating an answer that hasn't arrived. If you find yourself inventing plausible-looking real data to avoid a spinner, use `Loading`.
+
 ### Transitions: built-in, multiple in flight
 
 2.0 treats transitions as a core scheduling concept rather than something you explicitly wrap in `startTransition`/`useTransition`. Multiple transitions can be in flight; “entangling” determines what should block what. The user-facing pieces are the observable pending state (`isPending`) and optimistic APIs (RFC 06).
@@ -142,7 +160,7 @@ Because async lives in ordinary computations, SSR/hydration policy is a per-prim
 
 - `"server"` *(default)* — the client uses the serialized server value as its initial state. The compute does **not** re-run for the initial value; the serialized result is authoritative. Choose this when the compute is deterministic from server-available inputs — the common data-fetch case, where it means no duplicate fetch on load.
 - `"hybrid"` — the client seeds from the serialized server value, then re-runs the compute to take over. Choose this for computes that mix server data with client-only signals (window size, user locale).
-- `"client"` — skip the server value entirely. On the server the compute never runs (an owner is still created so hydration ids stay aligned); on the client it is deferred until hydration completes, then runs as if first-mounted. Choose this for client-only state where serialization is meaningless. Because the server can't run the compute, `"client"` requires a declared commit #0: `loadingValue` on signal-family sources (`loadingValue: undefined` is a valid declaration — put the `undefined` in the type and branch on it), `seedLoadingValue: true` on store-family sources (the seed is what the pre-compute window renders).
+- `"client"` — skip the server value entirely. On the server the compute never runs (an owner is still created so hydration ids stay aligned); on the client it is deferred until hydration completes, then runs as if first-mounted. Choose this for client-only state where serialization is meaningless. Because the server can't run the compute, `"client"` requires a declared first paint (`loadingValue` / `seedLoadingValue`, above): `loadingValue` on signal-family sources (`loadingValue: undefined` is a valid declaration — put the `undefined` in the type and branch on it), `seedLoadingValue: true` on store-family sources (the seed is what the pre-compute window renders).
 
 ```js
 // Default ("server"): serialized value is authoritative; no client refetch on load.
