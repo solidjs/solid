@@ -8,6 +8,7 @@
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": [
+    "chat-example",
     "migrating-element-example",
     "rendering-example",
     "sierpinski-example",
