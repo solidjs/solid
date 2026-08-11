@@ -128,6 +128,40 @@ describe("external source", () => {
     });
   });
 
+  it("should keep receiving external updates after being created during a transition", async () => {
+    // Initialize SuspenseContext so startTransition creates a real Transition
+    getSuspenseContext();
+
+    const flush = () => new Promise(resolve => setTimeout(resolve));
+
+    await createRoot(async dispose => {
+      const e = new ExternalSource(0);
+      let memo: (() => number) | undefined;
+
+      // Create the memo while a transition is running. Its first run tracks
+      // dependencies on the transition-scoped external source, never on the
+      // ordinary one.
+      await startTransition(() => {
+        memo = createMemo(() => e.get());
+      });
+      expect(memo!()).toBe(0);
+
+      // First external update is delivered through the transition-scoped source.
+      e.update(1);
+      await flush();
+      expect(memo!()).toBe(1);
+
+      // Second external update must still be delivered. Before the fix the
+      // transition-scoped source had been disposed and the ordinary source was
+      // never subscribed, so this update was silently lost.
+      e.update(2);
+      await flush();
+      expect(memo!()).toBe(2);
+
+      dispose();
+    });
+  });
+
   afterEach(() => {
     vi.resetModules();
   });

@@ -1486,11 +1486,20 @@ function createComputation<Next, Init = unknown>(
     const ordinary = ExternalSourceConfig.factory(sourceFn, trigger);
     onCleanup(() => ordinary.dispose());
     let inTransition: ExternalSource | undefined;
+    let trackedOrdinary = false;
     const triggerInTransition: () => void = () =>
       startTransition(trigger).then(() => {
         if (inTransition) {
           inTransition.dispose();
           inTransition = undefined;
+          // A computation created while a transition was running only ever
+          // tracked the transition-scoped source, so its ordinary source has no
+          // recorded dependencies. Now that the transition is over, re-trigger
+          // once so the computation runs through `ordinary` again and
+          // re-subscribes; otherwise it would never receive further external
+          // updates. If the computation was disposed in the meantime this is a
+          // no-op because it is no longer an observer of `track`.
+          if (!trackedOrdinary) trigger();
         }
       });
     c.fn = x => {
@@ -1500,6 +1509,7 @@ function createComputation<Next, Init = unknown>(
           inTransition = ExternalSourceConfig!.factory(sourceFn, triggerInTransition);
         return inTransition.track(x);
       }
+      trackedOrdinary = true;
       return ordinary.track(x);
     };
   }
