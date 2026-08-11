@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 import { createMemo } from "solid-js";
 import { Loading } from "@solidjs/web";
-import { asyncArg } from "../../frames/src/server";
+import { asyncArg } from "../../frames/src/server.js";
 import { renderServerComponent } from "@dom-expressions/runtime/src/frame-sink.js";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -93,7 +93,7 @@ describe("the chat demo shape (multi-part live holes + value-tier slot args)", (
       ["delta", "epsilon"],
       ["zeta", "eta", "theta"]
     ]);
-    const ServerComp = (props: { status: any }) => (
+    const ServerComp = (props: any) => (
       <section class="reply">
         {gen.parts.map(part => (
           <Part text={part} />
