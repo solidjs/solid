@@ -79,7 +79,10 @@ function retryReaches(el: Computed<any>, source: any): boolean {
 export function parkLoadingWindow(el: Computed<any>, e: NotReadyError): void {
   el._blocked = true;
   if (e.source) addPendingSource(el, e.source as Computed<any>);
-  setPendingError(el, e.source as Computed<any>, e);
+  // An errored node keeps its settled error as the read-visible answer while
+  // the retry is parked. `_pendingSources` and `_blocked` are sufficient to
+  // schedule it again when the dependency settles.
+  if (!(el._statusFlags & STATUS_ERROR)) setPendingError(el, e.source as Computed<any>, e);
 }
 
 export function setPendingError(el: Computed<any>, source?: Computed<any>, error?: any): void {

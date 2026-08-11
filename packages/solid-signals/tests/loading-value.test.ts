@@ -311,6 +311,56 @@ describe("createMemo with loadingValue", () => {
     expect(isPending(user)).toBe(false);
   });
 
+  it("keeps the settled error while a retry is parked on an unready dependency", async () => {
+    const first = deferred<string>();
+    const dependency = deferred<number>();
+    const originalError = new Error("boom");
+    let setRetry!: (retry: boolean) => void;
+    let user!: () => string;
+
+    createRoot(() => {
+      const [retry, set] = createSignal(false);
+      setRetry = set;
+      const dep = createMemo(() => dependency.promise);
+      user = createMemo<string>(
+        () => (retry() ? `dep:${dep()}` : (first.promise as Promise<string>)),
+        { loadingValue: "placeholder" }
+      );
+      createEffect(() => user(), { effect: () => {}, error: () => {} });
+    });
+    flush();
+
+    first.reject(originalError);
+    await tick();
+    flush();
+    let settledError: unknown;
+    try {
+      untrackedRead(user);
+    } catch (error) {
+      settledError = error;
+    }
+    expect(settledError).toBeInstanceOf(Error);
+    expect(settledError).not.toBeInstanceOf(NotReadyError);
+    expect((settledError as Error).message).toBe("boom");
+
+    setRetry(true);
+    flush();
+    let parkedError: unknown;
+    try {
+      untrackedRead(user);
+    } catch (error) {
+      parkedError = error;
+    }
+    expect(parkedError === settledError).toBe(true);
+    expect(isPending(user)).toBe(false);
+
+    dependency.resolve(7);
+    await tick();
+    flush();
+    expect(user()).toBe("dep:7");
+    expect(isPending(user)).toBe(false);
+  });
+
   it("drops superseded first-flight results and keeps serving until the live flight lands", async () => {
     const d1 = deferred<string>();
     const d2 = deferred<string>();
