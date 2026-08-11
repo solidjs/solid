@@ -3,7 +3,7 @@
 // client app. The replies (the markdown, the parser behind it, the canned
 // answers) are server components; their markup arrives as HTML over frame
 // streams and never exists here as templates or JSON.
-import { createSignal, For, Loading } from "solid-js";
+import { createSignal, For, Loading, onSettled } from "solid-js";
 import { dynamic } from "@solidjs/web";
 import { reply, welcome } from "~/lib/ai";
 import Status from "~/components/status";
@@ -33,7 +33,31 @@ export default function App() {
     if (!prompt) return;
     setMessages(m => [...m, { id: nextId++, prompt }]);
     setDraft("");
+    pinned = true;
   };
+
+  // Follow the stream: replies grow through server-driven morphs — HTML the
+  // browser patches in place, no client render to hook — so bottom-pinning
+  // watches the transcript's SIZE, not the component tree. Stay pinned only
+  // while the reader is already at the bottom; scrolling up to re-read wins.
+  // (`onSettled` is 2.0's setup-and-teardown — the onMount + onCleanup pair.)
+  let transcript!: HTMLOListElement;
+  let pinned = true;
+  onSettled(() => {
+    const doc = document.documentElement;
+    const onScroll = () => {
+      pinned = window.innerHeight + window.scrollY >= doc.scrollHeight - 120;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    const follow = new ResizeObserver(() => {
+      if (pinned) window.scrollTo({ top: doc.scrollHeight });
+    });
+    follow.observe(transcript);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      follow.disconnect();
+    };
+  });
 
   return (
     <main class="chat">
@@ -44,11 +68,13 @@ export default function App() {
           as HTML. Ask about <b>server components</b>, <b>signals</b>, or <b>markdown</b>.
         </p>
       </header>
-      <ol class="transcript">
+      <ol class="transcript" ref={transcript}>
         <li class="exchange">
           <div class="bubble assistant">
             <Loading fallback={<p class="typing">▍</p>}>
-              <Welcome status={p => <Status progress={p.progress} stats={p.stats} />} />
+              <Welcome
+                status={p => <Status progress={p.progress} stats={p.stats} usage={p.usage} />}
+              />
             </Loading>
           </div>
         </li>
@@ -65,7 +91,9 @@ export default function App() {
                 <div class="bubble user">{m.prompt}</div>
                 <div class="bubble assistant">
                   <Loading fallback={<p class="typing">▍</p>}>
-                    <Reply status={p => <Status progress={p.progress} stats={p.stats} />} />
+                    <Reply
+                      status={p => <Status progress={p.progress} stats={p.stats} usage={p.usage} />}
+                    />
                   </Loading>
                 </div>
               </li>

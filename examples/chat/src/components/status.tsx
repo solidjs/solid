@@ -1,21 +1,28 @@
 import { Loading } from "solid-js";
-import type { Stats } from "~/lib/model";
+import type { Stats, Usage } from "~/lib/model";
 
 /**
- * The client half of the DR-2 showcase. Both props crossed the slot border
- * as reactive expressions (case 1) — the server re-evaluates them on every
- * commit and re-ships this occurrence's record, so these are ordinary live
- * props:
+ * The client half of the DR-2 showcase — three tiers, one border:
  *
- * - `props.stats` is not-ready until generation completes — the read
- *   suspends into the outer `<Loading>`, so the ticker shows while the
- *   model "generates" and the numbers replace it when it stops.
- * - `props.progress` updates in place as the server pushes new yields. Its
- *   own `<Loading>` covers the instant before the first yield lands.
+ * - `props.progress` and `props.stats` crossed as reactive expressions
+ *   (case 1) — the server re-evaluates them on every commit and re-ships
+ *   this occurrence's record. `stats` is not-ready until generation
+ *   completes, so its read suspends into the outer `<Loading>`; the ticker
+ *   shows meanwhile and the numbers replace it when the model stops.
+ * - `props.usage` crossed as a CONTAINER (case 3): the server passed a
+ *   projection itself, and this is its live read-only twin. Reads like
+ *   local store state — `usage.parts` moves when the stream opens a new
+ *   paragraph, `usage.tokens` on every tick, each granularly (a `parts`
+ *   write never re-runs a `tokens` read). No totals: like a real
+ *   generation, structure is discovered as it streams. Its own `<Loading>`
+ *   covers the instant before the trace's snapshot lands.
  */
-export default function Status(props: { progress: string; stats: Stats }) {
+export default function Status(props: { progress: string; stats: Stats; usage: Usage }) {
   return (
     <div class="status">
+      <Loading fallback={<span class="meter">…</span>}>
+        <span class="meter">¶ {props.usage.parts}</span>
+      </Loading>
       <Loading
         fallback={
           <Loading fallback={<span class="ticker">…</span>}>

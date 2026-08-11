@@ -14,7 +14,9 @@
   },
   "dependencies": {
     "@solidjs/web": "workspace:*",
+    "highlight.js": "^11.11.1",
     "marked": "^12.0.2",
+    "marked-highlight": "^2.2.4",
     "solid-js": "workspace:*"
   },
   "devDependencies": {

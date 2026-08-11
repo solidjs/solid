@@ -114,6 +114,48 @@ body {
   padding: 0;
 }
 
+/* Syntax highlighting palette — the only client-side half of the
+   highlighter. The tokens are produced by highlight.js on the server;
+   these classes are all that ships. */
+.md .hljs-keyword,
+.md .hljs-literal {
+  color: #c792ea;
+}
+
+.md .hljs-string,
+.md .hljs-regexp {
+  color: #a5d6a7;
+}
+
+.md .hljs-title,
+.md .hljs-title.function_ {
+  color: #82aaff;
+}
+
+.md .hljs-number {
+  color: #f78c6c;
+}
+
+.md .hljs-comment {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.md .hljs-attr,
+.md .hljs-property {
+  color: #ffcb6b;
+}
+
+.md .hljs-name,
+.md .hljs-tag {
+  color: #f07178;
+}
+
+.md .hljs-built_in,
+.md .hljs-variable.language_ {
+  color: #89ddff;
+}
+
 .md a {
   color: var(--accent);
 }
@@ -136,6 +178,18 @@ body {
   border-top: 1px solid var(--border);
   font-size: 12px;
   color: var(--muted);
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+
+/* The paragraph meter — driven by the usage container (a live store). */
+.status .meter {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
 }
 
 .status .ticker::before {
