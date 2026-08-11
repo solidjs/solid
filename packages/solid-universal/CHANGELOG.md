@@ -1,5 +1,27 @@
 # @solidjs/universal
 
+## 2.0.0-beta.33
+
+### Patch Changes
+
+- Updated dependencies [f3accb3]
+- Updated dependencies [8923ac6]
+- Updated dependencies [3bcce84]
+- Updated dependencies [23657d2]
+- Updated dependencies [a37611e]
+- Updated dependencies [ba7560f]
+- Updated dependencies [28f7bec]
+- Updated dependencies [09e2d3b]
+- Updated dependencies [913913a]
+- Updated dependencies [ce8e46b]
+- Updated dependencies [c320429]
+- Updated dependencies [766ea30]
+- Updated dependencies [536dec5]
+- Updated dependencies [af1c71e]
+- Updated dependencies [ab5f83c]
+- Updated dependencies [d7f95bb]
+  - solid-js@2.0.0-beta.33
+
 ## 2.0.0-beta.32
 
 ### Patch Changes

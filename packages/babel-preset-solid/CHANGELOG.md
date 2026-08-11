@@ -1,5 +1,28 @@
 # babel-preset-solid
 
+## 2.0.0-beta.33
+
+### Patch Changes
+
+- 3b97432: Update dom-expressions to 0.50.0-next.41 — the published runtime for the DR-2/live-holes arc this branch builds on. The container tier lands (DR-2 case 3): reactive containers passed as slot args cross the slot border as their trace — an async iterable of a snapshot plus PatchOp batches — and materialize back into live read-only containers on the client, on both faces, with the `ContainerTracePlugin` riding the codec's default plugin set and its hooks living in a registered global so duplicated bundle copies share one protocol endpoint. Live markup holes reach the document face (Stage 4 producer half: one per-document engine, re-emissions on an eagerly-serialized `sc:live` record) and live attribute holes ship element-addressed via `data-lha` (Stage 3); document-face slot args get per-arg pending (a not-ready getter rides its own boundary instead of coarse-holding the occurrence) and mint-suppressed fill interiors, and scope-minting arg expressions latch instead of re-emitting (no duplicate projections, no never-ending responses). Server functions decouple the transport/codec from the codec-free registry surface (`server-functions/registry.js` + a late-bound RPC seam on `globalThis`), so an app with zero server functions stops shipping seroval and the fetch RPC client; results negotiate the JSON fast path with a lazily-loaded codec, and `isJSONSafe` survives cyclic and deeply nested values so negotiation failures stop masquerading as function errors (#566). Also picks up the serializer decode split (lazy readers load half the codec), Node16-CJS importable main-entry types, tree-shakable `ResponseEnvelope`, hydrating inserts keeping `current` honest about the DOM, and the streaming-SSR retry robustness fixes (branded retry wrappers ending O(N²) stack growth; real errors in retry passes fail the request, not the process).
+- Updated dependencies [f3accb3]
+- Updated dependencies [8923ac6]
+- Updated dependencies [3bcce84]
+- Updated dependencies [23657d2]
+- Updated dependencies [a37611e]
+- Updated dependencies [ba7560f]
+- Updated dependencies [28f7bec]
+- Updated dependencies [09e2d3b]
+- Updated dependencies [913913a]
+- Updated dependencies [ce8e46b]
+- Updated dependencies [c320429]
+- Updated dependencies [766ea30]
+- Updated dependencies [536dec5]
+- Updated dependencies [af1c71e]
+- Updated dependencies [ab5f83c]
+- Updated dependencies [d7f95bb]
+  - solid-js@2.0.0-beta.33
+
 ## 2.0.0-beta.32
 
 ### Patch Changes

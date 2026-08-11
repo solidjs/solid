@@ -1,5 +1,35 @@
 # @solidjs/signals
 
+## 2.0.0-beta.33
+
+### Minor Changes
+
+- 521b73d: Add `loadingValue` (`createMemo` / `createSignal(fn)` / `createOptimistic(fn)`) and `seedLoadingValue` (`createProjection` / `createStore(fn)` / `createOptimisticStore(fn)`): commit #0 for async sources. The node is born committed with the loading value (the projection's seed) and serves it everywhere during the compute's first flight — no NotReadyError propagation, no Loading-boundary suspension, no transition holds (first-flight work is loading-class, like a boundary fallback). The window is verdict-quiet: `isPending` stays false, because commit #0 answers the question by declaration — first-load affordances live in the value channel (null / skeleton provenance the author encodes), and `isPending` remains refetch truth for an answered question, so `data.skeleton || isPending(data)` covers the two disjoint states. The first real answer closes the window permanently: refetches use normal pending semantics. `loadingValue` is typed strictly as `T` (nullable placeholders require a nullable node type) and seeds the compute's first `prev`.
+
+### Patch Changes
+
+- b37d19a: Dev-mode error for untracked async reads after `await` (#2987)
+
+  A `NotReadyError` that rejects an async computation's flight is treated as
+  pending and retried through the settle sweep over the source's subscribers —
+  which requires the dependency edge a tracked read creates. A source FIRST
+  read after an `await` is untracked: no edge exists, the sweep can never find
+  the node, and it wedged forever — boundary hung on its fallback, `isPending`
+  reading false, no error anywhere.
+
+  Dev builds now detect the unreachable retry at rejection time (the source is
+  not among the node's deps, nor carried by any dep's pending chain) and
+  convert it to a descriptive error that propagates to `Errored`/logging.
+  Post-`await` re-reads of sources tracked before the first `await` keep their
+  retry behavior. The check is dev-only — it compiles out of production builds
+  entirely (all size gates unchanged), per the convention that authorship
+  diagnostics don't cost production bytes.
+
+- ba7560f: Loading-window integrity fixes (#2988, #2989, #2990): seed-window projections run their derive against a detached shadow of the seed so mid-flight draft writes can never tear through commit #0 (each commit point reconciles a detached snapshot; the server freezes the seed before the derive runs to match); a parked retry on an errored loading-value node no longer replaces the settled error with a NotReadyError; and the window now closes when the first answer becomes observable — direct commits close it immediately, transition-held landings keep it open until the hold commits — so no one-frame isPending pulse can leak to live observers at the landing.
+- 913913a: Size pass over the loading-window (loadingValue/seedLoadingValue) client code: the unready-source parking sequence dedupes into one shared `parkLoadingWindow` helper (used by recompute's catch and handleAsync's handleError), the repeated `instanceof NotReadyError` tests in recompute's catch hoist into one boolean, and the window-clear writes at landing points become unconditional stores. The hydration entry stops precomputing the window flag per wrapper — options thread through to `readHydratedValue`, which does the check at read time. Behavior unchanged. The signals size gates ratchet for the feature itself (core floor 7.1 -> 7.35 KB, isPending 8.75 -> 9 KB, measured 7.18 / 8.84): the window support rides always-retained memo paths by construction (it's an option, not an import), so its ~110 B brotli cannot tree-shake.
+- aa5b96e: Disposal removes computations from the scheduler heaps regardless of their dependency list, so a disposed computation can never be recomputed by a later flush. The child walk in `disposeChildren` only deleted queued children from the heap inside its `if (child._deps)` branch — a dependency-free memo queued by `refresh()` stayed queued, the post-disposal flush recomputed it, and `recompute()` rewriting `_flags` cleared `REACTIVE_DISPOSED`: the node came back to life (user code running after unmount, the accessor readable again, cleanups from the post-disposal run leaked, #2983). The standalone `dispose()` path gains the same heap removal for the node itself, mirroring `unobserved`.
+- ab5f83c: Promote the `transparent` option on effects to typed, documented public API. The runtime has always honored it on `createEffect`/`createRenderEffect` — a transparent node is invisible to the hydration id scheme (it inherits its parent's id instead of consuming a child slot) and its compute runs live during hydration instead of adopting the serialized server value — but the flag was absent from the published `EffectOptions` type (typed only on `MemoOptions`) and documented nowhere, forcing integrations to cast on faith (`@solidjs/router` ships `{ transparent: true } as {}` on its client-only link-state and scroll-restoration effects). It exists for client-only reactive nodes created while hydrating, which have no server-rendered counterpart and would otherwise shift every later sibling's hydration id, and it is the supported alternative to branching on hydration state, which freezes whatever the first run decided. SSR ignores the option (server-side nodes always allocate their id slot), so it is documented for nodes the server does not create. Types, JSDoc, and RFC 05 docs only — no runtime change; every size scenario is byte-identical.
+
 ## 2.0.0-beta.32
 
 ### Patch Changes
