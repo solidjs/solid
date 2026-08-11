@@ -1923,6 +1923,33 @@ describe("ssrSource server modes", () => {
     expect(store.name).toBe("initial");
   });
 
+  test("seed window: pre-await draft writes are not part of commit #0 (#2988)", () => {
+    const { context } = createSerializeTrackingContext();
+    sharedConfig.context = context;
+
+    const d = deferred<void>();
+    let store: any;
+    createRoot(
+      () => {
+        store = createProjection(
+          async (draft: any) => {
+            draft.value = 999; // uncommitted mid-flight work — must not render
+            await d.promise;
+            draft.value = 1;
+          },
+          { value: 0 },
+          { seedLoadingValue: true }
+        );
+      },
+      { id: "t" }
+    );
+
+    // Commit #0 is the seed alone: the frozen copy is taken before the derive
+    // runs (ruling on #2988), matching the client's shadow draft and what
+    // hydration claims against.
+    expect(store.value).toBe(0);
+  });
+
   test("ssrSource 'client' does not serialize", () => {
     const { context, serializeLog } = createSerializeTrackingContext();
     sharedConfig.context = context;

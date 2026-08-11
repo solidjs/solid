@@ -185,7 +185,15 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
       (!!(firewall._statusFlags & STATUS_PENDING) && quietPending(firewall))
     );
   }
-  if (el._pendingValue !== NOT_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED)) {
+  // `!comp._loading`: a hold created while the loading window is still open is
+  // the window's own landing in flight to its commit — verdict-quiet like the
+  // rest of the window (the UNINITIALIZED check suppresses exactly this frame
+  // for windowless first loads; born-committed nodes need their own gate, #2990).
+  if (
+    el._pendingValue !== NOT_PENDING &&
+    !(comp._statusFlags & STATUS_UNINITIALIZED) &&
+    !comp._loading
+  ) {
     if (hasActiveOverride(el))
       return !el._equals || !el._equals(el._pendingValue as any, unwrapOverride(el._overrideValue));
     return true;

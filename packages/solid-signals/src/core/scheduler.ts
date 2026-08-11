@@ -695,6 +695,10 @@ function commitPendingNode(n: Signal<any>): void {
     // Set _modified for effects, but not for tracked effects (they handle their own scheduling)
     if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) (n as any)._modified = true;
   }
+  // The committed hold is the first observable answer for a loading-window
+  // node — the window closes here, not at compute time (#2990). Unconditional
+  // store to an always-present computed slot.
+  c._loading = false;
   c._flags! &= ~REACTIVE_MANUAL_WRITE;
   if (!(c._statusFlags! & STATUS_PENDING)) c._statusFlags! &= ~STATUS_UNINITIALIZED;
   if (c._pendingFirstChild !== null || c._pendingDisposal !== null)

@@ -836,3 +836,268 @@ describe("loading window and transitions", () => {
 function untrackedRead<T>(fn: () => T): T {
   return fn();
 }
+
+describe("seed window: draft writes never tear through commit #0 (#2988)", () => {
+  it("pre-await draft writes are invisible; the seed serves until the landing", async () => {
+    const d = deferred<void>();
+    let proj!: { value: number };
+    const reads: number[] = [];
+    createRoot(() => {
+      proj = createProjection<{ value: number }>(
+        async draft => {
+          draft.value = 999; // provisional, pre-await — must not show
+          await d.promise;
+          draft.value = 1;
+        },
+        { value: 0 },
+        { seedLoadingValue: true }
+      );
+      createRenderEffect(
+        () => reads.push(proj.value),
+        () => {}
+      );
+    });
+    flush();
+    expect(reads).toEqual([0]);
+    expect(isPending(() => proj.value)).toBe(false);
+
+    // The landing commits the whole shadow — prefix writes included where not
+    // overwritten (here they were).
+    d.resolve();
+    await tick();
+    flush();
+    expect(reads).toEqual([0, 1]);
+    expect(isPending(() => proj.value)).toBe(false);
+  });
+
+  it("windowless control: pre-await draft writes stay unobservable (throw, #2897)", () => {
+    const d = deferred<void>();
+    let proj!: { value: number };
+    createRoot(() => {
+      proj = createProjection<{ value: number }>(
+        async draft => {
+          draft.value = 999;
+          await d.promise;
+          draft.value = 1;
+        },
+        { value: 0 }
+      );
+    });
+    flush();
+    expect(() => proj.value).toThrow(NotReadyError);
+  });
+
+  it("generator: writes between yields are invisible; each yield is the commit point", async () => {
+    const gate = deferred<void>();
+    const gate2 = deferred<void>();
+    let store!: { phase: string; detail: string };
+    const reads: string[] = [];
+    createRoot(() => {
+      [store] = createStore<{ phase: string; detail: string }>(
+        async function* (draft) {
+          draft.phase = "loading-internal"; // pre-first-yield: invisible
+          await gate.promise;
+          draft.phase = "one";
+          yield;
+          draft.detail = "mid-flight"; // between yields: invisible until next yield
+          await gate2.promise;
+          draft.phase = "two";
+          yield;
+        },
+        { phase: "seed", detail: "" },
+        { seedLoadingValue: true }
+      );
+      createRenderEffect(
+        () => `${store.phase}|${store.detail}`,
+        v => {
+          reads.push(v);
+        }
+      );
+    });
+    flush();
+    expect(reads).toEqual(["seed|"]);
+
+    gate.resolve();
+    await tick();
+    flush();
+    expect(reads).toEqual(["seed|", "one|"]);
+
+    gate2.resolve();
+    await tick();
+    flush();
+    expect(reads).toEqual(["seed|", "one|", "two|mid-flight"]);
+  });
+
+  it("a fully-sync derive lands immediately — the seed is never observable", () => {
+    let proj!: { value: number };
+    const reads: number[] = [];
+    createRoot(() => {
+      proj = createProjection<{ value: number }>(
+        draft => {
+          draft.value = 42;
+        },
+        { value: 0 },
+        { seedLoadingValue: true }
+      );
+      createRenderEffect(
+        () => reads.push(proj.value),
+        () => {}
+      );
+    });
+    flush();
+    expect(reads).toEqual([42]);
+  });
+
+  it("optimistic seed-window store: pre-await draft writes are invisible", async () => {
+    const d = deferred<void>();
+    let store!: { value: string };
+    createRoot(() => {
+      [store] = createOptimisticStore<{ value: string }>(
+        async draft => {
+          draft.value = "leak";
+          await d.promise;
+          draft.value = "landed";
+        },
+        { value: "seed" },
+        { seedLoadingValue: true }
+      );
+    });
+    flush();
+    expect(store.value).toBe("seed");
+
+    d.resolve();
+    await tick();
+    flush();
+    expect(store.value).toBe("landed");
+  });
+});
+
+describe("errored loading window: a parked retry keeps the settled error (#2989)", () => {
+  it("reads throw the original error while the retry is parked, then land", async () => {
+    const dFirst = deferred<string>();
+    const dDep = deferred<number>();
+    let user!: () => string;
+    let setS!: (v: number) => void;
+    createRoot(() => {
+      const [s, set] = createSignal(0);
+      setS = set;
+      const dep = createMemo(() => dDep.promise);
+      user = createMemo<string>(() => (s() === 0 ? (dFirst.promise as any) : `dep:${dep()}`), {
+        loadingValue: "placeholder"
+      });
+      createEffect(() => user(), { effect: () => {}, error: () => {} });
+    });
+    flush();
+
+    // First flight rejects: the error is the settled answer.
+    dFirst.reject(new Error("boom"));
+    await tick();
+    flush();
+    expect(() => untrackedRead(user)).toThrow("boom");
+
+    // Retry via a real input change; the retry reads an unready sync source
+    // and parks. The settled error stays the answer — not a NotReadyError.
+    setS(1);
+    flush();
+    let thrown: unknown;
+    try {
+      untrackedRead(user);
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown instanceof NotReadyError).toBe(false);
+    expect((thrown as Error).message).toBe("boom");
+    // The park stays verdict-quiet.
+    expect(isPending(user)).toBe(false);
+
+    // No wedge: the source settles, the retry runs, the answer lands.
+    dDep.resolve(7);
+    await tick();
+    flush();
+    expect(untrackedRead(user)).toBe("dep:7");
+  });
+});
+
+describe("loading-window landing is one frame for live observers (#2990)", () => {
+  it("no isPending pulse when the first answer lands", async () => {
+    const d = deferred<number>();
+    const frames: string[] = [];
+    createRoot(() => {
+      const win = createMemo<string>(() => d.promise.then(v => `v:${v}`) as any, {
+        loadingValue: "waiting"
+      });
+      createRenderEffect(
+        () => {
+          frames.push(`${isPending(win)}|${win()}`);
+          return undefined;
+        },
+        () => {}
+      );
+    });
+    flush();
+    expect(frames).toEqual(["false|waiting"]);
+
+    d.resolve(9);
+    await tick();
+    flush();
+    expect(frames).toEqual(["false|waiting", "false|v:9"]);
+  });
+
+  it("no pulse on a parked window's settle-and-land either", async () => {
+    const dDep = deferred<number>();
+    const frames: string[] = [];
+    createRoot(() => {
+      const dep = createMemo(() => dDep.promise);
+      const win = createMemo<string>(() => `dep:${dep()}`, { loadingValue: "waiting" });
+      createRenderEffect(
+        () => {
+          frames.push(`${isPending(win)}|${win()}`);
+          return undefined;
+        },
+        () => {}
+      );
+    });
+    flush();
+    expect(frames).toEqual(["false|waiting"]);
+
+    dDep.resolve(3);
+    await tick();
+    flush();
+    expect(frames).toEqual(["false|waiting", "false|dep:3"]);
+  });
+
+  it("refetch control: post-window changes still read pending frames", async () => {
+    const defs = [deferred<string>(), deferred<string>()];
+    const [id, setId] = createSignal(0);
+    const frames: string[] = [];
+    let win!: () => string;
+    createRoot(() => {
+      win = createMemo<string>(() => defs[id()].promise as any, { loadingValue: "waiting" });
+      createRenderEffect(
+        () => {
+          frames.push(`${isPending(win)}|${win()}`);
+          return undefined;
+        },
+        () => {}
+      );
+    });
+    flush();
+    defs[0].resolve("zero");
+    await tick();
+    flush();
+    expect(frames).toEqual(["false|waiting", "false|zero"]);
+
+    // Window closed: an input change reads as pending (stale-while-pending).
+    setId(1);
+    flush();
+    expect(frames).toEqual(["false|waiting", "false|zero", "true|zero"]);
+
+    // The doubled pending frame at the refetch landing matches windowless
+    // memos exactly (pre-existing behavior, pinned as-is — this control is
+    // about the verdict READING true post-window, not about frame counts).
+    defs[1].resolve("one");
+    await tick();
+    flush();
+    expect(frames).toEqual(["false|waiting", "false|zero", "true|zero", "true|zero", "false|one"]);
+  });
+});

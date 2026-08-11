@@ -79,7 +79,11 @@ function retryReaches(el: Computed<any>, source: any): boolean {
 export function parkLoadingWindow(el: Computed<any>, e: NotReadyError): void {
   el._blocked = true;
   if (e.source) addPendingSource(el, e.source as Computed<any>);
-  setPendingError(el, e.source as Computed<any>, e);
+  // A settled error is the node's answer ("the error stays the answer until
+  // this retry can actually run") — the park must not replace it: reads
+  // throw `_error` while STATUS_ERROR is set, and overwriting it here leaks
+  // a pending-class NotReadyError from a read-invisible park (#2989).
+  if (!(el._statusFlags & STATUS_ERROR)) setPendingError(el, e.source as Computed<any>, e);
 }
 
 export function setPendingError(el: Computed<any>, source?: Computed<any>, error?: any): void {
@@ -191,12 +195,18 @@ export function settlePendingSource(el: Computed<any>): void {
     visited.add(node);
     node._time = clock;
     const remaining = node._pendingSources?.values().next().value;
+    // STATUS_ERROR + pending sources only coexist via an errored loading
+    // window's park (notifyStatus(STATUS_ERROR) clears pending sources
+    // otherwise): the settled error stays the answer through the settle —
+    // nulling it here would have reads throw `null` until the re-enqueued
+    // retry lands, or lose it entirely if that retry parks again (#2989).
+    const errored = node._statusFlags & STATUS_ERROR;
     if (remaining) {
-      setPendingError(node, remaining);
+      if (!errored) setPendingError(node, remaining);
       updateCompanions !== null && updateCompanions(node);
     } else {
       node._statusFlags &= ~STATUS_PENDING;
-      setPendingError(node);
+      if (!errored) setPendingError(node);
       updateCompanions !== null && updateCompanions(node);
       if (node._blocked) {
         enqueueSub(node);
@@ -347,10 +357,6 @@ export function handleAsync<T>(
     // skip this stale async result — the upcoming flush will recompute the node
     // with the new value, creating a fresh Promise that supersedes this one.
     if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY)) return;
-    // First real answer landing: the loading window closes before clearStatus
-    // re-derives the pending companion below, so isPending flips false with
-    // this commit.
-    el._loading = false;
     settleTransition();
     const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
     trimStaleDeps(el);
@@ -414,6 +420,13 @@ export function handleAsync<T>(
         notifyStatus(el, STATUS_ERROR, e);
       }
     }
+    // First real answer landing: the window closes when the answer becomes
+    // OBSERVABLE. A direct commit is observable now; a transition-held write
+    // (`_pendingValue` set above or inside setSignal) is not — the verdict's
+    // held-value branch is window-gated, and commitPendingNode closes the
+    // window when the hold commits, so no one-frame isPending pulse can leak
+    // to live observers between the landing and its commit (#2990).
+    if (el._pendingValue === NOT_PENDING) el._loading = false;
     settlePendingSource(el);
     schedule();
     flush();

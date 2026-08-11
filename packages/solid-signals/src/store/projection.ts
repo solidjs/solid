@@ -156,19 +156,48 @@ export function runProjectionComputed<T extends object>(
   const owner = getOwner() as Computed<void | T>;
   let settled = false;
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
+  // Open loading window (seedLoadingValue): the observable store IS commit #0
+  // for the whole first flight, so the derive works a detached shadow of the
+  // seed — draft writes (pre-await, or between yields) land on the shadow and
+  // cannot tear through to readers (#2988; store reads resolve from the live
+  // backing, and the born-committed firewall removed the status gate that hid
+  // windowless drafts). Every commit point — sync return, each yield, the
+  // async landing — reconciles the shadow through the normal commit path, so
+  // a fully-sync derive still lands immediately (commit #0 superseded before
+  // any observer runs, same as a sync answer superseding loadingValue). The
+  // JSON round-trip matches the server's frozen-seed copy (seedLock): a
+  // loading-window seed is renderable data by contract. Optimistic note:
+  // onDraftWrite (override clearing) shifts from write-time to commit-time
+  // for the shadow run — an invisible draft write must not clobber a visible
+  // optimistic override mid-window.
+  const shadow = owner._loading
+    ? (JSON.parse(JSON.stringify((wrappedStore as any)[$TARGET][STORE_VALUE])) as T)
+    : null;
   const draft = new Proxy(
     wrappedStore,
     createWriteTraps(() => !settled || owner._inFlight === result, onDraftWrite)
   );
   storeSetter<T>(draft, s => {
-    result = fn(s);
+    result = fn(shadow ?? s);
     settled = true;
     const commit = (v: void | T) => {
+      // Shadow run: a void/self return is the mutation form — the shadow
+      // carries the writes and is what commits. Commit a detached snapshot,
+      // never the shadow itself: reconcile adopts a new root value by
+      // identity, and handing it the live shadow would fuse the draft to the
+      // observable store — later shadow writes would mutate the backing
+      // silently and the next yield would diff the shadow against itself.
+      if (shadow && (v === undefined || v === shadow)) v = JSON.parse(JSON.stringify(shadow)) as T;
       if (v === s || v === undefined) return;
       const write = () => storeSetter(wrappedStore, s => reconcileState(v, s, key, true));
       wrapCommit ? wrapCommit(write) : write();
     };
-    commit(handleAsync(owner, result, commit));
+    const sync = handleAsync(owner, result, commit);
+    // A still-open window after handleAsync means the return was the
+    // commit-#0 fall-through, not a landing — real landings arrive through
+    // the setter. A closed one is a genuine sync landing (windowless nodes
+    // were never open); commit it.
+    if (!owner._loading) commit(sync);
   });
   return owner;
 }

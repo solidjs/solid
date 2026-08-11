@@ -198,6 +198,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // Re-ask classification lives in the verdict module; capture the flag before
   // the recompute wipes _flags below.
   const hadReask = (el._flags & REACTIVE_REASK) !== 0;
+  // Captured before the compute clears it on a sync landing: if that landing
+  // is transition-held below, the window must stay open until the hold
+  // commits (commitPendingNode) — a closed window plus a held value reads as
+  // a pending frame to live observers of the verdict (#2990).
+  const wasLoading = el._loading;
 
   const oldcontext = context;
   context = el;
@@ -384,6 +389,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       } else {
         el._pendingValue = value;
         if (__DEV__) devTrackHeldPending(el);
+        // A window landing that gets held re-opens the window until the hold
+        // commits — the verdict's held-value branch is window-gated (#2990).
+        if (wasLoading) el._loading = true;
         // Transition-held sync recompute is a write path like setSignal/asyncWrite,
         // so sync derivations of held sources stay visible to isPending()/latest()
         // (#2831). Both companion writes are transition-scoped (optimistic) and
@@ -407,6 +415,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       if (el._pendingValue === NOT_PENDING) queuePendingNode(el);
       el._pendingValue = value;
       if (__DEV__) devTrackHeldPending(el);
+      if (wasLoading) el._loading = true; // see the held branch above (#2990)
     } else if (el._height != oldHeight) {
       for (let s = el._subs; s !== null; s = s._nextSub) {
         insertIntoHeapHeight(s._sub, queueFor(s._sub));

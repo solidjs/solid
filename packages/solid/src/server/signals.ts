@@ -1605,10 +1605,15 @@ export function createProjection<T extends object>(
   // of the seed for the whole response (first-value lock — `state` still
   // advances underneath for patch/serialization correctness, the landing is
   // the client's to apply). Applied by immediately marking each pending
-  // proxy ready, retargeted at the frozen seed.
+  // proxy ready, retargeted at the frozen seed. The copy is taken NOW, before
+  // the derive runs: commit #0 is the seed alone — pre-await draft writes are
+  // uncommitted work like every other mid-flight state, not part of the
+  // declared first paint (#2988 ruling; the client's shadow draft enforces
+  // the same line, and hydration claims against the plain seed).
   const seedLoading = !!options?.seedLoadingValue;
+  const frozenSeed = seedLoading ? (JSON.parse(JSON.stringify(state)) as T) : undefined;
   const seedLock = (markReady: (frozen?: T) => void) => {
-    if (seedLoading) markReady(JSON.parse(JSON.stringify(state)) as T);
+    if (seedLoading) markReady(frozenSeed);
   };
 
   const runProjection = () => {
