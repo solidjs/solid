@@ -8,7 +8,7 @@ import solid from "vite-plugin-solid";
 // component streams its markup over the server-function endpoint (and inlines
 // it at document SSR) instead of returning JSON for the client to render.
 //
-// The turnkey `ssr` object is what makes it automatic: the plugin generates
+// The turnkey `start` object is what makes it automatic: the plugin generates
 // the client entry's `installServerComponents()` call, the server entry's
 // render plugin, and the document bootstrap script. Nothing in src/ imports
 // the frames runtime.
@@ -17,5 +17,5 @@ export default defineConfig({
     alias: { "~": fileURLToPath(new URL("./src", import.meta.url)) }
   },
   server: { port: 3004 },
-  plugins: [solid({ ssr: {}, serverFunctions: { components: true } })]
+  plugins: [solid({ start: {}, ssr: true, serverFunctions: { components: true } })]
 });

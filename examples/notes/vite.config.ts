@@ -15,7 +15,8 @@ export default defineConfig({
   server: { port: 3006 },
   plugins: [
     solid({
-      ssr: {},
+      start: {},
+      ssr: true,
       serverFunctions: { components: true, configure: "src/server-config.ts" }
     })
   ]
