@@ -112,6 +112,46 @@ describe("container tier — stream face", () => {
     expect(wire).toContain("2");
   });
 
+  test("a projection minted INLINE in the arg expression latches instead of re-emitting", async () => {
+    // `data={createProjection(...)}` in JSX compiles to a getter the ledger
+    // would re-run per commit — each run minting a FRESH projection with a
+    // fresh trace whose pump never ends: record churn and a hung stream.
+    // The scope-creation stamp gates it: the arg ships its first value and
+    // latches (the projection's own trace is the liveness).
+    const ServerComp = (props: any) => {
+      // A second arg that settles later, so a commit really sweeps the ledger.
+      const tick = createMemo(() => wait(10).then(() => "done"));
+      return (
+        <div>
+          <props.row
+            status={tick()}
+            data={createProjection(
+              async function* (draft: any) {
+                draft.n = 1;
+                yield;
+                await wait(5);
+                draft.n = 2;
+                yield;
+              },
+              {} as any
+            )}
+          />
+        </div>
+      );
+    };
+    const chunks = await collectStream(ServerComp);
+    expect(chunks.find(c => c.type === "error")).toBeUndefined();
+    // One ref for the arg (repeated data chunks under it are the trace's own
+    // streaming continuations) — a ledger re-emission would mint versioned
+    // `@n` refs, one fresh trace per commit.
+    const dataKeys = chunks
+      .filter(c => c.type === "data" && String(c.key).startsWith("arg:row#0:data"))
+      .map(c => c.key);
+    expect(dataKeys.length).toBeGreaterThan(0);
+    expect(dataKeys.filter(k => String(k).includes("@"))).toEqual([]);
+    expect(chunks[chunks.length - 1].type).toBe("complete");
+  });
+
   test("a projection nested inside a plain object arg envelopes at depth", async () => {
     const ServerComp = (props: any) => {
       const user = createMemo(() => wait(10).then(() => ({ name: "Ada" })));
@@ -168,6 +208,40 @@ describe("container tier — document face", () => {
     // The fill's read settled server-side (boundary held, retried) and the
     // record carries the trace marker for the adopting client.
     expect(html).toContain("Ada");
+    expect(html).toContain("$tr:");
+  });
+
+  test("a projection minted INLINE in the arg expression latches (document face)", async () => {
+    // Same gate as the stream face: without it the document's arg ledger
+    // re-mints a projection per sweep and every fresh trace holds the
+    // hydration serializer open — the response never ends.
+    const ServerComp = (props: any) => {
+      const tick = createMemo(() => wait(10).then(() => "done"));
+      return (
+        <Loading fallback={<p>loading</p>}>
+          <section>
+            <props.status
+              note={tick()}
+              data={createProjection(
+                async function* (draft: any) {
+                  draft.n = 1;
+                  yield;
+                  await wait(5);
+                  draft.n = 2;
+                  yield;
+                },
+                {} as any
+              )}
+            />
+          </section>
+        </Loading>
+      );
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "doc-mint" }) as any;
+    // collectDocument's timeout is the assertion that matters: the response ends.
+    const html = await collectDocument(() => (
+      <Inline status={(p: any) => <span>{p.data.n}</span>} />
+    ));
     expect(html).toContain("$tr:");
   });
 
