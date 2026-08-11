@@ -92,12 +92,21 @@ export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>,
   moduleUrl?: string
 ): T & { preload: () => Promise<{ default: T }>; moduleUrl?: string } {
-  let p: Promise<{ default: T }> & { v?: T; error?: unknown; errored?: boolean };
+  let p: Promise<{ default: T }> & {
+    v?: T;
+    mod?: { default: T };
+    error?: unknown;
+    errored?: boolean;
+  };
   let load = () => {
     if (!p) {
       p = fn() as any;
       p.then(
         mod => {
+          // The full namespace is kept alongside the default export so a
+          // post-load re-creation can read `$$moduleUrl` synchronously (see
+          // the deferred registration path below).
+          p.mod = mod;
           p.v = mod.default;
         },
         err => {
@@ -181,6 +190,16 @@ export function lazy<T extends Component<any>>(
           const boundary = ctx._currentBoundaryId;
           return (assets as Promise<ResolvedAssets | null>).then(
             resolved => {
+              // Upgrade the memoized entry to the settled VALUE. Leaving the
+              // promise in the cache made every post-settle re-creation mint a
+              // fresh `assetsPending` (a `.then` of an already-resolved
+              // promise: pending at the render memo's compute, settled one
+              // microtask later), so the memo threw NotReadyError on every
+              // suspended-render retry pass and the boundary resume loop never
+              // converged — an unbounded microtask livelock that ground dev
+              // streaming SSR into heap exhaustion (async dev resolvers only;
+              // sync manifests never enter this branch).
+              cache.set(id, resolved ?? null);
               const current = ctx._currentBoundaryId;
               ctx._currentBoundaryId = boundary;
               try {
@@ -190,6 +209,7 @@ export function lazy<T extends Component<any>>(
               }
             },
             err => {
+              cache.set(id, null);
               console.warn(`lazy() asset resolution failed for "${id}":`, err);
             }
           );
@@ -203,28 +223,50 @@ export function lazy<T extends Component<any>>(
         // the module's identity lives in the module itself: the bundler's SSR
         // transform injects a `$$moduleUrl` export carrying the client
         // manifest key. Defer registration until the import resolves.
-        const boundary = ctx._currentBoundaryId;
-        assetsPending = p.then(mod => {
-          const id = (mod as any)?.$$moduleUrl;
-          if (typeof id !== "string") {
+        if (p.mod !== undefined) {
+          // Already loaded (a re-creation across suspended render passes):
+          // read `$$moduleUrl` synchronously instead of chaining another
+          // `p.then`. The promise hop was pending at the render memo's
+          // compute on EVERY re-creation — even after module and assets had
+          // settled — so each retry pass re-suspended on a gate that resolved
+          // one microtask later and the boundary resume loop never converged
+          // (the same livelock as the cache upgrade in registerLazyAssets;
+          // both paths must go sync once their async work is done).
+          const id = (p.mod as any)?.$$moduleUrl;
+          if (typeof id === "string") {
+            assetsPending = registerLazyAssets(id);
+          } else {
             console.warn(
               "lazy() used in SSR without a moduleUrl and the loaded module has no " +
                 "$$moduleUrl export, so its client assets cannot be resolved — the " +
                 "component will load late during hydration. This is typically " +
                 "injected by the bundler plugin."
             );
-            return;
           }
-          const current = ctx._currentBoundaryId;
-          ctx._currentBoundaryId = boundary;
-          try {
-            // May itself defer again (async resolver); the returned promise
-            // keeps the memo gated until the whole chain settles.
-            return registerLazyAssets(id);
-          } finally {
-            ctx._currentBoundaryId = current;
-          }
-        });
+        } else {
+          const boundary = ctx._currentBoundaryId;
+          assetsPending = p.then(mod => {
+            const id = (mod as any)?.$$moduleUrl;
+            if (typeof id !== "string") {
+              console.warn(
+                "lazy() used in SSR without a moduleUrl and the loaded module has no " +
+                  "$$moduleUrl export, so its client assets cannot be resolved — the " +
+                  "component will load late during hydration. This is typically " +
+                  "injected by the bundler plugin."
+              );
+              return;
+            }
+            const current = ctx._currentBoundaryId;
+            ctx._currentBoundaryId = boundary;
+            try {
+              // May itself defer again (async resolver); the returned promise
+              // keeps the memo gated until the whole chain settles.
+              return registerLazyAssets(id);
+            } finally {
+              ctx._currentBoundaryId = current;
+            }
+          });
+        }
       }
       if (assetsPending) {
         const clear = () => {
