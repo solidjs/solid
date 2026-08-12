@@ -772,6 +772,18 @@ export function materializeContainerTrace(marker: {
 
 // --- Hydration-aware implementations ---
 
+// The shared pre-hydration gate lifecycle for the ssrSource branches
+// (signal/store × client/hybrid): create the node with a compute that
+// branches on the gate, then flip it — the flip's recompute is the node's
+// first real run. `ownedWrite` because the write happens inside the node's
+// own creation scope.
+function withHydrationGate(create: (hydrated: () => boolean) => any) {
+  const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
+  const result = create(hydrated);
+  setHydrated(true);
+  return result;
+}
+
 // One signal-shaped hydration body for memo/signal/optimistic — the families
 // only ever differed in which core primitive committed the result, so the
 // core function is a parameter. createOptimistic reaches this through the
@@ -783,16 +795,15 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
   const ssrSource = options?.ssrSource;
 
   if (ssrSource === "client") {
-    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
-    const sig = coreFn((prev: any) => {
-      // UNASKED (never prev) — a sync return would count as a first answer:
-      // it would close a loading window before the real compute ever runs,
-      // or commit `undefined` on a bare node (see UNASKED).
-      if (!hydrated()) return UNASKED;
-      return fn(prev);
-    }, options);
-    setHydrated(true);
-    return sig;
+    return withHydrationGate(hydrated =>
+      coreFn((prev: any) => {
+        // UNASKED (never prev) — a sync return would count as a first answer:
+        // it would close a loading window before the real compute ever runs,
+        // or commit `undefined` on a bare node (see UNASKED).
+        if (!hydrated()) return UNASKED;
+        return fn(prev);
+      }, options)
+    );
   }
 
   // Hybrid async-iterable takeover (#2993). The server consumes exactly one
@@ -810,19 +821,18 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
   // adopt-the-serialized-value semantics (re-running those would clobber the
   // server value / trigger a client refetch).
   if (ssrSource === "hybrid" && sharedConfig.has!(peekNextChildId(getOwner()!))) {
-    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
     let takeover = false;
     const detect = (prev: any) => {
       const r = fn(prev);
       takeover = isAsyncIterable(r);
       return r;
     };
-    const sig = coreFn((prev: any) => {
-      if (hydrated() && takeover) return fn(prev);
-      return readSerializedOrCompute(detect, prev, options);
-    }, options);
-    setHydrated(true);
-    return sig;
+    return withHydrationGate(hydrated =>
+      coreFn((prev: any) => {
+        if (hydrated() && takeover) return fn(prev);
+        return readSerializedOrCompute(detect, prev, options);
+      }, options)
+    );
   }
 
   // "server", "hybrid", or undefined — use serialized value from server
@@ -880,44 +890,46 @@ function hydrateStoreLikeFn(
   ssrSource: string | undefined
 ): any {
   if (ssrSource === "client") {
-    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
-    const result = coreFn(
-      (draft: any) => {
-        // Windowed (seedLoadingValue): UNASKED — a sync no-op derive would
-        // close the seed window before the real derive ever runs (see the
-        // signal gate above). Bare: a no-op derive — stores have no
-        // uninitialized state (reads always serve state), and without a
-        // window an UNASKED return would be treated as an async result and
-        // suspend the projection at creation; the seed shows until the gate
-        // flips and the real derive runs as a fresh first mount.
-        if (!hydrated()) return hasLoadingWindow(options) ? UNASKED : undefined;
-        return fn(draft);
-      },
-      initialValue,
-      options
+    return withHydrationGate(hydrated =>
+      coreFn(
+        (draft: any) => {
+          // Windowed (seedLoadingValue): UNASKED — a sync no-op derive would
+          // close the seed window before the real derive ever runs (see the
+          // signal gate above). Bare: a no-op derive — stores have no
+          // uninitialized state (reads always serve state), and without a
+          // window an UNASKED return would be treated as an async result and
+          // suspend the projection at creation; the seed shows until the gate
+          // flips and the real derive runs as a fresh first mount.
+          if (!hydrated()) return hasLoadingWindow(options) ? UNASKED : undefined;
+          return fn(draft);
+        },
+        initialValue,
+        options
+      )
     );
-    setHydrated(true);
-    return result;
   }
   if (ssrSource === "hybrid") {
-    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
-    const result = coreFn(
-      (draft: any) => {
-        const o = getOwner()!;
-        if (!hydrated()) {
-          if (sharedConfig.has!(o.id!))
-            return readHydratedValue(sharedConfig.load!(o.id!), () => subFetch(fn, draft), options);
-          return fn(draft);
-        }
-        const { proxy, activate } = createShadowDraft(draft);
-        const r = fn(proxy);
-        return isAsyncIterable(r) ? wrapFirstYield(r, activate) : r;
-      },
-      initialValue,
-      options
+    return withHydrationGate(hydrated =>
+      coreFn(
+        (draft: any) => {
+          const o = getOwner()!;
+          if (!hydrated()) {
+            if (sharedConfig.has!(o.id!))
+              return readHydratedValue(
+                sharedConfig.load!(o.id!),
+                () => subFetch(fn, draft),
+                options
+              );
+            return fn(draft);
+          }
+          const { proxy, activate } = createShadowDraft(draft);
+          const r = fn(proxy);
+          return isAsyncIterable(r) ? wrapFirstYield(r, activate) : r;
+        },
+        initialValue,
+        options
+      )
     );
-    setHydrated(true);
-    return result;
   }
   const aiResult = hydrateStoreFromAsyncIterable(coreFn, fn, initialValue, options);
   if (aiResult !== null) return aiResult;
@@ -943,21 +955,21 @@ function hydratedEffect(coreFn: Function, compute: any, effectFn: any, options?:
   const ssrSource = options?.ssrSource;
 
   if (ssrSource === "client") {
-    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
     let active = false;
-    coreFn(
-      (prev: any) => {
-        if (!hydrated()) return prev;
-        active = true;
-        return compute(prev);
-      },
-      (next: any, prev: any) => {
-        if (!active) return;
-        return effectFn(next, prev);
-      },
-      options
+    withHydrationGate(hydrated =>
+      coreFn(
+        (prev: any) => {
+          if (!hydrated()) return prev;
+          active = true;
+          return compute(prev);
+        },
+        (next: any, prev: any) => {
+          if (!active) return;
+          return effectFn(next, prev);
+        },
+        options
+      )
     );
-    setHydrated(true);
     return;
   }
 
