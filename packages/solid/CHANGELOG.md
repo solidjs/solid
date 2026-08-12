@@ -1,5 +1,17 @@
 # solid-js
 
+## 2.0.0-rc.0
+
+### Minor Changes
+
+- 427dc18: Bare `ssrSource: "client"` (no `loadingValue`/`seedLoadingValue`) is now the structural form instead of a dev error: on the server the source is a final hole — reads suspend the nearest `<Loading>` boundary, which flushes its fallback with the client-continue marker (or rejects its stream fragment when the hole surfaces after registration) and hands the position to the client, which renders the content fresh after hydration. Read outside a `<Loading>` boundary it throws a real error instead of hanging the stream. The declared form is unchanged: `loadingValue`/`seedLoadingValue` renders the declared first paint on the server and stays the value-channel alternative. Also swallows the settled-rejected fragment promise at the hydration claim so rejected fragments (error finalize or client handoff) no longer surface unhandled-rejection noise.
+
+### Patch Changes
+
+- 667a020: Deduplicate the pre-hydration gate lifecycle shared by the ssrSource client/hybrid branches (signal, store, and effect shapes) into one helper — no behavior change, recovers ~40 B brotlied in store-carrying hydrating bundles.
+- d9050a8: Hybrid async-iterable takeover for signal-shaped nodes (#2993). `ssrSource: "hybrid"` on a `createMemo`/`createSignal(fn)` async generator serializes only the server's first yield — the client is supposed to continue the iteration, but signal-shaped nodes adopted that first yield and latched there forever (stores already re-ran their generator through the shadow-draft takeover). The client now re-runs the generator once hydration adoption completes: its first yield reproduces the server value and subsequent yields apply live. Sync and promise-shaped hybrid computes keep their adopt-the-serialized-value semantics.
+  - @solidjs/signals@2.0.0-rc.0
+
 ## 2.0.0-beta.34
 
 ### Patch Changes
