@@ -97,7 +97,9 @@ async function runScenario(scenario: Scenario, mode: "loaded" | "streamed") {
     }
     if (scenario.async) await settle();
 
-    expect(container.textContent).toBe(scenario.expectedText);
+    expect(container.textContent).toBe(
+      (mode === "streamed" && scenario.expectedTextStreamed) || scenario.expectedText
+    );
 
     if (scenario.update) {
       // Elements outside the updated hole must keep identity across the

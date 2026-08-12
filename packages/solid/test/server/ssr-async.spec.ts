@@ -1809,16 +1809,270 @@ describe("ssrSource server modes", () => {
     expect(result).toBeUndefined();
   });
 
-  test("ssrSource 'client' without a declared commit #0 throws (#2981)", () => {
-    expect(() =>
-      createRoot(() => (createMemo as any)(() => 999, { ssrSource: "client" }), { id: "t" })
-    ).toThrow(/requires a loadingValue/);
-    expect(() =>
+  // Bare `ssrSource: "client"` (no declared commit #0) is the structural
+  // form: reads suspend as a FINAL hole so the nearest <Loading> boundary
+  // hands the position to the client. Outside a Loading discovery pass there
+  // is no boundary to hand off to — the read fails loudly instead of wedging
+  // the stream on a promise that can never settle.
+  test("bare ssrSource 'client' read outside a Loading boundary throws loudly", () => {
+    const { context } = createSerializeTrackingContext();
+    sharedConfig.context = context;
+
+    createRoot(
+      () => {
+        const read = (createMemo as any)(() => 999, { ssrSource: "client" });
+        expect(() => read()).toThrow(/outside a <Loading> boundary/);
+
+        const store = (createProjection as any)(
+          (d: any) => (d.v = 1),
+          { v: 0 },
+          { ssrSource: "client" }
+        );
+        expect(() => store.v).toThrow(/outside a <Loading> boundary/);
+      },
+      { id: "t" }
+    );
+  });
+
+  test("bare ssrSource 'client' read inside a Loading pass suspends as a tagged final hole", () => {
+    const { context } = createSerializeTrackingContext();
+    sharedConfig.context = context;
+
+    createRoot(
+      () => {
+        const read = (createMemo as any)(() => 999, { ssrSource: "client" });
+        (context as any)._loadingPhase = true;
+        try {
+          let caught: any;
+          try {
+            read();
+          } catch (e) {
+            caught = e;
+          }
+          expect(caught).toBeInstanceOf(NotReadyError);
+          expect((caught.source as any).$clientHole).toBe(true);
+        } finally {
+          (context as any)._loadingPhase = undefined;
+        }
+      },
+      { id: "t" }
+    );
+  });
+
+  // The boundary flows for bare client sources. A final hole detected before
+  // the fragment registers takes the renderToString route (plain fallback +
+  // "$$f" — the client hydrates the fallback and renders the content itself);
+  // one surfacing only after registration rejects the fragment, because the
+  // fragment protocol requires a settle and "settle but keep the fallback" is
+  // not expressible.
+  describe("bare ssrSource 'client' — boundary handoff", () => {
+    test("streaming: final hole at discovery → plain fallback + $$f, no fragment", () => {
+      const { context, serialized, registeredFragments } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      let result: any;
       createRoot(
-        () => (createProjection as any)((d: any) => (d.v = 1), { v: 0 }, { ssrSource: "client" }),
+        () => {
+          result = Loading({
+            fallback: "Shell",
+            get children() {
+              const widget = (createMemo as any)(() => 42, { ssrSource: "client" });
+              return ssr(["<div>", "</div>"], () => widget()) as any;
+            }
+          });
+        },
         { id: "t" }
-      )
-    ).toThrow(/requires seedLoadingValue: true/);
+      );
+
+      expect(registeredFragments.size).toBe(0);
+      expect([...serialized.values()]).toContain("$$f");
+      // Plain fallback — no placeholder template, nothing will ever swap.
+      expect(result()).toBe("Shell");
+    });
+
+    test("streaming: component-body read of a client hole takes the same route", () => {
+      const { context, serialized, registeredFragments } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      let result: any;
+      createRoot(
+        () => {
+          result = Loading({
+            fallback: "Shell",
+            get children() {
+              const widget = (createMemo as any)(() => 42, { ssrSource: "client" });
+              const v = widget(); // throws the tagged NotReady through discovery
+              return ssr(["<div>", "</div>"], () => v) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      expect(registeredFragments.size).toBe(0);
+      expect([...serialized.values()]).toContain("$$f");
+      expect(result()).toBe("Shell");
+    });
+
+    test("streaming: mixed pending set with a final hole goes client at discovery", async () => {
+      const { context, serialized, registeredFragments } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      const d = deferred<string>();
+      let result: any;
+      createRoot(
+        () => {
+          result = Loading({
+            fallback: "Shell",
+            get children() {
+              const data = createMemo(() => d.promise);
+              const widget = (createMemo as any)(() => 42, { ssrSource: "client" });
+              // Both surface as template holes in ONE discovery pass — the
+              // real one does not mask the final one here.
+              return ssr(
+                ["<div>", "-", "</div>"],
+                () => data(),
+                () => widget()
+              ) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      expect(registeredFragments.size).toBe(0);
+      expect([...serialized.values()]).toContain("$$f");
+      expect(result()).toBe("Shell");
+
+      // The real source settling later must not disturb the handed-off slot.
+      d.resolve("late");
+      await tick();
+      expect(registeredFragments.size).toBe(0);
+    });
+
+    test("streaming: final hole masked by an earlier real await rejects the fragment", async () => {
+      const { context, serialized, registeredFragments, fragmentResults, fragmentErrors } =
+        createMockSSRContext();
+      sharedConfig.context = context;
+
+      const d = deferred<string>();
+      let result: any;
+      createRoot(
+        () => {
+          result = Loading({
+            fallback: "Shell",
+            get children() {
+              const data = createMemo(() => d.promise);
+              // Body-level read: the discovery pass suspends HERE on the real
+              // source, so the client hole below is invisible until d settles
+              // — by then the fragment has registered.
+              const v = data();
+              const widget = (createMemo as any)(() => 42, { ssrSource: "client" });
+              return ssr(
+                ["<div>", "-", "</div>"],
+                () => v,
+                () => widget()
+              ) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      // Registered like any pending boundary; placeholder fallback shown.
+      expect(registeredFragments.size).toBe(1);
+      expect(result().t[0]).toContain("Shell");
+
+      d.resolve("real");
+      await tick();
+
+      // The rediscovery surfaced the final hole: fragment rejected (client
+      // renders the content fresh after hydration), no "$$f" on this route.
+      expect(fragmentResults.size).toBe(1);
+      expect([...fragmentResults.values()][0]).toBeUndefined();
+      expect(fragmentErrors.size).toBe(1);
+      expect(String([...fragmentErrors.values()][0])).toMatch(/client-only content/);
+      expect([...serialized.values()]).not.toContain("$$f");
+    });
+
+    test("renderToString: client hole takes the existing fallback + $$f route", () => {
+      const { context, serialized, registeredFragments } = createMockSSRContext({ async: false });
+      sharedConfig.context = context;
+
+      let result: any;
+      createRoot(
+        () => {
+          result = Loading({
+            fallback: "Shell",
+            get children() {
+              const widget = (createMemo as any)(() => 42, { ssrSource: "client" });
+              return ssr(["<div>", "</div>"], () => widget()) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      expect(registeredFragments.size).toBe(0);
+      expect([...serialized.values()]).toContain("$$f");
+      expect(result()).toBe("Shell");
+    });
+
+    test("bare client projection suspends the boundary to $$f", () => {
+      const { context, serialized, registeredFragments } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      let result: any;
+      createRoot(
+        () => {
+          result = Loading({
+            fallback: "Shell",
+            get children() {
+              const store = (createProjection as any)(
+                (dr: any) => (dr.v = 1),
+                { v: 0 },
+                { ssrSource: "client" }
+              );
+              return ssr(["<div>", "</div>"], () => store.v) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      expect(registeredFragments.size).toBe(0);
+      expect([...serialized.values()]).toContain("$$f");
+      expect(result()).toBe("Shell");
+    });
+
+    test("client hole read through an Errored boundary propagates the final tag", () => {
+      const { context, serialized, registeredFragments } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      let result: any;
+      createRoot(
+        () => {
+          result = Loading({
+            fallback: "Shell",
+            get children() {
+              const widget = (createMemo as any)(() => 42, { ssrSource: "client" });
+              const eb = createErrorBoundary(
+                () => ssr(["<i>", "</i>"], () => widget()),
+                () => "errored"
+              );
+              // The error boundary aggregates its pending set into one
+              // NotReady — the $clientHole tag must survive the aggregate.
+              return ssr(["<o>", "</o>"], eb) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      expect(registeredFragments.size).toBe(0);
+      expect([...serialized.values()]).toContain("$$f");
+      expect(result()).toBe("Shell");
+    });
   });
 
   test("ssrSource 'hybrid' runs computation (same as default for Promises)", () => {

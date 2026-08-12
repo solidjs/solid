@@ -190,6 +190,16 @@ function ssrLoadingBoundary(
   // tag, same reason as slot getters — a position some other machinery owns.
   const skipLive = (f: () => unknown) => Object.assign(f, { $lhSkip: true });
 
+  // A client hole (bare `ssrSource: "client"`) is FINAL: the server can never
+  // fill it, so the moment one participates in this boundary's pending set the
+  // position belongs to the client. Both pending channels carry the tag: a
+  // component-body read throws it here as `retryPromise`, and a template hole
+  // surfaces it in `ret.p` (the engine collects `NotReadyError.source`
+  // promises verbatim, and createErrorBoundary tags its aggregate).
+  const hasFinalHole = () =>
+    (retryPromise as any)?.$clientHole === true ||
+    !!(ret as any)?.p?.some((p: any) => p.$clientHole);
+
   let ret = runDiscovery();
   if (!retryPromise && !ret?.p?.length) {
     commitBoundaryState();
@@ -205,27 +215,55 @@ function ssrLoadingBoundary(
     return skipLive(() => undefined);
   }
 
+  // A final hole detected before the fragment registers takes the
+  // renderToString route: plain fallback + "$$f" — the client hydrates the
+  // fallback DOM and renders the content itself. No placeholder template is
+  // emitted, because nothing will ever swap. (The sync path below needs no
+  // check: it already answers ANY unresolved source with fallback + "$$f".)
+  const finalAtDiscovery = ctx.async && hasFinalHole();
+
   const fallbackOwner = createOwner({ id });
   const fallbackResult = runWithOwner(fallbackOwner, () => {
-    if (!ctx.async) return fallback();
+    if (!ctx.async || finalAtDiscovery) return fallback();
     const tpl = collapseFallback
       ? [`<template id="pl-${id}">`, `</template><!--pl-${id}-->`]
       : [`<template id="pl-${id}"></template>`, `<!--pl-${id}-->`];
     return ctx.ssr(tpl, ctx.escape(fallback()));
   });
 
+  if (finalAtDiscovery) {
+    commitBoundaryState();
+    ctx.serialize(id, "$$f");
+    // Registered above like every pending boundary — release the reveal
+    // frontier now or later siblings would wait on this slot forever.
+    if (revealGroup) revealGroup.onResolved(id);
+    return skipLive(() => fallbackResult);
+  }
+
   if (ctx.async) {
     const regOpts = revealGroup ? { revealGroup: revealGroup.id } : undefined;
     done = ctx.registerFragment(id, regOpts);
+    // A final hole surfacing only now (an earlier real async read masked it
+    // during the initial discovery) can't take the "$$f" route anymore: the
+    // fragment protocol requires a settle, and "settle but keep the fallback"
+    // is not expressible. Reject instead — the placeholder swaps out and the
+    // client renders this boundary's content fresh after hydration
+    // (resume(false)), the closest streaming analogue of the client-continue.
+    const clientHandoff = () => {
+      if (!flushed) commitBoundaryState();
+      done!(undefined, new Error(`client-only content (bare ssrSource: "client")`));
+    };
     (async () => {
       try {
         while (retryPromise) {
+          if (hasFinalHole()) return clientHandoff();
           await retryPromise.catch(() => {});
           ret = runDiscovery();
         }
         commitBoundaryState();
         while (ret && ret.p && ret.p.length) {
           const pending = ret as { t: string[]; h: Function[]; p: Promise<any>[] };
+          if (hasFinalHole()) return clientHandoff();
           await Promise.all(pending.p).catch(() => {});
           ret = runLoadingPhase(() => ctx.ssr(pending.t, ...pending.h)) as any;
         }

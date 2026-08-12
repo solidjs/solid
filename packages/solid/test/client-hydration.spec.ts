@@ -7,6 +7,7 @@ import {
   flush,
   getOwner,
   isPending,
+  NotReadyError,
   createSignal as coreSignal,
   createMemo as coreMemo
 } from "@solidjs/signals";
@@ -1162,76 +1163,85 @@ describe("ssrSource client modes — createStore(fn)", () => {
   });
 });
 
-// ssrSource "client" requires a declared commit #0 (#2981): the server can't
-// run the source, so the author must say what the pre-compute window renders —
-// `loadingValue` for signal-family sources, `seedLoadingValue: true` for
-// store-family sources. Dev-only (behind IS_DEV): zero production bytes, and
-// prod falls back to the previous gate behavior for anything that slips
-// through. Effects are exempt — nothing renders from them.
-describe("ssrSource 'client' requires declared commit #0 (dev error)", () => {
+// Bare `ssrSource: "client"` (no declared commit #0) is the structural form:
+// on the server it suspends as a final hole (the nearest <Loading> hands the
+// position to the client); on the client it stays UNASKED through the
+// hydration gate — uninitialized, never a committed `undefined` — and runs
+// its compute as a fresh first mount once the gate flips.
+describe("bare ssrSource 'client' — unasked through the gate, computes after", () => {
   afterEach(() => {
     stopHydration();
   });
 
-  test("createMemo without loadingValue throws", () => {
+  test("createMemo: uninitialized during hydration, computes after the gate flips", () => {
     startHydration({});
-    expect(() =>
-      createRoot(() => (createMemo as any)(() => 1, { ssrSource: "client" }), { id: "t" })
-    ).toThrow(/requires a loadingValue/);
+    let read: any;
+    createRoot(
+      () => {
+        read = (createMemo as any)(() => 42, { ssrSource: "client" });
+        // Gate still closed: the node is unasked — a read suspends rather
+        // than observing a committed undefined.
+        expect(() => read()).toThrow(NotReadyError);
+      },
+      { id: "t" }
+    );
+    stopHydration();
+    flush();
+    expect(read()).toBe(42);
   });
 
-  test("throws in CSR too — the contract is about declaring commit #0, not SSR", () => {
-    // No startHydration: fresh client-side mount.
-    expect(() =>
-      createRoot(() => (createMemo as any)(() => 1, { ssrSource: "client" }), { id: "t" })
-    ).toThrow(/requires a loadingValue/);
+  test("CSR is untouched: bare client memo computes immediately", () => {
+    // No startHydration: fresh client-side mount — plain memo semantics.
+    let read: any;
+    createRoot(
+      () => {
+        read = (createMemo as any)(() => 7, { ssrSource: "client" });
+        expect(read()).toBe(7);
+      },
+      { id: "t" }
+    );
   });
 
-  test("createSignal/createOptimistic function forms without loadingValue throw", () => {
+  test("explicit `loadingValue: undefined` remains a valid declared commit #0", () => {
     startHydration({});
-    expect(() =>
-      createRoot(() => (createSignal as any)(() => 1, { ssrSource: "client" }), { id: "t" })
-    ).toThrow(/requires a loadingValue/);
-    expect(() =>
-      createRoot(() => (createOptimistic as any)(() => 1, { ssrSource: "client" }), { id: "t" })
-    ).toThrow(/requires a loadingValue/);
+    let read: any;
+    createRoot(
+      () => {
+        read = createMemo(() => 1, { ssrSource: "client", loadingValue: undefined });
+        // Declared commit #0: born committed, read serves it synchronously.
+        expect(read()).toBeUndefined();
+      },
+      { id: "t" }
+    );
   });
 
-  test("explicit `loadingValue: undefined` is a valid declaration", () => {
-    startHydration({});
-    expect(() =>
-      createRoot(() => createMemo(() => 1, { ssrSource: "client", loadingValue: undefined }), {
-        id: "t"
-      })
-    ).not.toThrow();
-  });
-
-  test("plain value forms are exempt (no compute to defer)", () => {
+  test("plain value forms are unaffected", () => {
     startHydration({});
     expect(() =>
       createRoot(() => (createSignal as any)(1, { ssrSource: "client" }), { id: "t" })
     ).not.toThrow();
   });
 
-  test("createProjection/createStore/createOptimisticStore without seedLoadingValue throw", () => {
+  test("bare client store: seed visible during hydration, derive runs after the gate", () => {
     startHydration({});
-    expect(() =>
-      createRoot(
-        () => (createProjection as any)(() => ({ v: 1 }), { v: 0 }, { ssrSource: "client" }),
-        { id: "t" }
-      )
-    ).toThrow(/requires seedLoadingValue: true/);
-    expect(() =>
-      createRoot(() => (createStore as any)(() => ({ v: 1 }), { v: 0 }, { ssrSource: "client" }), {
-        id: "t"
-      })
-    ).toThrow(/requires seedLoadingValue: true/);
-    expect(() =>
-      createRoot(
-        () => (createOptimisticStore as any)(() => ({ v: 1 }), { v: 0 }, { ssrSource: "client" }),
-        { id: "t" }
-      )
-    ).toThrow(/requires seedLoadingValue: true/);
+    let store: any;
+    createRoot(
+      () => {
+        store = (createProjection as any)(
+          (draft: any) => {
+            draft.name = "computed";
+          },
+          { name: "seed" },
+          { ssrSource: "client" }
+        );
+        // Gate closed: the derive has not run — the seed is what's there.
+        expect(store.name).toBe("seed");
+      },
+      { id: "t" }
+    );
+    stopHydration();
+    flush();
+    expect(store.name).toBe("computed");
   });
 });
 

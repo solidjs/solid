@@ -44,6 +44,14 @@ export type Scenario = {
   /** textContent of the container once hydration fully settles */
   expectedText: string;
   /**
+   * Override for the "streamed" replay mode. Needed where the two modes
+   * legitimately settle to different text — e.g. a live $df swap of a
+   * REJECTED fragment splices in the rejection template's single-space
+   * text node (dom-expressions' rejection channel), which full-page-loaded
+   * hydration never renders.
+   */
+  expectedTextStreamed?: string;
+  /**
    * Tokens the server-rendered HTML must contain. Defaults to expectedText —
    * override for scenarios with client-only content (e.g. Portal), where the
    * settled client DOM legitimately contains text the server never rendered.
@@ -1202,6 +1210,85 @@ function LoadingSeedHybridStore() {
   );
 }
 
+// BARE ssrSource "client" (no loadingValue): the structural form. The source
+// suspends server-side as a FINAL hole — the boundary flushes its plain
+// fallback with the "$$f" client-continue marker (no fragment, no swap) and
+// the client renders the content fresh after hydration, computing the memo
+// as a first mount.
+let refreshBareClient!: () => void;
+function BareClientMemo() {
+  const [version, setVersion] = createSignal(0);
+  refreshBareClient = () => setVersion(v => v + 1);
+  const data = createMemo(
+    async () => {
+      const v = version();
+      await sleep(5);
+      return `bare-${v}`;
+    },
+    { ssrSource: "client" }
+  );
+  return (
+    <Loading fallback={<p>wait</p>}>
+      <div>
+        <b>{data()}</b>
+        <span>tail</span>
+      </div>
+    </Loading>
+  );
+}
+
+// Store form of the bare client hole: the pending proxy suspends the boundary
+// on the server; the client's gated derive leaves the seed through hydration
+// and runs fresh once the gate flips (inside the client-continue render).
+function BareClientStore() {
+  const [state] = createStore<{ items: string[]; ready: boolean }>(
+    async draft => {
+      await sleep(5);
+      draft.items = ["bare-row"];
+      draft.ready = true;
+    },
+    { items: [], ready: false },
+    { ssrSource: "client" }
+  );
+  return (
+    <Loading fallback={<p>wait</p>}>
+      <div>
+        <Show when={state.ready} fallback={<i>empty</i>}>
+          <For each={state.items}>{item => <span>{item}</span>}</For>
+        </Show>
+        <p>end</p>
+      </div>
+    </Loading>
+  );
+}
+
+// A final hole masked by an earlier real async read: the hole suspends on the
+// real source first (fragment registers, placeholder streams), and the client
+// hole only surfaces on the post-settle re-pull — too late for "$$f", so the
+// fragment REJECTS and the client renders the boundary's content fresh after
+// hydration (both sources compute client-side).
+function BareClientLateFinal() {
+  const real = createMemo(async () => {
+    await sleep(5);
+    return "real";
+  });
+  const widget = createMemo(
+    async () => {
+      await sleep(5);
+      return "widget";
+    },
+    { ssrSource: "client" }
+  );
+  return (
+    <Loading fallback={<p>wait</p>}>
+      <div>
+        <b>{real() && widget()}</b>
+        <span>tail</span>
+      </div>
+    </Loading>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -1617,5 +1704,32 @@ export const scenarios: Scenario[] = [
     update: () => refreshLoadingSeedHybrid(),
     expectedTextAfterUpdate: "hyb-1end",
     stableSelector: "div, p"
+  },
+  {
+    name: "bare-client-memo",
+    App: BareClientMemo,
+    async: true,
+    expectedText: "bare-0tail",
+    serverText: "wait",
+    update: () => refreshBareClient(),
+    expectedTextAfterUpdate: "bare-1tail",
+    stableSelector: "div, span"
+  },
+  {
+    name: "bare-client-store",
+    App: BareClientStore,
+    async: true,
+    expectedText: "bare-rowend",
+    serverText: "wait"
+  },
+  {
+    name: "bare-client-late-final",
+    App: BareClientLateFinal,
+    async: true,
+    expectedText: "widgettail",
+    // The live rejected swap splices the rejection template's single-space
+    // text node into the range (see expectedTextStreamed).
+    expectedTextStreamed: " widgettail",
+    serverText: "wait"
   }
 ];

@@ -144,7 +144,7 @@ const feed = createMemo(() => fetchFeed(id()), {
 - The first flight is quiet: `isPending` reads `false` while it is in flight. First-load affordances live in the value itself (e.g. a `provisional` flag driving dimmed styles), not in pending state. Once the first real answer lands the window is over — refetches and input changes use the normal pending machinery and `isPending` behaves as usual.
 - `loadingValue` is typed strictly as `T`: the placeholder must be shaped like a real answer. If it can't be, that's the signal you wanted a `Loading` boundary.
 - Store-family sources (`createStore(fn)`, `createProjection`, `createOptimisticStore`) declare it as `seedLoadingValue: true`, which promotes their existing seed to the same role.
-- SSR renders the declared value into the HTML rather than suspending, and the landing streams as data; hydration claims against it. This is also why `ssrSource: "client"` requires the declaration (below): the server can't run the compute, so the author must say what it renders.
+- SSR renders the declared value into the HTML rather than suspending, and the landing streams as data; hydration claims against it. With `ssrSource: "client"` (below) the declaration is what makes a browser-only compute renderable on the server at all — without it, the source suspends structurally instead.
 
 The guardrail is honesty: this is for *default data the user can tell is provisional*, not for impersonating an answer that hasn't arrived. If you find yourself inventing plausible-looking real data to avoid a spinner, use `Loading`.
 
@@ -160,7 +160,9 @@ Because async lives in ordinary computations, SSR/hydration policy is a per-prim
 
 - `"server"` *(default)* — the client uses the serialized server value as its initial state. The compute does **not** re-run for the initial value; the serialized result is authoritative. Choose this when the compute is deterministic from server-available inputs — the common data-fetch case, where it means no duplicate fetch on load.
 - `"hybrid"` — the client seeds from the serialized server value, then re-runs the compute to take over. Choose this for computes that mix server data with client-only signals (window size, user locale).
-- `"client"` — skip the server value entirely. On the server the compute never runs (an owner is still created so hydration ids stay aligned); on the client it is deferred until hydration completes, then runs as if first-mounted. Choose this for client-only state where serialization is meaningless. Because the server can't run the compute, `"client"` requires a declared first paint (`loadingValue` / `seedLoadingValue`, above): `loadingValue` on signal-family sources (`loadingValue: undefined` is a valid declaration — put the `undefined` in the type and branch on it), `seedLoadingValue: true` on store-family sources (the seed is what the pre-compute window renders).
+- `"client"` — skip the server value entirely. On the server the compute never runs (an owner is still created so hydration ids stay aligned); on the client it is deferred until hydration completes, then runs as if first-mounted. Choose this for client-only state where serialization is meaningless. What the server renders in the compute's place is the author's choice of channel:
+  - **Bare (structural)** — with no declaration, the source is a hole the server can never fill. Reads suspend *finally*: the nearest `Loading` boundary flushes its fallback into the HTML and hands the position to the client, which renders the content fresh after hydration. Read outside a `Loading` boundary this is a render error (the stream would otherwise hang), so bare client sources must sit under a boundary.
+  - **Declared (`loadingValue` / `seedLoadingValue`, above)** — the server renders the declared first paint instead of suspending; the client serves the same value while hydrating, then runs the compute. `loadingValue: undefined` is a valid declaration — put the `undefined` in the type and branch on it; store-family sources declare `seedLoadingValue: true` (the seed is what the pre-compute window renders).
 
 ```js
 // Default ("server"): serialized value is authoritative; no client refetch on load.
@@ -175,6 +177,10 @@ const draft = createMemo(() => readDraftFromStorage(key()) ?? null, {
   ssrSource: "client",
   loadingValue: null
 });
+
+// Bare form: the server flushes the surrounding <Loading> fallback and the
+// client renders this branch itself after hydration.
+const widget = createMemo(() => measureBrowserThing(), { ssrSource: "client" });
 ```
 
 **`deferStream: true`** defers the SSR stream flush until this primitive's first value has resolved. It lets a late-resolving source hold the document open rather than forcing the surrounding `<Loading>` boundary to render its fallback into the HTML. Server-only; ignored on the client.

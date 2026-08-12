@@ -471,9 +471,7 @@ type ServerSsrOptions = {
    */
   seedLoadingValue?: boolean;
 };
-type ServerClientMemoOptions<T> = Omit<MemoOptions<T>, "ssrSource"> & { ssrSource: "client" };
-type ServerMemoOptions<T> = Omit<MemoOptions<T>, "ssrSource"> & {
-  ssrSource?: "server" | "hybrid";
+type ServerMemoOptions<T> = MemoOptions<T> & {
   /**
    * Keep this value out of the hydration payload. The subtree still hydrates;
    * the client is expected to RECOMPUTE the value instead of reading it back.
@@ -483,36 +481,36 @@ type ServerMemoOptions<T> = Omit<MemoOptions<T>, "ssrSource"> & {
    */
   serialize?: false;
 };
-type ServerClientSignalOptions<T> = Omit<SignalOptions<T>, "ssrSource"> & { ssrSource: "client" };
-type ServerSignalOptions<T> = Omit<SignalOptions<T>, "ssrSource"> & {
-  ssrSource?: "server" | "hybrid";
-};
-type ServerStoreOptions = Omit<ServerSsrOptions, "ssrSource"> & {
-  ssrSource?: "server" | "hybrid";
-};
-// `ssrSource: "client"` requires the seed promoted to commit #0 — mirrors the
-// client entry's HydrationClientProjectionOptions (#2981).
-type ServerClientStoreOptions = Omit<ServerSsrOptions, "ssrSource" | "seedLoadingValue"> & {
-  ssrSource: "client";
-  seedLoadingValue: true;
-};
+type ServerSignalOptions<T> = SignalOptions<T>;
+type ServerStoreOptions = ServerSsrOptions;
 
 /**
- * `ssrSource: "client"` requires a declared commit #0 — the server cannot run
- * the source, so the author must say what it renders: `loadingValue` on
- * signal-family sources, `seedLoadingValue: true` on store-family sources.
- * Always-on server-side (the server bundle has no dev split, and SSR is where
- * the implicit promotion would flush into markup); the client entry runs the
- * same check behind IS_DEV.
+ * The pending source for BARE `ssrSource: "client"` (no declared commit #0):
+ * a hole the server can never fill. Reads throw a `NotReadyError` carrying
+ * this promise; the `$clientHole` tag classifies the suspension as FINAL —
+ * boundaries hand the position to the client (the "$$f" client-continue
+ * route) instead of awaiting a settle that will never come. One shared,
+ * never-settling instance: retry subscriptions attached to it (e.g.
+ * `subscribePendingRetry`) are inert by design.
  */
-function assertClientCommitZero(options: any, seed?: boolean) {
-  if (options?.ssrSource !== "client") return;
-  if (seed ? options.seedLoadingValue === true : "loadingValue" in options) return;
-  throw new Error(
-    `ssrSource: "client" requires ${
-      seed ? "seedLoadingValue: true" : "a loadingValue"
-    } — the server cannot run this source, so you must declare what it renders (commit #0).`
-  );
+const CLIENT_HOLE: Promise<never> = /* @__PURE__ */ Object.assign(new Promise<never>(() => {}), {
+  $clientHole: true
+});
+
+/**
+ * A final (client-hole) suspension is only meaningful where a `<Loading>`
+ * boundary can catch it and take the client-continue route. Read outside a
+ * Loading discovery pass (`_loadingPhase`), it would wedge the stream as an
+ * unresolvable top-level hole — throw a real error instead, loudly.
+ */
+function clientHoleRead(): never {
+  if (!(sharedConfig.context as any)?._loadingPhase)
+    throw new Error(
+      `ssrSource: "client" read during SSR outside a <Loading> boundary — the server cannot run ` +
+        `this source, so a boundary must own the position's fallback. Wrap the read in <Loading>, ` +
+        `or declare a loadingValue/seedLoadingValue to render a provisional value instead.`
+    );
+  throw new NotReadyError(CLIENT_HOLE);
 }
 
 let Observer: ServerComputation | null = null;
@@ -632,10 +630,6 @@ export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOpt
 // `prev` is always T — mirrors the client wrapper and the signals core.
 export function createSignal<T>(
   fn: ComputeFunction<NoInfer<T>, T>,
-  options: ServerClientSignalOptions<T> & { loadingValue: T }
-): Signal<T>;
-export function createSignal<T>(
-  fn: ComputeFunction<NoInfer<T>, T>,
   options: ServerSignalOptions<T> & { loadingValue: T }
 ): Signal<T>;
 export function createSignal<T>(
@@ -669,12 +663,9 @@ export function createSignal<T>(
 }
 
 // Commit #0 (loadingValue): never undefined, `prev` is always T — see
-// createSignal. No bare "client" overload: the server cannot run a client
-// source, so the author must declare what it renders (#2981).
-export function createMemo<T>(
-  compute: ComputeFunction<NoInfer<T>, T>,
-  options: ServerClientMemoOptions<T> & { loadingValue: T }
-): SourceAccessor<T>;
+// createSignal. Bare `ssrSource: "client"` (no loadingValue) is the
+// structural form: the source suspends server-side as a FINAL hole and the
+// nearest <Loading> boundary hands the position to the client.
 export function createMemo<T>(
   compute: ComputeFunction<NoInfer<T>, T>,
   options: ServerMemoOptions<T> & { loadingValue: T }
@@ -685,7 +676,7 @@ export function createMemo<T>(
 ): SourceAccessor<T>;
 export function createMemo<T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
-  options?: ServerClientMemoOptions<T> | ServerMemoOptions<T>
+  options?: ServerMemoOptions<T>
 ): SourceAccessor<T | undefined> {
   // Sync fast path — set by the compiler-emitted `_$memo()` / `_$effect()`
   // wrappers (see `solid-web/src/core.ts`) and by internal control-flow
@@ -701,7 +692,6 @@ export function createMemo<T>(
   }
   // Covers createSignal's and createOptimistic's function forms too — both
   // delegate here.
-  assertClientCommitZero(options);
   // Capture SSR context at creation time — async re-computations (via .then callbacks)
   // may run after a concurrent request has overwritten sharedConfig.context.
   const ctx = sharedConfig.context;
@@ -779,13 +769,18 @@ export function createMemo<T>(
 
   const ssrSource = options?.ssrSource;
   if (ssrSource === "client") {
-    // Skip computation and keep the value uninitialized. Owner created for ID parity.
+    // Skip computation. Owner created for ID parity.
     comp.computed = true;
     if (loadingState) {
       // Client-source with commit #0: markup flushes the loading value; the
       // client serves the same value while hydrating, then runs the compute.
       loadingState.served = true;
       comp.value = loadingState.value;
+    } else {
+      // Bare client source: a FINAL hole (see CLIENT_HOLE). Reads suspend the
+      // nearest <Loading> boundary, which hands the position to the client.
+      comp.error = new NotReadyError(CLIENT_HOLE);
+      comp.errored = true;
     }
   } else if (!options?.lazy) {
     update();
@@ -804,6 +799,10 @@ export function createMemo<T>(
       update();
     }
     if (comp.errored) {
+      // A client hole read outside a Loading discovery pass must fail loudly
+      // rather than wedge the stream (see clientHoleRead). Identity check on
+      // the shared promise — cost is confined to the error-throw path.
+      if ((comp.error as any)?.source === CLIENT_HOLE) clientHoleRead();
       throw comp.error;
     }
     return comp.value;
@@ -841,7 +840,7 @@ export function createMemo<T>(
  */
 function createSyncMemo<T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
-  options?: ServerMemoOptions<T> | ServerClientMemoOptions<T>
+  options?: ServerMemoOptions<T>
 ): SourceAccessor<T | undefined> {
   // Frame renders carry a commit epoch (DR-2 case 1): sync memos cache per
   // epoch there, for-the-render everywhere else. Captured at creation like
@@ -1349,6 +1348,11 @@ function serverEffect<T>(
       // async blocker), so it's swallowed outright.
       if (effectFn && ctx?.async) {
         const source = (err as NotReadyError).source as Promise<any>;
+        // A client hole is FINAL: blocking the stream on it would hold the
+        // response forever. Rethrow so the surrounding render (a Loading
+        // discovery pass — the read throws loudly anywhere else) escalates
+        // the suspension to the boundary, which hands off to the client.
+        if (source === CLIENT_HOLE) throw err;
         const retry = () => {
           if (comp.disposed) return;
           try {
@@ -1360,7 +1364,11 @@ function serverEffect<T>(
           } catch (retryErr) {
             if (retryErr instanceof NotReadyError) {
               const next = (retryErr as NotReadyError).source as Promise<any>;
-              ctx.block(next.then(retry, () => {}));
+              // A retry that lands on a client hole can never settle — there
+              // is no render on the stack to escalate to, so swallow: the
+              // effect simply never fires server-side (the client runs it
+              // after hydration), instead of blocking the stream forever.
+              if (next !== CLIENT_HOLE) ctx.block(next.then(retry, () => {}));
               return;
             }
             // Out-of-band by now — route to the boundary's error handler.
@@ -1423,12 +1431,8 @@ export function createOptimistic<T>(
   value: Exclude<T, Function>,
   options?: SignalOptions<T>
 ): Signal<T>;
-// Commit #0 (loadingValue): never undefined, `prev` is always T — and no
-// bare "client" overload; see createSignal/createMemo.
-export function createOptimistic<T>(
-  fn: ComputeFunction<NoInfer<T>, T>,
-  options: ServerClientSignalOptions<T> & { loadingValue: T }
-): Signal<T>;
+// Commit #0 (loadingValue): never undefined, `prev` is always T — see
+// createSignal/createMemo (bare "client" is the structural form there too).
 export function createOptimistic<T>(
   fn: ComputeFunction<NoInfer<T>, T>,
   options: ServerSignalOptions<T> & { loadingValue: T }
@@ -1461,7 +1465,7 @@ export function createStore<T extends object>(
 export function createStore<T extends object>(
   fn: (store: T) => void | T | Promise<void | T>,
   store: Partial<T> | Store<T>,
-  options?: (ServerStoreOptions | ServerClientStoreOptions) & { name?: string; shallow?: boolean }
+  options?: ServerStoreOptions & { name?: string; shallow?: boolean }
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object>(
   first: T | Store<T> | ((store: T) => void | T | Promise<void | T>),
@@ -1498,6 +1502,9 @@ function createPendingProxy<T extends object>(
   const proxy = new Proxy(state, {
     get(obj, key, receiver) {
       if (pending && typeof key !== "symbol") {
+        // Bare client store: same loud-outside-a-boundary rule as the memo
+        // read path (see clientHoleRead).
+        if (source === CLIENT_HOLE) clientHoleRead();
         throw new NotReadyError(source);
       }
       return Reflect.get(readTarget, key);
@@ -1580,15 +1587,18 @@ function replaceState<T extends object>(target: T, next: T): void {
 export function createProjection<T extends object>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   initialValue: Partial<T> | Store<T>,
-  options?: ServerStoreOptions | ServerClientStoreOptions
+  options?: ServerStoreOptions
 ): Store<T> {
-  assertClientCommitZero(options, true);
   const ctx = sharedConfig.context;
   const owner = createOwner();
   const [state] = createStore(initialValue as T);
 
   if (options?.ssrSource === "client") {
-    return state;
+    // seedLoadingValue = declared commit #0: the seed renders. Bare = the
+    // structural form: reads suspend as a FINAL hole (see CLIENT_HOLE) and
+    // the nearest <Loading> boundary hands the position to the client.
+    if (options.seedLoadingValue === true) return state;
+    return createPendingProxy(state, CLIENT_HOLE)[0];
   }
 
   let disposed = false;
@@ -2164,7 +2174,15 @@ export function createErrorBoundary<T, U>(
       ? ctx!.ssr(pending.t, ...pending.h)
       : ctx!.resolve(runWithOwner(createOwner(), fn));
     pending = resolved?.p?.length ? resolved : undefined;
-    if (pending) throw new NotReadyError(Promise.all(pending.p));
+    if (pending) {
+      // Propagate the FINAL classification through the aggregate: with a
+      // client hole in the set, the combined promise can never settle, and
+      // the outer Loading boundary must see the tag to hand off instead of
+      // awaiting it (see CLIENT_HOLE).
+      const all: any = Promise.all(pending.p);
+      if (pending.p.some(p => (p as any).$clientHole)) all.$clientHole = true;
+      throw new NotReadyError(all);
+    }
     return resolved;
   };
   const renderFallback = (err: any) =>

@@ -170,9 +170,9 @@ const memo7 = createMemo((prev?: number) => {
 }, {});
 const memo7Value: number = memo7();
 const transparentMemo: Accessor<number> = createMemo(() => 123, { transparent: true });
-// ssrSource "client" requires a declared commit #0 (#2981): no bare form.
-// @ts-expect-error "client" without loadingValue is not accepted
-const bareClientMemo = createMemo(() => 123, { ssrSource: "client" });
+// Bare ssrSource "client" is the structural form: plain async-memo typing
+// (suspends until asked — never a committed undefined in the type).
+const bareClientMemo: Accessor<number> = createMemo(() => 123, { ssrSource: "client" });
 const clientMemo = createMemo(() => 123, { ssrSource: "client", loadingValue: 0 });
 const clientMemoValue: number = clientMemo();
 // Declaring "nothing yet" means declaring the undefined in the type.
@@ -211,16 +211,16 @@ const [derived, setDerived] = createSignal((prev?: number) => (prev ?? count()) 
 const derivedValue: number = derived();
 setDerived(10);
 setDerived(prev => (prev ?? 0) + 1);
-// ssrSource "client" requires a declared commit #0 (#2981): no bare form.
-// @ts-expect-error "client" without loadingValue is not accepted
+// Bare ssrSource "client" is the structural form: plain function-form typing.
 const [bareClientDerived] = createSignal((p?: number) => (p ?? 0) + 1, { ssrSource: "client" });
+const bareClientDerivedValue: number = bareClientDerived();
 const [clientDerived] = createSignal((prev: number) => (prev ?? count()) + 1, {
   ssrSource: "client",
   loadingValue: 0
 });
 const clientDerivedValue: number = clientDerived();
-// @ts-expect-error "client" without loadingValue is not accepted
 const [bareClientOptimistic] = createOptimistic((p?: number) => p ?? 0, { ssrSource: "client" });
+const bareClientOptimisticValue: number = bareClientOptimistic();
 const [clientOptimistic] = createOptimistic((prev: number) => (prev ?? count()) + 1, {
   ssrSource: "client",
   loadingValue: 0
