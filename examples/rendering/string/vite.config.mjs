@@ -1,8 +1,8 @@
 import { defineConfig } from "vite";
-// Exercises the current vite-plugin-solid pipeline: native JSX compiler by
+// Exercises the current @solidjs/vite-plugin pipeline: native JSX compiler by
 // default, native lazy/refresh passes, solid-js/refresh HMR runtime, and
 // the built-in lazy() manifest handling (`virtual:solid-manifest`).
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 
 export default defineConfig({
   root: import.meta.dirname,

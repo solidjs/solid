@@ -59,6 +59,9 @@ importers:
       '@rollup/plugin-replace':
         specifier: ^5.0.2
         version: 5.0.7(rollup@4.59.0)
+      '@solidjs/vite-plugin':
+        specifier: 3.0.0-next.27
+        version: 3.0.0-next.27(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.25.12)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:packages/solid-web
@@ -125,9 +128,6 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
-      vite-plugin-solid:
-        specifier: 3.0.0-next.24
-        version: 3.0.0-next.24(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.25.12)(terser@5.49.0))
       vitest:
         specifier: ^4.1.6
         version: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.25.12)(terser@5.49.0))
@@ -150,12 +150,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/solid
     devDependencies:
+      '@solidjs/vite-plugin':
+        specifier: 3.0.0-next.27
+        version: 3.0.0-next.27(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       vite:
         specifier: ^8.0.0
         version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
-      vite-plugin-solid:
-        specifier: 3.0.0-next.24
-        version: 3.0.0-next.24(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
 
   examples/hackernews:
     dependencies:
@@ -169,12 +169,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/solid
     devDependencies:
+      '@solidjs/vite-plugin':
+        specifier: 3.0.0-next.27
+        version: 3.0.0-next.27(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       vite:
         specifier: ^8.0.0
         version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
-      vite-plugin-solid:
-        specifier: 3.0.0-next.24
-        version: 3.0.0-next.24(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
 
   examples/hackernews-spa:
     dependencies:
@@ -188,15 +188,18 @@ importers:
         specifier: workspace:*
         version: link:../../packages/solid
     devDependencies:
+      '@solidjs/vite-plugin':
+        specifier: 3.0.0-next.27
+        version: 3.0.0-next.27(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       vite:
         specifier: ^8.0.0
         version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
-      vite-plugin-solid:
-        specifier: 3.0.0-next.24
-        version: 3.0.0-next.24(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
 
   examples/migrating-element:
     devDependencies:
+      '@solidjs/vite-plugin':
+        specifier: 3.0.0-next.27
+        version: 3.0.0-next.27(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/solid-web
@@ -212,9 +215,6 @@ importers:
       vite:
         specifier: ^7.0.0
         version: 7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0)
-      vite-plugin-solid:
-        specifier: 3.0.0-next.24
-        version: 3.0.0-next.24(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
 
   examples/notes:
     dependencies:
@@ -237,15 +237,18 @@ importers:
         specifier: ^1.17.5
         version: 1.17.5
     devDependencies:
+      '@solidjs/vite-plugin':
+        specifier: 3.0.0-next.27
+        version: 3.0.0-next.27(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       vite:
         specifier: ^8.0.0
         version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
-      vite-plugin-solid:
-        specifier: 3.0.0-next.24
-        version: 3.0.0-next.24(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
 
   examples/rendering:
     devDependencies:
+      '@solidjs/vite-plugin':
+        specifier: 3.0.0-next.27
+        version: 3.0.0-next.27(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/solid-web
@@ -264,12 +267,12 @@ importers:
       vite:
         specifier: ^7.0.0
         version: 7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0)
-      vite-plugin-solid:
-        specifier: 3.0.0-next.24
-        version: 3.0.0-next.24(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
 
   examples/sierpinski:
     devDependencies:
+      '@solidjs/vite-plugin':
+        specifier: 3.0.0-next.27
+        version: 3.0.0-next.27(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/solid-web
@@ -285,12 +288,12 @@ importers:
       vite:
         specifier: ^7.0.0
         version: 7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0)
-      vite-plugin-solid:
-        specifier: 3.0.0-next.24
-        version: 3.0.0-next.24(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
 
   examples/todos:
     devDependencies:
+      '@solidjs/vite-plugin':
+        specifier: 3.0.0-next.27
+        version: 3.0.0-next.27(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/solid-web
@@ -306,9 +309,6 @@ importers:
       vite:
         specifier: ^7.0.0
         version: 7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0)
-      vite-plugin-solid:
-        specifier: 3.0.0-next.24
-        version: 3.0.0-next.24(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
 
   packages/babel-preset-solid:
     dependencies:
@@ -1881,6 +1881,17 @@ packages:
     peerDependencies:
       '@solidjs/web': workspace:*
       solid-js: workspace:*
+
+  '@solidjs/vite-plugin@3.0.0-next.27':
+    resolution: {integrity: sha512-wytjSKLe1YkUhi/TXr1yNOxZUjoajn3SILCF6TCHk7QJckrNRxddnsIIuzVbPbCm1icpkow75iIuF7EENBB7fQ==}
+    peerDependencies:
+      '@solidjs/web': workspace:*
+      '@testing-library/jest-dom': ^5.16.6 || ^5.17.0 || ^6.*
+      solid-js: workspace:*
+      vite: ^6.0.0 || ^7.0.0 || ^8.0.0
+    peerDependenciesMeta:
+      '@testing-library/jest-dom':
+        optional: true
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
@@ -3662,17 +3673,6 @@ packages:
     resolution: {integrity: sha512-ZZKSmDAEFOijERBLkmYfJ+vmk3w+7hOLYDNkRCuRuMJGEmqYNCNLyBBFwWKVMhfwaEF3WOd0Zlw86U/WC/+nYw==}
     engines: {'0': node >=0.6.0}
 
-  vite-plugin-solid@3.0.0-next.24:
-    resolution: {integrity: sha512-eSvGrIlWyqxVlt25li2DATddtkbyhdXW6tph0gLGuerrH8DfIEIXz8d4VqrrGGGcUSc7l9xknlrONKPNbLyfvw==}
-    peerDependencies:
-      '@solidjs/web': workspace:*
-      '@testing-library/jest-dom': ^5.16.6 || ^5.17.0 || ^6.*
-      solid-js: workspace:*
-      vite: ^6.0.0 || ^7.0.0 || ^8.0.0
-    peerDependenciesMeta:
-      '@testing-library/jest-dom':
-        optional: true
-
   vite@7.3.3:
     resolution: {integrity: sha512-/4XH147Ui7OGTjg3HbdWe5arnZQSbfuRzdr9Ec7TQi5I7R+ir0Rlc9GIvD4v0XZurELqA035KVXJXpR61xhiTA==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -5322,6 +5322,56 @@ snapshots:
     dependencies:
       '@solidjs/web': link:packages/solid-web
       solid-js: link:packages/solid
+
+  '@solidjs/vite-plugin@3.0.0-next.27(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))':
+    dependencies:
+      '@ampproject/remapping': 2.3.0
+      '@babel/core': 7.29.0
+      '@dom-expressions/compiler': 0.50.0-next.40
+      '@solidjs/web': link:packages/solid-web
+      '@types/babel__core': 7.20.5
+      babel-preset-solid: link:packages/babel-preset-solid
+      merge-anything: 5.1.7
+      solid-js: link:packages/solid
+      vite: 7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0)
+      vitefu: 1.1.3(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
+    optionalDependencies:
+      '@testing-library/jest-dom': 6.9.1
+    transitivePeerDependencies:
+      - supports-color
+
+  '@solidjs/vite-plugin@3.0.0-next.27(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))':
+    dependencies:
+      '@ampproject/remapping': 2.3.0
+      '@babel/core': 7.29.0
+      '@dom-expressions/compiler': 0.50.0-next.40
+      '@solidjs/web': link:packages/solid-web
+      '@types/babel__core': 7.20.5
+      babel-preset-solid: link:packages/babel-preset-solid
+      merge-anything: 5.1.7
+      solid-js: link:packages/solid
+      vite: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
+      vitefu: 1.1.3(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+    optionalDependencies:
+      '@testing-library/jest-dom': 6.9.1
+    transitivePeerDependencies:
+      - supports-color
+
+  '@solidjs/vite-plugin@3.0.0-next.27(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.25.12)(terser@5.49.0))':
+    dependencies:
+      '@ampproject/remapping': 2.3.0
+      '@babel/core': 7.29.0
+      '@dom-expressions/compiler': 0.50.0-next.40
+      '@solidjs/web': link:packages/solid-web
+      '@types/babel__core': 7.20.5
+      babel-preset-solid: link:packages/babel-preset-solid
+      merge-anything: 5.1.7
+      vite: 8.1.5(@types/node@25.6.0)(esbuild@0.25.12)(terser@5.49.0)
+      vitefu: 1.1.3(vite@8.1.5(@types/node@25.6.0)(esbuild@0.25.12)(terser@5.49.0))
+    optionalDependencies:
+      '@testing-library/jest-dom': 6.9.1
+    transitivePeerDependencies:
+      - supports-color
 
   '@standard-schema/spec@1.1.0': {}
 
@@ -7061,56 +7111,6 @@ snapshots:
       assert-plus: 1.0.0
       core-util-is: 1.0.2
       extsprintf: 1.3.0
-
-  vite-plugin-solid@3.0.0-next.24(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0)):
-    dependencies:
-      '@ampproject/remapping': 2.3.0
-      '@babel/core': 7.29.0
-      '@dom-expressions/compiler': 0.50.0-next.40
-      '@solidjs/web': link:packages/solid-web
-      '@types/babel__core': 7.20.5
-      babel-preset-solid: link:packages/babel-preset-solid
-      merge-anything: 5.1.7
-      solid-js: link:packages/solid
-      vite: 7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0)
-      vitefu: 1.1.3(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
-    optionalDependencies:
-      '@testing-library/jest-dom': 6.9.1
-    transitivePeerDependencies:
-      - supports-color
-
-  vite-plugin-solid@3.0.0-next.24(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)):
-    dependencies:
-      '@ampproject/remapping': 2.3.0
-      '@babel/core': 7.29.0
-      '@dom-expressions/compiler': 0.50.0-next.40
-      '@solidjs/web': link:packages/solid-web
-      '@types/babel__core': 7.20.5
-      babel-preset-solid: link:packages/babel-preset-solid
-      merge-anything: 5.1.7
-      solid-js: link:packages/solid
-      vite: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
-      vitefu: 1.1.3(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
-    optionalDependencies:
-      '@testing-library/jest-dom': 6.9.1
-    transitivePeerDependencies:
-      - supports-color
-
-  vite-plugin-solid@3.0.0-next.24(@solidjs/web@packages+solid-web)(@testing-library/jest-dom@6.9.1)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.25.12)(terser@5.49.0)):
-    dependencies:
-      '@ampproject/remapping': 2.3.0
-      '@babel/core': 7.29.0
-      '@dom-expressions/compiler': 0.50.0-next.40
-      '@solidjs/web': link:packages/solid-web
-      '@types/babel__core': 7.20.5
-      babel-preset-solid: link:packages/babel-preset-solid
-      merge-anything: 5.1.7
-      vite: 8.1.5(@types/node@25.6.0)(esbuild@0.25.12)(terser@5.49.0)
-      vitefu: 1.1.3(vite@8.1.5(@types/node@25.6.0)(esbuild@0.25.12)(terser@5.49.0))
-    optionalDependencies:
-      '@testing-library/jest-dom': 6.9.1
-    transitivePeerDependencies:
-      - supports-color
 
   vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0):
     dependencies:

@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 
 // Turnkey SSR: `start: {}` (with `ssr: true`) generates the entries and the
 // serving layer around src/app.tsx, so there is no entry-server, entry-client,

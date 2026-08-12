@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 
 // Identical to ../hackernews-spa/vite.config.ts except for one flag:
 // `serverFunctions.components`. That flag is the entire wiring difference

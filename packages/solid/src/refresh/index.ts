@@ -341,7 +341,7 @@ const refreshConfig: RefreshConfig = {};
 
 /**
  * Configures runtime behavior that is not part of the frozen compiled-wrapper
- * ABI. Intended to be called once by bundler integrations (vite-plugin-solid)
+ * ABI. Intended to be called once by bundler integrations (@solidjs/vite-plugin)
  * before any hot update fires.
  */
 export function configureRefresh(config: RefreshConfig): void {

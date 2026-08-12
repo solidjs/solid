@@ -3,7 +3,7 @@
 import { defineConfig } from "vitest/config";
 // Test JSX compiles with the native Rust compiler by default;
 // `JSX_COMPILER=babel` switches to the Babel transform for A/B.
-import solidPlugin from "vite-plugin-solid";
+import solidPlugin from "@solidjs/vite-plugin";
 
 const compiler = process.env.JSX_COMPILER === "babel" ? "babel" : "native";
 import { resolve } from "path";

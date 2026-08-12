@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 
 // The same turnkey setup as ../hackernews, plus the one piece a read-only app
 // never needs: `serverFunctions.configure` names a module evaluated in the

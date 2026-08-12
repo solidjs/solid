@@ -30,7 +30,7 @@ To use a custom renderer available in the (fictional) `solid-custom-dom` package
 
 ```js
 import { defineConfig } from "vite";
-import solidPlugin from "vite-plugin-solid";
+import solidPlugin from "@solidjs/vite-plugin";
 
 export default defineConfig({
   plugins: [

@@ -2,7 +2,7 @@ import { isPending, lazy, Match, Switch } from "solid-js";
 import { Link, RouteHOC, useRouter } from "../router";
 import Profile from "./Profile";
 
-// vite-plugin-solid's lazy() module-URL pass keys these against the client
+// @solidjs/vite-plugin's lazy() module-URL pass keys these against the client
 // manifest automatically — no hand-written module keys needed.
 const Home = lazy(() => import("./Home"));
 const Settings = lazy(() => import("./Settings"));

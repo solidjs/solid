@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 
 // The same turnkey setup as ../hackernews: `start: {}` generates the entries
 // (client hydrate, server render, document shell from src/Document.tsx), and

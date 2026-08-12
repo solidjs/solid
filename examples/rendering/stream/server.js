@@ -1,7 +1,7 @@
 // Node harness for the streaming-SSR (renderToStream) mode. Dev runs Vite
 // in middleware mode and SSR-loads ./entry-server.tsx; prod serves the built
 // client assets and imports the built server entry. Modeled on
-// vite-plugin-solid's own SSR example server.
+// @solidjs/vite-plugin's own SSR example server.
 import { createServer as createHttpServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

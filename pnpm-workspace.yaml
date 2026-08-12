@@ -14,7 +14,7 @@ minimumReleaseAgeExclude:
   - '@dom-expressions/hyperscript'
   - '@dom-expressions/runtime'
   - '@dom-expressions/tagged-jsx'
-  - 'vite-plugin-solid'
+  - '@solidjs/vite-plugin'
 
 overrides:
   babel-preset-solid: workspace:*
