@@ -1094,8 +1094,9 @@ function LoadingValueClientMemo() {
 // ssrSource "hybrid" + loadingValue on an async generator: the server locks
 // the shell at commit #0 and serializes ONLY the first yield (hybrid closes
 // the iterator server-side); the client claims against the placeholder,
-// adopts the first yield as its serialized value, and a post-hydration
-// refetch runs the raw generator client-side (conflating to its last yield).
+// adopts the first yield as its serialized value, then the takeover re-runs
+// the generator client-side (#2993) — its first yield reproduces the server
+// value and the rest continue, settling at the final yield without a refetch.
 let refreshLoadingHybridIterator!: () => void;
 function LoadingValueHybridIterator() {
   const [version, setVersion] = createSignal(0);
@@ -1672,7 +1673,7 @@ export const scenarios: Scenario[] = [
     name: "loading-value-hybrid-iterator",
     App: LoadingValueHybridIterator,
     async: true,
-    expectedText: "first-0tail",
+    expectedText: "final-0tail",
     serverText: "skeltail",
     update: () => refreshLoadingHybridIterator(),
     expectedTextAfterUpdate: "final-1tail",

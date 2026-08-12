@@ -2365,6 +2365,95 @@ describe("ssrSource 'hybrid' — async generator transition", () => {
 
     expect(returnCalls).toBe(1);
   });
+
+  test("createMemo: hybrid async generator continues iterating client-side (#2993)", async () => {
+    // Server consumed exactly one yield and serialized it as a settled promise.
+    startHydration({ t0: { v: 1, s: 1 } });
+
+    let memo: any;
+    createRoot(
+      () => {
+        memo = createMemo(
+          async function* () {
+            yield 1;
+            await new Promise(r => setTimeout(r, 5));
+            yield 2;
+            await new Promise(r => setTimeout(r, 5));
+            yield 3;
+          } as any,
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    // Adoption pass: serialized first yield.
+    expect(memo()).toBe(1);
+
+    stopHydration();
+    flush();
+
+    // Takeover: the client generator re-runs; its first yield reproduces the
+    // server value and the rest continue — no refetch/invalidation required.
+    await new Promise(r => setTimeout(r, 50));
+    flush();
+    expect(memo()).toBe(3);
+  });
+
+  test("createMemo: hybrid single-yield generator stays at the server value", async () => {
+    startHydration({ t0: { v: "only", s: 1 } });
+
+    let memo: any;
+    createRoot(
+      () => {
+        memo = createMemo(
+          async function* () {
+            yield "only";
+          } as any,
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(memo()).toBe("only");
+
+    stopHydration();
+    flush();
+    await new Promise(r => setTimeout(r, 20));
+    flush();
+    expect(memo()).toBe("only");
+  });
+
+  test("createSignal(fn): hybrid async generator continues iterating client-side", async () => {
+    startHydration({ t0: { v: 10, s: 1 } });
+
+    let read: any;
+    createRoot(
+      () => {
+        [read] = createSignal(
+          async function* () {
+            yield 10;
+            await new Promise(r => setTimeout(r, 5));
+            yield 20;
+          } as any,
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(read()).toBe(10);
+
+    stopHydration();
+    flush();
+    await new Promise(r => setTimeout(r, 30));
+    flush();
+    expect(read()).toBe(20);
+  });
 });
 
 // ============================================================================

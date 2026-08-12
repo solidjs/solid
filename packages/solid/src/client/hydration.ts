@@ -795,6 +795,36 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
     return sig;
   }
 
+  // Hybrid async-iterable takeover (#2993). The server consumes exactly one
+  // yield from its iterator and serializes it as a plain promise — the
+  // contract is that the CLIENT continues the iteration. Stores get that
+  // through hydrateStoreLikeFn's shadow-draft re-run; without this branch a
+  // signal-shaped node would adopt the first yield and latch there forever
+  // (readSerializedOrCompute only re-runs the compute on invalidation).
+  // Value semantics make the takeover simpler than the store's: re-run the
+  // generator plainly — its first yield reproduces the value the server
+  // rendered (hybrid's determinism contract, same assumption the store path
+  // makes), so nothing needs discarding; equal values dedupe at the node.
+  // The takeover only ARMS when the adoption pass saw an async-iterable
+  // compute: sync and promise-shaped hybrid computes keep their documented
+  // adopt-the-serialized-value semantics (re-running those would clobber the
+  // server value / trigger a client refetch).
+  if (ssrSource === "hybrid" && sharedConfig.has!(peekNextChildId(getOwner()!))) {
+    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
+    let takeover = false;
+    const detect = (prev: any) => {
+      const r = fn(prev);
+      takeover = isAsyncIterable(r);
+      return r;
+    };
+    const sig = coreFn((prev: any) => {
+      if (hydrated() && takeover) return fn(prev);
+      return readSerializedOrCompute(detect, prev, options);
+    }, options);
+    setHydrated(true);
+    return sig;
+  }
+
   // "server", "hybrid", or undefined — use serialized value from server
   const aiResult = hydrateSignalFromAsyncIterable(coreFn, fn, options);
   if (aiResult !== null) return aiResult;
