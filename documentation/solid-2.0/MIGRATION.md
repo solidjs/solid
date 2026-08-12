@@ -1,4 +1,4 @@
-# Solid 2.0 (beta) — quick migration guide
+# Solid 2.0 — quick migration guide
 
 This is a short, practical guide for migrating from Solid 1.x to Solid 2.0’s APIs. It focuses on the changes you’ll hit most often and shows “before/after” examples.
 
@@ -20,13 +20,13 @@ This is a short, practical guide for migrating from Solid 1.x to Solid 2.0’s A
 
 ### Imports: where things live now
 
-In Solid 2.0 beta, the DOM/web runtime is its own package, and some “subpath imports” from 1.x are gone.
+In Solid 2.0, the DOM/web runtime is its own package, and some “subpath imports” from 1.x are gone.
 
 ```ts
 // 1.x (DOM runtime)
 import { render, hydrate } from "solid-js/web";
 
-// 2.0 beta
+// 2.0
 import { render, hydrate } from "@solidjs/web";
 ```
 
@@ -34,7 +34,7 @@ import { render, hydrate } from "@solidjs/web";
 // 1.x (stores)
 import { createStore } from "solid-js/store";
 
-// 2.0 beta (stores are exported from solid-js)
+// 2.0 (stores are exported from solid-js)
 import { createStore, reconcile, snapshot, storePath } from "solid-js";
 ```
 
@@ -42,7 +42,7 @@ import { createStore, reconcile, snapshot, storePath } from "solid-js";
 // 1.x (hyperscript / alternate JSX factory)
 import h from "solid-js/h";
 
-// 2.0 beta
+// 2.0
 import h from "@solidjs/h";
 ```
 
@@ -50,7 +50,7 @@ import h from "@solidjs/h";
 // 1.x (tagged-template HTML)
 import html from "solid-js/html";
 
-// 2.0 beta
+// 2.0
 import html from "@solidjs/html";
 ```
 
@@ -58,7 +58,7 @@ import html from "@solidjs/html";
 // 1.x (custom renderers)
 import { createRenderer } from "solid-js/universal";
 
-// 2.0 beta
+// 2.0
 import { createRenderer } from "@solidjs/universal";
 ```
 
@@ -80,10 +80,10 @@ For web apps, update `tsconfig.json`:
 If you previously used `"jsxImportSource": "solid-js"` or imported `solid-js/jsx-runtime`, switch to `@solidjs/web`:
 
 ```ts
-// 1.x / old beta
+// 1.x / earlier 2.0 betas
 import type { JSX, ComponentProps } from "solid-js";
 
-// 2.0 beta
+// 2.0
 import type { JSX, ComponentProps } from "@solidjs/web";
 ```
 

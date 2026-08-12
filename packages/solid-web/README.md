@@ -2,7 +2,7 @@
 
 Solid 2.0's web platform runtime — DOM rendering, hydration, server-side rendering, and the web-only control-flow components (`Portal`, `Dynamic`).
 
-> **Solid 2.0 (experimental beta).** In 1.x this package was the `solid-js/web` subpath; in 2.0 it's a separate `@solidjs/web` package.
+> **Solid 2.0 (Release Candidate).** In 1.x this package was the `solid-js/web` subpath; in 2.0 it's a separate `@solidjs/web` package.
 >
 > See [`solid-js`'s CHEATSHEET](https://github.com/solidjs/solid/blob/next/packages/solid/CHEATSHEET.md) and [MIGRATION guide](https://github.com/solidjs/solid/blob/next/documentation/solid-2.0/MIGRATION.md) for the 2.0 surface.
 

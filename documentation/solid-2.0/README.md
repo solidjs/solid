@@ -1,10 +1,10 @@
 # Solid 2.0 RFCs
 
-Temporary beta documentation for Solid 2.0. Treat **`MIGRATION.md`** as the primary entrypoint for beta testers; the RFCs below are deeper, topic-focused docs that may be folded into the main documentation over time.
+Temporary prerelease documentation for Solid 2.0. Treat **`MIGRATION.md`** as the primary entrypoint for migrating apps; the RFCs below are deeper, topic-focused docs that may be folded into the main documentation over time.
 
 **Overview:** [Solid 2.0 Proposed API Changes (HackMD)](https://hackmd.io/@0u1u3zEAQAO0iYWVAStEvw/SyXYy2swbg)
 
-**Start here (beta tester guide):** [MIGRATION.md](MIGRATION.md)
+**Start here (migration guide):** [MIGRATION.md](MIGRATION.md)
 
 **Quick API reference:** [`CHEATSHEET.md`](../../packages/solid/CHEATSHEET.md) (lives inside `packages/solid/` so it ships with the `solid-js` npm package).
 

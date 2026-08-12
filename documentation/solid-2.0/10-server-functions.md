@@ -1,8 +1,8 @@
 # RFC: Server functions
 
-**Start here:** If you’re migrating an app, read the beta tester guide first: [MIGRATION.md](MIGRATION.md)
+**Start here:** If you’re migrating an app, read the migration guide first: [MIGRATION.md](MIGRATION.md)
 
-> **Status note:** This RFC covers two layers. The base mechanics — the `"use server"` directive, the `@solidjs/web/server-functions` runtime, response helpers, single-flight, and no-JS handling — are **shipped** in the beta. The extension surface (`GET`, `withMeta`, the metadata accessors, `prepareRequest`, method enforcement, `id` on proxies) is now **shipped** as well; this document remains the canonical specification. One follow-up remains deferred: a dev observation hook for the server-function inspector (deliberately deferred until it can be designed together with its consumer). Dev-only compiler-emitted `name` metadata has since shipped (`registerServerReference(id, fn, name)` / `createServerReference(id, name)` seed the metadata channel). Server components build on this runtime — see [11 — Server components](11-server-components.md).
+> **Status note:** This RFC covers two layers. The base mechanics — the `"use server"` directive, the `@solidjs/web/server-functions` runtime, response helpers, single-flight, and no-JS handling — are **shipped** in the 2.0 prerelease line. The extension surface (`GET`, `withMeta`, the metadata accessors, `prepareRequest`, method enforcement, `id` on proxies) is now **shipped** as well; this document remains the canonical specification. One follow-up remains deferred: a dev observation hook for the server-function inspector (deliberately deferred until it can be designed together with its consumer). Dev-only compiler-emitted `name` metadata has since shipped (`registerServerReference(id, fn, name)` / `createServerReference(id, name)` seed the metadata channel). Server components build on this runtime — see [11 — Server components](11-server-components.md).
 
 ## Summary
 
@@ -171,7 +171,7 @@ export function withMeta<F extends (...args: any[]) => any>(fn: F, meta: ServerF
 - **Method enforcement:** registration records a has-method entry keyed by function id (internal bookkeeping, not public API) so the handler answers 405 when the request method contradicts the declaration.
 - **Why method is the only built-in entry:** sorting by lifetime left it the sole tenant. Per-function static `headers` — the other candidate — lost its last real use case to `prepareRequest`: every concrete example (auth tokens, tracing ids) turned out to be session-dynamic and uniform, not per-function and static. The general options bag returned in a narrowed, function-first form as `withMeta` — user-declared transport metadata only, never behavior — because without a public writer, `prepareRequest`’s `meta` parameter was unreachable for user declarations.
 
-The reference contract shrinks accordingly (beta — no compatibility shims):
+The reference contract shrinks accordingly (no compatibility shims):
 
 | Surface | Status |
 |---|---|
@@ -252,7 +252,7 @@ The boundary rule for future additions: **own the exchange, not the application 
 
 ## Removals
 
-- **`.GET` proxy getter** and **`.withOptions(init)`** on client references (replaced per the table above; beta — no compatibility shims).
+- **`.GET` proxy getter** and **`.withOptions(init)`** on client references (replaced per the table above; no compatibility shims).
 - **Start’s `GET` export** (moves to core).
 - Registry mutation as an extension pattern: `registerServerFunction`/`getServerFunction` stay exported for integrations building custom dispatch, but swapping a registered function to decorate dispatch is rejected (below).
 

@@ -12,7 +12,7 @@
 
 **[Website](https://www.solidjs.com/) • [API Docs](https://docs.solidjs.com/) • [Tutorial](https://www.solidjs.com/tutorial/introduction_basics) • [Discord](https://discord.com/invite/solidjs)**
 
-> ### Solid 2.0 (experimental beta)
+> ### Solid 2.0 (Release Candidate)
 >
 > You're on the **`next`** branch — Solid 2.0. The public API differs from 1.x: split-phase `createEffect`, microtask batching, `Loading`/`Errored` boundaries, draft-first store setters, async-in-computations, removed `solid-js/web` and `solid-js/store` subpaths, and more.
 >
@@ -117,7 +117,7 @@ The cheatsheet ships inside the `solid-js` npm package, so it's also reachable a
 
 ## Repository
 
-This is a PNPM workspaces monorepo. The packages here are versioned together as `2.0.0-beta.x`:
+This is a PNPM workspaces monorepo. The packages here are versioned together as `2.0.0-rc.x`:
 
 | Package              | Path                          | Purpose                                                               |
 | -------------------- | ----------------------------- | --------------------------------------------------------------------- |

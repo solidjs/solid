@@ -1,6 +1,6 @@
 # RFC: TypeScript and JSX ownership
 
-**Start here:** If you're migrating an app, read the beta tester guide first: [MIGRATION.md](MIGRATION.md)
+**Start here:** If you're migrating an app, read the migration guide first: [MIGRATION.md](MIGRATION.md)
 
 ## Summary
 
@@ -81,7 +81,7 @@ Renderer packages that vendor `dom-expressions` JSX declarations can specialize 
 
 ## Migration / replacement
 
-| 1.x / old 2.0 beta                         | Replacement                                     |
+| 1.x / earlier 2.0 betas                    | Replacement                                     |
 | ------------------------------------------ | ----------------------------------------------- |
 | `"jsxImportSource": "solid-js"`            | `"jsxImportSource": "@solidjs/web"` for web JSX |
 | `solid-js/jsx-runtime`                     | `@solidjs/web/jsx-runtime`                      |

@@ -1,8 +1,8 @@
 # RFC: Server components (experimental)
 
-**Start here:** If you’re migrating an app, read the beta tester guide first: [MIGRATION.md](MIGRATION.md). This RFC builds directly on [10 — Server functions](10-server-functions.md).
+**Start here:** If you’re migrating an app, read the migration guide first: [MIGRATION.md](MIGRATION.md). This RFC builds directly on [10 — Server functions](10-server-functions.md).
 
-> **Status note:** Shipped as an **experimental preview** in the 2.0 beta line (`solid-js`/`@solidjs/web` ≥ 2.0.0-beta.24 with `@dom-expressions/runtime` ≥ 0.50.0-next.29). Server components ride the Solid 2.0 release but are **excluded from 2.0’s stability guarantees**: the API surface and the wire format may change between prereleases, and stabilization will be announced separately. The deep specification (wire format, runtime mechanics, the architecture contract for routers and data layers) lives in dom-expressions: `docs/server-components.md` (usage-first) and `docs/frame-streams-rfc.md` (wire). This document is the Solid-facing surface and its decision record.
+> **Status note:** Shipped as an **experimental preview** in the 2.0 prerelease line (`solid-js`/`@solidjs/web` ≥ 2.0.0-beta.24 with `@dom-expressions/runtime` ≥ 0.50.0-next.29). Server components ride the Solid 2.0 release but are **excluded from 2.0’s stability guarantees**: the API surface and the wire format may change between prereleases, and stabilization will be announced separately. The deep specification (wire format, runtime mechanics, the architecture contract for routers and data layers) lives in dom-expressions: `docs/server-components.md` (usage-first) and `docs/frame-streams-rfc.md` (wire). This document is the Solid-facing surface and its decision record.
 
 ## Summary
 

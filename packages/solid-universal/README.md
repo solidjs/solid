@@ -1,6 +1,6 @@
 # Solid Universal
 
-> **Solid 2.0 (experimental beta).** In 1.x this was the `solid-js/universal` subpath; in 2.0 it's a separate `@solidjs/universal` package. The `createRenderer` returned `render` now schedules the top-level mount through the effect queue and drains it with a tail `flush()`, matching `@solidjs/web`'s deferred-mount semantics so uncaught top-level async holds the initial commit on the active transition and attaches atomically once it settles.
+> **Solid 2.0 (Release Candidate).** In 1.x this was the `solid-js/universal` subpath; in 2.0 it's a separate `@solidjs/universal` package. The `createRenderer` returned `render` now schedules the top-level mount through the effect queue and drains it with a tail `flush()`, matching `@solidjs/web`'s deferred-mount semantics so uncaught top-level async holds the initial commit on the active transition and attaches atomically once it settles.
 
 This contains the means to create the runtime for a custom renderer for Solid. This can enable using Solid to render to different platforms like native mobile and desktop, canvas or WebGL, or even the terminal. It relies on custom compilation from `babel-preset-solid` and exporting the result of `createRenderer` at a referenceable location.
 

@@ -8,7 +8,7 @@
 
 **[Website](https://www.solidjs.com/) • [API Docs](https://docs.solidjs.com/) • [Tutorial](https://www.solidjs.com/tutorial/introduction_basics) • [GitHub](https://github.com/solidjs/solid) • [Discord](https://discord.com/invite/solidjs)**
 
-> **You are looking at Solid 2.0 (experimental beta).**
+> **You are looking at Solid 2.0 (Release Candidate).**
 > Public surface differs from 1.x — split-phase `createEffect`, microtask batching, `Loading`/`Errored` boundaries, draft-first store setters, async-in-computations, removed `solid-js/web` and `solid-js/store` subpaths, and more.
 >
 > - **Migrating from 1.x?** Read [MIGRATION.md](https://github.com/solidjs/solid/blob/next/documentation/solid-2.0/MIGRATION.md) (full guide).

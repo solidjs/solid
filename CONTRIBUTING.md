@@ -63,7 +63,7 @@ As a growing community, Solid has an on-going need for developers, writers, desi
 
 ### Solid Start Team
 
-Solid Start is our new meta framework that focuses on enhancing Solid's DX story and general usability. Similar to SvelteKit, Next and other meta frameworks, this project is considered a primary core supported effort. Solid Start is approaching its beta release and we're looking for developers to test, validate and build on top of it. Join the #solid-start channel on Discord or the [solid-start](https://github.com/solidjs/solid-start) to learn more.
+Solid Start is our new meta framework that focuses on enhancing Solid's DX story and general usability. Similar to SvelteKit, Next and other meta frameworks, this project is considered a primary core supported effort. We're looking for developers to test, validate and build on top of it. Join the #solid-start channel on Discord or the [solid-start](https://github.com/solidjs/solid-start) to learn more.
 
 ## Ecosystem Opportunities
 

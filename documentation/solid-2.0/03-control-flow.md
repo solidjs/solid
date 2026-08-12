@@ -1,6 +1,6 @@
 # RFC: Control flow
 
-**Start here:** If you’re migrating an app, read the beta tester guide first: [MIGRATION.md](MIGRATION.md)
+**Start here:** If you’re migrating an app, read the migration guide first: [MIGRATION.md](MIGRATION.md)
 
 ## Summary
 

@@ -2,7 +2,7 @@
 
 The reactive core that powers [SolidJS 2.0](https://github.com/solidjs/solid). It is developed in the Solid monorepo and includes first-class support for async, transitions, optimistic updates, and deeply reactive stores that go beyond what general-purpose signals libraries offer.
 
-> **Status:** Beta — this package is the reactive foundation of SolidJS 2.0 Beta. The API is stabilizing but may still have breaking changes before a final release.
+> **Status:** Release Candidate — this package is the reactive foundation of SolidJS 2.0. The API is frozen barring showstoppers before the final release.
 
 ## Installation
 
