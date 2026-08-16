@@ -58,4 +58,29 @@ describe("lazy() disposal", () => {
     expect(routeImports).toBe(1);
     second.dispose();
   });
+
+  test("lazy() retries import function on subsequent load if previous promise rejected", async () => {
+    let attempts = 0;
+    let shouldFail = true;
+    const Child: Component<{ label: string }> = props => <span>{props.label}</span>;
+
+    const LazyComp = lazy(async () => {
+      attempts++;
+      if (shouldFail) {
+        throw new Error("network error");
+      }
+      return { default: Child };
+    });
+
+    // First attempt fails
+    await expect(LazyComp.preload()).rejects.toThrow("network error");
+    expect(attempts).toBe(1);
+
+    // After failure condition clears, second attempt retries fn() instead of returning cached rejection
+    shouldFail = false;
+    const res = await LazyComp.preload();
+    expect(attempts).toBe(2);
+    expect(res.default).toBe(Child);
+  });
 });
+

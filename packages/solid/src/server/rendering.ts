@@ -556,12 +556,17 @@ export function createResource<T, S>(
 export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>
 ): T & { preload: () => Promise<{ default: T }> } {
-  let p: Promise<{ default: T }> & { resolved?: T };
+  let p: (Promise<{ default: T }> & { resolved?: T }) | undefined;
   let load = (id?: string) => {
     if (!p) {
-      p = fn();
-      p.then(mod => (p.resolved = mod.default));
-      if (id) sharedConfig.context!.lazy[id] = p;
+      const cur = (p = fn() as Promise<{ default: T }> & { resolved?: T });
+      cur.then(
+        mod => (cur.resolved = mod.default),
+        () => {
+          if (p === cur) p = undefined;
+        }
+      );
+      if (id) sharedConfig.context!.lazy[id] = cur;
     }
     return p;
   };
