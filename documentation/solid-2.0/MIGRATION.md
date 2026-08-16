@@ -14,6 +14,7 @@ This is a short, practical guide for migrating from Solid 1.x to Solid 2.0’s A
 - **Stores**: prefer draft-first setters; `storePath(...)` exists as an opt-in helper for the old path-style ergonomics.
 - **Plain values**: `snapshot(store)` replaces `unwrap(store)` when you need a plain non-reactive value.
 - **DOM**: `/*@once*/` and `use:` directives are removed from the public JSX model; use normal reactive JSX, `untrack` for intentional one-time JavaScript reads, and `ref` directive factories (including array refs). Previously tolerated `class:` / `style:` namespace syntax is no longer special; use `class` / `style` object values.
+- **Ref callbacks**: ref callbacks are no longer owned — `getOwner()` returns `null` inside a ref callback, so 1.x-style cleanup registration inside ref callbacks no longer works. Move cleanup to `onSettled` or an effect's cleanup function.
 - **Helpers**: `mergeProps` → `merge`, `splitProps` → `omit`.
 
 ## Core behavior changes
@@ -584,6 +585,31 @@ For most apps this is automatic. The visible differences are in nested roots, po
 - Rendering into a `ShadowRoot` scopes delegated handlers to that shadow root, which is friendlier to web components.
 - `Portal` registers outside-root mount points as listener containers for the owning render root, so portal events still bubble through the logical Solid tree. Portal mounts already inside the root do not install extra listeners.
 - If you were calling `clearDelegatedEvents()`, remove it. Dispose the render root instead.
+
+### Ref callbacks: no longer owned
+
+In Solid 1.x, a ref callback ran inside the reactive owner of the component that declared the `ref`, so `getOwner()` was available and you could register cleanup with `onCleanup()` inside the callback:
+
+```jsx
+// 1.x — ref callback has owner, cleanup works
+<div ref={(el) => {
+  onCleanup(() => el.removeEventListener(...));
+}} />
+```
+
+In Solid 2.0, ref callbacks are **unowned** — `getOwner()` returns `null` inside them. If you need cleanup, move it to `onSettled` or an effect's cleanup function:
+
+```jsx
+// 2.0 — ref callback is unowned, cleanup must be external
+let elRef;
+onSettled(() => () => {
+  if (elRef) elRef.removeEventListener(...);
+});
+
+<div ref={elRef} />
+```
+
+This change makes ref callbacks consistent with the apply phase of two-phase directive factories, which are also unowned (see below).
 
 ### Directives: `use:` → `ref` directive factories (two-phase pattern)
 
