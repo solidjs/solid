@@ -1,5 +1,15 @@
 # solid-js
 
+## 1.9.15
+
+### Patch Changes
+
+- 5086b27: Make `createSelector` transition-aware. Subscribers were marked stale on `state` even when a transition was running, so a selector driving `<Show>` or `classList` stayed stale after the first `startTransition` update (router navigations, SolidStart + Suspense).
+- c6aa672: Re-subscribe `enableExternalSource` computations to the ordinary source after a transition. A computation created while a transition was running only tracked the transition-scoped source; once that source was disposed, later external updates were lost.
+- 7700341: Handle rejected module promises in `lazy()`. A failed chunk used to leave the server Suspense `_loading` flag set forever (`renderToStream` never ended, `renderToStringAsync` never resolved) and pin the client hydration `sharedConfig.count`, so the error never reached an `ErrorBoundary`. The rejection is now surfaced to the nearest boundary, and the cached promise is cleared so a later `preload()` or request can retry the import.
+- 59649bc: Make the `splitProps` proxy path honor first-match key ownership. A key listed in two groups leaked into the later group for stores and component props (`get`, `in`, `Object.keys`, spread), while the plain-object path already assigned it to the first group only.
+- 954b968: Update DOM Expressions to 0.40.10. This picks up SSR attribute coercion and template-literal quote escaping, nullish `value`/`defaultValue` on spread inputs, the SSR `!!` wrap for component-prop conditionals, and opt-in `omitServerOnlyTemplates`.
+
 ## 1.9.14
 
 ### Patch Changes

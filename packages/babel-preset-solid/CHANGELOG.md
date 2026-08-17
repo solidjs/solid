@@ -1,5 +1,17 @@
 # babel-preset-solid
 
+## 1.9.15
+
+### Patch Changes
+
+- 954b968: Update DOM Expressions to 0.40.10. This picks up SSR attribute coercion and template-literal quote escaping, nullish `value`/`defaultValue` on spread inputs, the SSR `!!` wrap for component-prop conditionals, and opt-in `omitServerOnlyTemplates`.
+- Updated dependencies [5086b27]
+- Updated dependencies [c6aa672]
+- Updated dependencies [7700341]
+- Updated dependencies [59649bc]
+- Updated dependencies [954b968]
+  - solid-js@1.9.15
+
 ## 1.9.12
 
 ### Patch Changes
