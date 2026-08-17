@@ -417,6 +417,31 @@ describe("SplitProps Props", () => {
     expect(otherProps.id).toBe("input");
     expect(Object.keys(otherProps).length).toBe(1);
   });
+  test("SplitProps with keys shared across groups assigns to first group only", () => {
+    // A key listed in more than one group must belong to the first group that
+    // lists it, for both plain-object and proxy (store/props) sources.
+    const check = (a: any, b: any, rest: any) => {
+      expect(a.b).toBe(2);
+      expect("b" in a).toBe(true);
+      expect(Object.keys(a).sort()).toEqual(["a", "b"]);
+
+      expect(b.b).toBeUndefined();
+      expect("b" in b).toBe(false);
+      expect(Object.keys(b)).toEqual(["c"]);
+      expect({ ...b }).toEqual({ c: 3 });
+
+      expect({ ...rest }).toEqual({});
+    };
+
+    const plain = splitProps({ a: 1, b: 2, c: 3 }, ["a", "b"], ["b", "c"]);
+    check(plain[0], plain[1], plain[2]);
+
+    createRoot(() => {
+      const [state] = createStore({ a: 1, b: 2, c: 3 });
+      const proxied = splitProps(state, ["a", "b"], ["b", "c"]);
+      check(proxied[0], proxied[1], proxied[2]);
+    });
+  });
   test("SplitProps returns same prop descriptors", () => {
     const inProps = {
       a: 1,

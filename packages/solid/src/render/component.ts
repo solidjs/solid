@@ -293,17 +293,20 @@ export function splitProps<
 
   if (SUPPORTS_PROXY && $PROXY in props) {
     const blocked = len > 1 ? keys.flat() : keys[0];
+    const claimed = new Set<PropertyKey>();
     const res = keys.map(k => {
+      // a key belongs to the first group that lists it (matches non-proxy path)
+      const owned = k.filter(property => !claimed.has(property) && (claimed.add(property), true));
       return new Proxy(
         {
           get(property) {
-            return k.includes(property) ? props[property as any] : undefined;
+            return owned.includes(property) ? props[property as any] : undefined;
           },
           has(property) {
-            return k.includes(property) && property in props;
+            return owned.includes(property) && property in props;
           },
           keys() {
-            return k.filter(property => property in props);
+            return owned.filter(property => property in props);
           }
         },
         propTraps
