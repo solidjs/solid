@@ -190,11 +190,18 @@ export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
   return createRoot(
     () => {
       const owner: any = getOwner();
-      owner._component = {
-        fn: Comp,
-        props,
-        name: Comp.name
-      };
+      // `owner` can be undefined when this component is rendered inside a root
+      // that has no enclosing owner (e.g. a nested transparent root created by
+      // another library/router, or a manually nested createRoot). The _component
+      // metadata is dev-only decoration — skip it gracefully instead of crashing
+      // the whole reactive system with "Cannot read properties of undefined".
+      if (owner) {
+        owner._component = {
+          fn: Comp,
+          props,
+          name: Comp.name
+        };
+      }
       Object.assign(Comp, { [$DEVCOMP]: true });
       return untrack(() => Comp(props), IS_DEV && `<${Comp.name || "Anonymous"}>`);
     },
