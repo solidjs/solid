@@ -15,7 +15,8 @@
  * the dom generate by test/hydration/document-shell.spec.tsx (which hydrates
  * against that same markup) — so the constant can't drift from either side.
  */
-import { createSignal, createMemo, Loading, NoHydration, Hydration, type JSX } from "solid-js";
+import { createSignal, createMemo, Loading, NoHydration, Hydration } from "solid-js";
+import type { JSX } from "@solidjs/web";
 
 export function App() {
   const [count, setCount] = createSignal(0);
