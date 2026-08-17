@@ -19,8 +19,10 @@ import {
   useContext,
   getOwner,
   runWithOwner,
-  children
+  children,
+  startTransition
 } from "../src/index.js";
+import { getSuspenseContext } from "../src/reactive/signal.js";
 
 import "./MessageChannel";
 
@@ -811,6 +813,36 @@ describe("createSelector", () => {
         });
       });
     }));
+
+  test("selection made inside a transition", async () => {
+    // startTransition only creates a real Transition once a SuspenseContext exists
+    getSuspenseContext();
+
+    await createRoot(async () => {
+      const [s, set] = createSignal<number>(-1),
+        isSelected = createSelector<number, number>(s);
+      let count = 0;
+      const list = Array.from({ length: 3 }, (_, i) =>
+        createMemo(() => {
+          count++;
+          return isSelected(i) ? "selected" : "no";
+        })
+      );
+      expect(count).toBe(3);
+      expect(list[1]()).toBe("no");
+
+      count = 0;
+      await startTransition(() => set(1));
+      expect(count).toBe(1);
+      expect(list[1]()).toBe("selected");
+
+      count = 0;
+      await startTransition(() => set(2));
+      expect(count).toBe(2);
+      expect(list[1]()).toBe("no");
+      expect(list[2]()).toBe("selected");
+    });
+  });
 });
 
 describe("create and use context", () => {
