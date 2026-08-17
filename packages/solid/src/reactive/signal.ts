@@ -1014,10 +1014,17 @@ export function onMount(fn: () => void) {
  * @description https://docs.solidjs.com/reference/lifecycle/on-cleanup
  */
 export function onCleanup<T extends () => any>(fn: T): T {
-  if (Owner === null)
+  let o = Owner;
+  // In dev, components are wrapped in an extra owner scope so that devtools can
+  // observe them (see `devComponent`). That wrapper does not exist in production,
+  // which means cleanups registered directly in a component body would otherwise
+  // be ordered differently on disposal. Skip past any dev component wrapper(s) so
+  // the cleanup is registered on the same owner it would be in production. See #1561.
+  if (IS_DEV) while (o && (o as DevComponent<any>).component) o = o.owner;
+  if (o === null)
     IS_DEV && console.warn("cleanups created outside a `createRoot` or `render` will never be run");
-  else if (Owner.cleanups === null) Owner.cleanups = [fn];
-  else Owner.cleanups.push(fn);
+  else if (o.cleanups === null) o.cleanups = [fn];
+  else o.cleanups.push(fn);
   return fn;
 }
 
