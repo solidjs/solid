@@ -181,6 +181,12 @@ export function render(
  * Pass `options.renderId` to hydrate one of multiple roots emitted by a
  * server render that used the same id.
  *
+ * When the server renders a full document but the client hydrates only the
+ * app subtree, the server must give that subtree its own id namespace: wrap
+ * the document shell in `<NoHydration>` and re-enter with `<Hydration>`
+ * around the app. Otherwise the app's hydration ids are allocated under the
+ * document component's owner tree and this walk can never claim them.
+ *
  * @example
  * ```tsx
  * import { hydrate } from "@solidjs/web";
