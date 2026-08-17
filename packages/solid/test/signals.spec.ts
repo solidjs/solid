@@ -526,7 +526,7 @@ describe("runWithOwner", () => {
 
     expect(read()).toBe("content");
     expect(() => flush()).not.toThrow();
-    expect(read()).toBe(
+    expect(read()).toContain(
       "fallback: Cannot call flush() from inside onSettled or createTrackedEffect. flush() is not reentrant there."
     );
   });

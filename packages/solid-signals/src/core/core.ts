@@ -803,7 +803,15 @@ export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
   if (c && tracking) link(el, c as Computed<any>);
-  return (!c || el._pendingValue === NOT_PENDING ? el._value : el._pendingValue) as T;
+  // Children-forbidden readers (createTrackedEffect / onSettled callbacks) get
+  // committed visibility: like the effect half of createEffect and event
+  // handlers, effect-phase code never observes its own unsettled write — the
+  // write lands in the same flush's continuation (#3006).
+  return (
+    !c || el._pendingValue === NOT_PENDING || c._config & CONFIG_CHILDREN_FORBIDDEN
+      ? el._value
+      : el._pendingValue
+  ) as T;
 }
 
 export function read<T>(el: Signal<T> | Computed<T>): T {
@@ -839,7 +847,12 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     (!__DEV__ || !strictRead)
   ) {
     if (c && tracking) link(el, c as Computed<any>);
-    return (!c || el._pendingValue === NOT_PENDING ? el._value : el._pendingValue) as T;
+    // Committed visibility for children-forbidden readers — see readNodeFast.
+    return (
+      !c || el._pendingValue === NOT_PENDING || c._config & CONFIG_CHILDREN_FORBIDDEN
+        ? el._value
+        : el._pendingValue
+    ) as T;
   }
 
   // The dev component-body safeguard (#2897) must not fire inside an
@@ -958,12 +971,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // In optimistic lane context, return _value for optimistic/lane-assigned signals
   // and for regular signals in stale mode (render effects). Non-stale readers (user
   // effects) see _pendingValue so that latest() and direct reads stay consistent.
-  // (The lane-context clause lives with the engine.)
+  // (The lane-context clause lives with the engine.) Children-forbidden readers
+  // (createTrackedEffect / onSettled callbacks) get committed visibility — see
+  // readNodeFast (#3006).
   const value =
     !c ||
     (currentOptimisticLane !== null &&
       GlobalQueue._laneReadsCommitted!(el, owner, c as Computed<any>)) ||
     el._pendingValue === NOT_PENDING ||
+    c._config & CONFIG_CHILDREN_FORBIDDEN ||
     (stale && el._transition && activeTransition !== el._transition)
       ? el._value
       : (el._pendingValue as T);

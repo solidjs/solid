@@ -570,6 +570,12 @@ export function createRenderEffect<T>(
  * may run multiple times for a single change or show tearing (reading inconsistent
  * state). Use only when dynamic subscription patterns require same-scope tracking.
  *
+ * The callback runs during the flush itself: writes made inside it are queued
+ * into the same flush's continuation and are never visible to the callback's
+ * own reads (reads return settled values, as in every effect-phase scope), and
+ * `flush()` cannot be called from inside it (dev throws; production is a
+ * no-op) — defer with `queueMicrotask(() => flush())` if needed.
+ *
  * ```typescript
  * createTrackedEffect(compute, options?: { name?: string });
  * ```
@@ -826,6 +832,19 @@ export function createOptimistic<T>(
  *
  * Reactive reads inside the callback are *not* tracked — to react to
  * subsequent settles, register a new `onSettled` each time.
+ *
+ * The callback runs during the settle flush itself, which gives it the same
+ * write semantics as every other effect-phase scope (the effect half of
+ * `createEffect`, event handlers):
+ *
+ * - **Writes** are queued into the same flush's continuation — dependent memos
+ *   and effects update before the flush returns — but reads inside the
+ *   callback keep returning the settled (pre-write) values. A callback never
+ *   observes its own unsettled write. Functional setters still compose:
+ *   `set(v => v + 1)` twice increments twice.
+ * - **`flush()` cannot be called** from inside the callback — the flush is
+ *   already running (dev throws; production is a no-op). To force a drain
+ *   after this settle, defer it: `queueMicrotask(() => flush())`.
  *
  * `onCleanup` is **not** allowed inside the callback — return a cleanup
  * function instead. The returned cleanup runs on owner disposal.

@@ -143,6 +143,14 @@ export function setTrackedQueueCallback(value: boolean) {
   if (__DEV__) inTrackedQueueCallback = value;
 }
 
+// Dev-only marker for the effect half of createEffect/createRenderEffect, so
+// flush() can report the no-op instead of failing silently (React parity).
+let inEffectCallback = false;
+
+export function setEffectCallback(value: boolean) {
+  if (__DEV__) inEffectCallback = value;
+}
+
 export type QueueCallback = (type: number) => void;
 type QueueStub = {
   _queues: [QueueCallback[], QueueCallback[]];
@@ -859,8 +867,21 @@ export function flush<T>(fn?: () => T): T | void {
   if (globalQueue._running) {
     if (__DEV__ && inTrackedQueueCallback) {
       throw new Error(
-        "Cannot call flush() from inside onSettled or createTrackedEffect. flush() is not reentrant there."
+        "Cannot call flush() from inside onSettled or createTrackedEffect. flush() is not reentrant there. " +
+          "Writes made here are processed in the same flush's continuation; to force a drain afterwards, defer it: queueMicrotask(() => flush())."
       );
+    }
+    if (__DEV__ && inEffectCallback) {
+      const message =
+        "[FLUSH_IN_EFFECT_CALLBACK] flush() called from inside an effect callback is a no-op: the flush that runs effects is already in progress. " +
+        "Writes made here are processed in the same flush's continuation; to force a drain afterwards, defer it: queueMicrotask(() => flush()).";
+      emitDiagnostic({
+        code: "FLUSH_IN_EFFECT_CALLBACK",
+        kind: "lifecycle",
+        severity: "warn",
+        message
+      });
+      console.warn(message);
     }
     return;
   }

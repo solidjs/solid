@@ -16,7 +16,8 @@ import {
   GlobalQueue,
   haltReactivity,
   resetUnhandledAsync,
-  setTrackedQueueCallback
+  setTrackedQueueCallback,
+  setEffectCallback
 } from "./scheduler.js";
 import type { Computed, NodeOptions, Owner } from "./types.js";
 
@@ -155,6 +156,7 @@ function runEffect(node: Effect<any>): void {
   let prevStrictRead: string | false = false;
   if (__DEV__) {
     prevStrictRead = setStrictRead("an effect callback");
+    setEffectCallback(true);
   }
   const prevCleanup = node._cleanup;
   node._cleanup = undefined;
@@ -176,7 +178,10 @@ function runEffect(node: Effect<any>): void {
       throw error;
     }
   } finally {
-    if (__DEV__) setStrictRead(prevStrictRead);
+    if (__DEV__) {
+      setStrictRead(prevStrictRead);
+      setEffectCallback(false);
+    }
     node._prevValue = node._value;
     node._modified = false;
   }
