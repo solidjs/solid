@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  */
 
-import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
+import { describe, expect, test, beforeEach, afterEach, afterAll, vi } from "vitest";
 import "../../test/MessageChannel";
 import {
   lazy,
@@ -22,6 +22,10 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+});
+afterAll(() => {
+  // isolate:false keeps Scheduler on for later files (transition.spec #2046).
+  enableScheduling(null as any);
 });
 describe("Testing Basics", () => {
   test("Children are reactive", () => {
