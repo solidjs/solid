@@ -327,6 +327,12 @@ function subFetch<T>(fn: (prev?: T) => any, prev?: T) {
     if (result && typeof result[Symbol.asyncIterator] === "function") {
       result[Symbol.asyncIterator]().next();
     }
+    // The trace run's flight is never consumed (the serialized value is
+    // authoritative) — an async fn returns a REAL promise (engine-internal,
+    // the MockPromise swap can't intercept it), so a rejecting compute
+    // (#2997: server-rejected async adopted on the client) must be observed
+    // here or it surfaces as an unhandled rejection.
+    if (result && typeof result.then === "function") result.then(undefined, () => {});
     return result;
   } finally {
     window.fetch = ogFetch;
@@ -363,7 +369,13 @@ function readHydratedValue(initP: any, refresh: () => void, options?: any) {
     // fast-adopt): the landing applies on the microtask after the walk.
     if (hasLoadingWindow(options) && typeof initP.then === "function")
       return { then: initP.then.bind(initP) };
-    if (initP.s === 2) throw initP.v;
+    if (initP.s === 2) {
+      // The stamp is the consumption: nothing ever `.then`s the serialized
+      // promise itself, so observe its rejection here or the deserialized
+      // record surfaces as an unhandled rejection (#2997).
+      if (typeof initP.then === "function") initP.then(undefined, () => {});
+      throw initP.v;
+    }
     if (initP.s === 1) return initP.v;
   }
   return initP;

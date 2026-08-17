@@ -1,0 +1,5 @@
+{
+  "name": "errored-loading-preflush-rejection",
+  "shell": "<div _hk=1><!--$--><!--/--><span>tail</span></div><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n  const resolver = {\n    p: 0,\n    s: 0,\n    f: 0\n  };\n  resolver.p = new Promise((resolve, reject) => {\n    resolver.s = resolve;\n    resolver.f = reject;\n  });\n  return resolver;\n})()).p;_$HY.r[\"200_fr\"]=$R[3]=($R[4]=$R[2]()).p;($R[6]=(resolver, data) => {\n  resolver.f(data);\n  resolver.p.s = 2;\n  resolver.p.v = data;\n})($R[1],$R[5]=new Error(\"boom\"));$R[6]($R[4],$R[5]);</script>",
+  "rest": ""
+}

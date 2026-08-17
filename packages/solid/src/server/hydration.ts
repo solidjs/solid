@@ -124,7 +124,23 @@ function ssrLoadingBoundary(
       render,
       (err: any, parentHandler) => {
         handledRenderError = err;
-        if (done?.(undefined, err)) throw err;
+        if (done) {
+          // Once the fragment is registered, its channel owns error routing:
+          // `<key>_fr` rejects and the client re-renders the subtree as fresh
+          // DOM, letting a client-side Errored catch (post-flush this rides
+          // the sink; pre-flush the placeholder inlines away, #2997). The
+          // parent handler must NOT hear about it here — an async-time
+          // Errored render has no consumer (the accessor pull is long gone),
+          // so its only lasting effect is serializing the error at the
+          // Errored id, which makes the hydrating client render the error
+          // fallback expecting server DOM that was never emitted, derailing
+          // hydration before the fragment channel can engage.
+          done(undefined, err);
+          throw err;
+        }
+        // Synchronous discovery (no fragment yet): the enclosing Errored's
+        // pull is still on the stack, so its handler renders the fallback
+        // inline and serializes the error for matching client adoption.
         if (parentHandler) {
           parentHandler(err);
           return;

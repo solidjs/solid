@@ -1290,6 +1290,31 @@ function BareClientLateFinal() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// #2997: an async rejection that lands BEFORE the shell flushes, with the
+// boundary order Errored > Loading > read. The fragment channel owns the
+// error: the server inlines the placeholder away and rejects `<key>_fr`; the
+// client re-renders the boundary's subtree as fresh DOM (the memo adopts the
+// serialized rejection) and the client-side Errored catches it. The server
+// must NOT serialize the error at the Errored id — its async-time fallback
+// render has no consumer, and the record would make the hydrating client
+// expect fallback DOM that was never emitted (the blank-forever regression).
+function PreflushRejection() {
+  const data = createMemo(async (): Promise<string> => {
+    throw new Error("boom");
+  });
+  return (
+    <div>
+      <Errored fallback={<p>caught</p>}>
+        <Loading fallback={<i>loading</i>}>
+          <span>value:{data()}</span>
+        </Loading>
+      </Errored>
+      <span>tail</span>
+    </div>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -1732,5 +1757,14 @@ export const scenarios: Scenario[] = [
     // text node into the range (see expectedTextStreamed).
     expectedTextStreamed: " widgettail",
     serverText: "wait"
+  },
+  {
+    name: "errored-loading-preflush-rejection",
+    App: PreflushRejection,
+    async: true,
+    expectedText: "caughttail",
+    // Pre-flush the rejected boundary inlines to an empty region: neither
+    // fallback reaches the server HTML — only the static sibling.
+    serverText: "tail"
   }
 ];

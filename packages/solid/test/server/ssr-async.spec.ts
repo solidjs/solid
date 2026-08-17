@@ -156,6 +156,8 @@ function createMockSSRContext(options: { async?: boolean; fragmentFlushed?: bool
   const registeredFragments = new Set<string>();
   const fragmentResults = new Map<string, string | undefined>();
   const fragmentErrors = new Map<string, any>();
+  /** Every done() invocation, including pre-flush ones the maps above skip. */
+  const fragmentSettles: Array<{ key: string; value?: string; error?: any }> = [];
   const fragmentFlushed = options.fragmentFlushed ?? true;
 
   const context: any = {
@@ -174,6 +176,7 @@ function createMockSSRContext(options: { async?: boolean; fragmentFlushed?: bool
     registerFragment(key: string) {
       registeredFragments.add(key);
       return (value?: string, error?: any) => {
+        fragmentSettles.push({ key, value, error });
         if (fragmentFlushed) {
           fragmentResults.set(key, value);
           if (error !== undefined) fragmentErrors.set(key, error);
@@ -183,7 +186,14 @@ function createMockSSRContext(options: { async?: boolean; fragmentFlushed?: bool
     }
   };
 
-  return { context, serialized, registeredFragments, fragmentResults, fragmentErrors };
+  return {
+    context,
+    serialized,
+    registeredFragments,
+    fragmentResults,
+    fragmentErrors,
+    fragmentSettles
+  };
 }
 
 /** Wait for microtasks and pending async to settle. */
@@ -1034,10 +1044,11 @@ describe("Loading SSR Async", () => {
       ).toBe(true);
     });
 
-    test("outer Errored claims late Loading rejection before flush", async () => {
-      const { context, fragmentResults, fragmentErrors, serialized } = createMockSSRContext({
-        fragmentFlushed: false
-      });
+    test("pre-flush Loading rejection rides the fragment channel, not the outer Errored (#2997)", async () => {
+      const { context, fragmentResults, fragmentErrors, fragmentSettles, serialized } =
+        createMockSSRContext({
+          fragmentFlushed: false
+        });
       sharedConfig.context = context;
 
       const d = deferred<string>();
@@ -1075,13 +1086,28 @@ describe("Loading SSR Async", () => {
       d.reject(fetchError);
       await tick();
 
-      expect(fallbackCalls).toBe(1);
-      expect(read(result)).toBe("OuterError: Async fetch failed");
+      // The fragment channel owns the error once the boundary registered:
+      // done(undefined, err) settles the fragment (pre-flush the renderer
+      // inlines the placeholder away and rejects `<key>_fr`; the client
+      // re-renders the subtree fresh and its Errored catches). The outer
+      // Errored's handler must NOT run at async time — its rendered fallback
+      // would have no consumer (the accessor pull is long gone), and the
+      // serialized error record it leaves at the boundary id sends the
+      // hydrating client claiming fallback DOM that was never emitted — the
+      // #2997 blank page.
+      expect(fallbackCalls).toBe(0);
+      expect(fragmentSettles).toEqual([{ key: "t000", value: undefined, error: fetchError }]);
       expect(fragmentResults.size).toBe(0);
       expect(fragmentErrors.size).toBe(0);
       expect(
         [...serialized.values()].some(v => v instanceof Error && v.message === "Async fetch failed")
-      ).toBe(true);
+      ).toBe(false);
+
+      // A later re-creation of the Errored (re-pull) still claims the settled
+      // rejection synchronously — the pull is on the stack, so the fallback
+      // render has a consumer.
+      expect(read(result)).toBe("OuterError: Async fetch failed");
+      expect(fallbackCalls).toBe(1);
     });
 
     test("outer Errored stays out of post-flush Loading rejection ownership", async () => {
