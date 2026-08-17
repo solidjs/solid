@@ -48,8 +48,8 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(vitest@4.1.10)
       babel-plugin-jsx-dom-expressions:
-        specifier: ^0.40.7
-        version: 0.40.7(@babel/core@7.29.7)
+        specifier: ^0.40.10
+        version: 0.40.10(@babel/core@7.29.7)
       coveralls:
         specifier: ^3.1.1
         version: 3.1.1
@@ -57,17 +57,17 @@ importers:
         specifier: ^3.1.0
         version: 3.2.3
       dom-expressions:
-        specifier: 0.40.8
-        version: 0.40.8(csstype@3.2.3)(seroval-plugins@1.5.4(seroval@1.5.4))(seroval@1.5.4)
+        specifier: 0.40.10
+        version: 0.40.10(csstype@3.2.3)(seroval-plugins@1.5.4(seroval@1.5.4))(seroval@1.5.4)
       hyper-dom-expressions:
-        specifier: 0.40.8
-        version: 0.40.8
+        specifier: 0.40.10
+        version: 0.40.10
       jsdom:
         specifier: ^25.0.1
         version: 25.0.1
       lit-dom-expressions:
-        specifier: 0.40.9
-        version: 0.40.9
+        specifier: 0.40.10
+        version: 0.40.10
       ncp:
         specifier: ^2.0.0
         version: 2.0.0
@@ -123,8 +123,8 @@ importers:
         specifier: ^7.0.0
         version: 7.28.6
       babel-plugin-jsx-dom-expressions:
-        specifier: ^0.40.7
-        version: 0.40.7(@babel/core@7.28.6)
+        specifier: ^0.40.10
+        version: 0.40.10(@babel/core@7.28.6)
       solid-js:
         specifier: ^1.9.12
         version: 1.9.12
@@ -1485,8 +1485,8 @@ packages:
   axios@1.13.2:
     resolution: {integrity: sha512-VPk9ebNqPcy5lRGuSlKx752IlDatOjT9paPlm8A7yOuW2Fbvp4X3JznJtT4f0GzGLLiWE9W8onz51SqLYwzGaA==}
 
-  babel-plugin-jsx-dom-expressions@0.40.7:
-    resolution: {integrity: sha512-/O6JWUmjv03OI9lL2ry9bUjpD5S3PclM55RRJEyCdcFZ5W2SEA/59d+l2hNsk3gI6kiWRdRPdOtqZmsQzFN1pQ==}
+  babel-plugin-jsx-dom-expressions@0.40.10:
+    resolution: {integrity: sha512-lxve6Y02YiZTldB7efKpnbf1BH00XCFZNYYW235jSGsYaJNFtHrYlKV6/O+miHbjqpIr9FTe5+0no4hofAMbfA==}
     peerDependencies:
       '@babel/core': ^7.20.12
 
@@ -1739,8 +1739,8 @@ packages:
     resolution: {integrity: sha512-WkrWp9GR4KXfKGYzOLmTuGVi1UWFfws377n9cc55/tb6DuqyF6pcQ5AbiHEshaDpY9v6oaSr2XCDidGmMwdzIA==}
     engines: {node: '>=8'}
 
-  dom-expressions@0.40.8:
-    resolution: {integrity: sha512-BCa4LfBBqJ7mCRPPJ5ccRRBz3+Ws/dkmEfkGx0GxVtRhJdI0HDrJCCd6DlA7JFNPomt3cQY2xPnDukyp/4DSFw==}
+  dom-expressions@0.40.10:
+    resolution: {integrity: sha512-5HJsUQ+bzOt7G00KFPAe2KFNyZASYm32XBoXlg5yNDnnbIRTedChDn0CX4u0F3FtXL/TbxSWVgT/r62ioCzzhg==}
     peerDependencies:
       csstype: ^3.0
       seroval: ~1.5.0
@@ -2096,8 +2096,8 @@ packages:
     resolution: {integrity: sha512-tsYlhAYpjCKa//8rXZ9DqKEawhPoSytweBC2eNvcaDK+57RZLHGqNs3PZTQO6yekLFSuvA6AlnAfrw1uBvtb+Q==}
     hasBin: true
 
-  hyper-dom-expressions@0.40.8:
-    resolution: {integrity: sha512-a8t0CHBAbmbw+Z4Rbp/5T+yOGk+4Jz1AbzrO5swWwz048Cnvv3SN4ntOgpklaP8Jt/WMkxdwlRlUv1CWXENk3A==}
+  hyper-dom-expressions@0.40.10:
+    resolution: {integrity: sha512-HIYK+KP60IhKrg6xy3zasvia4kBn44XrByWzVKPVtT2mjM6CPv628Yrpj7eoXtgq7Ypw8ynnGcK6sxL5uN06Fw==}
 
   iconv-lite@0.4.24:
     resolution: {integrity: sha512-v3MXnZAcvnywkTUEZomIActle7RXXeedOR31wwl7VlyoXO4Qi9arvSenNQWne1TcRwhCL1HwLI21bEqdpj8/rA==}
@@ -2360,8 +2360,8 @@ packages:
     resolution: {integrity: sha512-aprLII/vPzuQvYZnDRU78Fns9I2Ag3gi4Ipga/hxnVMCZC8DnR2nI7XBqrPoywGfxqIx/DgarGvDJZAD3YBTgQ==}
     hasBin: true
 
-  lit-dom-expressions@0.40.9:
-    resolution: {integrity: sha512-byk9NS3okI/DOQUp8fByQQB0z3HLHUa+Dv7/ruFYl9ApEcMuuhGcg0bhuvGMCSWuC3s7Vr7RJutRAj589jqGWg==}
+  lit-dom-expressions@0.40.10:
+    resolution: {integrity: sha512-oG7WWz7S3b9O5eAigbyHjQ/nsvCHVBjII/lQq6XShdeqSI7QwT8++DOHrTdDZDrlBhuNtUNh3VTCvYSBXQ/eMw==}
 
   load-json-file@4.0.0:
     resolution: {integrity: sha512-Kx8hMakjX03tiGTLAIdJ+lL0htKnXjEZN6hk/tozf/WOuYGdZBJrZ+rCJRbVCugsjB3jMLn9746NsQIf5VjBMw==}
@@ -3459,7 +3459,7 @@ snapshots:
   '@babel/generator@7.28.6':
     dependencies:
       '@babel/parser': 7.28.6
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
       '@jridgewell/gen-mapping': 0.3.13
       '@jridgewell/trace-mapping': 0.3.31
       jsesc: 3.1.0
@@ -3474,7 +3474,7 @@ snapshots:
 
   '@babel/helper-annotate-as-pure@7.27.3':
     dependencies:
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
 
   '@babel/helper-compilation-targets@7.28.6':
     dependencies:
@@ -3530,13 +3530,13 @@ snapshots:
   '@babel/helper-member-expression-to-functions@7.28.5':
     dependencies:
       '@babel/traverse': 7.28.6
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
     transitivePeerDependencies:
       - supports-color
 
   '@babel/helper-module-imports@7.18.6':
     dependencies:
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
 
   '@babel/helper-module-imports@7.28.6':
     dependencies:
@@ -3555,7 +3555,7 @@ snapshots:
   '@babel/helper-module-transforms@7.28.6(@babel/core@7.28.6)':
     dependencies:
       '@babel/core': 7.28.6
-      '@babel/helper-module-imports': 7.28.6
+      '@babel/helper-module-imports': 7.29.7
       '@babel/helper-validator-identifier': 7.28.5
       '@babel/traverse': 7.28.6
     transitivePeerDependencies:
@@ -3564,7 +3564,7 @@ snapshots:
   '@babel/helper-module-transforms@7.28.6(@babel/core@7.29.7)':
     dependencies:
       '@babel/core': 7.29.7
-      '@babel/helper-module-imports': 7.28.6
+      '@babel/helper-module-imports': 7.29.7
       '@babel/helper-validator-identifier': 7.28.5
       '@babel/traverse': 7.28.6
     transitivePeerDependencies:
@@ -3581,7 +3581,7 @@ snapshots:
 
   '@babel/helper-optimise-call-expression@7.27.1':
     dependencies:
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
 
   '@babel/helper-plugin-utils@7.28.6': {}
 
@@ -3606,7 +3606,7 @@ snapshots:
   '@babel/helper-skip-transparent-expression-wrappers@7.27.1':
     dependencies:
       '@babel/traverse': 7.28.6
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
     transitivePeerDependencies:
       - supports-color
 
@@ -3626,14 +3626,14 @@ snapshots:
     dependencies:
       '@babel/template': 7.28.6
       '@babel/traverse': 7.28.6
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
     transitivePeerDependencies:
       - supports-color
 
   '@babel/helpers@7.28.6':
     dependencies:
       '@babel/template': 7.28.6
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
 
   '@babel/helpers@7.29.7':
     dependencies:
@@ -3642,7 +3642,7 @@ snapshots:
 
   '@babel/parser@7.28.6':
     dependencies:
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
 
   '@babel/parser@7.29.8':
     dependencies:
@@ -4162,7 +4162,7 @@ snapshots:
     dependencies:
       '@babel/code-frame': 7.28.6
       '@babel/parser': 7.28.6
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
 
   '@babel/template@7.29.7':
     dependencies:
@@ -4177,7 +4177,7 @@ snapshots:
       '@babel/helper-globals': 7.28.0
       '@babel/parser': 7.28.6
       '@babel/template': 7.28.6
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
       debug: 4.4.3
     transitivePeerDependencies:
       - supports-color
@@ -4673,16 +4673,16 @@ snapshots:
 
   '@types/babel__generator@7.27.0':
     dependencies:
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
 
   '@types/babel__template@7.4.4':
     dependencies:
       '@babel/parser': 7.28.6
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
 
   '@types/babel__traverse@7.28.0':
     dependencies:
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
 
   '@types/chai@5.2.3':
     dependencies:
@@ -4862,21 +4862,21 @@ snapshots:
     transitivePeerDependencies:
       - debug
 
-  babel-plugin-jsx-dom-expressions@0.40.7(@babel/core@7.28.6):
+  babel-plugin-jsx-dom-expressions@0.40.10(@babel/core@7.28.6):
     dependencies:
       '@babel/core': 7.28.6
       '@babel/helper-module-imports': 7.18.6
       '@babel/plugin-syntax-jsx': 7.28.6(@babel/core@7.28.6)
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
       html-entities: 2.3.3
       parse5: 7.3.0
 
-  babel-plugin-jsx-dom-expressions@0.40.7(@babel/core@7.29.7):
+  babel-plugin-jsx-dom-expressions@0.40.10(@babel/core@7.29.7):
     dependencies:
       '@babel/core': 7.29.7
       '@babel/helper-module-imports': 7.18.6
       '@babel/plugin-syntax-jsx': 7.28.6(@babel/core@7.29.7)
-      '@babel/types': 7.28.6
+      '@babel/types': 7.29.8
       html-entities: 2.3.3
       parse5: 7.3.0
 
@@ -5143,7 +5143,7 @@ snapshots:
     dependencies:
       path-type: 4.0.0
 
-  dom-expressions@0.40.8(csstype@3.2.3)(seroval-plugins@1.5.4(seroval@1.5.4))(seroval@1.5.4):
+  dom-expressions@0.40.10(csstype@3.2.3)(seroval-plugins@1.5.4(seroval@1.5.4))(seroval@1.5.4):
     dependencies:
       babel-plugin-transform-rename-import: 2.3.0
       csstype: 3.2.3
@@ -5633,7 +5633,7 @@ snapshots:
 
   human-id@4.1.3: {}
 
-  hyper-dom-expressions@0.40.8: {}
+  hyper-dom-expressions@0.40.10: {}
 
   iconv-lite@0.4.24:
     dependencies:
@@ -5904,7 +5904,7 @@ snapshots:
 
   lcov-parse@1.0.0: {}
 
-  lit-dom-expressions@0.40.9: {}
+  lit-dom-expressions@0.40.10: {}
 
   load-json-file@4.0.0:
     dependencies:
