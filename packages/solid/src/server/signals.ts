@@ -1051,6 +1051,21 @@ function processResult<T>(
       comp.errored = true;
       return;
     }
+    if ((result as any).s === 3) {
+      // A flattened stream is already consuming this promise's resolution
+      // (see the flattening block below): join its deferred. Re-attaching
+      // through settleServerAsync would open a SECOND iterator on the same
+      // iterable — the stream must have exactly one consumer.
+      const d: DeferredPromise<T> = (result as any).d;
+      if (loadingState) {
+        loadingState.served = true;
+        comp.value = loadingState.value;
+      } else {
+        comp.error = new NotReadyError(d.promise);
+        comp.errored = true;
+      }
+      return;
+    }
     // Slot memory (#3003): the retry loops converge by re-running creation
     // scopes, and a re-created node normally adopts its previous answer
     // through the `.s`/`.v` stamp above — which requires the SAME promise
@@ -1096,11 +1111,121 @@ function processResult<T>(
       recordSlot({ s: 0, d: deferred });
       if (serializes) ctx.serialize(id, deferred.promise, deferStream);
     }
+    // Flatten one async level, mirroring the client core's handleAsync: a
+    // thenable that RESOLVES to an AsyncIterable — the shape an async stub
+    // returning a stream produces — is consumed as the stream itself, with
+    // the SAME semantics the direct iterable branch below gives: first yield
+    // settles the read (and locks the HTML-visible value), later yields
+    // belong to the client through the serialized channel, hybrid takes the
+    // first value and closes, and a frame render's binding ledger gets the
+    // commit pump. The already-serialized `deferred.promise` stays the
+    // channel: it resolves at first yield with a tapped stream (replay
+    // first, then delegate), which client hydration adopts as a promise and
+    // the client core flattens again.
+    const flattenResolvedIterable = (source: AsyncIterable<T>) => {
+      // In-flight stream stamp: a re-created node handed the SAME promise
+      // must JOIN this consumption (`s === 3` above), never re-consume.
+      (result as any).s = 3;
+      (result as any).d = deferred;
+      const iter = source[Symbol.asyncIterator]();
+      return iter.next().then(
+        (r: IteratorResult<T>) => {
+          const first = (r.done ? undefined : r.value) as T;
+          // First yield is the settled answer for this render: stamp and
+          // record it like a plain resolution (first-value lock — re-created
+          // slots adopt V1, exactly what the document claims against).
+          (result as any).s = 1;
+          (result as any).v = first;
+          recordSlot({ s: 1, v: first });
+          if (!(loadingState?.served && serializes)) {
+            comp.value = first;
+            comp.error = undefined;
+            comp.errored = false;
+          }
+          ctx?.commit?.();
+          if (r.done) return first;
+          if (ssrSource === "hybrid") {
+            // First value only; continuing the stream is the client's story
+            // (re-run/reconnect on takeover).
+            closeAsyncIterator(iter);
+            return first;
+          }
+          if (serializes) {
+            // Tapped stream through the promise channel: replay the first
+            // result, then delegate. Later yields deliberately never advance
+            // comp.value — the first-value lock, same as the direct branch.
+            let tappedFirst = true;
+            return {
+              [Symbol.asyncIterator]: () => ({
+                next() {
+                  if (tappedFirst) {
+                    tappedFirst = false;
+                    return Promise.resolve(r);
+                  }
+                  return iter.next();
+                },
+                return(value?: any) {
+                  return iter.return?.(value);
+                }
+              })
+            } as any;
+          }
+          if (ctx?.commit && inServerComponentScope()) {
+            // Server-owned render (noHydrate — the HTML is the data): pump
+            // yields into the binding ledger under a response hold. Mirrors
+            // the direct iterable branch's pump; see its comment for the
+            // full story.
+            const release = ctx.hold?.();
+            const pump = () => {
+              if (comp.disposed) {
+                closeAsyncIterator(iter);
+                release?.();
+                return;
+              }
+              iter.next().then(
+                (nr: IteratorResult<T>) => {
+                  if (comp.disposed) {
+                    closeAsyncIterator(iter);
+                    release?.();
+                    return;
+                  }
+                  if (nr.done) {
+                    release?.();
+                    return;
+                  }
+                  comp.value = nr.value;
+                  ctx.commit();
+                  pump();
+                },
+                () => release?.()
+              );
+            };
+            deferred.promise.then(pump, () => release?.());
+          }
+          return first;
+        },
+        (error: any) => {
+          // Terminal for this render: stream errors don't re-enter the
+          // NotReady retry chain (the outer promise already resolved — the
+          // compute's dependencies are settled; this is the stream failing).
+          (result as any).s = 2;
+          (result as any).v = error;
+          recordSlot({ s: 2, v: error });
+          comp.error = error;
+          comp.errored = true;
+          ctx?.commit?.();
+          throw error;
+        }
+      );
+    };
     settleServerAsync(
       result,
       () => (rerun ? rerun() : result),
       deferred,
       (value: T) => {
+        if (typeof (value as any)?.[Symbol.asyncIterator] === "function") {
+          return flattenResolvedIterable(value as unknown as AsyncIterable<T>) as unknown as T;
+        }
         (result as any).s = 1;
         (result as any).v = value;
         recordSlot({ s: 1, v: value });

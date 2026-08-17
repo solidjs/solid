@@ -3876,3 +3876,48 @@ describe("Transparent Effect Hydration", () => {
     expect(sibling()).toBe("serialized");
   });
 });
+
+// === Promise-of-AsyncIterable adoption (data-API flattening) ===
+//
+// The server's flattening serializes a promise that resolves to a tapped
+// stream (replay first value, then delegate). The client adopts it as a
+// plain serialized promise; the core's handleAsync flattening consumes the
+// resolved stream — no dedicated hydration branch needed.
+
+describe("Promise-of-AsyncIterable Hydration — createMemo", () => {
+  afterEach(() => {
+    stopHydration();
+  });
+
+  test("adopted promise resolving to a stream drives the memo per yield", async () => {
+    const ai = createBufferedAsyncIterable([1]);
+    let resolveChannel!: (v: any) => void;
+    const channel = new Promise(r => (resolveChannel = r));
+    startHydration({ t0: channel });
+
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => 0);
+      },
+      { id: "t" }
+    );
+    flush();
+
+    stopHydration();
+    resolveChannel(ai);
+    await new Promise(r => setTimeout(r, 0));
+    flush();
+    expect(result()).toBe(1);
+
+    ai.push(2);
+    await new Promise(r => setTimeout(r, 0));
+    flush();
+    expect(result()).toBe(2);
+
+    ai.complete();
+    await new Promise(r => setTimeout(r, 0));
+    flush();
+    expect(result()).toBe(2);
+  });
+});

@@ -4994,3 +4994,263 @@ describe("retry convergence without stable promise identity (#3003)", () => {
     expect(outcome).toBe("rejected");
   });
 });
+
+// ============================================================================
+// Promise-of-AsyncIterable flattening (data-API tier)
+// ============================================================================
+//
+// A thenable that RESOLVES to an AsyncIterable — the shape an async stub
+// returning a stream produces — is consumed as the stream itself, mirroring
+// the client core's handleAsync flattening. First yield settles the read and
+// locks the HTML-visible value; the serialized promise channel resolves to a
+// tapped stream (replay first, then delegate); hybrid takes the first value
+// and closes the iterator.
+
+describe("Promise-of-AsyncIterable flattening", () => {
+  beforeEach(() => {
+    sharedConfig.context = undefined as any;
+  });
+  afterEach(() => {
+    sharedConfig.context = undefined as any;
+  });
+
+  function controlledStream<T>() {
+    type Waiter = (r: IteratorResult<T>) => void;
+    const buffered: IteratorResult<T>[] = [];
+    let waiter: Waiter | null = null;
+    let openCalls = 0;
+    let returnCalls = 0;
+    const push = (r: IteratorResult<T>) => {
+      if (waiter) {
+        const w = waiter;
+        waiter = null;
+        w(r);
+      } else buffered.push(r);
+    };
+    const iterable: AsyncIterable<T> = {
+      [Symbol.asyncIterator]: () => {
+        openCalls++;
+        return {
+          next: () =>
+            new Promise<IteratorResult<T>>(res => {
+              if (buffered.length) res(buffered.shift()!);
+              else waiter = res;
+            }),
+          return: () => {
+            returnCalls++;
+            return Promise.resolve({ done: true as const, value: undefined });
+          }
+        };
+      }
+    };
+    return {
+      iterable,
+      yield: (value: T) => push({ done: false, value }),
+      end: () => push({ done: true, value: undefined as any }),
+      get openCalls() {
+        return openCalls;
+      },
+      get returnCalls() {
+        return returnCalls;
+      }
+    };
+  }
+
+  test("default mode: pending until first yield; serialized promise resolves to a tapped stream; memo locks at V1", async () => {
+    const { context, serialized } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    const gate = deferred<void>();
+    const stream = controlledStream<string>();
+    let read: any;
+
+    createRoot(
+      () => {
+        read = createMemo(() => gate.promise.then(() => stream.iterable) as any);
+      },
+      { id: "t" }
+    );
+
+    // The promise channel is committed up front.
+    expect(serialized.size).toBe(1);
+    expect(() => read()).toThrow(NotReadyError);
+
+    // Resolving to the stream is NOT the answer: still pending, one consumer.
+    gate.resolve();
+    await tick();
+    expect(() => read()).toThrow(NotReadyError);
+    expect(stream.openCalls).toBe(1);
+
+    // First yield settles the read.
+    stream.yield("first");
+    await tick();
+    expect(read()).toBe("first");
+
+    // The serialized promise resolves to a tapped stream: replay first, then
+    // delegate — while the memo's HTML-visible value stays locked at V1.
+    const tapped = await [...serialized.values()][0];
+    expect(typeof tapped[Symbol.asyncIterator]).toBe("function");
+    const it = tapped[Symbol.asyncIterator]();
+    expect((await it.next()).value).toBe("first");
+    const secondPull = it.next();
+    stream.yield("second");
+    expect((await secondPull).value).toBe("second");
+    expect(read()).toBe("first");
+  });
+
+  test("hybrid mode: first value only, iterator closed, plain value on the channel", async () => {
+    const { context, serialized } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    const gate = deferred<void>();
+    const stream = controlledStream<string>();
+    let read: any;
+
+    createRoot(
+      () => {
+        read = createMemo(() => gate.promise.then(() => stream.iterable) as any, {
+          ssrSource: "hybrid"
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    gate.resolve();
+    await tick();
+    stream.yield("only");
+    await tick();
+
+    expect(read()).toBe("only");
+    expect(stream.returnCalls).toBe(1);
+    const channel = await [...serialized.values()][0];
+    expect(channel).toBe("only");
+  });
+
+  test("Loading boundary reveals at first yield, not at promise resolution", async () => {
+    const { context, fragmentResults } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    const gate = deferred<void>();
+    const stream = controlledStream<string>();
+
+    createRoot(
+      () => {
+        Loading({
+          fallback: "Loading...",
+          get children() {
+            const data = createMemo(() => gate.promise.then(() => stream.iterable) as any);
+            return ssr(["<div>", "</div>"], () => data()) as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+
+    expect(fragmentResults.size).toBe(0);
+
+    gate.resolve();
+    await tick();
+    expect(fragmentResults.size).toBe(0);
+
+    stream.yield("streamed");
+    await tick();
+    expect(fragmentResults.size).toBe(1);
+    expect([...fragmentResults.values()][0]).toBe("<div>streamed</div>");
+  });
+
+  test("empty stream settles undefined", async () => {
+    const { context } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    const gate = deferred<void>();
+    const stream = controlledStream<string>();
+    let read: any;
+
+    createRoot(
+      () => {
+        read = createMemo(() => gate.promise.then(() => stream.iterable) as any);
+      },
+      { id: "t" }
+    );
+
+    gate.resolve();
+    await tick();
+    stream.end();
+    await tick();
+
+    expect(read()).toBe(undefined);
+  });
+
+  test("stream error settles the memo as errored", async () => {
+    const { context, serialized } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    const gate = deferred<void>();
+    const failing: AsyncIterable<string> = {
+      [Symbol.asyncIterator]: () => ({
+        next: () => Promise.reject(new Error("stream boom"))
+      })
+    };
+    let read: any;
+
+    createRoot(
+      () => {
+        read = createMemo(() => gate.promise.then(() => failing) as any);
+      },
+      { id: "t" }
+    );
+    // Defuse the serialized channel rejection: this test asserts memo state.
+    [...serialized.values()][0].catch(() => {});
+
+    gate.resolve();
+    await tick();
+
+    expect(() => read()).toThrow("stream boom");
+  });
+
+  test("re-processing the same promise joins the in-flight stream instead of re-consuming", async () => {
+    const { context } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    const gate = deferred<void>();
+    const stream = controlledStream<string>();
+    const shared = gate.promise.then(() => stream.iterable);
+    let first: any;
+    let second: any;
+
+    createRoot(
+      () => {
+        first = createMemo(() => shared as any);
+      },
+      { id: "a" }
+    );
+    gate.resolve();
+    await tick();
+    // Stream open, first yield pending: a second node handed the SAME promise
+    // must join (pending), not open a second iterator.
+    createRoot(
+      () => {
+        second = createMemo(() => shared as any);
+      },
+      { id: "b" }
+    );
+    expect(() => second()).toThrow(NotReadyError);
+    expect(stream.openCalls).toBe(1);
+
+    stream.yield("v1");
+    await tick();
+    expect(first()).toBe("v1");
+
+    // After the first yield the stamp is a settled V1: late re-creations
+    // adopt it synchronously (first-value lock).
+    let third: any;
+    createRoot(
+      () => {
+        third = createMemo(() => shared as any);
+      },
+      { id: "c" }
+    );
+    expect(third()).toBe("v1");
+    expect(stream.openCalls).toBe(1);
+  });
+});

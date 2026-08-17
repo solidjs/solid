@@ -5,6 +5,7 @@ import {
   EFFECT_USER,
   NOT_PENDING,
   REACTIVE_DIRTY,
+  REACTIVE_DISPOSED,
   REACTIVE_OPTIMISTIC_DIRTY,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
@@ -448,16 +449,179 @@ export function handleAsync<T>(
     return false;
   };
 
+  // Consumes an AsyncIterable as this flight's value stream. Two postures:
+  // LIVE (called synchronously from this read — the compute returned an
+  // iterable directly, or a sync-settled thenable held one), where the
+  // initial drain may stash a sync first yield for the caller to return and
+  // close registration uses the ambient owner; and DEFERRED (the flattening
+  // path — a thenable resolved to an iterable in a later microtask), where
+  // there is no caller to serve and no ambient owner: sync-settled steps
+  // write through asyncWrite, and close registration goes through the slot
+  // the thenable branch pre-registered while it still owned the context.
+  // Returns whether a sync answer landed (first yield or empty completion) —
+  // meaningful only in the live posture.
+  const consumeIterator = (
+    source: AsyncIterable<T>,
+    registerClose?: (fn: () => void) => void
+  ): boolean => {
+    const it = source[Symbol.asyncIterator]();
+    let hadValue = false;
+    let completed = false;
+    let initialRead = !registerClose;
+
+    const close = () => {
+      if (completed) return;
+      completed = true;
+      try {
+        const returned = it.return?.();
+        if (isThenable(returned)) returned.then(undefined, () => {});
+      } catch {}
+    };
+    registerClose ? registerClose(close) : cleanup(close);
+
+    // Release check before each next pull: an unobserved lazy node must tear
+    // down (its close above runs via disposal, closing the iterator) instead
+    // of pumping the stream forever with zero subscribers (#2935).
+    const iterateOrRelease = () => {
+      if (!settleAutodispose()) iterate();
+    };
+
+    const iterate = (): boolean => {
+      let syncResult: IteratorResult<T>,
+        syncError: unknown,
+        resolved = false,
+        rejected = false,
+        isSync = true;
+      // Protocol tolerance, matching `for await`: `await` unwraps whatever
+      // next() returns — a thenable OR a bare IteratorResult. Real producers
+      // use the bare form as a promise-free fast path when a value is already
+      // buffered (seroval's deserialized streams do), so a bare result is
+      // assimilated as an already-settled step instead of crashing on `.then`.
+      const step = it.next();
+      const settled: PromiseLike<IteratorResult<T>> = isThenable(step)
+        ? step
+        : { then: onSettle => void onSettle!(step) as any };
+      settled.then(
+        r => {
+          // The sync stash only serves the INITIAL drain (handleAsync's caller
+          // consumes syncValue / throws NotReady from it). A sync-settled step
+          // after an async gap — seroval buffering values between pulls, a
+          // sync-thenable producer mid-stream — has no caller reading the
+          // stash: it must write through the async path or the value is
+          // silently dropped. (The deferred posture never has a caller, so
+          // initialRead starts false there and everything writes through.)
+          if (isSync && initialRead) {
+            syncResult = r;
+            resolved = true;
+            if (r.done) completed = true;
+          } else if (el._inFlight !== result) {
+            return;
+          } else if (!r.done) {
+            hadValue = true;
+            asyncWrite(r.value, iterateOrRelease);
+          } else {
+            completed = true;
+            if (hadValue) {
+              schedule();
+              flush();
+            } else {
+              // Empty completion settles like the immediately-done sync path.
+              asyncWrite(undefined as T);
+            }
+            settleAutodispose();
+          }
+        },
+        e => {
+          if (isSync && initialRead) {
+            syncError = e;
+            rejected = true;
+          } else if (el._inFlight === result) {
+            completed = true;
+            handleError(e);
+            settleAutodispose();
+          }
+        }
+      );
+      isSync = false;
+      if (rejected) {
+        // Match the promise branch, but only rethrow during the initial read.
+        completed = true;
+        handleError(syncError);
+        if (initialRead) throw syncError;
+        return true;
+      }
+      if (resolved && !syncResult!.done) {
+        syncValue = syncResult!.value;
+        hadValue = true;
+        return iterate();
+      }
+      return resolved && syncResult!.done;
+    };
+
+    const immediatelyDone = iterate();
+    // Later iterate() calls run from asyncWrite, where rethrowing would be unhandled.
+    initialRead = false;
+    return hadValue || immediatelyDone;
+  };
+
+  // Landed-synchronously verdict for a LIVE iterator drain; null when no live
+  // drain ran (plain promise flight, or a deferred flatten). Drives the
+  // shared NotReady/loading tail below.
+  let liveLanded: boolean | null = null;
+
+  // Flatten one async level: a thenable that RESOLVES to an AsyncIterable —
+  // the shape every async stub returning a stream produces — consumes as the
+  // stream itself rather than settling on the iterable object. One level
+  // only: A+ `then` already collapses nested thenables, so the resolved
+  // value is never itself a thenable.
+  const flattenIfIterable = (value: any, registerClose?: (fn: () => void) => void): boolean => {
+    let innerIterator: any = false;
+    if (typeof value === "object" && value !== null) {
+      untrack(() => {
+        innerIterator = value[Symbol.asyncIterator];
+      });
+    }
+    if (!innerIterator) return false;
+    const landed = consumeIterator(value as AsyncIterable<T>, registerClose);
+    if (!registerClose) liveLanded = landed;
+    return true;
+  };
+
   if (thenable) {
     let resolved = false,
       rejected = false,
       syncError: any,
       isSync = true;
+    // Close registration for the flattening path. Consumption starts in a
+    // microtask where the ambient owner is gone (or worse, someone else's),
+    // so `cleanup()` can't be used — the close targets el's disposal list
+    // directly, exactly where a live cleanup() during this recompute would
+    // have put it. Deliberately NOT pre-registered at flight start: a
+    // non-null `_disposal` reclassifies the node into recompute's deferred
+    // (zombie) disposal path, and plain promise flights — the overwhelming
+    // majority — must not pay that. Only a flight that actually flattens
+    // becomes disposal-bearing, which is exactly the class a directly
+    // returned iterable already occupies.
+    const registerDeferredClose = (fn: () => void) => {
+      if (!el._disposal) el._disposal = fn;
+      else if (Array.isArray(el._disposal)) el._disposal.push(fn);
+      else el._disposal = [el._disposal, fn];
+    };
     (result as PromiseLike<T>).then(
       v => {
         if (isSync) {
           syncValue = v;
           resolved = true;
+        } else if (
+          el._inFlight === result &&
+          !(el._flags & REACTIVE_DISPOSED) &&
+          flattenIfIterable(v, registerDeferredClose)
+        ) {
+          // Flattened: the stream is the value. Each yield lands through
+          // asyncWrite under this flight's identity; the first one clears
+          // pending exactly like a plain promise resolution would have.
+          // (Disposed nodes never start a pump — their disposal list has
+          // already run, so nothing could ever close the iterator.)
         } else {
           asyncWrite(v);
           settleAutodispose();
@@ -488,109 +652,19 @@ export function handleAsync<T>(
       if (el._loading) return el._value;
       globalQueue.initTransition(resolveTransition(el as any));
       throw new NotReadyError(context!);
-    } else {
+    } else if (!flattenIfIterable(syncValue!)) {
       // Synchronously-resolved promise: the first real answer landed.
       el._loading = false;
     }
+    // A sync-resolved promise holding an AsyncIterable flattened LIVE (we
+    // are still inside the synchronous read): full initial-drain semantics
+    // apply and the shared tail below settles the verdict.
   }
 
-  if (iterator) {
-    const it = (result as AsyncIterable<T>)[Symbol.asyncIterator]();
-    let hadValue = false;
-    let completed = false;
-    let initialRead = true;
+  if (iterator) flattenIfIterable(result);
 
-    cleanup(() => {
-      if (completed) return;
-      completed = true;
-      try {
-        const returned = it.return?.();
-        if (isThenable(returned)) returned.then(undefined, () => {});
-      } catch {}
-    });
-
-    // Release check before each next pull: an unobserved lazy node must tear
-    // down (its cleanup above closes the iterator) instead of pumping the
-    // stream forever with zero subscribers (#2935).
-    const iterateOrRelease = () => {
-      if (!settleAutodispose()) iterate();
-    };
-
-    const iterate = (): boolean => {
-      let syncResult: IteratorResult<T>,
-        syncError: unknown,
-        resolved = false,
-        rejected = false,
-        isSync = true;
-      // Protocol tolerance, matching `for await`: `await` unwraps whatever
-      // next() returns — a thenable OR a bare IteratorResult. Real producers
-      // use the bare form as a promise-free fast path when a value is already
-      // buffered (seroval's deserialized streams do), so a bare result is
-      // assimilated as an already-settled step instead of crashing on `.then`.
-      const step = it.next();
-      const settled: PromiseLike<IteratorResult<T>> = isThenable(step)
-        ? step
-        : { then: onSettle => void onSettle!(step) as any };
-      settled.then(
-        r => {
-          // The sync stash only serves the INITIAL drain (handleAsync's caller
-          // consumes syncValue / throws NotReady from it). A sync-settled step
-          // after an async gap — seroval buffering values between pulls, a
-          // sync-thenable producer mid-stream — has no caller reading the
-          // stash: it must write through the async path or the value is
-          // silently dropped.
-          if (isSync && initialRead) {
-            syncResult = r;
-            resolved = true;
-            if (r.done) completed = true;
-          } else if (el._inFlight !== result) {
-            return;
-          } else if (!r.done) {
-            hadValue = true;
-            asyncWrite(r.value, iterateOrRelease);
-          } else {
-            completed = true;
-            if (hadValue) {
-              schedule();
-              flush();
-            } else {
-              // Empty completion settles like the immediately-done sync path.
-              asyncWrite(undefined as T);
-            }
-            settleAutodispose();
-          }
-        },
-        e => {
-          if (isSync) {
-            syncError = e;
-            rejected = true;
-          } else if (el._inFlight === result) {
-            completed = true;
-            handleError(e);
-            settleAutodispose();
-          }
-        }
-      );
-      isSync = false;
-      if (rejected) {
-        // Match the promise branch, but only rethrow during the initial read.
-        completed = true;
-        handleError(syncError);
-        if (initialRead) throw syncError;
-        return true;
-      }
-      if (resolved && !syncResult!.done) {
-        syncValue = syncResult!.value;
-        hadValue = true;
-        return iterate();
-      }
-      return resolved && syncResult!.done;
-    };
-
-    const immediatelyDone = iterate();
-    // Later iterate() calls run from asyncWrite, where rethrowing would be unhandled.
-    initialRead = false;
-    if (!hadValue && !immediatelyDone) {
+  if (liveLanded !== null) {
+    if (!liveLanded) {
       // Loading window: serve commit #0 (see the promise branch above).
       if (el._loading) return el._value;
       globalQueue.initTransition(resolveTransition(el as any));
