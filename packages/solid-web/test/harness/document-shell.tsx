@@ -15,7 +15,7 @@
  * the dom generate by test/hydration/document-shell.spec.tsx (which hydrates
  * against that same markup) — so the constant can't drift from either side.
  */
-import { createSignal, NoHydration, Hydration, type JSX } from "solid-js";
+import { createSignal, createMemo, Loading, NoHydration, Hydration, type JSX } from "solid-js";
 
 export function App() {
   const [count, setCount] = createSignal(0);
@@ -23,6 +23,35 @@ export function App() {
     <button id="counter" type="button" onClick={() => setCount(count() + 1)}>
       count: {count()}
     </button>
+  );
+}
+
+/**
+ * Async island: proves <Hydration> resets the REACTIVE id namespace too, not
+ * just element keys — the memo's serialized record must land under island
+ * ids (the server spec pins `_$HY.r["0"]`) and a hydrating client must adopt
+ * it by id instead of re-running the compute (`computeRuns.client` stays 0;
+ * the adopted value is one the client compute could never produce).
+ */
+export const computeRuns = { client: 0 };
+
+export function AsyncApp() {
+  const data = createMemo(async () => {
+    await Promise.resolve();
+    if (typeof window !== "undefined") {
+      computeRuns.client++;
+      return "client-data";
+    }
+    return "server-data";
+  });
+  const [n, setN] = createSignal(0);
+  return (
+    <Loading fallback={<span>loading</span>}>
+      <span id="data">{data()}</span>
+      <button id="bump" onClick={() => setN(n() + 1)}>
+        n: {n()}
+      </button>
+    </Loading>
   );
 }
 
