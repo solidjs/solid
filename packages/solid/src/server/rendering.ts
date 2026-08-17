@@ -556,12 +556,19 @@ export function createResource<T, S>(
 export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>
 ): T & { preload: () => Promise<{ default: T }> } {
-  let p: Promise<{ default: T }> & { resolved?: T };
+  type LazyPromise = Promise<{ default: T }> & { resolved?: T; error?: any };
+  let p: LazyPromise | undefined;
   let load = (id?: string) => {
     if (!p) {
-      p = fn();
-      p.then(mod => (p.resolved = mod.default));
-      if (id) sharedConfig.context!.lazy[id] = p;
+      const cur = (p = fn() as LazyPromise);
+      cur.then(
+        mod => (cur.resolved = mod.default),
+        err => {
+          cur.error = castError(err);
+          if (p === cur) p = undefined;
+        }
+      );
+      if (id) sharedConfig.context!.lazy[id] = cur;
     }
     return p;
   };
@@ -570,22 +577,28 @@ export function lazy<T extends Component<any>>(
     preload?: () => Promise<{ default: T }>;
   } = props => {
     const id = sharedConfig.context!.id;
-    let ref = sharedConfig.context!.lazy[id];
-    if (ref) p = ref;
-    else load(id);
-    if (p.resolved) return p.resolved(props);
+    const current = (sharedConfig.context!.lazy[id] || load(id)!) as LazyPromise;
+    if (current.resolved) return current.resolved(props);
+    if (current.error) throw current.error;
     const ctx = useContext(SuspenseContext);
-    const track = { _loading: true, error: undefined };
+    const track = { _loading: true, error: undefined as any };
     if (ctx) {
       ctx.resources.set(id, track);
       contexts.add(ctx);
     }
     if (sharedConfig.context!.async) {
       sharedConfig.context!.block(
-        p.then(() => {
-          track._loading = false;
-          notifySuspense(contexts);
-        })
+        current.then(
+          () => {
+            track._loading = false;
+            notifySuspense(contexts);
+          },
+          err => {
+            track._loading = false;
+            track.error = castError(err);
+            notifySuspense(contexts);
+          }
+        )
       );
     }
     return "";

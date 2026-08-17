@@ -359,21 +359,48 @@ export function lazy<T extends Component<any>>(
 ): T & { preload: () => Promise<{ default: T }> } {
   let comp: (() => T | undefined) | undefined;
   let p: Promise<{ default: T }> | undefined;
+  const load = () => {
+    if (!p) {
+      const cur = (p = fn());
+      cur.then(
+        mod => {
+          comp = () => mod.default;
+        },
+        () => {
+          if (p === cur) p = undefined;
+        }
+      );
+    }
+    return p;
+  };
   const wrap: T & { preload?: () => void } = ((props: any) => {
     const ctx = sharedConfig.context;
     if (ctx) {
       const [s, set] = createSignal<T>();
       sharedConfig.count || (sharedConfig.count = 0);
       sharedConfig.count++;
-      (p || (p = fn())).then(mod => {
-        !sharedConfig.done && setHydrateContext(ctx);
-        sharedConfig.count!--;
-        set(() => mod.default);
-        setHydrateContext();
-      });
+      load().then(
+        mod => {
+          !sharedConfig.done && setHydrateContext(ctx);
+          sharedConfig.count!--;
+          set(() => mod.default);
+          setHydrateContext();
+        },
+        err => {
+          !sharedConfig.done && setHydrateContext(ctx);
+          sharedConfig.count!--;
+          set(
+            () =>
+              (() => {
+                throw err;
+              }) as unknown as T
+          );
+          setHydrateContext();
+        }
+      );
       comp = s;
     } else if (!comp) {
-      const [s] = createResource<T>(() => (p || (p = fn())).then(mod => mod.default));
+      const [s] = createResource<T>(() => load().then(mod => mod.default));
       comp = s;
       onCleanup(() => (comp = undefined));
     }
@@ -392,7 +419,7 @@ export function lazy<T extends Component<any>>(
         : ""
     ) as unknown as JSX.Element;
   }) as T;
-  wrap.preload = () => p || ((p = fn()).then(mod => (comp = () => mod.default)), p);
+  wrap.preload = () => load();
   return wrap as T & { preload: () => Promise<{ default: T }> };
 }
 

@@ -4,8 +4,9 @@
     "baseUrl": "",
     "paths": {
       "solid-js/jsx-runtime": ["./src/jsx"],
-      "solid-js": ["./src"],
+      "solid-js": ["./src"]
     }
   },
-  "include": ["./test", "./web/test", "./store/test"]
+  "include": ["./test", "./web/test", "./store/test"],
+  "exclude": ["./test/server"]
 }

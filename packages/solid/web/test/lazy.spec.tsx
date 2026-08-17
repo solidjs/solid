@@ -3,8 +3,8 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { lazy, Component } from "../../src/index.js";
-import { render, Suspense } from "../src/index.js";
+import { lazy, Component, ErrorBoundary, sharedConfig } from "../../src/index.js";
+import { hydrate, render, Suspense } from "../src/index.js";
 
 describe("lazy() disposal", () => {
   test("nested lazy boundaries remount after navigation-style dispose", async () => {
@@ -57,5 +57,52 @@ describe("lazy() disposal", () => {
     expect(second.div.textContent).toBe("page-content");
     expect(routeImports).toBe(1);
     second.dispose();
+  });
+
+  test("lazy() retries import function on subsequent load if previous promise rejected", async () => {
+    let attempts = 0;
+    let shouldFail = true;
+    const Child: Component<{ label: string }> = props => <span>{props.label}</span>;
+
+    const LazyComp = lazy(async () => {
+      attempts++;
+      if (shouldFail) {
+        throw new Error("network error");
+      }
+      return { default: Child };
+    });
+
+    await expect(LazyComp.preload()).rejects.toThrow("network error");
+    expect(attempts).toBe(1);
+
+    shouldFail = false;
+    const res = await LazyComp.preload();
+    expect(attempts).toBe(2);
+    expect(res.default).toBe(Child);
+  });
+});
+
+describe("lazy() while hydrating", () => {
+  test("a rejected module reaches the ErrorBoundary and releases the hydration count", async () => {
+    const Broken = lazy<Component>(() => Promise.reject(new Error("boom")));
+    const div = document.createElement("div");
+    const previousHY = (globalThis as any)._$HY;
+    (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {} };
+    try {
+      hydrate(
+        () => (
+          <ErrorBoundary fallback={(err: Error) => `error boundary: ${err.message}`}>
+            <Broken />
+          </ErrorBoundary>
+        ),
+        div
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(div.textContent).toBe("error boundary: boom");
+      expect(sharedConfig.count).toBe(0);
+    } finally {
+      (globalThis as any)._$HY = previousHY;
+    }
   });
 });
