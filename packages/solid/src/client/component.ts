@@ -114,19 +114,38 @@ export function lazy<T extends Component<any>>(
 ): T & { preload: () => Promise<{ default: T }>; moduleUrl?: string } {
   let comp: (() => T | undefined) | undefined;
   let p: Promise<{ default: T }> | undefined;
+  const load = () => {
+    if (p) return p;
+    const cur = (p = fn());
+    cur.then(
+      mod => {
+        comp = () => mod.default as T;
+      },
+      // Failed loads must not be cached: the platform re-fetches a failed
+      // dynamic import, and an Errored reset() remounts expecting a retry.
+      // Clearing only if still current keeps an in-flight render (which
+      // captured `cur`) throwing the original error while the next mount
+      // or preload re-imports (#2999). Handling rejection here also stops
+      // every failed load surfacing as an unhandled rejection.
+      () => {
+        if (p === cur) p = undefined;
+      }
+    );
+    return cur;
+  };
   const wrap: T & { preload?: () => void; moduleUrl?: string } = ((props: any) => {
     // `hydrating` can only be true once enableHydration() installed the slot.
     if (sharedConfig.hydrating) comp = _lazyHydrationLookup!(comp, moduleUrl) as () => T;
     // The import (`p`) is shared across instances, but the memo tracking it
     // must be owned per instance: a shared memo dies with whichever instance
-    // rendered first, stranding survivors mid-flight (#2915).
+    // rendered first, stranding survivors mid-flight (#2915). load() runs
+    // INSIDE the compute: an Errored reset() retries by recomputing the
+    // errored source in place, so each run must re-consult the module cache
+    // (a rejection clears it) rather than replay a captured rejected import.
     let local = comp;
     if (!local) {
-      p || (p = fn());
-      p.then(mod => {
-        comp = () => mod.default as T;
-      });
-      local = createMemo<T>(() => p!.then(mod => mod.default));
+      load();
+      local = createMemo<T>(() => load().then(mod => mod.default));
     }
 
     let Comp: T | undefined;
@@ -141,7 +160,7 @@ export function lazy<T extends Component<any>>(
       { sync: true }
     ) as unknown as SolidElement;
   }) as T;
-  wrap.preload = () => p || ((p = fn()).then(mod => (comp = () => mod.default)), p);
+  wrap.preload = load;
   wrap.moduleUrl = moduleUrl;
   return wrap as T & { preload: () => Promise<{ default: T }>; moduleUrl?: string };
 }

@@ -4096,6 +4096,88 @@ describe("Asset Manifest + lazy()", () => {
 });
 
 // ============================================================================
+// lazy() rejected module promises are not cached (#2999)
+// ============================================================================
+
+describe("lazy() rejected module promises are not cached (#2999)", () => {
+  let savedContext: any;
+
+  beforeEach(() => {
+    savedContext = sharedConfig.context;
+  });
+
+  afterEach(() => {
+    sharedConfig.context = savedContext;
+  });
+
+  test("a transient import failure does not poison subsequent renders", async () => {
+    const { lazy } = await import("../../src/server/component.js");
+
+    let fail = true;
+    let importCalls = 0;
+    const LazyComp = lazy(() => {
+      importCalls++;
+      return fail
+        ? Promise.reject(new Error("transient import failure"))
+        : Promise.resolve({ default: (props: any) => "recovered" });
+    }, "./Flaky.tsx");
+
+    const makeRequest = () => {
+      const { context } = createMockSSRContext();
+      context.registerAsset = () => {};
+      context.resolveAssets = () => ({ js: ["/assets/flaky.js"], css: [] });
+      sharedConfig.context = context;
+      let thunk: any;
+      createRoot(
+        () => {
+          thunk = LazyComp({} as any);
+        },
+        { id: "t" }
+      );
+      return thunk;
+    };
+
+    // Request 1: the import rejects. The render that captured this load still
+    // surfaces the error (an enclosing Errored can catch it)...
+    const thunk1 = makeRequest();
+    await tick();
+    expect(() => thunk1()).toThrow("transient import failure");
+    expect(importCalls).toBe(1);
+
+    // ...but the failure is NOT sealed into the module-scoped cache: the next
+    // request re-imports and renders.
+    fail = false;
+    const thunk2 = makeRequest();
+    await tick();
+    expect(thunk2()).toBe("recovered");
+    expect(importCalls).toBe(2);
+
+    // Success IS cached — further requests reuse the resolved module.
+    const thunk3 = makeRequest();
+    expect(thunk3()).toBe("recovered");
+    expect(importCalls).toBe(2);
+  });
+
+  test("preload() retries after rejection and dedupes after success", async () => {
+    const { lazy } = await import("../../src/server/component.js");
+
+    let fail = true;
+    let importCalls = 0;
+    const LazyComp = lazy(() => {
+      importCalls++;
+      return fail ? Promise.reject(new Error("nope")) : Promise.resolve({ default: () => "ok" });
+    }, "./Retry.tsx");
+
+    await expect(LazyComp.preload!()).rejects.toThrow("nope");
+    fail = false;
+    await LazyComp.preload!();
+    expect(importCalls).toBe(2);
+    await LazyComp.preload!();
+    expect(importCalls).toBe(2);
+  });
+});
+
+// ============================================================================
 // lazy() single-render behavior (no Loading boundary)
 // ============================================================================
 

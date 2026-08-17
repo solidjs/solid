@@ -159,6 +159,77 @@ describe("Testing Loading", () => {
     localDispose();
   });
 
+  test("failed import is not cached — Errored reset() retries the download (#2999)", async () => {
+    const localDiv = document.createElement("div");
+    let importCalls = 0;
+    let fail = true;
+
+    const LazyComponent = lazy<Component<{}>>(() => {
+      importCalls++;
+      return fail
+        ? Promise.reject(new Error("download failed"))
+        : Promise.resolve({ default: () => <b>loaded</b> });
+    });
+
+    let doReset!: () => void;
+    const localDispose = render(
+      () => (
+        <Errored
+          fallback={(err, reset) => {
+            doReset = reset;
+            return String(err());
+          }}
+        >
+          <Loading fallback="loading">
+            <LazyComponent />
+          </Loading>
+        </Errored>
+      ),
+      localDiv
+    );
+    flush();
+    expect(localDiv.innerHTML).toBe("loading");
+
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(localDiv.innerHTML).toBe("Error: download failed");
+    expect(importCalls).toBe(1);
+
+    // The transient failure clears; reset() remounts and must re-import
+    // instead of re-throwing the sealed-in rejection.
+    fail = false;
+    doReset();
+    flush();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(localDiv.innerHTML).toBe("<b>loaded</b>");
+    expect(importCalls).toBe(2);
+
+    localDispose();
+  });
+
+  test("preload() retries after a failed import (#2999)", async () => {
+    let importCalls = 0;
+    let fail = true;
+
+    const LazyComponent = lazy<Component<{}>>(() => {
+      importCalls++;
+      return fail
+        ? Promise.reject(new Error("preload failed"))
+        : Promise.resolve({ default: () => <i>ok</i> });
+    });
+
+    await expect(LazyComponent.preload()).rejects.toThrow("preload failed");
+    fail = false;
+    await LazyComponent.preload();
+    expect(importCalls).toBe(2);
+    // A resolved module stays cached.
+    await LazyComponent.preload();
+    expect(importCalls).toBe(2);
+  });
+
   test("bare async memo as direct Loading child (issue #2677)", async () => {
     const localDiv = document.createElement("div");
     let resolveData!: (value: string) => void;

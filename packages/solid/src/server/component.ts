@@ -92,36 +92,42 @@ export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>,
   moduleUrl?: string
 ): T & { preload: () => Promise<{ default: T }>; moduleUrl?: string } {
-  let p: Promise<{ default: T }> & {
+  type LoadingModule = Promise<{ default: T }> & {
     v?: T;
     mod?: { default: T };
     error?: unknown;
     errored?: boolean;
   };
+  let p: LoadingModule | undefined;
   let load = () => {
-    if (!p) {
-      p = fn() as any;
-      p.then(
-        mod => {
-          // The full namespace is kept alongside the default export so a
-          // post-load re-creation can read `$$moduleUrl` synchronously (see
-          // the deferred registration path below).
-          p.mod = mod;
-          p.v = mod.default;
-        },
-        err => {
-          // Capture the rejection so the SSR render path can surface it to
-          // `<Errored>` instead of leaving p.v `undefined` forever (which
-          // would keep throwing `NotReadyError` and look like the module is
-          // still loading) and instead of leaking the rejection as a
-          // process-level `unhandledRejection` (#2780). Presence is a flag —
-          // a falsy rejection value is still a rejection (#2857).
-          p.error = err;
-          p.errored = true;
-        }
-      );
-    }
-    return p;
+    if (p) return p;
+    const cur = (p = fn() as LoadingModule);
+    cur.then(
+      mod => {
+        // The full namespace is kept alongside the default export so a
+        // post-load re-creation can read `$$moduleUrl` synchronously (see
+        // the deferred registration path below).
+        cur.mod = mod;
+        cur.v = mod.default;
+      },
+      err => {
+        // Capture the rejection so the SSR render path can surface it to
+        // `<Errored>` instead of leaving `v` undefined forever (which
+        // would keep throwing `NotReadyError` and look like the module is
+        // still loading) and instead of leaking the rejection as a
+        // process-level `unhandledRejection` (#2780). Presence is a flag —
+        // a falsy rejection value is still a rejection (#2857).
+        cur.error = err;
+        cur.errored = true;
+        // But never CACHE the failure: `p` is module-scoped and shared
+        // across requests, so a single transient import hiccup would poison
+        // every subsequent SSR render for the process lifetime. Clearing
+        // (only if still current) lets the next creation re-import, while
+        // renders that captured `cur` still surface this error (#2999).
+        if (p === cur) p = undefined;
+      }
+    );
+    return cur;
   };
   const wrap: Component<ComponentProps<T>> & {
     preload?: () => Promise<{ default: T }>;
@@ -134,7 +140,9 @@ export function lazy<T extends Component<any>>(
           "Pass a manifest option to renderToStream/renderToString."
       );
     }
-    load();
+    // Capture the current load: a rejection clears `p` for future retries,
+    // and this render must keep reading the promise it suspended on.
+    const cur = load();
     const ctx = sharedConfig.context;
     // While set, the render memo below reports not-ready even after the module
     // itself has loaded. Only async work arms it: an in-flight resolver-
@@ -223,7 +231,7 @@ export function lazy<T extends Component<any>>(
         // the module's identity lives in the module itself: the bundler's SSR
         // transform injects a `$$moduleUrl` export carrying the client
         // manifest key. Defer registration until the import resolves.
-        if (p.mod !== undefined) {
+        if (cur.mod !== undefined) {
           // Already loaded (a re-creation across suspended render passes):
           // read `$$moduleUrl` synchronously instead of chaining another
           // `p.then`. The promise hop was pending at the render memo's
@@ -232,7 +240,7 @@ export function lazy<T extends Component<any>>(
           // one microtask later and the boundary resume loop never converged
           // (the same livelock as the cache upgrade in registerLazyAssets;
           // both paths must go sync once their async work is done).
-          const id = (p.mod as any)?.$$moduleUrl;
+          const id = (cur.mod as any)?.$$moduleUrl;
           if (typeof id === "string") {
             assetsPending = registerLazyAssets(id);
           } else {
@@ -245,7 +253,7 @@ export function lazy<T extends Component<any>>(
           }
         } else {
           const boundary = ctx._currentBoundaryId;
-          assetsPending = p.then(mod => {
+          assetsPending = cur.then(mod => {
             const id = (mod as any)?.$$moduleUrl;
             if (typeof id !== "string") {
               console.warn(
@@ -288,10 +296,10 @@ export function lazy<T extends Component<any>>(
     // module map are registered.
     return createMemo(
       () => {
-        if (p.errored) throw p.error;
-        if (!p.v) throw new NotReadyError(p);
+        if (cur.errored) throw cur.error;
+        if (!cur.v) throw new NotReadyError(cur);
         if (assetsPending) throw new NotReadyError(assetsPending);
-        return p.v(props);
+        return cur.v(props);
       },
       { sync: true }
     ) as unknown as SolidElement;
