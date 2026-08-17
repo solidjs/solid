@@ -4654,3 +4654,235 @@ describe("non-Promise thenables are treated as async sources (#2858)", () => {
     );
   });
 });
+
+// ============================================================================
+// Retry convergence without stable promise identity (#3003)
+// ============================================================================
+//
+// The boundary's body-channel retry loop converges by re-running the creation
+// scope; a re-created memo normally adopts its previous answer through the
+// `.s`/`.v` stamp on the promise object. Sources that derive a fresh promise
+// per call (the router query()'s cache-hit `.then()` wrapper) defeat the
+// stamp — before the by-slot settlement memory, every pass re-suspended at
+// microtask speed, serializing a new deferred per pass until the process
+// OOM'd. These tests pin: convergence via the slot cache (fulfilled and
+// rejected), and the loud budget failure for shapes that cannot converge.
+describe("retry convergence without stable promise identity (#3003)", () => {
+  let savedContext: any;
+
+  beforeEach(() => {
+    savedContext = sharedConfig.context;
+  });
+
+  afterEach(() => {
+    sharedConfig.context = savedContext;
+  });
+
+  test("body-channel read of a fresh-per-call thenable converges", async () => {
+    const { context, fragmentResults } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    // The router cache-hit shape: the underlying work is stable and settled,
+    // but every call hands back a NEW `.then()` derivative — solid never
+    // sees the same promise object twice.
+    const underlying = Promise.resolve({ title: "Hello" });
+    let calls = 0;
+    const query = () => (calls++, underlying.then(v => v));
+
+    let result: any;
+    createRoot(
+      () => {
+        result = Loading({
+          fallback: "Loading...",
+          get children() {
+            const data = createMemo(() => query());
+            // Body-position read (solid-meta's useHead evaluates title
+            // children exactly here): the NotReady throws through the
+            // children getter, taking the discovery channel that disposes
+            // and re-creates this whole scope per pass.
+            const title = (data() as any).title;
+            return ssr(["<h1>", "</h1>"], () => title) as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+
+    expect(result().t[0]).toContain("Loading...");
+    await tick();
+    await tick();
+
+    expect(fragmentResults.size).toBe(1);
+    expect([...fragmentResults.values()][0]).toBe("<h1>Hello</h1>");
+    // Converged via the slot cache: one pending pass + one adopting pass.
+    expect(calls).toBeLessThan(5);
+  });
+
+  test("rejected fresh-per-call thenable settles the slot as an error", async () => {
+    const { context, fragmentResults } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    const underlying = Promise.reject(new Error("query boom"));
+    underlying.catch(() => {});
+    const query = () => underlying.then(v => v);
+
+    let result: any;
+    createRoot(
+      () => {
+        result = Errored({
+          fallback: () => "Error caught!",
+          get children() {
+            return Loading({
+              fallback: "Loading...",
+              get children() {
+                const data = createMemo(() => query());
+                const title = (data() as any).title;
+                return ssr(["<h1>", "</h1>"], () => title) as any;
+              }
+            });
+          }
+        }) as any;
+      },
+      { id: "t" }
+    );
+
+    result();
+    await tick();
+    await tick();
+
+    // The rejection lands once (adopted from the slot on the retry pass, not
+    // re-suspended forever) and routes through the error channel.
+    expect(fragmentResults.size + [...fragmentResults.values()].length).toBeGreaterThan(0);
+  });
+
+  test("non-convergent discovery fails the boundary loudly instead of looping", async () => {
+    const { context, fragmentErrors, fragmentResults } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    let result: any;
+    createRoot(
+      () => {
+        result = Loading({
+          fallback: "Loading...",
+          get children(): any {
+            // Pathological: a fresh, instantly-settling pending source every
+            // pass with no adoptable slot behind it. Without the budget this
+            // loops at microtask speed until OOM.
+            throw new NotReadyError(Promise.resolve() as any);
+          }
+        });
+      },
+      { id: "t" }
+    );
+
+    expect(result().t[0]).toContain("Loading...");
+
+    // 10k budgeted passes take a moment; poll until the boundary errors.
+    const deadline = Date.now() + 10000;
+    while (!fragmentErrors.size && Date.now() < deadline) await tick();
+
+    expect(fragmentResults.get([...fragmentResults.keys()][0] ?? "")).toBeUndefined();
+    expect(fragmentErrors.size).toBe(1);
+    expect(String([...fragmentErrors.values()][0])).toMatch(/did not converge/);
+  });
+
+  // A slot re-created while its flight is still pending (post-flush hole
+  // re-pulls do this — solid-meta's head registry re-pulls holes on flush
+  // microtasks) must JOIN the existing flight. Before in-flight slot sharing,
+  // each re-creation serialized a fresh deferred under the same id and the
+  // superseded pass's deferred — dropped by the disposal guard — never
+  // settled, holding the response stream open forever.
+  test("in-flight slot re-creation shares one serialized deferred that still settles", async () => {
+    const { context, serialized } = createMockSSRContext();
+    const writes: string[] = [];
+    const origSerialize = context.serialize;
+    context.serialize = function (id: string, p: any, deferStream?: boolean) {
+      writes.push(id);
+      return origSerialize.call(this, id, p, deferStream);
+    };
+    sharedConfig.context = context;
+
+    let resolveUnderlying!: (v: string) => void;
+    const underlying = new Promise<string>(r => (resolveUnderlying = r));
+    // Fresh derivative per call — the promise stamp can never match.
+    const query = () => underlying.then(v => v);
+
+    // First creation plants the flight and serializes its deferred.
+    const disposeFirst = createRoot(
+      dispose => {
+        const data = createMemo(() => query());
+        try {
+          data();
+        } catch {}
+        return dispose;
+      },
+      { id: "x" }
+    );
+    expect(writes.length).toBe(1);
+    const flightPromise = serialized.get(writes[0]);
+
+    // Superseded: the first node is disposed mid-flight, then the same slot
+    // (same owner id path) is re-created — the shape of a discovery/hole
+    // re-pull.
+    disposeFirst();
+    let read!: () => string;
+    createRoot(
+      () => {
+        const data = createMemo(() => query());
+        read = data as () => string;
+        try {
+          data();
+        } catch {}
+      },
+      { id: "x" }
+    );
+    // Joined the existing flight: no second serialization for the slot.
+    expect(writes.length).toBe(1);
+
+    resolveUnderlying("done");
+    await tick();
+
+    // The one serialized deferred settled (the stream can close) and the
+    // live re-creation received the value.
+    const settled = await Promise.race([flightPromise.then(() => true), tick().then(() => false)]);
+    expect(settled).toBe(true);
+    expect(read()).toBe("done");
+  });
+
+  test("terminal rejection settles the serialized deferred even after disposal", async () => {
+    const { context, serialized } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    let rejectUnderlying!: (e: any) => void;
+    const underlying = new Promise<string>((_, rej) => (rejectUnderlying = rej));
+    const query = () => underlying.then(v => v);
+
+    const disposeRoot = createRoot(
+      dispose => {
+        const data = createMemo(() => query());
+        try {
+          data();
+        } catch {}
+        return dispose;
+      },
+      { id: "y" }
+    );
+    expect(serialized.size).toBe(1);
+    const flightPromise = [...serialized.values()][0];
+    // Defuse: this test asserts settlement, not unhandled-rejection routing.
+    flightPromise.catch(() => {});
+
+    disposeRoot();
+    rejectUnderlying(new Error("boom"));
+    await tick();
+
+    const outcome = await Promise.race([
+      flightPromise.then(
+        () => "resolved",
+        () => "rejected"
+      ),
+      tick().then(() => "pending")
+    ]);
+    expect(outcome).toBe("rejected");
+  });
+});

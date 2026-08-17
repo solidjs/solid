@@ -580,6 +580,19 @@ function subscribePendingRetry(error: any, retry: () => void): boolean {
   return true;
 }
 
+/**
+ * By-slot flight memory for retry convergence (#3003) — see the adoption
+ * site in `processResult`. Keyed weakly by the render context object the node
+ * captured at creation (a boundary's buffered ctx or the render root): the
+ * same scope its re-creations run in, so concurrent renders never share and
+ * entries die with the render. States mirror the promise stamp — `s: 1`
+ * fulfilled / `s: 2` rejected with `v` payload — plus `s: 0` for a flight
+ * still in the air, carrying the deferred so re-creations of the slot share
+ * one serialized promise instead of planting a fresh one per pass.
+ */
+type SlotRecord = { s: 0; v?: undefined; d: DeferredPromise<any> } | { s: 1 | 2; v: any };
+const settledSlots = new WeakMap<object, Map<string, SlotRecord>>();
+
 function settleServerAsync<T, U>(
   initial: T | PromiseLike<T>,
   rerun: () => T | PromiseLike<T>,
@@ -606,11 +619,17 @@ function settleServerAsync<T, U>(
 
     Promise.resolve(current).then(
       value => {
-        if (isDisposed()) return;
+        // No disposal guard: the deferred may be serialized into the stream
+        // (and shared across slot re-creations), so a known answer must land
+        // regardless of this node's lifetime — an unresolved serialized
+        // promise holds the response open forever. Mutating a disposed comp
+        // is inert; slot recording wants the answer either way.
         deferred.resolve(onSuccess(value));
       },
       error => {
-        if (isDisposed()) return;
+        // NotReady defers to the retry chain (`attempt` no-ops once disposed —
+        // a re-created node joins the flight and drives the shared deferred).
+        // Terminal errors settle unconditionally, same as the success path.
         if (subscribePendingRetry(error, attempt)) return;
         onError(error);
         deferred.reject(error);
@@ -1032,9 +1051,51 @@ function processResult<T>(
       comp.errored = true;
       return;
     }
-    const deferred = createDeferredPromise<T>();
+    // Slot memory (#3003): the retry loops converge by re-running creation
+    // scopes, and a re-created node normally adopts its previous answer
+    // through the `.s`/`.v` stamp above — which requires the SAME promise
+    // object to come back on the rerun. Code that derives a fresh promise
+    // per call (`cached.then(...)` — the router's query() does this) defeats
+    // the stamp: every pass sees an unstamped pending thenable, throws
+    // NotReady, settles a microtask later, and re-runs — an infinite
+    // allocation loop that OOMs the process. Owner ids ARE stable across
+    // those reruns (the hydration id contract), so the render context keeps
+    // a by-slot flight record. A re-created node at a settled slot adopts
+    // synchronously with exactly the sync-resolved semantics above; at a
+    // still-pending slot it joins the existing flight — sharing the ONE
+    // serialized deferred — instead of serializing a fresh one per pass
+    // (a superseded pass's deferred would otherwise dangle in the stream
+    // and hold the response open forever). Post-settle re-asks don't exist
+    // for async thenable slots on the server (epoch recomputes are
+    // sync-memo-only), so a recorded answer is final for the render.
+    const slot = id && ctx ? settledSlots.get(ctx)?.get(id) : undefined;
+    if (slot && slot.s) {
+      // The just-created flight is abandoned — its answer is already known.
+      // Observe its rejection so a rejecting duplicate doesn't surface as an
+      // unhandled rejection (fatal under --unhandled-rejections=strict).
+      (result as any).then(undefined, () => {});
+      if (slot.s === 1) {
+        comp.value = slot.v;
+        comp.error = undefined;
+        comp.errored = false;
+      } else {
+        comp.error = slot.v;
+        comp.errored = true;
+      }
+      return;
+    }
+    const recordSlot = (entry: SlotRecord) => {
+      if (!id || !ctx) return;
+      let slots = settledSlots.get(ctx);
+      if (!slots) settledSlots.set(ctx, (slots = new Map()));
+      slots.set(id, entry);
+    };
+    const deferred: DeferredPromise<T> = slot ? slot.d : createDeferredPromise<T>();
     const serializes = !!(ctx?.async && ctx.serialize && id && !noHydrate);
-    if (serializes) ctx.serialize(id, deferred.promise, deferStream);
+    if (!slot) {
+      recordSlot({ s: 0, d: deferred });
+      if (serializes) ctx.serialize(id, deferred.promise, deferStream);
+    }
     settleServerAsync(
       result,
       () => (rerun ? rerun() : result),
@@ -1042,6 +1103,7 @@ function processResult<T>(
       (value: T) => {
         (result as any).s = 1;
         (result as any).v = value;
+        recordSlot({ s: 1, v: value });
         // First-value lock for commit #0: markup rendered from the loading
         // value keeps reading it — the landing reaches the client through the
         // serialized promise, never through later-rendered HTML. Without a
@@ -1063,6 +1125,7 @@ function processResult<T>(
       (error: any) => {
         (result as any).s = 2;
         (result as any).v = error;
+        recordSlot({ s: 2, v: error });
         comp.error = error;
         comp.errored = true;
         ctx?.commit?.();

@@ -255,8 +255,25 @@ function ssrLoadingBoundary(
     };
     (async () => {
       try {
+        // Convergence budget: each pass should retire at least one async
+        // slot, so passes are bounded by the boundary's async-slot count in
+        // any converging render — real trees sit far below this. A shape
+        // that plants a fresh pending source every pass (an async read whose
+        // answer is never adoptable at the re-created slot) would otherwise
+        // loop at microtask speed, serializing a new deferred per pass until
+        // the process OOMs (#3003). Fail the boundary loudly instead.
+        let passes = 0;
+        const checkBudget = () => {
+          if (++passes <= 10000) return;
+          throw new Error(
+            `<Loading> boundary discovery did not converge after ${passes - 1} passes — ` +
+              `an async source produces a new pending answer on every retry. Ensure repeated ` +
+              `reads settle (e.g. return a stable promise or value for the same question).`
+          );
+        };
         while (retryPromise) {
           if (hasFinalHole()) return clientHandoff();
+          checkBudget();
           await retryPromise.catch(() => {});
           ret = runDiscovery();
         }
@@ -264,6 +281,7 @@ function ssrLoadingBoundary(
         while (ret && ret.p && ret.p.length) {
           const pending = ret as { t: string[]; h: Function[]; p: Promise<any>[] };
           if (hasFinalHole()) return clientHandoff();
+          checkBudget();
           await Promise.all(pending.p).catch(() => {});
           ret = runLoadingPhase(() => ctx.ssr(pending.t, ...pending.h)) as any;
         }
