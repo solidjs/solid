@@ -88,8 +88,9 @@ describe("lazy() while hydrating", () => {
     const div = document.createElement("div");
     const previousHY = (globalThis as any)._$HY;
     (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {} };
+    let dispose: (() => void) | undefined;
     try {
-      hydrate(
+      dispose = hydrate(
         () => (
           <ErrorBoundary fallback={(err: Error) => `error boundary: ${err.message}`}>
             <Broken />
@@ -102,6 +103,11 @@ describe("lazy() while hydrating", () => {
       expect(div.textContent).toBe("error boundary: boom");
       expect(sharedConfig.count).toBe(0);
     } finally {
+      dispose?.();
+      sharedConfig.registry = undefined;
+      sharedConfig.done = false;
+      delete sharedConfig.count;
+      sharedConfig.context = undefined;
       (globalThis as any)._$HY = previousHY;
     }
   });
