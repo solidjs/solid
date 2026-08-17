@@ -14,6 +14,7 @@ This is a short, practical guide for migrating from Solid 1.x to Solid 2.0’s A
 - **Stores**: prefer draft-first setters; `storePath(...)` exists as an opt-in helper for the old path-style ergonomics.
 - **Plain values**: `snapshot(store)` replaces `unwrap(store)` when you need a plain non-reactive value.
 - **DOM**: `/*@once*/` and `use:` directives are removed from the public JSX model; use normal reactive JSX, `untrack` for intentional one-time JavaScript reads, and `ref` directive factories (including array refs). Previously tolerated `class:` / `style:` namespace syntax is no longer special; use `class` / `style` object values.
+- **Refs**: ref callbacks are now unowned — `getOwner()` is `null` inside them, so 1.x-style `onCleanup()` registration inside a ref callback no longer works. Keep lifecycle work in an owned scope: `onSettled` in the component body, or the setup half of a directive factory.
 - **Helpers**: `mergeProps` → `merge`, `splitProps` → `omit`.
 
 ## Core behavior changes
@@ -584,6 +585,56 @@ For most apps this is automatic. The visible differences are in nested roots, po
 - Rendering into a `ShadowRoot` scopes delegated handlers to that shadow root, which is friendlier to web components.
 - `Portal` registers outside-root mount points as listener containers for the owning render root, so portal events still bubble through the logical Solid tree. Portal mounts already inside the root do not install extra listeners.
 - If you were calling `clearDelegatedEvents()`, remove it. Dispose the render root instead.
+
+### Ref callbacks: no longer owned
+
+In Solid 1.x, a ref callback ran inside the reactive owner of the component that declared the `ref`, so `getOwner()` was available and cleanup could be registered inline:
+
+```jsx
+// 1.x — the ref callback ran owned, so cleanup could live inside it
+<div ref={(el) => {
+  el.addEventListener("pointerdown", onDown);
+  onCleanup(() => el.removeEventListener("pointerdown", onDown));
+}} />
+```
+
+In Solid 2.0, ref callbacks are **unowned** — `getOwner()` returns `null` inside them. This makes plain refs consistent with the apply phase of directive factories (below): the callback's only job is to capture or touch the element. Lifecycle work belongs in an owned scope, in one of two packagings.
+
+For one-off, component-local behavior, use `onSettled` in the component body — it runs after render settles (the ref has been assigned by then) and its returned cleanup fires on disposal:
+
+```jsx
+// 2.0 — setup + teardown together in the owned component scope
+let el;
+onSettled(() => {
+  el.addEventListener("pointerdown", onDown);
+  return () => el.removeEventListener("pointerdown", onDown);
+});
+
+<div ref={el} />
+```
+
+For reusable behavior, use a directive factory: its setup half runs owned at component creation — primitives and `onCleanup` live there — and the returned apply callback (the actual ref) is unowned and only captures the element:
+
+```jsx
+function tooltip(options) {
+  let el;
+  const instance = createTooltipInstance();
+  createEffect(
+    () => options.content,
+    (content) => el && instance.setContent(content)
+  );
+  onCleanup(() => instance.destroy());
+
+  return (nextEl) => {
+    el = nextEl;
+    instance.attach(nextEl);
+  };
+}
+
+<button ref={tooltip({ content: "Save" })} />
+```
+
+Note the timing difference: `onSettled` runs post-settle with the element already in hand, so element work can sit directly inside it; a factory's setup half runs during render before any element exists, so element-dependent work rides the apply callback or an effect.
 
 ### Directives: `use:` → `ref` directive factories (two-phase pattern)
 
