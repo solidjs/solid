@@ -44,6 +44,17 @@ export function reconcileNextState(
     throw new Error(__DEV__ ? "reconcile target is not a store proxy" : "");
   let keyFn: KeyFn | null =
     key === null ? null : typeof key === "string" ? (item: any) => item?.[key] : (key as KeyFn);
+  // §7b chained backing: a projection derive returning a LIVE store proxy
+  // adopts the proxy itself as the backing — reads flow through the inner
+  // store's traps, so consumers subscribe to the inner graph and updates
+  // flow with no re-derive (#2941). The adoption diff still notifies THIS
+  // store's existing subscribers of the swap.
+  if (replace && value !== state && value?.[$TARGET] !== undefined) {
+    const prev = t.pb ?? t.v;
+    if (prev === value) return; // already chained to this store
+    adoptPB(t, value);
+    return;
+  }
   const incoming = unwrapValue(value);
   if (keyFn) {
     // Root identity precondition — checked before ANY mutation, so a throwing
@@ -57,16 +68,20 @@ export function reconcileNextState(
     if (eq !== undefined && keyFn(incoming) !== eq) {
       if (!replace)
         throw new Error(__DEV__ ? "Cannot reconcile states with different identity" : "");
+      // Entity change: wholesale swap. The root proxy is stable for life
+      // (proj R5) but NOTHING below survives — children are never matched
+      // across an entity change even when their own keys align (proj R7).
       // Displaced-raw unregistration (proj R10): the outgoing raw stops
       // resolving to this proxy; re-handed later it wraps fresh.
       (t.fam?.map ?? storeNextLookup).delete(t.pb ?? t.v);
-      keyFn = null;
+      adoptPB(t, incoming);
+      return;
     }
   }
-  applyAdopt(t, incoming, keyFn);
+  applyAdopt(t, incoming, keyFn, replace);
 }
 
-function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null): void {
+function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj = false): void {
   const prev = t.pb ?? t.v;
   // The sound identity skip (O7): same reference AND we never diverged it.
   if (incoming === prev && !ownedRaw.has(prev)) return;
@@ -99,20 +114,27 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null): voi
         } else {
           pv = unwrapValue(prevRows[i]); // keyless item: positional fallback
         }
-        descend(pv, nv, keyFn, fam);
+        descend(pv, nv, keyFn, fam, proj);
       }
     } else {
       const len = Math.min(prevRows.length, nextRows.length);
-      for (let i = 0; i < len; i++) descend(unwrapValue(prevRows[i]), nextRows[i], keyFn, fam);
+      for (let i = 0; i < len; i++)
+        descend(unwrapValue(prevRows[i]), nextRows[i], keyFn, fam, proj);
     }
   } else {
     for (const k of Reflect.ownKeys(incoming)) {
-      descend(unwrapValue((prev as any)[k]), (incoming as any)[k], keyFn, fam);
+      descend(unwrapValue((prev as any)[k]), (incoming as any)[k], keyFn, fam, proj);
     }
   }
 }
 
-function descend(pv: any, nv: any, keyFn: KeyFn | null, fam: StoreNextFamily | null): void {
+function descend(
+  pv: any,
+  nv: any,
+  keyFn: KeyFn | null,
+  fam: StoreNextFamily | null,
+  proj = false
+): void {
   if (!isWrappable(pv) || !isWrappable(nv)) return;
   // markRaw'd values are leaves for reconcile: replaced by reference, never
   // recursed into (R42); the parent's slot notification covers the change.
@@ -144,6 +166,10 @@ function descend(pv: any, nv: any, keyFn: KeyFn | null, fam: StoreNextFamily | n
   //   (recon-snap R18; subscribing is what buys liveness);
   // - positional (key: null) pairing preserves slot identity unconditionally
   //   (recon-snap R8 — the fixed-shape dashboard pattern).
-  if (keyFn !== null && !ct.d) return;
-  applyAdopt(ct, nv, keyFn);
+  // Projection merges (replace mode) preserve key-matched identity
+  // UNCONDITIONALLY (proj R6: the slot keeps its proxy without needing a
+  // subscriber below); plain keyed reconcile detaches unobserved captures
+  // (recon-snap R18 — staleness is the pinned pruning contract).
+  if (!proj && keyFn !== null && !ct.d) return;
+  applyAdopt(ct, nv, keyFn, proj);
 }

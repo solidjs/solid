@@ -16,7 +16,7 @@
  * the pending home. Laziness: a written target with no subscriptions folds as
  * a pointer swap with zero node work.
  */
-import { NOT_PENDING, STATUS_UNINITIALIZED } from "../../core/constants.js";
+import { $REFRESH, NOT_PENDING, STATUS_UNINITIALIZED } from "../../core/constants.js";
 import {
   devGuardStoreSetterWrite,
   isEqual,
@@ -378,6 +378,19 @@ function notifyWrites(t: StoreNextTarget): void {
         : membershipChanged(old, pb);
     if (changed) setSignal(t.k, v => v + 1);
   }
+  // Projection draft writes are an authoritative landing (adoption-channel
+  // semantics): commit the backing eagerly — untracked reads see the
+  // recompute's output immediately, matching legacy overlay resolution.
+  // Node notifications above still batch through the flush.
+  if (t.fam !== null && t.pb !== null) {
+    t.pb = null;
+    t.v = pb;
+    if (t.u && t.u.v[t.pk!] !== pb) {
+      privatizeCommitted(t.u);
+      devAssertNeverUserMutation(t.u.v);
+      t.u.v[t.pk!] = pb;
+    }
+  }
 }
 
 const FORCE: unique symbol = Symbol();
@@ -518,22 +531,25 @@ function nodeValue(node: Signal<any>, fallback: any): any {
 }
 
 /** Serve an own data key: node-first when a node exists (pending visibility,
- * holds, lanes ride the node); backing otherwise. */
+ * holds, lanes ride the node); backing otherwise. Chained backings (§7b: the
+ * backing IS another store's proxy) serve the read-through value — the outer
+ * node is linked only for adoption-swap notification, its value never
+ * shadows the live chain. */
 function serveDataKey(
   target: StoreNextTarget,
   key: PropertyKey,
   backingValue: any,
   src: Record<PropertyKey, any>
 ): any {
-  void src;
+  const chained = (src as any)[$TARGET] !== undefined;
   let v = backingValue;
   if (!writing) {
     const node = target.n?.[key as any];
     if (node !== undefined) {
       if (getObserver() !== null) {
         const nv = readNode(node);
-        v = nv === (FORCE as any) ? backingValue : nv;
-      } else {
+        if (!chained) v = nv === (FORCE as any) ? backingValue : nv;
+      } else if (!chained) {
         v = nodeValue(node, backingValue);
       }
     } else if (getObserver() !== null) {
@@ -555,6 +571,8 @@ const traps: ProxyHandler<StoreNextTarget> = {
   get(target, key, receiver) {
     if (key === $TARGET) return target;
     if (key === $PROXY) return receiver;
+    // refresh()/isPending resolve the projection computed through $REFRESH.
+    if (key === $REFRESH) return target.fam?.node ?? undefined;
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
     if (!writing && target.fam !== null) firewallGate(target);
     const src = readSource(target);
@@ -786,10 +804,17 @@ function snapshotWalk(value: any, seen: Map<object, any>): any {
   if (value === null || typeof value !== "object") return value;
   // Resolve through the registration: proxies AND raws map to their target's
   // current backing (stale raw pointers through other parents resolve here).
+  // Loops for chained backings (§7b: a projection's backing can be another
+  // store's proxy — snapshot unwraps to the base raw).
   let src = value;
-  const t: StoreNextTarget | undefined =
-    value[$TARGET]?.v !== undefined ? value[$TARGET] : storeNextLookup.get(value);
-  if (t !== undefined) src = t.pb ?? t.v;
+  for (;;) {
+    const t: StoreNextTarget | undefined =
+      src?.[$TARGET]?.v !== undefined ? src[$TARGET] : storeNextLookup.get(src);
+    if (t === undefined) break;
+    const backing = t.pb ?? t.v;
+    if (backing === src) break;
+    src = backing;
+  }
   if (!isWrappable(src)) return src;
   const cached = seen.get(src);
   if (cached !== undefined) return cached;
