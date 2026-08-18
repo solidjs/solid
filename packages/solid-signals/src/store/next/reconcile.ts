@@ -209,8 +209,35 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
     const nodes = eager ? t.n : null;
     let nodesHit = 0;
     if (keyFn) {
+      // Positional-prefix fast path (legacy keyedMatch-walk parity): while
+      // rows key-match in place — the steady-state polling shape — descend
+      // directly with zero staging. The prevByKey map is built only for the
+      // misaligned remainder, and never at all on aligned ticks.
+      const plen = prevRows.length;
+      const nlen = nextRows.length;
+      let i = 0;
+      for (const end = Math.min(plen, nlen); i < end; i++) {
+        const nv = nextRows[i];
+        const pvRaw = prevRows[i];
+        if (pvRaw !== nv && !(isWrappable(pvRaw) && isWrappable(nv) && keyFn(pvRaw) === keyFn(nv)))
+          break; // misaligned: fall to the keyed remainder below
+        // Identity skip inline (FINDING-1 guard), then descend the pair.
+        if (
+          (pvRaw !== nv || (nv !== null && typeof nv === "object" && ownedRaw.has(nv))) &&
+          nv !== null &&
+          typeof nv === "object"
+        )
+          descend(unwrapValue(pvRaw), nv, keyFn, fam, proj);
+        if (nodes !== null) {
+          const node = nodes[i];
+          if (node !== undefined) {
+            nodesHit++;
+            notifyKeyValue(node, i as any, (old as any)[i], nv, old, incoming);
+          }
+        }
+      }
       let prevByKey: Map<any, any> | null = null;
-      for (let i = 0; i < nextRows.length; i++) {
+      for (; i < nextRows.length; i++) {
         const nv = nextRows[i];
         if (isWrappable(nv)) {
           const nk = keyFn(nv);

@@ -1047,23 +1047,44 @@ function firewallGate(target: StoreNextTarget): void {
 
 const traps: ProxyHandler<StoreNextTarget> = {
   get(target, key, receiver) {
-    if (key === $TARGET) return target;
-    if (key === $PROXY) return receiver;
-    // refresh()/isPending resolve the projection computed through $REFRESH.
-    if (key === $REFRESH) return target.fam?.node ?? undefined;
+    // One typeof gates every brand-symbol compare off the hot string path
+    // (four symbol comparisons per property read otherwise).
+    if (typeof key !== "string") {
+      if (key === $TARGET) return target;
+      if (key === $PROXY) return receiver;
+      // refresh()/isPending resolve the projection computed through $REFRESH.
+      if (key === $REFRESH) return target.fam?.node ?? undefined;
+      if (key === $TRACK) {
+        if (pendingCheckActive) witnessAffectsMark(target as any, key);
+        if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
+        if (!inDraft(target) && getObserver() !== null) {
+          readNode(getKeySetNode(target));
+          // Structural chaining (§7b, #2864 / core R21): a chained backing's
+          // $TRACK reads through to the INNER store's key-set — structural
+          // notifications land on the source's own node, never on this
+          // wrapper view's.
+          const srcT = readSource(target);
+          if ((srcT as any)[$TARGET] !== undefined) (srcT as any)[$TRACK];
+        }
+        return undefined;
+      }
+      // user symbols fall through to the generic path
+    }
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
     if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
     const src = readSource(target);
-    if (key === $TRACK) {
-      if (!inDraft(target) && getObserver() !== null) {
-        readNode(getKeySetNode(target));
-        // Structural chaining (§7b, #2864 / core R21): a chained backing's
-        // $TRACK reads through to the INNER store's key-set — structural
-        // notifications land on the source's own node, never on this
-        // wrapper view's.
-        if ((src as any)[$TARGET] !== undefined) (src as any)[$TRACK];
+    // Hot inline case: existing PLAIN node (non-accessor), unchained backing,
+    // tracked read of a present data key — the dbmon/uibench effect re-read
+    // shape. Skips serveDataKey's frame, the FORCE compare (only accessor
+    // keys ever hold the sentinel), and isWrappable for primitives.
+    if (target.ch === false && writeScopes === null) {
+      const nodeH = target.n?.[key as any];
+      if (nodeH !== undefined && (nodeH as any).acc !== true && getObserver() !== null) {
+        let nv = readNodeFast(nodeH);
+        if (nv === READ_SLOW) nv = readNode(nodeH);
+        if (nv === null || typeof nv !== "object") return nv;
+        return isWrappable(nv) ? wrapNext(nv, target, key) : nv;
       }
-      return undefined;
     }
     // Dev strictRead: untracked store reads in labeled scopes (component
     // bodies, effect callbacks) warn — the value can never update the reader.

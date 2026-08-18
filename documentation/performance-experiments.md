@@ -6825,3 +6825,31 @@ read = cool machine, first runs of the day, both A/B runs repeated 3x,
 report min-of-means per side. Measurement rule going forward: any
 next-vs-legacy claim must come from `--mode benchmark` (the __TEST__
 asymmetry biases default-mode numbers against next).
+
+### Read-path flattening + positional-prefix keyed walk (2026-08-18, midday)
+
+Two more single-loop changes (no forks):
+1. Trap read path: one `typeof key` gates all brand-symbol compares off the
+   hot string path; the common serve case (existing plain node, unchained,
+   tracked) is inlined in the trap — readNodeFast, no serveDataKey frame, no
+   FORCE compare (only accessor keys hold the sentinel), primitives bail
+   before isWrappable.
+2. Keyed arrays: positional-prefix fast path (legacy keyedMatch-walk
+   parity) — aligned rows descend in place with inline identity skip
+   (FINDING-1 guard); prevByKey is built only for the misaligned remainder,
+   never on aligned ticks (was: 1000-entry Map per tick).
+
+Browser (octane harness, alternating rounds, current build):
+- FULL tick: 1.02/1.08/1.15x pre-prefix → 1.10/1.04x post — parity band.
+- PARTIAL tick: was ~1.24x IN BOTH SWEEP ORDERS (the one order-robust
+  regression) → 1.03x / 0.97x post-prefix — CLOSED.
+- Sweep-order finding: run.mjs's fixed order (solid before solid-next)
+  biases the second column; reversed-order run flipped full tick from
+  1.17x to 1.045x. Alternating per-round loops are the trustworthy method;
+  medians from single fixed-order sweeps are not.
+- Suite + next-gate green throughout.
+
+Status vs the no-regression bar: full and partial tick both in the
+alternating-measurement parity band (0.97–1.15x swings, centered ~1.05);
+sort/mount/unmount at parity or faster. Cool-machine confirmation still
+recommended for the record.
