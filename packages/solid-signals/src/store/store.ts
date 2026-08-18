@@ -386,6 +386,9 @@ let writeOverride = false;
 export function setWriteOverride(value: boolean) {
   writeOverride = value;
 }
+export function getWriteOverride(): boolean {
+  return writeOverride;
+}
 
 function writeOnly(proxy: any) {
   return writeOverride || !!Writing?.has(proxy);

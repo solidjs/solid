@@ -5,3 +5,6 @@
  */
 export * from "../../index.js";
 export { createStore, reconcile, snapshot, deep } from "./dispatch.js";
+// Bring-up surface: the gate config exercises next-native projections while
+// the default build still routes them to legacy.
+export { createProjectionNext as createProjection } from "./projection.js";

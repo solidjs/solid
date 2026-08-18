@@ -232,6 +232,14 @@ Side-by-side at three levels; the worktree split makes both dists coexist:
   (full − core) **15.5kb gz / 50.0kb min**. `createStore + reconcile` alone
   is 14.5kb gz — and the optimistic entry adds only ~0.6kb more, confirming
   plain stores already pay the projection/optimistic machinery.
+  **Transitional checkpoint (2026-08-18, full plain-store parity)**: full
+  26.4kb gz / store attribution 18.0kb gz — the build carries BOTH
+  implementations + dispatcher glue; the rewrite's own modules (plain stores,
+  reconcile, snapshot/deep, interop) are the ~2.5kb gz delta over shipped.
+  Perf same checkpoint (15-iter, single sweep, ~30% A/A floor): tick 15.2 vs
+  12.1 legacy, mount/remount slightly behind, sort equal — correctness work
+  (node-authoritative writes, transitions) spent earlier optimization gains;
+  the profile loop resumes post-functionality.
   Target: NOT 1.9 scale — optimism and projections are new capability
   1.9 never had (and 1.9 carried `createMutable`, since deleted). The target
   is 1.9's mechanism cost + the *honest* cost of the new features built on

@@ -16,7 +16,7 @@
  * the pending home. Laziness: a written target with no subscriptions folds as
  * a pointer swap with zero node work.
  */
-import { NOT_PENDING } from "../../core/constants.js";
+import { NOT_PENDING, STATUS_UNINITIALIZED } from "../../core/constants.js";
 import {
   devGuardStoreSetterWrite,
   isEqual,
@@ -34,6 +34,7 @@ import {
   $PROXY,
   $TARGET,
   $TRACK,
+  getWriteOverride,
   isRawValue,
   isWrappable,
   rawValuesUsed,
@@ -45,6 +46,7 @@ import {
   ingestedRaw,
   ownedRaw,
   storeNextLookup,
+  type StoreNextFamily,
   type StoreNextTarget
 } from "./target.js";
 
@@ -54,7 +56,8 @@ import {
 function createTarget(
   value: Record<PropertyKey, any>,
   parent: StoreNextTarget | null,
-  parentKey: PropertyKey | null
+  parentKey: PropertyKey | null,
+  fam: StoreNextFamily | null = parent?.fam ?? null
 ): StoreNextTarget {
   // The proxy target carries the array exotic class when the value is an
   // array, so Array.isArray(proxy) is true; the fields live on it directly.
@@ -71,13 +74,14 @@ function createTarget(
     a: false,
     sc: false,
     adopted: false,
+    fam,
     s: false
   });
   t.px = new Proxy(t, traps);
   // Legacy interop: shared machinery (affects walks, wrap dedupe) reads the
   // proxy off looked-up targets as a field.
   (t as any)[$PROXY] = t.px;
-  storeNextLookup.set(value, t);
+  (fam?.map ?? storeNextLookup).set(value, t);
   if (__TEST__ && ingestedRaw && !ownedRaw.has(value)) ingestedRaw.add(value);
   return t;
 }
@@ -85,21 +89,27 @@ function createTarget(
 export function wrapNext<T extends Record<PropertyKey, any>>(
   value: T,
   parent: StoreNextTarget | null = null,
-  parentKey: PropertyKey | null = null
+  parentKey: PropertyKey | null = null,
+  fam: StoreNextFamily | null = parent?.fam ?? null
 ): T {
   // markRaw'd values never wrap through ANY store (R42; sticky raw-marking
   // is one half of the never-both-wrapped-and-raw invariant, RUL-12).
   if (rawValuesUsed && isRawValue(value)) return value;
-  const existing = storeNextLookup.get(value);
+  const existing = (fam?.map ?? storeNextLookup).get(value);
   if (existing !== undefined) return existing.px;
   const t: StoreNextTarget | undefined = (value as any)[$TARGET];
-  if (t !== undefined && t.px === value) return value; // already one of ours
+  if (t !== undefined && t.px === value) {
+    // Foreign-family proxies re-wrap into THIS family (writes stay isolated);
+    // same-family and plain-store proxies pass through.
+    if (fam === null || t.fam === fam) return value;
+    return createTarget(value as any, parent, parentKey, fam).px;
+  }
   // Cross-implementation dedupe (core R2): a raw already tracked by the
   // legacy store (shallow roots, projection families) serves its legacy
   // proxy — one raw, one logical node, either implementation.
   const legacy = legacyStoreLookup.get(value);
   if (legacy !== undefined) return (legacy as any)[$PROXY];
-  return createTarget(value, parent, parentKey).px;
+  return createTarget(value, parent, parentKey, fam).px;
 }
 
 /** Unwrap our own proxies to their current backing; leave everything else. */
@@ -117,16 +127,32 @@ function getNode(target: StoreNextTarget, key: PropertyKey, current: any): Signa
   const nodes = (target.n ??= Object.create(null));
   let node: Signal<any> | undefined = nodes[key];
   if (node === undefined) {
-    const created: Signal<any> = (node = signal(current, {
-      equals: isEqual,
-      unobserved() {
-        if (target.n && target.n[key] === created) delete target.n[key];
-      }
-    }));
+    const created: Signal<any> = (node = signal(
+      current,
+      {
+        // Logical-slot equality: values resolving to the same child target
+        // are the same slot (privatization/adoption swap raw identity without
+        // changing the logical value — only changed leaves notify, R9).
+        equals: (a: any, b: any) => isEqual(a, b) || sameLogicalSlot(target, a, b),
+        unobserved() {
+          if (target.n && target.n[key] === created) delete target.n[key];
+        }
+      },
+      // Projection nodes carry the projection computed as their firewall:
+      // reads through them link the derive's status/lifecycle (§7b).
+      (target.fam?.node as any) ?? undefined
+    ));
     nodes[key] = node;
     markDescendants(target);
   }
   return node;
+}
+
+function sameLogicalSlot(target: StoreNextTarget, a: any, b: any): boolean {
+  if (a === null || typeof a !== "object" || b === null || typeof b !== "object") return false;
+  const map = target.fam?.map ?? storeNextLookup;
+  const at = map.get(a);
+  return at !== undefined && at === map.get(b);
 }
 
 function getHasNode(target: StoreNextTarget, key: PropertyKey, present: boolean): Signal<boolean> {
@@ -200,7 +226,7 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
   if (pb === null) {
     pb = target.pb = cloneRaw(target.v, target);
     ownedRaw.add(pb);
-    storeNextLookup.set(pb, target);
+    (target.fam?.map ?? storeNextLookup).set(pb, target);
     queueFold(target);
   }
   return pb;
@@ -219,7 +245,7 @@ export function adoptPB(target: StoreNextTarget, incoming: Record<PropertyKey, a
   target.pb = null;
   target.adopted = true;
   target.v = incoming;
-  storeNextLookup.set(incoming, target);
+  (target.fam?.map ?? storeNextLookup).set(incoming, target);
   if (__TEST__ && ingestedRaw && !ownedRaw.has(incoming)) ingestedRaw.add(incoming);
 }
 
@@ -333,8 +359,12 @@ function notifyWrites(t: StoreNextTarget): void {
         if (!isEqual(od?.value, nd?.value)) setSignal(node, () => nd?.value);
         continue;
       }
+      // No old-side pre-compare: t.v lags across multi-batch windows (a
+      // projection recompute can run before the prior fold commits) — the
+      // node's OWN current value is the true old side, and setSignal's
+      // internal equality already checks exactly that.
       const nv = pb[key as any];
-      if (!isEqual(old[key as any], nv)) setSignal(node, () => nv);
+      setSignal(node, () => nv);
     }
   }
   const has = t.h;
@@ -454,9 +484,9 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
   // Signal-parity visibility (core read(): owner-context reads serve
   // _pendingValue, context-free reads serve committed — effects recompute
   // BEFORE commitPendingNodes in the flush, so the pending view must be
-  // servable). Drafts and owner-context reads see the pending backing;
-  // context-free reads see committed. Node reads apply the same rule, so
-  // both homes agree during the window.
+  // servable). Drafts (setter window OR projection write-override) and
+  // owner-context reads see the pending backing; context-free reads see
+  // committed. Node reads apply the same rule, so both homes agree.
   if (target.pb !== null && (writing || inOwnerContext())) return target.pb;
   return target.v;
 }
@@ -513,11 +543,20 @@ function serveDataKey(
   return isWrappable(v) ? wrapNext(v, target, key as any) : v;
 }
 
+/** §6c store-wide status gate: while a projection's derive is uninitialized
+ * (async first flight), EVERY read throws NotReady — probed untracked so the
+ * gate never coarsens fine-grained isolation (proj R12). */
+function firewallGate(target: StoreNextTarget): void {
+  const fw: any = target.fam?.node;
+  if (fw != null && fw._statusFlags & STATUS_UNINITIALIZED) untrack(() => readNode(fw));
+}
+
 const traps: ProxyHandler<StoreNextTarget> = {
   get(target, key, receiver) {
     if (key === $TARGET) return target;
     if (key === $PROXY) return receiver;
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
+    if (!writing && target.fam !== null) firewallGate(target);
     const src = readSource(target);
     if (key === $TRACK) {
       if (!writing && getObserver() !== null) readNode(getKeySetNode(target));
@@ -574,6 +613,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
   has(target, key) {
     if (key === $TARGET || key === $PROXY || key === $TRACK) return true;
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
+    if (!writing && target.fam !== null) firewallGate(target);
     const src = readSource(target);
     const present = key in src;
     if (!writing && getObserver() !== null) readNode(getHasNode(target, key, present));
@@ -582,6 +622,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
 
   ownKeys(target) {
     if (pendingCheckActive) witnessAffectsMark(target as any);
+    if (!writing && target.fam !== null) firewallGate(target);
     if (!writing && getObserver() !== null) readNode(getKeySetNode(target));
     return Reflect.ownKeys(readSource(target));
   },
@@ -597,7 +638,11 @@ const traps: ProxyHandler<StoreNextTarget> = {
   },
 
   set(target, key, value) {
-    if (!writing) return true; // silently ignored outside setters (R23)
+    // Writes require the setter window OR the projection draft's write
+    // override (post-await async draft writes arrive outside any window);
+    // everything else is silently ignored (R23).
+    const override = !writing && getWriteOverride();
+    if (!writing && !override) return true;
     if (key === "__proto__") return true; // pollution guard (core R30)
     const pb = ensurePB(target);
     pendingNotify.add(target);
@@ -613,25 +658,32 @@ const traps: ProxyHandler<StoreNextTarget> = {
       return true;
     }
     pb[key as any] = unwrapValue(value);
+    // Override-mode (post-await draft) writes have no setter exit — notify
+    // per-op (setSignal equality-gates repeats).
+    if (override) notifyWrites(target);
     return true;
   },
 
   defineProperty(target, key, desc) {
-    if (!writing) return true;
+    const override = !writing && getWriteOverride();
+    if (!writing && !override) return true;
     if (key === "__proto__") return true;
     if (desc.get || desc.set) target.a = true;
     const pb = ensurePB(target);
     pendingNotify.add(target);
     if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };
     Object.defineProperty(pb, key, desc);
+    if (override) notifyWrites(target);
     return true;
   },
 
   deleteProperty(target, key) {
-    if (!writing) return true;
+    const override = !writing && getWriteOverride();
+    if (!writing && !override) return true;
     const pb = ensurePB(target);
     pendingNotify.add(target);
     delete pb[key as any];
+    if (override) notifyWrites(target);
     return true;
   }
 };
@@ -641,33 +693,43 @@ const traps: ProxyHandler<StoreNextTarget> = {
 
 export type SetStoreNextFunction<T> = (fn: (draft: T) => T | void) => void;
 
+/** Low-level setter primitive: opens write mode on a next proxy, runs `fn`,
+ * emits write-time notifications at outermost exit, applies returned
+ * replacements as adoptions. `guard=false` skips the owned-scope dev guard —
+ * projection recomputes legitimately write from inside their computed. */
+export function storeSetterNext<T>(proxy: T, fn: (draft: T) => T | void, guard = true): void {
+  if (__DEV__ && guard) devGuardStoreSetterWrite();
+  const target: StoreNextTarget = (proxy as any)[$TARGET];
+  writing++;
+  let result: any;
+  try {
+    // No untrack: the writing flag already disables store-node linking
+    // (draft reads never self-track, proj R2), while EXTERNAL reads (signals
+    // inside a projection derive) must keep tracking — they are the derive's
+    // dependencies.
+    result = fn(proxy);
+  } finally {
+    writing--;
+    // Outermost setter exit: emit write-time notifications (setSignal per
+    // changed observed key) so transition holds and lanes engage now.
+    if (writing === 0 && pendingNotify.size) {
+      const touched = [...pendingNotify];
+      pendingNotify.clear();
+      for (const t of touched) notifyWrites(t);
+    }
+  }
+  if (result !== undefined && result !== proxy && isWrappable(result)) {
+    // Returned replacement = adoption of the incoming object (unowned).
+    adoptPB(target, unwrapValue(result));
+  }
+}
+
 export function createStoreNext<T extends Record<PropertyKey, any>>(
   init: T
 ): [T, SetStoreNextFunction<T>] {
   const proxy = wrapNext(init);
-  const target: StoreNextTarget = (proxy as any)[$TARGET];
   if (__DEV__) registerGraph(proxy, getOwner());
-  const setter: SetStoreNextFunction<T> = fn => {
-    if (__DEV__) devGuardStoreSetterWrite();
-    writing++;
-    let result: any;
-    try {
-      result = untrack(() => fn(proxy));
-    } finally {
-      writing--;
-      // Outermost setter exit: emit write-time notifications (setSignal per
-      // changed observed key) so transition holds and lanes engage now.
-      if (writing === 0 && pendingNotify.size) {
-        const touched = [...pendingNotify];
-        pendingNotify.clear();
-        for (const t of touched) notifyWrites(t);
-      }
-    }
-    if (result !== undefined && result !== proxy && isWrappable(result)) {
-      // Returned replacement = adoption of the incoming object (unowned).
-      adoptPB(target, unwrapValue(result));
-    }
-  };
+  const setter: SetStoreNextFunction<T> = fn => storeSetterNext(proxy, fn);
   return [proxy, setter];
 }
 

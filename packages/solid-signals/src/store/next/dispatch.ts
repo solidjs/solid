@@ -36,6 +36,8 @@ export function deep<T>(value: T): T {
   return legacyDeep(value as any);
 }
 
+export { createProjectionNext as createProjection } from "./projection.js";
+
 export function createStore(first: any, second?: any, third?: any): any {
   if (
     second === undefined &&

@@ -28,29 +28,40 @@ import {
   storeLookup as legacyStoreLookup
 } from "../store.js";
 import { adoptPB, unwrapValue } from "./store.js";
-import { ownedRaw, storeNextLookup, type StoreNextTarget } from "./target.js";
+import { ownedRaw, storeNextLookup, type StoreNextFamily, type StoreNextTarget } from "./target.js";
 
 type KeyFn = (item: any) => any;
 
 export function reconcileNextState(
   value: any,
   state: any,
-  key: string | KeyFn | null | undefined
+  key: string | KeyFn | null | undefined,
+  replace = false
 ): void {
   if (state == null) throw new Error(__DEV__ ? "Cannot reconcile null or undefined state" : "");
   const t: StoreNextTarget | undefined = state?.[$TARGET];
   if (t === undefined || t.px !== state)
     throw new Error(__DEV__ ? "reconcile target is not a store proxy" : "");
-  const keyFn: KeyFn | null =
+  let keyFn: KeyFn | null =
     key === null ? null : typeof key === "string" ? (item: any) => item?.[key] : (key as KeyFn);
   const incoming = unwrapValue(value);
   if (keyFn) {
     // Root identity precondition — checked before ANY mutation, so a throwing
-    // reconcile is atomic by construction (RUL-12 ruling).
+    // reconcile is atomic by construction (RUL-12 ruling). Projections
+    // (replace=true) relax it: a root entity change merges in place — the
+    // root proxy is stable for life (proj R5/R11) — and children are NOT
+    // key-matched across the entity change (proj R7: keyFn drops to
+    // positional so old-entity subtrees never merge into the new entity's).
     const prev = t.pb ?? t.v;
     const eq = keyFn(prev);
-    if (eq !== undefined && keyFn(incoming) !== eq)
-      throw new Error(__DEV__ ? "Cannot reconcile states with different identity" : "");
+    if (eq !== undefined && keyFn(incoming) !== eq) {
+      if (!replace)
+        throw new Error(__DEV__ ? "Cannot reconcile states with different identity" : "");
+      // Displaced-raw unregistration (proj R10): the outgoing raw stops
+      // resolving to this proxy; re-handed later it wraps fresh.
+      (t.fam?.map ?? storeNextLookup).delete(t.pb ?? t.v);
+      keyFn = null;
+    }
   }
   applyAdopt(t, incoming, keyFn);
 }
@@ -59,6 +70,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null): voi
   const prev = t.pb ?? t.v;
   // The sound identity skip (O7): same reference AND we never diverged it.
   if (incoming === prev && !ownedRaw.has(prev)) return;
+  const fam = t.fam;
   const nextArr = Array.isArray(incoming);
   adoptPB(t, incoming);
   if (Array.isArray(prev) !== nextArr) return;
@@ -87,20 +99,20 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null): voi
         } else {
           pv = unwrapValue(prevRows[i]); // keyless item: positional fallback
         }
-        descend(pv, nv, keyFn);
+        descend(pv, nv, keyFn, fam);
       }
     } else {
       const len = Math.min(prevRows.length, nextRows.length);
-      for (let i = 0; i < len; i++) descend(unwrapValue(prevRows[i]), nextRows[i], keyFn);
+      for (let i = 0; i < len; i++) descend(unwrapValue(prevRows[i]), nextRows[i], keyFn, fam);
     }
   } else {
     for (const k of Reflect.ownKeys(incoming)) {
-      descend(unwrapValue((prev as any)[k]), (incoming as any)[k], keyFn);
+      descend(unwrapValue((prev as any)[k]), (incoming as any)[k], keyFn, fam);
     }
   }
 }
 
-function descend(pv: any, nv: any, keyFn: KeyFn | null): void {
+function descend(pv: any, nv: any, keyFn: KeyFn | null, fam: StoreNextFamily | null): void {
   if (!isWrappable(pv) || !isWrappable(nv)) return;
   // markRaw'd values are leaves for reconcile: replaced by reference, never
   // recursed into (R42); the parent's slot notification covers the change.
@@ -124,7 +136,7 @@ function descend(pv: any, nv: any, keyFn: KeyFn | null): void {
     // keeps its (old) backing and a fresh proxy wraps the new value on read.
     if (pk !== undefined && nk !== undefined && pk !== nk) return;
   }
-  const ct = storeNextLookup.get(pv);
+  const ct = (fam?.map ?? storeNextLookup).get(pv);
   if (ct === undefined) return; // nothing proxied below this pair
   // Reachability pruning (§6d) is MODE-dependent, both pinned:
   // - keyed matching descends only where subscriptions exist at/below (`d`) —

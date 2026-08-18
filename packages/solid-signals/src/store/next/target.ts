@@ -12,7 +12,17 @@
  * entry per read-through object; zero layer slots; nodes, has-nodes, and the
  * key-set node are lazy, materialized only by subscription.
  */
-import type { Signal } from "../../core/types.js";
+import type { Computed, Signal } from "../../core/types.js";
+
+/** Projection family (§7b): children wrap into the family's own map (writes
+ * land in the projection, never the source family), and every node created
+ * under the family carries the projection computed as its firewall. */
+export interface StoreNextFamily {
+  map: WeakMap<object, StoreNextTarget>;
+  /** The projection computed — assigned after creation (accessor pattern). */
+  node: Computed<any> | null;
+  shallow?: boolean;
+}
 
 export interface StoreNextTarget {
   /** Committed backing: source object (shared) or owned clone. */
@@ -42,6 +52,8 @@ export interface StoreNextTarget {
   sc: boolean;
   /** Backing was swapped by adoption this batch (fold diff-notifies it). */
   adopted: boolean;
+  /** Projection family, null for plain stores (§7b). */
+  fam: StoreNextFamily | null;
   /** Shallow store root (values served raw). */
   s: boolean;
 }
