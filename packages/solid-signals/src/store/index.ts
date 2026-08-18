@@ -17,11 +17,7 @@ export { isWrappable, $TRACK, $PROXY, $TARGET } from "./store.js";
 // forms still route to the legacy implementation until their increments land.
 export { createStore } from "./next/dispatch.js";
 
-// Projection bring-up: next-native projections exist (src/store/next/
-// projection.ts) and pass the basics; the default build keeps routing to
-// legacy until the async/chained suites gate clean (run them against next
-// via vite.next.config.ts, whose shim exports the next projection).
-export { createProjection } from "./projection.js";
+export { createProjection } from "./next/dispatch.js";
 
 export { createOptimisticStore } from "./optimistic.js";
 

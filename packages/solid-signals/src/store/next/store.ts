@@ -305,8 +305,8 @@ function drainFolds(): void {
       t.pb = null;
     }
     if (t.v === old) continue; // adopted then re-adopted back, or no-op
-    // Path copying: the parent's committed slot must point at the new backing.
-    if (t.u && t.u.v[t.pk!] !== t.v) {
+    // Path copying (CAS: see the eager-fold twin above).
+    if (t.u && t.u.v[t.pk!] === old) {
       privatizeCommitted(t.u);
       devAssertNeverUserMutation(t.u.v);
       t.u.v[t.pk!] = t.v;
@@ -383,9 +383,15 @@ function notifyWrites(t: StoreNextTarget): void {
   // recompute's output immediately, matching legacy overlay resolution.
   // Node notifications above still batch through the flush.
   if (t.fam !== null && t.pb !== null) {
+    const oldBacking = t.v;
     t.pb = null;
     t.v = pb;
-    if (t.u && t.u.v[t.pk!] !== pb) {
+    // Parent-slot fix is compare-and-swap: only replace the slot that still
+    // holds the backing we folded away — a structurally edited parent (array
+    // splice moved/removed the slot) already carries the right arrangement,
+    // and registration-based resolution serves stale raw pointers correctly
+    // (the DAG rule).
+    if (t.u && t.u.v[t.pk!] === oldBacking) {
       privatizeCommitted(t.u);
       devAssertNeverUserMutation(t.u.v);
       t.u.v[t.pk!] = pb;
@@ -477,6 +483,35 @@ function notifyFold(
 /** >0 while inside a setter: writes allowed, reads are read-your-writes. */
 let writing = 0;
 
+/** Write scope keys (a family object or a plain store's root target): draft
+ * semantics — write permission, read-your-writes, tracking suppression —
+ * apply ONLY to targets under a scope being written. Reads of OTHER stores
+ * inside a setter track normally (they are dependencies: a projection derive
+ * reading another store must link it). */
+let writeScopes: Set<any> | null = null;
+
+function scopeKey(target: StoreNextTarget): any {
+  if (target.fam !== null) return target.fam;
+  let t = target;
+  while (t.u !== null) t = t.u;
+  return t;
+}
+
+function inDraft(target: StoreNextTarget): boolean {
+  return writeScopes !== null && writeScopes.has(scopeKey(target));
+}
+
+/** Draft reads extend write permission to reachable stores (legacy Writing
+ * semantics: wrapping a child through a draft get admits it — cross-store
+ * writes like `s.inner.a = 10` work when `inner` is another store's proxy). */
+function draftServe(target: StoreNextTarget, proxy: any): any {
+  if (writeScopes !== null && inDraft(target)) {
+    const ct: StoreNextTarget | undefined = proxy?.[$TARGET];
+    if (ct !== undefined && ct.v !== undefined) writeScopes.add(scopeKey(ct));
+  }
+  return proxy;
+}
+
 /** Targets written during the current (outermost) setter — notified at exit. */
 const pendingNotify = new Set<StoreNextTarget>();
 
@@ -500,7 +535,8 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
   // servable). Drafts (setter window OR projection write-override) and
   // owner-context reads see the pending backing; context-free reads see
   // committed. Node reads apply the same rule, so both homes agree.
-  if (target.pb !== null && (writing || inOwnerContext())) return target.pb;
+  if (target.pb !== null && (inDraft(target) || getWriteOverride() || inOwnerContext()))
+    return target.pb;
   return target.v;
 }
 
@@ -543,7 +579,7 @@ function serveDataKey(
 ): any {
   const chained = (src as any)[$TARGET] !== undefined;
   let v = backingValue;
-  if (!writing) {
+  if (!inDraft(target)) {
     const node = target.n?.[key as any];
     if (node !== undefined) {
       if (getObserver() !== null) {
@@ -556,15 +592,17 @@ function serveDataKey(
       readNode(getNode(target, key, backingValue));
     }
   }
-  return isWrappable(v) ? wrapNext(v, target, key as any) : v;
+  return isWrappable(v) ? draftServe(target, wrapNext(v, target, key as any)) : v;
 }
 
 /** §6c store-wide status gate: while a projection's derive is uninitialized
- * (async first flight), EVERY read throws NotReady — probed untracked so the
- * gate never coarsens fine-grained isolation (proj R12). */
+ * (async first flight), EVERY read throws NotReady. Tracked readers LINK the
+ * firewall so the settle wakes them (the dependency drops on the post-settle
+ * re-run — dynamic deps — so isolation is never coarsened, proj R12);
+ * untracked reads throw without linking (seed invisibility, proj R23). */
 function firewallGate(target: StoreNextTarget): void {
   const fw: any = target.fam?.node;
-  if (fw != null && fw._statusFlags & STATUS_UNINITIALIZED) untrack(() => readNode(fw));
+  if (fw != null && fw._statusFlags & STATUS_UNINITIALIZED) readNode(fw);
 }
 
 const traps: ProxyHandler<StoreNextTarget> = {
@@ -574,15 +612,21 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // refresh()/isPending resolve the projection computed through $REFRESH.
     if (key === $REFRESH) return target.fam?.node ?? undefined;
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
-    if (!writing && target.fam !== null) firewallGate(target);
+    if (!inDraft(target) && target.fam !== null) firewallGate(target);
     const src = readSource(target);
     if (key === $TRACK) {
-      if (!writing && getObserver() !== null) readNode(getKeySetNode(target));
+      if (!inDraft(target) && getObserver() !== null) readNode(getKeySetNode(target));
       return undefined;
     }
     // Dev strictRead: untracked store reads in labeled scopes (component
     // bodies, effect callbacks) warn — the value can never update the reader.
-    if (__DEV__ && strictRead && !writing && typeof key === "string" && getObserver() === null) {
+    if (
+      __DEV__ &&
+      strictRead &&
+      !inDraft(target) &&
+      typeof key === "string" &&
+      getObserver() === null
+    ) {
       warnStrictReadUntracked(strictRead, {
         nodeName: key,
         data: { strictRead, property: key, source: "store" }
@@ -600,7 +644,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
           if (node) readNode(node);
         }
         const v = own.get ? own.get.call(receiver) : undefined;
-        return isWrappable(v) ? wrapNext(v, target, key) : v;
+        return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;
       }
       if (own !== undefined) {
         return serveDataKey(target, key, own.value, src);
@@ -622,7 +666,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
         const node = target.n?.[key];
         if (node) return nodeValue(node, undefined);
       }
-      return isWrappable(v) ? wrapNext(v, target, key) : v;
+      return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;
     }
     if (typeof v === "function" && !hasOwn.call(src, key)) return v; // proto method
     return serveDataKey(target, key, v, src);
@@ -631,17 +675,17 @@ const traps: ProxyHandler<StoreNextTarget> = {
   has(target, key) {
     if (key === $TARGET || key === $PROXY || key === $TRACK) return true;
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
-    if (!writing && target.fam !== null) firewallGate(target);
+    if (!inDraft(target) && target.fam !== null) firewallGate(target);
     const src = readSource(target);
     const present = key in src;
-    if (!writing && getObserver() !== null) readNode(getHasNode(target, key, present));
+    if (!inDraft(target) && getObserver() !== null) readNode(getHasNode(target, key, present));
     return present;
   },
 
   ownKeys(target) {
     if (pendingCheckActive) witnessAffectsMark(target as any);
-    if (!writing && target.fam !== null) firewallGate(target);
-    if (!writing && getObserver() !== null) readNode(getKeySetNode(target));
+    if (!inDraft(target) && target.fam !== null) firewallGate(target);
+    if (!inDraft(target) && getObserver() !== null) readNode(getKeySetNode(target));
     return Reflect.ownKeys(readSource(target));
   },
 
@@ -656,11 +700,12 @@ const traps: ProxyHandler<StoreNextTarget> = {
   },
 
   set(target, key, value) {
-    // Writes require the setter window OR the projection draft's write
+    // Writes require the target's draft scope OR the projection write
     // override (post-await async draft writes arrive outside any window);
     // everything else is silently ignored (R23).
-    const override = !writing && getWriteOverride();
-    if (!writing && !override) return true;
+    const draft = inDraft(target);
+    const override = !draft && getWriteOverride();
+    if (!draft && !override) return true;
     if (key === "__proto__") return true; // pollution guard (core R30)
     const pb = ensurePB(target);
     pendingNotify.add(target);
@@ -683,8 +728,9 @@ const traps: ProxyHandler<StoreNextTarget> = {
   },
 
   defineProperty(target, key, desc) {
-    const override = !writing && getWriteOverride();
-    if (!writing && !override) return true;
+    const draft = inDraft(target);
+    const override = !draft && getWriteOverride();
+    if (!draft && !override) return true;
     if (key === "__proto__") return true;
     if (desc.get || desc.set) target.a = true;
     const pb = ensurePB(target);
@@ -696,8 +742,9 @@ const traps: ProxyHandler<StoreNextTarget> = {
   },
 
   deleteProperty(target, key) {
-    const override = !writing && getWriteOverride();
-    if (!writing && !override) return true;
+    const draft = inDraft(target);
+    const override = !draft && getWriteOverride();
+    if (!draft && !override) return true;
     const pb = ensurePB(target);
     pendingNotify.add(target);
     delete pb[key as any];
@@ -718,6 +765,9 @@ export type SetStoreNextFunction<T> = (fn: (draft: T) => T | void) => void;
 export function storeSetterNext<T>(proxy: T, fn: (draft: T) => T | void, guard = true): void {
   if (__DEV__ && guard) devGuardStoreSetterWrite();
   const target: StoreNextTarget = (proxy as any)[$TARGET];
+  const prevScopes = writeScopes;
+  writeScopes = new Set();
+  writeScopes.add(scopeKey(target));
   writing++;
   let result: any;
   try {
@@ -728,6 +778,7 @@ export function storeSetterNext<T>(proxy: T, fn: (draft: T) => T | void, guard =
     result = fn(proxy);
   } finally {
     writing--;
+    writeScopes = prevScopes;
     // Outermost setter exit: emit write-time notifications (setSignal per
     // changed observed key) so transition holds and lanes engage now.
     if (writing === 0 && pendingNotify.size) {

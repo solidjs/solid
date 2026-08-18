@@ -613,6 +613,22 @@ implementation, deduplicated across reports.
   profiles. Rationale: symbol stamping mutates the source (the complaint class
   behind 2026-08-16b), and carrier micro-optimization before the architecture
   is measured is complexity spent blind.
+- **2026-08-18a**: Projection port COMPLETE — next-native `createProjection`
+  is the default build; all projection suites green on both configs (58/58
+  gate, 91/91 default files). Three mechanisms closed the last nine failures:
+  (1) the §6c firewall gate must *link* tracked readers when throwing NotReady
+  (settle wakes them; the dependency drops on the post-settle re-run via
+  dynamic deps, so proj R12 isolation holds) — one line cleared the whole
+  isPending/transition cluster; (2) write scope is per-store, extended through
+  draft reads (legacy `Writing` semantics ported: reading another store's
+  proxy through a draft admits it for writes; reads of *dependency* stores
+  inside a derive track normally — chained projections require this); (3) the
+  parent-slot fix on fold is compare-and-swap (only replace a slot still
+  holding the folded-away backing) — stale wrap-time indices after draft
+  splices otherwise resurrect removed rows; registration-based resolution
+  (the DAG rule) covers the slots CAS declines. Also executed the RUL-12
+  unkeyed-merge ruling: the two async yield-identity assertions rewritten to
+  merge semantics (identity preserved) with ruling citations.
 - **2026-08-17f**: Granularity specs written — §6 (key-set node, resolves O2:
   per-transaction membership overlay + tombstones + length-as-view), §6b
   (lane-aware adoption: lane backing, dual diff baselines, joint rollback),
