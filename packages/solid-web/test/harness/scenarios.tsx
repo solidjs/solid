@@ -701,6 +701,32 @@ function ClientOnlySiblingUpdate() {
 }
 
 // ---------------------------------------------------------------------------
+// #3010's shape on the 2.0 runtime: a TOP-LEVEL FRAGMENT whose first entry is
+// a clientOnly component and whose next sibling is a suspending boundary. On
+// 1.x this desynced hydration keys (the clientOnly rendered nothing on the
+// server while the client walked past it differently) and the suspending
+// sibling's DOM could not be found — the app was replaced by the error
+// boundary. 2.0's id namespaces must keep the boundary claimable regardless
+// of the client-only hole before it.
+const FragmentWidget = clientOnly(() =>
+  Promise.resolve({ default: (_props: {}) => <b>widget </b> })
+);
+function ClientOnlyBeforeSuspending() {
+  const data = createMemo(async () => {
+    await sleep(10);
+    return "loaded";
+  });
+  return (
+    <>
+      <FragmentWidget />
+      <Loading fallback={<i>wait</i>}>
+        <p>{data()}</p>
+      </Loading>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // A <Loading> whose fragment settles AFTER hydration completes (#2964). The
 // boundary renders behind an async gate with NO boundary above it — the
 // frames-slot / lazy-route shape: the root pass suspends on the gate without
@@ -1787,6 +1813,14 @@ export const scenarios: Scenario[] = [
     // Pre-flush the rejected boundary inlines to an empty region: neither
     // fallback reaches the server HTML — only the static sibling.
     serverText: "tail"
+  },
+  {
+    name: "client-only-before-suspending-fragment",
+    App: ClientOnlyBeforeSuspending,
+    async: true,
+    expectedText: "widget loaded",
+    // The widget is client-only: the server renders only the boundary's side.
+    serverText: "loaded"
   },
   {
     name: "select-value-selected",
