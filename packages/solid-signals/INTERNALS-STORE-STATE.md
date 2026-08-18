@@ -629,6 +629,25 @@ implementation, deduplicated across reports.
   (the DAG rule) covers the slots CAS declines. Also executed the RUL-12
   unkeyed-merge ruling: the two async yield-identity assertions rewritten to
   merge semantics (identity preserved) with ruling citations.
+- **2026-08-18i**: Derived createStore form ported (the last non-shallow API
+  shape on legacy) — dispatch now routes `createStore(fn, seed)` to
+  projection internals + a recompute-masking setter (core R31). Two §6c
+  refinements fell out, both toward LESS mechanism: the gate covers ERRORED
+  derives (memo parity — untracked reads throw the derive's error), and the
+  gate is now ONLY the raw-fallthrough guard — tracked reads go through
+  firewall-backed nodes where core read() links-then-throws (the node link
+  is what wakes async-memo readers on landings; a pre-linking gate variant
+  broke 22 Loading-boundary tests and was discarded). Has-/key-set nodes
+  now carry the firewall arg like value nodes. Channel-split eager folds:
+  sync-derive drafts defer (downstream holds form later in the flush;
+  "pends only the written leaf"), post-await write-override landings commit
+  immediately ("verdicts never inherit consumers' in-flight state") — both
+  spec-async contracts hold simultaneously. Suite green (1253).
+  DELETION STATUS: every non-shallow call path now serves from next; legacy
+  wholesale deletion is gated on the O4 shallow ruling (dbmon deep 13.4 vs
+  shallow 3.1 — bar not met), so the fuse optimization precedes the size
+  realization. Interop imports (legacyReconcile, createWriteTraps, legacy
+  optimistic hooks) are the remaining static pulls.
 - **2026-08-18h**: INITIAL SIZE AUDIT (post-functionality) — the size thesis
   confirmed. Method: next-only entries bypassing dispatchers, plus a FLOOR
   variant with legacy modules stubbed (honest approximations kept for

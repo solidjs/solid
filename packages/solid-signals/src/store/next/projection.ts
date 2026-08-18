@@ -19,6 +19,7 @@ import {
   CONFIG_AUTO_DISPOSE,
   getOwner,
   handleAsync,
+  suppressComputedRecompute,
   type Computed,
   type Refreshable
 } from "../../core/index.js";
@@ -62,6 +63,25 @@ export function createProjectionNext<T extends object = {}>(
   options?: ProjectionOptions
 ): Refreshable<Store<T>> {
   return createProjectionNextInternal(fn, seed, options).store;
+}
+
+/** Derived writable store (legacy parity): a projection whose public setter
+ * masks the recompute for the tick (core R31 — the manual write wins over a
+ * same-flush dependency change). */
+export function createStoreDerivedNext<T extends object = {}>(
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed: Partial<T> | Store<NoFn<T>>,
+  options?: ProjectionOptions
+): [Refreshable<Store<T>>, (f: (draft: T) => T | void) => void] {
+  const { store, node } = createProjectionNextInternal(fn, seed, options);
+  return [
+    store,
+    (f: (draft: T) => T | void): void => {
+      // Mark the projection as manually written before notifying nodes.
+      suppressComputedRecompute(node as Computed<unknown>);
+      storeSetterNext(store, f);
+    }
+  ];
 }
 
 export function runProjectionComputedNext<T extends object>(

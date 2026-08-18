@@ -20,6 +20,7 @@ import {
   $REFRESH,
   CONFIG_OWNED_WRITE,
   NOT_PENDING,
+  STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
   unwrapOverride
@@ -202,13 +203,17 @@ function getHasNode(target: StoreNextTarget, key: PropertyKey, present: boolean)
   const nodes = (target.h ??= Object.create(null));
   let node: Signal<boolean> | undefined = nodes[key];
   if (node === undefined) {
-    const created: Signal<boolean> = (node = signal(present, {
-      equals: isEqual,
-      unobserved() {
-        if ((created as any)._affectsCount) return;
-        if (target.h && target.h[key] === created) delete target.h[key];
-      }
-    }));
+    const created: Signal<boolean> = (node = signal(
+      present,
+      {
+        equals: isEqual,
+        unobserved() {
+          if ((created as any)._affectsCount) return;
+          if (target.h && target.h[key] === created) delete target.h[key];
+        }
+      },
+      (target.fam?.node as any) ?? undefined
+    ));
     created._config |= CONFIG_OWNED_WRITE;
     if (target.fam?.opt) created._overrideValue = NOT_PENDING;
     if (affectsScopesLive()) inheritAffectsMarks(created as any, target.v, key);
@@ -221,12 +226,16 @@ function getHasNode(target: StoreNextTarget, key: PropertyKey, present: boolean)
 function getKeySetNode(target: StoreNextTarget): Signal<number> {
   let k = target.k;
   if (k === null) {
-    const created: Signal<number> = (k = signal(0, {
-      equals: false,
-      unobserved() {
-        if (target.k === created) target.k = null;
-      }
-    }));
+    const created: Signal<number> = (k = signal(
+      0,
+      {
+        equals: false,
+        unobserved() {
+          if (target.k === created) target.k = null;
+        }
+      },
+      (target.fam?.node as any) ?? undefined
+    ));
     created._config |= CONFIG_OWNED_WRITE;
     if (target.fam?.opt) created._overrideValue = NOT_PENDING;
     target.k = k;
@@ -496,13 +505,27 @@ function notifyWrites(t: StoreNextTarget): void {
         : membershipChanged(old, pb);
     if (changed) setSignal(t.k, v => v + 1);
   }
-  // Projection backing folds are NEVER eager: a downstream async hold can
-  // form LATER in the same flush (the derive recomputes before its readers
-  // throw NotReady), and a committed backing can't be un-committed. Folds
-  // happen in drainFolds — the commit phase, where held-ness is knowable and
-  // held targets re-queue. Freshness for context-free readers mid-window is
-  // readSource's pb-visibility rule (fam targets serve pb outside
-  // transitions).
+  // Projection backing folds split by channel (two pinned contracts):
+  // - sync-derive drafts (recompute body): NEVER eager — a downstream async
+  //   hold can form LATER in the same flush and the leaf must stay at stale
+  //   committed for context-free readers (spec-async "pends only the written
+  //   leaf"). drainFolds commits when held-ness is knowable.
+  // - post-await async LANDINGS (write-override per-op, microtask context —
+  //   no enclosing flush can capture them): the data-level commit is
+  //   IMMEDIATE — landed truth shows to untracked readers even while a
+  //   downstream consumer's own async still holds the effect-level reveal
+  //   (spec-async "verdicts never inherit consumers' in-flight state").
+  if (t.fam !== null && t.pb !== null && getWriteOverride()) {
+    const oldBacking = t.v;
+    t.pb = null;
+    t.v = pb;
+    t.ch = false;
+    if (t.u && t.u.v[t.pk!] === oldBacking) {
+      privatizeCommitted(t.u);
+      devAssertNeverUserMutation(t.u.v);
+      t.u.v[t.pk!] = pb;
+    }
+  }
 }
 
 /** Diff the draft against the current OPTIMISTIC VIEW (committed + active
@@ -933,14 +956,16 @@ function serveDataKey(
   return isWrappable(v) ? draftServe(target, wrapNext(v, target, key as any)) : v;
 }
 
-/** §6c store-wide status gate: while a projection's derive is uninitialized
- * (async first flight), EVERY read throws NotReady. Tracked readers LINK the
- * firewall so the settle wakes them (the dependency drops on the post-settle
- * re-run — dynamic deps — so isolation is never coarsened, proj R12);
- * untracked reads throw without linking (seed invisibility, proj R23). */
+/** §6c store-wide status gate for reads that DON'T flow through a node:
+ * untracked/raw fallthrough must still throw while the derive is
+ * uninitialized (seed invisibility, proj R23) or errored (memo parity).
+ * TRACKED reads never call this — store nodes carry `_firewall`, so core
+ * read() links the node and throws the firewall's error itself (the node
+ * link is what wakes async-memo readers when the landing writes values;
+ * the firewall link rides the same read). */
 function firewallGate(target: StoreNextTarget): void {
   const fw: any = target.fam?.node;
-  if (fw != null && fw._statusFlags & STATUS_UNINITIALIZED) readNode(fw);
+  if (fw != null && fw._statusFlags & (STATUS_UNINITIALIZED | STATUS_ERROR)) readNode(fw);
 }
 
 const traps: ProxyHandler<StoreNextTarget> = {
@@ -950,7 +975,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // refresh()/isPending resolve the projection computed through $REFRESH.
     if (key === $REFRESH) return target.fam?.node ?? undefined;
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
-    if (target.fam !== null && !inDraft(target)) firewallGate(target);
+    if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
     const src = readSource(target);
     if (key === $TRACK) {
       if (!inDraft(target) && getObserver() !== null) {
@@ -1035,7 +1060,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
   has(target, key) {
     if (key === $TARGET || key === $PROXY || key === $TRACK) return true;
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
-    if (!inDraft(target) && target.fam !== null) firewallGate(target);
+    if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
     const src = readSource(target);
     let present = key in src;
     if (!inDraft(target)) {
@@ -1058,7 +1083,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
 
   ownKeys(target) {
     if (pendingCheckActive) witnessAffectsMark(target as any);
-    if (!inDraft(target) && target.fam !== null) firewallGate(target);
+    if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
     if (!inDraft(target) && getObserver() !== null) readNode(getKeySetNode(target));
     const keys = Reflect.ownKeys(readSource(target));
     // Optimistic membership overlay: presence-node overrides add/remove keys

@@ -39,15 +39,18 @@ export function deep<T>(value: T): T {
 }
 
 export { createProjectionNext as createProjection } from "./projection.js";
+import { createStoreDerivedNext } from "./projection.js";
 
 export function createStore(first: any, second?: any, third?: any): any {
-  if (
-    second === undefined &&
-    third === undefined &&
-    typeof first !== "function" &&
-    first !== null &&
-    typeof first === "object"
-  ) {
+  const derived = typeof first === "function";
+  if (derived) {
+    // Derived writable store: projection internals + masking setter. Shallow
+    // derives stay legacy (O4: shallow is not a port target).
+    if (!third?.shallow) return createStoreDerivedNext(first, second, third);
+    return (legacyCreateStore as any)(first, second, third);
+  }
+  if (first !== null && typeof first === "object" && !second?.shallow) {
+    // Plain form; `second` carries only options (name/shallow) here.
     return createStoreNext(first);
   }
   return (legacyCreateStore as any)(first, second, third);
