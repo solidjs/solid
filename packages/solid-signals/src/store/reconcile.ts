@@ -799,9 +799,14 @@ export function reconcileState(value: any, state: any, key: any, replace: boolea
     }
     // Re-diffing a previously chained backing goes through its raw — reads
     // off the outgoing proxy would subscribe this computed to a store it is
-    // about to drop.
-    while ((target[STORE_VALUE] as any)?.[$TARGET] !== undefined)
-      target[STORE_VALUE] = unwrap(target[STORE_VALUE]);
+    // about to drop. (No-progress guard: a chained backing from the rewrite's
+    // store answers $TARGET with a different shape unwrap() can't advance —
+    // transitional interop until the projection increment lands.)
+    while ((target[STORE_VALUE] as any)?.[$TARGET] !== undefined) {
+      const unwrapped = unwrap(target[STORE_VALUE]);
+      if (unwrapped === target[STORE_VALUE]) break;
+      target[STORE_VALUE] = unwrapped;
+    }
   }
   if (key === null) applyState(value, state, NOKEY);
   else {

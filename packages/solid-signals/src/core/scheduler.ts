@@ -716,12 +716,23 @@ function commitPendingNode(n: Signal<any>): void {
   if (n._pendingSignal || n._latestValueComputed) GlobalQueue._snapCompanions!(n);
 }
 
+// Store commit hook (INTERNALS-STORE-STATE.md §3): installed by the store
+// module at init (same treeshakeable pattern as _resolveOptimistic /
+// _clearOptimisticStores). Folds committed store-node values into their
+// backing objects at the same moment pending values commit — the single
+// mutation point of the owned-raw model.
+export let storeCommitHook: (() => void) | null = null;
+export function setStoreCommitHook(fn: () => void): void {
+  storeCommitHook = fn;
+}
+
 function commitPendingNodes() {
   const pendingNodes = currentBatch._pendingNodes;
   for (let i = 0; i < pendingNodes.length; i++) {
     commitPendingNode(pendingNodes[i]);
   }
   pendingNodes.length = 0;
+  storeCommitHook?.();
 }
 
 export function finalizePureQueue(
