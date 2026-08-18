@@ -99,19 +99,17 @@ export function createOptimisticStoreNext<T extends object = {}>(
     let nodeOptions: { name?: string; loadingValue?: void } | undefined;
     if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
     if (__DEV__ && options?.name) nodeOptions = { ...nodeOptions, name: options.name };
-    const node = computed(
-      () =>
-        runAuthoritative(() =>
-          runProjectionComputedNext(
-            store,
-            fn,
-            options?.key === undefined ? "id" : options.key,
-            wrapCommit,
-            consume
-          )
-        ),
-      nodeOptions
-    ) as Computed<void>;
+    const node = computed(() => {
+      runAuthoritative(() =>
+        runProjectionComputedNext(
+          store,
+          fn,
+          options?.key === undefined ? "id" : options.key,
+          wrapCommit,
+          consume
+        )
+      );
+    }, nodeOptions) as Computed<void>;
     node._config &= ~CONFIG_AUTO_DISPOSE;
     fam.node = node;
   }

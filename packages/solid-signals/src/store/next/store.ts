@@ -304,10 +304,19 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
  * staged draft clone folds into the diff and is discarded — next is the
  * authoritative base (R21/R32).
  */
-export function adoptPB(target: StoreNextTarget, incoming: Record<PropertyKey, any>): void {
-  queueFold(target); // records the pre-batch old before we swap
+export function adoptPB(
+  target: StoreNextTarget,
+  incoming: Record<PropertyKey, any>,
+  eager = false
+): void {
+  // Eager mode (plain-store adoption): the caller notifies inline after its
+  // descent — no foldOlds queue/drain round trip (the reconcile diff IS the
+  // fold diff; ~half of dbmon tick time was this duplication).
+  if (!eager) {
+    queueFold(target); // records the pre-batch old before we swap
+    target.adopted = true;
+  }
   target.pb = null;
-  target.adopted = true;
   target.v = incoming;
   (target.fam?.map ?? storeNextLookup).set(incoming, target);
   if (__TEST__ && ingestedRaw && !ownedRaw.has(incoming)) ingestedRaw.add(incoming);
@@ -578,7 +587,7 @@ function membershipChanged(old: Record<PropertyKey, any>, neu: Record<PropertyKe
  * sticky `t.a` flag — a node's key was necessarily read, so the get trap has
  * already seen whether it is an accessor.
  */
-function notifyFold(
+export function notifyFold(
   t: StoreNextTarget,
   old: Record<PropertyKey, any>,
   neu: Record<PropertyKey, any>
@@ -1041,7 +1050,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
         if (unwrapOverride(node._overrideValue)) set.add(key);
         else set.delete(key);
       }
-      if (set !== null) return [...set];
+      if (set !== null) return [...set] as (string | symbol)[];
     }
     return keys;
   },

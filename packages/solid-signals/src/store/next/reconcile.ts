@@ -27,7 +27,13 @@ import {
   rawValuesUsed,
   storeLookup as legacyStoreLookup
 } from "../store.js";
-import { adoptPB, notifyOptimisticWrites, optimisticView, unwrapValue } from "./store.js";
+import {
+  adoptPB,
+  notifyFold,
+  notifyOptimisticWrites,
+  optimisticView,
+  unwrapValue
+} from "./store.js";
 import { ownedRaw, storeNextLookup, type StoreNextFamily, type StoreNextTarget } from "./target.js";
 import { getWriteOverride } from "../store.js";
 import { projectionWriteActive } from "../../core/scheduler.js";
@@ -179,8 +185,16 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
   // roles above; only matching reads the view.
   const prevView = fam?.opt === true ? optimisticView(t, prev) : prev;
   const nextArr = Array.isArray(incoming);
-  adoptPB(t, incoming);
-  if (Array.isArray(prevView) !== nextArr) return;
+  // Plain stores notify inline AFTER the descent (child registrations feed
+  // the fold diff's identity-preservation check); projections keep deferred
+  // folds (downstream holds can form later in the flush).
+  const eager = fam === null;
+  const old = t.v;
+  adoptPB(t, incoming, eager);
+  if (Array.isArray(prevView) !== nextArr) {
+    if (eager) notifyFold(t, old, incoming);
+    return;
+  }
   if (nextArr) {
     const prevRows = prevView as any[];
     const nextRows = incoming as any[];
@@ -218,6 +232,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       descend(unwrapValue((prevView as any)[k]), (incoming as any)[k], keyFn, fam, proj);
     }
   }
+  if (eager) notifyFold(t, old, incoming);
 }
 
 function descend(

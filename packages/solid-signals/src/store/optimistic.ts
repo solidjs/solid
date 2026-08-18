@@ -87,15 +87,6 @@ import {
  *
  * @returns `[store: Store<T>, setStore: StoreSetter<T>]`
  */
-export function createOptimisticStore<T extends object = {}>(
-  store: NoFn<T> | Store<NoFn<T>>,
-  options?: ProjectionOptions
-): [get: Store<T>, set: StoreSetter<T>];
-export function createOptimisticStore<T extends object = {}>(
-  fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  store: Partial<T> | Store<NoFn<T>>,
-  options?: ProjectionOptions
-): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 /**
  * Engine + store-hook installation shared by the legacy implementation and
  * the next-store optimistic module (which adds its own transitionBlocked
@@ -127,6 +118,16 @@ export function installOptimisticStoreHooks(): void {
     };
   }
 }
+
+export function createOptimisticStore<T extends object = {}>(
+  store: NoFn<T> | Store<NoFn<T>>,
+  options?: ProjectionOptions
+): [get: Store<T>, set: StoreSetter<T>];
+export function createOptimisticStore<T extends object = {}>(
+  fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  store: Partial<T> | Store<NoFn<T>>,
+  options?: ProjectionOptions
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 
 export function createOptimisticStore<T extends object = {}>(
   first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),

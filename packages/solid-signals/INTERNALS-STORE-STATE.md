@@ -629,6 +629,26 @@ implementation, deduplicated across reports.
   (the DAG rule) covers the slots CAS declines. Also executed the RUL-12
   unkeyed-merge ruling: the two async yield-identity assertions rewritten to
   merge semantics (identity preserved) with ruling citations.
+- **2026-08-18e**: Perf checkpoint at full functionality (single sweeps,
+  subject to the ~30% A/A floor — ABBA discipline required before any
+  claims): dbmon tick — next 14.2–16.5, legacy 11.5–12.4, shallow 3.1,
+  vapor 3.7 (30-iter medians across two sweeps; both columns drifted
+  together between sweeps, classic session-order variance). Profile (300
+  ticks): adoption channel ≈ 46% of tick (applyAdopt + notifyFold + adoption
+  mechanics ~5.2ms/tick self), read path (get/serveDataKey/read) ~2.2ms,
+  dom-expressions effects ~2.5ms (floor shared with legacy). First
+  structural change landed: plain-store adoption notifies INLINE after the
+  descent (no foldOlds queue/drain round trip; projections keep deferred
+  folds for hold semantics) — semantics-neutral (suite green), but the
+  profile shows the cost is the diff work + per-target fixed overhead
+  (~600 targets/tick: key-array allocations in applyAdopt/notifyFold,
+  double WeakMap registration per adoption, WeakSet ownership checks), not
+  the queue trip. Next profiling cycle candidates: for-in over null-proto
+  node maps (kills ~1200 key-array allocations/tick), single-registration
+  adoption, and the phase-2 edit-script question if the floor holds.
+  Also: worktree `pnpm build` green again (type fixes: overload placement
+  in legacy optimistic.ts, computed<void> shape in next/optimistic.ts,
+  ownKeys cast).
 - **2026-08-18d**: FULL SUITE GREEN — 91/91 files, 1253 passed, zero
   unhandled errors; next-gate store sweep 362 passed. The "zombie cascade"
   decomposed into three real bugs, all fixed: (1) §6's length-as-view rule
