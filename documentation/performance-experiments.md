@@ -6723,3 +6723,51 @@ Read:
 - The extra branch/counter/marker state in the hot loop appears to cost more than the saved generic `formatChildId` work.
 - Reverted the source probe. The safe runtime baseline remains Investigation 21 + 22, without this id-cache change.
 
+
+## Store Rewrite Lane (2026-08-18): baselines at full functionality
+
+The store rewrite (`src/store/next/`, branch `store-rewrite`; contract in
+`packages/solid-signals/INTERNALS-STORE-STATE.md`) reached full-suite green
+plus one optimization pass today. Baselines below; per-scenario variance
+matters more than totals.
+
+### Tier-1 (in-repo, `pnpm vitest bench --run tests/store/...`)
+
+Legacy = main checkout, next = worktree, same machine back-to-back. The
+dbmon SHALLOW row runs identical legacy code in both checkouts — it is a
+built-in noise control (measured 1.14x session skew for this pair; treat
+sub-15% Tier-1 deltas accordingly).
+
+| bench (mean) | legacy | next | ratio |
+|---|---|---|---|
+| reconcile read-once tree, 10 of ~12k paths subscribed | 0.87ms | 0.51ms | 0.59x |
+| tree reverse 1111 keyed | 4.55 | 4.19 | 0.92x |
+| tree shuffle 1111 keyed | 4.47 | 4.74 | 1.06x (rme ±9–11%) |
+| dbmon full tick deep | 121.4 | 133.4 | 1.10x |
+| dbmon partial tick deep | 126.2 | 137.7 | 1.09x |
+| dbmon shallow (control) | 66.2 | 75.2 | 1.14x |
+
+### Tier-2 (browser)
+
+- UIBench (matched morning session, 10-iter): legacy 36.6ms total → next
+  27.5ms. Per-test: ZERO regressions >1.1x&0.05ms; wins concentrate in
+  keyed structure (moves 0.62x, sort/filter 0.71x) and creation
+  (tree/render 0.68x). vs ivi (21.4): we now beat ivi on table/filter;
+  remaining gaps are tree/render (creation) and reorders (re-derivation
+  stack — phase-2 signature).
+- dbmon browser (same-session 30-iter, all columns together): sort 0.92x
+  (faster than legacy), mount 1.03x, remount 1.07x, unmount noise — but
+  tick 1.21x and tick_partial ~1.2x SLOWER.
+
+### The open regression (the current target)
+
+Both tiers agree in direction: dense value-diff reconcile (dbmon full and
+partial tick) is slower than legacy — Tier-1 shows ~1.10x raw (inside the
+1.14x control band, so partially environmental, but Tier-2's same-session
+1.21x confirms a real gap). Everything else is parity or faster. The
+requirement is parity (no regression) before phase 2. Suspects after the
+fused-walk pass: per-target adoption bookkeeping (registration WeakMap.set,
+ownership WeakSet.has), per-key call overhead in the fused walk
+(notifyKeyDiff + setSignal per changed key) vs legacy's monolithic
+applyStateFast. Iteration tool: `reconcile-dbmon.bench.ts` (sub-10s loop,
+shallow row as control).
