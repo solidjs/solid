@@ -1,0 +1,5 @@
+{
+  "name": "select-value-selected",
+  "shell": "<div _hk=0><select><option value=\"en\">English</option><option value=\"fr\" selected>French</option></select><span>fr</span></div>",
+  "rest": ""
+}

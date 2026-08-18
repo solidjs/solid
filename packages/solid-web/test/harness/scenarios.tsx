@@ -1315,6 +1315,27 @@ function PreflushRejection() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// #3013: SSR resolves <select value> into `selected` on the matching option
+// and strips the invalid attribute at flush. Hydration must claim the select
+// cleanly (the stripped attribute and injected `selected` are invisible to
+// the client template) and the value effect's microtask assignment must
+// agree with the parsed selection; a post-hydration write moves it.
+let setLang!: (v: string) => void;
+function SelectValue() {
+  const [lang, set] = createSignal("fr");
+  setLang = set;
+  return (
+    <div>
+      <select value={lang()}>
+        <option value="en">English</option>
+        <option value="fr">French</option>
+      </select>
+      <span>{lang()}</span>
+    </div>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -1766,5 +1787,16 @@ export const scenarios: Scenario[] = [
     // Pre-flush the rejected boundary inlines to an empty region: neither
     // fallback reaches the server HTML — only the static sibling.
     serverText: "tail"
+  },
+  {
+    name: "select-value-selected",
+    App: SelectValue,
+    expectedText: "EnglishFrenchfr",
+    // Raw-markup `selected` assertions live in test/server/select-value.spec.tsx;
+    // this scenario pins clean claiming + post-hydration updates (#3013).
+    serverText: "English French fr",
+    update: () => setLang("en"),
+    expectedTextAfterUpdate: "EnglishFrenchen",
+    stableSelector: "div, select, option, span"
   }
 ];
