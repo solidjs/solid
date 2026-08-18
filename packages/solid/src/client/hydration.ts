@@ -413,6 +413,38 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options
  */
 const UNASKED: PromiseLike<never> = { then() {} } as any;
 
+/**
+ * Live-source brand (registered symbol — set by the transport's `live()`
+ * declaration; registered so separately bundled copies agree). See the
+ * server counterpart in server/signals.ts: the server takes a live
+ * source's first value and closes (auto-hybrid), so the client's adopted
+ * value is only the t=0 face — the node must re-run its compute after
+ * hydration to reconnect. The brand is detected in the trace run the
+ * adoption path already performs (subFetch invokes the compute; a live
+ * call constructs its iterable synchronously with no wire activity).
+ */
+const LIVE_SOURCE = Symbol.for("solid.LiveSource");
+
+// One shared gate for all live-armed nodes in a hydration pass: nodes that
+// trace-detected a live compute read it (tracked); hydration end flips it,
+// recomputing exactly those nodes — whose compute wrapper now sees
+// `sharedConfig.done` and runs the real compute, reconnecting. The stale
+// adopted value serves until the reconnect's first yield lands (pending
+// recomputes serve prev), so takeover is seam-free. The gate is discarded
+// on flip so a later hydration pass (islands) arms a fresh one.
+let liveGate: (() => boolean) | undefined;
+function armLiveTakeover() {
+  if (!liveGate) {
+    const [read, write] = coreSignal(false);
+    liveGate = read;
+    onHydrationEnd(() => {
+      liveGate = undefined;
+      write(true);
+    });
+  }
+  liveGate();
+}
+
 /** Options carry commit #0 — the loading window must hold through the claim walk. */
 function hasLoadingWindow(options: any): boolean {
   return (
@@ -855,7 +887,23 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
   const aiResult = hydrateSignalFromAsyncIterable(coreFn, fn, options);
   if (aiResult !== null) return aiResult;
 
-  return coreFn((prev: any) => readSerializedOrCompute(fn, prev, options), options);
+  // readSerializedOrCompute inlined with live detection: the adoption path
+  // already trace-runs the compute (dependency tracking); if that run
+  // returns a live-branded iterable, the serialized value is only the t=0
+  // face — arm the takeover so hydration end re-runs the compute for real
+  // (reconnect). Non-live computes keep exactly the old semantics.
+  return coreFn((prev: any) => {
+    const o = getOwner()!;
+    if (sharedConfig.done || !sharedConfig.has!(o.id!)) return fn(prev);
+    let traced: any;
+    const value = readHydratedValue(
+      sharedConfig.load!(o.id!),
+      () => (traced = subFetch(fn, prev)),
+      options
+    );
+    if (traced != null && traced[LIVE_SOURCE]) armLiveTakeover();
+    return value;
+  }, options);
 }
 
 function hydratedCreateMemo(compute: any, options?: any) {

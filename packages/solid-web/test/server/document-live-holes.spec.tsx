@@ -70,6 +70,39 @@ describe("document face — live holes against the real core", () => {
     // the lifetime proof — an unreleased hold never ends the stream.)
   });
 
+  test("a live-branded iterable inside a server component keeps pumping (stream-face exception to auto-hybrid)", async () => {
+    // On the document face a live brand auto-selects hybrid (first value,
+    // close, client reconnects). Inside a server-owned frame render the
+    // pump IS the live behavior — staying connected is the point — so the
+    // brand must NOT close the iterator there.
+    const ServerComp = () => {
+      const text = createMemo(() => {
+        const it = (async function* () {
+          yield "live-1";
+          await wait(5);
+          yield "live-2";
+          await wait(5);
+          yield "live-3";
+        })();
+        (it as any)[Symbol.for("solid.LiveSource")] = true;
+        return it as any;
+      });
+      return (
+        <Loading fallback={<span>FB</span>}>
+          <section>{text()}</section>
+        </Loading>
+      );
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dlh/live" }) as any;
+    const html = await collect(() => Inline({}));
+
+    // The pump ran past the first value: later yields rode the channel.
+    expect(html).toMatch(/<!--lh:(\d+)-->live-1<!--lh:\/\1-->/);
+    expect(html).toContain("live-2");
+    expect(html).toContain("live-3");
+    // Completion of collect() is the hold/release proof, as above.
+  });
+
   test("two components under component wrappers share ONE channel and the response still completes (context-clone geometry)", async () => {
     // Components render under per-component context CLONES: the arm point's
     // ctx is not the root object the flush loop reads. This pins the shared

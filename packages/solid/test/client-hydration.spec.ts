@@ -2157,6 +2157,94 @@ describe("ssrSource 'client' — post-hydration transition", () => {
 });
 
 // ============================================================================
+// Live-branded sources — automatic post-hydration takeover (no ssrSource)
+// ============================================================================
+
+describe("live-branded sources — automatic takeover", () => {
+  afterEach(() => {
+    stopHydration();
+  });
+
+  const LIVE = Symbol.for("solid.LiveSource");
+
+  // A live transport call: constructs its iterable synchronously (no wire
+  // activity until pulled), branded. Each iteration is its own "connection".
+  function makeLiveSource(value: string, connections: { count: number }) {
+    return {
+      [LIVE]: true,
+      [Symbol.asyncIterator]() {
+        connections.count++;
+        let sent = false;
+        return {
+          next: () => {
+            if (!sent) {
+              sent = true;
+              return Promise.resolve({ done: false, value });
+            }
+            return new Promise<never>(() => {}); // standing answer: stays open
+          },
+          return: (v?: any) => Promise.resolve({ done: true, value: v })
+        };
+      }
+    };
+  }
+
+  test("memo adopts the serialized value, then re-runs the live compute after hydration", async () => {
+    // The server took the live source's first value and closed (auto-hybrid):
+    // the payload carries a plain settled value.
+    startHydration({ t0: { v: "server-current", s: 1 } });
+
+    const connections = { count: 0 };
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => makeLiveSource("live-current", connections) as any);
+      },
+      { id: "t" }
+    );
+    flush();
+
+    // During hydration: the adopted t=0 value serves the claim walk.
+    expect(result()).toBe("server-current");
+
+    stopHydration();
+    flush();
+    // The takeover recompute reconnects; the stale adopted value serves
+    // until the reconnect's first yield lands.
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(result()).toBe("live-current");
+  });
+
+  test("unbranded computes keep adopt-and-latch semantics — no takeover", async () => {
+    startHydration({ t0: { v: "server-value", s: 1 } });
+
+    let computeRuns = 0;
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => {
+          computeRuns++;
+          return "client-value";
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+    expect(result()).toBe("server-value");
+    const runsDuringHydration = computeRuns;
+
+    stopHydration();
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    // Still the adopted value: nothing armed a post-hydration recompute.
+    expect(result()).toBe("server-value");
+    expect(computeRuns).toBe(runsDuringHydration);
+  });
+});
+
+// ============================================================================
 // ssrSource "hybrid" — post-hydration transition with async generators
 // ============================================================================
 

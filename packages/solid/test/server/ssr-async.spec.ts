@@ -2463,6 +2463,53 @@ describe("Async Iterable — createMemo", () => {
     expect(returnCalls).toBe(1);
   });
 
+  test("live brand on a direct iterable: auto-hybrid — first value, iterator closed, Promise on the channel", async () => {
+    const { context, serializeLog } = createStreamTrackingContext();
+    sharedConfig.context = context;
+
+    let read: any;
+    let returnCalls = 0;
+
+    createRoot(
+      () => {
+        read = createMemo(
+          () =>
+            ({
+              [Symbol.for("solid.LiveSource")]: true,
+              [Symbol.asyncIterator]() {
+                let step = 0;
+                return {
+                  next() {
+                    step++;
+                    return Promise.resolve(
+                      step === 1
+                        ? { done: false as const, value: "first" }
+                        : { done: false as const, value: "second" }
+                    );
+                  },
+                  return(value?: any) {
+                    returnCalls++;
+                    return Promise.resolve({ done: true as const, value });
+                  }
+                };
+              }
+            }) as any
+          // no ssrSource — the brand selects hybrid
+        );
+      },
+      { id: "t" }
+    );
+
+    expect(() => read()).toThrow(NotReadyError);
+    await tick();
+
+    expect(read()).toBe("first");
+    expect(returnCalls).toBe(1);
+    // First value only rides the channel as a Promise, not an iterable.
+    expect(serializeLog.length).toBe(1);
+    expect(serializeLog[0].value).toBeInstanceOf(Promise);
+  });
+
   test("no ssrSource: defaults to full streaming (same as 'server')", () => {
     const { context, serializeLog } = createStreamTrackingContext();
     sharedConfig.context = context;
@@ -5166,6 +5213,67 @@ describe("Promise-of-AsyncIterable flattening", () => {
     expect(stream.returnCalls).toBe(1);
     const channel = await [...serialized.values()][0];
     expect(channel).toBe("only");
+  });
+
+  test("live brand: auto-hybrid without a declared ssrSource — first value, iterator closed, plain value on the channel", async () => {
+    const { context, serialized } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    const gate = deferred<void>();
+    const stream = controlledStream<string>();
+    // The transport's live() declaration brands the resolved iterable: a
+    // standing answer, not a bounded trace. No ssrSource declared anywhere.
+    (stream.iterable as any)[Symbol.for("solid.LiveSource")] = true;
+    let read: any;
+
+    createRoot(
+      () => {
+        read = createMemo(() => gate.promise.then(() => stream.iterable) as any);
+      },
+      { id: "t" }
+    );
+
+    gate.resolve();
+    await tick();
+    stream.yield("current");
+    await tick();
+
+    expect(read()).toBe("current");
+    // Hybrid selected automatically: the origin closed after one value...
+    expect(stream.returnCalls).toBe(1);
+    // ...and the channel carries a plain value (client reconnects on
+    // takeover), not a tapped stream that would hold the document open.
+    const channel = await [...serialized.values()][0];
+    expect(channel).toBe("current");
+  });
+
+  test("live brand: declared ssrSource 'server' still takes hybrid — a standing answer cannot stream the document", async () => {
+    const { context, serialized } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    const gate = deferred<void>();
+    const stream = controlledStream<string>();
+    (stream.iterable as any)[Symbol.for("solid.LiveSource")] = true;
+    let read: any;
+
+    createRoot(
+      () => {
+        read = createMemo(() => gate.promise.then(() => stream.iterable) as any, {
+          ssrSource: "server"
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    gate.resolve();
+    await tick();
+    stream.yield("current");
+    await tick();
+
+    expect(read()).toBe("current");
+    expect(stream.returnCalls).toBe(1);
+    const channel = await [...serialized.values()][0];
+    expect(channel).toBe("current");
   });
 
   test("Loading boundary reveals at first yield, not at promise resolution", async () => {

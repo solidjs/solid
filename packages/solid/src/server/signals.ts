@@ -459,6 +459,17 @@ interface ServerComputation<T = any> {
   epoch?: number;
 }
 
+/**
+ * Live-source brand (registered symbol — set by the transport's `live()`
+ * declaration in @dom-expressions/runtime; registered so separately bundled
+ * copies agree). A branded iterable is a STANDING ANSWER — every yield is
+ * the complete current value and the source re-yields current state on any
+ * invocation — not a bounded trace whose completion ends the response.
+ * That contract is what makes the auto-hybrid policy below sound: taking
+ * the first value and closing loses nothing the client can't re-ask for.
+ */
+const LIVE_SOURCE = Symbol.for("solid.LiveSource");
+
 type SsrSourceMode = "server" | "hybrid" | "client";
 type ServerSsrOptions = {
   deferStream?: boolean;
@@ -1127,6 +1138,18 @@ function processResult<T>(
     // first, then delegate), which client hydration adopts as a promise and
     // the client core flattens again.
     const flattenResolvedIterable = (source: AsyncIterable<T>) => {
+      // Effective mode for the stream: declared hybrid, or a branded live
+      // source under (default or declared) server mode. "server" has no
+      // meaning for a standing answer — streaming it would hold the
+      // document open forever — so the brand selects hybrid wherever the
+      // server is the consumer, EXCEPT a server-owned frame render (the
+      // ctx.commit pump below), where staying connected is the stream
+      // face working as intended. Declared "client" never reaches here
+      // (the compute doesn't run on the server).
+      const hybrid =
+        ssrSource === "hybrid" ||
+        (!!(source as any)[LIVE_SOURCE] &&
+          !(!serializes && ctx?.commit && inServerComponentScope()));
       // In-flight stream stamp: a re-created node handed the SAME promise
       // must JOIN this consumption (`s === 3` above), never re-consume.
       (result as any).s = 3;
@@ -1148,7 +1171,7 @@ function processResult<T>(
           }
           ctx?.commit?.();
           if (r.done) return first;
-          if (ssrSource === "hybrid") {
+          if (hybrid) {
             // First value only; continuing the stream is the client's story
             // (re-run/reconnect on takeover).
             closeAsyncIterator(iter);
@@ -1276,7 +1299,13 @@ function processResult<T>(
   const iterator = result?.[Symbol.asyncIterator];
   if (typeof iterator === "function") {
     const serializes = !!(ctx?.async && ctx.serialize && id && !noHydrate);
-    if (ssrSource === "hybrid") {
+    // Same effective-mode rule as the thenable flatten above: the live
+    // brand selects hybrid under server mode, except in a server-owned
+    // frame render where the pump keeps the standing answer connected.
+    const hybrid =
+      ssrSource === "hybrid" ||
+      (!!(result as any)[LIVE_SOURCE] && !(!serializes && ctx?.commit && inServerComponentScope()));
+    if (hybrid) {
       let currentResult = result;
       let iter: AsyncIterator<T>;
       const deferred = createDeferredPromise<T>();
