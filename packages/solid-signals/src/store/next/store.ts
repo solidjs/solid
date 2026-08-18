@@ -29,6 +29,8 @@ import {
   devGuardStoreSetterWrite,
   isEqual,
   read as readNode,
+  READ_SLOW,
+  readNodeFast,
   setSignal,
   signal,
   untrack
@@ -640,11 +642,18 @@ export function notifyKeyDiff(
   node: Signal<any>,
   key: PropertyKey,
   old: Record<PropertyKey, any>,
-  neu: Record<PropertyKey, any>
+  neu: Record<PropertyKey, any>,
+  // The incoming-side getter probe covers SETTER-channel arrivals (return-
+  // form merges, defineProperty) — those flow through notifyWrites/
+  // notifyFold, which probe. The RECONCILE channel (fused walk) passes
+  // false: reconcile adopts immutable data by contract (R2a) and the pinned
+  // getter-preservation tests are all setter-channel; skipping ~2 Annex-B
+  // calls per key per tick is a measured dbmon win.
+  probe = true
 ): void {
   if (
     (node as any).acc === true ||
-    (hasOwn.call(neu, key) && lookupGetter.call(neu, key) !== undefined)
+    (probe && hasOwn.call(neu, key) && lookupGetter.call(neu, key) !== undefined)
   ) {
     (node as any).acc = isOwnAccessor(neu, key);
     const od = Object.getOwnPropertyDescriptor(old, key);
@@ -983,7 +992,10 @@ function serveDataKey(
       // override pierces the chained gate; otherwise chained backings always
       // serve the live inner value.
       if (getObserver() !== null) {
-        const nv = readNode(node);
+        // read()'s plain-signal fast path hoisted over the call (legacy trap
+        // parity): READ_SLOW = a global read window or non-plain node.
+        let nv = readNodeFast(node);
+        if (nv === READ_SLOW) nv = readNode(node);
         if (!chained || hasActiveOverride(node)) v = nv === (FORCE as any) ? backingValue : nv;
       } else if (!chained || hasActiveOverride(node)) {
         v = nodeValue(node, backingValue);

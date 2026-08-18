@@ -234,7 +234,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
           const node = nodes[i];
           if (node !== undefined) {
             nodesHit++;
-            notifyKeyDiff(node, i as any, old, incoming);
+            notifyKeyDiff(node, i as any, old, incoming, false);
           }
         }
       }
@@ -242,12 +242,16 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       const dlen = Math.min(prevRows.length, nextRows.length);
       const nlen = nextRows.length;
       for (let i = 0; i < nlen; i++) {
-        if (i < dlen) descend(unwrapValue(prevRows[i]), nextRows[i], keyFn, fam, proj);
+        if (i < dlen) {
+          const nv = nextRows[i];
+          if (nv !== null && typeof nv === "object")
+            descend(unwrapValue(prevRows[i]), nv, keyFn, fam, proj);
+        }
         if (nodes !== null) {
           const node = nodes[i];
           if (node !== undefined) {
             nodesHit++;
-            notifyKeyDiff(node, i as any, old, incoming);
+            notifyKeyDiff(node, i as any, old, incoming, false);
           }
         }
       }
@@ -258,7 +262,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
           // visited indexes are < nextRows.length; everything else sweeps
           const idx = typeof key === "string" ? +key : NaN;
           if (!(idx >= 0 && idx < nextRows.length))
-            notifyKeyDiff(nodes[key as any], key, old, incoming);
+            notifyKeyDiff(nodes[key as any], key, old, incoming, false);
         }
       }
       notifyFoldTail(t, old, incoming);
@@ -275,24 +279,29 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
     let nodesHit = 0;
     for (const k in incoming) {
       const nv = (incoming as any)[k];
-      descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
+      // Inline wrappable pre-check: scalar keys skip the descend call
+      // entirely (the majority on data-heavy rows).
+      if (nv !== null && typeof nv === "object")
+        descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
       if (nodes !== null) {
         const node = nodes[k];
         if (node !== undefined) {
           nodesHit++;
-          notifyKeyDiff(node, k, old, incoming);
+          notifyKeyDiff(node, k, old, incoming, false);
         }
       }
     }
     const syms = Object.getOwnPropertySymbols(incoming);
     for (let i = 0; i < syms.length; i++) {
       const k = syms[i];
-      descend(unwrapValue((prevView as any)[k]), (incoming as any)[k], keyFn, fam, proj);
+      const nv = (incoming as any)[k];
+      if (nv !== null && typeof nv === "object")
+        descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
       if (nodes !== null) {
         const node = nodes[k as any];
         if (node !== undefined) {
           nodesHit++;
-          notifyKeyDiff(node, k, old, incoming);
+          notifyKeyDiff(node, k, old, incoming, false);
         }
       }
     }
@@ -301,7 +310,8 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       // fast-out: when every node was visited, skip the sweep entirely.
       if (nodes !== null && nodesHit < t.nc) {
         for (const key of Reflect.ownKeys(nodes)) {
-          if (!hasOwnP.call(incoming, key)) notifyKeyDiff(nodes[key as any], key, old, incoming);
+          if (!hasOwnP.call(incoming, key))
+            notifyKeyDiff(nodes[key as any], key, old, incoming, false);
         }
       }
       notifyFoldTail(t, old, incoming);
