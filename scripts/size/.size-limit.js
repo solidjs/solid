@@ -49,7 +49,16 @@ module.exports = [
     // handleError, hoisted instanceof, unconditional window clears); the
     // alternatives (a STATUS_UNINITIALIZED ride-along, null-slot hooks)
     // either break the born-committed invariant or don't shake anyway.
-    limit: "7.35 KB",
+    //
+    // 2.0.0-rc: 7.35 -> 7.45 KB, measured at 7.32. Per-commit: flatten
+    // promise-of-AsyncIterable (66accfb8, ~+100 B — the deferred pump,
+    // el-targeted close registration, and in-flight identity guards all sit
+    // on handleAsync, which every async-capable entry retains) plus the
+    // effect-phase read gating (#3006, ~+15 B). A textual dedupe pass on the
+    // flatten path (shared NotReady tail / probe / disposal push) measured
+    // NEGATIVE under brotli — repeats compress nearly free, indirection adds
+    // unique tokens — so the bytes are the feature's real cost.
+    limit: "7.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -84,7 +93,13 @@ module.exports = [
     // breach sat unnoticed from the first over-cap landing because this
     // gate only runs on pull_request (size.yml); direct pushes to next never
     // measure. Headroom restored to the ~2% convention.
-    limit: "13.15 KB",
+    //
+    // 2.0.0-rc: 13.15 -> 13.5 KB, measured at 13.23. Per-commit: flatten
+    // promise-of-AsyncIterable (66accfb8, ~+100 B core — see the core-floor
+    // note), latest() wake-only lane demotion (#3009, ~+50 B in
+    // recomputeLane), effect-phase read gating (#3006, ~+20 B). All on
+    // always-retained core paths.
+    limit: "13.5 KB",
     modifyEsbuildConfig
   },
   {
@@ -94,7 +109,11 @@ module.exports = [
     // loadingValue (commit #0): 8.75 -> 9 KB, measured at 8.84 KB — the same
     // core-floor bytes (see above); the verdict layer itself only gained a
     // comment (the window is verdict-quiet by design, no code).
-    limit: "9 KB",
+    //
+    // 2.0.0-rc: 9 -> 9.2 KB, measured at 9.01 — the same core bytes as the
+    // core-floor note (flatten + #3006) plus the #3009 demotion, which lives
+    // in the optimistic module this scenario retains via latest().
+    limit: "9.2 KB",
     modifyEsbuildConfig
   },
   {
@@ -121,8 +140,13 @@ module.exports = [
     // deferred first yield in normalizeIterator, and the hasLoadingWindow
     // probe they key on. All sit on the shared signal-hydration body that
     // every hydrating app retains.
+    //
+    // 2.0.0-rc: 16.35 -> 16.7 KB, measured at 16.35 (exactly at the old
+    // cap). The core-floor bytes (flatten 66accfb8 + #3006 + #3009) plus
+    // ~10 B from lazy()'s { export } option (#3011: the exportName pick in
+    // load/hydration-lookup).
     path: "hydrating-app.js",
-    limit: "16.35 KB",
+    limit: "16.7 KB",
     modifyEsbuildConfig
   },
   {
@@ -135,8 +159,12 @@ module.exports = [
     // loadingValue (commit #0): 23.05 -> 23.3 KB, measured at 22.83 — the
     // same ~210 B as the no-store scenario (core window + hydration guards)
     // plus the store-replay seed parking in hydrateStoreFromAsyncIterable.
+    //
+    // 2.0.0-rc: 23.3 -> 23.65 KB, measured at 23.19 — the same batch as the
+    // no-store scenario (flatten + #3006 + #3009 + lazy export), restoring
+    // the ~2% headroom convention.
     path: "hydrating-store-app.js",
-    limit: "23.3 KB",
+    limit: "23.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -145,8 +173,14 @@ module.exports = [
     // (isHydrationInProgress/onHydrationEnd moved from the sharedConfig
     // literal into enableHydration(), −100 B here, 11.72 KB measured) so
     // the win is locked in at the ~2% headroom convention.
+    //
+    // 2.0.0-rc: 11.95 -> 12.3 KB, measured at 12.06. Per-commit: flatten
+    // promise-of-AsyncIterable (66accfb8, ~+110 B — handleAsync rides in
+    // every async-capable bundle), #3006 (~+40 B), #3009 + lazy { export }
+    // (#3011) ~+15 B combined. See the core-floor note for why the flatten
+    // bytes don't dedupe away under brotli.
     path: "csr-app.js",
-    limit: "11.95 KB",
+    limit: "12.3 KB",
     modifyEsbuildConfig
   },
   {
