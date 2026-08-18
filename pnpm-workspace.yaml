@@ -21,3 +21,6 @@ overrides:
   '@solidjs/signals': workspace:*
   solid-js: workspace:*
   '@solidjs/web': workspace:*
+  # @solidjs/vite-plugin still pins the compiler at .40; force the snapshot
+  # carrying the #3015 scope fix and #3011 lazy signature until it re-releases.
+  '@dom-expressions/compiler': 0.50.0-next.43
