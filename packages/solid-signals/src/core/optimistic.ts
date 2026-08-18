@@ -253,8 +253,31 @@ function laneReadsCommitted(el: OptimisticNode, owner: OptimisticNode, c: Comput
  * a dependency's optimistic lane (own=false — parent-deeper-than-owned-child
  * can run before its OPT-dirty child propagates).
  */
-function recomputeLane(el: Computed<any>, own: boolean): OptimisticLane | null {
-  if (own) return resolveLane(el) ?? null;
+function recomputeLane(el: Computed<any>, own: boolean): OptimisticLane | null | false {
+  if (own) {
+    const lane = resolveLane(el);
+    if (!lane) return null;
+    // Wake-only lane demotion (#3009): a plain write to a latest()-tracked
+    // source rides the optimistic channel only to wake verdict companions —
+    // its lane is sourced by the companion shadow (_parentSource set) and owns
+    // no transaction. When such a node is pulled mid-tick by a latest()/
+    // isPending() probe, lane posture would direct-commit _value, leaking the
+    // queued write into committed reads before the flush. Return `false` so
+    // recompute() runs plain: the value stages and commits with the flush.
+    // (el's own override slot excludes companions themselves; a lane merged
+    // into a real optimistic lane resolves to a non-companion source.)
+    if (
+      !globalQueue._running &&
+      !activeTransition &&
+      !lane._transition &&
+      lane._source._parentSource !== undefined &&
+      el._overrideValue === undefined
+    ) {
+      el._optimisticLane = undefined;
+      return false;
+    }
+    return lane;
+  }
   for (let d: Link | null = el._deps; d; d = d._nextDep) {
     const dep = d._dep as Computed<any>;
     if (dep._flags & REACTIVE_OPTIMISTIC_DIRTY) {

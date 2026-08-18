@@ -234,6 +234,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   if (isOptimisticDirty) {
     const lane = GlobalQueue._recomputeLane!(el, true);
     if (lane) currentOptimisticLane = lane;
+    // `false` = wake-only lane demotion: recompute plain so a mid-tick
+    // latest()/isPending() pull stages instead of direct-committing (#3009).
+    // The predicate lives with the engine (recomputeLane).
+    else if (lane === false) isOptimisticDirty = false;
   } else if (activeTransition && !create && activeTransition._optimisticNodes.length) {
     // Lane adoption: parent-deeper-than-owned-child can run before its OPT-dirty
     // child propagates. Walk deps once and inherit the OPT lane so this node

@@ -452,7 +452,9 @@ export class GlobalQueue extends Queue {
   static _laneReadsCommitted:
     | ((el: OptimisticNode, owner: OptimisticNode, c: Computed<any>) => boolean)
     | null = null;
-  static _recomputeLane: ((el: Computed<any>, own: boolean) => OptimisticLane | null) | null = null;
+  static _recomputeLane:
+    | ((el: Computed<any>, own: boolean) => OptimisticLane | null | false)
+    | null = null;
   static _laneAsyncPending: ((el: Computed<any>) => void) | null = null;
   static _laneAsyncSettled: ((el: Computed<any>) => void) | null = null;
   static _trackOptimisticStore: ((store: any) => void) | null = null;
