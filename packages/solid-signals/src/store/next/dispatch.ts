@@ -49,9 +49,9 @@ export function createStore(first: any, second?: any, third?: any): any {
     if (!third?.shallow) return createStoreDerivedNext(first, second, third);
     return (legacyCreateStore as any)(first, second, third);
   }
-  if (first !== null && typeof first === "object" && !second?.shallow) {
+  if (first !== null && typeof first === "object") {
     // Plain form; `second` carries only options (name/shallow) here.
-    return createStoreNext(first);
+    return createStoreNext(first, !!second?.shallow);
   }
   return (legacyCreateStore as any)(first, second, third);
 }

@@ -629,6 +629,22 @@ implementation, deduplicated across reports.
   (the DAG rule) covers the slots CAS declines. Also executed the RUL-12
   unkeyed-merge ruling: the two async yield-identity assertions rewritten to
   merge semantics (identity preserved) with ruling citations.
+- **2026-08-18k**: O4 RE-RULED (Ryan) + shallow PORTED. Stage 1 validated
+  that deep cannot reach shallow-class tick performance (that is the
+  phase-2 edit-script question — the retirement decision may reopen there),
+  so shallow STAYS as an API for stage 1 — which resolves the deletion
+  blocker by porting it: plain shallow stores now serve from next. The port
+  is small because shallow's speed is a property of the DATA SHAPE (raw
+  children, trap-free leaf reads, slot-granular diff), not of legacy's
+  implementation: `t.s` targets serve children verbatim (proxies pass by
+  reference, #2932), ingest sticky raw-marks at creation/set/adoption
+  (shared R41 invariant, markRawOne skips proxies), reconcile on shallow
+  forces the positional slot diff with descends gated off. Suite green
+  (1253, including the #2932 suite); in-process A/B (benchmark mode):
+  next-shallow 15.88ms vs legacy-shallow 15.48ms mean — parity (p75 favors
+  next; mean carries one GC outlier). REMAINING for wholesale legacy
+  deletion: shallow derived/optimistic forms (fam.shallow wiring),
+  createWriteTraps move into next, then delete legacy modules + dispatch.
 - **2026-08-18j**: The FUSE landed — adoption is a single pass. applyAdopt's
   object and array branches notify each key's node inline (descend FIRST per
   key: targetsEqual needs the child's re-registration before the parent-slot

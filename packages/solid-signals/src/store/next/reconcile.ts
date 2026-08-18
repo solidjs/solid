@@ -24,6 +24,7 @@ import {
   $TARGET,
   isRawValue,
   isWrappable,
+  markRawIngest,
   rawValuesUsed,
   storeLookup as legacyStoreLookup
 } from "../store.js";
@@ -193,8 +194,12 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
   // the fold diff's identity-preservation check); projections keep deferred
   // folds (downstream holds can form later in the flush).
   const eager = fam === null;
+  const shallow = t.s === true;
   const old = t.v;
   adoptPB(t, incoming, eager);
+  // Shallow adoption: records are slot values — sticky raw-mark the incoming
+  // set (R41) and never descend; slot notification is the positional diff.
+  if (shallow) markRawIngest(incoming);
   if (Array.isArray(prevView) !== nextArr) {
     if (eager) notifyFold(t, old, incoming);
     return;
@@ -208,7 +213,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
     // unvisited node keys land in the counted sweep below.
     const nodes = eager ? t.n : null;
     let nodesHit = 0;
-    if (keyFn) {
+    if (keyFn && !shallow) {
       // Positional-prefix fast path (legacy keyedMatch-walk parity): while
       // rows key-match in place — the steady-state polling shape — descend
       // directly with zero staging. The prevByKey map is built only for the
@@ -271,7 +276,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       const dlen = Math.min(prevRows.length, nextRows.length);
       const nlen = nextRows.length;
       for (let i = 0; i < nlen; i++) {
-        if (i < dlen) {
+        if (!shallow && i < dlen) {
           const nv = nextRows[i];
           if (nv !== null && typeof nv === "object")
             descend(unwrapValue(prevRows[i]), nv, keyFn, fam, proj);
@@ -323,7 +328,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
         if (nodes !== null && nodes[k] !== undefined) nodesHit++;
         continue;
       }
-      if (isObj) descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
+      if (isObj && !shallow) descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
       if (nodes !== null) {
         const node = nodes[k];
         if (node !== undefined) {
@@ -336,7 +341,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
     for (let i = 0; i < syms.length; i++) {
       const k = syms[i];
       const nv = (incoming as any)[k];
-      if (nv !== null && typeof nv === "object")
+      if (!shallow && nv !== null && typeof nv === "object")
         descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
       if (nodes !== null) {
         const node = nodes[k as any];

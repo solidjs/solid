@@ -62,6 +62,8 @@ import {
   inheritAffectsMarks,
   isRawValue,
   isWrappable,
+  markRawIngest,
+  markRawOne,
   rawValuesUsed,
   setNextAffectsNodeResolver,
   setNextOptimisticViewResolver,
@@ -1030,6 +1032,8 @@ function serveDataKey(
       readNode(getNode(target, key, backingValue));
     }
   }
+  // Shallow stores serve children RAW (record granularity — the whole point).
+  if (target.s) return v;
   return isWrappable(v) ? draftServe(target, wrapNext(v, target, key as any)) : v;
 }
 
@@ -1082,7 +1086,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
       if (nodeH !== undefined && (nodeH as any).acc !== true && getObserver() !== null) {
         let nv = readNodeFast(nodeH);
         if (nv === READ_SLOW) nv = readNode(nodeH);
-        if (nv === null || typeof nv !== "object") return nv;
+        if (target.s || nv === null || typeof nv !== "object") return nv;
         return isWrappable(nv) ? wrapNext(nv, target, key) : nv;
       }
     }
@@ -1120,7 +1124,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
       if (acc) {
         if (!writing && getObserver() !== null) readNode(node0 ?? getNode(target, key, undefined));
         const v = Reflect.get(src, key, receiver);
-        return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;
+        return target.s || !isWrappable(v) ? v : draftServe(target, wrapNext(v, target, key));
       }
     }
     // Plain-data fast path: no descriptor allocation per read.
@@ -1143,13 +1147,13 @@ const traps: ProxyHandler<StoreNextTarget> = {
         const node = target.n?.[key];
         if (node) {
           const nv = nodeValue(node, undefined);
-          return isWrappable(nv) ? draftServe(target, wrapNext(nv, target, key)) : nv;
+          return target.s || !isWrappable(nv) ? nv : draftServe(target, wrapNext(nv, target, key));
         }
       } else if (v === undefined && inDraft(target) && target.fam?.opt && target.pb === null) {
         const node = target.n?.[key];
         if (node !== undefined && hasActiveOverride(node)) v = unwrapOverride(node._overrideValue);
       }
-      return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;
+      return target.s || !isWrappable(v) ? v : draftServe(target, wrapNext(v, target, key));
     }
     if (typeof v === "function" && !hasOwn.call(src, key)) return v; // proto method
     return serveDataKey(target, key, v, src, node0);
@@ -1248,7 +1252,14 @@ const traps: ProxyHandler<StoreNextTarget> = {
       });
       return true;
     }
-    pb[key as any] = unwrapValue(value);
+    // Shallow slots store what was written VERBATIM — another store's proxy
+    // passes through by reference (#2932; markRawOne skips proxies), while
+    // deep stores unwrap to raw backings.
+    const uv = target.s ? value : unwrapValue(value);
+    pb[key as any] = uv;
+    // Shallow ingest: written records are sticky raw-marked (one entity is
+    // never both deep-wrapped and raw — R41/#2932, shared invariant).
+    if (target.s && uv !== null && typeof uv === "object") markRawOne(uv);
     // Override-mode (post-await draft) writes have no setter exit — notify
     // per-op (setSignal equality-gates repeats).
     if (override) notifyWrites(target);
@@ -1338,9 +1349,23 @@ setNextAffectsNodeResolver((t: StoreNextTarget, key: PropertyKey) =>
 );
 
 export function createStoreNext<T extends Record<PropertyKey, any>>(
-  init: T
+  init: T,
+  shallow = false
 ): [T, SetStoreNextFunction<T>] {
+  if (shallow && __DEV__) {
+    // Never both deep-wrapped and raw (R41/R44): a value already tracked as
+    // a DEEP store cannot be ingested shallow.
+    const existing = storeNextLookup.get(init) ?? legacyStoreLookup.get(init);
+    if (existing !== undefined && !(existing as any).s)
+      throw new Error("createStore({ shallow }): value is already tracked as a deep store");
+    if ((init as any)[$TARGET])
+      throw new Error("createStore({ shallow }): value is already a store proxy");
+  }
   const proxy = wrapNext(init);
+  if (shallow) {
+    ((proxy as any)[$TARGET] as StoreNextTarget).s = true;
+    markRawIngest(init);
+  }
   if (__DEV__) registerGraph(proxy, getOwner());
   const setter: SetStoreNextFunction<T> = fn => storeSetterNext(proxy, fn);
   return [proxy, setter];

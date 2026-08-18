@@ -92,8 +92,40 @@ function runTicks(applyTick: (fresh: any[]) => void, partial: boolean) {
   }
 }
 
+function subscribeShallow(state: any) {
+  for (let i = 0; i < ROWS; i++) {
+    createRenderEffect(() => state[i], consume as any);
+  }
+}
+
+function setupShallowNext() {
+  let applyTick!: (fresh: any[]) => void;
+  const dispose = createRoot(d => {
+    const [state, setState] = createStore(makeData(ROWS, 0), { shallow: true } as any);
+    subscribeShallow(state);
+    applyTick = fresh => setState(reconcile(fresh, null) as any);
+    return d;
+  });
+  flush();
+  return { applyTick, dispose };
+}
+
+function setupShallowLegacy() {
+  let applyTick!: (fresh: any[]) => void;
+  const dispose = createRoot(d => {
+    const [state, setState] = (legacyCreateStore as any)(makeData(ROWS, 0), { shallow: true });
+    subscribeShallow(state);
+    applyTick = fresh => setState(legacyReconcile(fresh, null) as any);
+    return d;
+  });
+  flush();
+  return { applyTick, dispose };
+}
+
 const next = setupNext();
 const legacy = setupLegacy();
+const shallowNext = setupShallowNext();
+const shallowLegacy = setupShallowLegacy();
 
 bench(
   "A/B full tick — next",
@@ -127,8 +159,26 @@ bench(
   { time: 4000, warmupIterations: 3 }
 );
 
+bench(
+  "A/B shallow full tick — next",
+  () => {
+    runTicks(shallowNext.applyTick, false);
+  },
+  { time: 3000, warmupIterations: 3 }
+);
+
+bench(
+  "A/B shallow full tick — legacy",
+  () => {
+    runTicks(shallowLegacy.applyTick, false);
+  },
+  { time: 3000, warmupIterations: 3 }
+);
+
 afterAll(() => {
   next.dispose();
   legacy.dispose();
+  shallowNext.dispose();
+  shallowLegacy.dispose();
   if (sink === Infinity) console.log("impossible");
 });

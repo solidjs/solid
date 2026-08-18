@@ -279,7 +279,7 @@ export function markRaw<T>(value: T): T {
   return value;
 }
 
-function markRawOne(v: any) {
+export function markRawOne(v: any) {
   if (isWrappable(v)) {
     // A store proxy is already tracked elsewhere: the shallow boundary passes
     // it through by reference (replaced, never edited — same slot semantics
