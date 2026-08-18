@@ -13,7 +13,7 @@
  * store-half (#2951) is installed here for next-shaped targets, chaining the
  * legacy/engine checks.
  */
-import { STATUS_PENDING } from "../../core/constants.js";
+import { NOT_PENDING, STATUS_PENDING } from "../../core/constants.js";
 import { computed, CONFIG_AUTO_DISPOSE, type Computed } from "../../core/index.js";
 import { GlobalQueue } from "../../core/scheduler.js";
 import { installOptimisticStoreHooks } from "../optimistic.js";
@@ -37,10 +37,34 @@ function installNextBlockedHalf(): void {
     for (const store of transition._optimisticStores) {
       const t = (store as any)?.[$TARGET] as StoreNextTarget | undefined;
       const fw: any = t?.fam?.node;
-      if (fw != null && fw._statusFlags & STATUS_PENDING) return true;
+      // The hold exists to keep optimistic state alive until the store's own
+      // truth lands (#2951). Once the family carries NO live overrides (a
+      // landing consumed them, or they never existed), a pending firewall is
+      // no reason to park the transaction — blocking then leaks it forever
+      // when the in-flight question is never answered (undisposed fixtures).
+      if (fw != null && fw._statusFlags & STATUS_PENDING && familyHasLiveOverrides(t!.fam!))
+        return true;
     }
     return chained(transition);
   };
+}
+
+function familyHasLiveOverrides(fam: { overlaid?: Set<any> }): boolean {
+  const overlaid = fam.overlaid;
+  if (overlaid === undefined || overlaid.size === 0) return false;
+  for (const t of overlaid as Set<StoreNextTarget>) {
+    for (const bucket of [t.n, t.h] as const) {
+      if (bucket === null) continue;
+      for (const key of Reflect.ownKeys(bucket)) {
+        const node: any = bucket[key as any];
+        if (node._overrideValue !== undefined && node._overrideValue !== NOT_PENDING) return true;
+      }
+    }
+    if (t.k !== null && t.k._overrideValue !== undefined && t.k._overrideValue !== NOT_PENDING)
+      return true;
+  }
+  overlaid.clear(); // nothing live — drop the bookkeeping
+  return false;
 }
 
 export function createOptimisticStoreNext<T extends object = {}>(

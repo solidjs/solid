@@ -629,6 +629,36 @@ implementation, deduplicated across reports.
   (the DAG rule) covers the slots CAS declines. Also executed the RUL-12
   unkeyed-merge ruling: the two async yield-identity assertions rewritten to
   merge semantics (identity preserved) with ruling citations.
+- **2026-08-18c**: Optimistic increment COMPLETE except one zombie.
+  Full default suite: every genuine failure fixed; the only remaining red is
+  a 4-test in-file cascade in createOptimisticStore.test.ts (all 4 pass in
+  isolation) caused by ONE unhandled rejection: the mapArray fixture test
+  ends with an undisposed root + a tail `refresh()` whose fetch never
+  resolves; a later flush runs its stashed/zombie mapArray recompute, which
+  reads an undefined row (`comment.text` TypeError via async.ts notifyStatus
+  → StatusError) and poisons subsequent flushes. Mitigation attempted (not
+  sufficient): the next-shape transitionBlocked half now only blocks while
+  the family holds LIVE overrides (a fully-consumed transaction settles even
+  with its firewall eternally pending — also the correct #2951 semantics).
+  The residual tear is in the stashed lane/zombie queue interplay — FIRST
+  ITEM next cycle: reproduce the zombie recompute standalone (undisposed
+  root + never-resolving refresh + later flush) and pin where mapArray sees
+  length/index disagree.
+  Fixes landed this stretch beyond 2026-08-18b: strict-read refetch-window
+  escalation ported (firewall-pending untracked reads throw
+  PENDING_ASYNC_UNTRACKED_READ); witnessAffectsMark resolves chained
+  backings (marks witness through wrapper views); affects declaration walk
+  composes the optimistic view and covers pending backings; store nodes are
+  CONFIG_OWNED_WRITE (the setter carries the owned-scope guard; the guard
+  itself now exempts roots — legacy parity); snapshot composes optimistic
+  views across chained targets (multi-level, innermost outward); landing
+  consumption classifies structural keys by PRESENCE OVERRIDES (pre-adoption
+  truth), fixing post-landing retention of optimistic adds; projection
+  backing folds are NEVER eager (a downstream hold can form later in the
+  same flush) — freshness for context-free readers comes from readSource
+  serving a fam target's pending backing unless `foldHeld` (any node parked
+  under a live transition; the lazy-recompute read case has no transition
+  stamp and stays fresh).
 - **2026-08-18b**: Optimistic increment (in progress, most of the surface
   green). Architecture validated: armed nodes (`_overrideValue` slot) ride the
   core engine wholesale — zero store-side layer/backup machinery. Mechanisms

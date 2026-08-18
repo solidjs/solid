@@ -724,15 +724,29 @@ export function witnessAffectsMark(target: StoreNode, property?: PropertyKey): v
   const own = target[STORE_NODE]?.[$AFFECTS];
   if (own?._affectsCount) GlobalQueue._witnessAffects!(own);
   if (affectsScopes.size) {
-    const raw = target[STORE_VALUE];
+    // Chained backings (§7b): a wrapper's STORE_VALUE can be another store's
+    // proxy — marks cover by identity of the BASE raw, so resolve the chain
+    // and check every identity along it.
+    let raw = target[STORE_VALUE];
     for (const [carrier, entry] of affectsScopes) {
       if (
         carrier !== own &&
         carrier._affectsCount &&
-        entry.scope.has(raw) &&
         (entry.key === undefined || entry.key === property)
-      )
-        GlobalQueue._witnessAffects!(carrier);
+      ) {
+        let r: any = raw;
+        for (;;) {
+          if (entry.scope.has(r)) {
+            GlobalQueue._witnessAffects!(carrier);
+            break;
+          }
+          const t: StoreNode | undefined = r?.[$TARGET];
+          if (t === undefined) break;
+          const backing = (t as any).pb ?? t[STORE_VALUE];
+          if (backing === r) break;
+          r = backing;
+        }
+      }
     }
   }
 }

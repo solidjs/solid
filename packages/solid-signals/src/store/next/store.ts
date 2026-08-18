@@ -18,7 +18,9 @@
  */
 import {
   $REFRESH,
+  CONFIG_OWNED_WRITE,
   NOT_PENDING,
+  STATUS_PENDING,
   STATUS_UNINITIALIZED,
   unwrapOverride
 } from "../../core/constants.js";
@@ -30,7 +32,7 @@ import {
   signal,
   untrack
 } from "../../core/core.js";
-import { globalQueue, insertSubs } from "../../core/scheduler.js";
+import { activeTransition, globalQueue, insertSubs } from "../../core/scheduler.js";
 import { getObserver, getOwner } from "../../core/owner.js";
 import {
   GlobalQueue,
@@ -41,7 +43,12 @@ import {
 } from "../../core/scheduler.js";
 import type { Signal } from "../../core/types.js";
 import { pendingCheckActive, strictRead } from "../../core/core.js";
-import { DEV, registerGraph, warnStrictReadUntracked } from "../../core/dev.js";
+import {
+  DEV,
+  registerGraph,
+  throwPendingUntrackedRead,
+  warnStrictReadUntracked
+} from "../../core/dev.js";
 import {
   $AFFECTS,
   $PROXY,
@@ -161,6 +168,9 @@ function getNode(target: StoreNextTarget, key: PropertyKey, current: any): Signa
       // reads through them link the derive's status/lifecycle (§7b).
       (target.fam?.node as any) ?? undefined
     ));
+    // Store nodes are ownedWrite: the setter carries the owned-scope write
+    // guard; node-level setSignals are internal notification machinery.
+    created._config |= CONFIG_OWNED_WRITE;
     // Optimistic families: arm the override slot — setSignal routes armed
     // nodes through the core engine (lanes, ownership, reverts all native).
     if (target.fam?.opt) created._overrideValue = NOT_PENDING;
@@ -191,6 +201,7 @@ function getHasNode(target: StoreNextTarget, key: PropertyKey, present: boolean)
         if (target.h && target.h[key] === created) delete target.h[key];
       }
     }));
+    created._config |= CONFIG_OWNED_WRITE;
     if (target.fam?.opt) created._overrideValue = NOT_PENDING;
     if (affectsScopesLive()) inheritAffectsMarks(created as any, target.v, key);
     nodes[key] = node;
@@ -208,6 +219,7 @@ function getKeySetNode(target: StoreNextTarget): Signal<number> {
         if (target.k === created) target.k = null;
       }
     }));
+    created._config |= CONFIG_OWNED_WRITE;
     if (target.fam?.opt) created._overrideValue = NOT_PENDING;
     target.k = k;
     markDescendants(target);
@@ -456,25 +468,13 @@ function notifyWrites(t: StoreNextTarget): void {
         : membershipChanged(old, pb);
     if (changed) setSignal(t.k, v => v + 1);
   }
-  // Projection draft writes are an authoritative landing (adoption-channel
-  // semantics): commit the backing eagerly — untracked reads see the
-  // recompute's output immediately, matching legacy overlay resolution.
-  // Node notifications above still batch through the flush.
-  if (t.fam !== null && t.pb !== null) {
-    const oldBacking = t.v;
-    t.pb = null;
-    t.v = pb;
-    // Parent-slot fix is compare-and-swap: only replace the slot that still
-    // holds the backing we folded away — a structurally edited parent (array
-    // splice moved/removed the slot) already carries the right arrangement,
-    // and registration-based resolution serves stale raw pointers correctly
-    // (the DAG rule).
-    if (t.u && t.u.v[t.pk!] === oldBacking) {
-      privatizeCommitted(t.u);
-      devAssertNeverUserMutation(t.u.v);
-      t.u.v[t.pk!] = pb;
-    }
-  }
+  // Projection backing folds are NEVER eager: a downstream async hold can
+  // form LATER in the same flush (the derive recomputes before its readers
+  // throw NotReady), and a committed backing can't be un-committed. Folds
+  // happen in drainFolds — the commit phase, where held-ness is knowable and
+  // held targets re-queue. Freshness for context-free readers mid-window is
+  // readSource's pb-visibility rule (fam targets serve pb outside
+  // transitions).
 }
 
 /** Diff the draft against the current OPTIMISTIC VIEW (committed + active
@@ -685,6 +685,24 @@ function inOwnerContext(): boolean {
   return true;
 }
 
+/** A pending fold is transition-held when any written node's parked value is
+ * stamped by a live transition (a plain batch parking — the lazy-recompute
+ * read case — has no transition stamp and serves fresh). */
+function foldHeld(target: StoreNextTarget): boolean {
+  const nodes = target.n;
+  if (nodes === null) return false;
+  for (const key of Reflect.ownKeys(nodes)) {
+    const node: any = nodes[key as any];
+    if (
+      node._pendingValue !== NOT_PENDING &&
+      node._transition != null &&
+      node._transition._done !== true
+    )
+      return true;
+  }
+  return false;
+}
+
 function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
   // Signal-parity visibility (core read(): owner-context reads serve
   // _pendingValue, context-free reads serve committed — effects recompute
@@ -692,7 +710,16 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
   // servable). Drafts (setter window OR projection write-override) and
   // owner-context reads see the pending backing; context-free reads see
   // committed. Node reads apply the same rule, so both homes agree.
-  if (target.pb !== null && (inDraft(target) || getWriteOverride() || inOwnerContext()))
+  if (
+    target.pb !== null &&
+    (inDraft(target) ||
+      getWriteOverride() ||
+      inOwnerContext() ||
+      // A projection's pending backing is authoritative-elect: serve it to
+      // context-free readers too UNLESS a transition is holding the node
+      // commits (downstream async hold — stale committed is the contract).
+      (target.fam !== null && !foldHeld(target)))
+  )
     return target.pb;
   return target.v;
 }
@@ -752,15 +779,25 @@ export function consumeOverridesNext(fam: StoreNextFamily): void {
         }
       };
       // Landing consumes STRUCTURAL optimism only (legacy layer parity):
-      // membership edits, array length, and value overrides on keys ABSENT
-      // from the landed data. A value override on a key the landing carries
-      // stays with its owning transaction (rapid-toggle contract: a live
-      // action's edit of an existing entity rides on top of landed truth).
+      // membership edits, array length, and the value overrides written WITH
+      // them (a key carrying an active presence override is an add/delete —
+      // classified BEFORE the adoption may have made the key exist in landed
+      // data). A pure value override on a key the landing carries stays with
+      // its owning transaction (rapid-toggle contract: a live action's edit
+      // of an existing entity rides on top of landed truth).
       const isArr = Array.isArray(t.v);
+      const has = t.h;
+      let structuralKeys: Set<PropertyKey> | null = null;
+      if (has !== null) {
+        for (const key of Reflect.ownKeys(has)) {
+          if (hasActiveOverride(has[key as any])) (structuralKeys ??= new Set()).add(key);
+        }
+      }
       const nodes = t.n;
       if (nodes !== null) {
         for (const key of Reflect.ownKeys(nodes)) {
-          const structural = !(key in t.v) || (isArr && key === "length");
+          const structural =
+            structuralKeys?.has(key) || !(key in t.v) || (isArr && key === "length");
           if (!structural) continue;
           drop(
             nodes[key as any],
@@ -768,7 +805,6 @@ export function consumeOverridesNext(fam: StoreNextFamily): void {
           );
         }
       }
-      const has = t.h;
       if (has !== null) {
         for (const key of Reflect.ownKeys(has)) drop(has[key as any], key in t.v);
       }
@@ -878,6 +914,11 @@ const traps: ProxyHandler<StoreNextTarget> = {
       typeof key === "string" &&
       getObserver() === null
     ) {
+      // Safeguard parity with core read() (#2897): a component-body read of
+      // a REFETCHING derived store escalates — the untracked reader can never
+      // observe the in-flight update (strict-read matrix, opt R30–R34).
+      if (((target.fam?.node as any)?._statusFlags ?? 0) & STATUS_PENDING)
+        throwPendingUntrackedRead(strictRead, { nodeName: key });
       warnStrictReadUntracked(strictRead, {
         nodeName: key,
         data: { strictRead, property: key, source: "store" }
@@ -1210,14 +1251,18 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreNextFamily |
   // Loops for chained backings (§7b: a projection's backing can be another
   // store's proxy — snapshot unwraps to the base raw).
   let src = value;
-  let owner: StoreNextTarget | undefined;
+  // Chained backings can pass through several targets; optimistic overrides
+  // on OUTER targets shadow the chain (§7b), so collect every opt target
+  // encountered and compose their views over the resolved base, innermost
+  // outward.
+  let optOwners: StoreNextTarget[] | null = null;
   for (;;) {
     let t: StoreNextTarget | undefined = src?.[$TARGET]?.v !== undefined ? src[$TARGET] : undefined;
     if (t === undefined && fam !== null) t = fam.map.get(src);
     if (t === undefined) t = storeNextLookup.get(src);
     if (t === undefined) break;
-    owner = t;
     if (t.fam !== null) fam = t.fam;
+    if (t.fam?.opt === true) (optOwners ??= []).push(t);
     const backing = t.pb ?? t.v;
     if (backing === src) break;
     src = backing;
@@ -1225,8 +1270,9 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreNextFamily |
   if (!isWrappable(src)) return src;
   // Optimistic families: compose the visible view; a composed view is a fresh
   // object and snapshots via the owned/copy path (pinned `not.toBe` identity).
-  if (owner !== undefined && owner.fam?.opt === true) {
-    const view = optimisticView(owner, src);
+  if (optOwners !== null) {
+    let view: any = src;
+    for (let i = optOwners.length - 1; i >= 0; i--) view = optimisticView(optOwners[i], view);
     if (view !== src) {
       const cachedView = seen.get(src);
       if (cachedView !== undefined) return cachedView;

@@ -1012,7 +1012,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
  */
 export function devGuardStoreSetterWrite(): void {
   if (!__DEV__) return;
-  if (context && !(context._config & CONFIG_CHILDREN_FORBIDDEN)) {
+  // Roots are not owned computation scopes — setters inside createRoot bodies
+  // are legal (legacy parity; the guard targets computed/effect bodies).
+  if (context && !(context as any)._root && !(context._config & CONFIG_CHILDREN_FORBIDDEN)) {
     emitDiagnostic({
       code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
       kind: "write",
