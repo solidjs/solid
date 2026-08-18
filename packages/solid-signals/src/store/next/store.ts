@@ -104,6 +104,7 @@ function createTarget(
   t.d = false;
   t.a = false;
   t.sc = false;
+  t.nc = 0;
   t.adopted = false;
   t.fam = fam;
   t.s = false;
@@ -167,7 +168,10 @@ function getNode(target: StoreNextTarget, key: PropertyKey, current: any): Signa
         unobserved() {
           // A live affects() mark keeps the node addressable (sweep parity).
           if ((created as any)._affectsCount) return;
-          if (target.n && target.n[key] === created) delete target.n[key];
+          if (target.n && target.n[key] === created) {
+            delete target.n[key];
+            target.nc--;
+          }
         }
       },
       // Projection nodes carry the projection computed as their firewall:
@@ -187,6 +191,7 @@ function getNode(target: StoreNextTarget, key: PropertyKey, current: any): Signa
     // (the declaration walk could only cover nodes existing then).
     if (key !== $AFFECTS && affectsScopesLive()) inheritAffectsMarks(created, target.v, key);
     nodes[key] = node;
+    target.nc++;
     markDescendants(target);
   }
   return node;
@@ -629,6 +634,62 @@ function membershipChanged(old: Record<PropertyKey, any>, neu: Record<PropertyKe
  * sticky `t.a` flag — a node's key was necessarily read, so the get trap has
  * already seen whether it is an accessor.
  */
+/** One node's fold notification (shared by notifyFold's walk and the fused
+ * adoption walk): accessor-aware compare + equality/identity-gated setSignal. */
+export function notifyKeyDiff(
+  node: Signal<any>,
+  key: PropertyKey,
+  old: Record<PropertyKey, any>,
+  neu: Record<PropertyKey, any>
+): void {
+  if (
+    (node as any).acc === true ||
+    (hasOwn.call(neu, key) && lookupGetter.call(neu, key) !== undefined)
+  ) {
+    (node as any).acc = isOwnAccessor(neu, key);
+    const od = Object.getOwnPropertyDescriptor(old, key);
+    const nd = Object.getOwnPropertyDescriptor(neu, key);
+    if ((od && (od.get || od.set)) || (nd && (nd.get || nd.set))) {
+      // Accessor involved: never invoke; force-notify on shape change so
+      // subscribers re-read (and re-track) through the trap.
+      if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
+        setSignal(node, () => FORCE as any);
+      return;
+    }
+    const ov = od?.value;
+    const nv = nd?.value;
+    if (!isEqual(ov, nv) && !targetsEqual(ov, nv))
+      setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
+  } else {
+    const ov = old[key as any];
+    const nv = neu[key as any];
+    // Direct value write when not a function (setSignal treats functions as
+    // updaters) — saves a closure allocation per changed key on the fold
+    // hot path.
+    if (!isEqual(ov, nv) && !targetsEqual(ov, nv))
+      setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
+  }
+}
+
+/** Presence + membership halves of a fold notification (shared tail). */
+export function notifyFoldTail(
+  t: StoreNextTarget,
+  old: Record<PropertyKey, any>,
+  neu: Record<PropertyKey, any>
+): void {
+  const has = t.h;
+  if (has !== null) {
+    for (const key of Reflect.ownKeys(has)) setSignal(has[key as any], key in neu);
+  }
+  if (t.k !== null) {
+    const changed =
+      Array.isArray(neu) && Array.isArray(old)
+        ? arrayStructureChanged(old as any[], neu as any[])
+        : membershipChanged(old, neu);
+    if (changed) setSignal(t.k, v => v + 1);
+  }
+}
+
 export function notifyFold(
   t: StoreNextTarget,
   old: Record<PropertyKey, any>,
@@ -649,29 +710,7 @@ export function notifyFold(
   const nodes = t.n;
   if (nodes !== null) {
     for (const key of Reflect.ownKeys(nodes)) {
-      const node = nodes[key as any];
-      if (
-        (node as any).acc === true ||
-        (hasOwn.call(neu, key) && lookupGetter.call(neu, key) !== undefined)
-      ) {
-        (node as any).acc = isOwnAccessor(neu, key);
-        const od = Object.getOwnPropertyDescriptor(old, key);
-        const nd = Object.getOwnPropertyDescriptor(neu, key);
-        if ((od && (od.get || od.set)) || (nd && (nd.get || nd.set))) {
-          // Accessor involved: never invoke; force-notify on shape change so
-          // subscribers re-read (and re-track) through the trap.
-          if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
-            setSignal(node, () => FORCE as any);
-          continue;
-        }
-        const ov = od?.value;
-        const nv = nd?.value;
-        if (!isEqual(ov, nv) && !targetsEqual(ov, nv)) setSignal(node, () => nv);
-      } else {
-        const ov = old[key as any];
-        const nv = neu[key as any];
-        if (!isEqual(ov, nv) && !targetsEqual(ov, nv)) setSignal(node, () => nv);
-      }
+      notifyKeyDiff(nodes[key as any], key, old, neu);
     }
   }
   const has = t.h;

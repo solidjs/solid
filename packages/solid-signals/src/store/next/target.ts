@@ -41,6 +41,8 @@ export interface StoreNextTarget {
   pb: Record<PropertyKey, any> | null;
   /** cached: committed backing is another store's proxy (§7b chained). */
   ch: boolean;
+  /** live value-node count (deleted-key sweep fast-out in the fused walk). */
+  nc: number;
   /** Lazy per-property subscription nodes (real core signals). */
   n: Record<PropertyKey, Signal<any>> | null;
   /** Lazy per-key presence nodes (`in` tracks presence, not value — R13). */

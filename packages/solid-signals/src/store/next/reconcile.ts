@@ -30,6 +30,8 @@ import {
 import {
   adoptPB,
   notifyFold,
+  notifyFoldTail,
+  notifyKeyDiff,
   notifyOptimisticWrites,
   optimisticView,
   unwrapValue
@@ -198,50 +200,118 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
   if (nextArr) {
     const prevRows = prevView as any[];
     const nextRows = incoming as any[];
+    // Fused array walk (eager mode): per-index notification rides the same
+    // loop as the descent (descend first — targetsEqual needs the child's
+    // re-registration, R9). Length, trailing removed indexes, and any other
+    // unvisited node keys land in the counted sweep below.
+    const nodes = eager ? t.n : null;
+    let nodesHit = 0;
     if (keyFn) {
       let prevByKey: Map<any, any> | null = null;
       for (let i = 0; i < nextRows.length; i++) {
         const nv = nextRows[i];
-        if (!isWrappable(nv)) continue;
-        const nk = keyFn(nv);
-        let pv: any;
-        if (nk !== undefined) {
-          if (prevByKey === null) {
-            prevByKey = new Map();
-            for (let j = 0; j < prevRows.length; j++) {
-              const p = unwrapValue(prevRows[j]);
-              if (isWrappable(p)) {
-                const pk = keyFn(p);
-                if (pk !== undefined && !prevByKey.has(pk)) prevByKey.set(pk, p);
+        if (isWrappable(nv)) {
+          const nk = keyFn(nv);
+          let pv: any;
+          if (nk !== undefined) {
+            if (prevByKey === null) {
+              prevByKey = new Map();
+              for (let j = 0; j < prevRows.length; j++) {
+                const p = unwrapValue(prevRows[j]);
+                if (isWrappable(p)) {
+                  const pk = keyFn(p);
+                  if (pk !== undefined && !prevByKey.has(pk)) prevByKey.set(pk, p);
+                }
               }
             }
+            pv = prevByKey.get(nk);
+          } else {
+            pv = unwrapValue(prevRows[i]); // keyless item: positional fallback
           }
-          pv = prevByKey.get(nk);
-        } else {
-          pv = unwrapValue(prevRows[i]); // keyless item: positional fallback
+          descend(pv, nv, keyFn, fam, proj);
         }
-        descend(pv, nv, keyFn, fam, proj);
+        if (nodes !== null) {
+          const node = nodes[i];
+          if (node !== undefined) {
+            nodesHit++;
+            notifyKeyDiff(node, i as any, old, incoming);
+          }
+        }
       }
     } else {
-      const len = Math.min(prevRows.length, nextRows.length);
-      for (let i = 0; i < len; i++)
-        descend(unwrapValue(prevRows[i]), nextRows[i], keyFn, fam, proj);
+      const dlen = Math.min(prevRows.length, nextRows.length);
+      const nlen = nextRows.length;
+      for (let i = 0; i < nlen; i++) {
+        if (i < dlen) descend(unwrapValue(prevRows[i]), nextRows[i], keyFn, fam, proj);
+        if (nodes !== null) {
+          const node = nodes[i];
+          if (node !== undefined) {
+            nodesHit++;
+            notifyKeyDiff(node, i as any, old, incoming);
+          }
+        }
+      }
     }
+    if (eager) {
+      if (nodes !== null && nodesHit < t.nc) {
+        for (const key of Reflect.ownKeys(nodes)) {
+          // visited indexes are < nextRows.length; everything else sweeps
+          const idx = typeof key === "string" ? +key : NaN;
+          if (!(idx >= 0 && idx < nextRows.length))
+            notifyKeyDiff(nodes[key as any], key, old, incoming);
+        }
+      }
+      notifyFoldTail(t, old, incoming);
+    }
+    return;
   } else {
-    // for-in covers own enumerable string keys with no key-array allocation
-    // (class methods/proto members are non-enumerable); symbols get a pass
-    // only when present.
+    // FUSED adoption walk (eager mode): one pass fetches each key's pair,
+    // descends, then notifies its node inline — descend runs FIRST so the
+    // child's re-registration is visible to targetsEqual (identity-preserved
+    // slots must not notify, R9). This replaces the notifyFold re-walk that
+    // doubled dbmon's diff cost. for-in covers own enumerable string keys
+    // with no key-array allocation; symbols get a pass only when present.
+    const nodes = eager ? t.n : null;
+    let nodesHit = 0;
     for (const k in incoming) {
-      descend(unwrapValue((prevView as any)[k]), (incoming as any)[k], keyFn, fam, proj);
+      const nv = (incoming as any)[k];
+      descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
+      if (nodes !== null) {
+        const node = nodes[k];
+        if (node !== undefined) {
+          nodesHit++;
+          notifyKeyDiff(node, k, old, incoming);
+        }
+      }
     }
     const syms = Object.getOwnPropertySymbols(incoming);
     for (let i = 0; i < syms.length; i++) {
       const k = syms[i];
       descend(unwrapValue((prevView as any)[k]), (incoming as any)[k], keyFn, fam, proj);
+      if (nodes !== null) {
+        const node = nodes[k as any];
+        if (node !== undefined) {
+          nodesHit++;
+          notifyKeyDiff(node, k, old, incoming);
+        }
+      }
     }
+    if (eager) {
+      // Deleted-key nodes (in the map but absent from incoming) — counted
+      // fast-out: when every node was visited, skip the sweep entirely.
+      if (nodes !== null && nodesHit < t.nc) {
+        for (const key of Reflect.ownKeys(nodes)) {
+          if (!hasOwnP.call(incoming, key)) notifyKeyDiff(nodes[key as any], key, old, incoming);
+        }
+      }
+      notifyFoldTail(t, old, incoming);
+    }
+    return;
   }
   if (eager) notifyFold(t, old, incoming);
 }
+
+const hasOwnP = Object.prototype.hasOwnProperty;
 
 function descend(
   pv: any,

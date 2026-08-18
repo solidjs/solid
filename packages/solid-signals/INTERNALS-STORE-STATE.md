@@ -629,6 +629,26 @@ implementation, deduplicated across reports.
   (the DAG rule) covers the slots CAS declines. Also executed the RUL-12
   unkeyed-merge ruling: the two async yield-identity assertions rewritten to
   merge semantics (identity preserved) with ruling citations.
+- **2026-08-18j**: The FUSE landed — adoption is a single pass. applyAdopt's
+  object and array branches notify each key's node inline (descend FIRST per
+  key: targetsEqual needs the child's re-registration before the parent-slot
+  compare, or identity-preserved slots would spuriously notify — R9);
+  deleted-key nodes ride a counted fast-out (`t.nc` live node count, zero
+  cost when nothing was deleted); presence/membership are a shared tail
+  (notifyFoldTail); notifyKeyDiff is the shared per-key compare, now writing
+  values directly (no closure per changed key). notifyFold survives for the
+  DEFERRED channels only (projection folds via drainFolds). Suite + next
+  gate green. Measurement caveat: afternoon thermals now swamp single
+  rounds (legacy itself drifted 9.6→13.0 across the day); the honest
+  reading across interleaved rounds is next/legacy ≈ 1.2–1.3x on dbmon
+  full-tick (from ~1.35 pre-fuse), with the remaining delta split between
+  the per-key accessor probes (which legacy pays inside applyStateFast too,
+  but cheaper) and adoption bookkeeping (registration WeakMap set + identity
+  WeakSet has per target). VERDICT INPUTS for the shallow ruling (O4): deep
+  dbmon will not reach shallow's 3.1ms in phase 1 — that class needs the
+  phase-2 edit-script channel; deep-next holds a 25% uibench win and near-
+  legacy dbmon with 3.5x less store code. A cool-machine ABBA sweep should
+  finalize the numbers before the ruling.
 - **2026-08-18i**: Derived createStore form ported (the last non-shallow API
   shape on legacy) — dispatch now routes `createStore(fn, seed)` to
   projection internals + a recompute-masking setter (core R31). Two §6c
