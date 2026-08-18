@@ -1362,6 +1362,30 @@ function SelectValue() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// solidjs/solid#3015: a call-shaped innerHTML value must not reserve a
+// hydration child id on the server — the client applies innerHTML as a plain
+// prop effect with no owner. Pre-fix the server's `_$scope` reservation
+// shifted every hydratable sibling after the innerHTML hole by one id, so the
+// second icon (and everything after) went unclaimed and updates targeted
+// detached DOM.
+const makeBadge = (r: number) => `<b>r${r}</b>`;
+function InnerHTMLIcon(props: { radius: number }) {
+  return <div innerHTML={makeBadge(props.radius)} />;
+}
+let setInnerHTMLToggle!: (v: boolean) => void;
+function InnerHTMLCallSiblings() {
+  const [on, set] = createSignal(false);
+  setInnerHTMLToggle = set;
+  return (
+    <div>
+      <InnerHTMLIcon radius={1} />
+      <InnerHTMLIcon radius={2} />
+      <label>{on() ? "on" : "off"}</label>
+    </div>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -1832,5 +1856,14 @@ export const scenarios: Scenario[] = [
     update: () => setLang("en"),
     expectedTextAfterUpdate: "EnglishFrenchen",
     stableSelector: "div, select, option, span"
+  },
+  {
+    name: "innerhtml-call-id-parity",
+    App: InnerHTMLCallSiblings,
+    expectedText: "r1r2off",
+    serverText: "r1r2off",
+    update: () => setInnerHTMLToggle(true),
+    expectedTextAfterUpdate: "r1r2on",
+    stableSelector: "div, label"
   }
 ];
