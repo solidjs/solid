@@ -239,7 +239,8 @@ export const symbolKeyedRecords = new WeakSet<object>();
 export function lookupTarget(value: any, lookup?: WeakMap<any, any>): StoreNode | undefined {
   if (lookup !== undefined && lookup !== storeLookup) {
     const p = lookup.get(value);
-    if (p !== undefined) return p[$TARGET];
+    // Legacy family maps store proxies; next family maps store TARGETS.
+    if (p !== undefined) return p[$TARGET] ?? p;
   }
   // Rewrite targets alias the legacy field names (v/n/h/d/s), so shared
   // machinery (affects walks, unwrap, snapshot) reads them structurally.
@@ -570,7 +571,7 @@ function getNode<T>(
  * exactly as long as the scope's carrier — the release hook below drops
  * them with the entry.
  */
-function inheritAffectsMarks(node: DataNode, raw: object, property: PropertyKey): void {
+export function inheritAffectsMarks(node: DataNode, raw: object, property: PropertyKey): void {
   // A live scope exists, so affects.ts already installed the mark engine.
   for (const [carrier, entry] of affectsScopes) {
     if (
@@ -604,6 +605,28 @@ interface AffectsScope {
 }
 const affectsScopes = new Map<DataNode, AffectsScope>();
 
+/** Next-store node factory for affects carriers/slots: injected by the
+ * rewrite module (next targets alias the legacy field names, so everything
+ * here EXCEPT node creation works on them structurally). */
+export let nextAffectsNodeResolver: ((target: any, key: PropertyKey) => DataNode) | null = null;
+export function setNextAffectsNodeResolver(fn: (target: any, key: PropertyKey) => DataNode): void {
+  nextAffectsNodeResolver = fn;
+}
+
+/** Next-store optimistic view for the declaration walk (optimistic rows
+ * pushed before the declaration are in motion too — legacy reads its write
+ * overlays; next composes armed-node overrides). */
+export let nextOptimisticViewResolver: ((target: any, raw: any) => any) | null = null;
+export function setNextOptimisticViewResolver(fn: (target: any, raw: any) => any): void {
+  nextOptimisticViewResolver = fn;
+}
+
+/** @internal birth inheritance for nodes created inside a live mark window —
+ * exported for the rewrite's node factories. */
+export function affectsScopesLive(): boolean {
+  return affectsScopes.size > 0;
+}
+
 /**
  * Snapshots the identities reachable from `value` into `scope`, reading
  * through write overlays (an optimistic row pushed before the declaration is
@@ -626,10 +649,17 @@ function walkAffectsScope(
 ): void {
   if (!isWrappable(value)) return;
   const target: StoreNode | undefined = value[$TARGET] || lookupTarget(value, lookup);
-  const raw = target ? target[STORE_VALUE] : value;
+  // Next targets: walk the pending backing when present (a draft's writes are
+  // in motion too) and cover BOTH identities in the scope.
+  let raw = target ? ((target as any).pb ?? target[STORE_VALUE]) : value;
   if (visited.has(raw)) return;
   visited.add(raw);
   entry.scope.add(raw);
+  if (target && (target as any).pb) entry.scope.add(target[STORE_VALUE]);
+  // Next optimistic families: enumerate the VISIBLE view (armed-node
+  // overrides compose membership/values the raw doesn't carry).
+  if (target && (target as any).fam?.opt && nextOptimisticViewResolver)
+    raw = nextOptimisticViewResolver(target, raw);
   let override: Record<PropertyKey, any> | undefined;
   if (target) {
     collectRecordNodes(target[STORE_NODE], found);
@@ -638,7 +668,7 @@ function walkAffectsScope(
     // Carry the effective lookup into untouched descendants. Default stores
     // use the global lookup just like snapshotImpl; without it, nested raw
     // objects fall back to string-only enumeration and symbol branches vanish.
-    lookup = target[STORE_LOOKUP] ?? lookup ?? storeLookup;
+    lookup = target[STORE_LOOKUP] ?? (target as any).fam?.map ?? lookup ?? storeLookup;
   }
   if (Array.isArray(raw)) {
     const len = override?.length ?? raw.length;
@@ -727,25 +757,38 @@ export function getStoreAffectsNodes(target: StoreNode, key?: PropertyKey): Data
     for (let i = 0; i < entry.inherited.length; i++)
       GlobalQueue._releaseAffectsMark!(entry.inherited[i]);
   };
+  const isNext = (target as any).px !== undefined;
   if (key === undefined) {
-    const carrier = getNode(target, nodes, $AFFECTS, undefined, false);
+    const carrier = isNext
+      ? nextAffectsNodeResolver!(target, $AFFECTS)
+      : getNode(target, nodes, $AFFECTS, undefined, false);
     let entry = affectsScopes.get(carrier);
     if (!entry) affectsScopes.set(carrier, (entry = { scope: new Set(), inherited: [] }));
     const result = [carrier];
-    walkAffectsScope(target[$PROXY], entry, result, target[STORE_LOOKUP], new Set());
+    walkAffectsScope(
+      target[$PROXY],
+      entry,
+      result,
+      target[STORE_LOOKUP] ?? (target as any).fam?.map,
+      new Set()
+    );
     return result;
   }
   let node = nodes[key];
   if (!node) {
-    const layer = getOverlayLayer(target, key);
-    const raw = layer ? layer[key] : target[STORE_VALUE][key];
-    node = upsertStoreNode(
-      target,
-      nodes,
-      key,
-      raw === $DELETED ? undefined : raw,
-      target[STORE_SNAPSHOT_PROPS]
-    );
+    if (isNext) {
+      node = nextAffectsNodeResolver!(target, key);
+    } else {
+      const layer = getOverlayLayer(target, key);
+      const raw = layer ? layer[key] : target[STORE_VALUE][key];
+      node = upsertStoreNode(
+        target,
+        nodes,
+        key,
+        raw === $DELETED ? undefined : raw,
+        target[STORE_SNAPSHOT_PROPS]
+      );
+    }
   }
   // Keyed marks resolve by identity too (#2904): another store family's
   // proxy can share this record's raw (a derived store swaps its backing to
@@ -755,6 +798,7 @@ export function getStoreAffectsNodes(target: StoreNode, key?: PropertyKey): Data
   let entry = affectsScopes.get(node);
   if (!entry) affectsScopes.set(node, (entry = { scope: new Set(), inherited: [], key }));
   entry.scope.add(target[STORE_VALUE]);
+  if ((target as any).pb) entry.scope.add((target as any).pb);
   return [node];
 }
 

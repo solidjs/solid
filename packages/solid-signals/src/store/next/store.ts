@@ -43,13 +43,18 @@ import type { Signal } from "../../core/types.js";
 import { pendingCheckActive, strictRead } from "../../core/core.js";
 import { DEV, registerGraph, warnStrictReadUntracked } from "../../core/dev.js";
 import {
+  $AFFECTS,
   $PROXY,
   $TARGET,
   $TRACK,
+  affectsScopesLive,
   getWriteOverride,
+  inheritAffectsMarks,
   isRawValue,
   isWrappable,
   rawValuesUsed,
+  setNextAffectsNodeResolver,
+  setNextOptimisticViewResolver,
   storeLookup as legacyStoreLookup,
   witnessAffectsMark
 } from "../store.js";
@@ -147,6 +152,8 @@ function getNode(target: StoreNextTarget, key: PropertyKey, current: any): Signa
         // changing the logical value — only changed leaves notify, R9).
         equals: (a: any, b: any) => isEqual(a, b) || sameLogicalSlot(target, a, b),
         unobserved() {
+          // A live affects() mark keeps the node addressable (sweep parity).
+          if ((created as any)._affectsCount) return;
           if (target.n && target.n[key] === created) delete target.n[key];
         }
       },
@@ -157,6 +164,9 @@ function getNode(target: StoreNextTarget, key: PropertyKey, current: any): Signa
     // Optimistic families: arm the override slot — setSignal routes armed
     // nodes through the core engine (lanes, ownership, reverts all native).
     if (target.fam?.opt) created._overrideValue = NOT_PENDING;
+    // A node born inside a live mark's identity scope inherits the mark
+    // (the declaration walk could only cover nodes existing then).
+    if (key !== $AFFECTS && affectsScopesLive()) inheritAffectsMarks(created, target.v, key);
     nodes[key] = node;
     markDescendants(target);
   }
@@ -177,10 +187,12 @@ function getHasNode(target: StoreNextTarget, key: PropertyKey, present: boolean)
     const created: Signal<boolean> = (node = signal(present, {
       equals: isEqual,
       unobserved() {
+        if ((created as any)._affectsCount) return;
         if (target.h && target.h[key] === created) delete target.h[key];
       }
     }));
     if (target.fam?.opt) created._overrideValue = NOT_PENDING;
+    if (affectsScopesLive()) inheritAffectsMarks(created as any, target.v, key);
     nodes[key] = node;
     markDescendants(target);
   }
@@ -242,10 +254,13 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
   let pb = target.pb;
   if (pb === null) {
     pb = target.pb = cloneRaw(target.v, target);
-    // Optimistic families: seed the draft from the OPTIMISTIC VIEW (committed
-    // + active node overrides), so follow-up writes compose on optimism
-    // instead of clobbering from base (#2951's compose half).
-    if (target.fam?.opt) {
+    // Optimistic families: seed USER drafts from the OPTIMISTIC VIEW
+    // (committed + active node overrides), so follow-up writes compose on
+    // optimism instead of clobbering from base (#2951's compose half).
+    // AUTHORITATIVE drafts (projection recompute / write-override landings)
+    // seed from committed truth — seeding overrides there would fold a lane
+    // value into the committed home ("authority wins at reveal" would break).
+    if (target.fam?.opt && !projectionWriteActive && !getWriteOverride()) {
       const nodes = target.n;
       if (nodes !== null) {
         for (const key of Reflect.ownKeys(nodes)) {
@@ -1086,6 +1101,15 @@ export function storeSetterNext<T>(proxy: T, fn: (draft: T) => T | void, guard =
     }
   }
 }
+
+// Affects integration: the legacy affects machinery reads next targets
+// structurally (aliased field names); only node CREATION dispatches here.
+setNextOptimisticViewResolver((t: StoreNextTarget, raw: any) => optimisticView(t, raw));
+setNextAffectsNodeResolver((t: StoreNextTarget, key: PropertyKey) =>
+  key === $AFFECTS
+    ? (getNode(t, $AFFECTS, undefined) as any)
+    : (getNode(t, key, (t.pb ?? t.v)[key as any]) as any)
+);
 
 export function createStoreNext<T extends Record<PropertyKey, any>>(
   init: T
