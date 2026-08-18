@@ -770,9 +770,15 @@ export function consumeOverridesNext(fam: StoreNextFamily): void {
       const drop = (node: Signal<any>, committed: any) => {
         if (!hasActiveOverride(node)) return;
         const prev = unwrapOverride(node._overrideValue);
+        // Full legacy reset (clearOptimisticOverride parity): the landing is
+        // authoritative NOW — fold committed into the node directly instead
+        // of riding a transaction's commit (whose queues may be stashed with
+        // the transaction parked; the wake would strand until it settles).
         node._overrideValue = NOT_PENDING;
         (node as any)._overrideOwner = null;
         (node as any)._optimisticLane = undefined;
+        node._pendingValue = NOT_PENDING;
+        node._value = committed;
         if (!node._equals || !node._equals(prev, committed)) {
           insertSubs(node, true);
           schedule();
@@ -855,6 +861,22 @@ function serveDataKey(
 ): any {
   const chained = (src as any)[$TARGET] !== undefined;
   let v = backingValue;
+  // §6: on optimistic arrays LENGTH IS A VIEW, not a node value — one home
+  // (backing ± presence overrides) for both length and indices makes torn
+  // iteration impossible (a length node's value rides different visibility
+  // rails than index overrides mid-settle). The node still carries
+  // subscriptions; its value is never served here.
+  if (key === "length" && target.fam?.opt === true && !chained && Array.isArray(src)) {
+    if (!inDraft(target)) {
+      const node = target.n?.length;
+      if (node !== undefined) {
+        if (getObserver() !== null) readNode(node);
+      } else if (getObserver() !== null) {
+        readNode(getNode(target, key, backingValue));
+      }
+    }
+    return (optimisticView(target, src) as any[]).length;
+  }
   if (inDraft(target)) {
     // Optimistic drafts before their first write have no pending backing yet;
     // reads must still see the live optimistic view (compose, not clobber —
@@ -902,7 +924,14 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (!inDraft(target) && target.fam !== null) firewallGate(target);
     const src = readSource(target);
     if (key === $TRACK) {
-      if (!inDraft(target) && getObserver() !== null) readNode(getKeySetNode(target));
+      if (!inDraft(target) && getObserver() !== null) {
+        readNode(getKeySetNode(target));
+        // Structural chaining (§7b, #2864 / core R21): a chained backing's
+        // $TRACK reads through to the INNER store's key-set — structural
+        // notifications land on the source's own node, never on this
+        // wrapper view's.
+        if ((src as any)[$TARGET] !== undefined) (src as any)[$TRACK];
+      }
       return undefined;
     }
     // Dev strictRead: untracked store reads in labeled scopes (component

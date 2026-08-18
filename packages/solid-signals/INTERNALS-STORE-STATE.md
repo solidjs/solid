@@ -629,6 +629,21 @@ implementation, deduplicated across reports.
   (the DAG rule) covers the slots CAS declines. Also executed the RUL-12
   unkeyed-merge ruling: the two async yield-identity assertions rewritten to
   merge semantics (identity preserved) with ruling citations.
+- **2026-08-18d**: FULL SUITE GREEN — 91/91 files, 1253 passed, zero
+  unhandled errors; next-gate store sweep 362 passed. The "zombie cascade"
+  decomposed into three real bugs, all fixed: (1) §6's length-as-view rule
+  implemented for optimistic arrays — length reads serve the composed view
+  (backing ± overrides) with the node used only for tracking, making torn
+  iteration (length on the stale-value rail, indices on the pending rail)
+  impossible by construction; (2) landing consumption now performs the FULL
+  legacy node reset (fold committed into `_value`, clear pending) instead of
+  relying on a transaction's commit — a parked transaction's stashed queues
+  stranded the wake otherwise; (3) $TRACK on chained backings reads through
+  to the inner store's key-set node (§7b structural chaining, #2864/core
+  R21) — mapArray over a wrapper view now observes the source's structural
+  notifications. Optimistic increment COMPLETE. Remaining queue: legacy
+  deletion + dispatcher removal (the size payoff), benchmark sweeps, final
+  size vet.
 - **2026-08-18c**: Optimistic increment COMPLETE except one zombie.
   Full default suite: every genuine failure fixed; the only remaining red is
   a 4-test in-file cascade in createOptimisticStore.test.ts (all 4 pass in
