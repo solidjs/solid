@@ -74,6 +74,8 @@ from test comments.
   descending into children.
 - **Ruling**: bug the rewrite fixes. Low real-world frequency (cyclic store
   data is rare); shipped hotfix likely not worth it.
+- **FIXED 2026-08-18**: the rewrite's snapshot walk registers owned copies in
+  the seen-map BEFORE descending; test flipped to plain `it`.
 
 ## Positive controls (shipped agrees with the contract)
 

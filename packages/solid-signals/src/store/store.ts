@@ -45,6 +45,7 @@ import {
   type Transition
 } from "../core/scheduler.js";
 import { createProjectionInternal } from "./projection.js";
+import { storeNextLookup } from "./next/target.js";
 
 /** A read-only view of a store's value as seen by consumers. Mutate it via the paired `StoreSetter`. */
 export type Store<T> = Readonly<T>;
@@ -240,7 +241,9 @@ export function lookupTarget(value: any, lookup?: WeakMap<any, any>): StoreNode 
     const p = lookup.get(value);
     if (p !== undefined) return p[$TARGET];
   }
-  return storeLookup.get(value);
+  // Rewrite targets alias the legacy field names (v/n/h/d/s), so shared
+  // machinery (affects walks, unwrap, snapshot) reads them structurally.
+  return storeLookup.get(value) ?? (storeNextLookup.get(value) as any);
 }
 // Values marked raw never acquire a proxy identity: wrap() serves them as-is
 // everywhere — deep stores hold them as leaf values replaced by reference.
@@ -285,7 +288,7 @@ function markRawOne(v: any) {
     // wrapping it in their own family, and their writes landed in the
     // upstream store's override layer (#2932).
     if (v[$TARGET] !== undefined) return;
-    if (__DEV__ && storeLookup.has(v))
+    if (__DEV__ && (storeLookup.has(v) || storeNextLookup.has(v)))
       throw new Error(
         "shallow store: an ingested record is already tracked as a deep store — one value cannot present both wrapped and raw"
       );

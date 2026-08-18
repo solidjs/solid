@@ -647,7 +647,11 @@ describe("reconcile with symbol-keyed properties", () => {
     expect(has).toBe(true);
   });
 
-  test("perf invariant: symbol-record mark is set while tracked and cleared once unobserved", async () => {
+  // RULED (INTERNALS-STORE-STATE.md, recon-snap pin 1): pins the LEGACY
+  // symbolKeyedRecords optimization; the rewrite's fold diffs subscription
+  // keys only, making the record-level symbol mark irrelevant. Skipped, not
+  // ported — delete with the legacy module.
+  test.skip("perf invariant: symbol-record mark is set while tracked and cleared once unobserved", async () => {
     // Guards the fast-path optimization: only records that currently hold a
     // user symbol node are enumerated for symbols on reconcile. Asserts the
     // internal mark rather than behavior (the mark is invisible to behavior).

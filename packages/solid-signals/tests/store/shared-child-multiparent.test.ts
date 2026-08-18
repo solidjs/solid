@@ -66,13 +66,11 @@ describe("shared child reachable via two parents", () => {
     expect(node.name).toBe("n");
   });
 
-  // FINDING-3 (rules-mining/FINDINGS.md): fails on shipped — snapshot of a
-  // WRITTEN cyclic object breaks cycle identity: `snap.self` comes back as a
-  // second copy (internally cyclic) instead of `snap` itself. The seen-map
-  // handles symbol-key cycles on untouched objects (pinned, recon-snap R29)
-  // but misses the written string-key self-cycle. Flip when the rewrite's
-  // copy routine lands (R29 requires shared references to stay shared).
-  it.fails("snapshot preserves cycle identity on a written cyclic object", () => {
+  // FINDING-3 (rules-mining/FINDINGS.md): failed on the legacy store — the
+  // copy routine registered copies AFTER descending, breaking cycle identity
+  // for written cyclic objects. FIXED by the rewrite's snapshot walk (owned
+  // copies register before descent); flipped to plain `it` 2026-08-18.
+  it("snapshot preserves cycle identity on a written cyclic object", () => {
     const node: any = { name: "n", self: null };
     node.self = node;
     const [s, setS] = createStore({ root: node });

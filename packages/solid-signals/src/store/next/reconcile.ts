@@ -18,7 +18,15 @@
  *   keyless items fall back positional; null/primitive slots are legal
  *   members (R11). Kind changes replace wholesale (R10).
  */
-import { $TARGET, isWrappable } from "../store.js";
+import { reconcile as legacyReconcile } from "../reconcile.js";
+import {
+  $PROXY,
+  $TARGET,
+  isRawValue,
+  isWrappable,
+  rawValuesUsed,
+  storeLookup as legacyStoreLookup
+} from "../store.js";
 import { adoptPB, unwrapValue } from "./store.js";
 import { ownedRaw, storeNextLookup, type StoreNextTarget } from "./target.js";
 
@@ -31,7 +39,7 @@ export function reconcileNextState(
 ): void {
   if (state == null) throw new Error(__DEV__ ? "Cannot reconcile null or undefined state" : "");
   const t: StoreNextTarget | undefined = state?.[$TARGET];
-  if (t === undefined || t.x !== state)
+  if (t === undefined || t.px !== state)
     throw new Error(__DEV__ ? "reconcile target is not a store proxy" : "");
   const keyFn: KeyFn | null =
     key === null ? null : typeof key === "string" ? (item: any) => item?.[key] : (key as KeyFn);
@@ -39,7 +47,7 @@ export function reconcileNextState(
   if (keyFn) {
     // Root identity precondition — checked before ANY mutation, so a throwing
     // reconcile is atomic by construction (RUL-12 ruling).
-    const prev = t.pb ?? t.b;
+    const prev = t.pb ?? t.v;
     const eq = keyFn(prev);
     if (eq !== undefined && keyFn(incoming) !== eq)
       throw new Error(__DEV__ ? "Cannot reconcile states with different identity" : "");
@@ -48,7 +56,7 @@ export function reconcileNextState(
 }
 
 function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null): void {
-  const prev = t.pb ?? t.b;
+  const prev = t.pb ?? t.v;
   // The sound identity skip (O7): same reference AND we never diverged it.
   if (incoming === prev && !ownedRaw.has(prev)) return;
   const nextArr = Array.isArray(incoming);
@@ -94,7 +102,17 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null): voi
 
 function descend(pv: any, nv: any, keyFn: KeyFn | null): void {
   if (!isWrappable(pv) || !isWrappable(nv)) return;
+  // markRaw'd values are leaves for reconcile: replaced by reference, never
+  // recursed into (R42); the parent's slot notification covers the change.
+  if (rawValuesUsed && (isRawValue(pv) || isRawValue(nv))) return;
   nv = unwrapValue(nv);
+  // A child tracked by the LEGACY store (shallow store nested in a next deep
+  // store, R45) reconciles through the legacy machinery on its own proxy.
+  const lt = legacyStoreLookup.get(pv);
+  if (lt !== undefined) {
+    legacyReconcile(nv, keyFn ?? null)((lt as any)[$PROXY]);
+    return;
+  }
   // Kind change replaces wholesale, never merges (R10): a target's carrier
   // class (array vs object) is fixed at creation, so the slot detaches and a
   // fresh proxy of the right kind wraps the incoming value on next read.

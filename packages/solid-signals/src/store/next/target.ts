@@ -16,7 +16,7 @@ import type { Signal } from "../../core/types.js";
 
 export interface StoreNextTarget {
   /** Committed backing: source object (shared) or owned clone. */
-  b: Record<PropertyKey, any>;
+  v: Record<PropertyKey, any>;
   /** Pending backing for the current flush (null when settled). */
   pb: Record<PropertyKey, any> | null;
   /** Lazy per-property subscription nodes (real core signals). */
@@ -26,11 +26,11 @@ export interface StoreNextTarget {
   /** Lazy key-set node: membership/iteration/$TRACK subscriptions (§6). */
   k: Signal<number> | null;
   /** Parent target (path copying walks this at commit). */
-  p: StoreNextTarget | null;
+  u: StoreNextTarget | null;
   /** Property key of this target in the parent's backing. */
   pk: PropertyKey | null;
   /** The proxy for this target (stable outward identity). */
-  x: any;
+  px: any;
   /** Sticky descendants flag (§6d). */
   d: boolean;
   /** Sticky accessors-seen flag: an own accessor property was observed on

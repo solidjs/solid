@@ -28,7 +28,18 @@ import {
 import { getObserver, getOwner } from "../../core/owner.js";
 import { schedule, setStoreCommitHook } from "../../core/scheduler.js";
 import type { Signal } from "../../core/types.js";
-import { $PROXY, $TARGET, $TRACK, isWrappable } from "../store.js";
+import { pendingCheckActive, strictRead } from "../../core/core.js";
+import { DEV, registerGraph, warnStrictReadUntracked } from "../../core/dev.js";
+import {
+  $PROXY,
+  $TARGET,
+  $TRACK,
+  isRawValue,
+  isWrappable,
+  rawValuesUsed,
+  storeLookup as legacyStoreLookup,
+  witnessAffectsMark
+} from "../store.js";
 import {
   devAssertNeverUserMutation,
   ingestedRaw,
@@ -48,21 +59,24 @@ function createTarget(
   // The proxy target carries the array exotic class when the value is an
   // array, so Array.isArray(proxy) is true; the fields live on it directly.
   const t: StoreNextTarget = Object.assign(Array.isArray(value) ? ([] as any) : {}, {
-    b: value,
+    v: value,
     pb: null,
     n: null,
     h: null,
     k: null,
-    p: parent,
+    u: parent,
     pk: parentKey,
-    x: null,
+    px: null,
     d: false,
     a: false,
     sc: false,
     adopted: false,
     s: false
   });
-  t.x = new Proxy(t, traps);
+  t.px = new Proxy(t, traps);
+  // Legacy interop: shared machinery (affects walks, wrap dedupe) reads the
+  // proxy off looked-up targets as a field.
+  (t as any)[$PROXY] = t.px;
   storeNextLookup.set(value, t);
   if (__TEST__ && ingestedRaw && !ownedRaw.has(value)) ingestedRaw.add(value);
   return t;
@@ -73,18 +87,26 @@ export function wrapNext<T extends Record<PropertyKey, any>>(
   parent: StoreNextTarget | null = null,
   parentKey: PropertyKey | null = null
 ): T {
+  // markRaw'd values never wrap through ANY store (R42; sticky raw-marking
+  // is one half of the never-both-wrapped-and-raw invariant, RUL-12).
+  if (rawValuesUsed && isRawValue(value)) return value;
   const existing = storeNextLookup.get(value);
-  if (existing !== undefined) return existing.x;
+  if (existing !== undefined) return existing.px;
   const t: StoreNextTarget | undefined = (value as any)[$TARGET];
-  if (t !== undefined && t.x === value) return value; // already one of ours
-  return createTarget(value, parent, parentKey).x;
+  if (t !== undefined && t.px === value) return value; // already one of ours
+  // Cross-implementation dedupe (core R2): a raw already tracked by the
+  // legacy store (shallow roots, projection families) serves its legacy
+  // proxy — one raw, one logical node, either implementation.
+  const legacy = legacyStoreLookup.get(value);
+  if (legacy !== undefined) return (legacy as any)[$PROXY];
+  return createTarget(value, parent, parentKey).px;
 }
 
 /** Unwrap our own proxies to their current backing; leave everything else. */
 export function unwrapValue(v: any): any {
   if (v == null || typeof v !== "object") return v;
   const t: StoreNextTarget | undefined = v[$TARGET];
-  if (t !== undefined && t.x === v && t.b !== undefined) return t.pb ?? t.b;
+  if (t !== undefined && t.px === v && t.v !== undefined) return t.pb ?? t.v;
   return v;
 }
 
@@ -142,7 +164,7 @@ function markDescendants(target: StoreNextTarget): void {
   let t: StoreNextTarget | null = target;
   while (t && !t.d) {
     t.d = true;
-    t = t.p;
+    t = t.u;
   }
 }
 
@@ -176,7 +198,7 @@ function cloneRaw(source: Record<PropertyKey, any>, t?: StoreNextTarget): Record
 function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
   let pb = target.pb;
   if (pb === null) {
-    pb = target.pb = cloneRaw(target.b, target);
+    pb = target.pb = cloneRaw(target.v, target);
     ownedRaw.add(pb);
     storeNextLookup.set(pb, target);
     queueFold(target);
@@ -196,7 +218,7 @@ export function adoptPB(target: StoreNextTarget, incoming: Record<PropertyKey, a
   queueFold(target); // records the pre-batch old before we swap
   target.pb = null;
   target.adopted = true;
-  target.b = incoming;
+  target.v = incoming;
   storeNextLookup.set(incoming, target);
   if (__TEST__ && ingestedRaw && !ownedRaw.has(incoming)) ingestedRaw.add(incoming);
 }
@@ -210,20 +232,20 @@ function queueFold(target: StoreNextTarget): void {
     }
     schedule(); // once per batch — drain clears the map
   }
-  foldOlds.set(target, target.b);
+  foldOlds.set(target, target.v);
 }
 
 /** Committed-time privatization for parent-chain slot updates (path copying). */
 function privatizeCommitted(target: StoreNextTarget): void {
-  if (ownedRaw.has(target.b)) return;
-  const clone = cloneRaw(target.b, target);
+  if (ownedRaw.has(target.v)) return;
+  const clone = cloneRaw(target.v, target);
   ownedRaw.add(clone);
   storeNextLookup.set(clone, target);
-  target.b = clone;
-  if (target.p) {
-    privatizeCommitted(target.p);
-    devAssertNeverUserMutation(target.p.b);
-    target.p.b[target.pk!] = target.b;
+  target.v = clone;
+  if (target.u) {
+    privatizeCommitted(target.u);
+    devAssertNeverUserMutation(target.u.v);
+    target.u.v[target.pk!] = target.v;
   }
 }
 
@@ -253,19 +275,19 @@ function drainFolds(): void {
         foldOlds.set(t, old); // re-queue: commit happens when the hold settles
         continue;
       }
-      t.b = pb;
+      t.v = pb;
       t.pb = null;
     }
-    if (t.b === old) continue; // adopted then re-adopted back, or no-op
+    if (t.v === old) continue; // adopted then re-adopted back, or no-op
     // Path copying: the parent's committed slot must point at the new backing.
-    if (t.p && t.p.b[t.pk!] !== t.b) {
-      privatizeCommitted(t.p);
-      devAssertNeverUserMutation(t.p.b);
-      t.p.b[t.pk!] = t.b;
+    if (t.u && t.u.v[t.pk!] !== t.v) {
+      privatizeCommitted(t.u);
+      devAssertNeverUserMutation(t.u.v);
+      t.u.v[t.pk!] = t.v;
     }
     if (t.adopted) {
       t.adopted = false;
-      notifyFold(t, old, t.b);
+      notifyFold(t, old, t.v);
     }
   }
 }
@@ -281,7 +303,21 @@ function drainFolds(): void {
 function notifyWrites(t: StoreNextTarget): void {
   const pb = t.pb;
   if (pb === null) return;
-  const old = t.b;
+  const old = t.v;
+  // Devtools mutation hook: full-key diff (dev-only cost) so unobserved
+  // writes report too, matching the legacy set-trap hook.
+  if (__DEV__ && DEV.hooks.onStoreNodeUpdate) {
+    for (const key of Reflect.ownKeys(pb)) {
+      if (Array.isArray(pb) && key === "length") continue;
+      const ov = old[key as any];
+      const nv = pb[key as any];
+      if (!isEqual(ov, nv)) DEV.hooks.onStoreNodeUpdate(t.px, key, nv, ov);
+    }
+    for (const key of Reflect.ownKeys(old)) {
+      if (key in pb) continue;
+      DEV.hooks.onStoreNodeUpdate(t.px, key, undefined, old[key as any]);
+    }
+  }
   const nodes = t.n;
   if (nodes !== null) {
     for (const key of Reflect.ownKeys(nodes)) {
@@ -422,7 +458,7 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
   // context-free reads see committed. Node reads apply the same rule, so
   // both homes agree during the window.
   if (target.pb !== null && (writing || inOwnerContext())) return target.pb;
-  return target.b;
+  return target.v;
 }
 
 /** Scan-once accessor detection (first trap read): sets `a` definitively so
@@ -481,10 +517,19 @@ const traps: ProxyHandler<StoreNextTarget> = {
   get(target, key, receiver) {
     if (key === $TARGET) return target;
     if (key === $PROXY) return receiver;
+    if (pendingCheckActive) witnessAffectsMark(target as any, key);
     const src = readSource(target);
     if (key === $TRACK) {
       if (!writing && getObserver() !== null) readNode(getKeySetNode(target));
       return undefined;
+    }
+    // Dev strictRead: untracked store reads in labeled scopes (component
+    // bodies, effect callbacks) warn — the value can never update the reader.
+    if (__DEV__ && strictRead && !writing && typeof key === "string" && getObserver() === null) {
+      warnStrictReadUntracked(strictRead, {
+        nodeName: key,
+        data: { strictRead, property: key, source: "store" }
+      });
     }
     if (!target.sc) scanAccessors(target, src);
     if (target.a) {
@@ -528,6 +573,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
 
   has(target, key) {
     if (key === $TARGET || key === $PROXY || key === $TRACK) return true;
+    if (pendingCheckActive) witnessAffectsMark(target as any, key);
     const src = readSource(target);
     const present = key in src;
     if (!writing && getObserver() !== null) readNode(getHasNode(target, key, present));
@@ -535,6 +581,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
   },
 
   ownKeys(target) {
+    if (pendingCheckActive) witnessAffectsMark(target as any);
     if (!writing && getObserver() !== null) readNode(getKeySetNode(target));
     return Reflect.ownKeys(readSource(target));
   },
@@ -599,6 +646,7 @@ export function createStoreNext<T extends Record<PropertyKey, any>>(
 ): [T, SetStoreNextFunction<T>] {
   const proxy = wrapNext(init);
   const target: StoreNextTarget = (proxy as any)[$TARGET];
+  if (__DEV__) registerGraph(proxy, getOwner());
   const setter: SetStoreNextFunction<T> = fn => {
     if (__DEV__) devGuardStoreSetterWrite();
     writing++;
@@ -631,7 +679,7 @@ export function createStoreNext<T extends Record<PropertyKey, any>>(
 export function isNextProxy(value: any): boolean {
   if (value == null || typeof value !== "object") return false;
   const t: StoreNextTarget | undefined = value[$TARGET];
-  return t !== undefined && t.x === value && t.b !== undefined;
+  return t !== undefined && t.px === value && t.v !== undefined;
 }
 
 /** Tracking deep snapshot (`deep()` for next targets): subscribes to the
@@ -678,16 +726,44 @@ function snapshotWalk(value: any, seen: Map<object, any>): any {
   // current backing (stale raw pointers through other parents resolve here).
   let src = value;
   const t: StoreNextTarget | undefined =
-    value[$TARGET]?.b !== undefined ? value[$TARGET] : storeNextLookup.get(value);
-  if (t !== undefined) src = t.pb ?? t.b;
+    value[$TARGET]?.v !== undefined ? value[$TARGET] : storeNextLookup.get(value);
+  if (t !== undefined) src = t.pb ?? t.v;
   if (!isWrappable(src)) return src;
   const cached = seen.get(src);
   if (cached !== undefined) return cached;
+
+  // OWNED (written) subtrees snapshot as copies (§7b: identity is only for
+  // subtrees "unmodified relative to source"): non-enumerable symbols are
+  // excluded (recon-snap R29), and the copy registers BEFORE descent so
+  // cycles keep identity (FINDING-3).
+  if (ownedRaw.has(src)) {
+    const isArr = Array.isArray(src);
+    const copy: any = isArr ? [] : Object.create(Object.getPrototypeOf(src));
+    seen.set(src, copy);
+    for (const key of Reflect.ownKeys(src)) {
+      if (isArr && key === "length") continue;
+      const desc = Object.getOwnPropertyDescriptor(src, key)!;
+      if (typeof key === "symbol" && !desc.enumerable) continue;
+      if (desc.get || desc.set) {
+        Object.defineProperty(copy, key, desc);
+        continue;
+      }
+      const cv = desc.value;
+      const walked = cv !== null && typeof cv === "object" ? snapshotWalk(cv, seen) : cv;
+      if (desc.enumerable && desc.writable && desc.configurable) copy[key] = walked;
+      else Object.defineProperty(copy, key, { ...desc, value: walked });
+    }
+    if (isArr && copy.length !== (src as any[]).length) copy.length = (src as any[]).length;
+    return copy;
+  }
+
+  // UNOWNED (shared/user) subtrees keep identity unless a descendant
+  // substituted; copy-on-substitution preserves the documented CoW contract.
   seen.set(src, src);
   let copy: any = null;
   for (const key of Reflect.ownKeys(src)) {
     const desc = Object.getOwnPropertyDescriptor(src, key);
-    if (!desc || desc.get || desc.set) continue; // accessors stay live on the copy path? served as-is
+    if (!desc || desc.get || desc.set) continue;
     const cv = desc.value;
     if (cv === null || typeof cv !== "object") continue;
     const walked = snapshotWalk(cv, seen);

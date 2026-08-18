@@ -377,7 +377,14 @@ raw object. Mechanics:
 - **O3**: does `applyStateFast` survive phase 1? Re-measure after lazy
   creation; expectation: delete (33ms measured benefit pre-laziness, large
   module weight).
-- **O4**: shallow stores / `markRaw` interaction with the key-set node.
+- **O4 (reframed 2026-08-18, Ryan)**: shallow exists ONLY for performance —
+  "if I could retire it I would." Shallow is therefore NOT a port target: it
+  routes to the legacy implementation via the dispatcher indefinitely, and
+  the shallow column in the dbmon harness is the **retirement bar** — if
+  deep-next's tick closes on it, shallow gets deleted (API, implementation,
+  tests, size share) instead of ported. Interop (legacy shallow nested in
+  next deep stores, sticky raw-marking, cross-implementation dedupe) is done
+  and is the full extent of shallow investment.
 - **O5**: symbol keys, class instances, frozen objects — enumerate current
   suite coverage, port as rules.
 - **O6**: node committed-value storage — if nodes are literal core signals,

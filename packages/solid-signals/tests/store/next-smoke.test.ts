@@ -89,9 +89,9 @@ describe("store-next increment 1", () => {
 
     // Backing privatized (owned), original still resolves to the same proxy.
     expect(storeNextLookup.get(source)).toBeDefined();
-    expect(ownedRaw.has(storeNextLookup.get(source)!.b)).toBe(true);
-    expect(storeNextLookup.get(source)!.b).not.toBe(source);
-    expect(storeNextLookup.get(source)!.x).toBe(s);
+    expect(ownedRaw.has(storeNextLookup.get(source)!.v)).toBe(true);
+    expect(storeNextLookup.get(source)!.v).not.toBe(source);
+    expect(storeNextLookup.get(source)!.px).toBe(s);
   });
 
   it("writes outside the setter are silently ignored", () => {
@@ -115,7 +115,7 @@ describe("store-next increment 1", () => {
     // Post-flush, the write-created node was swept (no subscribers).
     expect(target.n?.a).toBeUndefined();
     // Committed value lives in owned backing alone (single home).
-    expect(target.b.a).toBe(42);
+    expect(target.v.a).toBe(42);
   });
 
   it("key add and delete round-trip", () => {
