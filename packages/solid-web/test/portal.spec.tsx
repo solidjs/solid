@@ -92,6 +92,49 @@ describe("Testing Portal delegated event containers", () => {
     mount.remove();
   });
 
+  test("delegated event targeting the render root itself does not crash with a body portal (#3008)", () => {
+    const root = document.createElement("div");
+    const calls: string[] = [];
+    let portalButton!: HTMLButtonElement;
+    const errors: unknown[] = [];
+    const onError = (e: ErrorEvent) => {
+      errors.push(e.error);
+      e.preventDefault();
+    };
+
+    document.body.appendChild(root);
+    window.addEventListener("error", onError);
+    const dispose = render(
+      () => (
+        <section onClick={() => calls.push("logical")}>
+          <Portal>
+            <button ref={portalButton} onClick={() => calls.push("portal")} />
+          </Portal>
+        </section>
+      ),
+      root
+    );
+
+    try {
+      // Both delegated containers exist now: root (from render) and body (from
+      // the Portal). An event whose target is the render root itself — pointer
+      // events over the app background in a real app — used to make body's
+      // resume path climb past #document and throw in walkUpTree.
+      root.click();
+
+      expect(errors).toEqual([]);
+      expect(calls).toEqual([]);
+
+      // The portal segment still works after the root-targeted event.
+      portalButton.click();
+      expect(calls).toEqual(["portal", "logical"]);
+    } finally {
+      window.removeEventListener("error", onError);
+      dispose();
+      root.remove();
+    }
+  });
+
   test("inside-root portal mounts do not install extra delegated listeners", () => {
     const root = document.createElement("div");
     const mount = document.createElement("div");
