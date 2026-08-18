@@ -629,6 +629,27 @@ implementation, deduplicated across reports.
   (the DAG rule) covers the slots CAS declines. Also executed the RUL-12
   unkeyed-merge ruling: the two async yield-identity assertions rewritten to
   merge semantics (identity preserved) with ruling citations.
+- **2026-08-18n**: PROD TICK REGRESSION FOUND AND MOSTLY CLOSED. A
+  thermal-fair interleaved A/B (both fixtures open, samples alternating
+  per round — sign test immune to drift; octane-dbmon-local/interleave.mjs)
+  exposed what block-ordered runs and the dev-mode in-process bench had
+  masked: dbmon tick was +1.4ms (~10%, 58/60 rounds) vs shipped. Profile
+  attribution: next's read path cost ~800ms/400 ticks vs legacy's ~470 —
+  raw-as-truth serves raw from nodes, so every tracked object read paid
+  wrapNext's WeakMap lookup + isWrappable, where LEGACY NODES STORED
+  PRE-WRAPPED VALUES. Fix: per-node wrap cache (node.px/pxv) — one pointer
+  compare serves the cached proxy; a replaced child fails the compare and
+  re-wraps (no invalidation, at most one stale proxy pinned until next
+  read). Result: tick +0.3–0.5ms (~3%), tickPartial ~parity, sort −0.2ms
+  (next wins 68/23). NEGATIVE RESULT recorded: removing notifyKeyValue's
+  pre-compare as "redundant with node equals" regressed partial ticks
+  badly (93/5) — setSignal parks pending + registers with the batch BEFORE
+  commit-time equality (RUL-1), so identity-preserved adopted containers
+  (every row's fresh queries array) must be gated out before setSignal.
+  Reverted with the rationale inlined. Residual ~3% tick attribution:
+  isWrappable call volume in the adopt walk (+78ms/400 ticks) + thin
+  spread; the phase-2 edit-script channel replaces this walk for keyed
+  arrays, so further micro-tuning here may be moot.
 - **2026-08-18m**: LEGACY DELETED. The remaining prerequisites landed in two
   commits: fam.shallow wired shallow derived/optimistic forms to next's t.s
   slot semantics — with the serve rule corrected to exact #2932 parity

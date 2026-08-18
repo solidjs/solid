@@ -182,6 +182,14 @@ function getNode(target: StoreNextTarget, key: PropertyKey, current: any): Signa
     // Accessor-ness resolved ONCE per node (no per-object descriptor scan):
     // accessor keys serve through Reflect.get with the proxy receiver.
     (created as any).acc = isOwnAccessor(target.pb ?? target.v, key);
+    // Wrap cache: the proxy last served for this key and the raw it wrapped.
+    // Raw-as-truth stores raw in nodes, so every object read needs a wrapper;
+    // one pointer compare (pxv === value) replaces the per-read WeakMap
+    // lookup in wrapNext — the dominant read-path cost vs legacy, whose
+    // nodes stored pre-wrapped values. A replaced child fails the compare
+    // and re-wraps; at most one stale proxy is pinned until the next read.
+    (created as any).px = undefined;
+    (created as any).pxv = undefined;
     // Optimistic families: arm the override slot — setSignal routes armed
     // nodes through the core engine (lanes, ownership, reverts all native).
     if (target.fam?.opt) created._overrideValue = NOT_PENDING;
@@ -698,6 +706,11 @@ export function notifyKeyValue(
     notifyKeyDiff(node, key, old, neu, false);
     return;
   }
+  // The pre-compare is NOT redundant with the node's equals: setSignal parks
+  // a pending value and registers with the batch before equality applies at
+  // commit (RUL-1), so identity-preserved slots (adopted child containers —
+  // every row's fresh `queries` array) must be gated out HERE or each one
+  // pays the full write machinery every tick (measured: +0.5ms/tick dbmon).
   if (!isEqual(ov, nv) && !targetsEqual(ov, nv))
     setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
 }
@@ -1038,7 +1051,18 @@ function serveDataKey(
   }
   // Shallow stores serve data raw; store-proxy slots get boundary wrappers.
   if (target.s) return serveShallow(target, key, v);
-  return isWrappable(v) ? draftServe(target, wrapNext(v, target, key as any)) : v;
+  if (node !== undefined) {
+    // Wrap cache (see getNode): only wrappables are ever cached, so a hit
+    // skips isWrappable too — pointer-compare replaces both checks.
+    if ((node as any).pxv === v && v !== undefined) return draftServe(target, (node as any).px);
+    if (!isWrappable(v)) return v;
+    const p = wrapNext(v, target, key as any);
+    (node as any).px = p;
+    (node as any).pxv = v;
+    return draftServe(target, p);
+  }
+  if (!isWrappable(v)) return v;
+  return draftServe(target, wrapNext(v, target, key as any));
 }
 
 /** §6c store-wide status gate for reads that DON'T flow through a node:
@@ -1092,7 +1116,14 @@ const traps: ProxyHandler<StoreNextTarget> = {
         if (nv === READ_SLOW) nv = readNode(nodeH);
         if (nv === null || typeof nv !== "object") return nv;
         if (target.s) return serveShallow(target, key, nv);
-        return isWrappable(nv) ? wrapNext(nv, target, key) : nv;
+        if ((nodeH as any).pxv === nv) return (nodeH as any).px;
+        if (isWrappable(nv)) {
+          const p = wrapNext(nv, target, key);
+          (nodeH as any).px = p;
+          (nodeH as any).pxv = nv;
+          return p;
+        }
+        return nv;
       }
     }
     // Dev strictRead: untracked store reads in labeled scopes (component
