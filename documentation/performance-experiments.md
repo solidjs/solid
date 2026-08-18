@@ -6800,3 +6800,28 @@ partial suspects: per-child adoption bookkeeping on value-identical rows
 (registration WeakMap.set + adopted-flag bookkeeping per query array/row
 even when every key ===-continues). Browser re-validation owed on a cool
 machine with the current build.
+
+### A/B corrected for __TEST__ machinery (benchmark mode)
+
+Discovery: default vitest runs define `__TEST__: true`, which makes next pay
+its invariant oracles (ingestedRaw WeakSet add PER ADOPTION, no-mutation
+assertions on privatize/fold paths) that legacy has no equivalent of — the
+earlier A/B numbers overstated next's cost. `--mode benchmark` strips them
+(vite.config.ts already provided the mode).
+
+Two benchmark-mode runs, same command minutes apart (means):
+
+| bench | run 1 | run 2 |
+|---|---|---|
+| full tick next/legacy | 129.5/160.8 = **0.81x** | 139.8/132.0 = 1.06x |
+| partial next/legacy | 140.4/131.2 = 1.07x | 155.5/136.8 = 1.14x |
+| partial MINS | 115.5/114.8 = 1.01x | 128.7/117.5 = 1.10x |
+
+Verdict: full-tick oscillates AROUND parity (0.81–1.06x) — no measurable
+regression remains, and no stable win either; partial reads 1.0–1.14x.
+Cross-run variance (bench order, GC epochs, end-of-day thermals) now
+exceeds the effect size even in-process. STOP MEASURING HERE. Definitive
+read = cool machine, first runs of the day, both A/B runs repeated 3x,
+report min-of-means per side. Measurement rule going forward: any
+next-vs-legacy claim must come from `--mode benchmark` (the __TEST__
+asymmetry biases default-mode numbers against next).
