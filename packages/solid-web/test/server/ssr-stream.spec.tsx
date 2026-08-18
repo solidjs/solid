@@ -283,6 +283,7 @@ describe("SSR Streaming — Basic Rendering", () => {
     const manifest = { "./Boom.tsx": { file: "assets/boom.js" } };
     const LazyBoom = lazy(
       () => new Promise<any>((_, rej) => setTimeout(() => rej(new Error("lazy failed")), 10)),
+      undefined,
       "./Boom.tsx"
     ) as any;
 
@@ -1226,7 +1227,7 @@ describe("SSR Streaming — Asset Discovery", () => {
     };
 
     const Home = (props: any) => <div>Home Content</div>;
-    const LazyHome = lazy(() => asyncValue({ default: Home }), "./Home.tsx");
+    const LazyHome = lazy(() => asyncValue({ default: Home }), undefined, "./Home.tsx");
     await LazyHome.preload!();
 
     function App() {
@@ -1252,7 +1253,7 @@ describe("SSR Streaming — Asset Discovery", () => {
 
   test("lazy with no manifest throws during render", async () => {
     const Home = (props: any) => <div>Home</div>;
-    const LazyHome = lazy(() => asyncValue({ default: Home }), "./Home.tsx");
+    const LazyHome = lazy(() => asyncValue({ default: Home }), undefined, "./Home.tsx");
     await LazyHome.preload!();
 
     function App() {
@@ -1282,8 +1283,8 @@ describe("SSR Streaming — Asset Discovery", () => {
 
     const CompA = () => <div>A</div>;
     const CompB = () => <div>B</div>;
-    const LazyA = lazy(() => asyncValue({ default: CompA }), "./A.tsx");
-    const LazyB = lazy(() => asyncValue({ default: CompB }), "./B.tsx");
+    const LazyA = lazy(() => asyncValue({ default: CompA }), undefined, "./A.tsx");
+    const LazyB = lazy(() => asyncValue({ default: CompB }), undefined, "./B.tsx");
     await LazyA.preload!();
     await LazyB.preload!();
 
@@ -1320,6 +1321,7 @@ describe("SSR Streaming — Asset Discovery", () => {
     const Comp = () => <div>Streamed</div>;
     const LazyComp = lazy(
       () => new Promise<{ default: typeof Comp }>(r => setTimeout(() => r({ default: Comp }), 20)),
+      undefined,
       "./Lazy.tsx"
     );
 
@@ -1352,7 +1354,7 @@ describe("SSR Streaming — Asset Discovery", () => {
     };
 
     const Comp = () => <div>Content</div>;
-    const LazyComp = lazy(() => asyncValue({ default: Comp }), "./Comp.tsx");
+    const LazyComp = lazy(() => asyncValue({ default: Comp }), undefined, "./Comp.tsx");
     await LazyComp.preload!();
 
     function App() {
@@ -1390,7 +1392,7 @@ describe("SSR Streaming — Asset Discovery", () => {
     };
 
     const InnerComp = () => <span>Inner</span>;
-    const LazyInner = lazy(() => asyncValue({ default: InnerComp }, 10), "./Inner.tsx");
+    const LazyInner = lazy(() => asyncValue({ default: InnerComp }, 10), undefined, "./Inner.tsx");
 
     const OuterComp = () => (
       <div>
@@ -1405,6 +1407,7 @@ describe("SSR Streaming — Asset Discovery", () => {
         new Promise<{ default: typeof OuterComp }>(r =>
           setTimeout(() => r({ default: OuterComp }), 20)
         ),
+      undefined,
       "./Outer.tsx"
     );
 
@@ -1435,7 +1438,7 @@ describe("SSR Streaming — Asset Discovery", () => {
     };
 
     const InnerComp = () => <span>InnerContent</span>;
-    const LazyInner = lazy(() => asyncValue({ default: InnerComp }, 5), "./Inner.tsx");
+    const LazyInner = lazy(() => asyncValue({ default: InnerComp }, 5), undefined, "./Inner.tsx");
 
     function App() {
       const slowData = createMemo(async () => asyncValue("SlowData", 40));
@@ -1487,8 +1490,8 @@ describe("SSR Streaming — Asset Discovery", () => {
       return <main data-page="product">{product()}</main>;
     };
     const Widget = () => <aside data-widget="support">Chat with support</aside>;
-    const LazyRoute = lazy(() => asyncValue({ default: Route }), "./Route.tsx");
-    const LazyWidget = lazy(() => asyncValue({ default: Widget }), "./Widget.tsx");
+    const LazyRoute = lazy(() => asyncValue({ default: Route }), undefined, "./Route.tsx");
+    const LazyWidget = lazy(() => asyncValue({ default: Widget }), undefined, "./Widget.tsx");
     await LazyRoute.preload!();
     await LazyWidget.preload!();
 
@@ -1537,7 +1540,7 @@ describe("SSR Streaming — CSS Asset Handling", () => {
     };
 
     const Comp = () => <div>Content</div>;
-    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), "./Comp.tsx");
+    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), undefined, "./Comp.tsx");
     await LazyComp.preload!();
     const gate = deferred<string>();
 
@@ -1580,7 +1583,11 @@ describe("SSR Streaming — CSS Asset Handling", () => {
     };
 
     const StyledComp = () => <div>Styled</div>;
-    const LazyStyled = lazy(() => Promise.resolve({ default: StyledComp }), "./Styled.tsx");
+    const LazyStyled = lazy(
+      () => Promise.resolve({ default: StyledComp }),
+      undefined,
+      "./Styled.tsx"
+    );
     await LazyStyled.preload!();
     const gate = deferred<string>();
 
@@ -1632,11 +1639,11 @@ describe("SSR Streaming — CSS Asset Handling", () => {
     };
 
     const CompA = () => <div>A</div>;
-    const LazyA = lazy(() => asyncValue({ default: CompA }), "./A.tsx");
+    const LazyA = lazy(() => asyncValue({ default: CompA }), undefined, "./A.tsx");
     await LazyA.preload!();
 
     const CompB = () => <div>B</div>;
-    const LazyB = lazy(() => Promise.resolve({ default: CompB }), "./B.tsx");
+    const LazyB = lazy(() => Promise.resolve({ default: CompB }), undefined, "./B.tsx");
     await LazyB.preload!();
     const gate = deferred<string>();
 
@@ -1693,7 +1700,7 @@ describe("renderToString — Asset Discovery", () => {
     };
 
     const Home = (props: any) => <div>Home Content</div>;
-    const LazyHome = lazy(() => asyncValue({ default: Home }), "./Home.tsx");
+    const LazyHome = lazy(() => asyncValue({ default: Home }), undefined, "./Home.tsx");
 
     const html = renderToString(
       () => (
@@ -1721,7 +1728,7 @@ describe("renderToString — Asset Discovery", () => {
     };
 
     const Comp = () => <div>Content</div>;
-    const LazyComp = lazy(() => asyncValue({ default: Comp }), "./Comp.tsx");
+    const LazyComp = lazy(() => asyncValue({ default: Comp }), undefined, "./Comp.tsx");
 
     const html = renderToString(
       () => (
@@ -1757,8 +1764,8 @@ describe("renderToString — Asset Discovery", () => {
 
     const CompA = () => <div>A</div>;
     const CompB = () => <div>B</div>;
-    const LazyA = lazy(() => asyncValue({ default: CompA }), "./A.tsx");
-    const LazyB = lazy(() => asyncValue({ default: CompB }), "./B.tsx");
+    const LazyA = lazy(() => asyncValue({ default: CompA }), undefined, "./A.tsx");
+    const LazyB = lazy(() => asyncValue({ default: CompB }), undefined, "./B.tsx");
 
     const html = renderToString(
       () => (
@@ -1790,7 +1797,7 @@ describe("renderToString — Asset Discovery", () => {
     };
 
     const Home = () => <div>Home</div>;
-    const LazyHome = lazy(() => asyncValue({ default: Home }), "./Home.tsx");
+    const LazyHome = lazy(() => asyncValue({ default: Home }), undefined, "./Home.tsx");
 
     const html = renderToString(
       () => (
@@ -1817,7 +1824,7 @@ describe("renderToString — Asset Discovery", () => {
     };
 
     const Profile = (props: any) => <div>{props.name}</div>;
-    const LazyProfile = lazy(() => asyncValue({ default: Profile }), "./Profile.tsx");
+    const LazyProfile = lazy(() => asyncValue({ default: Profile }), undefined, "./Profile.tsx");
 
     function App() {
       const data = createMemo(() => asyncValue("Jon", 100));
@@ -1848,7 +1855,7 @@ describe("renderToString — Asset Discovery", () => {
 
   test("lazy with no manifest throws", () => {
     const Home = () => <div>Home</div>;
-    const LazyHome = lazy(() => asyncValue({ default: Home }), "./Home.tsx");
+    const LazyHome = lazy(() => asyncValue({ default: Home }), undefined, "./Home.tsx");
 
     expect(() =>
       renderToString(() => (
@@ -1879,7 +1886,7 @@ describe("Entry CSS Auto-Discovery", () => {
     };
 
     const Comp = () => <div>Content</div>;
-    const LazyComp = lazy(() => asyncValue({ default: Comp }), "./Lazy.tsx");
+    const LazyComp = lazy(() => asyncValue({ default: Comp }), undefined, "./Lazy.tsx");
     await LazyComp.preload!();
 
     function App() {
@@ -1977,7 +1984,7 @@ describe("Entry CSS Auto-Discovery", () => {
     };
 
     const Comp = () => <div>Styled</div>;
-    const LazyComp = lazy(() => asyncValue({ default: Comp }), "./Styled.tsx");
+    const LazyComp = lazy(() => asyncValue({ default: Comp }), undefined, "./Styled.tsx");
     await LazyComp.preload!();
 
     function App() {
@@ -2117,6 +2124,7 @@ describe("SSR — Fragment wrapping props.children", () => {
         new Promise<{ default: typeof HomeContent }>(r =>
           setTimeout(() => r({ default: HomeContent }), 10)
         ),
+      undefined,
       "./Home"
     );
 

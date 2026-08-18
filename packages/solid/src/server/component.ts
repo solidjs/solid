@@ -74,11 +74,16 @@ export function createComponent<T extends Record<string, any>>(
  * On server, returns a createMemo that throws NotReadyError until the module resolves,
  * allowing resolveSSRNode to capture it as a fine-grained hole. The memo naturally
  * scopes the owner so hydration IDs align with the client's createMemo in lazy().
- * The bundler plugin injects `moduleUrl` (the module specifier) so the server
- * can look up client chunk URLs from the asset manifest. When no callsite
- * `moduleUrl` exists (e.g. `lazy` over an `import.meta.glob` entry), asset
- * resolution defers until the import resolves and reads the module's
- * bundler-injected `$$moduleUrl` export instead.
+ * The component is the resolved module's default export, or the export named
+ * by the `{ export }` option (a call-site literal, so the client half can
+ * resolve the same export synchronously during hydration).
+ *
+ * The bundler plugin injects `moduleUrl` (the module specifier, third
+ * argument) so the server can look up client chunk URLs from the asset
+ * manifest. When no callsite `moduleUrl` exists (e.g. `lazy` over an
+ * `import.meta.glob` entry), asset resolution defers until the import
+ * resolves and reads the module's bundler-injected `$$moduleUrl` export
+ * instead.
  *
  * The returned component's `moduleUrl` property resolves through the active
  * request's asset manifest: inside SSR it returns the client-loadable entry
@@ -88,13 +93,25 @@ export function createComponent<T extends Record<string, any>>(
  * modulepreload hint for the module's chunks — accessing the resolved client
  * URL on the server is treated as a declaration that the client will fetch it.
  */
+export function lazy<M extends Record<string, any>, K extends keyof M & string>(
+  fn: () => Promise<M>,
+  options: { export: K },
+  moduleUrl?: string
+): M[K] & { preload: () => Promise<M>; moduleUrl?: string };
 export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>,
+  options?: { export?: string },
   moduleUrl?: string
-): T & { preload: () => Promise<{ default: T }>; moduleUrl?: string } {
-  type LoadingModule = Promise<{ default: T }> & {
+): T & { preload: () => Promise<{ default: T }>; moduleUrl?: string };
+export function lazy<T extends Component<any>>(
+  fn: () => Promise<any>,
+  options?: { export?: string },
+  moduleUrl?: string
+): T & { preload: () => Promise<any>; moduleUrl?: string } {
+  const exportName = options?.export;
+  type LoadingModule = Promise<any> & {
     v?: T;
-    mod?: { default: T };
+    mod?: Record<string, any>;
     error?: unknown;
     errored?: boolean;
   };
@@ -103,12 +120,12 @@ export function lazy<T extends Component<any>>(
     if (p) return p;
     const cur = (p = fn() as LoadingModule);
     cur.then(
-      mod => {
-        // The full namespace is kept alongside the default export so a
+      (mod: any) => {
+        // The full namespace is kept alongside the resolved component so a
         // post-load re-creation can read `$$moduleUrl` synchronously (see
         // the deferred registration path below).
         cur.mod = mod;
-        cur.v = mod.default;
+        cur.v = exportName ? mod[exportName] : mod.default;
       },
       err => {
         // Capture the rejection so the SSR render path can surface it to
@@ -130,7 +147,7 @@ export function lazy<T extends Component<any>>(
     return cur;
   };
   const wrap: Component<ComponentProps<T>> & {
-    preload?: () => Promise<{ default: T }>;
+    preload?: () => Promise<any>;
     moduleUrl?: string;
   } = props => {
     const noHydrate = getContext(NoHydrateContext);
@@ -335,7 +352,7 @@ export function lazy<T extends Component<any>>(
     configurable: true,
     enumerable: true
   });
-  return wrap as T & { preload: () => Promise<{ default: T }>; moduleUrl?: string };
+  return wrap as T & { preload: () => Promise<any>; moduleUrl?: string };
 }
 
 export function createUniqueId(): string {

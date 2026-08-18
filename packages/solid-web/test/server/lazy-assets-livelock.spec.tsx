@@ -95,7 +95,11 @@ describe("lazy() converges across re-creations with an async asset resolver", ()
   });
 
   test("explicit-moduleUrl lazy settles instead of livelocking", async () => {
-    const Child = lazy(() => Promise.resolve({ default: () => <b>keyed-child</b> }), "./Keyed.tsx");
+    const Child = lazy(
+      () => Promise.resolve({ default: () => <b>keyed-child</b> }),
+      undefined,
+      "./Keyed.tsx"
+    );
     const counter = { creations: 0 };
 
     const html = await renderComplete(

@@ -1,4 +1,4 @@
-import { merge, omit } from "../src/index.js";
+import { lazy, merge, omit, type Component } from "../src/index.js";
 
 type Assert<T extends true> = never;
 // from: https://github.com/Microsoft/TypeScript/issues/27024#issuecomment-421529650
@@ -178,3 +178,36 @@ function M4<T extends keyof M4Type = "a">(
 const s1 = omit({ a: 1, b: 2 }, "a");
 type S1 = typeof s1;
 type TestS1 = Assert<IsExact<S1, { b: number }>>;
+
+// l1-l3: lazy() inference for default and named exports
+{
+  const HomePage: Component<{ name: string }> = props => props.name;
+  const AboutPage: Component<{ title: string }> = props => props.title;
+  const mod = Promise.resolve({ default: HomePage });
+  const pages = Promise.resolve({ HomePage, AboutPage });
+
+  // l1: default-export form infers the component's props
+  const l1 = lazy(() => mod);
+  type L1Props = Parameters<typeof l1>[0];
+  type TestL1 = Assert<IsExact<L1Props, { name: string }>>;
+
+  // l2: { export } form infers props from the named export
+  const l2 = lazy(() => pages, { export: "AboutPage" });
+  type L2Props = Parameters<typeof l2>[0];
+  type TestL2 = Assert<IsExact<L2Props, { title: string }>>;
+  // preload resolves the module namespace
+  type TestL2Preload = Assert<
+    IsExact<
+      Awaited<ReturnType<typeof l2.preload>>,
+      { HomePage: Component<{ name: string }>; AboutPage: Component<{ title: string }> }
+    >
+  >;
+
+  // l3: a typo in the export name is a compile error
+  // @ts-expect-error "AboutPag" is not an export of the module
+  lazy(() => pages, { export: "AboutPag" });
+
+  // l4: moduleUrl no longer fits in the second slot
+  // @ts-expect-error moduleUrl moved to the third argument
+  lazy(() => mod, "./Home.tsx");
+}

@@ -50,7 +50,7 @@ describe("clientOnly preload hints", () => {
     // Third argument as the compiler's module-URL pass injects it.
     const Chart = clientOnly(() => Promise.resolve({ default: NeverRendered }), {}, "./Chart.tsx");
     const Widget = (_props: any) => <b>widget</b>;
-    const LazyWidget = lazy(() => Promise.resolve({ default: Widget }), "./Widget.tsx");
+    const LazyWidget = lazy(() => Promise.resolve({ default: Widget }), undefined, "./Widget.tsx");
 
     const html = await collect(
       () => (

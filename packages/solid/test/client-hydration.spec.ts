@@ -2484,6 +2484,7 @@ describe("lazy() hydration-aware rendering", () => {
     let result: any;
     const LazyComp = lazy(
       () => Promise.resolve({ default: (props: any) => `async ${props.name}` }),
+      undefined,
       "/assets/Comp.js"
     );
 
@@ -2526,6 +2527,98 @@ describe("lazy() hydration-aware rendering", () => {
     expect(result()).toBe("Hello World");
   });
 
+  test("cached module without a default export throws loudly in dev (#3011)", () => {
+    (globalThis as any)._$HY = {
+      modules: {
+        // A raw multi-export route chunk registered via $$moduleUrl passthrough
+        // — the named-export wrapper pattern. No default export.
+        t0: { HomePage: (props: any) => `Home ${props.name}` }
+      },
+      loading: {},
+      r: {},
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({});
+
+    // Wrapper selects the named export — lazy's fn contract is still honored
+    // ({ default }), but the PRELOADED module's default is undefined. Rendering
+    // it would silently orphan the server DOM, so dev fails loudly instead.
+    const LazyComp = lazy(() =>
+      Promise.resolve({ HomePage: (props: any) => `Home ${props.name}` }).then(m => ({
+        default: m.HomePage
+      }))
+    );
+
+    expect(() => {
+      createRoot(
+        () => {
+          LazyComp({ name: "World" });
+        },
+        { id: "t" }
+      );
+    }).toThrow(/"default" export is not a component/);
+  });
+
+  test("lazy with { export } hydrates the named export synchronously (#3011)", () => {
+    (globalThis as any)._$HY = {
+      modules: {
+        // Raw multi-export route chunk — no default export needed.
+        t0: {
+          HomePage: (props: any) => `Home ${props.name}`,
+          AboutPage: (props: any) => `About ${props.name}`
+        }
+      },
+      loading: {},
+      r: {},
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({});
+
+    let result: any;
+    const LazyComp = lazy(() => Promise.resolve({ HomePage: () => "async" } as any), {
+      export: "HomePage"
+    });
+
+    createRoot(
+      () => {
+        result = (LazyComp as any)({ name: "World" });
+      },
+      { id: "t" }
+    );
+
+    // Resolved synchronously from the preloaded namespace — no async hop.
+    expect(typeof result).toBe("function");
+    expect(result()).toBe("Home World");
+  });
+
+  test("lazy with { export } naming a missing export throws loudly in dev (#3011)", () => {
+    (globalThis as any)._$HY = {
+      modules: {
+        t0: { HomePage: () => "Home" }
+      },
+      loading: {},
+      r: {},
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({});
+
+    const LazyComp = lazy(() => Promise.resolve({ HomePage: () => "Home" } as any), {
+      export: "Missing"
+    });
+
+    expect(() => {
+      createRoot(
+        () => {
+          (LazyComp as any)({});
+        },
+        { id: "t" }
+      );
+    }).toThrow(/"Missing" export is not a component/);
+  });
+
   test("lazy throws when module not cached during hydration", () => {
     (globalThis as any)._$HY = {
       modules: {},
@@ -2538,6 +2631,7 @@ describe("lazy() hydration-aware rendering", () => {
 
     const LazyComp = lazy(
       () => Promise.resolve({ default: (props: any) => `resolved ${props.name}` }),
+      undefined,
       "/assets/Missing.js"
     );
 

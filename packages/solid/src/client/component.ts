@@ -85,7 +85,15 @@ export function createComponent<T extends Record<string, any>>(
  * boundary while the chunk is in flight. Call `.preload()` to start the
  * import early (e.g. on hover).
  *
- * @param fn dynamic import returning the module's default export
+ * @param fn dynamic import resolving the component's module. By default the
+ *   component must BE the module's default export (same contract as
+ *   React.lazy): hydration resolves it synchronously from the preloaded
+ *   module, so wrappers that select a named export at runtime are not
+ *   supported. To use a named export, pass `{ export: "Name" }` — the name is
+ *   a call-site literal available on both server and client, so the
+ *   synchronous hydration claim is preserved.
+ * @param options `{ export?: string }` — which export of the resolved module
+ *   is the component (defaults to `"default"`).
  * @param moduleUrl optional module specifier injected by the bundler
  *   integration; exposed as the component's `moduleUrl` property (islands)
  *   and used in hydration error messages. Hydration itself matches
@@ -95,6 +103,7 @@ export function createComponent<T extends Record<string, any>>(
  * @example
  * ```tsx
  * const Profile = lazy(() => import("./Profile"));
+ * const About = lazy(() => import("./pages"), { export: "About" });
  *
  * function App() {
  *   return (
@@ -108,18 +117,35 @@ export function createComponent<T extends Record<string, any>>(
  * <button onMouseEnter={() => Profile.preload()}>Open profile</button>
  * ```
  */
+export function lazy<M extends Record<string, any>, K extends keyof M & string>(
+  fn: () => Promise<M>,
+  options: { export: K },
+  moduleUrl?: string
+): M[K] & { preload: () => Promise<M>; moduleUrl?: string };
 export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>,
+  options?: { export?: string },
   moduleUrl?: string
-): T & { preload: () => Promise<{ default: T }>; moduleUrl?: string } {
+): T & { preload: () => Promise<{ default: T }>; moduleUrl?: string };
+export function lazy<T extends Component<any>>(
+  fn: () => Promise<any>,
+  options?: { export?: string },
+  moduleUrl?: string
+): T & { preload: () => Promise<any>; moduleUrl?: string } {
+  const exportName = options?.export;
+  if (IS_DEV && typeof options === "string")
+    throw new Error(
+      "lazy() moduleUrl moved to the third argument: lazy(fn, options?, moduleUrl?). " +
+        "Pass { export } options second, or undefined."
+    );
   let comp: (() => T | undefined) | undefined;
-  let p: Promise<{ default: T }> | undefined;
+  let p: Promise<any> | undefined;
   const load = () => {
     if (p) return p;
     const cur = (p = fn());
     cur.then(
-      mod => {
-        comp = () => mod.default as T;
+      (mod: any) => {
+        comp = () => (exportName ? mod[exportName] : mod.default) as T;
       },
       // Failed loads must not be cached: the platform re-fetches a failed
       // dynamic import, and an Errored reset() remounts expecting a retry.
@@ -135,7 +161,8 @@ export function lazy<T extends Component<any>>(
   };
   const wrap: T & { preload?: () => void; moduleUrl?: string } = ((props: any) => {
     // `hydrating` can only be true once enableHydration() installed the slot.
-    if (sharedConfig.hydrating) comp = _lazyHydrationLookup!(comp, moduleUrl) as () => T;
+    if (sharedConfig.hydrating)
+      comp = _lazyHydrationLookup!(comp, moduleUrl, exportName) as () => T;
     // The import (`p`) is shared across instances, but the memo tracking it
     // must be owned per instance: a shared memo dies with whichever instance
     // rendered first, stranding survivors mid-flight (#2915). load() runs
@@ -145,7 +172,9 @@ export function lazy<T extends Component<any>>(
     let local = comp;
     if (!local) {
       load();
-      local = createMemo<T>(() => load().then(mod => mod.default));
+      local = createMemo<T>(() =>
+        load().then((mod: any) => (exportName ? mod[exportName] : mod.default))
+      );
     }
 
     let Comp: T | undefined;

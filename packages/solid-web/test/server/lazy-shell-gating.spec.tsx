@@ -44,7 +44,11 @@ describe("lazy() under a boundary", () => {
 
   test("defers to the enclosing Loading instead of gating the shell", async () => {
     const Slow = (_props: any) => <b>content</b>;
-    const LazySlow = lazy(() => wait(DELAY).then(() => ({ default: Slow })), "./Slow.tsx");
+    const LazySlow = lazy(
+      () => wait(DELAY).then(() => ({ default: Slow })),
+      undefined,
+      "./Slow.tsx"
+    );
 
     const { shell, shellAt, html } = await collectTimed(
       () => (
@@ -64,7 +68,7 @@ describe("lazy() under a boundary", () => {
 
   test("a preloaded module still inlines with no fallback flash", async () => {
     const Fast = (_props: any) => <b>content</b>;
-    const LazyFast = lazy(() => Promise.resolve({ default: Fast }), "./Slow.tsx");
+    const LazyFast = lazy(() => Promise.resolve({ default: Fast }), undefined, "./Slow.tsx");
     await LazyFast.preload!();
 
     const { html } = await collectTimed(

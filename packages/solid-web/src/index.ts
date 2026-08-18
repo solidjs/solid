@@ -491,8 +491,12 @@ function createElement(tagName: string, is = undefined): HTMLElement | SVGElemen
   ) as HTMLElement | SVGElement | MathMLElement;
 }
 
-function loadClientOnly<T>(fn: () => Promise<{ default: T }>, setComp: Setter<T | undefined>) {
-  fn().then(m => setComp(() => m.default));
+function loadClientOnly<T>(
+  fn: () => Promise<any>,
+  setComp: Setter<T | undefined>,
+  exportName?: string
+) {
+  fn().then((m: any) => setComp(() => (exportName ? m[exportName] : m.default)));
 }
 
 /**
@@ -511,7 +515,8 @@ function loadClientOnly<T>(fn: () => Promise<{ default: T }>, setComp: Setter<T 
  *
  * By default the import starts as soon as `clientOnly` is called (module
  * load); pass `{ lazy: true }` to defer the import to the component's first
- * render.
+ * render. Pass `{ export: "Name" }` to use a named export of the resolved
+ * module instead of its default (mirrors `lazy()`'s option).
  *
  * @example
  * ```tsx
@@ -519,9 +524,19 @@ function loadClientOnly<T>(fn: () => Promise<{ default: T }>, setComp: Setter<T 
  * // <Chart fallback={<div>Loading chart…</div>} data={data()} />
  * ```
  */
+export function clientOnly<M extends Record<string, any>, K extends keyof M & string>(
+  fn: () => Promise<M>,
+  options: { lazy?: boolean; export: K },
+  moduleUrl?: string
+): Component<ComponentProps<M[K]> & { fallback?: JSX.Element }>;
 export function clientOnly<T extends Component<any>>(
   fn: () => Promise<{ default: T }>,
-  options: { lazy?: boolean } = {},
+  options?: { lazy?: boolean; export?: string },
+  moduleUrl?: string
+): Component<ComponentProps<T> & { fallback?: JSX.Element }>;
+export function clientOnly<T extends Component<any>>(
+  fn: () => Promise<any>,
+  options: { lazy?: boolean; export?: string } = {},
   // Injected by the bundler's module-URL pass; consumed only by the server
   // half (early modulepreload hints). The client ignores it — the import
   // thunk itself is the loader here.
@@ -529,7 +544,7 @@ export function clientOnly<T extends Component<any>>(
 ): Component<ComponentProps<T> & { fallback?: JSX.Element }> {
   const [comp, setComp] = createSignal<T>();
   let started = !options.lazy;
-  started && loadClientOnly(fn, setComp);
+  started && loadClientOnly(fn, setComp, options.export);
   return props => {
     let Comp: T | undefined;
     let m: boolean;
@@ -540,7 +555,7 @@ export function clientOnly<T extends Component<any>>(
     // re-run a side-effectful importer.
     if (!started) {
       started = true;
-      loadClientOnly(fn, setComp);
+      loadClientOnly(fn, setComp, options.export);
     }
     // Deliberately untracked fast path: an already-loaded module (fresh
     // render after the import settled) skips the gate machinery entirely.

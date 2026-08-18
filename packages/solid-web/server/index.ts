@@ -194,9 +194,19 @@ function registerClientOnlyPreload(moduleUrl: string): void {
  * they stay out of the hydration asset map. Without it (untransformed code)
  * or without a manifest, behavior is unchanged.
  */
+export function clientOnly<M extends Record<string, any>, K extends keyof M & string>(
+  fn: () => Promise<M>,
+  options: { lazy?: boolean; export: K },
+  moduleUrl?: string
+): Component<ComponentProps<M[K]> & { fallback?: JSX.Element }>;
 export function clientOnly<T extends Component<any>>(
-  _fn: () => Promise<{ default: T }>,
-  _options: { lazy?: boolean } = {},
+  fn: () => Promise<{ default: T }>,
+  options?: { lazy?: boolean; export?: string },
+  moduleUrl?: string
+): Component<ComponentProps<T> & { fallback?: JSX.Element }>;
+export function clientOnly<T extends Component<any>>(
+  _fn: () => Promise<any>,
+  _options: { lazy?: boolean; export?: string } = {},
   moduleUrl?: string
 ): Component<ComponentProps<T> & { fallback?: JSX.Element }> {
   return props => {

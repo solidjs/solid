@@ -447,6 +447,7 @@ describe("NoHydration / Hydration (server)", () => {
           get children() {
             const LazyComp = (lazy as any)(
               () => Promise.resolve({ default: () => "lazy content" }),
+              undefined,
               "lazy-module.js"
             );
             LazyComp({});
@@ -473,6 +474,7 @@ describe("NoHydration / Hydration (server)", () => {
       () => {
         const LazyComp = (lazy as any)(
           () => Promise.resolve({ default: () => "lazy content" }),
+          undefined,
           "lazy-module.js"
         );
         LazyComp({});
@@ -592,6 +594,7 @@ describe("NoHydration / Hydration (server)", () => {
 
     const LazyComp = lazy(
       () => Promise.resolve({ default: () => "static lazy content" as any }),
+      undefined,
       "lazy-module.js"
     );
     await LazyComp.preload();
@@ -641,6 +644,7 @@ describe("NoHydration / Hydration (server)", () => {
     sharedConfig.context = undefined;
     const LazyComp = lazy(
       () => Promise.resolve({ default: () => "content" }),
+      undefined,
       "/assets/MyComp-abc123.js"
     );
     expect(LazyComp.moduleUrl).toBe("/assets/MyComp-abc123.js");
@@ -655,7 +659,11 @@ describe("NoHydration / Hydration (server)", () => {
     const { context } = createMockSSRContext({ async: true });
     sharedConfig.context = context;
 
-    const LazyComp = lazy(() => Promise.resolve({ default: () => "content" }), "src/MyComp.tsx");
+    const LazyComp = lazy(
+      () => Promise.resolve({ default: () => "content" }),
+      undefined,
+      "src/MyComp.tsx"
+    );
     // The mock manifest resolves every id to js: ["module.js"].
     expect(LazyComp.moduleUrl).toBe("module.js");
   });
@@ -664,7 +672,11 @@ describe("NoHydration / Hydration (server)", () => {
     const { context, modules } = createMockSSRContext({ async: true });
     sharedConfig.context = context;
 
-    const LazyComp = lazy(() => Promise.resolve({ default: () => "content" }), "src/MyComp.tsx");
+    const LazyComp = lazy(
+      () => Promise.resolve({ default: () => "content" }),
+      undefined,
+      "src/MyComp.tsx"
+    );
     // Access without rendering — as an island renderer stamping a container
     // attribute would. This is the only preload signal for NoHydration lazy.
     void LazyComp.moduleUrl;
@@ -678,7 +690,11 @@ describe("NoHydration / Hydration (server)", () => {
     context.resolveAssets = () => null;
     sharedConfig.context = context;
 
-    const LazyComp = lazy(() => Promise.resolve({ default: () => "content" }), "src/MyComp.tsx");
+    const LazyComp = lazy(
+      () => Promise.resolve({ default: () => "content" }),
+      undefined,
+      "src/MyComp.tsx"
+    );
     expect(LazyComp.moduleUrl).toBe("src/MyComp.tsx");
   });
 
@@ -690,7 +706,11 @@ describe("NoHydration / Hydration (server)", () => {
     context.resolveAssetsSync = (key: string) => ({ js: ["/" + key], css: [] });
     sharedConfig.context = context;
 
-    const LazyComp = lazy(() => Promise.resolve({ default: () => "content" }), "src/MyComp.tsx");
+    const LazyComp = lazy(
+      () => Promise.resolve({ default: () => "content" }),
+      undefined,
+      "src/MyComp.tsx"
+    );
     expect(LazyComp.moduleUrl).toBe("/src/MyComp.tsx");
     // The access is still the island preload signal.
     const jsAssets = modules.filter(m => m.type === "module");
@@ -703,7 +723,11 @@ describe("NoHydration / Hydration (server)", () => {
     context.resolveAssetsSync = undefined;
     sharedConfig.context = context;
 
-    const LazyComp = lazy(() => Promise.resolve({ default: () => "content" }), "src/MyComp.tsx");
+    const LazyComp = lazy(
+      () => Promise.resolve({ default: () => "content" }),
+      undefined,
+      "src/MyComp.tsx"
+    );
     expect(LazyComp.moduleUrl).toBe("src/MyComp.tsx");
   });
 });

@@ -3757,6 +3757,36 @@ describe("Asset Manifest + lazy()", () => {
     warn.mockRestore();
   });
 
+  test("lazy() with { export } resolves the named export server-side (#3011)", async () => {
+    const { lazy } = await import("../../src/server/component.js");
+
+    const { context } = createMockSSRContext();
+    context.resolveAssets = () => ({ js: ["/assets/pages.js"], css: [] });
+    context.registerAsset = () => {};
+    sharedConfig.context = context;
+
+    const LazyComp = lazy(
+      () =>
+        Promise.resolve({
+          HomePage: (props: any) => `Home ${props.name}`,
+          AboutPage: (props: any) => `About ${props.name}`
+        } as any),
+      { export: "HomePage" },
+      "./pages.tsx"
+    );
+    await (LazyComp as any).preload!();
+
+    let result: any;
+    createRoot(
+      () => {
+        result = (LazyComp as any)({ name: "World" });
+      },
+      { id: "t" }
+    );
+    expect(typeof result).toBe("function");
+    expect(result()).toBe("Home World");
+  });
+
   test("lazy() throws when no manifest is set (no resolveAssets on context)", async () => {
     const { lazy } = await import("../../src/server/component.js");
 
@@ -3764,7 +3794,7 @@ describe("Asset Manifest + lazy()", () => {
     sharedConfig.context = context;
 
     const Comp = (props: any) => "Hello";
-    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), "./Comp.tsx");
+    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), undefined, "./Comp.tsx");
     await LazyComp.preload!();
 
     expect(() => {
@@ -3795,7 +3825,7 @@ describe("Asset Manifest + lazy()", () => {
     sharedConfig.context = context;
 
     const Comp = (props: any) => "Hello";
-    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), "./MyComp.tsx");
+    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), undefined, "./MyComp.tsx");
     await LazyComp.preload!();
 
     createRoot(
@@ -3829,7 +3859,7 @@ describe("Asset Manifest + lazy()", () => {
     sharedConfig.context = context;
 
     const Comp = (props: any) => "styled";
-    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), "./Styled.tsx");
+    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), undefined, "./Styled.tsx");
     await LazyComp.preload!();
 
     createRoot(
@@ -3855,7 +3885,11 @@ describe("Asset Manifest + lazy()", () => {
     sharedConfig.context = context;
 
     const Comp = (props: any) => "missing";
-    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), "./NotInManifest.tsx");
+    const LazyComp = lazy(
+      () => Promise.resolve({ default: Comp }),
+      undefined,
+      "./NotInManifest.tsx"
+    );
     await LazyComp.preload!();
 
     createRoot(
@@ -3876,7 +3910,7 @@ describe("Asset Manifest + lazy()", () => {
     sharedConfig.context = context;
 
     const Comp = (props: any) => "ok";
-    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), "./Comp.tsx");
+    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), undefined, "./Comp.tsx");
     await LazyComp.preload!();
 
     expect(() => {
@@ -3902,7 +3936,7 @@ describe("Asset Manifest + lazy()", () => {
     sharedConfig.context = context;
 
     const d = deferred<{ default: (props: any) => string }>();
-    const LazyComp = lazy(() => d.promise, "./Async.tsx");
+    const LazyComp = lazy(() => d.promise, undefined, "./Async.tsx");
 
     let thunk: any;
     let thunkThrew = false;
@@ -3948,7 +3982,7 @@ describe("Asset Manifest + lazy()", () => {
     sharedConfig.context = context;
 
     const Comp = (props: any) => "dev";
-    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), "./Dev.tsx");
+    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), undefined, "./Dev.tsx");
     await LazyComp.preload!();
 
     createRoot(
@@ -3984,7 +4018,7 @@ describe("Asset Manifest + lazy()", () => {
     sharedConfig.context = context;
 
     const Comp = (props: any) => "async-dev";
-    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), "./AsyncDev.tsx");
+    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), undefined, "./AsyncDev.tsx");
     await LazyComp.preload!();
 
     let thunk: any;
@@ -4032,7 +4066,7 @@ describe("Asset Manifest + lazy()", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const Comp = (props: any) => "survives";
-    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), "./Broken.tsx");
+    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), undefined, "./Broken.tsx");
     await LazyComp.preload!();
 
     let thunk: any;
@@ -4115,12 +4149,16 @@ describe("lazy() rejected module promises are not cached (#2999)", () => {
 
     let fail = true;
     let importCalls = 0;
-    const LazyComp = lazy(() => {
-      importCalls++;
-      return fail
-        ? Promise.reject(new Error("transient import failure"))
-        : Promise.resolve({ default: (props: any) => "recovered" });
-    }, "./Flaky.tsx");
+    const LazyComp = lazy(
+      () => {
+        importCalls++;
+        return fail
+          ? Promise.reject(new Error("transient import failure"))
+          : Promise.resolve({ default: (props: any) => "recovered" });
+      },
+      undefined,
+      "./Flaky.tsx"
+    );
 
     const makeRequest = () => {
       const { context } = createMockSSRContext();
@@ -4163,10 +4201,14 @@ describe("lazy() rejected module promises are not cached (#2999)", () => {
 
     let fail = true;
     let importCalls = 0;
-    const LazyComp = lazy(() => {
-      importCalls++;
-      return fail ? Promise.reject(new Error("nope")) : Promise.resolve({ default: () => "ok" });
-    }, "./Retry.tsx");
+    const LazyComp = lazy(
+      () => {
+        importCalls++;
+        return fail ? Promise.reject(new Error("nope")) : Promise.resolve({ default: () => "ok" });
+      },
+      undefined,
+      "./Retry.tsx"
+    );
 
     await expect(LazyComp.preload!()).rejects.toThrow("nope");
     fail = false;
@@ -4208,7 +4250,7 @@ describe("lazy() single-render without Loading", () => {
     };
 
     const dModule = deferred<{ default: typeof Comp }>();
-    const LazyComp = lazy(() => dModule.promise, "./Direct.tsx");
+    const LazyComp = lazy(() => dModule.promise, undefined, "./Direct.tsx");
 
     let ret: any;
     createRoot(
@@ -4252,7 +4294,7 @@ describe("lazy() single-render without Loading", () => {
     };
 
     const dModule = deferred<{ default: typeof Child }>();
-    const LazyChild = lazy(() => dModule.promise, "./Child.tsx");
+    const LazyChild = lazy(() => dModule.promise, undefined, "./Child.tsx");
 
     let ret: any;
     createRoot(
@@ -4296,7 +4338,7 @@ describe("lazy() single-render without Loading", () => {
 
     const View = (props: { value: any }) => ssr(["<p>", "</p>"], () => props.value) as any;
 
-    const LazyView = lazy(() => dModule.promise, "./DataView.tsx");
+    const LazyView = lazy(() => dModule.promise, undefined, "./DataView.tsx");
 
     let ret: any;
     createRoot(
@@ -4371,7 +4413,7 @@ describe("lazy() single-render in Loading", () => {
     };
 
     const dModule = deferred<{ default: typeof Comp }>();
-    const LazyComp = lazy(() => dModule.promise, "./TopLevel.tsx");
+    const LazyComp = lazy(() => dModule.promise, undefined, "./TopLevel.tsx");
 
     let result: any;
     createRoot(
@@ -4414,7 +4456,7 @@ describe("lazy() single-render in Loading", () => {
     };
 
     const dModule = deferred<{ default: typeof Comp }>();
-    const LazyComp = lazy(() => dModule.promise, "./Sync.tsx");
+    const LazyComp = lazy(() => dModule.promise, undefined, "./Sync.tsx");
 
     let result: any;
     createRoot(
@@ -4450,7 +4492,7 @@ describe("lazy() single-render in Loading", () => {
     const View = (props: { data: any }) => ssr(["<span>", "</span>"], () => props.data) as any;
 
     const dModule = deferred<{ default: typeof View }>();
-    const LazyView = lazy(() => dModule.promise, "./View.tsx");
+    const LazyView = lazy(() => dModule.promise, undefined, "./View.tsx");
 
     let result: any;
     createRoot(
@@ -4513,7 +4555,7 @@ describe("lazy() single-render in Loading", () => {
       ) as any;
 
     const dModule = deferred<{ default: typeof View }>();
-    const LazyView = lazy(() => dModule.promise, "./CascadeView.tsx");
+    const LazyView = lazy(() => dModule.promise, undefined, "./CascadeView.tsx");
 
     let result: any;
     createRoot(

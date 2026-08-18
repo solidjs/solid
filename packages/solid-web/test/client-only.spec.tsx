@@ -90,6 +90,25 @@ describe("clientOnly (client)", () => {
     dispose();
   });
 
+  test("{ export } picks a named export of the resolved module (#3011)", async () => {
+    let resolve!: () => void;
+    const Chart = (props: { name: string }) => <span>chart {props.name}</span>;
+    const promise = new Promise<{ Chart: typeof Chart; Legend: Component }>(r => {
+      resolve = () => r({ Chart, Legend: () => <i>legend</i> });
+    });
+    const Widget = clientOnly(() => promise, { export: "Chart" });
+
+    const div = document.createElement("div");
+    const dispose = render(() => <Widget name="io" fallback={<i>wait</i>} />, div);
+    expect(div.innerHTML).toContain("<i>wait</i>");
+
+    resolve();
+    await settle();
+    expect(div.innerHTML).toContain("chart ");
+    expect(div.textContent).toContain("io");
+    dispose();
+  });
+
   test("does not forward the fallback prop to the loaded component", async () => {
     let seen: Record<string, unknown> | undefined;
     const { importer, resolve } = deferredModule((props: Record<string, unknown>) => {

@@ -37,7 +37,7 @@ describe("lazy() asset resolution across suspended passes", () => {
       return Promise.resolve({ js: ["/assets/mod.js"], css: [] });
     };
     const Mod = () => <b>mod-content</b>;
-    const LazyMod = lazy(() => Promise.resolve({ default: Mod }), "./Mod.tsx");
+    const LazyMod = lazy(() => Promise.resolve({ default: Mod }), undefined, "./Mod.tsx");
     // Re-suspends the boundary twice, so its discovery pass runs three
     // times and <LazyMod /> is re-created on each — the exact re-creation
     // pattern that multiplied resolver work.

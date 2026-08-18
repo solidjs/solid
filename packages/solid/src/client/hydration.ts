@@ -291,7 +291,11 @@ let _hydrateStoreLike:
 // implementation (and peekNextChildId/_$HY access behind it) installs here
 // rather than shipping in CSR bundles that use lazy() (#2883 phase 3).
 export let _lazyHydrationLookup:
-  | (<T>(comp: (() => T | undefined) | undefined, moduleUrl?: string) => (() => T) | undefined)
+  | (<T>(
+      comp: (() => T | undefined) | undefined,
+      moduleUrl?: string,
+      exportName?: string
+    ) => (() => T) | undefined)
   | undefined;
 
 // --- Hydration helpers ---
@@ -1013,12 +1017,31 @@ function hydratedCreateEffect(compute: any, effectFn: any, options?: any) {
 // lazy modules hydrate without a moduleUrl.
 function lazyHydrationLookup<T>(
   comp: (() => T | undefined) | undefined,
-  moduleUrl?: string
+  moduleUrl?: string,
+  exportName?: string
 ): (() => T) | undefined {
   const o = getOwner();
   const key = o && o.id != null ? peekNextChildId(o) : undefined;
   const cached = key != null ? (globalThis as any)._$HY?.modules?.[key] : undefined;
-  if (cached) return () => cached.default as T;
+  // Hydration resolves the component synchronously from the preloaded module
+  // — its default export, or the call-site `export` option (a literal present
+  // in both bundles, so the sync claim is preserved). A wrapper that selects
+  // an export at runtime inside the import thunk cannot work here: the thunk
+  // hasn't run, and rendering the raw namespace's default would silently
+  // orphan the server DOM (#3011). Fail loudly in dev instead — there is no
+  // supported async fallback during hydration.
+  if (cached) {
+    const component = exportName ? cached[exportName] : cached.default;
+    if (IS_DEV && typeof component !== "function")
+      throw new Error(
+        `lazy() (hydration id "${key}") preloaded a module whose "${exportName ?? "default"}" ` +
+          "export is not a component. lazy() hydrates synchronously from the preloaded " +
+          "module; select a named export with the { export } option, or re-export the " +
+          "component as the module's default. Wrappers that pick an export at runtime " +
+          "inside the import thunk are not supported."
+      );
+    return () => component as T;
+  }
   if (!comp && moduleUrl) {
     // moduleUrl present means the bundler transform ran, so the server
     // must have registered this position. A miss is a broken preload.
