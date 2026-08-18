@@ -481,7 +481,7 @@ function notifyWrites(t: StoreNextTarget): void {
  * overrides — the same view the draft was seeded from) and emit engine writes
  * for exactly the changed keys. Visible-view diffing keeps no-op writes from
  * entangling lanes (RUL-10 / opt R38). */
-function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKey, any>): void {
+export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKey, any>): void {
   // A bare write while the store's own truth is in flight rides THAT
   // transaction (#2951, legacy parity): entangle the firewall's transition so
   // the override survives until the refetch settles instead of flash-reverting

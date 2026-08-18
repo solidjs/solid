@@ -27,8 +27,10 @@ import {
   rawValuesUsed,
   storeLookup as legacyStoreLookup
 } from "../store.js";
-import { adoptPB, optimisticView, unwrapValue } from "./store.js";
+import { adoptPB, notifyOptimisticWrites, optimisticView, unwrapValue } from "./store.js";
 import { ownedRaw, storeNextLookup, type StoreNextFamily, type StoreNextTarget } from "./target.js";
+import { getWriteOverride } from "../store.js";
+import { projectionWriteActive } from "../../core/scheduler.js";
 
 type KeyFn = (item: any) => any;
 
@@ -78,7 +80,92 @@ export function reconcileNextState(
       return;
     }
   }
+  // Tentative channel (§6b, RUL-5): a user-context reconcile on an optimistic
+  // family parks as engine overrides — values, membership, and length ride
+  // armed nodes (reverting with their transaction); committed raw is never
+  // touched. Key-matched rows keep proxy identity by descending into the
+  // existing child targets instead of overriding their parent slots.
+  if (t.fam?.opt === true && !projectionWriteActive && !getWriteOverride()) {
+    applyTentative(t, incoming, keyFn);
+    return;
+  }
   applyAdopt(t, incoming, keyFn, replace);
+}
+
+function applyTentative(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null): void {
+  const base = t.pb ?? t.v;
+  const view = optimisticView(t, base);
+  const map = t.fam!.map;
+  const isArr = Array.isArray(incoming);
+  if (Array.isArray(view) !== isArr) return; // kind change at root: flat overrides below
+  const pairs: Array<[StoreNextTarget, any]> = [];
+  const pbLike: any = isArr ? [...(incoming as any[])] : shallowWithSymbols(incoming);
+  const match = (pv: any, nv: any): StoreNextTarget | null => {
+    if (!isWrappable(pv) || !isWrappable(nv)) return null;
+    if (rawValuesUsed && (isRawValue(pv) || isRawValue(nv))) return null;
+    if (Array.isArray(pv) !== Array.isArray(nv)) return null;
+    if (keyFn) {
+      const pk = keyFn(pv);
+      const nk = keyFn(nv);
+      if (pk !== undefined && nk !== undefined && pk !== nk) return null;
+    }
+    return map.get(unwrapValue(pv)) ?? null;
+  };
+  if (isArr) {
+    const viewRows = view as any[];
+    let viewByKey: Map<any, any> | null = null;
+    for (let i = 0; i < (incoming as any[]).length; i++) {
+      const nv = (incoming as any[])[i];
+      if (!isWrappable(nv)) continue;
+      let pv: any;
+      if (keyFn) {
+        const nk = keyFn(nv);
+        if (nk !== undefined) {
+          if (viewByKey === null) {
+            viewByKey = new Map();
+            for (let j = 0; j < viewRows.length; j++) {
+              const p = unwrapValue(viewRows[j]);
+              if (isWrappable(p)) {
+                const pk = keyFn(p);
+                if (pk !== undefined && !viewByKey.has(pk)) viewByKey.set(pk, p);
+              }
+            }
+          }
+          pv = viewByKey.get(nk);
+        } else pv = unwrapValue(viewRows[i]);
+      } else pv = unwrapValue(viewRows[i]);
+      const ct = match(pv, nv);
+      if (ct !== null) {
+        // Keep the existing row in the slot (identity preserved); recurse.
+        pbLike[i] = unwrapValue(pv);
+        pairs.push([ct, nv]);
+      }
+    }
+  } else {
+    for (const k of Reflect.ownKeys(incoming)) {
+      const pv = unwrapValue((view as any)[k]);
+      const nv = (incoming as any)[k];
+      const ct = match(pv, nv);
+      if (ct !== null) {
+        pbLike[k] = pv;
+        pairs.push([ct, nv]);
+      }
+    }
+  }
+  // Flat overrides for this level (adds, removals, moved slots, length, leaf
+  // values) — preserve any live user draft backing across the call.
+  const priorPB = t.pb;
+  t.pb = null;
+  notifyOptimisticWrites(t, pbLike);
+  t.pb = priorPB;
+  for (let i = 0; i < pairs.length; i++)
+    applyTentative(pairs[i][0], unwrapValue(pairs[i][1]), keyFn);
+}
+
+function shallowWithSymbols(src: any): any {
+  const out: any = {};
+  for (const k of Reflect.ownKeys(src)) out[k] = src[k];
+  return out;
 }
 
 function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj = false): void {

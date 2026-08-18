@@ -88,12 +88,12 @@ test("reconcile inside an action window is tentative: full revert at settle", as
   expect(s.rows[0]).toBe(capturedRow);
 });
 
-// FINDING-2 (rules-mining/FINDINGS.md): fails on shipped — a key ADDED by a
-// reconcile inside the action window survives settle (`s.tag` stays
-// "tentative", `in` stays true). Optimistic deletes revert (pinned, UO test
-// 5); additions leak. This is the key-set rollback gap RUL-8 predicted,
-// present even single-transaction. Flip to `test` when the rewrite lands.
-test.fails("a key added by an in-window reconcile reverts at settle", async () => {
+// FINDING-2 (rules-mining/FINDINGS.md): failed on shipped — a key ADDED by a
+// reconcile inside the action window survived settle. FIXED by the rewrite's
+// tentative reconcile channel (§6b): membership rides armed presence nodes,
+// so additions revert with their transaction exactly like deletes (RUL-8's
+// key-set prediction, landed 2026-08-18).
+test("a key added by an in-window reconcile reverts at settle", async () => {
   let s!: { rows: { id: string; v: number }[]; tag?: string };
   let setS!: (fn: (d: { rows: { id: string; v: number }[]; tag?: string }) => void) => void;
   createRoot(() => {
