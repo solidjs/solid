@@ -86,10 +86,6 @@ export let _hitUnhandledAsync = false;
 // releasing the slot in the parent store's node map.
 const transientStoreNodes = new Set<Signal<any>>();
 
-export function registerTransientStoreNode(node: Signal<any>): void {
-  transientStoreNodes.add(node);
-}
-
 function canUseSimpleSyncFlush(queue: GlobalQueue): boolean {
   const batch = queue._batch;
   return (

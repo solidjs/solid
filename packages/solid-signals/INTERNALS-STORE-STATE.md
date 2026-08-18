@@ -629,6 +629,25 @@ implementation, deduplicated across reports.
   (the DAG rule) covers the slots CAS declines. Also executed the RUL-12
   unkeyed-merge ruling: the two async yield-identity assertions rewritten to
   merge semantics (identity preserved) with ruling citations.
+- **2026-08-18m**: LEGACY DELETED. The remaining prerequisites landed in two
+  commits: fam.shallow wired shallow derived/optimistic forms to next's t.s
+  slot semantics — with the serve rule corrected to exact #2932 parity
+  (raw-marked data serves verbatim; store-proxy slot values get boundary
+  wrappers in the shallow family so downstream writes never land upstream) —
+  and createWriteTraps moved into next/projection. Then the wholesale
+  deletion: reconcile.ts / projection.ts / optimistic.ts removed, store.ts
+  gutted from ~1600 to ~570 lines of shared machinery (symbols, raw-marking,
+  isWrappable, write-override flag, affects scopes with a next-only walk,
+  StoreNode as a structural view of StoreNextTarget), utils.ts to merge/omit
+  only, dispatchers and test shims removed — store/index.ts exports next
+  directly. Orphans swept: storeLookup, symbolKeyedRecords (+ its skipped
+  legacy-pinned test), registerTransientStoreNode, mergedOverlay. Suite
+  1253 green, full monorepo build + tests green. SIZE vs main (gzip): full
+  24,162 → 23,259 (−903, −3.7%); store attribution 15,572 → 14,803 (−769).
+  The rewrite carries the full 2.0 store contract (optimism, projections,
+  affects, shallow) at slightly under the legacy size with the dbmon/uibench
+  wins banked; the deeper size cut and the shallow-retirement question both
+  belong to phase 2 (edit-script channel).
 - **2026-08-18k**: O4 RE-RULED (Ryan) + shallow PORTED. Stage 1 validated
   that deep cannot reach shallow-class tick performance (that is the
   phase-2 edit-script question — the retirement decision may reopen there),

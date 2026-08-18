@@ -1,11 +1,8 @@
-// Transitional A/B bench: the SAME dbmon workload against the rewrite (via
-// the public dispatcher) and the legacy implementation (imported directly),
-// interleaved in one process — no session/thermal skew, one JIT. Delete with
-// the legacy modules.
+// dbmon workload benches for the store implementation (CodSpeed per-PR
+// tracking). Formerly an A/B against the legacy implementation — legacy is
+// deleted; the rows remain as absolute regression tripwires.
 import { afterAll, bench } from "vitest";
 import { createRenderEffect, createRoot, createStore, flush, reconcile } from "../../src/index.js";
-import { createStore as legacyCreateStore } from "../../src/store/store.js";
-import { reconcile as legacyReconcile } from "../../src/store/reconcile.js";
 
 const ROWS = 1000;
 
@@ -65,21 +62,6 @@ function setupNext() {
   return { applyTick, dispose };
 }
 
-function setupLegacy() {
-  let applyTick!: (fresh: any[]) => void;
-  const dispose = createRoot(d => {
-    const [state, setState] = (legacyCreateStore as any)({ rows: makeData(ROWS, 0) });
-    subscribeRows(state);
-    applyTick = fresh =>
-      setState((s: any) => {
-        legacyReconcile(fresh, "id")(s.rows);
-      });
-    return d;
-  });
-  flush();
-  return { applyTick, dispose };
-}
-
 function runTicks(applyTick: (fresh: any[]) => void, partial: boolean) {
   for (let frame = 1; frame <= 5; frame++) {
     let fresh = makeData(ROWS, frame);
@@ -110,25 +92,11 @@ function setupShallowNext() {
   return { applyTick, dispose };
 }
 
-function setupShallowLegacy() {
-  let applyTick!: (fresh: any[]) => void;
-  const dispose = createRoot(d => {
-    const [state, setState] = (legacyCreateStore as any)(makeData(ROWS, 0), { shallow: true });
-    subscribeShallow(state);
-    applyTick = fresh => setState(legacyReconcile(fresh, null) as any);
-    return d;
-  });
-  flush();
-  return { applyTick, dispose };
-}
-
 const next = setupNext();
-const legacy = setupLegacy();
 const shallowNext = setupShallowNext();
-const shallowLegacy = setupShallowLegacy();
 
 bench(
-  "A/B full tick — next",
+  "dbmon full tick",
   () => {
     runTicks(next.applyTick, false);
   },
@@ -136,15 +104,7 @@ bench(
 );
 
 bench(
-  "A/B full tick — legacy",
-  () => {
-    runTicks(legacy.applyTick, false);
-  },
-  { time: 4000, warmupIterations: 3 }
-);
-
-bench(
-  "A/B partial tick — next",
+  "dbmon partial tick",
   () => {
     runTicks(next.applyTick, true);
   },
@@ -152,33 +112,15 @@ bench(
 );
 
 bench(
-  "A/B partial tick — legacy",
-  () => {
-    runTicks(legacy.applyTick, true);
-  },
-  { time: 4000, warmupIterations: 3 }
-);
-
-bench(
-  "A/B shallow full tick — next",
+  "dbmon shallow full tick",
   () => {
     runTicks(shallowNext.applyTick, false);
   },
   { time: 3000, warmupIterations: 3 }
 );
 
-bench(
-  "A/B shallow full tick — legacy",
-  () => {
-    runTicks(shallowLegacy.applyTick, false);
-  },
-  { time: 3000, warmupIterations: 3 }
-);
-
 afterAll(() => {
   next.dispose();
-  legacy.dispose();
   shallowNext.dispose();
-  shallowLegacy.dispose();
   if (sink === Infinity) console.log("impossible");
 });

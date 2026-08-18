@@ -18,15 +18,13 @@
  *   keyless items fall back positional; null/primitive slots are legal
  *   members (R11). Kind changes replace wholesale (R10).
  */
-import { reconcile as legacyReconcile } from "../reconcile.js";
 import {
   $PROXY,
   $TARGET,
   isRawValue,
   isWrappable,
   markRawIngest,
-  rawValuesUsed,
-  storeLookup as legacyStoreLookup
+  rawValuesUsed
 } from "../store.js";
 import {
   adoptPB,
@@ -393,14 +391,7 @@ function descend(
     if (pk !== undefined && nk !== undefined && pk !== nk) return;
   }
   const ct = (fam?.map ?? storeNextLookup).get(pv);
-  if (ct === undefined) {
-    // A child tracked by the LEGACY store (shallow store nested in a next
-    // deep store, R45) reconciles through the legacy machinery on its own
-    // proxy — consulted only on a next-lookup miss (hot-path ordering).
-    const lt = legacyStoreLookup.get(pv);
-    if (lt !== undefined) legacyReconcile(nv, keyFn ?? null)((lt as any)[$PROXY]);
-    return; // otherwise: nothing proxied below this pair
-  }
+  if (ct === undefined) return; // nothing proxied below this pair
   // Reachability pruning (§6d) is MODE-dependent, both pinned:
   // - keyed matching descends only where subscriptions exist at/below (`d`) —
   //   captured-but-unobserved proxies deliberately detach and go stale

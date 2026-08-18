@@ -12,17 +12,51 @@ export type {
 export type { Merge, Omit } from "./utils.js";
 
 export { isWrappable, $TRACK, $PROXY, $TARGET } from "./store.js";
-// Store rewrite (INTERNALS-STORE-STATE.md): plain stores + reconcile serve
-// from src/store/next/ — the phase-1 hot path. Derived/shallow/optimistic
-// forms still route to the legacy implementation until their increments land.
-export { createStore } from "./next/dispatch.js";
 
-export { createProjection } from "./next/dispatch.js";
+import type { NoFn, ProjectionOptions, Store, StoreOptions, StoreSetter } from "./store.js";
+import type { Refreshable } from "../core/index.js";
+import {
+  createStoreNext,
+  deepNext,
+  snapshotNext,
+  type SetStoreNextFunction
+} from "./next/store.js";
+import { reconcileNextState } from "./next/reconcile.js";
+import { createStoreDerivedNext } from "./next/projection.js";
 
-export { createOptimisticStore } from "./next/dispatch.js";
+export { createProjectionNext as createProjection } from "./next/projection.js";
+export { createOptimisticStoreNext as createOptimisticStore } from "./next/optimistic.js";
 
-export { reconcile } from "./next/dispatch.js";
-export { snapshot, deep } from "./next/dispatch.js";
+/** Public createStore: plain form `(init, options?)` and derived writable
+ * form `(fn, seed, options?)`. */
+export function createStore<T extends object = {}>(
+  store: NoFn<T> | Store<NoFn<T>>,
+  options?: StoreOptions & { shallow?: boolean }
+): [get: Store<T>, set: StoreSetter<T>];
+export function createStore<T extends object = {}>(
+  fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  store: Partial<T> | Store<NoFn<T>>,
+  options?: ProjectionOptions
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createStore(first: any, second?: any, third?: any): any {
+  if (typeof first === "function") return createStoreDerivedNext(first, second, third);
+  return createStoreNext(first, !!second?.shallow);
+}
+
+export function reconcile<T extends U, U>(
+  value: T,
+  key: string | ((item: NonNullable<any>) => any) | null = "id"
+) {
+  return (state: U): T => reconcileNextState(value, state, key) as any;
+}
+
+export function snapshot<T>(value: T): T {
+  return snapshotNext(value);
+}
+
+export function deep<T>(value: T): T {
+  return deepNext(value);
+}
 
 export { storePath } from "./storePath.js";
 export type {

@@ -67,7 +67,6 @@ import {
   rawValuesUsed,
   setNextAffectsNodeResolver,
   setNextOptimisticViewResolver,
-  storeLookup as legacyStoreLookup,
   witnessAffectsMark
 } from "../store.js";
 import {
@@ -139,11 +138,6 @@ export function wrapNext<T extends Record<PropertyKey, any>>(
     if (fam === null || t.fam === fam) return value;
     return createTarget(value as any, parent, parentKey, fam).px;
   }
-  // Cross-implementation dedupe (core R2): a raw already tracked by the
-  // legacy store (shallow roots, projection families) serves its legacy
-  // proxy — one raw, one logical node, either implementation.
-  const legacy = legacyStoreLookup.get(value);
-  if (legacy !== undefined) return (legacy as any)[$PROXY];
   return createTarget(value, parent, parentKey, fam).px;
 }
 
@@ -1369,7 +1363,7 @@ export function createStoreNext<T extends Record<PropertyKey, any>>(
   if (shallow && __DEV__) {
     // Never both deep-wrapped and raw (R41/R44): a value already tracked as
     // a DEEP store cannot be ingested shallow.
-    const existing = storeNextLookup.get(init) ?? legacyStoreLookup.get(init);
+    const existing = storeNextLookup.get(init);
     if (existing !== undefined && !(existing as any).s)
       throw new Error("createStore({ shallow }): value is already tracked as a deep store");
     if ((init as any)[$TARGET])

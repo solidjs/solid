@@ -16,7 +16,7 @@
 import { NOT_PENDING, STATUS_PENDING } from "../../core/constants.js";
 import { computed, CONFIG_AUTO_DISPOSE, type Computed } from "../../core/index.js";
 import { GlobalQueue } from "../../core/scheduler.js";
-import { installOptimisticStoreHooks } from "../optimistic.js";
+import { installOptimisticEngine } from "../../core/optimistic.js";
 import {
   $TARGET,
   markRawIngest,
@@ -33,6 +33,14 @@ let blockedInstalled = false;
 function installNextBlockedHalf(): void {
   if (blockedInstalled) return;
   blockedInstalled = true;
+  // Scheduler flush tails call _clearOptimisticStores whenever tracked
+  // stores exist; next has no layer to clear — reverts are engine-native —
+  // so the hook only empties the batch set.
+  if (!GlobalQueue._clearOptimisticStores) {
+    GlobalQueue._clearOptimisticStores = (stores: Set<any>) => {
+      stores.clear();
+    };
+  }
   const chained = GlobalQueue._transitionBlocked!;
   GlobalQueue._transitionBlocked = transition => {
     for (const store of transition._optimisticStores) {
@@ -73,9 +81,9 @@ export function createOptimisticStoreNext<T extends object = {}>(
   second?: NoFn<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
-  // Engine + legacy store hooks first (armed nodes need optimisticWrite
-  // installed before any node exists), then the next-shape blocked half.
-  installOptimisticStoreHooks();
+  // Engine first (armed nodes need optimisticWrite installed before any
+  // node exists), then the next-shape hooks.
+  installOptimisticEngine();
   installNextBlockedHalf();
 
   const derived = typeof first === "function";

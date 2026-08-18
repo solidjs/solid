@@ -647,32 +647,6 @@ describe("reconcile with symbol-keyed properties", () => {
     expect(has).toBe(true);
   });
 
-  // RULED (INTERNALS-STORE-STATE.md, recon-snap pin 1): pins the LEGACY
-  // symbolKeyedRecords optimization; the rewrite's fold diffs subscription
-  // keys only, making the record-level symbol mark irrelevant. Skipped, not
-  // ported — delete with the legacy module.
-  test.skip("perf invariant: symbol-record mark is set while tracked and cleared once unobserved", async () => {
-    // Guards the fast-path optimization: only records that currently hold a
-    // user symbol node are enumerated for symbols on reconcile. Asserts the
-    // internal mark rather than behavior (the mark is invisible to behavior).
-    const { symbolKeyedRecords, $TARGET, STORE_NODE } = await import("../../src/store/store.js");
-    const [store] = createStore<Record<PropertyKey, any>>({ id: 1, [META]: "x" });
-    let dispose!: () => void;
-    createRoot(d => {
-      dispose = d;
-      createEffect(
-        () => store[META],
-        () => {}
-      );
-    });
-    flush();
-    const nodes = (store as any)[$TARGET][STORE_NODE];
-    expect(symbolKeyedRecords.has(nodes)).toBe(true);
-    dispose();
-    flush();
-    expect(symbolKeyedRecords.has(nodes)).toBe(false); // no monotonic leak
-  });
-
   test("nested symbol-keyed value reconciles", () => {
     const [state, setState] = createStore<Record<PropertyKey, any>>({
       id: 1,
