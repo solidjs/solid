@@ -714,7 +714,10 @@ export function createMemo<T>(
   // Capture SSR context at creation time — async re-computations (via .then callbacks)
   // may run after a concurrent request has overwritten sharedConfig.context.
   const ctx = sharedConfig.context;
-  const owner = createOwner();
+  // `options` carries the id plumbing (`id`, `transparent`): the client's
+  // inheritId honors both, so dropping them here would consume a child-id
+  // slot the client doesn't and shift every sibling hydration id (#3012).
+  const owner = createOwner(options);
   // Commit #0 (loadingValue): the server serves the loading value instead of
   // suspending — markup flushes with it, and the landing streams as data for
   // the client to adopt at hydration. `served` flips the moment the loading
@@ -865,7 +868,8 @@ function createSyncMemo<T>(
   // epoch there, for-the-render everywhere else. Captured at creation like
   // the async memo's ctx — async continuations may outlive request swaps.
   const ctx = sharedConfig.context;
-  const owner = createOwner();
+  // Forward the id plumbing (`id`, `transparent`) like the async path (#3012).
+  const owner = createOwner(options);
   let value: T | undefined;
   let error: unknown;
   // Presence flag for `error` — a falsy thrown value is still an error (#2857).

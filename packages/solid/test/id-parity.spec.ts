@@ -334,6 +334,51 @@ describe("ID Parity: ternary conditional memos", () => {
     expect(ids).toContain("trailing:t3");
   });
 
+  test("transparent memo does not consume a child-id slot (client)", () => {
+    const ids: string[] = [];
+
+    createRoot(
+      () => {
+        const t = createMemo(() => false, { transparent: true } as any);
+        untrack(t);
+
+        const sibling = createMemo(() => {
+          ids.push("sibling:" + getOwner()!.id!);
+          return "s";
+        });
+        untrack(sibling);
+      },
+      { id: "t" }
+    );
+
+    // The transparent memo shares the root's id; the sibling gets slot 0.
+    expect(ids).toContain("sibling:t0");
+  });
+
+  test("server-side transparent memo does not shift sibling ids (#3012)", async () => {
+    const server = await import("../src/server/signals.js");
+    const ids: string[] = [];
+
+    server.createRoot(
+      () => {
+        const t = server.createMemo(() => false, { transparent: true } as any);
+        server.untrack(t);
+
+        const sibling = server.createMemo(() => {
+          ids.push("sibling:" + server.getOwner()!.id!);
+          return "s";
+        });
+        server.untrack(sibling);
+      },
+      { id: "t" }
+    );
+
+    // Must match the client: the transparent memo consumes no slot, so the
+    // sibling is t0 — not t1 (which would shift every element after it and
+    // break hydration claims).
+    expect(ids).toContain("sibling:t0");
+  });
+
   test("ternary inside component child with devComponent parity", () => {
     const serverIds: string[] = [];
     const clientIds: string[] = [];
