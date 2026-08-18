@@ -85,22 +85,24 @@ function createTarget(
 ): StoreNextTarget {
   // The proxy target carries the array exotic class when the value is an
   // array, so Array.isArray(proxy) is true; the fields live on it directly.
-  const t: StoreNextTarget = Object.assign(Array.isArray(value) ? ([] as any) : {}, {
-    v: value,
-    pb: null,
-    n: null,
-    h: null,
-    k: null,
-    u: parent,
-    pk: parentKey,
-    px: null,
-    d: false,
-    a: false,
-    sc: false,
-    adopted: false,
-    fam,
-    s: false
-  });
+  // Direct field assignment in one fixed order (no Object.assign literal
+  // copy): every target shares a hidden-class transition chain — createTarget
+  // was the #2 store cost in the uibench creation profile.
+  const t: StoreNextTarget = (Array.isArray(value) ? [] : {}) as any;
+  t.v = value;
+  t.pb = null;
+  t.n = null;
+  t.h = null;
+  t.k = null;
+  t.u = parent;
+  t.pk = parentKey;
+  t.px = null;
+  t.d = false;
+  t.a = false;
+  t.sc = false;
+  t.adopted = false;
+  t.fam = fam;
+  t.s = false;
   t.px = new Proxy(t, traps);
   // Legacy interop: shared machinery (affects walks, wrap dedupe) reads the
   // proxy off looked-up targets as a field.
@@ -171,6 +173,9 @@ function getNode(target: StoreNextTarget, key: PropertyKey, current: any): Signa
     // Store nodes are ownedWrite: the setter carries the owned-scope write
     // guard; node-level setSignals are internal notification machinery.
     created._config |= CONFIG_OWNED_WRITE;
+    // Accessor-ness resolved ONCE per node (no per-object descriptor scan):
+    // accessor keys serve through Reflect.get with the proxy receiver.
+    (created as any).acc = isOwnAccessor(target.pb ?? target.v, key);
     // Optimistic families: arm the override slot — setSignal routes armed
     // nodes through the core engine (lanes, ownership, reverts all native).
     if (target.fam?.opt) created._overrideValue = NOT_PENDING;
@@ -447,7 +452,15 @@ function notifyWrites(t: StoreNextTarget): void {
   if (nodes !== null) {
     for (const key of Reflect.ownKeys(nodes)) {
       const node = nodes[key as any];
-      if (t.a) {
+      // Per-key accessor handling: the node's cached flag plus ONE getter
+      // probe on the incoming side (getters arriving via merge/adoption).
+      // Setter-only props read as data (value undefined) so lookupSetter is
+      // not consulted on this hot path; prototype getters never own nodes.
+      if (
+        (node as any).acc === true ||
+        (hasOwn.call(pb, key) && lookupGetter.call(pb, key) !== undefined)
+      ) {
+        (node as any).acc = isOwnAccessor(pb, key);
         const od = Object.getOwnPropertyDescriptor(old, key);
         const nd = Object.getOwnPropertyDescriptor(pb, key);
         if ((od && (od.get || od.set)) || (nd && (nd.get || nd.set))) {
@@ -608,7 +621,11 @@ export function notifyFold(
   if (nodes !== null) {
     for (const key of Reflect.ownKeys(nodes)) {
       const node = nodes[key as any];
-      if (t.a) {
+      if (
+        (node as any).acc === true ||
+        (hasOwn.call(neu, key) && lookupGetter.call(neu, key) !== undefined)
+      ) {
+        (node as any).acc = isOwnAccessor(neu, key);
         const od = Object.getOwnPropertyDescriptor(old, key);
         const nd = Object.getOwnPropertyDescriptor(neu, key);
         if ((od && (od.get || od.set)) || (nd && (nd.get || nd.set))) {
@@ -733,22 +750,19 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
   return target.v;
 }
 
-/** Scan-once accessor detection (first trap read): sets `a` definitively so
- * every later read on accessor-free targets is a plain property load. */
-function scanAccessors(target: StoreNextTarget, src: Record<PropertyKey, any>): void {
-  target.sc = true;
-  if (target.a) return;
-  const descs = Object.getOwnPropertyDescriptors(src);
-  for (const key of Reflect.ownKeys(descs)) {
-    const d = (descs as any)[key];
-    if (d.get || d.set) {
-      target.a = true;
-      return;
-    }
-  }
-}
-
 const hasOwn = Object.prototype.hasOwnProperty;
+// Allocation-free own-accessor probe (replaces eager descriptor scans — the
+// single biggest creation cost in the uibench profile): Annex-B lookups
+// return the fn or undefined with no descriptor object. Own data properties
+// shadow prototype accessors, so hasOwn + lookup is an exact own-check.
+const lookupGetter = (Object.prototype as any).__lookupGetter__;
+const lookupSetter = (Object.prototype as any).__lookupSetter__;
+function isOwnAccessor(src: Record<PropertyKey, any>, key: PropertyKey): boolean {
+  return (
+    hasOwn.call(src, key) &&
+    (lookupGetter.call(src, key) !== undefined || lookupSetter.call(src, key) !== undefined)
+  );
+}
 
 /** Authoritative-write wrapper exported for the optimistic module: sets the
  * scheduler's projectionWriteActive through THIS module's binding (proven to
@@ -962,24 +976,23 @@ const traps: ProxyHandler<StoreNextTarget> = {
         data: { strictRead, property: key, source: "store" }
       });
     }
-    if (!target.sc) scanAccessors(target, src);
-    if (target.a) {
-      const own = Object.getOwnPropertyDescriptor(src, key);
-      // Accessors run against the proxy (R20/R29): their internal reads
-      // track; the node (if any) is linked for shape-change notification but
-      // its value is never served for accessor keys.
-      if (own && (own.get || own.set)) {
-        if (!writing && getObserver() !== null) {
-          const node = target.n?.[key];
-          if (node) readNode(node);
-        }
-        const v = own.get ? own.get.call(receiver) : undefined;
+    // Accessor keys serve through Reflect.get with the PROXY receiver
+    // (R20/R29: internal reads track; the node is linked for shape-change
+    // notification but its value is never served). Accessor-ness comes from
+    // the node's cached flag; the first TRACKED read (which creates the
+    // node) probes once — untracked node-less reads take the plain path,
+    // where a raw-receiver getter still returns correct committed values.
+    {
+      const node0 = target.n?.[key as any];
+      const acc =
+        node0 !== undefined
+          ? (node0 as any).acc === true
+          : !writing && getObserver() !== null && isOwnAccessor(src, key);
+      if (acc) {
+        if (!writing && getObserver() !== null) readNode(node0 ?? getNode(target, key, undefined));
+        const v = Reflect.get(src, key, receiver);
         return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;
       }
-      if (own !== undefined) {
-        return serveDataKey(target, key, own.value, src);
-      }
-      // fall through to the absent/inherited path below
     }
     // Plain-data fast path: no descriptor allocation per read.
     // Inherited pollution keys are never served (core R30) — checked before

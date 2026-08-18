@@ -629,6 +629,28 @@ implementation, deduplicated across reports.
   (the DAG rule) covers the slots CAS declines. Also executed the RUL-12
   unkeyed-merge ruling: the two async yield-identity assertions rewritten to
   merge semantics (identity preserved) with ruling citations.
+- **2026-08-18f**: First optimization pass — the creation-tax thesis
+  CONFIRMED. uibench (10-iter, same-session sequence): legacy 36.6 → next
+  33.8 (functionality landed) → 32.6 (scanAccessors deleted) → 31.1
+  (createTarget direct construction) → **27.5 after the full pass — 25%
+  faster than legacy**; family breakdown shows keyed structural ops at
+  0.67–0.85x of legacy and the remaining ivi gap (21.4) concentrated in
+  tree/render (creation) + removeAll (teardown). dbmon tick: 14.35 →
+  **11.50ms/tick — legacy parity** (shallow 3.1 still the phase-2 bar).
+  Mechanisms: (1) the eager `scanAccessors` descriptor enumeration per
+  object (115.7ms in the uibench profile — the single largest store cost)
+  is DELETED — accessor-ness is a per-node flag probed allocation-free at
+  node creation (`__lookupGetter__`/`__lookupSetter__`, own-gated);
+  accessor keys serve via `Reflect.get` with the PROXY receiver (also more
+  correct for R20 nested tracking); fold paths use the cached flag plus ONE
+  own-gated getter probe on the incoming side (merge/adoption-installed
+  getters — pinned by three suite tests; prototype getters deliberately
+  keep the invoke-compare path — their fold tracking depends on it, pinned
+  by three other tests). (2) createTarget: direct field assignment in fixed
+  order (shared hidden-class transition chain) instead of Object.assign
+  literal copy. Suite green throughout (1253). Next profile targets:
+  applyAdopt self-time (813ms/300 ticks: per-target ownKeys allocations,
+  double WeakMap registration, prevByKey maps), then the ivi creation gap.
 - **2026-08-18e**: Perf checkpoint at full functionality (single sweeps,
   subject to the ~30% A/A floor — ABBA discipline required before any
   claims): dbmon tick — next 14.2–16.5, legacy 11.5–12.4, shallow 3.1,
