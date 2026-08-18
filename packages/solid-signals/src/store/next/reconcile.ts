@@ -29,9 +29,11 @@ import {
 } from "../store.js";
 import {
   adoptPB,
+  hasAccessorFlag,
   notifyFold,
   notifyFoldTail,
   notifyKeyDiff,
+  notifyKeyValue,
   notifyOptimisticWrites,
   optimisticView,
   unwrapValue
@@ -277,17 +279,29 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
     // with no key-array allocation; symbols get a pass only when present.
     const nodes = eager ? t.n : null;
     let nodesHit = 0;
+    // The per-key body is inlined on purpose (legacy applyStateFast parity:
+    // an extracted helper costs a call per key on the hottest object-diff
+    // site). Reference-identical values early-continue BEFORE any other
+    // work — sound only with the ownership guard (FINDING-1: an owned
+    // backing is setter-diverged and must still diff).
     for (const k in incoming) {
       const nv = (incoming as any)[k];
-      // Inline wrappable pre-check: scalar keys skip the descend call
-      // entirely (the majority on data-heavy rows).
-      if (nv !== null && typeof nv === "object")
-        descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
+      const ov = (old as any)[k];
+      const isObj = nv !== null && typeof nv === "object";
+      if (
+        ov === nv &&
+        (!isObj || !ownedRaw.has(nv)) &&
+        (nodes === null || nodes[k] === undefined || !hasAccessorFlag(nodes[k]))
+      ) {
+        if (nodes !== null && nodes[k] !== undefined) nodesHit++;
+        continue;
+      }
+      if (isObj) descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
       if (nodes !== null) {
         const node = nodes[k];
         if (node !== undefined) {
           nodesHit++;
-          notifyKeyDiff(node, k, old, incoming, false);
+          notifyKeyValue(node, k, ov, nv, old, incoming);
         }
       }
     }
@@ -301,7 +315,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
         const node = nodes[k as any];
         if (node !== undefined) {
           nodesHit++;
-          notifyKeyDiff(node, k, old, incoming, false);
+          notifyKeyValue(node, k, (old as any)[k], nv, old, incoming);
         }
       }
     }

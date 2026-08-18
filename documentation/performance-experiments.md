@@ -6771,3 +6771,32 @@ ownership WeakSet.has), per-key call overhead in the fused walk
 (notifyKeyDiff + setSignal per changed key) vs legacy's monolithic
 applyStateFast. Iteration tool: `reconcile-dbmon.bench.ts` (sub-10s loop,
 shallow row as control).
+
+### Inline per-key pass + in-process A/B (2026-08-18, later)
+
+Changes: per-key notify body inlined into the fused adoption walk (legacy's
+own lesson — extracted helper cost ~7% on CodSpeed); reference-identity
+early-continue per key with the FINDING-1 ownership guard (`ov === nv` skips
+only unowned backings; accessor-flagged nodes never skip); both-side fetches
+done once. Suite green.
+
+New tool: `tests/store/reconcile-dbmon-ab.bench.ts` — the same workload
+against next (dispatcher) and legacy (direct import) interleaved in ONE
+process. No session/thermal skew; this supersedes cross-checkout Tier-1
+comparisons for the transition period. Delete with the legacy modules.
+
+Results (time:4000, both variants same process):
+
+| bench | next | legacy | read |
+|---|---|---|---|
+| full tick mean | 187.0 | 190.7 | parity (0.98x) |
+| full tick min | 146.9 | 133.4 | 1.10x, GC-riddled (rme ±20%) |
+| partial mean | 148.9 | 134.4 | 1.11x (rme ±6–12%) |
+| partial min | 124.2 | 116.4 | 1.07x |
+
+Verdict: full-tick parity reached in-process; partial holds a residual
+~7–10% (borderline vs rme but consistently legacy-favored). Remaining
+partial suspects: per-child adoption bookkeeping on value-identical rows
+(registration WeakMap.set + adopted-flag bookkeeping per query array/row
+even when every key ===-continues). Browser re-validation owed on a cool
+machine with the current build.

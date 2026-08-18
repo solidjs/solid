@@ -680,6 +680,32 @@ export function notifyKeyDiff(
   }
 }
 
+/** Accessor-flag probe for the fused walk's early-continue (accessor keys
+ * can never identity-skip: their VALUE is the descriptor's product). */
+export function hasAccessorFlag(node: Signal<any>): boolean {
+  return (node as any).acc === true;
+}
+
+/** Fused-walk per-key notification with values already in hand: the caller
+ * fetched both sides and handled the identity skip; this applies the
+ * accessor branch (cached flag only — reconcile channel) or the plain
+ * equality/identity-gated write. */
+export function notifyKeyValue(
+  node: Signal<any>,
+  key: PropertyKey,
+  ov: any,
+  nv: any,
+  old: Record<PropertyKey, any>,
+  neu: Record<PropertyKey, any>
+): void {
+  if ((node as any).acc === true) {
+    notifyKeyDiff(node, key, old, neu, false);
+    return;
+  }
+  if (!isEqual(ov, nv) && !targetsEqual(ov, nv))
+    setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
+}
+
 /** Presence + membership halves of a fold notification (shared tail). */
 export function notifyFoldTail(
   t: StoreNextTarget,
