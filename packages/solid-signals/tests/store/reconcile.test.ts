@@ -834,6 +834,63 @@ describe("reconcile without a key (positional merge)", () => {
     expect(state.id).toBe(9);
     expect(state.v).toBe(3);
   });
+
+  test("replaces a TRACKED function-valued object leaf without invoking it", () => {
+    // The replace path only runs against a leaf that already has a signal
+    // node — i.e. something already read it, same as a component's JSX
+    // reading a store'd callback prop before a later reconcile swaps it out.
+    const before = () => "before";
+    const calls: string[] = [];
+    const after = () => calls.push("after");
+    const [state, setState] = createStore<{ fn: () => unknown }>({ fn: before });
+    let seen: (() => unknown) | undefined;
+    createRoot(() => {
+      createEffect(
+        () => state.fn,
+        v => {
+          seen = v;
+        }
+      );
+    });
+    flush();
+    expect(seen).toBe(before);
+
+    setState(reconcile({ fn: after }, null));
+    flush();
+    // A naive replace calls setSignal(node, after), and setSignal treats a
+    // function argument as an updater — invoking `after` and committing its
+    // return value instead of storing `after` itself.
+    expect(seen).toBe(after);
+    expect(state.fn).toBe(after);
+    expect(calls).toEqual([]);
+    state.fn();
+    expect(calls).toEqual(["after"]);
+  });
+
+  test("replaces a TRACKED function-valued array item without invoking it", () => {
+    const calls: string[] = [];
+    const before = [() => calls.push("a"), () => calls.push("b")];
+    const after = [() => calls.push("c"), () => calls.push("d")];
+    const [state, setState] = createStore<Array<() => unknown>>(before);
+    let seen: (() => unknown) | undefined;
+    createRoot(() => {
+      createEffect(
+        () => state[0],
+        v => {
+          seen = v;
+        }
+      );
+    });
+    flush();
+    expect(seen).toBe(before[0]);
+
+    setState(reconcile(after, null));
+    flush();
+    expect(seen).toBe(after[0]);
+    expect(state[0]).toBe(after[0]);
+    expect(state[1]).toBe(after[1]);
+    expect(calls).toEqual([]);
+  });
 });
 // type tests
 

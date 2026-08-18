@@ -103,11 +103,20 @@ function getAllKeys(value, override, next) {
   return Array.from(set);
 }
 
+// `setSignal(node, v)` calls `v` when it's a function — that's the updater
+// overload, not a leaf replacement. A function-valued leaf (a store'd
+// callback prop) must be wrapped in an outer arrow so setSignal unwraps back
+// to the real function instead of invoking it and committing its return
+// value. Mirrors store.ts's own `notifyStoreProperty` guard for plain writes.
+function asSignalValue<T>(value: T): T | (() => T) {
+  return (typeof value === "function" ? () => value : value) as any;
+}
+
 // Array entries can be `null`/`undefined`/primitives, not just keyed objects.
 // These helpers keep the keyed paths from passing a non-object to `keyFn` (which
 // assumes an object) or to `wrap()` (which assumes a wrappable value).
 function wrapValue(value: any, target: any) {
-  return isWrappable(value) ? wrap(value, target) : value;
+  return asSignalValue(isWrappable(value) ? wrap(value, target) : value);
 }
 
 function itemKey(item: any, keyFn: (item: NonNullable<any>) => any) {
@@ -338,7 +347,7 @@ function shallowDiffNodes(
       const v = next[key];
       if (v !== prevAt(key)) {
         changed = true;
-        setSignal(nodes[key], v);
+        setSignal(nodes[key], asSignalValue(v));
       }
     } else {
       changed = true;
@@ -552,7 +561,7 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
           (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
         ) {
           tracked && setSignal(tracked, void 0);
-          node && setSignal(node, isWrappable(nextValue) ? wrap(nextValue, target) : nextValue);
+          node && setSignal(node, wrapValue(nextValue, target));
         } else applyStateChild(nextValue, previousValue, target, keyFn);
       }
     } else {
@@ -575,7 +584,7 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
           (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
         ) {
           tracked && setSignal(tracked, void 0);
-          node && setSignal(node, isWrappable(nextValue) ? wrap(nextValue, target) : nextValue);
+          node && setSignal(node, wrapValue(nextValue, target));
         } else applyStateChild(nextValue, previousValue, target, keyFn);
       }
     }
@@ -736,7 +745,7 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
         (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
       ) {
         tracked && setSignal(tracked, void 0);
-        node && setSignal(node, isWrappable(nextValue) ? wrap(nextValue, target) : nextValue);
+        node && setSignal(node, wrapValue(nextValue, target));
       } else applyState(nextValue, wrap(previousValue, target), keyFn);
     }
   }
