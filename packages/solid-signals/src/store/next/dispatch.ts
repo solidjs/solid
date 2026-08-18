@@ -44,10 +44,9 @@ import { createStoreDerivedNext } from "./projection.js";
 export function createStore(first: any, second?: any, third?: any): any {
   const derived = typeof first === "function";
   if (derived) {
-    // Derived writable store: projection internals + masking setter. Shallow
-    // derives stay legacy (O4: shallow is not a port target).
-    if (!third?.shallow) return createStoreDerivedNext(first, second, third);
-    return (legacyCreateStore as any)(first, second, third);
+    // Derived writable store: projection internals + masking setter
+    // (fam.shallow covers the shallow variant).
+    return createStoreDerivedNext(first, second, third);
   }
   if (first !== null && typeof first === "object") {
     // Plain form; `second` carries only options (name/shallow) here.
@@ -56,11 +55,8 @@ export function createStore(first: any, second?: any, third?: any): any {
   return (legacyCreateStore as any)(first, second, third);
 }
 
-/** Shallow optimistic stores route legacy (O4: shallow is not a port
- * target); everything else serves from the rewrite. */
+/** All optimistic store forms serve from the rewrite (fam.shallow covers
+ * the shallow variants). */
 export function createOptimisticStore(first: any, second?: any, options?: any): any {
-  const derived = typeof first === "function";
-  const opts = derived ? options : (options ?? second);
-  if (opts?.shallow) return (legacyCreateOptimisticStore as any)(first, second, options);
   return (createOptimisticStoreNext as any)(first, second, options);
 }

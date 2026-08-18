@@ -19,6 +19,7 @@ import { GlobalQueue } from "../../core/scheduler.js";
 import { installOptimisticStoreHooks } from "../optimistic.js";
 import {
   $TARGET,
+  markRawIngest,
   type NoFn,
   type ProjectionOptions,
   type Store,
@@ -81,9 +82,18 @@ export function createOptimisticStoreNext<T extends object = {}>(
   if (!derived && options === undefined) options = second as ProjectionOptions | undefined;
   const initialValue = (derived ? second : first) as T;
 
-  const fam: StoreNextFamily = { map: new WeakMap(), node: null, shallow: false, opt: true };
+  const fam: StoreNextFamily = {
+    map: new WeakMap(),
+    node: null,
+    shallow: !!(options as any)?.shallow,
+    opt: true
+  };
   const store = wrapNext(initialValue as any, null, null, fam) as Store<T>;
   fam.px = store;
+  if (fam.shallow) {
+    ((store as any)[$TARGET] as StoreNextTarget as any).s = true;
+    markRawIngest(initialValue);
+  }
 
   if (derived) {
     const fn = first as (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>;

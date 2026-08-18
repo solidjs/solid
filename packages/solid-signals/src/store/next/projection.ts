@@ -24,7 +24,14 @@ import {
   type Refreshable
 } from "../../core/index.js";
 import { createWriteTraps } from "../projection.js";
-import { $TARGET, STORE_VALUE, type NoFn, type ProjectionOptions, type Store } from "../store.js";
+import {
+  $TARGET,
+  markRawIngest,
+  STORE_VALUE,
+  type NoFn,
+  type ProjectionOptions,
+  type Store
+} from "../store.js";
 import { reconcileNextState } from "./reconcile.js";
 import { storeSetterNext, wrapNext } from "./store.js";
 import type { StoreNextFamily } from "./target.js";
@@ -40,6 +47,12 @@ export function createProjectionNextInternal<T extends object = {}>(
     shallow: !!(options as any)?.shallow
   };
   const store = wrapNext(seed as any, null, null, fam) as Store<T>;
+  if (fam.shallow) {
+    // Shallow projection: the root is the only wrapped level — slot values
+    // serve raw, ingests sticky raw-mark (same t.s machinery as plain).
+    ((store as any)[$TARGET] as any).s = true;
+    markRawIngest(seed);
+  }
 
   let nodeOptions: { name?: string; loadingValue?: void } | undefined;
   if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };

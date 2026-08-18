@@ -789,6 +789,16 @@ function inDraft(target: StoreNextTarget): boolean {
   return writeScopes !== null && writeScopes.has(scopeKey(target));
 }
 
+/** Shallow serve rule (#2932): raw-marked data serves VERBATIM, but a
+ * store-proxy slot value gets a boundary wrapper in THIS store's own family —
+ * write isolation through derived chains (downstream writes must never land
+ * upstream). markRawOne skips proxies for exactly this reason. */
+function serveShallow(target: StoreNextTarget, key: PropertyKey, v: any): any {
+  if (v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined)
+    return draftServe(target, wrapNext(v, target, key as any));
+  return v;
+}
+
 /** Draft reads extend write permission to reachable stores (legacy Writing
  * semantics: wrapping a child through a draft get admits it — cross-store
  * writes like `s.inner.a = 10` work when `inner` is another store's proxy). */
@@ -1032,8 +1042,8 @@ function serveDataKey(
       readNode(getNode(target, key, backingValue));
     }
   }
-  // Shallow stores serve children RAW (record granularity — the whole point).
-  if (target.s) return v;
+  // Shallow stores serve data raw; store-proxy slots get boundary wrappers.
+  if (target.s) return serveShallow(target, key, v);
   return isWrappable(v) ? draftServe(target, wrapNext(v, target, key as any)) : v;
 }
 
@@ -1086,7 +1096,8 @@ const traps: ProxyHandler<StoreNextTarget> = {
       if (nodeH !== undefined && (nodeH as any).acc !== true && getObserver() !== null) {
         let nv = readNodeFast(nodeH);
         if (nv === READ_SLOW) nv = readNode(nodeH);
-        if (target.s || nv === null || typeof nv !== "object") return nv;
+        if (nv === null || typeof nv !== "object") return nv;
+        if (target.s) return serveShallow(target, key, nv);
         return isWrappable(nv) ? wrapNext(nv, target, key) : nv;
       }
     }
@@ -1124,7 +1135,8 @@ const traps: ProxyHandler<StoreNextTarget> = {
       if (acc) {
         if (!writing && getObserver() !== null) readNode(node0 ?? getNode(target, key, undefined));
         const v = Reflect.get(src, key, receiver);
-        return target.s || !isWrappable(v) ? v : draftServe(target, wrapNext(v, target, key));
+        if (target.s) return serveShallow(target, key, v);
+        return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;
       }
     }
     // Plain-data fast path: no descriptor allocation per read.
@@ -1147,13 +1159,15 @@ const traps: ProxyHandler<StoreNextTarget> = {
         const node = target.n?.[key];
         if (node) {
           const nv = nodeValue(node, undefined);
-          return target.s || !isWrappable(nv) ? nv : draftServe(target, wrapNext(nv, target, key));
+          if (target.s) return serveShallow(target, key, nv);
+          return isWrappable(nv) ? draftServe(target, wrapNext(nv, target, key)) : nv;
         }
       } else if (v === undefined && inDraft(target) && target.fam?.opt && target.pb === null) {
         const node = target.n?.[key];
         if (node !== undefined && hasActiveOverride(node)) v = unwrapOverride(node._overrideValue);
       }
-      return target.s || !isWrappable(v) ? v : draftServe(target, wrapNext(v, target, key));
+      if (target.s) return serveShallow(target, key, v);
+      return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;
     }
     if (typeof v === "function" && !hasOwn.call(src, key)) return v; // proto method
     return serveDataKey(target, key, v, src, node0);
