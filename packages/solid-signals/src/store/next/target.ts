@@ -18,6 +18,16 @@ import type { Computed, Signal } from "../../core/types.js";
  * land in the projection, never the source family), and every node created
  * under the family carries the projection computed as its firewall. */
 export interface StoreNextFamily {
+  /** Optimistic family: nodes are born armed (`_overrideValue` slot) so every
+   * write rides the core optimistic engine — lanes, per-transaction ownership,
+   * reverts all core-native (§3, RUL-3). */
+  opt?: boolean;
+  /** Root proxy (registered with the scheduler's optimistic-store set for the
+   * transitionBlocked store-half, #2951). */
+  px?: any;
+  /** Targets currently carrying active node overrides (landing-consumption
+   * walk, RUL-2: visible landed truth replaces optimism). */
+  overlaid?: Set<any>;
   map: WeakMap<object, StoreNextTarget>;
   /** The projection computed — assigned after creation (accessor pattern). */
   node: Computed<any> | null;

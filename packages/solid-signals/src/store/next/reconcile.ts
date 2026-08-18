@@ -27,7 +27,7 @@ import {
   rawValuesUsed,
   storeLookup as legacyStoreLookup
 } from "../store.js";
-import { adoptPB, unwrapValue } from "./store.js";
+import { adoptPB, optimisticView, unwrapValue } from "./store.js";
 import { ownedRaw, storeNextLookup, type StoreNextFamily, type StoreNextTarget } from "./target.js";
 
 type KeyFn = (item: any) => any;
@@ -86,11 +86,16 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
   // The sound identity skip (O7): same reference AND we never diverged it.
   if (incoming === prev && !ownedRaw.has(prev)) return;
   const fam = t.fam;
+  // §6b (R28): the diff's previous-arrangement baseline is the LANE VIEW —
+  // optimistic rows must be visible to key matching so a landing carrying the
+  // same key recycles their proxies. Raw `prev` keeps the identity/ownership
+  // roles above; only matching reads the view.
+  const prevView = fam?.opt === true ? optimisticView(t, prev) : prev;
   const nextArr = Array.isArray(incoming);
   adoptPB(t, incoming);
-  if (Array.isArray(prev) !== nextArr) return;
+  if (Array.isArray(prevView) !== nextArr) return;
   if (nextArr) {
-    const prevRows = prev as any[];
+    const prevRows = prevView as any[];
     const nextRows = incoming as any[];
     if (keyFn) {
       let prevByKey: Map<any, any> | null = null;
@@ -123,7 +128,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
     }
   } else {
     for (const k of Reflect.ownKeys(incoming)) {
-      descend(unwrapValue((prev as any)[k]), (incoming as any)[k], keyFn, fam, proj);
+      descend(unwrapValue((prevView as any)[k]), (incoming as any)[k], keyFn, fam, proj);
     }
   }
 }

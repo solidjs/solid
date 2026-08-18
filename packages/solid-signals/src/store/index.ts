@@ -19,7 +19,7 @@ export { createStore } from "./next/dispatch.js";
 
 export { createProjection } from "./next/dispatch.js";
 
-export { createOptimisticStore } from "./optimistic.js";
+export { createOptimisticStore } from "./next/dispatch.js";
 
 export { reconcile } from "./next/dispatch.js";
 export { snapshot, deep } from "./next/dispatch.js";

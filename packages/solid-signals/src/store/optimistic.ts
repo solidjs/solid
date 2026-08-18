@@ -96,11 +96,12 @@ export function createOptimisticStore<T extends object = {}>(
   store: Partial<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
-export function createOptimisticStore<T extends object = {}>(
-  first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
-  second?: NoFn<T> | Store<NoFn<T>>,
-  options?: ProjectionOptions
-): [get: Store<T>, set: StoreSetter<T>] {
+/**
+ * Engine + store-hook installation shared by the legacy implementation and
+ * the next-store optimistic module (which adds its own transitionBlocked
+ * half for next-shaped targets). Idempotent.
+ */
+export function installOptimisticStoreHooks(): void {
   // Register clear function with scheduler; store nodes marked
   // STORE_OPTIMISTIC take the engine's write path, so install it before any
   // node can be created.
@@ -125,6 +126,14 @@ export function createOptimisticStore<T extends object = {}>(
       return engineBlocked(transition);
     };
   }
+}
+
+export function createOptimisticStore<T extends object = {}>(
+  first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
+  second?: NoFn<T> | Store<NoFn<T>>,
+  options?: ProjectionOptions
+): [get: Store<T>, set: StoreSetter<T>] {
+  installOptimisticStoreHooks();
   const derived = typeof first === "function";
   // Plain form: the second slot carries options.
   if (!derived && options === undefined) options = second as ProjectionOptions | undefined;

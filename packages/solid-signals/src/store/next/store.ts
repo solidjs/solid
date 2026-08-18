@@ -16,7 +16,12 @@
  * the pending home. Laziness: a written target with no subscriptions folds as
  * a pointer swap with zero node work.
  */
-import { $REFRESH, NOT_PENDING, STATUS_UNINITIALIZED } from "../../core/constants.js";
+import {
+  $REFRESH,
+  NOT_PENDING,
+  STATUS_UNINITIALIZED,
+  unwrapOverride
+} from "../../core/constants.js";
 import {
   devGuardStoreSetterWrite,
   isEqual,
@@ -25,8 +30,15 @@ import {
   signal,
   untrack
 } from "../../core/core.js";
+import { globalQueue, insertSubs } from "../../core/scheduler.js";
 import { getObserver, getOwner } from "../../core/owner.js";
-import { schedule, setStoreCommitHook } from "../../core/scheduler.js";
+import {
+  GlobalQueue,
+  projectionWriteActive,
+  schedule,
+  setProjectionWriteActive,
+  setStoreCommitHook
+} from "../../core/scheduler.js";
 import type { Signal } from "../../core/types.js";
 import { pendingCheckActive, strictRead } from "../../core/core.js";
 import { DEV, registerGraph, warnStrictReadUntracked } from "../../core/dev.js";
@@ -142,6 +154,9 @@ function getNode(target: StoreNextTarget, key: PropertyKey, current: any): Signa
       // reads through them link the derive's status/lifecycle (§7b).
       (target.fam?.node as any) ?? undefined
     ));
+    // Optimistic families: arm the override slot — setSignal routes armed
+    // nodes through the core engine (lanes, ownership, reverts all native).
+    if (target.fam?.opt) created._overrideValue = NOT_PENDING;
     nodes[key] = node;
     markDescendants(target);
   }
@@ -165,6 +180,7 @@ function getHasNode(target: StoreNextTarget, key: PropertyKey, present: boolean)
         if (target.h && target.h[key] === created) delete target.h[key];
       }
     }));
+    if (target.fam?.opt) created._overrideValue = NOT_PENDING;
     nodes[key] = node;
     markDescendants(target);
   }
@@ -180,6 +196,7 @@ function getKeySetNode(target: StoreNextTarget): Signal<number> {
         if (target.k === created) target.k = null;
       }
     }));
+    if (target.fam?.opt) created._overrideValue = NOT_PENDING;
     target.k = k;
     markDescendants(target);
   }
@@ -225,6 +242,26 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
   let pb = target.pb;
   if (pb === null) {
     pb = target.pb = cloneRaw(target.v, target);
+    // Optimistic families: seed the draft from the OPTIMISTIC VIEW (committed
+    // + active node overrides), so follow-up writes compose on optimism
+    // instead of clobbering from base (#2951's compose half).
+    if (target.fam?.opt) {
+      const nodes = target.n;
+      if (nodes !== null) {
+        for (const key of Reflect.ownKeys(nodes)) {
+          const node = nodes[key as any];
+          if (hasActiveOverride(node)) pb[key as any] = unwrapOverride(node._overrideValue);
+        }
+      }
+      const has = target.h;
+      if (has !== null) {
+        for (const key of Reflect.ownKeys(has)) {
+          const node = has[key as any];
+          if (hasActiveOverride(node) && !unwrapOverride(node._overrideValue))
+            delete pb[key as any];
+        }
+      }
+    }
     ownedRaw.add(pb);
     (target.fam?.map ?? storeNextLookup).set(pb, target);
     queueFold(target);
@@ -329,6 +366,32 @@ function drainFolds(): void {
 function notifyWrites(t: StoreNextTarget): void {
   const pb = t.pb;
   if (pb === null) return;
+  // Optimistic channel: user writes on an optimistic family become node-level
+  // engine writes (armed nodes route setSignal through optimisticWrite) — the
+  // committed backing is NEVER touched; the draft clone is discarded. Reverts,
+  // per-transaction ownership, and flash-at-flush are all core-native.
+  // Projection recompute writes (projectionWriteActive) and projection draft
+  // writes (write-override, incl. post-await async landings) are
+  // authoritative and take the plain channel below (they commit silently
+  // under overrides per the engine's no-revert-stash contract).
+  if (t.fam?.opt) {
+    if (!projectionWriteActive && !getWriteOverride()) {
+      notifyOptimisticWrites(t, pb);
+      return;
+    }
+    // Authoritative path on an optimistic family: armed nodes must commit
+    // silently (engine bypass) — without this, a landing's setSignals would
+    // create lanes and block their own transition's settle.
+    if (!projectionWriteActive) {
+      setProjectionWriteActive(true);
+      try {
+        notifyWrites(t);
+      } finally {
+        setProjectionWriteActive(false);
+      }
+      return;
+    }
+  }
   const old = t.v;
   // Devtools mutation hook: full-key diff (dev-only cost) so unobserved
   // writes report too, matching the legacy set-trap hook.
@@ -399,6 +462,73 @@ function notifyWrites(t: StoreNextTarget): void {
   }
 }
 
+/** Diff the draft against the current OPTIMISTIC VIEW (committed + active
+ * overrides — the same view the draft was seeded from) and emit engine writes
+ * for exactly the changed keys. Visible-view diffing keeps no-op writes from
+ * entangling lanes (RUL-10 / opt R38). */
+function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKey, any>): void {
+  // A bare write while the store's own truth is in flight rides THAT
+  // transaction (#2951, legacy parity): entangle the firewall's transition so
+  // the override survives until the refetch settles instead of flash-reverting
+  // at plain flush end. The blocked-check store-half keeps that transaction
+  // from settling while the firewall is pending.
+  const fw: any = t.fam?.node;
+  if (fw?._transition) globalQueue.initTransition(fw._transition);
+  const old = t.v;
+  const visible = (key: PropertyKey, fallback: any): any => {
+    const node = t.n?.[key as any];
+    return node !== undefined && hasActiveOverride(node)
+      ? unwrapOverride(node._overrideValue)
+      : fallback;
+  };
+  const visiblePresent = (key: PropertyKey): boolean => {
+    const node = t.h?.[key as any];
+    return node !== undefined && hasActiveOverride(node)
+      ? !!unwrapOverride(node._overrideValue)
+      : key in old;
+  };
+  let structural = false;
+  const isArr = Array.isArray(pb);
+  for (const key of Reflect.ownKeys(pb)) {
+    if (isArr && key === "length") continue;
+    const nv = unwrapValue(pb[key as any]);
+    if (!visiblePresent(key)) {
+      // Optimistic add: value node + presence node + membership bump.
+      setSignal(getNode(t, key, old[key as any]), () => nv);
+      setSignal(getHasNode(t, key, key in old), true as any);
+      structural = true;
+    } else {
+      const ov = visible(key, old[key as any]);
+      if (!isEqual(ov, nv) && !targetsEqual(ov, nv)) {
+        setSignal(getNode(t, key, ov), () => nv);
+        if (isArr) structural = true;
+      }
+    }
+  }
+  for (const key of Reflect.ownKeys(old)) {
+    if (isArr && key === "length") continue;
+    if (key in pb || !visiblePresent(key)) continue;
+    // Optimistic delete: node reads undefined, presence flips, membership bumps.
+    setSignal(getNode(t, key, old[key as any]), () => undefined);
+    setSignal(getHasNode(t, key, true), false as any);
+    structural = true;
+  }
+  if (isArr) {
+    const oldLen = visible("length", (old as any[]).length);
+    if (oldLen !== (pb as any[]).length) {
+      setSignal(getNode(t, "length", oldLen), () => (pb as any[]).length);
+      structural = true;
+    }
+  }
+  if (structural) setSignal(getKeySetNode(t), v => v + 1);
+  // Discard the draft — committed raw is untouched (revert target by
+  // construction). Register the root store for the scheduler's settle hooks
+  // and the target for landing consumption (RUL-2).
+  t.pb = null;
+  (t.fam!.overlaid ??= new Set()).add(t);
+  GlobalQueue._trackOptimisticStore?.(t.fam!.px ?? t.px);
+}
+
 const FORCE: unique symbol = Symbol();
 
 /** Same logical slot: both values resolve to one (re-pointed) child target —
@@ -438,6 +568,18 @@ function notifyFold(
   old: Record<PropertyKey, any>,
   neu: Record<PropertyKey, any>
 ): void {
+  // Optimistic targets: adoption notifications are authoritative landings —
+  // bypass the engine (commit into _value; active overrides keep shadowing
+  // until their transaction settles, per the no-revert-stash contract).
+  if (t.fam?.opt && !projectionWriteActive) {
+    setProjectionWriteActive(true);
+    try {
+      notifyFold(t, old, neu);
+    } finally {
+      setProjectionWriteActive(false);
+    }
+    return;
+  }
   const nodes = t.n;
   if (nodes !== null) {
     for (const key of Reflect.ownKeys(nodes)) {
@@ -557,13 +699,96 @@ function scanAccessors(target: StoreNextTarget, src: Record<PropertyKey, any>): 
 
 const hasOwn = Object.prototype.hasOwnProperty;
 
-/** Context-aware node value (mirrors core read()'s pending rule) for reads
- * outside tracking; FORCE sentinels never surface (they only exist to bump
- * subscribers of accessor keys, which are served by the trap, not the node). */
-function nodeValue(node: Signal<any>, fallback: any): any {
-  const v =
-    node._pendingValue !== NOT_PENDING && inOwnerContext() ? node._pendingValue : node._value;
-  return v === (FORCE as any) ? fallback : v;
+/** Authoritative-write wrapper exported for the optimistic module: sets the
+ * scheduler's projectionWriteActive through THIS module's binding (proven to
+ * share the instance core reads — cross-module live-binding writes from other
+ * store modules were observed not to propagate under the test transform). */
+export function runAuthoritative<T>(fn: () => T): T {
+  const was = projectionWriteActive;
+  setProjectionWriteActive(true);
+  try {
+    return fn();
+  } finally {
+    setProjectionWriteActive(was);
+  }
+}
+
+/**
+ * Landing consumption (RUL-2): fresh authoritative data supersedes every
+ * tentative override in the family. Mirrors legacy clearProjectionOverride —
+ * drop the override, clear lane/ownership, notify subscribers whose visible
+ * value changes (reversion effects go to regular queues via the projection
+ * write posture the caller holds).
+ */
+export function consumeOverridesNext(fam: StoreNextFamily): void {
+  const overlaid = fam.overlaid;
+  if (overlaid === undefined || overlaid.size === 0) return;
+  runAuthoritative(() => {
+    for (const t of overlaid as Set<StoreNextTarget>) {
+      const drop = (node: Signal<any>, committed: any) => {
+        if (!hasActiveOverride(node)) return;
+        const prev = unwrapOverride(node._overrideValue);
+        node._overrideValue = NOT_PENDING;
+        (node as any)._overrideOwner = null;
+        (node as any)._optimisticLane = undefined;
+        if (!node._equals || !node._equals(prev, committed)) {
+          insertSubs(node, true);
+          schedule();
+        }
+      };
+      // Landing consumes STRUCTURAL optimism only (legacy layer parity):
+      // membership edits, array length, and value overrides on keys ABSENT
+      // from the landed data. A value override on a key the landing carries
+      // stays with its owning transaction (rapid-toggle contract: a live
+      // action's edit of an existing entity rides on top of landed truth).
+      const isArr = Array.isArray(t.v);
+      const nodes = t.n;
+      if (nodes !== null) {
+        for (const key of Reflect.ownKeys(nodes)) {
+          const structural = !(key in t.v) || (isArr && key === "length");
+          if (!structural) continue;
+          drop(
+            nodes[key as any],
+            isArr && key === "length" ? (t.v as any[]).length : t.v[key as any]
+          );
+        }
+      }
+      const has = t.h;
+      if (has !== null) {
+        for (const key of Reflect.ownKeys(has)) drop(has[key as any], key in t.v);
+      }
+      if (t.k !== null && hasActiveOverride(t.k)) {
+        t.k._overrideValue = NOT_PENDING;
+        (t.k as any)._overrideOwner = null;
+        (t.k as any)._optimisticLane = undefined;
+        insertSubs(t.k, true);
+        schedule();
+      }
+    }
+    overlaid.clear();
+  });
+}
+
+/** Active optimistic override on an armed node (armed slot idles at
+ * NOT_PENDING; undefined = unarmed plain node). */
+function hasActiveOverride(node: Signal<any>): boolean {
+  return node._overrideValue !== undefined && node._overrideValue !== NOT_PENDING;
+}
+
+/** Context-aware node view for reads outside tracking: active override >
+ * held pending (owner context) > the BACKING value. Committed truth lives in
+ * the backing (single-home rule, O6) — node `_value` is never served here,
+ * so a lazy recompute's landing is immediately visible to the untracked
+ * reader that forced it (backing commits eagerly; node values fold at flush).
+ * FORCE sentinels never surface (they only bump subscribers of accessor
+ * keys, which are served by the trap, not the node). */
+function nodeValue(node: Signal<any>, backing: any): any {
+  const v = hasActiveOverride(node)
+    ? unwrapOverride(node._overrideValue)
+    : node._pendingValue !== NOT_PENDING && inOwnerContext()
+      ? node._pendingValue
+      : backing;
+  return v === (FORCE as any) ? backing : v;
 }
 
 /** Serve an own data key: node-first when a node exists (pending visibility,
@@ -579,13 +804,24 @@ function serveDataKey(
 ): any {
   const chained = (src as any)[$TARGET] !== undefined;
   let v = backingValue;
-  if (!inDraft(target)) {
+  if (inDraft(target)) {
+    // Optimistic drafts before their first write have no pending backing yet;
+    // reads must still see the live optimistic view (compose, not clobber —
+    // #2951). Once ensurePB runs, the seeded clone carries the view.
+    if (target.fam?.opt && target.pb === null) {
+      const node = target.n?.[key as any];
+      if (node !== undefined && hasActiveOverride(node)) v = unwrapOverride(node._overrideValue);
+    }
+  } else {
     const node = target.n?.[key as any];
     if (node !== undefined) {
+      // §7b: a lane value on the outer node SHADOWS read-through — an active
+      // override pierces the chained gate; otherwise chained backings always
+      // serve the live inner value.
       if (getObserver() !== null) {
         const nv = readNode(node);
-        if (!chained) v = nv === (FORCE as any) ? backingValue : nv;
-      } else if (!chained) {
+        if (!chained || hasActiveOverride(node)) v = nv === (FORCE as any) ? backingValue : nv;
+      } else if (!chained || hasActiveOverride(node)) {
         v = nodeValue(node, backingValue);
       }
     } else if (getObserver() !== null) {
@@ -664,7 +900,13 @@ const traps: ProxyHandler<StoreNextTarget> = {
       if (v === undefined && !writing) {
         if (getObserver() !== null) readNode(getNode(target, key, undefined));
         const node = target.n?.[key];
-        if (node) return nodeValue(node, undefined);
+        if (node) {
+          const nv = nodeValue(node, undefined);
+          return isWrappable(nv) ? draftServe(target, wrapNext(nv, target, key)) : nv;
+        }
+      } else if (v === undefined && inDraft(target) && target.fam?.opt && target.pb === null) {
+        const node = target.n?.[key];
+        if (node !== undefined && hasActiveOverride(node)) v = unwrapOverride(node._overrideValue);
       }
       return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;
     }
@@ -677,8 +919,22 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
     if (!inDraft(target) && target.fam !== null) firewallGate(target);
     const src = readSource(target);
-    const present = key in src;
-    if (!inDraft(target) && getObserver() !== null) readNode(getHasNode(target, key, present));
+    let present = key in src;
+    if (!inDraft(target)) {
+      if (getObserver() !== null) {
+        const node = getHasNode(target, key, present);
+        const nv = readNode(node);
+        if (hasActiveOverride(node)) present = !!nv;
+      } else {
+        const node = target.h?.[key as any];
+        if (node !== undefined && hasActiveOverride(node))
+          present = !!unwrapOverride(node._overrideValue);
+      }
+    } else if (target.fam?.opt && target.pb === null) {
+      const node = target.h?.[key as any];
+      if (node !== undefined && hasActiveOverride(node))
+        present = !!unwrapOverride(node._overrideValue);
+    }
     return present;
   },
 
@@ -686,11 +942,42 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (pendingCheckActive) witnessAffectsMark(target as any);
     if (!inDraft(target) && target.fam !== null) firewallGate(target);
     if (!inDraft(target) && getObserver() !== null) readNode(getKeySetNode(target));
-    return Reflect.ownKeys(readSource(target));
+    const keys = Reflect.ownKeys(readSource(target));
+    // Optimistic membership overlay: presence-node overrides add/remove keys
+    // (per-transaction lifecycle rides the nodes — §6, FINDING-2's fix).
+    // Draft reads before the first write overlay too (pb, once created, is
+    // seeded with the view).
+    if (target.fam?.opt && target.h !== null && (!inDraft(target) || target.pb === null)) {
+      let set: Set<PropertyKey> | null = null;
+      for (const key of Reflect.ownKeys(target.h)) {
+        const node = target.h[key as any];
+        if (!hasActiveOverride(node)) continue;
+        set ??= new Set(keys);
+        if (unwrapOverride(node._overrideValue)) set.add(key);
+        else set.delete(key);
+      }
+      if (set !== null) return [...set];
+    }
+    return keys;
   },
 
   getOwnPropertyDescriptor(target, key) {
     const desc = Object.getOwnPropertyDescriptor(readSource(target), key);
+    if (target.fam?.opt && !inDraft(target)) {
+      const node = target.h?.[key as any];
+      if (node !== undefined && hasActiveOverride(node)) {
+        if (!unwrapOverride(node._overrideValue)) return undefined; // opt delete
+        if (desc === undefined) {
+          const vn = target.n?.[key as any];
+          return {
+            value: vn !== undefined ? nodeValue(vn, undefined) : undefined,
+            writable: true,
+            enumerable: true,
+            configurable: true
+          };
+        }
+      }
+    }
     if (desc === undefined) return undefined;
     // Array targets carry a real non-configurable `length` the proxy
     // invariant forces us to report faithfully; everything else reports
@@ -788,8 +1075,15 @@ export function storeSetterNext<T>(proxy: T, fn: (draft: T) => T | void, guard =
     }
   }
   if (result !== undefined && result !== proxy && isWrappable(result)) {
-    // Returned replacement = adoption of the incoming object (unowned).
-    adoptPB(target, unwrapValue(result));
+    // Returned replacement: on an optimistic family (outside authoritative
+    // writes) the replacement is itself an optimistic edit — diff it against
+    // the visible view as engine writes (reverts at settle). Otherwise it is
+    // an adoption of the incoming object (unowned).
+    if (target.fam?.opt && !projectionWriteActive && !getWriteOverride()) {
+      notifyOptimisticWrites(target, unwrapValue(result));
+    } else {
+      adoptPB(target, unwrapValue(result));
+    }
   }
 }
 
@@ -848,25 +1142,82 @@ export function deepNext<T>(value: T): T {
  * settled, never-diverged graphs).
  */
 export function snapshotNext<T>(value: T): T {
-  return snapshotWalk(value, new Map());
+  const t: StoreNextTarget | undefined = (value as any)?.[$TARGET];
+  return snapshotWalk(value, new Map(), t?.fam ?? null);
 }
 
-function snapshotWalk(value: any, seen: Map<object, any>): any {
+/** Optimistic-view composition for snapshot/deep (O1: snapshot is the CURRENT
+ * view, lane values included; a fresh copy per call during pending windows —
+ * RUL-12). Returns `src` untouched when no override is active on `t`. */
+export function optimisticView(
+  t: StoreNextTarget,
+  src: Record<PropertyKey, any>
+): Record<PropertyKey, any> {
+  if (t.fam?.opt !== true) return src;
+  let out: Record<PropertyKey, any> | null = null;
+  const ensure = () => (out ??= Array.isArray(src) ? [...(src as any[])] : { ...src });
+  const nodes = t.n;
+  if (nodes !== null) {
+    for (const key of Reflect.ownKeys(nodes)) {
+      const node = nodes[key as any];
+      if (!hasActiveOverride(node)) continue;
+      const ov = unwrapOverride(node._overrideValue);
+      if (key === "length" && Array.isArray(src)) {
+        if ((src as any[]).length !== ov) (ensure() as any[]).length = ov;
+      } else if (!isEqual(src[key as any], ov)) ensure()[key as any] = ov;
+    }
+  }
+  const has = t.h;
+  if (has !== null) {
+    for (const key of Reflect.ownKeys(has)) {
+      const node = has[key as any];
+      if (!hasActiveOverride(node)) continue;
+      const present = !!unwrapOverride(node._overrideValue);
+      if (!present && key in (out ?? src)) delete ensure()[key as any];
+    }
+  }
+  return out ?? src;
+}
+
+function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreNextFamily | null): any {
   if (value === null || typeof value !== "object") return value;
   // Resolve through the registration: proxies AND raws map to their target's
   // current backing (stale raw pointers through other parents resolve here).
   // Loops for chained backings (§7b: a projection's backing can be another
   // store's proxy — snapshot unwraps to the base raw).
   let src = value;
+  let owner: StoreNextTarget | undefined;
   for (;;) {
-    const t: StoreNextTarget | undefined =
-      src?.[$TARGET]?.v !== undefined ? src[$TARGET] : storeNextLookup.get(src);
+    let t: StoreNextTarget | undefined = src?.[$TARGET]?.v !== undefined ? src[$TARGET] : undefined;
+    if (t === undefined && fam !== null) t = fam.map.get(src);
+    if (t === undefined) t = storeNextLookup.get(src);
     if (t === undefined) break;
+    owner = t;
+    if (t.fam !== null) fam = t.fam;
     const backing = t.pb ?? t.v;
     if (backing === src) break;
     src = backing;
   }
   if (!isWrappable(src)) return src;
+  // Optimistic families: compose the visible view; a composed view is a fresh
+  // object and snapshots via the owned/copy path (pinned `not.toBe` identity).
+  if (owner !== undefined && owner.fam?.opt === true) {
+    const view = optimisticView(owner, src);
+    if (view !== src) {
+      const cachedView = seen.get(src);
+      if (cachedView !== undefined) return cachedView;
+      const isArr = Array.isArray(view);
+      const copy: any = isArr ? [] : Object.create(Object.getPrototypeOf(view));
+      seen.set(src, copy);
+      for (const key of Reflect.ownKeys(view)) {
+        if (isArr && key === "length") continue;
+        const cv = (view as any)[key];
+        copy[key] = cv !== null && typeof cv === "object" ? snapshotWalk(cv, seen, fam) : cv;
+      }
+      if (isArr) copy.length = (view as any[]).length;
+      return copy;
+    }
+  }
   const cached = seen.get(src);
   if (cached !== undefined) return cached;
 
@@ -887,7 +1238,7 @@ function snapshotWalk(value: any, seen: Map<object, any>): any {
         continue;
       }
       const cv = desc.value;
-      const walked = cv !== null && typeof cv === "object" ? snapshotWalk(cv, seen) : cv;
+      const walked = cv !== null && typeof cv === "object" ? snapshotWalk(cv, seen, fam) : cv;
       if (desc.enumerable && desc.writable && desc.configurable) copy[key] = walked;
       else Object.defineProperty(copy, key, { ...desc, value: walked });
     }
@@ -904,7 +1255,7 @@ function snapshotWalk(value: any, seen: Map<object, any>): any {
     if (!desc || desc.get || desc.set) continue;
     const cv = desc.value;
     if (cv === null || typeof cv !== "object") continue;
-    const walked = snapshotWalk(cv, seen);
+    const walked = snapshotWalk(cv, seen, fam);
     if (walked !== cv) {
       if (copy === null) {
         copy = Array.isArray(src)

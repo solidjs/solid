@@ -629,6 +629,35 @@ implementation, deduplicated across reports.
   (the DAG rule) covers the slots CAS declines. Also executed the RUL-12
   unkeyed-merge ruling: the two async yield-identity assertions rewritten to
   merge semantics (identity preserved) with ruling citations.
+- **2026-08-18b**: Optimistic increment (in progress, most of the surface
+  green). Architecture validated: armed nodes (`_overrideValue` slot) ride the
+  core engine wholesale — zero store-side layer/backup machinery. Mechanisms
+  landed: optimistic write channel (visible-view diff at setter exit, draft
+  discarded, committed raw untouched — revert target by construction);
+  membership overlay derived from armed has-nodes (ownKeys/has/descriptors);
+  pb seeding + draft reads from the optimistic view (compose, not clobber —
+  #2951); firewall-transition entanglement on bare writes (legacy parity,
+  #2951 hold) + next-shape transitionBlocked store-half; landing consumption
+  split — structural optimism consumes on landings (legacy layer parity,
+  #2719), value overrides on keys present in landed data stay with their
+  owning transaction (rapid-toggle); §6b lane-view diff baseline in reconcile
+  (optimistic rows recycle their proxies against key-matched landings);
+  chained-gate pierce for active overrides (§7b shadow rule);
+  snapshot/deep compose the optimistic view (O1) with fam threading. Two core
+  fixes surfaced: legacy `createWriteTraps` hard-reset `projectionWriteActive`
+  to false per trap-op (now save/restore — it clobbered any enclosing
+  authoritative scope); untracked node-first reads now serve the BACKING for
+  committed state (O6 ruled read-through in practice: node `_value` lagged the
+  eagerly-committed backing when a lazy derive recomputed on the very read
+  that forced it). Main optimistic suite 64/68 — the 4 remaining are pure
+  cascades from one cross-test zombie: the mapArray fixture test leaves an
+  undisposed root + a tail refresh whose fetch never resolves; during LATER
+  tests its zombie mapArray re-runs against stuck-lane state, reads an
+  undefined row, and the unhandled rejection (async.ts syncError) poisons
+  subsequent flushes (rendered arrays stay empty). Also outstanding: ~14
+  failures in affects/marks, question-scoped-pending, strict-read,
+  uninitialized-visibility, store-in-store, captured-proxies, adoption-lane
+  rollback — next cycle's queue.
 - **2026-08-17f**: Granularity specs written — §6 (key-set node, resolves O2:
   per-transaction membership overlay + tombstones + length-as-view), §6b
   (lane-aware adoption: lane backing, dual diff baselines, joint rollback),

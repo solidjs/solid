@@ -6,7 +6,7 @@ import {
   type Computed,
   type Refreshable
 } from "../core/index.js";
-import { setProjectionWriteActive } from "../core/scheduler.js";
+import { projectionWriteActive, setProjectionWriteActive } from "../core/scheduler.js";
 import { reconcileState } from "./reconcile.js";
 import {
   $TARGET,
@@ -206,34 +206,40 @@ export function createWriteTraps(
   isActive?: () => boolean,
   onDraftWrite?: () => void
 ): ProxyHandler<any> {
+  // Save/restore, never hard-reset: the draft can be driven from inside an
+  // enclosing authoritative-write scope (next-store optimistic derives), and
+  // a hard `false` would clobber it mid-derive.
   const traps: ProxyHandler<any> = {
     get(_, prop) {
       let value;
+      const was = projectionWriteActive;
       setWriteOverride(true);
       setProjectionWriteActive(true);
       try {
         value = _[prop];
       } finally {
         setWriteOverride(false);
-        setProjectionWriteActive(false);
+        setProjectionWriteActive(was);
       }
       if (prop === $TARGET) return value;
       return typeof value === "object" && value !== null ? new Proxy(value, traps) : value;
     },
     has(_, prop) {
       let value;
+      const was = projectionWriteActive;
       setWriteOverride(true);
       setProjectionWriteActive(true);
       try {
         value = prop in _;
       } finally {
         setWriteOverride(false);
-        setProjectionWriteActive(false);
+        setProjectionWriteActive(was);
       }
       return value;
     },
     set(_, prop, value) {
       if (isActive && !isActive()) return true;
+      const was = projectionWriteActive;
       setWriteOverride(true);
       setProjectionWriteActive(true);
       try {
@@ -241,12 +247,13 @@ export function createWriteTraps(
         onDraftWrite?.();
       } finally {
         setWriteOverride(false);
-        setProjectionWriteActive(false);
+        setProjectionWriteActive(was);
       }
       return true;
     },
     deleteProperty(_, prop) {
       if (isActive && !isActive()) return true;
+      const was = projectionWriteActive;
       setWriteOverride(true);
       setProjectionWriteActive(true);
       try {
@@ -254,7 +261,7 @@ export function createWriteTraps(
         onDraftWrite?.();
       } finally {
         setWriteOverride(false);
-        setProjectionWriteActive(false);
+        setProjectionWriteActive(was);
       }
       return true;
     }

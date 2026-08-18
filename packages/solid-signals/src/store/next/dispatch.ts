@@ -4,9 +4,11 @@
  * optimistic — not yet ported) falls through to the legacy implementation.
  * Deleted when the swap completes.
  */
+import { createOptimisticStore as legacyCreateOptimisticStore } from "../optimistic.js";
 import { reconcile as legacyReconcile } from "../reconcile.js";
 import { $TARGET, createStore as legacyCreateStore } from "../store.js";
 import { deep as legacyDeep, snapshot as legacySnapshot } from "../utils.js";
+import { createOptimisticStoreNext } from "./optimistic.js";
 import { reconcileNextState } from "./reconcile.js";
 import { createStoreNext, deepNext, isNextProxy, snapshotNext } from "./store.js";
 
@@ -49,4 +51,13 @@ export function createStore(first: any, second?: any, third?: any): any {
     return createStoreNext(first);
   }
   return (legacyCreateStore as any)(first, second, third);
+}
+
+/** Shallow optimistic stores route legacy (O4: shallow is not a port
+ * target); everything else serves from the rewrite. */
+export function createOptimisticStore(first: any, second?: any, options?: any): any {
+  const derived = typeof first === "function";
+  const opts = derived ? options : (options ?? second);
+  if (opts?.shallow) return (legacyCreateOptimisticStore as any)(first, second, options);
+  return (createOptimisticStoreNext as any)(first, second, options);
 }
