@@ -381,6 +381,33 @@ describe("omit Props", () => {
       expect(Object.keys(otherProps)).toEqual(["id"]);
     });
   });
+  test("re-merging an omit() of a merge proxy keeps omitted keys hidden (#3014)", () => {
+    createRoot(() => {
+      const [value] = createSignal("a@b.c");
+      // Callee props as the compiler produces them for a call site mixing
+      // static JSX props with a dynamic spread: a merge proxy.
+      const props = merge(
+        { label: "Email", name: "email", placeholder: "you@example.com" },
+        () => ({
+          value: value(),
+          onChange: (_v: string) => {}
+        })
+      );
+      const rest = omit(props, "name", "label", "value", "onChange");
+      expect(Object.keys(rest)).toEqual(["placeholder"]);
+
+      // The element-spread path re-merges statics with the rest object —
+      // merge() must not flatten through omit's filter via $SOURCES.
+      const spread = merge({ name: "email", value: "a@b.c" }, rest);
+      expect(Object.keys(spread).sort()).toEqual(["name", "placeholder", "value"]);
+      expect((spread as any).label).toBeUndefined();
+      expect((spread as any).onChange).toBeUndefined();
+      expect("label" in spread).toBe(false);
+      expect("onChange" in spread).toBe(false);
+      // non-omitted keys still flow reactively through both layers
+      expect((spread as any).placeholder).toBe("you@example.com");
+    });
+  });
   test("omit result is immutable", () => {
     const props = { first: 1, second: 2 };
     const otherProps = omit(props, "first");

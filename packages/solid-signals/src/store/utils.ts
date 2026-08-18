@@ -404,10 +404,18 @@ export function omit<T extends Record<any, any>, K extends readonly (keyof T)[]>
     return new Proxy(
       {
         get(property) {
-          return keys.includes(property as keyof T) ? undefined : props[property as any];
+          // $SOURCES must not tunnel through the filter: merge() flattens
+          // whatever answers it, so forwarding would hand a re-merge the
+          // UNFILTERED sources of an underlying merge proxy and the omitted
+          // keys leak back in (#3014 — the SSR element-spread path re-merges
+          // static attributes with the rest object). Opaque here: merge
+          // composes omit proxies through their traps instead.
+          return property === $SOURCES || keys.includes(property as keyof T)
+            ? undefined
+            : props[property as any];
         },
         has(property) {
-          return !keys.includes(property as keyof T) && property in props;
+          return property !== $SOURCES && !keys.includes(property as keyof T) && property in props;
         },
         keys() {
           return ownEnumerableKeys(props).filter(k => !keys.includes(k as keyof T));
