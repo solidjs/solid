@@ -629,6 +629,32 @@ implementation, deduplicated across reports.
   (the DAG rule) covers the slots CAS declines. Also executed the RUL-12
   unkeyed-merge ruling: the two async yield-identity assertions rewritten to
   merge semantics (identity preserved) with ruling citations.
+- **2026-08-18h**: INITIAL SIZE AUDIT (post-functionality) — the size thesis
+  confirmed. Method: next-only entries bypassing dispatchers, plus a FLOOR
+  variant with legacy modules stubbed (honest approximations kept for
+  machinery that survives deletion, e.g. isWrappable; no-ops for what
+  deletion removes). Numbers (gzip):
+  - dual build today: full 29.0kb, store attribution 20.5kb (carrying both
+    implementations + dispatchers; shipped baseline was 24.0 / 15.5).
+  - next-only as-is (no dispatchers): 19.5kb — interop imports drag nearly
+    all of legacy in (legacyReconcile, createWriteTraps, legacy optimistic
+    hooks, legacy store.ts). The gap to the floor IS the deletion worklist.
+  - **next-only FLOOR, all features (plain+derived stores, reconcile,
+    snapshot/deep, projections, optimistic): 12.8kb full ⇒ ~4.4kb store
+    attribution — 3.5x smaller than shipped's 15.5kb.** Plain store +
+    reconcile floor: ~2.6kb attribution.
+  - Honest adjustments to the floor: createWriteTraps must move into next
+    (~0.3kb), affects wiring survives (treeshaken when unused), and the
+    public API glue (setter overloads, derived-form dispatch) adds a little
+    — realistic post-deletion attribution ≈ 5-6kb gz, i.e. roughly the 1.9
+    store's size WITH projections and optimistic stores, which 1.9 never
+    had. The original audit goal (store ~tripled 1.9→2.0) is answered: the
+    rewrite un-triples it while keeping the new capabilities.
+  - Deletion prerequisites surfaced by the audit: port the DERIVED
+    createStore form (fn+seed — routes to legacy today; small, reuses
+    createProjectionNextInternal), move createWriteTraps into next, then
+    delete legacy store/reconcile/projection/optimistic modules + dispatch.
+    Shallow (O4) stays routed to legacy pending the retirement ruling.
 - **2026-08-18g**: dbmon decomposition — the remaining gap is ONE structural
   item. Interleaved ABBA (200-tick rounds): next/legacy ratio stable at
   ~1.3x (13.3–15.3 vs 9.6–11.7; both columns drift with thermals, the ratio
