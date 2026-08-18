@@ -90,6 +90,9 @@ function createTarget(
   // was the #2 store cost in the uibench creation profile.
   const t: StoreNextTarget = (Array.isArray(value) ? [] : {}) as any;
   t.v = value;
+  // Chained-backing flag (backing IS another store's proxy, §7b) — cached so
+  // the hot read path never does a per-read symbol lookup on the backing.
+  t.ch = (value as any)[$TARGET] !== undefined;
   t.pb = null;
   t.n = null;
   t.h = null;
@@ -323,6 +326,7 @@ export function adoptPB(
   }
   target.pb = null;
   target.v = incoming;
+  target.ch = (incoming as any)[$TARGET] !== undefined;
   (target.fam?.map ?? storeNextLookup).set(incoming, target);
   if (__TEST__ && ingestedRaw && !ownedRaw.has(incoming)) ingestedRaw.add(incoming);
 }
@@ -346,6 +350,7 @@ function privatizeCommitted(target: StoreNextTarget): void {
   ownedRaw.add(clone);
   storeNextLookup.set(clone, target);
   target.v = clone;
+  target.ch = false;
   if (target.u) {
     privatizeCommitted(target.u);
     devAssertNeverUserMutation(target.u.v);
@@ -380,6 +385,7 @@ function drainFolds(): void {
         continue;
       }
       t.v = pb;
+      t.ch = false; // pb is always a plain clone
       t.pb = null;
     }
     if (t.v === old) continue; // adopted then re-adopted back, or no-op
@@ -880,9 +886,10 @@ function serveDataKey(
   target: StoreNextTarget,
   key: PropertyKey,
   backingValue: any,
-  src: Record<PropertyKey, any>
+  src: Record<PropertyKey, any>,
+  node?: Signal<any>
 ): any {
-  const chained = (src as any)[$TARGET] !== undefined;
+  const chained = target.ch && src === target.v;
   let v = backingValue;
   // §6: on optimistic arrays LENGTH IS A VIEW, not a node value — one home
   // (backing ± presence overrides) for both length and indices makes torn
@@ -909,7 +916,6 @@ function serveDataKey(
       if (node !== undefined && hasActiveOverride(node)) v = unwrapOverride(node._overrideValue);
     }
   } else {
-    const node = target.n?.[key as any];
     if (node !== undefined) {
       // §7b: a lane value on the outer node SHADOWS read-through — an active
       // override pierces the chained gate; otherwise chained backings always
@@ -944,7 +950,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // refresh()/isPending resolve the projection computed through $REFRESH.
     if (key === $REFRESH) return target.fam?.node ?? undefined;
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
-    if (!inDraft(target) && target.fam !== null) firewallGate(target);
+    if (target.fam !== null && !inDraft(target)) firewallGate(target);
     const src = readSource(target);
     if (key === $TRACK) {
       if (!inDraft(target) && getObserver() !== null) {
@@ -982,8 +988,8 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // the node's cached flag; the first TRACKED read (which creates the
     // node) probes once — untracked node-less reads take the plain path,
     // where a raw-receiver getter still returns correct committed values.
+    const node0 = target.n?.[key as any];
     {
-      const node0 = target.n?.[key as any];
       const acc =
         node0 !== undefined
           ? (node0 as any).acc === true
@@ -996,8 +1002,13 @@ const traps: ProxyHandler<StoreNextTarget> = {
     }
     // Plain-data fast path: no descriptor allocation per read.
     // Inherited pollution keys are never served (core R30) — checked before
-    // the proto-function branch can leak `constructor`.
-    if (UNSAFE_KEYS.has(key) && !hasOwn.call(src, key)) return undefined;
+    // the proto-function branch can leak `constructor`. Interned-string
+    // compares beat a Set hash on this per-read path.
+    if (
+      (key === "constructor" || key === "__proto__" || key === "prototype") &&
+      !hasOwn.call(src, key)
+    )
+      return undefined;
     let v = (src as any)[key];
     if (v === undefined ? !hasOwn.call(src, key) : false) {
       // Inherited: prototype getters/methods run with the proxy receiver.
@@ -1018,7 +1029,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
       return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;
     }
     if (typeof v === "function" && !hasOwn.call(src, key)) return v; // proto method
-    return serveDataKey(target, key, v, src);
+    return serveDataKey(target, key, v, src, node0);
   },
 
   has(target, key) {

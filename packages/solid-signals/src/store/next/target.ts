@@ -39,6 +39,8 @@ export interface StoreNextTarget {
   v: Record<PropertyKey, any>;
   /** Pending backing for the current flush (null when settled). */
   pb: Record<PropertyKey, any> | null;
+  /** cached: committed backing is another store's proxy (§7b chained). */
+  ch: boolean;
   /** Lazy per-property subscription nodes (real core signals). */
   n: Record<PropertyKey, Signal<any>> | null;
   /** Lazy per-key presence nodes (`in` tracks presence, not value — R13). */

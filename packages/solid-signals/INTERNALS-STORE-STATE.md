@@ -629,6 +629,23 @@ implementation, deduplicated across reports.
   (the DAG rule) covers the slots CAS declines. Also executed the RUL-12
   unkeyed-merge ruling: the two async yield-identity assertions rewritten to
   merge semantics (identity preserved) with ruling citations.
+- **2026-08-18g**: dbmon decomposition — the remaining gap is ONE structural
+  item. Interleaved ABBA (200-tick rounds): next/legacy ratio stable at
+  ~1.3x (13.3–15.3 vs 9.6–11.7; both columns drift with thermals, the ratio
+  doesn't). Legacy profile: applyStateFast 874ms/300t — diff + notify FUSED
+  in one pass. Next: applyAdopt 854ms (parity with legacy's walk!) + a
+  SECOND full diff in notifyFold 670ms — the adoption channel re-walks node
+  keys re-fetching old/new values the descent just visited. Read-path cuts
+  landed (cached `ch` chained flag — no per-read symbol probe on backings;
+  single node lookup threaded into serveDataKey; interned-string pollution
+  guard; fam-first gate ordering) — worth only ~3%; get-trap delta vs
+  legacy (498 vs 261ms) is mostly the second diff's re-reads attributed
+  into the trap. NEXT STEP (scoped, single item): fuse fold notification
+  into the adoption walk — during applyAdopt's key iteration, notify the
+  key's node inline (value compare + setSignal) and reduce notifyFold to
+  deletions, has-nodes, and key-set handling. Expected: removes ~0.6ms+ of
+  the ~1.2ms/tick structural overhead vs the fused legacy walk. uibench
+  standings unchanged (27.5 vs legacy 36.6 — keyed/structural ops carry it).
 - **2026-08-18f**: First optimization pass — the creation-tax thesis
   CONFIRMED. uibench (10-iter, same-session sequence): legacy 36.6 → next
   33.8 (functionality landed) → 32.6 (scanAccessors deleted) → 31.1

@@ -228,7 +228,15 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
         descend(unwrapValue(prevRows[i]), nextRows[i], keyFn, fam, proj);
     }
   } else {
-    for (const k of Reflect.ownKeys(incoming)) {
+    // for-in covers own enumerable string keys with no key-array allocation
+    // (class methods/proto members are non-enumerable); symbols get a pass
+    // only when present.
+    for (const k in incoming) {
+      descend(unwrapValue((prevView as any)[k]), (incoming as any)[k], keyFn, fam, proj);
+    }
+    const syms = Object.getOwnPropertySymbols(incoming);
+    for (let i = 0; i < syms.length; i++) {
+      const k = syms[i];
       descend(unwrapValue((prevView as any)[k]), (incoming as any)[k], keyFn, fam, proj);
     }
   }
@@ -247,13 +255,6 @@ function descend(
   // recursed into (R42); the parent's slot notification covers the change.
   if (rawValuesUsed && (isRawValue(pv) || isRawValue(nv))) return;
   nv = unwrapValue(nv);
-  // A child tracked by the LEGACY store (shallow store nested in a next deep
-  // store, R45) reconciles through the legacy machinery on its own proxy.
-  const lt = legacyStoreLookup.get(pv);
-  if (lt !== undefined) {
-    legacyReconcile(nv, keyFn ?? null)((lt as any)[$PROXY]);
-    return;
-  }
   // Kind change replaces wholesale, never merges (R10): a target's carrier
   // class (array vs object) is fixed at creation, so the slot detaches and a
   // fresh proxy of the right kind wraps the incoming value on next read.
@@ -266,7 +267,14 @@ function descend(
     if (pk !== undefined && nk !== undefined && pk !== nk) return;
   }
   const ct = (fam?.map ?? storeNextLookup).get(pv);
-  if (ct === undefined) return; // nothing proxied below this pair
+  if (ct === undefined) {
+    // A child tracked by the LEGACY store (shallow store nested in a next
+    // deep store, R45) reconciles through the legacy machinery on its own
+    // proxy — consulted only on a next-lookup miss (hot-path ordering).
+    const lt = legacyStoreLookup.get(pv);
+    if (lt !== undefined) legacyReconcile(nv, keyFn ?? null)((lt as any)[$PROXY]);
+    return; // otherwise: nothing proxied below this pair
+  }
   // Reachability pruning (§6d) is MODE-dependent, both pinned:
   // - keyed matching descends only where subscriptions exist at/below (`d`) —
   //   captured-but-unobserved proxies deliberately detach and go stale
