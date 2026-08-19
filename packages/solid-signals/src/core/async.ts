@@ -12,7 +12,7 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
-import { attributionActive, NO_VALUES, stampWrite } from "./attribution.js";
+import { attrHooks } from "./attribution-hooks.js";
 import { context, setSignal, untrack } from "./core.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { emitDiagnostic } from "./dev.js";
@@ -365,9 +365,10 @@ export function handleAsync<T>(
     clearStatus(el);
     const lane = resolveLane(el as any);
     if (lane) lane._pendingAsync.delete(el);
-    // Attribution: remember the newest stamp before the landing branches so a
-    // committed change (and only a committed change) can be relabeled below.
-    const devStampSeq = __DEV__ && attributionActive ? ((el as any)._devChange?.seq ?? 0) : 0;
+    // Attribution hook: lets the engine snapshot state before the landing
+    // branches, so it can tell whether the plain path's setSignal committed a
+    // change (and only then classify it as an async landing).
+    if (__DEV__ && attrHooks !== null) attrHooks.asyncStart(el);
     if (setter) {
       setter(value);
       if (wasUninitialized) clearStatus(el, true);
@@ -393,7 +394,7 @@ export function handleAsync<T>(
       // re-show an unchanged view — the revert is the notification point.
       GlobalQueue._syncCompanions !== null && GlobalQueue._syncCompanions(el, value);
       if (!hasActiveOverride(el)) {
-        if (__DEV__ && attributionActive) stampWrite(el, "async", NO_VALUES, value);
+        if (__DEV__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, true);
         insertSubs(el);
       }
       el._time = clock;
@@ -425,7 +426,8 @@ export function handleAsync<T>(
         // rejection (#2837).
         notifyStatus(el, STATUS_ERROR, e);
       }
-      if (__DEV__ && attributionActive && devChanged) stampWrite(el, "async", prevValue, value);
+      if (__DEV__ && attrHooks !== null && devChanged)
+        attrHooks.asyncEnd(el, prevValue, value, true);
     } else {
       try {
         setSignal(el, () => value);
@@ -434,19 +436,12 @@ export function handleAsync<T>(
         // pre-commit failure here, and there is no user callsite to throw to.
         notifyStatus(el, STATUS_ERROR, e);
       }
+      // Attribution hook: this path landed through setSignal, whose write
+      // hook already saw any committed change — direct=false lets the engine
+      // reclassify that write as an async landing iff it actually committed.
+      // Outside the try (#2883 — see attribution-hooks.ts).
+      if (__DEV__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, false);
     }
-    // Attribution: the plain path landed through setSignal, which stamps the
-    // generic "write" kind on a committed change. Relabel it as an async
-    // landing — but only if setSignal actually stamped (i.e. the value
-    // changed); a no-change landing must leave no fresh stamp behind, or a
-    // later unrelated re-run of a subscriber would mis-attribute to it.
-    if (
-      __DEV__ &&
-      attributionActive &&
-      ((el as any)._devChange?.seq ?? 0) > devStampSeq &&
-      (el as any)._devChange.kind === "write"
-    )
-      stampWrite(el, "async", NO_VALUES, value);
     // First real answer landing: the window closes when the answer becomes
     // OBSERVABLE. A direct commit is observable now; a transition-held write
     // (`_pendingValue` set above or inside setSignal) is not — the verdict's

@@ -1,3 +1,4 @@
+import { setAttributionHooks, type AttributionHooks } from "./attribution-hooks.js";
 import { $REFRESH } from "./constants.js";
 // Cycle note: dev.ts imports this module for the `attribution` object, and we
 // import its hoisted emitDiagnostic back — safe (only called at runtime) and
@@ -19,8 +20,13 @@ import type { Computed, Signal } from "./types.js";
  *     ← memo "userLabel" changed (#6)
  *       ← signal "notifications" write (#5) 2 → 3
  *
- * Everything here is dev-only and off by default: with attribution disabled
- * the only cost is one boolean check per recompute/write.
+ * This module is the attribution ENGINE: all semantics live here, and it is
+ * decoupled from the core. `enable()` installs it into the core's narrow
+ * dev-only hook points (attribution-hooks.ts); core's only obligation is to
+ * call those hooks with true facts. Disabled cost is one null check per hook
+ * site; prod builds fold the sites out entirely. The same hook surface is the
+ * intended substrate for external consumers (devtools) — one mechanism, two
+ * front-ends.
  */
 
 export type ChangeKind = "write" | "derived" | "async" | "refresh";
@@ -64,12 +70,28 @@ export interface RerunEvent {
   /** Wall time of this run including nested recomputes (ms). */
   totalMs: number;
   /**
-   * Whether the run committed a changed value. A memo run with
+   * Whether the run committed a changed value. A PLAIN memo run with
    * `changed: false` was pure waste — the equality cutoff stopped it from
    * notifying anyone; an effect run with `changed: false` computed without
-   * firing its effect phase. Summed as `wastedMs` in costs().
+   * firing its effect phase. Summed as `wastedMs` in costs() (plain,
+   * non-held runs only — see `phase`).
    */
   changed: boolean;
+  /**
+   * Which posture this run executed under. "optimistic" = under an
+   * optimistic lane (overlay recompute); "transition" = a transition was
+   * active or owns the node (the run may be replayed/settled later);
+   * "plain" = an ordinary committed run. Overlay runs are real work (they
+   * count toward time budgets) but are never blamed as waste, and costs()
+   * reports their time separately as `overlayMs`.
+   */
+  phase: "plain" | "transition" | "optimistic";
+  /**
+   * The changed value was held in `_pendingValue` (a transition hold) rather
+   * than committed directly; its reveal happens on the transition's own
+   * schedule. Held runs are excluded from waste accounting.
+   */
+  held: boolean;
 }
 
 export interface AttributionOptions {
@@ -81,7 +103,9 @@ export interface AttributionOptions {
   historyLimit?: number;
   /**
    * Hot-scope warning: emit a diagnostic when one scope re-runs `count`
-   * times within `windowMs` (default 60 runs / 1000ms). `false` disables.
+   * times within `windowMs` (default 120 runs / 1000ms — deliberately above
+   * animation-frame cadence, so a legitimate rAF-driven scope at 60/s does
+   * not cry wolf). `false` disables.
    */
   hotRuns?: { count: number; windowMs: number } | false;
   /**
@@ -112,7 +136,7 @@ interface AttributedNode {
   _devTimeWarned?: boolean;
 }
 
-export let attributionActive = false;
+let attributionActive = false;
 
 let changeSeq = 0;
 let runSeq = 0;
@@ -120,7 +144,7 @@ const defaultOptions = {
   log: true,
   stacks: false,
   historyLimit: 200,
-  hotRuns: { count: 60, windowMs: 1000 } as { count: number; windowMs: number } | false,
+  hotRuns: { count: 120, windowMs: 1000 } as { count: number; windowMs: number } | false,
   wideDeps: 30 as number | false,
   hotTime: { budgetMs: 8, windowMs: 1000 } as { budgetMs: number; windowMs: number } | false
 };
@@ -131,25 +155,17 @@ let history: RerunEvent[] = [];
 const now: () => number =
   typeof performance !== "undefined" ? () => performance.now() : () => Date.now();
 
-// Self-time bookkeeping: recomputes nest (pulls, child creation inside a
-// parent's fn), so each frame tracks the time its children consumed and the
-// parent subtracts it — the same discipline every profiler uses.
-const timeStarts: number[] = [];
-const childTimes: number[] = [];
-
-/** Open a timing frame for a recompute. Must be paired with endTiming(). */
-export function beginTiming(): void {
-  timeStarts.push(now());
-  childTimes.push(0);
+// Per-recompute frames: recomputes nest (pulls, child creation inside a
+// parent's fn), so each frame carries the causes/prev-deps snapshot from
+// recomputeStart plus the time its children consumed — the parent subtracts
+// child time for honest self-time, the same discipline every profiler uses.
+interface RunFrame {
+  start: number;
+  childMs: number;
+  causes: ChangeRecord[] | null; // null on create runs
+  prevDeps: unknown[] | null;
 }
-
-/** Close the current timing frame; credits total time to the parent frame. */
-export function endTiming(): { selfMs: number; totalMs: number } {
-  const totalMs = now() - timeStarts.pop()!;
-  const childMs = childTimes.pop()!;
-  if (childTimes.length > 0) childTimes[childTimes.length - 1] += totalMs;
-  return { selfMs: Math.max(0, totalMs - childMs), totalMs };
-}
+const frames: RunFrame[] = [];
 
 // Cost aggregates, reset on enable()/disable().
 export interface ScopeCost {
@@ -157,8 +173,15 @@ export interface ScopeCost {
   kind: "effect" | "memo";
   runs: number;
   selfMs: number;
-  /** Self-time of runs that produced an unchanged value — recoverable. */
+  /**
+   * Self-time of PLAIN, non-held runs that produced an unchanged value —
+   * the recoverable number. Overlay runs (optimistic/transition) are never
+   * counted here: an optimistic recompute landing back on the committed
+   * value is the mechanism working, not waste.
+   */
   wastedMs: number;
+  /** Self-time spent in optimistic/transition (overlay) runs. */
+  overlayMs: number;
 }
 export interface WriteCost {
   /** Root cause name (a signal write, async landing, or refresh target). */
@@ -181,12 +204,20 @@ function rootsOf(causes: ChangeRecord[], out: Set<string>): void {
 function recordCosts(event: RerunEvent): void {
   let scope = scopeCosts.get(event.node);
   if (scope === undefined) {
-    scope = { name: event.nodeName, kind: event.nodeKind, runs: 0, selfMs: 0, wastedMs: 0 };
+    scope = {
+      name: event.nodeName,
+      kind: event.nodeKind,
+      runs: 0,
+      selfMs: 0,
+      wastedMs: 0,
+      overlayMs: 0
+    };
     scopeCosts.set(event.node, scope);
   }
   scope.runs++;
   scope.selfMs += event.selfMs;
-  if (!event.changed) scope.wastedMs += event.selfMs;
+  if (event.phase !== "plain") scope.overlayMs += event.selfMs;
+  else if (!event.changed && !event.held) scope.wastedMs += event.selfMs;
   const roots = new Set<string>();
   rootsOf(event.causes, roots);
   for (const name of roots) {
@@ -234,10 +265,10 @@ function captureStack(): string[] | undefined {
 }
 
 /** Sentinel for "no value transition to record" (refresh() stamps). */
-export const NO_VALUES = Symbol("no-values");
+const NO_VALUES = Symbol("no-values");
 
 /** Record a root change (setSignal / refresh / async landing) on the node. */
-export function stampWrite(
+function stampWrite(
   node: Signal<any> | Computed<any>,
   kind: Exclude<ChangeKind, "derived">,
   prev: unknown = NO_VALUES,
@@ -253,7 +284,7 @@ export function stampWrite(
 }
 
 /** Record a derived change (memo produced a new value) with its causes. */
-export function stampDerived(node: Computed<any>, causes: ChangeRecord[]): void {
+function stampDerived(node: Computed<any>, causes: ChangeRecord[]): void {
   (node as AttributedNode)._devChange = {
     seq: ++changeSeq,
     kind: "derived",
@@ -268,7 +299,7 @@ export function stampDerived(node: Computed<any>, causes: ChangeRecord[]): void 
  * run's links. A refresh() stamp on the node itself also counts — that is a
  * self-invalidation, not a dep change.
  */
-export function collectCauses(el: Computed<any>): ChangeRecord[] {
+function collectCauses(el: Computed<any>): ChangeRecord[] {
   const seen = (el as AttributedNode)._devSeenSeq ?? 0;
   const causes: ChangeRecord[] = [];
   const self = (el as AttributedNode)._devChange;
@@ -281,12 +312,12 @@ export function collectCauses(el: Computed<any>): ChangeRecord[] {
 }
 
 /** Advance the node's seen-cursor to the present. Call after every run. */
-export function markSeen(el: Computed<any>): void {
+function markSeen(el: Computed<any>): void {
   (el as AttributedNode)._devSeenSeq = changeSeq;
 }
 
 /** Snapshot the node's current dep identities (call before a run replaces them). */
-export function captureDeps(el: Computed<any>): unknown[] {
+function captureDeps(el: Computed<any>): unknown[] {
   const deps: unknown[] = [];
   for (let l = el._deps; l !== null; l = l._nextDep) deps.push(l._dep);
   return deps;
@@ -298,7 +329,7 @@ export function captureDeps(el: Computed<any>): unknown[] {
  * recordRerun for re-runs and directly from recompute for creation runs (a
  * memo can be born too wide). Re-warns only on 50% further growth.
  */
-export function checkDepWidth(el: Computed<any>): void {
+function checkDepWidth(el: Computed<any>): void {
   const limit = options.wideDeps;
   if (limit === false) return;
   let count = 0;
@@ -403,12 +434,14 @@ function checkHotTime(el: Computed<any>, event: RerunEvent): void {
   console.warn(message);
 }
 
-export function recordRerun(
+function recordRerun(
   el: Computed<any>,
   causes: ChangeRecord[],
   prevDeps: unknown[],
   timing: { selfMs: number; totalMs: number },
-  changed: boolean
+  changed: boolean,
+  phase: "plain" | "transition" | "optimistic",
+  held: boolean
 ): void {
   const node = el as AttributedNode;
   // Subscription diff: `prevDeps` was captured at run entry; `_deps` now
@@ -433,7 +466,9 @@ export function recordRerun(
     depsRemoved,
     selfMs: timing.selfMs,
     totalMs: timing.totalMs,
-    changed
+    changed,
+    phase,
+    held
   };
   history.push(event);
   if (history.length > options.historyLimit) history.shift();
@@ -461,7 +496,8 @@ function formatCause(cause: ChangeRecord, depth: number, out: string[]): void {
 export function formatRerun(event: RerunEvent): string {
   const out = [
     `[why-run] ${event.nodeKind} "${event.nodeName}" ran (run ${event.nodeRuns}, ` +
-      `${event.selfMs.toFixed(2)}ms${event.changed ? "" : ", unchanged"})` +
+      `${event.selfMs.toFixed(2)}ms${event.changed ? "" : ", unchanged"}` +
+      `${event.phase === "plain" ? "" : `, ${event.phase}`}${event.held ? ", held" : ""})` +
       (event.causes.length === 0 ? " — no tracked cause (pull or retry)" : "")
   ];
   for (const cause of event.causes) formatCause(cause, 0, out);
@@ -493,23 +529,85 @@ export interface Attribution {
   format: typeof formatRerun;
 }
 
+// The engine's implementation of the core's dev hook points. Installed by
+// enable(), uninstalled by disable() — while uninstalled the core pays one
+// null check per site and nothing else.
+let asyncStartSeq = 0;
+const engineHooks: AttributionHooks = {
+  recomputeStart(el, create) {
+    frames.push({
+      start: now(),
+      childMs: 0,
+      causes: create ? null : collectCauses(el),
+      prevDeps: create ? null : captureDeps(el)
+    });
+  },
+  derivedChanged(el) {
+    const frame = frames[frames.length - 1];
+    stampDerived(el, frame !== undefined && frame.causes !== null ? frame.causes : []);
+  },
+  recomputeEnd(el, _create, changed, optimistic, transition, held) {
+    const frame = frames.pop();
+    // enable() can land mid-recompute: no opening frame, nothing to report.
+    if (frame === undefined) return;
+    const totalMs = now() - frame.start;
+    if (frames.length > 0) frames[frames.length - 1].childMs += totalMs;
+    const selfMs = Math.max(0, totalMs - frame.childMs);
+    if (frame.causes !== null)
+      recordRerun(
+        el,
+        frame.causes,
+        frame.prevDeps!,
+        { selfMs, totalMs },
+        changed,
+        optimistic ? "optimistic" : transition ? "transition" : "plain",
+        held
+      );
+    // Creation runs still get the wide-scope check: a memo can be born with
+    // its coarse-read problem already in place.
+    else checkDepWidth(el);
+    markSeen(el);
+  },
+  write(el, prev, value) {
+    stampWrite(el, "write", prev, value);
+  },
+  refreshed(el) {
+    stampWrite(el, "refresh");
+  },
+  asyncStart(el) {
+    asyncStartSeq = (el as AttributedNode)._devChange?.seq ?? 0;
+  },
+  asyncEnd(el, prev, value, direct) {
+    if (direct) {
+      stampWrite(el, "async", prev === undefined ? NO_VALUES : prev, value);
+      return;
+    }
+    // Landed through setSignal: reclassify its "write" stamp as an async
+    // landing — but only if it actually stamped (the value changed) since
+    // asyncStart; a no-change landing must leave no fresh stamp behind.
+    const change = (el as AttributedNode)._devChange;
+    if (change !== undefined && change.seq > asyncStartSeq && change.kind === "write")
+      stampWrite(el, "async", NO_VALUES, value);
+  }
+};
+
 export const attribution: Attribution = {
   enable(opts?: AttributionOptions) {
     options = { ...defaultOptions, ...opts };
     attributionActive = true;
-    timeStarts.length = 0;
-    childTimes.length = 0;
+    frames.length = 0;
     scopeCosts.clear();
     writeCosts.clear();
+    setAttributionHooks(engineHooks);
   },
   disable() {
     attributionActive = false;
     listeners.clear();
     history = [];
-    timeStarts.length = 0;
-    childTimes.length = 0;
+    frames.length = 0;
     scopeCosts.clear();
     writeCosts.clear();
+    setAttributionHooks(null);
   },
   subscribe(listener) {
     listeners.add(listener);

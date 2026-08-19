@@ -57,19 +57,7 @@ import {
   throwPendingUntrackedRead,
   warnStrictReadUntracked
 } from "./dev.js";
-import {
-  attributionActive,
-  beginTiming,
-  captureDeps,
-  checkDepWidth,
-  collectCauses,
-  endTiming,
-  markSeen,
-  recordRerun,
-  stampDerived,
-  stampWrite,
-  type ChangeRecord
-} from "./attribution.js";
+import { attrHooks } from "./attribution-hooks.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { cleanup, disposeChildren, inheritId, markDisposal } from "./owner.js";
 import {
@@ -183,22 +171,11 @@ export function clearSnapshots(): void {
 
 export function recompute(el: Computed<any>, create: boolean = false): void {
   const isEffect = (el as any)._type;
-  // Attribution snapshot must happen before this run touches the dep list:
-  // `_deps` still holds the previous run's links, which are exactly the
-  // subscriptions that could have triggered this run — and the baseline for
-  // the subscription diff after the run.
-  let devCauses: ChangeRecord[] | null = null;
-  let devPrevDeps: unknown[] | null = null;
+  // Attribution hook: fired before this run touches the dep list — `_deps`
+  // still holds the previous run's links (the subscriptions that could have
+  // triggered this run, and the baseline for the engine's subscription diff).
   let devChanged = false;
-  if (__DEV__ && attributionActive) {
-    // Every recompute opens a timing frame (create runs included) so nested
-    // computes are subtracted from the parent's self-time.
-    beginTiming();
-    if (!create) {
-      devCauses = collectCauses(el);
-      devPrevDeps = captureDeps(el);
-    }
-  }
+  if (__DEV__ && attrHooks !== null) attrHooks.recomputeStart(el, create);
   if (!create) {
     if (el._transition && (!isEffect || activeTransition) && activeTransition !== el._transition)
       globalQueue.initTransition(el._transition);
@@ -381,9 +358,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
 
     // A committed derived change becomes a cause for this node's subscribers,
     // chaining their attribution through this node to the root write.
-    if (__DEV__ && attributionActive) {
+    if (__DEV__ && attrHooks !== null) {
       devChanged = valueChanged && !el._error;
-      if (devCauses !== null && devChanged && !isEffect) stampDerived(el, devCauses);
+      if (devChanged && !isEffect && !create) attrHooks.derivedChanged(el);
     }
 
     // Effects use `_equals: false` (no per-effect closure). The side effects that
@@ -470,14 +447,20 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (outgoingError !== undefined && !valueChanged && !el._error)
       settleErroredDependents(el, outgoingError);
   }
-  if (__DEV__ && attributionActive) {
-    const devTiming = endTiming();
-    if (devCauses !== null) recordRerun(el, devCauses, devPrevDeps!, devTiming, devChanged);
-    // Creation runs still get the wide-scope check: a memo can be born with
-    // its coarse-read problem already in place.
-    else checkDepWidth(el);
-    markSeen(el);
-  }
+  // Attribution hook: fired before the lane restore so `currentOptimisticLane`
+  // still reflects THIS run's posture. The facts distinguish an overlay
+  // recompute (optimistic lane, transition replay, transition-held commit)
+  // from a plain committed one — the engine must not blame overlay runs as
+  // waste or double-count them against plain aggregates.
+  if (__DEV__ && attrHooks !== null)
+    attrHooks.recomputeEnd(
+      el,
+      create,
+      devChanged,
+      isOptimisticDirty || currentOptimisticLane !== null,
+      activeTransition !== null || el._transition !== null,
+      el._pendingValue !== NOT_PENDING
+    );
   currentOptimisticLane = prevLane;
   const needsPendingCommit =
     el._pendingValue !== NOT_PENDING ||
@@ -1090,8 +1073,8 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     !el._equals(currentValue, v);
   if (!valueChanged) return v;
 
-  // Root cause for attribution: this write is where a re-run chain begins.
-  if (__DEV__ && attributionActive) stampWrite(el, "write", currentValue, v);
+  // Attribution hook: this committed write is where a re-run chain begins.
+  if (__DEV__ && attrHooks !== null) attrHooks.write(el, currentValue, v);
 
   if (el._pendingValue === NOT_PENDING) queuePendingNode(el);
   el._pendingValue = v;
@@ -1266,7 +1249,7 @@ export function refresh<T>(target: Refreshable<T>): void {
     node._flags = (node._flags & ~REACTIVE_CHECK) | REACTIVE_DIRTY;
     // A refresh() self-invalidation is a root cause too — the target's next
     // run has no changed dep to point at, so it points here instead.
-    if (__DEV__ && attributionActive) stampWrite(node, "refresh");
+    if (__DEV__ && attrHooks !== null) attrHooks.refreshed(node);
     insertIntoHeap(node, queueFor(node));
     schedule();
   }

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createEffect,
   createMemo,
+  createOptimistic,
   createRoot,
   createSignal,
   createStore,
@@ -446,6 +447,60 @@ describe("why-did-this-run attribution", () => {
     expect(timeEvents[0].data!.spentMs as number).toBeGreaterThanOrEqual(5);
     expect(timeEvents[0].message).toContain('"n" (write)');
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("tags optimistic runs with their phase and never blames them as waste", () => {
+    const spin = (ms: number) => {
+      const end = performance.now() + ms;
+      while (performance.now() < end);
+    };
+    const [x, setX] = createOptimistic(1, { name: "opt" });
+    createRoot(() =>
+      createEffect(
+        () => {
+          spin(3);
+          return x();
+        },
+        () => {},
+        { name: "opt-effect" }
+      )
+    );
+    flush();
+
+    const events = collect({ hotRuns: false, hotTime: false });
+    setX(2);
+    flush();
+
+    const runs = events.filter(e => e.nodeName === "opt-effect");
+    expect(runs.length).toBeGreaterThanOrEqual(1);
+    // Every run under the optimistic write is tagged as overlay work.
+    for (const run of runs) expect(run.phase).not.toBe("plain");
+
+    const { scopes } = DEV!.attribution.costs();
+    const scope = scopes.find(s => s.name === "opt-effect")!;
+    expect(scope.overlayMs).toBeGreaterThan(0);
+    expect(scope.wastedMs).toBe(0); // overlay runs are never waste
+    expect(scope.selfMs).toBeGreaterThanOrEqual(scope.overlayMs);
+  });
+
+  it("keeps plain runs untagged", () => {
+    const [n, setN] = createSignal(0, { name: "n" });
+    createRoot(() =>
+      createEffect(
+        () => n(),
+        () => {},
+        { name: "plain-effect" }
+      )
+    );
+    flush();
+
+    const events = collect();
+    setN(1);
+    flush();
+
+    const run = events.find(e => e.nodeName === "plain-effect")!;
+    expect(run.phase).toBe("plain");
+    expect(run.held).toBe(false);
   });
 
   it("is inert when disabled", () => {
