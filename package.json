@@ -32,7 +32,7 @@
     "@changesets/cli": "^2.25.2",
     "@dom-expressions/babel-plugin-jsx": "0.50.0-next.43",
     "@dom-expressions/hyperscript": "0.50.0-next.43",
-    "@dom-expressions/runtime": "0.50.0-next.43",
+    "@dom-expressions/runtime": "0.50.0-next.44",
     "@dom-expressions/tagged-jsx": "0.50.0-next.43",
     "@rollup/plugin-babel": "^6.0.3",
     "@rollup/plugin-commonjs": "^24.0.0",

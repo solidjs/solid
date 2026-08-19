@@ -30,9 +30,10 @@ import {
   createServerReference,
   getServerFunctionMetadata,
   isServerFunction,
+  observeServerFunctionCalls,
   withMeta
 } from "@solidjs/web/server-functions/client";
-import type { PrepareRequestHook } from "@solidjs/web/server-functions/client";
+import type { PrepareRequestHook, ServerFunctionCall } from "@solidjs/web/server-functions/client";
 
 const RequestContext = Symbol.for("solid.RequestContext");
 
@@ -48,9 +49,11 @@ afterAll(() => {
 // handler — a full round trip through both published bundles.
 function connectTransport() {
   const original = globalThis.fetch;
-  globalThis.fetch = ((url: string, init?: RequestInit) =>
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
     handleServerFunctionRequest(
-      new Request(new URL(url, "http://localhost"), init)
+      input instanceof Request
+        ? input
+        : new Request(new URL(input.toString(), "http://localhost"), init)
     )) as typeof fetch;
   return () => {
     globalThis.fetch = original;
@@ -160,6 +163,28 @@ describe("server-function extension surface (built bundles)", () => {
       expect(await plain()).toBe(null);
     } finally {
       configureServerFunctionsClient({ prepareRequest: null as any });
+      restore();
+    }
+  });
+
+  it("observes calls through the client bridge", async () => {
+    registerServerFunction("ext-observe-0", async (value: number) => value * 2);
+    const calls: ServerFunctionCall[] = [];
+    const stop = observeServerFunctionCalls(call => calls.push(call));
+    const restore = connectTransport();
+    try {
+      expect(await createServerReference("ext-observe-0")(21)).toBe(42);
+      expect(calls.map(call => call.type)).toEqual(["request", "response"]);
+      expect(calls[0]).toMatchObject({
+        id: "ext-observe-0",
+        instance: expect.any(String)
+      });
+      expect(calls[1]).toMatchObject({
+        id: "ext-observe-0",
+        instance: calls[0].instance
+      });
+    } finally {
+      stop();
       restore();
     }
   });
