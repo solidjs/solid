@@ -404,6 +404,7 @@
     "solid-js": "^2.0.0-rc.0"
   },
   "devDependencies": {
+    "@codspeed/vitest-plugin": "^5.4.0",
     "solid-js": "workspace:*"
   }
 }
