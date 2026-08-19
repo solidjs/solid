@@ -34,6 +34,7 @@ import {
 } from "../store.js";
 import { runProjectionComputedNext } from "./projection.js";
 import {
+  bumpDeep,
   getHasNode,
   getKeySetNode,
   getNode,
@@ -222,6 +223,9 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
     }
   }
   if (structural) setSignal(getKeySetNode(t), v => v + 1);
+  // Deep-witness: optimistic value writes notify deep() subscribers too
+  // (structural ones already ride the key-set bump above).
+  bumpDeep(t);
   // Discard the draft — committed raw is untouched (revert target by
   // construction). Register the root store for the scheduler's settle hooks
   // and the target for landing consumption (RUL-2).

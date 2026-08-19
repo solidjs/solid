@@ -103,6 +103,7 @@ function createTarget(
   t.n = null;
   t.h = null;
   t.k = null;
+  t.dk = null;
   t.u = parent;
   t.pk = parentKey;
   t.px = null;
@@ -259,6 +260,34 @@ export function getKeySetNode(target: StoreNextTarget): Signal<number> {
     markDescendants(target);
   }
   return k;
+}
+
+function getDeepNode(target: StoreNextTarget): Signal<number> {
+  let dk = target.dk;
+  if (dk === null) {
+    const created: Signal<number> = (dk = signal(
+      0,
+      {
+        equals: false,
+        unobserved() {
+          if (target.dk === created) target.dk = null;
+        }
+      },
+      (target.fam?.node as any) ?? undefined
+    ));
+    created._config |= CONFIG_OWNED_WRITE;
+    if (target.fam?.opt) created._overrideValue = NOT_PENDING;
+    if (affectsScopesLive()) inheritAffectsMarks(created as any, target.v, $TRACK);
+    target.dk = dk;
+    markDescendants(target);
+  }
+  return dk;
+}
+
+/** Deep-witness bump: any value/shape change on a record with a live deep()
+ * subscriber notifies it. One null check when unused. */
+export function bumpDeep(t: StoreNextTarget): void {
+  if (t.dk !== null) setSignal(t.dk, 1 as any);
 }
 
 function markDescendants(target: StoreNextTarget): void {
@@ -515,6 +544,18 @@ function notifyWrites(t: StoreNextTarget): void {
   if (has !== null) {
     for (const key of Reflect.ownKeys(has)) setSignal(has[key as any], key in pb);
   }
+  // Deep-witness (dk): setter writes must notify a deep() subscriber even on
+  // keys with no node. O(pb keys) equality only when a witness exists.
+  if (t.dk !== null) {
+    for (const key of Reflect.ownKeys(pb)) {
+      const nv = pb[key as any];
+      const ov = old[key as any];
+      if (nv !== null && typeof nv === "object" ? !targetsEqual(ov, nv) : !isEqual(ov, nv)) {
+        bumpDeep(t);
+        break;
+      }
+    }
+  }
   if (t.k !== null) {
     const changed =
       Array.isArray(pb) && Array.isArray(old)
@@ -678,6 +719,7 @@ export function notifyFold(
   old: Record<PropertyKey, any>,
   neu: Record<PropertyKey, any>
 ): void {
+  if (t.dk !== null && old !== neu) bumpDeep(t);
   // Optimistic targets: adoption notifications are authoritative landings —
   // bypass the engine (commit into _value; active overrides keep shadowing
   // until their transaction settles, per the no-revert-stash contract).
@@ -1296,26 +1338,43 @@ function isNextProxy(value: any): boolean {
  * key-set and every property node at every reachable level, then returns the
  * plain view. Shared references and cycles handled via the visited set. */
 export function deepNext<T>(value: T): T {
+  const t0: StoreNextTarget | undefined = (value as any)?.[$TARGET];
+  if (t0 === undefined || t0.px !== value) return value;
   const visited = new Set<object>();
-  const walk = (v: any): void => {
-    if (!isNextProxy(v)) return;
-    const t: StoreNextTarget = v[$TARGET];
+  // One membership node + one deep-witness node PER RECORD (legacy $TRACK
+  // parity): the walk stays O(records) in subscriptions instead of O(paths)
+  // in per-key nodes, and it walks TARGETS directly — no per-child proxy
+  // round-trip (wrapNext → proxy → $TARGET trap) on the re-walk every
+  // effect run performs.
+  const walkT = (t: StoreNextTarget): void => {
     const src = readSource(t);
     if (visited.has(src)) return;
     visited.add(src);
     readNode(getKeySetNode(t));
+    readNode(getDeepNode(t));
+    const map = t.fam?.map ?? storeNextLookup;
     for (const key of Reflect.ownKeys(src)) {
       const desc = Object.getOwnPropertyDescriptor(src, key);
-      if (desc && (desc.get || desc.set)) {
+      if (desc === undefined) continue;
+      if (desc.get || desc.set) {
         t.a = true;
         continue; // accessors track through their own reads when invoked
       }
-      const child = (src as any)[key];
-      readNode(getNode(t, key, child));
-      if (isWrappable(child)) walk(wrapNext(child, t, key));
+      const child = desc.value;
+      if (child === null || typeof child !== "object") continue;
+      // Stored proxies (chained slots) resolve through their own target;
+      // raw children through the family map, created on first visit.
+      let ct: StoreNextTarget | undefined = (child as any)[$TARGET] ?? map.get(child);
+      if (ct === undefined) {
+        if (!isWrappable(child)) continue;
+        wrapNext(child, t, key);
+        ct = map.get(child);
+        if (ct === undefined) continue; // raw-marked: leaf by contract
+      }
+      walkT(ct);
     }
   };
-  walk(value);
+  walkT(t0);
   return snapshotNext(value);
 }
 

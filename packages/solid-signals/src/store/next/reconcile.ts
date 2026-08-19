@@ -18,6 +18,7 @@
  *   keyless items fall back positional; null/primitive slots are legal
  *   members (R11). Kind changes replace wholesale (R10).
  */
+import { isEqual } from "../../core/index.js";
 import {
   $PROXY,
   $TARGET,
@@ -31,7 +32,9 @@ import {
   hasAccessorFlag,
   notifyFold,
   notifyFoldTail,
+  bumpDeep,
   notifyKeyDiff,
+  targetsEqual,
   notifyKeyValue,
   unwrapValue
 } from "./store.js";
@@ -146,6 +149,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       // misaligned remainder, and never at all on aligned ticks.
       const plen = prevRows.length;
       const nlen = nextRows.length;
+      let dkBumpedA = false;
       let i = 0;
       for (const end = Math.min(plen, nlen); i < end; i++) {
         const nv = nextRows[i];
@@ -172,6 +176,14 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
           typeof nv === "object"
         )
           descend(unwrapValue(pvRaw), nv, keyFn, fam, proj);
+        if (
+          t.dk !== null &&
+          !dkBumpedA &&
+          !(nv !== null && typeof nv === "object" ? targetsEqual(pvRaw, nv) : isEqual(pvRaw, nv))
+        ) {
+          bumpDeep(t);
+          dkBumpedA = true;
+        }
         if (nodes !== null) {
           const node = nodes[i];
           if (node !== undefined) {
@@ -180,6 +192,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
           }
         }
       }
+      if (t.dk !== null && !dkBumpedA && i < nextRows.length) bumpDeep(t);
       let prevByKey: Map<any, any> | null = null;
       for (; i < nextRows.length; i++) {
         const nv = nextRows[i];
@@ -215,11 +228,20 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
     } else {
       const dlen = Math.min(prevRows.length, nextRows.length);
       const nlen = nextRows.length;
+      let dkBumpedP = false;
       for (let i = 0; i < nlen; i++) {
-        if (!shallow && i < dlen) {
-          const nv = nextRows[i];
-          if (nv !== null && typeof nv === "object")
-            descend(unwrapValue(prevRows[i]), nv, keyFn, fam, proj);
+        const nvP = nextRows[i];
+        if (!shallow && i < dlen && nvP !== null && typeof nvP === "object")
+          descend(unwrapValue(prevRows[i]), nvP, keyFn, fam, proj);
+        if (
+          t.dk !== null &&
+          !dkBumpedP &&
+          !(nvP !== null && typeof nvP === "object"
+            ? targetsEqual(prevRows[i], nvP)
+            : isEqual(prevRows[i], nvP))
+        ) {
+          bumpDeep(t);
+          dkBumpedP = true;
         }
         if (nodes !== null) {
           const node = nodes[i];
@@ -251,6 +273,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
     // with no key-array allocation; symbols get a pass only when present.
     const nodes = eager ? t.n : null;
     let nodesHit = 0;
+    let dkBumped = false;
     // The per-key body is inlined on purpose (legacy applyStateFast parity:
     // an extracted helper costs a call per key on the hottest object-diff
     // site). Reference-identical values early-continue BEFORE any other
@@ -269,6 +292,14 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
         continue;
       }
       if (isObj && !shallow) descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
+      // Deep-witness (dk): value changes must notify even with NO per-key
+      // node — deep() subscribes one node per record. Checked after descend
+      // so in-place adoptions (same logical slot) don't bump; child records
+      // carry their own witness. One flag + null check when unused.
+      if (t.dk !== null && !dkBumped && !(isObj ? targetsEqual(ov, nv) : isEqual(ov, nv))) {
+        bumpDeep(t);
+        dkBumped = true;
+      }
       if (nodes !== null) {
         const node = nodes[k];
         if (node !== undefined) {

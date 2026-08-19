@@ -342,6 +342,11 @@ function walkAffectsScope(
   if (target) {
     collectRecordNodes(target[STORE_NODE], found);
     collectRecordNodes(target[STORE_HAS], found);
+    // The key-set and deep-witness nodes are record-level channels: a deep()
+    // probe reads ONLY these (one pair per record), so a declared affects
+    // scope must mark them like any property node.
+    if ((target as any).k) found.push((target as any).k);
+    if ((target as any).dk) found.push((target as any).dk);
     // Carry the effective lookup into untouched descendants (family maps for
     // projections/optimistic stores; the global next lookup otherwise).
     lookup = (target as any).fam?.map ?? lookup ?? storeNextLookup;

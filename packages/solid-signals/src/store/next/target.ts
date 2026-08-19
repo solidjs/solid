@@ -49,6 +49,10 @@ export interface StoreNextTarget {
   h: Record<PropertyKey, Signal<boolean>> | null;
   /** Lazy key-set node: membership/iteration/$TRACK subscriptions (§6). */
   k: Signal<number> | null;
+  /** Lazy deep-witness node: `deep()` subscribes ONE node per record instead
+   * of one per path; write paths bump it only when it exists. Separate from
+   * `k` so $TRACK/mapArray never rerun on leaf value changes (R9). */
+  dk: Signal<number> | null;
   /** Parent target (path copying walks this at commit). */
   u: StoreNextTarget | null;
   /** Property key of this target in the parent's backing. */
