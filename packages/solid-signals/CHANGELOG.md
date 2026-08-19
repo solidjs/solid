@@ -1,5 +1,164 @@
 # @solidjs/signals
 
+## 2.0.0-rc.1
+
+### Patch Changes
+
+- a7780c7: Unify effect-phase write/read semantics (#3006): `onSettled` and `createTrackedEffect` callbacks no longer observe their own unsettled writes. Like the effect half of `createEffect` and event handlers, reads inside them return the settled (committed) values; writes are processed in the same flush's continuation and functional setters still compose. Also adds a dev warning when `flush()` is called from a `createEffect` callback (it was already a silent no-op), and both flush guards now point to the `queueMicrotask(() => flush())` escape hatch.
+- 57cc98b: Fix `latest()` purity: probing a memo that itself uses `latest()` no longer leaks a queued plain write into committed reads before the flush (#3009). Wake-only companion lanes pulled mid-tick now demote to plain staged recomputes.
+- fcfaf0f: omit() no longer forwards the internal merge-sources probe, so re-merging an omit() of a merge proxy keeps the omitted keys hidden (#3014). merge() flattens nested merges by reading a hidden $SOURCES key off each source; omit()'s forwarding proxy tunneled that read through to the underlying merge proxy's unfiltered source list, so any path that re-merges the rest object — the compilers' element-spread handling on BOTH the SSR side (omitted props leaked into the HTML as attributes) and the client side (an omitted component-protocol handler like onChange re-bound as a native listener and fired with the raw Event) — bypassed the filter. omit proxies are now opaque to source flattening and compose through their traps, which filter correctly.
+- 37dc307: Fix `reconcile` invoking a function-valued leaf instead of replacing it, once that leaf has a subscriber. `setSignal(node, v)` treats a function argument as an updater and calls it — correct for `setStore(draft => ...)`, wrong for a leaf replacement. Plain store writes already guard against this by wrapping a function-valued prop before calling `setSignal`; `reconcile`'s leaf-replace branches (`applyStateFast`, `applyStateSlow`, `wrapValue`, `shallowDiffNodes`) did not, so reconciling a store leaf holding a function ran that function as a side effect and committed its return value instead of the function itself.
+- 66accfb: Flatten one async level for computations: a promise that resolves to an AsyncIterable is now consumed as the stream itself rather than settling on the iterable object. `createMemo(() => serverFn())` works directly when the async stub resolves to a stream — no `yield* await` wrapper needed. Client core (`handleAsync`) pumps the resolved stream under the original flight's identity with iterator close registered on the flight's disposal; SSR mirrors with first-yield settle, first-value lock, a tapped stream on the serialized promise channel (which client hydration adopts and flattens again), hybrid first-value-and-close, and the frame binding-ledger pump.
+- 0797215: Store: `deep()` subscribes one witness node per record instead of one node
+  per path. The rewrite's first `deep()` created and read a property node for
+  every reachable key on every effect re-run (~40% regression on the
+  single-deep()-effect benchmark vs the legacy per-record $TRACK). Targets now
+  carry a lazy deep-witness node: `deep()` reads the key-set node plus the
+  witness per record and walks targets directly (no per-child proxy
+  round-trips); write channels bump the witness only when it exists (one null
+  check otherwise). Declared affects() scopes mark the witness like any
+  property node, so isPending() probes over deep() reads keep working.
+  Benchmark restored to parity with the legacy implementation.
+- 0797215: Store: pending-value visibility in the rewrite mirrors core's #3006 rule —
+  CHILDREN_FORBIDDEN execution scopes (createTrackedEffect / onSettled
+  callbacks) read committed values, so a store write inside onSettled parks
+  and an immediate read returns the settled value, matching signals.
+- 0797215: Store rewrite performance: eliminate the eager per-object accessor scan
+  (replaced by allocation-free per-node probes computed at node creation, with
+  own-gated single probes on fold paths), and construct proxy targets with
+  direct field assignment on a shared hidden-class chain. uibench drops from
+  36.6ms (legacy) to 27.5ms; dbmon tick reaches legacy parity.
+- 0797215: Store rewrite: legacy implementation deleted. The store module now has a
+  single implementation — the rewrite's single-home storage model (raw as
+  truth, CoW pending backings, lazy per-property nodes, adoption-channel
+  reconcile) serves every public form: plain, shallow, derived, projection,
+  and optimistic stores. `store.ts` is reduced to shared machinery (symbols,
+  raw-marking, wrappability, affects scopes), the transitional dispatchers are
+  gone, and the package is ~0.9kb gzip smaller than before the rewrite while
+  carrying the same contract.
+- 0797215: Store rewrite: the derived writable `createStore(fn, seed)` form serves from
+  the rewrite (projection internals + a recompute-masking setter). The §6c
+  status gate now covers errored derives (memo parity) and only guards raw
+  fallthrough — tracked reads link through firewall-backed nodes in core
+  read(), so landings wake async-memo readers exactly like legacy. Has- and
+  key-set nodes carry the firewall link too.
+- 0797215: Store rewrite: plain-store reconcile notifies inline after the adoption
+  descent instead of a queue/drain round trip; projection folds stay deferred
+  for downstream-hold correctness.
+- 0797215: Store rewrite performance: the adoption walk notifies inline (fused single
+  pass — descend first so identity-preserved slots stay silent, then per-key
+  node notification), replacing the separate fold re-walk. Deleted keys ride a
+  counted fast-out; presence/membership stay as a shared tail. Fold writes pass
+  values directly instead of allocating a closure per changed key.
+- 0797215: Store rewrite: per-node wrap cache on the read path. Raw-as-truth stores raw
+  values in nodes, so every tracked object read paid a WeakMap lookup to
+  re-wrap the child — measured as a ~10% dbmon tick regression vs the legacy
+  implementation, whose nodes stored pre-wrapped values. Nodes now cache the
+  last served proxy and the raw it wrapped; one pointer compare replaces the
+  WeakMap hit and the wrappability check. A replaced child fails the compare
+  and re-wraps, so no invalidation hooks are needed.
+- 0797215: Store rewrite: optimistic surface completion. Strict-read refetch-window
+  escalation, marks witnessing through chained store views, snapshot composition
+  across chained optimistic targets, presence-based structural classification for
+  landing consumption, hold-correct projection backing folds (never eager;
+  context-free freshness via pending-backing visibility), root-exempt store
+  setter guard with ownedWrite store nodes, and a transitionBlocked store-half
+  that only holds transactions carrying live overrides.
+- 0797215: Store rewrite: optimistic stores ride core lanes natively. `createOptimisticStore`
+  (plain and derived, non-shallow) now serves from the rewrite: per-property nodes
+  are armed core signals, so optimistic writes, per-transaction ownership,
+  entanglement, reverts, and refetch-holds are all engine-inherited — the
+  store-side override layer, backup snapshots, and owner maps are gone. Structural
+  optimism (adds/deletes/length) rides armed presence nodes and consumes on
+  authoritative landings; value overrides persist with their owning transaction.
+  Reconcile diffs against the lane view so optimistic rows recycle their proxies
+  when landed data carries the same key. snapshot/deep compose the optimistic
+  view. Also fixes legacy `createWriteTraps` clobbering `projectionWriteActive`
+  (hard reset instead of save/restore).
+- 0797215: Store rewrite: full plain-store parity. The rewrite now passes the entire
+  suite (91/91 files) serving plain deep stores and reconcile package-wide:
+  transition holds (write-time notification via per-key nodes, per-leaf
+  isPending), affects() coverage over rewrite targets, legacy interop via
+  structural field aliasing (v/n/h/d/s + $PROXY), markRaw/shallow interop,
+  dev diagnostics (registerGraph, onStoreNodeUpdate, strictRead warnings), and
+  owned-subtree snapshot copies (non-enumerable symbols excluded, cycle
+  identity preserved — fixes FINDING-3's cycle duplication).
+- 0797215: Store rewrite phase 1 (in progress, branch-scoped): plain deep stores and
+  reconcile now serve from the new single-home storage model
+  (`src/store/next/`) — owned-raw backing with copy-on-write privatization
+  (user source objects are never mutated), lazy per-property nodes as real core
+  signals (transition holds, isPending, and lanes ride core machinery
+  natively), and reconcile as the adoption channel with the ownership-guarded
+  identity skip. Fixes the unsound nested reconcile same-reference skip
+  (FINDING-1: a re-sent reference after a flushed setter write now restores the
+  incoming values). Derived, shallow, and optimistic store forms still route to
+  the legacy implementation via transitional dispatchers. Design contract and
+  findings log: `packages/solid-signals/INTERNALS-STORE-STATE.md`,
+  `packages/solid-signals/rules-mining/`.
+- 0797215: Store rewrite: projection infrastructure. Family wrapping (per-projection
+  child registries with firewall-carrying nodes), the storeSetterNext
+  primitive, write-override interop for post-await draft writes, the §6c
+  status gate (uninitialized async derives are unobservable through every
+  trap), replace-mode reconcile (projection roots merge entity changes in
+  place, displaced raws unregister), and a next-native createProjection
+  (bring-up: passes basics/selection; async and chained suites gate via the
+  next config while the default build keeps routing projections to legacy).
+  Also two correctness fixes benefiting all stores: the write-notification
+  diff no longer uses a lagging old-side (a recompute before the prior fold
+  commits could swallow changes), and node equality is logical-slot aware
+  (privatization/adoption raw-identity swaps no longer produce phantom
+  notifications).
+- 0797215: Store rewrite: next-native projections are now the default. `createProjection`
+  (sync, async, generator, and chained forms) runs on the single-home storage
+  model — firewall status gating links tracked readers for NotReady wake-up,
+  write scope extends through draft reads (cross-store draft writes preserved),
+  and fold-time parent-slot fixes are compare-and-swap so draft array splices
+  cannot resurrect removed rows. Unkeyed nested objects in async yields now
+  merge in place (identity preserved) instead of accidentally replacing.
+- 0797215: Store rewrite: shallow derived and optimistic forms serve from the rewrite
+  (fam.shallow → root slot semantics). The shallow serve rule is now exact
+  legacy parity (#2932): raw-marked data serves verbatim, store-proxy slot
+  values get boundary wrappers in the shallow store's own family so downstream
+  writes never land upstream. Every public store form now runs on the new
+  implementation.
+- 0797215: Store rewrite: shallow stores serve from the rewrite. Slot values are stored
+  verbatim (proxies pass through by reference, #2932) and served raw; ingest is
+  sticky raw-marked at creation, set-trap, and reconcile adoption (the
+  never-both-wrapped-and-raw invariant); reconcile on shallow targets is the
+  slot-granular positional diff with no descent. In-process A/B holds legacy
+  shallow's dbmon performance at parity.
+- 0797215: Store rewrite: full suite green. Optimistic array length is a view of the
+  composed membership (tear-free iteration by construction), landing consumption
+  folds committed values into nodes directly (no stranded wakes behind parked
+  transactions), and `$TRACK` on chained store views reads through to the inner
+  store's key-set node so keyed iteration observes structural changes at the
+  source (#2864).
+- 0797215: Store rewrite: tentative reconcile channel and affects integration. A
+  user-context reconcile on an optimistic store now parks as engine overrides
+  (values, membership, length) instead of committed adoption — key-matched rows
+  keep proxy identity via descent, and everything reverts with its transaction.
+  Fixes FINDING-2 (a key added by an in-window reconcile now reverts at settle).
+  The affects/marks system covers next-store targets, including optimistic rows
+  in motion at declaration time.
+- 0797215: Store rewrite: reconcile walk validation hoisted to one authority. `descend`
+  resolves the tracked target first — a lookup hit implies the previous value
+  was wrappable and never raw-marked (only wrappables acquire targets), so
+  per-pair `isWrappable`/`isRawValue` checks on the old side are gone; the new
+  side still validates fully (frozen/platform/markRaw'd values stay leaves).
+  The keyed array walk's alignment checks are routing heuristics, not
+  semantics, so they use bare typeof gates and defer validation to `descend`.
+  Closes the remaining dbmon tick gap to statistical parity with the legacy
+  implementation (best-case ticks now beat legacy's).
+- 0797215: Store: the optimistic write channel is tree-shakeable. The optimistic-only
+  machinery (engine-write diffing, landing consumption, view composition, the
+  tentative reconcile channel) moved out of the plain store/reconcile modules
+  into the optimistic module behind an injection table installed by
+  `createOptimisticStore` — every call site is `fam?.opt`-gated, so the table
+  is always populated before it can be reached and plain paths pay nothing.
+  Apps that never use optimistic stores now shake ~0.5kb gzip of store code;
+  the whole-package (bundlephobia-style) size drops ~0.5kb gzip as well from
+  the accompanying dead-export sweep.
+
 ## 2.0.0-rc.0
 
 ## 2.0.0-beta.34

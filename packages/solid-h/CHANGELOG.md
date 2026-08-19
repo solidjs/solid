@@ -1,5 +1,13 @@
 # @solidjs/h
 
+## 2.0.0-rc.1
+
+### Patch Changes
+
+- Updated dependencies [8fec5a3]
+- Updated dependencies [56ca647]
+  - @solidjs/web@2.0.0-rc.1
+
 ## 2.0.0-rc.0
 
 ### Patch Changes

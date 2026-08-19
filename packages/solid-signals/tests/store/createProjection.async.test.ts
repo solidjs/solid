@@ -252,7 +252,12 @@ describe("Projection async behavior", () => {
     expect(proj.a).toBe(3);
   });
 
-  it("yielded values preserve identity only for unchanged subtrees", async () => {
+  // RULED (INTERNALS-STORE-STATE.md RUL-12, 2026-08-17): unkeyed nested
+  // objects MERGE in place — the legacy yield-path's identity replacement was
+  // an accident, inconsistent with positional/keyed merge semantics
+  // everywhere else. Assertions rewritten to the ruled contract: proxy
+  // identity is preserved; values and membership still update.
+  it("yielded values merge unkeyed subtrees in place (identity preserved)", async () => {
     let proj;
 
     createRoot(() => {
@@ -275,13 +280,13 @@ describe("Projection async behavior", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(proj.nested).not.toBe(firstNested);
+    expect(proj.nested).toBe(firstNested);
     expect(proj.nested.x).toBe(1);
     expect(proj.nested.y).toBeUndefined();
     expect(firstY).toBe(2);
   });
 
-  it("yielded values replace changed subtrees", async () => {
+  it("yielded values merge changed unkeyed subtrees in place", async () => {
     let proj;
 
     createRoot(() => {
@@ -303,7 +308,7 @@ describe("Projection async behavior", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(proj.nested).not.toBe(firstNested);
+    expect(proj.nested).toBe(firstNested);
     expect(proj.nested.x).toBe(10);
     expect(proj.nested.y).toBeUndefined();
   });

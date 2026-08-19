@@ -1,5 +1,75 @@
 # solid-js
 
+## 2.0.0-rc.1
+
+### Patch Changes
+
+- 3c68ab2: lazy() no longer caches rejected module promises: a failed chunk download retries on the next mount or preload() on the client (so Errored reset() flows work, matching the platform's re-fetch of failed dynamic imports), and a transient import failure on the server no longer poisons every subsequent SSR request for the process lifetime. Failed loads also no longer surface as unhandled rejections. (#2999)
+- 62e7883: Fix blank page when an async read rejects before the SSR shell flushes under
+  `Errored > Loading` (#2997). The fragment channel now owns the error once the
+  boundary has registered: `<key>_fr` rejects and the client re-renders the
+  subtree as fresh DOM (adopting the serialized rejection), letting the
+  client-side Errored catch it — matching post-flush semantics. Previously the
+  server also invoked the enclosing Errored's handler at async time; its
+  rendered fallback had no consumer, and the error record it serialized at the
+  boundary id made the hydrating client try to claim fallback DOM that was
+  never emitted, derailing hydration into a permanently blank region. Also
+  defuses the two client-side unhandled-rejection leaks in this flow (the
+  serialized rejected flight consumed via its stamp, and the trace-run promise
+  in `subFetch`).
+- 4f84cd5: Server `createMemo` now honors the internal `transparent` (and explicit `id`) options when creating its owner, matching the client's id inheritance. Previously a transparent memo consumed a child-id slot on the server but not on the client, shifting every subsequent sibling hydration id — unclaimed DOM and dead bindings after the component (#3012).
+- 8366208: Server async convergence hardening (#3003). Async reads that hand back a
+  fresh promise per call (e.g. the router's `query()` cache-hit `.then()`
+  wrapper) defeated the promise-stamp adoption during boundary retry
+  discovery: every pass re-suspended with a new deferred, looping at
+  microtask speed until the process ran out of memory. The render context now
+  keeps a per-slot flight record keyed by owner id — re-creations of a slot
+  join the existing in-flight deferred (one serialization per slot, ever) and
+  adopt settled answers synchronously. A settled answer always resolves the
+  serialized deferred even when the computing node was superseded and
+  disposed, so the response stream can always close (previously a superseded
+  pass's serialized deferred dangled and held the connection open forever).
+  Discovery is additionally capped by a retry budget that fails the boundary
+  loudly instead of looping unbounded.
+- 66accfb: Flatten one async level for computations: a promise that resolves to an AsyncIterable is now consumed as the stream itself rather than settling on the iterable object. `createMemo(() => serverFn())` works directly when the async stub resolves to a stream — no `yield* await` wrapper needed. Client core (`handleAsync`) pumps the resolved stream under the original flight's identity with iterator close registered on the flight's disposal; SSR mirrors with first-yield settle, first-value lock, a tapped stream on the serialized promise channel (which client hydration adopts and flattens again), hybrid first-value-and-close, and the frame binding-ledger pump.
+- 56ca647: `lazy()` and `clientOnly()` accept an `{ export }` option to select a named export of the resolved module (defaults to `default`). The export name is a call-site literal available in both bundles, so lazy hydration still resolves the component synchronously from the preloaded module — wrappers that pick an export at runtime inside the import thunk remain unsupported and now fail loudly in dev. `lazy()`'s bundler-injected `moduleUrl` moves to the third argument to make room, matching `clientOnly()`.
+- 366da09: Live sources get automatic SSR policy (auto-hybrid)
+
+  A `live()`-declared server function's iterable is branded a standing answer (every yield is the complete current value; the source re-yields current state on any invocation). SSR now detects the brand and applies the right lifecycle without any `ssrSource` declaration:
+  - **Document face**: takes the first value, closes the iterator, and serializes a plain value — instead of streaming an unbounded source into a response that never closes. The brand selects hybrid under server mode whether defaulted or declared ("server" has no meaning for a standing answer).
+  - **Client takeover**: the hydration adoption path's existing trace run detects the brand and arms a shared post-hydration gate — the node adopts the serialized t=0 value for the claim walk, then re-runs its compute to reconnect, serving the stale value until the first live yield lands.
+  - **Stream face**: inside a server-owned frame render the scope-gated commit pump keeps the standing answer connected — the brand does not close it there.
+
+  Declared `ssrSource: "hybrid"`/`"client"` behave as before; unbranded iterables keep their bounded-trace semantics on every path.
+
+- 254daf8: Serialize a boundary's lazy-module map (`<id>_assets`) as a snapshot (`{ ...modules }`) instead of the live object in `commitBoundaryState`. The map can gain entries after the boundary's first serialization (a nested lazy registering post-flush), and the streaming serializer's reference dedup would re-emit the same mutated object as a back-reference to the stale first snapshot, dropping the later entries and halting lazy hydration on the client. Defense-in-depth alongside the same fix in dom-expressions' `serializeFragmentAssets`; server-only, no client bundle impact.
+- Updated dependencies [a7780c7]
+- Updated dependencies [57cc98b]
+- Updated dependencies [fcfaf0f]
+- Updated dependencies [37dc307]
+- Updated dependencies [66accfb]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+  - @solidjs/signals@2.0.0-rc.1
+
 ## 2.0.0-rc.0
 
 ### Minor Changes

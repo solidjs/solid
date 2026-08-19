@@ -1,5 +1,21 @@
 # @solidjs/web
 
+## 2.0.0-rc.1
+
+### Patch Changes
+
+- 8fec5a3: Document the supported document-shell hydration pattern on hydrate(): when the server renders a full document but the client hydrates only the app subtree, wrap the shell in NoHydration and re-enter with Hydration around the app so both sides share a hydration id namespace (#3000). The pattern is now pinned by server/client test pairs.
+- 56ca647: `lazy()` and `clientOnly()` accept an `{ export }` option to select a named export of the resolved module (defaults to `default`). The export name is a call-site literal available in both bundles, so lazy hydration still resolves the component synchronously from the preloaded module — wrappers that pick an export at runtime inside the import thunk remain unsupported and now fail loudly in dev. `lazy()`'s bundler-injected `moduleUrl` moves to the third argument to make room, matching `clientOnly()`.
+- Updated dependencies [3c68ab2]
+- Updated dependencies [62e7883]
+- Updated dependencies [4f84cd5]
+- Updated dependencies [8366208]
+- Updated dependencies [66accfb]
+- Updated dependencies [56ca647]
+- Updated dependencies [366da09]
+- Updated dependencies [254daf8]
+  - solid-js@2.0.0-rc.1
+
 ## 2.0.0-rc.0
 
 ### Patch Changes

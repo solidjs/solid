@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
-    "@solidjs/vite-plugin": "3.0.0-next.27",
+    "@solidjs/vite-plugin": "3.0.0-next.30",
     "@solidjs/web": "workspace:*",
     "@types/node": "^25.6.0",
     "solid-js": "workspace:*",

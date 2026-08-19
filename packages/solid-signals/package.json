@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/signals",
-  "version": "2.0.0-rc.0",
+  "version": "2.0.0-rc.1",
   "description": "Solid's reactive primitives: signals, memos, effects, stores, and async-aware computations.",
   "author": "Ryan Carniato",
   "license": "MIT",
@@ -52,6 +52,7 @@
     "bench": "vitest bench --run"
   },
   "devDependencies": {
+    "@codspeed/vitest-plugin": "^5.4.0",
     "@ianvs/prettier-plugin-sort-imports": "^4.1.1",
     "@rollup/plugin-replace": "^6.0.3",
     "@rollup/plugin-typescript": "^12.3.0",

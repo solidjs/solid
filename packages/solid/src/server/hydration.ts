@@ -114,7 +114,12 @@ function ssrLoadingBoundary(
   function commitBoundaryState() {
     flushSerializeBuffer();
     const modules = ctx.getBoundaryModules?.(id);
-    if (modules) ctx.serialize(id + "_assets", modules);
+    // Serialize a snapshot, never the live map: it keeps mutating after this
+    // first write (nested lazy modules register post-flush), and the streaming
+    // serializer dedupes repeated object references — re-serializing the same
+    // mutated object emits a back-reference to the stale first snapshot,
+    // dropping the later entries and halting lazy hydration on the client.
+    if (modules) ctx.serialize(id + "_assets", { ...modules });
   }
 
   function runLoadingPhase<T>(render: () => T): T {
