@@ -1,3 +1,4 @@
+import { attrHooks } from "../core/attribution-hooks.js";
 import {
   STATUS_ERROR,
   STATUS_PENDING,
@@ -502,9 +503,13 @@ function getNode<T>(
   const s = signal<T>(
     value,
     {
-      // Dev-only: name store property nodes by path segment so attribution
-      // chains and wide-scope warnings read "store.todos", not "signal".
-      name: __DEV__ ? "store." + String(property) : undefined,
+      // Attribution-only: name store property nodes by path segment so
+      // attribution chains and wide-scope warnings read "store.todos", not
+      // "signal". Gated on the engine being installed — node creation is the
+      // hottest store path, and the disabled cost must stay one null check
+      // (nodes created before enable() stay generically named; enable
+      // attribution before creating state for full path names).
+      name: __DEV__ && attrHooks !== null ? "store." + String(property) : undefined,
       equals: equals,
       unobserved() {
         if (nodes[property] === s) {

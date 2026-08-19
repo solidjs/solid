@@ -318,6 +318,10 @@ describe("why-did-this-run attribution", () => {
   });
 
   it("names store property nodes by path in attribution output", () => {
+    // Store node naming is gated on the engine being installed (node
+    // creation is the hottest store path), so enable BEFORE the first read
+    // creates the property nodes.
+    const events = collect();
     const [state, setState] = createStore({ count: 1, other: "x" });
     createRoot(() =>
       createEffect(
@@ -328,7 +332,6 @@ describe("why-did-this-run attribution", () => {
     );
     flush();
 
-    const events = collect();
     setState(s => {
       s.count = 2;
     });
