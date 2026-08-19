@@ -133,11 +133,33 @@ remainder). Emit per-array SLOT OPS into the same apply queue:
 O4 resolution: shallow is NOT retired — it is the explicit vdom-parity
 mode on the same mechanism, one compiler output serving both.
 
+## 4b. Dispatch bubbling (added 2026-08-19, compiler walkthrough)
+
+Registration lives on the record the compiler binds (the row), but a
+targeted nested write (`s.rows[0].queries[0].elapsed = x`) transitions the
+NESTED record. Rule: emission walks the parent chain (`t.u` — maintained by
+single-home) and dispatches ancestor patches too. Over-fire is safe (the
+patch re-compares everything it writes); cost is a short pointer walk per
+transitioned record, only when patches exist in the ancestry. This keeps
+the compiler free of read-closure registration analysis.
+
 ## 5. Compiler (dom-expressions) — scope of 2c
 
 - Patch-mode compilation for store-backed `<For>` row templates: baked
   text nodes, bind function cloning + ref-grabbing, ONE patch fn with
   inline compares, registration under the row owner.
+- TIERED ELIGIBILITY: T1 = bare member chains on one unaliased subject;
+  T2 = pure expressions of T1 reads and constants (ternary/binary/template
+  literals) — same proof obligations, ship together. Per-KEY precision is
+  not required (dispatch is per-record; the patch re-compares), so dynamic
+  member access that is a pure read stays eligible.
+- DUAL DRIVER: the compiled compare/write body is shared — patch-channel
+  driven when the runtime bind check finds a patchable record, effect-driven
+  (today's grouped-dynamics shape) otherwise. Accessor-bearing records are
+  caught by the runtime bind probe, not the compiler.
+- COMPONENT-AGNOSTIC: no <For> recognition; eligibility is shape-based on
+  the template scope's subject. Custom list components get patch mode for
+  free; slot ops couple to mapArray through the runtime seam only.
 - STRICT BAIL RULES (correctness over coverage): any binding that is not a
   provably-plain member access on the row param (calls, spreads, context,
   component boundaries, accessor risk) compiles to today's render effects
