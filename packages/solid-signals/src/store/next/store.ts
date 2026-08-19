@@ -18,6 +18,7 @@
  */
 import {
   $REFRESH,
+  CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_OWNED_WRITE,
   NOT_PENDING,
   STATUS_ERROR,
@@ -763,12 +764,13 @@ const UNSAFE_KEYS = new Set<PropertyKey>(["__proto__", "prototype", "constructor
 /** Mirror of core read()'s context rule: the OWNER context (not the tracking
  * observer) decides pending visibility, with Roots resolving to their parent
  * computed (#2687 — untracked reads inside mapArray Roots see in-flight
- * values mid-flush). */
+ * values mid-flush). CHILDREN_FORBIDDEN execution scopes (createTrackedEffect
+ * / onSettled callbacks) get COMMITTED visibility (#3006), same as core. */
 function inOwnerContext(): boolean {
   const c: any = getOwner();
   if (c === null) return false;
-  if (c._root) return c._parentComputed != null;
-  return true;
+  const eff = c._root ? c._parentComputed : c;
+  return eff != null && !(eff._config & CONFIG_CHILDREN_FORBIDDEN);
 }
 
 /** A pending fold is transition-held when any written node's parked value is
