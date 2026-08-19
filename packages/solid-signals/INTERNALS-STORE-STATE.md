@@ -579,6 +579,77 @@ implementation, deduplicated across reports.
   stale. R15/R16 per-node ownership + entanglement is shipped behavior and
   therefore hard contract for RUL-3. Delete the stale comment when porting.
 
+## 10. Stage 2 — the edit-script channel (design skeleton, 2026-08-19)
+
+Phase 1 shipped in 2.0.0-rc.1 (#3019). Stage 2 is the perf phase.
+
+### RULED fitness function (Ryan, 2026-08-19)
+
+- The target is NOT ourselves: the external bar is the fastest vdoms
+  (octane-tsrx, ivi). Beat shallow where possible; match it where it is
+  best; KEEP deep's advantage where deep is best (sparse updates on large
+  views, listened-paths pruning, identity-stable fine-grained state).
+- Browser dbmon decomposition of the gap (deep ~12.5ms vs octane ~3.3ms
+  full tick): data diff ~3ms + per-cell render-effect layer ~3-4ms +
+  DOM/list work ~2ms+. Consequence: 2a alone cannot reach the bar — ops
+  must reach BINDINGS (per-key value ops applying direct DOM writes without
+  re-running per-cell effects). 2b is where the bar is met, not optional.
+  This is the render-effect-model boundary performance-experiments.md's
+  "03 Conclusion" reserved as a redesign decision — stage 2 is that
+  decision, scoped to store-driven bindings.
+
+### The redundancy being eliminated
+
+A keyed store-driven list tick diffs each changed row up to three times:
+reconcile's adoption walk (which computes moves/adds/removes and per-key
+changes explicitly, then throws the ops away), mapArray's row matching, and
+dom-expressions' reconcileArrays. Prior attempts optimized passes in place
+(udomdiff→swap-loop kept at −10.5%; pristine-gating reverted at zero); none
+could remove a pass. Stage 2 transmits the walk's ops so downstream applies
+O(changes) instead of re-deriving O(view).
+
+### Scope
+
+- **2a (this branch, signals only):** reconcile emits a versioned op log on
+  the target; mapArray/repeat consume it through an injection seam.
+- **2b (dom-expressions):** ops reach insertion and bindings; keyed flows
+  bypass reconcileArrays; per-key value ops drive direct writes. Entered
+  with 2a's re-baseline numbers in hand.
+
+### RULED constraints (Ryan, 2026-08-19)
+
+- mapArray serves everyone, most consumers are not stores: the op machinery
+  lives STORE-SIDE behind an injection seam (the optimism-extraction
+  pattern); map.ts pays only a resolver check (~tens of bytes, one branch
+  for non-store arrays). Non-store users have no redundancy to remove — the
+  win is claimed for store-driven lists only.
+- STAGE 2 HAS NO SIZE-SAVING OPPORTUNITIES — it is net-positive bytes by
+  design; the seam contains the cost, it does not save anything. Budget is
+  pure spend against the ratcheted gates (+createStore 12.2 KB, measured
+  11.98; core floor 7.45, measured 7.35 — watch core floor: map.ts is in
+  it). Bump limits consciously in the PR that spends them, or fit.
+- Tree-shaking is near its floor ("close to a wash"): remaining extractions
+  are hundreds of tangled bytes, not kilobytes. Size is a CONSTRAINT now,
+  not a goal; the only kilobyte-scale size events left are feature
+  decisions.
+- Edit scripts are transactional: ops must match flush-visible state under
+  batching, lanes, and mid-flight landings. Phase 1's single commit point +
+  core-native lanes are what make this implementable; an optimistic op
+  stream reverts because the engine reverts it.
+- Laziness stays unobservable (R1): emission must not force node/target
+  creation the pull model wouldn't have performed.
+
+### Carried targets
+
+- deep(): CodSpeed simulation −19.2% vs legacy (instruction count;
+  wall-clock parity locally, 15.18 vs 15.24ms). Whole-record consumers are
+  op-stream customers — restructure rides 2a.
+- O4 re-opens on the perf result: if deep-with-ops reaches shallow-class
+  ticks, shallow retirement is back on the table (the one contingent size
+  WIN connected to stage 2).
+- Tools of record: octane-dbmon-local interleave.mjs (thermal-fair paired
+  sign test), uibench vs ivi, CodSpeed suite, size scenarios.
+
 ## 9. Decision log
 
 - **2026-08-16**: Nodes are real core signals; transactions/optimism ride core
