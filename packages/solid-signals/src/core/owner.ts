@@ -1,4 +1,5 @@
 import {
+  CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_TRANSPARENT,
   defaultContext,
@@ -47,6 +48,10 @@ export function markDisposal(el: Owner): void {
 }
 
 export function dispose(node: Computed<unknown>): void {
+  // Direct disposal is death, not dormancy: strip the observation lifecycle
+  // so a later read freezes at the last committed value instead of
+  // reawakening the node (#3024).
+  node._config &= ~CONFIG_AUTO_DISPOSE;
   // Leave every scheduler heap on disposal (mirrors `unobserved`): a node
   // still queued here would be recomputed by the next flush, and recompute()
   // rewriting `_flags` would clear REACTIVE_DISPOSED — resurrecting it (#2983).
@@ -79,6 +84,14 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
   while (child) {
     const nextChild = child._nextSibling;
     const n = child as Computed<unknown>;
+    // Owner teardown is death regardless of the child's own lifecycle
+    // (#3024): strip AUTO_DISPOSE so a post-disposal read freezes at the
+    // last committed value instead of reawakening in a torn-down tree.
+    // Runs before the recursion so already-dormant children (whose
+    // disposeChildren call early-returns on REACTIVE_DISPOSED) die too.
+    // Only unobserved()'s own node keeps its dormancy — it is never in
+    // this loop; its children are rebuilt fresh on reawaken.
+    n._config &= ~CONFIG_AUTO_DISPOSE;
     // Heap removal must not be gated on `_deps`: a dependency-free
     // computation queued by refresh() has a null dep list but still sits in
     // the dirty heap, and left there the post-disposal flush recomputes it —

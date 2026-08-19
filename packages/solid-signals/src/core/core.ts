@@ -769,7 +769,13 @@ export function prepareComputed(comp: Computed<unknown>, refresh: boolean): void
     comp._flags &= ~REACTIVE_LAZY;
     recompute(comp as Computed<any>, true);
   } else if (comp._flags & REACTIVE_DISPOSED) {
-    recompute(comp as Computed<any>, true);
+    // Two disposal lifecycles share the flag (#3024). Observation-lifecycle
+    // nodes (CONFIG_AUTO_DISPOSE) are dormant — torn down by unobserved()
+    // when the last subscriber left — and reads reawaken them; that is the
+    // pay-for-use contract. Owner-lifecycle nodes are dead: recomputing would
+    // re-run user code in a torn-down tree (and discard manual writes on
+    // derived-writable signals), so reads return the last committed value.
+    if (comp._config & CONFIG_AUTO_DISPOSE) recompute(comp as Computed<any>, true);
   } else if (refresh) {
     updateIfNecessary(comp);
   }
