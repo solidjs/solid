@@ -222,7 +222,20 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       for (const end = Math.min(plen, nlen); i < end; i++) {
         const nv = nextRows[i];
         const pvRaw = prevRows[i];
-        if (pvRaw !== nv && !(isWrappable(pvRaw) && isWrappable(nv) && keyFn(pvRaw) === keyFn(nv)))
+        // Routing heuristic only (aligned vs keyed remainder) — both routes
+        // notify identically and descend() is the one authoritative
+        // validator, so bare typeof gates suffice here; full isWrappable
+        // per row was the walk's dominant residual cost.
+        if (
+          pvRaw !== nv &&
+          !(
+            pvRaw !== null &&
+            typeof pvRaw === "object" &&
+            nv !== null &&
+            typeof nv === "object" &&
+            keyFn(pvRaw) === keyFn(nv)
+          )
+        )
           break; // misaligned: fall to the keyed remainder below
         // Identity skip inline (FINDING-1 guard), then descend the pair.
         if (
@@ -242,7 +255,8 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       let prevByKey: Map<any, any> | null = null;
       for (; i < nextRows.length; i++) {
         const nv = nextRows[i];
-        if (isWrappable(nv)) {
+        // typeof gates route; descend validates (same contract as the prefix).
+        if (nv !== null && typeof nv === "object") {
           const nk = keyFn(nv);
           let pv: any;
           if (nk !== undefined) {
@@ -250,7 +264,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
               prevByKey = new Map();
               for (let j = 0; j < prevRows.length; j++) {
                 const p = unwrapValue(prevRows[j]);
-                if (isWrappable(p)) {
+                if (p !== null && typeof p === "object") {
                   const pk = keyFn(p);
                   if (pk !== undefined && !prevByKey.has(pk)) prevByKey.set(pk, p);
                 }
@@ -374,10 +388,18 @@ function descend(
   fam: StoreNextFamily | null,
   proj = false
 ): void {
-  if (!isWrappable(pv) || !isWrappable(nv)) return;
-  // markRaw'd values are leaves for reconcile: replaced by reference, never
-  // recursed into (R42); the parent's slot notification covers the change.
-  if (rawValuesUsed && (isRawValue(pv) || isRawValue(nv))) return;
+  if (pv === null || typeof pv !== "object" || nv === null || typeof nv !== "object") return;
+  // Lookup FIRST: a hit implies pv was wrappable and never raw-marked (only
+  // wrappables acquire targets; rawValues never wrap) — one WeakMap get
+  // replaces isWrappable(pv) + isRawValue(pv), and a miss prunes untracked
+  // subtrees before any further checks.
+  const ct = (fam?.map ?? storeNextLookup).get(pv);
+  if (ct === undefined) return; // nothing proxied below this pair
+  // The NEW side still validates fully: a frozen/platform/markRaw'd incoming
+  // value is a leaf for reconcile — replaced by reference, never recursed
+  // into (R42); the parent's slot notification covers the change.
+  if (!isWrappable(nv)) return;
+  if (rawValuesUsed && isRawValue(nv)) return;
   nv = unwrapValue(nv);
   // Kind change replaces wholesale, never merges (R10): a target's carrier
   // class (array vs object) is fixed at creation, so the slot detaches and a
@@ -390,8 +412,6 @@ function descend(
     // keeps its (old) backing and a fresh proxy wraps the new value on read.
     if (pk !== undefined && nk !== undefined && pk !== nk) return;
   }
-  const ct = (fam?.map ?? storeNextLookup).get(pv);
-  if (ct === undefined) return; // nothing proxied below this pair
   // Reachability pruning (§6d) is MODE-dependent, both pinned:
   // - keyed matching descends only where subscriptions exist at/below (`d`) —
   //   captured-but-unobserved proxies deliberately detach and go stale

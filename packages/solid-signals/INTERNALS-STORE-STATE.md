@@ -629,6 +629,21 @@ implementation, deduplicated across reports.
   (the DAG rule) covers the slots CAS declines. Also executed the RUL-12
   unkeyed-merge ruling: the two async yield-identity assertions rewritten to
   merge semantics (identity preserved) with ruling citations.
+- **2026-08-18o**: TICK PARITY REACHED (final phase-1 perf state). The
+  "one more pass" hoisted walk validation into descend as the single
+  authority: lookup-first (a family-map hit implies the old side was
+  wrappable and never raw-marked — only wrappables acquire targets),
+  new-side-only isWrappable/isRawValue, and the prefix/remainder alignment
+  checks reduced to typeof gates (they are routing heuristics — both routes
+  notify identically). isWrappable left next's hot profile entirely.
+  Measured (interleaved, n=100 ×3): tick +0.0/+0.3/+0.4ms (statistical
+  parity at the live-desktop measurement floor), tickPartial parity, sort
+  −0.1/−0.2ms (next wins every run, ~70/30 rounds). Block sweep: tick
+  MEDIAN NEXT-FASTER (12.3 vs 12.8; mins 10.4 vs 11.5 — next's best tick
+  beats legacy's best by 1.1ms), mount/unmount par, remount +1.0ms within
+  its noise band. Under CDP profiling next is −9%/tick overall. Phase-1
+  perf ledger vs shipped: uibench creation −25%, dbmon ticks parity
+  (next-favored bests), sort faster, partial parity.
 - **2026-08-18n**: PROD TICK REGRESSION FOUND AND MOSTLY CLOSED. A
   thermal-fair interleaved A/B (both fixtures open, samples alternating
   per round — sign test immune to drift; octane-dbmon-local/interleave.mjs)
