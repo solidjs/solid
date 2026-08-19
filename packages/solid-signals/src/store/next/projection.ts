@@ -102,7 +102,7 @@ function createWriteTraps(isActive?: () => boolean, onDraftWrite?: () => void): 
   return traps;
 }
 
-export function createProjectionNextInternal<T extends object = {}>(
+function createProjectionNextInternal<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   seed: Partial<T>,
   options?: ProjectionOptions

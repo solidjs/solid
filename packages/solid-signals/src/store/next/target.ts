@@ -93,3 +93,19 @@ export function devAssertNeverUserMutation(target: object): void {
     );
   }
 }
+
+/** Injection table for optimistic-only store machinery (next/optimistic.ts).
+ * Every call site is gated on `fam?.opt`, and optimistic families can only
+ * be created by createOptimisticStore — whose install populates this — so
+ * the non-null assertions at the sites hold by construction. Keeping the
+ * implementations out of next/store.ts lets plain-store bundles tree-shake
+ * the optimistic channel entirely. */
+export interface OptStoreHooks {
+  notifyOptimisticWrites(t: any, pb: Record<PropertyKey, any>): void;
+  optimisticView(t: any, src: Record<PropertyKey, any>): Record<PropertyKey, any>;
+  applyTentative(t: any, incoming: any, keyFn: ((item: any) => any) | null): void;
+}
+export let optHooks: OptStoreHooks | null = null;
+export function setOptHooks(h: OptStoreHooks): void {
+  optHooks = h;
+}

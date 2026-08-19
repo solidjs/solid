@@ -629,6 +629,21 @@ implementation, deduplicated across reports.
   (the DAG rule) covers the slots CAS declines. Also executed the RUL-12
   unkeyed-merge ruling: the two async yield-identity assertions rewritten to
   merge semantics (identity preserved) with ruling citations.
+- **2026-08-18p**: SIZE PASS — TREESHAKEABLE OPTIMISM. notifyOptimisticWrites,
+  consumeOverridesNext, optimisticView (from next/store.ts) and
+  applyTentative (from next/reconcile.ts) moved into next/optimistic.ts
+  behind an injection table (target.ts optHooks) installed inside
+  createOptimisticStore's once-guard — NOT at module scope, so the module
+  stays side-effect-free and shakes. Soundness: every call site is
+  fam?.opt-gated and optimistic families are only mintable by
+  createOptimisticStore, so the non-null assertions hold by construction.
+  The affects view resolver registration moved into the same install. Also:
+  dead-export sweep (isNextProxy internalized, createProjectionNextInternal
+  and lookupTarget unexported). MEASURED: plain store entry 13,710 → 13,229
+  gzip (−481); whole-package bundlephobia-style vs main 23,367 → 22,845
+  gzip (−522). Perf guards: interleaved dbmon — tick next-WINS 41/16
+  (−0.4ms), sort next-wins, partial noise; optimistic write-storm 0.94x
+  (next faster). Suite 1257 green, full build green.
 - **2026-08-18o**: TICK PARITY REACHED (final phase-1 perf state). The
   "one more pass" hoisted walk validation into descend as the single
   authority: lookup-first (a family-map hit implies the old side was

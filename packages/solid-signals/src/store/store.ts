@@ -106,7 +106,7 @@ export type NotWrappable =
   | undefined
   | SolidStore.Unwrappable[keyof SolidStore.Unwrappable];
 
-export function lookupTarget(value: any, lookup?: WeakMap<any, any>): StoreNode | undefined {
+function lookupTarget(value: any, lookup?: WeakMap<any, any>): StoreNode | undefined {
   // Family maps (projections/optimistic) map raw -> target; the global next
   // lookup maps raw -> target too. Proxies resolve through $TARGET directly.
   if (lookup !== undefined) {
