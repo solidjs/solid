@@ -160,12 +160,26 @@ the compiler free of read-closure registration analysis.
 - COMPONENT-AGNOSTIC: no <For> recognition; eligibility is shape-based on
   the template scope's subject. Custom list components get patch mode for
   free; slot ops couple to mapArray through the runtime seam only.
+- PROPS/ATTRS ONLY (ruled 2026-08-19): patch mode covers bindings with an
+  unambiguous write semantic — textContent, class/className, style, value,
+  checked, attributes. EXPRESSION CHILDREN (inserts) are polymorphic by
+  contract and always compile to insert() islands; the textContent-vs-child
+  separation is retained ON PURPOSE as the author's type declaration (it is
+  the information that gates the fast path). A later runtime string-upgrade
+  tier for child text stays out of scope (insertExpression already does
+  string→string .data writes).
 - STRICT BAIL RULES (correctness over coverage): any binding that is not a
   provably-plain member access on the row param (calls, spreads, context,
   component boundaries, accessor risk) compiles to today's render effects
   within the same row. Patch mode is an optimization tier, never a
   semantic fork; a row can mix patch bindings and effect islands.
-- Hydration: claim refs from server DOM, register patches, no writes.
+- Hydration: claim + register ONLY — no render effects created, no initial
+  writes, no graph edges; store-list hydration cost collapses like unmount
+  did. textContent cells claim firstChild directly (single text child — no
+  markers); insert islands keep the marker machinery unchanged. Policy
+  (default): skip the initial apply, dev-mode mismatch check — matching how
+  hydration truth is treated elsewhere. Claim-time registration touches
+  records without deep proxy reads (the mount-artifact lesson).
 - Event handlers/refs compile as today (they don't read reactively).
 
 ## 6. What this is NOT
