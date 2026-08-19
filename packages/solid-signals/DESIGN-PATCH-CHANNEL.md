@@ -153,6 +153,24 @@ the compiler free of read-closure registration analysis.
   literals) — same proof obligations, ship together. Per-KEY precision is
   not required (dispatch is per-record; the patch re-compares), so dynamic
   member access that is a pure read stays eligible.
+- SUBJECT STABILITY (ruled 2026-08-19): the patch driver additionally
+  requires the subject's identity to be FIXED for the instance lifetime.
+  Row params satisfy this by construction (the record is the row identity);
+  props objects never do (getter-backed, resolve differently over time) —
+  props-rooted reads are structurally ineligible as patch subjects and land
+  on the effect driver regardless of shape. "Evaluate props.item once at
+  bind and patch on that record" is out of v1 (it changes semantics: the
+  binding would stop responding to props.item itself changing).
+- DEMOTION HOOK: a record that passes the bind probe but ACQUIRES an
+  accessor property later (defineProperty/adoption paths already maintain
+  the accessor flags) demotes — its patches are cleared and the retained
+  effect thunk from the bind closure takes over. Runtime invariant:
+  patches only ever read plain data.
+- SIZE NOTE: dual-driver emission everywhere member-shape matches carries
+  the patch branch even for props-only templates. The effect fallback IS
+  today's output (shared helpers), and the compiler may safely skip the
+  patch driver when the subject is a component's props binding — prunes an
+  optimization, never changes behavior.
 - DUAL DRIVER: the compiled compare/write body is shared — patch-channel
   driven when the runtime bind check finds a patchable record, effect-driven
   (today's grouped-dynamics shape) otherwise. Accessor-bearing records are
