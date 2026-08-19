@@ -529,7 +529,11 @@ describe("omit Props", () => {
 });
 
 describe("deep", () => {
-  test("subscribes to $TRACK at each level", () => {
+  // RULED (INTERNALS-STORE-STATE.md, recon-snap pin 2): pins the LEGACY graph
+  // shape (one $TRACK dep per level). The rewrite's deep() subscribes the
+  // key-set node plus per-key nodes per level — deep tracking behavior is
+  // covered behaviorally by the sibling tests. Skipped, not ported.
+  test.skip("subscribes to $TRACK at each level", () => {
     const [state, setState] = createStore({ list: [{ a: 1 }, { b: 2 }] });
     let o: any;
     createRoot(() => {

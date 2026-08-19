@@ -99,7 +99,13 @@ module.exports = [
     // note), latest() wake-only lane demotion (#3009, ~+50 B in
     // recomputeLane), effect-phase read gating (#3006, ~+20 B). All on
     // always-retained core paths.
-    limit: "13.5 KB",
+    //
+    // Store rewrite: ratcheted 13.5 -> 12.2 KB, measured at 11.98. The
+    // single-implementation store (legacy deleted) plus the tree-shakeable
+    // optimistic channel (injection table installed by createOptimisticStore;
+    // plain-store graphs retain none of it) took −1.26 KB out of this
+    // scenario. Locked in at the ~2% headroom convention.
+    limit: "12.2 KB",
     modifyEsbuildConfig
   },
   {
@@ -163,8 +169,13 @@ module.exports = [
     // 2.0.0-rc: 23.3 -> 23.65 KB, measured at 23.19 — the same batch as the
     // no-store scenario (flatten + #3006 + #3009 + lazy export), restoring
     // the ~2% headroom convention.
+    //
+    // Store rewrite: ratcheted 23.65 -> 23.3 KB, measured at 22.84 (this
+    // scenario imports every store family, so it keeps the optimistic
+    // channel and pays the injection seam; the −470 B is the legacy
+    // deletion net of the rewrite). ~2% headroom.
     path: "hydrating-store-app.js",
-    limit: "23.65 KB",
+    limit: "23.3 KB",
     modifyEsbuildConfig
   },
   {

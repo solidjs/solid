@@ -6723,3 +6723,133 @@ Read:
 - The extra branch/counter/marker state in the hot loop appears to cost more than the saved generic `formatChildId` work.
 - Reverted the source probe. The safe runtime baseline remains Investigation 21 + 22, without this id-cache change.
 
+
+## Store Rewrite Lane (2026-08-18): baselines at full functionality
+
+The store rewrite (`src/store/next/`, branch `store-rewrite`; contract in
+`packages/solid-signals/INTERNALS-STORE-STATE.md`) reached full-suite green
+plus one optimization pass today. Baselines below; per-scenario variance
+matters more than totals.
+
+### Tier-1 (in-repo, `pnpm vitest bench --run tests/store/...`)
+
+Legacy = main checkout, next = worktree, same machine back-to-back. The
+dbmon SHALLOW row runs identical legacy code in both checkouts — it is a
+built-in noise control (measured 1.14x session skew for this pair; treat
+sub-15% Tier-1 deltas accordingly).
+
+| bench (mean) | legacy | next | ratio |
+|---|---|---|---|
+| reconcile read-once tree, 10 of ~12k paths subscribed | 0.87ms | 0.51ms | 0.59x |
+| tree reverse 1111 keyed | 4.55 | 4.19 | 0.92x |
+| tree shuffle 1111 keyed | 4.47 | 4.74 | 1.06x (rme ±9–11%) |
+| dbmon full tick deep | 121.4 | 133.4 | 1.10x |
+| dbmon partial tick deep | 126.2 | 137.7 | 1.09x |
+| dbmon shallow (control) | 66.2 | 75.2 | 1.14x |
+
+### Tier-2 (browser)
+
+- UIBench (matched morning session, 10-iter): legacy 36.6ms total → next
+  27.5ms. Per-test: ZERO regressions >1.1x&0.05ms; wins concentrate in
+  keyed structure (moves 0.62x, sort/filter 0.71x) and creation
+  (tree/render 0.68x). vs ivi (21.4): we now beat ivi on table/filter;
+  remaining gaps are tree/render (creation) and reorders (re-derivation
+  stack — phase-2 signature).
+- dbmon browser (same-session 30-iter, all columns together): sort 0.92x
+  (faster than legacy), mount 1.03x, remount 1.07x, unmount noise — but
+  tick 1.21x and tick_partial ~1.2x SLOWER.
+
+### The open regression (the current target)
+
+Both tiers agree in direction: dense value-diff reconcile (dbmon full and
+partial tick) is slower than legacy — Tier-1 shows ~1.10x raw (inside the
+1.14x control band, so partially environmental, but Tier-2's same-session
+1.21x confirms a real gap). Everything else is parity or faster. The
+requirement is parity (no regression) before phase 2. Suspects after the
+fused-walk pass: per-target adoption bookkeeping (registration WeakMap.set,
+ownership WeakSet.has), per-key call overhead in the fused walk
+(notifyKeyDiff + setSignal per changed key) vs legacy's monolithic
+applyStateFast. Iteration tool: `reconcile-dbmon.bench.ts` (sub-10s loop,
+shallow row as control).
+
+### Inline per-key pass + in-process A/B (2026-08-18, later)
+
+Changes: per-key notify body inlined into the fused adoption walk (legacy's
+own lesson — extracted helper cost ~7% on CodSpeed); reference-identity
+early-continue per key with the FINDING-1 ownership guard (`ov === nv` skips
+only unowned backings; accessor-flagged nodes never skip); both-side fetches
+done once. Suite green.
+
+New tool: `tests/store/reconcile-dbmon-ab.bench.ts` — the same workload
+against next (dispatcher) and legacy (direct import) interleaved in ONE
+process. No session/thermal skew; this supersedes cross-checkout Tier-1
+comparisons for the transition period. Delete with the legacy modules.
+
+Results (time:4000, both variants same process):
+
+| bench | next | legacy | read |
+|---|---|---|---|
+| full tick mean | 187.0 | 190.7 | parity (0.98x) |
+| full tick min | 146.9 | 133.4 | 1.10x, GC-riddled (rme ±20%) |
+| partial mean | 148.9 | 134.4 | 1.11x (rme ±6–12%) |
+| partial min | 124.2 | 116.4 | 1.07x |
+
+Verdict: full-tick parity reached in-process; partial holds a residual
+~7–10% (borderline vs rme but consistently legacy-favored). Remaining
+partial suspects: per-child adoption bookkeeping on value-identical rows
+(registration WeakMap.set + adopted-flag bookkeeping per query array/row
+even when every key ===-continues). Browser re-validation owed on a cool
+machine with the current build.
+
+### A/B corrected for __TEST__ machinery (benchmark mode)
+
+Discovery: default vitest runs define `__TEST__: true`, which makes next pay
+its invariant oracles (ingestedRaw WeakSet add PER ADOPTION, no-mutation
+assertions on privatize/fold paths) that legacy has no equivalent of — the
+earlier A/B numbers overstated next's cost. `--mode benchmark` strips them
+(vite.config.ts already provided the mode).
+
+Two benchmark-mode runs, same command minutes apart (means):
+
+| bench | run 1 | run 2 |
+|---|---|---|
+| full tick next/legacy | 129.5/160.8 = **0.81x** | 139.8/132.0 = 1.06x |
+| partial next/legacy | 140.4/131.2 = 1.07x | 155.5/136.8 = 1.14x |
+| partial MINS | 115.5/114.8 = 1.01x | 128.7/117.5 = 1.10x |
+
+Verdict: full-tick oscillates AROUND parity (0.81–1.06x) — no measurable
+regression remains, and no stable win either; partial reads 1.0–1.14x.
+Cross-run variance (bench order, GC epochs, end-of-day thermals) now
+exceeds the effect size even in-process. STOP MEASURING HERE. Definitive
+read = cool machine, first runs of the day, both A/B runs repeated 3x,
+report min-of-means per side. Measurement rule going forward: any
+next-vs-legacy claim must come from `--mode benchmark` (the __TEST__
+asymmetry biases default-mode numbers against next).
+
+### Read-path flattening + positional-prefix keyed walk (2026-08-18, midday)
+
+Two more single-loop changes (no forks):
+1. Trap read path: one `typeof key` gates all brand-symbol compares off the
+   hot string path; the common serve case (existing plain node, unchained,
+   tracked) is inlined in the trap — readNodeFast, no serveDataKey frame, no
+   FORCE compare (only accessor keys hold the sentinel), primitives bail
+   before isWrappable.
+2. Keyed arrays: positional-prefix fast path (legacy keyedMatch-walk
+   parity) — aligned rows descend in place with inline identity skip
+   (FINDING-1 guard); prevByKey is built only for the misaligned remainder,
+   never on aligned ticks (was: 1000-entry Map per tick).
+
+Browser (octane harness, alternating rounds, current build):
+- FULL tick: 1.02/1.08/1.15x pre-prefix → 1.10/1.04x post — parity band.
+- PARTIAL tick: was ~1.24x IN BOTH SWEEP ORDERS (the one order-robust
+  regression) → 1.03x / 0.97x post-prefix — CLOSED.
+- Sweep-order finding: run.mjs's fixed order (solid before solid-next)
+  biases the second column; reversed-order run flipped full tick from
+  1.17x to 1.045x. Alternating per-round loops are the trustworthy method;
+  medians from single fixed-order sweeps are not.
+- Suite + next-gate green throughout.
+
+Status vs the no-regression bar: full and partial tick both in the
+alternating-measurement parity band (0.97–1.15x swings, centered ~1.05);
+sort/mount/unmount at parity or faster. Cool-machine confirmation still
+recommended for the record.
