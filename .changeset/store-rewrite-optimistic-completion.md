@@ -1,5 +1,5 @@
 ---
-"@solidjs/signals": minor
+"@solidjs/signals": patch
 ---
 
 Store rewrite: optimistic surface completion. Strict-read refetch-window

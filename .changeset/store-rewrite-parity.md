@@ -1,5 +1,5 @@
 ---
-"@solidjs/signals": minor
+"@solidjs/signals": patch
 ---
 
 Store rewrite: full plain-store parity. The rewrite now passes the entire

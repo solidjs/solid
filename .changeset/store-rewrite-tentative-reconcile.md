@@ -1,5 +1,5 @@
 ---
-"@solidjs/signals": minor
+"@solidjs/signals": patch
 ---
 
 Store rewrite: tentative reconcile channel and affects integration. A

@@ -1,5 +1,5 @@
 ---
-"@solidjs/signals": minor
+"@solidjs/signals": patch
 ---
 
 Store rewrite: full suite green. Optimistic array length is a view of the

@@ -1,5 +1,5 @@
 ---
-"@solidjs/signals": minor
+"@solidjs/signals": patch
 ---
 
 Store rewrite: projection infrastructure. Family wrapping (per-projection
