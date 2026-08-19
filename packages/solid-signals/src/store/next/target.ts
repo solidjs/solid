@@ -49,6 +49,14 @@ export interface StoreNextTarget {
   h: Record<PropertyKey, Signal<boolean>> | null;
   /** Lazy key-set node: membership/iteration/$TRACK subscriptions (§6). */
   k: Signal<number> | null;
+  /** PROTOTYPE (stage-2 ceiling): slot-patch hook for shallow arrays —
+   * called per changed index with (i, next, prev); the shallow slot diff is
+   * the dispatcher (records are raw, no per-record targets exist). */
+  sp: ((index: number, next: any, prev: any) => void) | null;
+  /** PROTOTYPE (stage-2 ceiling): per-record compiled patch fn — one call
+   * per record with (next, prev) raw backings; does its own compares and
+   * writes (octane-style compiled patch driven by the data diff). */
+  p: ((next: any, prev: any) => void) | null;
   /** PROTOTYPE (stage-2 ceiling): per-record binding registry — key ->
    * direct DOM write. Dispatched from the adoption walk. Internal-only. */
   b: Record<PropertyKey, (v: any) => void> | null;

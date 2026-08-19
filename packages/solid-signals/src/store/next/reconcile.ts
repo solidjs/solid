@@ -229,8 +229,14 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       const dlen = Math.min(prevRows.length, nextRows.length);
       const nlen = nextRows.length;
       let dkBumpedP = false;
+      const sp = t.sp;
       for (let i = 0; i < nlen; i++) {
         const nvP = nextRows[i];
+        // PROTOTYPE slot-patch dispatch: shallow slots replaced by reference.
+        if (sp !== null) {
+          const pvS = i < dlen ? prevRows[i] : undefined;
+          if (pvS !== nvP) sp(i, nvP, pvS);
+        }
         if (!shallow && i < dlen && nvP !== null && typeof nvP === "object")
           descend(unwrapValue(prevRows[i]), nvP, keyFn, fam, proj);
         if (
@@ -271,6 +277,24 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
     // slots must not notify, R9). This replaces the notifyFold re-walk that
     // doubled dbmon's diff cost. for-in covers own enumerable string keys
     // with no key-array allocation; symbols get a pass only when present.
+    // PROTOTYPE compiled-patch fast path: a pure-patch record (no nodes,
+    // no presence/key-set/deep subscribers, no family) adopts and hands the
+    // (next, prev) pair to its compiled patch — no per-key walk at all.
+    if (
+      t.p !== null &&
+      eager &&
+      t.n === null &&
+      t.h === null &&
+      t.k === null &&
+      t.dk === null &&
+      fam === null
+    ) {
+      // Adoption already ran at applyAdopt entry (adoptPB swaps the backing
+      // to `incoming`); `old` is the pre-adopt raw captured there — the
+      // patch's prev side.
+      t.p(incoming, old);
+      return;
+    }
     const nodes = eager ? t.n : null;
     let nodesHit = 0;
     let dkBumped = false;

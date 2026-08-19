@@ -663,6 +663,32 @@ registration cost (per-record map spread + 6 registrations/row) — real
 design needs cheap bulk registration. Row-structure ops still hand-rolled
 (syncRows scan, 0.24ms/tick) — the op channel's mapArray half replaces it.
 
+### Ceiling prototype v2/v3 (2026-08-19 daytime) — BAR SUBSTANTIALLY MET
+
+Compiled per-record patch fns (registerPatchNext; one call/record with
+(next, prev) raws, walk fast-path skips per-key machinery) + retained
+text-node writes (.data, no node churn) + shallow slot-patch dispatch
+(registerSlotPatchNext on the positional slot diff). Browser dbmon:
+
+| op        | octane | shallow+patch | deep+patch |
+|-----------|-------:|--------------:|-----------:|
+| tick      |    3.5 |    3.8 (+9%)  | 4.0 (+14%) |
+| partial   |    1.6 |     1.4 WIN   |   1.3 WIN  |
+| unmount   |    2.9 |     0.0 WIN   |   0.0 WIN  |
+
+- The walk collapsed (applyAdopt 1063 → 35ms/400 ticks); remaining full-tick
+  delta is adoption bookkeeping + dispatch (~0.3-0.5ms).
+- BOTH variants beat octane on partial ticks (dispatch skips clean rows; a
+  vdom walks all of them) and teardown is free (no reactive graph in rows).
+- Deep beats shallow on partial (1.3 vs 1.4): record-granular dispatch.
+- Single-home gotcha pinned: adoption preserves backing identity — patch
+  prev must be the pre-adopt `old` captured at applyAdopt entry.
+- Mount (~21) is a FIXTURE artifact: hand-rolled rows append 7 text nodes
+  per row; octane/dom-expressions bake them into the template. Sort (~12)
+  awaits real slot-move ops (the op channel proper).
+- O4 reframed: shallow = vdom-parity mode, deep = granularity mode, one
+  patch mechanism + one compiler output for both.
+
 ### Carried targets
 
 - deep(): CodSpeed simulation −19.2% vs legacy (instruction count;

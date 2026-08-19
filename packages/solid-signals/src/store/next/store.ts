@@ -105,6 +105,8 @@ function createTarget(
   t.k = null;
   t.dk = null;
   t.b = null;
+  t.p = null;
+  t.sp = null;
   t.u = parent;
   t.pk = parentKey;
   t.px = null;
@@ -1341,6 +1343,35 @@ function isNextProxy(value: any): boolean {
 /** PROTOTYPE (stage-2 ceiling measurement): register a binding map on a
  * record. The adoption walk dispatches changed keys directly. NOT public
  * API — timing is walk-side (setter time), not effect phase. */
+/** PROTOTYPE: register a compiled per-record patch fn. The adoption walk
+ * calls it ONCE per changed record with (nextRaw, prevRaw); it owns all
+ * compares and DOM writes, including nested plain children (which then
+ * need no targets of their own). */
+/** PROTOTYPE: slot patch for shallow arrays — the positional slot diff
+ * calls (index, next, prev) for changed slots. */
+export function registerSlotPatchNext(
+  arr: any,
+  fn: (index: number, next: any, prev: any) => void
+): () => void {
+  const t: StoreNextTarget | undefined = arr?.[$TARGET];
+  if (t === undefined) throw new Error("registerSlotPatchNext: not a store array");
+  t.sp = fn;
+  markDescendants(t);
+  return () => {
+    t.sp = null;
+  };
+}
+
+export function registerPatchNext(record: any, patch: (next: any, prev: any) => void): () => void {
+  const t: StoreNextTarget | undefined = record?.[$TARGET];
+  if (t === undefined) throw new Error("registerPatchNext: not a store record");
+  t.p = patch;
+  markDescendants(t);
+  return () => {
+    t.p = null;
+  };
+}
+
 export function registerBindingsNext(
   record: any,
   map: Record<PropertyKey, (v: any) => void>
