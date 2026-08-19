@@ -104,6 +104,7 @@ function createTarget(
   t.h = null;
   t.k = null;
   t.dk = null;
+  t.b = null;
   t.u = parent;
   t.pk = parentKey;
   t.px = null;
@@ -1337,6 +1338,25 @@ function isNextProxy(value: any): boolean {
 /** Tracking deep snapshot (`deep()` for next targets): subscribes to the
  * key-set and every property node at every reachable level, then returns the
  * plain view. Shared references and cycles handled via the visited set. */
+/** PROTOTYPE (stage-2 ceiling measurement): register a binding map on a
+ * record. The adoption walk dispatches changed keys directly. NOT public
+ * API — timing is walk-side (setter time), not effect phase. */
+export function registerBindingsNext(
+  record: any,
+  map: Record<PropertyKey, (v: any) => void>
+): () => void {
+  const t: StoreNextTarget | undefined = record?.[$TARGET];
+  if (t === undefined) throw new Error("registerBindingsNext: not a store record");
+  t.b = t.b === null ? map : { ...t.b, ...map };
+  // Bindings are subscriptions for reachability purposes: keyed reconcile's
+  // pruning (§6d) must descend into bound records exactly as it does for
+  // noded ones.
+  markDescendants(t);
+  return () => {
+    t.b = null;
+  };
+}
+
 export function deepNext<T>(value: T): T {
   const t0: StoreNextTarget | undefined = (value as any)?.[$TARGET];
   if (t0 === undefined || t0.px !== value) return value;

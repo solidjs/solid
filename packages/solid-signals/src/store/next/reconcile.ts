@@ -300,6 +300,11 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
         bumpDeep(t);
         dkBumped = true;
       }
+      // PROTOTYPE binding dispatch: changed scalar keys apply directly.
+      if (t.b !== null && !isObj && !isEqual(ov, nv)) {
+        const apply = t.b[k];
+        if (apply !== undefined) apply(nv);
+      }
       if (nodes !== null) {
         const node = nodes[k];
         if (node !== undefined) {

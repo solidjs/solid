@@ -639,6 +639,30 @@ O(changes) instead of re-deriving O(view).
 - Laziness stays unobservable (R1): emission must not force node/target
   creation the pull model wouldn't have performed.
 
+### Ceiling prototype result (2026-08-19, first measurement)
+
+Hand-compiled dbmon (solid-bindings fixture, octane-dbmon-local:5203):
+template-clone rows + per-record binding maps dispatched from the adoption
+walk (registerBindingsNext prototype hook; walk-side timing). Semantic gate
+PASSED. Browser: mount 18.2ms (deep ~30, octane 8.8), tick 10.2ms (deep
+~12.5, octane 3.3), partial 2.1. CPU decomposition of the tick:
+
+- DOM writes (the binding fns' self-time): ~2.9ms — parity with octane's
+  physics for the same ~6k cell writes; not a target.
+- Effect layer: GONE (get 44ms/400 ticks vs ~430 with effects) — bindings
+  deliver exactly the layer-2 win predicted.
+- THE WALK IS THE WALL: applyAdopt 2.66ms/tick vs octane's whole diff
+  ~0.5ms. Generic-walk overhead (per-record getOwnPropertySymbols, adoptPB
+  bookkeeping, descend validation, per-key isEqual) is ~5x a monomorphic
+  shape diff.
+
+Projected floor with a binding-aware walk fast path (pure-binding records —
+bindings present, no nodes/family — take a tight compare-dispatch loop):
+~4.1ms vs octane 3.3 → THE BAR IS REACHABLE. Also: remount 26.6ms exposes
+registration cost (per-record map spread + 6 registrations/row) — real
+design needs cheap bulk registration. Row-structure ops still hand-rolled
+(syncRows scan, 0.24ms/tick) — the op channel's mapArray half replaces it.
+
 ### Carried targets
 
 - deep(): CodSpeed simulation −19.2% vs legacy (instruction count;

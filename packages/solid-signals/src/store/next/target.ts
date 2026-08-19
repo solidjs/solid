@@ -49,6 +49,9 @@ export interface StoreNextTarget {
   h: Record<PropertyKey, Signal<boolean>> | null;
   /** Lazy key-set node: membership/iteration/$TRACK subscriptions (§6). */
   k: Signal<number> | null;
+  /** PROTOTYPE (stage-2 ceiling): per-record binding registry — key ->
+   * direct DOM write. Dispatched from the adoption walk. Internal-only. */
+  b: Record<PropertyKey, (v: any) => void> | null;
   /** Lazy deep-witness node: `deep()` subscribes ONE node per record instead
    * of one per path; write paths bump it only when it exists. Separate from
    * `k` so $TRACK/mapArray never rerun on leaf value changes (R9). */

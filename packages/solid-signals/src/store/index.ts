@@ -25,6 +25,7 @@ import { reconcileNextState } from "./next/reconcile.js";
 import { createStoreDerivedNext } from "./next/projection.js";
 
 export { createProjectionNext as createProjection } from "./next/projection.js";
+export { registerBindingsNext as unstable_registerBindings } from "./next/store.js";
 export { createOptimisticStoreNext as createOptimisticStore } from "./next/optimistic.js";
 
 /** Public createStore: plain form `(init, options?)` and derived writable
