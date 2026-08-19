@@ -1,3 +1,4 @@
+import { attribution, type Attribution } from "./attribution.js";
 import type { Computed, Link, Owner, Signal } from "./types.js";
 
 export interface DevHooks {
@@ -29,9 +30,19 @@ export type DiagnosticCode =
   | "MISSING_EFFECT_FN"
   | "SYNC_NODE_RECEIVED_ASYNC"
   | "REACTIVITY_HALTED"
-  | "INVARIANT_VIOLATION";
+  | "INVARIANT_VIOLATION"
+  | "HOT_SCOPE_RERUNS"
+  | "HOT_SCOPE_TIME"
+  | "WIDE_SCOPE_DEPS";
 
-export type DiagnosticKind = "strict-read" | "async" | "write" | "lifecycle" | "owner" | "error";
+export type DiagnosticKind =
+  | "strict-read"
+  | "async"
+  | "write"
+  | "lifecycle"
+  | "owner"
+  | "error"
+  | "perf";
 
 export interface DiagnosticEvent {
   sequence: number;
@@ -61,6 +72,8 @@ export interface Diagnostics {
 export interface Dev {
   hooks: DevHooks;
   diagnostics: Diagnostics;
+  /** "Why did this run" re-run attribution — see attribution.ts. */
+  attribution: Attribution;
   getChildren: typeof getChildren;
   getSignals: typeof getSignals;
   getParent: typeof getParent;
@@ -100,6 +113,12 @@ export const DEV: Dev = __DEV__
   ? {
       hooks,
       diagnostics,
+      // Getter: attribution.ts imports emitDiagnostic back from this module,
+      // so when attribution.ts evaluates first the `attribution` binding is
+      // still uninitialized here — defer the read to access time.
+      get attribution() {
+        return attribution;
+      },
       getChildren,
       getSignals,
       getParent,

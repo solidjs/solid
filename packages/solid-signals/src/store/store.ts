@@ -502,6 +502,9 @@ function getNode<T>(
   const s = signal<T>(
     value,
     {
+      // Dev-only: name store property nodes by path segment so attribution
+      // chains and wide-scope warnings read "store.todos", not "signal".
+      name: __DEV__ ? "store." + String(property) : undefined,
       equals: equals,
       unobserved() {
         if (nodes[property] === s) {

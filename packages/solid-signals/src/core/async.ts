@@ -12,6 +12,7 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
+import { attributionActive, NO_VALUES, stampWrite } from "./attribution.js";
 import { context, setSignal, untrack } from "./core.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { emitDiagnostic } from "./dev.js";
@@ -364,6 +365,9 @@ export function handleAsync<T>(
     clearStatus(el);
     const lane = resolveLane(el as any);
     if (lane) lane._pendingAsync.delete(el);
+    // Attribution: remember the newest stamp before the landing branches so a
+    // committed change (and only a committed change) can be relabeled below.
+    const devStampSeq = __DEV__ && attributionActive ? ((el as any)._devChange?.seq ?? 0) : 0;
     if (setter) {
       setter(value);
       if (wasUninitialized) clearStatus(el, true);
@@ -388,15 +392,24 @@ export function handleAsync<T>(
       // override every reader sees the override (A17), so waking subs would
       // re-show an unchanged view — the revert is the notification point.
       GlobalQueue._syncCompanions !== null && GlobalQueue._syncCompanions(el, value);
-      if (!hasActiveOverride(el)) insertSubs(el);
+      if (!hasActiveOverride(el)) {
+        if (__DEV__ && attributionActive) stampWrite(el, "async", NO_VALUES, value);
+        insertSubs(el);
+      }
       el._time = clock;
     } else if (lane) {
       // Route through lane's effect queue for independent flushing
       const isEffect = (el as any)._type;
       const prevValue = el._value;
       const equals = el._equals;
+      // Attribution flag only — the stamp itself must stay OUTSIDE the try:
+      // rollup's tryCatchDeoptimization retains any function referenced
+      // inside a try block even behind a folded __DEV__ guard, which would
+      // re-couple the dev-only attribution module into prod bundles (#2883).
+      let devChanged = false;
       try {
         if ((!isEffect && wasUninitialized) || !equals || !equals(value, prevValue)) {
+          if (__DEV__) devChanged = true;
           el._value = value;
           el._time = clock;
           // The latest() shadow write gives latest() effects independent lanes; the
@@ -412,6 +425,7 @@ export function handleAsync<T>(
         // rejection (#2837).
         notifyStatus(el, STATUS_ERROR, e);
       }
+      if (__DEV__ && attributionActive && devChanged) stampWrite(el, "async", prevValue, value);
     } else {
       try {
         setSignal(el, () => value);
@@ -421,6 +435,18 @@ export function handleAsync<T>(
         notifyStatus(el, STATUS_ERROR, e);
       }
     }
+    // Attribution: the plain path landed through setSignal, which stamps the
+    // generic "write" kind on a committed change. Relabel it as an async
+    // landing — but only if setSignal actually stamped (i.e. the value
+    // changed); a no-change landing must leave no fresh stamp behind, or a
+    // later unrelated re-run of a subscriber would mis-attribute to it.
+    if (
+      __DEV__ &&
+      attributionActive &&
+      ((el as any)._devChange?.seq ?? 0) > devStampSeq &&
+      (el as any)._devChange.kind === "write"
+    )
+      stampWrite(el, "async", NO_VALUES, value);
     // First real answer landing: the window closes when the answer becomes
     // OBSERVABLE. A direct commit is observable now; a transition-held write
     // (`_pendingValue` set above or inside setSignal) is not — the verdict's
