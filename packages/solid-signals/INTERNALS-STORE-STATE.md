@@ -689,6 +689,26 @@ text-node writes (.data, no node churn) + shallow slot-patch dispatch
 - O4 reframed: shallow = vdom-parity mode, deep = granularity mode, one
   patch mechanism + one compiler output for both.
 
+### Ceiling v4 (2026-08-19): SHALLOW+PATCH BEATS OCTANE
+
+Template-baked text nodes (clones carry them; binds write .data — the
+dom-expressions convention) collapsed the mount artifact and the tick:
+
+| op      | octane | shallow+patch | deep+patch |
+|---------|-------:|--------------:|-----------:|
+| mount   |    8.5 |          12.1 | 20.0 (proxy-read artifact) |
+| tick    |    3.2 |  2.8 — BEATS  | 3.8 |
+| partial |    1.4 |     1.1 WIN   | 1.2 WIN |
+| sort    |    3.7 | 11.1 (needs move ops) | 11.9 |
+
+The ruled bar ("some version close to matching the fastest vdoms") is
+EXCEEDED on update paths: shallow+patch beats octane on full churn (−12%)
+and partials (−21%); deep+patch stays within ~19% on full churn while
+winning partials. Remaining: deep mount artifact (bind-time proxy reads
+create query targets — bind from raw), sort/remount need slot-move ops
+(the op channel proper), and the semantics gauntlet before any of this
+becomes API.
+
 ### Carried targets
 
 - deep(): CodSpeed simulation −19.2% vs legacy (instruction count;
