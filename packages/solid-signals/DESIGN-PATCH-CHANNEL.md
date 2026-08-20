@@ -433,3 +433,31 @@ recorded-and-skipped (an effect or function-valued insert proves decline,
 so its construction is guaranteed-discarded) — container probes now cost
 one shallow clone. 69.6 → 7.6ms. Probe-skip is SAFE only because dirty
 probes always discard; kept (pure) probe rows never skipped anything.
+
+### 10d. Hydration claiming landed (2026-08-20)
+
+§5 as ruled — claim + register only. patchDriver skips the initial
+force-apply while hydrating (server HTML is the truth until the first
+transition; verified by a spec where mismatched server text survives
+hydration and the first store write repaints through the patch on the
+CLAIMED node). The list driver claims server rows through each row's own
+`_hk` attribute: a row-scoped explicit-id owner (key minus its trailing
+child counter — pure rows consume no ids before the root claim) makes the
+compiled template's getNextElement resolve the registry entry, so no
+id-scheme replication is needed — the DOM carries the truth.
+
+THE INVARIANT (found by the parity harness, for-nested-ternary): every
+driver-side read must be ID-CHAIN NEUTRAL. Evaluating `each` mints
+wrapConditionals memos lazily inside the prop getter; minting them on the
+ambient chain consumed a child id the classic path expected, shifting every
+later hydration key. All driver reads are now id-isolated: decision read
+under a disposed throwaway owner, probe under its own detached id scope
+(memos record-and-skip while probing), identity-watch effect under the list
+owner's private counter. Engage consumes exactly ONE ambient id (mapArray's
+owner slot); decline consumes zero.
+
+V1 hydration declines (classic path serves them): marker-bounded regions,
+row count != DOM count, rows without clean `_hk` keys. Dev-mode text
+mismatch check remains open (policy says skip-initial regardless).
+Post-landing CSR sanity: dbmon compiled unchanged (tick 3.5/partial 1.1/
+remount 9.0/sort 5.0). Full monorepo green incl. hydration parity harness.
