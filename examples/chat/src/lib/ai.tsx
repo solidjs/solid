@@ -26,6 +26,12 @@
 //     writes) and materializes on the client as a live read-only store:
 //     `<Status>` reads `props.usage.tokens` like local state and each
 //     field updates granularly, no re-shipping, no domain keys.
+//   - BEHAVIOR: `copy={…}` is a client FUNCTION passed as a prop. The
+//     server puts it in an event position on an intrinsic element
+//     (`onClick={props.copy}` on each code block's copy button, inside the
+//     streaming hole) — the markup carries a claim marker naming the prop
+//     and the browser's delegation resolves it through this frame's live
+//     props at dispatch (Stage 6). No client component wraps the button.
 //
 // Slots render as JSX (`<props.status …/>`), never as calls: the compiler
 // wraps each prop in a getter, so reads defer to the slot border where the
@@ -36,7 +42,6 @@
 import { createMemo, createProjection, Loading } from "solid-js";
 import { type Slot } from "@solidjs/web/frames";
 import { Marked } from "marked";
-import { markedHighlight } from "marked-highlight";
 import hljs from "highlight.js/lib/core";
 import javascript from "highlight.js/lib/languages/javascript";
 import { generate, greet, type Generation, type Stats, type Usage } from "./model";
@@ -51,16 +56,46 @@ import { generate, greet, type Generation, type Stats, type Usage } from "./mode
 hljs.registerLanguage("javascript", javascript);
 hljs.registerAliases(["js", "jsx", "ts", "tsx"], { languageName: "javascript" });
 
-const marked = new Marked(
-  markedHighlight({
-    langPrefix: "hljs language-",
-    highlight(code, lang) {
-      // Unknown language: return the code unchanged and marked applies its
-      // normal escaping.
-      return hljs.getLanguage(lang) ? hljs.highlight(code, { language: lang }).value : code;
+const marked = new Marked();
+
+const HTML_ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;" };
+const escapeHtml = (text: string) => text.replace(/[&<>]/g, c => HTML_ESCAPES[c]);
+
+/**
+ * Split the markdown into PROSE and CODE segments. Prose renders as opaque
+ * HTML (`innerHTML` — the browser never parses markdown), but code blocks
+ * come back as JSX so each can carry a copy BUTTON — an element the server
+ * renders with behavior from the client (Stage 6): `onClick={props.copy}`
+ * on a server intrinsic mints a `_bnd` marker naming the client prop, and
+ * the browser's event delegation resolves it through the mounted frame's
+ * live props at dispatch. No client component wraps the block; the handler
+ * reads the code off the DOM it was clicked in.
+ */
+function segmentsOf(md: string) {
+  const tokens = marked.lexer(md);
+  const out: { code: boolean; html: string }[] = [];
+  let prose: string[] = [];
+  const flush = () => {
+    if (prose.length) {
+      out.push({ code: false, html: marked.parse(prose.join(""), { async: false }) as string });
+      prose = [];
     }
-  })
-);
+  };
+  for (const token of tokens) {
+    if (token.type === "code") {
+      flush();
+      const lang = (token.lang || "").trim().split(/\s+/)[0];
+      const html = hljs.getLanguage(lang)
+        ? hljs.highlight(token.text, { language: lang }).value
+        : escapeHtml(token.text);
+      out.push({ code: true, html });
+    } else {
+      prose.push(token.raw);
+    }
+  }
+  flush();
+  return out;
+}
 
 /**
  * Smooth a PARTIAL markdown stream before rendering. A token stream dangles
@@ -96,6 +131,7 @@ function closePartial(md: string): string {
 }
 
 export type StatusSlot = Slot<{ progress: string; stats: Stats; usage: Usage }>;
+export type CopyHandler = (e: MouseEvent & { currentTarget: HTMLButtonElement }) => void;
 
 /**
  * The generation's structured face as a live STORE (DR-2 case 3): a
@@ -120,7 +156,7 @@ function usageStore(gen: Generation) {
 
 export async function reply(prompt: string) {
   const gen = generate(prompt);
-  return (props: { status: StatusSlot }) => {
+  return (props: { status: StatusSlot; copy: CopyHandler }) => {
     // Async values read through memos: `progress()` is the iterable's
     // latest yield, `stats()` the promise's resolution (not-ready until it
     // lands). The same reads would feed markup holes — here they feed the
@@ -130,7 +166,7 @@ export async function reply(prompt: string) {
     const usage = usageStore(gen);
     return (
       <section class="reply">
-        <Message text={gen.text} />
+        <Message text={gen.text} copy={props.copy} />
         <props.status progress={progress()} stats={stats()} usage={usage} />
       </section>
     );
@@ -153,13 +189,13 @@ export async function reply(prompt: string) {
  */
 export async function welcome() {
   const gen = greet();
-  return (props: { status: StatusSlot }) => {
+  return (props: { status: StatusSlot; copy: CopyHandler }) => {
     const progress = createMemo(() => gen.progress);
     const stats = createMemo(() => gen.stats);
     const usage = usageStore(gen);
     return (
       <section class="reply">
-        <Message text={gen.text} />
+        <Message text={gen.text} copy={props.copy} />
         <props.status progress={progress()} stats={stats()} usage={usage} />
       </section>
     );
@@ -180,11 +216,32 @@ export async function welcome() {
  * motivates an eventual patch format for hole re-emissions: streamed text is
  * append-mostly, so a prefix-check could ship just the tail.)
  */
-function Message(props: { text: AsyncIterable<string> }) {
+function Message(props: { text: AsyncIterable<string>; copy: CopyHandler }) {
   const text = createMemo(() => props.text);
   return (
     <Loading fallback={<p class="typing">▍</p>}>
-      <div class="md" innerHTML={marked.parse(closePartial(text()), { async: false }) as string} />
+      <div class="md">
+        {segmentsOf(closePartial(text())).map(segment =>
+          segment.code ? (
+            // Behavior from the client on a server element (Stage 6):
+            // `props.copy` is the client-passed handler; this position
+            // compiles to a `_bnd` claim marker that rides every hole
+            // re-emission, so the button works mid-stream and keeps
+            // working after each morph. The handler reads its code from
+            // the DOM at dispatch — delegation, not per-block wiring.
+            <div class="code-block">
+              <button class="copy-code" type="button" onClick={props.copy}>
+                Copy
+              </button>
+              <pre>
+                <code class="hljs" innerHTML={segment.html} />
+              </pre>
+            </div>
+          ) : (
+            <div innerHTML={segment.html} />
+          )
+        )}
+      </div>
     </Loading>
   );
 }

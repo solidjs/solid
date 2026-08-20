@@ -16,6 +16,21 @@ interface Message {
 
 let nextId = 0;
 
+// Behavior for SERVER-rendered elements (Stage 6): every code block in a
+// reply carries a copy button the server renders with `onClick={props.copy}`
+// — this function, passed as a prop. The marker in the markup names the
+// prop; delegation resolves it here at dispatch. It reads the code from the
+// element it was clicked in, so one handler serves every block in every
+// reply, including blocks that streamed in mid-sentence.
+const copyCode = (e: MouseEvent & { currentTarget: HTMLButtonElement }) => {
+  const button = e.currentTarget;
+  const code = button.parentElement?.querySelector("code");
+  if (!code) return;
+  navigator.clipboard.writeText(code.textContent ?? "");
+  button.textContent = "Copied!";
+  setTimeout(() => (button.textContent = "Copy"), 1200);
+};
+
 export default function App() {
   const [messages, setMessages] = createSignal<Message[]>([]);
   const [draft, setDraft] = createSignal("");
@@ -74,6 +89,7 @@ export default function App() {
             <Loading fallback={<p class="typing">▍</p>}>
               <Welcome
                 status={p => <Status progress={p.progress} stats={p.stats} usage={p.usage} />}
+                copy={copyCode}
               />
             </Loading>
           </div>
@@ -93,6 +109,7 @@ export default function App() {
                   <Loading fallback={<p class="typing">▍</p>}>
                     <Reply
                       status={p => <Status progress={p.progress} stats={p.stats} usage={p.usage} />}
+                      copy={copyCode}
                     />
                   </Loading>
                 </div>

@@ -102,6 +102,38 @@ body {
   font-size: 13px;
 }
 
+/* Code blocks are server-rendered with a client-wired copy button (the
+   Stage 6 behavior claim) — the wrapper anchors the button over the pre. */
+.md .code-block {
+  position: relative;
+  margin: 0 0 12px;
+}
+
+.md .code-block pre {
+  margin: 0;
+}
+
+.md .copy-code {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text-dim, #889);
+  background: var(--surface-1, transparent);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.md .code-block:hover .copy-code,
+.md .copy-code:focus-visible {
+  opacity: 1;
+}
+
 .md code {
   background: var(--surface-2);
   border-radius: 4px;
