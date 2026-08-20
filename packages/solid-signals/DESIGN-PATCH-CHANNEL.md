@@ -98,6 +98,17 @@ isPending/affects visibility, no async holding of their own. All
 async/lane correctness derives from WHERE ops are emitted (§2a). This is
 the load-bearing simplification — vet it hard.
 
+### 2g. Ceiling COMPLETE (2026-08-20): full board at vdom-class
+
+Bind-from-raw (one proxy touch per row — the registration record; all value
+reads raw) closed the mount artifact: 15.9 → 9.6 vs octane 8.5. Final board
+(deep store, full production channel, all gauntlet semantics active):
+mount 9.6/8.5, tick 3.1/3.3 WIN, partial 0.9/1.4 WIN 36%, remount 9.9/8.7,
+sort 4.5-5.3/4.0, unmount ~par. The ruled bar — beat the fastest vdoms on
+updates, competitive everywhere, keep deep's sparse advantage — is MET by
+the hand-compiled fixture; what remains is making the compiler and For
+emit/consume this shape (mapArray seam, PR-C).
+
 ### 2f. PR-B result (2026-08-20): row ops land the structural bar
 
 registerRowOps on keyed arrays: the walk emits { prefix, sources, removed }
