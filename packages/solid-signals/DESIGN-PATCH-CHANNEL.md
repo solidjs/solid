@@ -335,3 +335,36 @@ the compiler free of read-closure registration analysis.
   (Proposal: register on both; patch is idempotent recompute of writes.)
 - **Q4 (public surface)**: do registerPatch/registerSlotPatch ever become
   public (library authors, custom renderers), or stay compiler-internal?
+
+## 10. PR-C e2e checkpoint (2026-08-20)
+
+Plain JSX-authored dbmon (the ORIGINAL fixture authoring: `createStore` +
+`reconcile` + `<For>` + textContent props, zero hand-written DOM) compiled
+through the patch-mode plugin (`patchDriver` config option → vite-plugin-solid
+`solid` passthrough) against this branch's runtime:
+
+| op            | octane | solid (classic) | hand ceiling | **compiled** |
+|---------------|-------:|----------------:|-------------:|-------------:|
+| mount         |   8.7  |           29.6  |         9.8  |     **13.1** |
+| tick          |   3.9  |           13.9  |         3.5  |      **3.5** |
+| tick_partial  |   1.6  |            2.6  |         1.1  |      **1.1** |
+| remount       |   8.9  |           20.1  |        10.5  |      **9.8** |
+| sort          |   4.7  |            5.6  |         5.3  |      **5.6** |
+| unmount       |   0.4  |            5.2  |         3.9  |      **3.6** |
+
+Semantic gate green (keyed identity, partial isolation, remount/sort/unmount
+contracts). All 14 row bindings fuse into ONE compiled patch per row; both the
+plain table and the optimistic OptTable rows took patch mode.
+
+- Update ops (tick/partial) tie the hand ceiling exactly: the channel + the
+  compiled body IS the whole story; classic solid is 4x/2.4x behind.
+- Bug found in landing this: patchableRaw/registerPatch sat in core.ts's
+  `export {} from "solid-js"` block — re-exports don't bind module scope, so
+  patchDriver threw at runtime. The thrown value embeds a store proxy, which
+  CDP can't serialize ("object reference chain is too long") — masking the
+  real error in the harness. Probe with string-captured errors first.
+- REMAINING gaps, both structural (classic `<For>`): mount 13.1 vs 9.8
+  ceiling (per-row owner/component/mapArray) and sort 5.6 vs 4.7 octane
+  (second diff in reconcileArrays). Both are the row-ops `<For>` integration
+  (registerRowOps → LIS moves, patch-mode row creation without per-row
+  effect owners). That is the next work item, then hydration claiming.
