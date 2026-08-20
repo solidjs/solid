@@ -187,6 +187,16 @@ export function children(fn: Accessor<SolidElement>): ChildrenReturn {
 
 // Dev
 export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
+  // A JSX tag whose component resolved to a non-function otherwise surfaces
+  // as `Cannot read properties of undefined (reading 'name')` from inside the
+  // dev build — a framework-shaped stack for an app-shaped mistake (#3005).
+  if (typeof Comp !== "function") {
+    throw new Error(
+      `createComponent: expected a component function but got ${
+        Comp === null ? "null" : typeof Comp
+      }. A JSX tag resolved to a non-function value — check the import: a missing or misnamed export resolves to undefined.`
+    );
+  }
   return createRoot(
     () => {
       const owner: any = getOwner();

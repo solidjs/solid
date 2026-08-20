@@ -39,6 +39,20 @@ describe("CreateComponent", () => {
       });
     });
   });
+  test("non-function component throws a descriptive dev error, not a name-read crash (#3005)", () => {
+    createRoot(() => {
+      // A misnamed or missing export resolves to undefined at the call site.
+      expect(() => createComponent(undefined as any, {})).toThrow(
+        /expected a component function but got undefined.*missing or misnamed export/s
+      );
+      expect(() => createComponent(null as any, {})).toThrow(
+        /expected a component function but got null/
+      );
+      expect(() => createComponent({} as any, {})).toThrow(
+        /expected a component function but got object/
+      );
+    });
+  });
 });
 
 describe("Strict Read Warning", () => {

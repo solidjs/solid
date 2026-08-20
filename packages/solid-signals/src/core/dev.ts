@@ -29,9 +29,23 @@ export type DiagnosticCode =
   | "MISSING_EFFECT_FN"
   | "SYNC_NODE_RECEIVED_ASYNC"
   | "REACTIVITY_HALTED"
-  | "INVARIANT_VIOLATION";
+  | "INVARIANT_VIOLATION"
+  | "HUGE_FAN_OUT"
+  | "HUGE_FAN_IN";
 
-export type DiagnosticKind = "strict-read" | "async" | "write" | "lifecycle" | "owner" | "error";
+export type DiagnosticKind =
+  | "strict-read"
+  | "async"
+  | "write"
+  | "lifecycle"
+  | "owner"
+  | "error"
+  | "graph";
+
+/** First warning when a node's live edge count reaches this size. */
+export const GRAPH_SIZE_WARN_AT = 2000;
+/** Repeat the warning at this interval after the first. */
+export const GRAPH_SIZE_WARN_EVERY = 500;
 
 export interface DiagnosticEvent {
   sequence: number;
@@ -231,4 +245,64 @@ export function getObservers(node: Signal<any> | Computed<any>): Computed<any>[]
     link = link._nextSub;
   }
   return observers;
+}
+
+function shouldWarnGraphSize(count: number): boolean {
+  return count >= GRAPH_SIZE_WARN_AT && (count - GRAPH_SIZE_WARN_AT) % GRAPH_SIZE_WARN_EVERY === 0;
+}
+
+/**
+ * DEV-only: bump live edge counts after a new graph link and warn when a
+ * node grows an unusually large fan-out (many subscribers on one source) or
+ * fan-in (many sources on one computation). Repeat-reads that `link()`
+ * dedupes never reach here.
+ */
+export function noteGraphLink(dep: Signal<any> | Computed<any>, sub: Computed<any>): void {
+  const fanOut = (dep._subCount = (dep._subCount || 0) + 1);
+  const fanIn = (sub._depCount = (sub._depCount || 0) + 1);
+  if (shouldWarnGraphSize(fanOut)) {
+    const nodeName = dep._name;
+    const message =
+      `[HUGE_FAN_OUT] ${nodeName ? `Signal "${nodeName}"` : "A signal"} has ${fanOut} subscribers. ` +
+      `Each will re-run when it changes. If many independent computations read the same value ` +
+      `(for example every row of a list comparing against one selected id), prefer a per-key ` +
+      `store or projection so only the items whose result flipped update.`;
+    emitDiagnostic({
+      code: "HUGE_FAN_OUT",
+      kind: "graph",
+      severity: "warn",
+      message,
+      nodeName,
+      ownerId: (dep as Computed<any>).id,
+      ownerName: nodeName,
+      data: { count: fanOut }
+    });
+    console.warn(message);
+  }
+  if (shouldWarnGraphSize(fanIn)) {
+    const nodeName = sub._name;
+    const message =
+      `[HUGE_FAN_IN] ${nodeName ? `Computation "${nodeName}"` : "A computation"} has ${fanIn} sources. ` +
+      `It will re-run when any of them change. Narrow the read or split the derivation so each ` +
+      `computation tracks only what it needs.`;
+    emitDiagnostic({
+      code: "HUGE_FAN_IN",
+      kind: "graph",
+      severity: "warn",
+      message,
+      nodeName,
+      ownerId: sub.id,
+      ownerName: nodeName,
+      data: { count: fanIn }
+    });
+    console.warn(message);
+  }
+}
+
+/** DEV-only: drop live edge counts when a link is removed. */
+export function unnoteGraphLink(link: Link): void {
+  const dep = link._dep;
+  const sub = link._sub;
+  if (dep._subCount) dep._subCount--;
+  if (sub._depCount) sub._depCount--;
 }

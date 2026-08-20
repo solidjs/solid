@@ -4,6 +4,7 @@ import {
   REACTIVE_ZOMBIE,
   STATUS_PENDING
 } from "./constants.js";
+import { noteGraphLink, unnoteGraphLink } from "./dev.js";
 import { deleteFromHeap, queueFor } from "./heap.js";
 import { disposeChildren } from "./owner.js";
 import { dirtyQueue, zombieQueue } from "./scheduler.js";
@@ -11,6 +12,7 @@ import type { Computed, Link, Signal } from "./types.js";
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L100
 export function unlinkSubs(link: Link): Link | null {
+  if (__DEV__) unnoteGraphLink(link);
   const dep = link._dep;
   const nextDep = link._nextDep;
   const nextSub = link._nextSub;
@@ -128,4 +130,6 @@ export function link(
 
   if (prevSub !== null) prevSub._nextSub = newLink;
   else dep._subs = newLink;
+
+  if (__DEV__) noteGraphLink(dep, sub);
 }
