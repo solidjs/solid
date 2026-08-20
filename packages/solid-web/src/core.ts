@@ -1,5 +1,12 @@
 //@ts-nocheck
-import { createMemo, createOwner, createRenderEffect, runWithOwner } from "solid-js";
+import {
+  createMemo,
+  createOwner,
+  createRenderEffect,
+  patchableRaw,
+  registerPatch,
+  runWithOwner
+} from "solid-js";
 export {
   getOwner,
   runWithOwner,
@@ -28,9 +35,7 @@ export {
   // Barrier membership read: the document face arms one live-hole engine
   // for the whole render, and this gates minting to holes inside a server
   // component's scope. Stubbed to false on the client entry.
-  inServerComponentScope,
-  patchableRaw,
-  registerPatch
+  inServerComponentScope
 } from "solid-js";
 
 const transparentOptions = { transparent: true, sync: true };
