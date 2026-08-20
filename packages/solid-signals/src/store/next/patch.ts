@@ -240,6 +240,18 @@ export function registerPatch(record: any, fn: PatchFn): () => void {
   };
 }
 
+/** Dual-driver bind probe (compiler runtime contract): when `record` is a
+ * patchable store record, returns its CURRENT raw backing (the driver's
+ * initial force-apply reads it directly — no proxy traffic, no tracking);
+ * returns undefined otherwise (driver falls back to the effect path).
+ * Not patchable: non-records, non-proxies, accessor-bearing records
+ * (patches read raw — getters need tracked evaluation). */
+export function patchableRaw(record: any): Record<PropertyKey, any> | undefined {
+  const t: StoreNextTarget | undefined = record?.[$TARGET];
+  if (t === undefined || t.px !== record || t.a === true) return undefined;
+  return t.pb ?? t.v;
+}
+
 /** Accessor demotion (design §5): a record that acquires an accessor after
  * registration stops being patchable — reads must go through tracked
  * evaluation. Clears patches; the dual-driver bind's effect fallback takes

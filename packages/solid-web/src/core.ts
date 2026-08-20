@@ -28,7 +28,9 @@ export {
   // Barrier membership read: the document face arms one live-hole engine
   // for the whole render, and this gates minting to holes inside a server
   // component's scope. Stubbed to false on the client entry.
-  inServerComponentScope
+  inServerComponentScope,
+  patchableRaw,
+  registerPatch
 } from "solid-js";
 
 const transparentOptions = { transparent: true, sync: true };
@@ -44,6 +46,27 @@ export const effect = (fn, effectFn, options?) =>
   );
 
 export const memo = fn => createMemo(() => fn(), syncOptions);
+
+// Patch-mode dual driver (DESIGN-PATCH-CHANNEL.md, PR-C): compiled template
+// scopes whose bindings are pure member reads of one subject hand ONE
+// compiled body `(next, prev, force) => { compares + writes }` here.
+// - Patchable store record: initial force-apply reads the RAW backing (no
+//   proxy traffic, no tracking), then the store's own visibility transitions
+//   dispatch the body through the patch channel (effect-phase timing, lanes,
+//   transition holds — all channel semantics).
+// - Anything else (props, signals-derived objects, accessor records): a
+//   render effect force-applies the same body; reads through the subject
+//   track normally, force short-circuits every compare so `prev` is never
+//   dereferenced. Same semantics, different dispatcher.
+export const patchDriver = (subject, body) => {
+  const raw = patchableRaw(subject);
+  if (raw !== undefined) {
+    body(raw, undefined, true);
+    registerPatch(subject, body);
+  } else {
+    effect(() => body(subject, undefined, true));
+  }
+};
 
 // Runs `fn` under an owner whose hydration-id chain is rooted at `id`.
 // Both builds compose child keys from the owner chain (getNextChildId), so
