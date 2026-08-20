@@ -19,7 +19,7 @@
  *   members (R11). Kind changes replace wholesale (R10).
  */
 import { isEqual } from "../../core/index.js";
-import { emitPatchLocal } from "./patch.js";
+import { emitPatchLocal, emitRowOps } from "./patch.js";
 import {
   $PROXY,
   $TARGET,
@@ -200,6 +200,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
         }
       }
       if (t.dk !== null && !dkBumpedA && i < nextRows.length) bumpDeep(t);
+      const structStart = i; // misalignment point (== nlen on aligned ticks)
       let prevByKey: Map<any, any> | null = null;
       for (; i < nextRows.length; i++) {
         const nv = nextRows[i];
@@ -231,6 +232,44 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
             notifyKeyDiff(node, i as any, old, incoming, false);
           }
         }
+      }
+      // Row ops (PR-B): emit structural ops ONLY when structure changed —
+      // aligned value ticks pay nothing. Built after the walk so retained
+      // rows' value patches queue first (adds bind at op-apply).
+      if (t.ro !== null && (structStart < nlen || plen !== nlen)) {
+        const sources = new Array(nlen - structStart);
+        let oldIndexByKey: Map<any, number> | null = null;
+        if (structStart < plen) {
+          oldIndexByKey = new Map();
+          for (let j = structStart; j < plen; j++) {
+            const p = unwrapValue(prevRows[j]);
+            if (p !== null && typeof p === "object") {
+              const pk = keyFn(p);
+              if (pk !== undefined && !oldIndexByKey.has(pk)) oldIndexByKey.set(pk, j);
+            }
+          }
+        }
+        const consumed = oldIndexByKey !== null ? new Set<number>() : null;
+        for (let k = structStart; k < nlen; k++) {
+          const nv = nextRows[k];
+          let oldIdx = -1;
+          if (nv !== null && typeof nv === "object" && oldIndexByKey !== null) {
+            const nk = keyFn(nv);
+            if (nk !== undefined) {
+              const m = oldIndexByKey.get(nk);
+              if (m !== undefined) {
+                oldIdx = m;
+                consumed!.add(m);
+              }
+            }
+          }
+          sources[k - structStart] = oldIdx;
+        }
+        const removed: any[] = [];
+        for (let j = structStart; j < plen; j++) {
+          if (consumed === null || !consumed.has(j)) removed.push(unwrapValue(prevRows[j]));
+        }
+        emitRowOps(t, nextRows, { prefix: structStart, sources, removed });
       }
     } else {
       const dlen = Math.min(prevRows.length, nextRows.length);

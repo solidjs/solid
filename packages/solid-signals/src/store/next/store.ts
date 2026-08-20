@@ -108,6 +108,7 @@ function createTarget(
   t.dk = null;
   t.b = null;
   t.p = null;
+  t.ro = null;
   t.sp = null;
   t.u = parent;
   t.pk = parentKey;

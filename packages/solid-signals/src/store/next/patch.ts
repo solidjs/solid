@@ -237,3 +237,68 @@ export function demotePatches(t: StoreNextTarget): PatchEntry[] | null {
   t.p = null;
   return p;
 }
+
+// ---------------------------------------------------------------------------
+// Row ops (PR-B): structural list transitions for keyed arrays.
+
+/** Structural ops for one keyed-array transition. `prefix` rows key-matched
+ * in place; for each later index i (absolute), `sources[i - prefix]` is the
+ * OLD index its row retained from, or -1 for a new row. `removed` holds the
+ * dropped old row values (unbind/teardown handles). Aligned value ticks emit
+ * NOTHING — ops exist only when structure changed. */
+export interface RowOps {
+  prefix: number;
+  sources: number[];
+  removed: any[];
+}
+
+export type RowOpsFn = (next: any[], ops: RowOps) => void;
+
+interface RowOpsEntry {
+  fn: RowOpsFn;
+  owner: Owner | null;
+}
+
+/** Register a structural-ops consumer on a keyed store array (the list
+ * container's channel — what `For` consumes through the seam). */
+export function registerRowOps(array: any, fn: RowOpsFn): () => void {
+  const t: StoreNextTarget | undefined = array?.[$TARGET];
+  if (t === undefined) throw new Error("registerRowOps: not a store array");
+  if (!commitHookInstalled) {
+    commitHookInstalled = true;
+    setPatchCommitHook(releaseBatch);
+    GlobalQueue._drainPatchOptimistic = drainOptimistic;
+  }
+  const entry: RowOpsEntry = { fn, owner: getOwner() };
+  const list = (t.ro ??= []) as RowOpsEntry[];
+  list.push(entry);
+  patchCount++;
+  markDescendants(t);
+  let unbound = false;
+  return () => {
+    if (unbound) return;
+    unbound = true;
+    patchCount--;
+    const idx = list.indexOf(entry);
+    if (idx >= 0) list.splice(idx, 1);
+    if (list.length === 0 && t.ro === list) t.ro = null;
+  };
+}
+
+/** Row-ops ride the SAME apply queue/timing as record patches: transition-
+ * stamped, applied at effect phase, in emission order (structure before the
+ * new rows' own patches can exist; retained rows' value patches commute). */
+export function emitRowOps(t: StoreNextTarget, next: any[], ops: RowOps): void {
+  const list = t.ro as RowOpsEntry[] | null;
+  if (list === null) return;
+  push({
+    list: list.map(e => ({
+      owner: e.owner,
+      fn: (n: any, _p: any) => e.fn(n as any[], ops)
+    })),
+    next,
+    prev: null,
+    force: false,
+    t: null
+  });
+}

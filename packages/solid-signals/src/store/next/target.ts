@@ -53,10 +53,12 @@ export interface StoreNextTarget {
    * called per changed index with (i, next, prev); the shallow slot diff is
    * the dispatcher (records are raw, no per-record targets exist). */
   sp: ((index: number, next: any, prev: any) => void) | null;
-  /** PROTOTYPE (stage-2 ceiling): per-record compiled patch fn — one call
-   * per record with (next, prev) raw backings; does its own compares and
-   * writes (octane-style compiled patch driven by the data diff). */
+  /** Patch-channel consumers (next/patch.ts): per-record compiled patch
+   * entries, multi-consumer. null when unpatched (the common case). */
   p: object[] | null;
+  /** Row-ops consumers (next/patch.ts, PR-B): structural list ops —
+   * (nextRows, { prefix, sources, removed }) at apply timing. */
+  ro: object[] | null;
   /** PROTOTYPE (stage-2 ceiling): per-record binding registry — key ->
    * direct DOM write. Dispatched from the adoption walk. Internal-only. */
   b: Record<PropertyKey, (v: any) => void> | null;

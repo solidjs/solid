@@ -98,6 +98,19 @@ isPending/affects visibility, no async holding of their own. All
 async/lane correctness derives from WHERE ops are emitted (§2a). This is
 the load-bearing simplification — vet it hard.
 
+### 2f. PR-B result (2026-08-20): row ops land the structural bar
+
+registerRowOps on keyed arrays: the walk emits { prefix, sources, removed }
+only when structure changed (aligned ticks: zero emission — pinned by test).
+Consumers LIS the sources once and apply minimal moves; adds bind at
+op-apply; removals unbind. dbmon: sort 10.7 → 4.5 (octane 4.0), remount
+25.7 → 9.3 (octane 8.5), ticks 3.0/0.9 BEAT octane 3.2/1.3 — deep stores
+now beat the vdom bar on update paths and sit within ~10% on structure,
+with all PR-A timing semantics active. Remaining gap: mount (15.9 vs 7.9)
+— bind-time proxy reads, the known artifact; mapArray seam consumption is
+the next PR-B increment (the fixture consumer is the hand-compiled shape
+of what For will do).
+
 ### 2e. PR-A implementation findings (2026-08-19 night)
 
 - OPTIMISTIC TIMING RULE: optimistic emissions drain at LANE-EFFECT timing,

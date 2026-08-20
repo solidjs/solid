@@ -166,6 +166,58 @@ describe("patch channel (PR-A)", () => {
     expect(log).toEqual(["second"]);
   });
 
+  it("row ops: aligned ticks emit nothing; reorder/insert/remove emit exact ops", async () => {
+    const { registerRowOps } = await import("../../src/index.js");
+    const [state, setState] = createStore({
+      rows: [
+        { id: "a", v: 1 },
+        { id: "b", v: 2 },
+        { id: "c", v: 3 }
+      ]
+    });
+    const ops: any[] = [];
+    registerRowOps(state.rows, (next: any[], o: any) =>
+      ops.push({
+        prefix: o.prefix,
+        sources: o.sources,
+        removed: o.removed.map((r: any) => r.id),
+        ids: next.map(r => r.id)
+      })
+    );
+    // Aligned value tick: same keys, same order — NO structural emission.
+    setState(s => {
+      reconcile(
+        [
+          { id: "a", v: 9 },
+          { id: "b", v: 9 },
+          { id: "c", v: 9 }
+        ],
+        "id"
+      )(s.rows);
+    });
+    flush();
+    expect(ops).toEqual([]);
+    // Reorder + insert + remove: c moves front, b removed, d added.
+    setState(s => {
+      reconcile(
+        [
+          { id: "c", v: 3 },
+          { id: "d", v: 4 },
+          { id: "a", v: 1 }
+        ],
+        "id"
+      )(s.rows);
+    });
+    flush();
+    expect(ops.length).toBe(1);
+    const o = ops[0];
+    expect(o.prefix).toBe(0);
+    // c came from old index 2, d is new, a came from old index 0.
+    expect(o.sources).toEqual([2, -1, 0]);
+    expect(o.removed).toEqual(["b"]);
+    expect(o.ids).toEqual(["c", "d", "a"]);
+  });
+
   it("disposed owner drops its patches mid-flight", () => {
     const [state, setState] = createStore({ user: { name: "a" } });
     const log: string[] = [];
