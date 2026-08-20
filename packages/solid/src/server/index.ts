@@ -38,6 +38,7 @@ export {
   latest,
   // Patch-channel compiler contract (parity with the client entry; the
   // channel is inert on the server — SSR renders once, hydration claims)
+  ownerIsBlank,
   patchableRaw,
   registerPatch,
   registerRowOps,

@@ -276,6 +276,19 @@ function disposeRootSelf(this: Root, self: boolean = true): void {
 }
 
 /**
+ * True when an owner captured no reactive work: no child computations and no
+ * registered cleanups. The patch-mode list driver probes a row bind under a
+ * throwaway owner with this — a blank probe proves the row template is pure
+ * compiled writes (nothing to dispose per row), which is the precondition for
+ * managing rows without per-row owners (DESIGN-PATCH-CHANNEL §3b).
+ *
+ * @internal
+ */
+export function ownerIsBlank(node: Owner): boolean {
+  return node._firstChild === null && node._disposal === null;
+}
+
+/**
  * Creates a fresh owner attached as a child of the current owner (or as a
  * detached root if there is none). Used by framework internals to group
  * cleanups; app code should use `createRoot()` (host a reactive scope outside

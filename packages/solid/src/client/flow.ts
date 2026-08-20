@@ -1,5 +1,13 @@
 import { children, IS_DEV } from "../client/core.js";
-import { createMemo, untrack, mapArray, repeat, createRevealOrder } from "@solidjs/signals";
+import {
+  createMemo,
+  untrack,
+  mapArray,
+  repeat,
+  createRevealOrder,
+  getOwner,
+  runWithOwner
+} from "@solidjs/signals";
 import { createErrorBoundary, createLoadingBoundary } from "./hydration.js";
 import type { Accessor, RevealOrder } from "@solidjs/signals";
 export type { RevealOrder };
@@ -81,11 +89,25 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
       ? { keyed: props.keyed, fallback: () => props.fallback }
       : { keyed: props.keyed };
   if (IS_DEV) options.name = "<For>";
-  return mapArray(
-    () => props.each,
-    props.children as any,
-    options as any
-  ) as unknown as SolidElement;
+  // Patch-mode list seam (DESIGN-PATCH-CHANNEL §3b): the returned accessor
+  // carries `$ll` metadata so a row-ops-aware renderer can drive a keyed
+  // store array structurally (registerRowOps → moves/creates/removals),
+  // bypassing mapArray entirely. Renderers that don't recognize the marker —
+  // and any list the driver declines (non-store each, impure rows, fallback/
+  // index usage) — simply call the accessor and get the classic mapArray
+  // path, created lazily under the component's owner on first read.
+  const owner = getOwner();
+  let mapped: (() => any) | undefined;
+  const list = () => {
+    if (mapped === undefined)
+      mapped = runWithOwner(owner, () =>
+        mapArray(() => props.each, props.children as any, options as any)
+      ) as () => any;
+    return mapped();
+  };
+  if (props.keyed !== false && !("fallback" in props) && props.children.length < 2)
+    (list as any).$ll = { each: () => props.each, row: props.children };
+  return list as unknown as SolidElement;
 }
 
 /**

@@ -25,6 +25,7 @@ export {
   onSettled,
   latest,
   // Patch-channel compiler contract (undocumented as application API)
+  ownerIsBlank,
   patchableRaw,
   registerPatch,
   registerRowOps,

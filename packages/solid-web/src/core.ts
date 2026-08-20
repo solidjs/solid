@@ -3,9 +3,13 @@ import {
   createMemo,
   createOwner,
   createRenderEffect,
+  onCleanup,
+  ownerIsBlank,
   patchableRaw,
   registerPatch,
-  runWithOwner
+  registerRowOps,
+  runWithOwner,
+  untrack
 } from "solid-js";
 export {
   getOwner,
@@ -71,6 +75,153 @@ export const patchDriver = (subject, body) => {
   } else {
     effect(() => body(subject, undefined, true));
   }
+};
+
+// Longest-increasing-subsequence over row-ops sources: positions whose rows
+// are already in relative order (they stay put; everything else moves).
+// Standard patience-sort with predecessor links; -1 sources (new rows) are
+// not part of the sequence.
+const lisPositions = (sources: number[]) => {
+  const n = sources.length;
+  const tails: number[] = [];
+  const tailsIdx: number[] = [];
+  const prev = new Array(n).fill(-1);
+  for (let j = 0; j < n; j++) {
+    const v = sources[j];
+    if (v === -1) continue;
+    let lo = 0,
+      hi = tails.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (tails[mid] < v) lo = mid + 1;
+      else hi = mid;
+    }
+    if (lo > 0) prev[j] = tailsIdx[lo - 1];
+    tails[lo] = v;
+    tailsIdx[lo] = j;
+  }
+  const stable = new Set<number>();
+  let k = tailsIdx.length ? tailsIdx[tails.length - 1] : -1;
+  while (k >= 0) {
+    stable.add(k);
+    k = prev[k];
+  }
+  return stable;
+};
+
+// Patch-mode list driver (DESIGN-PATCH-CHANNEL §3b): drives a keyed store
+// array structurally through registerRowOps — create/bind at op-apply, LIS
+// moves, node removal — bypassing mapArray and the second (DOM-side) diff.
+// Called by the runtime's insert when a `<For>` accessor carries `$ll`
+// metadata; returns false to decline (non-store subject, empty initial list,
+// impure row template), in which case insert falls through to the classic
+// mapArray path by simply calling the accessor.
+//
+// Row purity is proven at bind time, not assumed: the first row is created
+// under a throwaway owner, and only a BLANK probe (no computations, no
+// cleanups — the row is pure compiled writes + patch registration) commits
+// the driver. Rows therefore need no per-row owners: value updates ride each
+// record's registered patch, structure rides the array's row-ops channel,
+// and a removed row's registrations die with its record.
+export const driveList = (parent: Node, listFn: any, marker?: Node) => {
+  const meta = listFn.$ll;
+  let subject: any = untrack(meta.each);
+  let raw = subject != null ? patchableRaw(subject) : undefined;
+  if (raw === undefined || !Array.isArray(raw) || raw.length === 0) return false;
+
+  const listOwner = createOwner();
+  const rowFn = meta.row;
+  const endAnchor = marker ?? null;
+  const bindRow = (abs: number): Node =>
+    runWithOwner(listOwner, () => untrack(() => rowFn(subject[abs]))) as Node;
+
+  // Purity probe on row 0. A non-blank owner means the template created
+  // reactive work (insert holes, nested components, onCleanup) that would
+  // leak without per-row disposal — decline and let mapArray own the list.
+  // Disposing the probe owner also neutralizes any patch the bind registered
+  // (the channel skips disposed-owner entries).
+  const probe = createOwner();
+  const firstNode = runWithOwner(probe, () => untrack(() => rowFn(subject[0]))) as Node;
+  if (!ownerIsBlank(probe as any) || !(firstNode instanceof Node)) {
+    (probe as any).dispose();
+    (listOwner as any).dispose();
+    return false;
+  }
+
+  let entries: Node[] = new Array(raw.length);
+  let prevRaws: any[] = raw.slice();
+  entries[0] = firstNode;
+  parent.insertBefore(firstNode, endAnchor);
+  for (let i = 1; i < raw.length; i++) {
+    const node = bindRow(i);
+    entries[i] = node;
+    parent.insertBefore(node, endAnchor);
+  }
+
+  const applyOps = (next: any[], ops: { prefix: number; sources: number[] }) => {
+    const { prefix, sources } = ops;
+    const retained = new Set<number>();
+    for (let j = 0; j < sources.length; j++) if (sources[j] >= 0) retained.add(sources[j]);
+    for (let j = prefix; j < entries.length; j++) {
+      if (!retained.has(j)) (entries[j] as ChildNode).remove();
+    }
+    const newEntries: Node[] = new Array(prefix + sources.length);
+    for (let i = 0; i < prefix; i++) newEntries[i] = entries[i];
+    const stable = lisPositions(sources);
+    let anchor: Node | null = endAnchor;
+    for (let j = sources.length - 1; j >= 0; j--) {
+      const abs = prefix + j;
+      const src = sources[j];
+      let node: Node;
+      if (src === -1) {
+        node = bindRow(abs);
+        parent.insertBefore(node, anchor);
+      } else {
+        node = entries[src];
+        if (!stable.has(j)) parent.insertBefore(node, anchor);
+      }
+      newEntries[abs] = node;
+      anchor = node;
+    }
+    entries = newEntries;
+    prevRaws = next.slice();
+  };
+
+  let unbindOps = runWithOwner(listOwner, () => registerRowOps(subject, applyOps)) as () => void;
+
+  // Identity swaps (`s.rows = newArr` without reconcile) keep mapArray's
+  // keyed semantics: rows matched by RAW IDENTITY retain their DOM; the rest
+  // bind/remove through the same LIS apply, as a synthetic full-window op.
+  effect(
+    () => meta.each(),
+    (value: any) => {
+      if (value === subject) return;
+      const nextRaw = value != null ? patchableRaw(value) : undefined;
+      unbindOps();
+      if (nextRaw === undefined || !Array.isArray(nextRaw)) {
+        // Subject left the driver's contract; clear the region — the store
+        // array is gone, and with it every channel that fed these rows.
+        for (let j = 0; j < entries.length; j++) (entries[j] as ChildNode).remove();
+        entries = [];
+        prevRaws = [];
+        subject = value;
+        return;
+      }
+      const oldIndex = new Map<any, number>();
+      for (let j = 0; j < prevRaws.length; j++)
+        if (!oldIndex.has(prevRaws[j])) oldIndex.set(prevRaws[j], j);
+      const sources = new Array(nextRaw.length);
+      for (let k = 0; k < nextRaw.length; k++) sources[k] = oldIndex.get(nextRaw[k]) ?? -1;
+      subject = value;
+      applyOps(nextRaw, { prefix: 0, sources });
+      unbindOps = runWithOwner(listOwner, () => registerRowOps(subject, applyOps)) as () => void;
+    }
+  );
+  onCleanup(() => {
+    unbindOps();
+    (listOwner as any).dispose();
+  });
+  return true;
 };
 
 // Runs `fn` under an owner whose hydration-id chain is rooted at `id`.

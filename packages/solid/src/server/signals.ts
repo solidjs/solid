@@ -2650,4 +2650,9 @@ export function registerRowOps(_array: any, _fn: (next: any[], ops: any) => void
 export function patchableRaw(_record: any): undefined {
   return undefined;
 }
+// Inert on the server: nothing probes owners for list purity during SSR
+// (patchableRaw above already declines every drive attempt).
+export function ownerIsBlank(_node: any): boolean {
+  return false;
+}
 const noopUnbind = () => {};
