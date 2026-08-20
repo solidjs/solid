@@ -3,7 +3,17 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { createEffect, createRoot, createStore, flush, For, getOwner, reconcile } from "solid-js";
+import {
+  createEffect,
+  createRoot,
+  createSignal,
+  createStore,
+  flush,
+  For,
+  getObserver,
+  getOwner,
+  reconcile
+} from "solid-js";
 import { patchDriver } from "../src/index.js";
 
 // Patch-mode list driver (DESIGN-PATCH-CHANNEL §3b): when a keyed `<For>`
@@ -181,6 +191,34 @@ describe("patch-mode list driver", () => {
       expect(labels(div)).toBe("L1,L2");
       dispose();
     });
+  });
+
+  test("effect fallback keeps DOM writes in the effect phase (reads tracked, writes untracked)", () => {
+    // Non-patchable subject (props-shaped: getters over a signal) takes the
+    // dual-driver effect fallback. The compiled body's writes must land in
+    // the EFFECT phase (observer null — transitions/batching timing), while
+    // the read pass still tracks the signal so changes re-apply.
+    const [sig, setSig] = createSignal("a");
+    const subject = {
+      get label() {
+        return sig();
+      }
+    };
+    const writes: Array<{ v: string; observed: boolean }> = [];
+    createRoot(() => {
+      patchDriver(subject, (n: any, p: any, f?: boolean) => {
+        const v = n.label;
+        if (f || v !== p.label) writes.push({ v, observed: getObserver() !== null });
+      });
+    });
+    flush();
+    expect(writes).toEqual([{ v: "a", observed: false }]);
+    setSig("b");
+    flush();
+    expect(writes).toEqual([
+      { v: "a", observed: false },
+      { v: "b", observed: false }
+    ]);
   });
 
   test("list disposal stops patch dispatch", () => {

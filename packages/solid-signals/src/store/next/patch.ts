@@ -19,7 +19,8 @@
  * Tree-shaking: core never imports this module; stores without patches
  * never schedule the queue.
  */
-import { EFFECT_RENDER } from "../../core/constants.js";
+import { EFFECT_RENDER, STATUS_ERROR } from "../../core/constants.js";
+import { StatusError } from "../../core/error.js";
 import { getOwner, isDisposed } from "../../core/owner.js";
 import {
   activeTransition,
@@ -62,9 +63,11 @@ function drainApplyQueue(): void {
   scheduled = false;
   if (q === null) return;
   // Per-entry isolation: one throwing patch must not abort its siblings
-  // (effect parity — each effect isolates its failure). The first error
-  // rethrows after the drain so it still surfaces; full boundary routing
-  // is the PR-C registration/owner integration.
+  // (effect parity — each effect isolates its failure). A throwing patch
+  // routes through its REGISTERING OWNER's queue chain exactly like a
+  // render-effect error (§2b): an Errored boundary above the row collects
+  // it (source = the owner, error read via owner._error). Unhandled errors
+  // rethrow after the drain so they still surface.
   let firstError: unknown = UNSET;
   for (let i = 0; i < q.length; i++) {
     const { list, prev, force, t } = q[i];
@@ -76,7 +79,15 @@ function drainApplyQueue(): void {
       try {
         entry.fn(next, prev, force);
       } catch (err) {
-        if (firstError === UNSET) firstError = err;
+        let handled = false;
+        const owner = entry.owner as any;
+        if (owner !== null) {
+          const statusErr = new StatusError(owner, err);
+          owner._error = statusErr;
+          owner._statusFlags = (owner._statusFlags ?? 0) | STATUS_ERROR;
+          handled = owner._queue.notify(owner, STATUS_ERROR, STATUS_ERROR, statusErr);
+        }
+        if (!handled && firstError === UNSET) firstError = err;
       }
     }
   }

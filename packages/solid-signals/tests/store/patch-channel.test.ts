@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   action,
+  createErrorBoundary,
   createRoot,
   createStore,
   flush,
@@ -272,6 +273,39 @@ describe("patch channel (PR-A)", () => {
     });
     expect(() => flush()).toThrow("boom");
     expect(applied).toEqual(["b:2"]);
+  });
+
+  it("a throwing patch routes to the enclosing error boundary like a render-effect error", () => {
+    const [state, setState] = createStore({ a: { v: 1 }, b: { v: 1 } });
+    const applied: string[] = [];
+    let caught: unknown;
+    const b = createRoot(() =>
+      createErrorBoundary(
+        () => {
+          // Registered under the boundary's owner: a throw during drain
+          // must route up this owner's queue chain, not crash the flush.
+          registerPatch(state.a, (n: any) => {
+            if (n.v > 1) throw new Error("row boom");
+          });
+          registerPatch(state.b, (n: any) => applied.push("b:" + n.v));
+          return "content";
+        },
+        e => {
+          caught = e();
+          return "errored";
+        }
+      )
+    );
+    expect(b()).toBe("content");
+    setState(s => {
+      s.a.v = 2;
+      s.b.v = 2;
+    });
+    expect(() => flush()).not.toThrow();
+    // Sibling isolation still holds under routing.
+    expect(applied).toEqual(["b:2"]);
+    expect(b()).toBe("errored");
+    expect(String(caught)).toContain("row boom");
   });
 
   it("disposed owner drops its patches mid-flight", () => {

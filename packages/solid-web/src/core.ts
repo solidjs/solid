@@ -111,7 +111,17 @@ export const patchDriver = (subject, body) => {
     if (!sharedConfig.hydrating) body(raw, undefined, true);
     registerPatch(subject, body);
   } else {
-    effect(() => body(subject, undefined, true));
+    // Effect fallback with correct WRITE TIMING: the compute pass calls the
+    // body with next === prev, so every compare fails and it becomes a pure
+    // TRACKED READ of each binding expression (eligible expressions are pure
+    // member chains — double evaluation is free of side effects); the commit
+    // pass force-applies, putting DOM writes in the effect phase where
+    // transitions and batching expect them — same split as classic compiled
+    // effects, same single compiled body.
+    effect(
+      () => body(subject, subject, false),
+      () => body(subject, undefined, true)
+    );
   }
 };
 
