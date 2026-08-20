@@ -33,7 +33,7 @@ import type { Element as SolidElement } from "solid-js";
 // copy of `insert` and the reconcile/render machinery it drags in (~4kb the app
 // already has). Kept external in rollup.config.js for the same reason the
 // server-functions/client import below is.
-import { insert } from "@solidjs/web";
+import { insert, delegateEvents } from "@solidjs/web";
 import {
   createFrame,
   createFrameElement,
@@ -163,7 +163,11 @@ export function getFrameHost() {
       revive: reviveContainerTraces,
       // Lets the record-dedupe compare identity-test containers instead of
       // probing them (a pending container's property reads throw not-ready).
-      isContainer: isMaterializedContainer
+      isContainer: isMaterializedContainer,
+      // Behavior claims: arms document listeners for event types named by
+      // `_bnd` markers. Threaded as an option because the core client entry
+      // must not export the event system into tree-shaken subsets.
+      delegate: delegateEvents
     });
   }
   return sharedHost;

@@ -12,7 +12,7 @@
 // real transport → frame → delegation pipeline is under test.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createSignal, flush, Loading } from "solid-js";
-import { dynamic, render } from "../src/index.js";
+import { dynamic, render, delegateEvents } from "../src/index.js";
 import { installServerComponents, createFrameHost } from "../frames/src/client.js";
 import { createJSONDataTable } from "../serialization/src/index.js";
 import { createServerReference } from "@dom-expressions/runtime/src/server-functions/client.js";
@@ -59,7 +59,10 @@ function makeHost() {
   const table = createJSONDataTable();
   return createFrameHost({
     applyData: (c: any) => table.apply(c),
-    resolve: (ref: any) => table.resolve(ref)
+    resolve: (ref: any) => table.resolve(ref),
+    // Mirrors getFrameHost's production wiring: event-claim arming flows as
+    // a host option, never a client.js global (subset-size contract).
+    delegate: delegateEvents
   });
 }
 
