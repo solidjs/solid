@@ -171,6 +171,12 @@ the compiler free of read-closure registration analysis.
   today's output (shared helpers), and the compiler may safely skip the
   patch driver when the subject is a component's props binding — prunes an
   optimization, never changes behavior.
+- RULED (Ryan, 2026-08-19): in-place mutation of an object held in a signal
+  is OUT OF CONTRACT (it never notifies; equality breaks everywhere) — the
+  effect driver therefore retains only the previous object REFERENCE and
+  runs the same (next, prev) compiled body as the patch channel. No scalar
+  retention, no second body variant. (Distinct from the owned-prev clone
+  rule, which covers OUR fold mutating OUR owned backing at commit.)
 - DUAL DRIVER: the compiled compare/write body is shared — patch-channel
   driven when the runtime bind check finds a patchable record, effect-driven
   (today's grouped-dynamics shape) otherwise. Accessor-bearing records are
