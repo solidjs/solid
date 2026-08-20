@@ -44,15 +44,39 @@ export {
 
 const transparentOptions = { transparent: true, sync: true };
 const syncOptions = { sync: true };
+// List-driver purity probe state (see driveList). While a probe is active,
+// reactive work is not performed, only RECORDED: any effect or function-
+// valued insert disqualifies the row (probeDirty), and its construction is
+// skipped outright. Skipping is safe precisely because it disqualifies —
+// a dirty probe's DOM is always discarded. This is what keeps probing O(row
+// surface): a container row (nested component/For) costs one shallow clone
+// instead of recursively building — and re-probing — its entire subtree.
+let probing = false;
+let probeDirty = false;
+
+// Runtime seam for insert: during a probe, a function accessor (reactive
+// hole, component output, nested list) disqualifies and skips; static values
+// insert normally so a KEPT (pure) probe row has complete DOM.
+export const probeGate = (accessor: unknown) => {
+  if (!probing || typeof accessor !== "function") return false;
+  probeDirty = true;
+  return true;
+};
+
 // `scope: true` (set by insert for compiler-tagged hole accessors) makes the
 // render effect non-transparent so the hole gets its own id scope, mirroring
 // the server's ssrScope owner.
-export const effect = (fn, effectFn, options?) =>
-  createRenderEffect(
+export const effect = (fn, effectFn, options?) => {
+  if (probing) {
+    probeDirty = true;
+    return;
+  }
+  return createRenderEffect(
     fn,
     effectFn,
     options ? { sync: true, ...options, transparent: !options.scope } : transparentOptions
   );
+};
 
 export const memo = fn => createMemo(() => fn(), syncOptions);
 
@@ -135,14 +159,28 @@ export const driveList = (parent: Node, listFn: any, marker?: Node) => {
   const bindRow = (abs: number): Node =>
     runWithOwner(listOwner, () => untrack(() => rowFn(subject[abs]))) as Node;
 
-  // Purity probe on row 0. A non-blank owner means the template created
-  // reactive work (insert holes, nested components, onCleanup) that would
-  // leak without per-row disposal — decline and let mapArray own the list.
-  // Disposing the probe owner also neutralizes any patch the bind registered
-  // (the channel skips disposed-owner entries).
+  // Purity probe on row 0. A dirty or non-blank probe means the template
+  // needs reactive work (insert holes, nested components, onCleanup) that
+  // would leak without per-row disposal — decline and let mapArray own the
+  // list. While probing, that work is recorded-and-skipped rather than
+  // performed (see probeGate/effect above), so a declining probe costs one
+  // shallow clone even for rows nesting whole component subtrees. Disposing
+  // the probe owner also neutralizes any patch the bind registered (the
+  // channel skips disposed-owner entries).
   const probe = createOwner();
-  const firstNode = runWithOwner(probe, () => untrack(() => rowFn(subject[0]))) as Node;
-  if (!ownerIsBlank(probe as any) || !(firstNode instanceof Node)) {
+  const wasProbing = probing;
+  probing = true;
+  probeDirty = false;
+  let firstNode: Node;
+  let dirty: boolean;
+  try {
+    firstNode = runWithOwner(probe, () => untrack(() => rowFn(subject[0]))) as Node;
+  } finally {
+    dirty = probeDirty;
+    probing = wasProbing;
+    probeDirty = false;
+  }
+  if (dirty || !ownerIsBlank(probe as any) || !(firstNode! instanceof Node)) {
     (probe as any).dispose();
     (listOwner as any).dispose();
     return false;
