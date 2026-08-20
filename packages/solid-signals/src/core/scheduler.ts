@@ -728,6 +728,15 @@ export function setStoreCommitHook(fn: () => void): void {
   storeCommitHook = fn;
 }
 
+/** Patch-channel release hook (next/patch.ts): transition-stamped patch
+ * emissions are released when THEIR batch commits — reverted transitions
+ * never reach here, so their entries drop by construction. Injected like
+ * storeCommitHook to stay tree-shakeable. */
+export let patchCommitHook: ((batch: Transition) => void) | null = null;
+export function setPatchCommitHook(fn: (batch: Transition) => void): void {
+  patchCommitHook = fn;
+}
+
 function commitPendingNodes() {
   const pendingNodes = currentBatch._pendingNodes;
   for (let i = 0; i < pendingNodes.length; i++) {
@@ -735,6 +744,7 @@ function commitPendingNodes() {
   }
   pendingNodes.length = 0;
   storeCommitHook?.();
+  patchCommitHook?.(currentBatch);
 }
 
 export function finalizePureQueue(

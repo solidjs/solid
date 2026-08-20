@@ -20,8 +20,13 @@
  * never schedule the queue.
  */
 import { EFFECT_RENDER } from "../../core/constants.js";
-import { getOwner } from "../../core/owner.js";
-import { globalQueue } from "../../core/scheduler.js";
+import { getOwner, isDisposed } from "../../core/owner.js";
+import {
+  activeTransition,
+  globalQueue,
+  setPatchCommitHook,
+  type Transition
+} from "../../core/scheduler.js";
 import type { Owner } from "../../core/types.js";
 import { $TARGET } from "../store.js";
 import { markDescendants, ownedRaw, type StoreNextTarget } from "./target.js";
@@ -33,45 +38,70 @@ interface PatchEntry {
   owner: Owner | null;
 }
 
-// Per-flush apply queue. Entries and their args ride parallel arrays to
-// keep emission allocation-free beyond the queue slots themselves.
-let queueEntries: PatchEntry[][] | null = null;
-let queueArgs: any[] = [];
-let queueForce: boolean[] = [];
+// Per-flush apply queue. Bubbled (forced) emissions resolve `next` LAZILY at
+// drain time from the live target: privatization can clone an ancestor's
+// backing between emission and drain, so a captured reference goes stale.
+interface QueuedApply {
+  list: PatchEntry[];
+  next: any;
+  prev: any;
+  force: boolean;
+  /** When set, `next` resolves at drain as `t.pb ?? t.v` (bubbles). */
+  t: StoreNextTarget | null;
+}
+let queue: QueuedApply[] | null = null;
 let scheduled = false;
 
 function drainApplyQueue(): void {
-  const entries = queueEntries;
-  const args = queueArgs;
-  const force = queueForce;
-  queueEntries = null;
-  queueArgs = [];
-  queueForce = [];
+  const q = queue;
+  queue = null;
   scheduled = false;
-  if (entries === null) return;
-  for (let i = 0; i < entries.length; i++) {
-    const list = entries[i];
-    const next = args[i * 2];
-    const prev = args[i * 2 + 1];
-    const f = force[i];
+  if (q === null) return;
+  for (let i = 0; i < q.length; i++) {
+    const { list, prev, force, t } = q[i];
+    const next = t !== null ? (t.pb ?? t.v) : q[i].next;
     for (let j = 0; j < list.length; j++) {
       const entry = list[j];
       // Disposed owners drop their patches (the row unmounted mid-flush).
-      if (entry.owner !== null && (entry.owner as any)._disposed) continue;
-      entry.fn(next, prev, f);
+      if (entry.owner !== null && isDisposed(entry.owner)) continue;
+      entry.fn(next, prev, force);
     }
   }
 }
 
-function push(list: PatchEntry[], next: any, prev: any, force: boolean): void {
-  if (queueEntries === null) queueEntries = [];
-  queueEntries.push(list);
-  queueArgs.push(next, prev);
-  queueForce.push(force);
+// Transition-stamped emissions (§2b, "the walk is not the visibility moment
+// inside a transition"): entries stash on their transition and release into
+// the live queue when THAT batch commits (patchCommitHook). Reverted
+// transitions never commit — their stash drops via WeakMap GC, no revert
+// bookkeeping.
+const heldByTransition = new WeakMap<Transition, QueuedApply[]>();
+let commitHookInstalled = false;
+
+function releaseBatch(batch: Transition): void {
+  const held = heldByTransition.get(batch);
+  if (held === undefined) return;
+  heldByTransition.delete(batch);
+  for (let i = 0; i < held.length; i++) pushLive(held[i]);
+}
+
+function pushLive(item: QueuedApply): void {
+  if (queue === null) queue = [];
+  queue.push(item);
   if (!scheduled) {
     scheduled = true;
     globalQueue.enqueue(EFFECT_RENDER, drainApplyQueue);
   }
+}
+
+function push(item: QueuedApply): void {
+  const tx = activeTransition;
+  if (tx !== null) {
+    let held = heldByTransition.get(tx);
+    if (held === undefined) heldByTransition.set(tx, (held = []));
+    held.push(item);
+    return;
+  }
+  pushLive(item);
 }
 
 /** Shallow clone for the owned-prev rule (§2c): owned backings fold values
@@ -86,12 +116,20 @@ function clonePrev(prev: any): any {
  */
 export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
   const p = t.p as PatchEntry[] | null;
-  if (p !== null) push(p, next, ownedRaw.has(prev) ? clonePrev(prev) : prev, false);
-  // Bubbling: ancestors force-re-apply from their current backing.
+  if (p !== null)
+    push({
+      list: p,
+      next,
+      prev: ownedRaw.has(prev) ? clonePrev(prev) : prev,
+      force: false,
+      t: null
+    });
+  // Bubbling: ancestors force-re-apply from their LIVE backing, resolved at
+  // drain (privatization may clone it between now and then).
   let u = t.u;
   while (u !== null) {
     const up = u.p as PatchEntry[] | null;
-    if (up !== null) push(up, u.pb ?? u.v, null, true);
+    if (up !== null) push({ list: up, next: null, prev: null, force: true, t: u });
     u = u.u;
   }
 }
@@ -101,7 +139,14 @@ export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
  * parents were visited first), so no bubbling walk. */
 export function emitPatchLocal(t: StoreNextTarget, next: any, prev: any): void {
   const p = t.p as PatchEntry[] | null;
-  if (p !== null) push(p, next, ownedRaw.has(prev) ? clonePrev(prev) : prev, false);
+  if (p !== null)
+    push({
+      list: p,
+      next,
+      prev: ownedRaw.has(prev) ? clonePrev(prev) : prev,
+      force: false,
+      t: null
+    });
 }
 
 /**
@@ -118,6 +163,10 @@ export function hasPatches(): boolean {
 export function registerPatch(record: any, fn: PatchFn): () => void {
   const t: StoreNextTarget | undefined = record?.[$TARGET];
   if (t === undefined) throw new Error("registerPatch: not a store record");
+  if (!commitHookInstalled) {
+    commitHookInstalled = true;
+    setPatchCommitHook(releaseBatch);
+  }
   const entry: PatchEntry = { fn, owner: getOwner() };
   const list = (t.p ??= []) as PatchEntry[];
   list.push(entry);
