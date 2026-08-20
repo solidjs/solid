@@ -36,8 +36,8 @@ importers:
         specifier: 0.50.0-next.43
         version: 0.50.0-next.43
       '@dom-expressions/runtime':
-        specifier: 0.50.0-next.43
-        version: 0.50.0-next.43(csstype@3.2.3)(seroval-plugins@1.5.5(seroval@1.5.5))(seroval@1.5.5)
+        specifier: 0.50.0-next.44
+        version: 0.50.0-next.44(csstype@3.2.3)(seroval-plugins@1.5.5(seroval@1.5.5))(seroval@1.5.5)
       '@dom-expressions/tagged-jsx':
         specifier: 0.50.0-next.43
         version: 0.50.0-next.43
@@ -1141,8 +1141,8 @@ packages:
   '@dom-expressions/hyperscript@0.50.0-next.43':
     resolution: {integrity: sha512-UtGx3s22K/kbTvPvWKdKk0RUXJuedcgqJ6kzUs81FZmL4Z8KL0mANq9W1Gvg36dN9eg+0txHhFcb8vIt8H4RZA==}
 
-  '@dom-expressions/runtime@0.50.0-next.43':
-    resolution: {integrity: sha512-x+TVqNuV0CD47R0KFLUqlLds5I6h4kL51t9YmVUV2RRSV3qO1DrClBcbVjpUTroBD8rz+0Xp+wG6NrAXQOjn1A==}
+  '@dom-expressions/runtime@0.50.0-next.44':
+    resolution: {integrity: sha512-Y33LPTEVQ7GRrcNDVo30mjwyaJ6C5XS5T+olc9VYkxr6EM0u5DwzZVDMggQe0FtGHcAS9/VjfAkHkuzzF9Pyiw==}
     hasBin: true
     peerDependencies:
       csstype: ^3.0
@@ -4680,7 +4680,7 @@ snapshots:
 
   '@dom-expressions/hyperscript@0.50.0-next.43': {}
 
-  '@dom-expressions/runtime@0.50.0-next.43(csstype@3.2.3)(seroval-plugins@1.5.5(seroval@1.5.5))(seroval@1.5.5)':
+  '@dom-expressions/runtime@0.50.0-next.44(csstype@3.2.3)(seroval-plugins@1.5.5(seroval@1.5.5))(seroval@1.5.5)':
     dependencies:
       babel-plugin-transform-rename-import: 2.3.0
       csstype: 3.2.3

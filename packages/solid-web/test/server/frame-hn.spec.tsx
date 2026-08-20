@@ -89,6 +89,7 @@ function fetchStory(storyId: string) {
     new Request("http://localhost/_server?id=getStory", {
       method: "POST",
       headers: {
+        "Sec-Fetch-Site": "same-origin",
         [FUNCTION_HEADER]: "getStory",
         [INSTANCE_HEADER]: "1",
         "Content-Type": "text/plain",

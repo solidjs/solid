@@ -48,10 +48,11 @@ afterAll(() => {
 // handler — a full round trip through both published bundles.
 function connectTransport() {
   const original = globalThis.fetch;
-  globalThis.fetch = ((url: string, init?: RequestInit) =>
-    handleServerFunctionRequest(
-      new Request(new URL(url, "http://localhost"), init)
-    )) as typeof fetch;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    const request = new Request(new URL(url, "http://localhost"), init);
+    request.headers.set("Sec-Fetch-Site", "same-origin");
+    return handleServerFunctionRequest(request);
+  }) as typeof fetch;
   return () => {
     globalThis.fetch = original;
   };
@@ -78,6 +79,7 @@ describe("server-function extension surface (built bundles)", () => {
       new Request("http://localhost/_server", {
         method: "POST",
         headers: {
+          "Sec-Fetch-Site": "same-origin",
           "X-Server-Function-Id": "ext-get-0",
           "X-Server-Function-Instance": "server-function:test"
         }
@@ -88,7 +90,10 @@ describe("server-function extension surface (built bundles)", () => {
     // and GET without a declaration answers 405 too
     registerServerFunction("ext-post-0", async () => "x");
     const undeclared = await handleServerFunctionRequest(
-      new Request("http://localhost/_server?id=ext-post-0", { method: "GET" })
+      new Request("http://localhost/_server?id=ext-post-0", {
+        method: "GET",
+        headers: { "Sec-Fetch-Site": "same-origin" }
+      })
     );
     expect(undeclared.status).toBe(405);
     expect(undeclared.headers.get("Allow")).toBe("POST");
