@@ -218,6 +218,62 @@ describe("patch channel (PR-A)", () => {
     expect(o.ids).toEqual(["c", "d", "a"]);
   });
 
+  it("shallow keyed arrays emit row ops; aligned value ticks emit nothing", async () => {
+    const { registerRowOps } = await import("../../src/index.js");
+    const [state, setState] = createStore(
+      [
+        { id: "a", v: 1 },
+        { id: "b", v: 2 }
+      ] as any,
+      { shallow: true } as any
+    );
+    const ops: any[] = [];
+    registerRowOps(state, (_next: any[], o: any) =>
+      ops.push({ prefix: o.prefix, sources: o.sources, removed: o.removed.map((r: any) => r.id) })
+    );
+    // Aligned value tick: fresh records, same keys/order — slots replace but
+    // NO structural emission.
+    setState((s: any) => {
+      reconcile(
+        [
+          { id: "a", v: 9 },
+          { id: "b", v: 9 }
+        ],
+        "id"
+      )(s);
+    });
+    flush();
+    expect(ops).toEqual([]);
+    // Reorder + remove + add.
+    setState((s: any) => {
+      reconcile(
+        [
+          { id: "b", v: 2 },
+          { id: "c", v: 3 }
+        ],
+        "id"
+      )(s);
+    });
+    flush();
+    expect(ops.length).toBe(1);
+    expect(ops[0]).toEqual({ prefix: 0, sources: [1, -1], removed: ["a"] });
+  });
+
+  it("a throwing patch does not abort sibling patches (first error rethrows)", () => {
+    const [state, setState] = createStore({ a: { v: 1 }, b: { v: 1 } });
+    const applied: string[] = [];
+    registerPatch(state.a, () => {
+      throw new Error("boom");
+    });
+    registerPatch(state.b, (next: any) => applied.push("b:" + next.v));
+    setState(s => {
+      s.a.v = 2;
+      s.b.v = 2;
+    });
+    expect(() => flush()).toThrow("boom");
+    expect(applied).toEqual(["b:2"]);
+  });
+
   it("disposed owner drops its patches mid-flight", () => {
     const [state, setState] = createStore({ user: { name: "a" } });
     const log: string[] = [];

@@ -236,48 +236,33 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       // Row ops (PR-B): emit structural ops ONLY when structure changed —
       // aligned value ticks pay nothing. Built after the walk so retained
       // rows' value patches queue first (adds bind at op-apply).
-      if (t.ro !== null && (structStart < nlen || plen !== nlen)) {
-        const sources = new Array(nlen - structStart);
-        let oldIndexByKey: Map<any, number> | null = null;
-        if (structStart < plen) {
-          oldIndexByKey = new Map();
-          for (let j = structStart; j < plen; j++) {
-            const p = unwrapValue(prevRows[j]);
-            if (p !== null && typeof p === "object") {
-              const pk = keyFn(p);
-              if (pk !== undefined && !oldIndexByKey.has(pk)) oldIndexByKey.set(pk, j);
-            }
-          }
-        }
-        const consumed = oldIndexByKey !== null ? new Set<number>() : null;
-        for (let k = structStart; k < nlen; k++) {
-          const nv = nextRows[k];
-          let oldIdx = -1;
-          if (nv !== null && typeof nv === "object" && oldIndexByKey !== null) {
-            const nk = keyFn(nv);
-            if (nk !== undefined) {
-              const m = oldIndexByKey.get(nk);
-              if (m !== undefined) {
-                oldIdx = m;
-                consumed!.add(m);
-              }
-            }
-          }
-          sources[k - structStart] = oldIdx;
-        }
-        const removed: any[] = [];
-        for (let j = structStart; j < plen; j++) {
-          if (consumed === null || !consumed.has(j)) removed.push(unwrapValue(prevRows[j]));
-        }
-        emitRowOps(t, nextRows, { prefix: structStart, sources, removed });
-      }
+      if (t.ro !== null && (structStart < nlen || plen !== nlen))
+        buildAndEmitRowOps(t, prevRows, nextRows, structStart, keyFn);
     } else {
       const dlen = Math.min(prevRows.length, nextRows.length);
       const nlen = nextRows.length;
       let dkBumpedP = false;
       const sp = t.sp;
+      // Row ops for shallow/positional lists: track the key-aligned prefix
+      // (keyed) so aligned value ticks emit nothing; keyless lists emit only
+      // on length change (append/truncate).
+      const ro = t.ro;
+      let keyAligned = ro !== null && keyFn !== null;
+      let keyPrefix = 0;
       for (let i = 0; i < nlen; i++) {
         const nvP = nextRows[i];
+        if (keyAligned && i < dlen) {
+          const pvK = prevRows[i];
+          if (
+            pvK !== null &&
+            typeof pvK === "object" &&
+            nvP !== null &&
+            typeof nvP === "object" &&
+            keyFn!(pvK) === keyFn!(nvP)
+          )
+            keyPrefix++;
+          else keyAligned = false;
+        }
         // PROTOTYPE slot-patch dispatch: shallow slots replaced by reference.
         if (sp !== null) {
           const pvS = i < dlen ? prevRows[i] : undefined;
@@ -301,6 +286,15 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
             nodesHit++;
             notifyKeyDiff(node, i as any, old, incoming, false);
           }
+        }
+      }
+      if (ro !== null) {
+        const plen = prevRows.length;
+        if (keyFn !== null) {
+          if (keyPrefix < nlen || plen !== nlen)
+            buildAndEmitRowOps(t, prevRows, nextRows, keyPrefix, keyFn);
+        } else if (plen !== nlen) {
+          buildAndEmitRowOps(t, prevRows, nextRows, dlen, null);
         }
       }
     }
@@ -411,6 +405,53 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
 }
 
 const hasOwnP = Object.prototype.hasOwnProperty;
+
+/** Shared row-ops builder (keyed deep branch + shallow/positional branch):
+ * key-matches the misaligned window into { prefix, sources, removed }.
+ * `keyFn === null` degrades to positional ops (append/truncate only). */
+function buildAndEmitRowOps(
+  t: StoreNextTarget,
+  prevRows: any[],
+  nextRows: any[],
+  structStart: number,
+  keyFn: KeyFn | null
+): void {
+  const plen = prevRows.length;
+  const nlen = nextRows.length;
+  const sources = new Array(nlen - structStart);
+  let oldIndexByKey: Map<any, number> | null = null;
+  if (keyFn !== null && structStart < plen) {
+    oldIndexByKey = new Map();
+    for (let j = structStart; j < plen; j++) {
+      const p = unwrapValue(prevRows[j]);
+      if (p !== null && typeof p === "object") {
+        const pk = keyFn(p);
+        if (pk !== undefined && !oldIndexByKey.has(pk)) oldIndexByKey.set(pk, j);
+      }
+    }
+  }
+  const consumed = oldIndexByKey !== null ? new Set<number>() : null;
+  for (let k = structStart; k < nlen; k++) {
+    const nv = nextRows[k];
+    let oldIdx = -1;
+    if (nv !== null && typeof nv === "object" && oldIndexByKey !== null) {
+      const nk = keyFn!(nv);
+      if (nk !== undefined) {
+        const m = oldIndexByKey.get(nk);
+        if (m !== undefined) {
+          oldIdx = m;
+          consumed!.add(m);
+        }
+      }
+    }
+    sources[k - structStart] = oldIdx;
+  }
+  const removed: any[] = [];
+  for (let j = structStart; j < plen; j++) {
+    if (consumed === null || !consumed.has(j)) removed.push(unwrapValue(prevRows[j]));
+  }
+  emitRowOps(t, nextRows, { prefix: structStart, sources, removed });
+}
 
 function descend(
   pv: any,

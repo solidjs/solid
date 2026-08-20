@@ -61,6 +61,11 @@ function drainApplyQueue(): void {
   queue = null;
   scheduled = false;
   if (q === null) return;
+  // Per-entry isolation: one throwing patch must not abort its siblings
+  // (effect parity — each effect isolates its failure). The first error
+  // rethrows after the drain so it still surfaces; full boundary routing
+  // is the PR-C registration/owner integration.
+  let firstError: unknown = UNSET;
   for (let i = 0; i < q.length; i++) {
     const { list, prev, force, t } = q[i];
     const next = t !== null ? (t.pb ?? t.v) : q[i].next;
@@ -68,10 +73,17 @@ function drainApplyQueue(): void {
       const entry = list[j];
       // Disposed owners drop their patches (the row unmounted mid-flush).
       if (entry.owner !== null && isDisposed(entry.owner)) continue;
-      entry.fn(next, prev, force);
+      try {
+        entry.fn(next, prev, force);
+      } catch (err) {
+        if (firstError === UNSET) firstError = err;
+      }
     }
   }
+  if (firstError !== UNSET) throw firstError;
 }
+
+const UNSET: unique symbol = Symbol();
 
 // Transition-stamped emissions (§2b, "the walk is not the visibility moment
 // inside a transition"): entries stash on their transition and release into
