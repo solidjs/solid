@@ -403,3 +403,30 @@ semantics + owners), identity-swap retention, and disposal.
 
 Declines in v1 (classic path serves them): fallback prop, index-using
 callbacks (arity ≥ 2), keyed={false}, empty initial list, hydration.
+
+### 10c. uibench through the compiled path (2026-08-20) — multi-shape validation
+
+Fork's 2.0 uibench adapter, unmodified source, compiled with patchDriver
+against this branch (vs hosted inferno/ivi, sum of medians, i=10):
+
+- TOTAL: solid 28.0ms / inferno 25.7 (1.09x) / ivi 21.4 (1.31x).
+  Legacy solid was 46.4ms (1.81x inferno) — 40% faster overall.
+- Table interaction ops now BEAT both vdoms: sort 0.48x, filter 0.47x,
+  activate 0.29x of inferno. These are the channel + row-ops wins.
+- Tiered compilation behaved as designed with zero authoring changes:
+  table rows took patch mode (row.active class binding); cells and tree
+  leaves compiled fully static → lists engage the driver with ZERO patches
+  (structure-only row ops); tree containers (component children) and anim
+  boxes (style-object binding) declined to classic.
+- Remaining gaps are CREATION only: tree/render 2.05x, table/render 2.0x
+  inferno — the template-clone + proxy-creation tax (same shape as dbmon
+  mount; the TSRX-codegen question).
+
+BUG found and fixed by this pass: the purity probe CASCADED on container
+rows — probing built the first-child subtree (nested lists probing
+recursively), discarded it on decline, O(N log N) waste: 69.6ms (43x
+inferno) on the depth-10 tree render. Fix: while probing, reactive work is
+recorded-and-skipped (an effect or function-valued insert proves decline,
+so its construction is guaranteed-discarded) — container probes now cost
+one shallow clone. 69.6 → 7.6ms. Probe-skip is SAFE only because dirty
+probes always discard; kept (pure) probe rows never skipped anything.
