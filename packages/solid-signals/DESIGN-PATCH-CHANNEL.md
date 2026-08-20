@@ -162,6 +162,20 @@ remainder). Emit per-array SLOT OPS into the same apply queue:
   reactive islands) but no row memo/effect — creation cost is template
   clone + bind + registration (measured: shallow-class mount).
 
+### 3b. mapArray ruling revision (2026-08-20, post-PR-B)
+
+The original design routed ops through mapArray. PR-B's fixture proved the
+better shape: PATCH-MODE LISTS BYPASS mapArray ENTIRELY — the ops consumer
+is the row manager (create/bind at op-apply, LIS moves, unbind removals),
+with no mapped-array recompute and no per-row memos. mapArray keeps its own
+staged keyed diff for everything it still owns (signals of arrays, non-patch
+rows, generic Index/For) and needs NO seam — the resolver-check byte cost in
+core-floor map.ts is avoided altogether. PR-C's For compiles patch-mode
+lists against registerRowOps directly (the fixture's applyRowOps is the
+hand-compiled spec); the effect-driver fallback keeps today's mapArray path.
+REMAINING PR-B increment: row-ops emission for SHALLOW keyed arrays (the
+positional branch), so shallow lists get the same structural wins.
+
 ## 4. Modes and how they compose
 
 | | deep + patches | shallow + slot patches |
