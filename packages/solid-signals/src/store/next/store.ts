@@ -80,7 +80,7 @@ import {
   type StoreNextTarget,
   optHooks
 } from "./target.js";
-import { emitPatch, hasPatches } from "./patch.js";
+import { emitPatch, emitPatchLocal, hasPatches } from "./patch.js";
 
 // ---------------------------------------------------------------------------
 // wrap / dedupe
@@ -441,6 +441,11 @@ function drainFolds(): void {
       t.pb = null;
     }
     if (t.v === old) continue; // adopted then re-adopted back, or no-op
+    // Patch channel (fold-commit site): family targets emit HERE — the fold
+    // IS their visibility moment (held folds re-queued above emit when they
+    // actually commit). Plain eager targets emitted at their walk/setter
+    // sites already.
+    if (t.fam !== null && t.p !== null) emitPatchLocal(t, t.v, old);
     // Path copying (CAS: see the eager-fold twin above).
     if (t.u && t.u.v[t.pk!] === old) {
       privatizeCommitted(t.u);
@@ -563,7 +568,9 @@ function notifyWrites(t: StoreNextTarget): void {
   // Patch channel (setter site): a committed write transitions this record —
   // queue its patches and bubble to ancestors (targeted nested writes must
   // reach the row patch, §4b). One number compare when no patches exist.
-  if (hasPatches()) emitPatch(t, pb, old);
+  // Family targets skip this site: their visibility moment is the FOLD
+  // commit (drainFolds emits), not the recompute/draft write.
+  if (t.fam === null && hasPatches()) emitPatch(t, pb, old);
   // Projection backing folds split by channel (two pinned contracts):
   // - sync-derive drafts (recompute body): NEVER eager — a downstream async
   //   hold can form LATER in the same flush and the leaf must stay at stale

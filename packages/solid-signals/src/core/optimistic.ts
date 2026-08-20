@@ -173,6 +173,9 @@ function runLaneEffects(type: number): void {
       runQueue(effects, type);
     }
   }
+  // Optimistic patch applications ride the same visibility slot as lane
+  // effects (in-flight DOM updates); no-op unless patches registered.
+  if (type === EFFECT_RENDER) GlobalQueue._drainPatchOptimistic?.();
 }
 
 function cleanupCompletedLanes(completingTransition: Transition | null): void {

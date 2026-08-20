@@ -444,6 +444,10 @@ export class GlobalQueue extends Queue {
   static _transitionBlocked: ((transition: Transition) => boolean) | null = null;
   static _cleanupLanes: ((completingTransition: Transition | null) => void) | null = null;
   static _runLaneEffects: ((type: number) => void) | null = null;
+  /** Patch-channel optimistic drain (next/patch.ts): optimistic emissions
+   * apply at lane-effect timing — visible in flight, unlike the regular
+   * effect queues an action stashes. Injected; null when unused. */
+  static _drainPatchOptimistic: (() => void) | null = null;
   static _gatedRead:
     | ((el: Signal<any>, owner: OptimisticNode, c: Computed<any>) => boolean)
     | null = null;

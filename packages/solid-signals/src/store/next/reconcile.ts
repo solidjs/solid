@@ -129,8 +129,10 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
   adoptPB(t, incoming, eager);
   // Patch channel (adoption site): this record transitioned — queue its
   // patches with the pre-adopt prev. No bubbling walk: the adoption walk
-  // visits parents before children, so ancestors emitted already.
-  if (t.p !== null) emitPatchLocal(t, incoming, old);
+  // visits parents before children, so ancestors emitted already. EAGER
+  // only — family targets' visibility moment is their fold commit
+  // (drainFolds emits there; emitting here too would double-fire).
+  if (eager && t.p !== null) emitPatchLocal(t, incoming, old);
   // Shallow adoption: records are slot values — sticky raw-mark the incoming
   // set (R41) and never descend; slot notification is the positional diff.
   if (shallow) markRawIngest(incoming);

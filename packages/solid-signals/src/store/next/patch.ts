@@ -24,6 +24,7 @@ import { getOwner, isDisposed } from "../../core/owner.js";
 import {
   activeTransition,
   globalQueue,
+  GlobalQueue,
   setPatchCommitHook,
   type Transition
 } from "../../core/scheduler.js";
@@ -53,6 +54,9 @@ let queue: QueuedApply[] | null = null;
 let scheduled = false;
 
 function drainApplyQueue(): void {
+  // Settle-time fallback for optimistic emissions (a reverting flush may
+  // have no active lanes left to run the lane-slot drain).
+  drainOptimistic();
   const q = queue;
   queue = null;
   scheduled = false;
@@ -149,6 +153,44 @@ export function emitPatchLocal(t: StoreNextTarget, next: any, prev: any): void {
     });
 }
 
+/** Optimistic-channel emission: overrides are visible THIS flush while the
+ * transaction is in flight — that is what optimism means. These ride a
+ * dedicated queue drained at LANE-EFFECT timing (the regular effect queues
+ * are stashed by an in-flight action), with the regular drain as the
+ * settle-time fallback. `next === null` = forced re-apply from the live
+ * target (the revert shape: committed truth back onto the DOM). */
+let optQueue: QueuedApply[] | null = null;
+
+function drainOptimistic(): void {
+  const q = optQueue;
+  optQueue = null;
+  if (q === null) return;
+  for (let i = 0; i < q.length; i++) {
+    const { list, prev, force, t } = q[i];
+    const next = t !== null ? (t.pb ?? t.v) : q[i].next;
+    for (let j = 0; j < list.length; j++) {
+      const entry = list[j];
+      if (entry.owner !== null && isDisposed(entry.owner)) continue;
+      entry.fn(next, prev, force);
+    }
+  }
+}
+
+export function emitPatchOptimistic(t: StoreNextTarget, next: any, prev: any): void {
+  const p = t.p as PatchEntry[] | null;
+  if (p === null) return;
+  if (optQueue === null) optQueue = [];
+  if (next === null) optQueue.push({ list: p, next: null, prev: null, force: true, t });
+  else optQueue.push({ list: p, next, prev, force: false, t: null });
+  // Backup scheduling: the lane-slot drain covers in-flight application; a
+  // stashed regular drain guarantees settle-time application when no lane
+  // survives to the final flush (pure reverts).
+  if (!scheduled) {
+    scheduled = true;
+    globalQueue.enqueue(EFFECT_RENDER, drainApplyQueue);
+  }
+}
+
 /**
  * Register a compiled patch on a store record. Multi-consumer (two lists
  * can render one record); owner-scoped for disposal. Returns unbind.
@@ -166,6 +208,7 @@ export function registerPatch(record: any, fn: PatchFn): () => void {
   if (!commitHookInstalled) {
     commitHookInstalled = true;
     setPatchCommitHook(releaseBatch);
+    GlobalQueue._drainPatchOptimistic = drainOptimistic;
   }
   const entry: PatchEntry = { fn, owner: getOwner() };
   const list = (t.p ??= []) as PatchEntry[];

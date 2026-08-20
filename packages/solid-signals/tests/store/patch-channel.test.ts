@@ -99,6 +99,73 @@ describe("patch channel (PR-A)", () => {
     expect(log).toEqual(["held"]);
   });
 
+  it("optimistic write patches the view in flight, revert force-reapplies committed", async () => {
+    const { createOptimisticStore, action: act } = await import("../../src/index.js");
+    const [state, setState] = (createOptimisticStore as any)({ user: { name: "saved" } });
+    const log: Array<[string, boolean | undefined]> = [];
+    registerPatch(state.user, (next: any, _prev: any, force?: boolean) =>
+      log.push([next.name, force])
+    );
+    let reject!: (e: any) => void;
+    let save!: () => Promise<void> | void;
+    createRoot(() => {
+      save = act(function* () {
+        setState((s: any) => {
+          s.user.name = "optimistic";
+        });
+        yield new Promise<void>((_, rej) => {
+          reject = rej;
+        });
+      }) as any;
+    });
+    const p = (save() as Promise<void>).catch(() => {});
+    flush();
+    // Override applied THIS flush — in-flight visibility.
+    expect(log.length).toBe(1);
+    expect(log[0][0]).toBe("optimistic");
+    reject(new Error("fail"));
+    await p;
+    flush();
+    // Revert: forced re-apply lands with committed truth visible.
+    const last = log[log.length - 1];
+    expect(last[1]).toBe(true);
+    expect(state.user.name).toBe("saved");
+  });
+
+  it("async projection refetch patches at landing, never mid-flight", async () => {
+    const { refresh } = await import("../../src/index.js");
+    let resolve!: (v: any) => void;
+    let state: any;
+    createRoot(() => {
+      [state] = createStore(async () => {
+        const user = await new Promise<any>(r => {
+          resolve = r;
+        });
+        return { user };
+      }, {} as any);
+    });
+    flush();
+    resolve({ name: "first" });
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(state.user.name).toBe("first");
+
+    const log: string[] = [];
+    registerPatch(state.user, (next: any) => log.push(next.name));
+
+    refresh(state);
+    flush();
+    // Mid-refetch: no patch fired, DOM state untouched.
+    expect(log).toEqual([]);
+    resolve({ name: "second" });
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(state.user.name).toBe("second");
+    expect(log).toEqual(["second"]);
+  });
+
   it("disposed owner drops its patches mid-flight", () => {
     const [state, setState] = createStore({ user: { name: "a" } });
     const log: string[] = [];
