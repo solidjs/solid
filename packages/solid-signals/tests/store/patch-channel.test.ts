@@ -5,7 +5,7 @@ import {
   createStore,
   flush,
   reconcile,
-  unstable_registerPatch as registerPatch
+  registerPatch
 } from "../../src/index.js";
 
 describe("patch channel (PR-A)", () => {
