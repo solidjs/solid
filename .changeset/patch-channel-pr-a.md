@@ -2,14 +2,18 @@
 "@solidjs/signals": patch
 ---
 
-Stage 2 (PR-A, in progress): the patch channel core. Per-record compiled
-patch consumers (`unstable_registerPatch`) dispatched by store visibility
-transitions through a per-flush apply queue draining at effect-phase timing
-under registering owners. Emission at the adoption walk and setter-notify
-sites (fold-commit and override-lifecycle sites follow with the gauntlet);
-dispatch bubbling reaches ancestor patches for targeted nested writes via a
-forced re-apply; owned prevs are snapshotted (single-home folds mutate in
-place). Unpatched stores pay a null check; the module tree-shakes out of
-non-store bundles (treeshake gates green). Measured: effect-phase timing
-costs nothing over the prototype's walk-side dispatch — deep-with-patches
-holds octane-class full ticks with correct semantics.
+Stage 2 (PR-A): the patch channel. Compiled per-record patch consumers
+(`registerPatch`, undocumented compiler-contract export) dispatched by store
+visibility transitions at all four sites: adoption walk and setter notify
+(plain stores, with ancestor bubbling for targeted nested writes), fold
+commit (projections — held folds hold their patches), and the override
+lifecycle (application emits the visible draft; consumption and engine
+reverts force-reapply from the live view). Application timing: per-flush
+apply queue at render-effect phase; transition-stamped emissions release
+when THEIR batch commits (reverted transactions drop by GC); optimistic
+emissions drain at lane-effect timing so in-flight visibility works while
+actions stash the regular queues. Unpatched stores pay a null check and the
+module tree-shakes out of non-store bundles. Gauntlet: effect-phase timing,
+reconcile prev pairing, nested-write bubbling, unbind/multi-consumer,
+transition hold, optimistic in-flight + DOM revert, projection refetch,
+disposed-owner drop.

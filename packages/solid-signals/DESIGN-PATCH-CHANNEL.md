@@ -98,6 +98,24 @@ isPending/affects visibility, no async holding of their own. All
 async/lane correctness derives from WHERE ops are emitted (§2a). This is
 the load-bearing simplification — vet it hard.
 
+### 2e. PR-A implementation findings (2026-08-19 night)
+
+- OPTIMISTIC TIMING RULE: optimistic emissions drain at LANE-EFFECT timing,
+  not the regular effect queues — an in-flight action stashes the regular
+  queues (probe: patches applied only at settle), while lane effects are
+  exactly the slot where optimistic visibility reaches the DOM today. The
+  stashed regular drain doubles as the settle fallback for lane-less revert
+  flushes.
+- SITE EXCLUSIVITY: each target class has ONE emitting site — plain/eager
+  targets emit at walk/setter; family targets emit ONLY at fold commit
+  (adoption + fold both emitting double-fired, caught by the refetch
+  gauntlet).
+- Bubbled re-applies resolve `next` lazily at drain from the live target:
+  privatization can clone an ancestor's backing between emission and drain.
+- Transition-stamped entries release via patchCommitHook when their batch
+  commits; reverted transactions drop by WeakMap GC — zero revert
+  bookkeeping.
+
 ## 3. Slot ops for lists
 
 The keyed walk already computes adds/removes/moves (prefix + keyed
