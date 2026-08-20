@@ -64,18 +64,20 @@ describe("patch-mode list driver", () => {
 
       // Value tick: same structure, one label — the row's patch fires, the
       // node is retained, siblings untouched.
-      setState(s =>
+      setState(s => {
         reconcile(
           make(1, 2, 3).map(r => (r.id === 2 ? { ...r, label: "X" } : r)),
           "id"
-        )(s.rows)
-      );
+        )(s.rows);
+      });
       flush();
       expect(labels(div)).toBe("L1,X,L3");
       expect(rows(div)[1]).toBe(tr2);
 
       // Move: keyed survivors keep their DOM nodes.
-      setState(s => reconcile([make(3)[0], make(1)[0], { id: 2, label: "X" }], "id")(s.rows));
+      setState(s => {
+        reconcile([make(3)[0], make(1)[0], { id: 2, label: "X" }], "id")(s.rows);
+      });
       flush();
       expect(labels(div)).toBe("L3,L1,X");
       expect(rows(div)[0]).toBe(tr3);
@@ -83,7 +85,9 @@ describe("patch-mode list driver", () => {
       expect(rows(div)[2]).toBe(tr2);
 
       // Remove + add in one transition.
-      setState(s => reconcile(make(3, 4), "id")(s.rows));
+      setState(s => {
+        reconcile(make(3, 4), "id")(s.rows);
+      });
       flush();
       expect(labels(div)).toBe("L3,L4");
       expect(rows(div)[0]).toBe(tr3);
@@ -115,7 +119,9 @@ describe("patch-mode list driver", () => {
       expect(rows(div)[2]).toBe(tr1);
 
       // The re-registered channel still drives the new array.
-      setState(s => reconcile([{ id: 9, label: "N9" }], "id")(s.rows));
+      setState(s => {
+        reconcile([{ id: 9, label: "N9" }], "id")(s.rows);
+      });
       flush();
       expect(labels(div)).toBe("N9");
 
@@ -147,7 +153,9 @@ describe("patch-mode list driver", () => {
       expect(labels(div)).toBe("L1,L2");
       const runsAfterMount = effectRuns;
 
-      setState(s => reconcile([make(2)[0], { id: 1, label: "Y" }], "id")(s.rows));
+      setState(s => {
+        reconcile([make(2)[0], { id: 1, label: "Y" }], "id")(s.rows);
+      });
       flush();
       expect(labels(div)).toBe("L2,Y");
       // The per-row effect survives and re-fires — proof rows kept owners
@@ -166,7 +174,9 @@ describe("patch-mode list driver", () => {
         <For each={state.rows}>{pureRow}</For>
       </div>;
       expect(rows(div).length).toBe(0);
-      setState(s => reconcile(make(1, 2), "id")(s.rows));
+      setState(s => {
+        reconcile(make(1, 2), "id")(s.rows);
+      });
       flush();
       expect(labels(div)).toBe("L1,L2");
       dispose();

@@ -9,6 +9,7 @@ import {
   registerPatch,
   registerRowOps,
   runWithOwner,
+  sharedConfig,
   untrack
 } from "solid-js";
 export {
@@ -78,7 +79,16 @@ export const effect = (fn, effectFn, options?) => {
   );
 };
 
-export const memo = fn => createMemo(() => fn(), syncOptions);
+export const memo = fn => {
+  // A memo during a list probe is reactive work (a per-row computation) —
+  // disqualify and skip creation; the raw accessor stands in for the
+  // guaranteed-discarded probe build.
+  if (probing) {
+    probeDirty = true;
+    return fn;
+  }
+  return createMemo(() => fn(), syncOptions);
+};
 
 // Patch-mode dual driver (DESIGN-PATCH-CHANNEL.md, PR-C): compiled template
 // scopes whose bindings are pure member reads of one subject hand ONE
@@ -94,7 +104,11 @@ export const memo = fn => createMemo(() => fn(), syncOptions);
 export const patchDriver = (subject, body) => {
   const raw = patchableRaw(subject);
   if (raw !== undefined) {
-    body(raw, undefined, true);
+    // Hydration is claim + register ONLY (DESIGN-PATCH-CHANNEL §5): the
+    // server HTML already carries current values, so the initial force-apply
+    // is skipped — no writes, no graph edges. The registration alone arms
+    // the record for post-hydration transitions.
+    if (!sharedConfig.hydrating) body(raw, undefined, true);
     registerPatch(subject, body);
   } else {
     effect(() => body(subject, undefined, true));
@@ -149,15 +163,42 @@ const lisPositions = (sources: number[]) => {
 // and a removed row's registrations die with its record.
 export const driveList = (parent: Node, listFn: any, marker?: Node) => {
   const meta = listFn.$ll;
-  let subject: any = untrack(meta.each);
+  // The decision read is id-ISOLATED: evaluating `each` can mint compiler
+  // memos lazily inside the prop getter (wrapConditionals), and minting them
+  // on the ambient chain here would consume a child id the classic path
+  // expects to consume later — shifting every subsequent hydration key on
+  // decline. A throwaway explicit-id owner absorbs (and disposal discards)
+  // anything the read creates.
+  const evalOwner = createOwner({ id: "&each" });
+  let subject: any = runWithOwner(evalOwner, () => untrack(meta.each));
+  (evalOwner as any).dispose();
   let raw = subject != null ? patchableRaw(subject) : undefined;
   if (raw === undefined || !Array.isArray(raw) || raw.length === 0) return false;
 
-  const listOwner = createOwner();
+  // Hydration precheck (claim + register only — §5): rows are the region's
+  // server-rendered elements, claimed positionally through each element's
+  // own `_hk` key. V1 supports the whole-parent region (no marker) and
+  // requires an exact row count and a clean key on every row; anything else
+  // declines to classic hydration. Keys end in the row scope's FIRST child
+  // id ("0" — pure rows consume no ids before the root claim), so the row
+  // owner's id is the key minus that suffix.
+  const hydrating = !!sharedConfig.hydrating;
+  let domRows: Element[] | undefined;
+  let rowIds: string[] | undefined;
+  if (hydrating) {
+    if (marker !== undefined) return false;
+    domRows = Array.from((parent as Element).children);
+    if (domRows.length !== raw.length) return false;
+    rowIds = new Array(raw.length);
+    for (let i = 0; i < domRows.length; i++) {
+      const key = domRows[i].getAttribute("_hk");
+      if (key === null || !key.endsWith("0") || key.length < 2) return false;
+      rowIds[i] = key.slice(0, -1);
+    }
+  }
+
   const rowFn = meta.row;
   const endAnchor = marker ?? null;
-  const bindRow = (abs: number): Node =>
-    runWithOwner(listOwner, () => untrack(() => rowFn(subject[abs]))) as Node;
 
   // Purity probe on row 0. A dirty or non-blank probe means the template
   // needs reactive work (insert holes, nested components, onCleanup) that
@@ -167,33 +208,63 @@ export const driveList = (parent: Node, listFn: any, marker?: Node) => {
   // shallow clone even for rows nesting whole component subtrees. Disposing
   // the probe owner also neutralizes any patch the bind registered (the
   // channel skips disposed-owner entries).
-  const probe = createOwner();
+  //
+  // The probe owner carries its OWN detached id scope: an explicit id
+  // consumes nothing from the ambient chain, and anything created inside
+  // (memos for row ternaries, effects) draws ids from the probe's counter
+  // instead of shifting the ambient one — a decline must leave the id chain
+  // and claim registry exactly as classic hydration expects them. The probe
+  // also runs with hydration suspended (fresh clone, no claims).
+  const probe = createOwner({ id: "&probe" });
   const wasProbing = probing;
   probing = true;
   probeDirty = false;
   let firstNode: Node;
   let dirty: boolean;
+  if (hydrating) sharedConfig.hydrating = false;
   try {
     firstNode = runWithOwner(probe, () => untrack(() => rowFn(subject[0]))) as Node;
   } finally {
     dirty = probeDirty;
     probing = wasProbing;
     probeDirty = false;
+    if (hydrating) sharedConfig.hydrating = true;
   }
   if (dirty || !ownerIsBlank(probe as any) || !(firstNode! instanceof Node)) {
     (probe as any).dispose();
-    (listOwner as any).dispose();
     return false;
   }
 
+  // Engaged. The list owner consumes exactly one child id, mirroring the
+  // owner mapArray would have created — subsequent siblings' hydration ids
+  // stay aligned on both the engage and (pre-owner) decline paths.
+  const listOwner = createOwner();
+  const bindRow = (abs: number, claimId?: string): Node =>
+    runWithOwner(listOwner, () =>
+      claimId !== undefined
+        ? (runWithOwner(createOwner({ id: claimId }) as any, () =>
+            untrack(() => rowFn(subject[abs]))
+          ) as Node)
+        : (untrack(() => rowFn(subject[abs])) as Node)
+    ) as Node;
+
   let entries: Node[] = new Array(raw.length);
   let prevRaws: any[] = raw.slice();
-  entries[0] = firstNode;
-  parent.insertBefore(firstNode, endAnchor);
-  for (let i = 1; i < raw.length; i++) {
-    const node = bindRow(i);
-    entries[i] = node;
-    parent.insertBefore(node, endAnchor);
+  if (hydrating) {
+    // Claim pass: each bind claims its server row through the row-scoped id
+    // (getNextElement resolves the `_hk` registry entry); patchDriver skips
+    // the initial apply. The probe's fresh clone is discarded — disposing
+    // its owner also disarms the patch the probe bind registered.
+    (probe as any).dispose();
+    for (let i = 0; i < raw.length; i++) entries[i] = bindRow(i, rowIds![i]);
+  } else {
+    entries[0] = firstNode;
+    parent.insertBefore(firstNode, endAnchor);
+    for (let i = 1; i < raw.length; i++) {
+      const node = bindRow(i);
+      entries[i] = node;
+      parent.insertBefore(node, endAnchor);
+    }
   }
 
   const applyOps = (next: any[], ops: { prefix: number; sources: number[] }) => {
@@ -230,30 +301,34 @@ export const driveList = (parent: Node, listFn: any, marker?: Node) => {
   // Identity swaps (`s.rows = newArr` without reconcile) keep mapArray's
   // keyed semantics: rows matched by RAW IDENTITY retain their DOM; the rest
   // bind/remove through the same LIS apply, as a synthetic full-window op.
-  effect(
-    () => meta.each(),
-    (value: any) => {
-      if (value === subject) return;
-      const nextRaw = value != null ? patchableRaw(value) : undefined;
-      unbindOps();
-      if (nextRaw === undefined || !Array.isArray(nextRaw)) {
-        // Subject left the driver's contract; clear the region — the store
-        // array is gone, and with it every channel that fed these rows.
-        for (let j = 0; j < entries.length; j++) (entries[j] as ChildNode).remove();
-        entries = [];
-        prevRaws = [];
+  // Created under the list owner: every tracked `each` read can mint getter
+  // memos, and the list owner's id counter is private (id-chain neutral).
+  runWithOwner(listOwner, () =>
+    effect(
+      () => meta.each(),
+      (value: any) => {
+        if (value === subject) return;
+        const nextRaw = value != null ? patchableRaw(value) : undefined;
+        unbindOps();
+        if (nextRaw === undefined || !Array.isArray(nextRaw)) {
+          // Subject left the driver's contract; clear the region — the store
+          // array is gone, and with it every channel that fed these rows.
+          for (let j = 0; j < entries.length; j++) (entries[j] as ChildNode).remove();
+          entries = [];
+          prevRaws = [];
+          subject = value;
+          return;
+        }
+        const oldIndex = new Map<any, number>();
+        for (let j = 0; j < prevRaws.length; j++)
+          if (!oldIndex.has(prevRaws[j])) oldIndex.set(prevRaws[j], j);
+        const sources = new Array(nextRaw.length);
+        for (let k = 0; k < nextRaw.length; k++) sources[k] = oldIndex.get(nextRaw[k]) ?? -1;
         subject = value;
-        return;
+        applyOps(nextRaw, { prefix: 0, sources });
+        unbindOps = runWithOwner(listOwner, () => registerRowOps(subject, applyOps)) as () => void;
       }
-      const oldIndex = new Map<any, number>();
-      for (let j = 0; j < prevRaws.length; j++)
-        if (!oldIndex.has(prevRaws[j])) oldIndex.set(prevRaws[j], j);
-      const sources = new Array(nextRaw.length);
-      for (let k = 0; k < nextRaw.length; k++) sources[k] = oldIndex.get(nextRaw[k]) ?? -1;
-      subject = value;
-      applyOps(nextRaw, { prefix: 0, sources });
-      unbindOps = runWithOwner(listOwner, () => registerRowOps(subject, applyOps)) as () => void;
-    }
+    )
   );
   onCleanup(() => {
     unbindOps();
