@@ -11,7 +11,7 @@
 // what the compiled server output produces) behind a stubbed fetch, so the
 // real transport → frame → delegation pipeline is under test.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { createSignal, flush, Loading } from "solid-js";
+import { createSignal, flush, Loading, onCleanup } from "solid-js";
 import { dynamic, render, delegateEvents } from "../src/index.js";
 import { installServerComponents, createFrameHost } from "../frames/src/client.js";
 import { createJSONDataTable } from "../serialization/src/index.js";
@@ -81,6 +81,7 @@ describe("behavior claims through server-component mounts", () => {
 
     const clicks: string[] = [];
     const refs: string[] = [];
+    const cleanups: string[] = [];
     // The latest-props probe: the event prop derives from a signal. Flipping
     // it must swap what dispatch resolves WITHOUT any re-render or morph —
     // the marker names the prop; the frame's live props do the rest.
@@ -100,7 +101,16 @@ describe("behavior claims through server-component mounts", () => {
         <Loading fallback={<span>...</span>}>
           <Card
             onCopy={mode() === "a" ? handlerA : handlerB}
-            label={(el: Element) => refs.push(el.textContent!)}
+            label={(el: Element) => {
+              // Capture at fire time — the element survives morphs and its
+              // text moves on, but each FIRE is a distinct registration.
+              const at = el.textContent!;
+              refs.push(at);
+              // Refs fire under the frame creator's owner: ambient lifecycle
+              // works inside the callback and runs at the OWNER's disposal
+              // (the frame's lifetime), not per element replacement.
+              onCleanup(() => cleanups.push(at));
+            }}
           />
         </Loading>
       ),
@@ -142,14 +152,18 @@ describe("behavior claims through server-component mounts", () => {
     expect(clicks).toEqual(["a:click", "b:click", "b:click"]);
 
     // v3 REPLACES the label (tag change): the fresh element re-sweeps and
-    // the ref fires again with the new node.
+    // the ref fires again with the new node. Morphs never ran the owner's
+    // cleanups — those belong to disposal.
     setCard(3);
     await cycle();
     expect(div.querySelector("em")!.textContent).toBe("Label v3");
     expect(refs).toEqual(["Label v1", "Label v3"]);
+    expect(cleanups).toEqual([]);
 
     dispose();
     flush();
+    // Owner disposal runs every ref's registered cleanup (both fires).
+    expect(cleanups).toEqual(["Label v1", "Label v3"]);
     container.remove();
   });
 

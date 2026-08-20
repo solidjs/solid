@@ -13,6 +13,11 @@ export default defineConfig({
     alias: { "~": fileURLToPath(new URL("./src", import.meta.url)) }
   },
   server: { port: 3006 },
+  // The devtools toolbar enters the graph through a virtual module, so Vite
+  // only discovers it after the first optimize pass. Pre-including it keeps
+  // dep optimization to a single pass — the late re-optimize can otherwise
+  // pair chunks from different passes whose shared minified exports disagree.
+  optimizeDeps: { include: ["@solidjs/vite-plugin > @solidjs/start-devtools"] },
   plugins: [
     solid({
       start: {},
