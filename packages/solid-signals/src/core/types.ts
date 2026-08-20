@@ -51,11 +51,6 @@ export interface NodeOptions<T> {
 export interface RawSignal<T> {
   _subs: Link | null;
   _subsTail: Link | null;
-  /**
-   * DEV-only live subscriber count. Maintained by `link`/`unlinkSubs` for
-   * graph-size diagnostics; undefined in production.
-   */
-  _subCount?: number;
   _value: T;
   _snapshotValue?: any;
   _name?: string;
@@ -118,11 +113,6 @@ export interface Owner {
 export interface Computed<T> extends RawSignal<T>, Owner {
   _deps: Link | null;
   _depsTail: Link | null;
-  /**
-   * DEV-only live source count. Maintained by `link`/`unlinkSubs` for
-   * graph-size diagnostics; undefined in production.
-   */
-  _depCount?: number;
   /** Recompute-pass counter; bumped when dep revalidation starts. */
   _depGen: number;
   _flags: number;
