@@ -162,6 +162,30 @@ remainder). Emit per-array SLOT OPS into the same apply queue:
   reactive islands) but no row memo/effect — creation cost is template
   clone + bind + registration (measured: shallow-class mount).
 
+### 2h. PR-B COMPLETE (2026-08-20): both modes at/beyond the vdom bar
+
+Shallow row-ops (key-aligned prefix in the slot loop; keyless lists emit
+append/truncate on length change only) + drain error isolation (one
+throwing patch cannot abort siblings; first error rethrows — boundary
+routing rides PR-C). Gauntlet: 11. Final dbmon board, full production
+semantics, single run:
+
+| op      | octane | shallow+channel | deep+channel |
+|---------|-------:|----------------:|-------------:|
+| mount   |    8.6 |   7.5 BEATS     |          9.8 |
+| tick    |    3.7 |   3.0 BEATS     |   3.4 BEATS  |
+| partial |    1.4 |   1.0 BEATS     |   1.0 BEATS  |
+| remount |    9.4 |             9.6 |         10.1 |
+| sort    |    4.4 |             4.9 |          5.3 |
+
+Shallow beats octane on creation AND both update paths; deep beats on
+updates and holds ~15% on structure while carrying the full granular
+contract. The ruled bar is met by both modes. Signals-side stage 2 is
+functionally complete: PR-C (compiler emission + For against
+registerPatch/registerRowOps) and the wide validation matrix (uibench vs
+ivi, octane full suite, jfb store scenarios — per Ryan, on stage
+completion) are what remain.
+
 ### 3b. mapArray ruling revision (2026-08-20, post-PR-B)
 
 The original design routed ops through mapArray. PR-B's fixture proved the
