@@ -410,7 +410,10 @@ Fork's 2.0 uibench adapter, unmodified source, compiled with patchDriver
 against this branch (vs hosted inferno/ivi, sum of medians, i=10):
 
 - TOTAL: solid 28.0ms / inferno 25.7 (1.09x) / ivi 21.4 (1.31x).
-  Legacy solid was 46.4ms (1.81x inferno) — 40% faster overall.
+  Baselines (BEWARE provenance): pre-stage-1 next (old store, Aug 16) was
+  46.4ms; the stage-1 build (≈ current next, Aug 18) was 32.9ms. Stage 2's
+  own contribution over recent next is ~15% total — the two-stage sum is
+  40%. Inferno/ivi hosted samples are Aug 16 (cross-day variance baked in).
 - Table interaction ops now BEAT both vdoms: sort 0.48x, filter 0.47x,
   activate 0.29x of inferno. These are the channel + row-ops wins.
 - Tiered compilation behaved as designed with zero authoring changes:
