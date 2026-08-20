@@ -1,17 +1,20 @@
 // The client side of the app. Compare with the React demo's App.server.js:
 // the same composition, but the shell's markup lives in server/App.tsx and
-// this file only fills its client positions — the search field, the notes
-// list (a server component of its own, keyed by the search param), and the
-// route outlet. Nothing here fetches data; every read goes through a
-// `dynamic()` over a server-component query. Links (the New/Edit buttons)
-// aren't client positions at all: the router intercepts plain anchors, so
-// they render entirely on the server.
+// this file only fills its client positions — the notes list (a server
+// component of its own, keyed by the search param) and the route outlet.
+// The search field isn't a client position anymore: its markup is server
+// chrome, and searchField() contributes only behavior props (Stage 6 —
+// event props resolve through the frame at dispatch, ref props hand the
+// client the elements at adoption). Nothing here fetches data; every read
+// goes through a `dynamic()` over a server-component query. Links (the
+// New/Edit buttons) aren't client positions at all: the router intercepts
+// plain anchors, so they render entirely on the server.
 import { createRouter } from "@solidjs/router";
 import { Loading } from "solid-js";
 import { dynamic } from "@solidjs/web";
 import { appView } from "~/server/App";
 import { getNoteList } from "~/lib/api";
-import SearchField from "~/components/SearchField";
+import searchField from "~/components/searchField";
 import SidebarNoteContent from "~/components/SidebarNoteContent";
 import { preload, routes } from "~/routes";
 import "./app.css";
@@ -31,7 +34,7 @@ export default function App() {
         return (
           <Loading fallback={<div class="main">Loading...</div>}>
             <AppShell
-              search={<SearchField />}
+              {...searchField()}
               noteList={
                 <Loading fallback="Loading Notes..">
                   <NoteList item={p => <SidebarNoteContent {...p} />} />
