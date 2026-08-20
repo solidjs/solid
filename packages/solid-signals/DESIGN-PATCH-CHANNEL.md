@@ -368,3 +368,38 @@ plain table and the optimistic OptTable rows took patch mode.
   (second diff in reconcileArrays). Both are the row-ops `<For>` integration
   (registerRowOps → LIS moves, patch-mode row creation without per-row
   effect owners). That is the next work item, then hydration claiming.
+
+### 10b. For row-ops integration landed (2026-08-20)
+
+`<For>` now rides the channel (§3b as ruled): the component attaches `$ll`
+metadata to a LAZY classic accessor (mapArray created under the component
+owner only on first call), and the runtime's insert offers it to `driveList`
+(solid-web core, optional rxcore seam — unaware cores just call the
+accessor). The driver binds rows once — purity proven by a bind-time owner
+probe (blank = no computations/cleanups); non-blank binds DECLINE to
+mapArray — then consumes registerRowOps positionally (sources hold old
+absolute indices): LIS moves, bind-at-op-apply creates, node removal. No
+per-row owners; a removed row's registrations die with its record. Array
+identity swaps match by RAW IDENTITY (mapArray's keyed retention semantics)
+as a synthetic full-window op, re-registering on the new target.
+
+Compiled JSX dbmon after the driver (30-iter, gate green):
+
+| op       | octane | hand ceiling | compiled (For) |
+|----------|-------:|-------------:|---------------:|
+| mount    |    8.6 |         10.1 |       **11.5** |
+| tick     |    3.3 |          3.2 |        **3.4** |
+| partial  |    1.5 |          1.0 |        **1.1** |
+| remount  |    8.6 |          9.9 |        **8.4** |
+| sort     |    4.5 |          4.7 |        **4.7** |
+| unmount  |    2.9 |          3.4 |        **3.1** |
+
+sort and remount landed ON the ceiling (remount beats the hand fixture);
+the only gap left is mount 11.5 vs 10.1 — per-row proxy creation at bind
+(registration needs the record proxy for parent links). Full monorepo suite
+green post-change; dedicated spec (for.patchlist.spec.tsx) proves
+engagement (shared list owner), decline paths (impure rows keep classic
+semantics + owners), identity-swap retention, and disposal.
+
+Declines in v1 (classic path serves them): fallback prop, index-using
+callbacks (arity ≥ 2), keyed={false}, empty initial list, hydration.
