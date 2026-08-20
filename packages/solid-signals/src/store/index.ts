@@ -25,8 +25,7 @@ import { reconcileNextState } from "./next/reconcile.js";
 import { createStoreDerivedNext } from "./next/projection.js";
 
 export { createProjectionNext as createProjection } from "./next/projection.js";
-export { registerBindingsNext as unstable_registerBindings } from "./next/store.js";
-export { registerPatchNext as unstable_registerPatch } from "./next/store.js";
+export { registerPatch as unstable_registerPatch } from "./next/patch.js";
 export { registerSlotPatchNext as unstable_registerSlotPatch } from "./next/store.js";
 export { createOptimisticStoreNext as createOptimisticStore } from "./next/optimistic.js";
 

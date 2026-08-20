@@ -73,12 +73,14 @@ import {
 import {
   devAssertNeverUserMutation,
   ingestedRaw,
+  markDescendants,
   ownedRaw,
   storeNextLookup,
   type StoreNextFamily,
   type StoreNextTarget,
   optHooks
 } from "./target.js";
+import { emitPatch, hasPatches } from "./patch.js";
 
 // ---------------------------------------------------------------------------
 // wrap / dedupe
@@ -291,14 +293,6 @@ function getDeepNode(target: StoreNextTarget): Signal<number> {
  * subscriber notifies it. One null check when unused. */
 export function bumpDeep(t: StoreNextTarget): void {
   if (t.dk !== null) setSignal(t.dk, 1 as any);
-}
-
-function markDescendants(target: StoreNextTarget): void {
-  let t: StoreNextTarget | null = target;
-  while (t && !t.d) {
-    t.d = true;
-    t = t.u;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -566,6 +560,10 @@ function notifyWrites(t: StoreNextTarget): void {
         : membershipChanged(old, pb);
     if (changed) setSignal(t.k, v => v + 1);
   }
+  // Patch channel (setter site): a committed write transitions this record —
+  // queue its patches and bubble to ancestors (targeted nested writes must
+  // reach the row patch, §4b). One number compare when no patches exist.
+  if (hasPatches()) emitPatch(t, pb, old);
   // Projection backing folds split by channel (two pinned contracts):
   // - sync-derive drafts (recompute body): NEVER eager — a downstream async
   //   hold can form LATER in the same flush and the leaf must stay at stale
@@ -1337,18 +1335,9 @@ function isNextProxy(value: any): boolean {
   );
 }
 
-/** Tracking deep snapshot (`deep()` for next targets): subscribes to the
- * key-set and every property node at every reachable level, then returns the
- * plain view. Shared references and cycles handled via the visited set. */
-/** PROTOTYPE (stage-2 ceiling measurement): register a binding map on a
- * record. The adoption walk dispatches changed keys directly. NOT public
- * API — timing is walk-side (setter time), not effect phase. */
-/** PROTOTYPE: register a compiled per-record patch fn. The adoption walk
- * calls it ONCE per changed record with (nextRaw, prevRaw); it owns all
- * compares and DOM writes, including nested plain children (which then
- * need no targets of their own). */
-/** PROTOTYPE: slot patch for shallow arrays — the positional slot diff
- * calls (index, next, prev) for changed slots. */
+/** PROTOTYPE (PR-B shape): slot patch for shallow arrays — the positional
+ * slot diff calls (index, next, prev) for changed slots. Queue integration
+ * lands with slot ops in PR-B. */
 export function registerSlotPatchNext(
   arr: any,
   fn: (index: number, next: any, prev: any) => void
@@ -1362,32 +1351,9 @@ export function registerSlotPatchNext(
   };
 }
 
-export function registerPatchNext(record: any, patch: (next: any, prev: any) => void): () => void {
-  const t: StoreNextTarget | undefined = record?.[$TARGET];
-  if (t === undefined) throw new Error("registerPatchNext: not a store record");
-  t.p = patch;
-  markDescendants(t);
-  return () => {
-    t.p = null;
-  };
-}
-
-export function registerBindingsNext(
-  record: any,
-  map: Record<PropertyKey, (v: any) => void>
-): () => void {
-  const t: StoreNextTarget | undefined = record?.[$TARGET];
-  if (t === undefined) throw new Error("registerBindingsNext: not a store record");
-  t.b = t.b === null ? map : { ...t.b, ...map };
-  // Bindings are subscriptions for reachability purposes: keyed reconcile's
-  // pruning (§6d) must descend into bound records exactly as it does for
-  // noded ones.
-  markDescendants(t);
-  return () => {
-    t.b = null;
-  };
-}
-
+/** Tracking deep snapshot (`deep()` for next targets): subscribes to the
+ * key-set and deep-witness node at every reachable level, then returns the
+ * plain view. Shared references and cycles handled via the visited set. */
 export function deepNext<T>(value: T): T {
   const t0: StoreNextTarget | undefined = (value as any)?.[$TARGET];
   if (t0 === undefined || t0.px !== value) return value;

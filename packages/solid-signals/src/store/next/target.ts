@@ -56,7 +56,7 @@ export interface StoreNextTarget {
   /** PROTOTYPE (stage-2 ceiling): per-record compiled patch fn — one call
    * per record with (next, prev) raw backings; does its own compares and
    * writes (octane-style compiled patch driven by the data diff). */
-  p: ((next: any, prev: any) => void) | null;
+  p: object[] | null;
   /** PROTOTYPE (stage-2 ceiling): per-record binding registry — key ->
    * direct DOM write. Dispatched from the adoption walk. Internal-only. */
   b: Record<PropertyKey, (v: any) => void> | null;
@@ -123,4 +123,14 @@ export interface OptStoreHooks {
 export let optHooks: OptStoreHooks | null = null;
 export function setOptHooks(h: OptStoreHooks): void {
   optHooks = h;
+}
+
+/** Sticky descendants flag walk (§6d): reconcile's keyed pruning descends
+ * only where subscriptions exist at/below. Nodes AND patches count. */
+export function markDescendants(target: StoreNextTarget): void {
+  let t: StoreNextTarget | null = target;
+  while (t && !t.d) {
+    t.d = true;
+    t = t.u;
+  }
 }

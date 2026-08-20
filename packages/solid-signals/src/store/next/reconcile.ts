@@ -19,6 +19,7 @@
  *   members (R11). Kind changes replace wholesale (R10).
  */
 import { isEqual } from "../../core/index.js";
+import { emitPatchLocal } from "./patch.js";
 import {
   $PROXY,
   $TARGET,
@@ -126,6 +127,10 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
   const shallow = t.s === true;
   const old = t.v;
   adoptPB(t, incoming, eager);
+  // Patch channel (adoption site): this record transitioned — queue its
+  // patches with the pre-adopt prev. No bubbling walk: the adoption walk
+  // visits parents before children, so ancestors emitted already.
+  if (t.p !== null) emitPatchLocal(t, incoming, old);
   // Shallow adoption: records are slot values — sticky raw-mark the incoming
   // set (R41) and never descend; slot notification is the positional diff.
   if (shallow) markRawIngest(incoming);
@@ -289,10 +294,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       t.dk === null &&
       fam === null
     ) {
-      // Adoption already ran at applyAdopt entry (adoptPB swaps the backing
-      // to `incoming`); `old` is the pre-adopt raw captured there — the
-      // patch's prev side.
-      t.p(incoming, old);
+      // Adoption already ran at applyAdopt entry; emission was queued there.
       return;
     }
     const nodes = eager ? t.n : null;
