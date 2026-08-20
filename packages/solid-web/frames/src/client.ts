@@ -658,6 +658,10 @@ function boundaryComponent(host: any, fnId: string) {
       // placeholder mount) binds the function id — the argless address.
       id,
       slots: slotsFor(props),
+      // Raw client props (compiled getters — live at every read): behavior
+      // claims (`_bnd` markers on server elements) resolve ref/event props
+      // by name through these at dispatch/materialize time.
+      props,
       ownerScope: boundaryScope(owner),
       reveal: revealSeam(owner),
       // Any apply releases the gate — content ("materialize") is the normal
@@ -1079,6 +1083,9 @@ function adoptBoundary(
     host,
     id: address,
     slots: slotsFor(props),
+    // Raw client props for behavior-claim resolution (see the stream-mount
+    // counterpart above).
+    props,
     ownerScope: boundaryScope(owner),
     reveal: revealSeam(owner),
     // Any apply for the currently bound address — a morph, a reveal, an
