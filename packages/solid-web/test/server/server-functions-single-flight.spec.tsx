@@ -46,6 +46,7 @@ function flightRequest(id: string) {
   return new Request("http://localhost/_server", {
     method: "POST",
     headers: {
+      "Sec-Fetch-Site": "same-origin",
       "X-Server-Function-Id": id,
       "X-Server-Function-Instance": "server-function:test",
       [SINGLE_FLIGHT_HEADER]: "true"
@@ -106,11 +107,11 @@ describe("single-flight client bridge (built client bundle)", () => {
   // handler — a full round trip through both published bundles.
   function connectTransport(options?: Parameters<typeof handleServerFunctionRequest>[1]) {
     const original = globalThis.fetch;
-    globalThis.fetch = ((url: string, init?: RequestInit) =>
-      handleServerFunctionRequest(
-        new Request(new URL(url, "http://localhost"), init),
-        options
-      )) as typeof fetch;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      const request = new Request(new URL(url, "http://localhost"), init);
+      request.headers.set("Sec-Fetch-Site", "same-origin");
+      return handleServerFunctionRequest(request, options);
+    }) as typeof fetch;
     return () => {
       globalThis.fetch = original;
     };
