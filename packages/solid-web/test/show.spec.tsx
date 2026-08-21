@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { createRoot, createSignal, Show, flush, isPending } from "solid-js";
+import { createMemo, createRoot, createSignal, Show, flush, isPending } from "solid-js";
 import { render } from "../src/index.js";
 
 describe("Testing an only child show control flow", () => {
@@ -436,5 +436,85 @@ describe("Sibling Shows with isPending in a fragment (#2963)", () => {
     expect(div.textContent).toBe("result:ok");
 
     dispose();
+  });
+});
+
+describe("isPending in Show `when` outside a Loading boundary (#3028)", () => {
+  // `<Show when={isPending(a)}>` compiles to a memo of the bare probe. That
+  // memo recomputes during the write's flush before the downstream async memo
+  // pends, reads a's held value fresh, and the fresh-read pairing rule
+  // (#2831) suppressed the verdict — the indicator never showed for the
+  // whole flight even though an untracked isPending(a) read true.
+  const tick = async () => {
+    await new Promise(r => setTimeout(r, 0));
+    flush();
+  };
+
+  function setup(when: (a: () => number) => boolean) {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const [a, setA] = createSignal(0);
+    const resolvers: Array<() => void> = [];
+    const double = createMemo(async () => {
+      const x = a();
+      await new Promise<void>(r => resolvers.push(r));
+      return x * 2;
+    });
+    const dispose = render(
+      () => (
+        <div>
+          Count: {a()} {double()}
+          <Show when={when(a)}>...</Show>
+        </div>
+      ),
+      container
+    );
+    return {
+      container,
+      setA,
+      resolveAll: () => resolvers.splice(0).forEach(r => r()),
+      cleanup() {
+        dispose();
+        document.body.removeChild(container);
+      }
+    };
+  }
+
+  test("shows the pending indicator while the async memo refetches", async () => {
+    const t = setup(a => isPending(a));
+    flush();
+    t.resolveAll();
+    await tick();
+    expect(t.container.textContent).toBe("Count: 0 0");
+
+    t.setA(1);
+    flush();
+    // refetch in flight: stale view plus the pending indicator
+    expect(t.container.textContent).toBe("Count: 0 0...");
+
+    t.resolveAll();
+    await tick();
+    expect(t.container.textContent).toBe("Count: 1 2");
+    t.cleanup();
+  });
+
+  test("variant B from the issue: when reads a() before isPending(a)", async () => {
+    const t = setup(a => {
+      a();
+      return isPending(a);
+    });
+    flush();
+    t.resolveAll();
+    await tick();
+    expect(t.container.textContent).toBe("Count: 0 0");
+
+    t.setA(1);
+    flush();
+    expect(t.container.textContent).toBe("Count: 0 0...");
+
+    t.resolveAll();
+    await tick();
+    expect(t.container.textContent).toBe("Count: 1 2");
+    t.cleanup();
   });
 });

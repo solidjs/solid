@@ -10,6 +10,7 @@ import {
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
   REACTIVE_MANUAL_WRITE,
+  REACTIVE_OPTIMISTIC_DIRTY,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
@@ -36,19 +37,21 @@ import {
 } from "./core.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { insertIntoHeap, markHeap, queueFor } from "./heap.js";
+import { enqueueSub, insertIntoHeap, markHeap, queueFor } from "./heap.js";
 import { devTrackCompanionOwner, InvariantHooks } from "./invariants.js";
-import { findLane, hasActiveOverride } from "./lanes.js";
+import { assignOrMergeLane, findLane, hasActiveOverride } from "./lanes.js";
 import { installOptimisticEngine } from "./optimistic.js";
 import {
   activeAffectsMarks,
   activeTransition,
   clock,
+  currentTransition,
   dirtyQueue,
   GlobalQueue,
   insertSubs,
   schedule,
-  zombieQueue
+  zombieQueue,
+  type Transition
 } from "./scheduler.js";
 import type { Computed, FirewallSignal, Signal } from "./types.js";
 
@@ -61,8 +64,17 @@ interface PendingProbe {
   found: boolean;
   sources: Set<Signal<any> | Computed<any>>;
   freshReads: Set<Signal<any> | Computed<any>>;
+  suppressed: Array<Signal<any> | Computed<any>>;
 }
 let pendingProbe: PendingProbe | null = null;
+
+/**
+ * Probes whose verdict was suppressed by the fresh-read pairing rule while
+ * the held write's fate was still undecided (see recordFreshRead /
+ * wakeSuppressedProbes): held node → the wrapper computeds that probed it.
+ * Entries die with the hold — the commit/revert snap clears them.
+ */
+const suppressedProbes: Map<Signal<any> | Computed<any>, Set<Computed<any>>> = new Map();
 
 /**
  * Get or create the pending signal for a node (lazy).
@@ -251,7 +263,43 @@ function repollDownstreamVerdicts(el: Computed<any>, snap: boolean = false): voi
   visit(el);
 }
 
+/**
+ * The correction half of the provisional fresh-read suppression (see
+ * collectPending): fired from the sanctioned async-registration site
+ * (GlobalQueue.notify) when a transaction gains an in-flight async blocker.
+ * Every probe that returned "not pending" purely because it read a held
+ * value belonging to that transaction re-runs — its re-probe now sees the
+ * live blocker through heldAwaitingAsync and lands the true verdict. The
+ * wake mirrors a companion write's own notification (optimistic-dirty on the
+ * companion's lane) so the corrected verdict commits and flushes immediately
+ * instead of being held with the transaction it reports on.
+ */
+function wakeSuppressedProbes(transition: Transition): void {
+  if (suppressedProbes.size === 0) return;
+  let woke = false;
+  for (const [node, probes] of suppressedProbes) {
+    const t = node._transition ? currentTransition(node._transition) : null;
+    if (!t) {
+      suppressedProbes.delete(node);
+      continue;
+    }
+    if (t !== transition) continue;
+    suppressedProbes.delete(node);
+    const lane = node._pendingSignal?._optimisticLane;
+    for (const p of probes) {
+      if (p._flags & REACTIVE_DISPOSED) continue;
+      p._flags |= REACTIVE_OPTIMISTIC_DIRTY;
+      if (lane) assignOrMergeLane(p, lane);
+      else p._optimisticLane = undefined;
+      enqueueSub(p);
+      woke = true;
+    }
+  }
+  if (woke) schedule();
+}
+
 function snapCompanionsToState(owner: Signal<any> | Computed<any>): void {
+  suppressedProbes.size !== 0 && suppressedProbes.delete(owner);
   const sig = owner._pendingSignal;
   if (sig && (sig._overrideValue === undefined || sig._overrideValue === NOT_PENDING)) {
     const pending = computePendingState(owner);
@@ -376,9 +424,33 @@ function pendingCheckRead(
   setPendingCheckActive(true);
 }
 
+/**
+ * A held node whose transaction still has an async question in flight. The
+ * probe's fresh-read pairing rule (#2831 — "a reader that sees the fresh
+ * value must not also be told it is pending") only applies to LANDED answers
+ * awaiting reveal; while the answer is still computing, the fresh value the
+ * reader saw is an input, and pending remains the truth for every reader
+ * (#3028).
+ */
+function heldAwaitingAsync(el: Signal<any> | Computed<any>): boolean {
+  const t = el._transition ? currentTransition(el._transition) : null;
+  if (!t || t._done) return false;
+  for (const [source, reporters] of t._asyncReporters) {
+    if (
+      reporters.size &&
+      source._statusFlags & STATUS_PENDING &&
+      (source._error as NotReadyError | undefined)?.source === source
+    )
+      return true;
+  }
+  return false;
+}
+
 function recordFreshRead(el: Signal<any> | Computed<any>, value: any): void {
-  if (pendingProbe !== null && el._pendingValue !== NOT_PENDING && value === el._pendingValue)
+  if (pendingProbe !== null && el._pendingValue !== NOT_PENDING && value === el._pendingValue) {
+    if (heldAwaitingAsync(el)) return;
     pendingProbe.freshReads.add(el);
+  }
 }
 
 function applyReask(el: Computed<any>, hadReask: boolean): boolean {
@@ -406,7 +478,8 @@ export function isPending(fn: () => any): boolean {
   const probe: PendingProbe = (pendingProbe = {
     found: false,
     sources: new Set(),
-    freshReads: new Set()
+    freshReads: new Set(),
+    suppressed: []
   });
   const collectPending = () => {
     setPendingCheckActive(false);
@@ -414,11 +487,31 @@ export function isPending(fn: () => any): boolean {
     if (__DEV__) setStrictRead(false);
     try {
       probe.sources.forEach(source => {
-        if (read(getPendingSignal(source)) && !probe.freshReads.has(source)) probe.found = true;
+        if (read(getPendingSignal(source))) {
+          if (!probe.freshReads.has(source)) probe.found = true;
+          else probe.suppressed.push(source);
+        }
       });
     } finally {
       if (__DEV__) setStrictRead(prevStrictRead);
       setPendingCheckActive(true);
+    }
+    // A "not pending" verdict that exists only because this reader saw the
+    // fresh held value is provisional: if the write turns out NOT to commit
+    // this flush (a downstream async pends and holds it), the suppression was
+    // wrong and the wrapper must re-ask (#3028). Remember who to wake — the
+    // async registration (GlobalQueue.notify) triggers wakeSuppressedProbes.
+    if (
+      !probe.found &&
+      probe.suppressed.length &&
+      context &&
+      typeof (context as Partial<Computed<unknown>>)._fn === "function"
+    ) {
+      for (const source of probe.suppressed) {
+        let probes = suppressedProbes.get(source);
+        if (!probes) suppressedProbes.set(source, (probes = new Set()));
+        probes.add(context as Computed<any>);
+      }
     }
   };
   try {
@@ -452,6 +545,7 @@ GlobalQueue._recordFresh = recordFreshRead;
 GlobalQueue._applyReask = applyReask;
 GlobalQueue._repollVerdicts = repollDownstreamVerdicts;
 GlobalQueue._witnessAffects = witnessAffects;
+GlobalQueue._wakeSuppressedProbes = wakeSuppressedProbes;
 
 if (__DEV__) {
   InvariantHooks.pendingProbeActive = () => pendingProbe !== null;

@@ -428,6 +428,9 @@ export class GlobalQueue extends Queue {
   static _applyReask: ((el: Computed<any>, hadReask: boolean) => boolean) | null = null;
   static _repollVerdicts: ((el: Computed<any>, snap?: boolean) => void) | null = null;
   static _witnessAffects: ((node: OptimisticNode) => void) | null = null;
+  // Re-asks probes whose verdict was provisionally suppressed by a fresh read
+  // of a held value, once the transaction gains an async blocker (#3028).
+  static _wakeSuppressedProbes: ((transition: Transition) => void) | null = null;
   // Optimistic-engine hooks (wired by core/optimistic.ts via
   // installOptimisticEngine(), called from verdict.ts / createOptimistic /
   // createOptimisticStore — every module that can create optimistic state).
@@ -586,7 +589,10 @@ export class GlobalQueue extends Queue {
           if (__DEV__) endAsyncReporterWrites();
           const prevSize = reporters.size;
           reporters.add(node);
-          if (reporters.size !== prevSize) schedule();
+          if (reporters.size !== prevSize) {
+            schedule();
+            GlobalQueue._wakeSuppressedProbes?.(activeTransition);
+          }
         }
         if (__DEV__ && _enforceLoadingBoundary) _hitUnhandledAsync = true;
       }
