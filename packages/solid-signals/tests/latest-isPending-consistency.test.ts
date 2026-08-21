@@ -197,3 +197,218 @@ describe("latest/isPending consistency (#2831)", () => {
     expect(log).toEqual(["sig=[latest=2 pend=false] memo=[latest=20 pend=false]"]);
   });
 });
+
+/**
+ * #3028 — a wrapper memo probing `isPending(a)` without also reading the
+ * async memo derived from `a`.
+ *
+ * The failing shape: `createMemo(() => isPending(a))` (what `<Show
+ * when={isPending(a)}>` compiles to) recomputes during the write's flush,
+ * BEFORE the downstream async memo pends. Its probe read `a`'s held value
+ * fresh, so the fresh-read pairing rule above suppressed the verdict — and
+ * with no transaction registered yet, nothing ever re-asked, so the wrapper
+ * stayed false for the whole flight.
+ *
+ * The fix is two-sided: the pairing rule only suppresses for landed answers
+ * awaiting reveal (a held INPUT whose transaction still has async in flight
+ * stays pending for every reader), and a probe suppressed before the async
+ * registered is recorded and re-woken at the registration site.
+ */
+describe("isPending wrapper memo over a signal with async downstream (#3028)", () => {
+  const tick = async () => {
+    await new Promise(r => setTimeout(r, 0));
+    flush();
+  };
+
+  function makeAsyncDouble(a: () => number) {
+    const resolvers: Array<() => void> = [];
+    const double = createMemo(async () => {
+      const x = a();
+      await new Promise<void>(r => resolvers.push(r));
+      return x * 2;
+    });
+    return { double, resolveAll: () => resolvers.splice(0).forEach(r => r()) };
+  }
+
+  it("memo of bare isPending(a) flips true while downstream async is in flight", async () => {
+    const [a, setA] = createSignal(0);
+    let resolveAll!: () => void;
+    let dispose!: () => void;
+    const pendingLog: boolean[] = [];
+    const doubleLog: number[] = [];
+    createRoot(d => {
+      dispose = d;
+      const source = makeAsyncDouble(a);
+      resolveAll = source.resolveAll;
+      const m = createMemo(() => isPending(a));
+      createRenderEffect(
+        () => source.double(),
+        v => {
+          doubleLog.push(v);
+        }
+      );
+      createRenderEffect(
+        () => m(),
+        v => {
+          pendingLog.push(v);
+        }
+      );
+    });
+    flush();
+    resolveAll();
+    await tick();
+    expect(doubleLog).toEqual([0]);
+    expect(pendingLog).toEqual([false]);
+
+    setA(1);
+    flush();
+    // async in flight: a's new question is unanswered — isPending(a) must be true
+    expect(pendingLog).toEqual([false, true]);
+
+    resolveAll();
+    await tick();
+    expect(doubleLog).toEqual([0, 2]);
+    expect(pendingLog).toEqual([false, true, false]);
+    dispose();
+  });
+
+  it("memo reading both a() and isPending(a) flips true (issue variant B)", async () => {
+    const [a, setA] = createSignal(0);
+    let resolveAll!: () => void;
+    let dispose!: () => void;
+    const pendingLog: boolean[] = [];
+    createRoot(d => {
+      dispose = d;
+      const source = makeAsyncDouble(a);
+      resolveAll = source.resolveAll;
+      createRenderEffect(
+        () => source.double(),
+        () => {}
+      );
+      const m = createMemo(() => (a(), isPending(a)));
+      createRenderEffect(
+        () => m(),
+        v => {
+          pendingLog.push(v);
+        }
+      );
+    });
+    flush();
+    resolveAll();
+    await tick();
+    expect(pendingLog).toEqual([false]);
+
+    setA(1);
+    flush();
+    expect(pendingLog).toEqual([false, true]);
+
+    resolveAll();
+    await tick();
+    expect(pendingLog).toEqual([false, true, false]);
+    dispose();
+  });
+
+  it("control: memo reading double() too flips true (issue's workaround)", async () => {
+    const [a, setA] = createSignal(0);
+    let resolveAll!: () => void;
+    let dispose!: () => void;
+    const pendingLog: boolean[] = [];
+    createRoot(d => {
+      dispose = d;
+      const source = makeAsyncDouble(a);
+      resolveAll = source.resolveAll;
+      const m = createMemo(() => (source.double(), isPending(a)));
+      createRenderEffect(
+        () => {
+          try {
+            return m();
+          } catch {
+            return false;
+          }
+        },
+        v => {
+          pendingLog.push(v);
+        }
+      );
+    });
+    flush();
+    resolveAll();
+    await tick();
+
+    setA(1);
+    flush();
+    expect(pendingLog[pendingLog.length - 1]).toBe(true);
+
+    resolveAll();
+    await tick();
+    expect(pendingLog[pendingLog.length - 1]).toBe(false);
+    dispose();
+  });
+
+  it("plain sync write (no async downstream) never glitches the wrapper true", () => {
+    const [a, setA] = createSignal(0);
+    let dispose!: () => void;
+    const pendingLog: boolean[] = [];
+    createRoot(d => {
+      dispose = d;
+      const m = createMemo(() => isPending(a));
+      createRenderEffect(
+        () => m(),
+        v => {
+          pendingLog.push(v);
+        }
+      );
+    });
+    flush();
+    expect(pendingLog).toEqual([false]);
+
+    setA(1);
+    flush();
+    // The held-write companion churn inside the flush must not surface: a
+    // plain write commits this flush, so the wrapper never reports pending.
+    expect(pendingLog).toEqual([false]);
+    dispose();
+  });
+
+  it("second write during an open flight keeps the wrapper true", async () => {
+    const [a, setA] = createSignal(0);
+    let resolveAll!: () => void;
+    let dispose!: () => void;
+    const pendingLog: boolean[] = [];
+    createRoot(d => {
+      dispose = d;
+      const source = makeAsyncDouble(a);
+      resolveAll = source.resolveAll;
+      createRenderEffect(
+        () => source.double(),
+        () => {}
+      );
+      const m = createMemo(() => isPending(a));
+      createRenderEffect(
+        () => m(),
+        v => {
+          pendingLog.push(v);
+        }
+      );
+    });
+    flush();
+    resolveAll();
+    await tick();
+    expect(pendingLog).toEqual([false]);
+
+    setA(1);
+    flush();
+    expect(pendingLog).toEqual([false, true]);
+
+    setA(2);
+    flush();
+    expect(pendingLog).toEqual([false, true]);
+
+    resolveAll();
+    await tick();
+    resolveAll();
+    await tick();
+    expect(pendingLog).toEqual([false, true, false]);
+    dispose();
+  });
+});
