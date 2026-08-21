@@ -409,6 +409,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // paying it per effect on the plain path is pure overhead.
         (isEffect && (activeTransition !== el._transition || activeTransition === null)) ||
         isOptimisticDirty
+        // NOTE (stage-3, 2026-08-21): a quiet-world MEMO direct-commit was
+        // attempted here and REVERTED — memo staging is load-bearing beyond
+        // transitions: mid-batch pulls (latest()/isPending()/read-triggered
+        // recomputes before sources commit) must see the fresh value while
+        // PLAIN reads stay committed until flush (#3009 purity). The pending
+        // round-trip is that separation; it cannot be skipped on any path a
+        // pull can reach.
       ) {
         el._value = value;
         // Lane-propagated correction: upstream data is fresh, correct the
