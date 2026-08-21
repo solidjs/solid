@@ -137,6 +137,14 @@ export interface Computed<T> extends RawSignal<T>, Owner {
    */
   _reask: boolean;
   /**
+   * Clock tick at which REACTIVE_MANUAL_WRITE was last applied
+   * (`suppressComputedRecompute`). Lets `refresh()` distinguish a same-tick
+   * manual write (which wins over the refresh, #2692) from a mask carried
+   * across ticks by a transaction (which an explicit refresh lifts, #3026).
+   * Only meaningful while REACTIVE_MANUAL_WRITE is set.
+   */
+  _manualWriteTime?: number;
+  /**
    * True while a `loadingValue` node's first real answer hasn't landed: the
    * node was born committed (commit #0 = the loading value) and `handleAsync`
    * serves that committed value instead of throwing NotReadyError, so first

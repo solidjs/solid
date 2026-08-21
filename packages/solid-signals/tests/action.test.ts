@@ -5,7 +5,9 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
-  flush
+  createStore,
+  flush,
+  refresh
 } from "../src/index.js";
 
 afterEach(() => flush());
@@ -575,6 +577,89 @@ describe("action", () => {
       expect($a()).toBe(10);
       expect($b()).toBe(20);
       expect($c()).toBe(30);
+    });
+  });
+
+  describe("refresh(store) inside an action (#3026)", () => {
+    // A setStore on a derived store masks its recompute for the tick
+    // (REACTIVE_MANUAL_WRITE, #2692). Inside an action the mask survives
+    // until the transaction commits, so a later explicit refresh() was
+    // silently swallowed and the store source never re-ran. refresh() now
+    // lifts a mask stamped in an earlier tick.
+    it("re-runs the source after a setStore absorbed into the action transaction", async () => {
+      const data = { messages: [] as number[] };
+      let evals = 0;
+      const [store, setStore] = createRoot(() => {
+        const [s, sStore] = createStore(
+          () => {
+            evals++;
+            return data;
+          },
+          { messages: [] as number[] }
+        );
+        createRenderEffect(
+          () => JSON.stringify(s.messages),
+          () => {}
+        );
+        return [s, sStore] as const;
+      });
+      flush();
+      expect(evals).toBe(1);
+
+      const myAction = action(function* () {
+        yield new Promise(r => setTimeout(r, 10));
+        refresh(store);
+      });
+
+      const p = myAction();
+      // The issue shape: a setStore write while the action's transition is
+      // still ambient, plus an external source mutation.
+      setStore(s => {
+        s.messages.push(1);
+      });
+      data.messages.push(2);
+      await p;
+      flush();
+      expect(evals).toBe(2);
+    });
+
+    it("reconciles a fresh source result over the draft write at action commit", async () => {
+      let fetched = { messages: [10] as number[] };
+      let evals = 0;
+      const [store, setStore] = createRoot(() => {
+        const [s, sStore] = createStore(
+          () => {
+            evals++;
+            return JSON.parse(JSON.stringify(fetched)) as typeof fetched;
+          },
+          { messages: [] as number[] }
+        );
+        createRenderEffect(
+          () => JSON.stringify(s.messages),
+          () => {}
+        );
+        return [s, sStore] as const;
+      });
+      flush();
+      expect(evals).toBe(1);
+      expect(store.messages).toEqual([10]);
+
+      const myAction = action(function* () {
+        yield new Promise(r => setTimeout(r, 10));
+        refresh(store);
+      });
+
+      const p = myAction();
+      setStore(s => {
+        s.messages.push(1);
+      });
+      fetched = { messages: [10, 20] };
+      await p;
+      flush();
+      // refresh() came after the setStore in program order: the re-derived
+      // result wins over the transaction draft.
+      expect(evals).toBe(2);
+      expect(store.messages).toEqual([10, 20]);
     });
   });
 
