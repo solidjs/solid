@@ -1108,6 +1108,7 @@ export function suppressComputedRecompute(el: Computed<unknown>): void {
     schedule();
   }
   el._flags = (el._flags & ~(REACTIVE_DIRTY | REACTIVE_CHECK)) | REACTIVE_MANUAL_WRITE;
+  el._manualWriteTime = clock;
 }
 
 /**
@@ -1232,10 +1233,19 @@ export function refresh<T>(target: Refreshable<T>): void {
     });
     throw new Error(REACTIVE_WRITE_IN_OWNED_SCOPE_REFRESH_MESSAGE);
   }
-  if (
-    typeof node._fn === "function" &&
-    !(node._flags & (REACTIVE_DISPOSED | REACTIVE_MANUAL_WRITE))
-  ) {
+  if (typeof node._fn === "function" && !(node._flags & REACTIVE_DISPOSED)) {
+    if (node._flags & REACTIVE_MANUAL_WRITE) {
+      // A manual write in the CURRENT tick wins over the refresh (#2692).
+      // A mask stamped in an earlier tick only survives because a
+      // transaction (action) is holding the pending drain open; there the
+      // refresh is a later, explicit re-ask and lifts the mask — otherwise
+      // any setStore early in an action silently swallows every refresh()
+      // for the rest of the transaction (#3026).
+      if (node._manualWriteTime === clock) return;
+      node._flags &= ~REACTIVE_MANUAL_WRITE;
+      // No REASK below: the batch carries a manual value change, so the
+      // recompute is not a quiet re-ask of an unchanged question.
+    }
     // A refresh with no value-change dirt already queued is a re-ask of the
     // same question: mark it so the recompute classifies any resulting
     // pending window as quiet (not pending). If the node is already dirty
@@ -1243,7 +1253,7 @@ export function refresh<T>(target: Refreshable<T>): void {
     // REACTIVE_IN_HEAP counts as dirt: insertSubs schedules subscribers by
     // heap insertion alone (no DIRTY/CHECK flag), so a same-batch value
     // change followed by refresh() must not be laundered into a quiet re-ask.
-    if (!(node._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_IN_HEAP))) {
+    else if (!(node._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_IN_HEAP))) {
       node._flags |= REACTIVE_REASK;
       armReaskClear();
     }

@@ -15,6 +15,7 @@ import {
   merge,
   omit,
   reconcile,
+  refresh,
   snapshot,
   storePath,
   untrack
@@ -1321,6 +1322,65 @@ describe("derived store manual writes", () => {
     setSource({ count: 2 });
     flush();
     expect(store.count).toBe(2);
+  });
+
+  it("same-tick manual write wins over refresh() in both orders (#2692)", () => {
+    let evals = 0;
+    const [store, setStore] = createRoot(() => {
+      const [source] = createSignal({ count: 0 });
+      const [s, sStore] = createStore<{ count: number }>(
+        () => {
+          evals++;
+          return { count: source().count };
+        },
+        { count: 0 }
+      );
+      return [s, sStore] as const;
+    });
+    flush();
+    expect(evals).toBe(1);
+
+    setStore(s => {
+      s.count = 99;
+    });
+    refresh(store);
+    flush();
+    expect(evals).toBe(1);
+    expect(store.count).toBe(99);
+
+    refresh(store);
+    setStore(s => {
+      s.count = 100;
+    });
+    flush();
+    expect(evals).toBe(1);
+    expect(store.count).toBe(100);
+  });
+
+  it("refresh() on a later tick re-runs the derived store source (#3026)", () => {
+    let evals = 0;
+    const [store, setStore] = createRoot(() => {
+      const [source] = createSignal({ count: 0 });
+      const [s, sStore] = createStore<{ count: number }>(
+        () => {
+          evals++;
+          return { count: source().count };
+        },
+        { count: 0 }
+      );
+      return [s, sStore] as const;
+    });
+    flush();
+    setStore(s => {
+      s.count = 99;
+    });
+    flush();
+    expect(store.count).toBe(99);
+
+    refresh(store);
+    flush();
+    expect(evals).toBe(2);
+    expect(store.count).toBe(0);
   });
 });
 
