@@ -672,3 +672,25 @@ Stage-3 fix shapes, now specific:
 Both are measurable per-commit via `TESTS=<name> FRAMEWORKS=solid-next node
 packages/node/dist/index.js` in the reactivity-benchmark fork (profiles/
 holds the capture tooling: profile-tax.sh + summarize-profiles.mjs).
+
+### 11c. Stage-3 increment log (2026-08-21)
+
+- LANDED: hot-path shape alignment + presence bits (§11b fix shape 2's
+  mechanical layer): signal/computed/effect literals carry the shared hot-
+  path slots; CONFIG_OPTIMISTIC/HAS_COMPANIONS/HAS_SNAPSHOT/HAS_LANE gate
+  optional-slot probes in setSignal/insertSubs/commit/recompute; optimistic
+  constructors no longer fork hidden classes. ~7-10% on write-path benches
+  (idle-machine); core-floor ceiling consciously +~120B.
+- LANDED: patch-channel held emissions stash on the transition object (one
+  property read per flush commit; WeakMap dropped).
+- RULED OUT (the experiment that mattered): quiet-world memo direct-commit.
+  #3009's latest()/plain-write purity family failed immediately — mid-batch
+  pulls must see fresh values while plain reads stay committed until flush;
+  the pending round-trip IS that separation. The update-path commit cost is
+  semantic price. Write-path headroom therefore narrows to per-step trims;
+  the big §11 lever standing is CREATION (allocation: 553B/computed,
+  384B/signal measured; node diet yields single digits — the real question
+  is structural, i.e. the TSRX/codegen conversation for creation-heavy
+  paths, or owner-tree slimming at rewrite scale).
+- MEASUREMENT DISCIPLINE: daytime load inflates these µs benches ~10-15%
+  (r3 control moves identically). Verify by profile shape or idle runs.
