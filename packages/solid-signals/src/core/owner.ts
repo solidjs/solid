@@ -17,7 +17,7 @@ import {
   tracking
 } from "./core.js";
 import { clearSignals, DEV, emitDiagnostic } from "./dev.js";
-import { unlinkSubs, unobserved } from "./graph.js";
+import { clearDeps, unobserved } from "./graph.js";
 import { deleteFromHeap, insertIntoHeap, insertIntoHeapHeight, queueFor } from "./heap.js";
 import { dirtyQueue, GlobalQueue, globalQueue, zombieQueue } from "./scheduler.js";
 import type { Computed, Disposable, Link, Owner, Root } from "./types.js";
@@ -90,15 +90,10 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     // the dirty heap, and left there the post-disposal flush recomputes it —
     // recompute() rewriting `_flags` clears REACTIVE_DISPOSED and the node
     // comes back to life (post-unmount runs, leaked cleanups, #2983).
-    if (n._flags & (REACTIVE_IN_HEAP | REACTIVE_IN_HEAP_HEIGHT)) deleteFromHeap(n, queueFor(n));
-    if (n._deps) {
-      let toRemove: Link | null = n._deps;
-      do {
-        toRemove = unlinkSubs(toRemove);
-      } while (toRemove !== null);
-      n._deps = null;
-      n._depsTail = null;
-    }
+    // deleteFromHeap self-guards on the in-heap flags (and tolerates plain
+    // Owners, whose _flags is undefined), so no gate here.
+    deleteFromHeap(n, queueFor(n));
+    clearDeps(n);
     disposeChildren(child, true);
     child = nextChild;
   }
