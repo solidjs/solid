@@ -203,8 +203,14 @@ module.exports = [
     // seroval trace plugin itself rides the codec's DEFAULT plugin set in
     // dom-expressions, so its weight stays in the lazy codec chunk this
     // scenario excludes.
+    //
+    // 10.4 -> 11.1 KB, measured at 10.87: the settled dom-expressions batch
+    // — §9.1 Stage 6 (behavior props / client-component kill) in the frames
+    // client plus server-function call observers (pr-570) in the transport.
+    // Verified via metafile that the bundle is still exactly the two dist
+    // files (no seroval creep — the regression this scenario guards).
     path: "../../packages/solid-web/frames/dist/client.js",
-    limit: "10.4 KB",
+    limit: "11.1 KB",
     modifyEsbuildConfig: framesEsbuildConfig
   }
 ];

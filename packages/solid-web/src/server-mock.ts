@@ -53,6 +53,13 @@ export type AssetResolverFn = (
 ) => ResolvedAssets | null | undefined | Promise<ResolvedAssets | null | undefined>;
 
 /**
+ * CSP nonce for the tags a server render emits. A string applies to both
+ * nonce-aware destinations; a `{ script, style }` pair routes each tag to
+ * its destination's nonce, with `false` leaving that destination un-nonced.
+ */
+export type CSPNonce = string | { script: string | false; style: string | false };
+
+/**
  * Renders a component tree synchronously to an HTML string. Async reads inside
  * `<Loading>` boundaries emit their `fallback` content; for full-graph
  * resolution await `renderToStream` instead.
@@ -70,7 +77,7 @@ export type AssetResolverFn = (
 export function renderToString<T>(
   fn: () => T,
   options?: {
-    nonce?: string;
+    nonce?: CSPNonce;
     renderId?: string;
     noScripts?: boolean;
     plugins?: any[];
@@ -120,7 +127,7 @@ export function renderToString<T>(
 export function renderToStream<T>(
   fn: () => T,
   options?: {
-    nonce?: string;
+    nonce?: CSPNonce;
     renderId?: string;
     noScripts?: boolean;
     plugins?: any[];
