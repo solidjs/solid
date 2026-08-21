@@ -532,3 +532,24 @@ dominate octane's direct writes). Several behind suites (todomvc,
 chat-stream, svg-dashboard) retain expression-children authoring — the
 same fixture-shape penalty dbmon had (16.4ms→3.1ms tick from authoring
 alone); re-authoring those is follow-up fixture work, not runtime work.
+
+### 10g. Shallow compiles; dbmon fixture goes shallow (2026-08-21)
+
+Ruling applied: the fixture carries the FASTEST correct authoring. The last
+hand-bound piece landed — shallow rows are raw, so patchDriver hands bodies
+whose subject IS the row to the driver's collector, and the driver
+dispatches them from the array's slot channel (emission graduated to channel
+semantics: key-aligned value slots only, queued, owner-dropped; structure
+rides row ops exclusively; kind-changing swaps hand off to classic).
+
+Local A/B (octane | deep-compiled | shallow-compiled):
+mount 8.8|12.5|10.1 — tick 3.7|3.9|3.2 — partial 1.5|1.1|1.0 —
+remount 9.1|10.3|9.6 — sort 4.9|5.1|4.7. Shallow wins every op vs deep and
+beats octane on tick/partial/sort; the mount gap halves (no per-row proxy
+creation at bind).
+
+Octane's own gated dbmon suite with the shallow fixture (gates green):
+tick 0.94x, partial 0.98x, remount 0.90x, sort 0.95x, mount 1.06x,
+unmount 1.62x (1ms abs) — geomean 1.05x, solid FASTER than octane on 4/6
+ops. Deep remains the full-contract mode at 1.08x geomean; shallow is the
+vdom-parity mode (O4 as ruled), now served by the same compiled output.
