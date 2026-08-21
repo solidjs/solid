@@ -406,6 +406,21 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
 
 const hasOwnP = Object.prototype.hasOwnProperty;
 
+/** Setter-channel row ops (the fold site calls this for array targets with
+ * ops consumers): structural mutation through the setter — push/splice/index
+ * assignment/permutation — is a visibility transition for the list container
+ * just like a reconcile walk, and drivers consuming registerRowOps must see
+ * it. Setter mutations move the SAME row objects around, so RAW IDENTITY is
+ * the key. Aligned arrays (value-only folds) emit nothing. */
+const identityKey = (r: any) => unwrapValue(r);
+export function emitSetterRowOps(t: StoreNextTarget, prevRows: any[], nextRows: any[]): void {
+  let p = 0;
+  const min = prevRows.length < nextRows.length ? prevRows.length : nextRows.length;
+  while (p < min && unwrapValue(prevRows[p]) === unwrapValue(nextRows[p])) p++;
+  if (p === prevRows.length && p === nextRows.length) return;
+  buildAndEmitRowOps(t, prevRows, nextRows, p, identityKey);
+}
+
 /** Shared row-ops builder (keyed deep branch + shallow/positional branch):
  * key-matches the misaligned window into { prefix, sources, removed }.
  * `keyFn === null` degrades to positional ops (append/truncate only). */

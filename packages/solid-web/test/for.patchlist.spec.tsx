@@ -108,6 +108,54 @@ describe("patch-mode list driver", () => {
     });
   });
 
+  test("setter-driven structure (push/splice/permutation) keeps the driven list in sync", () => {
+    createRoot(dispose => {
+      let div!: HTMLDivElement;
+      const [state, setState] = createStore({ rows: make(1, 2, 3) });
+      <div ref={div}>
+        <For each={state.rows}>{pureRow}</For>
+      </div>;
+      const [tr1, tr2, tr3] = rows(div);
+
+      // splice removal — surviving nodes retained.
+      setState(s => {
+        s.rows.splice(1, 1);
+      });
+      flush();
+      expect(labels(div)).toBe("L1,L3");
+      expect(rows(div)[0]).toBe(tr1);
+      expect(rows(div)[1]).toBe(tr3);
+      expect(tr2.isConnected).toBe(false);
+
+      // push — appended row binds at op-apply.
+      setState(s => {
+        s.rows.push({ id: 4, label: "L4" });
+      });
+      flush();
+      expect(labels(div)).toBe("L1,L3,L4");
+      expect(rows(div)[0]).toBe(tr1);
+
+      // in-place permutation — same records, nodes move.
+      setState(s => {
+        s.rows.reverse();
+      });
+      flush();
+      expect(labels(div)).toBe("L4,L3,L1");
+      expect(rows(div)[1]).toBe(tr3);
+      expect(rows(div)[2]).toBe(tr1);
+
+      // unshift — prepend binds new, retains the rest.
+      setState(s => {
+        s.rows.unshift({ id: 5, label: "L5" });
+      });
+      flush();
+      expect(labels(div)).toBe("L5,L4,L3,L1");
+      expect(rows(div)[3]).toBe(tr1);
+
+      dispose();
+    });
+  });
+
   test("array identity swap retains rows matched by raw identity", () => {
     createRoot(dispose => {
       let div!: HTMLDivElement;
@@ -176,19 +224,72 @@ describe("patch-mode list driver", () => {
     });
   });
 
-  test("empty initial list declines to classic and stays functional", () => {
+  test("empty initial list engages tentatively; first rows prove purity and drive", () => {
     createRoot(dispose => {
       let div!: HTMLDivElement;
+      const owners: unknown[] = [];
       const [state, setState] = createStore({ rows: [] as Row[] });
+      const spiedRow = (db: Row) => {
+        owners.push(getOwner());
+        return pureRow(db);
+      };
       <div ref={div}>
-        <For each={state.rows}>{pureRow}</For>
+        <For each={state.rows}>{spiedRow}</For>
+      </div>;
+      expect(rows(div).length).toBe(0);
+      // First arrival through the setter channel: deferred probe passes,
+      // rows bind ownerlessly (post-probe rows share the list owner).
+      setState(s => {
+        s.rows.push(...make(1, 2, 3));
+      });
+      flush();
+      expect(labels(div)).toBe("L1,L2,L3");
+      expect(owners.length).toBe(3);
+      expect(owners[1]).toBe(owners[2]);
+      // Still driven: reconcile structure + value patch both apply.
+      const [tr1] = rows(div);
+      setState(s => {
+        reconcile([make(3)[0], { id: 1, label: "Y1" }], "id")(s.rows);
+      });
+      flush();
+      expect(labels(div)).toBe("L3,Y1");
+      expect(rows(div)[1]).toBe(tr1);
+      dispose();
+    });
+  });
+
+  test("empty initial list with impure rows late-declines to a working classic path", () => {
+    createRoot(dispose => {
+      let div!: HTMLDivElement;
+      let effectRuns = 0;
+      const [state, setState] = createStore({ rows: [] as Row[] });
+      const impureRow = (db: Row) => {
+        const tr = pureRow(db);
+        createEffect(
+          () => db.label,
+          () => {
+            effectRuns++;
+          }
+        );
+        return tr;
+      };
+      <div ref={div}>
+        <For each={state.rows}>{impureRow}</For>
       </div>;
       expect(rows(div).length).toBe(0);
       setState(s => {
-        reconcile(make(1, 2), "id")(s.rows);
+        s.rows.push(...make(1, 2));
       });
       flush();
+      // The deferred probe declined; the classic re-entry rendered ALL rows
+      // with per-row owners (the effect lives and fires).
       expect(labels(div)).toBe("L1,L2");
+      setState(s => {
+        s.rows[0].label = "Z1";
+      });
+      flush();
+      expect(labels(div)).toBe("Z1,L2");
+      expect(effectRuns).toBeGreaterThan(0);
       dispose();
     });
   });

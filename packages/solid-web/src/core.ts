@@ -171,7 +171,7 @@ const lisPositions = (sources: number[]) => {
 // the driver. Rows therefore need no per-row owners: value updates ride each
 // record's registered patch, structure rides the array's row-ops channel,
 // and a removed row's registrations die with its record.
-export const driveList = (parent: Node, listFn: any, marker?: Node) => {
+export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?: () => void) => {
   const meta = listFn.$ll;
   // The decision read is id-ISOLATED: evaluating `each` can mint compiler
   // memos lazily inside the prop getter (wrapConditionals), and minting them
@@ -183,7 +183,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node) => {
   let subject: any = runWithOwner(evalOwner, () => untrack(meta.each));
   (evalOwner as any).dispose();
   let raw = subject != null ? patchableRaw(subject) : undefined;
-  if (raw === undefined || !Array.isArray(raw) || raw.length === 0) return false;
+  if (raw === undefined || !Array.isArray(raw)) return false;
 
   // Hydration precheck (claim + register only — §5): rows are the region's
   // server-rendered elements, claimed positionally through each element's
@@ -193,6 +193,9 @@ export const driveList = (parent: Node, listFn: any, marker?: Node) => {
   // id ("0" — pure rows consume no ids before the root claim), so the row
   // owner's id is the key minus that suffix.
   const hydrating = !!sharedConfig.hydrating;
+  // Empty-initial lists cannot probe under hydration (nothing to claim,
+  // nothing to probe) — classic hydration owns them.
+  if (hydrating && raw.length === 0) return false;
   let domRows: Element[] | undefined;
   let rowIds: string[] | undefined;
   if (hydrating) {
@@ -210,14 +213,14 @@ export const driveList = (parent: Node, listFn: any, marker?: Node) => {
   const rowFn = meta.row;
   const endAnchor = marker ?? null;
 
-  // Purity probe on row 0. A dirty or non-blank probe means the template
-  // needs reactive work (insert holes, nested components, onCleanup) that
-  // would leak without per-row disposal — decline and let mapArray own the
-  // list. While probing, that work is recorded-and-skipped rather than
-  // performed (see probeGate/effect above), so a declining probe costs one
-  // shallow clone even for rows nesting whole component subtrees. Disposing
-  // the probe owner also neutralizes any patch the bind registered (the
-  // channel skips disposed-owner entries).
+  // Purity probe: a dirty or non-blank probe means the template needs
+  // reactive work (insert holes, nested components, onCleanup) that would
+  // leak without per-row disposal — decline and let mapArray own the list.
+  // While probing, that work is recorded-and-skipped rather than performed
+  // (see probeGate/effect above), so a declining probe costs one shallow
+  // clone even for rows nesting whole component subtrees. Disposing the
+  // probe owner neutralizes any patch the bind registered (the channel
+  // skips disposed-owner entries).
   //
   // The probe owner carries its OWN detached id scope: an explicit id
   // consumes nothing from the ambient chain, and anything created inside
@@ -225,30 +228,55 @@ export const driveList = (parent: Node, listFn: any, marker?: Node) => {
   // instead of shifting the ambient one — a decline must leave the id chain
   // and claim registry exactly as classic hydration expects them. The probe
   // also runs with hydration suspended (fresh clone, no claims).
-  const probe = createOwner({ id: "&probe" });
-  const wasProbing = probing;
-  probing = true;
-  probeDirty = false;
-  let firstNode: Node;
-  let dirty: boolean;
-  if (hydrating) sharedConfig.hydrating = false;
-  try {
-    firstNode = runWithOwner(probe, () => untrack(() => rowFn(subject[0]))) as Node;
-  } finally {
-    dirty = probeDirty;
-    probing = wasProbing;
+  //
+  // EMPTY-INITIAL lists engage TENTATIVELY: there is no row to probe, so
+  // the probe defers to the first created row (inside the first structural
+  // op). A late decline tears the driver down and hands the region to the
+  // classic path through `lateClassic`.
+  let probed = false;
+  const runProbe = (abs: number): Node | undefined => {
+    const probe = createOwner({ id: "&probe" });
+    const wasProbing = probing;
+    probing = true;
     probeDirty = false;
-    if (hydrating) sharedConfig.hydrating = true;
-  }
-  if (dirty || !ownerIsBlank(probe as any) || !(firstNode! instanceof Node)) {
-    (probe as any).dispose();
-    return false;
+    let node: Node;
+    let dirty: boolean;
+    const wasHydrating = !!sharedConfig.hydrating;
+    if (wasHydrating) sharedConfig.hydrating = false;
+    try {
+      node = runWithOwner(probe, () => untrack(() => rowFn(subject[abs]))) as Node;
+    } finally {
+      dirty = probeDirty;
+      probing = wasProbing;
+      probeDirty = false;
+      if (wasHydrating) sharedConfig.hydrating = true;
+    }
+    if (dirty || !ownerIsBlank(probe as any) || !(node! instanceof Node)) {
+      (probe as any).dispose();
+      return undefined;
+    }
+    probed = true;
+    // Hydration keeps nothing from the probe (the claim pass rebinds); its
+    // clone and registration are discarded with the owner.
+    if (wasHydrating) {
+      (probe as any).dispose();
+      return node!;
+    }
+    return node!;
+  };
+
+  let firstNode: Node | undefined;
+  if (raw.length > 0) {
+    firstNode = runProbe(0);
+    if (firstNode === undefined) return false;
   }
 
-  // Engaged. The list owner consumes exactly one child id, mirroring the
-  // owner mapArray would have created — subsequent siblings' hydration ids
-  // stay aligned on both the engage and (pre-owner) decline paths.
+  // Engaged (or tentatively engaged when empty). The list owner consumes
+  // exactly one child id, mirroring the owner mapArray would have created —
+  // subsequent siblings' hydration ids stay aligned on both the engage and
+  // (pre-owner) decline paths.
   const listOwner = createOwner();
+  let declined = false;
   const bindRow = (abs: number, claimId?: string): Node =>
     runWithOwner(listOwner, () =>
       claimId !== undefined
@@ -258,18 +286,27 @@ export const driveList = (parent: Node, listFn: any, marker?: Node) => {
         : (untrack(() => rowFn(subject[abs])) as Node)
     ) as Node;
 
+  // Late decline (tentative engagement only): the first REAL row proved
+  // impure. Nothing driver-owned is in the DOM yet (the empty list rendered
+  // nothing; the probe clone was discarded), so teardown is registration-
+  // only, and the classic path re-enters with the region clean.
+  const lateDecline = () => {
+    declined = true;
+    unbindOps();
+    (listOwner as any).dispose();
+    lateClassic?.();
+  };
+
   let entries: Node[] = new Array(raw.length);
   let prevRaws: any[] = raw.slice();
   if (hydrating) {
     // Claim pass: each bind claims its server row through the row-scoped id
     // (getNextElement resolves the `_hk` registry entry); patchDriver skips
-    // the initial apply. The probe's fresh clone is discarded — disposing
-    // its owner also disarms the patch the probe bind registered.
-    (probe as any).dispose();
+    // the initial apply.
     for (let i = 0; i < raw.length; i++) entries[i] = bindRow(i, rowIds![i]);
-  } else {
-    entries[0] = firstNode;
-    parent.insertBefore(firstNode, endAnchor);
+  } else if (raw.length > 0) {
+    entries[0] = firstNode!;
+    parent.insertBefore(firstNode!, endAnchor);
     for (let i = 1; i < raw.length; i++) {
       const node = bindRow(i);
       entries[i] = node;
@@ -278,6 +315,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node) => {
   }
 
   const applyOps = (next: any[], ops: { prefix: number; sources: number[] }) => {
+    if (declined) return;
     const { prefix, sources } = ops;
     const retained = new Set<number>();
     for (let j = 0; j < sources.length; j++) if (sources[j] >= 0) retained.add(sources[j]);
@@ -293,7 +331,17 @@ export const driveList = (parent: Node, listFn: any, marker?: Node) => {
       const src = sources[j];
       let node: Node;
       if (src === -1) {
-        node = bindRow(abs);
+        if (!probed) {
+          // Deferred probe (tentative empty engagement): the first REAL row
+          // decides. Rows only ever arrive as pure creates here (the list
+          // was empty), so a decline leaves no driver DOM to unwind.
+          const probeNode = runWithOwner(listOwner, () => runProbe(abs)) as Node | undefined;
+          if (probeNode === undefined) {
+            lateDecline();
+            return;
+          }
+          node = probeNode;
+        } else node = bindRow(abs);
         parent.insertBefore(node, anchor);
       } else {
         node = entries[src];
@@ -317,7 +365,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node) => {
     effect(
       () => meta.each(),
       (value: any) => {
-        if (value === subject) return;
+        if (declined || value === subject) return;
         const nextRaw = value != null ? patchableRaw(value) : undefined;
         unbindOps();
         if (nextRaw === undefined || !Array.isArray(nextRaw)) {

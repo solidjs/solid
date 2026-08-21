@@ -275,6 +275,46 @@ describe("patch channel (PR-A)", () => {
     expect(applied).toEqual(["b:2"]);
   });
 
+  it("setter-channel structural mutation emits identity-keyed row ops", async () => {
+    const { registerRowOps } = await import("../../src/index.js");
+    const a = { id: "a", v: 1 };
+    const b = { id: "b", v: 2 };
+    const c = { id: "c", v: 3 };
+    const [state, setState] = createStore({ rows: [a, b, c] });
+    const ops: any[] = [];
+    registerRowOps(state.rows, (_next: any[], o: any) =>
+      ops.push({ prefix: o.prefix, sources: o.sources, removed: o.removed.map((r: any) => r.id) })
+    );
+
+    // Value-only fold: array shape unchanged — no structural emission.
+    setState(s => {
+      s.rows[0].v = 10;
+    });
+    flush();
+    expect(ops).toEqual([]);
+
+    // splice removal: same row objects, one gone.
+    setState(s => {
+      s.rows.splice(1, 1);
+    });
+    flush();
+    expect(ops).toEqual([{ prefix: 1, sources: [2], removed: ["b"] }]);
+
+    // push: pure append past the aligned prefix.
+    setState(s => {
+      s.rows.push({ id: "d", v: 4 });
+    });
+    flush();
+    expect(ops[1]).toEqual({ prefix: 2, sources: [-1], removed: [] });
+
+    // permutation: same objects reversed — moves only, no removals.
+    setState(s => {
+      s.rows.reverse();
+    });
+    flush();
+    expect(ops[2]).toEqual({ prefix: 0, sources: [2, 1, 0], removed: [] });
+  });
+
   it("a throwing patch routes to the enclosing error boundary like a render-effect error", () => {
     const [state, setState] = createStore({ a: { v: 1 }, b: { v: 1 } });
     const applied: string[] = [];

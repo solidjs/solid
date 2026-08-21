@@ -81,6 +81,9 @@ import {
   optHooks
 } from "./target.js";
 import { emitPatch, emitPatchLocal, hasPatches } from "./patch.js";
+// Cycle with reconcile.js is benign: the binding resolves at call time (the
+// fold), long after both modules initialize.
+import { emitSetterRowOps } from "./reconcile.js";
 
 // ---------------------------------------------------------------------------
 // wrap / dedupe
@@ -437,6 +440,13 @@ function drainFolds(): void {
         foldOlds.set(t, old); // re-queue: commit happens when the hold settles
         continue;
       }
+      // Setter-channel structural ops: a fold that changes an array's shape
+      // (push/splice/permutation through the setter — the reconcile walk
+      // never queues here) is a structural visibility transition for any
+      // registered list driver. Identity-keyed; aligned folds emit nothing.
+      // Family targets defer to their own adoption emission (fam reconcile).
+      if (t.ro !== null && t.fam === null && Array.isArray(pb) && Array.isArray(t.v))
+        emitSetterRowOps(t, t.v as any[], pb as any[]);
       t.v = pb;
       t.ch = false; // pb is always a plain clone
       t.pb = null;
