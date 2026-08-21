@@ -36,7 +36,8 @@ import {
   readNodeFast,
   setSignal,
   signal,
-  untrack
+  untrack,
+  ext
 } from "../../core/core.js";
 import { activeTransition, globalQueue, insertSubs } from "../../core/scheduler.js";
 import { getObserver, getOwner } from "../../core/owner.js";
@@ -217,7 +218,7 @@ export function getNode(target: StoreNextTarget, key: PropertyKey, current: any)
         equals: (a: any, b: any) => isEqual(a, b) || sameLogicalSlot(target, a, b),
         unobserved() {
           // A live affects() mark keeps the node addressable (sweep parity).
-          if ((created as any)._affectsCount) return;
+          if ((created as any)._x?._affectsCount) return;
           if (target.n && target.n[key] === created) {
             delete target.n[key];
             target.nc--;
@@ -245,7 +246,7 @@ export function getNode(target: StoreNextTarget, key: PropertyKey, current: any)
     // Optimistic families: arm the override slot — setSignal routes armed
     // nodes through the core engine (lanes, ownership, reverts all native).
     if (target.fam?.opt) {
-      created._overrideValue = NOT_PENDING;
+      ext(created)._overrideValue = NOT_PENDING;
       created._config |= CONFIG_OPTIMISTIC;
     }
     // A node born inside a live mark's identity scope inherits the mark
@@ -278,7 +279,7 @@ export function getHasNode(
       {
         equals: isEqual,
         unobserved() {
-          if ((created as any)._affectsCount) return;
+          if ((created as any)._x?._affectsCount) return;
           if (target.h && target.h[key] === created) delete target.h[key];
         }
       },
@@ -286,7 +287,7 @@ export function getHasNode(
     ));
     created._config |= CONFIG_OWNED_WRITE;
     if (target.fam?.opt) {
-      created._overrideValue = NOT_PENDING;
+      ext(created)._overrideValue = NOT_PENDING;
       created._config |= CONFIG_OPTIMISTIC;
     }
     if (affectsScopesLive()) inheritAffectsMarks(created as any, target.v, key);
@@ -311,7 +312,7 @@ export function getKeySetNode(target: StoreNextTarget): Signal<number> {
     ));
     created._config |= CONFIG_OWNED_WRITE;
     if (target.fam?.opt) {
-      created._overrideValue = NOT_PENDING;
+      ext(created)._overrideValue = NOT_PENDING;
       created._config |= CONFIG_OPTIMISTIC;
     }
     target.k = k;
@@ -335,7 +336,7 @@ function getDeepNode(target: StoreNextTarget): Signal<number> {
     ));
     created._config |= CONFIG_OWNED_WRITE;
     if (target.fam?.opt) {
-      created._overrideValue = NOT_PENDING;
+      ext(created)._overrideValue = NOT_PENDING;
       created._config |= CONFIG_OPTIMISTIC;
     }
     if (affectsScopesLive()) inheritAffectsMarks(created as any, target.v, $TRACK);
@@ -455,14 +456,14 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
       if (nodes !== null) {
         for (const key of Reflect.ownKeys(nodes)) {
           const node = nodes[key as any];
-          if (hasActiveOverride(node)) pb[key as any] = unwrapOverride(node._overrideValue);
+          if (hasActiveOverride(node)) pb[key as any] = unwrapOverride(node._x?._overrideValue);
         }
       }
       const has = target.h;
       if (has !== null) {
         for (const key of Reflect.ownKeys(has)) {
           const node = has[key as any];
-          if (hasActiveOverride(node) && !unwrapOverride(node._overrideValue))
+          if (hasActiveOverride(node) && !unwrapOverride(node._x?._overrideValue))
             delete pb[key as any];
         }
       }
@@ -996,8 +997,8 @@ function foldHeld(target: StoreNextTarget): boolean {
     const node: any = nodes[key as any];
     if (
       node._pendingValue !== NOT_PENDING &&
-      node._transition != null &&
-      node._transition._done !== true
+      node._x?._transition != null &&
+      node._x?._transition._done !== true
     )
       return true;
   }
@@ -1056,7 +1057,7 @@ export function runAuthoritative<T>(fn: () => T): T {
 /** Active optimistic override on an armed node (armed slot idles at
  * NOT_PENDING; undefined = unarmed plain node). */
 export function hasActiveOverride(node: Signal<any>): boolean {
-  return node._overrideValue !== undefined && node._overrideValue !== NOT_PENDING;
+  return node._x?._overrideValue !== undefined && node._x?._overrideValue !== NOT_PENDING;
 }
 
 /** Context-aware node view for reads outside tracking: active override >
@@ -1068,7 +1069,7 @@ export function hasActiveOverride(node: Signal<any>): boolean {
  * keys, which are served by the trap, not the node). */
 function nodeValue(node: Signal<any>, backing: any): any {
   const v = hasActiveOverride(node)
-    ? unwrapOverride(node._overrideValue)
+    ? unwrapOverride(node._x?._overrideValue)
     : node._pendingValue !== NOT_PENDING && inOwnerContext()
       ? node._pendingValue
       : backing;
@@ -1111,7 +1112,8 @@ function serveDataKey(
     // #2951). Once ensurePB runs, the seeded clone carries the view.
     if (target.fam?.opt && target.pb === null) {
       const node = target.n?.[key as any];
-      if (node !== undefined && hasActiveOverride(node)) v = unwrapOverride(node._overrideValue);
+      if (node !== undefined && hasActiveOverride(node))
+        v = unwrapOverride(node._x?._overrideValue);
     }
   } else {
     if (node !== undefined) {
@@ -1292,7 +1294,8 @@ const traps: ProxyHandler<StoreNextTarget> = {
         }
       } else if (v === undefined && inDraft(target) && target.fam?.opt && target.pb === null) {
         const node = target.n?.[key];
-        if (node !== undefined && hasActiveOverride(node)) v = unwrapOverride(node._overrideValue);
+        if (node !== undefined && hasActiveOverride(node))
+          v = unwrapOverride(node._x?._overrideValue);
       }
       if (target.s) return serveShallow(target, key, v);
       return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;
@@ -1322,12 +1325,12 @@ const traps: ProxyHandler<StoreNextTarget> = {
       } else {
         const node = target.h?.[key as any];
         if (node !== undefined && hasActiveOverride(node))
-          present = !!unwrapOverride(node._overrideValue);
+          present = !!unwrapOverride(node._x?._overrideValue);
       }
     } else if (target.fam?.opt && target.pb === null) {
       const node = target.h?.[key as any];
       if (node !== undefined && hasActiveOverride(node))
-        present = !!unwrapOverride(node._overrideValue);
+        present = !!unwrapOverride(node._x?._overrideValue);
     }
     return present;
   },
@@ -1358,7 +1361,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
         const node = target.h[key as any];
         if (!hasActiveOverride(node)) continue;
         set ??= new Set(keys);
-        if (unwrapOverride(node._overrideValue)) set.add(key);
+        if (unwrapOverride(node._x?._overrideValue)) set.add(key);
         else set.delete(key);
       }
       if (set !== null) return [...set] as (string | symbol)[];
@@ -1378,7 +1381,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (target.fam?.opt && !inDraft(target)) {
       const node = target.h?.[key as any];
       if (node !== undefined && hasActiveOverride(node)) {
-        if (!unwrapOverride(node._overrideValue)) return undefined; // opt delete
+        if (!unwrapOverride(node._x?._overrideValue)) return undefined; // opt delete
         if (desc === undefined) {
           const vn = target.n?.[key as any];
           return {

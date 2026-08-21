@@ -1,3 +1,4 @@
+import { ext } from "./core.js";
 import {
   NOT_PENDING,
   unwrapOverride,
@@ -131,7 +132,7 @@ export function devCheckActiveOverrides(isRegisteredForRevert: (node: AnyNode) =
       optimisticNodes.delete(node);
       continue;
     }
-    if (node._overrideValue === undefined || node._overrideValue === NOT_PENDING) continue;
+    if (node._x?._overrideValue === undefined || node._x?._overrideValue === NOT_PENDING) continue;
     assertInvariant(
       isRegisteredForRevert(node),
       "INV-2",
@@ -183,8 +184,9 @@ export function devCensusCompanions(isQueuedForCommit?: (node: AnyNode) => boole
   for (const node of companionOwners) {
     if (isDisposed(node)) continue;
     const comp = node as Computed<any>;
-    const hasOverride = node._overrideValue !== undefined && node._overrideValue !== NOT_PENDING;
-    const resting = node._overrideValue === NOT_PENDING;
+    const hasOverride =
+      node._x?._overrideValue !== undefined && node._x?._overrideValue !== NOT_PENDING;
+    const resting = node._x?._overrideValue === NOT_PENDING;
     const held = node._pendingValue !== NOT_PENDING;
     // A held write already queued in the global commit queue lands on the
     // next flush; probes inside this one-flush window observe the fresh
@@ -197,21 +199,22 @@ export function devCensusCompanions(isQueuedForCommit?: (node: AnyNode) => boole
       `ov=${hasOverride ? "act" : resting ? "rest" : "none"}` +
       ` held=${+held} sp=${+sp} su=${+su}`;
 
-    const pendingSignal = node._pendingSignal;
+    const pendingSignal = node._x?._pendingSignal;
     if (pendingSignal) {
       // Compare what a read would actually observe (A17: an active override
       // IS the value), not the raw committed slot — mid-transition the
       // verdict legitimately lives in the companion's override.
       const cached =
-        pendingSignal._overrideValue !== undefined && pendingSignal._overrideValue !== NOT_PENDING
-          ? unwrapOverride(pendingSignal._overrideValue)
+        pendingSignal._x?._overrideValue !== undefined &&
+        pendingSignal._x?._overrideValue !== NOT_PENDING
+          ? unwrapOverride(pendingSignal._x?._overrideValue)
           : pendingSignal._value;
       const fresh = oracle(node);
       if (cached !== fresh) {
         censusRecord(`pending companion=${cached} oracle=${fresh} ${stateKey}`);
       }
     }
-    const shadow = node._latestValueComputed;
+    const shadow = node._x?._latestValueComputed;
     if (
       shadow &&
       !(shadow._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_DISPOSED)) &&
@@ -222,15 +225,15 @@ export function devCensusCompanions(isQueuedForCommit?: (node: AnyNode) => boole
       // Latest-view oracle: override if active, else the held in-flight
       // value, else the committed value (A17/A20 read order) — on both sides.
       const expected = hasOverride
-        ? unwrapOverride(node._overrideValue)
+        ? unwrapOverride(node._x?._overrideValue)
         : held
           ? node._pendingValue
           : node._value;
       const shadowOverride =
-        shadow._overrideValue !== undefined && shadow._overrideValue !== NOT_PENDING;
+        shadow._x?._overrideValue !== undefined && shadow._x?._overrideValue !== NOT_PENDING;
       const shadowHeld = shadow._pendingValue !== NOT_PENDING;
       const effective = shadowOverride
-        ? unwrapOverride(shadow._overrideValue)
+        ? unwrapOverride(shadow._x?._overrideValue)
         : shadowHeld
           ? shadow._pendingValue
           : shadow._value;
@@ -284,14 +287,14 @@ export function devCheckQuiescent(isQueuedForCommit: (node: AnyNode) => boolean)
       continue;
     }
     assertInvariant(
-      node._overrideValue === undefined || node._overrideValue === NOT_PENDING,
+      node._x?._overrideValue === undefined || node._x?._overrideValue === NOT_PENDING,
       "INV-6",
       "an optimistic override survived to quiescence — resolveOptimisticNodes missed the node (its transition completed without reverting it)"
     );
   }
 
   for (const node of affectsMarkedNodes) {
-    if (isDisposed(node) || !node._affectsCount) {
+    if (isDisposed(node) || !node._x?._affectsCount) {
       affectsMarkedNodes.delete(node);
       continue;
     }
@@ -309,7 +312,7 @@ export function devCheckQuiescent(isQueuedForCommit: (node: AnyNode) => boolean)
       // survive the owner is a phantom verdict: an isPending companion stuck
       // `true` for a disposed source would hold a spinner forever.
       assertInvariant(
-        !node._pendingSignal || node._pendingSignal._value === false,
+        !node._x?._pendingSignal || node._x?._pendingSignal._value === false,
         "INV-9",
         "isPending companion reports true for a DISPOSED owner at quiescence — a stale verdict outlived its source"
       );
@@ -325,20 +328,20 @@ export function devCheckQuiescent(isQueuedForCommit: (node: AnyNode) => boolean)
     const settled =
       !((node as Computed<any>)._statusFlags & STATUS_PENDING) &&
       node._pendingValue === NOT_PENDING &&
-      (node._overrideValue === undefined || node._overrideValue === NOT_PENDING);
+      (node._x?._overrideValue === undefined || node._x?._overrideValue === NOT_PENDING);
     if (!settled) continue;
 
-    const pendingSignal = node._pendingSignal;
+    const pendingSignal = node._x?._pendingSignal;
     if (pendingSignal) {
       assertInvariant(
         pendingSignal._value === false &&
-          (pendingSignal._overrideValue === undefined ||
-            pendingSignal._overrideValue === NOT_PENDING),
+          (pendingSignal._x?._overrideValue === undefined ||
+            pendingSignal._x?._overrideValue === NOT_PENDING),
         "INV-4",
         "isPending companion reports pending for a fully settled node at quiescence — a clear path skipped updatePendingSignal (#2831 class)"
       );
     }
-    const shadow = node._latestValueComputed;
+    const shadow = node._x?._latestValueComputed;
     // Only check a settled shadow: a dirty/check-marked shadow legitimately
     // lags until its next lazy recompute.
     if (shadow && !(shadow._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_DISPOSED))) {

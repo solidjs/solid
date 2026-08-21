@@ -8,7 +8,7 @@ import {
   STATUS_ERROR,
   STATUS_PENDING
 } from "./constants.js";
-import { computed, createEffectNode, recompute, setStrictRead, staleValues } from "./core.js";
+import { computed, createEffectNode, recompute, setStrictRead, staleValues, ext } from "./core.js";
 import { emitDiagnostic } from "./dev.js";
 import { StatusError, unwrapStatusError } from "./error.js";
 import {
@@ -74,7 +74,7 @@ export function effect<T>(
 function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): void {
   // Use passed values if provided, otherwise read from node
   const actualStatus = status !== undefined ? status : this._statusFlags;
-  const actualError = error !== undefined ? error : this._error;
+  const actualError = error !== undefined ? error : this._x?._error;
   if (actualStatus & STATUS_ERROR) {
     this._queue.notify(this, STATUS_PENDING, 0);
     if (this._type === EFFECT_USER) {
@@ -134,7 +134,7 @@ function runEffect(node: Effect<any>): void {
   // notifyEffectStatus, and a runner queued by an earlier valueChanged in the
   // same flush must not be hijacked by a later-arriving error status.
   if (node._statusFlags & STATUS_ERROR && node._type === EFFECT_USER) {
-    const err = unwrapStatusError(node._error);
+    const err = unwrapStatusError(node._x?._error);
     node._prevValue = node._value;
     node._modified = false;
     try {
@@ -171,7 +171,7 @@ function runEffect(node: Effect<any>): void {
     // The final cleanup is invoked by disposeChildren at true disposal.
     node._cleanup = nextCleanup as (() => void) | undefined;
   } catch (error) {
-    node._error = new StatusError(node, error);
+    ext(node)._error = new StatusError(node, error);
     node._statusFlags |= STATUS_ERROR;
     if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
       haltReactivity(error);
@@ -232,11 +232,11 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
   node._config = (node._config & ~CONFIG_AUTO_DISPOSE) | CONFIG_CHILDREN_FORBIDDEN;
   node._modified = true;
   node._type = EFFECT_TRACKED;
-  node._notifyStatus = (status?: number, error?: any) => {
+  ext(node)._notifyStatus = (status?: number, error?: any) => {
     const actualStatus = status !== undefined ? status : node._statusFlags;
     if (actualStatus & STATUS_ERROR) {
       node._queue.notify(node, STATUS_PENDING, 0);
-      const err = error !== undefined ? error : node._error;
+      const err = error !== undefined ? error : node._x?._error;
       if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
         haltReactivity(unwrapStatusError(err));
         throw err;

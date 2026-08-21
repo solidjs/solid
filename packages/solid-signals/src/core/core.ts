@@ -80,7 +80,17 @@ import {
   schedule,
   zombieQueue
 } from "./scheduler.js";
-import type { Computed, FirewallSignal, Link, NodeOptions, Owner, Root, Signal } from "./types.js";
+import type {
+  Computed,
+  FirewallSignal,
+  Link,
+  NodeExtension,
+  NodeOptions,
+  Owner,
+  RawSignal,
+  Root,
+  Signal
+} from "./types.js";
 
 GlobalQueue._update = recompute;
 GlobalQueue._dispose = disposeChildren;
@@ -164,7 +174,7 @@ function releaseSubtree(owner: Owner): void {
 export function clearSnapshots(): void {
   if (snapshotSources) {
     for (const source of snapshotSources) {
-      delete source._snapshotValue;
+      delete source._x?._snapshotValue;
       // StoreNode targets share one pre-initialized hidden class (see
       // createStoreProxy) — assign undefined instead of deleting, and only
       // when present so signal-node sources don't grow the field.
@@ -183,12 +193,16 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let devChanged = false;
   if (__DEV__ && attrHooks !== null) attrHooks.recomputeStart(el, create);
   if (!create) {
-    if (el._transition && (!isEffect || activeTransition) && activeTransition !== el._transition)
-      globalQueue.initTransition(el._transition);
+    if (
+      el._x?._transition &&
+      (!isEffect || activeTransition) &&
+      activeTransition !== el._x?._transition
+    )
+      globalQueue.initTransition(el._x?._transition);
     deleteFromHeap(el, queueFor(el));
-    el._inFlight = null;
+    if (el._x !== null) el._x._inFlight = null;
     // Tracked effects run after finalizePureQueue, so dispose immediately instead of deferring
-    if (el._transition || isEffect === EFFECT_TRACKED) disposeChildren(el);
+    if (el._x?._transition || isEffect === EFFECT_TRACKED) disposeChildren(el);
     else if (el._firstChild !== null || el._disposal !== null) {
       markDisposal(el);
       el._pendingDisposal = el._disposal;
@@ -203,13 +217,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let isOptimisticDirty = !!(el._flags & REACTIVE_OPTIMISTIC_DIRTY);
   const hasOverride =
     (el._config & CONFIG_OPTIMISTIC) !== 0 &&
-    el._overrideValue !== NOT_PENDING &&
-    el._overrideValue !== undefined;
+    el._x?._overrideValue !== NOT_PENDING &&
+    el._x?._overrideValue !== undefined;
   const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
   // Outgoing error, captured before the compute clears status: if this run
   // recovers to an unchanged value, dependents still holding this object must
   // be swept (settleErroredDependents, #2949).
-  const outgoingError = el._statusFlags & STATUS_ERROR ? el._error : undefined;
+  const outgoingError = el._statusFlags & STATUS_ERROR ? el._x?._error : undefined;
   // Re-ask classification lives in the verdict module; capture the flag before
   // the recompute wipes _flags below.
   const hadReask = (el._flags & REACTIVE_REASK) !== 0;
@@ -270,7 +284,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   try {
     if (!__DEV__ && el._config & CONFIG_SYNC) {
       value = el._fn(value);
-      el._inFlight = null;
+      if (el._x !== null) el._x._inFlight = null;
       el._loading = false;
     } else {
       // Snapshot `_inFlight` so we can detect whether `_fn` self-registered an async
@@ -278,13 +292,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // with a setter callback). In that case, the outer `handleAsync` call below would
       // clobber the fresh subscription, so we skip it and let the internally-registered
       // iteration drive updates.
-      const prevInFlight = el._inFlight;
+      const prevInFlight = el._x?._inFlight;
       const fnResult = el._fn(value);
       const isAsyncResult = typeof fnResult === "object" && fnResult !== null;
-      const inFlightChanged = el._inFlight !== prevInFlight;
+      const inFlightChanged = el._x?._inFlight !== prevInFlight;
       value = inFlightChanged || !isAsyncResult ? fnResult : handleAsync(el, fnResult);
       if (!inFlightChanged && !isAsyncResult) {
-        el._inFlight = null;
+        if (el._x !== null) el._x._inFlight = null;
         // A sync (non-object) return is the first real answer; async-shaped
         // results clear inside handleAsync at their own landing points, and a
         // self-registered flight (inFlightChanged — projections) clears when
@@ -292,23 +306,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         el._loading = false;
       }
     }
-    // On a status-free node clearStatus is a guaranteed no-op: every branch
-    // in its body is gated on one of these fields, and with _statusFlags === 0
-    // the flags write (create or not) stores the 0 already there.
-    if (
-      el._statusFlags !== 0 ||
-      el._notifyStatus !== undefined ||
-      el._error ||
-      el._reask ||
-      el._blocked ||
-      el._pendingSources !== undefined ||
-      (el._config & CONFIG_HAS_COMPANIONS) !== 0 ||
-      el._child !== null
-    )
-      clearStatus(el, create);
+    // On a status-free node clearStatus is a guaranteed no-op: every field
+    // its body gates on is either _statusFlags or lives in the cold
+    // extension — no extension, no status to clear. (_x from an unrelated
+    // installer just makes clearStatus a cheap re-verified no-op.)
+    if (el._statusFlags !== 0 || el._x !== null) clearStatus(el, create);
     // _optimisticLane is only ever assigned by engine paths (CONFIG_HAS_LANE
     // is their sticky presence mark).
-    if (el._config & CONFIG_HAS_LANE && el._optimisticLane) GlobalQueue._laneAsyncSettled!(el);
+    if (el._config & CONFIG_HAS_LANE && el._x?._optimisticLane) GlobalQueue._laneAsyncSettled!(el);
   } catch (e) {
     const notReady = e instanceof NotReadyError;
     if (notReady && el._loading) {
@@ -326,7 +331,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       if (notReady && currentOptimisticLane) GlobalQueue._laneAsyncPending!(el);
       let reaskChanged = false;
       if (notReady) {
-        el._blocked = true;
+        ext(el)._blocked = true;
         if (GlobalQueue._applyReask !== null) reaskChanged = GlobalQueue._applyReask(el, hadReask);
       }
       notifyStatus(
@@ -334,7 +339,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         notReady ? STATUS_PENDING : STATUS_ERROR,
         e,
         undefined,
-        notReady ? el._optimisticLane : undefined
+        notReady ? el._x?._optimisticLane : undefined
       );
       if (reaskChanged) GlobalQueue._repollVerdicts!(el);
     }
@@ -353,10 +358,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     context = oldcontext;
   }
 
-  if (!el._error) {
+  if (!el._x?._error) {
     trimStaleDeps(el);
     const compareValue = hasOverride
-      ? unwrapOverride(el._overrideValue)
+      ? unwrapOverride(el._x?._overrideValue)
       : el._pendingValue === NOT_PENDING
         ? el._value
         : el._pendingValue;
@@ -385,7 +390,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // gate: the explicit recompute(node, true) inside effect() does not enqueue, so
     // effect() can call its runner synchronously for the first run.
     if (isEffect && valueChanged) {
-      (el as any)._modified = !el._error;
+      (el as any)._modified = !el._x?._error;
       // Reuse one bound runner per effect — runEffect no-ops on a stale
       // `_modified`, so re-enqueueing the same function is harmless.
       if (!create)
@@ -395,11 +400,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         );
     }
 
-    if (el._error) {
+    if (el._x?._error) {
       // Comparator threw: skip the commit — the node is now errored and the
       // status propagation above owns downstream notification.
     } else if (valueChanged) {
-      const prevVisible = hasOverride ? el._overrideValue : undefined;
+      const prevVisible = hasOverride ? el._x?._overrideValue : undefined;
 
       if (
         create ||
@@ -407,7 +412,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // values directly — the pending round-trip (queuePendingNode +
         // commitPendingNodes) exists to sequence transition reveals, and
         // paying it per effect on the plain path is pure overhead.
-        (isEffect && (activeTransition !== el._transition || activeTransition === null)) ||
+        (isEffect && (activeTransition !== el._x?._transition || activeTransition === null)) ||
         isOptimisticDirty
         // NOTE (stage-3, 2026-08-21): a quiet-world MEMO direct-commit was
         // attempted here and REVERTED — memo staging is load-bearing beyond
@@ -423,7 +428,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // own reveal schedule; drop any superseded older hold so its queued
         // commit can't clobber the fresh value.
         if (hasOverride && isOptimisticDirty) {
-          el._overrideValue = value === undefined ? OVERRIDE_UNDEFINED : value;
+          ext(el)._overrideValue = value === undefined ? OVERRIDE_UNDEFINED : value;
           el._pendingValue = NOT_PENDING;
         }
       } else {
@@ -437,7 +442,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // (#2831). Both companion writes are transition-scoped (optimistic) and
         // auto-revert/re-derive at commit. Skipped for plain flushes where the
         // pending value commits before effects run.
-        if ((activeTransition || el._transition) && GlobalQueue._syncCompanions !== null)
+        if ((activeTransition || el._x?._transition) && GlobalQueue._syncCompanions !== null)
           GlobalQueue._syncCompanions(el, value);
       }
 
@@ -445,7 +450,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // subscriber-less node has nothing to notify.
       if (
         el._subs !== null &&
-        (!hasOverride || isOptimisticDirty || el._overrideValue !== prevVisible)
+        (!hasOverride || isOptimisticDirty || el._x?._overrideValue !== prevVisible)
       )
         insertSubs(el, isOptimisticDirty || hasOverride);
     } else if (hasOverride) {
@@ -466,8 +471,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // dependents still holding the propagated error consumed their dirty flag
     // in an errored run and may sit on stale commits (#2949). Changed-value
     // recoveries ride insertSubs above; a comparator throw re-errored the node
-    // (el._error re-set), so this only runs on a genuinely clean recovery.
-    if (outgoingError !== undefined && !valueChanged && !el._error)
+    // (el._x?._error re-set), so this only runs on a genuinely clean recovery.
+    if (outgoingError !== undefined && !valueChanged && !el._x?._error)
       settleErroredDependents(el, outgoingError);
   }
   // Attribution hook: fired before the lane restore so `currentOptimisticLane`
@@ -497,12 +502,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // _transition.
   needsPendingCommit &&
     (!create || el._statusFlags & STATUS_PENDING) &&
-    (!el._transition || hasOverride) &&
+    (!el._x?._transition || hasOverride) &&
     queuePendingNode(el);
-  el._transition &&
+  el._x?._transition &&
     isEffect &&
-    activeTransition !== el._transition &&
-    runInTransition(el._transition, () => recompute(el));
+    activeTransition !== el._x?._transition &&
+    runInTransition(el._x?._transition, () => recompute(el));
   // Missed-wake reschedule (see the finally above): values this pass read
   // before the nested commit are stale, so run again now that the heap will
   // accept the node. Equality gates stop same-value landings from cascading,
@@ -535,7 +540,7 @@ function updateIfNecessary(el: Computed<unknown>): void {
 
   if (
     el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY) ||
-    (el._error && el._time < clock && !el._inFlight)
+    (el._x?._error && el._time < clock && !el._x?._inFlight)
   ) {
     recompute(el);
   }
@@ -567,7 +572,6 @@ export function computed<T>(
       (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0) |
       (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
     _equals: options?.equals != null ? options.equals : isEqual,
-    _unobserved: options?.unobserved,
     _disposal: null,
     _queue: context?._queue ?? globalQueue,
     _context: context?._context ?? defaultContext,
@@ -575,7 +579,6 @@ export function computed<T>(
     _fn: fn,
     _value: (loading ? options!.loadingValue : undefined) as T,
     _height: 0,
-    _child: null,
     _nextHeap: undefined,
     _prevHeap: null as any,
     _deps: null,
@@ -594,24 +597,43 @@ export function computed<T>(
     _pendingValue: NOT_PENDING,
     _pendingDisposal: null,
     _pendingFirstChild: null,
-    _inFlight: null,
-    _transition: null,
-    _reask: false,
     _loading: loading,
-    // Optional-machinery slots read on EVERY recompute (status gate, lane
-    // settle, override capture): present-with-default keeps those reads
-    // monomorphic and lets installers assign without a hidden-class
-    // transition (optimisticComputed previously forked the shape post-hoc).
+    // Cold machinery (async/transition/optimistic/verdict slots) lives one
+    // hop away in the lazily-allocated extension — the core literal MUST
+    // stay under V8's in-object boundary (§12: past ~39 fields every
+    // allocation spills to a backing store and creation cost ~4x's).
+    _x: null
+  } as Computed<T>;
+  if (__DEV__) (self as any)._name = options?.name ?? "computed";
+  if (options?.unobserved) (ext(self) as NodeExtension)._unobserved = options.unobserved;
+  setupComputedNode(self, options);
+  return self;
+}
+
+/** Lazily allocate a node's cold extension (ONE shape for signals and
+ * computeds — `_x` access stays monomorphic). Installers write through
+ * this; hot paths read `el._x?._field` gated by the _config presence bits.
+ * Never call ext() just to store a field's default. */
+export function ext(el: RawSignal<any> | Computed<any>): NodeExtension {
+  return (el._x ??= {
+    _transition: null,
+    _overrideValue: undefined,
+    _overrideOwner: undefined,
+    _optimisticLane: undefined,
+    _pendingSignal: undefined,
+    _latestValueComputed: undefined,
+    _parentSource: undefined,
+    _affectsCount: 0,
+    _inFlight: null,
     _error: undefined,
     _blocked: undefined,
     _pendingSources: undefined,
     _notifyStatus: undefined,
-    _optimisticLane: undefined,
-    _overrideValue: undefined
-  } as Computed<T>;
-  if (__DEV__) (self as any)._name = options?.name ?? "computed";
-  setupComputedNode(self, options);
-  return self;
+    _reask: false,
+    _child: null,
+    _unobserved: undefined,
+    _snapshotValue: undefined
+  });
 }
 
 /**
@@ -637,7 +659,6 @@ export function createEffectNode<T>(
       (options?.sync ? CONFIG_SYNC : 0) |
       (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
     _equals: false as unknown as Computed<T>["_equals"],
-    _unobserved: options?.unobserved,
     _disposal: null,
     _queue: context?._queue ?? globalQueue,
     _context: context?._context ?? defaultContext,
@@ -645,7 +666,6 @@ export function createEffectNode<T>(
     _fn: fn,
     _value: undefined as T,
     _height: 0,
-    _child: null,
     _nextHeap: undefined,
     _prevHeap: null as any,
     _deps: null,
@@ -663,9 +683,6 @@ export function createEffectNode<T>(
     _pendingValue: NOT_PENDING,
     _pendingDisposal: null,
     _pendingFirstChild: null,
-    _inFlight: null,
-    _transition: null,
-    _reask: false,
     _loading: false,
     _modified: false,
     _prevValue: undefined as T | undefined,
@@ -673,15 +690,12 @@ export function createEffectNode<T>(
     _errorFn: errorFn,
     _cleanup: undefined as (() => void) | undefined,
     _type: type,
-    _notifyStatus: notifyStatus,
-    // Shape parity with computed() for the shared recompute/status paths.
-    _error: undefined,
-    _blocked: undefined,
-    _pendingSources: undefined,
-    _optimisticLane: undefined,
-    _overrideValue: undefined
+    _x: null
   } as any;
   if (__DEV__) self._name = options?.name ?? "effect";
+  // Boundary effects carry a status channel; most effects never touch _x.
+  if (notifyStatus !== undefined) ext(self)._notifyStatus = notifyStatus;
+  if (options?.unobserved) ext(self)._unobserved = options.unobserved;
   setupComputedNode(self, lazyOptions);
   return self;
 }
@@ -720,7 +734,7 @@ function setupComputedNode<T>(self: Computed<T>, options: NodeOptions<T> | undef
   !options?.lazy && recompute(self, true);
   if (snapshotCaptureActive && !options?.lazy) {
     if (!(self._statusFlags & STATUS_PENDING) && !(self._config & CONFIG_NO_SNAPSHOT)) {
-      self._snapshotValue = self._value === undefined ? NO_SNAPSHOT : self._value;
+      ext(self)._snapshotValue = self._value === undefined ? NO_SNAPSHOT : self._value;
       self._config |= CONFIG_HAS_SNAPSHOT;
       snapshotSources!.add(self);
     }
@@ -749,7 +763,7 @@ export function signal<T>(
     _subsTail: null,
     _time: clock,
     _firewall: firewall,
-    _nextChild: firewall?._child || null,
+    _nextChild: firewall?._x?._child || null,
     _pendingValue: NOT_PENDING,
     // Shape alignment with Computed for the SHARED hot paths (setSignal /
     // commitPendingNode read these on every write): present-with-default
@@ -757,19 +771,20 @@ export function signal<T>(
     // uninitialized (_statusFlags 0) and have no compute (_fn undefined).
     _fn: undefined,
     _statusFlags: 0,
-    _transition: null
+    _x: null
   };
   if (__DEV__) {
     (s as any)._name = options?.name ?? "signal";
     (s as any)._internal = !!firewall;
   }
-  firewall && (firewall._child = s as FirewallSignal<unknown>);
+  if (options?.unobserved) ext(s as any)._unobserved = options.unobserved;
+  firewall && (ext(firewall)._child = s as FirewallSignal<unknown>);
   if (
     snapshotCaptureActive &&
     !(s._config & CONFIG_NO_SNAPSHOT) &&
     !((firewall?._statusFlags ?? 0) & STATUS_PENDING)
   ) {
-    (s as any)._snapshotValue = v === undefined ? NO_SNAPSHOT : v;
+    ext(s as any)._snapshotValue = v === undefined ? NO_SNAPSHOT : v;
     (s as any)._config |= CONFIG_HAS_SNAPSHOT;
     snapshotSources!.add(s);
   }
@@ -778,7 +793,7 @@ export function signal<T>(
 
 export function optimisticSignal<T>(v: T, options?: NodeOptions<T>): Signal<T> {
   const s = signal(v, options);
-  s._overrideValue = NOT_PENDING;
+  ext(s)._overrideValue = NOT_PENDING;
   s._config |= CONFIG_OPTIMISTIC;
   return s;
 }
@@ -788,7 +803,7 @@ export function optimisticComputed<T>(
   options?: NodeOptions<T>
 ): Computed<T> {
   const c = computed(fn, options);
-  c._overrideValue = NOT_PENDING;
+  ext(c)._overrideValue = NOT_PENDING;
   c._config |= CONFIG_OPTIMISTIC;
   return c;
 }
@@ -893,8 +908,8 @@ export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
     pendingCheckActive ||
     (el as Partial<Computed<T>>)._fn ||
     (el as FirewallSignal<T>)._firewall ||
-    el._overrideValue !== undefined ||
-    el._snapshotValue !== undefined ||
+    el._x?._overrideValue !== undefined ||
+    el._x?._snapshotValue !== undefined ||
     activeTransition !== null ||
     currentOptimisticLane !== null ||
     snapshotCaptureActive ||
@@ -940,8 +955,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   if (
     !computed._fn &&
     owner === el &&
-    el._overrideValue === undefined &&
-    el._snapshotValue === undefined &&
+    el._x?._overrideValue === undefined &&
+    el._x?._snapshotValue === undefined &&
     activeTransition === null &&
     currentOptimisticLane === null &&
     !snapshotCaptureActive &&
@@ -986,7 +1001,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
 
   if (owner._statusFlags & STATUS_PENDING) {
-    if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
+    if (c && !(stale && owner._x?._transition && activeTransition !== owner._x?._transition)) {
       if (__DEV__ && c && c._config & CONFIG_CHILDREN_FORBIDDEN) {
         const message =
           "[PENDING_ASYNC_FORBIDDEN_SCOPE] Reading a pending async value inside createTrackedEffect or onSettled will throw. " +
@@ -1007,13 +1022,13 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       // active override throws.
       if (currentOptimisticLane === null || GlobalQueue._laneSuspends!(owner)) {
         if (!tracking && el !== c) link(el, c as Computed<any>);
-        throw owner._error;
+        throw owner._x?._error;
       }
     } else if (c && owner !== el && owner._statusFlags & STATUS_UNINITIALIZED) {
       if (!tracking && el !== c) link(el, c as Computed<any>);
-      throw owner._error;
+      throw owner._x?._error;
     } else if (!c && owner._statusFlags & STATUS_UNINITIALIZED) {
-      throw owner._error;
+      throw owner._x?._error;
     }
   }
   // `owner` is the computed itself, or the firewall behind a store node —
@@ -1028,11 +1043,11 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     if (tracking && !pendingCheckActive && (owner as Computed<any>)._time < clock) {
       recompute(owner as Computed<unknown>);
       return read(el);
-    } else throw (owner as Computed<any>)._error;
+    } else throw (owner as Computed<any>)._x?._error;
   }
 
   if (snapshotCaptureActive && c && (c as Computed<any>)._config & CONFIG_IN_SNAPSHOT_SCOPE) {
-    const sv = el._snapshotValue;
+    const sv = el._x?._snapshotValue;
     if (sv !== undefined) {
       const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
       const current = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
@@ -1048,9 +1063,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       nodeName: (owner as any)?._name
     });
 
-  if (el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING) {
+  if (el._x?._overrideValue !== undefined && el._x?._overrideValue !== NOT_PENDING) {
     // A17: the override IS the value for every reader.
-    return unwrapOverride<T>(el._overrideValue);
+    return unwrapOverride<T>(el._x?._overrideValue);
   }
 
   // Entanglement gate: a reader recomputing under an optimistic lane that reads
@@ -1081,7 +1096,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       GlobalQueue._laneReadsCommitted!(el, owner, c as Computed<any>)) ||
     el._pendingValue === NOT_PENDING ||
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
-    (stale && el._transition && activeTransition !== el._transition)
+    (stale && el._x?._transition && activeTransition !== el._x?._transition)
       ? el._value
       : (el._pendingValue as T);
   // Record that this isPending() probe observed the fresh pending value, so
@@ -1146,8 +1161,8 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     throw new Error(REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE);
   }
 
-  if (el._transition && activeTransition !== el._transition)
-    globalQueue.initTransition(el._transition);
+  if (el._x?._transition && activeTransition !== el._x?._transition)
+    globalQueue.initTransition(el._x?._transition);
 
   // The optimistic write path lives with the engine: only optimisticSignal /
   // optimisticComputed callers and optimistic store nodes carry an

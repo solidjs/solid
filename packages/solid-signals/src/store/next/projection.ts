@@ -14,6 +14,7 @@
  * primitives; the generic draft write-traps are reused from the legacy
  * module unchanged.
  */
+import { ext } from "../../core/core.js";
 import {
   computed,
   CONFIG_AUTO_DISPOSE,
@@ -182,7 +183,7 @@ export function runProjectionComputedNext<T extends object>(
     : null;
   const draft = new Proxy(
     wrappedStore,
-    createWriteTraps(() => !settled || owner._inFlight === result, onDraftWrite)
+    createWriteTraps(() => !settled || owner._x?._inFlight === result, onDraftWrite)
   );
   storeSetterNext(
     draft,

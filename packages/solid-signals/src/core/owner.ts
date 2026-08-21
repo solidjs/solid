@@ -14,7 +14,8 @@ import {
   pendingCheckActive,
   PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE,
   runWithOwner,
-  tracking
+  tracking,
+  ext
 } from "./core.js";
 import { clearSignals, DEV, emitDiagnostic } from "./dev.js";
 import { clearDeps, unobserved } from "./graph.js";
@@ -69,10 +70,11 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     // edge). Snap runs after the DISPOSED flag is set so the oracle reads
     // false, and notifies subscribers still watching the companion.
     const n = node as Computed<unknown>;
-    if (n._pendingSignal || n._latestValueComputed) GlobalQueue._snapCompanions!(n);
+    if (n._x?._pendingSignal || n._x?._latestValueComputed) GlobalQueue._snapCompanions!(n);
   }
   if (self && __DEV__) clearSignals(node);
-  if (self && (node as any)._fn) (node as Computed<unknown>)._inFlight = null;
+  if (self && (node as any)._fn && (node as Computed<unknown>)._x !== null)
+    (node as Computed<unknown>)._x!._inFlight = null;
   let child = zombie ? (node._pendingFirstChild as Owner) : node._firstChild;
   while (child) {
     const nextChild = child._nextSibling;

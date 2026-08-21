@@ -85,7 +85,13 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // alignment — optional-machinery slots moved into the node literals and
     // presence bits on _config, killing megamorphic missing-property reads
     // in setSignal/recompute/commit (measured at 19,570 post-change).
-    expect(minifiedBytes).toBeLessThan(19_800);
+    // CONSCIOUS BUMP (stage-3 §12, 2026-08-21): +~740B for the cold-field
+    // extension split (`_x`) — 11 optional-machinery fields moved off the
+    // node literals into a lazily-allocated extension, shrinking every memo
+    // from 553B to 429B (-22%) and cutting create/update churn 10-19% in the
+    // reactivity benchmark. The `_x?.` access chains and the ext()
+    // initializer are the byte cost (measured at 20,313 post-change).
+    expect(minifiedBytes).toBeLessThan(20_600);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

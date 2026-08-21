@@ -48,6 +48,52 @@ export interface NodeOptions<T> {
   loadingValue?: T;
 }
 
+/**
+ * Cold node extension (stage-3 §12): optional machinery that most nodes
+ * never touch lives one hop away so the CORE node literal stays under V8's
+ * in-object property boundary (~39 fields measured: past it, every literal
+ * allocation spills to an out-of-object backing store and creation cost
+ * roughly quadruples — the create0to1 cliff). Allocated lazily by `ext()`
+ * on first installer write; ONE shape shared by signals and computeds so
+ * `_x` access stays monomorphic. Presence bits on `_config`
+ * (CONFIG_OPTIMISTIC / HAS_COMPANIONS / HAS_LANE / HAS_SNAPSHOT) remain the
+ * hot-path gates — a bit says "consult _x", never the reverse.
+ */
+export interface NodeExtension {
+  _transition: Transition | null;
+  _overrideValue: unknown | typeof NOT_PENDING;
+  /**
+   * The transaction that owns the active override (stamped at optimistic
+   * write, cleared at settle). Ownership must live on the node: a lane's
+   * _transition is a scheduling affinity that a shared subscriber can merge
+   * across transactions (#2912) — following it would let one action's settle
+   * revert another action's live override. Node-level sibling of the store
+   * layer's STORE_OPTIMISTIC_OWNERS stamps (#2899). `null` = ambient write.
+   */
+  _overrideOwner: Transition | null | undefined;
+  _optimisticLane: OptimisticLane | undefined;
+  _pendingSignal: Signal<boolean> | undefined; // Lazy signal for isPending()
+  _latestValueComputed: Computed<any> | undefined; // Lazy computed for latest()
+  _parentSource: Signal<any> | Computed<any> | undefined; // Back-reference for parent-child lane relationship
+  /**
+   * Live `affects()` marks on this node (refcount). Non-zero is declared
+   * motion — see affects(); the count is the mark's only graph state.
+   */
+  _affectsCount: number;
+  _inFlight: PromiseLike<any> | AsyncIterable<any> | null;
+  _error: unknown;
+  _blocked: boolean | undefined;
+  _pendingSources: Set<Computed<any>> | undefined;
+  _notifyStatus: ((status?: number, error?: any) => void) | undefined;
+  /** Question-scoped re-ask classification of the current pending window
+   * (see the former Computed._x?._reask doc): set by recompute from
+   * REACTIVE_REASK, cleared on landing; meaningless while not pending. */
+  _reask: boolean;
+  _child: FirewallSignal<any> | null;
+  _unobserved: (() => void) | undefined;
+  _snapshotValue: any;
+}
+
 export interface RawSignal<T> {
   _subs: Link | null;
   _subsTail: Link | null;
@@ -57,38 +103,13 @@ export interface RawSignal<T> {
    */
   _subCount?: number;
   _value: T;
-  _snapshotValue?: any;
   _name?: string;
   _equals: false | ((a: T, b: T) => boolean);
   _config: number;
-  _unobserved?: () => void;
   _time: number;
-  _transition: Transition | null;
   _pendingValue: T | typeof NOT_PENDING;
-  _overrideValue?: T | typeof NOT_PENDING;
-  /**
-   * The transaction that owns the active override (stamped at optimistic
-   * write, cleared at settle). Ownership must live on the node: a lane's
-   * _transition is a scheduling affinity that a shared subscriber can merge
-   * across transactions (#2912) — following it would let one action's settle
-   * revert another action's live override. Node-level sibling of the store
-   * layer's STORE_OPTIMISTIC_OWNERS stamps (#2899). `null` = ambient write.
-   */
-  _overrideOwner?: Transition | null;
-  _optimisticLane?: OptimisticLane;
-  _pendingSignal?: Signal<boolean>; // Lazy signal for isPending()
-  _latestValueComputed?: Computed<T>; // Lazy computed for latest()
-  _parentSource?: Signal<any> | Computed<any>; // Back-reference for parent-child lane relationship
-  /**
-   * Live `affects()` marks on this node (refcount). Non-zero is declared
-   * motion: the node — and, via the verdict layer's dep-graph coverage walk,
-   * everything derived from it — reads pending regardless of graph state,
-   * until every declaring transaction settles/reverts and releases its mark.
-   * This count is the mark's ONLY graph state: the dedicated channel stores
-   * nothing downstream and never touches status flags, errors, or pending
-   * sources.
-   */
-  _affectsCount?: number;
+  /** Cold extension — see NodeExtension. */
+  _x: NodeExtension | null;
 }
 
 export interface FirewallSignal<T> extends RawSignal<T> {
@@ -126,26 +147,11 @@ export interface Computed<T> extends RawSignal<T>, Owner {
   /** Recompute-pass counter; bumped when dep revalidation starts. */
   _depGen: number;
   _flags: number;
-  _blocked?: boolean;
-  _pendingSources?: Set<Computed<any>>;
-  _error?: unknown;
   _statusFlags: number;
   _height: number;
   _nextHeap: Computed<any> | undefined;
   _prevHeap: Computed<any>;
   _fn: (prev?: T) => T;
-  _inFlight: PromiseLike<T> | AsyncIterable<T> | null;
-  _child: FirewallSignal<any> | null;
-  _notifyStatus?: (status?: number, error?: any) => void;
-  /**
-   * Question-scoped pending classification of the node's CURRENT pending
-   * window: `true` means the in-flight recompute is a re-ask of the same
-   * question (refresh/poll/confirm — no tracked input changed value), so the
-   * shown answer still answers the question and the node reads NOT pending.
-   * Set by `recompute` from `REACTIVE_REASK`, cleared on landing
-   * (`clearStatus`). Meaningless while not STATUS_PENDING.
-   */
-  _reask: boolean;
   /**
    * Clock tick at which REACTIVE_MANUAL_WRITE was last applied
    * (`suppressComputedRecompute`). Lets `refresh()` distinguish a same-tick
@@ -165,7 +171,8 @@ export interface Computed<T> extends RawSignal<T>, Owner {
    * return, sync-resolved promise, first iterator yield, async settle); a
    * real error leaves it set — errors answer reads but don't enter the value
    * lineage, so a retry serves the loading value again. Once cleared, normal
-   * pending/refetch semantics apply forever.
+   * pending/refetch semantics apply forever. (Stays in CORE: written
+   * unconditionally by recompute and every commit.)
    */
   _loading: boolean;
 }

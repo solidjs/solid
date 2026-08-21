@@ -1,4 +1,4 @@
-import { recompute } from "./core/core.js";
+import { recompute, ext } from "./core/core.js";
 import { unwrapStatusError } from "./core/error.js";
 import {
   cleanup,
@@ -34,10 +34,10 @@ export interface BoundaryComputed<T> extends Computed<T> {
 
 function boundaryComputed<T>(fn: () => T, propagationMask: number): BoundaryComputed<T> {
   const node = computed<T>(fn, { lazy: true }) as BoundaryComputed<T>;
-  node._notifyStatus = (status?: number, error?: any) => {
+  ext(node)._notifyStatus = (status?: number, error?: any) => {
     // Use passed values if provided, otherwise read from node
     const flags = status !== undefined ? status : node._statusFlags;
-    const actualError = error !== undefined ? error : node._error;
+    const actualError = error !== undefined ? error : node._x?._error;
     // Notify both status dimensions like a render effect does; the queue chain
     // consumes this boundary's own type and forwards the remainder upward until
     // a boundary that handles it is found.
@@ -50,8 +50,8 @@ function boundaryComputed<T>(fn: () => T, propagationMask: number): BoundaryComp
     const foreign = flags & ~node._propagationMask & (STATUS_PENDING | STATUS_ERROR);
     if (foreign) {
       node._statusFlags &= ~foreign;
-      if (node._error === actualError && !(node._statusFlags & (STATUS_PENDING | STATUS_ERROR)))
-        node._error = undefined;
+      if (node._x?._error === actualError && !(node._statusFlags & (STATUS_PENDING | STATUS_ERROR)))
+        if (node._x !== null) node._x._error = undefined;
     }
     // An ERROR the chain could not deliver to any boundary is uncaught. The
     // scrub above already removed it from reader-visible state, so without
@@ -324,13 +324,13 @@ export class CollectionQueue extends Queue {
 
     if (flags & this._collectionType) {
       this._pending = true;
-      const source = (error as any)?.source || (node._error as any)?.source;
+      const source = (error as any)?.source || (node._x?._error as any)?.source;
       if (source) {
         const wasEmpty = this._sources.size === 0;
         this._sources.add(source);
         if (wasEmpty) setSignal(this._disabled, true);
         if (this._collectionType & STATUS_ERROR) {
-          setSignal(this._error!, unwrapStatusError(source._error));
+          setSignal(this._error!, unwrapStatusError(source._x?._error));
         }
       }
     }
@@ -345,7 +345,7 @@ export class CollectionQueue extends Queue {
       // sweep (finalizePureQueue after mark release) re-runs this check.
       if (
         source._flags & REACTIVE_DISPOSED ||
-        (!source._affectsCount &&
+        (!source._x?._affectsCount &&
           !(source._statusFlags & this._collectionType) &&
           !(this._collectionType & STATUS_ERROR && source._statusFlags & STATUS_PENDING))
       )
@@ -412,7 +412,7 @@ function createCollectionBoundary<T>(
       else throw e;
     }
     queue._pending =
-      pending || !!(tree._statusFlags & type) || tree._error instanceof NotReadyError;
+      pending || !!(tree._statusFlags & type) || tree._x?._error instanceof NotReadyError;
   });
   const controller =
     _revealUsed && type === STATUS_PENDING ? getContext(RevealControllerContext) : null;
@@ -502,7 +502,7 @@ export function createErrorBoundary<T, U>(
   fallback: (error: Accessor<unknown>, reset: () => void) => U
 ): Accessor<T | U> {
   return createCollectionBoundary<T | U>(STATUS_ERROR, fn, queue => {
-    return fallback(accessor(queue._error!), () => {
+    return fallback(accessor(queue._error), () => {
       for (const source of queue._sources) recompute(source);
       schedule();
     });
