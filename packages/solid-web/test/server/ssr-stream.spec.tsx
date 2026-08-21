@@ -17,6 +17,7 @@ import {
   Dynamic
 } from "@solidjs/web";
 import {
+  NoHydration,
   createEffect,
   createMemo,
   createRenderEffect,
@@ -1249,6 +1250,78 @@ describe("SSR Streaming — Asset Discovery", () => {
     expect(shell).toContain('<link rel="modulepreload" href="/assets/Home-abc.js">');
     expect(shell).toContain('<link rel="modulepreload" href="/assets/shared-def.js">');
     expect(shell).toContain("Home Content");
+  });
+
+  test("preload() hints a matched route that has not rendered yet", async () => {
+    // The router's warm-up shape: the route is known from the URL and preloaded
+    // before anything renders it, so its whole static graph rides the shell.
+    const manifest = {
+      "./Route.tsx": {
+        file: "assets/Route-abc.js",
+        css: ["assets/Route.css"],
+        imports: ["_dep"]
+      },
+      _dep: { file: "assets/dep-def.js" }
+    };
+
+    const Route = (props: any) => <div>route body</div>;
+    const LazyRoute = lazy(() => asyncValue({ default: Route }), undefined, "./Route.tsx");
+
+    function App() {
+      LazyRoute.preload!();
+      return (
+        <html>
+          <head>
+            <title>Test</title>
+          </head>
+          <body>
+            <div>shell</div>
+          </body>
+        </html>
+      );
+    }
+
+    const { shell } = await collectChunks(() => <App />, { manifest });
+    expect(shell).toContain('<link rel="modulepreload" href="/assets/Route-abc.js">');
+    expect(shell).toContain('<link rel="modulepreload" href="/assets/dep-def.js">');
+    expect(shell).toContain('<link rel="stylesheet" href="/assets/Route.css">');
+    // Hints only — the component itself never rendered.
+    expect(shell).not.toContain("route body");
+  });
+
+  test("preload() under NoHydration hints css but not the module", async () => {
+    const manifest = {
+      "./Aside.tsx": { file: "assets/Aside-abc.js", css: ["assets/Aside.css"] }
+    };
+
+    const Aside = (props: any) => <div>aside</div>;
+    const LazyAside = lazy(() => asyncValue({ default: Aside }), undefined, "./Aside.tsx");
+
+    function Warm() {
+      LazyAside.preload!();
+      return null;
+    }
+
+    function App() {
+      return (
+        <html>
+          <head>
+            <title>Test</title>
+          </head>
+          <body>
+            <NoHydration>
+              <Warm />
+            </NoHydration>
+          </body>
+        </html>
+      );
+    }
+
+    const { shell } = await collectChunks(() => <App />, { manifest });
+    // The server markup still needs its styles; nothing in there hydrates, so
+    // the client never fetches the module.
+    expect(shell).toContain('<link rel="stylesheet" href="/assets/Aside.css">');
+    expect(shell).not.toContain("Aside-abc.js");
   });
 
   test("lazy with no manifest throws during render", async () => {
