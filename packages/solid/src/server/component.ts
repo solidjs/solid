@@ -69,6 +69,64 @@ export function createComponent<T extends Record<string, any>>(
   return Comp(props || ({} as T));
 }
 
+type AssetContext = NonNullable<typeof sharedConfig.context>;
+
+/**
+ * Resolves a module's client assets once per request and hands them to
+ * `apply`. Shared by the render path and `preload()` so the cache, the
+ * settle-and-upgrade dance and the boundary restore stay in one place.
+ */
+function resolveLazyAssets(
+  ctx: AssetContext,
+  id: string,
+  apply: (assets: ResolvedAssets | null | undefined) => void
+): Promise<void> | undefined {
+  // One resolver call per module per request. The component body — and with it
+  // its registration — re-runs on every re-creation across suspended render
+  // passes, and dev-server resolvers answer from the live module graph with
+  // real work per call, so re-asking multiplied that work by the retry count
+  // (and by every lazy() on the page). Only the RESOLUTION is memoized:
+  // `apply` still runs per call, so per-boundary attribution is unchanged.
+  const cache = (ctx._lazyAssets ??= new Map());
+  let assets;
+  if (cache.has(id)) {
+    assets = cache.get(id);
+  } else {
+    assets = ctx.resolveAssets!(id);
+    cache.set(id, assets);
+  }
+  if (assets && typeof (assets as Promise<ResolvedAssets | null>).then === "function") {
+    // Restore the boundary that owned this call — by the time the resolver
+    // settles, other boundaries may be rendering.
+    const boundary = ctx._currentBoundaryId;
+    return (assets as Promise<ResolvedAssets | null>).then(
+      resolved => {
+        // Upgrade the memoized entry to the settled VALUE. Leaving the promise
+        // in the cache made every post-settle re-creation mint a fresh pending
+        // gate (a `.then` of an already-resolved promise: pending at the render
+        // memo's compute, settled one microtask later), so the memo threw
+        // NotReadyError on every suspended-render retry pass and the boundary
+        // resume loop never converged — an unbounded microtask livelock that
+        // ground dev streaming SSR into heap exhaustion (async dev resolvers
+        // only; sync manifests never enter this branch).
+        cache.set(id, resolved ?? null);
+        const current = ctx._currentBoundaryId;
+        ctx._currentBoundaryId = boundary;
+        try {
+          apply(resolved);
+        } finally {
+          ctx._currentBoundaryId = current;
+        }
+      },
+      err => {
+        cache.set(id, null);
+        console.warn(`lazy() asset resolution failed for "${id}":`, err);
+      }
+    );
+  }
+  apply(assets as ResolvedAssets | null);
+}
+
 /**
  * Lazy load a function component asynchronously.
  * On server, returns a createMemo that throws NotReadyError until the module resolves,
@@ -192,55 +250,8 @@ export function lazy<T extends Component<any>>(
           if (hydrationKey != null) ctx.registerModule?.(hydrationKey, assets.js[0]);
         }
       };
-      const registerLazyAssets = (id: string): Promise<void> | undefined => {
-        // One resolver call per module per request. The component body — and
-        // with it this registration — re-runs on every re-creation across
-        // suspended render passes, and dev-server resolvers answer from the
-        // live module graph with real work per call, so re-asking multiplied
-        // that work by the retry count (and by every lazy() on the page).
-        // Only the RESOLUTION is memoized: applyAssets below still runs per
-        // creation, so per-boundary asset attribution is unchanged.
-        const cache = (ctx._lazyAssets ??= new Map());
-        let assets;
-        if (cache.has(id)) {
-          assets = cache.get(id);
-        } else {
-          assets = ctx.resolveAssets!(id);
-          cache.set(id, assets);
-        }
-        if (assets && typeof (assets as Promise<ResolvedAssets | null>).then === "function") {
-          // Restore the boundary that owned this render around the deferred
-          // registration — by the time the resolver settles, other
-          // boundaries may be rendering.
-          const boundary = ctx._currentBoundaryId;
-          return (assets as Promise<ResolvedAssets | null>).then(
-            resolved => {
-              // Upgrade the memoized entry to the settled VALUE. Leaving the
-              // promise in the cache made every post-settle re-creation mint a
-              // fresh `assetsPending` (a `.then` of an already-resolved
-              // promise: pending at the render memo's compute, settled one
-              // microtask later), so the memo threw NotReadyError on every
-              // suspended-render retry pass and the boundary resume loop never
-              // converged — an unbounded microtask livelock that ground dev
-              // streaming SSR into heap exhaustion (async dev resolvers only;
-              // sync manifests never enter this branch).
-              cache.set(id, resolved ?? null);
-              const current = ctx._currentBoundaryId;
-              ctx._currentBoundaryId = boundary;
-              try {
-                applyAssets(resolved);
-              } finally {
-                ctx._currentBoundaryId = current;
-              }
-            },
-            err => {
-              cache.set(id, null);
-              console.warn(`lazy() asset resolution failed for "${id}":`, err);
-            }
-          );
-        }
-        applyAssets(assets as ResolvedAssets | null);
-      };
+      const registerLazyAssets = (id: string): Promise<void> | undefined =>
+        resolveLazyAssets(ctx, id, applyAssets);
       if (moduleUrl) {
         assetsPending = registerLazyAssets(moduleUrl);
       } else if (!noHydrate) {
@@ -321,7 +332,62 @@ export function lazy<T extends Component<any>>(
       { sync: true }
     ) as unknown as SolidElement;
   };
-  wrap.preload = load;
+  // Hints the module's assets now instead of at its render, so a router
+  // warming a matched route gets the links into the head earlier. The import
+  // is never gated on resolution; a resolver failure only warns.
+  wrap.preload = () => {
+    const cur = load();
+    const ctx = sharedConfig.context;
+    if (!ctx?.resolveAssets || !ctx.registerAsset) return cur;
+    // As in the render path, a no-hydrate subtree needs its CSS but never
+    // fetches the module. Reading the context needs an owner.
+    const owner = getOwner();
+    const noHydrate = owner ? getContext(NoHydrateContext, owner) : false;
+    const hint = (assets: ResolvedAssets | null | undefined) => {
+      if (!assets) return;
+      for (let i = 0; i < assets.css.length; i++) {
+        const css = assets.css[i];
+        if (typeof css === "string") ctx.registerAsset!("style", css);
+        else ctx.registerAsset!("inline-style", css);
+      }
+      // Hint-only: registerModule files the module into the serialized
+      // hydration map, whose key only the render that creates it knows.
+      if (!noHydrate)
+        for (let i = 0; i < assets.js.length; i++) ctx.registerAsset!("module", assets.js[i]);
+    };
+    const hintFor = (id: string) => {
+      try {
+        resolveLazyAssets(ctx, id, hint);
+      } catch (err) {
+        console.warn(`lazy() asset resolution failed for "${id}":`, err);
+      }
+    };
+    if (moduleUrl) hintFor(moduleUrl);
+    else {
+      // As in the render path: an already-loaded module exposes its specifier
+      // synchronously, so only an in-flight import has to wait a microtask.
+      const known = (cur.mod as any)?.$$moduleUrl;
+      if (typeof known === "string") hintFor(known);
+      else {
+        const boundary = ctx._currentBoundaryId;
+        cur.then(
+          (mod: any) => {
+            const id = mod?.$$moduleUrl;
+            if (typeof id !== "string") return;
+            const current = ctx._currentBoundaryId;
+            ctx._currentBoundaryId = boundary;
+            try {
+              hintFor(id);
+            } finally {
+              ctx._currentBoundaryId = current;
+            }
+          },
+          () => {}
+        );
+      }
+    }
+    return cur;
+  };
   Object.defineProperty(wrap, "moduleUrl", {
     get() {
       const ctx = sharedConfig.context;

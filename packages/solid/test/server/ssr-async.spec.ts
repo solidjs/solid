@@ -3874,6 +3874,8 @@ describe("Asset Manifest + lazy()", () => {
     const Comp = (props: any) => "Hello";
     const LazyComp = lazy(() => Promise.resolve({ default: Comp }), undefined, "./MyComp.tsx");
     await LazyComp.preload!();
+    // preload() now hints the module too; this case covers the render pass.
+    registered.length = 0;
 
     createRoot(
       () => {
@@ -3892,6 +3894,69 @@ describe("Asset Manifest + lazy()", () => {
     expect(modules).toEqual({ t0: "/assets/MyComp-abc123.js" });
   });
 
+  test("preload() hints the module's assets without rendering it", async () => {
+    const { lazy } = await import("../../src/server/component.js");
+
+    const registered: Array<{ type: string; url: string }> = [];
+    const modules: Record<string, string> = {};
+    const { context } = createMockSSRContext();
+    context.registerAsset = (type: string, url: string) => registered.push({ type, url });
+    context.registerModule = (moduleUrl: string, entryUrl: string) => {
+      modules[moduleUrl] = entryUrl;
+    };
+    context.resolveAssets = (id: string) =>
+      id === "./Route.tsx"
+        ? { js: ["/assets/Route.js", "/assets/shared.js"], css: ["/assets/Route.css"] }
+        : null;
+    sharedConfig.context = context;
+
+    const LazyRoute = lazy(
+      () => Promise.resolve({ default: () => "route" }),
+      undefined,
+      "./Route.tsx"
+    );
+    await LazyRoute.preload!();
+
+    expect(registered).toEqual([
+      { type: "style", url: "/assets/Route.css" },
+      { type: "module", url: "/assets/Route.js" },
+      { type: "module", url: "/assets/shared.js" }
+    ]);
+    // Hint-only: the hydration mapping belongs to the render that creates the
+    // component, which knows the hydration key.
+    expect(modules).toEqual({});
+  });
+
+  test("preload() resolves each module once per request", async () => {
+    const { lazy } = await import("../../src/server/component.js");
+
+    let calls = 0;
+    const registered: Array<{ type: string; url: string }> = [];
+    const { context } = createMockSSRContext();
+    context.registerAsset = (type: string, url: string) => registered.push({ type, url });
+    context.resolveAssets = (id: string) => {
+      calls++;
+      return { js: ["/assets/Once.js"], css: [] };
+    };
+    sharedConfig.context = context;
+
+    const LazyOnce = lazy(
+      () => Promise.resolve({ default: (_props: any) => "once" }),
+      undefined,
+      "./Once.tsx"
+    );
+    await LazyOnce.preload!();
+    await LazyOnce.preload!();
+    createRoot(
+      () => {
+        LazyOnce({});
+      },
+      { id: "t" }
+    );
+
+    expect(calls).toBe(1);
+  });
+
   test("lazy() with moduleUrl classifies .css URLs as style", async () => {
     const { lazy } = await import("../../src/server/component.js");
 
@@ -3908,6 +3973,8 @@ describe("Asset Manifest + lazy()", () => {
     const Comp = (props: any) => "styled";
     const LazyComp = lazy(() => Promise.resolve({ default: Comp }), undefined, "./Styled.tsx");
     await LazyComp.preload!();
+    // preload() now hints the module too; this case covers the render pass.
+    registered.length = 0;
 
     createRoot(
       () => {
@@ -4031,6 +4098,8 @@ describe("Asset Manifest + lazy()", () => {
     const Comp = (props: any) => "dev";
     const LazyComp = lazy(() => Promise.resolve({ default: Comp }), undefined, "./Dev.tsx");
     await LazyComp.preload!();
+    // preload() now hints the module too; this case covers the render pass.
+    registered.length = 0;
 
     createRoot(
       () => {
@@ -4067,6 +4136,8 @@ describe("Asset Manifest + lazy()", () => {
     const Comp = (props: any) => "async-dev";
     const LazyComp = lazy(() => Promise.resolve({ default: Comp }), undefined, "./AsyncDev.tsx");
     await LazyComp.preload!();
+    // preload() now hints the module too; this case covers the render pass.
+    registered.length = 0;
 
     let thunk: any;
     createRoot(
@@ -4091,7 +4162,15 @@ describe("Asset Manifest + lazy()", () => {
     await resolverDeferred.promise;
     await Promise.resolve();
 
+    // Both the preload hint and the render registration settle here, and both
+    // must restore the owning boundary.
     expect(registered).toEqual([
+      {
+        type: "inline-style",
+        value: { id: "/src/AsyncDev.css", content: ".a{}" },
+        boundary: "b-owner"
+      },
+      { type: "module", value: "/src/AsyncDev.tsx", boundary: "b-owner" },
       {
         type: "inline-style",
         value: { id: "/src/AsyncDev.css", content: ".a{}" },
@@ -4168,7 +4247,11 @@ describe("Asset Manifest + lazy()", () => {
     // macrotask instead of counting ticks.
     await new Promise(r => setTimeout(r));
 
+    // The glob fallback now hints from preload() as well, once the import
+    // exposes $$moduleUrl, and again from the render.
     expect(registered).toEqual([
+      { type: "inline-style", value: { id: "/src/Glob.css", content: ".g{}" } },
+      { type: "module", value: "/src/Glob.tsx" },
       { type: "inline-style", value: { id: "/src/Glob.css", content: ".g{}" } },
       { type: "module", value: "/src/Glob.tsx" }
     ]);
