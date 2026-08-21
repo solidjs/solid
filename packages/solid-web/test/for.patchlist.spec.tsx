@@ -152,6 +152,20 @@ describe("patch-mode list driver", () => {
       expect(labels(div)).toBe("L5,L4,L3,L1");
       expect(rows(div)[3]).toBe(tr1);
 
+      // Permutation authored FROM DRAFT PROXIES (`s.rows = [...permuted
+      // reads]`) — deep ingest stores the proxies verbatim; identity
+      // matching must unwrap or every row rebuilds (JFB reorder gate).
+      const before = rows(div);
+      setState(s => {
+        s.rows = [s.rows[2], s.rows[3], s.rows[0], s.rows[1]];
+      });
+      flush();
+      expect(labels(div)).toBe("L3,L1,L5,L4");
+      expect(rows(div)[0]).toBe(before[2]);
+      expect(rows(div)[1]).toBe(before[3]);
+      expect(rows(div)[2]).toBe(before[0]);
+      expect(rows(div)[3]).toBe(before[1]);
+
       dispose();
     });
   });

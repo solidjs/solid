@@ -109,6 +109,7 @@ function createTarget(
   t.h = null;
   t.k = null;
   t.dk = null;
+  t.wk = null;
   t.b = null;
   t.p = null;
   t.ro = null;
@@ -381,11 +382,21 @@ export function adoptPB(
     target.adopted = true;
   }
   target.pb = null;
+  target.wk = null; // adoption supersedes any staged trap writes
   target.v = incoming;
   target.ch = (incoming as any)[$TARGET] !== undefined;
   (target.fam?.map ?? storeNextLookup).set(incoming, target);
   if (__TEST__ && ingestedRaw && !ownedRaw.has(incoming)) ingestedRaw.add(incoming);
 }
+
+/** Sentinel for `t.wk`: the written-keys bound is unusable this batch (an
+ * array length write implicitly deleted indices) — consumers full-scan. */
+const WK_ALL: Set<PropertyKey> = new Set();
+
+const plainProto = (o: object): boolean => {
+  const p = Object.getPrototypeOf(o);
+  return p === Object.prototype || p === Array.prototype || p === null;
+};
 
 function queueFold(target: StoreNextTarget): void {
   if (foldOlds.has(target)) return;
@@ -428,9 +439,16 @@ function drainFolds(): void {
       const pb = t.pb;
       const nodes = t.n;
       if (nodes !== null) {
-        for (const key of Reflect.ownKeys(nodes)) {
+        // Only written keys can hold (their nodes took the setSignal); the
+        // wk bound keeps this O(written) — see notifyWrites. Same fallback
+        // rules as the notify (WK_ALL / accessors / non-plain prototypes).
+        const keys: Iterable<PropertyKey> =
+          t.wk === null || t.wk === WK_ALL || t.a === true || !plainProto(pb)
+            ? Reflect.ownKeys(nodes)
+            : t.wk;
+        for (const key of keys) {
           const node = nodes[key as any];
-          if (node._pendingValue !== NOT_PENDING) {
+          if (node !== undefined && node._pendingValue !== NOT_PENDING) {
             held = true;
             break;
           }
@@ -450,6 +468,7 @@ function drainFolds(): void {
       t.v = pb;
       t.ch = false; // pb is always a plain clone
       t.pb = null;
+      t.wk = null; // written-keys window closes with the fold commit
     }
     if (t.v === old) continue; // adopted then re-adopted back, or no-op
     // Patch channel (fold-commit site): family targets emit HERE — the fold
@@ -523,9 +542,20 @@ function notifyWrites(t: StoreNextTarget): void {
     }
   }
   const nodes = t.n;
+  // Written-keys bound: trap writes record their keys, so the notify visits
+  // O(written) nodes instead of every subscription on the record (a selection
+  // map with thousands of per-key subscribers pays two visits per select,
+  // not a full scan). Falls back to the full node scan when the bound can't
+  // hold: no trap granularity (wk null), an array length write (WK_ALL —
+  // implicit index deletes), accessors on the record (t.a — a getter node's
+  // value can change when ANY key is written), or a non-plain prototype
+  // (class instances: prototype getters derive from arbitrary fields).
+  const writtenKeys = t.wk === WK_ALL || t.a === true || !plainProto(pb) ? null : t.wk;
   if (nodes !== null) {
-    for (const key of Reflect.ownKeys(nodes)) {
+    const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(nodes);
+    for (const key of keys) {
       const node = nodes[key as any];
+      if (node === undefined) continue;
       // Per-key accessor handling: the node's cached flag plus ONE getter
       // probe on the incoming side (getters arriving via merge/adoption).
       // Setter-only props read as data (value undefined) so lookupSetter is
@@ -555,12 +585,16 @@ function notifyWrites(t: StoreNextTarget): void {
   }
   const has = t.h;
   if (has !== null) {
-    for (const key of Reflect.ownKeys(has)) setSignal(has[key as any], key in pb);
+    const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(has);
+    for (const key of keys) {
+      const node = has[key as any];
+      if (node !== undefined) setSignal(node, key in pb);
+    }
   }
   // Deep-witness (dk): setter writes must notify a deep() subscriber even on
-  // keys with no node. O(pb keys) equality only when a witness exists.
+  // keys with no node. O(written/pb keys) equality only when a witness exists.
   if (t.dk !== null) {
-    for (const key of Reflect.ownKeys(pb)) {
+    for (const key of writtenKeys ?? Reflect.ownKeys(pb)) {
       const nv = pb[key as any];
       const ov = old[key as any];
       if (nv !== null && typeof nv === "object" ? !targetsEqual(ov, nv) : !isEqual(ov, nv)) {
@@ -1210,6 +1244,17 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (key === "__proto__") return true; // pollution guard (core R30)
     const pb = ensurePB(target);
     pendingNotify.add(target);
+    // Array length writes implicitly delete indices — the written-keys bound
+    // can't see them, so poison to the full scan for this batch. Index
+    // writes implicitly GROW length, so arrays always record it alongside.
+    if (Array.isArray(pb)) {
+      if (key === "length") target.wk = WK_ALL;
+      else if (target.wk !== WK_ALL) {
+        const wk = (target.wk ??= new Set());
+        wk.add(key);
+        wk.add("length");
+      }
+    } else if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
     // Own data keys literally named "prototype"/"constructor" land as data —
     // defineProperty sidesteps a proto-chain setter named the same.
     if (UNSAFE_KEYS.has(key)) {
@@ -1243,6 +1288,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (desc.get || desc.set) target.a = true;
     const pb = ensurePB(target);
     pendingNotify.add(target);
+    if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
     if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };
     Object.defineProperty(pb, key, desc);
     if (override) notifyWrites(target);
@@ -1255,6 +1301,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (!draft && !override) return true;
     const pb = ensurePB(target);
     pendingNotify.add(target);
+    if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
     delete pb[key as any];
     if (override) notifyWrites(target);
     return true;

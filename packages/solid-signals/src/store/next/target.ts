@@ -66,6 +66,12 @@ export interface StoreNextTarget {
    * of one per path; write paths bump it only when it exists. Separate from
    * `k` so $TRACK/mapArray never rerun on leaf value changes (R9). */
   dk: Signal<number> | null;
+  /** Keys written through the traps since the last fold commit. Bounds the
+   * setter notify/hold-check to O(written) instead of O(subscribed nodes) —
+   * a record with thousands of per-key subscriptions (selection maps) would
+   * otherwise pay a full node scan on every write. null = no trap writes
+   * this batch (bulk paths fall back to the full scan). */
+  wk: Set<PropertyKey> | null;
   /** Parent target (path copying walks this at commit). */
   u: StoreNextTarget | null;
   /** Property key of this target in the parent's backing. */

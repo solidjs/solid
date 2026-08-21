@@ -377,11 +377,22 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
           subject = value;
           return;
         }
+        // RAW identity on both sides: permutations authored inside drafts
+        // (`s.rows = [...permuted draft reads]`) produce arrays of row
+        // PROXIES, and deep ingest stores them verbatim — matching them
+        // against the previous raws without unwrapping rebuilds every row
+        // (caught by the JFB keyed-reorder identity gate).
+        const keyOf = (r: any) => {
+          const w = r != null ? patchableRaw(r) : undefined;
+          return w !== undefined ? w : r;
+        };
         const oldIndex = new Map<any, number>();
-        for (let j = 0; j < prevRaws.length; j++)
-          if (!oldIndex.has(prevRaws[j])) oldIndex.set(prevRaws[j], j);
+        for (let j = 0; j < prevRaws.length; j++) {
+          const k = keyOf(prevRaws[j]);
+          if (!oldIndex.has(k)) oldIndex.set(k, j);
+        }
         const sources = new Array(nextRaw.length);
-        for (let k = 0; k < nextRaw.length; k++) sources[k] = oldIndex.get(nextRaw[k]) ?? -1;
+        for (let k = 0; k < nextRaw.length; k++) sources[k] = oldIndex.get(keyOf(nextRaw[k])) ?? -1;
         subject = value;
         applyOps(nextRaw, { prefix: 0, sources });
         unbindOps = runWithOwner(listOwner, () => registerRowOps(subject, applyOps)) as () => void;
