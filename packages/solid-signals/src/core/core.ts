@@ -10,7 +10,11 @@ import {
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_IN_SNAPSHOT_SCOPE,
+  CONFIG_HAS_COMPANIONS,
+  CONFIG_HAS_LANE,
+  CONFIG_HAS_SNAPSHOT,
   CONFIG_NO_SNAPSHOT,
+  CONFIG_OPTIMISTIC,
   CONFIG_OWNED_WRITE,
   CONFIG_SYNC,
   CONFIG_TRANSPARENT,
@@ -197,7 +201,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   }
 
   let isOptimisticDirty = !!(el._flags & REACTIVE_OPTIMISTIC_DIRTY);
-  const hasOverride = el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING;
+  const hasOverride =
+    (el._config & CONFIG_OPTIMISTIC) !== 0 &&
+    el._overrideValue !== NOT_PENDING &&
+    el._overrideValue !== undefined;
   const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
   // Outgoing error, captured before the compute clears status: if this run
   // recovers to an unchanged value, dependents still holding this object must
@@ -295,13 +302,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._reask ||
       el._blocked ||
       el._pendingSources !== undefined ||
-      el._pendingSignal !== undefined ||
-      el._latestValueComputed !== undefined ||
+      (el._config & CONFIG_HAS_COMPANIONS) !== 0 ||
       el._child !== null
     )
       clearStatus(el, create);
-    // _optimisticLane is only ever assigned by engine paths.
-    if (el._optimisticLane) GlobalQueue._laneAsyncSettled!(el);
+    // _optimisticLane is only ever assigned by engine paths (CONFIG_HAS_LANE
+    // is their sticky presence mark).
+    if (el._config & CONFIG_HAS_LANE && el._optimisticLane) GlobalQueue._laneAsyncSettled!(el);
   } catch (e) {
     const notReady = e instanceof NotReadyError;
     if (notReady && el._loading) {
@@ -583,7 +590,17 @@ export function computed<T>(
     _inFlight: null,
     _transition: null,
     _reask: false,
-    _loading: loading
+    _loading: loading,
+    // Optional-machinery slots read on EVERY recompute (status gate, lane
+    // settle, override capture): present-with-default keeps those reads
+    // monomorphic and lets installers assign without a hidden-class
+    // transition (optimisticComputed previously forked the shape post-hoc).
+    _error: undefined,
+    _blocked: undefined,
+    _pendingSources: undefined,
+    _notifyStatus: undefined,
+    _optimisticLane: undefined,
+    _overrideValue: undefined
   } as Computed<T>;
   if (__DEV__) (self as any)._name = options?.name ?? "computed";
   setupComputedNode(self, options);
@@ -649,7 +666,13 @@ export function createEffectNode<T>(
     _errorFn: errorFn,
     _cleanup: undefined as (() => void) | undefined,
     _type: type,
-    _notifyStatus: notifyStatus
+    _notifyStatus: notifyStatus,
+    // Shape parity with computed() for the shared recompute/status paths.
+    _error: undefined,
+    _blocked: undefined,
+    _pendingSources: undefined,
+    _optimisticLane: undefined,
+    _overrideValue: undefined
   } as any;
   if (__DEV__) self._name = options?.name ?? "effect";
   setupComputedNode(self, lazyOptions);
@@ -691,6 +714,7 @@ function setupComputedNode<T>(self: Computed<T>, options: NodeOptions<T> | undef
   if (snapshotCaptureActive && !options?.lazy) {
     if (!(self._statusFlags & STATUS_PENDING) && !(self._config & CONFIG_NO_SNAPSHOT)) {
       self._snapshotValue = self._value === undefined ? NO_SNAPSHOT : self._value;
+      self._config |= CONFIG_HAS_SNAPSHOT;
       snapshotSources!.add(self);
     }
   }
@@ -719,7 +743,14 @@ export function signal<T>(
     _time: clock,
     _firewall: firewall,
     _nextChild: firewall?._child || null,
-    _pendingValue: NOT_PENDING
+    _pendingValue: NOT_PENDING,
+    // Shape alignment with Computed for the SHARED hot paths (setSignal /
+    // commitPendingNode read these on every write): present-with-default
+    // beats a missing-property megamorphic read. Signals are never
+    // uninitialized (_statusFlags 0) and have no compute (_fn undefined).
+    _fn: undefined,
+    _statusFlags: 0,
+    _transition: null
   };
   if (__DEV__) {
     (s as any)._name = options?.name ?? "signal";
@@ -732,6 +763,7 @@ export function signal<T>(
     !((firewall?._statusFlags ?? 0) & STATUS_PENDING)
   ) {
     (s as any)._snapshotValue = v === undefined ? NO_SNAPSHOT : v;
+    (s as any)._config |= CONFIG_HAS_SNAPSHOT;
     snapshotSources!.add(s);
   }
   return s as Signal<T>;
@@ -740,6 +772,7 @@ export function signal<T>(
 export function optimisticSignal<T>(v: T, options?: NodeOptions<T>): Signal<T> {
   const s = signal(v, options);
   s._overrideValue = NOT_PENDING;
+  s._config |= CONFIG_OPTIMISTIC;
   return s;
 }
 
@@ -749,6 +782,7 @@ export function optimisticComputed<T>(
 ): Computed<T> {
   const c = computed(fn, options);
   c._overrideValue = NOT_PENDING;
+  c._config |= CONFIG_OPTIMISTIC;
   return c;
 }
 
@@ -1110,9 +1144,10 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
 
   // The optimistic write path lives with the engine: only optimisticSignal /
   // optimisticComputed callers and optimistic store nodes carry an
-  // _overrideValue slot, and every module that creates one installs the
-  // engine first.
-  if (el._overrideValue !== undefined && !projectionWriteActive)
+  // _overrideValue slot (flagged by CONFIG_OPTIMISTIC — a masked read of the
+  // always-present config instead of a missing-property probe), and every
+  // module that installs one installs the engine first.
+  if (el._config & CONFIG_OPTIMISTIC && !projectionWriteActive)
     return GlobalQueue._optimisticWrite!(el, v);
 
   const currentValue = el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T);
@@ -1136,8 +1171,10 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
 
   // syncCompanions only pokes _pendingSignal/_latestValueComputed — with
   // neither companion present the call is a guaranteed no-op (companions are
-  // only ever created, never removed, and creating one installs the hook).
-  (el._pendingSignal !== undefined || el._latestValueComputed !== undefined) &&
+  // only ever created, never removed, and creating one installs the hook and
+  // sets CONFIG_HAS_COMPANIONS — one masked read replaces two optional-field
+  // probes on every write).
+  el._config & CONFIG_HAS_COMPANIONS &&
     GlobalQueue._syncCompanions !== null &&
     GlobalQueue._syncCompanions(el, v);
 

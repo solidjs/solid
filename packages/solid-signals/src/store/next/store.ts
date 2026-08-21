@@ -25,7 +25,8 @@ import {
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
-  unwrapOverride
+  unwrapOverride,
+  CONFIG_OPTIMISTIC
 } from "../../core/constants.js";
 import {
   devGuardStoreSetterWrite,
@@ -243,7 +244,10 @@ export function getNode(target: StoreNextTarget, key: PropertyKey, current: any)
     (created as any).pxv = undefined;
     // Optimistic families: arm the override slot — setSignal routes armed
     // nodes through the core engine (lanes, ownership, reverts all native).
-    if (target.fam?.opt) created._overrideValue = NOT_PENDING;
+    if (target.fam?.opt) {
+      created._overrideValue = NOT_PENDING;
+      created._config |= CONFIG_OPTIMISTIC;
+    }
     // A node born inside a live mark's identity scope inherits the mark
     // (the declaration walk could only cover nodes existing then).
     if (key !== $AFFECTS && affectsScopesLive()) inheritAffectsMarks(created, target.v, key);
@@ -281,7 +285,10 @@ export function getHasNode(
       (target.fam?.node as any) ?? undefined
     ));
     created._config |= CONFIG_OWNED_WRITE;
-    if (target.fam?.opt) created._overrideValue = NOT_PENDING;
+    if (target.fam?.opt) {
+      created._overrideValue = NOT_PENDING;
+      created._config |= CONFIG_OPTIMISTIC;
+    }
     if (affectsScopesLive()) inheritAffectsMarks(created as any, target.v, key);
     nodes[key] = node;
     markDescendants(target);
@@ -303,7 +310,10 @@ export function getKeySetNode(target: StoreNextTarget): Signal<number> {
       (target.fam?.node as any) ?? undefined
     ));
     created._config |= CONFIG_OWNED_WRITE;
-    if (target.fam?.opt) created._overrideValue = NOT_PENDING;
+    if (target.fam?.opt) {
+      created._overrideValue = NOT_PENDING;
+      created._config |= CONFIG_OPTIMISTIC;
+    }
     target.k = k;
     markDescendants(target);
   }
@@ -324,7 +334,10 @@ function getDeepNode(target: StoreNextTarget): Signal<number> {
       (target.fam?.node as any) ?? undefined
     ));
     created._config |= CONFIG_OWNED_WRITE;
-    if (target.fam?.opt) created._overrideValue = NOT_PENDING;
+    if (target.fam?.opt) {
+      created._overrideValue = NOT_PENDING;
+      created._config |= CONFIG_OPTIMISTIC;
+    }
     if (affectsScopesLive()) inheritAffectsMarks(created as any, target.v, $TRACK);
     target.dk = dk;
     markDescendants(target);

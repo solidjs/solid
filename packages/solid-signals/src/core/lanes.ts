@@ -1,4 +1,4 @@
-import { NOT_PENDING } from "./constants.js";
+import { CONFIG_HAS_LANE, NOT_PENDING } from "./constants.js";
 import {
   activeTransition,
   currentTransition,
@@ -162,6 +162,7 @@ export function assignOrMergeLane(
     // (which would incorrectly merge the new lane into the old group)
     if (existing._mergedInto) {
       el._optimisticLane = sourceLane;
+      (el as any)._config |= CONFIG_HAS_LANE;
       return;
     }
     const existingRoot = findLane(existing);
@@ -171,6 +172,7 @@ export function assignOrMergeLane(
         // waiting for the parent's async. The child keeps ownership.
         if (sourceRoot._parentLane && findLane(sourceRoot._parentLane) === existingRoot) {
           el._optimisticLane = sourceLane;
+          (el as any)._config |= CONFIG_HAS_LANE;
         } else if (existingRoot._parentLane && findLane(existingRoot._parentLane) === sourceRoot) {
           // Existing is already the child — keep it
         } else mergeLanes(sourceRoot, existingRoot);
@@ -179,4 +181,5 @@ export function assignOrMergeLane(
     }
   }
   el._optimisticLane = sourceLane;
+  (el as any)._config |= CONFIG_HAS_LANE;
 }

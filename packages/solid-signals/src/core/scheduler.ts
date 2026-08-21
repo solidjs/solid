@@ -8,6 +8,9 @@ import {
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
   REACTIVE_IN_HEAP,
+  CONFIG_HAS_COMPANIONS,
+  CONFIG_HAS_LANE,
+  CONFIG_HAS_SNAPSHOT,
   REACTIVE_IN_HEAP_HEIGHT,
   REACTIVE_MANUAL_WRITE,
   REACTIVE_MISSED_WAKE,
@@ -666,9 +669,16 @@ export function armReaskClear(): void {
 export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolean = false): void {
   // Get source lane: prefer node's own lane over current context
   // This is important for isPending signals which need their own lane to flush immediately
-  const sourceLane = (node as any)._optimisticLane || currentOptimisticLane;
+  // Presence bits gate the optional-slot probes (see constants.ts): one
+  // masked read of the always-present _config instead of missing-property
+  // lookups in the hottest notify loop. Bits are sticky — the field read
+  // stays authoritative when a bit is set.
+  const cfg = (node as any)._config as number;
+  const sourceLane =
+    (cfg & CONFIG_HAS_LANE ? (node as any)._optimisticLane : undefined) || currentOptimisticLane;
 
-  const hasSnapshot = (node as any)._snapshotValue !== undefined;
+  const hasSnapshot =
+    (cfg & CONFIG_HAS_SNAPSHOT) !== 0 && (node as any)._snapshotValue !== undefined;
   const clearReask = reaskArmed;
 
   for (let s = node._subs; s !== null; s = s._nextSub) {
@@ -711,7 +721,7 @@ function commitPendingNode(n: Signal<any>): void {
       n._value = n._pendingValue as any;
       n._pendingValue = NOT_PENDING;
     }
-    if (n._pendingSignal || n._latestValueComputed) GlobalQueue._snapCompanions!(n);
+    if (n._config & CONFIG_HAS_COMPANIONS) GlobalQueue._snapCompanions!(n);
     return;
   }
   if (n._pendingValue !== NOT_PENDING) {
@@ -728,7 +738,7 @@ function commitPendingNode(n: Signal<any>): void {
   if (!(c._statusFlags! & STATUS_PENDING)) c._statusFlags! &= ~STATUS_UNINITIALIZED;
   if (c._pendingFirstChild !== null || c._pendingDisposal !== null)
     GlobalQueue._dispose(c as Computed<unknown>, false, true);
-  if (n._pendingSignal || n._latestValueComputed) GlobalQueue._snapCompanions!(n);
+  if (n._config & CONFIG_HAS_COMPANIONS) GlobalQueue._snapCompanions!(n);
 }
 
 // Store commit hook (INTERNALS-STORE-STATE.md §3): installed by the store
