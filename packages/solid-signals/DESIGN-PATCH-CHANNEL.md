@@ -643,3 +643,32 @@ r3 side-by-side to name exact lines; rule on the fast-path invariants (what
 "nothing armed" means precisely: no lanes, no transitions, no async status,
 no affects, no patches); then increment with the reactivity benchmark as
 the tier-1 gate and the octane suite as tier-2.
+
+### 11b. Profiles name the taxes (2026-08-21, side-by-side vs r3)
+
+- create0to1 (24.0ms vs r3 2.7ms): **GC is 66.6% of the profile** — creation
+  is an ALLOCATION problem before it is a code problem (per-node footprint +
+  eager work). Visible code costs: disposeChildren (7.4% — our disposal walk
+  between bench roots), recompute+computed+setupComputedNode (13.6% — the
+  memo RECOMPUTES EAGERLY AT CREATION; r3 defers), inheritId (1.3% — id
+  work on a CSR path that should be id-free).
+- diagnosticWriteNoSubs (42.9 vs 5.9): the PENDING/COMMIT pipeline is the
+  write tax — commitPendingNodes 27.1% + two flush layers 18.9% +
+  queuePendingNode + canUseSimpleSyncFlush + setSignal. A write with ZERO
+  subscribers runs the full pending-node queue/schedule/flush/commit cycle;
+  r3 just writes and stabilizes.
+- update1to1 (66.9 vs 13.8): same pipeline dominates (commitPendingNodes
+  18.3%, flushes 11%, heap insert/run 9%, canUseSimpleSyncFlush 2.5%) around
+  the actual recompute (12.2%).
+
+Stage-3 fix shapes, now specific:
+1. CREATION: shrink/lazify node allocation (field count, owner/id wiring),
+   and revisit eager-recompute-at-creation for memos (lazy until first read
+   where semantics allow — biggest single lever with GC at 2/3 of profile).
+2. WRITES: an unarmed write (no subscribers, no lanes/transitions/async/
+   affects active) short-circuits past the pending-node pipeline to a direct
+   value store + dirty mark — the hasPatches() discipline applied to
+   setSignal/flush/commitPendingNodes.
+Both are measurable per-commit via `TESTS=<name> FRAMEWORKS=solid-next node
+packages/node/dist/index.js` in the reactivity-benchmark fork (profiles/
+holds the capture tooling: profile-tax.sh + summarize-profiles.mjs).
