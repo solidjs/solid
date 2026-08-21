@@ -602,3 +602,44 @@ options reverted to stock, dbmon re-run — patch mode engaged via the
 default, gates green, numbers identical (geomean 1.05x). The octane repo's
 working diff is now fixture-authoring only, ready to shape into an upstream
 PR once published packages carry the channel.
+
+## 11. Stage 3 opener: the core tax map (2026-08-21)
+
+Stage 2 closed the store/list story (dbmon shallow FASTER than octane in
+their harness; suite geomean 1.22x vs octane, 1.03x vs vue-vapor). The
+remaining bottleneck is the REACTIVE CORE's fixed costs, isolated two ways:
+
+- vs VAPOR (signals sibling): we win every structural/lifecycle suite
+  (nav 0.59x, portals 0.69x, reorders 0.72x, lists 0.78x) and lose ONLY
+  propagation-constant shapes (signal-favoring 2.16x; bump_deep 7x at µs
+  scale) — their alien-signals core has a lower per-update constant.
+- vs OUR OWN ENGINE (js-reactivity-benchmark, ryansolid fork
+  solid-2.0-benchmarks branch, solid-next = edit-script prod build):
+  OVERALL solid-next / r3 = 2.20x; / r3-solid-target = 1.67x (so ~1.3x is
+  the cost of solid's target semantics; ~1.67x is our implementation of
+  them). solid-next beats Solid 1.x everywhere (0.6-0.85x) — the gap is
+  headroom, not regression. Engine choice CONFIRMED: r3 heap still wins the
+  diamond/avoidable-propagation shapes it was chosen for (0.9-1.5x band);
+  alien-signals is NOT the answer (Ryan: r3 benched faster on wide
+  fan-outs; the additions cripple it, not the engine).
+
+THE TAX MAP (worst first, all measurable single-command targets):
+1. CREATION — create0to1 12.9x, create2to1 6.2x, create4to1 4.1x. The
+   constructor path does eager work r3 defers (owner wiring, id
+   inheritance, queue/context, flag init). Same tax behind every mount gap
+   all stage. Fix shape: field-layout + lazy-init discipline.
+2. WRITE FAST PATH — diagnosticWriteNoSubs 4.3x (a write NOBODY observes
+   pays 4x), update1to1 3.4x (the canonical hot path). Fix shape: the
+   hasPatches() pattern on the core write path — one armed-check branch;
+   lane/transition/status machinery consulted only when armed.
+3. PROPAGATION CONSTANTS — deep/broad 2.3-2.7x per-hop overhead; expected
+   to largely fall out of (2).
+
+Size ruling context: this is GATING/TRIMMING existing paths, not a second
+engine — expected size-neutral or negative (unlike any alien hybrid).
+
+Next steps when stage 3 opens: CPU-profile create0to1 + update1to1 against
+r3 side-by-side to name exact lines; rule on the fast-path invariants (what
+"nothing armed" means precisely: no lanes, no transitions, no async status,
+no affects, no patches); then increment with the reactivity benchmark as
+the tier-1 gate and the octane suite as tier-2.
