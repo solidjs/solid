@@ -316,7 +316,38 @@ function slotArgsProxy(args: () => Record<string, any>) {
         if (!isAsyncValue(v)) return v;
         let read = asyncReads.get(key);
         if (!read) {
-          const make = () => createMemo(() => (args() as any)[key]);
+          // TRANSPARENT: an adopted fill invokes during the hydrate window
+          // under the occurrence's claim owner, and a plain memo minted
+          // there consumes a hydration-key child slot the document producer
+          // never allocated (its twin — `ssrAsyncValue` in
+          // createDocumentSlotProps — wraps args OUTSIDE the keyed zone).
+          // One stray slot shifts every subsequent key in the occurrence
+          // namespace: the fill's `<Loading>` ids stop matching their `_fr`
+          // records, settled branches read as pending, and the registry
+          // misses every claim after the read (the chat welcome/status
+          // hydration miss). Transparent shares the parent id — no slot
+          // consumed, no serialized-record adoption for a memo whose value
+          // comes from the revived args, not the page.
+          //
+          // STAMP FAST-ADOPT: a record-revived promise that already settled
+          // carries the hydration serializer's stamp (`s`/`v` — the same
+          // marks readHydratedValue adopts). The signals core treats every
+          // thenable as pending-now/ready-next-microtask, but hydration's
+          // claim walk is synchronous: without the sync adopt the fill
+          // renders its fallback branch over a page whose markup settled
+          // before flush — branch mismatch, key misses, dead range.
+          const make = () =>
+            createMemo(
+              () => {
+                const raw = (args() as any)[key];
+                if (raw != null && typeof raw.then === "function") {
+                  if (raw.s === 1) return raw.v;
+                  if (raw.s === 2) throw raw.v;
+                }
+                return raw;
+              },
+              { transparent: true } as any
+            );
           read = owner ? runWithOwner(owner, make)! : make();
           asyncReads.set(key, read);
         }

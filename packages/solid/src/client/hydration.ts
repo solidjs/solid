@@ -1,5 +1,6 @@
 import {
   getOwner,
+  NotReadyError,
   createLoadingBoundary as coreLoadingBoundary,
   createErrorBoundary as coreErrorBoundary,
   flush,
@@ -771,10 +772,80 @@ function hydrateStoreFromAsyncIterable(
  * @internal — consumed by the serialization layer (@solidjs/web).
  */
 export function materializeContainerTrace(marker: {
-  $tr: AsyncIterable<any>;
+  $tr: AsyncIterable<any> | { __SEROVAL_STREAM__: true };
   $ta?: number;
 }): Store<any> {
-  const src = marker.$tr;
+  const src = marker.$tr as any;
+  // Raw seroval stream (the wire shape since the stream-mint protocol):
+  // `.on()` replays buffered emissions SYNCHRONOUSLY, so a snapshot the
+  // document already delivered is applied before the first read — the store
+  // reads as READY during hydration's synchronous claim walk, matching the
+  // page's settled markup. The async-iterable branch below (pre-stream
+  // payloads) can only surface its buffer through microtasks, which made a
+  // settled-inline boundary suspend at the walk and hydrate a phantom
+  // fallback over settled markup (the chat welcome/status meter miss).
+  if (src != null && src.__SEROVAL_STREAM__ === true) {
+    const queue: any[] = [];
+    let failed: { error: any } | undefined;
+    let cursor = 0;
+    let first = true;
+    // Everything lives under the detached root (see the block comment
+    // below): materialization runs at arg-read inside a reader's render
+    // scope, and a version signal owned by that reader would be disposed by
+    // its re-render while the memoized store lives on.
+    return createRoot(() => {
+      const [version, setVersion] = coreSignal(0);
+      // Subscribe before creating the projection: the buffered replay runs
+      // synchronously inside on(), filling the queue the first compute
+      // drains. Replayed values must NOT bump the version — the replay can
+      // run inside an owned render scope where reactive writes are illegal,
+      // and the projection doesn't exist yet to need waking. Only live
+      // emissions (stream callbacks on later tasks) bump.
+      let live = false;
+      const bump = () => live && setVersion(n => n + 1);
+      src.on({
+        next(value: any) {
+          queue.push(value);
+          bump();
+        },
+        // The trace ended: the last applied state latches (same contract as
+        // the iterable path's `done`).
+        return() {},
+        throw(error: any) {
+          failed = { error };
+          bump();
+        }
+      });
+      live = true;
+      return createProjection(
+        (draft: any) => {
+          version();
+          while (cursor < queue.length) {
+            const value = queue[cursor++];
+            if (first) {
+              first = false;
+              // Full authoritative snapshot into a fresh {}/[] seed — pure
+              // writes, no draft reads (see the iterable branch below).
+              if (Array.isArray(value)) {
+                for (let i = 0; i < value.length; i++) draft[i] = value[i];
+                draft.length = value.length;
+              } else {
+                Object.assign(draft, value);
+              }
+            } else {
+              applyPatches(draft, value);
+            }
+          }
+          if (failed) throw failed.error;
+          // Nothing buffered yet (revival raced ahead of the record's data
+          // script): pending until the snapshot lands, marked on the
+          // projection's own node — the version bump reruns this compute.
+          if (first) throw new NotReadyError(getOwner());
+        },
+        (marker.$ta ? [] : {}) as any
+      );
+    })!;
+  }
   // A root, not a bare null owner: the projection's async machinery routes
   // its pending/error states through the owner's queue, and with no owner
   // at all the internal NotReadyError (the "pending until snapshot" mark)
@@ -1888,6 +1959,21 @@ function fragmentPending(hy: any, id: string): boolean {
   return !!document.getElementById("pl-" + id);
 }
 
+/**
+ * A settled declaration whose swap can no longer land: the `pl-*` placeholder
+ * is still in the document (so $df never ran and the content wasn't inlined)
+ * but no content template exists and none is coming (`.s` is set — the
+ * resolving chunk already executed). This is the SUPERSEDED fragment shape:
+ * an outer boundary settled first and shipped the converged branch, retiring
+ * this fragment's markup before it streamed. Its DOM truth is the fallback.
+ */
+function fragmentSuperseded(id: string): boolean {
+  const hy = (globalThis as any)._$HY;
+  if (hy && hy.v && hy.v[id]) return false;
+  if (document.getElementById(id)) return false;
+  return !!document.getElementById("pl-" + id);
+}
+
 function anyFragmentPending(): boolean {
   const hy = (globalThis as any)._$HY;
   if (!hy || !hy.r) return false;
@@ -2218,7 +2304,7 @@ function hydratedCreateLoadingBoundary<T, U>(
       // all assume $df already ran.
       replayHeldFragment(id);
 
-      if (fr && typeof fr === "object" && fr.s === 1 && !assetPromise) {
+      if (fr && typeof fr === "object" && fr.s === 1 && !assetPromise && !fragmentSuperseded(id)) {
         // Fragment already settled and swapped in ($df ran before hydration):
         // the content is in the DOM, so hydrate straight through. The fallback
         // only hydrates when it is actually showing — rendering it here would
@@ -2230,6 +2316,29 @@ function hydratedCreateLoadingBoundary<T, U>(
 
       settledSerializationResumeQueued = true;
       const [, resume] = initBoundaryResume(o, id);
+
+      if (fr && typeof fr === "object" && fr.s === 1 && fragmentSuperseded(id)) {
+        // SUPERSEDED (#2801's inverse): the declaration settled but its markup
+        // was retired before it shipped — an outer boundary settled first and
+        // its fragment carries the final branch instead, so this placeholder
+        // will never swap. The DOM shows this boundary's fallback: hydrate
+        // that (it IS showing), then resume WITHOUT claiming — the children
+        // must render as fresh client DOM off the settled records, because
+        // there is no server-rendered content branch to adopt. Hydrating
+        // straight through here claims keys the document never emitted (the
+        // welcome/status mid-stream ticker miss).
+        const resumeFresh = () => resume(false);
+        if (assetPromise)
+          assetPromise.then(
+            () => queueMicrotask(resumeFresh),
+            err => {
+              reportAssetFailure(err);
+              queueMicrotask(resumeFresh);
+            }
+          );
+        else queueMicrotask(resumeFresh);
+        return fallback();
+      }
 
       if (fr && typeof fr === "object" && (fr.s === 1 || fr.s === 2)) {
         if (fr.s === 2) {
