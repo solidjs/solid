@@ -17,7 +17,7 @@ import {
   tracking
 } from "./core.js";
 import { clearSignals, DEV, emitDiagnostic } from "./dev.js";
-import { unlinkSubs } from "./graph.js";
+import { unlinkSubs, unobserved } from "./graph.js";
 import { deleteFromHeap, insertIntoHeap, insertIntoHeapHeight, queueFor } from "./heap.js";
 import { dirtyQueue, GlobalQueue, globalQueue, zombieQueue } from "./scheduler.js";
 import type { Computed, Disposable, Link, Owner, Root } from "./types.js";
@@ -50,19 +50,12 @@ export function markDisposal(el: Owner): void {
 export function dispose(node: Computed<unknown>): void {
   // Direct disposal is death, not dormancy: strip the observation lifecycle
   // so a later read freezes at the last committed value instead of
-  // reawakening the node (#3024).
+  // reawakening the node (#3024). The teardown itself (heap removal — a node
+  // left queued would be recomputed and resurrected by the next flush (#2983)
+  // — dep unlinking, child disposal) is exactly unobserved()'s body; only
+  // this flag distinguishes death from dormancy.
   node._config &= ~CONFIG_AUTO_DISPOSE;
-  // Leave every scheduler heap on disposal (mirrors `unobserved`): a node
-  // still queued here would be recomputed by the next flush, and recompute()
-  // rewriting `_flags` would clear REACTIVE_DISPOSED — resurrecting it (#2983).
-  deleteFromHeap(node, queueFor(node));
-  let toRemove = node._deps;
-  while (toRemove !== null) {
-    toRemove = unlinkSubs(toRemove);
-  }
-  node._deps = null;
-  node._depsTail = null;
-  disposeChildren(node, true);
+  unobserved(node);
 }
 
 export function disposeChildren(node: Owner, self: boolean = false, zombie?: boolean): void {
