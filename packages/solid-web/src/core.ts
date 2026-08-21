@@ -1,5 +1,6 @@
 //@ts-nocheck
 import {
+  createComponent as coreCreateComponent,
   createMemo,
   createOwner,
   createRenderEffect,
@@ -15,7 +16,6 @@ import {
 export {
   getOwner,
   runWithOwner,
-  createComponent,
   createRoot as root,
   sharedConfig,
   untrack,
@@ -46,32 +46,48 @@ export {
 const transparentOptions = { transparent: true, sync: true };
 const syncOptions = { sync: true };
 // List-driver purity probe state (see driveList). While a probe is active,
-// reactive work is not performed, only RECORDED: any effect or function-
-// valued insert disqualifies the row (probeDirty), and its construction is
-// skipped outright. Skipping is safe precisely because it disqualifies —
-// a dirty probe's DOM is always discarded. This is what keeps probing O(row
-// surface): a container row (nested component/For) costs one shallow clone
-// instead of recursively building — and re-probing — its entire subtree.
+// the FIRST impurity marker (effect, memo, function-valued insert, ref)
+// disqualifies the row and ABORTS the build by throwing a sentinel: user
+// code must never observe a speculative probe — no refs handed elements
+// that never mount, no cleanups for rows that never existed (caught by
+// octane's effectful-list work-count gate). Aborting is safe precisely
+// because it disqualifies — a dirty probe's DOM is always discarded — and
+// it keeps probing O(row surface): a container row costs one shallow clone
+// instead of recursively building its subtree.
 let probing = false;
 let probeDirty = false;
+const PROBE_ABORT: Error = new Error("probe abort (list driver internal)");
+
+// Impurity marker: disqualify and abort the probe build. No-op outside a
+// probe (safe to call unconditionally from runtime seams like applyRef).
+export const probeMark = () => {
+  if (!probing) return;
+  probeDirty = true;
+  throw PROBE_ABORT;
+};
+
+// A component inside a probed row can never be pure (its owner alone
+// disqualifies), so abort BEFORE the component body runs — no user code
+// (effects, cleanups, module side effects) may execute for a speculative
+// build that is guaranteed to be discarded.
+export const createComponent = (comp, props) => {
+  if (probing) probeMark();
+  return coreCreateComponent(comp, props);
+};
 
 // Runtime seam for insert: during a probe, a function accessor (reactive
-// hole, component output, nested list) disqualifies and skips; static values
-// insert normally so a KEPT (pure) probe row has complete DOM.
+// hole, component output, nested list) disqualifies and aborts; static
+// values insert normally so a KEPT (pure) probe row has complete DOM.
 export const probeGate = (accessor: unknown) => {
-  if (!probing || typeof accessor !== "function") return false;
-  probeDirty = true;
-  return true;
+  if (probing && typeof accessor === "function") probeMark();
+  return false;
 };
 
 // `scope: true` (set by insert for compiler-tagged hole accessors) makes the
 // render effect non-transparent so the hole gets its own id scope, mirroring
 // the server's ssrScope owner.
 export const effect = (fn, effectFn, options?) => {
-  if (probing) {
-    probeDirty = true;
-    return;
-  }
+  if (probing) probeMark();
   return createRenderEffect(
     fn,
     effectFn,
@@ -81,12 +97,8 @@ export const effect = (fn, effectFn, options?) => {
 
 export const memo = fn => {
   // A memo during a list probe is reactive work (a per-row computation) —
-  // disqualify and skip creation; the raw accessor stands in for the
-  // guaranteed-discarded probe build.
-  if (probing) {
-    probeDirty = true;
-    return fn;
-  }
+  // disqualify and abort the guaranteed-discarded probe build.
+  if (probing) probeMark();
   return createMemo(() => fn(), syncOptions);
 };
 
@@ -239,19 +251,29 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
     const wasProbing = probing;
     probing = true;
     probeDirty = false;
-    let node: Node;
+    let node: Node | undefined;
     let dirty: boolean;
     const wasHydrating = !!sharedConfig.hydrating;
     if (wasHydrating) sharedConfig.hydrating = false;
     try {
       node = runWithOwner(probe, () => untrack(() => rowFn(subject[abs]))) as Node;
+    } catch (err) {
+      // The abort sentinel is the probe working as designed (first impurity
+      // marker stops the speculative build); anything else is a real error.
+      if (err !== PROBE_ABORT) {
+        probing = wasProbing;
+        probeDirty = false;
+        if (wasHydrating) sharedConfig.hydrating = true;
+        (probe as any).dispose();
+        throw err;
+      }
     } finally {
       dirty = probeDirty;
       probing = wasProbing;
       probeDirty = false;
       if (wasHydrating) sharedConfig.hydrating = true;
     }
-    if (dirty || !ownerIsBlank(probe as any) || !(node! instanceof Node)) {
+    if (dirty || !ownerIsBlank(probe as any) || !(node instanceof Node)) {
       (probe as any).dispose();
       return undefined;
     }
