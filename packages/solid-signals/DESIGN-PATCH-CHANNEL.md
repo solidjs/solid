@@ -498,3 +498,37 @@ O(n) trap traffic), noted for a future draft array-method fast path
 Size after the full PR-D fix set: store entry 14.69 KB gzip (13.56 at the
 stage-2 branch point → +1.13 KB for the entire channel + row ops + setter
 emission + wk bound), core-only 8.61 KB (+0.02).
+
+### 10f. Octane full-suite sweep (2026-08-21) — PR-D
+
+All 18 solid-column suites run through octane's OWN gated harness
+(bench.mjs), fixtures on the edit-script build with patchDriver enabled.
+Solid passed EVERY correctness gate after two fixes this sweep forced:
+probe-abort semantics (effectful-list's work-count gate caught the probe
+running user code — refs/cleanups for speculative builds; the probe now
+aborts at the first impurity marker incl. createComponent, so user code
+never observes it) and fixture authoring (octane's dbmon/jfb fixtures used
+expression children — insert holes decline the driver BY DESIGN; updated to
+textContent/canonical authoring, mirroring the ruled type-declaration
+contract).
+
+Suite geomeans (solid/octane, <1 = solid faster), 109 ops total:
+  effectful-list 0.52x | store-selector-fanout 0.71x | async-waterfall
+  0.85x | memo-wall 0.97x | dbmon 1.08x | portal-swarm 1.13x |
+  js-framework 1.17x | weather-app 1.20x | signal-favoring 1.37x |
+  spa-navigation 1.40x | recursive-context 1.47x | svg-dashboard 1.50x |
+  jfb-reorder 1.55x | todomvc 1.86x | chat-stream 1.95x | news 1.97x
+  OVERALL geomean 1.26x; 50/109 ops at parity-or-faster, 25 ops >2x
+  (nearly all sub-millisecond small-op or creation-path).
+
+Reading: solid WINS the store-centric suites (effectful-list, selector-
+fanout, memo-wall, async-waterfall — the fine-grained model's home turf,
+update_nodeps literally 0.00x) and holds parity on dbmon/JFB main ops.
+The behind-tail decomposes into the two known shapes: CREATION (mount/
+nav_mount/ssr+hydrate — template-clone+proxy tax, the TSRX-codegen
+question) and SMALL-OP FIXED OVERHEAD (rotate/displace/removefirst,
+toggleAll, stream ticks — sub-ms ops where scheduler+channel constants
+dominate octane's direct writes). Several behind suites (todomvc,
+chat-stream, svg-dashboard) retain expression-children authoring — the
+same fixture-shape penalty dbmon had (16.4ms→3.1ms tick from authoring
+alone); re-authoring those is follow-up fixture work, not runtime work.
