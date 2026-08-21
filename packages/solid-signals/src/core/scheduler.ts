@@ -20,7 +20,7 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
-import { currentOptimisticLane } from "./core.js";
+import { currentOptimisticLane, ext } from "./core.js";
 import { DEV, emitDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
@@ -110,13 +110,13 @@ function sweepTransientStoreNodes(): void {
       continue;
     }
     if (node._pendingValue !== NOT_PENDING) continue;
-    if (node._overrideValue !== undefined && node._overrideValue !== NOT_PENDING) continue;
+    if (node._x?._overrideValue !== undefined && node._x?._overrideValue !== NOT_PENDING) continue;
     // A live affects() mark keeps the node addressable: sweeping it would
     // detach the refcount from the slot (a fresh probe would upsert a new,
     // unmarked node for the same property).
-    if (node._affectsCount) continue;
+    if (node._x?._affectsCount) continue;
     transientStoreNodes.delete(node);
-    node._unobserved?.();
+    node._x?._unobserved?.();
   }
 }
 export function resetUnhandledAsync(): void {
@@ -580,7 +580,7 @@ export class GlobalQueue extends Queue {
     // Only track async if the boundary is propagating STATUS_PENDING (not caught by boundary)
     if (mask & STATUS_PENDING) {
       if (flags & STATUS_PENDING) {
-        const actualError = error !== undefined ? error : node._error;
+        const actualError = error !== undefined ? error : node._x?._error;
         // A visibility-only mark notification (the affects() boundary
         // channel) updates display state on its way up but must be invisible
         // to completion accounting BY CONSTRUCTION: it never registers a
@@ -632,12 +632,12 @@ export class GlobalQueue extends Queue {
       // nodes, see propagateAffectsMark, #2893.
       for (let i = 0; i < batch._pendingNodes.length; i++) {
         const node = batch._pendingNodes[i];
-        node._transition = activeTransition;
+        ext(node)._transition = activeTransition;
         activeTransition._pendingNodes.push(node);
       }
       for (let i = 0; i < batch._optimisticNodes.length; i++) {
         const node = batch._optimisticNodes[i];
-        node._transition = activeTransition;
+        ext(node)._transition = activeTransition;
         activeTransition._optimisticNodes.push(node);
       }
       if (batch._affectsNodes.length) activeTransition._affectsNodes.push(...batch._affectsNodes);
@@ -677,10 +677,10 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
   // stays authoritative when a bit is set.
   const cfg = (node as any)._config as number;
   const sourceLane =
-    (cfg & CONFIG_HAS_LANE ? (node as any)._optimisticLane : undefined) || currentOptimisticLane;
+    (cfg & CONFIG_HAS_LANE ? (node as any)._x?._optimisticLane : undefined) || currentOptimisticLane;
 
   const hasSnapshot =
-    (cfg & CONFIG_HAS_SNAPSHOT) !== 0 && (node as any)._snapshotValue !== undefined;
+    (cfg & CONFIG_HAS_SNAPSHOT) !== 0 && (node as any)._x?._snapshotValue !== undefined;
   const clearReask = reaskArmed;
 
   for (let s = node._subs; s !== null; s = s._nextSub) {
@@ -698,7 +698,7 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
     } else if (optimistic) {
       s._sub._flags |= REACTIVE_OPTIMISTIC_DIRTY;
       // No source lane means reversion - clear subscriber's lane so effects go to regular queue
-      (s._sub as any)._optimisticLane = undefined;
+      if ((s._sub as any)._x) (s._sub as any)._x._optimisticLane = undefined;
     }
 
     enqueueSub(s._sub);
@@ -843,7 +843,7 @@ export function shiftAffectsMarks(delta: 1 | -1): void {
 
 function reassignPendingTransition(pendingNodes: Signal<any>[]) {
   for (let i = 0; i < pendingNodes.length; i++) {
-    pendingNodes[i]._transition = activeTransition;
+    ext(pendingNodes[i])._transition = activeTransition;
   }
 }
 
@@ -940,18 +940,18 @@ function runQueue(queue: QueueCallback[], type: number): void {
 
 function reporterBlocksSource(reporter: Computed<any>, source: Computed<any>): boolean {
   if (reporter._flags & (REACTIVE_ZOMBIE | REACTIVE_DISPOSED)) return false;
-  if (reporter._pendingSources?.has(source)) return true;
+  if (reporter._x?._pendingSources?.has(source)) return true;
   for (let dep = reporter._deps; dep; dep = dep._nextDep) {
     let current = dep._dep as Signal<any> | Computed<any> | undefined;
     while (current) {
       if (current === source || (current as any)._firewall === source) return true;
-      current = current._parentSource;
+      current = current._x?._parentSource;
     }
   }
   return !!(
     reporter._statusFlags & STATUS_PENDING &&
-    reporter._error instanceof NotReadyError &&
-    reporter._error.source === source
+    reporter._x?._error instanceof NotReadyError &&
+    reporter._x?._error.source === source
   );
 }
 
@@ -971,7 +971,7 @@ function transitionComplete(transition: Transition): boolean {
     if (!hasLive) transition._asyncReporters.delete(source);
     else if (
       source._statusFlags & STATUS_PENDING &&
-      (source._error as NotReadyError)?.source === source
+      (source._x?._error as NotReadyError)?.source === source
     ) {
       done = false;
       break;

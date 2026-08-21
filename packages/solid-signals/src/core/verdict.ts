@@ -34,8 +34,7 @@ import {
   setStrictRead,
   stale,
   strictRead,
-  tracking
-} from "./core.js";
+  tracking, ext } from "./core.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
 import { enqueueSub, insertIntoHeap, markHeap, queueFor } from "./heap.js";
@@ -82,15 +81,17 @@ const suppressedProbes: Map<Signal<any> | Computed<any>, Set<Computed<any>>> = n
  * Used by isPending() to track pending state reactively.
  */
 function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
-  if (!el._pendingSignal) {
+  let ps = el._x?._pendingSignal;
+  if (!ps) {
     // Start false, write true if pending - ensures reversion returns to false
-    el._pendingSignal = optimisticSignal(false, { ownedWrite: true });
+    ps = optimisticSignal(false, { ownedWrite: true });
+    ext(el)._pendingSignal = ps;
     el._config |= CONFIG_HAS_COMPANIONS;
-    el._pendingSignal._parentSource = el;
-    if (computePendingState(el)) setSignal(el._pendingSignal, true);
+    ext(ps)._parentSource = el;
+    if (computePendingState(el)) setSignal(ps, true);
     if (__DEV__) devTrackCompanionOwner(el);
   }
-  return el._pendingSignal;
+  return ps;
 }
 
 function collectPendingSources(el: Signal<any> | Computed<any>): void {
@@ -125,7 +126,7 @@ function markWalk(
   el: Signal<any> | Computed<any>,
   seen: Set<Signal<any> | Computed<any>>
 ): boolean {
-  if (el._affectsCount) return true;
+  if (el._x?._affectsCount) return true;
   // A real error outranks an inherited mark (A16/A24c): an errored node
   // answers probes with its error, not a coverage verdict, and coverage does
   // not flow through it — matching the rails' behavior, where propagation
@@ -157,11 +158,11 @@ function markCovered(el: Signal<any> | Computed<any>): boolean {
 }
 
 function quietPending(el: Computed<any>): boolean {
-  if (el._pendingSources) {
-    for (const source of el._pendingSources) if (!source._reask) return false;
+  if (el._x?._pendingSources) {
+    for (const source of el._x._pendingSources) if (!source._x?._reask) return false;
     return true;
   }
-  return el._reask;
+  return el._x?._reask ?? false;
 }
 
 // NOTE: a loadingValue node's open loading window (_loading) is verdict-quiet
@@ -187,15 +188,15 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
   // so the one walk covers direct marks, derivation, and companion chains.
   if (markCovered(el)) return true;
   const firewall = (el as FirewallSignal<any>)._firewall;
-  if (el._parentSource) {
-    const parentNode = el._parentSource as FirewallSignal<any>;
+  if (el._x?._parentSource) {
+    const parentNode = el._x?._parentSource as FirewallSignal<any>;
     const parent = (parentNode._firewall || parentNode) as Computed<any>;
     return newQuestionInFlight(parent);
   }
   if (firewall && el._pendingValue !== NOT_PENDING && !hasActiveOverride(el)) {
     return (
       !!(firewall._flags & REACTIVE_MANUAL_WRITE) ||
-      (!firewall._inFlight && !(firewall._statusFlags & STATUS_PENDING)) ||
+      (!firewall._x?._inFlight && !(firewall._statusFlags & STATUS_PENDING)) ||
       (!!(firewall._statusFlags & STATUS_PENDING) && quietPending(firewall))
     );
   }
@@ -209,31 +210,31 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
     !comp._loading
   ) {
     if (hasActiveOverride(el))
-      return !el._equals || !el._equals(el._pendingValue as any, unwrapOverride(el._overrideValue));
+      return !el._equals || !el._equals(el._pendingValue as any, unwrapOverride(el._x?._overrideValue));
     return true;
   }
   return newQuestionInFlight(comp);
 }
 
 function syncCompanions<T>(el: Signal<T> | Computed<T>, value: T): void {
-  if (el._pendingSignal) updatePendingSignal(el);
-  if (el._latestValueComputed) setSignal(el._latestValueComputed, value);
+  if (el._x?._pendingSignal) updatePendingSignal(el);
+  if (el._x?._latestValueComputed) setSignal(el._x?._latestValueComputed, value);
 }
 
 function updatePendingSignal(el: Signal<any> | Computed<any>): void {
-  if (el._pendingSignal) {
-    setSignal(el._pendingSignal, computePendingState(el));
+  if (el._x?._pendingSignal) {
+    setSignal(el._x?._pendingSignal, computePendingState(el));
   }
-  if (el._latestValueComputed) updatePendingSignal(el._latestValueComputed);
+  if (el._x?._latestValueComputed) updatePendingSignal(el._x?._latestValueComputed);
 }
 
 function updateChildCompanions(el: Computed<any>): void {
   for (
-    let child: FirewallSignal<any> | null = el._child;
+    let child: FirewallSignal<any> | null = el._x?._child ?? null;
     child !== null;
     child = child._nextChild
   ) {
-    if (child._pendingSignal || child._latestValueComputed) updatePendingSignal(child);
+    if (child._x?._pendingSignal || child._x?._latestValueComputed) updatePendingSignal(child);
   }
 }
 
@@ -252,10 +253,10 @@ function repollDownstreamVerdicts(el: Computed<any>, snap: boolean = false): voi
   const visit = (node: Signal<any> | Computed<any>) => {
     if (visited.has(node)) return;
     visited.add(node);
-    if (node._pendingSignal || node._latestValueComputed) update(node);
+    if (node._x?._pendingSignal || node._x?._latestValueComputed) update(node);
     for (let s = node._subs; s !== null; s = s._nextSub) visit(s._sub);
     for (
-      let child: FirewallSignal<any> | null = (node as Computed<any>)._child ?? null;
+      let child: FirewallSignal<any> | null = (node as Computed<any>)._x?._child ?? null;
       child !== null;
       child = child._nextChild
     ) {
@@ -280,19 +281,20 @@ function wakeSuppressedProbes(transition: Transition): void {
   if (suppressedProbes.size === 0) return;
   let woke = false;
   for (const [node, probes] of suppressedProbes) {
-    const t = node._transition ? currentTransition(node._transition) : null;
+    const nt = node._x?._transition;
+    const t = nt ? currentTransition(nt) : null;
     if (!t) {
       suppressedProbes.delete(node);
       continue;
     }
     if (t !== transition) continue;
     suppressedProbes.delete(node);
-    const lane = node._pendingSignal?._optimisticLane;
+    const lane = node._x?._pendingSignal?._x?._optimisticLane;
     for (const p of probes) {
       if (p._flags & REACTIVE_DISPOSED) continue;
       p._flags |= REACTIVE_OPTIMISTIC_DIRTY;
       if (lane) assignOrMergeLane(p, lane);
-      else p._optimisticLane = undefined;
+      else if (p._x !== null) p._x._optimisticLane = undefined;
       enqueueSub(p);
       woke = true;
     }
@@ -302,8 +304,8 @@ function wakeSuppressedProbes(transition: Transition): void {
 
 function snapCompanionsToState(owner: Signal<any> | Computed<any>): void {
   suppressedProbes.size !== 0 && suppressedProbes.delete(owner);
-  const sig = owner._pendingSignal;
-  if (sig && (sig._overrideValue === undefined || sig._overrideValue === NOT_PENDING)) {
+  const sig = owner._x?._pendingSignal;
+  if (sig && (sig._x?._overrideValue === undefined || sig._x?._overrideValue === NOT_PENDING)) {
     const pending = computePendingState(owner);
     if (sig._value !== pending || sig._pendingValue !== NOT_PENDING) {
       sig._value = pending;
@@ -313,10 +315,10 @@ function snapCompanionsToState(owner: Signal<any> | Computed<any>): void {
       schedule();
     }
   }
-  const shadow = owner._latestValueComputed;
+  const shadow = owner._x?._latestValueComputed;
   if (shadow && !(shadow._flags & REACTIVE_DISPOSED)) {
     if (
-      (shadow._overrideValue === undefined || shadow._overrideValue === NOT_PENDING) &&
+      (shadow._x?._overrideValue === undefined || shadow._x?._overrideValue === NOT_PENDING) &&
       shadow._pendingValue === NOT_PENDING &&
       !Object.is(shadow._value, owner._value) &&
       !(shadow._flags & (REACTIVE_DIRTY | REACTIVE_CHECK))
@@ -331,22 +333,24 @@ function snapCompanionsToState(owner: Signal<any> | Computed<any>): void {
 }
 
 function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
-  if (!el._latestValueComputed) {
+  let lvc = el._x?._latestValueComputed;
+  if (!lvc) {
     const prevPending = latestReadActive;
     setLatestReadActive(false);
     const prevCheck = pendingCheckActive;
     setPendingCheckActive(false);
     const prevContext = context;
     setContextInternal(null); // Detach from owner so it isn't disposed with effects
-    el._latestValueComputed = optimisticComputed(() => read(el));
+    lvc = optimisticComputed(() => read(el));
+    ext(el)._latestValueComputed = lvc;
     el._config |= CONFIG_HAS_COMPANIONS;
-    el._latestValueComputed._parentSource = el; // Parent-child lane relationship
+    ext(lvc)._parentSource = el; // Parent-child lane relationship
     if (__DEV__) devTrackCompanionOwner(el);
     setContextInternal(prevContext);
     setPendingCheckActive(prevCheck);
     setLatestReadActive(prevPending);
   }
-  return el._latestValueComputed;
+  return lvc;
 }
 
 /** The latest()-mode read path, installed as GlobalQueue._latestRead. */
@@ -355,8 +359,8 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
   const prevPending = latestReadActive;
   setLatestReadActive(false);
   const visibleValue = (
-    el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING
-      ? unwrapOverride(el._overrideValue)
+    el._x?._overrideValue !== undefined && el._x?._overrideValue !== NOT_PENDING
+      ? unwrapOverride(el._x?._overrideValue)
       : el._value
   ) as T;
   let value: T;
@@ -386,8 +390,8 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
     setLatestReadActive(prevPending);
   }
   if (pendingComputed._statusFlags & STATUS_PENDING) return visibleValue;
-  if (stale && currentOptimisticLane && pendingComputed._optimisticLane) {
-    const pcLane = findLane(pendingComputed._optimisticLane);
+  if (stale && currentOptimisticLane && pendingComputed._x?._optimisticLane) {
+    const pcLane = findLane(pendingComputed._x?._optimisticLane);
     const curLane = findLane(currentOptimisticLane);
     if (pcLane !== curLane && pcLane._pendingAsync.size > 0) {
       return visibleValue;
@@ -400,7 +404,7 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
   if (
     pendingComputed._pendingValue !== NOT_PENDING &&
     !hasActiveOverride(pendingComputed) &&
-    !(stale && pendingComputed._transition && activeTransition !== pendingComputed._transition)
+    !(stale && pendingComputed._x?._transition && activeTransition !== pendingComputed._x?._transition)
   )
     return pendingComputed._pendingValue as T;
   return value as T;
@@ -420,7 +424,7 @@ function pendingCheckRead(
   if (c && ownerStatus & STATUS_PENDING && ownerStatus & STATUS_UNINITIALIZED) {
     if (tracking && el !== c) link(el, c);
     setPendingCheckActive(true);
-    throw (owner as Computed<any>)._error;
+    throw (owner as Computed<any>)._x?._error;
   }
   collectPendingSources(el);
   if (firewall) collectPendingSources(firewall);
@@ -458,9 +462,11 @@ function recordFreshRead(el: Signal<any> | Computed<any>, value: any): void {
 
 function applyReask(el: Computed<any>, hadReask: boolean): boolean {
   const wasPending = !!(el._statusFlags & STATUS_PENDING);
-  const isReask = hadReask && !(wasPending && !el._reask);
-  const changed = wasPending && el._reask !== isReask;
-  el._reask = isReask;
+  const isReask = hadReask && !(wasPending && !el._x?._reask);
+  const changed = wasPending && (el._x?._reask ?? false) !== isReask;
+  // Allocation-free for the quiet case: false is the extension default.
+  if (isReask) ext(el)._reask = true;
+  else if (el._x !== null) el._x._reask = false;
   return changed;
 }
 

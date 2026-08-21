@@ -694,3 +694,24 @@ holds the capture tooling: profile-tax.sh + summarize-profiles.mjs).
   paths, or owner-tree slimming at rewrite scale).
 - MEASUREMENT DISCIPLINE: daytime load inflates these µs benches ~10-15%
   (r3 control moves identically). Verify by profile shape or idle runs.
+- LANDED (§12): cold-field extension split. The 11 optional-machinery fields
+  (`_inFlight/_error/_blocked/_pendingSources/_notifyStatus/_transition/
+  _reask/_child/_unobserved/_optimisticLane/_overrideValue` + the post-hoc
+  verdict/lane slots) moved off the node literals into ONE lazily-allocated
+  extension shape (`_x`, `ext()` in core.ts). Computed literal 39 → 29
+  fields, signal 13 → 12; the recompute status gate collapsed to
+  `_statusFlags !== 0 || _x !== null`. Presence bits stay the hot gates.
+  - Hypothesis check: the V8 in-object cliff (~39 fields; synthetic 4x)
+    did NOT drive create0to1 — that bench was flat. The wins came from the
+    memory diet: memo 553B → 429B (-22%), create 330 → 280ns; interleaved
+    A/B: create1to1 -19%, update1to1 -12%, writeNoSubs -9%. dbmon (shallow
+    + deep compiled, reversed-order interleave): tick parity, mount/remount
+    -4-6%. Byte cost: core floor 19,570 → 20,313 min (+~740B; the `_x?.`
+    chains + ext initializer), ceiling consciously bumped to 20,600.
+  - Sweep hazards for posterity: `this`-sensitive callbacks stored in _x
+    must be `.call(node, …)`-dispatched (notifyEffectStatus regression);
+    `any`-typed reads of moved fields slip tsc silently — the #2951
+    firewall-transition entanglement in notifyOptimisticWrites died this
+    way (`fw?._transition` read the dead raw slot); `?.` flips `null`
+    defaults to `undefined` in comparisons; never allocate _x to store a
+    field's default (applyReask, guarded default writes).

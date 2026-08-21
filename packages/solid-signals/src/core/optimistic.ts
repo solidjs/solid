@@ -23,7 +23,7 @@ import {
   STATUS_UNINITIALIZED,
   CONFIG_HAS_LANE
 } from "./constants.js";
-import { currentOptimisticLane, latestReadActive, stale } from "./core.js";
+import { currentOptimisticLane, latestReadActive, stale, ext } from "./core.js";
 import { NotReadyError } from "./error.js";
 import { devCheckMergedLaneEmpty, devTrackOptimistic } from "./invariants.js";
 import {
@@ -53,8 +53,8 @@ type OptimisticNode = Signal<any> | Computed<any>;
 
 /** The optimistic half of setSignal, fired when `_overrideValue !== undefined`. */
 function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
-  const hasOverride = el._overrideValue !== NOT_PENDING;
-  const currentValue = hasOverride ? unwrapOverride<T>(el._overrideValue) : el._value;
+  const hasOverride = el._x?._overrideValue !== NOT_PENDING;
+  const currentValue = hasOverride ? unwrapOverride<T>(el._x?._overrideValue) : el._value;
 
   if (typeof v === "function") v = (v as (prev: T) => T)(currentValue);
 
@@ -81,21 +81,21 @@ function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)
   // Stamp ownership on the node (post-merge, so entangled writers share the
   // joint root). resolveTransition prefers this over the lane's _transition,
   // which a shared subscriber can merge across transactions (#2912).
-  el._overrideOwner = activeTransition;
+  ext(el)._overrideOwner = activeTransition;
 
   const lane = getOrCreateLane(el as Signal<any>);
-  el._optimisticLane = lane;
+  ext(el)._optimisticLane = lane;
   el._config |= CONFIG_HAS_LANE;
 
   // Literal undefined must not land raw: the slot doubles as the optimistic
   // brand, and erasing it makes the write invisible and routes follow-up
   // writes off the optimistic path into permanent commits (#2898).
-  el._overrideValue = v === undefined ? (OVERRIDE_UNDEFINED as T) : v;
+  ext(el)._overrideValue = v === undefined ? (OVERRIDE_UNDEFINED as T) : v;
   if (__DEV__) devTrackOptimistic(el);
 
   // syncCompanions only pokes _pendingSignal/_latestValueComputed — with
   // neither companion present the call is a guaranteed no-op.
-  (el._pendingSignal !== undefined || el._latestValueComputed !== undefined) &&
+  (el._x?._pendingSignal !== undefined || el._x?._latestValueComputed !== undefined) &&
     GlobalQueue._syncCompanions !== null &&
     GlobalQueue._syncCompanions(el, v);
 
@@ -117,7 +117,7 @@ function transitionBlocked(transition: Transition): boolean {
       hasActiveOverride(node) &&
       "_statusFlags" in node &&
       (node as Computed<any>)._statusFlags & STATUS_PENDING &&
-      (node as Computed<any>)._error instanceof NotReadyError
+      (node as Computed<any>)._x?._error instanceof NotReadyError
     ) {
       return true;
     }
@@ -132,27 +132,27 @@ function resolveOptimisticNodes(nodes: OptimisticNode[]): void {
   const len = nodes.length;
   for (let i = 0; i < len; i++) {
     const node = nodes[i];
-    node._optimisticLane = undefined;
+    if (node._x !== null) node._x._optimisticLane = undefined;
     // Revert is a pure drop: there is no revert target to commit —
     // override-covered authoritative values hold in _pendingValue and
     // elevate on their OWN transition's schedule (A18 as re-ruled 2026-07-07).
     if (!((node as any)._statusFlags & STATUS_PENDING))
       (node as any)._statusFlags &= ~STATUS_UNINITIALIZED;
-    const prevOverride = node._overrideValue;
-    node._overrideValue = NOT_PENDING;
+    const prevOverride = node._x?._overrideValue;
+    ext(node)._overrideValue = NOT_PENDING;
     if (prevOverride !== NOT_PENDING && node._value !== unwrapOverride(prevOverride))
       insertSubs(node, true);
-    node._transition = null;
-    node._overrideOwner = null;
+    if (node._x !== null) node._x._transition = null;
+    if (node._x !== null) node._x._overrideOwner = null;
   }
   // Settlement checkpoint (#2838): companions caught in this batch (or owned
   // by a node in it) re-derive from committed state, so verdicts survive the
   // transition that produced them (A19 — pending is a property of the data).
   for (let i = 0; i < len; i++) {
     const node = nodes[i];
-    if (node._pendingSignal || node._latestValueComputed) GlobalQueue._snapCompanions!(node);
-    const owner = node._parentSource;
-    if (owner && (owner._pendingSignal === node || owner._latestValueComputed === node))
+    if (node._x?._pendingSignal || node._x?._latestValueComputed) GlobalQueue._snapCompanions!(node);
+    const owner = node._x?._parentSource;
+    if (owner && (owner._x?._pendingSignal === node || owner._x?._latestValueComputed === node))
       GlobalQueue._snapCompanions!(owner);
   }
   nodes.splice(0, len);
@@ -190,7 +190,7 @@ function cleanupCompletedLanes(completingTransition: Transition | null): void {
       if (lane._effectQueues[0].length) runQueue(lane._effectQueues[0], EFFECT_RENDER);
       if (lane._effectQueues[1].length) runQueue(lane._effectQueues[1], EFFECT_USER);
     }
-    if (lane._source._optimisticLane === lane) lane._source._optimisticLane = undefined;
+    if (lane._source._x?._optimisticLane === lane) if (lane._source._x !== null) lane._source._x._optimisticLane = undefined;
     lane._pendingAsync.clear();
     lane._effectQueues[0].length = 0;
     lane._effectQueues[1].length = 0;
@@ -204,7 +204,7 @@ function laneSuspends(owner: OptimisticNode): boolean {
   // Per-lane suspension: only throw if in same lane as pending async
   // AND the node doesn't have an active override (overrides are the visible value,
   // downstream in the lane should read the override, not throw)
-  const pendingLane = (owner as any)._optimisticLane as OptimisticLane | undefined;
+  const pendingLane = (owner as any)._x?._optimisticLane as OptimisticLane | undefined;
   if (!pendingLane) return false;
   return findLane(pendingLane) === findLane(currentOptimisticLane!) && !hasActiveOverride(owner);
 }
@@ -233,12 +233,12 @@ function gatedRead(el: Signal<any>, owner: OptimisticNode, c: Computed<any>): bo
  */
 function laneReadsCommitted(el: OptimisticNode, owner: OptimisticNode, c: Computed<any>): boolean {
   if (
-    el._overrideValue !== undefined ||
-    !!(el as any)._optimisticLane ||
+    el._x?._overrideValue !== undefined ||
+    !!el._x?._optimisticLane ||
     !!((owner as Computed<any>)._statusFlags & STATUS_PENDING)
   )
     return true;
-  if (owner === el && stale && (c as Computed<any>)._parentSource !== el) {
+  if (owner === el && stale && (c as Computed<any>)._x?._parentSource !== el) {
     // The committed view can hide a same-tick ambient write (a lane member —
     // even just an isPending companion flip — puts the reader "under a lane"
     // against unrelated plain writes). With no transaction the write commits
@@ -275,10 +275,10 @@ function recomputeLane(el: Computed<any>, own: boolean): OptimisticLane | null |
       !globalQueue._running &&
       !activeTransition &&
       !lane._transition &&
-      lane._source._parentSource !== undefined &&
-      el._overrideValue === undefined
+      lane._source._x?._parentSource !== undefined &&
+      el._x?._overrideValue === undefined
     ) {
-      el._optimisticLane = undefined;
+      if (el._x !== null) el._x._optimisticLane = undefined;
       return false;
     }
     return lane;
@@ -302,7 +302,7 @@ function laneAsyncPending(el: Computed<any>): void {
   const lane = findLane(currentOptimisticLane!);
   if (lane._source !== el) {
     lane._pendingAsync.add(el);
-    el._optimisticLane = lane;
+    ext(el)._optimisticLane = lane;
     (el as any)._config |= CONFIG_HAS_LANE;
     GlobalQueue._updatePendingSignal !== null && GlobalQueue._updatePendingSignal(lane._source);
   }

@@ -12,7 +12,7 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
-import { context, setSignal, untrack } from "./core.js";
+import { context, setSignal, untrack, ext } from "./core.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { emitDiagnostic } from "./dev.js";
 import { NotReadyError, StatusError } from "./error.js";
@@ -41,20 +41,20 @@ import type { Computed, FirewallSignal, Link } from "./types.js";
 // overlapping source landed beside the Set and removePendingSource refused
 // to clear it, stranding the Set members' pending forever (#2893).
 export function addPendingSource(el: Computed<any>, source: Computed<any>): boolean {
-  if (el._pendingSources?.has(source)) return false;
-  (el._pendingSources ??= new Set()).add(source);
+  if (el._x?._pendingSources?.has(source)) return false;
+  (ext(el)._pendingSources ??= new Set()).add(source);
   return true;
 }
 
 function removePendingSource(el: Computed<any>, source: Computed<any>): boolean {
-  if (!el._pendingSources?.delete(source)) return false;
-  if (el._pendingSources.size === 0) el._pendingSources = undefined;
+  if (!el._x?._pendingSources?.delete(source)) return false;
+  if (el._x?._pendingSources.size === 0) if (el._x !== null) el._x._pendingSources = undefined;
   return true;
 }
 
 function clearPendingSources(el: Computed<any>): void {
-  el._pendingSources?.clear();
-  el._pendingSources = undefined;
+  el._x?._pendingSources?.clear();
+  if (el._x !== null) el._x._pendingSources = undefined;
 }
 
 // A rejection-pending only resolves through the settle sweep over the
@@ -65,7 +65,7 @@ function clearPendingSources(el: Computed<any>): void {
 function retryReaches(el: Computed<any>, source: any): boolean {
   for (let d = el._deps; d; d = d._nextDep) {
     const dep = ((d._dep as FirewallSignal<unknown>)._firewall || d._dep) as Computed<any>;
-    if (dep === source || dep._pendingSources?.has(source)) return true;
+    if (dep === source || dep._x?._pendingSources?.has(source)) return true;
   }
   return false;
 }
@@ -78,7 +78,7 @@ function retryReaches(el: Computed<any>, source: any): boolean {
  * transition, no lane registration. Commit #0 keeps serving.
  */
 export function parkLoadingWindow(el: Computed<any>, e: NotReadyError): void {
-  el._blocked = true;
+  ext(el)._blocked = true;
   if (e.source) addPendingSource(el, e.source as Computed<any>);
   // A settled error is the node's answer ("the error stays the answer until
   // this retry can actually run") — the park must not replace it: reads
@@ -89,16 +89,16 @@ export function parkLoadingWindow(el: Computed<any>, e: NotReadyError): void {
 
 export function setPendingError(el: Computed<any>, source?: Computed<any>, error?: any): void {
   if (!source) {
-    el._error = null;
+    if (el._x !== null) el._x._error = null;
     return;
   }
   if (error instanceof NotReadyError && error.source === source) {
-    el._error = error;
+    ext(el)._error = error;
     return;
   }
-  const current = el._error;
+  const current = el._x?._error;
   if (!(current instanceof NotReadyError) || current.source !== source) {
-    el._error = new NotReadyError(source);
+    ext(el)._error = new NotReadyError(source);
   }
 }
 
@@ -109,7 +109,7 @@ export function forEachDependent(
   for (let s = el._subs; s !== null; s = s._nextSub) fn(s._sub, s);
   // `?? null`: affects() marks route plain signals (no `_child` slot) through here.
   for (
-    let child: FirewallSignal<unknown> | null = el._child ?? null;
+    let child: FirewallSignal<unknown> | null = el._x?._child ?? null;
     child !== null;
     child = child._nextChild
   ) {
@@ -175,7 +175,7 @@ export function settleErroredDependents(el: Computed<any>, error: any): void {
   const visit = (node: Computed<any>) => {
     if (visited.has(node)) return;
     visited.add(node);
-    if (node._error === error) {
+    if (node._x?._error === error) {
       enqueueSub(node);
       scheduled = true;
     }
@@ -195,7 +195,7 @@ export function settlePendingSource(el: Computed<any>): void {
     if (visited.has(node) || !removePendingSource(node, el)) return;
     visited.add(node);
     node._time = clock;
-    const remaining = node._pendingSources?.values().next().value;
+    const remaining = node._x?._pendingSources?.values().next().value;
     // STATUS_ERROR + pending sources only coexist via an errored loading
     // window's park (notifyStatus(STATUS_ERROR) clears pending sources
     // otherwise): the settled error stays the answer through the settle —
@@ -209,11 +209,11 @@ export function settlePendingSource(el: Computed<any>): void {
       node._statusFlags &= ~STATUS_PENDING;
       if (!errored) setPendingError(node);
       updateCompanions !== null && updateCompanions(node);
-      if (node._blocked) {
+      if (node._x?._blocked) {
         enqueueSub(node);
         scheduled = true;
       }
-      node._blocked = false;
+      if (node._x !== null) node._x._blocked = false;
       // Fully settled with nobody watching: release candidate (#2934). Checked
       // again at release time — deferred so unobserved() can't unlink subs
       // lists this walk is still iterating.
@@ -255,7 +255,7 @@ export function handleAsync<T>(
   }
 
   if (!thenable && !iterator) {
-    el._inFlight = null;
+    if (el._x !== null) el._x._inFlight = null;
     // A sync landing is the first real answer for a loadingValue node.
     el._loading = false;
     return result as T;
@@ -284,7 +284,7 @@ export function handleAsync<T>(
     throw new Error(message);
   }
 
-  el._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
+  ext(el)._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
   let syncValue: T;
 
   // Settle-time transition re-entry. The loading rail is invisible to
@@ -306,14 +306,14 @@ export function handleAsync<T>(
     ) {
       // Drop the stale stamp too: the plain settle write (setSignal) and the
       // stash-path restamp both re-enter the transaction through it.
-      el._transition = null;
+      if (el._x !== null) el._x._transition = null;
       return;
     }
     globalQueue.initTransition(transition);
   };
 
   const handleError = (error: any) => {
-    if (el._inFlight !== result) return;
+    if (el._x?._inFlight !== result) return;
     // NotReadyError from rejected promises should be treated as pending, not error
     let stillPending = error instanceof NotReadyError;
     // Dev-only authorship diagnostic (#2987): no edge means a post-`await`
@@ -338,7 +338,7 @@ export function handleAsync<T>(
       // serving commit #0 — same parking as recompute's catch for sync
       // dependency throws. The dead flight is released so the clock-gated
       // error-retry pull (updateIfNecessary) can also re-ask.
-      el._inFlight = null;
+      if (el._x !== null) el._x._inFlight = null;
       parkLoadingWindow(el, error);
       el._time = clock;
       return;
@@ -353,7 +353,7 @@ export function handleAsync<T>(
   };
 
   const asyncWrite = (value: T, then?: () => void) => {
-    if (el._inFlight !== result) return;
+    if (el._x?._inFlight !== result) return;
     // If the node was dirtied by a newer write (optimistic override or regular),
     // skip this stale async result — the upcoming flush will recompute the node
     // with the new value, creating a fresh Promise that supersedes this one.
@@ -367,7 +367,7 @@ export function handleAsync<T>(
     if (setter) {
       setter(value);
       if (wasUninitialized) clearStatus(el, true);
-    } else if (el._overrideValue !== undefined) {
+    } else if (el._x?._overrideValue !== undefined) {
       // Optimistic node — resting OR covered by an active override — holds
       // through the shared pending-node path, exactly like a plain async memo,
       // so the commit clears STATUS_UNINITIALIZED (#2806) and elevation to
@@ -514,7 +514,7 @@ export function handleAsync<T>(
             syncResult = r;
             resolved = true;
             if (r.done) completed = true;
-          } else if (el._inFlight !== result) {
+          } else if (el._x?._inFlight !== result) {
             return;
           } else if (!r.done) {
             hadValue = true;
@@ -535,7 +535,7 @@ export function handleAsync<T>(
           if (isSync && initialRead) {
             syncError = e;
             rejected = true;
-          } else if (el._inFlight === result) {
+          } else if (el._x?._inFlight === result) {
             completed = true;
             handleError(e);
             settleAutodispose();
@@ -613,7 +613,7 @@ export function handleAsync<T>(
           syncValue = v;
           resolved = true;
         } else if (
-          el._inFlight === result &&
+          el._x?._inFlight === result &&
           !(el._flags & REACTIVE_DISPOSED) &&
           flattenIfIterable(v, registerDeferredClose)
         ) {
@@ -679,20 +679,20 @@ export function handleAsync<T>(
 }
 
 export function clearStatus(el: Computed<any>, clearUninitialized: boolean = false): void {
-  if (el._pendingSources) clearPendingSources(el);
-  if (el._blocked) el._blocked = false;
+  if (el._x?._pendingSources) clearPendingSources(el);
+  if (el._x?._blocked) if (el._x !== null) el._x._blocked = false;
   // The pending window is over; its quiet classification dies with it.
   // (Unconditional: _reask is baked into the node literals, so this is a
   // plain store to an existing slot — no shape change.)
-  el._reask = false;
+  if (el._x !== null) el._x._reask = false;
   el._statusFlags = clearUninitialized ? 0 : el._statusFlags & STATUS_UNINITIALIZED;
-  if (el._error) setPendingError(el);
+  if (el._x?._error) setPendingError(el);
   // Update pending signal for isPending() reactivity (companions only exist
   // once the verdict layer created them, which installs the hooks).
-  if (el._pendingSignal || el._latestValueComputed) GlobalQueue._updatePendingSignal!(el);
-  if (el._child && GlobalQueue._updateChildCompanions !== null)
+  if (el._x?._pendingSignal || el._x?._latestValueComputed) GlobalQueue._updatePendingSignal!(el);
+  if (el._x?._child && GlobalQueue._updateChildCompanions !== null)
     GlobalQueue._updateChildCompanions(el);
-  if (el._notifyStatus) el._notifyStatus();
+  if (el._x?._notifyStatus) el._x._notifyStatus.call(el);
 }
 
 export function notifyStatus(
@@ -714,7 +714,7 @@ export function notifyStatus(
     status === STATUS_PENDING && error instanceof NotReadyError ? error.source : undefined;
   const isSource = pendingSource === el;
   const isOptimisticBoundary =
-    status === STATUS_PENDING && el._overrideValue !== undefined && !isSource;
+    status === STATUS_PENDING && el._x?._overrideValue !== undefined && !isSource;
   const startsBlocking = isOptimisticBoundary && hasActiveOverride(el);
 
   if (!blockStatus) {
@@ -728,10 +728,10 @@ export function notifyStatus(
       clearPendingSources(el);
       el._statusFlags =
         status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
-      el._error = error;
+      ext(el)._error = error;
     }
     GlobalQueue._updatePendingSignal !== null && GlobalQueue._updatePendingSignal(el);
-    if (el._child && GlobalQueue._updateChildCompanions !== null)
+    if (el._x?._child && GlobalQueue._updateChildCompanions !== null)
       GlobalQueue._updateChildCompanions(el);
   }
 
@@ -742,22 +742,22 @@ export function notifyStatus(
   const downstreamBlockStatus = blockStatus || startsBlocking;
   const downstreamLane = blockStatus || isOptimisticBoundary ? undefined : lane;
 
-  if (el._notifyStatus) {
+  if (el._x?._notifyStatus) {
     if (blockStatus && status === STATUS_PENDING) {
       return;
     }
     if (downstreamBlockStatus) {
-      el._notifyStatus(status, error);
+      el._x._notifyStatus!.call(el, status, error);
     } else {
-      el._notifyStatus();
+      el._x._notifyStatus!.call(el);
     }
     return;
   }
   forEachDependent(el, (sub, link) => {
     sub._time = clock;
     if (
-      (status === STATUS_PENDING && pendingSource && !sub._pendingSources?.has(pendingSource)) ||
-      (status !== STATUS_PENDING && (sub._error !== error || sub._pendingSources))
+      (status === STATUS_PENDING && pendingSource && !sub._x?._pendingSources?.has(pendingSource)) ||
+      (status !== STATUS_PENDING && (sub._x?._error !== error || sub._x?._pendingSources))
     ) {
       // A pending-observer link is the subscription an `isPending` read created.
       // It exists so the observer re-runs when the source settles, but it must
@@ -769,7 +769,7 @@ export function notifyStatus(
         schedule();
         return;
       }
-      if (!downstreamBlockStatus && !sub._transition) queuePendingNode(sub);
+      if (!downstreamBlockStatus && !sub._x?._transition) queuePendingNode(sub);
       notifyStatus(sub, status, error, downstreamBlockStatus, downstreamLane);
     }
   });

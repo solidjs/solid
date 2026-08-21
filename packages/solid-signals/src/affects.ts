@@ -1,4 +1,5 @@
 import { forEachDependent } from "./core/async.js";
+import { ext } from "./core/core.js";
 import { STATUS_PENDING } from "./core/constants.js";
 import { emitDiagnostic } from "./core/dev.js";
 import { NotReadyError } from "./core/error.js";
@@ -19,7 +20,7 @@ type MarkedNode = Signal<any> | Computed<any>;
  * mid-window recomputes.
  */
 function markAffects(node: MarkedNode): void {
-  node._affectsCount = (node._affectsCount || 0) + 1;
+  ext(node)._affectsCount = (node._x?._affectsCount || 0) + 1;
   shiftAffectsMarks(1);
   if (__DEV__) devTrackAffects(node);
 }
@@ -37,7 +38,7 @@ function markAffects(node: MarkedNode): void {
  * no visual change.
  */
 function notifyMarkBoundaries(node: MarkedNode): void {
-  if (!node._subs && !(node as Computed<any>)._child) return;
+  if (!node._subs && !(node as Computed<any>)._x?._child) return;
   const error = new NotReadyError(node);
   error._markVisual = true;
   const visited = new Set<Computed<any>>();
@@ -46,8 +47,8 @@ function notifyMarkBoundaries(node: MarkedNode): void {
     visited.add(sub);
     // Display consumers (render effects, boundary computeds) act on the
     // notification; descent stops there, exactly like the status rails.
-    if (sub._notifyStatus) {
-      sub._notifyStatus(STATUS_PENDING, error);
+    if (sub._x?._notifyStatus) {
+      sub._x._notifyStatus.call(sub, STATUS_PENDING, error);
       return;
     }
     forEachDependent(sub, visit);
@@ -82,8 +83,8 @@ function registerAffectsMark(node: MarkedNode): void {
  */
 function releaseAffectsMark(node: MarkedNode): void {
   shiftAffectsMarks(-1);
-  node._affectsCount!--;
-  if (!node._affectsCount) {
+  node._x!._affectsCount--;
+  if (!node._x!._affectsCount) {
     GlobalQueue._repollVerdicts !== null &&
       GlobalQueue._repollVerdicts(node as Computed<any>, true);
     GlobalQueue._releaseAffectsScope?.(node);

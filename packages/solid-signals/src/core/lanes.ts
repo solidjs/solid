@@ -1,4 +1,5 @@
 import { CONFIG_HAS_LANE, NOT_PENDING } from "./constants.js";
+import { ext } from "./core.js";
 import {
   activeTransition,
   currentTransition,
@@ -42,8 +43,9 @@ export function getOrCreateLane(signal: Signal<any>): OptimisticLane {
   }
   // Detect parent lane: _parentSource chains from pendingSignal → pendingValueComputed → original.
   // The child lane should not merge with the parent lane.
-  const parentSource = signal._parentSource;
-  const parentLane = parentSource?._optimisticLane ? findLane(parentSource._optimisticLane) : null;
+  const parentSource = signal._x?._parentSource;
+  const parentOptLane = parentSource?._x?._optimisticLane;
+  const parentLane = parentOptLane ? findLane(parentOptLane) : null;
   lane = {
     _source: signal,
     _pendingAsync: new Set(),
@@ -60,8 +62,8 @@ export function getOrCreateLane(signal: Signal<any>): OptimisticLane {
   // parent-child is a property of the nodes, not of write order — otherwise
   // the owner's write merges the companion's subscribers into this lane and
   // their effects wait on its async instead of flushing immediately.
-  adoptCompanionLane(signal._pendingSignal, lane);
-  adoptCompanionLane(signal._latestValueComputed, lane);
+  adoptCompanionLane(signal._x?._pendingSignal, lane);
+  adoptCompanionLane(signal._x?._latestValueComputed, lane);
   return lane;
 }
 
@@ -111,57 +113,50 @@ export function mergeLanes(lane1: OptimisticLane, lane2: OptimisticLane): Optimi
 /**
  * Resolve a node's lane: follow union-find chain, verify active, clear if stale.
  */
-export function resolveLane(el: { _optimisticLane?: OptimisticLane }): OptimisticLane | undefined {
-  const lane = el._optimisticLane;
+export function resolveLane(el: Signal<any> | Computed<any>): OptimisticLane | undefined {
+  const lane = el._x?._optimisticLane;
   if (!lane) return undefined;
   const root = findLane(lane);
   if (activeLanes.has(root)) return root;
-  el._optimisticLane = undefined;
+  if (el._x !== null) el._x._optimisticLane = undefined;
   return undefined;
 }
 
-export function resolveTransition(el: {
-  _optimisticLane?: OptimisticLane;
-  _transition?: Transition | null;
-  _overrideValue?: any;
-  _overrideOwner?: Transition | null;
-}): Transition | null | undefined {
+export function resolveTransition(el: Signal<any> | Computed<any>): Transition | null | undefined {
   // An active override answers with its owner, not its lane: lanes are
   // scheduling affinity and a shared subscriber merges them across
   // transactions (#2912) — the merged root's _transition would hand this
   // node's override to whichever action wrote last through the shared
   // reader. Chase merge chains; a dead owner settled through another path.
-  if (hasActiveOverride(el) && el._overrideOwner) {
-    const owner = (el._overrideOwner = currentTransition(el._overrideOwner));
+  if (hasActiveOverride(el) && el._x?._overrideOwner) {
+    const owner = (ext(el)._overrideOwner = currentTransition(el._x?._overrideOwner));
     if (owner._done !== true) return owner;
-    el._overrideOwner = null;
+    if (el._x !== null) el._x._overrideOwner = null;
   }
-  return resolveLane(el)?._transition ?? el._transition;
+  return resolveLane(el)?._transition ?? el._x?._transition;
 }
 
 /**
  * Check if a node has an active optimistic override.
  */
-export function hasActiveOverride(el: { _overrideValue?: any }): boolean {
-  return !!(el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING);
+export function hasActiveOverride(el: Signal<any> | Computed<any>): boolean {
+  const x = el._x;
+  return x !== null && x._overrideValue !== undefined && x._overrideValue !== NOT_PENDING;
 }
 
 /**
  * Assign or merge a lane onto a node. At convergence points (node already has
  * a different active lane), merge unless the node has an active override.
  */
-export function assignOrMergeLane(
-  el: { _optimisticLane?: OptimisticLane; _overrideValue?: any },
-  sourceLane: OptimisticLane
-): void {
+export function assignOrMergeLane(el: Signal<any> | Computed<any>, sourceLane: OptimisticLane): void {
   const sourceRoot = findLane(sourceLane);
-  const existing = el._optimisticLane;
+  const existing = el._x?._optimisticLane;
   if (existing) {
     // If the subscriber's lane was merged into another lane, it's stale —
     // replace it with the new source lane instead of following the merge chain
     // (which would incorrectly merge the new lane into the old group)
     if (existing._mergedInto) {
-      el._optimisticLane = sourceLane;
+      ext(el)._optimisticLane = sourceLane;
       (el as any)._config |= CONFIG_HAS_LANE;
       return;
     }
@@ -171,7 +166,7 @@ export function assignOrMergeLane(
         // Parent-child lanes stay independent so isPending resolves without
         // waiting for the parent's async. The child keeps ownership.
         if (sourceRoot._parentLane && findLane(sourceRoot._parentLane) === existingRoot) {
-          el._optimisticLane = sourceLane;
+          ext(el)._optimisticLane = sourceLane;
           (el as any)._config |= CONFIG_HAS_LANE;
         } else if (existingRoot._parentLane && findLane(existingRoot._parentLane) === sourceRoot) {
           // Existing is already the child — keep it
@@ -180,6 +175,6 @@ export function assignOrMergeLane(
       return;
     }
   }
-  el._optimisticLane = sourceLane;
+  ext(el)._optimisticLane = sourceLane;
   (el as any)._config |= CONFIG_HAS_LANE;
 }

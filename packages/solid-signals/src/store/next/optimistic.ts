@@ -13,6 +13,7 @@
  * store-half (#2951) is installed here for next-shaped targets, chaining the
  * legacy/engine checks.
  */
+import { ext } from "../../core/core.js";
 import {
   NOT_PENDING,
   STATUS_PENDING,
@@ -110,10 +111,10 @@ function familyHasLiveOverrides(fam: { overlaid?: Set<any> }): boolean {
       if (bucket === null) continue;
       for (const key of Reflect.ownKeys(bucket)) {
         const node: any = bucket[key as any];
-        if (node._overrideValue !== undefined && node._overrideValue !== NOT_PENDING) return true;
+        if (node._x?._overrideValue !== undefined && node._x?._overrideValue !== NOT_PENDING) return true;
       }
     }
-    if (t.k !== null && t.k._overrideValue !== undefined && t.k._overrideValue !== NOT_PENDING)
+    if (t.k !== null && t.k._x?._overrideValue !== undefined && t.k._x?._overrideValue !== NOT_PENDING)
       return true;
   }
   overlaid.clear(); // nothing live — drop the bookkeeping
@@ -193,7 +194,7 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
   // at plain flush end. The blocked-check store-half keeps that transaction
   // from settling while the firewall is pending.
   const fw: any = t.fam?.node;
-  if (fw?._transition) globalQueue.initTransition(fw._transition);
+  if (fw?._x?._transition) globalQueue.initTransition(fw._x._transition);
   const old = t.v;
   // Patch channel (override-application site): the draft IS the intended
   // visible state; prev is the view before these overrides apply. Bypasses
@@ -202,13 +203,13 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
   const visible = (key: PropertyKey, fallback: any): any => {
     const node = t.n?.[key as any];
     return node !== undefined && hasActiveOverride(node)
-      ? unwrapOverride(node._overrideValue)
+      ? unwrapOverride(node._x?._overrideValue)
       : fallback;
   };
   const visiblePresent = (key: PropertyKey): boolean => {
     const node = t.h?.[key as any];
     return node !== undefined && hasActiveOverride(node)
-      ? !!unwrapOverride(node._overrideValue)
+      ? !!unwrapOverride(node._x?._overrideValue)
       : key in old;
   };
   let structural = false;
@@ -270,15 +271,18 @@ export function consumeOverridesNext(fam: StoreNextFamily): void {
     for (const t of overlaid as Set<StoreNextTarget>) {
       const drop = (node: Signal<any>, committed: any) => {
         if (!hasActiveOverride(node)) return;
-        const prev = unwrapOverride(node._overrideValue);
+        const prev = unwrapOverride(node._x?._overrideValue);
         // Full legacy reset (clearOptimisticOverride parity): the landing is
         // authoritative NOW — fold committed into the node directly instead
         // of riding a transaction's commit (whose queues may be stashed with
         // the transaction parked; the wake would strand until it settles).
-        node._overrideValue = NOT_PENDING;
+        ext(node)._overrideValue = NOT_PENDING;
         node._config |= CONFIG_OPTIMISTIC;
-        (node as any)._overrideOwner = null;
-        (node as any)._optimisticLane = undefined;
+        const nx = (node as any)._x;
+        if (nx) {
+          nx._overrideOwner = null;
+          nx._optimisticLane = undefined;
+        }
         node._pendingValue = NOT_PENDING;
         node._value = committed;
         if (!node._equals || !node._equals(prev, committed)) {
@@ -317,10 +321,13 @@ export function consumeOverridesNext(fam: StoreNextFamily): void {
         for (const key of Reflect.ownKeys(has)) drop(has[key as any], key in t.v);
       }
       if (t.k !== null && hasActiveOverride(t.k)) {
-        t.k._overrideValue = NOT_PENDING;
+        ext(t.k)._overrideValue = NOT_PENDING;
         t.k._config |= CONFIG_OPTIMISTIC;
-        (t.k as any)._overrideOwner = null;
-        (t.k as any)._optimisticLane = undefined;
+        const kx = (t.k as any)._x;
+        if (kx) {
+          kx._overrideOwner = null;
+          kx._optimisticLane = undefined;
+        }
         insertSubs(t.k, true);
         schedule();
       }
@@ -348,7 +355,7 @@ export function optimisticView(
     for (const key of Reflect.ownKeys(nodes)) {
       const node = nodes[key as any];
       if (!hasActiveOverride(node)) continue;
-      const ov = unwrapOverride(node._overrideValue);
+      const ov = unwrapOverride(node._x?._overrideValue);
       if (key === "length" && Array.isArray(src)) {
         if ((src as any[]).length !== ov) (ensure() as any[]).length = ov;
       } else if (!isEqual(src[key as any], ov)) ensure()[key as any] = ov;
@@ -359,7 +366,7 @@ export function optimisticView(
     for (const key of Reflect.ownKeys(has)) {
       const node = has[key as any];
       if (!hasActiveOverride(node)) continue;
-      const present = !!unwrapOverride(node._overrideValue);
+      const present = !!unwrapOverride(node._x?._overrideValue);
       if (!present && key in (out ?? src)) delete ensure()[key as any];
     }
   }

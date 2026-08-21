@@ -22,7 +22,7 @@ export function unlinkSubs(link: Link): Link | null {
   else {
     dep._subs = nextSub;
     if (nextSub === null) {
-      dep._unobserved?.();
+      dep._x?._unobserved?.();
       // No more subscribers; only tear down if CONFIG_AUTO_DISPOSE is set.
       // A pending node is exempt: its in-flight async work (or the
       // transition holding it) is an observer — tearing down would orphan

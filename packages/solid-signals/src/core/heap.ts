@@ -1,3 +1,4 @@
+import { ext } from "./core.js";
 import {
   EFFECT_TRACKED,
   EFFECT_USER,
@@ -129,12 +130,9 @@ export function markNode(el: Computed<unknown>, newState = REACTIVE_DIRTY) {
   for (let link = el._subs; link !== null; link = link._nextSub) {
     markNode(link._sub, REACTIVE_CHECK);
   }
-  if (el._child !== null) {
-    for (
-      let child: FirewallSignal<unknown> | null = el._child;
-      child !== null;
-      child = child._nextChild
-    ) {
+  const fwChild = el._x !== null ? el._x._child : null;
+  if (fwChild !== null) {
+    for (let child: FirewallSignal<unknown> | null = fwChild; child !== null; child = child._nextChild) {
       for (let link = child._subs; link !== null; link = link._nextSub) {
         markNode(link._sub, REACTIVE_CHECK);
       }

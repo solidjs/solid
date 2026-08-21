@@ -1,4 +1,5 @@
 import { getObserver, type Signal } from "../core/index.js";
+import { ext } from "../core/core.js";
 import type { Refreshable } from "../core/index.js";
 import { GlobalQueue } from "../core/scheduler.js";
 import { storeNextLookup } from "./next/target.js";
@@ -254,7 +255,7 @@ export function inheritAffectsMarks(node: DataNode, raw: object, property: Prope
   // A live scope exists, so affects.ts already installed the mark engine.
   for (const [carrier, entry] of affectsScopes) {
     if (
-      carrier._affectsCount &&
+      carrier._x?._affectsCount &&
       entry.scope.has(raw) &&
       (entry.key === undefined || entry.key === property)
     ) {
@@ -399,7 +400,7 @@ export function witnessAffectsMark(target: StoreNode, property?: PropertyKey): v
   // Callers guard on `pendingCheckActive`, which only flips inside
   // isPending() — the verdict layer is loaded and its hook installed.
   const own = target[STORE_NODE]?.[$AFFECTS];
-  if (own?._affectsCount) GlobalQueue._witnessAffects!(own);
+  if (own?._x?._affectsCount) GlobalQueue._witnessAffects!(own);
   if (affectsScopes.size) {
     // Chained backings (§7b): a wrapper's STORE_VALUE can be another store's
     // proxy — marks cover by identity of the BASE raw, so resolve the chain
@@ -408,7 +409,7 @@ export function witnessAffectsMark(target: StoreNode, property?: PropertyKey): v
     for (const [carrier, entry] of affectsScopes) {
       if (
         carrier !== own &&
-        carrier._affectsCount &&
+        carrier._x?._affectsCount &&
         (entry.key === undefined || entry.key === property)
       ) {
         let r: any = raw;
