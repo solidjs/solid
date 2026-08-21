@@ -12,7 +12,7 @@
  * entry per read-through object; zero layer slots; nodes, has-nodes, and the
  * key-set node are lazy, materialized only by subscription.
  */
-import type { Computed, Signal } from "../../core/types.js";
+import type { Computed, Owner, Signal } from "../../core/types.js";
 
 /** Projection family (§7b): children wrap into the family's own map (writes
  * land in the projection, never the source family), and every node created
@@ -49,10 +49,10 @@ export interface StoreNextTarget {
   h: Record<PropertyKey, Signal<boolean>> | null;
   /** Lazy key-set node: membership/iteration/$TRACK subscriptions (§6). */
   k: Signal<number> | null;
-  /** PROTOTYPE (stage-2 ceiling): slot-patch hook for shallow arrays —
-   * called per changed index with (i, next, prev); the shallow slot diff is
-   * the dispatcher (records are raw, no per-record targets exist). */
-  sp: ((index: number, next: any, prev: any) => void) | null;
+  /** Slot-patch hook for shallow arrays — the reconcile walk emits
+   * (i, next, prev) for key-aligned value-replaced slots through the patch
+   * apply queue (records are raw, no per-record targets exist). */
+  sp: { fn: (index: number, next: any, prev: any) => void; owner: Owner | null } | null;
   /** Patch-channel consumers (next/patch.ts): per-record compiled patch
    * entries, multi-consumer. null when unpatched (the common case). */
   p: object[] | null;

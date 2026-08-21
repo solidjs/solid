@@ -1400,20 +1400,29 @@ function isNextProxy(value: any): boolean {
   );
 }
 
-/** PROTOTYPE (PR-B shape): slot patch for shallow arrays — the positional
- * slot diff calls (index, next, prev) for changed slots. Queue integration
- * lands with slot ops in PR-B. */
+/** Slot patch for shallow arrays: the reconcile walk emits (index, next,
+ * prev) for KEY-ALIGNED value-replaced slots (structure rides row ops), and
+ * the emission queues through the patch apply queue — effect-phase timing,
+ * transition stamping, disposed-owner drop — like every other channel. */
 export function registerSlotPatchNext(
   arr: any,
   fn: (index: number, next: any, prev: any) => void
 ): () => void {
   const t: StoreNextTarget | undefined = arr?.[$TARGET];
   if (t === undefined) throw new Error("registerSlotPatchNext: not a store array");
-  t.sp = fn;
+  t.sp = { fn, owner: getOwner() };
   markDescendants(t);
   return () => {
     t.sp = null;
   };
+}
+
+/** True when `proxy` is a SHALLOW store (children served verbatim, slots
+ * replaced by reference — #2932). The list driver uses this to choose the
+ * slot-patch channel (collected row bodies) over per-record registration. */
+export function storeIsShallow(proxy: any): boolean {
+  const t: StoreNextTarget | undefined = proxy?.[$TARGET];
+  return t !== undefined && t.s === true;
 }
 
 /** Tracking deep snapshot (`deep()` for next targets): subscribes to the

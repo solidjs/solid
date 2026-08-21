@@ -19,7 +19,7 @@
  *   members (R11). Kind changes replace wholesale (R10).
  */
 import { isEqual } from "../../core/index.js";
-import { emitPatchLocal, emitRowOps } from "./patch.js";
+import { emitPatchLocal, emitRowOps, emitSlotPatch } from "./patch.js";
 import {
   $PROXY,
   $TARGET,
@@ -245,9 +245,10 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       const sp = t.sp;
       // Row ops for shallow/positional lists: track the key-aligned prefix
       // (keyed) so aligned value ticks emit nothing; keyless lists emit only
-      // on length change (append/truncate).
+      // on length change (append/truncate). Slot-patch consumers need the
+      // alignment tracking too (aligned = value tick, misaligned = ops).
       const ro = t.ro;
-      let keyAligned = ro !== null && keyFn !== null;
+      let keyAligned = keyFn !== null && (ro !== null || sp !== null);
       let keyPrefix = 0;
       for (let i = 0; i < nlen; i++) {
         const nvP = nextRows[i];
@@ -263,10 +264,15 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
             keyPrefix++;
           else keyAligned = false;
         }
-        // PROTOTYPE slot-patch dispatch: shallow slots replaced by reference.
-        if (sp !== null) {
+        // Slot-patch dispatch (shallow): a KEY-ALIGNED slot whose value was
+        // replaced by reference is a value tick — emit through the queue.
+        // Misaligned/appended slots are STRUCTURE (row ops rebuild or move
+        // them; new rows initial-apply at bind), so they emit nothing here.
+        // Keyless positional lists treat same-index replacement as the value
+        // tick for indices below the common length.
+        if (sp !== null && (keyFn !== null ? keyAligned : i < dlen)) {
           const pvS = i < dlen ? prevRows[i] : undefined;
-          if (pvS !== nvP) sp(i, nvP, pvS);
+          if (pvS !== nvP) emitSlotPatch(t, i, nvP, pvS);
         }
         if (!shallow && i < dlen && nvP !== null && typeof nvP === "object")
           descend(unwrapValue(prevRows[i]), nvP, keyFn, fam, proj);

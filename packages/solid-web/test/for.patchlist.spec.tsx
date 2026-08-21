@@ -14,7 +14,7 @@ import {
   getOwner,
   reconcile
 } from "solid-js";
-import { patchDriver } from "../src/index.js";
+import { patchDriver } from "@solidjs/web";
 
 // Patch-mode list driver (DESIGN-PATCH-CHANNEL §3b): when a keyed `<For>`
 // over a store array binds rows that prove PURE (the bind registers patches
@@ -201,6 +201,43 @@ describe("patch-mode list driver", () => {
     });
   });
 
+  test("each switching to a DERIVED array hands the region to classic (filtered-view pattern)", () => {
+    createRoot(dispose => {
+      let div!: HTMLDivElement;
+      const [state, setState] = createStore({ rows: make(1, 2, 3), filter: false });
+      const visible = () => (state.filter ? state.rows.filter(r => r.id !== 2) : state.rows);
+      <div ref={div}>
+        <For each={visible()}>{pureRow}</For>
+      </div>;
+      expect(labels(div)).toBe("L1,L2,L3");
+
+      // Filter ON: `each` becomes a plain derived array — the driver hands
+      // off and the classic path renders the filtered view.
+      setState(s => {
+        s.filter = true;
+      });
+      flush();
+      expect(labels(div)).toBe("L1,L3");
+
+      // The classic path owns the list from here: filter OFF re-renders all.
+      setState(s => {
+        s.filter = false;
+      });
+      flush();
+      expect(labels(div)).toBe("L1,L2,L3");
+
+      // Value updates still flow (classic fine-grained rows via patches on
+      // records or effects — either way the DOM must track).
+      setState(s => {
+        s.rows[0].label = "Z1";
+      });
+      flush();
+      expect(labels(div)).toBe("Z1,L2,L3");
+
+      dispose();
+    });
+  });
+
   test("impure rows decline the driver and keep classic semantics", () => {
     createRoot(dispose => {
       let div!: HTMLDivElement;
@@ -334,6 +371,48 @@ describe("patch-mode list driver", () => {
       { v: "a", observed: false },
       { v: "b", observed: false }
     ]);
+  });
+
+  test("shallow store list: collected bodies dispatch from the slot channel", () => {
+    createRoot(dispose => {
+      let div!: HTMLDivElement;
+      // Shallow contract: children are served RAW, so the store IS the array.
+      const [shRows, setState] = createStore(make(1, 2, 3), { shallow: true } as any);
+      <div ref={div}>
+        <For each={shRows}>{pureRow}</For>
+      </div>;
+      expect(labels(div)).toBe("L1,L2,L3");
+      const [tr1, tr2, tr3] = rows(div);
+
+      // Aligned value tick: same keys, row 2 replaced BY REFERENCE (shallow
+      // contract) — the slot channel patches the retained node in place.
+      setState(s => {
+        reconcile([make(1)[0], { id: 2, label: "X2" }, make(3)[0]], "id")(s);
+      });
+      flush();
+      expect(labels(div)).toBe("L1,X2,L3");
+      expect(rows(div)[1]).toBe(tr2);
+
+      // Structure: reorder + remove + add rides row ops with node retention.
+      setState(s => {
+        reconcile([make(3)[0], { id: 4, label: "L4" }, make(1)[0]], "id")(s);
+      });
+      flush();
+      expect(labels(div)).toBe("L3,L4,L1");
+      expect(rows(div)[0]).toBe(tr3);
+      expect(rows(div)[2]).toBe(tr1);
+      expect(tr2.isConnected).toBe(false);
+
+      // Value tick AFTER a move: slot indices rebased with the ops.
+      setState(s => {
+        reconcile([{ id: 3, label: "Z3" }, make(4)[0], make(1)[0]], "id")(s);
+      });
+      flush();
+      expect(labels(div)).toBe("Z3,L4,L1");
+      expect(rows(div)[0]).toBe(tr3);
+
+      dispose();
+    });
   });
 
   test("list disposal stops patch dispatch", () => {

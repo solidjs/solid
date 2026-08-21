@@ -2650,6 +2650,15 @@ export function registerRowOps(_array: any, _fn: (next: any[], ops: any) => void
 export function patchableRaw(_record: any): undefined {
   return undefined;
 }
+export function registerSlotPatch(
+  _array: any,
+  _fn: (index: number, next: any, prev: any) => void
+): () => void {
+  return noopUnbind;
+}
+export function storeIsShallow(_proxy: any): boolean {
+  return false;
+}
 // Inert on the server: nothing probes owners for list purity during SSR
 // (patchableRaw above already declines every drive attempt).
 export function ownerIsBlank(_node: any): boolean {

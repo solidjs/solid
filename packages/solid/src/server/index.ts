@@ -42,6 +42,8 @@ export {
   patchableRaw,
   registerPatch,
   registerRowOps,
+  registerSlotPatch,
+  storeIsShallow,
   reconcile,
   refresh,
   repeat,

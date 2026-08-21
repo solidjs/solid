@@ -9,8 +9,10 @@ import {
   patchableRaw,
   registerPatch,
   registerRowOps,
+  registerSlotPatch,
   runWithOwner,
   sharedConfig,
+  storeIsShallow,
   untrack
 } from "solid-js";
 export {
@@ -113,6 +115,13 @@ export const memo = fn => {
 //   render effect force-applies the same body; reads through the subject
 //   track normally, force short-circuits every compare so `prev` is never
 //   dereferenced. Same semantics, different dispatcher.
+// Shallow-row body collector: shallow store rows are RAW (no record target
+// to register on), so while the list driver binds a shallow row it collects
+// the compiled bodies here and dispatches them itself from the array's
+// slot-patch channel. Only bodies whose subject IS the row being bound are
+// collected — anything else keeps its own driver.
+let rowCollector: { row: any; bodies: any[] } | null = null;
+
 export const patchDriver = (subject, body) => {
   const raw = patchableRaw(subject);
   if (raw !== undefined) {
@@ -122,6 +131,9 @@ export const patchDriver = (subject, body) => {
     // the record for post-hydration transitions.
     if (!sharedConfig.hydrating) body(raw, undefined, true);
     registerPatch(subject, body);
+  } else if (rowCollector !== null && subject === rowCollector.row) {
+    rowCollector.bodies.push(body);
+    if (!sharedConfig.hydrating) body(subject, undefined, true);
   } else {
     // Effect fallback with correct WRITE TIMING: the compute pass calls the
     // body with next === prev, so every compare fails and it becomes a pure
@@ -245,6 +257,24 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   // the probe defers to the first created row (inside the first structural
   // op). A late decline tears the driver down and hands the region to the
   // classic path through `lateClassic`.
+  // Shallow store lists: rows are RAW, so compiled bodies are COLLECTED at
+  // bind (patchDriver's rowCollector branch) and dispatched from the array's
+  // slot-patch channel; `lastBodies` carries each bind's collection to its
+  // bookkeeping site.
+  const shallow = storeIsShallow(subject);
+  let lastBodies: any[] | null = null;
+  const collectBind = (abs: number, build: () => Node): Node => {
+    if (!shallow) return build();
+    const prevC = rowCollector;
+    rowCollector = { row: subject[abs], bodies: [] };
+    try {
+      return build();
+    } finally {
+      lastBodies = rowCollector.bodies;
+      rowCollector = prevC;
+    }
+  };
+
   let probed = false;
   const runProbe = (abs: number): Node | undefined => {
     const probe = createOwner({ id: "&probe" });
@@ -256,7 +286,9 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
     const wasHydrating = !!sharedConfig.hydrating;
     if (wasHydrating) sharedConfig.hydrating = false;
     try {
-      node = runWithOwner(probe, () => untrack(() => rowFn(subject[abs]))) as Node;
+      node = collectBind(abs, () =>
+        runWithOwner(probe, () => untrack(() => rowFn(subject[abs])))
+      ) as Node;
     } catch (err) {
       // The abort sentinel is the probe working as designed (first impurity
       // marker stops the speculative build); anything else is a real error.
@@ -300,12 +332,14 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   const listOwner = createOwner();
   let declined = false;
   const bindRow = (abs: number, claimId?: string): Node =>
-    runWithOwner(listOwner, () =>
-      claimId !== undefined
-        ? (runWithOwner(createOwner({ id: claimId }) as any, () =>
-            untrack(() => rowFn(subject[abs]))
-          ) as Node)
-        : (untrack(() => rowFn(subject[abs])) as Node)
+    collectBind(abs, () =>
+      runWithOwner(listOwner, () =>
+        claimId !== undefined
+          ? (runWithOwner(createOwner({ id: claimId }) as any, () =>
+              untrack(() => rowFn(subject[abs]))
+            ) as Node)
+          : (untrack(() => rowFn(subject[abs])) as Node)
+      )
     ) as Node;
 
   // Late decline (tentative engagement only): the first REAL row proved
@@ -315,23 +349,30 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   const lateDecline = () => {
     declined = true;
     unbindOps();
+    unbindSlots?.();
     (listOwner as any).dispose();
     lateClassic?.();
   };
 
   let entries: Node[] = new Array(raw.length);
+  let rowBodies: any[][] | null = shallow ? new Array(raw.length) : null;
   let prevRaws: any[] = raw.slice();
   if (hydrating) {
     // Claim pass: each bind claims its server row through the row-scoped id
     // (getNextElement resolves the `_hk` registry entry); patchDriver skips
     // the initial apply.
-    for (let i = 0; i < raw.length; i++) entries[i] = bindRow(i, rowIds![i]);
+    for (let i = 0; i < raw.length; i++) {
+      entries[i] = bindRow(i, rowIds![i]);
+      if (rowBodies !== null) rowBodies[i] = lastBodies!;
+    }
   } else if (raw.length > 0) {
     entries[0] = firstNode!;
+    if (rowBodies !== null) rowBodies[0] = lastBodies!;
     parent.insertBefore(firstNode!, endAnchor);
     for (let i = 1; i < raw.length; i++) {
       const node = bindRow(i);
       entries[i] = node;
+      if (rowBodies !== null) rowBodies[i] = lastBodies!;
       parent.insertBefore(node, endAnchor);
     }
   }
@@ -345,7 +386,12 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
       if (!retained.has(j)) (entries[j] as ChildNode).remove();
     }
     const newEntries: Node[] = new Array(prefix + sources.length);
-    for (let i = 0; i < prefix; i++) newEntries[i] = entries[i];
+    const newBodies: any[][] | null =
+      rowBodies !== null ? new Array(prefix + sources.length) : null;
+    for (let i = 0; i < prefix; i++) {
+      newEntries[i] = entries[i];
+      if (newBodies !== null) newBodies[i] = rowBodies![i];
+    }
     const stable = lisPositions(sources);
     let anchor: Node | null = endAnchor;
     for (let j = sources.length - 1; j >= 0; j--) {
@@ -364,19 +410,38 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
           }
           node = probeNode;
         } else node = bindRow(abs);
+        if (newBodies !== null) newBodies[abs] = lastBodies!;
         parent.insertBefore(node, anchor);
       } else {
         node = entries[src];
+        if (newBodies !== null) newBodies[abs] = rowBodies![src];
         if (!stable.has(j)) parent.insertBefore(node, anchor);
       }
       newEntries[abs] = node;
       anchor = node;
     }
     entries = newEntries;
+    if (newBodies !== null) rowBodies = newBodies;
     prevRaws = next.slice();
   };
 
   let unbindOps = runWithOwner(listOwner, () => registerRowOps(subject, applyOps)) as () => void;
+
+  // Shallow value channel: a key-aligned slot replaced by reference is a
+  // value tick — run the row's collected bodies against (next, prev) and
+  // adopt the new raw as that slot's identity. Structure never lands here
+  // (the walk emits misaligned slots as row ops only).
+  const applySlot = (i: number, next: any, prev: any) => {
+    if (declined) return;
+    const bodies = rowBodies![i];
+    if (bodies !== undefined) {
+      for (let b = 0; b < bodies.length; b++) bodies[b](next, prev, false);
+    }
+    prevRaws[i] = next;
+  };
+  let unbindSlots = shallow
+    ? (runWithOwner(listOwner, () => registerSlotPatch(subject, applySlot)) as () => void)
+    : null;
 
   // Identity swaps (`s.rows = newArr` without reconcile) keep mapArray's
   // keyed semantics: rows matched by RAW IDENTITY retain their DOM; the rest
@@ -390,13 +455,32 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
         if (declined || value === subject) return;
         const nextRaw = value != null ? patchableRaw(value) : undefined;
         unbindOps();
-        if (nextRaw === undefined || !Array.isArray(nextRaw)) {
-          // Subject left the driver's contract; clear the region — the store
-          // array is gone, and with it every channel that fed these rows.
+        unbindSlots?.();
+        // A swap that changes the store KIND (shallow <-> deep) leaves this
+        // engagement's channel wiring invalid — treat it like leaving the
+        // contract and hand off to classic.
+        if (nextRaw !== undefined && Array.isArray(nextRaw) && storeIsShallow(value) !== shallow) {
           for (let j = 0; j < entries.length; j++) (entries[j] as ChildNode).remove();
           entries = [];
           prevRaws = [];
           subject = value;
+          declined = true;
+          (listOwner as any).dispose();
+          lateClassic?.();
+          return;
+        }
+        if (nextRaw === undefined || !Array.isArray(nextRaw)) {
+          // Subject left the driver's contract (e.g. `each` switched from
+          // the store array to a DERIVED array — a filtered view). Clear the
+          // region and hand the list to the classic path, which renders the
+          // current subject and owns it from here on.
+          for (let j = 0; j < entries.length; j++) (entries[j] as ChildNode).remove();
+          entries = [];
+          prevRaws = [];
+          subject = value;
+          declined = true;
+          (listOwner as any).dispose();
+          lateClassic?.();
           return;
         }
         // RAW identity on both sides: permutations authored inside drafts
@@ -418,11 +502,16 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
         subject = value;
         applyOps(nextRaw, { prefix: 0, sources });
         unbindOps = runWithOwner(listOwner, () => registerRowOps(subject, applyOps)) as () => void;
+        if (shallow)
+          unbindSlots = runWithOwner(listOwner, () =>
+            registerSlotPatch(subject, applySlot)
+          ) as () => void;
       }
     )
   );
   onCleanup(() => {
     unbindOps();
+    unbindSlots?.();
     (listOwner as any).dispose();
   });
   return true;

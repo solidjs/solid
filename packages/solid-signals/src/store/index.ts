@@ -31,7 +31,7 @@ export { createProjectionNext as createProjection } from "./next/projection.js";
 // Compiler-contract surface (DESIGN-PATCH-CHANNEL.md): what patch-mode
 // compiled output links against. Undocumented as an application API.
 export { registerPatch, registerRowOps, patchableRaw } from "./next/patch.js";
-export { registerSlotPatchNext as registerSlotPatch } from "./next/store.js";
+export { registerSlotPatchNext as registerSlotPatch, storeIsShallow } from "./next/store.js";
 export { createOptimisticStoreNext as createOptimisticStore } from "./next/optimistic.js";
 
 /** Public createStore: plain form `(init, options?)` and derived writable

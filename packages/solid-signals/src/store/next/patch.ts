@@ -320,6 +320,21 @@ export function registerRowOps(array: any, fn: RowOpsFn): () => void {
   };
 }
 
+/** Slot patches (shallow arrays) ride the same apply queue: the walk emits
+ * per aligned value-replaced slot; application happens at effect phase under
+ * the registration owner's lifetime. */
+export function emitSlotPatch(t: StoreNextTarget, index: number, next: any, prev: any): void {
+  const sp = t.sp;
+  if (sp === null) return;
+  push({
+    list: [{ owner: sp.owner, fn: () => sp.fn(index, next, prev) }],
+    next,
+    prev,
+    force: false,
+    t: null
+  });
+}
+
 /** Row-ops ride the SAME apply queue/timing as record patches: transition-
  * stamped, applied at effect phase, in emission order (structure before the
  * new rows' own patches can exist; retained rows' value patches commute). */
