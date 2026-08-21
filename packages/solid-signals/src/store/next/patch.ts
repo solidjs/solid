@@ -97,17 +97,18 @@ function drainApplyQueue(): void {
 const UNSET: unique symbol = Symbol();
 
 // Transition-stamped emissions (§2b, "the walk is not the visibility moment
-// inside a transition"): entries stash on their transition and release into
-// the live queue when THAT batch commits (patchCommitHook). Reverted
-// transitions never commit — their stash drops via WeakMap GC, no revert
-// bookkeeping.
-const heldByTransition = new WeakMap<Transition, QueuedApply[]>();
+// inside a transition"): entries stash DIRECTLY on their transition
+// (`_heldPatches`) and release into the live queue when THAT batch commits
+// (patchCommitHook). Reverted transitions never commit — their stash drops
+// with the transition object, no revert bookkeeping. The field (rather than
+// a WeakMap) keeps the every-flush commit-hook check to one property read;
+// the ambient batch never stashes.
 let commitHookInstalled = false;
 
 function releaseBatch(batch: Transition): void {
-  const held = heldByTransition.get(batch);
+  const held = (batch as any)._heldPatches as QueuedApply[] | undefined;
   if (held === undefined) return;
-  heldByTransition.delete(batch);
+  (batch as any)._heldPatches = undefined;
   for (let i = 0; i < held.length; i++) pushLive(held[i]);
 }
 
@@ -123,8 +124,8 @@ function pushLive(item: QueuedApply): void {
 function push(item: QueuedApply): void {
   const tx = activeTransition;
   if (tx !== null) {
-    let held = heldByTransition.get(tx);
-    if (held === undefined) heldByTransition.set(tx, (held = []));
+    let held = (tx as any)._heldPatches as QueuedApply[] | undefined;
+    if (held === undefined) (tx as any)._heldPatches = held = [];
     held.push(item);
     return;
   }
