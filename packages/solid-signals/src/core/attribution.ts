@@ -121,6 +121,19 @@ export interface AttributionOptions {
    * scope that run counts miss. `false` disables.
    */
   hotTime?: { budgetMs: number; windowMs: number } | false;
+  /**
+   * Written-fan-out warning: emit a diagnostic when a committed root
+   * invalidation (write, refresh, async landing) reaches a node with at
+   * least this many subscribers (default 250). Complements the always-on
+   * HUGE_FAN_OUT graph-size warning, specced against it deliberately:
+   * HUGE_FAN_OUT fires at LINK time from GRAPH_SIZE_WARN_AT (2000) up —
+   * static structure so large it warns even if never written — while this
+   * fires at WRITE time from a much lower bar, because fan-out only costs
+   * anything when the node actually changes. Once per node, re-warning only
+   * on 2x subscriber growth, so the two never spam the same node. `false`
+   * disables.
+   */
+  wideWrites?: number | false;
 }
 
 interface AttributedNode {
@@ -134,6 +147,7 @@ interface AttributedNode {
   _devTimeWinStart?: number;
   _devTimeWinMs?: number;
   _devTimeWarned?: boolean;
+  _devWideWriteWarnedAt?: number;
 }
 
 let attributionActive = false;
@@ -146,7 +160,8 @@ const defaultOptions = {
   historyLimit: 200,
   hotRuns: { count: 120, windowMs: 1000 } as { count: number; windowMs: number } | false,
   wideDeps: 30 as number | false,
-  hotTime: { budgetMs: 8, windowMs: 1000 } as { budgetMs: number; windowMs: number } | false
+  hotTime: { budgetMs: 8, windowMs: 1000 } as { budgetMs: number; windowMs: number } | false,
+  wideWrites: 250 as number | false
 };
 let options: typeof defaultOptions = { ...defaultOptions };
 const listeners = new Set<(event: RerunEvent) => void>();
@@ -268,6 +283,44 @@ function captureStack(): string[] | undefined {
 const NO_VALUES = Symbol("no-values");
 
 /** Record a root change (setSignal / refresh / async landing) on the node. */
+/**
+ * Written-fan-out warning — the write-time complement of the always-on
+ * HUGE_FAN_OUT link-time warning (see dev.ts). Static fan-out that never
+ * writes is harmless; a committed root invalidation reaching hundreds of
+ * subscribers re-runs all of them this flush. Uses the dev-maintained
+ * `_subCount` from the graph-size diagnostics — no core sites touched.
+ * Once per node; re-warns only when the subscriber count has doubled since
+ * the last warning, so it cannot spam alongside HUGE_FAN_OUT's own
+ * 2000-and-up milestones.
+ */
+function checkWideWrite(
+  node: Signal<any> | Computed<any>,
+  kind: Exclude<ChangeKind, "derived">
+): void {
+  const limit = options.wideWrites;
+  if (typeof limit !== "number") return;
+  const subs = node._subCount ?? 0;
+  const attributed = node as AttributedNode;
+  if (subs < limit || subs < (attributed._devWideWriteWarnedAt ?? 0) * 2) return;
+  attributed._devWideWriteWarnedAt = subs;
+  const verb =
+    kind === "refresh" ? "refresh of" : kind === "async" ? "async landing on" : "write to";
+  const message =
+    `[WIDE_WRITE] ${verb} "${nodeName(node)}" reached ${subs} subscribers — every one ` +
+    `re-runs this flush. If consumers ask keyed questions of this value (for example every ` +
+    `row comparing against one selected id), invert with createSelector or createProjection ` +
+    `so only the keys whose answer flipped update.`;
+  emitDiagnostic({
+    code: "WIDE_WRITE",
+    kind: "perf",
+    severity: "warn",
+    message,
+    nodeName: nodeName(node),
+    data: { subscribers: subs, write: kind }
+  });
+  console.warn(message);
+}
+
 function stampWrite(
   node: Signal<any> | Computed<any>,
   kind: Exclude<ChangeKind, "derived">,
@@ -281,6 +334,10 @@ function stampWrite(
   }
   record.stack = captureStack();
   (node as AttributedNode)._devChange = record;
+  // stampWrite is the single funnel for committed root invalidations (sync
+  // writes, refresh(), async landings), which makes it the one place the
+  // written-fan-out check needs to live.
+  checkWideWrite(node, kind);
 }
 
 /** Record a derived change (memo produced a new value) with its causes. */

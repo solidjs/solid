@@ -35,7 +35,8 @@ export type DiagnosticCode =
   | "HUGE_FAN_IN"
   | "HOT_SCOPE_RERUNS"
   | "HOT_SCOPE_TIME"
-  | "WIDE_SCOPE_DEPS";
+  | "WIDE_SCOPE_DEPS"
+  | "WIDE_WRITE";
 
 export type DiagnosticKind =
   | "strict-read"

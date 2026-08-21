@@ -263,6 +263,8 @@ One source has grown an unusually large number of live subscribers (first warnin
 
 Always on in dev; maintained by the graph's link/unlink operations, so the counts reflect live edges (disposed subscribers don't count against the threshold).
 
+Related: `WIDE_WRITE` (below) fires at **write** time from a much lower threshold, but only while the attribution engine is enabled — static fan-out that never writes is harmless, so the write-time check can afford to be far more sensitive. `HUGE_FAN_OUT` is the always-on backstop for structure large enough to warn about even if it never changes.
+
 #### `HUGE_FAN_IN`
 
 **Message:** "Computation [name] has N sources. It will re-run when any of them change. …"
@@ -280,6 +282,16 @@ Perf-kind warnings emitted by the **attribution engine** — they only fire whil
 - `WIDE_SCOPE_DEPS`: a scope's dependency count reached 30 (re-warns after another 50% growth), with the source names listed.
 
 All three thresholds are configurable (or disable-able) through `enable()` options.
+
+#### `WIDE_WRITE`
+
+**Message:** "write to [name] reached N subscribers — every one re-runs this flush. …"
+
+A committed root invalidation — a signal or store write, a `refresh()`, or an async landing — reached a node with an unusually large number of live subscribers (default 250). Where the per-scope warnings above blame the *reader*, this one blames the *write*: it is the fan-out actually happening, priced at the moment it happens. The classic shape is many consumers asking keyed questions of one value (every row comparing against one selected id); the fix is inverting the subscription with `createSelector` or `createProjection` so only the keys whose answer flipped re-run.
+
+Attribution-engine only, like the trio above. Specced together with `HUGE_FAN_OUT` so the two never double-fire on one node: `HUGE_FAN_OUT` is always-on and fires at *link* time from 2000 subscribers up — structure so large it warns even if never written — while `WIDE_WRITE` fires at *write* time from a much lower bar, once per node, re-warning only after the subscriber count doubles. Unchanged writes never fire it (the source equality gate commits nothing and notifies no one). The check reads the same live `_subCount` the graph-size warnings maintain, so disposed subscribers don't count.
+
+Threshold configurable (or disable-able) via `enable({ wideWrites })`.
 
 ## Programmatic diagnostics API
 
@@ -367,7 +379,8 @@ DEV.attribution.enable({
   historyLimit: 200,  // ring buffer size
   hotRuns: { count: 120, windowMs: 1000 },   // or false
   hotTime: { budgetMs: 8, windowMs: 1000 },  // or false
-  wideDeps: 30                                // or false
+  wideDeps: 30,                               // or false
+  wideWrites: 250                             // or false
 });
 
 DEV.attribution.history();          // ring buffer of RerunEvents
