@@ -27,6 +27,18 @@ export const CONFIG_IN_SNAPSHOT_SCOPE = 1 << 3;
 export const CONFIG_CHILDREN_FORBIDDEN = 1 << 4;
 export const CONFIG_AUTO_DISPOSE = 1 << 5;
 export const CONFIG_SYNC = 1 << 6;
+// Presence bits (stage-3 hot-path monomorphism, DESIGN-PATCH-CHANNEL §11b):
+// optional per-node slots (_overrideValue, _pendingSignal/_latestValueComputed,
+// _snapshotValue, _optimisticLane) are NOT part of every node's hidden class —
+// reading a missing property defeats V8's inline caches on the hottest write/
+// notify loops. These bits live on the always-present `_config` so hot paths
+// pay one monomorphic masked read and only touch the optional field when its
+// installer flagged it. Bits are STICKY ("may be set") — the guarded field
+// read remains authoritative.
+export const CONFIG_OPTIMISTIC = 1 << 7;
+export const CONFIG_HAS_COMPANIONS = 1 << 8;
+export const CONFIG_HAS_SNAPSHOT = 1 << 9;
+export const CONFIG_HAS_LANE = 1 << 10;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;

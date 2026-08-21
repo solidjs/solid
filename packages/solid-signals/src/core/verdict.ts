@@ -15,7 +15,8 @@ import {
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
-  STATUS_UNINITIALIZED
+  STATUS_UNINITIALIZED,
+  CONFIG_HAS_COMPANIONS
 } from "./constants.js";
 import {
   context,
@@ -84,6 +85,7 @@ function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
   if (!el._pendingSignal) {
     // Start false, write true if pending - ensures reversion returns to false
     el._pendingSignal = optimisticSignal(false, { ownedWrite: true });
+    el._config |= CONFIG_HAS_COMPANIONS;
     el._pendingSignal._parentSource = el;
     if (computePendingState(el)) setSignal(el._pendingSignal, true);
     if (__DEV__) devTrackCompanionOwner(el);
@@ -337,6 +339,7 @@ function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
     const prevContext = context;
     setContextInternal(null); // Detach from owner so it isn't disposed with effects
     el._latestValueComputed = optimisticComputed(() => read(el));
+    el._config |= CONFIG_HAS_COMPANIONS;
     el._latestValueComputed._parentSource = el; // Parent-child lane relationship
     if (__DEV__) devTrackCompanionOwner(el);
     setContextInternal(prevContext);

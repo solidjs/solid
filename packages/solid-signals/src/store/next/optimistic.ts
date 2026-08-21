@@ -13,7 +13,12 @@
  * store-half (#2951) is installed here for next-shaped targets, chaining the
  * legacy/engine checks.
  */
-import { NOT_PENDING, STATUS_PENDING, unwrapOverride } from "../../core/constants.js";
+import {
+  NOT_PENDING,
+  STATUS_PENDING,
+  unwrapOverride,
+  CONFIG_OPTIMISTIC
+} from "../../core/constants.js";
 import {
   computed,
   CONFIG_AUTO_DISPOSE,
@@ -271,6 +276,7 @@ export function consumeOverridesNext(fam: StoreNextFamily): void {
         // of riding a transaction's commit (whose queues may be stashed with
         // the transaction parked; the wake would strand until it settles).
         node._overrideValue = NOT_PENDING;
+        node._config |= CONFIG_OPTIMISTIC;
         (node as any)._overrideOwner = null;
         (node as any)._optimisticLane = undefined;
         node._pendingValue = NOT_PENDING;
@@ -312,6 +318,7 @@ export function consumeOverridesNext(fam: StoreNextFamily): void {
       }
       if (t.k !== null && hasActiveOverride(t.k)) {
         t.k._overrideValue = NOT_PENDING;
+        t.k._config |= CONFIG_OPTIMISTIC;
         (t.k as any)._overrideOwner = null;
         (t.k as any)._optimisticLane = undefined;
         insertSubs(t.k, true);

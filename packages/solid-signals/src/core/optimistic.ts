@@ -20,7 +20,8 @@ import {
   unwrapOverride,
   REACTIVE_OPTIMISTIC_DIRTY,
   STATUS_PENDING,
-  STATUS_UNINITIALIZED
+  STATUS_UNINITIALIZED,
+  CONFIG_HAS_LANE
 } from "./constants.js";
 import { currentOptimisticLane, latestReadActive, stale } from "./core.js";
 import { NotReadyError } from "./error.js";
@@ -84,6 +85,7 @@ function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)
 
   const lane = getOrCreateLane(el as Signal<any>);
   el._optimisticLane = lane;
+  el._config |= CONFIG_HAS_LANE;
 
   // Literal undefined must not land raw: the slot doubles as the optimistic
   // brand, and erasing it makes the write invisible and routes follow-up
@@ -301,6 +303,7 @@ function laneAsyncPending(el: Computed<any>): void {
   if (lane._source !== el) {
     lane._pendingAsync.add(el);
     el._optimisticLane = lane;
+    (el as any)._config |= CONFIG_HAS_LANE;
     GlobalQueue._updatePendingSignal !== null && GlobalQueue._updatePendingSignal(lane._source);
   }
 }

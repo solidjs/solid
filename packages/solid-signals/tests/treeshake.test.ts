@@ -81,7 +81,11 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     ).toEqual([]);
     // Ceiling: 18,214 bytes measured at landing (vite/rollup bundle +
     // esbuild minify with `_`-property mangling) + ~7% headroom.
-    expect(minifiedBytes).toBeLessThan(19_500);
+    // CONSCIOUS BUMP (stage-3 §11b, 2026-08-21): +~120B for hot-path shape
+    // alignment — optional-machinery slots moved into the node literals and
+    // presence bits on _config, killing megamorphic missing-property reads
+    // in setSignal/recompute/commit (measured at 19,570 post-change).
+    expect(minifiedBytes).toBeLessThan(19_800);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {
