@@ -461,3 +461,40 @@ row count != DOM count, rows without clean `_hk` keys. Dev-mode text
 mismatch check remains open (policy says skip-initial regardless).
 Post-landing CSR sanity: dbmon compiled unchanged (tick 3.5/partial 1.1/
 remount 9.0/sort 5.0). Full monorepo green incl. hydration parity harness.
+
+### 10e. JFB validation pass (2026-08-20/21) — PR-D
+
+Two fixtures driven by octane's js-framework runner + keyed-reorder identity
+gate (local workspace, edit-script build): the CANONICAL solid-next
+authoring (ryansolid/js-framework-benchmark solid-2.0-benchmarks branch —
+signal rows, per-row label signals, id-keyed store selection; per Ryan the
+fastest-version entry) and an ALL-STORE fixture (deep store rows, setter
+mutations, patch-mode compiled row templates) as the store-scenario vehicle.
+
+The store scenario found and fixed FOUR driver/store gaps:
+1. Setter-channel structural mutation emitted NO row ops (silent stale DOM
+   for driven lists mutated without reconcile) — the fold now identity-diffs
+   and emits.
+2. Empty-initial lists declined permanently (fatal: JFB starts empty) — now
+   tentative engagement with a deferred probe + late-classic re-entry thunk.
+3. Draft-authored permutations rebuilt every row (deep ingest stores written
+   proxies verbatim; identity matching now unwraps both sides) — caught by
+   the reorder identity gate, which the store fixture now passes wholesale.
+4. notifyWrites/hold-check scanned EVERY subscribed node per setter write —
+   an id-keyed selection store over 10k rows paid two 10k-node scans per
+   select (select_lots 47x octane). Trap writes now record written keys
+   (t.wk); notify/hold-check are O(written), with full-scan fallbacks for
+   array length writes (implicit index deletes/grows), accessor-bearing
+   records, and class instances (prototype getters).
+
+Board after (vs octane-tsrx, 8 iters, sub-ms ops so variance is real):
+canonical solid-next at effective parity — add/remove/replace/clear ≤1.0x,
+run/swap/runlots ~1.1x, update 0.9-1.2x, select 1.6x, select_lots 2.0x
+(0.2ms absolute; was 47x). The all-store fixture passes every gate; its
+outliers are AUTHORING-side array costs (find/splice/indexOf over proxies —
+O(n) trap traffic), noted for a future draft array-method fast path
+(shift/splice lowering to bulk pb ops).
+
+Size after the full PR-D fix set: store entry 14.69 KB gzip (13.56 at the
+stage-2 branch point → +1.13 KB for the entire channel + row ops + setter
+emission + wk bound), core-only 8.61 KB (+0.02).
