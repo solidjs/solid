@@ -73,7 +73,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
   if (self && __DEV__) clearSignals(node);
   if (self && (node as any)._fn && (node as Computed<unknown>)._x !== null)
     (node as Computed<unknown>)._x!._inFlight = null;
-  let child = zombie ? (node._pendingFirstChild as Owner) : node._firstChild;
+  let child = zombie ? ((node._x?._pendingFirstChild ?? null) as Owner | null) : node._firstChild;
   while (child) {
     const nextChild = child._nextSibling;
     const n = child as Computed<unknown>;
@@ -98,7 +98,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     child = nextChild;
   }
   if (zombie) {
-    node._pendingFirstChild = null;
+    if (node._x !== null) node._x._pendingFirstChild = null;
   } else {
     node._firstChild = null;
     node._childCount = 0;
@@ -132,7 +132,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
 }
 
 function runDisposal(node: Owner, zombie?: boolean): void {
-  let disposal = zombie ? node._pendingDisposal : node._disposal;
+  let disposal = zombie ? node._x?._pendingDisposal : node._disposal;
   if (!disposal) return;
 
   if (Array.isArray(disposal)) {
@@ -143,7 +143,9 @@ function runDisposal(node: Owner, zombie?: boolean): void {
   } else {
     (disposal as Disposable).call(disposal);
   }
-  zombie ? (node._pendingDisposal = null) : (node._disposal = null);
+  if (zombie) {
+    if (node._x !== null) node._x._pendingDisposal = null;
+  } else node._disposal = null;
 }
 
 function childId(owner: Owner, consume: boolean): string {
@@ -311,8 +313,7 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
     _queue: parent?._queue ?? globalQueue,
     _context: parent?._context || defaultContext,
     _childCount: 0,
-    _pendingDisposal: null,
-    _pendingFirstChild: null,
+    _x: null,
     _parent: parent,
     dispose: disposeRootSelf
   } as Root;

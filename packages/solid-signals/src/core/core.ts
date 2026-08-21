@@ -193,8 +193,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (el._x?._transition || isEffect === EFFECT_TRACKED) disposeChildren(el);
     else if (el._firstChild !== null || el._disposal !== null) {
       markDisposal(el);
-      el._pendingDisposal = el._disposal;
-      el._pendingFirstChild = el._firstChild;
+      const x = ext(el);
+      x._pendingDisposal = el._disposal;
+      x._pendingFirstChild = el._firstChild;
       el._disposal = null;
       el._firstChild = null;
       el._childCount = 0;
@@ -452,8 +453,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   currentOptimisticLane = prevLane;
   const needsPendingCommit =
     el._pendingValue !== NOT_PENDING ||
-    el._pendingFirstChild !== null ||
-    el._pendingDisposal !== null ||
+    (el._x !== null && (el._x._pendingFirstChild !== null || el._x._pendingDisposal !== null)) ||
     (el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) !== 0;
   // Override-covered holds (hasOverride) always queue: their commit belongs
   // to their own transition's schedule (A18 re-rule) and is unobservable
@@ -541,8 +541,6 @@ export function computed<T>(
     _statusFlags: loading ? 0 : STATUS_UNINITIALIZED,
     _time: clock,
     _pendingValue: NOT_PENDING,
-    _pendingDisposal: null,
-    _pendingFirstChild: null,
     _loading: loading,
     // Cold machinery (async/transition/optimistic/verdict slots) lives one
     // hop away in the lazily-allocated extension — the core literal MUST
@@ -560,7 +558,7 @@ export function computed<T>(
  * computeds — `_x` access stays monomorphic). Installers write through
  * this; hot paths read `el._x?._field` gated by the _config presence bits.
  * Never call ext() just to store a field's default. */
-export function ext(el: RawSignal<any> | Computed<any>): NodeExtension {
+export function ext(el: { _x: NodeExtension | null }): NodeExtension {
   return (el._x ??= {
     _transition: null,
     _overrideValue: undefined,
@@ -578,7 +576,9 @@ export function ext(el: RawSignal<any> | Computed<any>): NodeExtension {
     _reask: false,
     _child: null,
     _unobserved: undefined,
-    _snapshotValue: undefined
+    _snapshotValue: undefined,
+    _pendingDisposal: null,
+    _pendingFirstChild: null
   });
 }
 
@@ -627,8 +627,6 @@ export function createEffectNode<T>(
     _statusFlags: STATUS_UNINITIALIZED,
     _time: clock,
     _pendingValue: NOT_PENDING,
-    _pendingDisposal: null,
-    _pendingFirstChild: null,
     _loading: false,
     _modified: false,
     _prevValue: undefined as T | undefined,

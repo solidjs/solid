@@ -715,3 +715,19 @@ holds the capture tooling: profile-tax.sh + summarize-profiles.mjs).
     way (`fw?._transition` read the dead raw slot); `?.` flips `null`
     defaults to `undefined` in comparisons; never allocate _x to store a
     field's default (applyReask, guarded default writes).
+- LANDED (§12b): zombie pair (`_pendingDisposal/_pendingFirstChild`) moved
+  into _x (computed literal 29 → 27; roots swap the pair for `_x: null`) —
+  staged disposal only fires for owners that HAVE children/disposal, so
+  childless memos never pay it, and the per-recompute commit gate collapses
+  to one `_x` null check. Plus a plain-commit fast drain in
+  GlobalQueue.flush (prod-only: dev keeps the full spine for invariant
+  checks; semantically identical when preconditions hold). Interleaved A/B:
+  update1to1 -12% on top of §12, create1to1 ~-10%, dbmon deep tick
+  3.6 → 3.2ms, shallow parity. writeNoSubs flat — the per-flush constant
+  is now the commit loop itself; per-write direct-commit stays ruled out
+  (#3009 purity). Byte cost +~300B (ceiling 20,900).
+- REMAINING (§12c candidates, unproven): creation is now 69% GC at 429B/
+  memo — the next real lever is owner-tree slimming (~10 fields of
+  ownership machinery per node), which is rewrite-scale and interacts with
+  the TSRX/codegen conversation. Per-flush constants are within ~2x of
+  floor for the write-only diagnostic; real apps don't flush per write.

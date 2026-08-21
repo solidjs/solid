@@ -92,6 +92,12 @@ export interface NodeExtension {
   _child: FirewallSignal<any> | null;
   _unobserved: (() => void) | undefined;
   _snapshotValue: any;
+  /** Zombie staging (staged disposal): a recompute of an owner that HAS
+   * children/disposal parks them here until the flush commits (or a
+   * transition reverts). Childless nodes — the common case — never write
+   * these. */
+  _pendingDisposal: Disposable | Disposable[] | null;
+  _pendingFirstChild: Owner | null;
 }
 
 export interface RawSignal<T> {
@@ -127,8 +133,8 @@ export interface Owner {
   _firstChild: Owner | null;
   _nextSibling: Owner | null;
   _prevSibling: Owner | null;
-  _pendingDisposal: Disposable | Disposable[] | null;
-  _pendingFirstChild: Owner | null;
+  /** Cold extension — see NodeExtension (owners use the zombie-pair slots). */
+  _x: NodeExtension | null;
 }
 
 export interface Computed<T> extends RawSignal<T>, Owner {

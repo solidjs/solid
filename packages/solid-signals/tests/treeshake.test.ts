@@ -91,7 +91,11 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // from 553B to 429B (-22%) and cutting create/update churn 10-19% in the
     // reactivity benchmark. The `_x?.` access chains and the ext()
     // initializer are the byte cost (measured at 20,313 post-change).
-    expect(minifiedBytes).toBeLessThan(20_600);
+    // CONSCIOUS BUMP (stage-3 §12b, 2026-08-21): +~300B for the zombie-pair
+    // move into _x (computed literal 29 -> 27 fields) and the plain-commit
+    // fast drain in GlobalQueue.flush — update1to1 -12% on top of §12
+    // (measured at 20,610 post-change).
+    expect(minifiedBytes).toBeLessThan(20_900);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {
