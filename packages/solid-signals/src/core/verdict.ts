@@ -448,13 +448,14 @@ function pendingCheckRead(
  * (#3028).
  */
 function heldAwaitingAsync(el: Signal<any> | Computed<any>): boolean {
-  const t = el._transition ? currentTransition(el._transition) : null;
+  const et = el._x?._transition;
+  const t = et ? currentTransition(et) : null;
   if (!t || t._done) return false;
   for (const [source, reporters] of t._asyncReporters) {
     if (
       reporters.size &&
       source._statusFlags & STATUS_PENDING &&
-      (source._error as NotReadyError | undefined)?.source === source
+      (source._x?._error as NotReadyError | undefined)?.source === source
     )
       return true;
   }

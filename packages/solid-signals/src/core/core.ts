@@ -755,7 +755,6 @@ export function signal<T>(
     _config:
       (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
       (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0),
-    _unobserved: options?.unobserved,
     _value: v,
     _subs: null,
     _subsTail: null,
