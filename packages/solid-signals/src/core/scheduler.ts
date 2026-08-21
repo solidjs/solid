@@ -464,6 +464,34 @@ export class GlobalQueue extends Queue {
   static _trackOptimisticStore: ((store: any) => void) | null = null;
   flush() {
     if (this._running) return;
+    // Fast drain: nothing in flight but plain pending commits — no dirty
+    // computeds, no queued effects, no child queues, no transitions/lanes/
+    // optimistic state. Commit and go; anything a commit hook schedules
+    // (companion snaps, store folds notifying subs) re-arms `scheduled`
+    // below and the outer drain loop takes the full spine next round.
+    if (
+      !__DEV__ &&
+      activeTransition === null &&
+      dirtyQueue._max < dirtyQueue._min &&
+      this._queues[0].length === 0 &&
+      this._queues[1].length === 0 &&
+      this._children.length === 0 &&
+      canUseSimpleSyncFlush(this)
+    ) {
+      this._running = true;
+      try {
+        commitPendingNodes();
+      } finally {
+        this._running = false;
+      }
+      clock++;
+      scheduled =
+        dirtyQueue._max >= dirtyQueue._min ||
+        this._queues[0].length !== 0 ||
+        this._queues[1].length !== 0 ||
+        this._batch._pendingNodes.length !== 0;
+      return;
+    }
     this._running = true;
     try {
       if (__DEV__) devCheckFlushStart();
@@ -737,7 +765,7 @@ function commitPendingNode(n: Signal<any>): void {
   c._loading = false;
   c._flags! &= ~REACTIVE_MANUAL_WRITE;
   if (!(c._statusFlags! & STATUS_PENDING)) c._statusFlags! &= ~STATUS_UNINITIALIZED;
-  if (c._pendingFirstChild !== null || c._pendingDisposal !== null)
+  if (c._x != null && (c._x._pendingFirstChild !== null || c._x._pendingDisposal !== null))
     GlobalQueue._dispose(c as Computed<unknown>, false, true);
   if (n._config & CONFIG_HAS_COMPANIONS) GlobalQueue._snapCompanions!(n);
 }
