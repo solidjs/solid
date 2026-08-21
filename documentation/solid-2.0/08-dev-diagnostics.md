@@ -255,6 +255,32 @@ A `Loading` or `Errored` boundary was created without a parent owner.
 
 The owner passed to `runWithOwner` has already been disposed. Any reactive primitives created inside will leak.
 
+#### `HUGE_FAN_OUT`
+
+**Message:** "Signal [name] has N subscribers. Each will re-run when it changes. …"
+
+One source has grown an unusually large number of live subscribers (first warning at 2000, repeated every additional 500). This is the signature of many independent computations reading the same value — for example, every row of a list comparing itself against one `selectedId` signal. Prefer a per-key store or a projection so only the items whose result actually flipped re-run.
+
+Always on in dev; maintained by the graph's link/unlink operations, so the counts reflect live edges (disposed subscribers don't count against the threshold).
+
+#### `HUGE_FAN_IN`
+
+**Message:** "Computation [name] has N sources. It will re-run when any of them change. …"
+
+One computation subscribes to an unusually large number of sources (same thresholds as `HUGE_FAN_OUT`). This is the coarse-read signature — e.g. a helper that touches a whole store, or one memo derived from everything. Narrow the read or split the derivation so each computation tracks only what it needs.
+
+Related: `WIDE_SCOPE_DEPS` (below) fires at a much lower threshold, but only while the attribution engine is enabled — it names the offending sources. `HUGE_FAN_IN` is the always-on backstop for the pathological case.
+
+#### `HOT_SCOPE_RERUNS`, `HOT_SCOPE_TIME`, `WIDE_SCOPE_DEPS`
+
+Perf-kind warnings emitted by the **attribution engine** — they only fire while `DEV.attribution.enable()` is active (see the next section). Defaults:
+
+- `HOT_SCOPE_RERUNS`: one scope re-ran 120+ times within 1000ms (above animation-frame cadence, so a legitimate rAF-driven scope doesn't cry wolf). The message names the most recent cause chain.
+- `HOT_SCOPE_TIME`: one scope's summed self-time exceeded 8ms within 1000ms — half a frame in one scope. Catches the few-but-expensive runs that counts miss.
+- `WIDE_SCOPE_DEPS`: a scope's dependency count reached 30 (re-warns after another 50% growth), with the source names listed.
+
+All three thresholds are configurable (or disable-able) through `enable()` options.
+
 ## Programmatic diagnostics API
 
 In dev mode, `DEV.diagnostics` provides two methods for tooling:
@@ -291,7 +317,7 @@ Each `DiagnosticEvent` has:
 |-------|------|-------------|
 | `sequence` | `number` | Monotonically increasing counter |
 | `code` | `DiagnosticCode` | Machine-readable code (e.g. `"STRICT_READ_UNTRACKED"`) |
-| `kind` | `DiagnosticKind` | Category: `"strict-read"`, `"async"`, `"write"`, `"lifecycle"`, `"owner"` |
+| `kind` | `DiagnosticKind` | Category: `"strict-read"`, `"async"`, `"write"`, `"lifecycle"`, `"owner"`, `"perf"`, `"graph"` |
 | `severity` | `"warn" \| "error"` | Whether this throws or just logs |
 | `message` | `string` | Human-readable message |
 | `ownerId` | `string?` | ID of the reactive owner where the diagnostic occurred |
@@ -314,3 +340,50 @@ Each `DiagnosticEvent` has:
 | `NO_OWNER_CLEANUP` | warn | lifecycle | `onCleanup` called without owner |
 | `NO_OWNER_BOUNDARY` | warn | lifecycle | Boundary created without owner |
 | `RUN_WITH_DISPOSED_OWNER` | warn | owner | `runWithOwner` with disposed owner |
+| `HUGE_FAN_OUT` | warn | graph | One source reached 2000 live subscribers (always on) |
+| `HUGE_FAN_IN` | warn | graph | One computation reached 2000 live sources (always on) |
+| `HOT_SCOPE_RERUNS` | warn | perf | 120+ re-runs of one scope in 1s (attribution enabled) |
+| `HOT_SCOPE_TIME` | warn | perf | 8ms+ self-time in one scope in 1s (attribution enabled) |
+| `WIDE_SCOPE_DEPS` | warn | perf | Scope subscribed to 30+ sources (attribution enabled) |
+
+## Run attribution — "why did this run"
+
+Beyond the always-on diagnostics above, dev builds ship an opt-in **attribution engine** that explains every re-run. The runtime already knows the full dependency graph; enabling attribution stamps each value commit with a change record (a write, an async landing, a `refresh()` invalidation, or a derived change chaining back to its causes), so each re-run reports the chain down to the originating write:
+
+```
+[why-run] effect "docTitle" ran (run 4)
+  ← memo "userLabel" changed (#6)
+    ← signal "notifications" write (#5) 2 → 3
+```
+
+### API (`DEV.attribution`)
+
+```js
+import { DEV } from "solid-js";
+
+DEV.attribution.enable({
+  log: true,          // pretty-print each re-run (default true)
+  stacks: false,      // capture write stacks — slow (default false)
+  historyLimit: 200,  // ring buffer size
+  hotRuns: { count: 120, windowMs: 1000 },   // or false
+  hotTime: { budgetMs: 8, windowMs: 1000 },  // or false
+  wideDeps: 30                                // or false
+});
+
+DEV.attribution.history();          // ring buffer of RerunEvents
+DEV.attribution.why(someMemo);      // re-run history for one node
+DEV.attribution.subscriptions(fn);  // current dep names of one scope
+DEV.attribution.costs();            // { scopes, writes } ranked cost tables
+DEV.attribution.subscribe(fn);      // live RerunEvent feed
+DEV.attribution.disable();
+```
+
+`costs()` aggregates since `enable()`: `scopes` ranked by self-time with `wastedMs` (time in runs whose value didn't change — the equality cutoff absorbed them), and `writes` ranked by the total downstream re-run time each root write caused. Overlay work (optimistic-lane and transition-replay runs) is accounted separately as `overlayMs` and never blamed as waste.
+
+### Architecture
+
+The engine is decoupled from the core through a narrow dev-only hook surface (`attribution-hooks.ts`): the core's only obligation is to report true facts (recompute start/end with lane and transition posture, committed writes, async landings, refreshes) at the moments they happen. All semantics — stamps, cause chains, timings, thresholds — live in the engine. Disabled cost is one null check per hook site; production builds fold every site out entirely (the size guard enforces byte-parity).
+
+The same hook surface is the intended substrate for external devtools: install your own `AttributionHooks` implementation instead of the built-in engine — one mechanism, two front-ends.
+
+Naming: attribution output uses debug names from the `name` option on primitives (`createSignal(0, { name: "count" })`); store nodes are named `store.path` automatically while the engine is active. Unnamed nodes fall back to their owner id.

@@ -57,6 +57,7 @@ import {
   throwPendingUntrackedRead,
   warnStrictReadUntracked
 } from "./dev.js";
+import { attrHooks } from "./attribution-hooks.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { cleanup, disposeChildren, inheritId, markDisposal } from "./owner.js";
 import {
@@ -170,6 +171,11 @@ export function clearSnapshots(): void {
 
 export function recompute(el: Computed<any>, create: boolean = false): void {
   const isEffect = (el as any)._type;
+  // Attribution hook: fired before this run touches the dep list — `_deps`
+  // still holds the previous run's links (the subscriptions that could have
+  // triggered this run, and the baseline for the engine's subscription diff).
+  let devChanged = false;
+  if (__DEV__ && attrHooks !== null) attrHooks.recomputeStart(el, create);
   if (!create) {
     if (el._transition && (!isEffect || activeTransition) && activeTransition !== el._transition)
       globalQueue.initTransition(el._transition);
@@ -350,6 +356,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       notifyStatus(el, STATUS_ERROR, e);
     }
 
+    // A committed derived change becomes a cause for this node's subscribers,
+    // chaining their attribution through this node to the root write.
+    if (__DEV__ && attrHooks !== null) {
+      devChanged = valueChanged && !el._error;
+      if (devChanged && !isEffect && !create) attrHooks.derivedChanged(el);
+    }
+
     // Effects use `_equals: false` (no per-effect closure). The side effects that
     // the equals closure used to perform — flagging the effect dirty and enqueueing
     // its runner — happen here instead. `!create` matches the previous `initialized`
@@ -434,6 +447,20 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (outgoingError !== undefined && !valueChanged && !el._error)
       settleErroredDependents(el, outgoingError);
   }
+  // Attribution hook: fired before the lane restore so `currentOptimisticLane`
+  // still reflects THIS run's posture. The facts distinguish an overlay
+  // recompute (optimistic lane, transition replay, transition-held commit)
+  // from a plain committed one — the engine must not blame overlay runs as
+  // waste or double-count them against plain aggregates.
+  if (__DEV__ && attrHooks !== null)
+    attrHooks.recomputeEnd(
+      el,
+      create,
+      devChanged,
+      isOptimisticDirty || currentOptimisticLane !== null,
+      activeTransition !== null || el._transition !== null,
+      el._pendingValue !== NOT_PENDING
+    );
   currentOptimisticLane = prevLane;
   const needsPendingCommit =
     el._pendingValue !== NOT_PENDING ||
@@ -1077,6 +1104,9 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     !el._equals(currentValue, v);
   if (!valueChanged) return v;
 
+  // Attribution hook: this committed write is where a re-run chain begins.
+  if (__DEV__ && attrHooks !== null) attrHooks.write(el, currentValue, v);
+
   if (el._pendingValue === NOT_PENDING) queuePendingNode(el);
   el._pendingValue = v;
   if (__DEV__) devTrackHeldPending(el);
@@ -1258,6 +1288,9 @@ export function refresh<T>(target: Refreshable<T>): void {
       armReaskClear();
     }
     node._flags = (node._flags & ~REACTIVE_CHECK) | REACTIVE_DIRTY;
+    // A refresh() self-invalidation is a root cause too — the target's next
+    // run has no changed dep to point at, so it points here instead.
+    if (__DEV__ && attrHooks !== null) attrHooks.refreshed(node);
     insertIntoHeap(node, queueFor(node));
     schedule();
   }

@@ -16,6 +16,7 @@
  * the pending home. Laziness: a written target with no subscriptions folds as
  * a pointer swap with zero node work.
  */
+import { attrHooks } from "../../core/attribution-hooks.js";
 import {
   $REFRESH,
   CONFIG_CHILDREN_FORBIDDEN,
@@ -162,6 +163,12 @@ export function getNode(target: StoreNextTarget, key: PropertyKey, current: any)
     const created: Signal<any> = (node = signal(
       current,
       {
+        // Attribution-only: name store property nodes by path segment so
+        // attribution chains and wide-scope warnings read "store.todos", not
+        // "signal". Gated on the engine being installed — node creation is
+        // the hottest store path, and the disabled cost must stay one null
+        // check (nodes created before enable() stay generically named).
+        name: __DEV__ && attrHooks !== null ? "store." + String(key) : undefined,
         // Logical-slot equality: values resolving to the same child target
         // are the same slot (privatization/adoption swap raw identity without
         // changing the logical value — only changed leaves notify, R9).
