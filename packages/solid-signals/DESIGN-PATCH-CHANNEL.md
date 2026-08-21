@@ -553,3 +553,37 @@ tick 0.94x, partial 0.98x, remount 0.90x, sort 0.95x, mount 1.06x,
 unmount 1.62x (1ms abs) — geomean 1.05x, solid FASTER than octane on 4/6
 ops. Deep remains the full-contract mode at 1.08x geomean; shallow is the
 vdom-parity mode (O4 as ruled), now served by the same compiled output.
+
+### 10h. Fixture best-practices sweep (2026-08-21) — every fixture the fastest version
+
+Ruling (Ryan): every octane fixture carries Solid's fastest correct
+authoring; the fixture set may become an upstream PR. Sweep results:
+
+- dbmon → SHALLOW compiled (10g): 1.05x geomean, faster on 4/6 ops.
+- js-framework → canonical solid-next authoring (earlier).
+- todomvc → hybrid (signal array + per-todo field signals): 1.86x → 1.48x;
+  toggleAll 5.0x → 1.25x. An ALL-STORE attempt measured 4.60x — scan-heavy
+  derived views (visible/remaining) pay per-read proxy cost; REVERTED.
+- chat-stream → hybrid (immutable structure + per-message done signal):
+  1.95x → 1.26x; streamFine 3.51x → 1.16x; type160 now faster (0.74x). An
+  ALL-STORE attempt measured 4.46x (switchConv 8x — proxy graph mounts);
+  REVERTED.
+- svg-dashboard: NO change — octane's own fixture uses the same attr
+  spreads (style_spread_pulse deliberately measures spread handling);
+  rewriting to explicit attrs would dodge the measured work. Authoring
+  already parallel; gaps are runtime items (spread assign, SVG creation).
+- weather-app / spa-navigation / news: app-realism fixtures, structurally
+  parallel to sibling columns — authoring stands.
+- signal-favoring: synthetic 100-component signal chain, already minimal;
+  µs-scale gaps are scheduler constants. NO REGRESSION vs published beta.20
+  (same-machine A/B identical); the committed baseline predates octane's
+  own 14-23x signal-propagation improvement.
+
+FINAL corrected board (108 ops): geomean 1.22x; 48/108 at parity-or-faster.
+THE AUTHORING PRINCIPLE the sweep validated (documentation-worthy): stores
+win FINE-GRAINED MUTATION over stable shapes (dbmon/effectful-list/selector
+fanout); signal structure + per-entity field signals win SCAN-HEAVY or
+MOUNT-HEAVY shapes; deep-proxying large graphs that get scanned or
+remounted wholesale is the anti-pattern (todomvc 4.6x, chat 4.5x).
+Remaining behind-tail is runtime work: creation paths, sub-ms small-op
+constants, spread assign, SSR/hydrate pipeline.
