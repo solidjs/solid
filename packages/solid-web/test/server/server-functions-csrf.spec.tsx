@@ -5,7 +5,7 @@ import {
 } from "@solidjs/web/server-functions/server";
 import type { ServerFunctionCSRFOptions } from "@solidjs/web/server-functions/server";
 
-const provideEvent = (_event: unknown, run: () => unknown) => run();
+const provideEvent = <T,>(_event: unknown, run: () => T): T => run();
 
 function request(id: string, headers: Record<string, string> = {}) {
   return new Request("https://app.example/_server", {

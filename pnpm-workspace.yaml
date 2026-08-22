@@ -18,15 +18,14 @@ minimumReleaseAgeExclude:
 
 overrides:
   babel-preset-solid: workspace:*
-  '@dom-expressions/babel-plugin-jsx': link:../dom-expressions-dr2/packages/babel-plugin-jsx
-  '@dom-expressions/runtime': link:../dom-expressions-dr2/packages/runtime
-  '@dom-expressions/hyperscript': link:../dom-expressions-dr2/packages/hyperscript
-  '@dom-expressions/tagged-jsx': link:../dom-expressions-dr2/packages/tagged-jsx
+  # Stage-2 patch channel: the patch-mode worktree (rebased onto
+  # dom-expressions next, superset of dr2's current base) carries the
+  # list seam (insert → driveList), patch-mode emission (patchDriver),
+  # and the runtime patchDriver export.
+  '@dom-expressions/babel-plugin-jsx': link:../dom-expressions-patch/packages/babel-plugin-jsx
+  '@dom-expressions/runtime': link:../dom-expressions-patch/packages/runtime
+  '@dom-expressions/hyperscript': link:../dom-expressions-patch/packages/hyperscript
+  '@dom-expressions/tagged-jsx': link:../dom-expressions-patch/packages/tagged-jsx
   '@solidjs/signals': workspace:*
   solid-js: workspace:*
   '@solidjs/web': workspace:*
-  # Stage-2 patch channel: runtime with the patch-mode list seam (insert →
-  # driveList) and the compiler with patch-mode emission (patchDriver
-  # config). Same versions as published plus the seam commits.
-  '@dom-expressions/runtime': link:../dom-expressions-patch/packages/runtime
-  '@dom-expressions/babel-plugin-jsx': link:../dom-expressions-patch/packages/babel-plugin-jsx

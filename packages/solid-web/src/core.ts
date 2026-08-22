@@ -15,6 +15,12 @@ import {
   storeIsShallow,
   untrack
 } from "solid-js";
+// Optional rxcore seams consumed by the dom-expressions runtime's own
+// patchDriver (client.js). This core provides them — but note the runtime's
+// driver is shadowed in the public surface by the richer one below (which
+// adds the shallow-row collector branch); these exports exist so the
+// runtime module links, and for any consumer importing the seams directly.
+export { patchableRaw, registerPatch };
 export {
   getOwner,
   runWithOwner,
