@@ -36,7 +36,8 @@ export type DiagnosticCode =
   | "HOT_SCOPE_RERUNS"
   | "HOT_SCOPE_TIME"
   | "WIDE_SCOPE_DEPS"
-  | "UNSTABLE_MEMO_OUTPUT";
+  | "UNSTABLE_MEMO_OUTPUT"
+  | "WIDE_WRITE";
 
 export type DiagnosticKind =
   | "strict-read"
