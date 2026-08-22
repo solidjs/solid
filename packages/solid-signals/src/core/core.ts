@@ -185,7 +185,11 @@ export function clearSnapshots(): void {
 export function recompute(el: Computed<any>, create: boolean = false): void {
   const isEffect = (el as any)._type;
   if (!create) {
-    if (el._x?._transition && (!isEffect || activeTransition) && activeTransition !== el._x?._transition)
+    if (
+      el._x?._transition &&
+      (!isEffect || activeTransition) &&
+      activeTransition !== el._x?._transition
+    )
       globalQueue.initTransition(el._x?._transition);
     deleteFromHeap(el, queueFor(el));
     if (el._x !== null) el._x._inFlight = null;
@@ -578,7 +582,8 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _unobserved: undefined,
     _snapshotValue: undefined,
     _pendingDisposal: null,
-    _pendingFirstChild: null
+    _pendingFirstChild: null,
+    _companionChildren: undefined
   });
 }
 

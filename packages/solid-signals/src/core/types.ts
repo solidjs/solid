@@ -98,6 +98,12 @@ export interface NodeExtension {
    * these. */
   _pendingDisposal: Disposable | Disposable[] | null;
   _pendingFirstChild: Owner | null;
+  /** #3038: the firewall children that actually carry isPending()/latest()
+   * companions. The post-recompute companion snap iterates THIS set —
+   * O(companions asked for) — never the full `_child` chain (one entry per
+   * materialized leaf). Populated at companion creation; entries live as
+   * long as their companions (which are permanent once created). */
+  _companionChildren: Set<FirewallSignal<any>> | undefined;
 }
 
 export interface RawSignal<T> {

@@ -4,6 +4,7 @@
  * never import isPending/latest never pay for any of it.
  */
 import {
+  CONFIG_CHILD_COMPANIONS,
   NOT_PENDING,
   unwrapOverride,
   REACTIVE_CHECK,
@@ -34,7 +35,9 @@ import {
   setStrictRead,
   stale,
   strictRead,
-  tracking, ext } from "./core.js";
+  tracking,
+  ext
+} from "./core.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
 import { enqueueSub, insertIntoHeap, markHeap, queueFor } from "./heap.js";
@@ -80,6 +83,21 @@ const suppressedProbes: Map<Signal<any> | Computed<any>, Set<Computed<any>>> = n
  * Get or create the pending signal for a node (lazy).
  * Used by isPending() to track pending state reactively.
  */
+/** #3038: register a companion-carrying firewall child on its firewall's
+ * companion set and arm the post-recompute snap (CONFIG_CHILD_COMPANIONS is
+ * the one-load gate at the call sites). The snap then iterates exactly the
+ * children someone asked verdicts of — O(companions) — never the full
+ * `_child` chain, which carries one node per materialized leaf (the
+ * O(all-leaves-ever-read)-per-update pathology). Entries are permanent like
+ * the companions themselves; a store with no leaf-level isPending()/latest()
+ * reads never allocates the set or pays the walk. */
+function markFirewallChildCompanions(el: Signal<any> | Computed<any>): void {
+  const fw = (el as FirewallSignal<any>)._firewall;
+  if (!fw) return;
+  fw._config |= CONFIG_CHILD_COMPANIONS;
+  (ext(fw)._companionChildren ??= new Set()).add(el as FirewallSignal<any>);
+}
+
 function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
   let ps = el._x?._pendingSignal;
   if (!ps) {
@@ -87,6 +105,7 @@ function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
     ps = optimisticSignal(false, { ownedWrite: true });
     ext(el)._pendingSignal = ps;
     el._config |= CONFIG_HAS_COMPANIONS;
+    markFirewallChildCompanions(el);
     ext(ps)._parentSource = el;
     if (computePendingState(el)) setSignal(ps, true);
     if (__DEV__) devTrackCompanionOwner(el);
@@ -210,7 +229,9 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
     !comp._loading
   ) {
     if (hasActiveOverride(el))
-      return !el._equals || !el._equals(el._pendingValue as any, unwrapOverride(el._x?._overrideValue));
+      return (
+        !el._equals || !el._equals(el._pendingValue as any, unwrapOverride(el._x?._overrideValue))
+      );
     return true;
   }
   return newQuestionInFlight(comp);
@@ -229,13 +250,9 @@ function updatePendingSignal(el: Signal<any> | Computed<any>): void {
 }
 
 function updateChildCompanions(el: Computed<any>): void {
-  for (
-    let child: FirewallSignal<any> | null = el._x?._child ?? null;
-    child !== null;
-    child = child._nextChild
-  ) {
-    if (child._x?._pendingSignal || child._x?._latestValueComputed) updatePendingSignal(child);
-  }
+  const companions = el._x?._companionChildren;
+  if (companions === undefined) return;
+  for (const child of companions) updatePendingSignal(child);
 }
 
 /**
@@ -344,6 +361,7 @@ function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
     lvc = optimisticComputed(() => read(el));
     ext(el)._latestValueComputed = lvc;
     el._config |= CONFIG_HAS_COMPANIONS;
+    markFirewallChildCompanions(el);
     ext(lvc)._parentSource = el; // Parent-child lane relationship
     if (__DEV__) devTrackCompanionOwner(el);
     setContextInternal(prevContext);
@@ -404,7 +422,11 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
   if (
     pendingComputed._pendingValue !== NOT_PENDING &&
     !hasActiveOverride(pendingComputed) &&
-    !(stale && pendingComputed._x?._transition && activeTransition !== pendingComputed._x?._transition)
+    !(
+      stale &&
+      pendingComputed._x?._transition &&
+      activeTransition !== pendingComputed._x?._transition
+    )
   )
     return pendingComputed._pendingValue as T;
   return value as T;

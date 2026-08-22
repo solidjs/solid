@@ -1,4 +1,5 @@
 import {
+  CONFIG_CHILD_COMPANIONS,
   CONFIG_AUTO_DISPOSE,
   CONFIG_SYNC,
   EFFECT_TRACKED,
@@ -690,7 +691,11 @@ export function clearStatus(el: Computed<any>, clearUninitialized: boolean = fal
   // Update pending signal for isPending() reactivity (companions only exist
   // once the verdict layer created them, which installs the hooks).
   if (el._x?._pendingSignal || el._x?._latestValueComputed) GlobalQueue._updatePendingSignal!(el);
-  if (el._x?._child && GlobalQueue._updateChildCompanions !== null)
+  if (
+    el._x?._child &&
+    el._config & CONFIG_CHILD_COMPANIONS &&
+    GlobalQueue._updateChildCompanions !== null
+  )
     GlobalQueue._updateChildCompanions(el);
   if (el._x?._notifyStatus) el._x._notifyStatus.call(el);
 }
@@ -731,7 +736,11 @@ export function notifyStatus(
       ext(el)._error = error;
     }
     GlobalQueue._updatePendingSignal !== null && GlobalQueue._updatePendingSignal(el);
-    if (el._x?._child && GlobalQueue._updateChildCompanions !== null)
+    if (
+      el._x?._child &&
+      el._config & CONFIG_CHILD_COMPANIONS &&
+      GlobalQueue._updateChildCompanions !== null
+    )
       GlobalQueue._updateChildCompanions(el);
   }
 
@@ -756,7 +765,9 @@ export function notifyStatus(
   forEachDependent(el, (sub, link) => {
     sub._time = clock;
     if (
-      (status === STATUS_PENDING && pendingSource && !sub._x?._pendingSources?.has(pendingSource)) ||
+      (status === STATUS_PENDING &&
+        pendingSource &&
+        !sub._x?._pendingSources?.has(pendingSource)) ||
       (status !== STATUS_PENDING && (sub._x?._error !== error || sub._x?._pendingSources))
     ) {
       // A pending-observer link is the subscription an `isPending` read created.
