@@ -7,6 +7,7 @@ settings:
 overrides:
   babel-preset-solid: workspace:*
   '@dom-expressions/babel-plugin-jsx': link:../dom-expressions-patch/packages/babel-plugin-jsx
+  '@dom-expressions/compiler': link:../dom-expressions-patch/packages/compiler
   '@dom-expressions/runtime': link:../dom-expressions-patch/packages/runtime
   '@dom-expressions/hyperscript': link:../dom-expressions-patch/packages/hyperscript
   '@dom-expressions/tagged-jsx': link:../dom-expressions-patch/packages/tagged-jsx
@@ -1096,51 +1097,11 @@ packages:
     resolution: {integrity: sha512-Vd/9EVDiu6PPJt9yAh6roZP6El1xHrdvIVGjyBsHR0RYwNHgL7FJPyIIW4fANJNG6FtyZfvlRPpFI4ZM/lubvw==}
     engines: {node: '>=18'}
 
-  '@dom-expressions/compiler-darwin-arm64@0.50.0-next.43':
-    resolution: {integrity: sha512-aVkvvRtEyHPbtZMZe4DHhFzPzQ4qHO9uGXyPDiddBXfjZgkCqejpcJ18t0emJIpIPpproHFdr+9VyLOKs9ENNw==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@dom-expressions/compiler-darwin-x64@0.50.0-next.43':
-    resolution: {integrity: sha512-zJXhjsSydgZbu0pCfD5/FH5UYH7t6Vy8dKD9AVTokE3LFQgLIVrssX2WwN60jh5+OW9okbJBGZXiZ4/2sqb9OA==}
-    cpu: [x64]
-    os: [darwin]
-
-  '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.43':
-    resolution: {integrity: sha512-ZEjWL59aAj39C7TANYvtzW5rmeH/kfzZIWoZ3Wf/MSiXm8Ermadx76hX0yMMqLdxy0ec69lRYF4gXC7X2k6LMw==}
-    cpu: [arm64]
-    os: [linux]
-    libc: [glibc]
-
-  '@dom-expressions/compiler-linux-x64-gnu@0.50.0-next.43':
-    resolution: {integrity: sha512-ur/VTzMqAkJq45GHSGlk4uq0I/92Zow5mPcovh+Lg2bnyNrPXMNM9kXrIqio2jUgSyRT4y2QbeI9Us30IeZI6g==}
-    cpu: [x64]
-    os: [linux]
-    libc: [glibc]
-
-  '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.43':
-    resolution: {integrity: sha512-X+0Rz1fm7Z1S3ONFwg+NJ8edf2MWUrxOrP50hM2x4PkIe2ST0WzqHbkH4yIXjqttF0R1NErh+ac3q4WGF4wWBg==}
-    engines: {node: '>=14.0.0'}
-
-  '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.43':
-    resolution: {integrity: sha512-hQlqtiYVst4rNKAWtC9cwfuP95L8Dw+PR5Zwp6AA92vsMgQlJ7+QaJoQAxuKkEUtl212VnW06SJKzx00pSkv8g==}
-    cpu: [x64]
-    os: [win32]
-
-  '@dom-expressions/compiler@0.50.0-next.43':
-    resolution: {integrity: sha512-ekEuAFLb868iGu6bw8KA2wgD3gYJpYYTjSbOtuXGlCZnWFA6Wx8Qf720ZYNlb40QjGe3/2kUHTtn47JfaCwPcA==}
-
   '@emnapi/core@1.11.1':
     resolution: {integrity: sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ==}
 
-  '@emnapi/core@1.11.2':
-    resolution: {integrity: sha512-TC8MkTuZUtcTSiFeuC0ksCh9QIJ5+F21MvZ4Wn4ORfYaFJ/0dsiudv5tVkejgwZlwQ39jL9WWDe2lz8x0WglOA==}
-
   '@emnapi/runtime@1.11.1':
     resolution: {integrity: sha512-vgj7R3y3Wgx24IQaGPA/R6YFXLHVMOZ0uVEyIQPaWs+rd1AzfEMXlAC22FYwO1XkKR6NPsq7mUandH8oIRdZFw==}
-
-  '@emnapi/runtime@1.11.2':
-    resolution: {integrity: sha512-kyOl3X0DuTiT1h2ft8r2fYO8JYtU9a9Xis/zBSiGArNaagCOWx90N1k2wxp18czFDH+OgcWGb5ZP/XMt3dcyPA==}
 
   '@emnapi/wasi-threads@1.2.2':
     resolution: {integrity: sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA==}
@@ -4600,55 +4561,13 @@ snapshots:
 
   '@csstools/css-tokenizer@3.0.4': {}
 
-  '@dom-expressions/compiler-darwin-arm64@0.50.0-next.43':
-    optional: true
-
-  '@dom-expressions/compiler-darwin-x64@0.50.0-next.43':
-    optional: true
-
-  '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.43':
-    optional: true
-
-  '@dom-expressions/compiler-linux-x64-gnu@0.50.0-next.43':
-    optional: true
-
-  '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.43':
-    dependencies:
-      '@emnapi/core': 1.11.2
-      '@emnapi/runtime': 1.11.2
-      '@napi-rs/wasm-runtime': 1.1.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
-    optional: true
-
-  '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.43':
-    optional: true
-
-  '@dom-expressions/compiler@0.50.0-next.43':
-    optionalDependencies:
-      '@dom-expressions/compiler-darwin-arm64': 0.50.0-next.43
-      '@dom-expressions/compiler-darwin-x64': 0.50.0-next.43
-      '@dom-expressions/compiler-linux-arm64-gnu': 0.50.0-next.43
-      '@dom-expressions/compiler-linux-x64-gnu': 0.50.0-next.43
-      '@dom-expressions/compiler-wasm32-wasi': 0.50.0-next.43
-      '@dom-expressions/compiler-win32-x64-msvc': 0.50.0-next.43
-
   '@emnapi/core@1.11.1':
     dependencies:
       '@emnapi/wasi-threads': 1.2.2
       tslib: 2.8.1
     optional: true
 
-  '@emnapi/core@1.11.2':
-    dependencies:
-      '@emnapi/wasi-threads': 1.2.2
-      tslib: 2.8.1
-    optional: true
-
   '@emnapi/runtime@1.11.1':
-    dependencies:
-      tslib: 2.8.1
-    optional: true
-
-  '@emnapi/runtime@1.11.2':
     dependencies:
       tslib: 2.8.1
     optional: true
@@ -4807,13 +4726,6 @@ snapshots:
     dependencies:
       '@emnapi/core': 1.11.1
       '@emnapi/runtime': 1.11.1
-      '@tybys/wasm-util': 0.10.3
-    optional: true
-
-  '@napi-rs/wasm-runtime@1.1.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)':
-    dependencies:
-      '@emnapi/core': 1.11.2
-      '@emnapi/runtime': 1.11.2
       '@tybys/wasm-util': 0.10.3
     optional: true
 
@@ -5042,7 +4954,7 @@ snapshots:
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@babel/core': 7.29.0
-      '@dom-expressions/compiler': 0.50.0-next.43
+      '@dom-expressions/compiler': link:../dom-expressions-patch/packages/compiler
       '@solidjs/web': link:packages/solid-web
       '@types/babel__core': 7.20.5
       babel-preset-solid: link:packages/babel-preset-solid
@@ -5059,7 +4971,7 @@ snapshots:
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@babel/core': 7.29.0
-      '@dom-expressions/compiler': 0.50.0-next.43
+      '@dom-expressions/compiler': link:../dom-expressions-patch/packages/compiler
       '@solidjs/web': link:packages/solid-web
       '@types/babel__core': 7.20.5
       babel-preset-solid: link:packages/babel-preset-solid

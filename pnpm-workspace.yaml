@@ -23,6 +23,10 @@ overrides:
   # list seam (insert → driveList), patch-mode emission (patchDriver),
   # and the runtime patchDriver export.
   '@dom-expressions/babel-plugin-jsx': link:../dom-expressions-patch/packages/babel-plugin-jsx
+  # The native (Oxc) compiler must pair with the linked runtime: the SSR
+  # select-value pass is armed by compiler-emitted markers (stage-4), so a
+  # published compiler + linked runtime silently skips select resolution.
+  '@dom-expressions/compiler': link:../dom-expressions-patch/packages/compiler
   '@dom-expressions/runtime': link:../dom-expressions-patch/packages/runtime
   '@dom-expressions/hyperscript': link:../dom-expressions-patch/packages/hyperscript
   '@dom-expressions/tagged-jsx': link:../dom-expressions-patch/packages/tagged-jsx
