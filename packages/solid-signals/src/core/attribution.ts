@@ -1,5 +1,5 @@
 import { setAttributionHooks, type AttributionHooks } from "./attribution-hooks.js";
-import { $REFRESH } from "./constants.js";
+import { $REFRESH, NOT_PENDING } from "./constants.js";
 // Cycle note: dev.ts imports this module for the `attribution` object, and we
 // import its hoisted emitDiagnostic back — safe (only called at runtime) and
 // treeshake-neutral (dev.ts is already reachable from the core).
@@ -121,6 +121,15 @@ export interface AttributionOptions {
    * scope that run counts miss. `false` disables.
    */
   hotTime?: { budgetMs: number; windowMs: number } | false;
+  /**
+   * Unstable-output warning: emit a diagnostic when a memo commits a
+   * referentially-new but shallowly-equivalent plain object/array on this
+   * many consecutive runs (default 4). Such a memo's equality gate never
+   * closes — every subscriber re-runs on every upstream change — which makes
+   * it a fan-out amplifier that is otherwise only findable by profiling.
+   * `false` disables.
+   */
+  unstableMemos?: number | false;
 }
 
 interface AttributedNode {
@@ -134,6 +143,8 @@ interface AttributedNode {
   _devTimeWinStart?: number;
   _devTimeWinMs?: number;
   _devTimeWarned?: boolean;
+  _devUnstableRuns?: number;
+  _devUnstableWarned?: boolean;
 }
 
 let attributionActive = false;
@@ -146,7 +157,8 @@ const defaultOptions = {
   historyLimit: 200,
   hotRuns: { count: 120, windowMs: 1000 } as { count: number; windowMs: number } | false,
   wideDeps: 30 as number | false,
-  hotTime: { budgetMs: 8, windowMs: 1000 } as { budgetMs: number; windowMs: number } | false
+  hotTime: { budgetMs: 8, windowMs: 1000 } as { budgetMs: number; windowMs: number } | false,
+  unstableMemos: 4 as number | false
 };
 let options: typeof defaultOptions = { ...defaultOptions };
 const listeners = new Set<(event: RerunEvent) => void>();
@@ -164,6 +176,8 @@ interface RunFrame {
   childMs: number;
   causes: ChangeRecord[] | null; // null on create runs
   prevDeps: unknown[] | null;
+  /** Committed value before this run — baseline for the unstable-output check. */
+  prevValue: unknown;
 }
 const frames: RunFrame[] = [];
 
@@ -529,6 +543,83 @@ export interface Attribution {
   format: typeof formatRerun;
 }
 
+/**
+ * Values eligible for the unstable-output check: plain objects and arrays
+ * only. Promises, iterators, Dates, Maps, class instances etc. all have no
+ * (or unrepresentative) own enumerable keys, so a shallow compare would
+ * false-positive on them — a fresh Promise is a genuinely new value.
+ */
+function isPlainShape(v: unknown): v is object {
+  if (v === null || typeof v !== "object") return false;
+  if (Array.isArray(v)) return true;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+}
+
+/** Shallow structural equivalence, capped so hot paths stay cheap. */
+const UNSTABLE_KEY_CAP = 64;
+function shallowEquivalent(a: object, b: object): boolean {
+  const aArr = Array.isArray(a);
+  if (aArr !== Array.isArray(b)) return false;
+  if (aArr) {
+    const arrA = a as unknown[];
+    const arrB = b as unknown[];
+    if (arrA.length !== arrB.length || arrA.length > UNSTABLE_KEY_CAP) return false;
+    for (let i = 0; i < arrA.length; i++) if (arrA[i] !== arrB[i]) return false;
+    return true;
+  }
+  const keys = Object.keys(a);
+  if (keys.length > UNSTABLE_KEY_CAP || keys.length !== Object.keys(b).length) return false;
+  for (const key of keys) {
+    if (!(key in b) || (a as Record<string, unknown>)[key] !== (b as Record<string, unknown>)[key])
+      return false;
+  }
+  return true;
+}
+
+/**
+ * Unstable-output warning — the fan-out amplifier signature: a memo whose
+ * committed value is referentially new but structurally identical run after
+ * run has an equality gate that never closes, so ALL its subscribers re-run
+ * on EVERY upstream change. Checked only on plain (non-overlay) changed runs;
+ * a genuinely different value (or a non-plain shape) resets the streak.
+ */
+function checkUnstableOutput(el: Computed<any>, prevValue: unknown, newValue: unknown): void {
+  const limit = options.unstableMemos;
+  // typeof guard: an explicit `unstableMemos: undefined` in enable() options
+  // clobbers the default through the spread — treat any non-number as off.
+  if (typeof limit !== "number") return;
+  const node = el as AttributedNode;
+  if (
+    prevValue === newValue || // paranoia: changed runs should never hit this
+    !isPlainShape(prevValue) ||
+    !isPlainShape(newValue) ||
+    !shallowEquivalent(prevValue, newValue)
+  ) {
+    node._devUnstableRuns = 0;
+    node._devUnstableWarned = false;
+    return;
+  }
+  node._devUnstableRuns = (node._devUnstableRuns ?? 0) + 1;
+  if (node._devUnstableWarned || node._devUnstableRuns < limit) return;
+  node._devUnstableWarned = true;
+  const shape = Array.isArray(newValue) ? "array" : "object";
+  const message =
+    `[UNSTABLE_MEMO_OUTPUT] memo "${nodeName(el)}" produced a new-but-equivalent ${shape} on ` +
+    `${node._devUnstableRuns} consecutive runs — its equality gate never closes, so every ` +
+    `subscriber re-runs on every upstream change. Return stable references or pass an ` +
+    `\`equals\` option.`;
+  emitDiagnostic({
+    code: "UNSTABLE_MEMO_OUTPUT",
+    kind: "perf",
+    severity: "warn",
+    message,
+    nodeName: nodeName(el),
+    data: { runs: node._devUnstableRuns, shape }
+  });
+  console.warn(message);
+}
+
 // The engine's implementation of the core's dev hook points. Installed by
 // enable(), uninstalled by disable() — while uninstalled the core pays one
 // null check per site and nothing else.
@@ -541,7 +632,10 @@ const engineHooks: AttributionHooks = {
       start: now(),
       childMs: 0,
       causes: create ? null : collectCauses(el),
-      prevDeps: create ? null : captureDeps(el)
+      prevDeps: create ? null : captureDeps(el),
+      // Mirror recompute's own prev-value resolution: an earlier run in the
+      // same flush may still be holding in _pendingValue.
+      prevValue: el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value
     });
   },
   derivedChanged(el) {
@@ -555,6 +649,23 @@ const engineHooks: AttributionHooks = {
     const totalMs = now() - frame.start;
     if (frames.length > 0) frames[frames.length - 1].childMs += totalMs;
     const selfMs = Math.max(0, totalMs - frame.childMs);
+    // Unstable-output check: memos only, non-create, plain runs with a
+    // committed change. The fresh value sits in `_pendingValue` for held
+    // plain-flush memo commits and in `_value` for direct ones. Overlay runs
+    // are excluded — an optimistic re-derive legitimately produces fresh
+    // equivalents while the lane settles.
+    if (
+      frame.causes !== null &&
+      changed &&
+      !optimistic &&
+      !transition &&
+      !(el as { _type?: number })._type
+    )
+      checkUnstableOutput(
+        el,
+        frame.prevValue,
+        el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value
+      );
     if (frame.causes !== null)
       recordRerun(
         el,
