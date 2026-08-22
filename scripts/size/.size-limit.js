@@ -119,13 +119,28 @@ module.exports = [
     // 2.0.0-rc: 9 -> 9.2 KB, measured at 9.01 — the same core bytes as the
     // core-floor note (flatten + #3006) plus the #3009 demotion, which lives
     // in the optimistic module this scenario retains via latest().
-    limit: "9.2 KB",
+    //
+    // Missed-wake fix (#3037): 9.2 -> 9.3 KB, measured at 9.24. ~45 B on
+    // always-retained paths: the insertSubs latch (gen-current, non-tail
+    // link writes on RECOMPUTING subs), recompute's capture + reschedule
+    // tail, and the updateIfNecessary reentrancy guard (nested mapArray
+    // rows reading the outer store mid-derive re-entered recompute and
+    // corrupted dep bookkeeping). None shakeable — all sit on the core
+    // notification/recompute loop.
+    limit: "9.3 KB",
     modifyEsbuildConfig
   },
   {
     name: "app: render + one signal (the simple-app floor)",
+    // Missed-wake fix (#3037): the pinned 10 KB floor gives way to a P0
+    // correctness hole — writes landing beneath a subscriber's own recompute
+    // were silently swallowed (heap refuses RECOMPUTING nodes), leaving
+    // projections permanently stale. Measured at 10.06 after a dedupe pass
+    // (insertSubs loop `_sub` hoist); the remaining ~58 B is the latch, the
+    // recompute reschedule tail, and the reentrancy guard — see the
+    // isPending/latest note.
     path: "minimal-app.js",
-    limit: "10 KB",
+    limit: "10.1 KB",
     modifyEsbuildConfig
   },
   {

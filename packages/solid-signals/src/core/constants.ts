@@ -18,6 +18,15 @@ export const REACTIVE_MANUAL_WRITE = 1 << 10;
  * pending window does not read as pending (question-scoped pending model).
  */
 export const REACTIVE_REASK = 1 << 11;
+/**
+ * A dependency write landed while this subscriber was mid-recompute — a
+ * nested pull committed beneath one of its reads (#3037). The heap refuses
+ * RECOMPUTING nodes, so recompute's tail consumes this latch and reschedules:
+ * values the pass read before the nested commit are stale. Only set for
+ * links validated this pass (gen-current): a write to an untouched link is
+ * either re-read later in the pass (fresh) or trimmed with it (not a dep).
+ */
+export const REACTIVE_MISSED_WAKE = 1 << 12;
 
 // Static configuration bits packed into Owner/Computed/Signal _config.
 export const CONFIG_OWNED_WRITE = 1 << 0;

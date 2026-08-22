@@ -68,6 +68,9 @@ function actualInsertIntoHeap(n: Computed<unknown>, heap: Heap) {
 }
 export function insertIntoHeap(n: Computed<any>, heap: Heap) {
   let flags = n._flags;
+  // RECOMPUTING refusals are not always losses: a genuinely missed wake (a
+  // write to a link this pass already validated) is latched link-side in
+  // insertSubs as REACTIVE_MISSED_WAKE for recompute's tail (#3037).
   if (flags & (REACTIVE_IN_HEAP | REACTIVE_RECOMPUTING_DEPS | REACTIVE_MANUAL_WRITE)) return;
   if (flags & REACTIVE_CHECK) {
     n._flags = (flags & ~(REACTIVE_CHECK | REACTIVE_DIRTY)) | REACTIVE_DIRTY | REACTIVE_IN_HEAP;

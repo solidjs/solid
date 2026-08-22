@@ -10,8 +10,10 @@ import {
   REACTIVE_IN_HEAP,
   REACTIVE_IN_HEAP_HEIGHT,
   REACTIVE_MANUAL_WRITE,
+  REACTIVE_MISSED_WAKE,
   REACTIVE_OPTIMISTIC_DIRTY,
   REACTIVE_REASK,
+  REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SNAPSHOT_STALE,
   REACTIVE_ZOMBIE,
   STATUS_PENDING,
@@ -670,24 +672,35 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
   const clearReask = reaskArmed;
 
   for (let s = node._subs; s !== null; s = s._nextSub) {
+    const sub = s._sub;
     // A value-change notification is a new question for the subscriber: any
     // pending re-ask mark (refresh) it carried is superseded.
-    if (clearReask) s._sub._flags &= ~REACTIVE_REASK;
-    if (hasSnapshot && s._sub._config & CONFIG_IN_SNAPSHOT_SCOPE) {
-      s._sub._flags |= REACTIVE_SNAPSHOT_STALE;
+    if (clearReask) sub._flags &= ~REACTIVE_REASK;
+    // Missed-wake latch (#3037): this write is landing while the subscriber
+    // is mid-recompute (a nested pull committing beneath its reads), and the
+    // heap refuses RECOMPUTING nodes. A gen-current link means the pass
+    // already validated this dep — the value it read is now stale — so latch
+    // for recompute's tail to reschedule. Untouched links need no latch (the
+    // pass either re-reads them fresh or trims them), and neither does the
+    // tail link: it is the read IN FLIGHT — read() links before it pulls, so
+    // this very commit is what that read returns.
+    if (sub._flags & REACTIVE_RECOMPUTING_DEPS && s._gen === sub._depGen && s !== sub._depsTail)
+      sub._flags |= REACTIVE_MISSED_WAKE;
+    if (hasSnapshot && sub._config & CONFIG_IN_SNAPSHOT_SCOPE) {
+      sub._flags |= REACTIVE_SNAPSHOT_STALE;
       continue;
     }
 
     if (optimistic && sourceLane) {
-      s._sub._flags |= REACTIVE_OPTIMISTIC_DIRTY;
-      assignOrMergeLane(s._sub as any, sourceLane);
+      sub._flags |= REACTIVE_OPTIMISTIC_DIRTY;
+      assignOrMergeLane(sub as any, sourceLane);
     } else if (optimistic) {
-      s._sub._flags |= REACTIVE_OPTIMISTIC_DIRTY;
+      sub._flags |= REACTIVE_OPTIMISTIC_DIRTY;
       // No source lane means reversion - clear subscriber's lane so effects go to regular queue
-      (s._sub as any)._optimisticLane = undefined;
+      (sub as any)._optimisticLane = undefined;
     }
 
-    enqueueSub(s._sub);
+    enqueueSub(sub);
   }
 }
 

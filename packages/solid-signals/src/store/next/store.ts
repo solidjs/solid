@@ -1069,14 +1069,21 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // the node's cached flag; the first TRACKED read (which creates the
     // node) probes once — untracked node-less reads take the plain path,
     // where a raw-receiver getter still returns correct committed values.
+    // Tracking suppression is PER-TARGET (inDraft), never global: `writing`
+    // counts every open setter anywhere, and a projection derive runs its
+    // whole body inside one — a global gate silently swallowed EXTERNAL
+    // absent-key/accessor subscriptions for every store read during any
+    // derive, leaving nested projections permanently dependency-less when
+    // their sources hadn't materialized yet (#3037).
     const node0 = target.n?.[key as any];
     {
       const acc =
         node0 !== undefined
           ? (node0 as any).acc === true
-          : !writing && getObserver() !== null && isOwnAccessor(src, key);
+          : !inDraft(target) && getObserver() !== null && isOwnAccessor(src, key);
       if (acc) {
-        if (!writing && getObserver() !== null) readNode(node0 ?? getNode(target, key, undefined));
+        if (!inDraft(target) && getObserver() !== null)
+          readNode(node0 ?? getNode(target, key, undefined));
         const v = Reflect.get(src, key, receiver);
         if (target.s) return serveShallow(target, key, v);
         return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;
@@ -1096,8 +1103,9 @@ const traps: ProxyHandler<StoreNextTarget> = {
       // Inherited: prototype getters/methods run with the proxy receiver.
       v = Reflect.get(src, key, receiver);
       if (typeof v === "function") return v; // proto methods untracked
-      // Reading a currently-absent own key subscribes to it (R12).
-      if (v === undefined && !writing) {
+      // Reading a currently-absent own key subscribes to it (R12) — for any
+      // target OUTSIDE its own draft scope, even mid-setter (#3037, above).
+      if (v === undefined && !inDraft(target)) {
         if (getObserver() !== null) readNode(getNode(target, key, undefined));
         const node = target.n?.[key];
         if (node) {

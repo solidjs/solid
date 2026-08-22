@@ -28,6 +28,7 @@ import {
   REACTIVE_IN_HEAP_HEIGHT,
   REACTIVE_LAZY,
   REACTIVE_MANUAL_WRITE,
+  REACTIVE_MISSED_WAKE,
   REACTIVE_NONE,
   REACTIVE_OPTIMISTIC_DIRTY,
   REACTIVE_REASK,
@@ -43,6 +44,7 @@ import { NotReadyError } from "./error.js";
 import { link, trimStaleDeps, unobserved } from "./graph.js";
 import {
   deleteFromHeap,
+  enqueueSub,
   insertIntoHeap,
   insertIntoHeapHeight,
   markHeap,
@@ -218,6 +220,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   el._time = clock;
   let value = el._pendingValue === NOT_PENDING ? el._value : el._pendingValue;
   let oldHeight = el._height;
+  let missedWake = false;
   let prevTracking = tracking;
   let prevLane = currentOptimisticLane;
   let prevStrictRead: string | false = false;
@@ -333,6 +336,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     latestReadActive = prevLatestRead;
     if (__DEV__) strictRead = prevStrictRead;
     if (isStaleEffect) stale = prevStale;
+    // Consume the missed-wake latch (#3037, set by insertSubs): a dep write
+    // landed beneath this pass on a link it had already validated. The wipe
+    // below must not key off DIRTY/CHECK — the read-time pull protocol
+    // (markNode(c) in read()) marks the running node as part of ordinary
+    // bookkeeping, and those marks are correctly discarded here.
+    missedWake = (el._flags & REACTIVE_MISSED_WAKE) !== 0;
     el._flags = REACTIVE_NONE | (create ? el._flags & REACTIVE_SNAPSHOT_STALE : 0);
     context = oldcontext;
   }
@@ -480,9 +489,23 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     isEffect &&
     activeTransition !== el._transition &&
     runInTransition(el._transition, () => recompute(el));
+  // Missed-wake reschedule (see the finally above): values this pass read
+  // before the nested commit are stale, so run again now that the heap will
+  // accept the node. Equality gates stop same-value landings from cascading,
+  // and a re-run only latches again if another nested commit changes a dep
+  // beneath it — convergent unless deps genuinely keep changing.
+  if (missedWake) {
+    enqueueSub(el);
+    schedule();
+  }
 }
 
 function updateIfNecessary(el: Computed<unknown>): void {
+  // Never re-enter a node that is currently computing: its dep bookkeeping
+  // (_depsTail/_depGen) is live, and a nested recompute would corrupt it.
+  // A mid-pass mark stays latched for recompute's own tail to reschedule
+  // (#3037); readers meanwhile serve the values the pass has so far.
+  if (el._flags & REACTIVE_RECOMPUTING_DEPS) return;
   if (el._flags & REACTIVE_CHECK) {
     for (let d = el._deps; d; d = d._nextDep) {
       const dep1 = d._dep;
