@@ -731,3 +731,36 @@ holds the capture tooling: profile-tax.sh + summarize-profiles.mjs).
   ownership machinery per node), which is rewrite-scale and interacts with
   the TSRX/codegen conversation. Per-flush constants are within ~2x of
   floor for the write-only diagnostic; real apps don't flush per write.
+
+## 13. Stage 4 opener: SSR (2026-08-22, branch stage4-ssr)
+
+The full-board run (fresh octane @ 014bf880, rebased stack, 24 suites)
+closed stage 3 and named the next target. Client standings: geomean 1.11x
+vs octane-tsrx (wins: effectful-list 0.53x, lifecycle 0.62x,
+store-selector 0.75x; parity: dbmon 1.11x, jf 1.16x), 1.04x vs vue-vapor.
+The outliers left are architecture-shaped, and SSR is the largest and most
+SYSTEMATIC:
+
+- ssr-throughput: 2.18x vs octane (news-50), 1.71x (news-500);
+  2.81x / 2.22x vs vue-vapor — two unrelated compiled competitors beat us
+  2x+ with different runtimes, so the cost is ours, not their trick.
+- streaming-ssr: 1.63x (shell_staggered 2.61x).
+- The trailing CLIENT cells share the signature: destroy25 3.4x,
+  removefirst 3.7x, mount 3.1x, partial_remount 3.3x — creation/teardown,
+  not updates. Same tax, different venue.
+
+Working hypothesis (from §11-§12 evidence): SSR builds the entire reactive
+graph per request — ~430B/memo, 69%-GC creation, full ownership machinery —
+and uses NONE of its update capability. The graph's only server job is
+async orchestration (boundaries, streaming order). The channel thesis
+applied to SSR: components as plain functions, sync bindings as direct
+string emission with zero node creation, graph machinery materialized ONLY
+where async appears. That is a compiler + runtime conversation (ssr
+generate), bigger than the client patch channel but attacking 100% of the
+cost instead of shaving node weight.
+
+First task: the SSR tax map — profile the news fixture's renders (solid vs
+octane control), attribute self-time to graph creation vs string emission
+vs seroval vs async plumbing, and size the zero-graph headroom before
+designing anything. (Signal-scope bodies for the client 7x bump_middle and
+the reorder tail stay parked until the SSR read is in.)
