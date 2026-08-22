@@ -764,3 +764,28 @@ octane control), attribute self-time to graph creation vs string emission
 vs seroval vs async plumbing, and size the zero-graph headroom before
 designing anything. (Signal-scope bodies for the client 7x bump_middle and
 the reorder tail stay parked until the SSR read is in.)
+
+### 13a. The tax map falsified the thesis — and closed the gap (same night)
+
+The first profile: GC was 5.9%, graph creation a rounding error. 58.8% of
+ALL select-free news-render time was ONE dom-expressions function,
+resolveSSRSelectValues — its gate indexOf is the first pass over the
+freshly-assembled rope and pays the flatten, and it ran per render AND per
+streamed fragment. Fixed on dom-expressions branch stage4-ssr (5a7bb039),
+three layers, each individually measured: compiler-armed gate (2.19x
+select-free throughput; Babel + Oxc emit one _$ssrSelectValues() marker
+per select-value module), region-jump resolver (2.15x on armed pages,
+byte-identical), attr `<` escaping as the region-jump soundness invariant
+(fast path unchanged). Board (within-run): ssr-throughput 2.18x→1.04x /
+1.71x→1.08x vs octane; streaming-ssr 1.63x→0.98x (total_allfast 0.83x —
+a WIN); vs vue-vapor 2.81x→1.39x / 2.22x→1.05x. Overall board vs octane
+~1.20x→~1.10x, vs vapor ~1.14x→~1.06x.
+
+REMAINING (the vapor-gap tail, all solid-side; probe: us 48µs/render,
+vapor 30, octane 15): children resolution 11% (does server children() pay
+memo machinery a plain resolve wouldn't?), tryResolveFunctionHole 4%,
+runWithOwner 2.7%, formatChildId 2.6% (hydration id strings), asset
+tracking ~4%, GC 13% (creation tax demoted to minor). That tail is the
+next increment. Lesson for the log: profile before designing — the
+"zero-graph server" architecture conversation dissolved into a one-night
+string-pipeline fix.
