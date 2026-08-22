@@ -1386,6 +1386,39 @@ function InnerHTMLCallSiblings() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// solidjs/solid#3033: a conditional expression in a JSX prop compiles to a
+// condition memo INSIDE the prop getter, minted when the getter is first
+// read — and the two sides read it at different points in their walks (the
+// server while serializing the open tag's attributes, before creating the
+// element's children; the client from the attribute effect, after claiming
+// them). On rc.1 the memo took a flat sibling id slot, so it interleaved
+// against the forwarded keyed `children` template in opposite orders and the
+// h1 failed its claim (server h1 `_hk=3`, client expected `2`). Fixed on
+// next: the forwarded child keys compose under the memo's own id scope
+// (`_hk=20`), which both sides agree on regardless of read order. This
+// scenario pins that parity.
+let setTeamId!: (v: number | undefined) => void;
+function PropMemoLeaf(props: { id?: string; children?: any }) {
+  return <div id={props.id}>{props.children}</div>;
+}
+function PropMemoMiddle(props: { id?: string; title: string }) {
+  return (
+    <PropMemoLeaf id={props.id}>
+      <h1>{props.title}</h1>
+    </PropMemoLeaf>
+  );
+}
+function PropConditionForwarded() {
+  const [teamId, set] = createSignal<number | undefined>(7);
+  setTeamId = set;
+  return (
+    <main>
+      <PropMemoMiddle id={teamId() != null ? `teamId${teamId()}` : undefined} title="Some Team" />
+    </main>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -1865,5 +1898,15 @@ export const scenarios: Scenario[] = [
     update: () => setInnerHTMLToggle(true),
     expectedTextAfterUpdate: "r1r2on",
     stableSelector: "div, label"
+  },
+  {
+    name: "prop-condition-memo-id-parity",
+    App: PropConditionForwarded,
+    expectedText: "Some Team",
+    // Flipping the condition post-hydration drives the prop memo live (id
+    // attribute removal); the forwarded keyed h1 must keep DOM identity.
+    update: () => setTeamId(undefined),
+    expectedTextAfterUpdate: "Some Team",
+    stableSelector: "main, div, h1"
   }
 ];

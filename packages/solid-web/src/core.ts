@@ -43,6 +43,14 @@ export const effect = (fn, effectFn, options?) =>
     options ? { sync: true, ...options, transparent: !options.scope } : transparentOptions
   );
 
+// NOT transparent, despite the temptation (#3033): the compiler emits
+// `_$memo` in two roles, and one is id-load-bearing. Besides pure condition
+// memos (`() => !!cond`), the ssr generate wraps whole hole bodies in
+// `_$memo` — the compute CREATES the branch's templates (`ssrHydrationKey()`
+// mints inside it), so the memo's id slot is the retry-stable scope a
+// deferred hole re-runs under. Making it transparent leaks the branch keys
+// onto the parent's live counter and breaks async-hole parity (pinned by the
+// async-cond-before-for harness scenario).
 export const memo = fn => createMemo(() => fn(), syncOptions);
 
 // Runs `fn` under an owner whose hydration-id chain is rooted at `id`.
