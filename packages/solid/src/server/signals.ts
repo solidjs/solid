@@ -753,21 +753,49 @@ export function createMemo<T>(
   // serialization. Registered on the creation context, NOT on `owner`:
   // async-retry reruns reset `owner` via resetOwnerForRerun (which runs its
   // `_disposal`), and a self-registered flag would cancel the retry (#2900).
-  onCleanup(() => {
-    comp.disposed = true;
-  });
+  // DEFERRED to first async engagement (async-shaped result or NotReady
+  // retry): the flag only guards in-flight async against stale
+  // serialization, and eagerly registering a closure per memo taxed every
+  // sync-valued memo on the hot creation path. The creation owner is
+  // captured by pointer so late arming still lands on the right scope.
+  const creationOwner = currentOwner;
+  let disposeArmed = false;
+  function armDispose() {
+    if (disposeArmed) return;
+    disposeArmed = true;
+    const o = creationOwner;
+    if (!o) return;
+    const flag = () => {
+      comp.disposed = true;
+    };
+    if (!o._disposal) o._disposal = flag;
+    else if (Array.isArray(o._disposal)) o._disposal.push(flag);
+    else o._disposal = [o._disposal, flag];
+  }
+
+  // Hoisted once — previously re-allocated per update() invocation.
+  const run = () => {
+    resetOwnerForRerun(owner);
+    return runWithOwner(owner, () => runWithObserver(comp, () => comp.compute(comp.value)));
+  };
 
   function update() {
     if (comp.disposed) return;
-    const run = () => {
-      resetOwnerForRerun(owner);
-      return runWithOwner(owner, () => runWithObserver(comp, () => comp.compute(comp.value)));
-    };
     try {
       comp.error = undefined;
       comp.errored = false;
       const result = run();
       comp.computed = true;
+      // Async-shaped results engage the in-flight machinery — arm the
+      // disposal flag before processResult wires continuations. Predicate
+      // mirrors processResult's own detection (asyncIterator, thenable).
+      if (
+        result !== null &&
+        typeof result === "object" &&
+        (typeof (result as any)[Symbol.asyncIterator] === "function" ||
+          typeof (result as any).then === "function")
+      )
+        armDispose();
       processResult(
         comp,
         result,
@@ -781,6 +809,7 @@ export function createMemo<T>(
       );
     } catch (err) {
       if (err instanceof NotReadyError) {
+        armDispose();
         subscribePendingRetry(err, update);
         if (loadingState) {
           // An unready sync dependency doesn't suspend a loading-value memo:
