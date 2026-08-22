@@ -632,7 +632,8 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _unobserved: undefined,
     _snapshotValue: undefined,
     _pendingDisposal: null,
-    _pendingFirstChild: null
+    _pendingFirstChild: null,
+    _companionChildren: undefined
   });
 }
 

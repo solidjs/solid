@@ -48,6 +48,13 @@ export const CONFIG_OPTIMISTIC = 1 << 7;
 export const CONFIG_HAS_COMPANIONS = 1 << 8;
 export const CONFIG_HAS_SNAPSHOT = 1 << 9;
 export const CONFIG_HAS_LANE = 1 << 10;
+/** Set on a FIREWALL computed when any of its child signals creates an
+ * isPending()/latest() companion. Gates the post-recompute child-companion
+ * walk (#3038): a store computed's `_child` chain holds one node per
+ * materialized leaf, so walking it unconditionally makes every update cost
+ * O(all leaves ever read). Sticky — set at companion creation, never
+ * cleared; sync-only apps never set it and never pay the walk. */
+export const CONFIG_CHILD_COMPANIONS = 1 << 11;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
