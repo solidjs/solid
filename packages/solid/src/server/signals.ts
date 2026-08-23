@@ -601,8 +601,17 @@ function subscribePendingRetry(error: any, retry: () => void): boolean {
  * still in the air, carrying the deferred so re-creations of the slot share
  * one serialized promise instead of planting a fresh one per pass.
  */
-type SlotRecord = { s: 0; v?: undefined; d: DeferredPromise<any> } | { s: 1 | 2; v: any };
-const settledSlots = new WeakMap<object, Map<string, SlotRecord>>();
+type SlotRecord = { s: 0 | 1 | 2; v: any; d: DeferredPromise<any> | undefined };
+// Stored as a symbol-keyed property ON the context object rather than a
+// WeakMap<ctx, Map> — same lifetime (dies with the render) and same identity
+// key (a node's re-creations run under the same buffered ctx object), but
+// the hot path allocates one plain object per ctx instead of a WeakMap entry
+// plus a Map, and settle transitions mutate the record in place (single
+// {s,v,d} shape) instead of allocating a fresh entry per state change —
+// recordSlot was the top allocation site in shell profiles (#stage-4 §15).
+// Context clones (spread copies) share the parent's store by reference,
+// which is safe: owner ids are unique per render, so keys cannot collide.
+const SLOTS = /* @__PURE__ */ Symbol("settledSlots");
 
 function settleServerAsync<T, U>(
   initial: T | PromiseLike<T>,
@@ -1127,7 +1136,7 @@ function processResult<T>(
     // and hold the response open forever). Post-settle re-asks don't exist
     // for async thenable slots on the server (epoch recomputes are
     // sync-memo-only), so a recorded answer is final for the render.
-    const slot = id && ctx ? settledSlots.get(ctx)?.get(id) : undefined;
+    const slot: SlotRecord | undefined = id && ctx ? (ctx as any)[SLOTS]?.[id] : undefined;
     if (slot && slot.s) {
       // The just-created flight is abandoned — its answer is already known.
       // Observe its rejection so a rejecting duplicate doesn't surface as an
@@ -1143,16 +1152,19 @@ function processResult<T>(
       }
       return;
     }
-    const recordSlot = (entry: SlotRecord) => {
+    const recordSlot = (s: 0 | 1 | 2, v: any, d?: DeferredPromise<any>) => {
       if (!id || !ctx) return;
-      let slots = settledSlots.get(ctx);
-      if (!slots) settledSlots.set(ctx, (slots = new Map()));
-      slots.set(id, entry);
+      const store = ((ctx as any)[SLOTS] ||= Object.create(null));
+      const prev: SlotRecord | undefined = store[id];
+      if (prev) {
+        prev.s = s;
+        prev.v = v;
+      } else store[id] = { s, v, d };
     };
-    const deferred: DeferredPromise<T> = slot ? slot.d : createDeferredPromise<T>();
+    const deferred: DeferredPromise<T> = slot ? slot.d! : createDeferredPromise<T>();
     const serializes = !!(ctx?.async && ctx.serialize && id && !noHydrate);
     if (!slot) {
-      recordSlot({ s: 0, d: deferred });
+      recordSlot(0, undefined, deferred);
       if (serializes) ctx.serialize(id, deferred.promise, deferStream);
     }
     // Flatten one async level, mirroring the client core's handleAsync: a
@@ -1192,7 +1204,7 @@ function processResult<T>(
           // slots adopt V1, exactly what the document claims against).
           (result as any).s = 1;
           (result as any).v = first;
-          recordSlot({ s: 1, v: first });
+          recordSlot(1, first);
           if (!(loadingState?.served && serializes)) {
             comp.value = first;
             comp.error = undefined;
@@ -1266,7 +1278,7 @@ function processResult<T>(
           // compute's dependencies are settled; this is the stream failing).
           (result as any).s = 2;
           (result as any).v = error;
-          recordSlot({ s: 2, v: error });
+          recordSlot(2, error);
           comp.error = error;
           comp.errored = true;
           ctx?.commit?.();
@@ -1284,7 +1296,7 @@ function processResult<T>(
         }
         (result as any).s = 1;
         (result as any).v = value;
-        recordSlot({ s: 1, v: value });
+        recordSlot(1, value);
         // First-value lock for commit #0: markup rendered from the loading
         // value keeps reading it — the landing reaches the client through the
         // serialized promise, never through later-rendered HTML. Without a
@@ -1306,7 +1318,7 @@ function processResult<T>(
       (error: any) => {
         (result as any).s = 2;
         (result as any).v = error;
-        recordSlot({ s: 2, v: error });
+        recordSlot(2, error);
         comp.error = error;
         comp.errored = true;
         ctx?.commit?.();
