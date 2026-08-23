@@ -6,6 +6,7 @@ import {
   settleErroredDependents
 } from "./async.js";
 import {
+  CONFIG_FW_CHILDREN,
   $REFRESH,
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
@@ -726,7 +727,10 @@ export function signal<T>(
     (s as any)._internal = !!firewall;
   }
   if (options?.unobserved) ext(s as any)._unobserved = options.unobserved;
-  firewall && (ext(firewall)._child = s as FirewallSignal<unknown>);
+  if (firewall) {
+    ext(firewall)._child = s as FirewallSignal<unknown>;
+    firewall._config |= CONFIG_FW_CHILDREN;
+  }
   if (
     snapshotCaptureActive &&
     !(s._config & CONFIG_NO_SNAPSHOT) &&
@@ -1109,8 +1113,11 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     throw new Error(REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE);
   }
 
-  if (el._x?._transition && activeTransition !== el._x?._transition)
-    globalQueue.initTransition(el._x?._transition);
+  // One extension read per write (the `?.` form re-chased `_x` three times
+  // on the hottest write path — measurable on propagation benches).
+  const elx = el._x;
+  if (elx !== null && elx._transition && activeTransition !== elx._transition)
+    globalQueue.initTransition(elx._transition);
 
   // The optimistic write path lives with the engine: only optimisticSignal /
   // optimisticComputed callers and optimistic store nodes carry an
