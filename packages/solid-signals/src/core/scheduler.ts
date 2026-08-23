@@ -660,12 +660,12 @@ export class GlobalQueue extends Queue {
       // nodes, see propagateAffectsMark, #2893.
       for (let i = 0; i < batch._pendingNodes.length; i++) {
         const node = batch._pendingNodes[i];
-        ext(node)._transition = activeTransition;
+        node._transition = activeTransition;
         activeTransition._pendingNodes.push(node);
       }
       for (let i = 0; i < batch._optimisticNodes.length; i++) {
         const node = batch._optimisticNodes[i];
-        ext(node)._transition = activeTransition;
+        node._transition = activeTransition;
         activeTransition._optimisticNodes.push(node);
       }
       if (batch._affectsNodes.length) activeTransition._affectsNodes.push(...batch._affectsNodes);
@@ -705,7 +705,8 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
   // stays authoritative when a bit is set.
   const cfg = (node as any)._config as number;
   const sourceLane =
-    (cfg & CONFIG_HAS_LANE ? (node as any)._x?._optimisticLane : undefined) || currentOptimisticLane;
+    (cfg & CONFIG_HAS_LANE ? (node as any)._x?._optimisticLane : undefined) ||
+    currentOptimisticLane;
 
   const hasSnapshot =
     (cfg & CONFIG_HAS_SNAPSHOT) !== 0 && (node as any)._x?._snapshotValue !== undefined;
@@ -871,7 +872,7 @@ export function shiftAffectsMarks(delta: 1 | -1): void {
 
 function reassignPendingTransition(pendingNodes: Signal<any>[]) {
   for (let i = 0; i < pendingNodes.length; i++) {
-    ext(pendingNodes[i])._transition = activeTransition;
+    pendingNodes[i]._transition = activeTransition;
   }
 }
 

@@ -133,7 +133,7 @@ export function resolveTransition(el: Signal<any> | Computed<any>): Transition |
     if (owner._done !== true) return owner;
     if (el._x !== null) el._x._overrideOwner = null;
   }
-  return resolveLane(el)?._transition ?? el._x?._transition;
+  return resolveLane(el)?._transition ?? el._transition;
 }
 
 /**
@@ -148,7 +148,10 @@ export function hasActiveOverride(el: Signal<any> | Computed<any>): boolean {
  * Assign or merge a lane onto a node. At convergence points (node already has
  * a different active lane), merge unless the node has an active override.
  */
-export function assignOrMergeLane(el: Signal<any> | Computed<any>, sourceLane: OptimisticLane): void {
+export function assignOrMergeLane(
+  el: Signal<any> | Computed<any>,
+  sourceLane: OptimisticLane
+): void {
   const sourceRoot = findLane(sourceLane);
   const existing = el._x?._optimisticLane;
   if (existing) {

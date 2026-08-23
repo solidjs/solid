@@ -35,7 +35,9 @@ import {
   readNodeFast,
   setSignal,
   signal,
-  untrack, ext } from "../../core/core.js";
+  untrack,
+  ext
+} from "../../core/core.js";
 import { activeTransition, globalQueue, insertSubs } from "../../core/scheduler.js";
 import { getObserver, getOwner } from "../../core/owner.js";
 import {
@@ -890,8 +892,8 @@ function foldHeld(target: StoreNextTarget): boolean {
     const node: any = nodes[key as any];
     if (
       node._pendingValue !== NOT_PENDING &&
-      node._x?._transition != null &&
-      node._x?._transition._done !== true
+      node._transition != null &&
+      node._transition._done !== true
     )
       return true;
   }
@@ -1005,7 +1007,8 @@ function serveDataKey(
     // #2951). Once ensurePB runs, the seeded clone carries the view.
     if (target.fam?.opt && target.pb === null) {
       const node = target.n?.[key as any];
-      if (node !== undefined && hasActiveOverride(node)) v = unwrapOverride(node._x?._overrideValue);
+      if (node !== undefined && hasActiveOverride(node))
+        v = unwrapOverride(node._x?._overrideValue);
     }
   } else {
     if (node !== undefined) {
@@ -1165,7 +1168,8 @@ const traps: ProxyHandler<StoreNextTarget> = {
         }
       } else if (v === undefined && inDraft(target) && target.fam?.opt && target.pb === null) {
         const node = target.n?.[key];
-        if (node !== undefined && hasActiveOverride(node)) v = unwrapOverride(node._x?._overrideValue);
+        if (node !== undefined && hasActiveOverride(node))
+          v = unwrapOverride(node._x?._overrideValue);
       }
       if (target.s) return serveShallow(target, key, v);
       return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;

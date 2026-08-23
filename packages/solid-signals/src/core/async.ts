@@ -307,7 +307,7 @@ export function handleAsync<T>(
     ) {
       // Drop the stale stamp too: the plain settle write (setSignal) and the
       // stash-path restamp both re-enter the transaction through it.
-      if (el._x !== null) el._x._transition = null;
+      el._transition = null;
       return;
     }
     globalQueue.initTransition(transition);
@@ -780,7 +780,7 @@ export function notifyStatus(
         schedule();
         return;
       }
-      if (!downstreamBlockStatus && !sub._x?._transition) queuePendingNode(sub);
+      if (!downstreamBlockStatus && !sub._transition) queuePendingNode(sub);
       notifyStatus(sub, status, error, downstreamBlockStatus, downstreamLane);
     }
   });

@@ -60,7 +60,6 @@ export interface NodeOptions<T> {
  * hot-path gates — a bit says "consult _x", never the reverse.
  */
 export interface NodeExtension {
-  _transition: Transition | null;
   _overrideValue: unknown | typeof NOT_PENDING;
   /**
    * The transaction that owns the active override (stamped at optimistic
@@ -114,6 +113,10 @@ export interface RawSignal<T> {
   _equals: false | ((a: T, b: T) => boolean);
   _config: number;
   _time: number;
+  /** IN CORE, not the extension (stage-3 §12c): consulted on EVERY write
+   * (setSignal's transition-init check) and on recompute scheduling — the
+   * per-write extension chase measurably taxed propagation chains. */
+  _transition: Transition | null;
   _pendingValue: T | typeof NOT_PENDING;
   /** Cold extension — see NodeExtension. */
   _x: NodeExtension | null;

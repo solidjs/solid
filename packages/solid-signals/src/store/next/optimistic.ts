@@ -111,10 +111,15 @@ function familyHasLiveOverrides(fam: { overlaid?: Set<any> }): boolean {
       if (bucket === null) continue;
       for (const key of Reflect.ownKeys(bucket)) {
         const node: any = bucket[key as any];
-        if (node._x?._overrideValue !== undefined && node._x?._overrideValue !== NOT_PENDING) return true;
+        if (node._x?._overrideValue !== undefined && node._x?._overrideValue !== NOT_PENDING)
+          return true;
       }
     }
-    if (t.k !== null && t.k._x?._overrideValue !== undefined && t.k._x?._overrideValue !== NOT_PENDING)
+    if (
+      t.k !== null &&
+      t.k._x?._overrideValue !== undefined &&
+      t.k._x?._overrideValue !== NOT_PENDING
+    )
       return true;
   }
   overlaid.clear(); // nothing live — drop the bookkeeping
@@ -194,7 +199,7 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
   // at plain flush end. The blocked-check store-half keeps that transaction
   // from settling while the firewall is pending.
   const fw: any = t.fam?.node;
-  if (fw?._x?._transition) globalQueue.initTransition(fw._x._transition);
+  if (fw?._transition) globalQueue.initTransition(fw._transition);
   const old = t.v;
   // Patch channel (override-application site): the draft IS the intended
   // visible state; prev is the view before these overrides apply. Bypasses

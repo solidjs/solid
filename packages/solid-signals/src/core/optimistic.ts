@@ -142,7 +142,7 @@ function resolveOptimisticNodes(nodes: OptimisticNode[]): void {
     ext(node)._overrideValue = NOT_PENDING;
     if (prevOverride !== NOT_PENDING && node._value !== unwrapOverride(prevOverride))
       insertSubs(node, true);
-    if (node._x !== null) node._x._transition = null;
+    node._transition = null;
     if (node._x !== null) node._x._overrideOwner = null;
   }
   // Settlement checkpoint (#2838): companions caught in this batch (or owned
@@ -150,7 +150,8 @@ function resolveOptimisticNodes(nodes: OptimisticNode[]): void {
   // transition that produced them (A19 — pending is a property of the data).
   for (let i = 0; i < len; i++) {
     const node = nodes[i];
-    if (node._x?._pendingSignal || node._x?._latestValueComputed) GlobalQueue._snapCompanions!(node);
+    if (node._x?._pendingSignal || node._x?._latestValueComputed)
+      GlobalQueue._snapCompanions!(node);
     const owner = node._x?._parentSource;
     if (owner && (owner._x?._pendingSignal === node || owner._x?._latestValueComputed === node))
       GlobalQueue._snapCompanions!(owner);
@@ -190,7 +191,8 @@ function cleanupCompletedLanes(completingTransition: Transition | null): void {
       if (lane._effectQueues[0].length) runQueue(lane._effectQueues[0], EFFECT_RENDER);
       if (lane._effectQueues[1].length) runQueue(lane._effectQueues[1], EFFECT_USER);
     }
-    if (lane._source._x?._optimisticLane === lane) if (lane._source._x !== null) lane._source._x._optimisticLane = undefined;
+    if (lane._source._x?._optimisticLane === lane)
+      if (lane._source._x !== null) lane._source._x._optimisticLane = undefined;
     lane._pendingAsync.clear();
     lane._effectQueues[0].length = 0;
     lane._effectQueues[1].length = 0;
