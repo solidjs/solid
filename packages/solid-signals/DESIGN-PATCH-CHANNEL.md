@@ -789,3 +789,28 @@ tracking ~4%, GC 13% (creation tax demoted to minor). That tail is the
 next increment. Lesson for the log: profile before designing — the
 "zero-graph server" architecture conversation dissolved into a one-night
 string-pipeline fix.
+
+### 13b. Clean-machine re-vet + chunk coalescing (2026-08-23)
+
+Two multi-week runaway processes (280% CPU combined) were discovered and
+killed — all §13/§13a absolutes were parasite-era. Clean re-vet:
+news-50 0.99x vs octane (the headline HOLDS; parity), 0.83x vs svelte;
+news-500 1.15x / 0.89x; vs vue-vapor 1.15x / 1.27x — the "passed vapor"
+claim was probe-only and does NOT hold at suite level. streaming-ssr's
+"0.98x win" corrected to a loss on the cells that matter: shell TTFB
+2.7x, 41 chunks vs octane's 11 (the total_* cells are stagger-dominated
+ties).
+
+CHUNK COALESCING (dom-expressions ed260566): a settled boundary's
+template/activation/data/reveal writes span one resolution burst across
+chained microtasks — historical microtask-alignment (the pushTask double
+queue) cannot span arbitrary chain depth; a macrotask defer rides after
+the whole burst. Shell flushes synchronously at handoff (TTFB never
+deferred); 16KB early-flush; both pipe/pipeTo handoffs share the one
+coalescer. Result: all-fast 41 -> 2 chunks and FLIPS TO A WIN (shell
+0.12 vs 0.25ms, renders/s +32% over octane); staggered exact chunk
+parity (11) and total 0.99x. Byte-identical output.
+
+STILL OPEN: staggered shell-min ~2x (0.31 vs 0.15ms) — boundary-setup
+render constant, same family as the news per-element gap; and vapor's
+15-25% news-page edge (the §13a tail: children/ids/asset-tracking).
