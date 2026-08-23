@@ -68,6 +68,9 @@ import { attrHooks } from "./attribution-hooks.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { cleanup, disposeChildren, inheritId, markDisposal } from "./owner.js";
 import {
+  notifyEpoch,
+  bumpNotifyEpoch,
+  reaskArmed,
   activeTransition,
   armReaskClear,
   clock,
@@ -187,6 +190,8 @@ export function clearSnapshots(): void {
 }
 
 export function recompute(el: Computed<any>, create: boolean = false): void {
+  // §12d: any recompute can clean a marked subscriber — invalidate skips.
+  bumpNotifyEpoch();
   const isEffect = (el as any)._type;
   // Attribution hook: fired before this run touches the dep list — `_deps`
   // still holds the previous run's links (the subscriptions that could have
@@ -593,6 +598,7 @@ export function computed<T>(
     _time: clock,
     _pendingValue: NOT_PENDING,
     _transition: null,
+    _notifiedAt: -1,
     _loading: loading,
     // Cold machinery (async/transition/optimistic/verdict slots) lives one
     // hop away in the lazily-allocated extension — the core literal MUST
@@ -680,6 +686,7 @@ export function createEffectNode<T>(
     _time: clock,
     _pendingValue: NOT_PENDING,
     _transition: null,
+    _notifiedAt: -1,
     _loading: false,
     _modified: false,
     _prevValue: undefined as T | undefined,
@@ -768,6 +775,7 @@ export function signal<T>(
     _fn: undefined,
     _statusFlags: 0,
     _transition: null,
+    _notifiedAt: -1,
     _x: null
   };
   if (__DEV__) {
@@ -1187,7 +1195,8 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // Attribution hook: this committed write is where a re-run chain begins.
   if (__DEV__ && attrHooks !== null) attrHooks.write(el, currentValue, v);
 
-  if (el._pendingValue === NOT_PENDING) queuePendingNode(el);
+  const wasStaged = el._pendingValue !== NOT_PENDING;
+  if (!wasStaged) queuePendingNode(el);
   el._pendingValue = v;
   if (__DEV__) devTrackHeldPending(el);
 
@@ -1201,6 +1210,13 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     GlobalQueue._syncCompanions(el, v);
 
   el._time = clock;
+  // Staged-rewrite fast path (§12d): a re-write to a node whose subscribers
+  // were already walked — and where nothing has recomputed or linked since
+  // (epoch) — re-stages the value and stops. The walk is idempotent (subs
+  // marked, heap entries flag-guarded, effects queued once); lane and reask
+  // contexts change what a walk MEANS, so they always walk.
+  if (wasStaged && el._notifiedAt === notifyEpoch && currentOptimisticLane === null && !reaskArmed)
+    return v;
   insertSubs(el);
   schedule();
   return v;

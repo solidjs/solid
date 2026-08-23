@@ -689,12 +689,23 @@ export function queuePendingNode(node: Signal<any>): void {
 // Sticky: flips true on the first refresh() ever (the only setter of
 // REACTIVE_REASK) so the hot notification loop skips the per-subscriber flag
 // clear entirely in apps that never refresh.
-let reaskArmed = false;
+export let reaskArmed = false;
+/** §12d: bumped by every recompute and every new subscriber edge. A node's
+ * staged-rewrite skip is sound only while NOTHING recomputed or linked since
+ * its last notify — a mid-batch pull can clean a marked subscriber, and a
+ * skipped re-write would leave it stale. */
+export let notifyEpoch = 0;
+export function bumpNotifyEpoch(): void {
+  notifyEpoch++;
+}
 export function armReaskClear(): void {
   reaskArmed = true;
 }
 
 export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolean = false): void {
+  // §12d: stamp before walking — setSignal's staged-rewrite fast path skips
+  // the next walk for this node while the epoch holds (marking is idempotent).
+  node._notifiedAt = notifyEpoch;
   // Get source lane: prefer node's own lane over current context
   // This is important for isPending signals which need their own lane to flush immediately
   // Presence bits gate the optional-slot probes (see constants.ts): one
