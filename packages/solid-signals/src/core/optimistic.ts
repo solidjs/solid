@@ -99,7 +99,7 @@ function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)
     GlobalQueue._syncCompanions !== null &&
     GlobalQueue._syncCompanions(el, v);
 
-  el._time = clock;
+  if ((el as any)._fn !== undefined) el._time = clock; // §12e: computed-only slot
   insertSubs(el, true);
   schedule();
   return v;
