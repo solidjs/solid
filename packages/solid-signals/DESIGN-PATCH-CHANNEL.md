@@ -887,3 +887,42 @@ discovery constant — solid server signals/boundaries were 24% of shell
 CPU (read/runWithBoundaryErrorContext/recordSlot/NotReadyError throws),
 GC ~25%. That is §15 territory: boundary-setup + per-read costs, same
 family as the news per-element gap.
+
+### 15. The discovery constant, decomposed (2026-08-23, morning)
+
+Attempted spot-fixes, with the measurements that killed or kept them:
+- Error.stackTraceLimit=0 A/B: DEAD EVEN (101 vs 101 µs) — NotReadyError
+  stack capture is NOT a cost; do not "fix" it.
+- FormData-plugin frames in heap profiles are one-time undici lazy-loading
+  at startup, not per-render — discount loader frames before reading.
+- Slot flight-memory (#3003) rebuilt: WeakMap<ctx, Map> -> symbol-keyed
+  plain object ON ctx, records mutated in place (single {s,v,d} shape).
+  recordSlot was 12.7% of recurring allocation; it leaves the top-12 —
+  but µs/shell does NOT move. Young-gen garbage at this scale is free.
+- ssrLoadingBoundary: parent contexts read without owner switches;
+  reveal-group severing setContext (a context-map clone) now only paid
+  when a group is in scope. Under noise floor. (All landed: d8db8eb3.)
+
+THE DECOMPOSITION (the §15 result): a floor variant of the same page with
+every promise pre-stamped {s:1,v} — full content, zero async machinery —
+renders in 57 µs. Octane's ASYNC shell is 60. Our staggered shell is ~107.
+The sync render path is ALREADY at octane speed while emitting MORE HTML
+(9.7KB content vs 4.2KB fallback shell). The entire remaining shell gap is
+the per-pending-boundary constant: ~5µs × 10 boundaries = discovery run +
+NotReadyError throw/catch + deferred + serialized stub (~10µs total for
+the batch session, the largest single slice) + registerFragment + boundary
+owner/context ceremony. Cost is smeared across ~30 frames of 1-4% — a
+structural constant, not a hotspot.
+
+WHAT WOULD ACTUALLY CLOSE IT (design questions, not spot fixes):
+- Stub-less shell protocol: today a record's PRESENCE in _$HY.r at hydrate
+  time is how the client learns "server owns this async value" —
+  sharedConfig.has() returns false for an unarrived record and the client
+  computes fresh. A client-side deferred FACTORY (boundary registration
+  creates pending records on demand; fulfillments create-or-resolve) would
+  delete the whole shell stub session, but it rewrites the has()/load()
+  contract and every consumer that branches on record presence.
+- Lighter boundary discovery: the ceremony (buffered ctx via
+  Object.create, ~10 closures, error-context save/restore per phase) is
+  per-boundary; a compiled or pooled boundary form could amortize it.
+Both belong to a protocol conversation with Ryan, not a solo increment.
