@@ -718,12 +718,11 @@ export function signal<T>(
     _firewall: firewall,
     _nextChild: firewall?._x?._child || null,
     _pendingValue: NOT_PENDING,
-    // Shape alignment with Computed for the SHARED hot paths (setSignal /
-    // commitPendingNode read these on every write): present-with-default
-    // beats a missing-property megamorphic read. Signals are never
-    // uninitialized (_statusFlags 0) and have no compute (_fn undefined).
-    _fn: undefined,
-    _statusFlags: 0,
+    // Signal-literal diet (§12e): NO _time/_fn/_statusFlags slots. Stores
+    // materialize one signal per touched leaf, so signal bytes are store
+    // bytes. _time is write-only on signals (every read site is computed-
+    // typed error-retry gating); _fn/_statusFlags read falsy-identically as
+    // missing properties on the shared paths (undefined masks to 0).
     _transition: null,
     _notifiedAt: -1,
     _x: null
@@ -1156,7 +1155,9 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     GlobalQueue._syncCompanions !== null &&
     GlobalQueue._syncCompanions(el, v);
 
-  el._time = clock;
+  // _time is a computed-only slot (§12e): writing it on a signal would fork
+  // the lean shape. Every read site is computed-typed.
+  if ((el as any)._fn !== undefined) el._time = clock;
   // Staged-rewrite fast path (§12d): a re-write to a node whose subscribers
   // were already walked — and where nothing has recomputed or linked since
   // (epoch) — re-stages the value and stops. The walk is idempotent (subs

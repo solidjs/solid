@@ -327,7 +327,6 @@ function snapCompanionsToState(owner: Signal<any> | Computed<any>): void {
     if (sig._value !== pending || sig._pendingValue !== NOT_PENDING) {
       sig._value = pending;
       sig._pendingValue = NOT_PENDING;
-      sig._time = clock;
       insertSubs(sig);
       schedule();
     }
