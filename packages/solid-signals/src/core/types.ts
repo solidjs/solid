@@ -117,6 +117,11 @@ export interface RawSignal<T> {
    * (setSignal's transition-init check) and on recompute scheduling — the
    * per-write extension chase measurably taxed propagation chains. */
   _transition: Transition | null;
+  /** Notify-epoch stamp of the last subscriber walk (§12d). A re-write to an
+   * already-staged node whose stamp still equals the global epoch skips the
+   * whole walk — marking is idempotent, and the epoch bumps on every
+   * recompute and new subscriber edge (either can invalidate the skip). */
+  _notifiedAt: number;
   _pendingValue: T | typeof NOT_PENDING;
   /** Cold extension — see NodeExtension. */
   _x: NodeExtension | null;
