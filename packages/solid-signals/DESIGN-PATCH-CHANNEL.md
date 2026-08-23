@@ -814,3 +814,23 @@ parity (11) and total 0.99x. Byte-identical output.
 STILL OPEN: staggered shell-min ~2x (0.31 vs 0.15ms) — boundary-setup
 render constant, same family as the news per-element gap; and vapor's
 15-25% news-page edge (the §13a tail: children/ids/asset-tracking).
+
+### 13c. Streaming tax map + the seroval question (2026-08-23)
+
+Shell-only probe: 229µs/shell (26k iterations) — consistent with the
+harness min (0.31ms incl. stream scaffolding) vs octane ~0.15; the gap
+is pure render constant, not framing. Leak triage: 4,000 fully-drained
+renders hold flat at 7MB — NO completed-stream retention; the probe OOM
+that raised the question was unbounded in-flight creation outracing
+50ms completions (probe overload, not a framework leak).
+
+The awaited streaming profile (unminified) names the dominant JS block:
+SEROVAL — object walk + escape + plugin dispatch ≈30% of busy time, and
+GC (24%) is largely its transients, all spent serializing each card's
+SMALL plain-JSON data object into its hydration script. The fix shape is
+a JSON-safe fast path (precedent: server-functions' jsonSafe checker,
+depth-limited + cycle-guarded) — but it belongs INSIDE seroval's
+Serializer.write: the $R slot indices are allocated by seroval
+internally, so external emission would desync its cross-reference
+counter. UPSTREAM decision (pin/patch/PR seroval) — parked for a fresh
+session and Ryan's call on the seroval relationship.
