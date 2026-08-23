@@ -338,6 +338,10 @@ function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
     setContextInternal(null); // Detach from owner so it isn't disposed with effects
     el._latestValueComputed = optimisticComputed(() => read(el));
     el._latestValueComputed._parentSource = el; // Parent-child lane relationship
+    // Backfill an in-flight write (mirrors getPendingSignal): the companion is
+    // created lazily, possibly after the write was processed (#3041).
+    if (el._pendingValue !== NOT_PENDING && !hasActiveOverride(el))
+      setSignal(el._latestValueComputed, el._pendingValue as T);
     if (__DEV__) devTrackCompanionOwner(el);
     setContextInternal(prevContext);
     setPendingCheckActive(prevCheck);
