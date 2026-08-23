@@ -1,5 +1,6 @@
 import { ext } from "./core.js";
 import {
+  CONFIG_FW_CHILDREN,
   EFFECT_TRACKED,
   EFFECT_USER,
   REACTIVE_CHECK,
@@ -133,10 +134,12 @@ export function markNode(el: Computed<unknown>, newState = REACTIVE_DIRTY) {
   for (let link = el._subs; link !== null; link = link._nextSub) {
     markNode(link._sub, REACTIVE_CHECK);
   }
-  const fwChild = el._x !== null ? el._x._child : null;
-  if (fwChild !== null) {
+  // Firewall children (projection machinery only): gate the cold-extension
+  // deref on the config bit — markNode runs per sub edge per write, and an
+  // unconditional _x chase here taxed every propagation (diamond -22%).
+  if (el._config & CONFIG_FW_CHILDREN) {
     for (
-      let child: FirewallSignal<unknown> | null = fwChild;
+      let child: FirewallSignal<unknown> | null = el._x!._child;
       child !== null;
       child = child._nextChild
     ) {

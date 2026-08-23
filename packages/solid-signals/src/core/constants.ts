@@ -55,6 +55,12 @@ export const CONFIG_HAS_LANE = 1 << 10;
  * O(all leaves ever read). Sticky — set at companion creation, never
  * cleared; sync-only apps never set it and never pay the walk. */
 export const CONFIG_CHILD_COMPANIONS = 1 << 11;
+/** Set on a computed when its first firewall child signal is installed
+ * (projection machinery). Gates markNode's firewall-children walk with one
+ * masked read of the always-present _config — the walk's old `_child` read
+ * moved into the cold extension (§12), and an unconditional `_x` deref per
+ * marked node measurably taxed the propagation hot path (diamond -22%). */
+export const CONFIG_FW_CHILDREN = 1 << 12;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
