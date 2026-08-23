@@ -186,7 +186,7 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
   // at plain flush end. The blocked-check store-half keeps that transaction
   // from settling while the firewall is pending.
   const fw: any = t.fam?.node;
-  if (fw?._x?._transition) globalQueue.initTransition(fw._x._transition);
+  if (fw?._transition) globalQueue.initTransition(fw._transition);
   const old = t.v;
   const visible = (key: PropertyKey, fallback: any): any => {
     const node = t.n?.[key as any];

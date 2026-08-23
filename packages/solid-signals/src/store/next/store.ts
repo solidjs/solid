@@ -997,8 +997,8 @@ function foldHeld(target: StoreNextTarget): boolean {
     const node: any = nodes[key as any];
     if (
       node._pendingValue !== NOT_PENDING &&
-      node._x?._transition != null &&
-      node._x?._transition._done !== true
+      node._transition != null &&
+      node._transition._done !== true
     )
       return true;
   }

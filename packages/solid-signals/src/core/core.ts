@@ -194,16 +194,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let devChanged = false;
   if (__DEV__ && attrHooks !== null) attrHooks.recomputeStart(el, create);
   if (!create) {
-    if (
-      el._x?._transition &&
-      (!isEffect || activeTransition) &&
-      activeTransition !== el._x?._transition
-    )
-      globalQueue.initTransition(el._x?._transition);
+    if (el._transition && (!isEffect || activeTransition) && activeTransition !== el._transition)
+      globalQueue.initTransition(el._transition);
     deleteFromHeap(el, queueFor(el));
     if (el._x !== null) el._x._inFlight = null;
     // Tracked effects run after finalizePureQueue, so dispose immediately instead of deferring
-    if (el._x?._transition || isEffect === EFFECT_TRACKED) disposeChildren(el);
+    if (el._transition || isEffect === EFFECT_TRACKED) disposeChildren(el);
     else if (el._firstChild !== null || el._disposal !== null) {
       markDisposal(el);
       const x = ext(el);
@@ -414,7 +410,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // values directly — the pending round-trip (queuePendingNode +
         // commitPendingNodes) exists to sequence transition reveals, and
         // paying it per effect on the plain path is pure overhead.
-        (isEffect && (activeTransition !== el._x?._transition || activeTransition === null)) ||
+        (isEffect && (activeTransition !== el._transition || activeTransition === null)) ||
         isOptimisticDirty
         // NOTE (stage-3, 2026-08-21): a quiet-world MEMO direct-commit was
         // attempted here and REVERTED — memo staging is load-bearing beyond
@@ -444,7 +440,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // (#2831). Both companion writes are transition-scoped (optimistic) and
         // auto-revert/re-derive at commit. Skipped for plain flushes where the
         // pending value commits before effects run.
-        if ((activeTransition || el._x?._transition) && GlobalQueue._syncCompanions !== null)
+        if ((activeTransition || el._transition) && GlobalQueue._syncCompanions !== null)
           GlobalQueue._syncCompanions(el, value);
       }
 
@@ -503,12 +499,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // _transition.
   needsPendingCommit &&
     (!create || el._statusFlags & STATUS_PENDING) &&
-    (!el._x?._transition || hasOverride) &&
+    (!el._transition || hasOverride) &&
     queuePendingNode(el);
-  el._x?._transition &&
+  el._transition &&
     isEffect &&
-    activeTransition !== el._x?._transition &&
-    runInTransition(el._x?._transition, () => recompute(el));
+    activeTransition !== el._transition &&
+    runInTransition(el._transition, () => recompute(el));
   // Missed-wake reschedule (see the finally above): values this pass read
   // before the nested commit are stale, so run again now that the heap will
   // accept the node. Equality gates stop same-value landings from cascading,
@@ -596,6 +592,7 @@ export function computed<T>(
     _statusFlags: loading ? 0 : STATUS_UNINITIALIZED,
     _time: clock,
     _pendingValue: NOT_PENDING,
+    _transition: null,
     _loading: loading,
     // Cold machinery (async/transition/optimistic/verdict slots) lives one
     // hop away in the lazily-allocated extension — the core literal MUST
@@ -615,7 +612,6 @@ export function computed<T>(
  * Never call ext() just to store a field's default. */
 export function ext(el: { _x: NodeExtension | null }): NodeExtension {
   return (el._x ??= {
-    _transition: null,
     _overrideValue: undefined,
     _overrideOwner: undefined,
     _optimisticLane: undefined,
@@ -683,6 +679,7 @@ export function createEffectNode<T>(
     _statusFlags: STATUS_UNINITIALIZED,
     _time: clock,
     _pendingValue: NOT_PENDING,
+    _transition: null,
     _loading: false,
     _modified: false,
     _prevValue: undefined as T | undefined,
@@ -770,6 +767,7 @@ export function signal<T>(
     // uninitialized (_statusFlags 0) and have no compute (_fn undefined).
     _fn: undefined,
     _statusFlags: 0,
+    _transition: null,
     _x: null
   };
   if (__DEV__) {
@@ -1003,7 +1001,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
 
   if (owner._statusFlags & STATUS_PENDING) {
-    if (c && !(stale && owner._x?._transition && activeTransition !== owner._x?._transition)) {
+    if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
       if (__DEV__ && c && c._config & CONFIG_CHILDREN_FORBIDDEN) {
         const message =
           "[PENDING_ASYNC_FORBIDDEN_SCOPE] Reading a pending async value inside createTrackedEffect or onSettled will throw. " +
@@ -1098,7 +1096,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       GlobalQueue._laneReadsCommitted!(el, owner, c as Computed<any>)) ||
     el._pendingValue === NOT_PENDING ||
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
-    (stale && el._x?._transition && activeTransition !== el._x?._transition)
+    (stale && el._transition && activeTransition !== el._transition)
       ? el._value
       : (el._pendingValue as T);
   // Record that this isPending() probe observed the fresh pending value, so
@@ -1163,11 +1161,8 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     throw new Error(REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE);
   }
 
-  // One extension read per write (the `?.` form re-chased `_x` three times
-  // on the hottest write path — measurable on propagation benches).
-  const elx = el._x;
-  if (elx !== null && elx._transition && activeTransition !== elx._transition)
-    globalQueue.initTransition(elx._transition);
+  if (el._transition && activeTransition !== el._transition)
+    globalQueue.initTransition(el._transition);
 
   // The optimistic write path lives with the engine: only optimisticSignal /
   // optimisticComputed callers and optimistic store nodes carry an

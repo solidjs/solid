@@ -298,7 +298,7 @@ function wakeSuppressedProbes(transition: Transition): void {
   if (suppressedProbes.size === 0) return;
   let woke = false;
   for (const [node, probes] of suppressedProbes) {
-    const nt = node._x?._transition;
+    const nt = node._transition;
     const t = nt ? currentTransition(nt) : null;
     if (!t) {
       suppressedProbes.delete(node);
@@ -422,11 +422,7 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
   if (
     pendingComputed._pendingValue !== NOT_PENDING &&
     !hasActiveOverride(pendingComputed) &&
-    !(
-      stale &&
-      pendingComputed._x?._transition &&
-      activeTransition !== pendingComputed._x?._transition
-    )
+    !(stale && pendingComputed._transition && activeTransition !== pendingComputed._transition)
   )
     return pendingComputed._pendingValue as T;
   return value as T;
@@ -462,7 +458,7 @@ function pendingCheckRead(
  * (#3028).
  */
 function heldAwaitingAsync(el: Signal<any> | Computed<any>): boolean {
-  const et = el._x?._transition;
+  const et = el._transition;
   const t = et ? currentTransition(et) : null;
   if (!t || t._done) return false;
   for (const [source, reporters] of t._asyncReporters) {

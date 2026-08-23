@@ -133,7 +133,7 @@ export function resolveTransition(el: Signal<any> | Computed<any>): Transition |
     if (owner._done !== true) return owner;
     if (el._x !== null) el._x._overrideOwner = null;
   }
-  return resolveLane(el)?._transition ?? el._x?._transition;
+  return resolveLane(el)?._transition ?? el._transition;
 }
 
 /**

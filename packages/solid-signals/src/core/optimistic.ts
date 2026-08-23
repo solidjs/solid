@@ -142,7 +142,7 @@ function resolveOptimisticNodes(nodes: OptimisticNode[]): void {
     ext(node)._overrideValue = NOT_PENDING;
     if (prevOverride !== NOT_PENDING && node._value !== unwrapOverride(prevOverride))
       insertSubs(node, true);
-    if (node._x !== null) node._x._transition = null;
+    node._transition = null;
     if (node._x !== null) node._x._overrideOwner = null;
   }
   // Settlement checkpoint (#2838): companions caught in this batch (or owned
