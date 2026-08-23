@@ -834,3 +834,56 @@ Serializer.write: the $R slot indices are allocated by seroval
 internally, so external emission would desync its cross-reference
 counter. UPSTREAM decision (pin/patch/PR seroval) — parked for a fresh
 session and Ryan's call on the seroval relationship.
+
+### 14. Seroval verdicts + shell stub batching (2026-08-23, late)
+
+THE SEROVAL QUESTION, SETTLED. Reading the dist corrected §13c's shape:
+primitives never reach the plugin scan (the typeof switch routes them
+straight to node constructors) and the scan runs once per OBJECT — it was
+~0.3% of the profile, not a lever. The real seroval hot spot is
+serializeString: a per-character loop with a function call + 10-case
+switch per char on every string key/value. A 3-line regex fast-path
+(bail on clean strings — the exact trick our own escape() uses) was
+locally patched into seroval's dist and A/B'd with an interleaved
+one-line-diff drain probe: ~5% off total all-fast SSR render time
+(1364 -> 1299 µs/render, 3/3 rounds). Invisible in the wall-clock
+harness (±20% noise, 30 samples). RULING (Ryan): benchmark-invisible =
+out of scope for us; parked as an upstream note for Alexis. Local
+patches reverted; benches measure shipped seroval.
+
+SHELL STUB BATCHING (dom-expressions c8080a46). The shell profile showed
+seroval at ~21-30% of shell CPU with ZERO cards resolved — the shell
+serializes 2 pending-promise STUBS per boundary (the `<id>_fr` fragment
+declaration + its thrown async source), and every serializer.write()
+spins a full crossSerializeStream session. Pre-shell pending-promise
+writes now batch into ONE seroval write of a plain object (key "$B") + a
+~70-byte spreader task that files entries under their real _$HY.r keys.
+Fulfillment machinery untouched (same promise instances, one session).
+
+Two placement rules carry the semantics, both caught by tests:
+- Flush at the TOP of the flush drain loop, NOT in doShell: a
+  settled-before-shell promise emits its fulfillment a microtask AFTER
+  the batch write parses it, and the shell snapshot is synchronous.
+  Drain-start flushing preserves the MIN_DRAIN_TURNS runway, so records
+  settled before the shell are visibly settled IN the shell — client
+  boundaries branch on `.s === 1` at hydrate time. (Found via
+  late-boundary-after-done: markup/ids identical, but record "0"'s
+  fulfillment had moved to the rest chunk and the boundary went fresh —
+  fallback unclaimed, content re-rendered without _hk.)
+- Document-mode only (no serializer/sink override): the serializer seam's
+  keys are wire protocol for the frame sink's keyed codec (no eval on the
+  consumer), and the spreader is a document construct.
+
+Results: shell probe 136 -> 108 µs/shell (-21%; octane 60 — gap 2.2x ->
+1.8x). all-fast full drains now BEAT octane (954 vs 672 renders/s, total
+0.70x). Payload -300B (deduped stub boilerplate). Sync renders never form
+a batch. Suites: solid-web 287+430+141, dom-expressions 1299 — all green.
+Server specs that scraped `_$HY.r["<id>"]=` assignment text now assert
+via test/harness/hydration-records.ts (vm-executes the payload's scripts,
+reads actual keys) — outcome-pinned, wire-format-agnostic.
+
+STILL OPEN: the remaining shell gap vs octane (~1.8x) is the async
+discovery constant — solid server signals/boundaries were 24% of shell
+CPU (read/runWithBoundaryErrorContext/recordSlot/NotReadyError throws),
+GC ~25%. That is §15 territory: boundary-setup + per-read costs, same
+family as the news per-element gap.
