@@ -68,6 +68,12 @@ interface PendingProbe {
 }
 let pendingProbe: PendingProbe | null = null;
 
+function registerChildCompanion(el: Signal<any> | Computed<any>): void {
+  const firewall = (el as FirewallSignal<any>)._firewall;
+  if (firewall && !el._pendingSignal && !el._latestValueComputed)
+    firewall._hasChildCompanions = true;
+}
+
 /**
  * Probes whose verdict was suppressed by the fresh-read pairing rule while
  * the held write's fate was still undecided (see recordFreshRead /
@@ -82,6 +88,7 @@ const suppressedProbes: Map<Signal<any> | Computed<any>, Set<Computed<any>>> = n
  */
 function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
   if (!el._pendingSignal) {
+    registerChildCompanion(el);
     // Start false, write true if pending - ensures reversion returns to false
     el._pendingSignal = optimisticSignal(false, { ownedWrite: true });
     el._pendingSignal._parentSource = el;
@@ -330,6 +337,7 @@ function snapCompanionsToState(owner: Signal<any> | Computed<any>): void {
 
 function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
   if (!el._latestValueComputed) {
+    registerChildCompanion(el);
     const prevPending = latestReadActive;
     setLatestReadActive(false);
     const prevCheck = pendingCheckActive;

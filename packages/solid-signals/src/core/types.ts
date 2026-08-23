@@ -136,6 +136,8 @@ export interface Computed<T> extends RawSignal<T>, Owner {
   _fn: (prev?: T) => T;
   _inFlight: PromiseLike<T> | AsyncIterable<T> | null;
   _child: FirewallSignal<any> | null;
+  /** True once a firewall child creates an isPending() or latest() companion. */
+  _hasChildCompanions: boolean;
   _notifyStatus?: (status?: number, error?: any) => void;
   /**
    * Question-scoped pending classification of the node's CURRENT pending

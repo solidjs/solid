@@ -297,7 +297,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._pendingSources !== undefined ||
       el._pendingSignal !== undefined ||
       el._latestValueComputed !== undefined ||
-      el._child !== null
+      el._hasChildCompanions
     )
       clearStatus(el, create);
     // _optimisticLane is only ever assigned by engine paths.
@@ -562,6 +562,7 @@ export function computed<T>(
     _value: (loading ? options!.loadingValue : undefined) as T,
     _height: 0,
     _child: null,
+    _hasChildCompanions: false,
     _nextHeap: undefined,
     _prevHeap: null as any,
     _deps: null,
@@ -622,6 +623,7 @@ export function createEffectNode<T>(
     _value: undefined as T,
     _height: 0,
     _child: null,
+    _hasChildCompanions: false,
     _nextHeap: undefined,
     _prevHeap: null as any,
     _deps: null,

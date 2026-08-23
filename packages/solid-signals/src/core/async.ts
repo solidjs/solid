@@ -710,7 +710,7 @@ export function clearStatus(el: Computed<any>, clearUninitialized: boolean = fal
   // Update pending signal for isPending() reactivity (companions only exist
   // once the verdict layer created them, which installs the hooks).
   if (el._pendingSignal || el._latestValueComputed) GlobalQueue._updatePendingSignal!(el);
-  if (el._child && GlobalQueue._updateChildCompanions !== null)
+  if (el._hasChildCompanions && GlobalQueue._updateChildCompanions !== null)
     GlobalQueue._updateChildCompanions(el);
   if (el._notifyStatus) el._notifyStatus();
 }
@@ -751,7 +751,7 @@ export function notifyStatus(
       el._error = error;
     }
     GlobalQueue._updatePendingSignal !== null && GlobalQueue._updatePendingSignal(el);
-    if (el._child && GlobalQueue._updateChildCompanions !== null)
+    if (el._hasChildCompanions && GlobalQueue._updateChildCompanions !== null)
       GlobalQueue._updateChildCompanions(el);
   }
 
