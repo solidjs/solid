@@ -362,6 +362,12 @@ function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
     el._config |= CONFIG_HAS_COMPANIONS;
     markFirewallChildCompanions(el);
     ext(lvc)._parentSource = el; // Parent-child lane relationship
+    // Backfill an in-flight write (mirrors getPendingSignal): the companion is
+    // created lazily, possibly after the write was processed — syncCompanions
+    // only pushes into companions that already exist, so the first latest()
+    // read inside a held transition showed the committed value (#3041).
+    if (el._pendingValue !== NOT_PENDING && !hasActiveOverride(el))
+      setSignal(lvc, el._pendingValue as T);
     if (__DEV__) devTrackCompanionOwner(el);
     setContextInternal(prevContext);
     setPendingCheckActive(prevCheck);
