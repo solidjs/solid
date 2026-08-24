@@ -81,6 +81,13 @@ export interface StoreNextTarget {
   /** Keys deleted in the overlay window (a prototype overlay cannot shadow
    * a delete); null when none. */
   del: Set<PropertyKey> | null;
+  /** Keys written through the traps since the last fold commit. Bounds the
+   * setter notify/hold-check to O(written) instead of O(subscribed nodes) —
+   * a record with thousands of per-key subscriptions (selection maps) would
+   * otherwise pay a full node scan on every write. null = no trap writes
+   * this batch (bulk paths fall back to the full scan); WK_ALL sentinel =
+   * bound unusable this batch (array length write implies index deletes). */
+  wk: Set<PropertyKey> | null;
   /** Projection family, null for plain stores (§7b). */
   fam: StoreNextFamily | null;
   /** Shallow store root (values served raw). */

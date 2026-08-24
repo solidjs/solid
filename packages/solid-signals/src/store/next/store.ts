@@ -116,6 +116,7 @@ function TargetShape(this: any) {
   this.s = undefined;
   this.ovl = undefined;
   this.del = undefined;
+  this.wk = undefined;
 }
 TargetShape.prototype = Object.prototype;
 
@@ -152,6 +153,7 @@ function createTarget(
   t.s = false;
   t.ovl = false;
   t.del = null;
+  t.wk = null;
   t.px = new Proxy(t, traps);
   // Legacy interop: shared machinery (affects walks, wrap dedupe) reads the
   // proxy off looked-up targets as a field.
@@ -505,6 +507,7 @@ export function adoptPB(
   // draft rescans once (#3044 audit follow-up).
   target.ovl = false;
   target.del = null;
+  target.wk = null; // adoption supersedes any staged trap writes
   target.sc = false;
   target.a = false;
   target.v = incoming;
@@ -554,9 +557,20 @@ function drainFolds(): void {
       const pb = t.pb;
       const nodes = t.n;
       if (nodes !== null) {
-        for (const key of Reflect.ownKeys(nodes)) {
+        // Only written keys can hold (their nodes took the setSignal); the
+        // wk bound keeps this O(written) — see notifyWrites. Same fallback
+        // rules as the notify (WK_ALL / accessors / non-plain prototypes).
+        const wkh = t.wk;
+        const keys: Iterable<PropertyKey> =
+          wkh === null ||
+          wkh === WK_ALL ||
+          t.a === true ||
+          !plainProto(t.ovl ? (t.v as object) : pb)
+            ? Reflect.ownKeys(nodes)
+            : wkh;
+        for (const key of keys) {
           const node = nodes[key as any];
-          if (node._pendingValue !== NOT_PENDING) {
+          if (node !== undefined && node._pendingValue !== NOT_PENDING) {
             held = true;
             break;
           }
@@ -589,10 +603,12 @@ function drainFolds(): void {
         (t.fam?.map ?? storeNextLookup).delete(pb);
         t.pb = null;
         t.ovl = false;
+        t.wk = null; // written-keys window closes with the fold commit
       } else {
         t.v = pb;
         t.ch = false; // pb is always a plain clone
         t.pb = null;
+        t.wk = null; // written-keys window closes with the fold commit
       }
     }
     if (t.v === old) continue; // adopted then re-adopted back, or no-op
@@ -617,6 +633,19 @@ function drainFolds(): void {
  * "pending home = the node when a node exists"). Unobserved keys stay in the
  * pending backing and fold directly at commit.
  */
+/** Sentinel for `t.wk`: the written-keys bound is unusable this batch (an
+ * array length write implicitly deleted indices) — consumers full-scan. */
+const WK_ALL: Set<PropertyKey> = new Set();
+
+/** Plain-prototype check for the written-keys bound: prototype getters on
+ * class instances can derive from ANY field, so only plain-data containers
+ * may bound the notify to written keys. Overlay pbs chain to the COMMITTED
+ * object (#3044), so overlay plainness is judged on the committed proto. */
+const plainProto = (o: object): boolean => {
+  const p = Object.getPrototypeOf(o);
+  return p === Object.prototype || p === Array.prototype || p === null;
+};
+
 function notifyWrites(t: StoreNextTarget): void {
   let pb = t.pb;
   if (pb === null) return;
@@ -665,9 +694,21 @@ function notifyWrites(t: StoreNextTarget): void {
     }
   }
   const nodes = t.n;
+  // Written-keys bound: trap writes record their keys, so the notify visits
+  // O(written) nodes instead of every subscription on the record (a selection
+  // map with thousands of per-key subscribers pays two visits per select,
+  // not a full scan). Falls back to the full node scan when the bound can't
+  // hold: no trap granularity (wk null), an array length write (WK_ALL —
+  // implicit index deletes), accessors on the record (t.a — a getter node's
+  // value can change when ANY key is written), or a non-plain prototype.
+  const wk0 = t.wk;
+  const writtenKeys =
+    wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
   if (nodes !== null) {
-    for (const key of Reflect.ownKeys(nodes)) {
+    const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(nodes);
+    for (const key of keys) {
       const node = nodes[key as any];
+      if (node === undefined) continue;
       // Per-key accessor handling: the node's cached flag plus ONE getter
       // probe on the incoming side (getters arriving via merge/adoption).
       // Setter-only props read as data (value undefined) so lookupSetter is
@@ -748,6 +789,7 @@ function notifyWrites(t: StoreNextTarget): void {
   if (t.fam !== null && t.pb !== null && getWriteOverride()) {
     const oldBacking = t.v;
     t.pb = null;
+    t.wk = null; // written-keys window closes with the eager fold
     t.v = pb;
     t.ch = false;
     if (t.u && t.u.v[t.pk!] === oldBacking) {
@@ -1418,6 +1460,17 @@ const traps: ProxyHandler<StoreNextTarget> = {
     const uv = target.s ? value : unwrapValue(value);
     const pb = ensurePB(target);
     pendingNotify.add(target);
+    // Array length writes implicitly delete indices — the written-keys bound
+    // can't see them, so poison to the full scan for this batch. Index
+    // writes implicitly GROW length, so arrays always record it alongside.
+    if (Array.isArray(pb)) {
+      if (key === "length") target.wk = WK_ALL;
+      else if (target.wk !== WK_ALL) {
+        const wk = (target.wk ??= new Set());
+        wk.add(key);
+        wk.add("length");
+      }
+    } else if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
     // Own data keys literally named "prototype"/"constructor" land as data —
     // defineProperty sidesteps a proto-chain setter named the same.
     if (UNSAFE_KEYS.has(key)) {
@@ -1461,6 +1514,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };
     const pb = ensurePB(target);
     pendingNotify.add(target);
+    if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
     Object.defineProperty(pb, key, desc);
     if (target.del !== null) target.del.delete(key);
     if (override) notifyWrites(target);
@@ -1473,6 +1527,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (!draft && !override) return true;
     const pb = ensurePB(target);
     pendingNotify.add(target);
+    if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
     delete pb[key as any];
     // A prototype overlay cannot shadow a delete of a committed key —
     // record it aside (#3044); reads/has/ownKeys/commit consult the set.
