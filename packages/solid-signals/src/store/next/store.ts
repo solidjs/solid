@@ -84,6 +84,39 @@ import {
 // ---------------------------------------------------------------------------
 // wrap / dedupe
 
+/** Pre-shaped constructor for OBJECT proxy targets: V8 tips a bare `{}` into
+ * dictionary mode once ~19 named properties are assigned onto it (the #3044
+ * `ovl`/`del` fields crossed that line — every trap's field read became a
+ * hash lookup, a 15% deep-dbmon tick regression). Declaring every field in a
+ * constructor pre-allocates in-object slots so the map stays fast, with
+ * headroom for future fields. The prototype is reset to `Object.prototype`
+ * so proxy-forwarded semantics (getPrototypeOf, constructor) are exactly a
+ * plain object's. Array targets keep the bare-`[]` path — they must carry
+ * the array exotic class for `Array.isArray(proxy)`, and arrays store named
+ * fields off-object where this cliff does not apply. */
+function TargetShape(this: any) {
+  this.v = undefined;
+  this.ch = undefined;
+  this.pb = undefined;
+  this.n = undefined;
+  this.h = undefined;
+  this.k = undefined;
+  this.dk = undefined;
+  this.u = undefined;
+  this.pk = undefined;
+  this.px = undefined;
+  this.d = undefined;
+  this.a = undefined;
+  this.sc = undefined;
+  this.nc = undefined;
+  this.adopted = undefined;
+  this.fam = undefined;
+  this.s = undefined;
+  this.ovl = undefined;
+  this.del = undefined;
+}
+TargetShape.prototype = Object.prototype;
+
 function createTarget(
   value: Record<PropertyKey, any>,
   parent: StoreNextTarget | null,
@@ -95,7 +128,7 @@ function createTarget(
   // Direct field assignment in one fixed order (no Object.assign literal
   // copy): every target shares a hidden-class transition chain — createTarget
   // was the #2 store cost in the uibench creation profile.
-  const t: StoreNextTarget = (Array.isArray(value) ? [] : {}) as any;
+  const t: StoreNextTarget = (Array.isArray(value) ? [] : new (TargetShape as any)()) as any;
   t.v = value;
   // Chained-backing flag (backing IS another store's proxy, §7b) — cached so
   // the hot read path never does a per-read symbol lookup on the backing.
