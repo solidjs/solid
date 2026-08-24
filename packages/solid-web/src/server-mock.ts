@@ -244,7 +244,15 @@ export function createSSRResponse(): Response | Promise<Response> {
  * `event` defaults to the ambient `getRequestEvent()`. Application
  * middleware never calls this. Server-only.
  */
-export function commitEventResponse(response: Response, event?: RequestEvent): Response {
+export interface CommitEventResponseOptions {
+  excludeHeaders?: Iterable<string>;
+}
+
+export function commitEventResponse(
+  response: Response,
+  event?: RequestEvent,
+  options?: CommitEventResponseOptions
+): Response {
   throwInBrowser(commitEventResponse);
 }
 

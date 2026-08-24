@@ -1804,6 +1804,25 @@ describe("single-flight", () => {
     expect(seen.event.request).toBe(seen.outcome.request);
   });
 
+  it("passes the protocol adapter context to flight transforms", async () => {
+    registerServerFunction("sf-context-0", async () => "mutated");
+    let seen;
+    const response = await dispatch(flightRequest("sf-context-0"), {
+      collectFlightData: () => ({ "/notes": ["fresh"] }),
+      transformFlightResult: (event, outcome, context) => {
+        seen = context;
+      }
+    });
+
+    expect(seen.id).toBe("sf-context-0");
+    expect(seen.collectsFlight).toBe(true);
+    expect(seen.flightHeader).toBe(SINGLE_FLIGHT_HEADER);
+    expect(await decodeResponse(response)).toEqual({
+      value: "mutated",
+      data: { "/notes": ["fresh"] }
+    });
+  });
+
   it("supports async hooks and respond() envelopes", async () => {
     registerServerFunction("sf-respond-0", async () =>
       respond({ ok: true }, { revalidate: "/notes" })

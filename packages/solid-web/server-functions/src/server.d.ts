@@ -217,6 +217,17 @@ export interface ServerFunctionCSRFOptions {
   allowRequestsWithoutOriginCheck?: boolean;
 }
 
+export interface ServerFunctionTransformContext {
+  id: string;
+  args: unknown[];
+  instance: string | null;
+  request: Request;
+  thrown?: boolean;
+  collectsFlight: boolean;
+  codec?: JSONCodecOptions;
+  flightHeader: string;
+}
+
 /** Options for `configureServerFunctionsServer`. */
 export interface ServerFunctionsServerConfig {
   /**
@@ -252,13 +263,7 @@ export interface ServerFunctionsServerConfig {
   transformResult?(
     event: ServerFunctionEvent,
     result: unknown,
-    context: {
-      id: string;
-      args: unknown[];
-      instance: string | null;
-      request: Request;
-      thrown?: boolean;
-    }
+    context: ServerFunctionTransformContext
   ): unknown | ResponseEnvelope | Promise<unknown | ResponseEnvelope>;
   /**
    * `transformResult`'s counterpart for the single-flight fold: when a
@@ -272,7 +277,7 @@ export interface ServerFunctionsServerConfig {
   transformFlightResult?(
     event: ServerFunctionEvent,
     outcome: { value: unknown; data: unknown },
-    context: { id: string; args: unknown[]; instance: string | null; request: Request }
+    context: ServerFunctionTransformContext
   ): Response | undefined | Promise<Response | undefined>;
   /**
    * The in-process mirror of `transformResult` for direct (same-server)
@@ -518,13 +523,7 @@ export interface HandleServerFunctionOptions {
   transformResult?(
     event: ServerFunctionEvent,
     result: unknown,
-    context: {
-      id: string;
-      args: unknown[];
-      instance: string | null;
-      request: Request;
-      thrown?: boolean;
-    }
+    context: ServerFunctionTransformContext
   ): unknown | ResponseEnvelope | Promise<unknown | ResponseEnvelope>;
   /**
    * Overrides the configured single-flight hook for this handler — same
@@ -539,7 +538,7 @@ export interface HandleServerFunctionOptions {
   transformFlightResult?(
     event: ServerFunctionEvent,
     outcome: { value: unknown; data: unknown },
-    context: { id: string; args: unknown[]; instance: string | null; request: Request }
+    context: ServerFunctionTransformContext
   ): Response | undefined | Promise<Response | undefined>;
   /**
    * Builds the response for calls made without the client runtime (no

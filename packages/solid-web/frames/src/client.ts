@@ -57,18 +57,16 @@ import {
 import { materializeContainerTrace } from "solid-js";
 
 setContainerTraceMaterializer(materializeContainerTrace);
-// This import must resolve to the SHARED built instance, not a bundled
-// copy: configuring the server-function client only counts if it's the same
-// module the compiled reference proxies call through
-// (`@solidjs/web/server-functions` resolves to this file in the browser).
-// A private copy breaks instance identity — and, because this entry never
-// calls that copy's readers, rollup would tree-shake the whole
-// `configureServerFunctionsClient` call out of the dist as unobservable.
-// Kept external in rollup.config.js — and the transport's own wire-layer
-// imports are resolved to the same external entry there
-// (externalizeSharedTransport), so the codec/flight config its defaults
-// read is this instance by construction.
-import { configureServerFunctionsClient } from "@solidjs/web/server-functions/client";
+// Config and adapter getters must use the same client instance as compiled
+// server-function references.
+import {
+  ERROR_HEADER,
+  REVALIDATE_HEADER,
+  SINGLE_FLIGHT_HEADER,
+  configureServerFunctionsClient,
+  getFlightDataConsumer,
+  getServerFunctionsCodec
+} from "@solidjs/web/server-functions/client";
 // The seroval codec is the frames client's heaviest dependency (~6 kB gz
 // with the web plugin set) and the common frames traffic never needs it:
 // HTML chunks, scalar slot args and document records (the hydration
@@ -147,6 +145,20 @@ function tableFor(id: string) {
 function beginStream(frameId: string) {
   tables.set(frameId, undefined);
 }
+
+const flightTransport = {
+  consumer: getFlightDataConsumer,
+  codec: getServerFunctionsCodec,
+  flight: {
+    matches: (response: Response) => response.headers.has(SINGLE_FLIGHT_HEADER),
+    consumer: getFlightDataConsumer,
+    codec: getServerFunctionsCodec,
+    shouldThrow: (response: Response) =>
+      response.headers.has(ERROR_HEADER) &&
+      !response.headers.has("Location") &&
+      !response.headers.has(REVALIDATE_HEADER)
+  }
+};
 /**
  * The app-wide shared frame host (created lazily): one chunk router with
  * per-response codec data tables.
@@ -1229,12 +1241,8 @@ export function installServerComponents(host: any = getFrameHost()) {
     intercept: ({ id }: { id: string }) => {
       if (claimedBoundaries.has(id) || !findBoundaryElement(id)) return undefined;
       return g._$SC.r(id);
-    }
-    // Single-flight delivery (the transport's `consumer`/`codec` defaults)
-    // reads the server-function client's SHARED built instance: this
-    // bundle resolves the transport's wire-layer imports to that external
-    // entry (externalizeSharedTransport in rollup.config.js), so no getter
-    // overrides are needed.
+    },
+    ...flightTransport
   });
   // Which calls the document is showing: hydration references carry their
   // call's address (`_$SC.r(id, address)`), and those records — never seen

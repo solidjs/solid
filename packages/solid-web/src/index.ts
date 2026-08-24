@@ -38,6 +38,17 @@ import type { JSX } from "./jsx.js";
 export * from "./client.js";
 export * from "./server-mock.js";
 export * from "./response.js";
+export { clearFlashCookie, hasFlashCookie } from "./cookies.js";
+export {
+  getServerFunctionMetadata,
+  getServerFunctionRPC,
+  isServerFunction
+} from "./server-functions.js";
+export type {
+  ServerFunction,
+  ServerFunctionMetadata,
+  ServerFunctionRPC
+} from "./server-functions.js";
 export type { JSX } from "./jsx.js";
 export {
   For,

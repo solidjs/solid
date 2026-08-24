@@ -2,7 +2,7 @@
 "@solidjs/web": patch
 ---
 
-Add the server function runtime ABI as `@solidjs/web/server-functions` and the response helpers on the core entry.
+Add the server function runtime ABI as `@solidjs/web/server-functions` and expose its protocol metadata and response helpers from the core entry.
 
 The `server-functions` subpath resolves per environment like the main entry: the browser condition gets the fetch transport (`createServerReference(id)` producing the client callable with the `url`/`GET`/`withOptions` surface, `configureServerFunctionsClient` for the endpoint and codec), while node/worker/deno get registration (`registerServerReference`, `registerServerFunction`, `getServerFunction`), the SSR in-process callable (`createServerReference(reference)`), and the web-standard `handleServerFunctionRequest(request, options) => Response` handler with `createEvent`/`provideEvent`/`transformResult`/`handleNoJS` hooks for integrations. Compiled `"use server"` output (@solidjs/vite-plugin) targets this module as its runtime. Event scoping defaults to the AsyncLocalStorage that `@solidjs/web/storage`'s `provideRequestEvent` parks on `globalThis[RequestContext]` — now a registered symbol so the separately bundled entries agree.
 

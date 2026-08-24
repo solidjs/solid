@@ -63,14 +63,7 @@ const replaceDev = isDev =>
 // `configureServerFunctionsClient` is the (external) import that applies
 // it — both were silently tree-shaken out of beta.23/24 when the
 // server-function client was bundled as a private copy.
-// The frames client bundles the frame runtime, but the server-function WIRE
-// layer it leans on (chunk framing, intrinsic addressing, the codec/flight
-// config) must be the same instance the compiled reference proxies call
-// through. Resolving frame-transport's shared.js/response.js imports to the
-// external client entry keeps exactly one copy of that code in an app AND
-// makes the config the transport's defaults read the shared built instance
-// by construction — no getter plumbing. A name the client entry stops
-// exporting fails the build loudly (missing-export), never silently.
+// Compatibility for frame runtimes before the protocol adapter split.
 const externalizeSharedTransport = {
   name: "externalize-shared-transport",
   resolveId(source, importer) {

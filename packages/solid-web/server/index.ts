@@ -24,6 +24,17 @@ setContainerTraceResolver(getProjectionTrace);
 
 export * from "./server.js";
 export * from "../src/response.js";
+export { clearFlashCookie, hasFlashCookie } from "../src/cookies.js";
+export {
+  getServerFunctionMetadata,
+  getServerFunctionRPC,
+  isServerFunction
+} from "../src/server-functions.js";
+export type {
+  ServerFunction,
+  ServerFunctionMetadata,
+  ServerFunctionRPC
+} from "../src/server-functions.js";
 export type { JSX } from "../src/jsx.js";
 
 export {

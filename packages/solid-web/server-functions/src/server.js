@@ -1044,6 +1044,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
     request,
     collectsFlight,
     codec,
+    flightHeader: SINGLE_FLIGHT_HEADER,
     transformFlightResult
   };
 
@@ -1226,6 +1227,8 @@ export async function handleServerFunctionRequest(request, options = {}) {
       return encodeResult(safe, headers, 200, codec, request.signal);
     }
   };
-  const response = commitEventResponse(await dispatch(), event);
+  const response = commitEventResponse(await dispatch(), event, {
+    excludeHeaders: [ERROR_HEADER, BODY_FORMAT_HEADER, SINGLE_FLIGHT_HEADER]
+  });
   return protectsRequest ? withCSRFVary(response) : response;
 }
