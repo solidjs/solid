@@ -58,7 +58,17 @@ module.exports = [
     // flatten path (shared NotReady tail / probe / disposal push) measured
     // NEGATIVE under brotli — repeats compress nearly free, indirection adds
     // unique tokens — so the bytes are the feature's real cost.
-    limit: "7.45 KB",
+    //
+    // Stage-3 hot-path batch (pre-release ratchet): 7.45 -> 7.85 KB, measured
+    // at 7.70. The perf rework trades bytes for monomorphic speed on the
+    // core loop: node-shape alignment + presence bits (88a856d8), the
+    // cold-field extension split `_x` (7bde47fe, 97d7a277, ece1cc77,
+    // 46d7d325, e89a66d3), the signal-literal diet + `_transition` return
+    // (f895a3bf, 8b38e874), the staged-rewrite fast path (f1a35423), the
+    // companion-walk gate (#3038, debc22b9), and the #3042/#3043 transition
+    // fixes. Verified the prod chunks carry no dev diagnostics — this is
+    // the batch's real retained cost, accepted for its runtime wins.
+    limit: "7.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -105,7 +115,14 @@ module.exports = [
     // optimistic channel (injection table installed by createOptimisticStore;
     // plain-store graphs retain none of it) took −1.26 KB out of this
     // scenario. Locked in at the ~2% headroom convention.
-    limit: "12.2 KB",
+    //
+    // Stage-3 batch (pre-release ratchet): 12.2 -> 13.4 KB, measured at
+    // 13.16. The core bytes from the core-floor note plus the store-side
+    // O(written) work: prototype-overlay pending backings (#3044, a1b8958c),
+    // the pre-shaped target constructor (c38bc24e — #3044 fields tipped
+    // object targets into dictionary mode), and the written-keys notify
+    // bound (2888642e). All on paths createStore always retains.
+    limit: "13.4 KB",
     modifyEsbuildConfig
   },
   {
@@ -127,7 +144,12 @@ module.exports = [
     // rows reading the outer store mid-derive re-entered recompute and
     // corrupted dep bookkeeping). None shakeable — all sit on the core
     // notification/recompute loop.
-    limit: "9.3 KB",
+    //
+    // Stage-3 batch (pre-release ratchet): 9.3 -> 9.85 KB, measured at
+    // 9.67 — the core-floor batch (see that note) plus the #3042 latest()
+    // companion mid-transition backfill, which lives in the optimistic
+    // module this scenario retains via latest().
+    limit: "9.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -139,8 +161,14 @@ module.exports = [
     // (insertSubs loop `_sub` hoist); the remaining ~58 B is the latch, the
     // recompute reschedule tail, and the reentrancy guard — see the
     // isPending/latest note.
+    //
+    // Stage-3 batch (pre-release ratchet): 10.1 -> 10.55 KB, measured at
+    // 10.34. Entirely the signals-core bytes from the core-floor note —
+    // the app growth across all four app scenarios tracks the signals
+    // scenarios byte-for-byte (the linked dom-expressions runtime updates
+    // contributed ~nothing to the client bundles).
     path: "minimal-app.js",
-    limit: "10.1 KB",
+    limit: "10.55 KB",
     modifyEsbuildConfig
   },
   {
@@ -166,8 +194,11 @@ module.exports = [
     // cap). The core-floor bytes (flatten 66accfb8 + #3006 + #3009) plus
     // ~10 B from lazy()'s { export } option (#3011: the exportName pick in
     // load/hydration-lookup).
+    //
+    // Stage-3 batch (pre-release ratchet): 16.7 -> 17.25 KB, measured at
+    // 16.92 — the signals-core bytes (see the core-floor note).
     path: "hydrating-app.js",
-    limit: "16.7 KB",
+    limit: "17.25 KB",
     modifyEsbuildConfig
   },
   {
@@ -189,8 +220,12 @@ module.exports = [
     // scenario imports every store family, so it keeps the optimistic
     // channel and pays the injection seam; the −470 B is the legacy
     // deletion net of the rewrite). ~2% headroom.
+    //
+    // Stage-3 batch (pre-release ratchet): 23.3 -> 24.65 KB, measured at
+    // 24.19 — the signals-core bytes plus the store-side #3044/written-keys
+    // work (see the createStore note; this scenario retains all of it).
     path: "hydrating-store-app.js",
-    limit: "23.3 KB",
+    limit: "24.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -205,8 +240,11 @@ module.exports = [
     // every async-capable bundle), #3006 (~+40 B), #3009 + lazy { export }
     // (#3011) ~+15 B combined. See the core-floor note for why the flatten
     // bytes don't dedupe away under brotli.
+    //
+    // Stage-3 batch (pre-release ratchet): 12.3 -> 12.8 KB, measured at
+    // 12.53 — the signals-core bytes (see the core-floor note).
     path: "csr-app.js",
-    limit: "12.3 KB",
+    limit: "12.8 KB",
     modifyEsbuildConfig
   },
   {
