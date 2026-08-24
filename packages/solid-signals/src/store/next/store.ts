@@ -449,6 +449,17 @@ export function adoptPB(
     target.adopted = true;
   }
   target.pb = null;
+  // Overlay and accessor-scan state describe the OUTGOING backing — a
+  // swapped container must not inherit them: a stale `ovl` beside a nulled
+  // pb crashes materializePB (unwrapValue consults ovl before the
+  // null-coalesce), a stale `del` would read the adoptee's keys as deleted
+  // in the next draft, and a stale plain-data verdict (`sc`/`a`) could
+  // admit an accessor-bearing adoptee to the overlay path. Reset; the next
+  // draft rescans once (#3044 audit follow-up).
+  target.ovl = false;
+  target.del = null;
+  target.sc = false;
+  target.a = false;
   target.v = incoming;
   target.ch = (incoming as any)[$TARGET] !== undefined;
   (target.fam?.map ?? storeNextLookup).set(incoming, target);
