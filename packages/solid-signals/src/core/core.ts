@@ -383,7 +383,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // A committed derived change becomes a cause for this node's subscribers,
     // chaining their attribution through this node to the root write.
     if (__DEV__ && attrHooks !== null) {
-      devChanged = valueChanged && !el._error;
+      devChanged = valueChanged && !el._x?._error;
       if (devChanged && !isEffect && !create) attrHooks.derivedChanged(el);
     }
 
