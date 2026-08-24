@@ -115,6 +115,8 @@ function createTarget(
   t.adopted = false;
   t.fam = fam;
   t.s = false;
+  t.ovl = false;
+  t.del = null;
   t.px = new Proxy(t, traps);
   // Legacy interop: shared machinery (affects walks, wrap dedupe) reads the
   // proxy off looked-up targets as a field.
@@ -149,7 +151,13 @@ export function wrapNext<T extends Record<PropertyKey, any>>(
 export function unwrapValue(v: any): any {
   if (v == null || typeof v !== "object") return v;
   const t: StoreNextTarget | undefined = v[$TARGET];
-  if (t !== undefined && t.px === v && t.v !== undefined) return t.pb ?? t.v;
+  if (t !== undefined && t.px === v && t.v !== undefined) {
+    // A draft escaping into other storage must be a REAL container that
+    // becomes this target's committed backing at fold (the shared-raw
+    // contract) — a prototype overlay is neither.
+    if (t.ovl) materializePB(t);
+    return t.pb ?? t.v;
+  }
   return v;
 }
 
@@ -332,10 +340,64 @@ function cloneRaw(source: Record<PropertyKey, any>, t?: StoreNextTarget): Record
     : Object.create(Object.getPrototypeOf(source), descs);
 }
 
+/** One-time own-accessor scan (Annex-B probes, no descriptor allocation);
+ * returns true when the container is plain data (overlay-safe). */
+function scanAccessorsOnce(target: StoreNextTarget): boolean {
+  const src = target.v;
+  for (const key of Reflect.ownKeys(src)) {
+    // Own keys shadow prototype accessors, so the lookups are exact here.
+    if (lookupGetter.call(src, key) !== undefined || lookupSetter.call(src, key) !== undefined) {
+      target.a = true;
+      break;
+    }
+  }
+  target.sc = true;
+  return !target.a;
+}
+
+/** Downgrade a prototype-overlay pending backing to the clone path: builds
+ * the real container (committed + overlay writes − deletes) that fold will
+ * SWAP in as the committed backing, exactly as if the draft had started on
+ * the clone path. Consumers that need a complete container (reconcile's
+ * diff walks, drafts escaping into other storage) call this. */
+export function materializePB(target: StoreNextTarget): void {
+  if (!target.ovl) return;
+  const proto = target.pb!;
+  const clone = cloneRaw(target.v, target);
+  for (const key of Reflect.ownKeys(proto)) {
+    const d = Object.getOwnPropertyDescriptor(proto, key)!;
+    if (d.get || d.set || !d.enumerable || !d.writable || !d.configurable)
+      Object.defineProperty(clone, key, d);
+    else (clone as any)[key] = d.value;
+  }
+  if (target.del !== null) {
+    for (const key of target.del) delete (clone as any)[key];
+    target.del = null;
+  }
+  const map = target.fam?.map ?? storeNextLookup;
+  map.delete(proto);
+  ownedRaw.add(clone);
+  map.set(clone, target);
+  target.pb = clone;
+  target.ovl = false;
+}
+
 function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
   let pb = target.pb;
   if (pb === null) {
-    pb = target.pb = cloneRaw(target.v, target);
+    // Prototype-chain overlay (#3044): plain-data non-array containers
+    // outside projection/optimistic families open drafts in O(1) — own keys
+    // are the writes, reads fall through to committed. Everything else
+    // (arrays: splice/length semantics; families: seeding/revert machinery;
+    // accessor containers: live getters) keeps the descriptor clone.
+    if (
+      target.fam === null &&
+      !Array.isArray(target.v) &&
+      (target.sc ? !target.a : scanAccessorsOnce(target))
+    ) {
+      pb = target.pb = Object.create(target.v) as Record<PropertyKey, any>;
+      target.ovl = true;
+    } else pb = target.pb = cloneRaw(target.v, target);
     // Optimistic families: seed USER drafts from the OPTIMISTIC VIEW
     // (committed + active node overrides), so follow-up writes compose on
     // optimism instead of clobbering from base (#2951's compose half).
@@ -446,9 +508,34 @@ function drainFolds(): void {
         foldOlds.set(t, old); // re-queue: commit happens when the hold settles
         continue;
       }
-      t.v = pb;
-      t.ch = false; // pb is always a plain clone
-      t.pb = null;
+      if (t.ovl) {
+        // Overlay flatten (#3044): apply this batch's writes onto an OWNED
+        // committed backing in place — O(written), not O(container). The
+        // backing keeps its identity, so the `t.v === old` gate below skips
+        // path copying (the parent slot already points here) and the
+        // adopted-notify (setter notifications happened at write time).
+        // Unowned backings privatize first (clone once, parents re-slotted)
+        // — the never-mutate-user-data contract holds.
+        privatizeCommitted(t);
+        const v = t.v;
+        for (const key of Reflect.ownKeys(pb)) {
+          const d = Object.getOwnPropertyDescriptor(pb, key)!;
+          if (d.get || d.set || !d.enumerable || !d.writable || !d.configurable)
+            Object.defineProperty(v, key, d);
+          else (v as any)[key] = d.value;
+        }
+        if (t.del !== null) {
+          for (const key of t.del) delete (v as any)[key];
+          t.del = null;
+        }
+        (t.fam?.map ?? storeNextLookup).delete(pb);
+        t.pb = null;
+        t.ovl = false;
+      } else {
+        t.v = pb;
+        t.ch = false; // pb is always a plain clone
+        t.pb = null;
+      }
     }
     if (t.v === old) continue; // adopted then re-adopted back, or no-op
     // Path copying (CAS: see the eager-fold twin above).
@@ -473,7 +560,7 @@ function drainFolds(): void {
  * pending backing and fold directly at commit.
  */
 function notifyWrites(t: StoreNextTarget): void {
-  const pb = t.pb;
+  let pb = t.pb;
   if (pb === null) return;
   // Optimistic channel: user writes on an optimistic family become node-level
   // engine writes (armed nodes route setSignal through optimisticWrite) — the
@@ -503,8 +590,11 @@ function notifyWrites(t: StoreNextTarget): void {
   }
   const old = t.v;
   // Devtools mutation hook: full-key diff (dev-only cost) so unobserved
-  // writes report too, matching the legacy set-trap hook.
+  // writes report too, matching the legacy set-trap hook. Overlay backings
+  // materialize first so the diff walks a real container.
   if (__DEV__ && DEV.hooks.onStoreNodeUpdate) {
+    if (t.ovl) materializePB(t);
+    pb = t.pb!;
     for (const key of Reflect.ownKeys(pb)) {
       if (Array.isArray(pb) && key === "length") continue;
       const ov = old[key as any];
@@ -543,31 +633,48 @@ function notifyWrites(t: StoreNextTarget): void {
       // projection recompute can run before the prior fold commits) — the
       // node's OWN current value is the true old side, and setSignal's
       // internal equality already checks exactly that.
-      const nv = pb[key as any];
+      const nv = t.del !== null && t.del.has(key) ? undefined : pb[key as any];
       setSignal(node, () => nv);
     }
   }
   const has = t.h;
   if (has !== null) {
-    for (const key of Reflect.ownKeys(has)) setSignal(has[key as any], key in pb);
+    for (const key of Reflect.ownKeys(has))
+      setSignal(has[key as any], key in pb && !(t.del !== null && t.del.has(key)));
   }
   // Deep-witness (dk): setter writes must notify a deep() subscriber even on
   // keys with no node. O(pb keys) equality only when a witness exists.
   if (t.dk !== null) {
-    for (const key of Reflect.ownKeys(pb)) {
-      const nv = pb[key as any];
-      const ov = old[key as any];
-      if (nv !== null && typeof nv === "object" ? !targetsEqual(ov, nv) : !isEqual(ov, nv)) {
-        bumpDeep(t);
-        break;
+    if (t.del !== null && t.del.size !== 0) bumpDeep(t);
+    else
+      for (const key of Reflect.ownKeys(pb)) {
+        const nv = pb[key as any];
+        const ov = old[key as any];
+        if (nv !== null && typeof nv === "object" ? !targetsEqual(ov, nv) : !isEqual(ov, nv)) {
+          bumpDeep(t);
+          break;
+        }
       }
-    }
   }
   if (t.k !== null) {
-    const changed =
-      Array.isArray(pb) && Array.isArray(old)
-        ? arrayStructureChanged(old as any[], pb as any[])
-        : membershipChanged(old, pb);
+    let changed: boolean;
+    if (t.ovl) {
+      // Overlay membership: only NEW own keys or deletes can change it.
+      changed = t.del !== null && t.del.size !== 0;
+      if (!changed) {
+        for (const key of Reflect.ownKeys(pb)) {
+          if (!hasOwn.call(old, key)) {
+            changed = true;
+            break;
+          }
+        }
+      }
+    } else {
+      changed =
+        Array.isArray(pb) && Array.isArray(old)
+          ? arrayStructureChanged(old as any[], pb as any[])
+          : membershipChanged(old, pb);
+    }
     if (changed) setSignal(t.k, v => v + 1);
   }
   // Projection backing folds split by channel (two pinned contracts):
@@ -1023,6 +1130,12 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
     if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
     const src = readSource(target);
+    // Overlay delete (#3044): a prototype overlay cannot shadow a delete, so
+    // deleted keys are tracked aside and read as absent in the pending view.
+    if (target.del !== null && src === target.pb && target.del.has(key)) {
+      if (!inDraft(target) && getObserver() !== null) readNode(getNode(target, key, undefined));
+      return undefined;
+    }
     // Hot inline case: existing PLAIN node (non-accessor), unchained backing,
     // tracked read of a present data key — the dbmon/uibench effect re-read
     // shape. Skips serveDataKey's frame, the FORCE compare (only accessor
@@ -1092,14 +1205,21 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // Plain-data fast path: no descriptor allocation per read.
     // Inherited pollution keys are never served (core R30) — checked before
     // the proto-function branch can leak `constructor`. Interned-string
-    // compares beat a Set hash on this per-read path.
+    // compares beat a Set hash on this per-read path. Overlay pending
+    // backings chain to the committed backing, so "own in the view" means
+    // own on either layer (ownInView) — a genuine prototype method is one
+    // that is own on NEITHER.
+    const viewOvl = target.ovl && src === target.pb;
     if (
       (key === "constructor" || key === "__proto__" || key === "prototype") &&
-      !hasOwn.call(src, key)
+      !hasOwn.call(src, key) &&
+      !(viewOvl && hasOwn.call(target.v, key))
     )
       return undefined;
     let v = (src as any)[key];
-    if (v === undefined ? !hasOwn.call(src, key) : false) {
+    if (
+      v === undefined ? !hasOwn.call(src, key) && !(viewOvl && hasOwn.call(target.v, key)) : false
+    ) {
       // Inherited: prototype getters/methods run with the proxy receiver.
       v = Reflect.get(src, key, receiver);
       if (typeof v === "function") return v; // proto methods untracked
@@ -1120,7 +1240,12 @@ const traps: ProxyHandler<StoreNextTarget> = {
       if (target.s) return serveShallow(target, key, v);
       return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;
     }
-    if (typeof v === "function" && !hasOwn.call(src, key)) return v; // proto method
+    if (
+      typeof v === "function" &&
+      !hasOwn.call(src, key) &&
+      !(viewOvl && hasOwn.call(target.v, key))
+    )
+      return v; // proto method
     return serveDataKey(target, key, v, src, node0);
   },
 
@@ -1130,6 +1255,8 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
     const src = readSource(target);
     let present = key in src;
+    // Overlay deletes read as absent in the pending view (#3044).
+    if (present && target.del !== null && src === target.pb && target.del.has(key)) present = false;
     if (!inDraft(target)) {
       if (getObserver() !== null) {
         const node = getHasNode(target, key, present);
@@ -1152,7 +1279,18 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (pendingCheckActive) witnessAffectsMark(target as any);
     if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
     if (!inDraft(target) && getObserver() !== null) readNode(getKeySetNode(target));
-    const keys = Reflect.ownKeys(readSource(target));
+    const src = readSource(target);
+    let keys: (string | symbol)[];
+    if (target.ovl && src === target.pb) {
+      // Overlay merge (#3044): committed keys in their order, then this
+      // batch's NEW keys, minus deletes.
+      keys = Reflect.ownKeys(target.v);
+      const del = target.del;
+      if (del !== null && del.size !== 0) keys = keys.filter(key => !del.has(key));
+      for (const key of Reflect.ownKeys(src)) {
+        if (!hasOwn.call(target.v, key)) keys.push(key);
+      }
+    } else keys = Reflect.ownKeys(src);
     // Optimistic membership overlay: presence-node overrides add/remove keys
     // (per-transaction lifecycle rides the nodes — §6, FINDING-2's fix).
     // Draft reads before the first write overlay too (pb, once created, is
@@ -1172,7 +1310,14 @@ const traps: ProxyHandler<StoreNextTarget> = {
   },
 
   getOwnPropertyDescriptor(target, key) {
-    const desc = Object.getOwnPropertyDescriptor(readSource(target), key);
+    const srcD = readSource(target);
+    let desc = Object.getOwnPropertyDescriptor(srcD, key);
+    // Overlay (#3044): unwritten keys live on the committed backing;
+    // deleted keys are absent from the pending view.
+    if (target.ovl && srcD === target.pb) {
+      if (target.del !== null && target.del.has(key)) return undefined;
+      if (desc === undefined) desc = Object.getOwnPropertyDescriptor(target.v, key);
+    }
     if (target.fam?.opt && !inDraft(target)) {
       const node = target.h?.[key as any];
       if (node !== undefined && hasActiveOverride(node)) {
@@ -1204,24 +1349,39 @@ const traps: ProxyHandler<StoreNextTarget> = {
     const override = !draft && getWriteOverride();
     if (!draft && !override) return true;
     if (key === "__proto__") return true; // pollution guard (core R30)
+    // Unwrap BEFORE ensurePB: unwrapValue materializes a self-referencing
+    // draft's overlay (replacing target.pb), so a pb local captured earlier
+    // would be the abandoned overlay and the write would vanish.
+    // Shallow slots store what was written VERBATIM — another store's proxy
+    // passes through by reference (#2932; markRawOne skips proxies), while
+    // deep stores unwrap to raw backings.
+    const uv = target.s ? value : unwrapValue(value);
     const pb = ensurePB(target);
     pendingNotify.add(target);
     // Own data keys literally named "prototype"/"constructor" land as data —
     // defineProperty sidesteps a proto-chain setter named the same.
     if (UNSAFE_KEYS.has(key)) {
       Object.defineProperty(pb, key, {
-        value: unwrapValue(value),
+        value: uv,
         writable: true,
         enumerable: true,
         configurable: true
       });
+      if (target.del !== null) target.del.delete(key);
       return true;
     }
-    // Shallow slots store what was written VERBATIM — another store's proxy
-    // passes through by reference (#2932; markRawOne skips proxies), while
-    // deep stores unwrap to raw backings.
-    const uv = target.s ? value : unwrapValue(value);
-    pb[key as any] = uv;
+    // Overlay first-write DEFINES the own key: assignment through the proto
+    // chain would reject on a non-writable committed property (the clone
+    // path normalized descriptors for exactly this — R51 parity).
+    if (target.ovl && !hasOwn.call(pb, key)) {
+      Object.defineProperty(pb, key, {
+        value: uv,
+        writable: true,
+        enumerable: true,
+        configurable: true
+      });
+    } else pb[key as any] = uv;
+    if (target.del !== null) target.del.delete(key);
     // Shallow ingest: written records are sticky raw-marked (one entity is
     // never both deep-wrapped and raw — R41/#2932, shared invariant).
     if (target.s && uv !== null && typeof uv === "object") markRawOne(uv);
@@ -1237,10 +1397,12 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (!draft && !override) return true;
     if (key === "__proto__") return true;
     if (desc.get || desc.set) target.a = true;
+    // Unwrap before ensurePB (see the set trap: self-reference materializes).
+    if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };
     const pb = ensurePB(target);
     pendingNotify.add(target);
-    if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };
     Object.defineProperty(pb, key, desc);
+    if (target.del !== null) target.del.delete(key);
     if (override) notifyWrites(target);
     return true;
   },
@@ -1252,6 +1414,9 @@ const traps: ProxyHandler<StoreNextTarget> = {
     const pb = ensurePB(target);
     pendingNotify.add(target);
     delete pb[key as any];
+    // A prototype overlay cannot shadow a delete of a committed key —
+    // record it aside (#3044); reads/has/ownKeys/commit consult the set.
+    if (target.ovl && hasOwn.call(target.v, key)) (target.del ??= new Set()).add(key);
     if (override) notifyWrites(target);
     return true;
   }
@@ -1424,6 +1589,9 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreNextFamily |
     if (t === undefined) break;
     if (t.fam !== null) fam = t.fam;
     if (t.fam?.opt === true) (optOwners ??= []).push(t);
+    // Snapshot runs mid-flush (tracked memos execute before commit), so a
+    // pending prototype overlay must present as a REAL merged container.
+    if (t.ovl) materializePB(t);
     const backing = t.pb ?? t.v;
     if (backing === src) break;
     src = backing;

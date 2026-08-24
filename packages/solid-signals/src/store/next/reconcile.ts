@@ -28,6 +28,7 @@ import {
   rawValuesUsed
 } from "../store.js";
 import {
+  materializePB,
   adoptPB,
   hasAccessorFlag,
   notifyFold,
@@ -60,6 +61,10 @@ export function reconcileNextState(
   const t: StoreNextTarget | undefined = state?.[$TARGET];
   if (t === undefined || t.px !== state)
     throw new Error(__DEV__ ? "reconcile target is not a store proxy" : "");
+  // Reconcile's diff walks need a REAL pending container — a prototype
+  // overlay (#3044) materializes to the clone path first (edge: reconcile
+  // inside a setter that already wrote this target).
+  if (t.ovl) materializePB(t);
   let keyFn: KeyFn | null =
     key === null ? null : typeof key === "string" ? (item: any) => item?.[key] : (key as KeyFn);
   // §7b chained backing: a projection derive returning a LIVE store proxy

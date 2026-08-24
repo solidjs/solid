@@ -70,6 +70,17 @@ export interface StoreNextTarget {
   sc: boolean;
   /** Backing was swapped by adoption this batch (fold diff-notifies it). */
   adopted: boolean;
+  /** Pending backing is a prototype-chain OVERLAY of the committed backing
+   * (`Object.create(v)` — own keys are this batch's writes, everything else
+   * reads through). O(written) per flush instead of O(container) clones
+   * (#3044); commit flattens own keys onto an owned committed backing in
+   * place. Only plain-data non-array non-family containers qualify;
+   * `materializePB` downgrades to the clone path when a consumer needs a
+   * real container (reconcile, draft escape). */
+  ovl: boolean;
+  /** Keys deleted in the overlay window (a prototype overlay cannot shadow
+   * a delete); null when none. */
+  del: Set<PropertyKey> | null;
   /** Projection family, null for plain stores (§7b). */
   fam: StoreNextFamily | null;
   /** Shallow store root (values served raw). */
