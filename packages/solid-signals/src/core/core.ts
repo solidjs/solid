@@ -1031,7 +1031,17 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         if (!tracking && el !== c) link(el, c as Computed<any>);
         throw owner._x?._error;
       }
-    } else if (c && owner !== el && owner._statusFlags & STATUS_UNINITIALIZED) {
+    } else if (c && owner._statusFlags & STATUS_UNINITIALIZED) {
+      // A stale (render) reader of a node held pending in ANOTHER transition
+      // normally keeps showing the node's committed value instead of
+      // entangling the two transactions — but an uninitialized node has no
+      // committed value to show. Suspend on it (firewall-backed store reads
+      // always took this branch; plain memos now do too): the reader
+      // registers as a reporter of that source, and its pending-node stamp
+      // ties it to the active transaction, so the two transactions merge
+      // when the source settles. Falling through served `undefined` as if
+      // settled and stranded the reader outside both transactions, so it
+      // never re-ran when either landed (#3043 port).
       if (!tracking && el !== c) link(el, c as Computed<any>);
       throw owner._x?._error;
     } else if (!c && owner._statusFlags & STATUS_UNINITIALIZED) {
