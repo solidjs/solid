@@ -804,3 +804,23 @@ holds the capture tooling: profile-tax.sh + summarize-profiles.mjs).
   ownership machinery per node), which is rewrite-scale and interacts with
   the TSRX/codegen conversation. Per-flush constants are within ~2x of
   floor for the write-only diagnostic; real apps don't flush per write.
+
+### 3d. Oxc port — the tier reaches the default toolchain (2026-08-23, late)
+
+Ryan's correction reframed §3c's completion: the RUST compiler is the 2.0
+default in vite-plugin-solid; octane pins the Babel-based plugin. Every
+benchmarked win therefore shipped through the NON-default path — the
+audit's "benchmark-shaped" charge in deployment form. dom-expressions
+76d4a2c1 ports the full PR-C/§3c surface to Oxc: eligibility analyzer +
+subject substitution (shared/patch.rs), patch-body emission, row proofs
+with the wrap_pure_row visitor hook, param declarations + a program-wide
+reassignment scan approximating Babel's binding.constant. The Babel plugin
+aligned its patch-body locals to the fixed _n$/_p$/_f$/_v$ convention so
+both compilers emit BYTE-IDENTICAL output, and the parity harness's
+`patchDriver: false` carve-out is deleted — patch mode paritied like any
+shared feature (3748 compiler tests incl. option-matrix; babel 150). The
+Oxc compiler stamps octane's dbmon row identically to Babel, so runtime
+behavior carries transitively from the benchmarked path. Known v1 gap:
+Oxc stamps expression-bodied row functions only (its flat statement
+inlining makes return-only blocks a different shape); Babel also covers
+return-only blocks.
