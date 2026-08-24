@@ -64,6 +64,10 @@
     "test": {
       "outputs": []
     },
+    "@solidjs/signals#test": {
+      "dependsOn": ["@solidjs/signals#build"],
+      "outputs": []
+    },
     "solid-js#test": {
       "dependsOn": ["@solidjs/signals#build"],
       "outputs": []

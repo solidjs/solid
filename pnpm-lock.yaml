@@ -6,13 +6,10 @@ settings:
 
 overrides:
   babel-preset-solid: workspace:*
-  '@dom-expressions/babel-plugin-jsx': link:../dom-expressions-dr2/packages/babel-plugin-jsx
-  '@dom-expressions/runtime': link:../dom-expressions-dr2/packages/runtime
-  '@dom-expressions/hyperscript': link:../dom-expressions-dr2/packages/hyperscript
-  '@dom-expressions/tagged-jsx': link:../dom-expressions-dr2/packages/tagged-jsx
   '@solidjs/signals': workspace:*
   solid-js: workspace:*
   '@solidjs/web': workspace:*
+  '@dom-expressions/compiler': 0.50.0-next.44
 
 importers:
 
@@ -34,17 +31,17 @@ importers:
         specifier: ^2.25.2
         version: 2.29.8(@types/node@25.6.0)
       '@dom-expressions/babel-plugin-jsx':
-        specifier: link:../dom-expressions-dr2/packages/babel-plugin-jsx
-        version: link:../dom-expressions-dr2/packages/babel-plugin-jsx
+        specifier: 0.50.0-next.44
+        version: 0.50.0-next.44(@babel/core@7.29.0)
       '@dom-expressions/hyperscript':
-        specifier: link:../dom-expressions-dr2/packages/hyperscript
-        version: link:../dom-expressions-dr2/packages/hyperscript
+        specifier: 0.50.0-next.44
+        version: 0.50.0-next.44
       '@dom-expressions/runtime':
-        specifier: link:../dom-expressions-dr2/packages/runtime
-        version: link:../dom-expressions-dr2/packages/runtime
+        specifier: 0.50.0-next.44
+        version: 0.50.0-next.44(csstype@3.2.3)(seroval-plugins@1.5.5(seroval@1.5.5))(seroval@1.5.5)
       '@dom-expressions/tagged-jsx':
-        specifier: link:../dom-expressions-dr2/packages/tagged-jsx
-        version: link:../dom-expressions-dr2/packages/tagged-jsx
+        specifier: 0.50.0-next.44
+        version: 0.50.0-next.44
       '@rollup/plugin-babel':
         specifier: ^6.0.3
         version: 6.0.3(@babel/core@7.29.0)(@types/babel__core@7.20.5)(rollup@4.59.0)
@@ -314,8 +311,8 @@ importers:
         specifier: ^7.0.0
         version: 7.29.0
       '@dom-expressions/babel-plugin-jsx':
-        specifier: link:../../../dom-expressions-dr2/packages/babel-plugin-jsx
-        version: link:../../../dom-expressions-dr2/packages/babel-plugin-jsx
+        specifier: 0.50.0-next.44
+        version: 0.50.0-next.44(@babel/core@7.29.0)
       solid-js:
         specifier: workspace:*
         version: link:../solid
@@ -527,6 +524,10 @@ packages:
 
   '@babel/helper-member-expression-to-functions@7.28.5':
     resolution: {integrity: sha512-cwM7SBRZcPCLgl8a7cY0soT1SptSzAlMH39vwiRpOQkJlh53r5hdHwLSCZpQdVLT39sZt+CRpNwYG4Y2v77atg==}
+    engines: {node: '>=6.9.0'}
+
+  '@babel/helper-module-imports@7.18.6':
+    resolution: {integrity: sha512-0NFvs3VkuSYbFi1x2Vd6tKrywq+z/cLeYC/RJNFrIX/30Bf5aiGYbtvGXolEktzJH8o5E5KJ3tT+nkxuuZFVlA==}
     engines: {node: '>=6.9.0'}
 
   '@babel/helper-module-imports@7.28.6':
@@ -1096,39 +1097,58 @@ packages:
     resolution: {integrity: sha512-Vd/9EVDiu6PPJt9yAh6roZP6El1xHrdvIVGjyBsHR0RYwNHgL7FJPyIIW4fANJNG6FtyZfvlRPpFI4ZM/lubvw==}
     engines: {node: '>=18'}
 
-  '@dom-expressions/compiler-darwin-arm64@0.50.0-next.43':
-    resolution: {integrity: sha512-aVkvvRtEyHPbtZMZe4DHhFzPzQ4qHO9uGXyPDiddBXfjZgkCqejpcJ18t0emJIpIPpproHFdr+9VyLOKs9ENNw==}
+  '@dom-expressions/babel-plugin-jsx@0.50.0-next.44':
+    resolution: {integrity: sha512-f1kx6TeMQgaLVkGfuxMn0BkH0+HvsycFf1qPHbYoBqmBQd6Ag/EXOxkSpfcaC+UOBMSaF4BKXegGDchRNTWKrg==}
+    peerDependencies:
+      '@babel/core': ^7.20.12
+
+  '@dom-expressions/compiler-darwin-arm64@0.50.0-next.44':
+    resolution: {integrity: sha512-7l575p7EQu16lssfbtgspSBWBSK5+car5NP4VYD/iJiK+Qd2VcMQMwaOjgA1xCs/P0S0l9EFY9BHGIJcHQTL+w==}
     cpu: [arm64]
     os: [darwin]
 
-  '@dom-expressions/compiler-darwin-x64@0.50.0-next.43':
-    resolution: {integrity: sha512-zJXhjsSydgZbu0pCfD5/FH5UYH7t6Vy8dKD9AVTokE3LFQgLIVrssX2WwN60jh5+OW9okbJBGZXiZ4/2sqb9OA==}
+  '@dom-expressions/compiler-darwin-x64@0.50.0-next.44':
+    resolution: {integrity: sha512-NRbfI3HhBPsSrSQvSUfQXvPXfEKjUQKnbBVCDvcu7ISBPMQd+0yH9M+Qmlf7kVq4Ci9qa1HL5EA2jD22d2v73A==}
     cpu: [x64]
     os: [darwin]
 
-  '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.43':
-    resolution: {integrity: sha512-ZEjWL59aAj39C7TANYvtzW5rmeH/kfzZIWoZ3Wf/MSiXm8Ermadx76hX0yMMqLdxy0ec69lRYF4gXC7X2k6LMw==}
+  '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.44':
+    resolution: {integrity: sha512-/Gfa8j/YHBKK1i8b2VQw3ewBlA6qlEZSAn+b7g3z1g18WydPUI/TZWISKpgNxAtyl9m9MvwgbWA1HcHVkf4zyg==}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@dom-expressions/compiler-linux-x64-gnu@0.50.0-next.43':
-    resolution: {integrity: sha512-ur/VTzMqAkJq45GHSGlk4uq0I/92Zow5mPcovh+Lg2bnyNrPXMNM9kXrIqio2jUgSyRT4y2QbeI9Us30IeZI6g==}
+  '@dom-expressions/compiler-linux-x64-gnu@0.50.0-next.44':
+    resolution: {integrity: sha512-gV4J4Sr1+6Awnkl5npREqPvxcDfgw4PGguTdFnsHVN9cxAFet3ujcCbWsAJ+QMBUQ8OT/LG6d4oJLlAkQ0D1fA==}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.43':
-    resolution: {integrity: sha512-X+0Rz1fm7Z1S3ONFwg+NJ8edf2MWUrxOrP50hM2x4PkIe2ST0WzqHbkH4yIXjqttF0R1NErh+ac3q4WGF4wWBg==}
+  '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.44':
+    resolution: {integrity: sha512-YrzoB/YZtrmnGXhz3sxs7VeuAXT0JRc6NguNX8iDNt5p5fQ0QX+HR75GYMsxY9FceSVTHObrm3fA/8KGYo5z6Q==}
     engines: {node: '>=14.0.0'}
 
-  '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.43':
-    resolution: {integrity: sha512-hQlqtiYVst4rNKAWtC9cwfuP95L8Dw+PR5Zwp6AA92vsMgQlJ7+QaJoQAxuKkEUtl212VnW06SJKzx00pSkv8g==}
+  '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.44':
+    resolution: {integrity: sha512-BNQEgny4zyjceZqCaRJDCrQ2oy6z7oXruAE/du2uJB7qLz/z24ISJVUKeKHPb5mRzHuSiTlDcK7pDzE7jPPXjg==}
     cpu: [x64]
     os: [win32]
 
-  '@dom-expressions/compiler@0.50.0-next.43':
-    resolution: {integrity: sha512-ekEuAFLb868iGu6bw8KA2wgD3gYJpYYTjSbOtuXGlCZnWFA6Wx8Qf720ZYNlb40QjGe3/2kUHTtn47JfaCwPcA==}
+  '@dom-expressions/compiler@0.50.0-next.44':
+    resolution: {integrity: sha512-CBj0k+LcpCk8+nJGY7uvqxLC5NLxXTx9l0fuMZBBkBAOgVf5/IlMyMSpaYE5H5AkFiajR05NYvNR07R6e0KZ3w==}
+
+  '@dom-expressions/hyperscript@0.50.0-next.44':
+    resolution: {integrity: sha512-v3r6pokZC2zh3buzlGLeHxTFR4untQovhOej0d+mLwKTWTAgQTQweSodvs5yiqF0RKQkrtrVXUtcc9mLt5KU4g==}
+
+  '@dom-expressions/runtime@0.50.0-next.44':
+    resolution: {integrity: sha512-zw+cWwa4Yk5vut+8wWAnlIUulbOm1U2i/QmPpJ5NJSgY/nPHX/ToM2ISMREikyUIMRYqDmf8Me0YglQpkrggrA==}
+    hasBin: true
+    peerDependencies:
+      csstype: ^3.0
+      seroval: ~1.5.4
+      seroval-plugins: ~1.5.4
+
+  '@dom-expressions/tagged-jsx@0.50.0-next.44':
+    resolution: {integrity: sha512-gOyQdWPtw+h/K4Evd9qyRrR9EYi7HdjZ8tw0qGzmvD2Od+UZwNYlOOGMhEa6qZTUNVqgKPOGJfv5Jp90as7l+Q==}
 
   '@emnapi/core@1.11.1':
     resolution: {integrity: sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ==}
@@ -2380,6 +2400,9 @@ packages:
     resolution: {integrity: sha512-Y22oTqIU4uuPgEemfz7NDJz6OeKf12Lsu+QC+s3BVpda64lTiMYCyGwg5ki4vFxkMwQdeZDl2adZoqUgdFuTgQ==}
     engines: {node: '>=18'}
 
+  html-entities@2.3.3:
+    resolution: {integrity: sha512-DV5Ln36z34NNTDgnz0EWGBLZENelNAtkiFA4kyNOG2tDI6Mz1uSWiq1wAKdyjnJwyDiDO7Fa2SO1CTxPXL8VxA==}
+
   html-escaper@2.0.2:
     resolution: {integrity: sha512-H2iMtd0I4Mt5eYiapRdIDjp+XzelXQ0tFE4JS7YFwFevXXMmOp9myNrUvCg0D6ws8iqkRPBfKHgbwig1SmlLfg==}
 
@@ -3478,6 +3501,9 @@ packages:
     deprecated: Please upgrade  to version 7 or higher.  Older versions may use Math.random() in certain circumstances, which is known to be problematic.  See https://v8.dev/blog/math-random for details.
     hasBin: true
 
+  validate-html-nesting@1.2.4:
+    resolution: {integrity: sha512-doQi7e8EJ2OWneSG1aZpJluS6A49aZM0+EICXWKm1i6WvqTLmq0tpUcImc4KTWG50mORO0C4YDBtOCSYvElftw==}
+
   verror@1.10.0:
     resolution: {integrity: sha512-ZZKSmDAEFOijERBLkmYfJ+vmk3w+7hOLYDNkRCuRuMJGEmqYNCNLyBBFwWKVMhfwaEF3WOd0Zlw86U/WC/+nYw==}
     engines: {'0': node >=0.6.0}
@@ -3808,6 +3834,10 @@ snapshots:
       '@babel/types': 7.29.0
     transitivePeerDependencies:
       - supports-color
+
+  '@babel/helper-module-imports@7.18.6':
+    dependencies:
+      '@babel/types': 7.29.0
 
   '@babel/helper-module-imports@7.28.6':
     dependencies:
@@ -4600,36 +4630,57 @@ snapshots:
 
   '@csstools/css-tokenizer@3.0.4': {}
 
-  '@dom-expressions/compiler-darwin-arm64@0.50.0-next.43':
+  '@dom-expressions/babel-plugin-jsx@0.50.0-next.44(@babel/core@7.29.0)':
+    dependencies:
+      '@babel/core': 7.29.0
+      '@babel/helper-module-imports': 7.18.6
+      '@babel/plugin-syntax-jsx': 7.28.6(@babel/core@7.29.0)
+      '@babel/types': 7.29.0
+      html-entities: 2.3.3
+      parse5: 7.3.0
+      validate-html-nesting: 1.2.4
+
+  '@dom-expressions/compiler-darwin-arm64@0.50.0-next.44':
     optional: true
 
-  '@dom-expressions/compiler-darwin-x64@0.50.0-next.43':
+  '@dom-expressions/compiler-darwin-x64@0.50.0-next.44':
     optional: true
 
-  '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.43':
+  '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.44':
     optional: true
 
-  '@dom-expressions/compiler-linux-x64-gnu@0.50.0-next.43':
+  '@dom-expressions/compiler-linux-x64-gnu@0.50.0-next.44':
     optional: true
 
-  '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.43':
+  '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.44':
     dependencies:
       '@emnapi/core': 1.11.2
       '@emnapi/runtime': 1.11.2
       '@napi-rs/wasm-runtime': 1.1.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
     optional: true
 
-  '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.43':
+  '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.44':
     optional: true
 
-  '@dom-expressions/compiler@0.50.0-next.43':
+  '@dom-expressions/compiler@0.50.0-next.44':
     optionalDependencies:
-      '@dom-expressions/compiler-darwin-arm64': 0.50.0-next.43
-      '@dom-expressions/compiler-darwin-x64': 0.50.0-next.43
-      '@dom-expressions/compiler-linux-arm64-gnu': 0.50.0-next.43
-      '@dom-expressions/compiler-linux-x64-gnu': 0.50.0-next.43
-      '@dom-expressions/compiler-wasm32-wasi': 0.50.0-next.43
-      '@dom-expressions/compiler-win32-x64-msvc': 0.50.0-next.43
+      '@dom-expressions/compiler-darwin-arm64': 0.50.0-next.44
+      '@dom-expressions/compiler-darwin-x64': 0.50.0-next.44
+      '@dom-expressions/compiler-linux-arm64-gnu': 0.50.0-next.44
+      '@dom-expressions/compiler-linux-x64-gnu': 0.50.0-next.44
+      '@dom-expressions/compiler-wasm32-wasi': 0.50.0-next.44
+      '@dom-expressions/compiler-win32-x64-msvc': 0.50.0-next.44
+
+  '@dom-expressions/hyperscript@0.50.0-next.44': {}
+
+  '@dom-expressions/runtime@0.50.0-next.44(csstype@3.2.3)(seroval-plugins@1.5.5(seroval@1.5.5))(seroval@1.5.5)':
+    dependencies:
+      babel-plugin-transform-rename-import: 2.3.0
+      csstype: 3.2.3
+      seroval: 1.5.5
+      seroval-plugins: 1.5.5(seroval@1.5.5)
+
+  '@dom-expressions/tagged-jsx@0.50.0-next.44': {}
 
   '@emnapi/core@1.11.1':
     dependencies:
@@ -5042,7 +5093,7 @@ snapshots:
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@babel/core': 7.29.0
-      '@dom-expressions/compiler': 0.50.0-next.43
+      '@dom-expressions/compiler': 0.50.0-next.44
       '@solidjs/web': link:packages/solid-web
       '@types/babel__core': 7.20.5
       babel-preset-solid: link:packages/babel-preset-solid
@@ -5059,7 +5110,7 @@ snapshots:
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@babel/core': 7.29.0
-      '@dom-expressions/compiler': 0.50.0-next.43
+      '@dom-expressions/compiler': 0.50.0-next.44
       '@solidjs/web': link:packages/solid-web
       '@types/babel__core': 7.20.5
       babel-preset-solid: link:packages/babel-preset-solid
@@ -5800,6 +5851,8 @@ snapshots:
   html-encoding-sniffer@4.0.0:
     dependencies:
       whatwg-encoding: 3.1.1
+
+  html-entities@2.3.3: {}
 
   html-escaper@2.0.2: {}
 
@@ -6767,6 +6820,8 @@ snapshots:
       punycode: 2.3.1
 
   uuid@3.4.0: {}
+
+  validate-html-nesting@1.2.4: {}
 
   verror@1.10.0:
     dependencies:

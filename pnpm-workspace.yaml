@@ -18,10 +18,11 @@ minimumReleaseAgeExclude:
 
 overrides:
   babel-preset-solid: workspace:*
-  '@dom-expressions/babel-plugin-jsx': link:../dom-expressions-dr2/packages/babel-plugin-jsx
-  '@dom-expressions/runtime': link:../dom-expressions-dr2/packages/runtime
-  '@dom-expressions/hyperscript': link:../dom-expressions-dr2/packages/hyperscript
-  '@dom-expressions/tagged-jsx': link:../dom-expressions-dr2/packages/tagged-jsx
   '@solidjs/signals': workspace:*
   solid-js: workspace:*
   '@solidjs/web': workspace:*
+  # The native compiler rides in through @solidjs/vite-plugin's range; pin it
+  # to the release that pairs with @dom-expressions/runtime 0.50.0-next.44
+  # (the compiler-armed ssrSelectValues gate needs both sides). Drop once the
+  # vite-plugin republishes against next.44.
+  '@dom-expressions/compiler': 0.50.0-next.44
