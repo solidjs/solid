@@ -200,6 +200,54 @@ hand-compiled spec); the effect-driver fallback keeps today's mapArray path.
 REMAINING PR-B increment: row-ops emission for SHALLOW keyed arrays (the
 positional branch), so shallow lists get the same structural wins.
 
+### 3c. Compile-time row proofs replace the runtime purity probe (2026-08-23)
+
+Ruling (Ryan, post external-audit review): list-tier admission must be
+compiler-proven, never inferred by executing user code. The runtime purity
+probe — speculative first-row build under a throwaway owner, abort-sentinel
+on the first impurity marker — is DELETED, not demoted. Three reasons, two
+of them holes the probe itself had:
+
+- Speculative execution of user code can be observable before the first
+  marker fires (the refs/cleanups leak the effectful-list gate caught was
+  patched reactively, not prevented structurally).
+- The probe proved ROW 0 and generalized: a later row whose data shape
+  minted reactive work (conditional lazy memo) bound with no per-row owner
+  and leaked its computation onto the list owner. A sample is not a proof.
+- Foreign-subject rows (bindings rooted at an OUTER store) passed the probe
+  — patch registration is not an impurity marker — and accumulated dead
+  registrations on the long-lived record as rows were removed.
+
+The replacement: the compiler already knows every helper it emits into a
+row template. `recordPureRow` (dom/template.ts) qualifies a single-param
+function whose body is exactly one compiled template emitting only inert
+DOM wiring (member-target assignments, addEventListener) and whose dynamics
+all landed in ONE patchDriver body registered on the ROW PARAM itself
+(foreign subjects disqualify). Qualifying functions are wrapped with
+`rowProof` at program exit — a `Symbol.for("solid.pure-row")` stamp that
+travels with the function object, so extracted row functions prove at their
+DEFINITION site and work cross-module (coverage the runtime probe never
+had). driveList's admission is one property check; unstamped rows decline
+to classic before any DOM work. Handler/attribute VALUES stay arbitrary
+user code: stamped rows only ever build for real mounts, so evaluation
+timing is identical to the classic path.
+
+Deleted with the probe: probing/probeMark/probeGate state and the seams
+threaded through createComponent/effect/memo/applyRef/insert, ownerIsBlank
+(whole export chain), runProbe's build-and-discard machinery (hydration
+suspension, id isolation), and the entire TENTATIVE-EMPTY engagement
+subsystem (deferred probe inside applyOps + lateDecline) — engagement is
+now decided once, before any DOM work, and is final. `lateClassic` remains
+ONLY for engaged lists whose subject later leaves the contract (identity
+swap to a derived array, shallow<->deep kind switch).
+
+Gates: dbmon vs octane unchanged (tick 1.40 vs 1.60, partial 0.50 vs 0.70
+— solid still faster on updates; mount 0.87x, as recorded in §4);
+effectful-list semantic gates pass with impure rows never stamping; plugin
+135, runtime 1299, solid-web 430+141 (client+hydrate), solid 561, signals
+1309 all green. The ternary-into-body coverage needed no new work — the
+Tier-2 grammar already compiles conditional bindings into the patch body.
+
 ## 4. Modes and how they compose
 
 | | deep + patches | shallow + slot patches |

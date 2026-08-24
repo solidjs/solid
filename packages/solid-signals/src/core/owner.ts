@@ -14,7 +14,9 @@ import {
   pendingCheckActive,
   PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE,
   runWithOwner,
-  tracking, ext } from "./core.js";
+  tracking,
+  ext
+} from "./core.js";
 import { clearSignals, DEV, emitDiagnostic } from "./dev.js";
 import { clearDeps, unobserved } from "./graph.js";
 import { deleteFromHeap, insertIntoHeap, insertIntoHeapHeight, queueFor } from "./heap.js";
@@ -275,19 +277,6 @@ export function isDisposed(node: Owner): boolean {
 
 function disposeRootSelf(this: Root, self: boolean = true): void {
   disposeChildren(this, self);
-}
-
-/**
- * True when an owner captured no reactive work: no child computations and no
- * registered cleanups. The patch-mode list driver probes a row bind under a
- * throwaway owner with this — a blank probe proves the row template is pure
- * compiled writes (nothing to dispose per row), which is the precondition for
- * managing rows without per-row owners (DESIGN-PATCH-CHANNEL §3b).
- *
- * @internal
- */
-export function ownerIsBlank(node: Owner): boolean {
-  return node._firstChild === null && node._disposal === null;
 }
 
 /**

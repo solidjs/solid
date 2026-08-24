@@ -14,14 +14,17 @@ import {
   getOwner,
   reconcile
 } from "solid-js";
-import { patchDriver } from "@solidjs/web";
+import { patchDriver, rowProof } from "@solidjs/web";
 
-// Patch-mode list driver (DESIGN-PATCH-CHANNEL §3b): when a keyed `<For>`
-// over a store array binds rows that prove PURE (the bind registers patches
-// and creates no computations/cleanups), the runtime drives the list through
-// the store's row-ops channel — no mapArray, no per-row owners, no DOM-side
-// reconcile. These rows are hand-written exactly as patch-mode compilation
-// emits them (template clone + one patchDriver body).
+// Patch-mode list driver (DESIGN-PATCH-CHANNEL §3b/§3c): when a keyed
+// `<For>` over a store array carries a row function the COMPILER proved pure
+// (wrapped with `rowProof` — one template, no computations/cleanups, patches
+// only on the row param), the runtime drives the list through the store's
+// row-ops channel — no mapArray, no per-row owners, no DOM-side reconcile.
+// Admission is the stamp alone: there is no runtime purity probe, and
+// unstamped rows decline to classic before any DOM work. These rows are
+// hand-written exactly as patch-mode compilation emits them (template clone
+// + one patchDriver body, rowProof-wrapped).
 
 interface Row {
   id: number;
@@ -29,7 +32,7 @@ interface Row {
 }
 
 // Mirrors compiled patch-mode output for `<tr><td textContent={row.label}/></tr>`.
-function pureRow(db: Row) {
+const buildRow = (db: Row) => {
   const tr = document.createElement("tr");
   const td = document.createElement("td");
   const text = document.createTextNode("");
@@ -42,7 +45,8 @@ function pureRow(db: Row) {
     }
   });
   return tr as unknown as any;
-}
+};
+const pureRow = rowProof(buildRow);
 
 const rows = (div: HTMLElement) => Array.from(div.querySelectorAll("tr"));
 const labels = (div: HTMLElement) =>
@@ -57,19 +61,20 @@ describe("patch-mode list driver", () => {
       let div!: HTMLDivElement;
       const owners: unknown[] = [];
       const [state, setState] = createStore({ rows: make(1, 2, 3) });
-      const spiedRow = (db: Row) => {
+      const spiedRow = rowProof((db: Row) => {
         owners.push(getOwner());
-        return pureRow(db);
-      };
+        return buildRow(db);
+      });
       <div ref={div}>
         <For each={state.rows}>{spiedRow}</For>
       </div>;
       expect(labels(div)).toBe("L1,L2,L3");
-      // Engagement proof: the driver binds every post-probe row under ONE
-      // shared list owner (no per-row owners); mapArray would mint one per row.
+      // Engagement proof: the driver binds EVERY row under ONE shared list
+      // owner (no per-row owners, no probe owner for row 0); mapArray would
+      // mint one per row.
       expect(owners.length).toBe(3);
+      expect(owners[0]).toBe(owners[1]);
       expect(owners[1]).toBe(owners[2]);
-      expect(owners[0]).not.toBe(owners[1]);
       const [tr1, tr2, tr3] = rows(div);
 
       // Value tick: same structure, one label — the row's patch fires, the
@@ -238,15 +243,16 @@ describe("patch-mode list driver", () => {
     });
   });
 
-  test("impure rows decline the driver and keep classic semantics", () => {
+  test("unstamped (impure) rows decline the driver and keep classic semantics", () => {
     createRoot(dispose => {
       let div!: HTMLDivElement;
       let effectRuns = 0;
       const [state, setState] = createStore({ rows: make(1, 2) });
+      // No rowProof stamp: the compiler never proves a row that creates
+      // computations, so the driver declines up front and mapArray owns the
+      // list — per-row owners and all.
       const impureRow = (db: Row) => {
-        const tr = pureRow(db);
-        // A computation created during bind — the probe sees a non-blank
-        // owner and hands the list back to mapArray.
+        const tr = buildRow(db);
         createEffect(
           () => db.label,
           () => {
@@ -275,27 +281,28 @@ describe("patch-mode list driver", () => {
     });
   });
 
-  test("empty initial list engages tentatively; first rows prove purity and drive", () => {
+  test("empty initial list engages directly (stamped rows need no first-row proof)", () => {
     createRoot(dispose => {
       let div!: HTMLDivElement;
       const owners: unknown[] = [];
       const [state, setState] = createStore({ rows: [] as Row[] });
-      const spiedRow = (db: Row) => {
+      const spiedRow = rowProof((db: Row) => {
         owners.push(getOwner());
-        return pureRow(db);
-      };
+        return buildRow(db);
+      });
       <div ref={div}>
         <For each={state.rows}>{spiedRow}</For>
       </div>;
       expect(rows(div).length).toBe(0);
-      // First arrival through the setter channel: deferred probe passes,
-      // rows bind ownerlessly (post-probe rows share the list owner).
+      // First arrival through the setter channel: rows bind ownerlessly
+      // under the shared list owner — engagement was decided at insert.
       setState(s => {
         s.rows.push(...make(1, 2, 3));
       });
       flush();
       expect(labels(div)).toBe("L1,L2,L3");
       expect(owners.length).toBe(3);
+      expect(owners[0]).toBe(owners[1]);
       expect(owners[1]).toBe(owners[2]);
       // Still driven: reconcile structure + value patch both apply.
       const [tr1] = rows(div);
@@ -309,13 +316,13 @@ describe("patch-mode list driver", () => {
     });
   });
 
-  test("empty initial list with impure rows late-declines to a working classic path", () => {
+  test("empty initial list with unstamped rows takes classic from the start", () => {
     createRoot(dispose => {
       let div!: HTMLDivElement;
       let effectRuns = 0;
       const [state, setState] = createStore({ rows: [] as Row[] });
       const impureRow = (db: Row) => {
-        const tr = pureRow(db);
+        const tr = buildRow(db);
         createEffect(
           () => db.label,
           () => {
@@ -332,8 +339,8 @@ describe("patch-mode list driver", () => {
         s.rows.push(...make(1, 2));
       });
       flush();
-      // The deferred probe declined; the classic re-entry rendered ALL rows
-      // with per-row owners (the effect lives and fires).
+      // No stamp, no engagement — classic owns the region from insert and
+      // renders arrivals with per-row owners (the effect lives and fires).
       expect(labels(div)).toBe("L1,L2");
       setState(s => {
         s.rows[0].label = "Z1";

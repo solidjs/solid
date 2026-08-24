@@ -15,7 +15,6 @@ export {
   setContext,
   getOwner,
   isDisposed,
-  ownerIsBlank,
   getObserver,
   isEqual,
   untrack,

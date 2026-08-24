@@ -40,7 +40,7 @@ export * from "./server-mock.js";
 export * from "./response.js";
 // Patch-mode dual driver (compiler contract — emitted by patch-mode
 // compiled templates, not an application API).
-export { patchDriver } from "./core.js";
+export { patchDriver, rowProof } from "./core.js";
 export type { JSX } from "./jsx.js";
 export {
   For,

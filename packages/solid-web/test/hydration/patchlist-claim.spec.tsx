@@ -4,7 +4,7 @@
  */
 import { describe, expect, test, beforeEach, afterEach } from "vitest";
 import { createStore, flush, For, reconcile, enableHydration } from "solid-js";
-import { hydrate, getNextElement, template, patchDriver } from "@solidjs/web";
+import { hydrate, getNextElement, template, patchDriver, rowProof } from "@solidjs/web";
 
 enableHydration();
 
@@ -24,14 +24,14 @@ interface Row {
 // `<li textContent={row.label}/>`: claim the row root, walk to the text
 // node, hand ONE compiled body to the driver.
 const rowTmpl = template("<li> ");
-function pureRow(r: Row) {
+const pureRow = rowProof(function pureRow(r: Row) {
   const li = getNextElement(rowTmpl) as HTMLElement;
   const text = li.firstChild as Text;
   patchDriver(r, (n: Row, p: Row, f?: boolean) => {
     if (f || n.label !== p.label) text.data = n.label;
   });
   return li as unknown as any;
-}
+});
 
 function setupHydration() {
   (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {} };

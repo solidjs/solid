@@ -2659,9 +2659,4 @@ export function registerSlotPatch(
 export function storeIsShallow(_proxy: any): boolean {
   return false;
 }
-// Inert on the server: nothing probes owners for list purity during SSR
-// (patchableRaw above already declines every drive attempt).
-export function ownerIsBlank(_node: any): boolean {
-  return false;
-}
 const noopUnbind = () => {};
