@@ -197,6 +197,40 @@ describe("Projection async behavior", () => {
     expect(proj.phase).toBe("end");
   });
 
+  it("derive continuation can READ its own draft after an await (push/length)", async () => {
+    // Regression: `state.push(item)` after an `await` first READS
+    // `state.length`. The continuation runs outside the sync write scope, so
+    // that read used to hit the §6c firewall gate (seed invisibility), throw
+    // NotReadyError into the derive itself, and the post-await read
+    // diagnostic (#2987) escalated it to a reactivity halt — wedging any
+    // boundary over the projection forever (the rendering example's Stream
+    // page on client navigation). Own-draft ops carry the write override and
+    // must be exempt from the gate.
+    const tick = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const seen: number[] = [];
+    let proj!: { id: number }[];
+    createRoot(() => {
+      proj = createProjection<{ id: number }[]>(async function* (state) {
+        for (const item of [{ id: 1 }, { id: 2 }]) {
+          await tick(2);
+          state.push(item);
+          yield;
+        }
+      }, []);
+      createEffect(
+        () => proj.length,
+        len => {
+          seen.push(len);
+        }
+      );
+    });
+    flush();
+    await tick(30);
+    flush();
+    expect(seen).toEqual([1, 2]);
+    expect(proj.map(i => i.id)).toEqual([1, 2]);
+  });
+
   it("yielding a value replaces the entire snapshot (no merge)", async () => {
     let proj;
 

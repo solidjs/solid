@@ -1199,6 +1199,15 @@ function serveDataKey(
  * link is what wakes async-memo readers when the landing writes values;
  * the firewall link rides the same read). */
 function firewallGate(target: StoreNextTarget): void {
+  // Own-draft ops are exempt: an async derive's continuation (generator body
+  // after an `await`/`yield`) runs OUTSIDE the sync write scope (inDraft is
+  // already false), but its draft-proxy traps mark every op with the write
+  // override. Those reads are the derive working its own draft (state.push
+  // reading .length) — gating them throws NotReadyError back into the derive
+  // itself, which the post-await read diagnostic (#2987) then escalates to a
+  // reactivity halt. The gate exists for EXTERNAL readers (seed invisibility,
+  // proj R23); the derive is the author.
+  if (projectionWriteActive || getWriteOverride()) return;
   const fw: any = target.fam?.node;
   if (fw != null && fw._statusFlags & (STATUS_UNINITIALIZED | STATUS_ERROR)) readNode(fw);
 }
