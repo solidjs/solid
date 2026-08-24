@@ -3,6 +3,7 @@ packages:
   - 'examples/*'
 
 allowBuilds:
+  '@dom-expressions/runtime': true
   esbuild: true
   simple-git-hooks: true
 
@@ -18,10 +19,7 @@ minimumReleaseAgeExclude:
 
 overrides:
   babel-preset-solid: workspace:*
-  '@dom-expressions/babel-plugin-jsx': link:../dom-expressions-dr2/packages/babel-plugin-jsx
-  '@dom-expressions/runtime': link:../dom-expressions-dr2/packages/runtime
-  '@dom-expressions/hyperscript': link:../dom-expressions-dr2/packages/hyperscript
-  '@dom-expressions/tagged-jsx': link:../dom-expressions-dr2/packages/tagged-jsx
+  '@dom-expressions/runtime': 'git+https://github.com/ryansolid/dom-expressions.git#496be4ae&path:/packages/runtime'
   '@solidjs/signals': workspace:*
   solid-js: workspace:*
   '@solidjs/web': workspace:*
