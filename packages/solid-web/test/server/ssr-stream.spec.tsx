@@ -463,6 +463,42 @@ describe("SSR Streaming — deferStream", () => {
     expect(shell).toContain("Streamed loading");
     expect(full).toContain("Streamed");
   });
+
+  // #3047: a code-split lazy route is a root-level async hole — its boundary
+  // and deferStream memo only come into existence when resolveRootHoles()
+  // re-invokes the hole inside the shell attempt, which already runs in the
+  // previous allSettled snapshot's continuation. Pre-fix the newly-registered
+  // deferStream blocker was never re-awaited: the shell flushed with the
+  // skeleton and the content streamed later, defeating deferStream for the
+  // exact shape @solidjs/router/fs generates.
+  test("deferStream holds the shell when its boundary mounts behind a lazy root hole (#3047)", async () => {
+    const Route: Component = () => {
+      const data = createMemo(async () => asyncValue("Team Roster", 30), {
+        deferStream: true
+      });
+      return (
+        <Loading fallback={<div class="skeleton">loading</div>}>
+          <div>{data()}</div>
+        </Loading>
+      );
+    };
+    const manifest = { "./Route.tsx": { file: "assets/route.js" } };
+    const LazyRoute = lazy(
+      () => delay(10).then(() => ({ default: Route })),
+      undefined,
+      "./Route.tsx"
+    ) as any;
+    const { shell } = await collectChunks(
+      () => (
+        <main>
+          <LazyRoute />
+        </main>
+      ),
+      { manifest }
+    );
+    expect(shell).toContain("Team Roster");
+    expect(shell).not.toContain("skeleton");
+  });
 });
 
 describe("SSR Streaming — Error Handling", () => {
