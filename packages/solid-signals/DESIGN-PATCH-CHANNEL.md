@@ -248,6 +248,31 @@ effectful-list semantic gates pass with impure rows never stamping; plugin
 1309 all green. The ternary-into-body coverage needed no new work — the
 Tier-2 grammar already compiles conditional bindings into the patch body.
 
+Audit follow-ups (same night), both landed:
+- PER-ROW UNBIND HANDLES: a record the app retains beyond its row (selection
+  state, caches) kept its patch registered after removal — updating detached
+  DOM for the record's lifetime, where classic per-row effects die with the
+  row. patchDriver now hands its registerPatch unbind to the active row-bind
+  collector; driveList retains handles per row and severs them on row
+  removal, contract-leave handoffs, and list disposal (the channel skips
+  disposed-owner entries but never REMOVES them — disposal now does).
+  Shallow rows register nothing, so the handles are inert there; dbmon gate
+  re-run at parity on every op.
+- HANDLER-VALUE OWNERSHIP, ruled non-responsibility (Ryan): event handlers
+  are not reactive bindings — values evaluate once at build — so the only
+  ownership divergence is a factory creating owned work in value position
+  (`onClick={makeHandler(row)}` calling onCleanup), an unsupported pattern.
+  Denying evaluation-position calls would cost legitimate currying to guard
+  it. Instead bindRow dev-asserts the list owner gained no children or
+  cleanups across each row build and warns with a fix hint. (Also ruled: no
+  `use:` negative test — 2.0 removed the construct; directive work rides
+  the `ref` property, which already disqualifies.)
+- STRICT ADMISSION TESTS: test/rowproof.spec.js pins the matrix — stamps
+  (member reads, Tier-2 ternaries, event handlers, static rows, return-only
+  blocks) and denials (refs, insert holes, components, spreads, foreign
+  subject, mixed subject, multi/destructured params, call-valued bindings,
+  extra statements, fragments).
+
 ## 4. Modes and how they compose
 
 | | deep + patches | shallow + slot patches |

@@ -422,6 +422,41 @@ describe("patch-mode list driver", () => {
     });
   });
 
+  test("removing a row severs its patch registration even when the record is retained", () => {
+    createRoot(dispose => {
+      let div!: HTMLDivElement;
+      const [state, setState] = createStore({ rows: make(1, 2, 3) });
+      <div ref={div}>
+        <For each={state.rows}>{pureRow}</For>
+      </div>;
+      // App code retains the record beyond the row's life (selection state,
+      // caches). Classic per-row effects die with the row; the patch tier
+      // must sever the registration at removal or the patch keeps firing
+      // against detached DOM for the record's lifetime.
+      const retained = state.rows[1];
+      const tr2 = rows(div)[1];
+      // Sanity: while in the list, writes through the retained ref patch.
+      setState(() => {
+        retained.label = "LIVE";
+      });
+      flush();
+      expect(tr2.textContent).toBe("LIVE");
+      setState(s => {
+        reconcile(make(1, 3), "id")(s.rows);
+      });
+      flush();
+      expect(tr2.isConnected).toBe(false);
+      expect(tr2.textContent).toBe("LIVE");
+      setState(() => {
+        retained.label = "GHOST";
+      });
+      flush();
+      expect(retained.label).toBe("GHOST");
+      expect(tr2.textContent).toBe("LIVE");
+      dispose();
+    });
+  });
+
   test("list disposal stops patch dispatch", () => {
     let div!: HTMLDivElement;
     const [state, setState] = createStore({ rows: make(1) });

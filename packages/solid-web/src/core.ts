@@ -90,12 +90,17 @@ export function rowProof<T extends Function>(fn: T): T {
 //   render effect force-applies the same body; reads through the subject
 //   track normally, force short-circuits every compare so `prev` is never
 //   dereferenced. Same semantics, different dispatcher.
-// Shallow-row body collector: shallow store rows are RAW (no record target
-// to register on), so while the list driver binds a shallow row it collects
-// the compiled bodies here and dispatches them itself from the array's
-// slot-patch channel. Only bodies whose subject IS the row being bound are
-// collected — anything else keeps its own driver.
-let rowCollector: { row: any; bodies: any[] } | null = null;
+// Row-bind collector, active while the list driver binds a row.
+// - `unbinds`: every patch registration made during the bind (deep rows —
+//   the stamped template's one patchDriver on the row record). The driver
+//   retains them per row so a REMOVED row's registration is severed even
+//   when user code externally retains the record — otherwise the patch
+//   keeps firing against detached DOM for the record's lifetime, where
+//   classic per-row effects die with the row (audit lifecycle hole).
+// - `bodies`: shallow store rows are RAW (no record target to register on),
+//   so compiled bodies whose subject IS the row are collected and
+//   dispatched by the driver from the array's slot-patch channel.
+let rowCollector: { row: any; bodies: any[]; unbinds: (() => void)[] } | null = null;
 
 export const patchDriver = (subject, body) => {
   const raw = patchableRaw(subject);
@@ -105,7 +110,8 @@ export const patchDriver = (subject, body) => {
     // is skipped — no writes, no graph edges. The registration alone arms
     // the record for post-hydration transitions.
     if (!sharedConfig.hydrating) body(raw, undefined, true);
-    registerPatch(subject, body);
+    const unbind = registerPatch(subject, body);
+    if (rowCollector !== null) rowCollector.unbinds.push(unbind);
   } else if (rowCollector !== null && subject === rowCollector.row) {
     rowCollector.bodies.push(body);
     if (!sharedConfig.hydrating) body(subject, undefined, true);
@@ -222,14 +228,15 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   // bookkeeping site.
   const shallow = storeIsShallow(subject);
   let lastBodies: any[] | null = null;
+  let lastUnbinds: (() => void)[] | null = null;
   const collectBind = (abs: number, build: () => Node): Node => {
-    if (!shallow) return build();
     const prevC = rowCollector;
-    rowCollector = { row: subject[abs], bodies: [] };
+    rowCollector = { row: shallow ? subject[abs] : undefined, bodies: [], unbinds: [] };
     try {
       return build();
     } finally {
       lastBodies = rowCollector.bodies;
+      lastUnbinds = rowCollector.unbinds;
       rowCollector = prevC;
     }
   };
@@ -239,8 +246,37 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   // stay aligned on both the engage and (pre-owner) decline paths.
   const listOwner = createOwner();
   let declined = false;
-  const bindRow = (abs: number, claimId?: string): Node =>
-    collectBind(abs, () =>
+  const bindRow = (abs: number, claimId?: string): Node => {
+    if ("_DX_DEV_") {
+      // Ownership assertion: a stamped row must attach NOTHING to the list
+      // owner — the compiler proved the template, but handler/attribute
+      // VALUE expressions are arbitrary user code, and owned work created
+      // there (a handler factory calling onCleanup/createEffect) would
+      // outlive the row. Snapshot the owner's slots around the real build.
+      const o = listOwner as any;
+      const prevChild = o._firstChild;
+      const prevDisposal = o._disposal;
+      const node = collectBind(abs, () =>
+        runWithOwner(listOwner, () =>
+          claimId !== undefined
+            ? (runWithOwner(createOwner({ id: claimId }) as any, () =>
+                untrack(() => rowFn(subject[abs]))
+              ) as Node)
+            : (untrack(() => rowFn(subject[abs])) as Node)
+        )
+      ) as Node;
+      if (o._firstChild !== prevChild || o._disposal !== prevDisposal) {
+        console.warn(
+          "A patch-mode list row created reactive computations or cleanups " +
+            "during build (likely a handler/attribute value expression calling " +
+            "createEffect/onCleanup). This work attaches to the LIST, not the " +
+            "row, and will not dispose when the row is removed. Move owned " +
+            "work into effects/refs (which opt the row out of patch mode)."
+        );
+      }
+      return node;
+    }
+    return collectBind(abs, () =>
       runWithOwner(listOwner, () =>
         claimId !== undefined
           ? (runWithOwner(createOwner({ id: claimId }) as any, () =>
@@ -249,9 +285,21 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
           : (untrack(() => rowFn(subject[abs])) as Node)
       )
     ) as Node;
+  };
 
   let entries: Node[] = new Array(raw.length);
   let rowBodies: any[][] | null = shallow ? new Array(raw.length) : null;
+  // Per-row patch unbind handles (deep rows register on their record): run
+  // on row removal, contract-leave, and list disposal, so a record the app
+  // retains beyond the row cannot keep patching detached DOM.
+  let rowUnbinds: (() => void)[][] = new Array(raw.length);
+  const runUnbinds = (list: (() => void)[] | undefined) => {
+    if (list !== undefined) for (let u = 0; u < list.length; u++) list[u]();
+  };
+  const unbindAllRows = () => {
+    for (let j = 0; j < rowUnbinds.length; j++) runUnbinds(rowUnbinds[j]);
+    rowUnbinds = [];
+  };
   let prevRaws: any[] = raw.slice();
   if (hydrating) {
     // Claim pass: each bind claims its server row through the row-scoped id
@@ -260,12 +308,14 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
     for (let i = 0; i < raw.length; i++) {
       entries[i] = bindRow(i, rowIds![i]);
       if (rowBodies !== null) rowBodies[i] = lastBodies!;
+      rowUnbinds[i] = lastUnbinds!;
     }
   } else {
     for (let i = 0; i < raw.length; i++) {
       const node = bindRow(i);
       entries[i] = node;
       if (rowBodies !== null) rowBodies[i] = lastBodies!;
+      rowUnbinds[i] = lastUnbinds!;
       parent.insertBefore(node, endAnchor);
     }
   }
@@ -276,14 +326,19 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
     const retained = new Set<number>();
     for (let j = 0; j < sources.length; j++) if (sources[j] >= 0) retained.add(sources[j]);
     for (let j = prefix; j < entries.length; j++) {
-      if (!retained.has(j)) (entries[j] as ChildNode).remove();
+      if (!retained.has(j)) {
+        (entries[j] as ChildNode).remove();
+        runUnbinds(rowUnbinds[j]);
+      }
     }
     const newEntries: Node[] = new Array(prefix + sources.length);
     const newBodies: any[][] | null =
       rowBodies !== null ? new Array(prefix + sources.length) : null;
+    const newUnbinds: (() => void)[][] = new Array(prefix + sources.length);
     for (let i = 0; i < prefix; i++) {
       newEntries[i] = entries[i];
       if (newBodies !== null) newBodies[i] = rowBodies![i];
+      newUnbinds[i] = rowUnbinds[i];
     }
     const stable = lisPositions(sources);
     let anchor: Node | null = endAnchor;
@@ -294,10 +349,12 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
       if (src === -1) {
         node = bindRow(abs);
         if (newBodies !== null) newBodies[abs] = lastBodies!;
+        newUnbinds[abs] = lastUnbinds!;
         parent.insertBefore(node, anchor);
       } else {
         node = entries[src];
         if (newBodies !== null) newBodies[abs] = rowBodies![src];
+        newUnbinds[abs] = rowUnbinds[src];
         if (!stable.has(j)) parent.insertBefore(node, anchor);
       }
       newEntries[abs] = node;
@@ -305,6 +362,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
     }
     entries = newEntries;
     if (newBodies !== null) rowBodies = newBodies;
+    rowUnbinds = newUnbinds;
     prevRaws = next.slice();
   };
 
@@ -346,6 +404,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
           for (let j = 0; j < entries.length; j++) (entries[j] as ChildNode).remove();
           entries = [];
           prevRaws = [];
+          unbindAllRows();
           subject = value;
           declined = true;
           (listOwner as any).dispose();
@@ -360,6 +419,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
           for (let j = 0; j < entries.length; j++) (entries[j] as ChildNode).remove();
           entries = [];
           prevRaws = [];
+          unbindAllRows();
           subject = value;
           declined = true;
           (listOwner as any).dispose();
@@ -395,6 +455,11 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   onCleanup(() => {
     unbindOps();
     unbindSlots?.();
+    // Sever every row's patch registration, not just the channels: the
+    // channel skips disposed-owner entries but never removes them, so a
+    // record the app retains past the list would otherwise carry dead
+    // entries for its lifetime.
+    unbindAllRows();
     (listOwner as any).dispose();
   });
   return true;
