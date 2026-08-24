@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vite
 import { createRoot, createSignal, flush, Loading } from "solid-js";
 import { dynamic } from "../../src/index.js";
 import { installServerComponents } from "../../frames/src/client.js";
-import { createServerReference } from "@dom-expressions/runtime/src/server-functions/client.js";
+import { createServerReference } from "@solidjs/web/server-functions/client";
 import { makeHost, frameResponse, openFrameResponse, pump } from "./harness.js";
 
 const getSame = createServerReference("matrix/rm/same");

@@ -10,7 +10,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { createMemo, createRoot, createSignal, flush, Loading } from "solid-js";
 import { dynamic } from "../../src/index.js";
 import { installServerComponents } from "../../frames/src/client.js";
-import { createServerReference } from "@dom-expressions/runtime/src/server-functions/client.js";
+import { createServerReference } from "@solidjs/web/server-functions/client";
 import { makeHost, frameResponse, dataChunks, createDataSource, pump, settle } from "./harness.js";
 
 const getScalars = createServerReference("matrix/args/scalars");

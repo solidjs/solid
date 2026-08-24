@@ -27,7 +27,7 @@ import {
   INSTANCE_HEADER,
   handleServerFunctionRequest,
   registerServerFunction
-} from "@dom-expressions/runtime/src/server-functions/server.js";
+} from "@solidjs/web/server-functions/server";
 import { createJSONDataTable } from "@dom-expressions/runtime/src/serializer.js";
 import { createFrame, createFrameHost } from "@dom-expressions/runtime/src/frame-client.js";
 

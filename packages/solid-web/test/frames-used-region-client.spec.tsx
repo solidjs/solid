@@ -17,7 +17,7 @@ import { createRoot, flush, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
 import { installServerComponents, createFrameHost } from "../frames/src/client.js";
 import { createJSONDataTable } from "../serialization/src/index.js";
-import { createServerReference } from "@dom-expressions/runtime/src/server-functions/client.js";
+import { createServerReference } from "@solidjs/web/server-functions/client";
 
 const settle = () => new Promise(r => setTimeout(r));
 

@@ -40,26 +40,16 @@ export default defineConfig({
     conditions: ["development", "browser"],
     alias: {
       rxcore: [resolve(rootDir, "../../packages/solid-web/src/core")],
-      // frames/src/client.ts configures the SHARED server-function client
-      // through the packaged specifier (kept external in its dist build).
-      // The frames specs stub fetch/createServerReference against the
-      // runtime SOURCE, so route the specifier to that same module — one
-      // instance, like every from-source consumer of this seam.
+      // Keep the frame runtime and compiled references on one client instance.
       "@solidjs/web/server-functions/client": resolve(
         rootDir,
-        "../../node_modules/@dom-expressions/runtime/src/server-functions/client.js"
+        "server-functions/src/client.js"
       ),
       // The frames client lazy-imports the codec through the packaged
       // specifiers (external in its dist build); route them to the runtime
       // source for the same one-instance reason as above.
-      "@solidjs/web/serialization/decode": resolve(
-        rootDir,
-        "../../node_modules/@dom-expressions/runtime/src/serializer-decode.js"
-      ),
-      "@solidjs/web/serialization": resolve(
-        rootDir,
-        "../../node_modules/@dom-expressions/runtime/src/serializer.js"
-      )
+      "@solidjs/web/serialization/decode": resolve(rootDir, "serialization/src/decode.ts"),
+      "@solidjs/web/serialization": resolve(rootDir, "serialization/src/index.ts")
     }
   }
 });

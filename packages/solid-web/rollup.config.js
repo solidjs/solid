@@ -4,17 +4,8 @@ import cleanup from "rollup-plugin-cleanup";
 import replace from "@rollup/plugin-replace";
 import { fileURLToPath } from "node:url";
 
-// The server-function wire layer late-loads the codec (runtime
-// server-functions/shared.js loadSerializer: `import("../serializer.js")`
-// fires on the first Serialized body, never at module scope — JSON-fast-path
-// responses skip the codec entirely). These single-file outputs can't
-// code-split, so the dynamic import resolves to the public
-// `@solidjs/web/serialization` entry instead: the app's bundler splits the
-// package boundary into a lazy chunk, and the codec instance is the SAME
-// module custom plugins are authored against (the entry exists for exactly
-// that identity guarantee). Dynamic imports only — the serialization entry's
-// own static re-export of serializer.js, and frame-sink's server-side
-// static import, keep bundling as before.
+// Runtime modules still late-load the codec by relative path. Keep those
+// imports on the public serialization entries in the packaged output.
 const externalizeLazySerializer = {
   name: "externalize-lazy-serializer",
   resolveDynamicImport(specifier) {
@@ -83,11 +74,29 @@ const replaceDev = isDev =>
 const externalizeSharedTransport = {
   name: "externalize-shared-transport",
   resolveId(source, importer) {
-    if (!importer || !/[\\/]frame-transport\.js$/.test(importer)) return null;
-    if (source === "./server-functions/shared.js" || source === "./response.js") {
+    if (!importer) return null;
+    if (
+      /[\\/]frame-transport\.js$/.test(importer) &&
+      (source === "./server-functions/shared.js" || source === "./response.js")
+    ) {
       return { id: "@solidjs/web/server-functions/client", external: true };
     }
     return null;
+  }
+};
+
+const useLocalServerFunctions = {
+  name: "use-local-server-functions",
+  resolveId(source, importer) {
+    if (
+      !importer ||
+      !/[\\/]frame-sink\.js$/.test(importer) ||
+      (source !== "./server-functions/shared.js" && source !== "./server-functions/server.js")
+    ) {
+      return null;
+    }
+    const file = source.endsWith("shared.js") ? "shared.js" : "server.js";
+    return fileURLToPath(new URL(`server-functions/src/${file}`, import.meta.url));
   }
 };
 
@@ -235,7 +244,7 @@ export default [
     plugins
   },
   {
-    input: "server-functions/src/client.ts",
+    input: "server-functions/src/client.js",
     output: [
       {
         file: "server-functions/dist/client.cjs",
@@ -247,7 +256,12 @@ export default [
         format: "es"
       }
     ],
-    external: ["seroval", "seroval-plugins/web"],
+    external: [
+      "@solidjs/web/serialization",
+      "@solidjs/web/serialization/decode",
+      "seroval",
+      "seroval-plugins/web"
+    ],
     plugins
   },
   {
@@ -255,7 +269,7 @@ export default [
     // client/shared imports resolve to the external client entry (see
     // externalizeSharedClient), so the dist carries only enableRichArguments
     // and pulls the serializer write half through the shared instance.
-    input: "server-functions/src/rich-args.ts",
+    input: "server-functions/src/rich-args.js",
     output: [
       {
         file: "server-functions/dist/rich-args.cjs",
@@ -275,7 +289,7 @@ export default [
     // handler's error sanitization (plain thrown server-function errors
     // become a generic Error) and its dev-only diagnostic bodies. This is
     // the default resolution — plain node, production bundles.
-    input: "server-functions/src/server.ts",
+    input: "server-functions/src/server.js",
     output: [
       {
         file: "server-functions/dist/server.cjs",
@@ -287,7 +301,13 @@ export default [
         format: "es"
       }
     ],
-    external: ["solid-js", "seroval", "seroval-plugins/web"],
+    external: [
+      "solid-js",
+      "@solidjs/web/serialization",
+      "@solidjs/web/serialization/decode",
+      "seroval",
+      "seroval-plugins/web"
+    ],
     plugins: [replaceDev(false)].concat(plugins)
   },
   {
@@ -295,7 +315,7 @@ export default [
     // keeps full server-function error fidelity (message, stack, own-props)
     // and the handler's diagnostic bodies for DX and the dev toolbar —
     // mirroring the frames client's dev/prod split.
-    input: "server-functions/src/server.ts",
+    input: "server-functions/src/server.js",
     output: [
       {
         file: "server-functions/dist/server.dev.cjs",
@@ -307,7 +327,13 @@ export default [
         format: "es"
       }
     ],
-    external: ["solid-js", "seroval", "seroval-plugins/web"],
+    external: [
+      "solid-js",
+      "@solidjs/web/serialization",
+      "@solidjs/web/serialization/decode",
+      "seroval",
+      "seroval-plugins/web"
+    ],
     plugins: [replaceDev(true)].concat(plugins)
   },
   // @solidjs/web/frames — the server-component transport. The client half
@@ -400,7 +426,14 @@ export default [
         format: "es"
       }
     ],
-    external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
-    plugins: [replaceDev(false)].concat(plugins)
+    external: [
+      "solid-js",
+      "stream",
+      "@solidjs/web/serialization",
+      "@solidjs/web/serialization/decode",
+      "seroval",
+      "seroval-plugins/web"
+    ],
+    plugins: [replaceDev(false), useLocalServerFunctions].concat(plugins)
   }
 ];

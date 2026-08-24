@@ -14,7 +14,7 @@ export default defineConfig({
   plugins: [solidPlugin({ compiler, solid: { generate: "ssr", hydratable: true } })],
   test: {
     environment: "node",
-    include: ["test/server/**/*.spec.tsx"],
+    include: ["test/server/**/*.spec.{js,tsx}"],
     globals: true,
     pool: "threads",
   },
@@ -27,6 +27,8 @@ export default defineConfig({
       // entry, which alias-matches any @solidjs/web/* prefix.
       "@solidjs/web/server-functions/server": resolve(rootDir, "server-functions/dist/server.js"),
       "@solidjs/web/server-functions/client": resolve(rootDir, "server-functions/dist/client.js"),
+      "@solidjs/web/serialization/decode": resolve(rootDir, "serialization/src/decode.ts"),
+      "@solidjs/web/serialization": resolve(rootDir, "serialization/src/index.ts"),
       "@solidjs/web": resolve(rootDir, "server/index.ts"),
       "solid-js": resolve(rootDir, "../solid/src/server/index.ts"),
     }

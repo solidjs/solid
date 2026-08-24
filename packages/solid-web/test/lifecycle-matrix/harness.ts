@@ -8,7 +8,7 @@ import { createFrameHost } from "../../frames/src/client.js";
 // The API-freeze pass removed the frames re-export; the codec's single
 // public home is the serialization entry.
 import { createJSONDataTable } from "@dom-expressions/runtime/src/serializer.js";
-import { createChunk } from "@dom-expressions/runtime/src/server-functions/shared.js";
+import { createChunk } from "@solidjs/web/server-functions/client";
 import { createJSONSerializer } from "@dom-expressions/runtime/src/serializer.js";
 
 export const settle = () => new Promise(r => setTimeout(r));
