@@ -97,3 +97,13 @@ export const waitAsset = promise => {
   }
   gate();
 };
+
+// Inert patch-channel seams (stage-2 extraction, DESIGN §16): the
+// dom-expressions runtime imports these OPTIONALLY and degrades gracefully
+// when undefined — list accessors run classic mapArray, compiled bodies run
+// the dual-phase effect. The live implementations remain on the
+// store-edit-script branch; these stubs let the dormant (default-off)
+// patch-mode runtime build against a core without the channel.
+export const driveList = undefined;
+export const patchableRaw = undefined;
+export const registerPatch = undefined;
