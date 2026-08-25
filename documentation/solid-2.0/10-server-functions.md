@@ -33,7 +33,7 @@ export async function addTodo(title: string) {
 
 Two verified compiler behaviors anchor everything below:
 
-1. **Function-level directives round-trip wrapper calls.** `export const getData = GET(async (id) => { "use server"; ... })` compiles by swapping only the function expression — the surrounding `GET(...)` call survives in both server and client output. A pure-runtime wrapper needs no compiler support.
+1. **Wrapper calls round-trip.** `export const getData = GET(async (id) => { "use server"; ... })` compiles by swapping only the function expression, so the surrounding `GET(...)` call survives in both server and client output. Module-level directives preserve wrapped exports the same way and keep only the wrapper dependencies needed by the client.
 2. **Anything referenced only inside a `"use server"` body never reaches the client.** The extraction replaces the body with a reference, and the directive pass’s orphan-scoped dead-code elimination removes now-unused imports and bindings — schema libraries, database handles, helper imports all vanish from client output. **The directive boundary is itself the privacy mechanism.**
 
 One architectural fact worth stating: **a wrapper wraps the *reference*, not the registered function.** `registerServerReference(id, fn)` registers the raw inner function for HTTP dispatch before any wrapper runs, so wrapper-position code can only affect the client transport and the in-process callable — never HTTP dispatch. This is why anything that must run on the dispatch path (validation, auth, logging) belongs *inside* the body, and why the declaration surface (`GET`) is transport-only.
@@ -236,7 +236,7 @@ The boundary rule for future additions: **own the exchange, not the application 
 ### Compiler implications
 
 - **None, by design.** `GET` (like any in-body helper) is an ordinary runtime import; the wrapper round-trip and body-scoped DCE that make the design work are existing, verified behavior.
-- **One pre-existing bug to fix regardless:** with a *module-level* `"use server"` directive, a wrapped export (`export const x = wrapper(async () => ...)`) is silently dropped from the client build — only direct function exports become references. This gets more visible with `GET(fn)` as the blessed idiom. Minimum: a diagnostic; better: extract the inner function and preserve the call in client output.
+- **Module-level wrappers are compiler-generic:** a wrapped export (`export const x = wrapper(async () => ...)`) extracts the inner function and preserves the wrapper call in both outputs. The compiler does not recognize `GET` or any other wrapper by name.
 - **Shipped since first draft:** the third `registerServerReference(id, fn, name)` argument carrying the compiler-*static* dev `name` now exists on both proxies (development output only); it seeds the metadata channel as a default that explicit `withMeta`/`GET` writes shallow-merge over. Compiler-*produced* metadata flowing to the runtime — not a userland convention the compiler recognizes.
 
 ## Migration / replacement

@@ -1,0 +1,19 @@
+{
+  "valid": true,
+  "functions": [
+    {
+      "id": "64795c56-0",
+      "name": "getUser",
+      "exports": [
+        "getUser"
+      ]
+    },
+    {
+      "id": "64795c56-1",
+      "name": "saveUser",
+      "exports": [
+        "saveUser"
+      ]
+    }
+  ]
+}
