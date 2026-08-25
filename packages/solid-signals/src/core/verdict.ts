@@ -350,6 +350,13 @@ function snapCompanionsToState(owner: Signal<any> | Computed<any>): void {
 
 function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
   let lvc = el._x?._latestValueComputed;
+  // A shadow disposed while unobserved (its gated reader unmounted at a
+  // landing) is a corpse: sync writes into it equality-swallow against its
+  // frozen _value, and a later read revives it via recompute — clearing
+  // DISPOSED and re-deriving from the committed view, so the banner showed
+  // the previous transition's target (#3041 follow-up). Treat it as absent;
+  // recreation backfills from the in-flight write below.
+  if (lvc && lvc._flags & REACTIVE_DISPOSED) lvc = undefined;
   if (!lvc) {
     const prevPending = latestReadActive;
     setLatestReadActive(false);
