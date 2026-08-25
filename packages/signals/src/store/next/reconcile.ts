@@ -275,8 +275,14 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
         // them; new rows initial-apply at bind), so they emit nothing here.
         // Keyless positional lists treat same-index replacement as the value
         // tick for indices below the common length.
-        if (sp !== null && (keyFn !== null ? keyAligned : i < dlen)) {
-          const pvS = i < dlen ? prevRows[i] : undefined;
+        // `i < dlen` is load-bearing for BOTH modes: an appended position
+        // past a fully-aligned prefix (vacuously aligned when prev is empty)
+        // has no previous slot — emitting a slot tick for it races the row
+        // ops that CREATE the row (the slot queue applies first, indexing a
+        // row that does not exist yet). Equivalence-matrix finding:
+        // clear-then-refill and pure appends crashed the driver.
+        if (sp !== null && i < dlen && (keyFn === null || keyAligned)) {
+          const pvS = prevRows[i];
           if (pvS !== nvP) emitSlotPatch(t, i, nvP, pvS);
         }
         if (!shallow && i < dlen && nvP !== null && typeof nvP === "object")
