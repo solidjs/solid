@@ -39,10 +39,29 @@ import { reconcileNextState } from "./reconcile.js";
 import { storeSetterNext, wrapNext } from "./store.js";
 import type { StoreNextFamily } from "./target.js";
 
-function createWriteTraps(isActive?: () => boolean, onDraftWrite?: () => void): ProxyHandler<any> {
-  // Save/restore, never hard-reset: the draft can be driven from inside an
-  // enclosing authoritative-write scope (next-store optimistic derives), and
-  // a hard `false` would clobber it mid-derive.
+/**
+ * Wrap a store proxy as a projection DRAFT: every operation carries the write
+ * override (the derive is the author — its ops must not hit the §6c firewall
+ * gate, even in a continuation after an `await`/`yield` where the sync write
+ * scope has closed).
+ *
+ * FAKE TARGET, not the store proxy itself (#3060): after a proxy trap
+ * returns, the engine runs spec invariant validation against the proxy's
+ * TARGET — [[OwnPropertyKeys]] after ownKeys, [[GetOwnProperty]] after
+ * set/getOwnPropertyDescriptor/defineProperty. With the store proxy as
+ * target those checks re-enter the store's traps OUTSIDE the override
+ * bracket (the trap's finally has already run), so `Object.keys(state)` in
+ * a derive continuation fired the firewall gate and re-threw the
+ * projection's own pending NotReadyError into the derive. A dummy of
+ * matching kind (array/object, same trick as the store's own TargetShape)
+ * keeps invariant validation away from the store entirely; the traps
+ * forward to the closed-over inner proxy inside the bracket.
+ *
+ * Save/restore projectionWriteActive, never hard-reset: the draft can be
+ * driven from inside an enclosing authoritative-write scope (next-store
+ * optimistic derives), and a hard `false` would clobber it mid-derive.
+ */
+function wrapDraft(inner: any, isActive?: () => boolean, onDraftWrite?: () => void): any {
   const traps: ProxyHandler<any> = {
     get(_, prop) {
       let value;
@@ -50,13 +69,15 @@ function createWriteTraps(isActive?: () => boolean, onDraftWrite?: () => void): 
       setWriteOverride(true);
       setProjectionWriteActive(true);
       try {
-        value = _[prop];
+        value = inner[prop];
       } finally {
         setWriteOverride(false);
         setProjectionWriteActive(was);
       }
       if (prop === $TARGET) return value;
-      return typeof value === "object" && value !== null ? new Proxy(value, traps) : value;
+      return typeof value === "object" && value !== null
+        ? wrapDraft(value, isActive, onDraftWrite)
+        : value;
     },
     has(_, prop) {
       let value;
@@ -64,7 +85,7 @@ function createWriteTraps(isActive?: () => boolean, onDraftWrite?: () => void): 
       setWriteOverride(true);
       setProjectionWriteActive(true);
       try {
-        value = prop in _;
+        value = prop in inner;
       } finally {
         setWriteOverride(false);
         setProjectionWriteActive(was);
@@ -77,7 +98,7 @@ function createWriteTraps(isActive?: () => boolean, onDraftWrite?: () => void): 
       setWriteOverride(true);
       setProjectionWriteActive(true);
       try {
-        _[prop] = value;
+        inner[prop] = value;
         onDraftWrite?.();
       } finally {
         setWriteOverride(false);
@@ -91,7 +112,49 @@ function createWriteTraps(isActive?: () => boolean, onDraftWrite?: () => void): 
       setWriteOverride(true);
       setProjectionWriteActive(true);
       try {
-        delete _[prop];
+        delete inner[prop];
+        onDraftWrite?.();
+      } finally {
+        setWriteOverride(false);
+        setProjectionWriteActive(was);
+      }
+      return true;
+    },
+    ownKeys() {
+      const was = projectionWriteActive;
+      setWriteOverride(true);
+      setProjectionWriteActive(true);
+      try {
+        return Reflect.ownKeys(inner);
+      } finally {
+        setWriteOverride(false);
+        setProjectionWriteActive(was);
+      }
+    },
+    getOwnPropertyDescriptor(_, prop) {
+      let d;
+      const was = projectionWriteActive;
+      setWriteOverride(true);
+      setProjectionWriteActive(true);
+      try {
+        d = Reflect.getOwnPropertyDescriptor(inner, prop);
+      } finally {
+        setWriteOverride(false);
+        setProjectionWriteActive(was);
+      }
+      // The dummy target doesn't hold the key, so a non-configurable report
+      // would violate the proxy invariant. Store descriptors are already
+      // normalized configurable; enforce it for raw leaves too.
+      if (d) d.configurable = true;
+      return d;
+    },
+    defineProperty(_, prop, desc) {
+      if (isActive && !isActive()) return true;
+      const was = projectionWriteActive;
+      setWriteOverride(true);
+      setProjectionWriteActive(true);
+      try {
+        Reflect.defineProperty(inner, prop, desc);
         onDraftWrite?.();
       } finally {
         setWriteOverride(false);
@@ -100,7 +163,8 @@ function createWriteTraps(isActive?: () => boolean, onDraftWrite?: () => void): 
       return true;
     }
   };
-  return traps;
+  // Matching-kind dummy so Array.isArray(draft) answers like the store.
+  return new Proxy(Array.isArray(inner) ? [] : {}, traps);
 }
 
 function createProjectionNextInternal<T extends object = {}>(
@@ -181,9 +245,10 @@ export function runProjectionComputedNext<T extends object>(
   const shadow = owner._loading
     ? (JSON.parse(JSON.stringify((wrappedStore as any)[$TARGET][STORE_VALUE])) as T)
     : null;
-  const draft = new Proxy(
+  const draft = wrapDraft(
     wrappedStore,
-    createWriteTraps(() => !settled || owner._x?._inFlight === result, onDraftWrite)
+    () => !settled || owner._x?._inFlight === result,
+    onDraftWrite
   );
   storeSetterNext(
     draft,

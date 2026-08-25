@@ -999,6 +999,62 @@ function ProjectionRepeatStream() {
 }
 
 // ---------------------------------------------------------------------------
+// #3060: async-GENERATOR projection whose SSR pass settles quickly (one yield,
+// then done — the serialized stream closes) and whose dependency changes AFTER
+// hydration. The recompute must abandon the dead serialized replay and run the
+// user generator LIVE. The adoption wrapper used to re-run subFetch on every
+// recompute — orphaning a fresh generator each time — and hand back the same
+// consumed replay iterable, freezing the projection at its SSR value forever.
+let setProjectionLiveQuery!: (q: string) => void;
+function ProjectionLiveResume() {
+  const [query, setQuery] = createSignal("");
+  setProjectionLiveQuery = setQuery;
+  const results = createProjection<{ items: string[] }>(
+    async function* (state) {
+      const q = query();
+      await sleep(5);
+      state.items = q ? [`${q}-a`] : ["idle"];
+      yield;
+      if (!q) return;
+      await sleep(5);
+      state.items = [...state.items, `${q}-b`];
+      yield;
+    },
+    { items: [] }
+  );
+  return (
+    <Loading fallback={<p>loading</p>}>
+      <div>
+        <span>{results.items.join(",")}</span>
+        <b>tail</b>
+      </div>
+    </Loading>
+  );
+}
+
+// Signal-shaped twin of ProjectionLiveResume: an async-generator MEMO whose
+// serialized stream closed during SSR must also re-run live when a dependency
+// change recomputes it after hydration (same dead-replay freeze, signal path).
+let setMemoLiveQuery!: (q: string) => void;
+function MemoLiveResume() {
+  const [query, setQuery] = createSignal("");
+  setMemoLiveQuery = setQuery;
+  const label = createMemo<string>(async function* () {
+    const q = query();
+    await sleep(5);
+    yield q ? `found-${q}` : "idle";
+  });
+  return (
+    <Loading fallback={<p>loading</p>}>
+      <div>
+        <span>{label()}</span>
+        <b>tail</b>
+      </div>
+    </Loading>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // loadingValue under SSR: the server serves commit #0 — markup flushes with
 // the loading value (the boundary never trips), the landing streams as data,
 // and the hydrating client is born committed with the same loading value, so
@@ -1760,6 +1816,26 @@ export const scenarios: Scenario[] = [
     async: true,
     expectedText: "1:one2:two3:three4:four5:five",
     serverText: "1:one"
+  },
+  {
+    name: "projection-live-resume",
+    App: ProjectionLiveResume,
+    async: true,
+    expectedText: "idletail",
+    serverText: "idletail",
+    update: () => setProjectionLiveQuery("go"),
+    expectedTextAfterUpdate: "go-a,go-btail",
+    stableSelector: "div, b"
+  },
+  {
+    name: "memo-live-resume",
+    App: MemoLiveResume,
+    async: true,
+    expectedText: "idletail",
+    serverText: "idletail",
+    update: () => setMemoLiveQuery("go"),
+    expectedTextAfterUpdate: "found-gotail",
+    stableSelector: "div, b"
   },
   {
     name: "loading-value-memo",

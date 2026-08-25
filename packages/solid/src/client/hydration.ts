@@ -602,13 +602,47 @@ function hydrateSignalFromAsyncIterable(coreFn: Function, compute: any, options:
   const loaded = sharedConfig.load!(expectedId);
   if (!isAsyncIterable(loaded)) return null;
 
-  const it = normalizeIterator(loaded[Symbol.asyncIterator](), hasLoadingWindow(options));
+  const base = normalizeIterator(loaded[Symbol.asyncIterator](), hasLoadingWindow(options));
+  // Terminal tracking for the live handover below. The wrapper thenable keeps
+  // the base iterator's delivery timing: syncThenable runs its callback
+  // synchronously, and windowless claims NEED that sync first value.
+  let terminal = false;
+  const it = {
+    next() {
+      const p = base.next();
+      return {
+        then(res: any, rej: any) {
+          return p.then(
+            (r: any) => {
+              if (r.done) terminal = true;
+              return res(r);
+            },
+            (e: any) => {
+              terminal = true;
+              if (rej) return rej(e);
+              throw e;
+            }
+          );
+        }
+      };
+    },
+    return(value?: any) {
+      return base.return(value);
+    }
+  };
   const iterable = {
     [Symbol.asyncIterator]() {
       return it;
     }
   };
   return coreFn((prev: any) => {
+    // A run after the serialized stream reached its terminal state (done or
+    // error) is a real invalidation — a dependency change or refresh() — and
+    // the stream answers the OLD question (and is already consumed). Hand
+    // over to the live compute (#3060). Runs BEFORE that are NotReady
+    // retries of the same flight (e.g. the compute read a sibling async
+    // source that was still pending) and must keep adopting the replay.
+    if (terminal) return compute(prev);
     // Run the user compute up to its first await on the client so any reactive
     // dependencies read before the first suspension are tracked. subFetch mocks
     // fetch/Promise so the async generator cannot progress past that point —
@@ -634,8 +668,24 @@ function hydrateStoreFromAsyncIterable(
   const loading = hasLoadingWindow(options);
   let isFirst = true;
   let buffered: any = null;
+  let terminal = false;
+  const fail = (e: any) => {
+    terminal = true;
+    throw e;
+  };
   return coreFn(
     (draft: any) => {
+      // A run after the serialized stream reached its terminal state (done
+      // or error) is a real invalidation — a dependency change or refresh()
+      // — and the stream answers the OLD question (and is already consumed).
+      // Re-running the adoption body would orphan another subFetch generator
+      // and hand back the dead replay, freezing the store at its SSR value
+      // forever; hand over to the live fn instead (#3060). Runs BEFORE the
+      // terminal are NotReady retries of the same flight — the derive
+      // re-runs each time a pending pull lands — and must keep adopting the
+      // shared replay (going live there re-fetches data the document is
+      // still delivering).
+      if (terminal) return fn(draft);
       // Run the user fn up to its first await on the client so any reactive
       // dependencies read before the first suspension are tracked. Writes go
       // to a shadow of the draft and are discarded — the server iterator is
@@ -643,7 +693,10 @@ function hydrateStoreFromAsyncIterable(
       const { proxy } = createShadowDraft(draft);
       subFetch(fn, proxy);
       const process = (res: any) => {
-        if (res.done) return { done: true, value: undefined };
+        if (res.done) {
+          terminal = true;
+          return { done: true, value: undefined };
+        }
         if (isFirst) {
           isFirst = false;
           // The initial full value IS the snapshot state the SSR DOM reflects.
@@ -682,7 +735,29 @@ function hydrateStoreFromAsyncIterable(
                 if (r && typeof r.then === "function")
                   return {
                     then(fn: any, rej: any) {
-                      r.then((v: any) => fn(process(v)), rej);
+                      r.then(
+                        (v: any) => {
+                          // process() can throw (a store-trap NotReadyError,
+                          // a reconcile failure). A throw inside this
+                          // onFulfilled would reject a derived promise
+                          // nobody observes — silently killing the drain and
+                          // wedging the projection forever. Route it to the
+                          // flight's rejection instead.
+                          let out;
+                          try {
+                            out = process(v);
+                          } catch (e) {
+                            terminal = true;
+                            rej(e);
+                            return;
+                          }
+                          fn(out);
+                        },
+                        (e: any) => {
+                          terminal = true;
+                          rej(e);
+                        }
+                      );
                     }
                   };
                 if (loading) {
@@ -702,11 +777,11 @@ function hydrateStoreFromAsyncIterable(
               if (buffered) {
                 const b = buffered;
                 buffered = null;
-                return b.then(process);
+                return b.then(process, fail);
               }
               let r = srcIt.next();
               if (r && typeof r.then === "function") {
-                return r.then(process);
+                return r.then(process, fail);
               }
               // A synchronously-available result is buffered backlog — the
               // stream ran ahead of hydration (delayed client script). It
