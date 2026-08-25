@@ -20,7 +20,7 @@
     "clean": "rimraf */dist/"
   },
   "devDependencies": {
-    "@solidjs/vite-plugin": "3.0.0-next.30",
+    "@solidjs/vite-plugin": "3.0.0-next.33",
     "@solidjs/web": "workspace:*",
     "@types/node": "^25.6.0",
     "rimraf": "^3.0.2",
