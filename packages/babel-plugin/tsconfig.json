@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true
+  },
+  "include": ["src", "../web/src/constants.ts"]
+}

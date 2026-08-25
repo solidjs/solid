@@ -17,5 +17,5 @@ as phantom CodSpeed regressions. Nothing here is published (`private: true`).
 
 Run locally: `cd scripts/size && npm ci && npm run size` (build the repo
 first). The retained-module-graph test in
-`packages/solid-signals/tests/treeshake.test.ts` is the companion diagnostic
+`packages/signals/tests/treeshake.test.ts` is the companion diagnostic
 that names the re-coupled module when shaking breaks.

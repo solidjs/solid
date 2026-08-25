@@ -19,6 +19,7 @@
 > - **Migrating from 1.x?** Start with [`documentation/solid-2.0/MIGRATION.md`](documentation/solid-2.0/MIGRATION.md).
 > - **Quick API reference:** [`packages/solid/CHEATSHEET.md`](packages/solid/CHEATSHEET.md) (one screen, every public export).
 > - **Design rationale:** the 2.0 RFCs at [`documentation/solid-2.0/`](documentation/solid-2.0/).
+> - **JSX compiler and DOM runtime** live here (`@solidjs/babel-plugin`, `@solidjs/compiler`, `@solidjs/web`). File those issues on this repo, not [DOM Expressions](https://github.com/ryansolid/dom-expressions).
 > - **Stable Solid 1.x?** Use the default [`main` branch](https://github.com/solidjs/solid).
 
 Solid is a declarative JavaScript library for building user interfaces. Instead of a Virtual DOM, it compiles templates to real DOM nodes and updates them with fine-grained reactivity. Declare your state and use it throughout your app — when a piece of state changes, only the code that depends on it re-runs.
@@ -82,16 +83,16 @@ Reads update on the next microtask (or call `flush()` for synchronous interop). 
 - Optimistic UI primitives (`createOptimistic`, `createOptimisticStore`) and structured `action(...)` mutations.
 - Streaming SSR and progressive hydration.
 - TypeScript-first, JSX-first, web-component friendly.
-- Universal: write custom renderers via [`@solidjs/universal`](packages/solid-universal) to target non-DOM platforms.
+- Universal: write custom renderers via [`@solidjs/universal`](packages/universal) to target non-DOM platforms.
 
 ## Quick start
 
 ```sh
 npm i solid-js @solidjs/web
-npm i -D babel-preset-solid
+npm i -D @solidjs/babel-plugin
 ```
 
-Add `babel-preset-solid` to your Babel config (or use Vite's Solid plugin) and configure TypeScript:
+Add `@solidjs/babel-plugin` to your Babel config (or use Vite's Solid plugin) and configure TypeScript:
 
 ```json
 {
@@ -122,15 +123,16 @@ This is a PNPM workspaces monorepo. The packages here are versioned together as 
 | Package              | Path                          | Purpose                                                               |
 | -------------------- | ----------------------------- | --------------------------------------------------------------------- |
 | `solid-js`           | `packages/solid`              | Core runtime — components, flow controls, context, hydration.         |
-| `@solidjs/signals`   | `packages/solid-signals`      | Reactive primitives — signals, memos, effects, stores.                |
-| `@solidjs/web`       | `packages/solid-web`          | Web platform runtime — `render`, `hydrate`, SSR, `Portal`, `Dynamic`. |
-| `@solidjs/h`         | `packages/solid-h`            | Hyperscript / JSX factory.                                            |
-| `solid-html`         | `packages/solid-html`         | Build-less tagged template literals.                                  |
-| `@solidjs/universal` | `packages/solid-universal`    | Universal runtime for custom renderers.                               |
-| `solid-element`      | `packages/solid-element`      | Web Components wrapper.                                               |
-| `babel-preset-solid` | `packages/babel-preset-solid` | Babel preset for JSX compilation.                                     |
+| `@solidjs/signals`   | `packages/signals`      | Reactive primitives — signals, memos, effects, stores.                |
+| `@solidjs/web`       | `packages/web`          | Web platform runtime — `render`, `hydrate`, SSR, `Portal`, `Dynamic`. |
+| `@solidjs/h`         | `packages/h`            | Hyperscript / JSX factory.                                            |
+| `@solidjs/html`      | `packages/html`         | Build-less tagged template literals.                                  |
+| `@solidjs/universal` | `packages/universal`    | Universal runtime for custom renderers.                               |
+| `@solidjs/element`   | `packages/element`      | Web Components wrapper.                                               |
+| `@solidjs/compiler`  | `packages/compiler`     | Native Oxc JSX compiler.                                              |
+| `@solidjs/babel-plugin` | `packages/babel-plugin` | Babel plugin for JSX compilation.                                |
 
-DOM operations live in the [`dom-expressions`](https://github.com/solidjs/dom-expressions) repo.
+Runtime DOM operations live in `@solidjs/web` (and `@solidjs/universal` / `@solidjs/h` / `@solidjs/html`).
 
 ## Why Solid?
 

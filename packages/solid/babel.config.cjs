@@ -1,4 +1,4 @@
-const path = require('path');
+const path = require("path");
 
 module.exports = {
   env: {
@@ -9,24 +9,9 @@ module.exports = {
       ],
       plugins: [
         [
-          "babel-plugin-transform-rename-import",
+          "@solidjs/babel-plugin",
           {
-            replacements: [
-              {
-                original: "rxcore",
-                replacement: path.join(__dirname, "../../packages/solid/web/src/core")
-              },
-              {
-                original: "^solid-js$",
-                replacement: path.join(__dirname, "src"),
-              }
-            ]
-          }
-        ],
-        [
-          "@dom-expressions/babel-plugin-jsx",
-          {
-            moduleName: path.join(__dirname, "web/src/index"),
+            moduleName: path.join(__dirname, "../web/src/index"),
             contextToCustomElements: true,
             wrapConditionals: true
           }

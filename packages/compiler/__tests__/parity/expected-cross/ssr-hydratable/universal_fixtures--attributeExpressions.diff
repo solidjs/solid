@@ -1,0 +1,27 @@
+@@ -41,12 +41,7 @@
+ }, () => {
+   return _$ssrElement__r_server("h1", () => {
+     return _$mergeProps__r_server({
+-      get ["class"]() {
+-        return `base ${_$ssrClassName__r_server(["base", {
+-          dynamic: dynamic(),
+-          selected: selected
+-        }]) || ""}`;
+-      }
++      class: "base"
+     }, results, {
+       disabled: true,
+       readonly: "",
+@@ -58,6 +53,12 @@
+           "background-color": color(),
+           "margin-right": "40px"
+         };
++      },
++      get ["class"]() {
++        return ["base", {
++          dynamic: dynamic(),
++          selected: selected
++        }];
+       }
+     });
+   }, () => {

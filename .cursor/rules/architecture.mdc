@@ -9,15 +9,16 @@ SolidJS core monorepo — a declarative JavaScript UI library that compiles temp
 
 ## Monorepo Structure
 
-PNPM workspaces + Turborepo. All packages version together (`2.0.0-beta.x`).
+PNPM workspaces + Turborepo. All packages version together (`2.0.0-rc.x`).
 
 - **`solid-js`** (`packages/solid/`): Core runtime — component model, flow controls, context, hydration. Wraps `@solidjs/signals` with a UI layer.
-- **`@solidjs/web`** (`packages/solid-web/`): Web platform runtime — `render`, `hydrate`, SSR methods, `Portal`, `Dynamic`. Delegates DOM ops to `dom-expressions`.
-- **`@solidjs/h`** (`packages/solid-h/`): Hyperscript/JSX factory — less-optimal JSX alternative.
-- **`solid-element`** (`packages/solid-element/`): Web Components wrapper.
-- **`solid-html`** (`packages/solid-html/`): Build-less tagged template literals.
-- **`@solidjs/universal`** (`packages/solid-universal/`): Universal runtime for custom renderers.
-- **`babel-preset-solid`** (`packages/babel-preset-solid/`): Babel preset for JSX compilation.
+- **`@solidjs/web`** (`packages/web/`): Web platform runtime — `render`, `hydrate`, SSR methods, `Portal`, `Dynamic`, and the DOM operation runtime.
+- **`@solidjs/h`** (`packages/h/`): Hyperscript/JSX factory — less-optimal JSX alternative.
+- **`@solidjs/element`** (`packages/element/`): Web Components wrapper.
+- **`@solidjs/html`** (`packages/html/`): Build-less tagged template literals.
+- **`@solidjs/universal`** (`packages/universal/`): Universal runtime for custom renderers.
+- **`@solidjs/babel-plugin-jsx`** (`packages/babel-plugin-jsx/`): Babel plugin for JSX compilation.
+- **`@solidjs/compiler`** (`packages/compiler/`): Native (Oxc) JSX compiler.
 - **`test-integration`** (`packages/test-integration/`): Integration tests against external repos.
 
 ## Dependency Chain
@@ -27,12 +28,11 @@ PNPM workspaces + Turborepo. All packages version together (`2.0.0-beta.x`).
        ↓
    solid-js       (component model, flow controls, context, hydration)
        ↓
-  @solidjs/web    (DOM rendering, SSR, Portal, Dynamic)
-       ↓
-  dom-expressions (external — DOM operation runtime)
+  @solidjs/web    (DOM rendering, SSR, Portal, Dynamic, DOM ops)
+  @solidjs/universal / @solidjs/h / @solidjs/html
 ```
 
-`solid-js` re-exports all reactivity primitives from `@solidjs/signals` and adds the component/JSX layer on top. `@solidjs/web` provides the platform-specific runtime.
+`solid-js` re-exports all reactivity primitives from `@solidjs/signals` and adds the component/JSX layer on top. `@solidjs/web` provides the platform-specific runtime, including the DOM operation runtime. Compilers live in `@solidjs/compiler` (native) and `@solidjs/babel-plugin-jsx`.
 
 ## Component Model
 
@@ -74,7 +74,5 @@ All support `keyed` mode (identity comparison) vs non-keyed (truthiness). Functi
 
 ## Key External Dependencies
 
-- `@solidjs/signals` — reactive primitives (separate repo)
-- `dom-expressions` — DOM operation runtime
+- `@solidjs/signals` — reactive primitives (this repo, `packages/signals`)
 - `seroval` / `seroval-plugins` — serialization for SSR
-- `babel-plugin-jsx-dom-expressions` — JSX compilation

@@ -9,9 +9,11 @@ lib/
 coverage/
 types/
 types-cjs/
+packages/babel-plugin/index.js
 .DS_Store
 .turbo/
 .pnpm-store/
+.types-build/
 
 packages/solid/src/jsx.d.ts
 packages/solid-web/src/jsx.d.ts

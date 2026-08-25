@@ -21,12 +21,12 @@ describe("Packed package type resolution", () => {
   );
   const typescriptVersion = rootPackageJson.devDependencies.typescript;
   const packageRoots = [
-    resolve(join(__dirname, "../../solid-signals")),
+    resolve(join(__dirname, "../../signals")),
     resolve(join(__dirname, "../../solid")),
-    resolve(join(__dirname, "../../solid-web")),
-    resolve(join(__dirname, "../../solid-h")),
-    resolve(join(__dirname, "../../solid-html")),
-    resolve(join(__dirname, "../../solid-universal"))
+    resolve(join(__dirname, "../../web")),
+    resolve(join(__dirname, "../../h")),
+    resolve(join(__dirname, "../../html")),
+    resolve(join(__dirname, "../../universal"))
   ];
   const packedPackages: string[] = [];
 

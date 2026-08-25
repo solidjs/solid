@@ -1,0 +1,29 @@
+{
+  "name": "@solidjs/compiler-wasm32-wasi",
+  "version": "2.0.0-rc.2",
+  "main": "compiler.wasi.cjs",
+  "files": [
+    "compiler.wasm32-wasi.wasm",
+    "compiler.wasi.cjs",
+    "compiler.wasi-browser.js",
+    "wasi-worker.mjs",
+    "wasi-worker-browser.mjs"
+  ],
+  "description": "Solid native Oxc JSX compiler (wasm32-wasi)",
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/solidjs/solid.git",
+    "directory": "packages/compiler"
+  },
+  "browser": "compiler.wasi-browser.js",
+  "dependencies": {
+    "@napi-rs/wasm-runtime": "^1.1.6",
+    "@emnapi/core": "1.11.2",
+    "@emnapi/runtime": "1.11.2"
+  }
+}

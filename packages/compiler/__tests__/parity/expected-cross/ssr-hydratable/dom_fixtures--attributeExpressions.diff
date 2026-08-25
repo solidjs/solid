@@ -1,0 +1,583 @@
+@@ -68,10 +68,9 @@
+ var _g54$ = ["<div", "><video></video></div>"];
+ var _g55$ = ["<div", " style=\"", "\"", "></div>"];
+ var _g56$ = ["<button", " type=\"button\"", " style=\"", "\" class=\"", "\">", "</button>"];
+-var _g57$ = ["<div", " _hk=\"should warn _hk is present on template\"></div>"];
+-var _g58$ = ["<div", " style=\"duplicate2\"></div>"];
+-var _g59$ = ["<div", "><video muted></video><video></video><video></video><video muted></video><video", "></video><video src=\"test.mp4\" muted></video></div>"];
+-var _g60$ = ["<video", " src=\"test.mp4\" muted></video>"];
++var _g57$ = ["<div", " style=\"duplicate2\"></div>"];
++var _g58$ = ["<div", "><video muted></video><video></video><video></video><video muted></video><video", "></video><video src=\"test.mp4\" muted></video></div>"];
++var _g59$ = ["<video", " src=\"test.mp4\" muted></video>"];
+ _$ssrSelectValues__r_server();
+ import * as styles from "./styles.module.css";
+ import { binding } from "somewhere";
+@@ -122,118 +121,118 @@
+     return _$escape__r_server(row.label || " ");
+   }, _$ssr__r_server(_g11$, _g3$)), _$ssr__r_server("<div><div/></div>")];
+ }, true);
+-var _g61$ = _$ssrHydrationKey__r_server();
+-var _g62$ = _$ssrGroup__r_server(() => {
++var _g60$ = _$ssrHydrationKey__r_server();
++var _g61$ = _$ssrGroup__r_server(() => {
+   return [_$ssrAttribute__r_server("name", _$escape__r_server(state.name, true)), _$escape__r_server(state.content || " ")];
+ }, 2);
+-const template3 = _$ssr__r_server(_g12$, _g61$, _$ssrAttribute__r_server("id", _$escape__r_server(state.id, true)), _$ssrStyleProperty__r_server("background-color:", _$escape__r_server(state.color, true)), _g62$, _g62$);
+-var _g63$ = _$ssrHydrationKey__r_server();
+-var _g64$ = () => {
++const template3 = _$ssr__r_server(_g12$, _g60$, _$ssrAttribute__r_server("id", _$escape__r_server(state.id, true)), _$ssrStyleProperty__r_server("background-color:", _$escape__r_server(state.color, true)), _g61$, _g61$);
++var _g62$ = _$ssrHydrationKey__r_server();
++var _g63$ = () => {
+   return _$ssrAttribute__r_server("className", _$escape__r_server(state.class, true));
+ };
+-const template4 = _$ssr__r_server(_g13$, _g63$, _g64$, "ccc:ddd");
++const template4 = _$ssr__r_server(_g13$, _g62$, _g63$, "ccc:ddd");
++var _g64$ = _$ssrHydrationKey__r_server();
++const template5 = _$ssr__r_server(_g14$, _g64$);
+ var _g65$ = _$ssrHydrationKey__r_server();
+-const template5 = _$ssr__r_server(_g14$, _g65$);
+-var _g66$ = _$ssrHydrationKey__r_server();
+-var _g67$ = () => {
++var _g66$ = () => {
+   return _$ssrStyle__r_server(someStyle());
+ };
+-const template6 = _$ssr__r_server(_g15$, _g66$, _g67$);
++const template6 = _$ssr__r_server(_g15$, _g65$, _g66$);
+ let undefVar;
+-var _g68$ = _$ssrHydrationKey__r_server();
+-var _g69$ = () => {
++var _g67$ = _$ssrHydrationKey__r_server();
++var _g68$ = () => {
+   return _$ssrStyle__r_server({
+     "background-color": color(),
+     "margin-right": "40px",
+     ...props.style
+   });
+ };
+-const template7 = _$ssr__r_server(_g16$, _g68$, _g69$, undefVar ? "other-class2" : "");
++const template7 = _$ssr__r_server(_g16$, _g67$, _g68$, undefVar ? "other-class2" : "");
+ let refTarget;
+-var _g70$ = _$ssrHydrationKey__r_server();
+-var _g71$ = refTarget;
+-const template8 = _$ssr__r_server(_g17$, _g70$);
+-var _g72$ = _$ssrHydrationKey__r_server();
+-var _g73$ = e => {
++var _g69$ = _$ssrHydrationKey__r_server();
++var _g70$ = refTarget;
++const template8 = _$ssr__r_server(_g17$, _g69$);
++var _g71$ = _$ssrHydrationKey__r_server();
++var _g72$ = e => {
+   return console.log(e);
+ };
+-const template9 = _$ssr__r_server(_g17$, _g72$);
+-var _g74$ = _$ssrHydrationKey__r_server();
+-var _g75$ = refFactory();
+-const template10 = _$ssr__r_server(_g17$, _g74$);
++const template9 = _$ssr__r_server(_g17$, _g71$);
++var _g73$ = _$ssrHydrationKey__r_server();
++var _g74$ = refFactory();
++const template10 = _$ssr__r_server(_g17$, _g73$);
++var _g75$ = _$ssrHydrationKey__r_server();
++const template12 = _$ssr__r_server(_g18$, _g75$);
+ var _g76$ = _$ssrHydrationKey__r_server();
+-const template12 = _$ssr__r_server(_g18$, _g76$);
++const template13 = _$ssr__r_server(_g19$, _g76$);
+ var _g77$ = _$ssrHydrationKey__r_server();
+-const template13 = _$ssr__r_server(_g19$, _g77$);
+-var _g78$ = _$ssrHydrationKey__r_server();
+-var _g79$ = () => {
++var _g78$ = () => {
+   return _$ssrAttribute__r_server("checked", _$escape__r_server(state.visible, true));
+ };
+-const template14 = _$ssr__r_server(_g20$, _g78$, _g79$);
++const template14 = _$ssr__r_server(_g20$, _g77$, _g78$);
++var _g79$ = _$ssrHydrationKey__r_server();
++const template15 = _$ssr__r_server(_g21$, _g79$);
+ var _g80$ = _$ssrHydrationKey__r_server();
+-const template15 = _$ssr__r_server(_g21$, _g80$);
+-var _g81$ = _$ssrHydrationKey__r_server();
+-const template16 = _$ssr__r_server(_g22$, _g81$, _$ssrClassName__r_server(["static", {
++const template16 = _$ssr__r_server(_g22$, _g80$, _$ssrClassName__r_server(["static", {
+   hi: "k"
+ }]));
+-var _g82$ = _$ssrHydrationKey__r_server();
+-const template17 = _$ssr__r_server(_g23$, _g82$, "a  b  c");
++var _g81$ = _$ssrHydrationKey__r_server();
++const template17 = _$ssr__r_server(_g23$, _g81$, "a  b  c");
+ const template18 = _$ssrElement__r_server("div", {
+   get [key()]() {
+     return props.value;
+   }
+ }, undefined, true);
+-var _g83$ = _$ssrHydrationKey__r_server();
+-const template19 = _$ssr__r_server(_g24$, _g83$, _$ssrClassName__r_server([{
++var _g82$ = _$ssrHydrationKey__r_server();
++const template19 = _$ssr__r_server(_g24$, _g82$, _$ssrClassName__r_server([{
+   "bg-red-500": true
+ }, "flex flex-col"]));
+-var _g84$ = _$ssrHydrationKey__r_server();
+-var _g85$ = _$ssrGroup__r_server(() => {
++var _g83$ = _$ssrHydrationKey__r_server();
++var _g84$ = _$ssrGroup__r_server(() => {
+   return [_$ssrAttribute__r_server("min", _$escape__r_server(min(), true)), _$ssrAttribute__r_server("max", _$escape__r_server(max(), true))];
+ }, 2);
+-var _g86$ = _$ssrGroup__r_server(() => {
++var _g85$ = _$ssrGroup__r_server(() => {
+   return [_$ssrAttribute__r_server("min", _$escape__r_server(min(), true)), _$ssrAttribute__r_server("max", _$escape__r_server(max(), true))];
+ }, 2);
+-var _g87$ = () => {
++var _g86$ = () => {
+   return _$ssrAttribute__r_server("value", _$escape__r_server(s(), true));
+ };
+-var _g88$ = () => {
++var _g87$ = () => {
+   return _$ssrAttribute__r_server("checked", _$escape__r_server(s2(), true));
+ };
+-const template20 = _$ssr__r_server(_g25$, _g84$, _g87$, _g85$, _g85$, _g88$, _g86$, _g86$, _$ssrAttribute__r_server("readonly", _$escape__r_server(value, true)));
+-var _g89$ = _$ssrHydrationKey__r_server();
+-var _g90$ = () => {
++const template20 = _$ssr__r_server(_g25$, _g83$, _g86$, _g84$, _g84$, _g87$, _g85$, _g85$, _$ssrAttribute__r_server("readonly", _$escape__r_server(value, true)));
++var _g88$ = _$ssrHydrationKey__r_server();
++var _g89$ = () => {
+   return _$ssrStyle__r_server({
+     a: "static",
+     ...rest
+   });
+ };
+-const template21 = _$ssr__r_server(_g26$, _g89$, _g90$);
++const template21 = _$ssr__r_server(_g26$, _g88$, _g89$);
++var _g90$ = _$ssrHydrationKey__r_server();
++const template22 = _$ssr__r_server(_g27$, _g90$);
+ var _g91$ = _$ssrHydrationKey__r_server();
+-const template22 = _$ssr__r_server(_g27$, _g91$);
+-var _g92$ = _$ssrHydrationKey__r_server();
+-var _g93$ = () => {
++var _g92$ = () => {
+   return _$ssrAttribute__r_server("disabled", "t" in _$escape__r_server(test, true));
+ };
+-var _g94$ = () => {
++var _g93$ = () => {
+   return "t" in test && "true";
+ };
+-const template23 = _$ssr__r_server(_g28$, _g92$, _g93$, _g94$);
++const template23 = _$ssr__r_server(_g28$, _g91$, _g92$, _g93$);
+ const template24 = _$ssrElement__r_server("a", () => {
+   return _$mergeProps__r_server(props, {
+     something: true
+   });
+ }, undefined, true);
+-var _g95$ = _$ssrHydrationKey__r_server();
+-var _g96$ = _$scope__r_server(() => {
++var _g94$ = _$ssrHydrationKey__r_server();
++var _g95$ = _$scope__r_server(() => {
+   return _$escape__r_server(props.children);
+ });
+-var _g97$ = _$ssrElement__r_server("a", () => {
++var _g96$ = _$ssrElement__r_server("a", () => {
+   return _$mergeProps__r_server(props, {
+     something: true
+   });
+ }, undefined, false);
+-const template25 = _$ssr__r_server(_g29$, _g95$, _g96$, _g97$);
++const template25 = _$ssr__r_server(_g29$, _g94$, _g95$, _g96$);
+ const template26 = _$ssrElement__r_server("div", () => {
+   return _$mergeProps__r_server({
+     start: "Hi",
+@@ -258,146 +257,146 @@
+     }, "<!--/-->"];
+   }, false), _$ssrElement__r_server("input", api(), undefined, false), _$ssrElement__r_server("div", api(), undefined, false)];
+ }, true);
+-var _g98$ = _$ssrHydrationKey__r_server();
+-var _g99$ = !!someValue;
+-const template29 = _$ssr__r_server(_g28$, _g98$, _$ssrAttribute__r_server("attribute", !!someValue), _g99$);
++var _g97$ = _$ssrHydrationKey__r_server();
++var _g98$ = !!someValue;
++const template29 = _$ssr__r_server(_g28$, _g97$, _$ssrAttribute__r_server("attribute", !!someValue), _g98$);
++var _g99$ = _$ssrHydrationKey__r_server();
++const template30 = _$ssr__r_server(_g30$, _g99$);
+ var _g100$ = _$ssrHydrationKey__r_server();
+-const template30 = _$ssr__r_server(_g30$, _g100$);
+-var _g101$ = _$ssrHydrationKey__r_server();
+-var _g102$ = () => {
++var _g101$ = () => {
+   return _$ssrStyleProperty__r_server("background-color:", _$escape__r_server(getStore.itemProperties.color, true));
+ };
+-const template31 = _$ssr__r_server(_g26$, _g101$, _g102$);
+-var _g103$ = _$ssrHydrationKey__r_server();
+-const template32 = _$ssr__r_server(_g26$, _g103$, _$ssrStyleProperty__r_server("background-color:", _$escape__r_server(undefined, true)));
++const template31 = _$ssr__r_server(_g26$, _g100$, _g101$);
++var _g102$ = _$ssrHydrationKey__r_server();
++const template32 = _$ssr__r_server(_g26$, _g102$, _$ssrStyleProperty__r_server("background-color:", _$escape__r_server(undefined, true)));
+ const template33 = [(_g4$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g31$, _g4$, _$ssrClassName__r_server(styles.button))), (_g5$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g31$, _g5$, _$ssrClassName__r_server(styles["foo--bar"]))), (_g6$ = _$ssrHydrationKey__r_server(), _g7$ = () => {
+   return _$ssrClassName__r_server(styles.foo.bar);
+ }, _$ssr__r_server(_g31$, _g6$, _g7$)), (_g8$ = _$ssrHydrationKey__r_server(), _g9$ = () => {
+   return _$ssrClassName__r_server(styles[foo()]);
+ }, _$ssr__r_server(_g31$, _g8$, _g9$))];
+-var _g104$ = _$ssrHydrationKey__r_server();
+-var _g105$ = a().b.c;
+-const template35 = _$ssr__r_server(_g17$, _g104$);
+-var _g106$ = _$ssrHydrationKey__r_server();
+-var _g107$ = a().b?.c;
+-const template36 = _$ssr__r_server(_g17$, _g106$);
+-var _g108$ = _$ssrHydrationKey__r_server();
+-var _g109$ = a() ? b : c;
+-const template37 = _$ssr__r_server(_g17$, _g108$);
+-var _g110$ = _$ssrHydrationKey__r_server();
+-var _g111$ = a() ?? b;
+-const template38 = _$ssr__r_server(_g17$, _g110$);
++var _g103$ = _$ssrHydrationKey__r_server();
++var _g104$ = a().b.c;
++const template35 = _$ssr__r_server(_g17$, _g103$);
++var _g105$ = _$ssrHydrationKey__r_server();
++var _g106$ = a().b?.c;
++const template36 = _$ssr__r_server(_g17$, _g105$);
++var _g107$ = _$ssrHydrationKey__r_server();
++var _g108$ = a() ? b : c;
++const template37 = _$ssr__r_server(_g17$, _g107$);
++var _g109$ = _$ssrHydrationKey__r_server();
++var _g110$ = a() ?? b;
++const template38 = _$ssr__r_server(_g17$, _g109$);
++var _g111$ = _$ssrHydrationKey__r_server();
++const template39 = _$ssr__r_server(_g32$, _g111$);
+ var _g112$ = _$ssrHydrationKey__r_server();
+-const template39 = _$ssr__r_server(_g32$, _g112$);
+-var _g113$ = _$ssrHydrationKey__r_server();
+-var _g114$ = () => {
++var _g113$ = () => {
+   return _$ssrStyleProperty__r_server("color:", _$escape__r_server(a(), true));
+ };
+-const template40 = _$ssr__r_server(_g26$, _g113$, _g114$);
+-var _g115$ = _$ssrHydrationKey__r_server();
+-var _g116$ = () => {
++const template40 = _$ssr__r_server(_g26$, _g112$, _g113$);
++var _g114$ = _$ssrHydrationKey__r_server();
++var _g115$ = () => {
+   return _$ssrAttribute__r_server("value", _$escape__r_server(state.color, true));
+ };
+-var _g117$ = () => {
++var _g116$ = () => {
+   return _$ssrAttribute__r_server("value", _$escape__r_server(Color.Red, true));
+ };
+-var _g118$ = () => {
++var _g117$ = () => {
+   return _$ssrAttribute__r_server("value", _$escape__r_server(Color.Blue, true));
+ };
+-const template41 = _$ssr__r_server(_g33$, _g115$, _g116$, _g117$, _g118$);
++const template41 = _$ssr__r_server(_g33$, _g114$, _g115$, _g116$, _g117$);
++var _g118$ = _$ssrHydrationKey__r_server();
++const template42 = _$ssr__r_server(_g34$, _g118$);
+ var _g119$ = _$ssrHydrationKey__r_server();
+-const template42 = _$ssr__r_server(_g34$, _g119$);
++const template43 = _$ssr__r_server(_g35$, _g119$);
+ var _g120$ = _$ssrHydrationKey__r_server();
+-const template43 = _$ssr__r_server(_g35$, _g120$);
++const template44 = _$ssr__r_server(_g36$, _g120$);
+ var _g121$ = _$ssrHydrationKey__r_server();
+-const template44 = _$ssr__r_server(_g36$, _g121$);
++const template45 = _$ssr__r_server(_g37$, _g121$);
+ var _g122$ = _$ssrHydrationKey__r_server();
+-const template45 = _$ssr__r_server(_g37$, _g122$);
++const template46 = _$ssr__r_server(_g38$, _g122$);
+ var _g123$ = _$ssrHydrationKey__r_server();
+-const template46 = _$ssr__r_server(_g38$, _g123$);
++const template47 = _$ssr__r_server(_g39$, _g123$);
+ var _g124$ = _$ssrHydrationKey__r_server();
+-const template47 = _$ssr__r_server(_g39$, _g124$);
++const template48 = _$ssr__r_server(_g40$, _g124$);
+ var _g125$ = _$ssrHydrationKey__r_server();
+-const template48 = _$ssr__r_server(_g40$, _g125$);
++const template49 = _$ssr__r_server(_g41$, _g125$);
+ var _g126$ = _$ssrHydrationKey__r_server();
+-const template49 = _$ssr__r_server(_g41$, _g126$);
++const template50 = _$ssr__r_server(_g42$, _g126$);
+ var _g127$ = _$ssrHydrationKey__r_server();
+-const template50 = _$ssr__r_server(_g42$, _g127$);
+-var _g128$ = _$ssrHydrationKey__r_server();
+-var _g129$ = binding;
+-const template51 = _$ssr__r_server(_g17$, _g128$);
+-var _g130$ = _$ssrHydrationKey__r_server();
+-var _g131$ = binding.prop;
+-const template52 = _$ssr__r_server(_g17$, _g130$);
+-var _g132$ = _$ssrHydrationKey__r_server();
+-var _g133$ = refFn;
+-const template53 = _$ssr__r_server(_g17$, _g132$);
+-var _g134$ = _$ssrHydrationKey__r_server();
+-var _g135$ = refConst;
+-const template54 = _$ssr__r_server(_g17$, _g134$);
+-var _g136$ = _$ssrHydrationKey__r_server();
+-var _g137$ = refUnknown;
+-const template55 = _$ssr__r_server(_g17$, _g136$);
++var _g128$ = binding;
++const template51 = _$ssr__r_server(_g17$, _g127$);
++var _g129$ = _$ssrHydrationKey__r_server();
++var _g130$ = binding.prop;
++const template52 = _$ssr__r_server(_g17$, _g129$);
++var _g131$ = _$ssrHydrationKey__r_server();
++var _g132$ = refFn;
++const template53 = _$ssr__r_server(_g17$, _g131$);
++var _g133$ = _$ssrHydrationKey__r_server();
++var _g134$ = refConst;
++const template54 = _$ssr__r_server(_g17$, _g133$);
++var _g135$ = _$ssrHydrationKey__r_server();
++var _g136$ = refUnknown;
++const template55 = _$ssr__r_server(_g17$, _g135$);
++var _g137$ = _$ssrHydrationKey__r_server();
++const template56 = _$ssr__r_server(_g43$, _g137$);
+ var _g138$ = _$ssrHydrationKey__r_server();
+-const template56 = _$ssr__r_server(_g43$, _g138$);
++const template57 = _$ssr__r_server(_g44$, _g138$);
+ var _g139$ = _$ssrHydrationKey__r_server();
+-const template57 = _$ssr__r_server(_g44$, _g139$);
++const template58 = _$ssr__r_server(_g17$, _g139$);
+ var _g140$ = _$ssrHydrationKey__r_server();
+-const template58 = _$ssr__r_server(_g17$, _g140$);
++const template59 = _$ssr__r_server(_g45$, _g140$);
+ var _g141$ = _$ssrHydrationKey__r_server();
+-const template59 = _$ssr__r_server(_g45$, _g141$);
++const template60 = _$ssr__r_server(_g46$, _g141$, _$ssrAttribute__r_server("i", _$escape__r_server(undefined, true)), _$ssrAttribute__r_server("j", _$escape__r_server(null, true)), _$ssrAttribute__r_server("k", void 0));
+ var _g142$ = _$ssrHydrationKey__r_server();
+-const template60 = _$ssr__r_server(_g46$, _g142$, _$ssrAttribute__r_server("i", _$escape__r_server(undefined, true)), _$ssrAttribute__r_server("j", _$escape__r_server(null, true)), _$ssrAttribute__r_server("k", void 0));
++const template61 = _$ssr__r_server(_g47$, _g142$);
+ var _g143$ = _$ssrHydrationKey__r_server();
+-const template61 = _$ssr__r_server(_g47$, _g143$);
++const template62 = _$ssr__r_server(_g48$, _g143$);
+ var _g144$ = _$ssrHydrationKey__r_server();
+-const template62 = _$ssr__r_server(_g48$, _g144$);
++const template63 = _$ssr__r_server(_g26$, _g144$, _$ssrStyleProperty__r_server("background:", "red"));
+ var _g145$ = _$ssrHydrationKey__r_server();
+-const template63 = _$ssr__r_server(_g26$, _g145$, _$ssrStyleProperty__r_server("background:", "red"));
++const template64 = _$ssr__r_server(_g26$, _g145$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";margin:", 3) + _$ssrStyleProperty__r_server(";padding:", 0.4));
+ var _g146$ = _$ssrHydrationKey__r_server();
+-const template64 = _$ssr__r_server(_g26$, _g146$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";margin:", 3) + _$ssrStyleProperty__r_server(";padding:", 0.4));
++const template65 = _$ssr__r_server(_g26$, _g146$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(undefined, true)));
+ var _g147$ = _$ssrHydrationKey__r_server();
+-const template65 = _$ssr__r_server(_g26$, _g147$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(undefined, true)));
+-var _g148$ = _$ssrHydrationKey__r_server();
+-var _g149$ = () => {
++var _g148$ = () => {
+   return _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(signal(), true));
+ };
+-const template66 = _$ssr__r_server(_g26$, _g148$, _g149$);
++const template66 = _$ssr__r_server(_g26$, _g147$, _g148$);
++var _g149$ = _$ssrHydrationKey__r_server();
++const template67 = _$ssr__r_server(_g26$, _g149$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(somevalue, true)));
+ var _g150$ = _$ssrHydrationKey__r_server();
+-const template67 = _$ssr__r_server(_g26$, _g150$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(somevalue, true)));
+-var _g151$ = _$ssrHydrationKey__r_server();
+-var _g152$ = () => {
++var _g151$ = () => {
+   return _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(some.access, true));
+ };
+-const template68 = _$ssr__r_server(_g26$, _g151$, _g152$);
++const template68 = _$ssr__r_server(_g26$, _g150$, _g151$);
++var _g152$ = _$ssrHydrationKey__r_server();
++const template69 = _$ssr__r_server(_g26$, _g152$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(null, true)));
+ var _g153$ = _$ssrHydrationKey__r_server();
+-const template69 = _$ssr__r_server(_g26$, _g153$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(null, true)));
++const template70 = _$ssr__r_server(_g49$, _g153$, _$ssrAttribute__r_server("playsinline", _$escape__r_server(value, true)));
+ var _g154$ = _$ssrHydrationKey__r_server();
+-const template70 = _$ssr__r_server(_g49$, _g154$, _$ssrAttribute__r_server("playsinline", _$escape__r_server(value, true)));
++const template71 = _$ssr__r_server(_g50$, _g154$);
+ var _g155$ = _$ssrHydrationKey__r_server();
+-const template71 = _$ssr__r_server(_g50$, _g155$);
++const template72 = _$ssr__r_server(_g51$, _g155$);
+ var _g156$ = _$ssrHydrationKey__r_server();
+-const template72 = _$ssr__r_server(_g51$, _g156$);
++const template73 = _$ssr__r_server(_g52$, _g156$);
+ var _g157$ = _$ssrHydrationKey__r_server();
+-const template73 = _$ssr__r_server(_g52$, _g157$);
++const template74 = _$ssr__r_server(_g53$, _g157$);
+ var _g158$ = _$ssrHydrationKey__r_server();
+-const template74 = _$ssr__r_server(_g53$, _g158$);
++const template75 = _$ssr__r_server(_g51$, _g158$);
+ var _g159$ = _$ssrHydrationKey__r_server();
+-const template75 = _$ssr__r_server(_g51$, _g159$);
++const template76 = _$ssr__r_server(_g54$, _g159$);
+ var _g160$ = _$ssrHydrationKey__r_server();
+-const template76 = _$ssr__r_server(_g54$, _g160$);
++const template77 = _$ssr__r_server(_g26$, _g160$, _$ssrStyleProperty__r_server("width:", _$escape__r_server(props.width, true)) + _$ssrStyleProperty__r_server(";height:", _$escape__r_server(props.height, true)));
+ var _g161$ = _$ssrHydrationKey__r_server();
+-const template77 = _$ssr__r_server(_g26$, _g161$, _$ssrStyleProperty__r_server("width:", _$escape__r_server(props.width, true)) + _$ssrStyleProperty__r_server(";height:", _$escape__r_server(props.height, true)));
+-var _g162$ = _$ssrHydrationKey__r_server();
+-var _g163$ = () => {
++var _g162$ = () => {
+   return _$ssrAttribute__r_server("something", _$escape__r_server(color(), true));
+ };
+-const template78 = _$ssr__r_server(_g55$, _g162$, _$ssrStyleProperty__r_server("width:", _$escape__r_server(props.width, true)) + _$ssrStyleProperty__r_server(";height:", _$escape__r_server(props.height, true)), _g163$);
+-var _g164$ = _$ssrHydrationKey__r_server();
+-var _g165$ = () => {
++const template78 = _$ssr__r_server(_g55$, _g161$, _$ssrStyleProperty__r_server("width:", _$escape__r_server(props.width, true)) + _$ssrStyleProperty__r_server(";height:", _$escape__r_server(props.height, true)), _g162$);
++var _g163$ = _$ssrHydrationKey__r_server();
++var _g164$ = () => {
+   return _$ssrStyleProperty__r_server("width:", _$escape__r_server(props.width, true)) + _$ssrStyleProperty__r_server(";height:", _$escape__r_server(props.height, true));
+ };
+-const template79 = _$ssr__r_server(_g55$, _g164$, _g165$, _$ssrAttribute__r_server("something", _$escape__r_server(color(), true)));
++const template79 = _$ssr__r_server(_g55$, _g163$, _g164$, _$ssrAttribute__r_server("something", _$escape__r_server(color(), true)));
+ const propsSpread = {
+   something: color(),
+   style: {
+@@ -438,39 +437,39 @@
+     height: props.height
+   }
+ };
++var _g165$ = _$ssrHydrationKey__r_server();
++const template85 = _$ssr__r_server(_g26$, _g165$, _$ssrStyle__r_server(styleProp.style));
+ var _g166$ = _$ssrHydrationKey__r_server();
+-const template85 = _$ssr__r_server(_g26$, _g166$, _$ssrStyle__r_server(styleProp.style));
+-var _g167$ = _$ssrHydrationKey__r_server();
+-var _g168$ = () => {
++var _g167$ = () => {
+   return _$ssrStyle__r_server(styleProp.style);
+ };
+-const template86 = _$ssr__r_server(_g26$, _g167$, _g168$);
++const template86 = _$ssr__r_server(_g26$, _g166$, _g167$);
+ const style = {
+   background: "red",
+   border: "solid black " + count() + "px"
+ };
+-var _g169$ = _$ssrHydrationKey__r_server();
+-var _g170$ = () => {
++var _g168$ = _$ssrHydrationKey__r_server();
++var _g169$ = () => {
+   return _$ssrAttribute__r_server("aria-label", _$escape__r_server(count(), true));
+ };
+-var _g171$ = _$scope__r_server(() => {
++var _g170$ = _$scope__r_server(() => {
+   return _$escape__r_server(count());
+ });
+-const template87 = _$ssr__r_server(_g56$, _g169$, _g170$, _$ssrStyle__r_server(style), _$ssrClassName__r_server(style), _g171$);
+-var _g172$ = _$ssrHydrationKey__r_server();
+-var _g173$ = () => {
++const template87 = _$ssr__r_server(_g56$, _g168$, _g169$, _$ssrStyle__r_server(style), _$ssrClassName__r_server(style), _g170$);
++var _g171$ = _$ssrHydrationKey__r_server();
++var _g172$ = () => {
+   return _$ssrAttribute__r_server("aria-label", _$escape__r_server(count(), true));
+ };
+-var _g174$ = _$scope__r_server(() => {
++var _g173$ = _$scope__r_server(() => {
+   return _$escape__r_server(count());
+ });
+-const template88 = _$ssr__r_server(_g56$, _g172$, _g173$, _$ssrStyle__r_server(style), _$ssrClassName__r_server(style), _g174$);
++const template88 = _$ssr__r_server(_g56$, _g171$, _g172$, _$ssrStyle__r_server(style), _$ssrClassName__r_server(style), _g173$);
++var _g174$;
++_g174$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g26$, _g174$, _$ssrStyleProperty__r_server("padding-left:", "clamp(2px, 2px, 2px)"));
+ var _g175$;
+-_g175$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g26$, _g175$, _$ssrStyleProperty__r_server("padding-left:", "clamp(2px, 2px, 2px)"));
++_g175$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g26$, _g175$, _$ssrStyleProperty__r_server("a:", "clamp(2px, 2px, 2px)"));
+ var _g176$;
+-_g176$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g26$, _g176$, _$ssrStyleProperty__r_server("a:", "clamp(2px, 2px, 2px)"));
+-var _g177$;
+-_g177$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g26$, _g177$, _$ssrStyleProperty__r_server(_$escape__r_server(computedkey, true) + ":", "clamp(2px, 2px, 2px)"));
++_g176$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g26$, _g176$, _$ssrStyleProperty__r_server(_$escape__r_server(computedkey, true) + ":", "clamp(2px, 2px, 2px)"));
+ const o = {
+   ref: null
+ };
+@@ -479,76 +478,76 @@
+ };
+ const valid = Div({
+   ref(r$) {
+-    var _g178$ = o.ref;
+-    typeof _g178$ === "function" || Array.isArray(_g178$) ? _$applyRef__r_server(_g178$, r$) : o.ref = r$;
++    var _g177$ = o.ref;
++    typeof _g177$ === "function" || Array.isArray(_g177$) ? _$applyRef__r_server(_g177$, r$) : o.ref = r$;
+   }
+ });
+ const invalid = Div({
+   ref(r$) {
+-    var _g179$ = o?.ref;
+-    typeof _g179$ === "function" || Array.isArray(_g179$) ? _$applyRef__r_server(_g179$, r$) : !!o && (o.ref = r$);
++    var _g178$ = o?.ref;
++    typeof _g178$ === "function" || Array.isArray(_g178$) ? _$applyRef__r_server(_g178$, r$) : !!o && (o.ref = r$);
+   }
+ });
++var _g179$ = _$ssrHydrationKey__r_server();
++const template89 = _$ssr__r_server(_g17$, _g179$);
+ var _g180$ = _$ssrHydrationKey__r_server();
+-const template89 = _$ssr__r_server(_g57$, _g180$);
++const template90 = _$ssr__r_server(_g17$, _g180$);
+ var _g181$ = _$ssrHydrationKey__r_server();
+-const template90 = _$ssr__r_server(_g17$, _g181$);
+-var _g182$ = _$ssrHydrationKey__r_server();
+-const template91 = _$ssr__r_server(_g49$, _g182$, _$ssrAttribute__r_server("something", _$escape__r_server({
++const template91 = _$ssr__r_server(_g49$, _g181$, _$ssrAttribute__r_server("something", _$escape__r_server({
+   value: {
+     value: 2
+   }
+ }, true)));
++var _g182$ = _$ssrHydrationKey__r_server();
++const template92 = _$ssr__r_server(_g57$, _g182$);
+ var _g183$ = _$ssrHydrationKey__r_server();
+-const template92 = _$ssr__r_server(_g58$, _g183$);
+-var _g184$ = _$ssrHydrationKey__r_server();
+-var _g185$ = () => {
++var _g184$ = () => {
+   return _$ssrAttribute__r_server("muted", _$escape__r_server(dynamicAttribute(), true));
+ };
+-const template93 = _$ssr__r_server(_g59$, _g184$, _g185$);
++const template93 = _$ssr__r_server(_g58$, _g183$, _g184$);
+ function MyVideo() {
+-  var _g186$ = _$ssrHydrationKey__r_server();
+-  return _$ssr__r_server(_g60$, _g186$);
++  var _g185$ = _$ssrHydrationKey__r_server();
++  return _$ssr__r_server(_g59$, _g185$);
+ }
+-var _g187$ = _$ssrHydrationKey__r_server();
+-var _g188$ = () => {
++var _g186$ = _$ssrHydrationKey__r_server();
++var _g187$ = () => {
+   return _$ssrClassName__r_server(["todo", {
+     active: isActive()
+   }]);
+ };
+-const template94 = _$ssr__r_server(_g24$, _g187$, _g188$);
+-var _g189$ = _$ssrHydrationKey__r_server();
+-var _g190$ = () => {
++const template94 = _$ssr__r_server(_g24$, _g186$, _g187$);
++var _g188$ = _$ssrHydrationKey__r_server();
++var _g189$ = () => {
+   return _$ssrClassName__r_server(["todo", props.active]);
+ };
+-const template95 = _$ssr__r_server(_g24$, _g189$, _g190$);
+-var _g191$ = _$ssrHydrationKey__r_server();
+-var _g192$ = () => {
++const template95 = _$ssr__r_server(_g24$, _g188$, _g189$);
++var _g190$ = _$ssrHydrationKey__r_server();
++var _g191$ = () => {
+   return _$ssrClassName__r_server(["todo", "item", {
+     active: isActive()
+   }]);
+ };
+-const template96 = _$ssr__r_server(_g24$, _g191$, _g192$);
+-var _g193$ = _$ssrHydrationKey__r_server();
+-var _g194$ = () => {
++const template96 = _$ssr__r_server(_g24$, _g190$, _g191$);
++var _g192$ = _$ssrHydrationKey__r_server();
++var _g193$ = () => {
+   return _$ssrClassName__r_server(["todo", {
+     active: isActive(),
+     [props.name]: props.enabled
+   }]);
+ };
+-const template97 = _$ssr__r_server(_g24$, _g193$, _g194$);
+-var _g195$ = _$ssrHydrationKey__r_server();
+-var _g196$ = () => {
++const template97 = _$ssr__r_server(_g24$, _g192$, _g193$);
++var _g194$ = _$ssrHydrationKey__r_server();
++var _g195$ = () => {
+   return _$ssrClassName__r_server(["todo", {
+     active: isActive()
+   }, props.extra]);
+ };
+-const template98 = _$ssr__r_server(_g24$, _g195$, _g196$);
+-var _g197$ = _$ssrHydrationKey__r_server();
+-var _g198$ = () => {
++const template98 = _$ssr__r_server(_g24$, _g194$, _g195$);
++var _g196$ = _$ssrHydrationKey__r_server();
++var _g197$ = () => {
+   return _$ssrClassName__r_server(["todo", "item", {
+     todo: false,
+     active: isActive()
+   }]);
+ };
+-const template99 = _$ssr__r_server(_g24$, _g197$, _g198$);
++const template99 = _$ssr__r_server(_g24$, _g196$, _g197$);

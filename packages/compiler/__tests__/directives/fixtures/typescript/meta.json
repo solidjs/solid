@@ -1,0 +1,19 @@
+{
+  "valid": true,
+  "functions": [
+    {
+      "id": "1db3b5f2-0",
+      "name": "findUser",
+      "exports": [
+        "findUser"
+      ]
+    },
+    {
+      "id": "1db3b5f2-1",
+      "name": "touch",
+      "exports": [
+        "touch"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "valid": true,
+  "functions": [
+    {
+      "id": "32e00052-0",
+      "name": "saveRecord",
+      "exports": []
+    },
+    {
+      "id": "32e00052-1",
+      "name": "handlers",
+      "exports": []
+    }
+  ]
+}

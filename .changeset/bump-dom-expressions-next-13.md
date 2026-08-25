@@ -1,6 +1,5 @@
 ---
 "@solidjs/web": patch
-"babel-preset-solid": patch
 ---
 
 Bump dom-expressions and babel-plugin-jsx-dom-expressions to 0.50.0-next.13.

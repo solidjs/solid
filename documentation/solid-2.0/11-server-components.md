@@ -2,7 +2,7 @@
 
 **Start here:** If you’re migrating an app, read the migration guide first: [MIGRATION.md](MIGRATION.md). This RFC builds directly on [10 — Server functions](10-server-functions.md).
 
-> **Status note:** Shipped as an **experimental preview** in the 2.0 prerelease line (`solid-js`/`@solidjs/web` ≥ 2.0.0-beta.24 with `@dom-expressions/runtime` ≥ 0.50.0-next.29). Server components ride the Solid 2.0 release but are **excluded from 2.0’s stability guarantees**: the API surface and the wire format may change between prereleases, and stabilization will be announced separately. The deep specification (wire format, runtime mechanics, the architecture contract for routers and data layers) lives in dom-expressions: `docs/server-components.md` (usage-first) and `docs/frame-streams-rfc.md` (wire). This document is the Solid-facing surface and its decision record.
+> **Status note:** Shipped as an **experimental preview** in the 2.0 prerelease line (`solid-js`/`@solidjs/web` ≥ 2.0.0-beta.24). Server components ride the Solid 2.0 release but are **excluded from 2.0’s stability guarantees**: the API surface and the wire format may change between prereleases, and stabilization will be announced separately. The runtime and wire live in `@solidjs/web` (frames, transport, document SSR). This document is the Solid-facing surface and its decision record.
 
 ## Summary
 
@@ -115,7 +115,7 @@ Navigation is a prop change: the tracked source re-calls the server function. A 
 
 ### What routers get
 
-Server-component anchors and forms participate in the **element-claim contract** (the same one compiled JSX uses), so a router’s link-state layer sees server-rendered `a[href]`/`form[action]` with cleanup scoped to the boundary’s owner — active-link state works on server content unchanged, morph-precise. The `frame:applied` document event exists for coarser affordances (scroll restoration) without a MutationObserver. Boundary identity (the per-call address), versioning, and retention semantics are specified in the dom-expressions architecture contract; a router integration is deliberately thin — wrapping the section functions in `query` gives the same calls cache identity and preload participation, and a back/forward cache hit re-materializes the boundary from retained state with no request.
+Server-component anchors and forms participate in the **element-claim contract** (the same one compiled JSX uses), so a router’s link-state layer sees server-rendered `a[href]`/`form[action]` with cleanup scoped to the boundary’s owner — active-link state works on server content unchanged, morph-precise. The `frame:applied` document event exists for coarser affordances (scroll restoration) without a MutationObserver. Boundary identity (the per-call address), versioning, and retention semantics live in `@solidjs/web` frames; a router integration is deliberately thin — wrapping the section functions in `query` gives the same calls cache identity and preload participation, and a back/forward cache hit re-materializes the boundary from retained state with no request.
 
 ### The one hard rule
 
@@ -123,14 +123,13 @@ Server-component anchors and forms participate in the **element-claim contract**
 
 ## What it costs
 
-Measured, min+gzip, CI-guarded in dom-expressions: the whole client machinery — store, streaming, slot model, transport policy, element-claim sweeps — is **~6.5 KB** for an app already using server functions. The frame reconciler inside it is 0.86 KB (guarded smaller than micromorph). Apps that import none of this pay **zero bytes** — enforced by the same guard. Argument encoding follows RFC 10’s default (plain JSON; `enableRichArguments()` to opt into codec-encoded args).
+Measured, min+gzip: the whole client machinery — store, streaming, slot model, transport policy, element-claim sweeps — is **~6.5 KB** for an app already using server functions. The frame reconciler inside it is 0.86 KB (guarded smaller than micromorph). Apps that import none of this pay **zero bytes**. Argument encoding follows RFC 10’s default (plain JSON; `enableRichArguments()` to opt into codec-encoded args).
 
 ## Layering
 
 | Layer | Owns |
 |---|---|
-| **dom-expressions** | Wire format (frame chunks, `slot:` markers), frame client (store/morph/host), producer/sink, transport policy, document-SSR inlining, element-claim sweeps, the architecture contract |
-| **Core (`@solidjs/web/frames`)** | The Solid binding: `installServerComponents`, hydration-claim re-entry, call-address boundary identity, `getFrameHost`, the packaged subpath |
+| **`@solidjs/web` (frames)** | Wire format (frame chunks, `slot:` markers), frame client (store/morph/host), producer/sink, transport policy, document-SSR inlining, element-claim sweeps, `installServerComponents`, hydration-claim re-entry, call-address boundary identity, `getFrameHost`, the packaged subpath |
 | **Router (future)** | Outlet ids, URL→call translation, back/forward re-fetch, link state via element claims, query/preload/single-flight composition |
 | **Start (future)** | Configuration only, as with server functions |
 
@@ -143,9 +142,9 @@ Measured, min+gzip, CI-guarded in dom-expressions: the whole client machinery �
 
 ## The derivation pass
 
-The accumulated implementation was re-derived from explicit axioms in
-dom-expressions `docs/server-components-principles.md` — the async-data treatment
-applied to server components. Two headline changes to this document's earlier text:
+The accumulated implementation was re-derived from explicit axioms originally
+written as `docs/server-components-principles.md` in the expressions tree —
+the async-data treatment applied to server components. Two headline changes to this document's earlier text:
 
 - **Identity is split** (DR-1 there): the `(function, arguments)` address keys the
   *content store* — cache honesty, retention, and preload isolation are structural —

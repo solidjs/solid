@@ -167,7 +167,7 @@ export function peekNextChildId(owner: Owner): string {
 }
 
 // Monotonic count of owner creations in this process — the reactive-scope
-// creation stamp. The live-hole engine (dom-expressions server runtime)
+// creation stamp. The live-hole engine (`@solidjs/web` server runtime)
 // diffs it around a hole evaluation to detect render-once work: memos,
 // boundaries, and stateful components all allocate owners, so a hole whose
 // evaluation moves this stamp is not safely re-runnable and latches instead
@@ -461,7 +461,7 @@ interface ServerComputation<T = any> {
 
 /**
  * Live-source brand (registered symbol — set by the transport's `live()`
- * declaration in @dom-expressions/runtime; registered so separately bundled
+ * declaration in `@solidjs/web`; registered so separately bundled
  * copies agree). A branded iterable is a STANDING ANSWER — every yield is
  * the complete current value and the source re-yields current state on any
  * invocation — not a bounded trace whose completion ends the response.
@@ -718,7 +718,7 @@ export function createMemo<T>(
   options?: ServerMemoOptions<T>
 ): SourceAccessor<T | undefined> {
   // Sync fast path — set by the compiler-emitted `_$memo()` / `_$effect()`
-  // wrappers (see `solid-web/src/core.ts`) and by internal control-flow
+  // wrappers (see `@solidjs/web`'s `render.js`) and by internal control-flow
   // primitives (mapArray, repeat, Show, Switch, children, lazy). These
   // computes are statically guaranteed never to return a Promise /
   // AsyncIterable, so we skip the full async-aware ServerComputation /
@@ -888,14 +888,14 @@ export function createMemo<T>(
  *
  * Used by:
  *   - the compiler-emitted `_$memo()` / `_$effect()` wrappers
- *     (`solid-web/src/core.ts`)
+ *     (`@solidjs/web`'s `render.js`)
  *   - internal control-flow primitives (mapArray, repeat, Show, Switch,
  *     children flatten, lazy outer)
  *
  * Architecture note: SSR retry is owned by the streaming engine, not the
  * memo. When a hole pulls and the body throws `NotReadyError`, the engine
  * pushes the hole back into `result.h`/`result.p` and re-pulls when the
- * source promise resolves (see `resolveSSRNode` in dom-expressions). So
+ * source promise resolves (see `resolveSSRNode` in `@solidjs/web`). So
  * we just don't latch a pending result — the next pull recomputes.
  *
  * Caches:

@@ -1,0 +1,153 @@
+name: 'Compiler Binaries'
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish platform packages to npm'
+        type: boolean
+        default: false
+      npm-tag:
+        description: 'npm dist-tag for published platform packages'
+        type: string
+        default: 'next'
+  push:
+    branches:
+      - next
+    paths:
+      - 'packages/compiler/**'
+      - '.github/workflows/compiler-binaries.yml'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - target: x86_64-apple-darwin
+            host: macos-latest
+          - target: aarch64-apple-darwin
+            host: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            host: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            host: ubuntu-24.04-arm
+          - target: x86_64-pc-windows-msvc
+            host: windows-latest
+          - target: wasm32-wasip1-threads
+            host: ubuntu-latest
+    name: build ${{ matrix.settings.target }}
+    runs-on: ${{ matrix.settings.host }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/compiler
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --ignore-scripts
+
+      - name: Build binary
+        if: matrix.settings.target != 'wasm32-wasip1-threads'
+        working-directory: packages/compiler
+        run: pnpm exec napi build --platform --no-js --release --strip --target ${{ matrix.settings.target }} --manifest-path ./Cargo.toml
+
+      - name: Build WASI binary
+        if: matrix.settings.target == 'wasm32-wasip1-threads'
+        working-directory: packages/compiler
+        # napi-build locates crt1-reactor.o relative to RUSTC. Cargo otherwise
+        # supplies the rustup proxy name, which produces a WASM module that
+        # deadlocks before its thread runtime is initialized.
+        run: RUSTC="$(rustup which rustc)" pnpm exec napi build --platform --release --strip --target ${{ matrix.settings.target }} --manifest-path ./Cargo.toml
+
+      # The parity suites compile every fixture through the babel plugin for
+      # comparison, and its entry point is a rollup artifact.
+      - name: Build babel plugin (needed by parity suites)
+        if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-unknown-linux-gnu' || matrix.settings.target == 'aarch64-unknown-linux-gnu' || matrix.settings.target == 'x86_64-pc-windows-msvc'
+        run: pnpm --filter @solidjs/babel-plugin run build
+
+      - name: Test binary (native targets)
+        if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-unknown-linux-gnu' || matrix.settings.target == 'aarch64-unknown-linux-gnu' || matrix.settings.target == 'x86_64-pc-windows-msvc'
+        working-directory: packages/compiler
+        run: pnpm exec vitest run
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: |
+            packages/compiler/compiler.*.node
+            packages/compiler/compiler.*.wasm
+            packages/compiler/compiler.wasi.cjs
+            packages/compiler/compiler.wasi-browser.js
+            packages/compiler/wasi-worker*.mjs
+          if-no-files-found: error
+
+  publish:
+    name: publish platform packages
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          registry-url: 'https://registry.npmjs.org'
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --ignore-scripts
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages/compiler/artifacts
+
+      - name: Move binaries into platform packages
+        working-directory: packages/compiler
+        run: pnpm exec napi artifacts --build-output-dir artifacts/bindings-wasm32-wasip1-threads
+
+      - name: Build babel plugin (needed by parity suites)
+        run: pnpm --filter @solidjs/babel-plugin run build
+
+      - name: Test WASI binary
+        working-directory: packages/compiler
+        run: NODE_NO_WARNINGS=1 NAPI_RS_FORCE_WASI=error pnpm exec vitest run --exclude '**/binding-loader.test.js'
+
+      # Authenticates via OIDC trusted publishing (id-token: write above) —
+      # no npm token. Each platform package must have this repo + workflow
+      # configured as its Trusted Publisher on npmjs.com. Provenance is
+      # attached automatically when publishing through OIDC.
+      # "Cannot publish over" conflicts are tolerated so the job is idempotent —
+      # a rerun after a partial failure only publishes what's missing.
+      - name: Publish platform packages
+        working-directory: packages/compiler
+        run: |
+          failed=0
+          for dir in npm/*/; do
+            echo "Publishing $dir"
+            if output=$(npm publish "$dir" --access public --tag "${{ inputs.npm-tag }}" 2>&1); then
+              echo "$output"
+            elif echo "$output" | grep -q "cannot publish over"; then
+              echo "Already published — skipping $dir"
+            else
+              echo "$output"
+              failed=1
+            fi
+          done
+          exit "$failed"

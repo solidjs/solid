@@ -1,0 +1,22 @@
+{
+  "name": "@solidjs/compiler-darwin-x64",
+  "version": "2.0.0-rc.2",
+  "cpu": [
+    "x64"
+  ],
+  "main": "compiler.darwin-x64.node",
+  "files": [
+    "compiler.darwin-x64.node"
+  ],
+  "description": "Solid native Oxc JSX compiler (darwin-x64)",
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/solidjs/solid.git",
+    "directory": "packages/compiler"
+  },
+  "os": [
+    "darwin"
+  ]
+}

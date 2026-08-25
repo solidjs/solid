@@ -1,0 +1,26 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./.types-build",
+    "rootDir": ".",
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "useUnknownInCatchVariables": false,
+    "strictPropertyInitialization": false,
+    "types": ["node"],
+    "paths": {
+      "@solidjs/web": ["./src/index.ts"],
+      "@solidjs/web/server-functions/client": ["./server-functions/src/client.ts"],
+      "@solidjs/web/serialization": ["./serialization/src/serializer.ts"],
+      "@solidjs/web/serialization/decode": ["./serialization/src/serializer-decode.ts"]
+    }
+  },
+  "include": [
+    "./src/**/*.ts",
+    "./jsx/**/*.d.ts",
+    "./serialization/src/**/*.ts",
+    "./server-functions/src/**/*.ts",
+    "./frames/src/**/*.ts"
+  ],
+  "exclude": ["./jsx/jsx-h.d.ts"]
+}

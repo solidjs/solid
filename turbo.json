@@ -50,8 +50,8 @@
         "types-cjs/**",
         "**/types/**",
         "**/types-cjs/**",
-        "src/jsx.d.ts",
-        "src/jsx-properties.d.ts"
+        "jsx/jsx.d.ts",
+        "jsx/jsx-properties.d.ts"
       ]
     },
     "coverage": {
@@ -83,6 +83,20 @@
     "@solidjs/html#test": {
       "dependsOn": ["@solidjs/web#build", "@solidjs/html#build"],
       "outputs": []
+    },
+    "@solidjs/universal#test": {
+      "dependsOn": ["solid-js#build", "@solidjs/universal#build"],
+      "outputs": []
+    },
+    "@solidjs/babel-plugin#build": {
+      "outputs": ["index.js"]
+    },
+    "@solidjs/babel-plugin#test": {
+      "dependsOn": ["@solidjs/babel-plugin#build"],
+      "outputs": []
+    },
+    "@solidjs/compiler#test": {
+      "cache": false
     },
     "test-integration#test": {
       "dependsOn": [

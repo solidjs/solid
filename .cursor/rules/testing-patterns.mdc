@@ -90,7 +90,7 @@ test("dispose", () => disposer());
 ## Test File Organization
 
 - `packages/solid/test/` — reactive primitives (signals, effects, memos, context, owner)
-- `packages/solid-web/test/` — DOM rendering, flow controls, Portal, Dynamic
+- `packages/web/test/` — DOM rendering, flow controls, Portal, Dynamic
 - `packages/test-integration/` — integration tests against external repos
 - Type tests in `.type-tests.ts` files using `@ts-expect-error` for negative cases
 

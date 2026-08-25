@@ -1,0 +1,66 @@
+{
+  "name": "@solidjs/universal",
+  "description": "Solid's universal runtime for creating custom renderers",
+  "version": "2.0.0-rc.2",
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "homepage": "https://solidjs.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/solidjs/solid.git",
+    "directory": "packages/universal"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/universal.cjs",
+  "module": "./dist/universal.js",
+  "types": "./types/index.d.ts",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "types",
+    "types-cjs",
+    "package.json"
+  ],
+  "exports": {
+    ".": {
+      "development": {
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/dev.js"
+        },
+        "require": {
+          "types": "./types-cjs/index.d.cts",
+          "default": "./dist/dev.cjs"
+        }
+      },
+      "import": {
+        "types": "./types/index.d.ts",
+        "default": "./dist/universal.js"
+      },
+      "require": {
+        "types": "./types-cjs/index.d.cts",
+        "default": "./dist/universal.cjs"
+      }
+    },
+    "./types/*": "./types/*"
+  },
+  "scripts": {
+    "build": "npm-run-all -nl build:*",
+    "build:clean": "rimraf dist/ coverage/",
+    "build:js": "rollup -c",
+    "types": "npm-run-all -nl types:clean types:universal types:cjs",
+    "types:clean": "rimraf types/ types-cjs/",
+    "types:universal": "tsc --project ./tsconfig.json",
+    "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "solid-js": "^2.0.0-rc.2"
+  },
+  "devDependencies": {
+    "solid-js": "workspace:*"
+  }
+}
