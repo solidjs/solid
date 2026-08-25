@@ -14,6 +14,8 @@ pub struct RendererOption {
 #[derive(Default)]
 pub struct TransformOptions {
     pub filename: Option<String>,
+    /// Runtime module compiled output imports helpers from.
+    /// Default `"@solidjs/web"`.
     pub module_name: Option<String>,
     pub generate: Option<String>,
     pub hydratable: Option<bool>,
@@ -52,6 +54,8 @@ pub struct TransformOptions {
     /// intrinsic elements compile to a guarded `_$ssrClaim` hole (the
     /// `_bnd` behavior-claim marker) instead of dropping.
     pub server_components: Option<bool>,
+    /// Component exports from `moduleName` that are auto-imported.
+    /// Default `["For", "Show", "Switch", "Match", "Loading", "Reveal", "Portal", "Repeat", "Dynamic", "Errored"]`.
     pub built_ins: Option<Vec<String>>,
     pub renderers: Option<Vec<RendererOption>>,
 }

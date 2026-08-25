@@ -961,7 +961,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 }
                 Some(JSXAttributeValue::Element(_) | JSXAttributeValue::Fragment(_)) => {
                     return Err(Error::from_reason(
-                        "SSR component JSX attribute values are not implemented in the AST-native milestone yet",
+                        "SSR component JSX attribute values are not implemented yet",
                     ));
                 }
             };
@@ -1128,6 +1128,13 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     } else {
                         expression
                     };
+                    // Sole component children are values, not HTML: the
+                    // callee's own insert/SSR sites escape. Mixed children
+                    // (`wrap`) take the fragment path (`_$memo(() =>
+                    // _$escape(...))`) because the array can concatenate as
+                    // markup. A stale snapshot used to wrap the sole-child
+                    // case too; that double-escaped through
+                    // `<Comp>{props.children}</Comp>`.
                     // memoWrapper: false + multiple children: Babel's
                     // `transformComponentChildren` strips the thunk down to
                     // its body before createTemplate sees it.
@@ -1406,11 +1413,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     Ok(Some(self.object_property(attr.span, &name, value)))
                 }
             }
-            Some(JSXAttributeValue::Element(_) | JSXAttributeValue::Fragment(_)) => {
-                Err(Error::from_reason(
-                    "SSR JSX attribute values are not implemented in the AST-native milestone yet",
-                ))
-            }
+            Some(JSXAttributeValue::Element(_) | JSXAttributeValue::Fragment(_)) => Err(
+                Error::from_reason("SSR JSX attribute values are not implemented yet"),
+            ),
         }
     }
 

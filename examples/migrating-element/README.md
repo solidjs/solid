@@ -38,7 +38,7 @@ This resolves the long-standing bug class reported as
 [solidjs/solid#2357](https://github.com/solidjs/solid/issues/2357) — a single
 node referenced from multiple sibling slots used to either crash
 `replaceChild` ("new child contains the parent") or vanish during sibling-slot
-cleanup. The new dom-expressions runtime tags each node with the slot that
+cleanup. `@solidjs/web`'s insert/reconcile path tags each node with the slot that
 owns it and gates every destructive operation on that ownership, so a
 migration becomes a single move.
 

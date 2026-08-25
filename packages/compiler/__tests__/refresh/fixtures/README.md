@@ -78,7 +78,7 @@ pass's intended output, not the plugin's):
   not a divergence but a documented non-bug — the crash lives in the
   plugin's `jsx: true` extraction (`extractJSXExpressionFromRef`
   safe-wraps identifier refs but lets member expressions fall into a
-  props getter that dom-expressions' non-function ref fallback then
+  props getter that the runtime's non-function ref fallback then
   assigns to). Under `jsx: false` — the only mode vite-plugin-solid uses
   and the only mode the native pass accepts — JSX is never rewritten, so
   `ref={props.setRef}` passes through verbatim and the code path is

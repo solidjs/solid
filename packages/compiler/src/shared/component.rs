@@ -111,7 +111,7 @@ pub(crate) fn lower_component_with_setup<'a, C: ComponentLower<'a>>(
             }
             _ => {
                 return Err(Error::from_reason(
-                    "Component JSX attribute values are not implemented in the AST-native milestone yet",
+                    "Component JSX attribute values are not implemented yet",
                 ));
             }
         };

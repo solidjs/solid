@@ -374,7 +374,7 @@ impl<'a> AstDomTransform<'a, '_> {
                 }
                 _ => {
                     return Err(Error::from_reason(
-                        "Fragments and spread children are not implemented in the AST-native milestone yet",
+                        "Fragments and spread children are not implemented yet",
                     ));
                 }
             }

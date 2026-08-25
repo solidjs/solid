@@ -36,6 +36,10 @@ export function createTemplate(
   wrap: boolean
 ): t.Expression {
   if (!result.template) {
+    // `wrap` is true for fragment children and for mixed component children.
+    // A sole component child (`wrap === false`) is a value passed to the
+    // callee — do not `_$escape` it here; the callee's insert/SSR sites
+    // escape when interpolating into HTML. Escaping both layers double-escapes.
     if (wrap && result.dynamic && getConfig(path).memoWrapper) {
       // wontEscape is set on JSXElement children whose compiled form is
       // already a safe SSR node (e.g. `_$ssr(...)` call). Wrapping those in

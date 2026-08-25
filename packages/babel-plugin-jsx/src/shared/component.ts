@@ -10,7 +10,7 @@ import {
   convertJSXIdentifier
 } from "./utils";
 import { transformNode, getCreateTemplate } from "./transform";
-import type { JSXDOMExpressionsConfig } from "../config";
+import type { PluginConfig } from "../config";
 import type { BabelPath, JSXNode, TransformResult } from "../types";
 
 type JSXAttributePath = BabelPath<t.JSXAttribute | t.JSXSpreadAttribute>;
@@ -362,7 +362,7 @@ export default function transformComponent(
 
 function transformComponentChildren(
   children: BabelPath<JSXNode>[],
-  config: JSXDOMExpressionsConfig
+  config: PluginConfig
 ): ComponentChildrenResult {
   const filteredChildren = filterChildren(children);
   if (!filteredChildren.length) return;

@@ -31,7 +31,8 @@ function transformSsr(code, fixture) {
       filename: `${fixture}.jsx`,
       moduleName: "r-server",
       generate: "ssr",
-      contextToCustomElements: true
+      contextToCustomElements: true,
+      ...(fixture === "components" ? { builtIns: ["For", "Show"] } : null)
     }).code.trimEnd() + "\n"
   );
 }

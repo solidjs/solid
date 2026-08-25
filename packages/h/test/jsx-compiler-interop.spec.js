@@ -1,6 +1,6 @@
 /**
  * Interop test: consume components shaped the way
- * `babel-plugin-jsx-dom-expressions` compiles them from within
+ * `@solidjs/babel-plugin-jsx` compiles them from within
  * `h(...)`. The components below are **hand-written to match the
  * compiler's output shape** — `template(...)` + `cloneNode` + `insert`
  * + `effect(setAttribute(…))` — rather than wired through the actual

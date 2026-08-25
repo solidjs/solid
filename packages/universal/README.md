@@ -173,11 +173,13 @@ The package should expose those files from `package.json`:
 
 If mixing multiple JSX implementations in the same project, use per-file pragmas such as `/** @jsxImportSource solid-custom-dom */`.
 
-Renderer packages that build from `dom-expressions` JSX declarations can vendor those files and customize `JSX.Element` during their type build:
+Renderer packages can generate a JSX namespace from `@solidjs/web`'s `jsx-h.d.ts` source with `packages/web/scripts/jsx-sync.mjs`:
 
 ```sh
-dom-expressions-jsx-types \
-  --input ./types/jsx-runtime.d.ts \
+node packages/web/scripts/jsx-sync.mjs \
+  --input packages/web/jsx/jsx-h.d.ts \
+  --output ./types/jsx-runtime.d.ts \
+  --compile \
   --element "SolidElement | RendererNode | ArrayElement" \
   --import 'import type { Element as SolidElement } from "solid-js";'
 ```

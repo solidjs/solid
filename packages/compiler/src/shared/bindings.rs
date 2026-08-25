@@ -182,10 +182,7 @@ impl BindingTable {
     /// Declares a function's parameters in the current frame. The statement
     /// walk only covers declarations; patch-mode subject resolution needs
     /// params (row functions' subjects ARE their params).
-    pub(crate) fn declare_function_params(
-        &mut self,
-        params: &oxc_ast::ast::FormalParameters<'_>,
-    ) {
+    pub(crate) fn declare_function_params(&mut self, params: &oxc_ast::ast::FormalParameters<'_>) {
         let mut names = std::vec::Vec::new();
         for param in &params.items {
             collect_binding_names(&param.pattern, &mut names);

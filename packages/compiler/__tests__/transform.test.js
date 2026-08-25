@@ -8,7 +8,7 @@ function readFixture(name) {
   return fs.readFileSync(path.join(babelDomFixtures, name, "code.js"), "utf8");
 }
 
-describe("jsx-dom-expressions-compiler AST-native milestone", () => {
+describe("@solidjs/compiler transform", () => {
   it("lowers a simple native JSX element to a DOM template call", () => {
     const result = transform('const view = <div id="main">Hello</div>;', {
       filename: "input.jsx",
@@ -19,6 +19,15 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     expect(result.code).toContain("const view = _tmpl$();");
     expect(result.code).toContain("/* @__PURE__ */ _$template");
     expect(result.code).toContain("_$template(`<div id=main>Hello`)");
+  });
+
+  it("defaults moduleName to @solidjs/web and builtIns to the Solid control-flow set", () => {
+    const result = transform("const view = <For each={list}>{item => item}</For>;", {
+      filename: "input.jsx"
+    });
+
+    expect(result.code).toContain('from "@solidjs/web"');
+    expect(result.code).toContain("For as _$For");
   });
 
   it("can preserve last closing tags when configured", () => {
@@ -499,6 +508,30 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
         renderers: [{ name: "dom", elements: ["div"], moduleName: "r-dom", extra: true }]
       })
     ).toThrow(/unknown renderer option `extra`/);
+  });
+
+  it("does not HTML-escape a sole SSR component child; mixed children and element holes do", () => {
+    const sole = transform("const view = <Comp>{state.dynamic}</Comp>;", {
+      filename: "input.jsx",
+      moduleName: "r-server",
+      generate: "ssr"
+    });
+    expect(sole.code).toContain("return state.dynamic;");
+    expect(sole.code).not.toContain("_$escape(state.dynamic)");
+
+    const mixed = transform("const view = <Comp><div />{state.dynamic}</Comp>;", {
+      filename: "input.jsx",
+      moduleName: "r-server",
+      generate: "ssr"
+    });
+    expect(mixed.code).toContain("_$escape(state.dynamic)");
+
+    const element = transform("const view = <div>{state.dynamic}</div>;", {
+      filename: "input.jsx",
+      moduleName: "r-server",
+      generate: "ssr"
+    });
+    expect(element.code).toContain("_$escape(state.dynamic)");
   });
 
   it("lowers static native JSX in SSR mode", () => {

@@ -124,7 +124,7 @@ impl<'a> AstDomTransform<'a, '_> {
             }
             oxc_ast::ast::JSXAttributeName::NamespacedName(_) => {
                 return Err(Error::from_reason(
-                    "Namespaced attributes are not implemented in the AST-native milestone yet",
+                    "Namespaced attributes are not implemented yet",
                 ));
             }
         };
@@ -187,11 +187,9 @@ impl<'a> AstDomTransform<'a, '_> {
                     Ok(self.object_property(attr.span, &name, value))
                 }
             }
-            Some(JSXAttributeValue::Element(_) | JSXAttributeValue::Fragment(_)) => {
-                Err(Error::from_reason(
-                    "JSX spread attribute object values are not implemented in the AST-native milestone yet",
-                ))
-            }
+            Some(JSXAttributeValue::Element(_) | JSXAttributeValue::Fragment(_)) => Err(
+                Error::from_reason("JSX spread attribute object values are not implemented yet"),
+            ),
         }
     }
 }

@@ -181,8 +181,7 @@ pub fn transform_directives(
     let (code, map) = if needs_dce {
         // Babel's `removeUnusedVariables` fixpoint. This port re-parses
         // printed output between passes, so when it runs the source map is
-        // regenerated relative to the pre-DCE output (a known limitation of
-        // this milestone).
+        // regenerated relative to the pre-DCE output (a known limitation).
         let cleaned =
             dce::remove_unused_variables(build_code, source_type, orphans, env == Env::Development);
         if source_map {

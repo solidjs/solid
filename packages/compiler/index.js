@@ -237,8 +237,6 @@ const nativeOptionKeys = new Set([
   "renderers"
 ]);
 
-const compatibleBabelDefaults = new Map([]);
-
 function validateOptions(code, options) {
   if (options == null) return options;
   if (typeof options !== "object" || Array.isArray(options)) {
@@ -284,11 +282,6 @@ function validateOptions(code, options) {
       nativeOptions[key] = value;
       continue;
     }
-    if (compatibleBabelDefaults.has(key)) {
-      const defaultValue = compatibleBabelDefaults.get(key);
-      if (sameOptionValue(value, defaultValue)) continue;
-      throw new Error(`@solidjs/compiler does not support non-default \`${key}\` options yet`);
-    }
     throw new Error(`@solidjs/compiler received unknown option \`${key}\``);
   }
   return nativeOptions;
@@ -317,13 +310,6 @@ function validateRenderers(renderers) {
   }
 }
 
-function sameOptionValue(value, defaultValue) {
-  if (Array.isArray(defaultValue)) {
-    return Array.isArray(value) && value.length === defaultValue.length;
-  }
-  return value === defaultValue;
-}
-
 function platformArchSuffix() {
   const { platform, arch } = process;
   if (platform === "darwin" && (arch === "x64" || arch === "arm64")) return `darwin-${arch}`;
@@ -342,7 +328,7 @@ function tryPackage(packageName) {
 }
 
 function requireBinding() {
-  const explicit = process.env.DOM_EXPRESSIONS_COMPILER_NATIVE;
+  const explicit = process.env.SOLID_COMPILER_NATIVE;
   if (explicit) return require(explicit);
 
   const forceWasi = process.env.NAPI_RS_FORCE_WASI;
@@ -357,9 +343,6 @@ function requireBinding() {
   let nativeError;
   const suffix = platformArchSuffix();
 
-  // Transition: published @solidjs/compiler-* first, then a local napi
-  // build, then the last @dom-expressions/compiler-* publish until the
-  // Solid-scoped platform packages exist on npm.
   if (suffix) {
     const next = tryPackage(`@solidjs/compiler-${suffix}`);
     if (next.binding) return next.binding;
@@ -381,12 +364,6 @@ function requireBinding() {
         }
       }
     }
-  }
-
-  if (!nativeError && suffix) {
-    const legacy = tryPackage(`@dom-expressions/compiler-${suffix}`);
-    if (legacy.binding) return legacy.binding;
-    if (legacy.error) nativeError = legacy.error;
   }
 
   const wasi = requireWasi();
@@ -415,10 +392,6 @@ function requireWasi() {
 
   const localWasi = path.join(__dirname, "compiler.wasi.cjs");
   if (fs.existsSync(localWasi)) return require(localWasi);
-
-  const legacy = tryPackage("@dom-expressions/compiler-wasm32-wasi");
-  if (legacy.binding) return legacy.binding;
-  if (legacy.error) throw legacy.error;
   return null;
 }
 

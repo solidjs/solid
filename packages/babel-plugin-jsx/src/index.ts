@@ -3,7 +3,7 @@ import { transformJSX } from "./shared/transform";
 import postprocess from "./shared/postprocess";
 import preprocess from "./shared/preprocess";
 import type { Visitor } from "@babel/traverse";
-import type { JSXDOMExpressionsPass } from "./types";
+import type { PluginPass } from "./types";
 
 type JSXPluginSyntax = {
   manipulateOptions(opts: unknown, parserOpts: { plugins: string[] }): void;
@@ -12,10 +12,10 @@ type JSXPluginSyntax = {
 export default (): {
   name: string;
   inherits: () => JSXPluginSyntax;
-  visitor: Visitor<JSXDOMExpressionsPass>;
+  visitor: Visitor<PluginPass>;
 } => {
   return {
-    name: "JSX DOM Expressions",
+    name: "@solidjs/babel-plugin-jsx",
     inherits: SyntaxJSX.default,
     visitor: {
       JSXElement: transformJSX,

@@ -107,7 +107,7 @@ Reactivity lane — `pnpm --filter @solidjs/signals bench`:
   `reconcile()`: each frame hands the framework a fresh *immutable*
   state tree that Solid reconciles into a `createStore`, so UIBench's
   hot path for Solid is `store/reconcile.ts` (keyed map/LIS reorder,
-  node reuse, `applyState` walk) — **not** `mapArray`/`dom-expressions`
+  node reuse, `applyState` walk) — **not** `mapArray`/`@solidjs/web`
   (that is the JFB/DOM lane; see `reconcile-permute.bench.tsx`). This
   bench mirrors UIBench's `tree` scenario: a nested tree of keyed
   `{ id, children }` nodes (root + 10 + 100 + 1000 = 1111) reconciled
@@ -118,7 +118,7 @@ Reactivity lane — `pnpm --filter @solidjs/signals bench`:
   recursive `<For>` does) so the reorder actually reuses nodes and
   re-runs consumers. It is the store-lane analog to the DOM-lane
   `reconcile-permute.bench.tsx`; the two exercise different code
-  (`store/reconcile.ts` vs `dom-expressions/reconcile.js`).
+  (`store/reconcile.ts` vs `packages/web/src/reconcile.ts`).
 
 Used during the 2026-04 → 2026-05 session for the missing-key store
 fast path, scheduler micro paths, and listened-paths regression gating.
@@ -144,7 +144,7 @@ DOM lane — `pnpm --filter @solidjs/web bench`:
 - `packages/web/test/reconcile-permute.bench.tsx` — 1k rows
   reordered every iteration. Two sub-benches:
   - `reverse` — full list reverse. Drives the symmetric end-swap branch
-    in `dom-expressions/reconcile.js` that the `2fe6310f` surgical fix
+    in `packages/web/src/reconcile.ts` that the `2fe6310f` surgical fix
     targets. Hottest signal for that path; collapses if anyone reverts
     the dual-anchor pattern.
   - `shuffle` — deterministic Fisher–Yates. Lands in the map/LIS
@@ -229,13 +229,13 @@ not commitments — promote them only if the Tier-2 work demands it.
    and identify the hot operations. Note UIBench drives Solid through
    `store` + `reconcile()` (fresh immutable tree reconciled per frame),
    so its hot path is `store/reconcile.ts`, not `mapArray`/
-   `dom-expressions`. *Tier-1 covered:*
+   `@solidjs/web`. *Tier-1 covered:*
    `store/reconcile-tree.bench.ts` (store lane) is the UIBench analog —
    a keyed nested `{ id, children }` tree reconciled per frame with
    `reverse`/`shuffle` permutations, exercising `store/reconcile.ts`'s
    recursive move-detection (map/LIS) path. `reconcile-permute.bench.tsx`
    (DOM lane) is the JFB-style analog and covers the *separate*
-   `dom-expressions/reconcile.js` array-permute path (`<For>` over a
+   `packages/web/src/reconcile.ts` array-permute path (`<For>` over a
    signal → `mapArray`) with `reverse` and Fisher–Yates `shuffle` modes;
    it does **not** touch `store/reconcile.ts`. `listened-paths.bench.ts`
    (store lane) covers the `applyState` listened-paths walk with

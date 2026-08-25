@@ -1,9 +1,9 @@
 import type { NodePath } from "@babel/traverse";
 import type * as t from "@babel/types";
-import type { JSXDOMExpressionsConfig, RendererName } from "./config";
+import type { PluginConfig, RendererName } from "./config";
 
-export interface JSXDOMExpressionsPass {
-  opts: Partial<JSXDOMExpressionsConfig>;
+export interface PluginPass {
+  opts: Partial<PluginConfig>;
   skip?: boolean;
 }
 
@@ -31,7 +31,7 @@ export interface ProgramScopeData {
 export type BabelFileWithMetadata = {
   ast: t.File;
   metadata: {
-    config?: JSXDOMExpressionsConfig;
+    config?: PluginConfig;
   };
 };
 

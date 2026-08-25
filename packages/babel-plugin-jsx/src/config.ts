@@ -6,7 +6,7 @@ export interface RendererConfig {
   elements: string[];
 }
 
-export interface JSXDOMExpressionsConfig {
+export interface PluginConfig {
   moduleName: string;
   generate: "dom" | "ssr" | "universal" | "dynamic";
   hydratable: boolean;
@@ -39,7 +39,7 @@ export interface JSXDOMExpressionsConfig {
   renderers?: RendererConfig[];
 }
 
-const config: JSXDOMExpressionsConfig = {
+const config: PluginConfig = {
   moduleName: "@solidjs/web",
   generate: "dom",
   hydratable: false,

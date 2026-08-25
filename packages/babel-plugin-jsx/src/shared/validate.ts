@@ -32,7 +32,7 @@ function innerHTML(htmlFragment: string) {
 export function isInvalidMarkup(html: string): { html: string; browser: string } | undefined {
   html = html
 
-    // normalize dom-expressions comments, so comments location are also validated
+    // normalize hydration/insert comments so comment location is also validated
     .replaceAll("<!>", "<!---->")
     .replaceAll("<!$>", "<!--$-->")
     .replaceAll("<!/>", "<!--/-->")

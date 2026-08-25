@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/babel-plugin-jsx",
-  "description": "A JSX to DOM plugin that wraps expressions for fine grained change detection",
+  "description": "Babel plugin that compiles Solid JSX to fine-grained DOM updates",
   "version": "2.0.0-rc.2",
   "author": "Ryan Carniato",
   "license": "MIT",
@@ -9,7 +9,6 @@
     "url": "git+https://github.com/solidjs/solid.git",
     "directory": "packages/babel-plugin-jsx"
   },
-  "readmeFilename": "README.md",
   "main": "index.js",
   "sideEffects": false,
   "scripts": {
@@ -37,6 +36,5 @@
     "@rollup/plugin-babel": "7.0.0",
     "@types/babel__core": "^7.20.5",
     "@types/babel__traverse": "^7.28.0"
-  },
-  "gitHead": "eb463c653325e24824422cff6bfed0d35113ef33"
+  }
 }

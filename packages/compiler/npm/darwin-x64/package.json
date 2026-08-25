@@ -8,7 +8,7 @@
   "files": [
     "compiler.darwin-x64.node"
   ],
-  "description": "A JSX to DOM Expressions compiler implemented with Oxc",
+  "description": "Solid native Oxc JSX compiler (darwin-x64)",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {

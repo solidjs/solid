@@ -8,7 +8,7 @@
   "files": [
     "compiler.linux-x64-gnu.node"
   ],
-  "description": "A JSX to DOM Expressions compiler implemented with Oxc",
+  "description": "Solid native Oxc JSX compiler (linux-x64-gnu)",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {

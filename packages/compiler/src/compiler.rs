@@ -38,11 +38,27 @@ pub struct Renderer {
     pub elements: Vec<String>,
 }
 
+/// Default runtime import path — same as `@solidjs/babel-plugin-jsx` and the
+/// deleted `babel-preset-solid`.
+pub(crate) const DEFAULT_MODULE_NAME: &str = "@solidjs/web";
+
+/// Control-flow components auto-imported from [`DEFAULT_MODULE_NAME`].
+pub(crate) const DEFAULT_BUILT_INS: &[&str] = &[
+    "For", "Show", "Switch", "Match", "Loading", "Reveal", "Portal", "Repeat", "Dynamic", "Errored",
+];
+
+pub(crate) fn default_built_ins() -> Vec<String> {
+    DEFAULT_BUILT_INS
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect()
+}
+
 /// Rust-native JSX compiler options.
 ///
-/// Defaults describe ordinary DOM compilation. Unlike the Node adapter, the
-/// required module name and output mode are represented directly rather than
-/// as nullable transport fields.
+/// Defaults match `@solidjs/babel-plugin-jsx` / the old `babel-preset-solid`:
+/// DOM generate, `@solidjs/web`, and the Solid control-flow `builtIns`. The
+/// Node adapter applies the same values when those fields are omitted.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompileOptions {
     pub filename: Option<String>,
@@ -76,7 +92,7 @@ impl Default for CompileOptions {
     fn default() -> Self {
         Self {
             filename: None,
-            module_name: "dom".into(),
+            module_name: DEFAULT_MODULE_NAME.into(),
             generate: Generate::Dom,
             hydratable: false,
             server_components: false,
@@ -97,7 +113,7 @@ impl Default for CompileOptions {
             validate: true,
             omit_nested_closing_tags: false,
             omit_last_closing_tag: true,
-            built_ins: Vec::new(),
+            built_ins: default_built_ins(),
             renderers: Vec::new(),
         }
     }

@@ -28,7 +28,7 @@ pub(crate) fn element_name(name: &JSXElementName<'_>) -> Result<String> {
             Ok(format!("{}:{}", name.namespace.name, name.name.name))
         }
         _ => Err(Error::from_reason(
-            "Only simple JSX element names are implemented in the AST-native milestone",
+            "Only simple JSX element names are supported",
         )),
     }
 }

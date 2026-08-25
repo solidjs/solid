@@ -1,19 +1,16 @@
-# Babel Plugin JSX DOM Expressions
+# @solidjs/babel-plugin-jsx
 
-[![Build Status](https://github.com/ryansolid/dom-expressions/workflows/DOMExpressions%20CI/badge.svg)](https://github.com/ryansolid/dom-expressions/actions/workflows/main-ci.yml)
-[![NPM Version](https://img.shields.io/npm/v/@dom-expressions/babel-plugin-jsx.svg?style=flat)](https://www.npmjs.com/package/@dom-expressions/babel-plugin-jsx)
-![](https://img.shields.io/npm/dt/@dom-expressions/babel-plugin-jsx.svg?style=flat)
-[![Gitter](https://img.shields.io/gitter/room/dom-expressions/community)](https://gitter.im/dom-expressions/community)
+Solid 2.0's Babel JSX compiler. It lowers JSX to template clones, inserts, and reactive wrappers against `@solidjs/web` (or a custom renderer).
 
-This package is a JSX compiler built for [DOM Expressions](https://github.com/ryansolid/dom-expressions) to provide a general JSX to DOM transformation for reactive libraries that do fine grained change detection. This package aims to convert JSX statements to native DOM statements and wrap JSX expressions with functions that can be implemented with the library of your choice. Sort of like a JSX to Hyperscript for fine change detection.
+The native Oxc compiler — [`@solidjs/compiler`](../compiler) — is the default in `vite-plugin-solid`. Use this plugin when you need a Babel pipeline (or as the JavaScript fallback).
+
+> **Solid 2.0 (Release Candidate).** Pin exact versions.
 
 ## Features
 
-This plugin treats all lowercase tags as html elements and mixed cased tags as Custom Functions. This enables breaking up your view into components. This library supports Web Component Custom Elements spec. Support for common camelcase event handlers like React, dom safe attributes like class and for, a simple ref property, and parsing of objects for style, and class properties.
+Lowercase tags are HTML elements; mixed-case tags are components. The plugin supports Custom Elements, camelCase event handlers, DOM-safe attributes (`class`, `for`), `ref`, and object `style` / `class` parsing.
 
-In general JSX Attribute Expressions are treated as attributes by default, with exception custom elements that will to properties and special fields like `class` and `style`. Plain string attributes will be treated as attributes.
-
-This library uses a heuristic to decide whether JSX expressions need dynamic wrapping based on whether they contain function calls or property access. Simple literals and variable expressions won't be wrapped.
+Attribute expressions are attributes by default, except on custom elements (properties) and special fields like `class` and `style`. A heuristic wraps expressions that contain function calls or property access; simple literals and variables stay unwrapped.
 
 ## Example
 
@@ -39,21 +36,20 @@ const view = ({ item }) => {
 
 Compiles to:
 
-```jsx
-import { template as _$template } from "dom";
-import { delegateEvents as _$delegateEvents } from "dom";
-import { className as _$className } from "dom";
-import { effect as _$effect } from "dom";
-import { insert as _$insert } from "dom";
+```js
+import { template as _$template } from "@solidjs/web";
+import { delegateEvents as _$delegateEvents } from "@solidjs/web";
+import { className as _$className } from "@solidjs/web";
+import { effect as _$effect } from "@solidjs/web";
+import { insert as _$insert } from "@solidjs/web";
 
 const _tmpl$ = /*#__PURE__*/ _$template(
-  `<tr><td class="col-md-1"></td><td class="col-md-4"><a></a></td><td class="col-md-1"><a><span class="glyphicon glyphicon-remove" aria-hidden="true"></span></a></td><td class="col-md-6"></td></tr>`,
-  16
+  `<tr><td class="col-md-1"></td><td class="col-md-4"><a></a></td><td class="col-md-1"><a><span class="glyphicon glyphicon-remove" aria-hidden="true"></span></a></td><td class="col-md-6"></td></tr>`
 );
 const view = ({ item }) => {
   const itemId = item.id;
   return (() => {
-    const _el$ = _tmpl$.cloneNode(true),
+    const _el$ = _tmpl$(),
       _el$2 = _el$.firstChild,
       _el$3 = _el$2.nextSibling,
       _el$4 = _el$3.firstChild,
@@ -73,145 +69,154 @@ const view = ({ item }) => {
 _$delegateEvents(["click"]);
 ```
 
-The use of cloneNode improves repeat insert performance and precompilation reduces the number of references to the minimal traversal path. This is a basic example which doesn't leverage event delegation or any of the more advanced features described below.
+`cloneNode` (via `template()`) improves repeat insert performance and precompilation reduces references to the minimal traversal path.
 
-## Example Implementations
+## Configuration
 
-- [Solid](https://github.com/ryansolid/solid): A declarative JavaScript library for building user interfaces.
-- [ko-jsx](https://github.com/ryansolid/ko-jsx): Knockout JS with JSX rendering.
-- [mobx-jsx](https://github.com/ryansolid/mobx-jsx): Ever wondered how much more performant MobX is without React? A lot.
+Omitted options are the Solid 2.0 defaults that used to live in `babel-preset-solid`: `moduleName: "@solidjs/web"`, `generate: "dom"`, `wrapConditionals`, `contextToCustomElements`, and auto-import of `For` / `Show` / `Switch` / `Match` / `Loading` / `Reveal` / `Portal` / `Repeat` / `Dynamic` / `Errored`.
+
+```js
+{
+  plugins: [
+    [
+      "@solidjs/babel-plugin-jsx",
+      {
+        moduleName: "@solidjs/web",
+        generate: "dom",
+        hydratable: true
+      }
+    ]
+  ]
+}
+```
 
 ## Plugin Options
 
 ### moduleName
 
 - Type: `string`
-- Required: Yes
+- Default: `"@solidjs/web"`
 
-The name of the runtime module to import the methods from.
+Runtime module the compiled output imports helpers from. Use the same module for SSR; switch `generate` instead.
 
 ### generate
 
-- Type: `'dom' | 'ssr'`
+- Type: `'dom' | 'ssr' | 'universal' | 'dynamic'`
 - Default: `'dom'`
 
-The output mode of the compiler. Can be "dom"(default), "ssr". "dom" is standard output. "ssr" is for server side rendering of strings.
+`"dom"` is client DOM output. `"ssr"` emits server strings. `"universal"` targets a custom renderer. `"dynamic"` uses the universal renderer as fallback and can route configured native tags to the DOM renderer.
 
 ### hydratable
 
 - Type: `boolean`
 - Default: `false`
 
-Indicate whether the output should contain hydratable markers.
+Emit hydratable markers.
 
 ### delegateEvents
 
 - Type: `boolean`
 - Default: `true`
 
-Boolean to indicate whether to enable automatic event delegation on camelCase.
+Automatic event delegation on camelCase.
 
 ### wrapConditionals
 
 - Type: `boolean`
 - Default: `true`
 
-Boolean indicates whether smart conditional detection should be used. This optimizes simple boolean expressions and ternaries in JSX.
+Smart conditional detection for simple boolean expressions and ternaries in JSX.
 
 ### contextToCustomElements
 
 - Type: `boolean`
-- Default: `false`
+- Default: `true`
 
-Boolean indicates whether to set current render context on Custom Elements and slots. Useful for seemless Context API with Web Components.
+Set current render context on Custom Elements and slots, so Solid's Context API works with Web Components.
 
 ### builtIns
 
-- Type: `boolean`
-- Default: `string[]`
+- Type: `string[]`
+- Default: `["For", "Show", "Switch", "Match", "Loading", "Reveal", "Portal", "Repeat", "Dynamic", "Errored"]`
 
-Array of Component exports from module, that aren't included by default with the library. This plugin will automatically import them if it comes across them in the JSX.
+Component exports from `moduleName` that the plugin should auto-import when it sees them in JSX.
 
 ### effectWrapper
 
-- Type: `string`
+- Type: `string | false`
 - Default: `effect`
 
-This plugin leverages a heuristic for reactive wrapping and lazy evaluation of JSX expressions. This option indicates the reactive wrapper function name (`effect`), defaults to `effect`.
+Reactive wrapper for lazy JSX expressions.
 
 ### staticMarker
 
 - Type: `string`
 - Default: `@static`
 
-Advanced compiler assertion marker. When an expression starts with this comment, the compiler treats it as static and does not wrap it in an `effect` call.
-
-This is not a reactivity primitive and should not be used to read reactive values once. Only use it when you can prove the expression is non-reactive for the lifetime of the rendered element, and the compiler heuristic cannot infer that on its own.
+When an expression starts with this comment, the compiler treats it as static and does not wrap it in an `effect`. Not a reactivity primitive — only use it when the expression is non-reactive for the lifetime of the element and the heuristic cannot infer that.
 
 ### memoWrapper
 
-- Type: `string`
+- Type: `string | false`
 - Default: `memo`
 
-Memos let you efficiently use a derived value in many reactive computations. This option indicates the memo function name, defaults to `memo`.
+Memo function name for derived values used in many reactive computations.
 
 ### validate
 
 - Type: `boolean`
 - Default: `true`
 
-Checks for properly formed HTML by checking for elements that would not be allowed in certain parent elements. This validation isn't complete but includes places where browser would "correct" it and break the DOM walks.
+Checks for HTML that browsers would "correct" in ways that break DOM walks. Incomplete, but covers the dangerous cases.
 
 ### omitNestedClosingTags
 
 - Type: `boolean`
 - Default: `false`
 
-Removes unnecessary closing tags from the template output. This may not work in all browser-like environments the same. The solution has been tested again Chrome/Edge/Firefox/Safari.
+Removes unnecessary closing tags from template output. Tested against Chrome/Edge/Firefox/Safari; other HTML parsers may differ.
 
 ### omitLastClosingTag
 
 - Type: `boolean`
 - Default: `true`
 
-Removes tags from the template output if they have no closing parents and are the last element. This may not work in all browser-like environments the same. The solution has been tested again Chrome/Edge/Firefox/Safari.
+Omits the last closing tag when it has no closing parent. Same parser caveat as above.
 
 ### omitQuotes
 
 - Type: `boolean`
 - Default: `true`
 
-Removes quotes for html attributes when possible from the template output. This may not work in all browser-like environments the same. The solution has been tested again Chrome/Edge/Firefox/Safari.
+Drops quotes around HTML attributes when possible.
 
 ### omitAttributeSpacing
 
 - Type: `boolean`
 - Default: `true`
 
-When `true`, quoted attributes may omit the space before the next attribute. Set this to `false` to emit strictly spaced attributes for stricter HTML/SVG parsers.
+When `true`, quoted attributes may omit the space before the next attribute. Set `false` for strictly spaced attributes.
 
 ### requireImportSource
 
 - Type: `string | false`
 - Default: `false`
 
-When set to a string value, this option restricts JSX transformation to only files that contain a specific JSX import source pragma comment. The plugin will only transform JSX in files that include a comment with `@jsxImportSource` followed by the specified value. If the comment is missing or specifies a different import source, the transformation is skipped for that file.
-Example usage:
+Restrict JSX transformation to files whose `@jsxImportSource` pragma matches.
 
-```jsx
-// In babel configuration:
+```js
 {
   plugins: [
     [
-      "jsx-dom-expressions",
-      {
-        requireImportSource: "r-dom"
-      }
+      "@solidjs/babel-plugin-jsx",
+      { requireImportSource: "@solidjs/web" }
     ]
-  ];
+  ]
 }
-// In your component file:
-/** @jsxImportSource r-dom */
+```
+
+```jsx
+/** @jsxImportSource @solidjs/web */
 const template = <div>Hello</div>;
 ```
 
@@ -220,13 +225,20 @@ const template = <div>Hello</div>;
 - Type: `boolean`
 - Default: `true`
 
-Style attributes in templates are inlined when possible: value is a string, `Record<string, string>`, etc. Inlining styles may not be desired when using strong CSP configurations. Disabling `inlineStyles` will cause all of the style definitions to be set at runtime.
+Inline style attributes in templates when the value is a string or `Record<string, string>`. Disable for strong CSP configurations; styles are then set at runtime.
+
+### serverComponents
+
+- Type: `boolean`
+- Default: `false`
+
+SSR-only: emit behavior-claim (`_bnd`) markers for `ref` / `on*` on intrinsic elements.
 
 ## Special Binding
 
 ### ref
 
-This binding will assign the variable you pass to it with the DOM element or if a function will call it with the element.
+Assigns the DOM element to a variable, or calls a function with the element.
 
 ```jsx
 const Child = props => <div ref={props.ref} />;
@@ -239,9 +251,9 @@ const Parent = () => {
 
 ### on(eventName)
 
-CamelCase event attributes such as `onClick` are treated as event handlers expecting a function. The compiler will delegate events where possible (events that bubble or can be composed), otherwise it falls back to Level 1 spec `on_____` events.
+CamelCase attributes such as `onClick` are event handlers. The compiler delegates events that bubble or compose, otherwise it uses Level 1 `on_____` properties.
 
-If you wish to make it into a Bound Event, you can bind a value to your delegated event by passing an array handler instead and the second argument will be passed to your event handler as the first argument (the event will be second).
+Pass an array to bind a value: the second item is the first argument to the handler, the event is second.
 
 ```jsx
 function handler(itemId, e) {
@@ -255,26 +267,21 @@ function handler(itemId, e) {
 </ul>;
 ```
 
-This delegation solution works with Web Components and the Shadow DOM as well if the events are composed. That limits the list to custom events and most UA UI events like onClick, onKeyUp, onKeyDown, onDblClick, onInput, onMouseDown, onMouseUp, etc..
-Important:
+Delegation works with Web Components and Shadow DOM when events are composed (custom events and most UA UI events). Custom delegated events should follow native all-lowercase naming. Use a ref that calls `addEventListener` when you need listener options or custom casing.
 
-- To allow for casing to work, custom delegated events should follow the all lowercase convention of native events. Use a ref/directive that calls `addEventListener` when you need native listener options or custom event casing.
-
-- Event delegates are owned by render roots and are removed when those roots dispose.
+Event delegates are owned by render roots and are removed when those roots dispose.
 
 ### ... (spreads)
-
-Spreads let you pass multiple props at once:
 
 ```jsx
 <div {...props} />
 ```
 
-Keep in mind given the independent nature of binding updates there is no guarantee of order using spreads at this time. It's under consideration.
+Given independent binding updates, spread order is not currently guaranteed.
 
 ## Components
 
-Components are just Capital Cased tags. Instead of wrapping with computation dynamic props will just be getter accessors. \* Remember property access triggers so don't destructure outside of computations unless you intend the content to be static.
+Capitalized tags are components. Dynamic props become getters rather than wrapped computations. Property access is tracking, so do not destructure outside computations unless the value should be static.
 
 ```jsx
 const MyComp = props => {
@@ -290,12 +297,12 @@ const MyComp = props => {
 <MyComp param={dynamic()} other={static} />;
 ```
 
-Components may have children. This is available as props.children. It may be a node, a function, or a string, or an array of the aforementioned. Non-expression children like DOM nodes are set to evaluate lazily (upon access by default).
+`props.children` may be a node, a function, a string, or an array of those. Non-expression children evaluate lazily on access.
 
 ## Fragments
 
-This plugin also supports JSX Fragments with `<></>` notation. These will be compiled to arrays. The fragment syntax provides the convenience of being able to use the template syntax to wrap expressions.
+`<></>` compiles to arrays.
 
 ## Acknowledgements
 
-The concept of using JSX to DOM instead of html strings and context based binding usually found in these libraries was inspired greatly by [Surplus](https://github.com/adamhaile/surplus).
+The concept of compiling JSX to DOM operations (rather than HTML strings) was inspired by [Surplus](https://github.com/adamhaile/surplus).

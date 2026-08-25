@@ -50,7 +50,7 @@ pub(crate) fn component_callee_expression<'a, C: ComponentCalleeContext<'a>>(
             }
         }
         JSXElementName::NamespacedName(_) => Err(Error::from_reason(
-            "Namespaced component callees are not implemented in the AST-native milestone yet",
+            "Namespaced component callees are not implemented yet",
         )),
     }
 }

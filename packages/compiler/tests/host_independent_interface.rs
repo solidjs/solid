@@ -1,7 +1,7 @@
 //! Public compiler-interface coverage without the Node/N-API adapter.
 #![cfg(not(feature = "node"))]
 
-use dom_expressions_compiler::{CompileErrorKind, CompileOptions, Generate, compile};
+use solidjs_compiler::{CompileErrorKind, CompileOptions, Generate, compile};
 
 #[test]
 fn compiles_through_the_public_rust_interface() {

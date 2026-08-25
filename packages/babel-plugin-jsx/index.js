@@ -14338,7 +14338,7 @@ var preprocess = (path, state) => {
 
 var index = () => {
   return {
-    name: "JSX DOM Expressions",
+    name: "@solidjs/babel-plugin-jsx",
     inherits: SyntaxJSX.default,
     visitor: {
       JSXElement: transformJSX,

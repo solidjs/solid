@@ -386,7 +386,7 @@ impl<'a> AttrPlanner<'a, '_> {
                 }
                 Some(JSXAttributeValue::Element(_) | JSXAttributeValue::Fragment(_)) => {
                     return Err(Error::from_reason(
-                        "JSX attribute element values are not implemented in the AST-native milestone yet",
+                        "JSX attribute element values are not implemented yet",
                     ));
                 }
             };

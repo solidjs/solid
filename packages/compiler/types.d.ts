@@ -1,5 +1,6 @@
 export interface TransformOptions {
   filename?: string;
+  /** Default `"@solidjs/web"`. */
   moduleName?: string;
   generate?: "dom" | "ssr" | "universal" | "dynamic";
   hydratable?: boolean;
@@ -19,6 +20,7 @@ export interface TransformOptions {
   omitNestedClosingTags?: boolean;
   omitLastClosingTag?: boolean;
   serverComponents?: boolean;
+  /** Default `["For", "Show", "Switch", "Match", "Loading", "Reveal", "Portal", "Repeat", "Dynamic", "Errored"]`. */
   builtIns?: string[];
   requireImportSource?: false | string;
   renderers?: RendererOption[];

@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/compiler",
-  "description": "A JSX to DOM Expressions compiler implemented with Oxc",
+  "description": "Solid's native Oxc JSX compiler",
   "version": "2.0.0-rc.2",
   "author": "Ryan Carniato",
   "license": "MIT",

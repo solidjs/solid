@@ -21,7 +21,7 @@ pub(crate) struct InvalidMarkup {
 /// Returns information about the mismatch when the markup is invalid,
 /// mirroring Babel's `isInvalidMarkup`.
 pub(crate) fn is_invalid_markup(html: &str) -> Option<InvalidMarkup> {
-    // Normalize dom-expressions comment placeholders so their positions are
+    // Normalize hydration/insert comment placeholders so their positions are
     // validated too.
     let mut html = html
         .replace("<!>", "<!---->")

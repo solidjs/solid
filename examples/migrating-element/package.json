@@ -1,6 +1,6 @@
 {
   "name": "migrating-element-example",
-  "description": "Side-by-side demo of dom-expressions' DOM-node migration: a single canvas is reused across multiple JSX slots and preserves its bitmap, animation state, and native event listener through every move.",
+  "description": "Side-by-side demo of Solid 2.0 DOM-node migration: a single canvas is reused across multiple JSX slots and preserves its bitmap, animation state, and native event listener through every move.",
   "version": "0.0.0",
   "private": true,
   "author": "Ryan Carniato",

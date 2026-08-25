@@ -3,6 +3,7 @@ use napi_derive::napi;
 use oxc_allocator::Allocator;
 use oxc_parser::{ParseOptions, Parser};
 
+use crate::compiler::{DEFAULT_MODULE_NAME, default_built_ins};
 pub use crate::config::{TransformOptions, TransformResult};
 pub use crate::directives::{
     DirectiveImportOption, ServerFunctionMeta, TransformDirectivesOptions,
@@ -12,7 +13,6 @@ pub use crate::lazy::TransformLazyOptions;
 pub use crate::refresh::TransformRefreshOptions;
 use crate::{CompileOptions, Generate, Renderer, Wrapper};
 
-const MISSING_MODULE_NAME: &str = "AST-native transform requires a `moduleName` option";
 const UNSUPPORTED_GENERATE: &str =
     "The @solidjs/compiler backend implements DOM, SSR, universal, and dynamic modes only";
 
@@ -52,9 +52,7 @@ pub fn transform_refresh(
 #[napi]
 pub fn transform(code: String, options: Option<TransformOptions>) -> Result<TransformResult> {
     let options = options.unwrap_or_default();
-    let validation_error = if options.module_name.is_none() {
-        Some(MISSING_MODULE_NAME)
-    } else if !supported_generate(options.generate.as_deref()) {
+    let validation_error = if !supported_generate(options.generate.as_deref()) {
         Some(UNSUPPORTED_GENERATE)
     } else {
         None
@@ -74,7 +72,7 @@ pub fn transform(code: String, options: Option<TransformOptions>) -> Result<Tran
 fn core_options(options: TransformOptions) -> Result<CompileOptions> {
     let module_name = options
         .module_name
-        .ok_or_else(|| Error::from_reason(MISSING_MODULE_NAME))?;
+        .unwrap_or_else(|| DEFAULT_MODULE_NAME.to_string());
     let generate = match options.generate.as_deref().unwrap_or("dom") {
         "dom" => Generate::Dom,
         "ssr" => Generate::Ssr,
@@ -105,7 +103,7 @@ fn core_options(options: TransformOptions) -> Result<CompileOptions> {
         validate: options.validate.unwrap_or(true),
         omit_nested_closing_tags: options.omit_nested_closing_tags.unwrap_or(false),
         omit_last_closing_tag: options.omit_last_closing_tag.unwrap_or(true),
-        built_ins: options.built_ins.unwrap_or_default(),
+        built_ins: options.built_ins.unwrap_or_else(default_built_ins),
         renderers: options
             .renderers
             .unwrap_or_default()
@@ -170,7 +168,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn require_import_source_skip_precedes_module_name_validation() {
+    fn omitted_options_match_babel_plugin_defaults() {
+        let result = transform(
+            "const view = <For each={list}>{item => item}</For>;".into(),
+            None,
+        )
+        .expect("Solid apps can omit moduleName and builtIns");
+        assert!(
+            result.code.contains("@solidjs/web"),
+            "default moduleName: {}",
+            result.code
+        );
+        assert!(
+            result.code.contains("For as _$For"),
+            "default builtIns auto-import For: {}",
+            result.code
+        );
+    }
+
+    #[test]
+    fn explicit_empty_built_ins_does_not_auto_import() {
+        let result = transform(
+            "const view = <For each={list}>{item => item}</For>;".into(),
+            Some(TransformOptions {
+                built_ins: Some(Vec::new()),
+                ..TransformOptions::default()
+            }),
+        )
+        .expect("empty builtIns is an explicit opt-out");
+        assert!(
+            !result.code.contains("For as _$For"),
+            "empty builtIns should leave For as a user component: {}",
+            result.code
+        );
+    }
+
+    #[test]
+    fn require_import_source_skip_does_not_need_module_name() {
         let source = "const view = <div />;".to_string();
         let result = transform(
             source.clone(),
@@ -190,15 +224,9 @@ mod tests {
                 require_import_source: Some("expected-library".into()),
                 ..TransformOptions::default()
             }),
-        );
-        let Err(error) = result else {
-            panic!("a transformed file still requires a module name");
-        };
-        assert!(
-            error
-                .to_string()
-                .contains("AST-native transform requires a `moduleName` option")
-        );
+        )
+        .expect("a matching file compiles with default moduleName");
+        assert!(result.code.contains("@solidjs/web"));
     }
 
     #[test]

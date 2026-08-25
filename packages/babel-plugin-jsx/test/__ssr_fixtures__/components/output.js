@@ -297,7 +297,7 @@ const template23 = Component({
 });
 const template24 = Component({
   get children() {
-    return _$escape(state.dynamic);
+    return state.dynamic;
   }
 });
 const template25 = Component({

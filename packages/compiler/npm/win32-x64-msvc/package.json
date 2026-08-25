@@ -8,7 +8,7 @@
   "files": [
     "compiler.win32-x64-msvc.node"
   ],
-  "description": "A JSX to DOM Expressions compiler implemented with Oxc",
+  "description": "Solid native Oxc JSX compiler (win32-x64-msvc)",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {

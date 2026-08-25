@@ -1,9 +1,9 @@
 import config from "../config";
 import type * as t from "@babel/types";
 import type { NodePath } from "@babel/traverse";
-import type { BabelHubWithMetadata, JSXDOMExpressionsPass } from "../types";
+import type { BabelHubWithMetadata, PluginPass } from "../types";
 
-export default (path: NodePath<t.Program>, state: JSXDOMExpressionsPass) => {
+export default (path: NodePath<t.Program>, state: PluginPass) => {
   const file = (path.hub as unknown as BabelHubWithMetadata).file;
   const merged = (file.metadata.config = Object.assign({}, config, state.opts));
   const lib = merged.requireImportSource;

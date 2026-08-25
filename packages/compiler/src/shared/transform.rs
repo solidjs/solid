@@ -179,13 +179,9 @@ pub(crate) fn visit_function_scope<'a, T: JsxTransform<'a>>(
     target.function_parents().push(kind);
     target.enter_function_bindings();
     target.declare_function_params(&function.params);
-    target.enter_function_shape(
-        function
-            .body
-            .as_ref()
-            .is_some_and(|body| body.statements.len() == 1
-                && matches!(body.statements[0], Statement::ReturnStatement(_))),
-    );
+    target.enter_function_shape(function.body.as_ref().is_some_and(|body| {
+        body.statements.len() == 1 && matches!(body.statements[0], Statement::ReturnStatement(_))
+    }));
     walk_mut::walk_function(target, function, flags);
     target.exit_function_shape();
     target.exit_function_bindings();

@@ -10,7 +10,7 @@ declare module "@babel/plugin-syntax-jsx" {
 
 declare module "@babel/core" {
   interface BabelFileMetadata {
-    config?: import("./config").JSXDOMExpressionsConfig;
+    config?: import("./config").PluginConfig;
   }
 }
 

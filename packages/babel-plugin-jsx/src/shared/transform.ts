@@ -21,10 +21,10 @@ import { DOMWithState } from "../../../web/src/constants.js";
 import transformComponent from "./component";
 import transformFragmentChildren from "./fragment";
 import type { NodePath } from "@babel/traverse";
-import type { JSXDOMExpressionsConfig, RendererConfig } from "../config";
+import type { PluginConfig, RendererConfig } from "../config";
 import type {
   BabelPath,
-  JSXDOMExpressionsPass,
+  PluginPass,
   JSXNode,
   TransformInfo,
   TransformNodeResult,
@@ -40,10 +40,7 @@ function isTransformConditionStatements(
   return Array.isArray(expr);
 }
 
-export function transformJSX(
-  path: NodePath<t.JSXElement | t.JSXFragment>,
-  state: JSXDOMExpressionsPass
-) {
+export function transformJSX(path: NodePath<t.JSXElement | t.JSXFragment>, state: PluginPass) {
   if (state.skip) return;
 
   const config = getConfig(path);
@@ -266,11 +263,7 @@ export function transformNode(
   }
 }
 
-export function getCreateTemplate(
-  config: JSXDOMExpressionsConfig,
-  path: NodePath,
-  result: TransformResult
-) {
+export function getCreateTemplate(config: PluginConfig, path: NodePath, result: TransformResult) {
   if ((result.tagName && result.renderer === "dom") || config.generate === "dom") {
     return createTemplateDOM;
   }
@@ -283,7 +276,7 @@ export function getCreateTemplate(
 }
 
 export function transformElement(
-  config: JSXDOMExpressionsConfig,
+  config: PluginConfig,
   path: BabelPath<t.JSXElement>,
   info: TransformInfo = {}
 ): TransformResult {

@@ -92,9 +92,7 @@ fn find_subject(node: &Expression<'_>) -> Option<String> {
             find_subject(&logical.left).or_else(|| find_subject(&logical.right))
         }
         Expression::UnaryExpression(unary) => find_subject(&unary.argument),
-        Expression::TemplateLiteral(template) => {
-            template.expressions.iter().find_map(find_subject)
-        }
+        Expression::TemplateLiteral(template) => template.expressions.iter().find_map(find_subject),
         Expression::ParenthesizedExpression(paren) => find_subject(&paren.expression),
         _ => None,
     }

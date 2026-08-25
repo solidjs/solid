@@ -1,4 +1,4 @@
-//! The dom-expressions JSX compiler.
+//! Solid's Oxc JSX compiler.
 //!
 //! The crate exposes two surfaces: the Node/N-API `transform()` interface
 //! (behind the default `node` feature) that `@solidjs/compiler`

@@ -9,7 +9,7 @@
     "wasi-worker.mjs",
     "wasi-worker-browser.mjs"
   ],
-  "description": "A JSX to DOM Expressions compiler implemented with Oxc",
+  "description": "Solid native Oxc JSX compiler (wasm32-wasi)",
   "author": "Ryan Carniato",
   "license": "MIT",
   "engines": {

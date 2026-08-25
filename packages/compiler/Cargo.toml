@@ -1,5 +1,5 @@
 [package]
-name = "dom-expressions-compiler"
+name = "solidjs-compiler"
 version = "0.0.0"
 edition = "2024"
 rust-version = "1.95"

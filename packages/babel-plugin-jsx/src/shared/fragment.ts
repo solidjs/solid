@@ -3,13 +3,13 @@ import { decode } from "html-entities";
 import { filterChildren, trimWhitespace, checkLength } from "./utils";
 import { transformNode, getCreateTemplate } from "./transform";
 import type { NodePath } from "@babel/traverse";
-import type { JSXDOMExpressionsConfig } from "../config";
+import type { PluginConfig } from "../config";
 import type { JSXNode, TransformResult } from "../types";
 
 export default function transformFragmentChildren(
   children: NodePath<JSXNode>[],
   results: TransformResult,
-  config: JSXDOMExpressionsConfig
+  config: PluginConfig
 ) {
   const filteredChildren = filterChildren(children),
     childNodes = filteredChildren.reduce((memo: t.Expression[], path: NodePath<JSXNode>) => {

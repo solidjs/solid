@@ -26,16 +26,10 @@ describe("binding loader", () => {
 
     const nativePackages =
       process.platform === "darwin"
-        ? [
-            `@solidjs/compiler-darwin-${process.arch}`,
-            `@dom-expressions/compiler-darwin-${process.arch}`
-          ]
+        ? [`@solidjs/compiler-darwin-${process.arch}`]
         : process.platform === "linux"
-          ? [
-              `@solidjs/compiler-linux-${process.arch}-gnu`,
-              `@dom-expressions/compiler-linux-${process.arch}-gnu`
-            ]
-          : ["@solidjs/compiler-win32-x64-msvc", "@dom-expressions/compiler-win32-x64-msvc"];
+          ? [`@solidjs/compiler-linux-${process.arch}-gnu`]
+          : ["@solidjs/compiler-win32-x64-msvc"];
 
     const originalLoad = Module._load;
     Module._load = function (request, parent, isMain) {

@@ -611,7 +611,7 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
             }
             Some(JSXAttributeValue::Element(_) | JSXAttributeValue::Fragment(_)) => {
                 return Err(Error::from_reason(
-                    "Universal JSX attribute values are not implemented in the AST-native milestone yet",
+                    "Universal JSX attribute values are not implemented yet",
                 ));
             }
         }
@@ -772,7 +772,7 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
                                     JSXAttributeValue::Element(_) | JSXAttributeValue::Fragment(_),
                                 ) => {
                                     return Err(Error::from_reason(
-                                        "Universal JSX attribute values are not implemented in the AST-native milestone yet",
+                                        "Universal JSX attribute values are not implemented yet",
                                     ));
                                 }
                             };

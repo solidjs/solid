@@ -2,7 +2,7 @@ import * as t from "@babel/types";
 import { addNamed } from "@babel/helper-module-imports";
 import { DOMWithState } from "../../../web/src/constants.js";
 import type { NodePath, Visitor } from "@babel/traverse";
-import type { JSXDOMExpressionsConfig, RendererConfig } from "../config";
+import type { PluginConfig, RendererConfig } from "../config";
 import type {
   BabelHubWithMetadata,
   DynamicOptions,
@@ -24,15 +24,14 @@ export const reservedNameSpaces = new Set(["prop"]);
 
 export const nonSpreadNameSpaces = new Set(["prop"]);
 
-export function getConfig(path: NodePath): JSXDOMExpressionsConfig {
-  return (path.hub as unknown as BabelHubWithMetadata).file.metadata
-    .config as JSXDOMExpressionsConfig;
+export function getConfig(path: NodePath): PluginConfig {
+  return (path.hub as unknown as BabelHubWithMetadata).file.metadata.config as PluginConfig;
 }
 
 export const getRendererConfig = (
   path: NodePath,
   renderer: string
-): JSXDOMExpressionsConfig | RendererConfig => {
+): PluginConfig | RendererConfig => {
   const config = getConfig(path);
   return config?.renderers?.find(r => r.name === renderer) ?? config;
 };

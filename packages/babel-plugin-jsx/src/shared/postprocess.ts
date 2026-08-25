@@ -4,10 +4,10 @@ import { appendTemplates as appendTemplatesDOM } from "../dom/template";
 import { appendTemplates as appendTemplatesSSR } from "../ssr/template";
 import { isInvalidMarkup } from "./validate";
 import type { NodePath } from "@babel/traverse";
-import type { BabelHubWithMetadata, JSXDOMExpressionsPass, ProgramScopeData } from "../types";
+import type { BabelHubWithMetadata, PluginPass, ProgramScopeData } from "../types";
 
 // add to the top/bottom of the module.
-export default (path: NodePath<t.Program>, state: JSXDOMExpressionsPass) => {
+export default (path: NodePath<t.Program>, state: PluginPass) => {
   if (state.skip) return;
 
   const data = path.scope.data as ProgramScopeData;
