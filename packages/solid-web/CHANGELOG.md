@@ -1,5 +1,23 @@
 # @solidjs/web
 
+## 2.0.0-rc.2
+
+### Patch Changes
+
+- 3878001: The shared frame host passes `delegateEvents` to `createFrameHost` as the new `delegate` option — behavior-claim event arming flows through platform glue instead of a core-entry global, keeping dom-expressions' tree-shaken client subsets free of the event system.
+- 515ff56: Server-component mounts pass their raw client props to the frame runtime for behavior-claim resolution: ref/on\* positions on server-rendered elements (compiled under the `serverComponents` option) resolve by prop name through the mounted frame's live props at dispatch and materialize time.
+- 3dbf12b: Fix the document-face slot-fill hydration misses (the chat welcome/status shape): adopted fills now claim the settled server markup instead of key-missing and re-rendering. Three defects, one per layer. `@solidjs/web`: the lazy async-read memos in `slotArgsProxy` minted a hydration child id the document producer never allocated (shifting every subsequent key in the occurrence namespace) and treated record-revived settled promises as pending — they are now `transparent` and fast-adopt the serializer's settle stamps. `solid-js` boundary: a SUPERSEDED fragment (settled `_fr` whose markup never shipped because an outer boundary converged first) was hydrated "straight through", claiming keys the document never emitted — the boundary now detects the unswapped placeholder, hydrates the showing fallback, and resumes with fresh client DOM. `solid-js` containers: `materializeContainerTrace` gains a synchronous path for the raw-stream trace wire shape, so a snapshot the document already delivered reads as ready DURING the synchronous claim walk instead of suspending a settled boundary into a phantom fallback.
+- 8a44c9e: Pin hydration id parity for a conditional expression in a forwarded JSX prop (#3033). On rc.1 the prop getter's compiler-minted condition memo consumed a flat sibling id slot at read time, and the two sides read the getter at different walk points (server: open-tag attribute serialization, before children; client: attribute effect, after claiming them), so the forwarded keyed child failed its claim. On next the forwarded child keys compose under the memo's own id scope, which both sides agree on regardless of read order — a parity-harness scenario now guards this. Also documents why the `_$memo` runtime binding must NOT be transparent: the ssr generate wraps whole hole bodies in it, making its id slot the retry-stable scope deferred holes re-run under.
+- e900893: Protect server-function requests from cross-site calls by default.
+- ab0674c: Adopt `@dom-expressions/runtime` 0.50.0-next.44 and expose server-function call observers.
+- e6d64f6: server-mock types adopt CSPNonce for renderToString/renderToStream, matching the runtime's per-destination nonce split (string or { script, style } with false to leave a destination un-nonced).
+- Updated dependencies [db1fed6]
+- Updated dependencies [3dbf12b]
+- Updated dependencies [6692a2c]
+- Updated dependencies [ccf2cb5]
+- Updated dependencies [8a380d0]
+  - solid-js@2.0.0-rc.2
+
 ## 2.0.0-rc.1
 
 ### Patch Changes

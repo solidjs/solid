@@ -1,7 +1,7 @@
 {
   "name": "@solidjs/html",
   "description": "Tagged-template-literal templating for Solid — write components with no build step.",
-  "version": "2.0.0-rc.1",
+  "version": "2.0.0-rc.2",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://solidjs.com",
@@ -47,7 +47,7 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@solidjs/web": "^2.0.0-rc.1"
+    "@solidjs/web": "^2.0.0-rc.2"
   },
   "devDependencies": {
     "@solidjs/web": "workspace:*",

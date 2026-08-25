@@ -1,5 +1,38 @@
 # solid-js
 
+## 2.0.0-rc.2
+
+### Patch Changes
+
+- db1fed6: Dev mode now throws a descriptive error when a JSX tag's component resolves to a non-function (e.g. a missing or misnamed import resolving to `undefined`), instead of crashing inside the dev build with `Cannot read properties of undefined (reading 'name')`. Client dev builds only — zero production cost.
+- 3dbf12b: Fix the document-face slot-fill hydration misses (the chat welcome/status shape): adopted fills now claim the settled server markup instead of key-missing and re-rendering. Three defects, one per layer. `@solidjs/web`: the lazy async-read memos in `slotArgsProxy` minted a hydration child id the document producer never allocated (shifting every subsequent key in the occurrence namespace) and treated record-revived settled promises as pending — they are now `transparent` and fast-adopt the serializer's settle stamps. `solid-js` boundary: a SUPERSEDED fragment (settled `_fr` whose markup never shipped because an outer boundary converged first) was hydrated "straight through", claiming keys the document never emitted — the boundary now detects the unswapped placeholder, hydrates the showing fallback, and resumes with fresh client DOM. `solid-js` containers: `materializeContainerTrace` gains a synchronous path for the raw-stream trace wire shape, so a snapshot the document already delivered reads as ready DURING the synchronous claim walk instead of suspending a settled boundary into a phantom fallback.
+- 6692a2c: `lazy().preload()` now registers the module's client JS/CSS as head hints on the server, not just its import. Registration used to wait for the component to render, so a router warming a matched route imported the module without emitting any `<link>` for it. The import is never gated on asset resolution, the per-request resolution cache is shared with the render path, and `registerModule` stays with the render — its hydration key is only known there.
+- ccf2cb5: Defer the server memo's async scaffolding to first async engagement. The disposal-flag cleanup closure registered eagerly on every async-path memo creation now arms only when a compute produces an async-shaped result or throws NotReady (the only cases the flag guards — stale in-flight serialization), and the rerun closure is hoisted out of update(). Async-path memo creation drops 39% (251ns to 154ns); news-page SSR throughput +8.5% end-to-end. Hydration id allocation is untouched — the deferred arming only appends to the creation owner's disposal list.
+- 8a380d0: Server async plumbing allocation trims: the settled-slot flight memory (#3003) moves from a WeakMap-of-Maps to a symbol-keyed plain object on the render context with in-place record transitions (recordSlot was the top allocation site in shell profiles), and ssrLoadingBoundary reads its parent contexts without owner switches and only pays the reveal-group severing setContext clone when a group is actually in scope.
+- Updated dependencies [c383795]
+- Updated dependencies [c4a2f2f]
+- Updated dependencies [7bde47f]
+- Updated dependencies [88a856d]
+- Updated dependencies [10f23dc]
+- Updated dependencies [ee1fd14]
+- Updated dependencies [3995787]
+- Updated dependencies [cb37a7c]
+- Updated dependencies [45c831f]
+- Updated dependencies [833efeb]
+- Updated dependencies [c38bc24]
+- Updated dependencies [debc22b]
+- Updated dependencies [3d2c21f]
+- Updated dependencies [addef22]
+- Updated dependencies [3585866]
+- Updated dependencies [46d7d32]
+- Updated dependencies [8890092]
+- Updated dependencies [54ecdb4]
+- Updated dependencies [a1b8958]
+- Updated dependencies [3d2c21f]
+- Updated dependencies [2888642]
+- Updated dependencies [97d7a27]
+  - @solidjs/signals@2.0.0-rc.2
+
 ## 2.0.0-rc.1
 
 ### Patch Changes

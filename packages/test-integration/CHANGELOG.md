@@ -1,5 +1,51 @@
 # test-integration
 
+## 2.0.0-rc.2
+
+### Patch Changes
+
+- Updated dependencies [c383795]
+- Updated dependencies [c4a2f2f]
+- Updated dependencies [3878001]
+- Updated dependencies [515ff56]
+- Updated dependencies [550b701]
+- Updated dependencies [7bde47f]
+- Updated dependencies [88a856d]
+- Updated dependencies [10f23dc]
+- Updated dependencies [ee1fd14]
+- Updated dependencies [db1fed6]
+- Updated dependencies [3dbf12b]
+- Updated dependencies [3995787]
+- Updated dependencies [cb37a7c]
+- Updated dependencies [45c831f]
+- Updated dependencies [833efeb]
+- Updated dependencies [c38bc24]
+- Updated dependencies [debc22b]
+- Updated dependencies [3d2c21f]
+- Updated dependencies [addef22]
+- Updated dependencies [3585866]
+- Updated dependencies [6692a2c]
+- Updated dependencies [8a44c9e]
+- Updated dependencies [46d7d32]
+- Updated dependencies [e900893]
+- Updated dependencies [8890092]
+- Updated dependencies [ab0674c]
+- Updated dependencies [ccf2cb5]
+- Updated dependencies [e6d64f6]
+- Updated dependencies [8a380d0]
+- Updated dependencies [54ecdb4]
+- Updated dependencies [a1b8958]
+- Updated dependencies [3d2c21f]
+- Updated dependencies [2888642]
+- Updated dependencies [97d7a27]
+  - @solidjs/signals@2.0.0-rc.2
+  - @solidjs/web@2.0.0-rc.2
+  - babel-preset-solid@2.0.0-rc.2
+  - solid-js@2.0.0-rc.2
+  - @solidjs/h@2.0.0-rc.2
+  - @solidjs/html@2.0.0-rc.2
+  - @solidjs/universal@2.0.0-rc.2
+
 ## 2.0.0-rc.1
 
 ### Patch Changes

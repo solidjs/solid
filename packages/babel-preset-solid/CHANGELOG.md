@@ -1,5 +1,17 @@
 # babel-preset-solid
 
+## 2.0.0-rc.2
+
+### Patch Changes
+
+- 550b701: Bump @dom-expressions/babel-plugin-jsx to 0.50.0-next.44 — pairs the preset with the runtime's compiler-armed ssrSelectValues gate (compiled SSR output containing `<select value>` emits the arming marker; without it, select-value resolution is inert).
+- Updated dependencies [db1fed6]
+- Updated dependencies [3dbf12b]
+- Updated dependencies [6692a2c]
+- Updated dependencies [ccf2cb5]
+- Updated dependencies [8a380d0]
+  - solid-js@2.0.0-rc.2
+
 ## 2.0.0-rc.1
 
 ### Patch Changes

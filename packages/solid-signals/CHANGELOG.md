@@ -1,5 +1,74 @@
 # @solidjs/signals
 
+## 2.0.0-rc.2
+
+### Patch Changes
+
+- c383795: Add the `UNSTABLE_MEMO_OUTPUT` dev attribution warning. A memo that commits a
+  referentially-new but shallowly-equivalent plain object or array on
+  consecutive runs (default 4) has an equality gate that never closes, so every
+  subscriber re-runs on every upstream change — the fan-out amplifier that was
+  previously only findable by profiling. Engine-side only: the check compares
+  the value snapshotted at `recomputeStart` against the committed value at
+  `recomputeEnd`, skips non-plain shapes (a fresh Promise per run is a genuinely
+  new value) and overlay runs, and warns once per streak. Configure or disable
+  via `DEV.attribution.enable({ unstableMemos })`.
+- c4a2f2f: Add the `WIDE_WRITE` dev attribution warning: a committed root invalidation
+  (signal or store write, `refresh()`, async landing) reaching a node with at
+  least 250 live subscribers (default) warns that every one re-runs this flush,
+  and points at `createSelector`/`createProjection` for inverting keyed
+  questions. Reads the dev-maintained subscriber count from the graph-size
+  diagnostics — no new core sites — and is specced together with the always-on
+  `HUGE_FAN_OUT` (link-time, 2000+) so the two never double-fire: once per node,
+  re-warning only after the subscriber count doubles. Documented in the
+  dev-diagnostics RFC. Configure or disable via
+  `DEV.attribution.enable({ wideWrites })`.
+- 7bde47f: Split cold node machinery (async, transition, optimistic, verdict slots) into a lazily-allocated extension object. Every signal/memo/effect literal stays small and monomorphic: memo nodes shrink from 553B to 429B (-22%), creation is ~15% faster, and create/update-heavy workloads improve 10-19% in the reactivity benchmark. Nodes that never touch async, transitions, or optimism never allocate the extension.
+- 88a856d: Stage-3 opener: hot-path shape alignment. Optional-machinery slots read on
+  every write/recompute/commit (\_overrideValue, companions, \_snapshotValue,
+  \_optimisticLane, \_error/\_blocked/\_pendingSources/\_notifyStatus) are now
+  present-with-default in the node literals or gated by presence bits on the
+  always-present \_config (CONFIG_OPTIMISTIC / HAS_COMPANIONS / HAS_SNAPSHOT /
+  HAS_LANE) — missing-property megamorphic reads are gone from setSignal,
+  insertSubs, commitPendingNode and recompute's status gate, and
+  optimisticSignal/optimisticComputed no longer fork hidden classes post-
+  construction. Measured ~7-10% on write-path microbenches; core-floor size
+  ceiling consciously bumped ~120B.
+- 10f23dc: Byte-shave on the disposal path to offset #3029/#3030 landing on always-retained code: the disposeChildren child loop drops its redundant in-heap gate (deleteFromHeap self-guards) and shares a clearDeps() helper with unobserved() for dep unlinking. No behavior change; restores the simple-app 10 kB floor and the isPending/latest budget.
+- ee1fd14: Deduplicate dispose() into unobserved(): after #3024 the two teardown bodies were byte-identical (heap removal, dep unlinking, child disposal) — dispose now strips CONFIG_AUTO_DISPOSE and delegates. No behavior change; recovers the simple-app size floor (10.01 → 9.99 kB brotli).
+- 3995787: Owner disposal is now death for every node it reaches: reads after teardown return the last committed value instead of re-running the source function. Previously a post-disposal read re-derived the node — re-running user code against the torn-down tree, discarding manual writes on derived-writable signals (`createSignal(fn)`, #3024), and re-firing async work with no owner. The disposal walk now strips the observation lifecycle (`AUTO_DISPOSE`) from everything it disposes, including lazy memos and already-dormant children, so nothing owned can reawaken after its owner is gone. Dormancy is unchanged where it is the contract: an unowned/lazy memo released by `unobserved()` when its last subscriber leaves still recomputes fresh on the next read.
+- cb37a7c: Fix computeds going permanently stale when a dependency write lands beneath their own recompute (#3037). Two holes, both hit by nested projections whose sources materialize mid-derive:
+  - Store reads of absent keys and accessors were suppressed by the global `writing` counter — any store read during any open setter (a projection derive runs its whole body inside one) silently skipped subscribing. Suppression is now per-target (`inDraft`), so external reads mid-derive subscribe normally while own-draft reads still don't self-track.
+  - A write notifying a subscriber that is mid-recompute was silently dropped: the heap refuses `RECOMPUTING` nodes, and the pass's flag wipe discarded the mark. `insertSubs` now latches `REACTIVE_MISSED_WAKE` — only for links the pass already validated (gen-current) and excluding the in-flight tail link, whose read returns the committing value fresh — and `recompute`'s tail consumes the latch to reschedule. `updateIfNecessary` also gained a reentrancy guard: nested computations (e.g. mapArray rows) reading the recomputing node's store could re-enter `recompute` and corrupt its live dep bookkeeping.
+
+  Size ceilings: simple-app floor 10 → 10.1 KB (measured 10.06), isPending/latest 9.2 → 9.3 KB (measured 9.24) — the latch, reschedule tail, and reentrancy guard all sit on always-retained core paths.
+
+- 45c831f: Reset overlay pending-backing state (`ovl`, `del`, accessor-scan verdict) when a setter-return replacement adopts a new backing: stale state could crash snapshot after a write+replace draft, carry deletion metadata onto the adoptee, or admit an accessor-bearing adoptee to the overlay path where writes shadow live setters. Adds targeted overlay semantics regression tests.
+- 833efeb: Fix async-generator projection derives wedging when the continuation reads its own draft (e.g. `state.push(item)` after an `await`, which reads `state.length`). The store rewrite's seed-invisibility firewall gate did not exempt own-draft operations running outside the sync write scope, so the read threw NotReadyError back into the derive and the post-await read diagnostic halted the reactive system — any Loading boundary over the projection stayed on its fallback forever. Own-draft ops carry the projection write override and now bypass the gate, matching the exemption the reconcile and draft-serve paths already had.
+- c38bc24: Pre-shape object proxy targets with a constructor: the two overlay fields added for #3044 pushed bare-literal targets past V8's fast-properties limit (~19 named props), turning every trap field read into a dictionary lookup — a 15% deep-store reconcile regression. Declared in-object slots restore fast maps with headroom for future fields; array targets are unaffected.
+- debc22b: Gate the post-recompute child-companion walk on companions actually existing below the firewall (#3038). A store computed carries one firewall child per materialized leaf, so the unconditional walk made every update cost O(all leaves ever read) — 17.6ms/mousemove in the reported flow-graph app. Companion creation registers the child on its firewall's companion set and the post-recompute snap iterates that set — O(companions asked for) for every app, and stores with no leaf-level isPending()/latest() reads never allocate it or pay anything.
+- 3d2c21f: Always-on dev diagnostics for reactive-graph size: HUGE_FAN_OUT warns when one source reaches 2000 live subscribers (the every-row-reads-selectedId signature — prefer a per-key store or projection) and HUGE_FAN_IN when one computation reaches 2000 live sources (the coarse-read signature). Counts are maintained on link/unlink so disposed edges never count; repeats every 500 past the threshold; zero production cost.
+- addef22: `isPending(a)` inside a memo — including a `<Show when={isPending(a)}>` outside any `<Loading>` boundary — now reports true while an async memo derived from `a` is refetching (#3028). The wrapper memo recomputes during the write's flush and reads the held value fresh, which the fresh-read pairing rule (#2831) treated as "this reader already sees the answer" and silenced the verdict; with the downstream async not yet registered, nothing ever re-asked, so the indicator never showed. The pairing rule now only silences landed answers awaiting reveal — a held input whose transaction still has async in flight stays pending for every reader — and a probe that was silenced before the async registered is re-woken at the registration site, flushing the corrected verdict immediately.
+- 3585866: `latest()` now returns the in-flight value when first called during a held transition. The latest-value companion is created lazily, and a write processed before its creation was never pushed into it, so the first `latest()` read inside a transition (e.g. a pending banner gated on `isPending()`) showed the committed value until the next write. The companion now backfills the pending value on creation, matching `isPending()`.
+- 46d7d32: Recover propagation hot-path cost introduced by the cold-field extension split. markNode's firewall-children walk gates on a CONFIG_FW_CHILDREN bit instead of dereferencing the extension per marked node, and setSignal reads the extension once instead of re-chasing it per optional check. Statistical A/B (6x6 interleaved) showed the split had cost diamond propagation ~22% and equality-skip chains ~14%; these gates recover roughly half measured; \_transition additionally moves back into the core node literal (it reads on every write — the hottest field the mechanical sweep had wrongly demoted to the extension), expected to recover most of the remainder pending quiet-machine verification and CodSpeed.
+- 8890092: Fix `refresh(store)` being silently swallowed inside an `action()` after a `setStore` in the same transaction (#3026). The derived-store manual-write mask (which lets a same-tick manual write win over a queued recompute, #2692) previously persisted for the whole transaction, so any setStore early in an action made every later `refresh()` a no-op. An explicit `refresh()` now lifts a mask stamped in an earlier tick and re-runs the source; a manual write in the same synchronous tick still wins in both orders, preserving the #2692 contract.
+- 54ecdb4: Suspend stale readers on an uninitialized async memo held by another
+  transition. A render effect that switched onto an async memo still in flight
+  under a _different_ transaction took the "show the committed value, don't
+  entangle" path — but an uninitialized memo has no committed value, so the
+  reader was served `undefined` as if settled and left stamped into neither
+  transaction. It never re-ran when either landed and stuck on its old value
+  (e.g. a globally cached async memo shared by two inputs updated 300ms apart).
+  Such reads now throw NotReady like the equivalent firewall-backed read already
+  did, registering the reader with the active transaction so the two
+  transactions merge and reveal together. Regression from the
+  `needsPendingCommit` gate in 7d4d0c3a (beta.11), which removed the accidental
+  pending-node stamp that used to entangle the reader.
+- a1b8958: Store setter drafts on plain-data objects now open as prototype-chain overlays of the committed backing instead of descriptor clones (#3044): O(written keys) per flush instead of O(container size), fixing the quadratic blowup when repeatedly writing few keys into a wide store (4000-key repro: 1421ms → 6ms). Commit flattens the overlay onto an owned committed backing in place (privatize-once for user-ingested objects — the never-mutate-user-data contract holds); deletes track aside and read as absent; reconcile, snapshot, and drafts escaping into other storage materialize to the proven clone path. Arrays, projection/optimistic families, and accessor-bearing containers keep the clone path.
+- 3d2c21f: Dev-mode "why did this run" attribution (opt-in via DEV.attribution.enable()): every re-run reports its cause chain down to the originating write, with history/why/costs queries, live subscription, and perf warnings (HOT_SCOPE_RERUNS, HOT_SCOPE_TIME, WIDE_SCOPE_DEPS). The engine installs onto a narrow dev-only hook surface (attribution-hooks.ts) that external devtools can implement instead; disabled cost is one null check per hook site and prod builds fold every site out at byte-parity (async landings report unconditionally and the engine derives committed-ness from its asyncStart snapshot, so no dev flag escapes core's try blocks).
+- 2888642: Written-keys notify bound: trap writes record their keys so the setter notify and fold hold-check visit O(written) nodes instead of every subscription on the record — a selection map with a thousand per-key subscribers pays two visits per select, not a full scan (tier-1 selection-map bench: 28ms → 0.31ms per 100 toggles). Falls back to the full scan for array-length writes (implicit index deletes), accessor-bearing records, and non-plain prototypes; overlay pending backings judge plainness by the committed prototype (#3044 interaction).
+- 97d7a27: Move zombie staging (pending disposal/children) into the cold node extension and add a plain-commit fast drain to flush. Childless memos never touch staged disposal, the per-recompute commit gate is one null check, and flushes with nothing but pending value commits skip the full scheduler spine. update1to1 -12% and dbmon deep tick -11% on top of the extension split.
+
 ## 2.0.0-rc.1
 
 ### Patch Changes
