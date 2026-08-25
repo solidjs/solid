@@ -1,5 +1,5 @@
 import * as t from "@babel/types";
-import { getConfig, registerImportMethod } from "../shared/utils";
+import { getConfig, isStatementVariableInitializer, registerImportMethod } from "../shared/utils";
 import type { NodePath } from "@babel/traverse";
 import type { ProgramScopeData, TemplateRecord, TransformResult } from "../types";
 
@@ -153,7 +153,7 @@ export function createTemplate(
   //     side effects fire only when the surrounding control-flow gate
   //     selects this branch.
   const isReturnArg = t.isReturnStatement(path.parent) && path.parent.argument === path.node;
-  const isVarInit = t.isVariableDeclarator(path.parent) && path.parent.init === path.node;
+  const isVarInit = isStatementVariableInitializer(path);
 
   if (isReturnArg || isVarInit) {
     path.getStatementParent()?.insertBefore(

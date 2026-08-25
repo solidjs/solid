@@ -24,6 +24,28 @@ export const reservedNameSpaces = new Set(["prop"]);
 
 export const nonSpreadNameSpaces = new Set(["prop"]);
 
+/**
+ * Whether JSX is the initializer of a standalone variable declaration.
+ *
+ * Hoisting generated setup before that declaration preserves evaluation
+ * order. A declaration used in a control-flow header (`for (let x = <JSX />)`)
+ * is deliberately excluded: its statement parent is the loop, and inserting
+ * before it can move JSX work outside a surrounding condition.
+ */
+export function isStatementVariableInitializer(path: NodePath): boolean {
+  if (!t.isVariableDeclarator(path.parent) || path.parent.init !== path.node) return false;
+
+  const declaration = path.parentPath?.parentPath;
+  const statement = path.getStatementParent();
+  if (!declaration?.isVariableDeclaration() || !statement) return false;
+  if (statement.node === declaration.node) return true;
+
+  return (
+    (statement.isExportNamedDeclaration() || statement.isExportDefaultDeclaration()) &&
+    statement.node.declaration === declaration.node
+  );
+}
+
 export function getConfig(path: NodePath): PluginConfig {
   return (path.hub as unknown as BabelHubWithMetadata).file.metadata.config as PluginConfig;
 }
@@ -757,6 +779,10 @@ export function transformSpecialCaseAttributes(
   }
 
   for (const { propName, attr } of transforms) {
+    // Resolve confident const bindings before deciding whether a stateful DOM
+    // property must be rewritten to `prop:`. Literal initial state belongs in
+    // the template just like an equivalent literal written directly in JSX.
+    evaluateAndInline(attr.node.value, attr.get("value"));
     const value =
       attr.node.value == null
         ? t.booleanLiteral(true)

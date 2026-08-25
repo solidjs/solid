@@ -159,6 +159,12 @@ impl<'a> AstDomTransform<'a, '_> {
         let mut needs_placeholder = false;
 
         for plan in plans {
+            // Explicit JSX children are the final content source. Suppress a
+            // conflicting textContent attribute instead of capturing a
+            // placeholder node before those children are inserted.
+            if has_children && plan.key == "textContent" {
+                continue;
+            }
             match self.classify_plan(&plan) {
                 PlanDisposition::Skip => {}
                 PlanDisposition::Inline(value) => match value {

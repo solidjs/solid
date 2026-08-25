@@ -2,7 +2,7 @@ use crate::error::{Error, Result};
 use oxc_ast::ast::{JSXChild, JSXElement, JSXExpression};
 
 use crate::dom::attrs::CloseTagContext;
-use crate::dom::element::AstDomTransform;
+use crate::dom::element::{AstDomTransform, children_attribute_child};
 use crate::shared::utils::{
     element_name, escape_html_text, escape_html_text_expression, is_component_name,
     static_jsx_expression_value, trim_jsx_text,
@@ -24,6 +24,12 @@ pub(crate) fn lower_static_native_template<'a>(
     // they take the dynamic-child path. Descendants are covered by recursion
     // (a child returning None propagates None up).
     if crate::dom::element::is_claim_target(&tag_name, &element.opening_element.attributes) {
+        return Ok(None);
+    }
+    // Owner context is a runtime assignment. Custom elements, customized
+    // built-ins, and slots therefore cannot disappear into a static nested
+    // template even when their attributes and children are otherwise static.
+    if ctx.should_capture_custom_element_context(element, &tag_name) {
         return Ok(None);
     }
 
@@ -54,9 +60,17 @@ pub(crate) fn lower_static_native_template<'a>(
     let child_to_be_closed = ctx.child_close_context(&tag_name, close_context.clone());
     // The textarea `value` fold replaces the element's children with a
     // single synthesized child.
-    let children: &[JSXChild<'a>] = match &children_replacement {
-        Some(child) => std::slice::from_ref(child),
-        None => &element.children,
+    let attribute_child = if children_replacement.is_none()
+        && element.children.is_empty()
+        && !crate::shared::utils::is_void_element(&tag_name)
+    {
+        children_attribute_child(ctx, element)
+    } else {
+        None
+    };
+    let children: &[JSXChild<'a>] = match (&children_replacement, &attribute_child) {
+        (Some(child), _) | (_, Some(child)) => std::slice::from_ref(child),
+        (None, None) => &element.children,
     };
     let last_element = ctx.find_last_element(children);
     for (index, child) in children.iter().enumerate() {

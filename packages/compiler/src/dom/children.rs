@@ -818,6 +818,30 @@ impl<'a> AstDomTransform<'a, '_> {
         dynamics: &mut std::vec::Vec<crate::dom::dynamics::DynamicSlot<'a>>,
     ) -> Result<String> {
         let tag_name = element_name(&child.opening_element.name)?;
+        // The static nested fast path may have declined this element because
+        // its `children` attribute is dynamic. Preserve the same promotion
+        // that template roots perform before lowering attributes/children.
+        let has_spread = child
+            .opening_element
+            .attributes
+            .iter()
+            .any(|attr| matches!(attr, JSXAttributeItem::SpreadAttribute(_)));
+        let child: &JSXElement<'a> = if !crate::shared::utils::is_void_element(&tag_name)
+            && !has_spread
+            && child.children.is_empty()
+        {
+            if let Some(attribute_child) =
+                crate::dom::element::children_attribute_child(self, child)
+            {
+                let mut clone = child.clone_in(self.allocator);
+                clone.children.push(attribute_child);
+                self.allocator.alloc(clone)
+            } else {
+                child
+            }
+        } else {
+            child
+        };
         let mut child_template = crate::dom::template::TemplateHtml::open_tag(&tag_name);
         let child_id = self.next_element_id();
         let mut child_declarations = std::vec::Vec::new();
@@ -833,6 +857,9 @@ impl<'a> AstDomTransform<'a, '_> {
             &mut child_operations,
             dynamics,
         )?;
+        if self.should_capture_custom_element_context(child, &tag_name) {
+            child_operations.push(self.custom_element_context_statement(child.span, &child_id));
+        }
 
         // Babel's textarea `value` fold replaces the element's children.
         let child: &JSXElement<'a> = match attrs_lowering.children_replacement {
@@ -846,7 +873,7 @@ impl<'a> AstDomTransform<'a, '_> {
         };
 
         child_template.push_both(">");
-        if attrs_lowering.needs_text_placeholder {
+        if attrs_lowering.needs_text_placeholder && child.children.is_empty() {
             child_template.html.push(' ');
         } else {
             self.lower_dom_children(

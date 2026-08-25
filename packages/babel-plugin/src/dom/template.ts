@@ -4,6 +4,7 @@ import {
   getConfig,
   getNumberedId,
   getRendererConfig,
+  isStatementVariableInitializer,
   isStatefulDOMProperty,
   registerImportMethod,
   wrapForEffect
@@ -52,7 +53,7 @@ export function createTemplate(
       // so the bindings remain visible throughout the surrounding
       // function.
       const isReturnArg = t.isReturnStatement(path.parent) && path.parent.argument === path.node;
-      const isVarInit = t.isVariableDeclarator(path.parent) && path.parent.init === path.node;
+      const isVarInit = isStatementVariableInitializer(path);
 
       if (isReturnArg || isVarInit) {
         path.getStatementParent()?.insertBefore(stmts as t.Statement[]);

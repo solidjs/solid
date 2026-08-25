@@ -1,5 +1,11 @@
 import * as t from "@babel/types";
-import { getConfig, getNumberedId, registerImportMethod, wrapForEffect } from "../shared/utils";
+import {
+  getConfig,
+  getNumberedId,
+  isStatementVariableInitializer,
+  registerImportMethod,
+  wrapForEffect
+} from "../shared/utils";
 import { setAttr } from "./element";
 import type { NodePath } from "@babel/traverse";
 import type { DynamicBinding, TransformResult } from "../types";
@@ -29,7 +35,7 @@ export function createTemplate(
       // Statement-position optimization — see `dom/template.js` for the
       // rationale and predicate semantics.
       const isReturnArg = t.isReturnStatement(path.parent) && path.parent.argument === path.node;
-      const isVarInit = t.isVariableDeclarator(path.parent) && path.parent.init === path.node;
+      const isVarInit = isStatementVariableInitializer(path);
 
       if (isReturnArg || isVarInit) {
         path.getStatementParent()?.insertBefore(stmts as t.Statement[]);

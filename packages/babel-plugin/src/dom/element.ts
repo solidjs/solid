@@ -488,10 +488,11 @@ function transformAttributes(
     attributes = path.get("openingElement").get("attributes") as JSXAttributePath[];
   const tagName = getTagName(path.node),
     hasChildren = path.node.children.length > 0,
+    hasSpread = attributes.some(attribute => t.isJSXSpreadAttribute(attribute.node)),
     config = getConfig(path);
 
   // preprocess spreads
-  if (attributes.some(attribute => t.isJSXSpreadAttribute(attribute.node))) {
+  if (hasSpread) {
     [attributes, spreadExpr] = processSpreads(path, attributes, {
       elem,
       hasChildren
@@ -885,6 +886,18 @@ function transformAttributes(
     }
   }
 
+  let contentWinner: "children" | "textContent" | undefined = hasChildren ? "children" : undefined;
+  if (!hasChildren && !hasSpread) {
+    path
+      .get("openingElement")
+      .get("attributes")
+      .forEach((attribute: JSXAttributePath) => {
+        if (!t.isJSXAttribute(attribute.node) || !t.isJSXIdentifier(attribute.node.name)) return;
+        const key = attribute.node.name.name;
+        if (key === "children" || key === "textContent") contentWinner = key;
+      });
+  }
+
   path
     .get("openingElement")
     .get("attributes")
@@ -903,15 +916,24 @@ function transformAttributes(
           isStyleProperty ||
           isClassProperty ||
           (t.isJSXNamespacedName(node.name) && reservedNameSpaces.has(node.name.namespace.name));
+      // Explicit JSX children win. Without spreads, `children` and
+      // `textContent` attributes use source order; only the last content
+      // directive is lowered. This also prevents a textContent effect from
+      // capturing `firstChild` before child insertion and targeting null.
+      if ((key === "children" || key === "textContent") && contentWinner && key !== contentWinner) {
+        return;
+      }
       if (t.isJSXExpressionContainer(value)) {
         const evaluated = attribute.get("value").get("expression").evaluate().value;
         let type;
         if (
           evaluated !== undefined &&
-          ((type = typeof evaluated) === "string" || type === "number")
+          ((type = typeof evaluated) === "string" || type === "number" || type === "boolean")
         ) {
           if (type === "number" && key.startsWith("prop:")) {
             value = t.jsxExpressionContainer(t.numericLiteral(evaluated));
+          } else if (type === "boolean") {
+            value = t.jsxExpressionContainer(t.booleanLiteral(evaluated));
           } else value = t.stringLiteral(String(evaluated));
         }
       }

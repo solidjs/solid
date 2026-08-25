@@ -91,6 +91,16 @@ pub(crate) fn static_expression(
         Expression::BinaryExpression(binary) => {
             static_binary_expression(&binary.left, binary.operator, &binary.right, bindings)
         }
+        Expression::ParenthesizedExpression(parenthesized) => {
+            static_expression(&parenthesized.expression, bindings)
+        }
+        Expression::ConditionalExpression(conditional) => {
+            if static_boolean_expression(&conditional.test, bindings)? {
+                static_expression(&conditional.consequent, bindings)
+            } else {
+                static_expression(&conditional.alternate, bindings)
+            }
+        }
         _ => None,
     }
 }
@@ -105,6 +115,27 @@ fn static_identifier(
         "NaN" => Some(StaticValue::Number(f64::NAN)),
         "Infinity" => Some(StaticValue::Number(f64::INFINITY)),
         _ => bindings.and_then(|bindings| bindings.static_value(name)),
+    }
+}
+
+fn static_boolean_expression(
+    expression: &Expression<'_>,
+    bindings: Option<&crate::shared::bindings::BindingTable>,
+) -> Option<bool> {
+    match expression {
+        Expression::BooleanLiteral(value) => Some(value.value),
+        Expression::Identifier(identifier) => {
+            bindings.and_then(|bindings| bindings.static_bool(identifier.name.as_str()))
+        }
+        Expression::ParenthesizedExpression(parenthesized) => {
+            static_boolean_expression(&parenthesized.expression, bindings)
+        }
+        Expression::UnaryExpression(unary)
+            if unary.operator == oxc_ast::ast::UnaryOperator::LogicalNot =>
+        {
+            static_boolean_expression(&unary.argument, bindings).map(|value| !value)
+        }
+        _ => None,
     }
 }
 

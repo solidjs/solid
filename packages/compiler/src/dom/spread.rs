@@ -122,10 +122,11 @@ impl<'a> AstDomTransform<'a, '_> {
                     format!("prop:{local_name}")
                 }
             }
-            oxc_ast::ast::JSXAttributeName::NamespacedName(_) => {
-                return Err(Error::from_reason(
-                    "Namespaced attributes are not implemented yet",
-                ));
+            // Solid 2 reserves only `prop:`. Other JSX namespace spellings
+            // have no compiler-specific meaning and pass through as ordinary
+            // colon-containing keys, including when grouped with a spread.
+            oxc_ast::ast::JSXAttributeName::NamespacedName(name) => {
+                format!("{}:{}", name.namespace.name, name.name.name)
             }
         };
 

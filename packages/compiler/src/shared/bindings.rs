@@ -403,12 +403,19 @@ impl BindingTable {
                     oxc_ast::ast::Expression::ArrowFunctionExpression(_)
                         | oxc_ast::ast::Expression::FunctionExpression(_)
                 );
-                if let oxc_ast::ast::Expression::BooleanLiteral(literal) = init {
-                    facts.static_bool = Some(literal.value);
+                // `path.evaluate()` only stays confident while the binding is
+                // constant. The pre-scan records assignments/updates across
+                // the whole program, so never retain a stale initializer for
+                // a name that can change before JSX executes.
+                if !self.is_reassigned(&name) {
+                    if let oxc_ast::ast::Expression::BooleanLiteral(literal) = init {
+                        facts.static_bool = Some(literal.value);
+                    }
+                    // Evaluate before declaring so a self-referential init
+                    // can't resolve to itself; earlier declarators are already
+                    // visible.
+                    facts.static_value = static_expression(init, Some(self));
                 }
-                // Evaluate before declaring so a self-referential init can't
-                // resolve to itself; earlier declarators are already visible.
-                facts.static_value = static_expression(init, Some(self));
             }
             self.declare(&name, facts);
         }

@@ -263,7 +263,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
             .any(|attr| matches!(attr, oxc_ast::ast::JSXAttributeItem::SpreadAttribute(_)));
         let element: &JSXElement<'a> =
             if !is_void_element(&tag_name) && !has_spread && element.children.is_empty() {
-                if let Some(child) = children_attribute_child(self.allocator, element) {
+                if let Some(child) = children_attribute_child(self, element) {
                     let mut clone = element.clone_in(self.allocator);
                     clone.children.push(child);
                     self.allocator.alloc(clone)
@@ -460,7 +460,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
         }
     }
 
-    fn should_capture_custom_element_context(
+    pub(crate) fn should_capture_custom_element_context(
         &self,
         element: &JSXElement<'a>,
         tag_name: &str,
@@ -520,7 +520,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
         })
     }
 
-    fn custom_element_context_statement(
+    pub(crate) fn custom_element_context_statement(
         &mut self,
         span: oxc_span::Span,
         element_id: &str,
@@ -622,15 +622,29 @@ fn xmlns_attribute_value(element: &JSXElement<'_>) -> Option<String> {
 /// insert), never a property write. String attributes are wrapped as
 /// expression containers so the child pass can fold them like `{ "hello" }`.
 pub(crate) fn children_attribute_child<'a>(
-    allocator: &'a Allocator,
+    ctx: &AstDomTransform<'a, '_>,
     element: &JSXElement<'a>,
 ) -> Option<oxc_ast::ast::JSXChild<'a>> {
-    element
-        .opening_element
-        .attributes
-        .iter()
-        .rev()
-        .find_map(|attr| children_attribute_child_from_item(allocator, attr))
+    let mut child = None;
+    for attr in &element.opening_element.attributes {
+        if let Some(next) = children_attribute_child_from_item(ctx.allocator, attr) {
+            child = Some(next);
+            continue;
+        }
+        let oxc_ast::ast::JSXAttributeItem::Attribute(attr) = attr else {
+            continue;
+        };
+        let oxc_ast::ast::JSXAttributeName::Identifier(name) = &attr.name else {
+            continue;
+        };
+        if name.name == "textContent" {
+            // Without source children, content directives use source order.
+            // A later textContent supersedes an earlier `children` attribute;
+            // a later `children` attribute will populate this slot again.
+            child = None;
+        }
+    }
+    child
 }
 
 pub(crate) fn children_attribute_child_from_item<'a>(
