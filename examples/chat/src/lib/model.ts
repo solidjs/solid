@@ -103,6 +103,12 @@ Ask me about *server components*, *signals*, or *markdown* to see a different an
 // response window stays open until the generation completes.
 const GREETING = `Welcome to **Solid Chat** — and yes, I am typing this *into the page itself*. This greeting is a server component rendered in the initial document: generation started before any of the page's JavaScript loaded, and these words are streaming over the document's own response as HTML.
 
+\`\`\`jsx
+// even this code block streamed in as highlighted HTML —
+// and its Copy button is a client handler on a server element
+<button class="copy-code" onClick={props.copy}>Copy</button>
+\`\`\`
+
 When the app hydrates it adopts this reply mid-sentence and replays whatever it missed — no fetch, no JSON twin. Ask about **server components**, **signals**, or **markdown** and the next reply arrives the other way: a server-function call streaming over its own connection.`;
 
 function answerFor(prompt: string): string {

@@ -26,7 +26,9 @@ const copyCode = (e: MouseEvent & { currentTarget: HTMLButtonElement }) => {
   const button = e.currentTarget;
   const code = button.parentElement?.querySelector("code");
   if (!code) return;
-  navigator.clipboard.writeText(code.textContent ?? "");
+  // Clipboard access can reject (unfocused window, missing permission) —
+  // the label flip is the affordance either way.
+  navigator.clipboard.writeText(code.textContent ?? "").catch(() => {});
   button.textContent = "Copied!";
   setTimeout(() => (button.textContent = "Copy"), 1200);
 };
