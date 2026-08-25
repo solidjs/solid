@@ -44,8 +44,10 @@ function withSolid<T extends object>(ComponentType: ComponentType<T>): Component
       element: ICustomElement & { _$owner?: any };
     };
     const owner = lookupContext(element);
+    let rootBodyStarted = false;
     function createComponent() {
       return createRoot((dispose: Function) => {
+        rootBodyStarted = true;
         const props = createProps<T>(rawProps);
         element.addPropertyChangedCallback(
           (key: string, val: any) => (props[key as keyof T] = val)
@@ -62,7 +64,29 @@ function withSolid<T extends object>(ComponentType: ComponentType<T>): Component
       });
     }
 
-    return owner ? runWithOwner(owner, createComponent) : createComponent();
+    if (owner) {
+      try {
+        return runWithOwner(owner, createComponent);
+      } catch (e) {
+        // A throw before the root body ever ran can only be the owner
+        // adoption itself failing: the looked-up `_$owner` was stamped by a
+        // DIFFERENT copy of the Solid runtime (an element library bundling
+        // its own solid-js embedded in a Solid host page — #3053), whose
+        // owner layout this copy cannot link into. Context can't
+        // meaningfully cross runtime copies anyway, so render in an
+        // ownerless root instead of leaving the shadow root empty. Anything
+        // thrown after the body started is a real component error — rethrow.
+        if (rootBodyStarted) throw e;
+        console.warn(
+          `<${element.localName}>: found an _\$owner from a different copy of the Solid ` +
+            "runtime (a second solid-js is on this page — likely bundled into a compiled " +
+            "element library). Owners cannot be adopted across copies; rendering without " +
+            "an owner. Context will not cross this boundary."
+        );
+        return createComponent();
+      }
+    }
+    return createComponent();
   };
 }
 

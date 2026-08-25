@@ -2,7 +2,7 @@
  * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { createContext, createSignal, flush, getOwner, onCleanup, useContext } from "solid-js";
 import { customElement } from "../src/index.js";
 import { render } from "@solidjs/web";
@@ -159,6 +159,37 @@ describe("solid-element", () => {
     expect(child.shadowRoot!.textContent).toBe("ancestor");
     dispose();
     root.remove();
+  });
+
+  test("falls back to an ownerless root when _$owner comes from a foreign runtime copy (#3053)", () => {
+    const tag = nextTag("foreign-owner");
+    customElement(tag, { label: "ok" }, props => <span>{props.label}</span>);
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // A compiled element library bundles its own solid-js; a Solid host
+      // page stamps `_$owner` with ITS copy's owner. Across copies the field
+      // layout doesn't line up (prod builds are property-mangled), so owner
+      // adoption dereferences undefined and used to crash connectedCallback,
+      // leaving the shadow root empty. Mimic a mangled foreign owner: short
+      // names, none of this copy's fields.
+      const wrapper = document.createElement("section") as HTMLElement & { _$owner?: unknown };
+      wrapper._$owner = { id: "0", ke: { ct: null } };
+      const element = document.createElement(tag) as HTMLElement & { label: string };
+      wrapper.append(element);
+      document.body.append(wrapper);
+
+      // Renders exactly as it would on a page with no Solid host at all.
+      expect(element.shadowRoot!.textContent).toBe("ok");
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("different copy"));
+
+      // The ownerless root is fully live, not a one-shot render.
+      element.label = "updated";
+      flush();
+      expect(element.shadowRoot!.textContent).toBe("updated");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   test("HTML-authored elements without a provider create an independent root", () => {
