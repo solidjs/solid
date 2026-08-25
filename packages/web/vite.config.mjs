@@ -46,15 +46,15 @@ export default defineConfig({
       // instance, like every from-source consumer of this seam.
       "@solidjs/web/server-functions/client": resolve(
         rootDir,
-        "src/server-functions/client.js"
+        "server-functions/src/client.ts"
       ),
       "@solidjs/web/serialization/decode": resolve(
         rootDir,
-        "src/serializer-decode.js"
+        "serialization/src/serializer-decode.ts"
       ),
       "@solidjs/web/serialization": resolve(
         rootDir,
-        "src/serializer.js"
+        "serialization/src/serializer.ts"
       )
     }
   }

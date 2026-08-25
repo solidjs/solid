@@ -15,25 +15,36 @@ import {
   parse
 } from "./parse.js";
 import { tokenize } from "./tokenize.js";
-import { ComponentRegistry, TaggedJSXInstance, Runtime } from "./types.js";
-import type { JSX } from "@solidjs/web";
+import {
+  insert,
+  spread,
+  createComponent,
+  mergeProps,
+  claimElement,
+  SVGElements,
+  MathMLElements,
+  VoidElements,
+  RawTextElements,
+  type JSX
+} from "@solidjs/web";
+import { ComponentRegistry, TaggedJSXInstance } from "./types.js";
 
 const flat = (arr: any[]) => {
   return arr.length === 1 ? arr[0] : arr;
 };
 
-export function createTaggedJSXRuntime(r: Runtime) {
+function createHtml() {
   const cache = new WeakMap<TemplateStringsArray, RootNode>();
-  const rawTextElements = new Set(r.RawTextElements);
+  const rawTextElements = new Set(RawTextElements);
   rawTextElements.delete("template");
 
   // Walk over text, comment, and element nodes.
   const walker = document.createTreeWalker(document, 129);
 
   const createElement = (name: string) => {
-    return r.SVGElements.has(name)
+    return SVGElements.has(name)
       ? document.createElementNS("http://www.w3.org/2000/svg", name)
-      : r.MathMLElements.has(name)
+      : MathMLElements.has(name)
         ? document.createElementNS("http://www.w3.org/1998/Math/MathML", name)
         : document.createElement(name);
   };
@@ -57,7 +68,7 @@ export function createTaggedJSXRuntime(r: Runtime) {
   const getCachedRoot = (strings: TemplateStringsArray): RootNode => {
     let root = cache.get(strings);
     if (!root) {
-      root = parse(tokenize(strings, rawTextElements), r.VoidElements);
+      root = parse(tokenize(strings, rawTextElements), VoidElements);
       buildTemplate(root, false);
       cache.set(strings, root);
     }
@@ -137,7 +148,7 @@ export function createTaggedJSXRuntime(r: Runtime) {
       case COMPONENT_NODE:
         const component = typeof node.name === "string" ? components[node.name] : values[node.name];
         if (component && typeof component === "function") {
-          return r.createComponent(component, gatherProps(node, values, components));
+          return createComponent(component, gatherProps(node, values, components));
         } else {
           throw new Error(`Component "${node.name}" not found in registry`);
         }
@@ -145,10 +156,10 @@ export function createTaggedJSXRuntime(r: Runtime) {
         const element = renderChildren(node, values, components) as Element;
         const props = gatherProps(node, values, components);
 
-        r.spread(element, props, true);
+        spread(element, props, true);
         // Static href/action was baked into the template at build, so the
         // spread above never touched it — claim the clone directly.
-        if (node.claim) r.claimElement(element);
+        if (node.claim) claimElement(element);
 
         return element;
     }
@@ -175,14 +186,14 @@ export function createTaggedJSXRuntime(r: Runtime) {
         ) {
           const domNode = walker.nextNode()!;
           if (node.type === EXPRESSION_NODE || node.type === COMPONENT_NODE) {
-            r.insert(domNode.parentNode!, renderNode(node, values, components), domNode);
+            insert(domNode.parentNode!, renderNode(node, values, components), domNode);
             walker.currentNode = domNode;
           } else {
             if (node.props.length) {
               const props = gatherProps(node, values, components);
-              r.spread(domNode as Element, props, true);
+              spread(domNode as Element, props, true);
             }
-            if (node.claim) r.claimElement(domNode as Element);
+            if (node.claim) claimElement(domNode as Element);
             walkNodes(
               node.children,
               node.name === "template"
@@ -220,9 +231,10 @@ export function createTaggedJSXRuntime(r: Runtime) {
           applyGetter(props, prop.name, values[prop.value]);
           break;
         case SPREAD_PROP:
-          const spread = values[prop.value];
-          if (!spread || typeof spread !== "object") throw new Error("Can only spread objects");
-          props = r.mergeProps(props, spread);
+          const spreadValue = values[prop.value];
+          if (!spreadValue || typeof spreadValue !== "object")
+            throw new Error("Can only spread objects");
+          props = mergeProps(props, spreadValue);
           break;
       }
     }
@@ -259,4 +271,6 @@ export function createTaggedJSXRuntime(r: Runtime) {
   return createTaggedJSX({});
 }
 
-export type { TaggedJSXInstance, Runtime, ComponentRegistry, FunctionComponent } from "./types.js";
+const html = createHtml();
+export default html;
+export type { TaggedJSXInstance, ComponentRegistry, FunctionComponent } from "./types.js";

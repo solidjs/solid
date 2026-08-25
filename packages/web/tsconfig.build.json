@@ -1,9 +1,24 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "outDir": "./types",
-    "baseUrl": "src",
-    "rootDir": "./src",
+    "outDir": "./.types-build",
+    "rootDir": ".",
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "useUnknownInCatchVariables": false,
+    "strictPropertyInitialization": false,
+    "types": ["node"],
+    "paths": {
+      "@solidjs/web": ["./src/index.ts"],
+      "@solidjs/web/server-functions/client": ["./server-functions/src/client.ts"]
+    }
   },
-  "include": ["./src"]
+  "include": [
+    "./src/**/*.ts",
+    "./src/**/*.d.ts",
+    "./serialization/src/**/*.ts",
+    "./server-functions/src/**/*.ts",
+    "./frames/src/**/*.ts"
+  ],
+  "exclude": ["./src/jsx-template.d.ts", "./src/jsx-h.d.ts"]
 }

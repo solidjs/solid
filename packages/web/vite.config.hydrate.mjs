@@ -34,11 +34,11 @@ export default defineConfig({
       // source so specs get the same single instance as the client itself.
       "@solidjs/web/serialization/decode": resolve(
         rootDir,
-        "src/serializer-decode.js"
+        "serialization/src/serializer-decode.ts"
       ),
       "@solidjs/web/serialization": resolve(
         rootDir,
-        "src/serializer.js"
+        "serialization/src/serializer.ts"
       ),
       "@solidjs/web": resolve(rootDir, "src/index.ts")
     }

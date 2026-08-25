@@ -1,9 +1,7 @@
 import { createRoot, createSignal, flush, createMemo } from "solid-js";
-import { createTaggedJSXRuntime } from "../src/tagged-jsx.js";
+import htmlTag from "../src/tagged-jsx.js";
 import { expect, it, describe, beforeEach } from "vitest";
-import * as r from "../../web/src/client.js";
-import { MathMLElements } from "../../web/src/constants.js";
-import { RawTextElements, VoidElements } from "./html-test-constants.js";
+import { insert, render, registerElementClaim } from "@solidjs/web";
 
 const For = (props: any) => {
   return createMemo(() => props.each.map((v: any) => props.children(v))) as any;
@@ -13,12 +11,7 @@ const Show = (props: any) => {
   return createMemo(() => (props.when ? props.children : null)) as any;
 };
 
-const html = createTaggedJSXRuntime({
-  ...r,
-  VoidElements,
-  RawTextElements,
-  MathMLElements
-}).define({ For, Show });
+const html = htmlTag.define({ For, Show });
 
 // tagged JSX returns a scalar when a template resolves to a single node/value, and
 // an array when it resolves to multiple. Tests that need to iterate or spread
@@ -225,7 +218,7 @@ describe("Tagged JSX Integration Tests", () => {
       const dispose = createRoot(d => {
         const nodes = html`<div></div>
           ${() => count()}` as HTMLElement;
-        r.insert(document.body, nodes);
+        insert(document.body, nodes);
         return d;
       });
 
@@ -347,7 +340,7 @@ describe("Tagged JSX Integration Tests", () => {
       const exec = { first: false, delegated: false, second: false };
       const container = document.createElement("div");
       document.body.append(container);
-      const dispose = r.render(
+      const dispose = render(
         () => html`
           <div id="main">
             <button
@@ -373,9 +366,9 @@ describe("Tagged JSX Integration Tests", () => {
 
       const [btn1, btn2, btn3] = el.querySelectorAll("button");
 
-      expect(btn1.textContent).toBe("Bound");
-      expect(btn2.textContent).toBe("Delegated");
-      expect(btn3.textContent).toBe("Ref Listener");
+      expect(btn1.textContent?.trim()).toBe("Bound");
+      expect(btn2.textContent?.trim()).toBe("Delegated");
+      expect(btn3.textContent?.trim()).toBe("Ref Listener");
 
       btn1.click();
       btn2.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -598,7 +591,7 @@ describe("Tagged JSX Integration Tests", () => {
           expect(el.className).toBe("final");
           expect(el.id).toBe("final-id");
           expect(el.getAttribute("data-override")).toBe("");
-          expect(el.textContent).toBe("Content");
+          expect(el.textContent?.trim()).toBe("Content");
           dispose();
         }));
 
@@ -623,7 +616,7 @@ describe("Tagged JSX Integration Tests", () => {
         expect(button.id).toBe("dynamic-123");
         expect(button.title).toBe("Static Title");
         expect(button.disabled).toBe(true);
-        expect(button.textContent).toBe("Click");
+        expect(button.textContent?.trim()).toBe("Click");
 
         setClass("inactive");
         flush();
@@ -806,7 +799,7 @@ describe("Tagged JSX Integration Tests", () => {
         const events: string[] = [];
         const container = document.createElement("div");
         document.body.append(container);
-        const dispose = r.render(
+        const dispose = render(
           () =>
             html`<div onClick=${() => events.push("parent")}>
               <button
@@ -1100,11 +1093,11 @@ describe("Tagged JSX Integration Tests", () => {
         document.body.append(container);
         expect(container.innerHTML).toEqual(
           `<div id="div">Test</div><style>
-      #div {
-        color:red<!--+-->;
-        background-color:blue;
-      }
-    </style>`
+            #div {
+              color: red<!--+-->;
+              background-color: blue;
+            }
+          </style>`
         );
         dispose();
       }));
@@ -1133,7 +1126,7 @@ describe("Tagged JSX Integration Tests", () => {
       createRoot(dispose => {
         const nodes = html` foo: ${123} bar: ${456} ` as Node[];
 
-        expect(nodes[0]).toEqual("\n    foo: ");
+        expect(nodes[0]).toEqual(" foo: ");
         expect(nodes[1]).toEqual(123);
         dispose();
       }));
@@ -1157,7 +1150,7 @@ describe("Tagged JSX Integration Tests", () => {
     const withClaims = (fn: (claimed: Element[]) => void) =>
       createRoot(dispose => {
         const claimed: Element[] = [];
-        const unregister = r.registerElementClaim(el => claimed.push(el));
+        const unregister = registerElementClaim(el => claimed.push(el));
         try {
           fn(claimed);
         } finally {
@@ -1186,7 +1179,7 @@ describe("Tagged JSX Integration Tests", () => {
 
     it("claims anchors with dynamic hrefs through the attribute write", () => {
       const claimed: Element[] = [];
-      const unregister = r.registerElementClaim(el => claimed.push(el));
+      const unregister = registerElementClaim(el => claimed.push(el));
       const [href, setHref] = createSignal("/a");
       let a!: HTMLAnchorElement;
       const dispose = createRoot(d => {

@@ -28,20 +28,31 @@ const ENVELOPE = Symbol.for("solid.ResponseEnvelope");
 // were retaining it. Wrapping the declaration and the brand assignment in one
 // pure expression lets the whole thing shake when unreferenced. (A `static {}`
 // block would NOT work: bundlers treat static blocks as side-effectful.)
-export const ResponseEnvelope = /* @__PURE__ */ (() => {
+export interface ResponseEnvelope<T = unknown> {
+  response: Response | undefined;
+  value: T;
+}
+
+export const ResponseEnvelope: {
+  new <T>(response: Response | undefined, value: T): ResponseEnvelope<T>;
+} = /* @__PURE__ */ (() => {
   class ResponseEnvelope {
-    constructor(response, value) {
+    response: Response | undefined;
+    value: unknown;
+    constructor(response: Response | undefined, value: unknown) {
       this.response = response;
       this.value = value;
     }
   }
-  ResponseEnvelope.prototype[ENVELOPE] = true;
+  (ResponseEnvelope.prototype as any)[ENVELOPE] = true;
   return ResponseEnvelope;
-})();
+})() as {
+  new <T>(response: Response | undefined, value: T): ResponseEnvelope<T>;
+};
 
 /** Whether `value` is a `ResponseEnvelope` (robust across module copies). */
-export function isResponseEnvelope(value) {
-  return !!(value && typeof value === "object" && value[ENVELOPE]);
+export function isResponseEnvelope(value: unknown): value is ResponseEnvelope {
+  return !!(value && typeof value === "object" && (value as any)[ENVELOPE]);
 }
 
 // Brand for URL-bearing values (e.g. a router's typed path objects). Like
@@ -52,23 +63,23 @@ export function isResponseEnvelope(value) {
 // by every object in the language, so without the brand the type would be
 // decorative and `redirect(someObject)` would silently put
 // "[object Object]" in a Location header.
-const HREF = Symbol.for("solid.Href");
-export { HREF };
+export const HREF: unique symbol = Symbol.for("solid.Href") as any;
 
-/** Whether `value` is an `Href`-branded URL-bearing value. */
-export function isHref(value) {
-  return !!(value && (typeof value === "object" || typeof value === "function") && value[HREF]);
+export interface Href {
+  [HREF]: true;
+  toString(): string;
 }
 
-// Brand marking a thrown value as safe to serialize to the client verbatim.
-// The server-function handler sanitizes plain thrown errors in production
-// (message/stack/own-properties are dropped) so a driver/ORM error can't
-// leak connection strings or queries over the wire; a value carrying this
-// brand opts out and travels intact. A registered symbol like the brands
-// above so identity survives duplicated module instances. It is symbol-keyed
-// and non-enumerable, so it never itself serializes as an own-property.
-const SAFE_ERROR = Symbol.for("solid.SafeError");
-export { SAFE_ERROR };
+/** Whether `value` is an `Href`-branded URL-bearing value. */
+export function isHref(value: unknown): value is Href {
+  return !!(
+    value &&
+    (typeof value === "object" || typeof value === "function") &&
+    (value as any)[HREF]
+  );
+}
+
+export const SAFE_ERROR: unique symbol = Symbol.for("solid.SafeError") as any;
 
 /**
  * Marks `error` as safe to serialize to the client verbatim, opting it out
@@ -76,7 +87,7 @@ export { SAFE_ERROR };
  * for errors whose message/properties are intentional client-facing content.
  * Returns the same value for convenient `throw markSafeError(new Error(...))`.
  */
-export function markSafeError(error) {
+export function markSafeError<E>(error: E): E {
   if (error && (typeof error === "object" || typeof error === "function")) {
     Object.defineProperty(error, SAFE_ERROR, {
       value: true,
@@ -88,11 +99,11 @@ export function markSafeError(error) {
 }
 
 /** Whether `value` is branded safe to serialize (robust across module copies). */
-export function isSafeError(value) {
+export function isSafeError(value: unknown): value is Error {
   return !!(
     value &&
     (typeof value === "object" || typeof value === "function") &&
-    value[SAFE_ERROR]
+    (value as any)[SAFE_ERROR]
   );
 }
 
@@ -104,16 +115,22 @@ export function isSafeError(value) {
  */
 export const REVALIDATE_HEADER = "X-Revalidate";
 
-function initWithRevalidate(init) {
-  const { revalidate, ...responseInit } = init;
+/** `ResponseInit` accepted by the response helpers, plus `revalidate`. */
+export interface ResponseHelperInit extends ResponseInit {
+  revalidate?: string | string[];
+}
+
+function initWithRevalidate(init: number | ResponseHelperInit = {}) {
+  const resolved: any = typeof init === "number" ? { status: init } : init;
+  const { revalidate, ...responseInit } = resolved;
   // Copy preserving multiple Set-Cookie values: Headers-to-Headers copying
   // through the constructor folds them into one comma-joined entry on some
   // runtimes (a folded Set-Cookie is corrupt). Plain-object inits cannot
   // carry duplicates and pass through as-is.
-  let headers;
+  let headers: Headers;
   if (responseInit.headers && responseInit.headers.getSetCookie) {
     headers = new Headers();
-    responseInit.headers.forEach((value, key) => {
+    responseInit.headers.forEach((value: string, key: string) => {
       if (key !== "set-cookie") headers.append(key, value);
     });
     for (const cookie of responseInit.headers.getSetCookie()) {
@@ -130,15 +147,13 @@ function initWithRevalidate(init) {
  * Response redirecting to `url` (default 302). `revalidate` names the
  * cache keys the mutation invalidated.
  */
-export function redirect(url, init = 302) {
+export function redirect(url: string | Href, init: number | ResponseHelperInit = 302) {
   if (typeof url !== "string" && !isHref(url)) {
     throw new TypeError(
       "redirect() expects a string URL or an Href-branded value (Symbol.for('solid.Href'))."
     );
   }
-  const { responseInit, headers } = initWithRevalidate(
-    typeof init === "number" ? { status: init } : init
-  );
+  const { responseInit, headers } = initWithRevalidate(init);
   if (responseInit.status === undefined) {
     responseInit.status = 302;
   }
@@ -150,7 +165,7 @@ export function redirect(url, init = 302) {
  * Empty response requesting revalidation of the named cache keys (all of
  * them when omitted).
  */
-export function reload(init = {}) {
+export function reload(init: ResponseHelperInit = {}) {
   const { responseInit, headers } = initWithRevalidate(init);
   return new Response(null, { ...responseInit, headers });
 }
@@ -162,7 +177,7 @@ export function reload(init = {}) {
  * consumers without the client runtime (no-JS form posts, direct HTTP)
  * get real JSON, while integrations read `value` — no reparse.
  */
-export function respond(value, init = {}) {
+export function respond<T>(value: T, init: ResponseHelperInit = {}) {
   const { responseInit, headers } = initWithRevalidate(init);
   headers.set("Content-Type", "application/json");
   return new ResponseEnvelope(

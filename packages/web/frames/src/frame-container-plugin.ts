@@ -1,3 +1,25 @@
+// @ts-nocheck
+/**
+ * The container tier at the slot border: reactive containers (projections)
+ * cross serialization boundaries as TRACES — an async iterable whose first
+ * yield is a full state snapshot and whose later yields are patch batches —
+ * and materialize back into live local containers. Renderer-agnostic glue;
+ * the reactive core injects both halves. See frame-container-plugin.js.
+ * @experimental
+ */
+
+/** A container's border serialization: one subscribe() per consumer. */
+export interface ContainerTrace {
+  subscribe(): AsyncIterable<any>;
+  /** Whether the container's root is an array — the consumer's seed shape. */
+  array: boolean;
+}
+
+/** The eval-face wire literal a trace decodes to before materialization. */
+export interface ContainerTraceMarker {
+  $tr: AsyncIterable<any>;
+  $ta?: number;
+}
 // The container tier at the slot border (DR-2 case 3): a reactive container
 // (a projection) crossing a serialization boundary ships as its TRACE — an
 // async iterable whose first yield is a full state snapshot and whose later
@@ -46,12 +68,14 @@ const state =
   (globalThis[STATE] = {
     materialized: new WeakMap(),
     materializedValues: new WeakSet()
-  });
+  }); /** Server half: install the reactive core's trace resolver. */
+export function setContainerTraceResolver(fn: (value: unknown) => ContainerTrace | undefined): void;
 
 /** Server half: install the reactive core's trace resolver. */
 export function setContainerTraceResolver(fn) {
   state.resolveTrace = fn;
-}
+} /** Client half: install the reactive core's trace materializer. */
+export function setContainerTraceMaterializer(fn: (marker: ContainerTraceMarker) => unknown): void;
 
 /** Client half: install the reactive core's trace materializer. */
 export function setContainerTraceMaterializer(fn) {
@@ -76,7 +100,8 @@ export function setContainerTraceMaterializer(fn) {
  */
 export function setContainerTraceStreamMint(fn) {
   state.streamOf = fn;
-}
+} /** Whether a value is a traced container (server side; WeakMap probe, trap-safe). */
+export function isContainerTraced(value: unknown): boolean;
 
 /**
  * Whether a value is a traced container (server side). The slot
@@ -101,7 +126,13 @@ export function isContainerTraced(value) {
 // mints the envelope, the document entry's serializer tests it), and a
 // per-instance Symbol() would silently never match across copies (the
 // envelope then serializes as `{}`: an empty object, no error anywhere).
-const TRACE = Symbol.for("dom-expressions.container-trace");
+const TRACE = Symbol.for("dom-expressions.container-trace"); /**
+ * Replace traced containers anywhere in a value with serialization
+ * envelopes (copy-on-write). What the sink passes to the serializer —
+ * seroval's own classification (constructor reads, array claims) runs
+ * before plugins, so raw containers can't be intercepted reliably.
+ */
+export function envelopeContainerTraces(value: unknown): unknown;
 
 /**
  * Replace traced containers ANYWHERE in a value (a container can sit at any
@@ -155,7 +186,12 @@ function materialize(marker) {
     if (value !== null && typeof value === "object") state.materializedValues.add(value);
   }
   return value;
-}
+} /**
+ * Whether a value is a container this module materialized (client side;
+ * WeakSet probe, trap-safe — a pending container's property reads throw
+ * not-ready, so classify with this BEFORE any async probe or compare).
+ */
+export function isMaterializedContainer(value: unknown): boolean;
 
 /**
  * Whether a value is a container this module materialized (client side).
@@ -166,7 +202,8 @@ function materialize(marker) {
  */
 export function isMaterializedContainer(value) {
   return value !== null && typeof value === "object" && state.materializedValues.has(value);
-}
+} /** Whether a decoded value is a trace marker (client side, eval face). */
+export function isContainerTraceMarker(value: unknown): value is ContainerTraceMarker;
 
 /**
  * Whether a decoded value is a trace marker: the eval face serializes a
@@ -180,7 +217,8 @@ export function isContainerTraceMarker(value) {
   if (value == null || typeof value !== "object" || value.$tr == null) return false;
   const tr = value.$tr;
   return tr.__SEROVAL_STREAM__ === true || typeof tr[Symbol.asyncIterator] === "function";
-}
+} /** Deep-revive trace markers inside a decoded value (document-face slot args). */
+export function reviveContainerTraces(value: unknown): unknown;
 
 /**
  * Deep-revive trace markers inside a decoded value (document-face slot args

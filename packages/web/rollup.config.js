@@ -4,7 +4,7 @@ import cleanup from "rollup-plugin-cleanup";
 import replace from "@rollup/plugin-replace";
 
 // The server-function wire layer late-loads the codec (runtime
-// server-functions/shared.js loadSerializer: `import("../serializer.js")`
+// server-functions/shared.js loadSerializer: `import("../../serialization/src/serializer.js")`
 // fires on the first Serialized body, never at module scope — JSON-fast-path
 // responses skip the codec entirely). These single-file outputs can't
 // code-split, so the dynamic import resolves to the public
@@ -73,8 +73,8 @@ const replaceDev = isDev =>
 const externalizeSharedTransport = {
   name: "externalize-shared-transport",
   resolveId(source, importer) {
-    if (!importer || !/[\\/]frame-transport\.js$/.test(importer)) return null;
-    if (source === "./server-functions/shared.js" || source === "./response.js") {
+    if (!importer || !/[\\/]frame-transport\.(js|ts)$/.test(importer)) return null;
+    if (source === "../../server-functions/src/shared.js" || source === "../../src/response.js") {
       return { id: "@solidjs/web/server-functions/client", external: true };
     }
     return null;
@@ -91,7 +91,7 @@ const externalizeSharedTransport = {
 const externalizeSharedClient = {
   name: "externalize-shared-client",
   resolveId(source, importer) {
-    if (!importer || !/[\\/]rich-args\.js$/.test(importer)) return null;
+    if (!importer || !/[\\/]rich-args\.(js|ts)$/.test(importer)) return null;
     if (source === "./client.js" || source === "./shared.js") {
       return { id: "@solidjs/web/server-functions/client", external: true };
     }
@@ -189,7 +189,7 @@ export default [
     plugins
   },
   {
-    input: "serialization/src/index.ts",
+    input: "serialization/src/serializer.ts",
     output: [
       {
         file: "serialization/dist/serialization.cjs",
@@ -209,7 +209,7 @@ export default [
     // lazy client consumers import this specifier so the encode machinery
     // never rides into a browser that only reads. The full entry above
     // still carries everything (its serializer.js re-exports this module).
-    input: "serialization/src/decode.ts",
+    input: "serialization/src/serializer-decode.ts",
     output: [
       {
         file: "serialization/dist/decode.cjs",

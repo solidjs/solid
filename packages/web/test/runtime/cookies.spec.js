@@ -20,8 +20,8 @@ import { redirect, respond } from "../../src/response.js";
 import {
   handleServerFunctionRequest,
   registerServerFunction
-} from "../../src/server-functions/server.js";
-import { FLASH_COOKIE } from "../../src/server-functions/shared.js";
+} from "../../server-functions/src/server.js";
+import { FLASH_COOKIE } from "../../server-functions/src/shared.js";
 import { RequestContext } from "../../src/server.js";
 
 class FakeStorage {

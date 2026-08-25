@@ -34,13 +34,8 @@ import type { Element as SolidElement } from "solid-js";
 // already has). Kept external in rollup.config.js for the same reason the
 // server-functions/client import below is.
 import { insert, delegateEvents } from "@solidjs/web";
-import {
-  createFrame,
-  createFrameElement,
-  createFrameHost,
-  FRAME_ID_ATTR
-} from "../../src/frame-client.js";
-import { createServerComponentHandler } from "../../src/frame-transport.js";
+import { createFrame, createFrameElement, createFrameHost, FRAME_ID_ATTR } from "./frame-client.js";
+import { createServerComponentHandler } from "./frame-transport.js";
 // The container tier (DR-2 case 3): server projections cross the border as
 // TRACES (snapshot + patch batches) and materialize back into live local
 // projections. The materializer is solid's (it owns the patch protocol);
@@ -53,7 +48,7 @@ import {
   isMaterializedContainer,
   reviveContainerTraces,
   setContainerTraceMaterializer
-} from "../../src/frame-container-plugin.js";
+} from "./frame-container-plugin.js";
 import { materializeContainerTrace } from "solid-js";
 
 setContainerTraceMaterializer(materializeContainerTrace);
@@ -83,13 +78,13 @@ export {
   createFrameHost,
   createFrameElement,
   FRAME_APPLIED_EVENT
-} from "../../src/frame-client.js";
+} from "./frame-client.js";
 export {
   FRAME_STREAM_HEADER,
   applyFrameResponse,
   isFrameStreamResponse,
   createServerComponentHandler
-} from "../../src/frame-transport.js";
+} from "./frame-transport.js";
 // `createJSONDataTable` is NOT re-exported here: its single public home is
 // `@solidjs/web/serialization` (this entry consumes it internally for its
 // per-response tables).

@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 import { createMemo } from "solid-js";
 import { Loading } from "@solidjs/web";
-import { renderServerComponent } from "../../src/frame-sink.js";
+import { renderServerComponent } from "../../frames/src/frame-sink.js";
 
 const tick = (ms = 5) => new Promise(r => setTimeout(r, ms));
 

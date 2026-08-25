@@ -54,17 +54,3 @@ export type TaggedJSXInstance<T extends ComponentRegistry> = {
    */
   components: T;
 };
-
-type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
-
-export interface Runtime {
-  insert(parent: MountableElement, accessor: any, marker?: Node | null, init?: any): any;
-  spread<T>(node: Element, accessor: (() => T) | T, skipChildren?: boolean): void;
-  createComponent(Comp: (props: any) => any, props: any): any;
-  mergeProps(...sources: unknown[]): any;
-  claimElement<T extends Element>(node: T): T;
-  SVGElements: Set<string>;
-  VoidElements: Set<string>;
-  RawTextElements: Set<string>;
-  MathMLElements: Set<string>;
-}

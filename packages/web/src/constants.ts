@@ -4,7 +4,7 @@
  * - 1 - Stateful property - value derives from reactive state
  * - 2 - Locked to property - value not specially treated
  */
-const DOMWithState = {
+const DOMWithState: Record<string, Record<string, 1 | 2>> = {
   INPUT: { value: 1, defaultValue: 2, checked: 1, defaultChecked: 2 },
   SELECT: { value: 1 },
   OPTION: { value: 1, selected: 1, defaultSelected: 2 },
@@ -176,7 +176,7 @@ const MathMLElements = /*#__PURE__*/ new Set([
   "semantics"
 ]);
 
-const Namespaces = {
+const Namespaces: Record<string, string> = {
   svg: "http://www.w3.org/2000/svg",
   mathml: "http://www.w3.org/1998/Math/MathML",
   xlink: "http://www.w3.org/1999/xlink",

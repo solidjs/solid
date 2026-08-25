@@ -14,9 +14,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createSignal, flush, Loading, onCleanup } from "solid-js";
 import { dynamic, render, delegateEvents } from "../src/index.js";
 import { installServerComponents, createFrameHost } from "../frames/src/client.js";
-import { createJSONDataTable } from "../serialization/src/index.js";
-import { createServerReference } from "../src/server-functions/client.js";
-import { createChunk } from "../src/server-functions/shared.js";
+import { createJSONDataTable } from "../serialization/src/serializer.js";
+import { createServerReference } from "../server-functions/src/client.js";
+import { createChunk } from "../server-functions/src/shared.js";
 
 function frameResponse(id: string, chunks: any[]) {
   const body = new ReadableStream({

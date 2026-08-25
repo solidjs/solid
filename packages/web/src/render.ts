@@ -6,12 +6,17 @@ const syncOptions = { sync: true };
 // `scope: true` (set by insert for compiler-tagged hole accessors) makes the
 // render effect non-transparent so the hole gets its own id scope, mirroring
 // the server's ssrScope owner.
-export const effect = (fn, effectFn, options) =>
+export function effect<T>(
+  fn: (prev?: T) => T,
+  effectFn: (value: T, prev?: T) => void,
+  options?: { scope?: boolean }
+): void {
   createRenderEffect(
     fn,
     effectFn,
     options ? { sync: true, ...options, transparent: !options.scope } : transparentOptions
   );
+}
 
 // NOT transparent, despite the temptation (#3033): the compiler emits
 // `_$memo` in two roles, and one is id-load-bearing. Besides pure condition
@@ -21,4 +26,6 @@ export const effect = (fn, effectFn, options) =>
 // deferred hole re-runs under. Making it transparent leaks the branch keys
 // onto the parent's live counter and breaks async-hole parity (pinned by the
 // async-cond-before-for harness scenario).
-export const memo = fn => createMemo(() => fn(), syncOptions);
+export function memo<T>(fn: () => T): () => T {
+  return createMemo(() => fn(), syncOptions);
+}

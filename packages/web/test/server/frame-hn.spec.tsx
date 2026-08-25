@@ -17,16 +17,16 @@ import { describe, expect, it } from "vitest";
 import { JSDOM } from "jsdom";
 globalThis.document = new JSDOM("<body></body>").window.document;
 
-import { frameTransformResult } from "../../src/frame-sink.js";
-import { applyFrameResponse, isFrameStreamResponse } from "../../src/frame-transport.js";
+import { frameTransformResult } from "../../frames/src/frame-sink.js";
+import { applyFrameResponse, isFrameStreamResponse } from "../../frames/src/frame-transport.js";
 import {
   FUNCTION_HEADER,
   INSTANCE_HEADER,
   handleServerFunctionRequest,
   registerServerFunction
-} from "../../src/server-functions/server.js";
-import { createJSONDataTable } from "../../src/serializer.js";
-import { createFrame, createFrameHost } from "../../src/frame-client.js";
+} from "../../server-functions/src/server.js";
+import { createJSONDataTable } from "../../serialization/src/serializer.js";
+import { createFrame, createFrameHost } from "../../frames/src/frame-client.js";
 
 type CommentData = { id: number; text: string; replies: CommentData[] };
 

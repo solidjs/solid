@@ -9,8 +9,8 @@ const asyncValue = <T,>(value: T, ms = 10): Promise<T> =>
   new Promise(r => setTimeout(() => r(value), ms));
 // Direct source imports of the frame sink: this exercises the slot proxy
 // under Solid's real SSR compile + reactive core.
-import { renderServerComponent } from "../../src/frame-sink.js";
-import { createJSONDataTable } from "../../src/serializer.js";
+import { renderServerComponent } from "../../frames/src/frame-sink.js";
+import { createJSONDataTable } from "../../serialization/src/serializer.js";
 
 const collect = (stream: any): Promise<any[]> => stream;
 

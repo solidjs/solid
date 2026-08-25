@@ -13,7 +13,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { createMemo, createRoot, createSignal, flush, Loading, onCleanup } from "solid-js";
 import { dynamic } from "../../src/index.js";
 import { installServerComponents, createFrameElement } from "../../frames/src/client.js";
-import { createServerReference } from "../../src/server-functions/client.js";
+import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost, frameResponse, pump } from "./harness.js";
 
 const getDirect = createServerReference("matrix/slot/direct");

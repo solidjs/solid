@@ -21,7 +21,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vite
 import { createMemo, createRoot, createSignal, flush, isPending, Loading } from "solid-js";
 import { dynamic } from "../../src/index.js";
 import { installServerComponents, createFrame } from "../../frames/src/client.js";
-import { createServerReference } from "../../src/server-functions/client.js";
+import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost, openFrameResponse, pump } from "./harness.js";
 
 const getBasic = createServerReference("matrix/adopt/basic");

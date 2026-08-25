@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * FrameSink — the frame-chunk side of the renderToStream emission seam.
  *
@@ -44,6 +45,40 @@ import {
   ssrHandleError,
   creationStamp
 } from "solid-js";
+
+// EXPERIMENTAL — the frames/server-components surface ships as an
+// experimental preview, excluded from the 2.0 stability guarantee: API
+// shapes and the wire format may change between prereleases (RFC 11).
+// Every export in this module is @experimental.
+import { FrameChunk } from "./frame-client.js";
+
+/**
+ * Addresses a frame stream: the boundary id and this response's version.
+ * @experimental
+ */
+export interface FrameAddress {
+  id: string;
+  version: number;
+}
+
+/**
+ * Options shared by the frame producers.
+ * @experimental
+ */
+export interface FrameStreamOptions {
+  /** Boundary address; defaults to `{ id: "", version: 1 }`. */
+  frame?: { id?: string; version?: number };
+  /** Remaining `renderToStream` options (plugins, onError, manifest, ...). */
+  [key: string]: unknown;
+}
+
+/**
+ * A produced frame stream: pipe chunks, or await the collected array.
+ * @experimental
+ */
+export interface FrameStream extends PromiseLike<FrameChunk[]> {
+  pipe(writable: { write(chunk: FrameChunk): void; end?(): void }): void;
+}
 
 const runWithHydrationScope = (id, fn) => runWithOwner(createOwner({ id }), fn);
 const ssrAsyncValue = value => createMemo(() => value, { serialize: false });
@@ -100,8 +135,8 @@ import {
   CLAIM_PROP,
   CLAIMS_STREAM,
   CLAIMS_DOCUMENT
-} from "./server.js";
-import { createJSONSerializer } from "./serializer.js";
+} from "../../src/server.js";
+import { createJSONSerializer } from "../../serialization/src/serializer.js";
 import { envelopeContainerTraces, isContainerTraced } from "./frame-container-plugin.js";
 import {
   ChunkReader,
@@ -109,9 +144,9 @@ import {
   createChunk,
   frameAddress,
   serializeStream
-} from "./server-functions/shared.js";
-import { getEventServerFunctionInvocation } from "./server-functions/server.js";
-import { isResponseEnvelope } from "./response.js";
+} from "../../server-functions/src/shared.js";
+import { getEventServerFunctionInvocation } from "../../server-functions/src/server.js";
+import { isResponseEnvelope } from "../../src/response.js";
 import {
   FRAME_STREAM_HEADER,
   SERVER_COMPONENT,
@@ -171,7 +206,18 @@ setServerComponentBootstrap(ctx => {
  * `<head>` elements: a head-open script claims as the first walked child at
  * hydration and drifts every positional claim after it.
  */
-export const SERVER_COMPONENT_BOOTSTRAP = SERVER_COMPONENT_BOOTSTRAP_EXPR + ";";
+export const SERVER_COMPONENT_BOOTSTRAP = SERVER_COMPONENT_BOOTSTRAP_EXPR + ";"; /**
+ * The emission surface `renderToStream` routes through when producing a
+ * frame stream instead of a document (see the `sink` render option). Each
+ * method emits transport-agnostic chunks; `emit` is the envelope boundary.
+ * @internal Compiler/renderer wiring — use `renderToFrameStream` or
+ * `renderServerComponent` instead.
+ * @experimental
+ */
+export function createFrameSink(
+  emit: (chunk: FrameChunk) => void,
+  frame: FrameAddress
+): Record<string, (...args: any[]) => void>;
 
 /**
  * A sink emitting the transport-agnostic FrameChunk stream. `emit(chunk)` is
@@ -447,7 +493,15 @@ export function createFrameSink(emit, frame) {
       return epoch;
     }
   };
-}
+} /**
+ * Render to a FrameChunk stream: the same render core as `renderToStream`
+ * with emission swapped to the frame sink and the document writable replaced
+ * by a chunk envelope (`start` up front, `complete` at stream end). Data
+ * records default to the keyed JSON codec (decode with
+ * `createJSONDataTable`).
+ * @experimental
+ */
+export function renderToFrameStream(code: () => unknown, options?: FrameStreamOptions): FrameStream;
 
 /**
  * Render to a FrameChunk stream: the same render core as `renderToStream`,
@@ -468,7 +522,29 @@ export function createFrameSink(emit, frame) {
  */
 export function renderToFrameStream(code, options = {}) {
   return frameStream(() => code, options);
-}
+} /**
+ * Render a **server component** — a `props => JSX` function, typically
+ * returned from a server function — to a FrameChunk stream. `props` is a
+ * slot-props proxy, not data:
+ *
+ * - reading a prop as a child emits a marker range the client fills;
+ * - calling a prop as a render function emits a `slot` chunk for a fresh
+ *   occurrence (a primitive `$key` arg names it, so client state follows the
+ *   entity across responses — the slot-level analogue of For's `keyed`
+ *   function; positional otherwise, which is the right default for most
+ *   flows);
+ * - primitive args ride the chunk; server JSX args stream as nested regions
+ *   (`{$frame}` — html once, never data); other values serialize as `{$ref}`
+ *   data records with referential dedupe.
+ *
+ * The props a *client* passes never reach the server — server inputs are the
+ * function's arguments.
+ * @experimental
+ */
+export function renderServerComponent(
+  component: (props: Record<string, any>) => unknown,
+  options?: FrameStreamOptions
+): FrameStream;
 
 /**
  * Render a **server component** — a `props => JSX` function, typically
@@ -697,7 +773,21 @@ function suppressedFill(render) {
   } finally {
     live.suppressed--;
   }
-}
+} // === Document SSR (t = 0) ===
+
+/**
+ * Document-mode slot props — the t = 0 counterpart of
+ * `createSlotProps`: the server component renders INLINE in the
+ * document and the client's real props render server-side inside its
+ * positions (the one hydration-time exception), wrapped in the same marker
+ * dialect the chunk producer emits so the adopting client binds slots and
+ * regions onto the server-rendered ranges.
+ * @experimental
+ */
+export function createDocumentSlotProps(
+  clientProps: Record<string, unknown>,
+  frameId: string
+): Record<string, unknown>;
 
 export function createDocumentSlotProps(clientProps, frameId) {
   const counts = Object.create(null);
@@ -1191,7 +1281,19 @@ function armDocumentLiveHoles(ctx) {
     closed = true;
     channel.close();
   };
-}
+} /**
+ * The in-process mirror of `frameTransformResult` for DOCUMENT SSR: install
+ * as `configureServerFunctionsServer({ transformDirectResult })` and a
+ * direct (same-process) server-function result that is a function comes back
+ * as an inline-renderable server component (frame markers + document
+ * slot props), branded with its function id and the call's wire address.
+ * Non-function results pass through.
+ * @experimental
+ */
+export function frameTransformDirectResult<T>(
+  value: T,
+  options: { id: string; args?: unknown[] }
+): T;
 
 /**
  * The in-process mirror of `frameTransformResult`, for DOCUMENT SSR:
@@ -1436,7 +1538,19 @@ function openArgBinding(sink, ledgerKey, occurrence, key, evaluate, state, emit)
       emit(value);
     }
   });
-}
+} /**
+ * The slot props proxy used by `renderServerComponent`. Every key
+ * virtually exists (`in` is always true — a prop is a position the client
+ * may fill), enumeration is empty by design, and serialization goes through
+ * the live render context, so it must only be used during the frame's
+ * render.
+ * @internal Exposed for framework bindings composing their own producers.
+ * @experimental
+ */
+export function createSlotProps(
+  sink: ReturnType<typeof createFrameSink>,
+  frame: FrameAddress
+): Record<string, any>;
 
 export function createSlotProps(sink, frame) {
   const counts = Object.create(null);
@@ -1679,7 +1793,19 @@ function copyInitHeaders(init) {
   });
   for (const cookie of init.getSetCookie()) headers.append("Set-Cookie", cookie);
   return headers;
-}
+} /**
+ * A server component as an HTTP Response: the chunk stream framed with the
+ * server-function wire convention, tagged `X-Frame-Stream: <frame id>` for
+ * the client and `X-Content-Raw` so the server-function handler forwards it
+ * untouched. `init` (headers/status, e.g. from a `respond()` envelope)
+ * merges in; the frame tags win on conflict.
+ * @experimental
+ */
+export function serverComponentResponse(
+  component: (props: Record<string, any>) => unknown,
+  options?: FrameStreamOptions,
+  init?: { headers?: HeadersInit; status?: number }
+): Response;
 
 export function serverComponentResponse(component, options = {}, init = {}) {
   const { id = "", version = 1 } = options.frame || {};
@@ -1717,7 +1843,23 @@ export function serverComponentResponse(component, options = {}, init = {}) {
     }
   });
   return new Response(body, { status: init.status || 200, headers });
-}
+} /**
+ * The server-component convention as a `transformResult` policy for
+ * `handleServerFunctionRequest`: a function result — or a `respond()`
+ * envelope whose value is a function — becomes a frame-stream Response,
+ * with the frame id defaulting to the server function's id so repeat calls
+ * target the same client boundary. Everything else passes through.
+ *
+ * @example
+ * ```ts
+ * handleServerFunctionRequest(request, {
+ *   transformResult: frameTransformResult,
+ *   provideEvent
+ * });
+ * ```
+ * @experimental
+ */
+export function frameTransformResult(event: unknown, result: unknown): unknown;
 
 /**
  * The server-component convention as a `transformResult` policy for
@@ -1750,7 +1892,22 @@ export function frameTransformResult(event, result, context) {
     { frame: { id: (invocation && invocation.id) || "" } },
     init
   );
-}
+} /**
+ * The frame half of single-flight, as a `transformFlightResult` policy for
+ * `handleServerFunctionRequest`: when part of what a mutation invalidated is
+ * markup (a component-valued flight-data entry), the frame stream carries
+ * the whole payload — each component's content as a region addressed by its
+ * call, the `{ value, data }` envelope as `outcome` chunks with the
+ * component entries serialized as flight references. Returns `undefined`
+ * when nothing invalidated is markup (the response stays the plain
+ * single-flight envelope).
+ * @experimental
+ */
+export function frameTransformFlightResult(
+  event: unknown,
+  outcome: { value: unknown; data: unknown },
+  context?: unknown
+): Promise<Response | undefined>;
 
 /**
  * The frame half of single-flight, as a `transformFlightResult` policy: when

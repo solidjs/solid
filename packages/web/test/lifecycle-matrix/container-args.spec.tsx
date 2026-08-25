@@ -24,12 +24,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vite
 import { createMemo, createRoot, flush, Loading } from "solid-js";
 import { dynamic } from "../../src/index.js";
 import { installServerComponents } from "../../frames/src/client.js";
-import { createServerReference } from "../../src/server-functions/client.js";
+import { createServerReference } from "../../server-functions/src/client.js";
 import {
   envelopeContainerTraces,
   reviveContainerTraces,
   setContainerTraceResolver
-} from "../../src/frame-container-plugin.js";
+} from "../../frames/src/frame-container-plugin.js";
 import { makeHost, frameResponse, createDataSource, pump, settle } from "./harness.js";
 
 const getStream = createServerReference("matrix/containers/stream");

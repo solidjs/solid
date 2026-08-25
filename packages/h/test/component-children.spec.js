@@ -27,10 +27,8 @@
  */
 
 import { createRoot, createSignal, flush } from "solid-js";
-import { createHyperScript } from "../src/hyperscript.js";
-import * as r from "../../web/src/client.js";
-
-const h = createHyperScript(r);
+import h from "../src/hyperscript.js";
+import * as r from "@solidjs/web";
 
 const mount = fn => createRoot(() => fn()());
 

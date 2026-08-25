@@ -33,7 +33,7 @@ import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { createRoot, enableHydration, flush, Loading } from "solid-js";
 import { hydrate } from "@solidjs/web";
 import { installServerComponents, createFrameHost } from "../frames/src/client.js";
-import { createJSONDataTable } from "../serialization/src/index.js";
+import { createJSONDataTable } from "../serialization/src/serializer.js";
 
 const settle = () => new Promise(r => setTimeout(r));
 

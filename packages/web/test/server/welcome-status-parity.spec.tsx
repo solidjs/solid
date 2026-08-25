@@ -12,7 +12,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderToStream } from "@solidjs/web";
-import { frameTransformDirectResult, ServerComponentPlugin } from "../../src/frame-sink.js";
+import { frameTransformDirectResult, ServerComponentPlugin } from "../../frames/src/frame-sink.js";
 import { FID, makeWelcome, statusFill } from "../harness/frames-welcome.jsx";
 
 const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");

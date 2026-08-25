@@ -1,10 +1,28 @@
-// Bridge entry like ./client.ts: rollup bundles the runtime's rich-args
-// module through this specifier. Its imports of the server-function client
-// (config write) and shared wire layer (codec read, serializeString) are
-// resolved to the EXTERNAL `@solidjs/web/server-functions/client` entry —
-// the same built instance the compiled reference proxies call through — so
-// `enableRichArguments()` writes the config the shared transport actually
-// reads (see externalizeSharedClient in rollup.config.js). Importing this
-// entry is the client's opt-in at the module-graph level: the serializer's
-// write half ships only when this module does.
-export * from "../../src/server-functions/rich-args.js";
+// @ts-nocheck
+// Opt-in codec encoding for server-function ARGUMENTS. By default the
+// client sends argument lists as plain JSON (the fast path — no serializer
+// in the bundle) and throws on values JSON can't carry faithfully. Importing
+// this entry and calling `enableRichArguments()` once at startup installs
+// the codec for those calls — Dates, Maps, Sets, typed arrays, cyclic
+// structures. The codec itself is late-loaded by the shared wire layer
+// (shared.js loadSerializer) on the first rich value in either direction,
+// so enabling rich arguments costs nothing until such a value is actually
+// sent; responses negotiate independently — the server answers JSON-safe
+// results as plain JSON and only rich results wake the decode half.
+import { getServerFunctionsCodec, serializeString } from "./shared.js";
+import { configureServerFunctionsClient } from "./client.js"; /**
+ * Opt-in codec encoding for server-function ARGUMENTS. By default the client
+ * sends argument lists as plain JSON (no serializer in the bundle) and
+ * throws on values JSON can't carry faithfully. Call once at startup to
+ * send Dates, Maps, Sets, typed arrays, cyclic structures, etc. through the
+ * codec — at the cost of the serializer's write half (~5 KB gz on top of
+ * the decode half responses already need). The handler accepts both
+ * encodings unconditionally.
+ */
+export function enableRichArguments(): void;
+
+export function enableRichArguments() {
+  configureServerFunctionsClient({
+    serializeArgs: args => serializeString(args, getServerFunctionsCodec())
+  });
+}

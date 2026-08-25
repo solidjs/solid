@@ -24,7 +24,7 @@ import {
   renderServerComponent,
   frameTransformDirectResult,
   ServerComponentPlugin
-} from "../../src/frame-sink.js";
+} from "../../frames/src/frame-sink.js";
 
 const TRACE_TAG = "dom-expressions/container-trace";
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));

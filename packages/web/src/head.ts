@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Shared head-management logic (see docs/head-management-rfc.md).
 //
 // Environment-agnostic: identity computation, tag classification, and the

@@ -12,6 +12,7 @@ types-cjs/
 .DS_Store
 .turbo/
 .pnpm-store/
+.types-build/
 
 packages/solid/src/jsx.d.ts
 packages/solid-web/src/jsx.d.ts

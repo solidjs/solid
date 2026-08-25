@@ -1,4 +1,5 @@
-import { ChildProperties } from "./constants";
+// @ts-nocheck
+import { ChildProperties } from "./constants.js";
 import {
   sharedConfig,
   createRoot as root,
@@ -13,7 +14,10 @@ import {
   ssrScope as scope
 } from "solid-js";
 import { effect, memo } from "./render.js";
-import { createHydrationSerializer, getLocalHeaderScript } from "./serializer";
+import {
+  createHydrationSerializer,
+  getLocalHeaderScript
+} from "../serialization/src/serializer.js";
 // Wire-protocol header names for the commit fold's gap-fill denylist
 // (`commitEventResponse`): shared constants, not copies, so the fold can
 // never drift from what the server-function handler actually sends.
@@ -22,7 +26,7 @@ import {
   BODY_FORMAT_HEADER,
   ERROR_HEADER,
   SINGLE_FLIGHT_HEADER
-} from "./server-functions/shared.js";
+} from "../server-functions/src/shared.js";
 // The cookie codec (the platform-gap primitives — see cookies.js for the
 // blessed read/write patterns). Re-exported, never wrapped: core owns the
 // exchange and the codec, nothing ambient.
@@ -36,7 +40,7 @@ export {
   getServerFunctionMetadata,
   getServerFunctionRPC,
   isServerFunction
-} from "./server-functions/registry.js";
+} from "../server-functions/src/registry.js";
 import {
   HEAD_ELIGIBLE_TAGS,
   HEAD_ATTR_NAME,
@@ -48,6 +52,188 @@ import {
   resolveHead,
   STYLESHEET_FETCH_META
 } from "./head.js";
+
+import { JSX } from "./jsx.js";
+
+import { SerializerPlugin } from "../serialization/src/serializer-decode.js";
+
+type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
+
+/** Static asset manifest produced by a build (e.g. parsed Vite manifest.json). */
+export type AssetManifest = Record<
+  string,
+  { file: string; css?: string[]; isEntry?: boolean; imports?: string[] }
+> & { _base?: string };
+
+/** Inline style content, e.g. dev CSS collected from a bundler's module graph. */
+export type InlineStyleAsset = {
+  id: string;
+  content: string;
+  attrs?: Record<string, string>;
+};
+
+export type ResolvedAssets = {
+  js: string[];
+  css: (string | InlineStyleAsset)[];
+};
+
+/**
+ * Resolver form of the manifest option — the primitive a dev server
+ * implements against its live module graph (a static manifest object is
+ * normalized into a sync resolver internally). `resolve` may return a
+ * promise (async resolvers require streaming rendering); CSS entries may be
+ * URL strings (emitted as load-gated `<link>` tags) or inline-style
+ * descriptors (emitted as `<style>` tags). A bare `resolve`-shaped function
+ * is accepted as shorthand for `{ resolve }`.
+ */
+export type AssetResolver = {
+  resolve(
+    key: string
+  ): ResolvedAssets | null | undefined | Promise<ResolvedAssets | null | undefined>;
+  /**
+   * Synchronous fast path answering with whatever is knowable without async
+   * work (typically js URLs, omitting css). Sync consumers — e.g. a lazy
+   * component's `moduleUrl` getter used by islands — use this when `resolve`
+   * would return a promise, so adapters should provide it whenever possible.
+   */
+  resolveSync?(key: string): ResolvedAssets | null | undefined;
+};
+
+/** Bare-function shorthand for `AssetResolver` (no sync fast path). */
+export type AssetResolverFn = (
+  key: string
+) => ResolvedAssets | null | undefined | Promise<ResolvedAssets | null | undefined>;
+
+/**
+ * CSP nonce for the tags a server render emits. A string applies to both
+ * nonce-aware destinations. A `{ script, style }` pair routes each tag to
+ * the directive governing its fetch (`script-src-elem` / `style-src-elem`,
+ * falling back to `script-src` / `style-src` then `default-src`). Both
+ * keys are required; `false` leaves that destination un-nonced. Worker
+ * destinations take the script nonce, which only applies when their own
+ * fallback reaches `script-src`. A nonce on a `useHead` tag's own props
+ * always wins.
+ *
+ * Only `renderToString` / `renderToStream` take this shape. Surfaces that
+ * emit one script (`HydrationScript`, `generateHydrationScript`,
+ * `createSSRResponse`) take a string — project with `scriptNonce`.
+ */
+export type CSPNonce = string | { script: string | false; style: string | false };
+
+/**
+ * A head tag descriptor. Props values may be getters (evaluated lazily on
+ * the server — at the owning flush boundary — and reactively on the client);
+ * `children` is the text body (title text, inline style/script content).
+ * `key` overrides the built-in dedupe identity (`title` is a hard singleton
+ * that `key` cannot fork).
+ *
+ * Getters must be plain reads: they evaluate at flush time here (under no
+ * component owner) and inside registry-owned computations on the client, so
+ * a getter that allocates a reactive owner (`createMemo`, a `children()`
+ * helper) consumes a hydration id slot on one side only and desyncs every
+ * id allocated after the `useHead` call. Create such helpers eagerly at
+ * component position and read them from the getter. See
+ * docs/head-management-rfc.md.
+ */
+export type HeadTag = {
+  tag: "title" | "meta" | "link" | "style" | "script" | "base";
+  props: Record<string, any>;
+  key?: string | (() => string);
+};
+
+/**
+ * The mutable response head an integration's handler exposes on the request
+ * event as `event.response`: status/statusText/headers it will apply when
+ * sending the response. A scaffold, not a `Response` — application code
+ * (e.g. JSX response components) writes to it during render, and the
+ * handler reads it when the head goes out. Core does not declare the
+ * `response` property on `RequestEvent` itself: integrations that provide
+ * one declare it through module augmentation (as `@solidjs/router` does),
+ * and this type names the shape they agree on. Core's server-function
+ * handler folds it onto the outgoing response when present — its
+ * `Set-Cookie` values (cookies appended during the call via
+ * `serializeCookie`) append cookie-by-cookie, other headers fill gaps —
+ * and reads it when folding single-flight cookies, but never requires it.
+ */
+export interface ResponseStub {
+  status?: number;
+  statusText?: string;
+  headers: Headers;
+  /**
+   * Set once the response head has been derived/sent from this stub —
+   * status and headers can no longer change. Flip it through
+   * `commitResponseStub`, which also instruments the stub's `headers` so
+   * a post-commit write fails loudly (dev build throws, production
+   * reports + no-ops) instead of silently missing the wire. `status`/
+   * `statusText` stay plain fields: consumers that write response
+   * metadata during render (e.g. JSX response components) must still
+   * treat later status writes and cleanup-time retractions as no-ops.
+   */
+  committed?: boolean;
+}
+
+/**
+ * The type of `RequestEvent.locals` — a module-augmentable interface so
+ * applications can type the state their middleware hangs on the event.
+ * Augment it through the package that re-exports the event (interface
+ * identity flows through the re-export chain):
+ *
+ * ```ts
+ * declare module "@solidjs/web" {
+ *   interface RequestEventLocals {
+ *     user: User;
+ *   }
+ * }
+ * ```
+ *
+ * The index signature keeps un-augmented usage permissive — `locals` is a
+ * free-form bag by default — so augmentation adds precision for the keys
+ * it names without gating existing code. The flip side: unaugmented keys
+ * read as `any` rather than erroring, a deliberate trade (a strict-only
+ * `locals` would break every untyped write that works today).
+ */
+export interface RequestEventLocals {
+  [key: string | number | symbol]: any;
+}
+
+/**
+ * The per-request context available on the server: the incoming `Request`
+ * and a `locals` bag integrations and middleware can hang state on (typed
+ * through the augmentable `RequestEventLocals`). Frameworks typically
+ * extend this shape with richer fields (e.g. a `response` head — see
+ * `ResponseStub`).
+ */
+export interface RequestEvent {
+  request: Request;
+  locals: RequestEventLocals;
+}
+
+export type { CookieOptions } from "./cookies.js";
+
+export type {
+  ServerFunction,
+  ServerFunctionMetadata,
+  ServerFunctionRPC
+} from "../server-functions/src/shared.js";
+
+export interface SSRResponseOptions {
+  /** Base head; the stub's status/headers win over it. */
+  responseInit?: ResponseInit;
+  /** Nonce carried by the post-flush `<script>` redirect fallback. */
+  nonce?: string;
+  /** Rewrites each outgoing HTML chunk (entry script injection, ...). */
+  transformChunk?: (chunk: string) => string;
+}
+
+/**
+ * Fetch-style middleware: return a `Response` to answer the request, or
+ * call `next()` (optionally with a substitute `Request`) to advance the
+ * chain and observe/replace the eventual response.
+ */
+export type FetchMiddleware = (
+  request: Request,
+  next: (request?: Request) => Promise<Response>
+) => Response | Promise<Response>;
 
 // `mergeProps` comes from the framework like the client/universal entries —
 // prop-merge semantics (function sources, precedence) belong to the reactive
@@ -762,12 +948,14 @@ function destinationNonce(nonce, destination) {
   if (typeof nonce === "string") return nonce || undefined;
   const value = nonce[destination];
   return typeof value === "string" && value ? value : undefined;
-}
+} /** The script-destination half of a render `nonce`. */
+export function scriptNonce(nonce?: CSPNonce): string | undefined;
 
 /** The script-destination half of a render `nonce`. */
 export function scriptNonce(nonce) {
   return destinationNonce(nonce, "script");
-}
+} /** The style-destination half of a render `nonce`. */
+export function styleNonce(nonce?: CSPNonce): string | undefined;
 
 /** The style-destination half of a render `nonce`. */
 export function styleNonce(nonce) {
@@ -869,7 +1057,17 @@ function renderHeadTagMarkup(tag, props, identity, nonce) {
   else if (tag === "style") body = escapeStyleContent(body);
   else body = escape(body);
   return `<${tag}${attrs}>${body}</${tag}>`;
-}
+} /**
+ * Registers head tags with the render's head registry. An array is a group —
+ * one replacement set; a single tag is a group of one; a function is a
+ * reactive group whose membership resolves at the owning flush boundary
+ * (resource tags inside it emit at that flush rather than eagerly).
+ * Replaceable tags (title/meta/canonical/…) resolve by last-committed group
+ * and stream as patches with their suspense boundary's reveal; resource tags
+ * (preload and friends, stylesheets, `script[src]`) emit eagerly and dedupe
+ * by identity. See docs/head-management-rfc.md.
+ */
+export function useHead(tag: HeadTag | HeadTag[] | (() => HeadTag | HeadTag[])): void;
 
 /**
  * Registers head tags with the render's head registry. Replaceable tags
@@ -956,6 +1154,28 @@ const REPLACE_SCRIPT = `function $df(e){return _$HY.f?_$HY.f(e):$dfr(e)}function
 // the client registry restores when every title registration disposes — and
 // this op is the last reader that can still see it.
 const HEAD_SCRIPT = `function $dha(o,i,e,n){for(i=0;i<o.length;i++)e=o[i],"t"==e[0]?((n=document.querySelector("title"))?n.hasAttribute("data-dh")||n.setAttribute("data-dhf",n.textContent):(n=document.createElement("title"),document.head.appendChild(n)),n.textContent=e[1],n.setAttribute("data-dh","title")):"r"==e[0]?$dhr(e[1]):(n=document.createElement(e[2]),Object.keys(e[3]).forEach(function(a){n.setAttribute(a,e[3][a])}),null!=e[4]&&(n.textContent=e[4]),n.setAttribute("data-dh",e[1]),document.head.appendChild(n))}function $dhr(v,l,i){for(l=document.head.querySelectorAll("[data-dh]"),i=0;i<l.length;i++)l[i].getAttribute("data-dh")==v&&l[i].remove()}function $dh(o){_$HY.h?_$HY.h(o):$dha(o)}`;
+export function renderToString<T>(
+  fn: () => T,
+  options?: {
+    nonce?: CSPNonce;
+    renderId?: string;
+    noScripts?: boolean;
+    plugins?: SerializerPlugin[];
+    manifest?: AssetManifest | AssetResolver | AssetResolverFn;
+    onError?: (err: any) => void;
+    /**
+     * Embedded-render contract for hosts that own the document. When the
+     * render output contains no `</head>`, everything head-bound (resolved
+     * `useHead` winners, eager resources, tracked asset links, inline
+     * styles) is delivered here as one HTML string — prelude (charset/base)
+     * first — for the host to splice into its own `<head>` template, instead
+     * of being dropped. Called synchronously before `renderToString`
+     * returns; not called when the output has a `</head>` (splicing is
+     * automatic then).
+     */
+    onHead?: (head: string) => void;
+  }
+): string;
 
 export function renderToString(code, options = {}) {
   const { renderId = "", noScripts, manifest, onHead } = options;
@@ -1043,6 +1263,55 @@ export function renderToString(code, options = {}) {
     onHead
   );
 }
+export function renderToStream<T>(
+  fn: () => T,
+  options?: {
+    nonce?: CSPNonce;
+    renderId?: string;
+    noScripts?: boolean;
+    plugins?: SerializerPlugin[];
+    manifest?: AssetManifest | AssetResolver | AssetResolverFn;
+    onCompleteShell?: (info: { write: (v: string) => void }) => void;
+    onCompleteAll?: (info: { write: (v: string) => void }) => void;
+    onError?: (err: any) => void;
+    /**
+     * Embedded-render contract for hosts that own the document. When the
+     * shell contains no `</head>`, everything head-bound at first flush
+     * (resolved `useHead` winners, eager resources, tracked asset links,
+     * inline styles) is delivered here as one HTML string — prelude first —
+     * before the shell chunk is emitted, so the host can write its own
+     * `<head>` ahead of piping the stream. Post-shell head updates flow
+     * through the stream itself and apply in the browser. Not called when
+     * the shell has a `</head>` (splicing is automatic then).
+     */
+    onHead?: (head: string) => void;
+  }
+): {
+  /**
+   * Awaiting the stream resolves with the complete HTML once every boundary
+   * settles — the fully-settled-string form of the render (`const html =
+   * await renderToStream(...)`). Render errors route through `onError` and
+   * the promise resolves with whatever HTML the render produced; it never
+   * rejects.
+   */
+  then<TResult1 = string, TResult2 = never>(
+    onfulfilled?: ((html: string) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null
+  ): Promise<TResult1 | TResult2>;
+  pipe: (writable: { write: (v: string) => void; end: () => void }) => void;
+  pipeTo: (writable: WritableStream) => Promise<void>;
+  /**
+   * Lazy `ReadableStream<Uint8Array>` view of the render — hand it straight
+   * to `new Response(stream.readable)`. First access starts the render
+   * piping through an internal `TransformStream` (chunks are UTF-8 encoded
+   * bytes, the same as `pipeTo` writes) and the stream is cached, so
+   * repeated access returns the same instance. Like `pipe`/`pipeTo`, this
+   * consumes the render: use exactly one of the three — mixing distinct
+   * consumers (`readable` after `pipe`/`pipeTo`, or vice versa) throws an
+   * error naming the conflict.
+   */
+  readonly readable: ReadableStream<Uint8Array>;
+};
 
 export function renderToStream(code, options = {}) {
   let { onCompleteShell, onCompleteAll, renderId = "", noScripts, manifest, onHead } = options;
@@ -1963,12 +2232,14 @@ export function renderToStream(code, options = {}) {
     }
   };
 }
+export function HydrationScript(props: { nonce?: string; eventNames?: string[] }): JSX.Element;
 
 // components
 export function HydrationScript(props) {
   const nonce = scriptNonce(sharedConfig.context && sharedConfig.context.nonce);
   return ssr(generateHydrationScript({ nonce, ...props }));
 }
+export function ssrGroup<T extends () => any[]>(fn: T, n: number): T;
 
 // Compiler-emitted: tags `fn` so `ssr()` routes it through the grouped
 // fast-path. One grouped fn per element collapses N attribute/textContent
@@ -2585,6 +2856,7 @@ function attrNames(text) {
   while ((m = re.exec(text))) names.push(m[1]);
   return names;
 }
+export function ssr(template: string[] | string, ...nodes: any[]): { t: string };
 
 // rendering
 export function ssr(t) {
@@ -2829,6 +3101,7 @@ export function ssr(t) {
   if (result === null) return { t: s };
   return result;
 }
+export function ssrClassName(value: string | { [k: string]: boolean } | Array<any>): string;
 
 export function ssrClassName(value) {
   if (!value) return "";
@@ -2846,6 +3119,7 @@ export function ssrClassName(value) {
   }
   return result;
 }
+export function ssrStyle(value: string | { [k: string]: string }): string;
 
 export function ssrStyle(value) {
   if (!value) return "";
@@ -2868,6 +3142,7 @@ export function ssrStyle(value) {
   }
   return result;
 }
+export function ssrStyleProperty(name: string, value: any): string;
 
 export function ssrStyleProperty(name, value) {
   // Compiler contract: for literal-key `style={{ color: v }}` the compiler
@@ -2877,6 +3152,12 @@ export function ssrStyleProperty(name, value) {
   // into style="..." without further escaping.
   return value != null ? name + value : "";
 }
+export function ssrElement(
+  name: string,
+  props: any,
+  children: any,
+  needsId: boolean
+): { t: string };
 
 // review with new ssr
 export function ssrElement(tag, props, children, needsId) {
@@ -2941,6 +3222,7 @@ export function ssrElement(tag, props, children, needsId) {
   if (typeof children === "function") children = children();
   return ssr([result + ">", `</${tag}>`], resolveSSRNode(children, undefined, true));
 }
+export function ssrAttribute(key: string, value: any): string;
 
 export function ssrAttribute(key, value) {
   // Compiler contract: `key` is always a compile-time string literal emitted
@@ -2950,6 +3232,7 @@ export function ssrAttribute(key, value) {
   // trusted here so this hot path stays a pure string concatenation.
   return value == null || value === false ? "" : value === true ? ` ${key}` : ` ${key}="${value}"`;
 }
+export function ssrHydrationKey(): string;
 
 export function ssrHydrationKey() {
   const hk = getHydrationKey();
@@ -3205,6 +3488,7 @@ export function resolveSSRSelectValues(html) {
   if (idx === 0) return html;
   return out + html.slice(idx);
 }
+export function escape(s: any, attr?: boolean): any;
 
 export function escape(s, attr) {
   const t = typeof s;
@@ -3340,15 +3624,24 @@ function tryJoinPlainSSRArray(nodes) {
   }
   return out;
 }
+export function getHydrationKey(): string | undefined;
 
 export function getHydrationKey() {
   const hydrate = sharedConfig.context;
   return hydrate && sharedConfig.getNextContextId();
 }
+export function applyRef(
+  r: ((element: any) => void) | ((element: any) => void)[],
+  element: any
+): void;
 
 export function applyRef(r, element) {
   Array.isArray(r) ? r.flat(Infinity).forEach(f => f && f(element)) : r(element);
 }
+export function generateHydrationScript(options?: {
+  nonce?: string;
+  eventNames?: string[];
+}): string;
 
 export function generateHydrationScript({ eventNames = ["click", "input"], nonce } = {}) {
   return `<script${
@@ -3706,8 +3999,9 @@ function tryResolveString(node) {
   }
   return "";
 }
+export function resolveSSRNode(node: any, result?: any, top?: boolean): any;
 
-function resolveSSRNode(
+export function resolveSSRNode(
   node,
   result = {
     t: [""],
@@ -3789,17 +4083,24 @@ function resolveSSRSync(node) {
 // Registered symbol: the AsyncLocalStorage parked on globalThis must be
 // found by every copy of this module (core entry and server-functions entry
 // bundle separately downstream).
-export const RequestContext = Symbol.for("solid.RequestContext");
+export const RequestContext: unique symbol = Symbol.for("solid.RequestContext") as any; /**
+ * The current request event, when called on the server inside a request
+ * scope (established by `provideRequestEvent` from `@solidjs/web/storage`
+ * or by the framework). Undefined on the client and outside a request.
+ * Read it above `await` boundaries in partially-polyfilled environments.
+ */
+export function getRequestEvent(): RequestEvent | undefined;
 
 export function getRequestEvent() {
-  return globalThis[RequestContext]
-    ? globalThis[RequestContext].getStore() ||
+  return (globalThis as any)[RequestContext]
+    ? (globalThis as any)[RequestContext].getStore() ||
         (sharedConfig.context && sharedConfig.context.event) ||
         console.warn(
           "RequestEvent is missing. This is most likely due to accessing `getRequestEvent` non-managed async scope in a partially polyfilled environment. Try moving it above all `await` calls."
         )
     : undefined;
-}
+} /** A fresh, uncommitted response head. */
+export function createResponseStub(): ResponseStub;
 
 // --- HTTP response-head lifecycle ---------------------------------------
 //
@@ -3814,7 +4115,15 @@ export function getRequestEvent() {
 /** A fresh, uncommitted response head. */
 export function createResponseStub() {
   return { status: undefined, statusText: undefined, headers: new Headers(), committed: false };
-}
+} /**
+ * The canonical request event for HTTP handlers: the incoming `Request`, a
+ * `locals` bag, and a `response` head stub the render writes to. `init`
+ * spreads over the defaults so frameworks can extend the shape.
+ */
+export function createRequestEvent<T extends object = {}>(
+  request: Request,
+  init?: T
+): RequestEvent & { response: ResponseStub } & T;
 
 /**
  * The canonical request event for HTTP handlers: the incoming `Request`, a
@@ -3846,7 +4155,25 @@ function reportLostHeaderWrite(method, name) {
     "(or before the handler returns).";
   if ("_DX_DEV_") throw new Error(message);
   console.error(message);
-}
+} /**
+ * Flips a response stub to `committed` — the moment its head freezes on
+ * the wire — and instruments the stub's `headers` mutating methods
+ * (`set`/`append`/`delete`, patched in place; the `Headers` identity and
+ * reads are untouched) so a post-commit write fails loudly instead of
+ * silently missing the wire: it throws in the dev build and reports +
+ * no-ops otherwise. Every head materialization path commits through here
+ * (`createSSRResponse`, the server-function handler's commit seam);
+ * integrations deriving their own heads should too.
+ *
+ * `allowLateLocation` is the stream path's documented exception: a
+ * `Location` set after the shell flushed is still honored client-side
+ * (stream completion appends a `window.location` script), so that one
+ * write stays permitted there.
+ */
+export function commitResponseStub(
+  stub: ResponseStub,
+  options?: { allowLateLocation?: boolean }
+): ResponseStub;
 
 /**
  * Flips a response stub to `committed` — the moment its head freezes on
@@ -3882,7 +4209,12 @@ export function commitResponseStub(stub, { allowLateLocation = false } = {}) {
 }
 
 // https://developer.mozilla.org/en-US/docs/Web/HTTP/Status#redirection_messages
-const validRedirectStatuses = /*#__PURE__*/ new Set([301, 302, 303, 307, 308]);
+const validRedirectStatuses = /*#__PURE__*/ new Set([301, 302, 303, 307, 308]); /**
+ * The status an outgoing redirect should use for a response head carrying
+ * a `Location`: the stub's own status when it is a redirect status, 302
+ * otherwise.
+ */
+export function getExpectedRedirectStatus(response: ResponseStub): number;
 
 /**
  * The status an outgoing redirect should use for a response head carrying a
@@ -3944,7 +4276,27 @@ function fillsStubGap(key, headers, response) {
   if (key === "set-cookie" || STUB_GAP_FILL_EXCLUDED.has(key)) return false;
   if (response.body === null && (key === "content-type" || key === "content-length")) return false;
   return !headers.has(key);
-}
+} /**
+ * Handler-lifecycle plumbing — a response's exit through the request
+ * event's response-stub lifecycle: page results leave through
+ * `createSSRResponse`, any other `Response` (a middleware early return, an
+ * API result) leaves through `commitEventResponse`; application middleware
+ * never calls this. Folds the event's stub onto the outgoing response —
+ * `Set-Cookie` appends entry-by-entry alongside the response's own, other
+ * stub headers fill gaps only (never the wire-protocol family the handlers
+ * own, never `Content-Type`/`Content-Length` on a bodiless response), the
+ * status is never taken from the stub — then commits the stub
+ * (`commitResponseStub`: post-commit writes fail loudly). Responses with
+ * immutable headers are rebuilt around merged copies.
+ *
+ * Idempotent at handler edges: an already-committed stub passes the
+ * response through untouched, so a handler may apply this unconditionally
+ * after its middleware chain unwinds — page responses from
+ * `createSSRResponse` come back committed and do not double-fold.
+ *
+ * `event` defaults to the ambient `getRequestEvent()`.
+ */
+export function commitEventResponse(response: Response, event?: RequestEvent): Response;
 
 /**
  * Handler-lifecycle plumbing — the exit for a `Response` that did NOT go
@@ -4002,7 +4354,24 @@ function deriveHead(stub, responseInit = {}) {
   const status = (stub && stub.status) || responseInit.status || 200;
   const statusText = (stub && stub.statusText) || responseInit.statusText || undefined;
   return { status, statusText, headers };
-}
+} /**
+ * Derives the outgoing `Response` for an SSR render result, running the
+ * response-head lifecycle against `event.response`: commit at shell flush,
+ * pre-flush `Location` becomes a real redirect, post-flush `Location`
+ * appends a client-side script redirect before the stream closes.
+ * Synchronous for string results; resolves at shell flush for stream
+ * results.
+ */
+export function createSSRResponse(
+  result: string,
+  event: RequestEvent | undefined,
+  options?: SSRResponseOptions
+): Response;
+export function createSSRResponse(
+  result: { pipe(writable: { write: (v: string) => void; end: () => void }): void },
+  event: RequestEvent | undefined,
+  options?: SSRResponseOptions
+): Promise<Response>;
 
 /**
  * Derives the outgoing `Response` for an SSR render result, running the
@@ -4118,7 +4487,18 @@ export function createSSRResponse(result, event, options = {}) {
       }
     });
   });
-}
+} /**
+ * Composes fetch-style middleware into one function of the same shape;
+ * the terminal `next` dispatches to the actual handler. Runs in whatever
+ * scope the caller established (`provideRequestEvent`), so
+ * `getRequestEvent()` works exactly as in application code.
+ */
+export function composeMiddleware(
+  middlewares: FetchMiddleware[]
+): (
+  request: Request,
+  next: (request?: Request) => Response | Promise<Response>
+) => Promise<Response>;
 
 /**
  * Composes fetch-style middleware — `(request, next) => Response` — into a
@@ -4142,7 +4522,11 @@ export function composeMiddleware(middlewares) {
     }
     return dispatch(0, request);
   };
-}
+} /**
+ * Server no-op: element claims are a client-only concern, but consumers may
+ * register isomorphically. Returns a no-op unregister function.
+ */
+export function registerElementClaim(handler: (element: Element) => void): () => void;
 
 // Element claims are a client-only concern (compiled DOM output claims
 // navigation-relevant elements for consumers like a router's link-state
@@ -4151,10 +4535,14 @@ export function composeMiddleware(middlewares) {
 export function registerElementClaim() {
   return noopCleanup;
 }
-function noopCleanup() {}
+function noopCleanup() {} /** Server no-op: returns `node` unchanged. Claims never fire during SSR. */
+export function claimElement<T extends Element>(node: T): T;
+
 export function claimElement(node) {
   return node;
-}
+} /** Server no-op: returns `root` unchanged. Claims never fire during SSR. */
+export function claimElementTree<T extends Node>(root: T): T;
+
 export function claimElementTree(root) {
   return root;
 }

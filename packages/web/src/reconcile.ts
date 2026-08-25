@@ -1,7 +1,14 @@
+// @ts-nocheck
 // Slightly modified version of: https://github.com/WebReflection/udomdiff/blob/master/index.js
-import { $$SLOT } from "./constants";
+import { $$SLOT } from "./constants.js";
 
-export default function reconcileArrays(parentNode, a, b, marker) {
+export default function reconcileArrays(
+  parentNode: Node,
+  a: Node[],
+  b: Node[],
+  marker?: Node | null
+): void;
+export default function reconcileArrays(parentNode: any, a: any[], b: any[], marker?: any) {
   let bLength = b.length,
     aEnd = a.length,
     bEnd = bLength,

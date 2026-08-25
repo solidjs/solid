@@ -24,11 +24,11 @@ import { fileURLToPath } from "node:url";
 import { flush } from "solid-js";
 import { hydrate } from "@solidjs/web";
 import { installServerComponents, createFrameHost } from "../../frames/src/client.js";
-import { createJSONDataTable } from "../../serialization/src/index.js";
+import { createJSONDataTable } from "../../serialization/src/serializer.js";
 import {
   reviveContainerTraces,
   isMaterializedContainer
-} from "../../src/frame-container-plugin.js";
+} from "../../frames/src/frame-container-plugin.js";
 import { FID, statusFill } from "../harness/frames-welcome.jsx";
 
 const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");

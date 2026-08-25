@@ -53,7 +53,7 @@
     "build:js": "rollup -c",
     "types": "npm-run-all -nl types:clean types:universal types:cjs",
     "types:clean": "rimraf types/ types-cjs/",
-    "types:universal": "tsc --project ./tsconfig.json && ncp ./src/universal.d.ts ./types/index.d.ts",
+    "types:universal": "tsc --project ./tsconfig.json",
     "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs",
     "test": "vitest run"
   },

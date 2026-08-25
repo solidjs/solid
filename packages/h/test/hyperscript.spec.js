@@ -1,8 +1,6 @@
 import { createRoot, createSignal, flush } from "solid-js";
-import { createHyperScript } from "../src/hyperscript.js";
-import * as r from "../../web/src/client.js";
-
-const h = createHyperScript(r);
+import h from "../src/hyperscript.js";
+import * as r from "@solidjs/web";
 
 // `h(...)` always returns a tagged zero-arity thunk; the tests below
 // invoke it inside a `createRoot` to materialize DOM in a proper reactive

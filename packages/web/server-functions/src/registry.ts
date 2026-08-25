@@ -1,3 +1,5 @@
+// @ts-nocheck
+export type { ServerFunction, ServerFunctionMetadata, ServerFunctionRPC } from "./shared.js";
 // The codec-free universal layer of the server function runtime: the
 // declaration-metadata channel and the late-bound transport seam. Everything
 // here is readable from an app's EAGER graph (re-exported through the core

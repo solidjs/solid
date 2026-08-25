@@ -22,6 +22,23 @@
 // encryption — integrity/confidentiality layers (sessions) belong to the
 // caller, on top of these primitives.
 
+export interface CookieOptions {
+  /** Cookie `Path` attribute. Defaults to `/`. */
+  path?: string;
+  /** Cookie `Domain` attribute. Emitted only when provided. */
+  domain?: string;
+  /** Cookie `Max-Age` attribute, in seconds (truncated to an integer). */
+  maxAge?: number;
+  /** Cookie `Expires` attribute. */
+  expires?: Date;
+  /** Emit the `HttpOnly` attribute. */
+  httpOnly?: boolean;
+  /** Emit the `Secure` attribute. */
+  secure?: boolean;
+  /** Cookie `SameSite` attribute, any case. */
+  sameSite?: "lax" | "strict" | "none" | "Lax" | "Strict" | "None";
+}
+
 /**
  * Parses a `Cookie` request header into a name → value map. Names and
  * values are `decodeURIComponent`-decoded (falling back to the raw text
@@ -32,8 +49,8 @@
  * The read half of the platform gap — the blessed request-cookie read is
  * `parseCookieHeader(event.request.headers.get("cookie"))`.
  */
-export function parseCookieHeader(header) {
-  const cookies = {};
+export function parseCookieHeader(header: string | null | undefined): Record<string, string> {
+  const cookies: Record<string, string> = {};
   if (!header) return cookies;
   for (const part of header.split(";")) {
     const eq = part.indexOf("=");
@@ -48,7 +65,7 @@ export function parseCookieHeader(header) {
   return cookies;
 }
 
-function decodeSafe(text) {
+function decodeSafe(text: string): string {
   try {
     return decodeURIComponent(text);
   } catch {
@@ -70,7 +87,7 @@ function decodeSafe(text) {
  * value, options))`, which every head materialization path carries to the
  * wire entry-by-entry.
  */
-export function serializeCookie(name, value, options = {}) {
+export function serializeCookie(name: string, value: string, options: CookieOptions = {}): string {
   let cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
   cookie += `; Path=${options.path === undefined ? "/" : options.path}`;
   if (options.domain) cookie += `; Domain=${options.domain}`;
@@ -103,17 +120,17 @@ export const FLASH_COOKIE = "flash";
 const FLASH_MATCHER = new RegExp(`(?:^|;\\s*)${FLASH_COOKIE}=([^;]+)`);
 
 /** Whether a Cookie header carries a flash cookie (readable or not). */
-export function hasFlashCookie(cookieHeader) {
+export function hasFlashCookie(cookieHeader: string | null): boolean {
   return !!cookieHeader && FLASH_MATCHER.test(cookieHeader);
 }
 
 /** The raw encoded flash payload out of a Cookie header, if present. */
-export function matchFlashCookie(cookieHeader) {
+export function matchFlashCookie(cookieHeader: string | null): string | undefined {
   const match = cookieHeader && cookieHeader.match(FLASH_MATCHER);
   return match ? match[1] : undefined;
 }
 
 /** The Set-Cookie value clearing the flash cookie after it has been read. */
-export function clearFlashCookie() {
+export function clearFlashCookie(): string {
   return `${FLASH_COOKIE}=; Max-Age=0; Path=/`;
 }

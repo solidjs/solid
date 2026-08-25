@@ -12,7 +12,7 @@ import { vi } from "vitest";
 import { createRoot, createSignal, flush, isPending, Loading } from "solid-js";
 import { dynamic } from "../../src/index.js";
 import { installServerComponents } from "../../frames/src/client.js";
-import { createServerReference } from "../../src/server-functions/client.js";
+import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost, frameResponse, openFrameResponse, dataChunks, pump } from "./harness.js";
 
 // One reference per matrix row; ids are namespaced so nothing collides with

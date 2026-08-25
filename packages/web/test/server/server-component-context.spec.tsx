@@ -16,7 +16,7 @@
 import { describe, expect, test } from "vitest";
 import { renderToStream, Errored, Loading } from "@solidjs/web";
 import { createContext, useContext, createMemo } from "solid-js";
-import { frameTransformDirectResult, ServerComponentPlugin } from "../../src/frame-sink.js";
+import { frameTransformDirectResult, ServerComponentPlugin } from "../../frames/src/frame-sink.js";
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 

@@ -15,7 +15,7 @@ import type { Element as SolidElement } from "solid-js";
 // copy's trace plugin needs the resolver. Wire compatibility across copies
 // is by plugin TAG, which every seam compares; the resolver function itself
 // comes from external solid-js, so both copies answer identically.
-import { setContainerTraceResolver } from "../../src/frame-container-plugin.js";
+import { setContainerTraceResolver } from "./frame-container-plugin.js";
 import { getProjectionTrace } from "solid-js";
 
 setContainerTraceResolver(getProjectionTrace);
@@ -84,5 +84,5 @@ export {
   frameTransformDirectResult,
   ServerComponentPlugin,
   SERVER_COMPONENT_BOOTSTRAP
-} from "../../src/frame-sink.js";
-export { FRAME_STREAM_HEADER, isFrameStreamResponse } from "../../src/frame-transport.js";
+} from "./frame-sink.js";
+export { FRAME_STREAM_HEADER, isFrameStreamResponse } from "./frame-transport.js";

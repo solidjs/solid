@@ -7,7 +7,7 @@ import {
   getLocalHeaderScript,
   resolveSerializerPlugins,
   serializeJSON
-} from "../../src/serializer.js";
+} from "../../serialization/src/serializer.js";
 
 function collect(create, options = {}) {
   const scripts = [];

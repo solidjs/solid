@@ -1,4 +1,5 @@
-import { ChildProperties, Namespaces, DelegatedEvents, $$SLOT, $$HOST } from "./constants";
+// @ts-nocheck
+import { ChildProperties, Namespaces, DelegatedEvents, $$SLOT, $$HOST } from "./constants.js";
 import {
   getOwner,
   runWithOwner,
@@ -12,12 +13,98 @@ import {
 } from "solid-js";
 import { effect, memo } from "./render.js";
 
+import { JSX } from "./jsx.js";
+
+import type { RequestEventLocals } from "./server.js";
+
+type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
+
+/**
+ * A head tag descriptor. Props values may be getters (reactive on the
+ * client); `children` is the text body. `key` overrides the built-in dedupe
+ * identity (`title` is a hard singleton that `key` cannot fork).
+ *
+ * Getters must be plain reads: they evaluate inside registry-owned
+ * computations here and at flush time on the server, so a getter that
+ * allocates a reactive owner (`createMemo`, a `children()` helper) consumes
+ * a hydration id slot on one side only and desyncs every id allocated after
+ * the `useHead` call. Create such helpers eagerly at component position and
+ * read them from the getter. See docs/head-management-rfc.md.
+ */
+export type HeadTag = {
+  tag: "title" | "meta" | "link" | "style" | "script" | "base";
+  props: Record<string, any>;
+  key?: string | (() => string);
+};
+
+export type AssetDescriptor =
+  | { type: "style"; href: string; attrs?: Record<string, string> }
+  | { type: "inline-style"; id: string; content?: string; attrs?: Record<string, string> }
+  | { type: "module"; href: string }
+  | ExclusiveAssetDescriptor<any>;
+
+export interface ExclusiveAssetDescriptor<T> {
+  policy: "exclusive";
+  key: string;
+  value: T;
+  get(): T;
+  set(value: T): void;
+}
+
+/**
+ * Registry entry returned by `warmAsset`. Stylesheet entries carry load
+ * tracking for the client reveal gate (docs/client-css-reveal-gating.md):
+ * `loadPromise` resolves on load OR error (never rejects) — an errored
+ * sheet releases the gate, parity with the server gate.
+ */
+export interface AssetEntry {
+  loadState?: "pending" | "loaded" | "errored";
+  loadPromise?: Promise<void>;
+}
+
+/**
+ * See the server entry's `ResponseStub` — the shape of the mutable response
+ * head integrations expose as `event.response` via module augmentation.
+ */
+export interface ResponseStub {
+  status?: number;
+  statusText?: string;
+  headers: Headers;
+  /**
+   * Set by the integration once the response head has been derived/sent
+   * from this stub (status/headers can no longer change); consumers must
+   * treat later writes and cleanup-time retractions as no-ops.
+   */
+  committed?: boolean;
+}
+
+/**
+ * See the server entry's `RequestEventLocals` — the augmentable type of
+ * `RequestEvent.locals`. Re-exported (not re-declared) so both entries
+ * share ONE interface identity and a single augmentation reaches every
+ * `locals`, whichever entry typed the event.
+ */
+export type { RequestEventLocals } from "./server.js";
+
+export interface RequestEvent {
+  request: Request;
+  locals: RequestEventLocals;
+}
+
+export type { CookieOptions } from "./cookies.js";
+
+export type {
+  ServerFunction,
+  ServerFunctionMetadata,
+  ServerFunctionRPC
+} from "../server-functions/src/shared.js";
+
 // Optional seam (docs/client-css-reveal-gating.md): throws the core's
 // NotReadyError bound to the promise while it is unsettled so tracked
 // contexts (transitions, boundary reveals) hold and retry on settle;
 // no-op once settled.
 const assetGates = new WeakMap();
-export const waitAsset = promise => {
+export const waitAsset = (promise: Promise<unknown>): void => {
   let gate = assetGates.get(promise);
   if (!gate) {
     runWithOwner(null, () => {
@@ -36,8 +123,8 @@ export const waitAsset = promise => {
 const driveList = undefined;
 const patchableRaw = undefined;
 const registerPatch = undefined;
-import reconcileArrays from "./reconcile";
-import { DOMWithState } from "./constants";
+import reconcileArrays from "./reconcile.js";
+import { DOMWithState } from "./constants.js";
 import {
   HEAD_ELIGIBLE_TAGS,
   HEAD_ATTR_NAME,
@@ -59,12 +146,14 @@ export {
   RawTextElements,
   Namespaces,
   DelegatedEvents
-} from "./constants";
+} from "./constants.js";
 
 const $$EVENT_OWNER = "_$DX_EVENT_OWNER";
 const INNER_OWNED = {};
 const delegatedEvents = new Set();
 const delegatedContainers = new Map();
+
+function voidFn() {}
 
 export {
   effect,
@@ -74,9 +163,9 @@ export {
   createComponent,
   mergeProps,
   voidFn as generateHydrationScript,
-  voidFn as HydrationScript,
-  voidFn as getRequestEvent
+  voidFn as HydrationScript
 };
+export const getRequestEvent: () => RequestEvent | undefined = voidFn;
 
 // The cookie codec (the platform-gap primitives — see cookies.js): the
 // REAL implementation, not a stub — a pure value transformer has
@@ -98,7 +187,14 @@ export {
   getServerFunctionMetadata,
   getServerFunctionRPC,
   isServerFunction
-} from "./server-functions/registry.js";
+} from "../server-functions/src/registry.js";
+
+export function render(
+  code: () => JSX.Element,
+  element: MountableElement,
+  init?: JSX.Element,
+  options?: { owner?: unknown }
+): () => void;
 
 export function render(code, element, init, options = {}) {
   if ("_DX_DEV_" && !element) {
@@ -151,7 +247,15 @@ function create(html, bypassGuard, flag) {
   const t = document.createElement("template");
   t.innerHTML = html;
   return flag === 2 ? t.content.firstChild.firstChild : t.content.firstChild;
-}
+} /**
+ * Compiler-emitted primitive; not for hand-written code.
+ * @param flag
+ * - `undefined` — clone the template as-is (uses `cloneNode`).
+ * - `1` — use `document.importNode` instead of `cloneNode`.
+ * - `2` — the template html is wrapped; the outer tag is stripped at clone time.
+ * @internal
+ */
+export function template(html: string, flag?: 1 | 2): () => Element;
 
 export function template(html, flag) {
   let node;
@@ -162,7 +266,9 @@ export function template(html, flag) {
 
   if ("_DX_DEV_") fn._html = flag === 2 ? html.replace(/^<[^>]+>/, "") : html;
   return fn;
-}
+} /** Compiler-emitted primitive; not for hand-written code. @internal */
+export function delegateEvents(eventNames: string[]): void;
+
 export function delegateEvents(eventNames) {
   for (let i = 0, l = eventNames.length; i < l; i++) {
     const name = eventNames[i];
@@ -173,18 +279,24 @@ export function delegateEvents(eventNames) {
       );
     }
   }
-}
+} /** Event-delegation plumbing (Portal/custom-root wiring). Integration plumbing. @internal */
+export function registerDelegatedRoot(root: MountableElement): void;
 
 export function registerDelegatedRoot(root) {
   const state = registerDelegatedContainer(root, root);
   if (state) state.roots = (state.roots || 0) + 1;
-}
+} /** Event-delegation plumbing (Portal/custom-root wiring). Integration plumbing. @internal */
+export function unregisterDelegatedRoot(root: MountableElement): void;
 
 export function unregisterDelegatedRoot(root) {
   const state = delegatedContainers.get(root);
   if (state) state.roots > 1 ? state.roots-- : delete state.roots;
   unregisterDelegatedContainer(root, root);
-}
+} /** Event-delegation plumbing (Portal/custom-root wiring). Integration plumbing. @internal */
+export function registerDelegatedContainer(
+  container: MountableElement,
+  owner?: MountableElement
+): void;
 
 export function registerDelegatedContainer(container, owner = container) {
   if (!container || !owner) return;
@@ -200,7 +312,11 @@ export function registerDelegatedContainer(container, owner = container) {
   state.owners.set(owner, (state.owners.get(owner) || 0) + 1);
   delegatedEvents.forEach(name => attachDelegatedEvent(name, container, state));
   return state;
-}
+} /** Event-delegation plumbing (Portal/custom-root wiring). Integration plumbing. @internal */
+export function unregisterDelegatedContainer(
+  container: MountableElement,
+  owner?: MountableElement
+): void;
 
 export function unregisterDelegatedContainer(container, owner = container) {
   const state = delegatedContainers.get(container);
@@ -218,7 +334,8 @@ function attachDelegatedEvent(name, container, state) {
   const handler = e => eventHandler(e, container, state);
   state.handlers.set(name, handler);
   container.addEventListener(name, handler);
-}
+} /** Event-delegation plumbing (Portal/custom-root wiring). Integration plumbing. @internal */
+export function getDelegatedRoot(node: MountableElement): MountableElement | undefined;
 
 export function getDelegatedRoot(node) {
   while (node) {
@@ -235,7 +352,8 @@ function findOwner(target, state) {
     distance++;
     node = node._$host || node.parentNode || node.host;
   }
-}
+} /** Compiler-emitted primitive; not for hand-written code. @internal */
+export function setProperty(node: Element, name: string, value: any): void;
 
 export function setProperty(node, name, value) {
   if (isHydrating(node)) return;
@@ -261,7 +379,23 @@ let claimHandlers = null;
 // runtime — deliberately importless in both directions, like the FRAME
 // brand — sweeps serialized server content against the SAME registry, even
 // when the two land in separately bundled copies of this module.
-const CLAIM_SEAM = Symbol.for("dom-expressions.element-claims");
+const CLAIM_SEAM = Symbol.for("dom-expressions.element-claims"); /**
+ * Register a consumer for compiler-emitted element claims. Compiled DOM
+ * output claims navigation-relevant elements (`a[href]`, `form[action]`) at
+ * creation, and compiler-owned writes to `href`/`action` re-invoke the same
+ * handlers — so handlers must be idempotent and must check the element's
+ * relevance themselves (rechecks can fire for any element whose
+ * `href`/`action` is written, e.g. `<link href>`). Handlers run under the
+ * reactive owner current at element creation; scope per-element state and
+ * cleanup through your own reactive system. Dormant until registered —
+ * without a handler the emitted claims are null checks. Returns an
+ * unregister function.
+ *
+ * Integration plumbing (routers register the consumer); not meant for
+ * application code.
+ * @internal
+ */
+export function registerElementClaim(handler: (element: Element) => void): () => void;
 
 /**
  * Register a consumer for compiler-emitted element claims. Returns an
@@ -281,7 +415,17 @@ export function registerElementClaim(handler) {
 // claims whole subtrees at materialization instead. Claims fire
 // indiscriminately per the attribute contract — filtering (external links,
 // `download`, `target`, base paths) belongs to the consumer.
-const CLAIMED_ELEMENTS = "a[href], form[action]";
+const CLAIMED_ELEMENTS = "a[href], form[action]"; /**
+ * Sweep-claim every navigation-relevant element (`a[href]`, `form[action]`)
+ * in `root` — the subtree equivalent of the per-element `claimElement`
+ * compiled output emits, for content that becomes live DOM without compiled
+ * creation code (frame streams, adopted SSR ranges). Dormant without a
+ * registered consumer.
+ *
+ * Integration plumbing; not meant for application code.
+ * @internal
+ */
+export function claimElementTree<T extends Node>(root: T): T;
 
 /**
  * Sweep-claim every navigation-relevant element in `root` (an element or a
@@ -305,7 +449,12 @@ export function claimElementTree(root) {
     for (let j = 0; j < handlers.length; j++) handlers[j](found[i]);
   }
   return root;
-}
+} /**
+ * Claim `node` for registered consumers (see `registerElementClaim`).
+ * Emitted by the compiler at element creation; idempotent by contract.
+ * @internal
+ */
+export function claimElement<T extends Element>(node: T): T;
 
 /**
  * Claim `node` for registered consumers. Emitted by the compiler at element
@@ -316,7 +465,8 @@ export function claimElement(node) {
     for (let i = 0; i < claimHandlers.length; i++) claimHandlers[i](node);
   }
   return node;
-}
+} /** Compiler-emitted primitive; not for hand-written code. @internal */
+export function setAttribute(node: Element, name: string, value: string): void;
 
 export function setAttribute(node, name, value) {
   if (isHydrating(node)) return;
@@ -326,7 +476,8 @@ export function setAttribute(node, name, value) {
   // through compiler-owned write paths, which all land here — so one recheck
   // at this site keeps claim consumers fresh with no observers.
   if (claimHandlers !== null && (name === "href" || name === "action")) claimElement(node);
-}
+} /** Compiler-emitted primitive; not for hand-written code. @internal */
+export function setAttributeNS(node: Element, namespace: string, name: string, value: string): void;
 
 export function setAttributeNS(node, namespace, name, value) {
   if (isHydrating(node)) return;
@@ -334,7 +485,8 @@ export function setAttributeNS(node, namespace, name, value) {
   if (value == null || value === false)
     node.removeAttributeNS(namespace, name.indexOf(":") > -1 ? name.split(":").pop() : name);
   else node.setAttributeNS(namespace, name, value === true ? "" : value);
-}
+} /** Compiler-emitted primitive; not for hand-written code. @internal */
+export function className(node: Element, value: JSX.ClassValue, prev?: JSX.ClassValue): void;
 
 export function className(node, value, prev) {
   if (isHydrating(node)) return;
@@ -365,7 +517,13 @@ export function className(node, value, prev) {
     if (!key || key === "undefined" || prev[key] === classValue || !classValue) continue;
     node.classList.add(key);
   }
-}
+} /** Compiler-emitted primitive; not for hand-written code. @internal */
+export function addEvent(
+  node: Element,
+  name: string,
+  handler: EventListener | EventListenerObject | (EventListenerObject & AddEventListenerOptions),
+  delegate: boolean
+): void;
 
 export function addEvent(node, name, handler, delegate) {
   if (delegate) {
@@ -377,7 +535,12 @@ export function addEvent(node, name, handler, delegate) {
     const handlerFn = handler[0];
     node.addEventListener(name, (handler[0] = e => handlerFn.call(node, handler[1], e)));
   } else node.addEventListener(name, handler, typeof handler !== "function" && handler);
-}
+} /** Compiler-emitted primitive; not for hand-written code. @internal */
+export function style(
+  node: Element,
+  value: { [k: string]: string },
+  prev?: { [k: string]: string }
+): void;
 
 export function style(node, value, prev) {
   if (!value) {
@@ -420,11 +583,13 @@ export function style(node, value, prev) {
       applied[s] = v;
     }
   }
-}
+} /** Compiler-emitted primitive; not for hand-written code. @internal */
+export function setStyleProperty(node: Element, name: string, value: any): void;
 
 export function setStyleProperty(node, name, value) {
   value != null ? node.style.setProperty(name, value) : node.style.removeProperty(name);
-}
+} /** Compiler-emitted primitive; not for hand-written code. @internal */
+export function spread<T>(node: Element, accessor: T, skipChildren?: Boolean): void;
 
 // TODO: make this better
 export function spread(node, props = {}, skipChildren) {
@@ -449,7 +614,8 @@ export function spread(node, props = {}, skipChildren) {
     props => assign(node, props, true, prevProps, true)
   );
   return prevProps;
-}
+} /** Compiler-emitted primitive; not for hand-written code. @internal */
+export function dynamicProperty(props: unknown, key: string): unknown;
 
 export function dynamicProperty(props, key) {
   const src = props[key];
@@ -460,11 +626,19 @@ export function dynamicProperty(props, key) {
     enumerable: true
   });
   return props;
-}
+} /** Compiler-emitted primitive; not for hand-written code. @internal */
+export function applyRef<T extends Element = Element>(
+  r: ((element: NoInfer<T>) => void) | ((element: NoInfer<T>) => void)[],
+  element: T
+): void;
 
 export function applyRef(r, element) {
   Array.isArray(r) ? r.flat(Infinity).forEach(f => f && f(element)) : r(element);
-}
+} /** Compiler-emitted primitive; not for hand-written code. @internal */
+export function ref(
+  fn: () => ((element: Element) => void) | ((element: Element) => void)[],
+  element: Element
+): void;
 
 export function ref(fn, element) {
   const resolved = untrack(fn);
@@ -481,7 +655,8 @@ const PURE_ROW = Symbol.for("solid.pure-row");
 export function rowProof(fn) {
   fn[PURE_ROW] = true;
   return fn;
-}
+} /** Compiler-emitted primitive; not for hand-written code. @internal */
+export function scope<T extends () => any>(fn: T): T;
 
 // Compiler tag for holes that can allocate hydration ids: the outer insert
 // effect gets its own (non-transparent) id scope, mirroring the server's
@@ -606,7 +781,26 @@ export function patchDriver(subject, body) {
       () => body(subject, undefined, true)
     );
   }
-}
+} /**
+ * Compiler-emitted primitive; not for hand-written code.
+ * @internal
+ */
+export function insert<T>(
+  parent: MountableElement,
+  accessor: (() => T) | T,
+  marker?: Node | null,
+  init?: JSX.Element,
+  options?: {
+    /**
+     * Live accessor for the slot's logical host in the source tree (portals).
+     * Each top-level node the slot manages is tagged with a `_$host` getter
+     * backed by this accessor so delegated events retarget correctly.
+     */
+    host?: () => Node | null;
+    /** Defer the insert effect to the queue instead of running it inline. */
+    schedule?: boolean;
+  }
+): JSX.Element;
 
 export function insert(parent, accessor, marker, initial, options) {
   const multi = marker !== undefined;
@@ -685,7 +879,14 @@ export function insert(parent, accessor, marker, initial, options) {
     // stays transparent so content ids keep a fixed depth per hole.
     accessor.$s ? (options ? { ...options, scope: true } : SCOPE_OPTIONS) : options
   );
-}
+} /** Compiler-emitted primitive; not for hand-written code. @internal */
+export function assign(
+  node: Element,
+  props: any,
+  skipChildren?: Boolean,
+  prevProps?: any,
+  skipRef?: Boolean
+): void;
 
 export function assign(node, props, skipChildren, prevProps = {}, skipRef = false) {
   const nodeName = node.nodeName;
@@ -807,7 +1008,16 @@ function trackAssetLoad(entry, adopted) {
     el.addEventListener("load", () => settle("loaded"), { once: true });
     el.addEventListener("error", () => settle("errored"), { once: true });
   });
-}
+} /**
+ * @internal Warm half of `acquireAsset`: idempotent and refcount-free,
+ * callable from a compute phase so the fetch starts at discovery and
+ * overlaps a transition's data wait. Stylesheets warm as
+ * `rel="preload" as="style"` and are flipped live by `acquireAsset` at
+ * commit — a branch superseded before it commits leaks only an inert
+ * preload, never an applied sheet. Only link-backed descriptors warm;
+ * inline styles and exclusive slots return `undefined`.
+ */
+export function warmAsset(descriptor: AssetDescriptor): AssetEntry | undefined;
 
 // Warm half of `acquireAsset` (docs/client-css-reveal-gating.md): idempotent
 // and refcount-free, callable from a compute phase so the fetch starts at
@@ -865,7 +1075,16 @@ export function warmAsset(descriptor) {
   }
   if (descriptor.type === "style") trackAssetLoad(entry, adopted);
   return entry;
-}
+} /**
+ * @internal Ref-counted client asset ownership: acquire adopts or mounts the
+ * asset, the returned release follows the owner (with a grace period for
+ * back-and-forth navigation). Internal machinery, not a public CSS-lifecycle
+ * API — per the head-management RFC (docs/head-management-rfc.md), ambient
+ * bundler-injected CSS is never lifecycle-managed, and the head registry
+ * owns the lifecycle of directly-mounted stylesheets outright. This keeps
+ * its non-head roles (exclusive slots, owner-following DOM ownership).
+ */
+export function acquireAsset(descriptor: AssetDescriptor): () => void;
 
 export function acquireAsset(descriptor) {
   const key = assetEntryKey(descriptor);
@@ -1190,7 +1409,16 @@ function gateHeadResource(props) {
     },
     () => acquireAsset(descriptor)
   );
-}
+} /**
+ * Registers head tags with the ambient head registry under the current
+ * owner. An array is a group — one replacement set; a function is a
+ * reactive group whose membership is tracked and re-read on change.
+ * Resolution is last-committed group per identity (reactive updates keep
+ * the registration's original commit position); disposal restores the
+ * previous winner. During hydration the server-flushed head state stays
+ * authoritative until hydration completes. See docs/head-management-rfc.md.
+ */
+export function useHead(tag: HeadTag | HeadTag[] | (() => HeadTag | HeadTag[])): void;
 
 /**
  * Registers head tags with the ambient head registry. An array is a group —
@@ -1304,6 +1532,11 @@ function loadModuleAssets(mapping) {
   }
   return pending.length ? Promise.all(pending).then(() => {}) : undefined;
 }
+export function hydrate(
+  fn: () => JSX.Element,
+  node: MountableElement,
+  options?: { renderId?: string; owner?: unknown }
+): () => void;
 
 // Hydrate
 export function hydrate(code, element, options = {}) {
@@ -1420,7 +1653,8 @@ export function hydrate(code, element, options = {}) {
   } finally {
     sharedConfig.hydrating = false;
   }
-}
+} /** Hydration-walk primitive; not for hand-written code. @internal */
+export function getNextElement(template?: () => Element): Element;
 
 export function getNextElement(template) {
   let node,
@@ -1462,12 +1696,14 @@ export function getNextElement(template) {
   if (sharedConfig.completed) sharedConfig.completed.add(node);
   sharedConfig.registry.delete(key);
   return node;
-}
+} /** Hydration-walk primitive; not for hand-written code. @internal */
+export function getNextMatch(start: Node, elementName: string): Element;
 
 export function getNextMatch(el, nodeName) {
   while (el && el.localName !== nodeName) el = el.nextSibling;
   return el;
-}
+} /** Hydration-walk primitive; not for hand-written code. @internal */
+export function getNextMarker(start: Node): [Node, Array<Node>];
 
 export function getNextMarker(start) {
   let end = start,
@@ -1550,7 +1786,8 @@ function describeSiblings(parent, mismatchChild, expectedTag, isMissing) {
     )
     .join("");
   return `<${pTag}>${prefix}${tags}${suffix}</${pTag}>`;
-}
+} /** Hydration-walk primitive; not for hand-written code. @internal */
+export function runHydrationEvents(): void;
 
 export function runHydrationEvents() {
   if (sharedConfig.events && !sharedConfig.events.queued) {
@@ -2004,13 +2241,12 @@ function gatherHydratable(element, root) {
     }
     if (!sharedConfig.registry.has(key)) sharedConfig.registry.set(key, node);
   }
-}
+} /** Hydration-walk primitive; not for hand-written code. @internal */
+export function getHydrationKey(): string | undefined;
 
 export function getHydrationKey() {
   return sharedConfig.getNextContextId();
 }
 
-const voidFn = () => undefined;
-
 // experimental
-export const RequestContext = Symbol();
+export const RequestContext: unique symbol = Symbol() as any;

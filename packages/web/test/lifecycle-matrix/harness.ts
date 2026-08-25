@@ -7,9 +7,9 @@ import { flush } from "solid-js";
 import { createFrameHost } from "../../frames/src/client.js";
 // The API-freeze pass removed the frames re-export; the codec's single
 // public home is the serialization entry.
-import { createJSONDataTable } from "../../src/serializer.js";
-import { createChunk } from "../../src/server-functions/shared.js";
-import { createJSONSerializer } from "../../src/serializer.js";
+import { createJSONDataTable } from "../../serialization/src/serializer.js";
+import { createChunk } from "../../server-functions/src/shared.js";
+import { createJSONSerializer } from "../../serialization/src/serializer.js";
 
 export const settle = () => new Promise(r => setTimeout(r));
 
