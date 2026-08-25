@@ -55,10 +55,11 @@
     }
   },
   "devDependencies": {
-    "@emnapi/core": "^1.11.2",
-    "@emnapi/runtime": "^1.11.2",
+    "@emnapi/core": "^1.11.3",
+    "@emnapi/runtime": "^1.11.3",
     "@napi-rs/cli": "^3.7.2",
-    "@napi-rs/wasm-runtime": "^1.1.6"
+    "@napi-rs/wasm-runtime": "^1.1.6",
+    "emnapi": "^1.11.3"
   },
   "optionalDependencies": {
     "@solidjs/compiler-darwin-x64": "2.0.0-rc.2",
