@@ -1,15 +1,12 @@
 {
   "compilerOptions": {
-    "outDir": "types",
-    "emitDeclarationOnly": true,
-    "declaration": true,
+    "noEmit": true,
     "target": "esnext",
     "module": "esnext",
     "moduleResolution": "bundler",
-    "rootDir": "src",
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
     "strict": true
   },
-  "include": ["src"]
+  "include": ["src", "../web/src/constants.ts"]
 }

@@ -19,6 +19,7 @@
 > - **Migrating from 1.x?** Start with [`documentation/solid-2.0/MIGRATION.md`](documentation/solid-2.0/MIGRATION.md).
 > - **Quick API reference:** [`packages/solid/CHEATSHEET.md`](packages/solid/CHEATSHEET.md) (one screen, every public export).
 > - **Design rationale:** the 2.0 RFCs at [`documentation/solid-2.0/`](documentation/solid-2.0/).
+> - **JSX compiler and DOM runtime** live here (`@solidjs/babel-plugin-jsx`, `@solidjs/compiler`, `@solidjs/web`). File those issues on this repo, not [DOM Expressions](https://github.com/ryansolid/dom-expressions).
 > - **Stable Solid 1.x?** Use the default [`main` branch](https://github.com/solidjs/solid).
 
 Solid is a declarative JavaScript library for building user interfaces. Instead of a Virtual DOM, it compiles templates to real DOM nodes and updates them with fine-grained reactivity. Declare your state and use it throughout your app — when a piece of state changes, only the code that depends on it re-runs.

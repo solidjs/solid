@@ -158,15 +158,20 @@ const delegatedContainers = new Map();
 
 function voidFn() {}
 
-export {
-  effect,
-  memo,
-  untrack,
-  getOwner,
-  createComponent,
-  voidFn as generateHydrationScript,
-  voidFn as HydrationScript
-};
+/** Client stub — hydration bootstrap is a server-only emit. */
+export function generateHydrationScript(_options?: {
+  eventNames?: string[];
+  nonce?: string;
+}): string {
+  return "";
+}
+
+/** Client stub — valid JSX component, renders nothing. */
+export function HydrationScript(_props?: { nonce?: string; eventNames?: string[] }): null {
+  return null;
+}
+
+export { effect, memo, untrack, getOwner, createComponent };
 /**
  * Compiler-emitted prop-spread helper. The JSX transform emits
  * `mergeProps(...)` when compiling prop spreads on components — not a

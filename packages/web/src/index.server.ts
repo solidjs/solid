@@ -82,7 +82,7 @@ export function dynamic<T extends ValidComponent>(
   // wire (it isn't serializable, and the client re-runs `source()` during
   // hydration anyway, the same way lazy() re-imports its module). The owner
   // id is still allocated, so hydration keys stay aligned with the client.
-  const cached = createMemo(source as () => any, { serialize: false });
+  const cached = createMemo(source as () => any, { serialize: false } as any);
   return props => {
     return createMemo(
       () => {
@@ -147,7 +147,10 @@ export function Portal(props: { mount?: Element; children: JSX.Element }) {
  * applies on settle under the boundary that owned the render, best-effort.
  */
 function registerClientOnlyPreload(moduleUrl: string): void {
-  const ctx = sharedConfig.context;
+  // Client `solid-js` types don't expose the server `sharedConfig.context`
+  // hydration bag (`serialize`, `registerAsset`, …). The server runtime
+  // (`server.ts`) is `@ts-nocheck` for the same split.
+  const ctx = (sharedConfig as { context?: any }).context;
   if (!ctx?.registerAsset || !ctx.resolveAssets) return;
   const registerAsset = ctx.registerAsset;
   const resolve = ctx.resolveAssets;

@@ -16,6 +16,7 @@ const build = path.join(root, ".types-build");
 function rewritePublished(s, kind) {
   if (kind === "src") {
     return s
+      .replaceAll("../jsx/jsx.js", "./jsx.js")
       .replaceAll("../server-functions/src/shared.js", "./server-functions/shared.js")
       .replaceAll("../server-functions/src/registry.js", "./server-functions/registry.js")
       .replaceAll("../serialization/src/serializer-decode.js", "./serializer-decode.js")

@@ -9,6 +9,7 @@ lib/
 coverage/
 types/
 types-cjs/
+packages/babel-plugin-jsx/index.js
 .DS_Store
 .turbo/
 .pnpm-store/
