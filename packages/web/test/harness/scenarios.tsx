@@ -47,7 +47,7 @@ export type Scenario = {
    * Override for the "streamed" replay mode. Needed where the two modes
    * legitimately settle to different text — e.g. a live $df swap of a
    * REJECTED fragment splices in the rejection template's single-space
-   * text node (dom-expressions' rejection channel), which full-page-loaded
+   * text node (@solidjs/web's rejection channel), which full-page-loaded
    * hydration never renders.
    */
   expectedTextStreamed?: string;

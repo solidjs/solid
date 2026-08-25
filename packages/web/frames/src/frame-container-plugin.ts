@@ -62,7 +62,7 @@ export interface ContainerTraceMarker {
  *   materializedValues: WeakSet<object>
  * }}
  */
-const STATE = Symbol.for("dom-expressions.container-trace-state");
+const STATE = Symbol.for("solid.container-trace-state");
 const state =
   globalThis[STATE] ||
   (globalThis[STATE] = {
@@ -126,7 +126,7 @@ export function isContainerTraced(value) {
 // mints the envelope, the document entry's serializer tests it), and a
 // per-instance Symbol() would silently never match across copies (the
 // envelope then serializes as `{}`: an empty object, no error anywhere).
-const TRACE = Symbol.for("dom-expressions.container-trace"); /**
+const TRACE = Symbol.for("solid.container-trace"); /**
  * Replace traced containers anywhere in a value with serialization
  * envelopes (copy-on-write). What the sink passes to the serializer —
  * seroval's own classification (constructor reads, array claims) runs
@@ -263,7 +263,7 @@ function parseTrace(value, ctx) {
  * @type {import("seroval").Plugin<object, { a: number, i: any }>}
  */
 export const ContainerTracePlugin = {
-  tag: "dom-expressions/container-trace",
+  tag: "solid/container-trace",
   test(value) {
     // Matches the ENVELOPE, never a raw container (see TRACE above). The
     // symbol probe is trap-safe on anything.

@@ -222,7 +222,7 @@ describe("call-driven/error-record", () => {
     const frame: any = host.get("matrix/lc/err-early");
     expect(frame.error).toEqual({ message: "boom" });
     // No content ever streamed; the boundary element is present and empty.
-    const el = m.div.querySelector("dx-frame")!;
+    const el = m.div.querySelector("solid-frame")!;
     expect(el.textContent).toBe("");
     // The covering Loading is not stuck on its fallback.
     expect(m.div.textContent).not.toContain("shell-fallback");
@@ -440,7 +440,7 @@ describe("call-driven/shell-gate", () => {
   // Closed gap: a fresh call-driven mount now gates on the frame's first
   // apply — the covering <Loading> holds from response HEAD (when the call
   // resolves and the mount exists) until the first html record applies,
-  // instead of releasing over an empty <dx-frame> (the empty-frame flash).
+  // instead of releasing over an empty <solid-frame> (the empty-frame flash).
   // Only call-driven mounts gate (the transport rotates the address's data
   // table before the binding resolves); placeholder mounts with no call in
   // flight still render their empty frame immediately.

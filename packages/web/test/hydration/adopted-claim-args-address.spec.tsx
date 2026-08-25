@@ -53,11 +53,11 @@ describe("adopted claim scope on an args-bearing call", () => {
     // wrapper with an `_hk` chained from the WIRE id occurrence scope.
     const container = document.createElement("div");
     container.innerHTML =
-      `<dx-frame data-fid="${FID}" style="display:contents">` +
+      `<solid-frame data-fid="${FID}" style="display:contents">` +
       "<article><!--slot:comment#c1:start-->" +
       `<div class="comment" _hk="sc-${FID}-comment#c1-0"><button>[-]</button></div>` +
       "<!--slot:comment#c1:end--></article>" +
-      "</dx-frame>";
+      "</solid-frame>";
     document.body.appendChild(container);
     (globalThis as any)._$HY = {
       events: [],

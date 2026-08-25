@@ -23,7 +23,6 @@ const plugins = [
 const replaceDev = isDev =>
   replace({
     '"_SOLID_DEV_"': isDev,
-    '"_DX_DEV_"': isDev,
     preventAssignment: true,
     delimiters: ["", ""]
   });

@@ -1120,7 +1120,7 @@ export function createDocumentSlotProps(clientProps, frameId) {
 // places natively (see docs/frame-seams-decision.md). Kept in sync with the
 // consumer by convention — the two don't share a module (server-only vs
 // client-only). `display:contents` keeps it layout-transparent.
-const FRAME_TAG = "dx-frame";
+const FRAME_TAG = "solid-frame";
 const FRAME_ID_ATTR = "data-fid";
 
 /** Open tag for a boundary/region element with `id`. `id` is developer-owned

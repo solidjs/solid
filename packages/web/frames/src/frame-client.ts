@@ -300,7 +300,7 @@ export interface FrameOptions {
 }
 /**
  * Client frame runtime — the consumer side of the frame stream (port of the
- * frame-streams spike, adapted to dom-expressions).
+ * frame-streams spike, adapted for Solid).
  *
  * A frame renders server-owned content into a DOM boundary from a resident
  * keyed record store. Chunks are *writes* into the store, not events to
@@ -345,7 +345,7 @@ const COMMENT_NODE = 8;
 // directions, like the FRAME brand below). Sweeps claim indiscriminately per
 // the attribute contract; filtering belongs to the consumer. Dormant costs
 // one property read per apply — the selectors never run without a consumer.
-const CLAIM_SEAM = Symbol.for("dom-expressions.element-claims");
+const CLAIM_SEAM = Symbol.for("solid.element-claims");
 const CLAIMED_ELEMENTS = "a[href], form[action]";
 
 /** The live consumer list (undefined when dormant — the one check sweeps pay). */
@@ -373,7 +373,7 @@ const claimedAttr = name => name === "href" || name === "action";
 // a host/frame option (`delegate`, wired by the platform glue to
 // delegateEvents) — publishing it from client.js would drag the whole event
 // system into every tree-shaken subset of the core entry.
-const BOUND_SEAM = Symbol.for("dx.bnd");
+const BOUND_SEAM = Symbol.for("solid.bnd");
 const boundSeam = globalThis[BOUND_SEAM] || (globalThis[BOUND_SEAM] = {});
 const BND_ATTR = "_bnd";
 const BND_SELECTOR = "[_bnd]";
@@ -414,7 +414,7 @@ boundSeam.resolve = (el, type) => {
 function claimFn(frame, pos, prop) {
   const fn = frame.clientProp(prop);
   if (typeof fn === "function") return fn;
-  if ("_DX_DEV_" && fn !== undefined) {
+  if ("_SOLID_DEV_" && fn !== undefined) {
     console.warn(
       `A server element claims \`${pos}\` from client prop \`${prop}\`, but the mounted ` +
         `frame's prop is not a function.`
@@ -1000,7 +1000,7 @@ class FrameImpl {
       if (key.startsWith("hole:")) {
         if (key.endsWith(":error")) {
           this.#appliedHoles.set(key, record);
-          if ("_DX_DEV_")
+          if ("_SOLID_DEV_")
             console.error(`Live hole ${key.slice(5, -6)} failed on the server; latched:`, record);
         } else if (this.#applyHole(key.slice(5), record.value)) {
           this.#appliedHoles.set(key, record);
@@ -1723,7 +1723,7 @@ class FrameImpl {
     if (!open) return false;
     const close = rangeClose(open, "lh:/" + marker.slice(3));
     if (!close) {
-      if ("_DX_DEV_") {
+      if ("_SOLID_DEV_") {
         console.error(
           `Live hole "${marker}" is missing its closing comment; update dropped. ` +
             `Likely an HTML-rewriting layer stripped it.`,
@@ -1818,7 +1818,7 @@ class FrameImpl {
     if (assets && assets.inlineStyles) applyInlineStyles(assets.inlineStyles);
     const content = this.#store[`seg:${name}`];
     const closing = rangeClose(tpl, placeholderId(name));
-    if ("_DX_DEV_" && !closing) {
+    if ("_SOLID_DEV_" && !closing) {
       console.error(
         `Frame fragment placeholder "${name}" is missing its closing comment ` +
           `(<!--${placeholderId(name)}-->); revealed content will be appended at the end of ` +
@@ -1915,7 +1915,7 @@ export function createFrame(boundary, options) {
 // (see docs/frame-seams-decision.md). Kept in sync with the producer by
 // convention, like the `slot:`/`frame:` marker strings already are — the two
 // don't share a module (one is server-only, one client-only).
-export const FRAME_TAG = "dx-frame";
+export const FRAME_TAG = "solid-frame";
 export const FRAME_ID_ATTR = "data-fid"; /**
  * Create a boundary/region ELEMENT and bind a host-registered frame to it.
  * The frame mounts INTO the element (server content is its children, morphed
@@ -1934,7 +1934,7 @@ export function createFrameElement(options: FrameOptions): {
 /**
  * Create a boundary/region element and bind a frame to it (element mode).
  * Boundary identity belongs to the client, so the client creates the
- * element: a `<dx-frame>` rendered `display:contents` — layout- and
+ * element: a `<solid-frame>` rendered `display:contents` — layout- and
  * box-transparent, exactly like the comment range it replaces. Registered
  * with `options.host` under `options.id`, so streamed chunks route to it,
  * including any buffered before mount.
@@ -1945,7 +1945,7 @@ export function createFrameElement(options: FrameOptions): {
  * teardown is `dispose()` — the Solid binding ties it to its owner via
  * `onCleanup`.
  *
- * The tag is always `<dx-frame>`: a boundary can't sit inside table
+ * The tag is always `<solid-frame>`: a boundary can't sit inside table
  * internals at t=0 (the parser foster-parents a non-table element out of a
  * `<table>`), which is a documented, nameable limitation — own the whole
  * table in the server component, or supply rows via a client slot — not an
@@ -1965,7 +1965,7 @@ export function createFrameElement(options) {
 }
 
 /**
- * Create a bare boundary/region element (no frame bound yet). `<dx-frame>` is
+ * Create a bare boundary/region element (no frame bound yet). `<solid-frame>` is
  * inlined as `display:contents` — not a stylesheet or custom-element
  * registration — so it holds before any bundle loads and needs nothing
  * defined: an undefined custom element is inert HTMLUnknownElement, and
@@ -2036,7 +2036,7 @@ function parseFragment(html) {
 // Minimal, import-free mirror of the client asset registry's conventions
 // (client.js acquireAsset): data-asset ids for inline styles, attribute-
 // compared lookup instead of selector interpolation, adopt elements already
-// in the document. The dom-expressions binding can swap in the ref-counted
+// in the document. The Solid binding can swap in the ref-counted
 // registry later; the gate only needs "are this segment's stylesheets loaded,
 // and call me back when they settle".
 
@@ -2170,7 +2170,7 @@ function collectSlots(n, end, out) {
   while (n && n !== end) {
     const id = slotStartId(n);
     if (id !== null) {
-      if ("_DX_DEV_") devCheckRange(n, id);
+      if ("_SOLID_DEV_") devCheckRange(n, id);
       if (!out.has(id)) out.set(id, n);
       n = afterRange(n, id);
       continue;
@@ -2411,7 +2411,7 @@ function afterRange(start, id) {
  * letting collection silently truncate at the broken range.
  */
 function devCheckRange(start, id) {
-  if (!"_DX_DEV_") return;
+  if (!"_SOLID_DEV_") return;
   const end = slotEnd(id);
   let n = start.nextSibling;
   while (n) {

@@ -253,8 +253,8 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
 // resolved carries `{ component, address }` — `component` is the MOUNT
 // identity, one per server function; `address` names the call's content
 // store. Same component across resolutions means "same instance, new
-// binding". See dom-expressions frame-transport.js (COMPONENT_BINDING).
-const COMPONENT_BINDING = Symbol.for("dom-expressions.component-binding");
+// binding". See frames/src/frame-transport.ts (COMPONENT_BINDING).
+const COMPONENT_BINDING = Symbol.for("solid.component-binding");
 function bindingOf(value: any): { component: Function; address: string } | undefined {
   return (
     (value !== null &&

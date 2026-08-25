@@ -3,8 +3,7 @@
  * @vitest-environment jsdom
  */
 
-// Client CSS reveal gating, end-to-end through the real core (dom-expressions
-// docs/client-css-reveal-gating.md, solid-side integration tests): useHead
+// Client CSS reveal gating, end-to-end through the Solid core: useHead
 // warms a registered stylesheet as `rel="preload"` at discovery and its
 // gating compute reads the load promise through the `waitAsset` seam
 // (src/core.ts), so the boundary/transition machinery holds the reveal until

@@ -77,9 +77,8 @@ read-only store. The container REFERENCE is available synchronously; only
 reads INTO it suspend (into the reading fill's own `<Loading>`), and arg
 classification must never probe a pending container's properties (they
 throw not-ready) — containers test FIRST, by WeakSet, on both faces. The
-producer halves are pinned in dom-expressions
-`test/ssr/frame-container-trace.spec.js`, the real-core server faces in
-`test/server/container-traces.spec.tsx`, the materializer's unit semantics
+producer and server faces are pinned in `test/server/container-traces.spec.tsx`,
+the client faces in `container-args.spec.tsx`, and the materializer's unit semantics
 in solid `test/container-trace.spec.ts`.
 
 | Cell | Spec / test | Status |
@@ -87,10 +86,10 @@ in solid `test/container-trace.spec.ts`.
 | container `{$ref}` arg materializes live: reference synchronous, reads suspend until the snapshot, patch batches update granularly (sibling reads don't re-fire), trace end latches | `container-args` › `call-driven/args/containers` (materializes live) | pass — closed gap: the client's arg classification (`slotArgsProxy` async probe, `#refArgsUnchanged` compare) detonated pending containers; both now classify containers first, trap-safe |
 | updates flow through the store — never a re-call, node identity survives | `container-args` › `call-driven/args/containers` (materializes live) | pass |
 | one container, many references: every `{$ref}` to the same trace resolves to the SAME live store instance | `container-args` › `call-driven/args/containers` (two arg positions) | pass |
-| re-sent record with a container arg: same materialized instance adopts silently; a re-serialized trace is a CHANGE (live-props push, identity compare only) | dom-expressions `frame-client` host `isContainer` hook (see `#refArgsUnchanged`) | shared — the compare path is the data-refs machinery with the container guard ahead of the async probe |
+| re-sent record with a container arg: same materialized instance adopts silently; a re-serialized trace is a CHANGE (live-props push, identity compare only) | `frames/src/frame-client.ts` host `isContainer` hook (see `#refArgsUnchanged`) | shared — the compare path is the data-refs machinery with the container guard ahead of the async probe |
 | t=0 adoption: a record's `{ $tr, $ta }` marker literal revives at arg-read into a live store; nested references (any depth) share it; later yields keep updating the adopted occurrence | `container-args` › `t=0/adopted-container-args` | pass |
 | array-rooted trace seeds an array; snapshot replaces the seed wholesale | — | existing — solid `test/container-trace.spec.ts` (materializer unit semantics) |
-| pending containers never suspend the STREAM (classification is property-read safe; the trace ships, the markup flushes) | — | existing — `test/server/container-traces.spec.tsx` + dom-expressions `frame-container-trace.spec.js` |
+| pending containers never suspend the STREAM (classification is property-read safe; the trace ships, the markup flushes) | — | existing — `test/server/container-traces.spec.tsx` + `container-args.spec.tsx` |
 
 ## Client state survival / reset
 
@@ -151,32 +150,32 @@ renders (the call-driven face), thunk-compiled content holes are wrapped in
 identified comment pairs and watched — commits re-run them, equality-gate the
 resolved HTML, and re-emit changes as keyed `hole` chunks the client morphs
 in place. In-tag (attribute) holes are element-addressed instead (`data-lha`
-injected at the tag open) and re-emit as `attr` chunks. Engine cells are
-pinned in dom-expressions (`test/ssr/frame-live-holes.spec.js`); the
-compiled-JSX integration halves live here.
+injected at the tag open) and re-emit as `attr` chunks. Engine cells live in `frames/src/frame-sink.ts` and
+`frames/src/frame-client.ts`; their server and compiled-JSX integration tests
+live here.
 
 | Cell | Spec / test | Status |
 | --- | --- | --- |
-| thunk content hole marked with an identified pair; eager (static-compiled) holes get no marker/binding | dom-expressions `frame-live-holes` › marking | pass |
-| slot positions never marked (getter and called-occurrence shapes); a hole that emits slot records latches (records are emit-once) | dom-expressions `frame-live-holes` › marking | pass |
-| hostless document fallback: without a channel host (no ReadableStream), t=0 latches to the V1 snapshot and attr addressing injects nothing | dom-expressions `frame-live-holes` › marking + attr cells | pass |
-| armed document face (t=0): holes inside a server component mark and bind; plain document content keeps its exact bytes (scope barrier); ops ride ONE `sc:live` channel record, serialized eagerly; the end latch ships last values and closes the channel before flush | dom-expressions `frame-live-holes-document` (node env) | pass |
+| thunk content hole marked with an identified pair; eager (static-compiled) holes get no marker/binding | `test/server/frame-live-holes.spec.tsx` › marking | pass |
+| slot positions never marked (getter and called-occurrence shapes); a hole that emits slot records latches (records are emit-once) | `test/server/frame-live-holes.spec.tsx` › marking | pass |
+| hostless document fallback: without a channel host (no ReadableStream), t=0 latches to the V1 snapshot and attr addressing injects nothing | `test/server/frame-live-holes.spec.tsx` › marking + attr cells | pass |
+| armed document face (t=0): holes inside a server component mark and bind; plain document content keeps its exact bytes (scope barrier); ops ride ONE `sc:live` channel record, serialized eagerly; the end latch ships last values and closes the channel before flush | `test/server/document-live-holes.spec.tsx` (node env) | pass |
 | document face × real core: an iterable-fed hole marks, its pump holds the response, yields ride the channel as ops (single-copy — final value appears once), and the response latches at completion | `test/server/document-live-holes.spec.tsx` | pass |
 | t=0 adoption × live ops: a hole op morphs the adopted range in place; an attr op patches its `data-lha` element | `document-live-holes` › `t=0/live-holes` | pass |
 | t=0 adoption × catch-up: an op that arrived before its boundary adopted replays from the log right after adoption (geometry routes — only the owning boundary's range matches) | `document-live-holes` › `t=0/live-holes` | pass |
 | t=0 adoption × supersession: after a call-driven version-1 apply, document ops (version 0) go quiet | `document-live-holes` › `t=0/live-holes` | pass |
-| document face × case-1 args: a getter slot arg (the same authored shape as a markup hole) opens a document arg binding — commits re-emit the occurrence's record as a fid-tagged `slot` op on `sc:live` (values inline, no versioned refs), unchanged values equality-gate, the end latch ships the last value | dom-expressions `frame-live-holes-document` › channel + `test/server/document-live-holes.spec.tsx` | pass |
+| document face × case-1 args: a getter slot arg (the same authored shape as a markup hole) opens a document arg binding — commits re-emit the occurrence's record as a fid-tagged `slot` op on `sc:live` (values inline, no versioned refs), unchanged values equality-gate, the end latch ships the last value | `test/server/document-live-holes.spec.tsx` › channel | pass |
 | document face × case-1 pending: a NOT-READY getter arg is pending per-arg (the retry promise rides the value tier — the fill renders at the shell with its OWN boundary covering that read), never a hold on the whole occurrence; the retry's settle re-arms the binding | `test/server/document-live-holes.spec.tsx` | pass |
 | document face × fill suppression: a slot fill's interior is client-owned — mint-suppressed at render (window + `$slot` walk tag), so fills grow no live-hole markers, `data-lha` addresses, or bindings; fill liveness is the record's story | `test/server/document-live-holes.spec.tsx` (no-marker assertion) | pass — known coarsening: a region placed by the fill resolves inside the suppressed span, its interior holes keep the t=0 latch |
 | t=0 adoption × slot ops: a channel `slot` op updates the owning adopted occurrence live (record replace → live props, instance and node preserved); the fid gate keeps same-named occurrences in other boundaries untouched | `document-live-holes` › `t=0/live-holes` | pass |
-| commit re-emits a changed hole keyed; unchanged holes equality-gate; template-content holes re-emit resolved subtree html | dom-expressions `frame-live-holes` › ledger | pass |
-| at most one re-emit per commit; the end latch ships the last value before `complete` | dom-expressions `frame-live-holes` › ledger | pass |
-| client morph: marked range morphs in place, markers persist; interior element identity survives; a remount replays the latched value over the warm store's shell | dom-expressions `frame-live-holes` › client morph | pass |
-| supersession: a parent re-emission retires its interior holes (updates collapse to the parent key; sweeps are mint-suppressed) | dom-expressions `frame-live-holes` › lifetime | pass |
-| a real error on sweep is terminal: the hole latches at its last markup, a hole-keyed error ships (stream still completes), the client stores it hole-scoped and warns once | dom-expressions `frame-live-holes` › lifetime | pass — boundary-region re-emission deferred with the frame error surface (stream-level errors have the same gap) |
-| attr holes: a tag with in-tag thunks is element-addressed (`data-lha`) and re-emits rebuilt attribute text on commit | dom-expressions `frame-live-holes` › attr cells | pass |
-| attr holes: a cross-element `ssrGroup` splits into per-element bindings, equality-gated per element | dom-expressions `frame-live-holes` › attr cells | pass |
-| attr holes: a toggled `ssrAttribute` ships its removal explicitly; the client patches the addressed element in place (entity decoding, removals, address preserved) | dom-expressions `frame-live-holes` › attr cells | pass |
+| commit re-emits a changed hole keyed; unchanged holes equality-gate; template-content holes re-emit resolved subtree html | `test/server/frame-live-holes.spec.tsx` › ledger | pass |
+| at most one re-emit per commit; the end latch ships the last value before `complete` | `test/server/frame-live-holes.spec.tsx` › ledger | pass |
+| client morph: marked range morphs in place, markers persist; interior element identity survives; a remount replays the latched value over the warm store's shell | `test/server/frame-live-holes.spec.tsx` › client morph | pass |
+| supersession: a parent re-emission retires its interior holes (updates collapse to the parent key; sweeps are mint-suppressed) | `test/server/frame-live-holes.spec.tsx` › lifetime | pass |
+| a real error on sweep is terminal: the hole latches at its last markup, a hole-keyed error ships (stream still completes), the client stores it hole-scoped and warns once | `test/server/frame-live-holes.spec.tsx` › lifetime | pass — boundary-region re-emission deferred with the frame error surface (stream-level errors have the same gap) |
+| attr holes: a tag with in-tag thunks is element-addressed (`data-lha`) and re-emits rebuilt attribute text on commit | `test/server/frame-live-holes.spec.tsx` › attr cells | pass |
+| attr holes: a cross-element `ssrGroup` splits into per-element bindings, equality-gated per element | `test/server/frame-live-holes.spec.tsx` › attr cells | pass |
+| attr holes: a toggled `ssrAttribute` ships its removal explicitly; the client patches the addressed element in place (entity decoding, removals, address preserved) | `test/server/frame-live-holes.spec.tsx` › attr cells | pass |
 | compiled integration: `<Loading>`-wrapped async-iterable memo feeding an `innerHTML` hole — fragment carries the first yield inside markers, later yields ride `hole` chunks, response completes | `test/server/frame-live-holes.spec.tsx` | pass |
 | chat shape: multiple boundaried parts with iterable-fed holes + a value-tier slot arg — token chunks stream per part, `ctx.hold` keeps the window open, bounded completion | `test/server/frame-live-holes-chat.spec.tsx` | pass |
 | boundary outputs (`Loading`, error boundary accessors) are `$lhSkip`-tagged — boundary machinery is never a re-runnable hole | `test/server/frame-live-holes.spec.tsx` (structure asserted via marker shape) | pass |
@@ -189,7 +188,7 @@ compiled-JSX integration halves live here.
   frame-level claim contract (callback answers `undefined` → interior
   untouched, morph-protected) is pinned in `document-adoption` ›
   `t=0/raw-frame-claim`; the compiled halves live in `test/hydration/` and
-  the dom-expressions runtime suites.
+  the local frame-client and hydration suites.
 - **Same-version second response through the real transport**: the client
   stamps versions (one bump per response), so equal-version writes can only
   be produced host-side; pinned at that level.

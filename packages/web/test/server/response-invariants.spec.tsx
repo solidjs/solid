@@ -10,7 +10,7 @@
  * Like the single-flight specs, the server-function half runs against the
  * built bundles (server-functions/dist/*, wired up in
  * vite.config.server.mjs) — dist/server.js is the PRODUCTION bundle
- * (`_DX_DEV_` replaced false), which is exactly the build where
+ * (`_SOLID_DEV_` replaced false), which is exactly the build where
  * sanitization is live.
  */
 import { AsyncLocalStorage } from "node:async_hooks";

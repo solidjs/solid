@@ -228,7 +228,7 @@ describe("Reveal SSR component", () => {
     // Both should share the same group ID
     expect(groupIds[0]).toBe(groupIds[1]);
 
-    // No extra reveal markers needed — dom-expressions tracks groups via registerFragment options
+    // No extra reveal markers needed — @solidjs/web tracks groups via registerFragment options
     const revealEntries = [...mock.serialized.entries()].filter(([k]) => k.endsWith("_reveal"));
     expect(revealEntries.length).toBe(0);
   });

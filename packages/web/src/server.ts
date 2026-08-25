@@ -540,7 +540,7 @@ function registerHeadTags(registry, context, tracking, emitResource, nonce, tags
   for (let i = 0; i < tags.length; i++) {
     const desc = tags[i];
     if (!desc || !HEAD_ELIGIBLE_TAGS.has(desc.tag)) {
-      if ("_DX_DEV_") console.warn(`useHead: ignoring non-head tag`, desc);
+      if ("_SOLID_DEV_") console.warn(`useHead: ignoring non-head tag`, desc);
       continue;
     }
     const cls = classifyHeadTag(desc);
@@ -599,7 +599,7 @@ function headShellReady(registry, block) {
       evalHeadProps(desc.props || {}, rel !== undefined ? { rel } : undefined);
     } catch (err) {
       if (pends(err)) continue;
-      if ("_DX_DEV_") console.warn(`useHead: error evaluating resource tag props`, err);
+      if ("_SOLID_DEV_") console.warn(`useHead: error evaluating resource tag props`, err);
       parked.splice(i, 1);
       continue;
     }
@@ -665,7 +665,7 @@ function emitHeadResource(registry, context, tracking, emitResource, nonce, desc
       });
       return;
     }
-    if ("_DX_DEV_") console.warn(`useHead: error evaluating resource tag props`, err);
+    if ("_SOLID_DEV_") console.warn(`useHead: error evaluating resource tag props`, err);
     return;
   }
   const identity = resourceIdentity(desc.tag, props);
@@ -744,7 +744,7 @@ function commitHeadBoundary(registry, boundary, isPendingFragment) {
       try {
         resolved = reg.list();
       } catch (err) {
-        if ("_DX_DEV_") console.warn(`useHead: error evaluating head group membership`, err);
+        if ("_SOLID_DEV_") console.warn(`useHead: error evaluating head group membership`, err);
         continue;
       }
       if (!Array.isArray(resolved)) resolved = [resolved];
@@ -752,7 +752,7 @@ function commitHeadBoundary(registry, boundary, isPendingFragment) {
       for (let j = 0; j < resolved.length; j++) {
         const desc = resolved[j];
         if (!desc || !HEAD_ELIGIBLE_TAGS.has(desc.tag)) {
-          if ("_DX_DEV_") console.warn(`useHead: ignoring non-head tag`, desc);
+          if ("_SOLID_DEV_") console.warn(`useHead: ignoring non-head tag`, desc);
           continue;
         }
         const cls = classifyHeadTag(desc);
@@ -778,14 +778,14 @@ function commitHeadBoundary(registry, boundary, isPendingFragment) {
         );
         key = evalHeadValue(desc.key);
       } catch (err) {
-        if ("_DX_DEV_") console.warn(`useHead: error evaluating tag props`, err);
+        if ("_SOLID_DEV_") console.warn(`useHead: error evaluating tag props`, err);
         continue;
       }
       const identity = replaceableIdentity(desc.tag, props, key, "u:" + registry.uniq++);
       if ((identity === "base" || identity === "charset") && registry.shellFlushed) {
         // Shell-only: a charset that changes mid-stream or a base that
         // changes after relative URLs resolved is incoherent by definition.
-        if ("_DX_DEV_")
+        if ("_SOLID_DEV_")
           console.warn(
             `useHead: <${desc.tag}> (${identity}) registered after shell flush is ignored`
           );
@@ -903,7 +903,7 @@ function flushHeadFragment(registry, boundary, nonce) {
       for (const name in t.props) {
         if (name === "children" || name === "ref" || name.slice(0, 2) === "on") continue;
         if (!HEAD_ATTR_NAME.test(name)) {
-          if ("_DX_DEV_") console.warn(`useHead: ignoring invalid attribute name "${name}"`);
+          if ("_SOLID_DEV_") console.warn(`useHead: ignoring invalid attribute name "${name}"`);
           continue;
         }
         const v = t.props[name];
@@ -1019,7 +1019,7 @@ function renderHeadAttrHtml(props) {
   for (const name in props) {
     if (name === "children" || name === "ref" || name.slice(0, 2) === "on") continue;
     if (!HEAD_ATTR_NAME.test(name)) {
-      if ("_DX_DEV_") console.warn(`useHead: ignoring invalid attribute name "${name}"`);
+      if ("_SOLID_DEV_") console.warn(`useHead: ignoring invalid attribute name "${name}"`);
       continue;
     }
     const v = props[name];
@@ -1080,7 +1080,7 @@ export function useHead(tag: HeadTag | HeadTag[] | (() => HeadTag | HeadTag[])):
 export function useHead(tags) {
   const ctx = sharedConfig.context;
   if (!ctx || !ctx.registerHeadTags) {
-    if ("_DX_DEV_")
+    if ("_SOLID_DEV_")
       console.warn("useHead() called outside of a server render; registration ignored.");
     return;
   }
@@ -3197,7 +3197,7 @@ export function ssrElement(tag, props, children, needsId) {
       // can't see through a spread, so a claim-carrying stub landing here
       // silently drops. Say so where the author can act on it.
       if (
-        "_DX_DEV_" &&
+        "_SOLID_DEV_" &&
         typeof value === "function" &&
         value[CLAIM_PROP] !== undefined &&
         (prop === "ref" || prop.slice(0, 2) === "on")
@@ -3262,7 +3262,7 @@ export function ssrHydrationKey() {
 //   fills neither claim nor warn (their handlers are hydration's, and
 //   legitimate). The stream face (CLAIMS_STREAM) mints unconditionally:
 //   the whole response is the component and fills never render there.
-export const CLAIM_PROP = /*#__PURE__*/ Symbol.for("dom-expressions.claim-prop");
+export const CLAIM_PROP = /*#__PURE__*/ Symbol.for("solid.claim-prop");
 export const CLAIMS_STREAM = 1;
 export const CLAIMS_DOCUMENT = 2;
 
@@ -3295,7 +3295,7 @@ export function ssrClaim(map) {
     for (const fn of list) {
       const prop = (typeof fn === "function" && fn[CLAIM_PROP]) || undefined;
       if (prop === undefined) {
-        if ("_DX_DEV_") {
+        if ("_SOLID_DEV_") {
           console.warn(
             `A \`${pos}\` position on a server-rendered element received a server-local ` +
               `${typeof fn} — this handler can never run. Pass the function through the ` +
@@ -3980,7 +3980,7 @@ function tryResolveString(node) {
     if (node.t === undefined) {
       // Not a template object — mirror the client's dev warn-and-skip
       // instead of crashing downstream on a malformed template shape.
-      if ("_DX_DEV_") console.warn(`Unrecognized value. Skipped inserting`, node);
+      if ("_SOLID_DEV_") console.warn(`Unrecognized value. Skipped inserting`, node);
       return "";
     }
     return Array.isArray(node.t) ? node.t[0] : node.t;
@@ -4044,7 +4044,7 @@ export function resolveSSRNode(
       }
     } else if (node.t !== undefined) {
       result.t[result.t.length - 1] += node.t;
-    } else if ("_DX_DEV_") console.warn(`Unrecognized value. Skipped inserting`, node);
+    } else if ("_SOLID_DEV_") console.warn(`Unrecognized value. Skipped inserting`, node);
   } else if (t === "function") {
     // Function nodes reaching the tree resolver are content by construction
     // (in-tag holes route here only under `ssr()`'s suppression window), so
@@ -4153,7 +4153,7 @@ function reportLostHeaderWrite(method, name) {
     `Response header write dropped: headers.${method}(${JSON.stringify(String(name))}) ` +
     "ran after the response head was sent. Write headers before the shell flushes " +
     "(or before the handler returns).";
-  if ("_DX_DEV_") throw new Error(message);
+  if ("_SOLID_DEV_") throw new Error(message);
   console.error(message);
 } /**
  * Flips a response stub to `committed` — the moment its head freezes on

@@ -151,7 +151,7 @@ export {
   DelegatedEvents
 } from "./constants.js";
 
-const $$EVENT_OWNER = "_$DX_EVENT_OWNER";
+const $$EVENT_OWNER = "_$SOLID_EVENT_OWNER";
 const INNER_OWNED = {};
 const delegatedEvents = new Set();
 const delegatedContainers = new Map();
@@ -225,12 +225,12 @@ export function render(
 ): () => void;
 
 export function render(code, element, init, options = {}) {
-  if ("_DX_DEV_" && !element) {
+  if ("_SOLID_DEV_" && !element) {
     throw new Error(
       "The `element` passed to `render(..., element)` doesn't exist. Make sure `element` exists in the document."
     );
   }
-  if ("_DX_DEV_") enforceLoadingBoundary(true);
+  if ("_SOLID_DEV_") enforceLoadingBoundary(true);
   let disposer;
   registerDelegatedRoot(element);
   try {
@@ -259,7 +259,7 @@ export function render(code, element, init, options = {}) {
     unregisterDelegatedRoot(element);
     throw err;
   } finally {
-    if ("_DX_DEV_") enforceLoadingBoundary(false);
+    if ("_SOLID_DEV_") enforceLoadingBoundary(false);
   }
   return () => {
     disposer();
@@ -269,7 +269,7 @@ export function render(code, element, init, options = {}) {
 }
 
 function create(html, bypassGuard, flag) {
-  if ("_DX_DEV_" && isHydrating() && !bypassGuard)
+  if ("_SOLID_DEV_" && isHydrating() && !bypassGuard)
     throw new Error(
       "Failed attempt to create new DOM elements during hydration. Check that the libraries you are using support hydration."
     );
@@ -293,7 +293,7 @@ export function template(html, flag) {
       ? bypassGuard => document.importNode(node || (node = create(html, bypassGuard, flag)), true)
       : bypassGuard => (node || (node = create(html, bypassGuard, flag))).cloneNode(true);
 
-  if ("_DX_DEV_") fn._html = flag === 2 ? html.replace(/^<[^>]+>/, "") : html;
+  if ("_SOLID_DEV_") fn._html = flag === 2 ? html.replace(/^<[^>]+>/, "") : html;
   return fn;
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function delegateEvents(eventNames: string[]): void;
@@ -408,7 +408,7 @@ let claimHandlers = null;
 // runtime — deliberately importless in both directions, like the FRAME
 // brand — sweeps serialized server content against the SAME registry, even
 // when the two land in separately bundled copies of this module.
-const CLAIM_SEAM = Symbol.for("dom-expressions.element-claims"); /**
+const CLAIM_SEAM = Symbol.for("solid.element-claims"); /**
  * Register a consumer for compiler-emitted element claims. Compiled DOM
  * output claims navigation-relevant elements (`a[href]`, `form[action]`) at
  * creation, and compiler-owned writes to `href`/`action` re-invoke the same
@@ -1301,7 +1301,7 @@ function flushHeadRegistry() {
     if (identity === "base" || identity === "charset") {
       // Shell-only identities: not client-manageable (a charset or base that
       // changes after load is incoherent). Server-rendered ones stand.
-      if ("_DX_DEV_")
+      if ("_SOLID_DEV_")
         console.warn(
           `useHead: <${winner.tags[0].tag}> (${identity}) is shell-only and ignored on the client`
         );
@@ -1336,7 +1336,7 @@ function createHeadElement(tag, props) {
   for (const name in props) {
     if (name === "children" || name === "ref" || name.slice(0, 2) === "on") continue;
     if (!HEAD_ATTR_NAME.test(name)) {
-      if ("_DX_DEV_") console.warn(`useHead: ignoring invalid attribute name "${name}"`);
+      if ("_SOLID_DEV_") console.warn(`useHead: ignoring invalid attribute name "${name}"`);
       continue;
     }
     const v = props[name];
@@ -1471,7 +1471,7 @@ export function useHead(tags) {
       for (let i = 0; i < list.length; i++) {
         const desc = list[i];
         if (!desc || !HEAD_ELIGIBLE_TAGS.has(desc.tag)) {
-          if ("_DX_DEV_") console.warn(`useHead: ignoring non-head tag`, desc);
+          if ("_SOLID_DEV_") console.warn(`useHead: ignoring non-head tag`, desc);
           continue;
         }
         const cls = classifyHeadTag(desc);
@@ -1631,7 +1631,7 @@ export function hydrate(code, element, options = {}) {
       });
   };
   sharedConfig.hydrating = true;
-  if ("_DX_DEV_") {
+  if ("_SOLID_DEV_") {
     sharedConfig.verifyHydration = () => {
       if (sharedConfig.registry && sharedConfig.registry.size) {
         const orphaned = [...sharedConfig.registry.values()].filter(node => node.isConnected);
@@ -1716,7 +1716,7 @@ export function getNextElement(template) {
     // detached element returned below keeps the render alive but never lands
     // in the document — without a report that reads as a silently frozen
     // page (solidjs/solid#3000).
-    if ("_DX_DEV_" && hydrating) {
+    if ("_SOLID_DEV_" && hydrating) {
       console.warn(
         `Hydration key miss for "${key}": no server-rendered element carries this key` +
           (template._html ? ` (template: ${template._html.slice(0, 60)})` : "") +
@@ -1730,7 +1730,7 @@ export function getNextElement(template) {
     }
     return template(true);
   }
-  if ("_DX_DEV_" && template && template._html) {
+  if ("_SOLID_DEV_" && template && template._html) {
     const expected = template._html.match(/^<(\w+)/)?.[1];
     if (expected && node.localName !== expected) {
       console.warn(
@@ -1774,7 +1774,7 @@ export function getNextMarker(start) {
 
 export function getFirstChild(node, expectedTag) {
   const child = node.firstChild;
-  if ("_DX_DEV_" && isHydrating() && expectedTag && child?.localName !== expectedTag) {
+  if ("_SOLID_DEV_" && isHydrating() && expectedTag && child?.localName !== expectedTag) {
     const isMissing = !child || child.nodeType !== 1;
     console.warn(
       "Hydration structure mismatch: expected <" + expectedTag + "> as first child of",
@@ -1787,7 +1787,7 @@ export function getFirstChild(node, expectedTag) {
 
 export function getNextSibling(node, expectedTag) {
   const sibling = node.nextSibling;
-  if ("_DX_DEV_" && isHydrating() && expectedTag && sibling?.localName !== expectedTag) {
+  if ("_SOLID_DEV_" && isHydrating() && expectedTag && sibling?.localName !== expectedTag) {
     const parent = node.parentNode;
     const isMissing = !sibling || sibling.nodeType !== 1;
     console.warn(
@@ -2025,7 +2025,7 @@ function eventHandler(e, container, state) {
     // and the seam stays live for markers adopted before the frame runtime
     // loads (the document face). Only pays when no compiled handler exists.
     if (handler === undefined && node.hasAttribute && node.hasAttribute("_bnd")) {
-      const seam = globalThis[Symbol.for("dx.bnd")];
+      const seam = globalThis[Symbol.for("solid.bnd")];
       if (seam) handler = seam.resolve(node, e.type);
     }
     if (handler && !node.disabled) {
@@ -2150,7 +2150,7 @@ function insertExpression(parent, value, current, marker) {
       current && cleanChildren(parent, current);
       appendNodes(parent, value);
     }
-  } else if ("_DX_DEV_") console.warn(`Unrecognized value. Skipped inserting`, value);
+  } else if ("_SOLID_DEV_") console.warn(`Unrecognized value. Skipped inserting`, value);
   return value;
 }
 

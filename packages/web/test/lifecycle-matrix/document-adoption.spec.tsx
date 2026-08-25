@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  */
 // Lifecycle matrix — mount kind: T=0 DOCUMENT ADOPTION. The page arrives with
-// SSR'd `<dx-frame data-fid>` boundaries and `sc:slot:` hydration records;
+// SSR'd `<solid-frame data-fid>` boundaries and `sc:slot:` hydration records;
 // mounting the server component's placeholder adopts the element in place
 // with ZERO network, and later streams morph the adopted content.
 //
@@ -16,7 +16,7 @@
 // re-renders fresh nodes over the server interior instead of claiming it.
 // The claim-in-place contract is pinned at the FRAME level here (a raw
 // adopt-mode frame whose callback answers `undefined`); the compiled-JSX
-// claim half lives in the dom-expressions runtime suites.
+// claim half lives in the local hydration and frame-client suites.
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { createMemo, createRoot, createSignal, flush, isPending, Loading } from "solid-js";
 import { dynamic } from "../../src/index.js";
@@ -39,12 +39,12 @@ const asyncArgPromise = new Promise(r => (resolveAsyncArg = r));
 
 function boundaryHtml(fid: string, title: string) {
   return (
-    `<dx-frame data-fid="${fid}" style="display:contents">` +
+    `<solid-frame data-fid="${fid}" style="display:contents">` +
     `<article><h1>${title}</h1>` +
     "<ul><!--slot:comment#c1:start-->" +
     '<li class="ssr-fill">server-rendered-fill</li>' +
     "<!--slot:comment#c1:end--></ul></article>" +
-    "</dx-frame>"
+    "</solid-frame>"
   );
 }
 
@@ -295,7 +295,7 @@ describe("t=0/raw-frame-claim", () => {
       args: { cid: "c1" }
     });
 
-    const el = document.createElement("dx-frame");
+    const el = document.createElement("solid-frame");
     el.setAttribute("data-fid", "raw/adopt-claim");
     el.innerHTML =
       "<article><h1>Raw</h1><!--slot:comment#c1:start-->" +

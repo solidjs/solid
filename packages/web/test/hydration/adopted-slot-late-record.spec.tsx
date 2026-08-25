@@ -55,11 +55,11 @@ describe("adopted invoked slot whose record script runs after adoption", () => {
     vi.spyOn(document, "readyState", "get").mockReturnValue("loading");
     const container = document.createElement("div");
     container.innerHTML =
-      `<dx-frame data-fid="${FID}" style="display:contents">` +
+      `<solid-frame data-fid="${FID}" style="display:contents">` +
       "<section><h1>About</h1>" +
       "<!--slot:button#0:start--><button>Click me 10</button><!--slot:button#0:end-->" +
       "</section>" +
-      "</dx-frame>";
+      "</solid-frame>";
     document.body.appendChild(container);
     (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
     vi.stubGlobal("fetch", () => {

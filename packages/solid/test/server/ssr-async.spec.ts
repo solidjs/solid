@@ -23,7 +23,7 @@ import { createErrorBoundary } from "../../src/server/signals.js";
 // ============================================================================
 //
 // These functions replicate the core template resolution logic from
-// dom-expressions/src/server.js. At runtime, dom-expressions provides them
+// @solidjs/web/src/server.ts. At runtime, @solidjs/web provides them
 // as ctx.resolve, ctx.ssr, and ctx.escape on sharedConfig.context. For
 // isolated unit testing of Loading's async behavior, we inline minimal
 // but faithful copies here.
@@ -1516,7 +1516,7 @@ describe("Loading SSR Async", () => {
 // ============================================================================
 //
 // New architecture: processResult does NOT call ctx.block(). Blocking is handled
-// structurally by dom-expressions:
+// structurally by @solidjs/web's server renderer:
 //   - Root-level async: res.p added to blockingPromises in root render
 //   - deferStream: serialize() auto-blocks when deferStream=true
 //   - Loading: never interacts with blockingPromises (no block/unblock)
@@ -1552,7 +1552,7 @@ describe("Stream Blocking / deferStream", () => {
   // 1. processResult does NOT block async computations
   // --------------------------------------------------------------------------
 
-  test("async createMemo does not call block (handled by dom-expressions root)", () => {
+  test("async createMemo does not call block (handled by @solidjs/web root)", () => {
     const { context, blocked } = createBlockTrackingContext();
     sharedConfig.context = context;
 
@@ -1565,7 +1565,7 @@ describe("Stream Blocking / deferStream", () => {
       { id: "t" }
     );
 
-    // processResult no longer calls ctx.block — blocking is structural in dom-expressions
+    // processResult no longer calls ctx.block — blocking is structural in @solidjs/web
     expect(blocked.size).toBe(0);
   });
 
@@ -1661,9 +1661,9 @@ describe("Stream Blocking / deferStream", () => {
       { id: "t" }
     );
 
-    // processResult does not block — deferStream blocking happens in dom-expressions' serialize
+    // processResult does not block — deferStream blocking happens in @solidjs/web's serialize
     expect(blocked.size).toBe(0);
-    // But deferStream IS passed through to serialize for dom-expressions to handle
+    // But deferStream IS passed through to serialize for @solidjs/web to handle
     expect(serializeLog.some(e => e.deferStream === true)).toBe(true);
   });
 
@@ -1782,7 +1782,7 @@ describe("Stream Blocking / deferStream", () => {
       { id: "t" }
     );
 
-    // processResult no longer blocks — serialize handles deferStream blocking in dom-expressions
+    // processResult no longer blocks — serialize handles deferStream blocking in @solidjs/web
     expect(blocked.size).toBe(0);
     expect(serializeLog.length).toBe(1);
     expect(serializeLog[0].deferStream).toBe(true);

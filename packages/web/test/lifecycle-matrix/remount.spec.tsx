@@ -36,9 +36,9 @@ beforeAll(() => {
   // The adopted-boundary cell's SSR'd markup must be in the document before
   // the FIRST boundary lookup of this module (once-per-boot index).
   document.body.innerHTML =
-    '<div id="page"><dx-frame data-fid="matrix/rm/adopted" style="display:contents">' +
+    '<div id="page"><solid-frame data-fid="matrix/rm/adopted" style="display:contents">' +
     "<article><h1>Adopted</h1></article>" +
-    "</dx-frame></div>";
+    "</solid-frame></div>";
 });
 
 afterAll(() => {

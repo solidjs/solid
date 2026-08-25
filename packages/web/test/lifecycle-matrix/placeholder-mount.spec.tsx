@@ -59,7 +59,7 @@ describe("placeholder/fill-by-later-stream", () => {
     await pump();
 
     // Mounted and bound under the function id, waiting empty.
-    const frameEl = div.querySelector(`dx-frame[data-fid="${FID}"]`)!;
+    const frameEl = div.querySelector(`solid-frame[data-fid="${FID}"]`)!;
     expect(frameEl).toBeTruthy();
     expect(frameEl.textContent).toBe("");
     expect(mounts).toBe(0);

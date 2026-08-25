@@ -26,7 +26,7 @@ import {
   ServerComponentPlugin
 } from "../../frames/src/frame-sink.js";
 
-const TRACE_TAG = "dom-expressions/container-trace";
+const TRACE_TAG = "solid/container-trace";
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 function collectStream(component: any) {

@@ -48,11 +48,11 @@ describe("adopted slot fill whose arg settled server-side before flush", () => {
     // the region's markup is the CONTENT only, keyed under the producer's
     // hydration chain exactly as the inline swap leaves it.
     container.innerHTML =
-      `<dx-frame data-fid="${FID}" style="display:contents">` +
+      `<solid-frame data-fid="${FID}" style="display:contents">` +
       "<div><!--slot:status#0:start-->" +
       `<span _hk="sc-residue/plain-status#0-2000" class="done"><!--$-->92<!--/--> tokens</span>` +
       "<!--slot:status#0:end--></div>" +
-      "</dx-frame>";
+      "</solid-frame>";
     document.body.appendChild(container);
     (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
     vi.stubGlobal("fetch", () => {
@@ -104,11 +104,11 @@ describe("adopted slot fill whose arg settled server-side before flush", () => {
     const FID = "residue/nested";
     const container = document.createElement("div");
     container.innerHTML =
-      `<dx-frame data-fid="${FID}" style="display:contents">` +
+      `<solid-frame data-fid="${FID}" style="display:contents">` +
       "<div><!--slot:status#0:start-->" +
       `<span _hk="sc-residue/nested-status#0-2000" class="done"><!--$-->92<!--/--> tokens</span>` +
       "<!--slot:status#0:end--></div>" +
-      "</dx-frame>";
+      "</solid-frame>";
     document.body.appendChild(container);
     (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
     vi.stubGlobal("fetch", () => {

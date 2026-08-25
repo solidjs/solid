@@ -2,7 +2,7 @@ import * as csstype from "csstype";
 import type { PropKey, WidenPropValue } from "./jsx-properties.js";
 
 /**
- * Originally based on JSX types for Surplus and Inferno and adapted for `dom-expressions`.
+ * Originally based on JSX types for Surplus and Inferno and adapted for Solid.
  *
  * - https://github.com/adamhaile/surplus/blob/master/index.d.ts
  * - https://github.com/infernojs/inferno/blob/master/packages/inferno/src/core/types.ts

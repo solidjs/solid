@@ -33,7 +33,7 @@ const getArgs = createServerReference("matrix/lh/args");
 const getArgs2 = createServerReference("matrix/lh/args2");
 
 function boundaryHtml(fid: string, inner: string) {
-  return `<dx-frame data-fid="${fid}" style="display:contents"><article>${inner}</article></dx-frame>`;
+  return `<solid-frame data-fid="${fid}" style="display:contents"><article>${inner}</article></solid-frame>`;
 }
 
 let liveCtl!: ReadableStreamDefaultController<any>;

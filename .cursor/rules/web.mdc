@@ -61,7 +61,7 @@ Browser-safe stubs that log errors if server APIs are accidentally used in brows
 ## Build Outputs
 
 - `dist/web.js` — production browser
-- `dist/dev.js` — development browser (with `_SOLID_DEV_` / `_DX_DEV_` enabled)
+- `dist/dev.js` — development browser (with `_SOLID_DEV_` enabled)
 - `dist/server.js` — server (Node/Deno/Worker)
 
 Rollup with Babel for JSX transformation, `@rollup/plugin-replace` for dev/prod flags.

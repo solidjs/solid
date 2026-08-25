@@ -5,11 +5,11 @@
  * The rest of this suite aliases `@solidjs/web` to src/index.server.ts source,
  * so a build-only regression is invisible to it — which is exactly how the
  * main server Rollup target shipped without `replaceDev(false)`: babel
- * constant-folded the unreplaced truthy `"_DX_DEV_"` literal and the prod
+ * constant-folded the unreplaced truthy `"_SOLID_DEV_"` literal and the prod
  * bundle took the dev branch of the committed-stub header guard, turning a
  * late header write into a thrown error on a live production request
  * (#2982). A string scan of the output can't catch this (the folding erases
- * the `_DX_DEV_` marker whether or not the replace ran), so the contract is
+ * the `_SOLID_DEV_` marker whether or not the replace ran), so the contract is
  * pinned behaviorally here. Requires a prior `pnpm build`, like the
  * server-function specs that run against their dist bundles.
  */

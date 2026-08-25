@@ -300,7 +300,7 @@ describe("call-driven/args/regions", () => {
     });
     await pump();
 
-    const region = m.div.querySelector(".wrap dx-frame")! as HTMLElement;
+    const region = m.div.querySelector(".wrap solid-frame")! as HTMLElement;
     const em = m.div.querySelector("em")!;
     expect(em.textContent).toBe("body-1");
     (em as HTMLElement).dataset.keep = "yes";
@@ -315,7 +315,7 @@ describe("call-driven/args/regions", () => {
     });
     await pump(1);
     expect(m.div.querySelector("h1")!.textContent).toBe("T2");
-    expect(m.div.querySelector(".wrap dx-frame")).toBe(region);
+    expect(m.div.querySelector(".wrap solid-frame")).toBe(region);
     expect(m.div.querySelector("em")).toBe(em);
     expect((em as HTMLElement).dataset.keep).toBe("yes");
 
@@ -339,7 +339,7 @@ describe("call-driven/args/regions", () => {
     await pump(1);
 
     expect(mounts).toBe(1); // rename is a rebind, never a re-call
-    expect(m.div.querySelector(".wrap dx-frame")).toBe(region); // same element
+    expect(m.div.querySelector(".wrap solid-frame")).toBe(region); // same element
     expect(m.div.querySelector("em")!.textContent).toBe("body-2"); // morphed in place
 
     m.cleanup();

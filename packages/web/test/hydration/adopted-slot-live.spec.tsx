@@ -57,11 +57,11 @@ describe("adopted slot range", () => {
     // with no claimable elements of its own (#2964).
     const container = document.createElement("div");
     container.innerHTML =
-      `<dx-frame data-fid="${FID}" style="display:contents">` +
+      `<solid-frame data-fid="${FID}" style="display:contents">` +
       "<article><!--slot:children:start-->" +
       '<template id="pl-4242"></template>waiting<!--pl-4242-->' +
       "<!--slot:children:end--></article>" +
-      "</dx-frame>";
+      "</solid-frame>";
     document.body.appendChild(container);
     (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
     vi.stubGlobal("fetch", () => {
@@ -76,7 +76,7 @@ describe("adopted slot range", () => {
     await settle();
     flush();
 
-    const frame = container.querySelector(`dx-frame[data-fid="${FID}"]`)!;
+    const frame = container.querySelector(`solid-frame[data-fid="${FID}"]`)!;
     expect(frame.textContent).toContain("waiting");
 
     // Whatever the claim settled on, the source moving is what has to land.

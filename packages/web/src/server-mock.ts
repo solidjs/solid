@@ -264,13 +264,13 @@ export function composeMiddleware(
 }
 
 /**
- * Compiler primitive — emitted by JSX-DOM-Expressions for tagged-template
+ * Compiler primitive — emitted by Solid's JSX compiler for tagged-template
  * SSR output. Not meant for hand-written code.
  * @internal
  */
 export function ssr(template: string[] | string, ...nodes: any[]): { t: string } {}
 /**
- * Compiler primitive — emitted by JSX-DOM-Expressions for SSR element
+ * Compiler primitive — emitted by Solid's JSX compiler for SSR element
  * output. Not meant for hand-written code.
  * @internal
  */

@@ -104,7 +104,7 @@ export async function runWelcomeStatusParity(mode: "loaded" | "streamed") {
   applyChunk(container, shell, true);
   if (mode === "loaded") applyChunk(container, rest, false);
 
-  const frame = container.querySelector(`dx-frame[data-fid="${fid}"]`)!;
+  const frame = container.querySelector(`solid-frame[data-fid="${fid}"]`)!;
   const ssrStatus = container.querySelector(".status");
   expect(ssrStatus).toBeTruthy();
 

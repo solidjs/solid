@@ -108,10 +108,10 @@ function completeHydrationPass() {
  *  placeholder, fallback, end comment — the shell as the document carries it. */
 function boundaryHtml(fid: string, plId: string, fallbackText: string) {
   return (
-    `<dx-frame data-fid="${fid}" style="display:contents">` +
+    `<solid-frame data-fid="${fid}" style="display:contents">` +
     "<h1>Page</h1>" +
     `<template id="pl-${plId}"></template><span>${fallbackText}</span><!--pl-${plId}-->` +
-    "</dx-frame>"
+    "</solid-frame>"
   );
 }
 

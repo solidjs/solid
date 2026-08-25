@@ -1334,7 +1334,7 @@ function encodeResult(value, headers, status, codec, signal) {
 /** Message a sanitized (production) server error carries on the wire. */
 export const GENERIC_SERVER_ERROR_MESSAGE = "Internal Server Error";
 
-// Build-variant dev flag. The `"_DX_DEV_"` string is replaced with a
+// Build-variant dev flag. The `"_SOLID_DEV_"` string is replaced with a
 // boolean by the bundler packaging this runtime — @solidjs/web builds a dev
 // and a prod copy of its server-functions server entry and selects between
 // them through the `development` export condition, so Vite dev serves full
@@ -1345,10 +1345,10 @@ export const GENERIC_SERVER_ERROR_MESSAGE = "Internal Server Error";
 // production build. Deliberately NOT process.env.NODE_ENV — the runtime is
 // a web-standard package and keys dev behavior on build variants, not
 // ambient node environment.
-let DEV = "_DX_DEV_" === true; /**
+let DEV = "_SOLID_DEV_" === true; /**
  * Overrides the build-variant dev flag for this module instance — the seam
  * for test harnesses and hand-rolled bundles whose packaging cannot replace
- * `_DX_DEV_`. Applications never call this; select the dev build through
+ * `_SOLID_DEV_`. Applications never call this; select the dev build through
  * the `development` export condition instead.
  * @internal
  */
@@ -1357,7 +1357,7 @@ export function setServerFunctionsDev(dev: boolean): void;
 /**
  * Overrides the build-variant dev flag for this module instance — the seam
  * for test harnesses and hand-rolled bundles whose packaging cannot replace
- * `_DX_DEV_`. Applications never call this; select the dev build through
+ * `_SOLID_DEV_`. Applications never call this; select the dev build through
  * the `development` export condition instead.
  * @internal
  */
@@ -1384,7 +1384,7 @@ export function sanitizeServerError(value: unknown): unknown;
  *
  * The dev build keeps full fidelity (message, stack, own-props) for DX and
  * the dev toolbar inspector. The dev/prod line is the build variant (the
- * bundler-replaced `_DX_DEV_` flag behind the `development` export
+ * bundler-replaced `_SOLID_DEV_` flag behind the `development` export
  * condition), so fidelity is opt-in to dev builds and every other
  * resolution — production bundles, plain node, raw deep imports — fails
  * safe.

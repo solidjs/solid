@@ -617,7 +617,7 @@ function boundaryComponent(host: any, fnId: string) {
     // Shell gate: a fresh mount's covering <Loading> must stay open until the
     // frame's FIRST content applies. The binding resolves at response-header
     // time while content streams in behind it — ungated, the boundary
-    // resolves over an empty <dx-frame> (a flash), and it has LATCHED by the
+    // resolves over an empty <solid-frame> (a flash), and it has LATCHED by the
     // time the shell's fills run, orphaning any pending async slot-arg read
     // (with no reveal seam to reconstruct, the mount's own boundary is the
     // covering one). Ordering makes the handoff seamless: the frame notifies
@@ -647,7 +647,7 @@ function boundaryComponent(host: any, fnId: string) {
     // follow effect's write-legal half.
     const mountGate = applied ? undefined : arm();
     let setGate: ((v: Promise<void> | undefined) => void) | undefined;
-    // The boundary is a DOM element (`<dx-frame>`), not a branded value:
+    // The boundary is a DOM element (`<solid-frame>`), not a branded value:
     // `insert` places it natively in any position (array/fragment/single —
     // no #550), and the frame mounts INTO it. Return the element itself.
     const { element, frame, dispose } = createFrameElement({
@@ -776,7 +776,7 @@ function pumpLiveChannel() {
 
 // One document query indexes the SSR'd frame ELEMENTS by id; the intercept and
 // adoption paths become map lookups. Boundaries are static document output
-// carried as `<dx-frame data-fid>` elements — a single attribute query, no
+// carried as `<solid-frame data-fid>` elements — a single attribute query, no
 // per-boundary TreeWalk and no comment-pair depth-matching. Entries are
 // consumed once (claimedBoundaries), so entries never need invalidation.
 //

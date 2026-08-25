@@ -51,7 +51,6 @@ const plugins = [
 const replaceDev = isDev =>
   replace({
     '"_SOLID_DEV_"': isDev,
-    '"_DX_DEV_"': isDev,
     preventAssignment: true,
     delimiters: ["", ""]
   });
@@ -135,8 +134,8 @@ export default [
   {
     // Prod build — the only node/worker/deno artifact for the main entry
     // (SSR builds are production by convention; the server entry hard-codes
-    // isDev false). `_DX_DEV_` must strip to false here: without the
-    // replace, babel constant-folds the truthy "_DX_DEV_" string literal and
+    // isDev false). `_SOLID_DEV_` must strip to false here: without the
+    // replace, babel constant-folds the truthy "_SOLID_DEV_" string literal and
     // the artifact permanently takes the DEV branch of every gate — most
     // damaging the committed-stub header guard, which is spec'd to throw in
     // dev but console.error + no-op in prod, so the shipped bundle turned a
@@ -261,7 +260,7 @@ export default [
     plugins: [externalizeSharedClient].concat(plugins)
   },
   {
-    // Prod build: `_DX_DEV_` strips to false, which is what gates the
+    // Prod build: `_SOLID_DEV_` strips to false, which is what gates the
     // handler's error sanitization (plain thrown server-function errors
     // become a generic Error) and its dev-only diagnostic bodies. This is
     // the default resolution — plain node, production bundles.
@@ -337,7 +336,7 @@ export default [
       // chunk actually arrives, so the frames client ships seroval-free.
       "@solidjs/web/serialization/decode"
     ],
-    // Prod build: strip `_DX_DEV_` like the main `dist/web.js` entry, so the
+    // Prod build: strip `_SOLID_DEV_` like the main `dist/web.js` entry, so the
     // frame runtime's dev checks/warnings (marker-integrity diagnostics) do
     // not ship. The dev build below keeps them, selected via the `frames`
     // export's `development` condition — mirroring `web.js`/`dev.js`.
@@ -347,7 +346,7 @@ export default [
   },
   {
     // Dev build (`development` export condition): keeps the frame runtime's
-    // `_DX_DEV_` diagnostics for marker-corruption / CDN-strip debugging.
+    // `_SOLID_DEV_` diagnostics for marker-corruption / CDN-strip debugging.
     input: "frames/src/client.ts",
     output: [
       {
@@ -374,7 +373,7 @@ export default [
   },
   {
     // Prod build, like the main server entry above: the frame sink bundles
-    // runtime code with `_DX_DEV_` gates (useHead/insert dev warnings), and
+    // runtime code with `_SOLID_DEV_` gates (useHead/insert dev warnings), and
     // without the replace babel folds the truthy literal into the dev branch
     // — same build-mode bug as #2982, dev-only noise shipped in prod here.
     input: "frames/src/server.ts",

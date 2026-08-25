@@ -38,11 +38,11 @@ describe("occlusion records at adoption", () => {
     // The SSR'd document: boundary with a collapsed wrapper whose body was
     // never rendered (occluded), plus the records the producer flipped.
     document.body.innerHTML =
-      '<div id="app"><dx-frame data-fid="occ/thread" style="display:contents">' +
+      '<div id="app"><solid-frame data-fid="occ/thread" style="display:contents">' +
       "<article><!--slot:comment#c1:start-->" +
       '<div class="comment collapsed"><button>[+]</button></div>' +
       "<!--slot:comment#c1:end--></article>" +
-      "</dx-frame></div>";
+      "</solid-frame></div>";
     (window as any)._$HY = {
       r: {
         "sc:slot:occ/thread:comment#c1": {

@@ -209,17 +209,13 @@ export async function applyFrameResponse(response, host, options = {}) {
 }
 
 /** Brands an inline-rendered server component with its function id. */
-export const SERVER_COMPONENT = /*#__PURE__*/ Symbol.for("dom-expressions.server-component");
+export const SERVER_COMPONENT = /*#__PURE__*/ Symbol.for("solid.server-component");
 
 /** The unwrapped server component behind an inline-render wrap. */
-export const SERVER_COMPONENT_SOURCE = /*#__PURE__*/ Symbol.for(
-  "dom-expressions.server-component-source"
-);
+export const SERVER_COMPONENT_SOURCE = /*#__PURE__*/ Symbol.for("solid.server-component-source");
 
 /** The call's wire address (`frameAddress`), for regions to be emitted under. */
-export const SERVER_COMPONENT_ADDRESS = /*#__PURE__*/ Symbol.for(
-  "dom-expressions.server-component-address"
-);
+export const SERVER_COMPONENT_ADDRESS = /*#__PURE__*/ Symbol.for("solid.server-component-address");
 
 /**
  * The binding brand on values the transport resolves: `{ component, address }`
@@ -233,7 +229,7 @@ export const SERVER_COMPONENT_ADDRESS = /*#__PURE__*/ Symbol.for(
  * address's resident store) — and a different function swaps normally.
  * `Symbol.for`, so consumers honor it without importing this module.
  */
-export const COMPONENT_BINDING = /*#__PURE__*/ Symbol.for("dom-expressions.component-binding");
+export const COMPONENT_BINDING = /*#__PURE__*/ Symbol.for("solid.component-binding");
 
 // The live transport registry's resolver, installed by
 // createServerComponentHandler. Module state on the config pattern (one
@@ -302,7 +298,7 @@ function parseServerComponent(value, ctx) {
 // transports are built around. The JSDoc cast keeps the type contract.
 /** @type {import("seroval").Plugin<Function, { id: any, address: any }>} */
 export const ServerComponentPlugin = {
-  tag: "dom-expressions/server-component",
+  tag: "solid/server-component",
   test(value) {
     return typeof value === "function" && SERVER_COMPONENT in value;
   },

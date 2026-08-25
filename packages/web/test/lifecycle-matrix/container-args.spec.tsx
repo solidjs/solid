@@ -16,9 +16,9 @@
 //   - document face (t=0): the record carries a `{ $tr, $ta }` marker
 //     literal that the host's `revive` hook materializes at arg-read.
 //
-// The producer halves (classification, envelope, wire shape) are pinned in
-// dom-expressions `test/ssr/frame-container-trace.spec.js` and the real-core
-// server faces in `test/server/container-traces.spec.tsx`; the materializer's
+// The producer halves (classification, envelope, wire shape) and real-core
+// server faces are pinned in `test/server/container-traces.spec.tsx`; the
+// materializer's
 // unit semantics in solid `test/container-trace.spec.ts`. See MATRIX.md.
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { createMemo, createRoot, flush, Loading } from "solid-js";
@@ -117,11 +117,11 @@ beforeAll(() => {
   const marker = { $tr: adoptProducer.trace.subscribe(), $ta: 0 };
   document.body.innerHTML =
     '<div id="page">' +
-    `<dx-frame data-fid="${adoptFid}" style="display:contents">` +
+    `<solid-frame data-fid="${adoptFid}" style="display:contents">` +
     "<article><h1>Adopt</h1><ul><!--slot:comment#c1:start-->" +
     '<li class="ssr-fill">server-rendered-fill</li>' +
     "<!--slot:comment#c1:end--></ul></article>" +
-    "</dx-frame></div>";
+    "</solid-frame></div>";
   // done: the simulated page is fully parsed with no outstanding fragments —
   // otherwise boundaryMayArrive() holds every call-driven mount below
   // waiting for a document reveal that never comes.

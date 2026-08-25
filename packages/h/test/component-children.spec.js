@@ -287,7 +287,7 @@ describe("callback prop wrap", () => {
   test("preserves `this` binding when the callback is forwarded as a DOM event handler", () => {
     // Any-arity event handler routed through a component prop hits
     // the wrap, so we have to forward `this` explicitly.
-    // dom-expressions binds `this` to the element when invoking
+    // The Solid hyperscript runtime binds `this` to the element when invoking
     // delegated handlers — that contract has to survive the wrap.
     let observedThis = null;
     const handler = function (e) {

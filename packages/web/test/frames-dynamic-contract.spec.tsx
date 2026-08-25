@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  *
  * Pins the `dynamic` async-source semantics the server-component transport
- * depends on (see dom-expressions docs/server-components.md):
+ * depends on (see frames/src/frame-transport.ts):
  *  1. an async source is invoked once per dependency change — resolution
  *     does NOT replay it (a replay would double-fetch server functions);
  *  2. a refetch resolving to the SAME component reference is swallowed by

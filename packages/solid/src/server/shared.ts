@@ -47,25 +47,25 @@ export type HydrationContext = {
   registerModule?: (moduleUrl: string, entryUrl: string) => void;
   /**
    * Resolve a module's JS and CSS assets from the asset manifest. Set by
-   * dom-expressions. Resolver manifests (dev servers answering from a live
+   * the @solidjs/web server renderer. Resolver manifests (dev servers answering from a live
    * module graph) may return a promise and may resolve css entries to
    * inline-style descriptors instead of URLs.
    */
   resolveAssets?: (moduleUrl: string) => ResolvedAssets | null | Promise<ResolvedAssets | null>;
   /**
-   * Synchronous resolution fast path. Set by dom-expressions for object
+   * Synchronous resolution fast path. Set by @solidjs/web for object
    * manifests (sync by nature) and for resolver manifests providing
    * `resolveSync`; used by sync consumers like lazy's moduleUrl getter.
    */
   resolveAssetsSync?: (moduleUrl: string) => ResolvedAssets | null | undefined;
   /** Retrieve the moduleUrl-to-entryUrl map for a boundary. */
   getBoundaryModules?: (id: string) => Record<string, string> | null;
-  /** @internal Tracks which Loading boundary is currently rendering. Set by dom-expressions via applyAssetTracking(). */
+  /** @internal Tracks which Loading boundary is currently rendering. Set by @solidjs/web via applyAssetTracking(). */
   _currentBoundaryId?: string | null;
   /**
    * @internal Containment channel for errors surfacing in async resume loops
    * (boundary retries, flush passes), where nothing is on the stack to catch
-   * a throw. Set by dom-expressions' renderToStream: reports through the
+   * a throw. Set by @solidjs/web's renderToStream: reports through the
    * render's onError and winds the render down — the request fails, the
    * process survives.
    */
@@ -82,7 +82,7 @@ export type HydrationContext = {
    * @internal True during a Loading discovery pass — the only render phase
    * with a retryable NotReady catch. Set/restored by
    * `runWithBoundaryErrorContext` when a boundaryId is passed; read by
-   * dom-expressions' head registry to escalate pending head-tag props into a
+   * @solidjs/web's head registry to escalate pending head-tag props into a
    * boundary suspension instead of a flush-time warn-and-drop.
    */
   _loadingPhase?: boolean;
@@ -108,7 +108,7 @@ export type HydrationContext = {
    * knowable end that isn't a fragment or a serialized promise — a
    * server-consumed async iterable feeding live bindings (a bounded async
    * trace) — keeps the response open until it completes. Set by
-   * dom-expressions' render core; holds gate only the end of the response.
+   * @solidjs/web's render core; holds gate only the end of the response.
    */
   hold?: () => () => void;
 };

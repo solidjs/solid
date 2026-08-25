@@ -8,7 +8,7 @@
 // The producer emits the resolution and the markup separately, in this order:
 //
 //   <script>$R[10]($R[8],$R[11]=self._$SC.r("late/feed"));</script>
-//   <template id="1902">...<dx-frame data-fid="late/feed">...</dx-frame></template>
+//   <template id="1902">...<solid-frame data-fid="late/feed">...</solid-frame></template>
 //   <script>$df("1902")</script>
 //
 // The resolver script runs FIRST — so the placeholder mounts, and
@@ -122,18 +122,18 @@ describe("boundary that arrives after the shell flush", () => {
 
     // Nothing to adopt yet, so nothing may claim the id: a fresh client frame
     // here is the bug — it would take the stream the server's markup is owed.
-    expect(mount.querySelectorAll(`dx-frame[data-fid="${FID}"]`).length).toBe(0);
+    expect(mount.querySelectorAll(`solid-frame[data-fid="${FID}"]`).length).toBe(0);
 
     // The swap arrives.
     swapIn(
       mount,
-      `<dx-frame data-fid="${FID}" style="display:contents"><ul><li>server-item</li></ul></dx-frame>`
+      `<solid-frame data-fid="${FID}" style="display:contents"><ul><li>server-item</li></ul></solid-frame>`
     );
     flush();
     await settle();
     flush();
 
-    const frames = mount.querySelectorAll(`dx-frame[data-fid="${FID}"]`);
+    const frames = mount.querySelectorAll(`solid-frame[data-fid="${FID}"]`);
     expect(frames.length).toBe(1);
     const frameEl = frames[0] as HTMLElement;
     expect(frameEl.textContent).toContain("server-item");
@@ -150,7 +150,7 @@ describe("boundary that arrives after the shell flush", () => {
     await settle();
     flush();
 
-    expect(mount.querySelectorAll(`dx-frame[data-fid="${FID}"]`).length).toBe(1);
+    expect(mount.querySelectorAll(`solid-frame[data-fid="${FID}"]`).length).toBe(1);
     expect(frameEl.textContent).toContain("navigated-item");
     expect(mount.textContent).not.toContain("server-item");
 
@@ -196,17 +196,17 @@ describe("boundary that arrives after the shell flush", () => {
     await settle();
     flush();
 
-    expect(mount.querySelectorAll(`dx-frame[data-fid="${FID_HELD}"]`).length).toBe(0);
+    expect(mount.querySelectorAll(`solid-frame[data-fid="${FID_HELD}"]`).length).toBe(0);
 
     swapIn(
       mount,
-      `<dx-frame data-fid="${FID_HELD}" style="display:contents"><ul><li>server-item</li></ul></dx-frame>`
+      `<solid-frame data-fid="${FID_HELD}" style="display:contents"><ul><li>server-item</li></ul></solid-frame>`
     );
     flush();
     await settle();
     flush();
 
-    const frames = mount.querySelectorAll(`dx-frame[data-fid="${FID_HELD}"]`);
+    const frames = mount.querySelectorAll(`solid-frame[data-fid="${FID_HELD}"]`);
     expect(frames.length).toBe(1);
     expect((frames[0] as HTMLElement).textContent).toContain("server-item");
 
@@ -257,7 +257,7 @@ describe("boundary that arrives after the shell flush", () => {
     await settle();
     flush();
 
-    expect(mount.querySelectorAll(`dx-frame[data-fid="${FID_EXHAUSTED}"]`).length).toBe(0);
+    expect(mount.querySelectorAll(`solid-frame[data-fid="${FID_EXHAUSTED}"]`).length).toBe(0);
 
     // The fragment reveals — but it carried someone else's content, and it was
     // the last one the page had.
@@ -268,7 +268,7 @@ describe("boundary that arrives after the shell flush", () => {
 
     // A client-owned frame for the id, ready to take the stream a call fills
     // it with — rather than a permanently pending boundary.
-    expect(mount.querySelectorAll(`dx-frame[data-fid="${FID_EXHAUSTED}"]`).length).toBe(1);
+    expect(mount.querySelectorAll(`solid-frame[data-fid="${FID_EXHAUSTED}"]`).length).toBe(1);
 
     dispose();
   });

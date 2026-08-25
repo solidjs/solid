@@ -147,7 +147,7 @@ export function resolveHead(groups) {
     }
     for (const [identity, tags] of byIdentity) {
       if (identity === "title") {
-        if ("_DX_DEV_" && tags.length > 1)
+        if ("_SOLID_DEV_" && tags.length > 1)
           console.warn("Multiple <title> tags in one head group; the last one wins.");
         winners.set(identity, { seq: group.seq, tags: [tags[tags.length - 1]] });
       } else {

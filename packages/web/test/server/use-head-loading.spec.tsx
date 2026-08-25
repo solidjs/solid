@@ -7,7 +7,7 @@ import { createMemo } from "solid-js";
 
 // Head tags with async props (issue #2975). Head props are lazy descriptors
 // nothing reads during render, so without the registration-time readiness
-// probe (dom-expressions registerHeadTags) a pending read would surface only
+// probe (@solidjs/web registerHeadTags) a pending read would surface only
 // at flush and warn-drop the tag. Under a Loading boundary the probe rethrows
 // so the boundary suspends (gated on the `_loadingPhase` flag set by
 // runWithBoundaryErrorContext); at root it holds the streaming shell on the

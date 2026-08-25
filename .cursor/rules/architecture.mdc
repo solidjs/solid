@@ -61,7 +61,7 @@ All support `keyed` mode (identity comparison) vs non-keyed (truthiness). Functi
 
 ## Build-time Constants
 
-`_SOLID_DEV_` and `_DX_DEV_` are replaced at build time (see rollup configs). Use these for dev-only code to enable tree-shaking in production.
+`_SOLID_DEV_` is replaced at build time (see rollup configs). Use it for dev-only code to enable tree-shaking in production.
 
 ## Commands
 

@@ -134,7 +134,7 @@ describe("parseCookieHeader", () => {
   });
 });
 
-// Raw source is the dev build (`"_DX_DEV_"` is a truthy string until a
+// Raw source is the dev build (`"_SOLID_DEV_"` is a truthy string until a
 // bundler replaces it), so the never-silent policy surfaces as throws
 // here; the production build reports through console.error and no-ops.
 describe("commitResponseStub write loudness", () => {

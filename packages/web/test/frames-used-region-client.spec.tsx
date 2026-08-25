@@ -38,11 +38,11 @@ describe("adopted boundary stream re-calls (#547)", () => {
 
   test("an identical re-sent record does not re-call; a changed record updates the live instance and its {$frame} region mounts and morphs", async () => {
     document.body.innerHTML =
-      '<div id="app"><dx-frame data-fid="occ/used" style="display:contents">' +
+      '<div id="app"><solid-frame data-fid="occ/used" style="display:contents">' +
       "<article><!--slot:comment#c1:start-->" +
       '<div class="comment"><button>[-]</button></div>' +
       "<!--slot:comment#c1:end--></article>" +
-      "</dx-frame></div>";
+      "</solid-frame></div>";
     (window as any)._$HY = {
       r: { "sc:slot:occ/used:comment#c1": { cid: "c1" } }
     };
