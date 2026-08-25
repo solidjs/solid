@@ -10,6 +10,12 @@ overrides:
   '@solidjs/web': workspace:*
   '@solidjs/babel-plugin-jsx': workspace:*
   '@solidjs/vite-plugin': link:../vite-plugin-solid
+  '@solidjs/compiler-darwin-x64': link:packages/compiler/npm/darwin-x64
+  '@solidjs/compiler-darwin-arm64': link:packages/compiler/npm/darwin-arm64
+  '@solidjs/compiler-linux-x64-gnu': link:packages/compiler/npm/linux-x64-gnu
+  '@solidjs/compiler-linux-arm64-gnu': link:packages/compiler/npm/linux-arm64-gnu
+  '@solidjs/compiler-win32-x64-msvc': link:packages/compiler/npm/win32-x64-msvc
+  '@solidjs/compiler-wasm32-wasi': link:packages/compiler/npm/wasm32-wasi
 
 importers:
 
@@ -344,6 +350,25 @@ importers:
       '@napi-rs/wasm-runtime':
         specifier: ^1.1.6
         version: 1.1.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
+    optionalDependencies:
+      '@solidjs/compiler-darwin-arm64':
+        specifier: link:npm/darwin-arm64
+        version: link:npm/darwin-arm64
+      '@solidjs/compiler-darwin-x64':
+        specifier: link:npm/darwin-x64
+        version: link:npm/darwin-x64
+      '@solidjs/compiler-linux-arm64-gnu':
+        specifier: link:npm/linux-arm64-gnu
+        version: link:npm/linux-arm64-gnu
+      '@solidjs/compiler-linux-x64-gnu':
+        specifier: link:npm/linux-x64-gnu
+        version: link:npm/linux-x64-gnu
+      '@solidjs/compiler-wasm32-wasi':
+        specifier: link:npm/wasm32-wasi
+        version: link:npm/wasm32-wasi
+      '@solidjs/compiler-win32-x64-msvc':
+        specifier: link:npm/win32-x64-msvc
+        version: link:npm/win32-x64-msvc
 
   packages/element:
     dependencies:
