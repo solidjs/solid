@@ -1,0 +1,2 @@
+/packages/babel-plugin/test/** text eol=lf
+/packages/compiler/__tests__/** text eol=lf
