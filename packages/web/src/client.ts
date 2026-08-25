@@ -2097,9 +2097,22 @@ function insertExpression(parent, value, current, marker) {
     // there and leave the server's beside the new content as permanent
     // residue. Claimed nodes are connected (or under a declared claim
     // root); phantom renders are neither, and keep `current` as-is.
-    if (value && value !== current)
-      for (const n of Array.isArray(value) ? value : [value])
-        if (n && n.nodeType && !isHydrating(n)) return current;
+    if (value && value !== current) {
+      const arr = Array.isArray(value);
+      for (const n of arr ? value : [value]) {
+        if (n && n.nodeType) {
+          if (!isHydrating(n)) return current;
+        } else if (arr && (typeof n === "string" || typeof n === "number")) {
+          // A raw primitive in an ARRAY during a claim pass is a text hole
+          // whose claim failed (normalize adopts live text nodes while
+          // hydrating). Materializing it would mutate DOM mid-claim, and
+          // returning it would put a primitive into node bookkeeping — same
+          // treatment as the phantom-node case above, which is exactly what
+          // the fresh detached node this path used to allocate triggered.
+          return current;
+        }
+      }
+    }
     return value;
   }
   if (value === current) return value;
@@ -2140,6 +2153,23 @@ function insertExpression(parent, value, current, marker) {
     if (marker) value[$$SLOT] = marker;
   } else if (Array.isArray(value)) {
     const currentArray = current && Array.isArray(current);
+    // Commit-time text materialization (normalize left primitives raw): a
+    // primitive slot adopts the positional text node with a `.data` write
+    // when one is there, and allocates only otherwise. The adopted node's
+    // identity makes the reconcile below a no-op for that slot — the common
+    // "dynamic text beside an element" update becomes one data write instead
+    // of a node allocation plus a swap.
+    for (let i = 0, len = value.length; i < len; i++) {
+      const item = value[i],
+        t = typeof item;
+      if (t === "string" || t === "number") {
+        const prev = currentArray ? current[i] : undefined;
+        if (prev && prev.nodeType === 3) {
+          if (prev.data !== "" + item) prev.data = item;
+          value[i] = prev;
+        } else value[i] = document.createTextNode(item);
+      }
+    }
     if (value.length === 0) {
       cleanChildren(parent, current, marker);
     } else if (currentArray) {
@@ -2158,16 +2188,20 @@ function normalize(value, current, multi, doNotUnwrap) {
   value = flatten(value, { skipNonRendered: true, doNotUnwrap });
   if (doNotUnwrap && typeof value === "function") return value;
   if (multi && !Array.isArray(value)) value = [value != null ? value : ""];
-  if (Array.isArray(value)) {
+  // Primitives pass through RAW: normalize runs in the compute phase, where
+  // a transition fork must not touch the live DOM (and must not pay a text
+  // node allocation per changed value only for reconcile to swap it in).
+  // insertExpression materializes them at commit, adopting the positional
+  // text node with a `.data` write when one is there. The exception is
+  // hydration claiming: adopting the already-live server text node here is
+  // position bookkeeping, not a mutation, and insertExpression's claim pass
+  // needs the node (a raw primitive there means the claim FAILED).
+  if (sharedConfig.hydrating && Array.isArray(value)) {
     for (let i = 0, len = value.length; i < len; i++) {
       const item = value[i],
         prev = current && current[i],
         t = typeof item;
-      if (t === "string" || t === "number")
-        value[i] =
-          prev && prev.nodeType === 3 && (sharedConfig.hydrating || prev.data === "" + item)
-            ? prev
-            : document.createTextNode(item);
+      if ((t === "string" || t === "number") && prev && prev.nodeType === 3) value[i] = prev;
     }
   }
   return value;
