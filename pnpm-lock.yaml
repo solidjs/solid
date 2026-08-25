@@ -54,8 +54,8 @@ importers:
         specifier: workspace:*
         version: link:packages/babel-plugin-jsx
       '@solidjs/vite-plugin':
-        specifier: link:../vite-plugin-solid
-        version: link:../vite-plugin-solid
+        specifier: 3.0.0-next.30
+        version: 3.0.0-next.30(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:packages/web
