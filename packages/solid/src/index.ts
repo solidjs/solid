@@ -31,6 +31,7 @@ export {
   registerSlotPatch,
   storeIsShallow,
   storeHasFamily,
+  storeHasOptimisticFamily,
   reconcile,
   refresh,
   repeat,

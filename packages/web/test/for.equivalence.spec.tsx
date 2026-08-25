@@ -69,7 +69,7 @@ const classicRow = (db: Row) => {
 
 function runScenario(
   useDriver: boolean,
-  kind: "deep" | "shallow",
+  kind: "deep" | "shallow" | "projection",
   opsShared: Op[],
   seedShared: Row[]
 ): Step[] {
@@ -90,6 +90,30 @@ function runScenario(
       </div>;
       apply = op => {
         setState(s => {
+          if (op.kind === "swap") s.rows = op.data;
+          else reconcile(op.data, "id")(s.rows);
+        });
+      };
+    } else if (kind === "projection") {
+      // PROJECTION family list (re-admission gate): the driven array is the
+      // OUTPUT of a derived store recomputing from a source. Ops mutate the
+      // SOURCE; the projection recompute walks reconcile, whose emissions
+      // are transition-stamped in the apply queue — the driver must match
+      // classic across recomputed structure and value ticks.
+      const [source, setSource] = createStore({ rows: seed });
+      const [proj] = createStore<{ list: Row[] }>(
+        () => ({
+          // Identity-preserving derive: source row proxies pass through, so
+          // retention semantics are the source's (deep adoption).
+          list: source.rows.filter(r => r.label !== "HIDE")
+        }),
+        { list: [] }
+      );
+      <div ref={div}>
+        <For each={proj.list}>{row}</For>
+      </div>;
+      apply = op => {
+        setSource(s => {
           if (op.kind === "swap") s.rows = op.data;
           else reconcile(op.data, "id")(s.rows);
         });
@@ -181,7 +205,27 @@ describe("equivalence matrix: driver DOM ≡ classic DOM", () => {
     test(`shallow / ${name}`, () => {
       assertEquivalent("shallow", ops);
     });
+    test(`projection / ${name}`, () => {
+      assertEquivalent("projection", ops);
+    });
   }
+
+  test("projection / recompute-driven structure (filter drops and restores a row)", () => {
+    assertEquivalent("projection", [
+      // Hiding is a VALUE change on the source that becomes STRUCTURE on the
+      // projection output — the recompute's reconcile emits the ops.
+      { kind: "reconcile", data: relabel(make(1, 2, 3, 4), 2, "HIDE") },
+      { kind: "reconcile", data: relabel(make(1, 2, 3, 4), 2, "BACK") }
+    ]);
+  });
+
+  test("projection / retention across recompute (untouched rows keep nodes)", () => {
+    const trace = assertEquivalent("projection", [
+      { kind: "reconcile", data: relabel(make(1, 2, 3, 4), 2, "HIDE") }
+    ]);
+    // Row 2 leaves the output; 1, 3, 4 keep their physical nodes.
+    expect(trace[1].topology).toEqual(["from:0", "from:2", "from:3"]);
+  });
 
   test("deep / identity swap to a fresh array (s.rows = next)", () => {
     assertEquivalent("deep", [

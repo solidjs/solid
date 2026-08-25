@@ -12,7 +12,7 @@ import {
   registerRowOps,
   registerSlotPatch,
   sharedConfig,
-  storeHasFamily,
+  storeHasOptimisticFamily,
   storeIsShallow,
   untrack,
   merge as mergeProps,
@@ -228,11 +228,14 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   (evalOwner as any).dispose();
   let raw = subject != null ? patchableRaw(subject) : undefined;
   if (raw === undefined || !Array.isArray(raw)) return false;
-  // Family arrays (projection/optimistic) DECLINE (external audit): their
-  // structural changes never emit row/slot ops and the proxy identity is
-  // stable, so an engaged list would freeze on optimistic/projection
-  // structure. Classic mapArray handles them correctly.
-  if (storeHasFamily(subject)) return false;
+  // OPTIMISTIC family arrays decline (audit finding, narrowed): optimistic
+  // user writes ride node-level overrides — they never enter the reconcile
+  // walk, so no row/slot ops are emitted and the proxy identity is stable;
+  // an engaged list would freeze on optimistic structure. Classic mapArray
+  // handles them correctly. PROJECTION (non-optimistic) families are
+  // drivable — their recomputes walk reconcile, whose emissions are
+  // transition-stamped in the apply queue (equivalence-matrix gated).
+  if (storeHasOptimisticFamily(subject)) return false;
 
   // Hydration precheck (claim + register only — §5): rows are the region's
   // server-rendered elements, claimed positionally through each element's
@@ -487,7 +490,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
           lateClassic?.();
           return;
         }
-        if (nextRaw === undefined || !Array.isArray(nextRaw) || storeHasFamily(value)) {
+        if (nextRaw === undefined || !Array.isArray(nextRaw) || storeHasOptimisticFamily(value)) {
           // Subject left the driver's contract (e.g. `each` switched from
           // the store array to a DERIVED array — a filtered view). Clear the
           // region and hand the list to the classic path, which renders the

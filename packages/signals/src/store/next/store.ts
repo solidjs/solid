@@ -1741,6 +1741,20 @@ export function storeHasFamily(proxy: any): boolean {
   return t !== undefined && t.fam !== null;
 }
 
+/** True when `proxy` belongs to an OPTIMISTIC family specifically. The list
+ * driver declines these (audit finding, narrowed): optimistic user writes
+ * ride node-level overrides — they never enter the reconcile walk, so no
+ * row/slot ops are emitted and an engaged list would freeze on optimistic
+ * structural changes. PROJECTION (non-optimistic) families are drivable:
+ * their recomputes go through the reconcile walk, whose emissions are
+ * transition-stamped in the apply queue like any other (equivalence-matrix
+ * gated). Re-admitting optimistic families requires a lane-timed structural
+ * emission mirroring emitPatchOptimistic, plus revert resync. */
+export function storeHasOptimisticFamily(proxy: any): boolean {
+  const t: StoreNextTarget | undefined = proxy?.[$TARGET];
+  return t !== undefined && t.fam?.opt === true;
+}
+
 /** Tracking deep snapshot (`deep()` for next targets): subscribes to the
  * key-set and deep-witness node at every reachable level, then returns the
  * plain view. Shared references and cycles handled via the visited set. */

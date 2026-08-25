@@ -2801,3 +2801,37 @@ export function onSettled(callback: () => void | (() => void)): void {
 
 // NoInfer utility type (also re-exported from signals, but define for local use)
 type NoInfer<T extends any> = [T][T extends any ? 0 : never];
+
+// Patch-channel compiler contract (client parity): the channel is inert on
+// the server — SSR renders once from current values; hydration claims and
+// registers on the client. Registration is a no-op returning a no-op unbind;
+// patchableRaw reports "not patchable" so any server-side dual-driver bind
+// takes the (equally inert) effect path.
+export function registerPatch(
+  _record: any,
+  _fn: (next: any, prev: any, force?: boolean) => void
+): () => void {
+  return noopUnbind;
+}
+export function registerRowOps(_array: any, _fn: (next: any[], ops: any) => void): () => void {
+  return noopUnbind;
+}
+export function patchableRaw(_record: any): undefined {
+  return undefined;
+}
+export function registerSlotPatch(
+  _array: any,
+  _fn: (index: number, next: any, prev: any) => void
+): () => void {
+  return noopUnbind;
+}
+export function storeIsShallow(_proxy: any): boolean {
+  return false;
+}
+export function storeHasFamily(_proxy: any): boolean {
+  return false;
+}
+export function storeHasOptimisticFamily(_proxy: any): boolean {
+  return false;
+}
+const noopUnbind = () => {};

@@ -231,8 +231,12 @@ export function hasPatches(): boolean {
 }
 
 export function registerPatch(record: any, fn: PatchFn): () => void {
-  const t: StoreNextTarget | undefined = record?.[$TARGET];
+  let t: StoreNextTarget | undefined = record?.[$TARGET];
   if (t === undefined) throw new Error("registerPatch: not a store record");
+  // Chained backings (§7b): register on the ULTIMATE owner — that is where
+  // value transitions fold and dispatch; the wrapper's identity is stable
+  // and would never fire (see ultimateTarget).
+  t = ultimateTarget(t) ?? t;
   if (!commitHookInstalled) {
     commitHookInstalled = true;
     setPatchCommitHook(releaseBatch);
@@ -257,15 +261,32 @@ export function registerPatch(record: any, fn: PatchFn): () => void {
   };
 }
 
+/** Resolve a target through CHAINED backings (§7b) to the ultimate owner.
+ * A projection family wrapper's backing IS another store's proxy: value
+ * transitions fold on the ULTIMATE target (the wrapper's identity never
+ * changes), so patch registration and raw resolution must land there or
+ * registered patches never fire (equivalence-matrix finding: projection
+ * value ticks froze driver rows while classic effects tracked through). */
+function ultimateTarget(t: StoreNextTarget): StoreNextTarget | undefined {
+  while (t.ch) {
+    const u: StoreNextTarget | undefined = (t.pb ?? t.v)?.[$TARGET];
+    if (u === undefined) return undefined;
+    t = u;
+  }
+  return t;
+}
+
 /** Dual-driver bind probe (compiler runtime contract): when `record` is a
  * patchable store record, returns its CURRENT raw backing (the driver's
  * initial force-apply reads it directly — no proxy traffic, no tracking);
  * returns undefined otherwise (driver falls back to the effect path).
  * Not patchable: non-records, non-proxies, accessor-bearing records
- * (patches read raw — getters need tracked evaluation). */
+ * (patches read raw — getters need tracked evaluation), broken chains. */
 export function patchableRaw(record: any): Record<PropertyKey, any> | undefined {
-  const t: StoreNextTarget | undefined = record?.[$TARGET];
+  let t: StoreNextTarget | undefined = record?.[$TARGET];
   if (t === undefined || t.px !== record || t.a === true) return undefined;
+  t = ultimateTarget(t);
+  if (t === undefined || t.a === true) return undefined;
   return t.pb ?? t.v;
 }
 
