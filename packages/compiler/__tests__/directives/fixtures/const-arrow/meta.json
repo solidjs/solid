@@ -1,0 +1,10 @@
+{
+  "valid": true,
+  "functions": [
+    {
+      "id": "2f561cbf-0",
+      "name": "sendMessage",
+      "exports": []
+    }
+  ]
+}

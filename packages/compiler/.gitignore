@@ -1,0 +1,10 @@
+target/
+node_modules/
+*.node
+index.d.ts
+browser.js
+compiler.wasi-browser.js
+compiler.wasi.cjs
+wasi-worker-browser.mjs
+wasi-worker.mjs
+*.wasm

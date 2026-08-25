@@ -82,16 +82,16 @@ Reads update on the next microtask (or call `flush()` for synchronous interop). 
 - Optimistic UI primitives (`createOptimistic`, `createOptimisticStore`) and structured `action(...)` mutations.
 - Streaming SSR and progressive hydration.
 - TypeScript-first, JSX-first, web-component friendly.
-- Universal: write custom renderers via [`@solidjs/universal`](packages/solid-universal) to target non-DOM platforms.
+- Universal: write custom renderers via [`@solidjs/universal`](packages/universal) to target non-DOM platforms.
 
 ## Quick start
 
 ```sh
 npm i solid-js @solidjs/web
-npm i -D babel-preset-solid
+npm i -D @solidjs/babel-plugin-jsx
 ```
 
-Add `babel-preset-solid` to your Babel config (or use Vite's Solid plugin) and configure TypeScript:
+Add `@solidjs/babel-plugin-jsx` to your Babel config (or use Vite's Solid plugin) and configure TypeScript:
 
 ```json
 {
@@ -122,15 +122,16 @@ This is a PNPM workspaces monorepo. The packages here are versioned together as 
 | Package              | Path                          | Purpose                                                               |
 | -------------------- | ----------------------------- | --------------------------------------------------------------------- |
 | `solid-js`           | `packages/solid`              | Core runtime — components, flow controls, context, hydration.         |
-| `@solidjs/signals`   | `packages/solid-signals`      | Reactive primitives — signals, memos, effects, stores.                |
-| `@solidjs/web`       | `packages/solid-web`          | Web platform runtime — `render`, `hydrate`, SSR, `Portal`, `Dynamic`. |
-| `@solidjs/h`         | `packages/solid-h`            | Hyperscript / JSX factory.                                            |
-| `solid-html`         | `packages/solid-html`         | Build-less tagged template literals.                                  |
-| `@solidjs/universal` | `packages/solid-universal`    | Universal runtime for custom renderers.                               |
-| `solid-element`      | `packages/solid-element`      | Web Components wrapper.                                               |
-| `babel-preset-solid` | `packages/babel-preset-solid` | Babel preset for JSX compilation.                                     |
+| `@solidjs/signals`   | `packages/signals`      | Reactive primitives — signals, memos, effects, stores.                |
+| `@solidjs/web`       | `packages/web`          | Web platform runtime — `render`, `hydrate`, SSR, `Portal`, `Dynamic`. |
+| `@solidjs/h`         | `packages/h`            | Hyperscript / JSX factory.                                            |
+| `@solidjs/html`      | `packages/html`         | Build-less tagged template literals.                                  |
+| `@solidjs/universal` | `packages/universal`    | Universal runtime for custom renderers.                               |
+| `@solidjs/element`   | `packages/element`      | Web Components wrapper.                                               |
+| `@solidjs/compiler`  | `packages/compiler`     | Native Oxc JSX compiler.                                              |
+| `@solidjs/babel-plugin-jsx` | `packages/babel-plugin-jsx` | Babel plugin for JSX compilation.                                |
 
-DOM operations live in the [`dom-expressions`](https://github.com/solidjs/dom-expressions) repo.
+Runtime DOM operations live in `@solidjs/web` (and `@solidjs/universal` / `@solidjs/h` / `@solidjs/html`).
 
 ## Why Solid?
 

@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "outDir": "types",
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "rootDir": "src",
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true
+  },
+  "include": ["src"]
+}

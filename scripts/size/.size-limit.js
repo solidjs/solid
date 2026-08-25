@@ -6,8 +6,8 @@
 // scenario is pinned at 10 KB on purpose.
 const alias = {
   "solid-js": "../../packages/solid/dist/solid.js",
-  "@solidjs/web": "../../packages/solid-web/dist/web.js",
-  "@solidjs/signals": "../../packages/solid-signals/dist/prod/index.js"
+  "@solidjs/web": "../../packages/web/dist/web.js",
+  "@solidjs/signals": "../../packages/signals/dist/prod/index.js"
 };
 const modifyEsbuildConfig = config => ({ ...config, alias });
 
@@ -23,8 +23,7 @@ const framesEsbuildConfig = config => ({
   // "@solidjs/web" alias would prefix-clobber the subpath specifiers before
   // `external` could match them. Only the bundled transport needs routing.
   alias: {
-    "@solidjs/web/server-functions/client":
-      "../../packages/solid-web/server-functions/dist/client.js"
+    "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js"
   },
   external: [
     "solid-js",
@@ -37,7 +36,7 @@ const framesEsbuildConfig = config => ({
 module.exports = [
   {
     name: "signals: core floor (createSignal/Memo/Effect/Root/flush)",
-    path: "../../packages/solid-signals/dist/prod/index.js",
+    path: "../../packages/signals/dist/prod/index.js",
     import: "{ createSignal, createMemo, createEffect, createRoot, flush }",
     // loadingValue (commit #0): 7.1 -> 7.35 KB, measured at 7.18 KB. The
     // loading window lives on always-retained paths by construction — it's
@@ -73,7 +72,7 @@ module.exports = [
   },
   {
     name: "signals: + createStore",
-    path: "../../packages/solid-signals/dist/prod/index.js",
+    path: "../../packages/signals/dist/prod/index.js",
     import: "{ createSignal, createMemo, createEffect, createRoot, flush, createStore }",
     // 2.0.0-beta.25: +~0.7 KB from shallow stores + markRaw landing in the
     // createStore graph (the options.shallow branch retains wrapShallow /
@@ -127,7 +126,7 @@ module.exports = [
   },
   {
     name: "signals: + isPending/latest",
-    path: "../../packages/solid-signals/dist/prod/index.js",
+    path: "../../packages/signals/dist/prod/index.js",
     import: "{ createSignal, createMemo, createEffect, createRoot, flush, isPending, latest }",
     // loadingValue (commit #0): 8.75 -> 9 KB, measured at 8.84 KB — the same
     // core-floor bytes (see above); the verdict layer itself only gained a
@@ -262,7 +261,7 @@ module.exports = [
     // client plus server-function call observers (pr-570) in the transport.
     // Verified via metafile that the bundle is still exactly the two dist
     // files (no seroval creep — the regression this scenario guards).
-    path: "../../packages/solid-web/frames/dist/client.js",
+    path: "../../packages/web/frames/dist/client.js",
     limit: "11.1 KB",
     modifyEsbuildConfig: framesEsbuildConfig
   }

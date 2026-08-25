@@ -1,0 +1,27 @@
+{
+  "valid": true,
+  "functions": [
+    {
+      "id": "d0bb28bc-0",
+      "name": "getUser",
+      "exports": [
+        "getUser",
+        "default"
+      ]
+    },
+    {
+      "id": "d0bb28bc-1",
+      "name": "deleteUser",
+      "exports": [
+        "deleteUser"
+      ]
+    },
+    {
+      "id": "d0bb28bc-2",
+      "name": "impl",
+      "exports": [
+        "runQuery"
+      ]
+    }
+  ]
+}

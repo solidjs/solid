@@ -8,12 +8,12 @@
     "test:packaged-types": "vitest run tests/packaged-types.spec.ts"
   },
   "dependencies": {
+    "@solidjs/babel-plugin-jsx": "workspace:*",
     "@solidjs/h": "workspace:*",
     "@solidjs/html": "workspace:*",
     "@solidjs/signals": "workspace:*",
     "@solidjs/universal": "workspace:*",
     "@solidjs/web": "workspace:*",
-    "babel-preset-solid": "workspace:*",
     "solid-js": "workspace:*"
   },
   "devDependencies": {

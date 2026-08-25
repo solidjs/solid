@@ -1,0 +1,10 @@
+{
+  "valid": true,
+  "functions": [
+    {
+      "id": "31e1639f-0",
+      "name": "serverAction",
+      "exports": []
+    }
+  ]
+}

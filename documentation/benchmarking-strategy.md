@@ -85,10 +85,10 @@ flowchart TD
 
 Reactivity lane — `pnpm --filter @solidjs/signals bench`:
 
-- `packages/solid-signals/tests/core/reactivity.bench.ts` — graph
+- `packages/signals/tests/core/reactivity.bench.ts` — graph
   creation/update microbenches.
-- `packages/solid-signals/tests/store/utilities.bench.ts` — store helpers.
-- `packages/solid-signals/tests/store/listened-paths.bench.ts` —
+- `packages/signals/tests/store/utilities.bench.ts` — store helpers.
+- `packages/signals/tests/store/listened-paths.bench.ts` —
   Solid 2.0's unique listened-paths store optimization
   (`applyState` walks `Object.keys(nodes)` instead of the full tree
   unless `$TRACK` is subscribed). Three subscription shapes against
@@ -102,7 +102,7 @@ Reactivity lane — `pnpm --filter @solidjs/signals bench`:
   The `deep()` vs `sparse`/`per-leaf` ratio is the visibility of the
   listened-paths optimization; if anyone regresses `applyState` to
   always walk the full tree, that ratio collapses.
-- `packages/solid-signals/tests/store/reconcile-tree.bench.ts` — the
+- `packages/signals/tests/store/reconcile-tree.bench.ts` — the
   UIBench lane. UIBench drives Solid entirely through `store` +
   `reconcile()`: each frame hands the framework a fresh *immutable*
   state tree that Solid reconciles into a `createStore`, so UIBench's
@@ -126,22 +126,22 @@ Working as intended for the signals lane.
 
 DOM lane — `pnpm --filter @solidjs/web bench`:
 
-- `packages/solid-web/test/mount-clear-cycle.bench.tsx` — 1k-row `<For>`
+- `packages/web/test/mount-clear-cycle.bench.tsx` — 1k-row `<For>`
   mounted then cleared every iteration. Vitest's reported mean is the
   full cycle (mount + clear); the bench also `performance.now()`-times
   each half and logs avg-mount and avg-clear in `afterAll` so JFB
   `01_run1k`/`07_create10k` and `09_clear1k_x8` can be tracked
   separately from a single bench. Doubles as a memory-leak gate via
   `assertOwnerCount(baseline === final)` after all iterations.
-- `packages/solid-web/test/replace-full.bench.tsx` — 1k rows, replaced
+- `packages/web/test/replace-full.bench.tsx` — 1k rows, replaced
   with fresh-id rows on every iteration. Mirrors JFB `02_replace1k`.
   Also a memory-leak gate against reconcile-time owner retention (the
   exact failure mode `47c0e6fa` fixed).
-- `packages/solid-web/test/update-partial.bench.tsx` — 1k rows mounted
+- `packages/web/test/update-partial.bench.tsx` — 1k rows mounted
   once, then every 10th row's label signal updated × 16 per iteration.
   Mirrors JFB `03_update10th1k_x16`. Pure render-effect commit cost.
   Also asserts no owner-tree drift on the update path.
-- `packages/solid-web/test/reconcile-permute.bench.tsx` — 1k rows
+- `packages/web/test/reconcile-permute.bench.tsx` — 1k rows
   reordered every iteration. Two sub-benches:
   - `reverse` — full list reverse. Drives the symmetric end-swap branch
     in `dom-expressions/reconcile.js` that the `2fe6310f` surgical fix
@@ -160,7 +160,7 @@ moved on Tier 2 (`02_replace1k` ±0.5ms, `03_update10th1k_x16`
 
 SSR lane — `pnpm --filter @solidjs/web bench:server`:
 
-- `packages/solid-web/test/server/color-picker.bench.tsx` —
+- `packages/web/test/server/color-picker.bench.tsx` —
   structurally mirrors Tier-2 `isomorphic-ui-benchmarks/color-picker`
   solid-next entry: a small nested tree with a per-row component
   rendered under `<For>`, plus a single conditional class expression
@@ -168,7 +168,7 @@ SSR lane — `pnpm --filter @solidjs/web bench:server`:
   row-owner pool churn, deferred-closure walk in `tryResolveString`,
   `ssr()` arg-walk on attribute-heavy templates, per-row `_$memo()`
   ternary wrap.
-- `packages/solid-web/test/server/search-results.bench.tsx` —
+- `packages/web/test/server/search-results.bench.tsx` —
   structurally mirrors Tier-2
   `isomorphic-ui-benchmarks/search-results` solid-next entry: a flat
   list of 50 `<Item>` components, each with multiple dynamic JSX
@@ -251,11 +251,11 @@ not commitments — promote them only if the Tier-2 work demands it.
    100-cycle warmup and `--expose-gc`. The repo runs Solid 1.x and
    `solid-next` (2.0) side-by-side via parallel `solid/` and
    `solid-next/` entries with `file:` workspace dependencies for
-   `@solidjs/web` / `babel-preset-solid`, so every SSR run gives us
+   `@solidjs/web` / `@solidjs/babel-plugin-jsx`, so every SSR run gives us
    the 1.x→2.0 delta on `renderToString` plus React/Inferno
    competitors.
 
-   *Tier-1 promoted:* `packages/solid-web/test/server/*.bench.tsx`
+   *Tier-1 promoted:* `packages/web/test/server/*.bench.tsx`
    covers both shapes (`color-picker.bench.tsx`,
    `search-results.bench.tsx`) under node + SSR-mode JSX compile
    via `vite.config.server-bench.mjs`. Run with

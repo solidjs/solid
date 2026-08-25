@@ -1,0 +1,9 @@
+@@ -345,7 +345,7 @@
+     typeof _g69$ === "function" || Array.isArray(_g69$) ? _$applyRef__r_server(_g69$, r$) : !!o && (o.ref = r$);
+   }
+ });
+-const template89 = _$ssr__r_server("<div _hk=\"should warn _hk is present on template\"></div>");
++const template89 = _$ssr__r_server("<div></div>");
+ const template90 = _$ssr__r_server("<div></div>");
+ const template91 = _$ssr__r_server(_g23$, _$ssrAttribute__r_server("something", _$escape__r_server({
+   value: {

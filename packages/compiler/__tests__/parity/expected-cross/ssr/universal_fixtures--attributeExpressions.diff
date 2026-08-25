@@ -1,0 +1,27 @@
+@@ -31,12 +31,7 @@
+     color: color
+   }
+ }), _$ssrElement__r_server("h1", _$mergeProps__r_server({
+-  get ["class"]() {
+-    return `base ${_$ssrClassName__r_server(["base", {
+-      dynamic: dynamic(),
+-      selected: selected
+-    }]) || ""}`;
+-  }
++  class: "base"
+ }, results, {
+   disabled: true,
+   readonly: "",
+@@ -48,6 +43,12 @@
+       "background-color": color(),
+       "margin-right": "40px"
+     };
++  },
++  get ["class"]() {
++    return ["base", {
++      dynamic: dynamic(),
++      selected: selected
++    }];
+   }
+ }), (_g1$ = link, _$ssr__r_server(_g4$, _$ssrAttribute__r_server("readonly", _$escape__r_server(value, true)))), false), false);
+ const template2 = _$ssrElement__r_server("div", getProps("test"), [(_g2$ = _$escape__r_server(rowId), _$ssr__r_server(_g5$, _g2$)), (_g3$ = () => {

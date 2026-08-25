@@ -6,7 +6,7 @@ name: Size
 # @codspeed/vitest-plugin), which relocates the benchmark harness and shows
 # up as phantom CodSpeed regressions. The limits in size/.size-limit.js are
 # the strict tree-shaking gate; the retained-module-graph assertions in
-# packages/solid-signals/tests/treeshake.test.ts stay the which-module
+# packages/signals/tests/treeshake.test.ts stay the which-module
 # diagnostic underneath.
 # The check job also runs on direct pushes to next: it is self-contained
 # (absolute limits, no base ref), and PR-only triggering let the

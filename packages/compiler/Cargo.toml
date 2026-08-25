@@ -1,0 +1,38 @@
+[package]
+name = "dom-expressions-compiler"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["node"]
+node = ["dep:napi", "dep:napi-derive"]
+
+[dependencies]
+html5ever = "0.39.0"
+htmlize = { version = "1", features = ["unescape"] }
+markup5ever_rcdom = "0.39.0"
+napi = { version = "3.12", default-features = false, features = ["napi4"], optional = true }
+napi-derive = { version = "3.6", optional = true }
+oxc_allocator = "0.144"
+oxc_ast = "0.144"
+oxc_ast_visit = "0.144"
+oxc_codegen = "0.144"
+oxc_parser = "0.144"
+oxc_semantic = "0.144"
+oxc_span = "0.144"
+oxc_str = "0.144"
+oxc_syntax = "0.144"
+
+[dev-dependencies]
+# `noop` stubs the Node-API symbols so `cargo test` can link the unit-test
+# harness (the classification-trace tests) without a Node host. Dev-only:
+# the shipped cdylib is unaffected.
+napi = { version = "3.12", default-features = false, features = ["napi4", "noop"] }
+
+[build-dependencies]
+napi-build = "2.4"

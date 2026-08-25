@@ -1,0 +1,9 @@
+@@ -155,7 +155,7 @@
+   var _g35$ = _g34$.firstChild;
+   _$insert__r_dom(_g34$, () => {
+     return props.children;
+-  }, _g35$);
++  }, _g34$.firstChild);
+   return _g34$;
+ }
+ function OrderedExpressionParent(props) {

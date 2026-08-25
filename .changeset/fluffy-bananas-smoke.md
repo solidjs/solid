@@ -1,5 +1,4 @@
 ---
-"babel-preset-solid": major
 "test-integration": major
 "@solidjs/universal": major
 "@solidjs/element": major

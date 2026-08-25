@@ -1,0 +1,12 @@
+{
+  "valid": true,
+  "functions": [
+    {
+      "id": "964a320c-0",
+      "name": "ping",
+      "exports": [
+        "ping"
+      ]
+    }
+  ]
+}
