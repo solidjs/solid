@@ -16,6 +16,8 @@ import {
   EFFECT_USER,
   NOT_PENDING,
   OVERRIDE_UNDEFINED,
+  REACTIVE_CHECK,
+  REACTIVE_DIRTY,
   REACTIVE_MANUAL_WRITE,
   unwrapOverride,
   REACTIVE_OPTIMISTIC_DIRTY,
@@ -60,6 +62,13 @@ function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)
 
   const valueChanged =
     !!((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED) ||
+    // A dirty node's _value is stale (its queued recompute hasn't run — e.g.
+    // a latest() shadow marked by the previous landing's companion snap), so
+    // equality against it must not swallow the write. Without this, a sync
+    // push returning the shadow to that stale value was dropped, the snap
+    // recompute then committed the parent's old value, and the banner showed
+    // the previous transition's target (#3041 follow-up).
+    !!(((el as Computed<T>)._flags ?? 0) & (REACTIVE_DIRTY | REACTIVE_CHECK)) ||
     !el._equals ||
     !el._equals(currentValue, v);
   if (!valueChanged) {
