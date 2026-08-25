@@ -235,18 +235,33 @@ function laneReadsCommitted(el: OptimisticNode, owner: OptimisticNode, c: Comput
     el._x?._overrideValue !== undefined ||
     !!el._x?._optimisticLane ||
     !!((owner as Computed<any>)._statusFlags & STATUS_PENDING)
-  )
+  ) {
+    // The committed view hides a staged in-flight value that will promote
+    // silently (commitPendingNode never re-notifies). gatedRead records plain
+    // signals for replay at commit; async memos are excluded from it by the
+    // `_fn` check and reach here instead — a lane-assigned source whose async
+    // already settled (laneAsyncSettled keeps _optimisticLane) served its
+    // committed value to a reader that never re-ran after the landing, so a
+    // pending-gated branch stayed one value behind permanently (#3041
+    // follow-up). Record the reader under the same replay contract.
+    if (el._pendingValue !== NOT_PENDING)
+      (activeTransition ?? globalQueue._batch)._gatedSubs.add(c);
     return true;
+  }
   if (owner === el && stale && (c as Computed<any>)._x?._parentSource !== el) {
-    // The committed view can hide a same-tick ambient write (a lane member —
-    // even just an isPending companion flip — puts the reader "under a lane"
-    // against unrelated plain writes). With no transaction the write commits
-    // at THIS flush's end with no re-delivery, so record the reader for
-    // replay at commit — the same contract gatedRead provides when a
-    // transaction is active (#2963). If a transaction forms mid-flush,
-    // initTransition carries the recording over to it.
-    if (el._pendingValue !== NOT_PENDING && activeTransition === null)
-      globalQueue._batch._gatedSubs.add(c);
+    // The committed view can hide a staged write (a lane member — even just
+    // an isPending companion flip — puts the reader "under a lane"). The
+    // staged value commits with no re-delivery (commitPendingNode never
+    // re-notifies), so record the reader for replay at commit — the same
+    // contract gatedRead provides (#2963). gatedRead itself only covers
+    // signal reads where the reading computed differs from the source; the
+    // owner === el memo/self read lands here instead. With a transaction
+    // active the staged value promotes silently at ITS landing, so record
+    // into the transaction (#3041 follow-up: a pending-gated branch that
+    // first read its async source during the landing flush stayed one value
+    // behind permanently); with none, into the ambient batch.
+    if (el._pendingValue !== NOT_PENDING)
+      (activeTransition ?? globalQueue._batch)._gatedSubs.add(c);
     return true;
   }
   return false;
