@@ -12,6 +12,10 @@
     "@solidjs/signals#types": {
       "outputs": ["dist/types/**", "dist/types-cjs/**"]
     },
+    "@solidjs/diagnostics#build": {
+      "dependsOn": ["@solidjs/signals#build", "@solidjs/signals#types"],
+      "outputs": ["dist/**"]
+    },
     "solid-js#build": {
       "dependsOn": ["@solidjs/signals#build", "@solidjs/signals#types"],
       "outputs": ["dist/**", "**/dist/**"]
@@ -41,7 +45,14 @@
     },
     "types": {
       "dependsOn": ["^types"],
-      "outputs": ["types/**", "types-cjs/**", "dist/types-cjs/**", "**/types/**", "**/types-cjs/**", "**/dist/types-cjs/**"]
+      "outputs": [
+        "types/**",
+        "types-cjs/**",
+        "dist/types-cjs/**",
+        "**/types/**",
+        "**/types-cjs/**",
+        "**/dist/types-cjs/**"
+      ]
     },
     "@solidjs/web#types": {
       "dependsOn": ["^types"],
