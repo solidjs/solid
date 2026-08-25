@@ -14,20 +14,17 @@ const staticKey = _tmpl$();
 var _el$2 = _tmpl$2();
 var _el$3 = _el$2.firstChild;
 _$insert(_el$3, () => {
-  return item.text;
+	return item.text;
 });
-_$effect(
-  () => item.cls,
-  (_v$, _$p) => {
-    _$className(_el$3, _v$, _$p);
-  }
-);
+_$effect(() => item.cls, (_v$, _$p) => {
+	_$className(_el$3, _v$, _$p);
+});
 const dynamicKey = _el$2;
 const componentKey = _$createComponent(Row, {
-  get $key() {
-    return item.id;
-  },
-  get text() {
-    return item.text;
-  }
+	get $key() {
+		return item.id;
+	},
+	get text() {
+		return item.text;
+	}
 });

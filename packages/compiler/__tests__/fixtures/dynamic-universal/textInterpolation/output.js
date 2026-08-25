@@ -99,28 +99,24 @@ var _el$31 = _$createTextNode(" ");
 _$insertNode(_el$30, _el$31);
 _$insert(_el$30, expr, null);
 const leadingSpaceElement = _el$30;
-const leadingSpaceComponent = _$createComponent(Div, {
-  get children() {
-    return [" ", expr];
-  }
-});
+const leadingSpaceComponent = _$createComponent(Div, { get children() {
+	return [" ", expr];
+} });
 const leadingSpaceFragment = [" ", expr];
 var _el$32 = _$createElement("span");
 var _el$33 = _$createTextNode(" ");
 _$insertNode(_el$32, _el$33);
 _$insert(_el$32, expr, _el$33);
 const trailingSpaceElement = _el$32;
-const trailingSpaceComponent = _$createComponent(Div, {
-  get children() {
-    return [expr, " "];
-  }
-});
+const trailingSpaceComponent = _$createComponent(Div, { get children() {
+	return [expr, " "];
+} });
 const trailingSpaceFragment = [expr, " "];
 const escapeAttribute = _$createElement("div", {
-  normal: "Search&hellip;",
-  title: "Search&hellip;"
+	normal: "Search&hellip;",
+	title: "Search&hellip;"
 });
 const escapeCompAttribute = _$createComponent(Div, {
-  normal: "Search…",
-  title: "Search&hellip;"
+	normal: "Search…",
+	title: "Search&hellip;"
 });

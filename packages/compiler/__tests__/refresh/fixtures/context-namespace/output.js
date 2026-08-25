@@ -7,24 +7,19 @@ const _REGISTRY = _$$registry();
 export const A = _$$component(_REGISTRY, "A", solid.createContext(0));
 export const B = _$$component(_REGISTRY, "B", createContext({ deep: [1, 2] }));
 function shadow() {
-  const createContext = () => 1;
-  return createContext();
+	const createContext = () => 1;
+	return createContext();
 }
-const NotTop = _$$component(
-  _REGISTRY,
-  "NotTop",
-  () => {
-    const Inner = createContext(1);
-    return Inner;
-  },
-  {
-    location: "src/context-namespace.jsx:10:15",
-    signature: "f16bc10e",
-    dependencies: () => ({ createContext })
-  }
-);
+const NotTop = _$$component(_REGISTRY, "NotTop", () => {
+	const Inner = createContext(1);
+	return Inner;
+}, {
+	location: "src/context-namespace.jsx:10:15",
+	signature: "f16bc10e",
+	dependencies: () => ({ createContext })
+});
 export { shadow, NotTop };
 if (import.meta.hot) {
-  import.meta.hot.accept();
-  _$$refresh("vite", import.meta.hot, _REGISTRY);
+	import.meta.hot.accept();
+	_$$refresh("vite", import.meta.hot, _REGISTRY);
 }

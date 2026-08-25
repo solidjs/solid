@@ -12,7 +12,7 @@ Copied trees:
 
 | From | To |
 | --- | --- |
-| `packages/babel-plugin-jsx` | `packages/babel-plugin-jsx` (`@solidjs/babel-plugin-jsx`) |
+| `packages/babel-plugin-jsx` | `packages/babel-plugin` (`@solidjs/babel-plugin`) |
 | `packages/compiler` | `packages/compiler` (`@solidjs/compiler`) |
 | `packages/runtime` | `packages/web/runtime` |
 | `packages/runtime/src/universal.js` | `packages/universal/src/universal.js` |

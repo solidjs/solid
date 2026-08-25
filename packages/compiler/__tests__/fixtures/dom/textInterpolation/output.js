@@ -87,26 +87,22 @@ var _el$32 = _tmpl$14();
 var _el$33 = _el$32.firstChild;
 _$insert(_el$32, expr, null);
 const leadingSpaceElement = _el$32;
-const leadingSpaceComponent = _$createComponent(Div, {
-  get children() {
-    return [" ", expr];
-  }
-});
+const leadingSpaceComponent = _$createComponent(Div, { get children() {
+	return [" ", expr];
+} });
 const leadingSpaceFragment = [" ", expr];
 var _el$34 = _tmpl$14();
 var _el$35 = _el$34.firstChild;
 _$insert(_el$34, expr, _el$34.firstChild);
 const trailingSpaceElement = _el$34;
-const trailingSpaceComponent = _$createComponent(Div, {
-  get children() {
-    return [expr, " "];
-  }
-});
+const trailingSpaceComponent = _$createComponent(Div, { get children() {
+	return [expr, " "];
+} });
 const trailingSpaceFragment = [expr, " "];
 const escapeAttribute = _tmpl$15();
 const escapeCompAttribute = _$createComponent(Div, {
-  normal: "Search…",
-  title: "Search&hellip;"
+	normal: "Search…",
+	title: "Search&hellip;"
 });
 var _el$37 = _tmpl$16();
 var _el$38 = _el$37.firstChild;

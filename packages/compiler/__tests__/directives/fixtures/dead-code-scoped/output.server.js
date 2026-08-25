@@ -6,7 +6,7 @@ import { connect } from "./db";
 const t = startTimer();
 const URL = "postgres://localhost";
 const conn = connect(URL);
-const serverFunction_1 = registerServerReference_1("5835907-0", async data => {
-  return conn.insert(data);
+const serverFunction_1 = registerServerReference_1("5835907-0", async (data) => {
+	return conn.insert(data);
 });
 export const save = createServerReference_1(serverFunction_1);

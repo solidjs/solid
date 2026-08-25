@@ -7,7 +7,7 @@ import { rows } from "./db";
 // `left`), so the native pass's valid output is the spec.
 const count = [];
 for (const {} of rows) {
-  count.push(1);
+	count.push(1);
 }
 export const version = createServerReference_1("4691ef5d-0");
 export const keep = () => count.length;

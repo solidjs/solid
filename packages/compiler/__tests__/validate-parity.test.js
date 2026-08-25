@@ -36,7 +36,7 @@ const cases = {
 
 const babelRunner = `
 const babel = require("@babel/core");
-const plugin = require("../babel-plugin-jsx");
+const plugin = require("../babel-plugin");
 babel.transformSync(process.argv[1], {
   filename: "a.jsx",
   parserOpts: { plugins: ["jsx"] },

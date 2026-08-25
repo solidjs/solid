@@ -15,7 +15,7 @@ export default (): {
   visitor: Visitor<PluginPass>;
 } => {
   return {
-    name: "@solidjs/babel-plugin-jsx",
+    name: "@solidjs/babel-plugin",
     inherits: SyntaxJSX.default,
     visitor: {
       JSXElement: transformJSX,

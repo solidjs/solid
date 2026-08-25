@@ -1,4 +1,4 @@
-// Compile-time benchmark: babel-plugin-jsx vs the native (Oxc) compiler.
+// Compile-time benchmark: @solidjs/babel-plugin vs the native (Oxc) compiler.
 //
 // Compiles the whole Babel fixture corpus under each mode's real options and
 // reports per-compiler wall time plus the speedup factor. Two workloads:
@@ -174,7 +174,7 @@ if (JSON_OUT) {
     const mbps = ms => (r.bytes / 1024 / 1024 / (ms / 1000)).toFixed(1);
     console.log(r.workload);
     console.log(
-      `  babel-plugin-jsx  ${r.babel.median.toFixed(1).padStart(8)} ms   ${mbps(r.babel.median).padStart(6)} MB/s`
+      `  babel-plugin      ${r.babel.median.toFixed(1).padStart(8)} ms   ${mbps(r.babel.median).padStart(6)} MB/s`
     );
     console.log(
       `  native (oxc)      ${r.native.median.toFixed(1).padStart(8)} ms   ${mbps(r.native.median).padStart(6)} MB/s`

@@ -4,7 +4,7 @@ const { transform } = require("../index");
 
 const babelDomNoInlineStylesFixtures = path.resolve(
   __dirname,
-  "../../babel-plugin-jsx/test/__dom_no_inline_styles_fixtures__"
+  "../../babel-plugin/test/__dom_no_inline_styles_fixtures__"
 );
 const oxcDomNoInlineStylesFixtures = path.resolve(__dirname, "fixtures/dom-no-inline-styles");
 

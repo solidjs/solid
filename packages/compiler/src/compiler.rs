@@ -38,7 +38,7 @@ pub struct Renderer {
     pub elements: Vec<String>,
 }
 
-/// Default runtime import path — same as `@solidjs/babel-plugin-jsx` and the
+/// Default runtime import path — same as `@solidjs/babel-plugin` and the
 /// deleted `babel-preset-solid`.
 pub(crate) const DEFAULT_MODULE_NAME: &str = "@solidjs/web";
 
@@ -56,7 +56,7 @@ pub(crate) fn default_built_ins() -> Vec<String> {
 
 /// Rust-native JSX compiler options.
 ///
-/// Defaults match `@solidjs/babel-plugin-jsx` / the old `babel-preset-solid`:
+/// Defaults match `@solidjs/babel-plugin` / the old `babel-preset-solid`:
 /// DOM generate, `@solidjs/web`, and the Solid control-flow `builtIns`. The
 /// Node adapter applies the same values when those fields are omitted.
 #[derive(Clone, Debug, Eq, PartialEq)]

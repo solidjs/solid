@@ -20,85 +20,64 @@ var _el$ = _tmpl$();
 _$setAttribute(_el$, "data", _tmpl$4());
 const staticValue = _el$;
 var _el$2 = _tmpl$();
-_$effect(
-  () =>
-    (() => {
-      var _el$10 = _tmpl$5();
-      _$insert(_el$10, () => {
-        return state.value;
-      });
-      return _el$10;
-    })(),
-  _v$ => {
-    _$setAttribute(_el$2, "data", _v$);
-  }
-);
+_$effect(() => (() => {
+	var _el$10 = _tmpl$5();
+	_$insert(_el$10, () => {
+		return state.value;
+	});
+	return _el$10;
+})(), (_v$) => {
+	_$setAttribute(_el$2, "data", _v$);
+});
 const dynamicValue = _el$2;
 var _el$3 = _tmpl$2();
-_$effect(
-  () => state.compute(),
-  _v$ => {
-    _$setAttribute(_el$3, "data", _v$);
-  }
-);
+_$effect((() => state.compute()), (_v$) => {
+	_$setAttribute(_el$3, "data", _v$);
+});
 const iifeValue = _el$3;
 var _el$4 = _tmpl$2();
-_$effect(
-  () => {
-    return {
-      e: (() => {
-        var _el$11 = _tmpl$5();
-        _$insert(_el$11, () => {
-          return state.first;
-        });
-        return _el$11;
-      })(),
-      t: (() => {
-        var _el$12 = _tmpl$6();
-        _$insert(_el$12, () => {
-          return state.second;
-        });
-        return _el$12;
-      })()
-    };
-  },
-  ({ e, t }, _p$) => {
-    e !== _p$?.e && _$setAttribute(_el$4, "first", e);
-    t !== _p$?.t && _$setAttribute(_el$4, "second", t);
-  }
-);
+_$effect(() => {
+	return {
+		e: (() => {
+			var _el$11 = _tmpl$5();
+			_$insert(_el$11, () => {
+				return state.first;
+			});
+			return _el$11;
+		})(),
+		t: (() => {
+			var _el$12 = _tmpl$6();
+			_$insert(_el$12, () => {
+				return state.second;
+			});
+			return _el$12;
+		})()
+	};
+}, ({ e, t }, _p$) => {
+	e !== _p$?.e && _$setAttribute(_el$4, "first", e);
+	t !== _p$?.t && _$setAttribute(_el$4, "second", t);
+});
 const multiValues = _el$4;
 var _el$5 = _tmpl$3();
 _el$5.$$click = () => mount(_tmpl$7());
 const handlerValue = _el$5;
 var _el$6 = _tmpl$2();
 _$ref(() => {
-  return el => el.appendChild(_tmpl$8());
+	return (el) => el.appendChild(_tmpl$8());
 }, _el$6);
 const refValue = _el$6;
 var _el$7 = _tmpl$2();
-_$spread(
-  _el$7,
-  _$mergeProps(props, {
-    get data() {
-      var _el$15 = _tmpl$5();
-      _$insert(_el$15, () => {
-        return state.value;
-      });
-      return _el$15;
-    }
-  }),
-  false
-);
+_$spread(_el$7, _$mergeProps(props, { get data() {
+	var _el$15 = _tmpl$5();
+	_$insert(_el$15, () => {
+		return state.value;
+	});
+	return _el$15;
+} }), false);
 const spreadValue = _el$7;
 var _el$8 = _tmpl$2();
-_$insert(
-  _el$8,
-  _$createComponent(Comp, {
-    get fallback() {
-      return _tmpl$9();
-    }
-  })
-);
+_$insert(_el$8, _$createComponent(Comp, { get fallback() {
+	return _tmpl$9();
+} }));
 const propValue = _el$8;
 _$delegateEvents(["click"]);

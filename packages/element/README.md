@@ -13,7 +13,7 @@ This library extends [Solid](https://github.com/solidjs/solid) by adding Custom 
 ## Installation
 
 ```sh
-npm i solid-element solid-js @solidjs/babel-plugin-jsx
+npm i solid-element solid-js @solidjs/babel-plugin
 ```
 
 ## Custom Elements

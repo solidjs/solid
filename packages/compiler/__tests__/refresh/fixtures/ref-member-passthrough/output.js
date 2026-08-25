@@ -7,18 +7,13 @@ const _REGISTRY = _$$registry();
 // member-expression `ref` passes through verbatim for the runtime's
 // own typeof-guarded ref handling. The crash in #77 only exists in the
 // plugin's `jsx: true` extraction, which the native pass rejects.
-export const InlineTextArea = _$$component(
-  _REGISTRY,
-  "InlineTextArea",
-  props => {
-    return <input ref={props.setRef} />;
-  },
-  {
-    location: "src/ref-member-passthrough.jsx:6:30",
-    signature: "59b78901"
-  }
-);
+export const InlineTextArea = _$$component(_REGISTRY, "InlineTextArea", (props) => {
+	return <input ref={props.setRef} />;
+}, {
+	location: "src/ref-member-passthrough.jsx:6:30",
+	signature: "59b78901"
+});
 if (import.meta.hot) {
-  import.meta.hot.accept();
-  _$$refresh("vite", import.meta.hot, _REGISTRY);
+	import.meta.hot.accept();
+	_$$refresh("vite", import.meta.hot, _REGISTRY);
 }

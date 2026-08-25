@@ -7,7 +7,7 @@ const { transform } = require("../index");
 // to one guarded `_$ssrClaim` hole per element instead of dropping.
 const babelFixtures = path.resolve(
   __dirname,
-  "../../babel-plugin-jsx/test/__ssr_server_components_fixtures__"
+  "../../babel-plugin/test/__ssr_server_components_fixtures__"
 );
 const oxcFixtures = path.resolve(__dirname, "fixtures/ssr-server-components");
 

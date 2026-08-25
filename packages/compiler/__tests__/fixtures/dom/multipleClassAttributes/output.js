@@ -12,12 +12,9 @@ const dynamicClass = () => "dyn";
 const flag = true;
 const t1 = _tmpl$();
 var _el$2 = _tmpl$2();
-_$effect(
-  () => dynamicClass(),
-  (_v$, _$p) => {
-    _$className(_el$2, _v$, _$p);
-  }
-);
+_$effect(() => dynamicClass(), (_v$, _$p) => {
+	_$className(_el$2, _v$, _$p);
+});
 const t2 = _el$2;
 const t3 = _tmpl$3();
 const t4 = _tmpl$4();

@@ -15,17 +15,12 @@ const First = _$$component(_REGISTRY, "First", () => 1, {
     signature: "2e575e07"
   }),
   second = 2,
-  Third = _$$component(
-    _REGISTRY,
-    "Third",
-    function Named() {
-      return 3;
-    },
-    {
-      location: "src/decl-kinds.jsx:5:10",
-      signature: "65448e43"
-    }
-  );
+  Third = _$$component(_REGISTRY, "Third", function Named() {
+    return 3;
+  }, {
+    location: "src/decl-kinds.jsx:5:10",
+    signature: "65448e43"
+  });
 export default function () {
   return <div>anon</div>;
 }

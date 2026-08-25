@@ -519,7 +519,8 @@ describe("Tagged JSX Integration Tests", () => {
 
     it("handles whitespace-only templates", () =>
       createRoot(dispose => {
-        const result = html``;
+        // prettier-ignore
+        const result = html`   `;
         expect(result).toBe("   ");
         dispose();
       }));

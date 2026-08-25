@@ -7,8 +7,8 @@
 // Same-module component tags stay excluded: their `$$component` proxy gets a
 // new identity on every re-execution, so counting them would remount
 // everything on every edit.
-import { Provider, Widget } from "./context";
-import * as NS from "./helpers";
+import { Provider, Widget } from './context';
+import * as NS from './helpers';
 
 export function Local() {
   return <div />;

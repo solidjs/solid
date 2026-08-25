@@ -18,7 +18,7 @@ const { transformRefresh } = require(compilerDir);
 
 // Normalization re-prints through @babel/core; use the sibling package's
 // install like the other parity harnesses (no extra devDependency).
-const babelPkgDir = path.resolve(compilerDir, "../babel-plugin-jsx");
+const babelPkgDir = path.resolve(compilerDir, "../babel-plugin");
 const babel = createRequire(path.join(babelPkgDir, "package.json"))("@babel/core");
 
 // How vite-plugin-solid invokes the plugin; fixtures override via

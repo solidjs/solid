@@ -10,32 +10,31 @@ var _tmpl$4 = /* @__PURE__ */ _$template(`<span>1`);
 var _tmpl$5 = /* @__PURE__ */ _$template(`<span>2`);
 var _tmpl$6 = /* @__PURE__ */ _$template(`<span>3`);
 const multiStatic = [_tmpl$(), _tmpl$2()];
-const multiExpression = [_tmpl$(), inserted, _tmpl$2(), "After"];
+const multiExpression = [
+	_tmpl$(),
+	inserted,
+	_tmpl$2(),
+	"After"
+];
 const multiDynamic = [
-  (() => {
-    var _el$5 = _tmpl$();
-    _$effect(
-      () => state.first,
-      _v$ => {
-        _$setAttribute(_el$5, "id", _v$);
-      }
-    );
-    return _el$5;
-  })(),
-  _$memo(() => {
-    return state.inserted;
-  }),
-  (() => {
-    var _el$6 = _tmpl$2();
-    _$effect(
-      () => state.last,
-      _v$ => {
-        _$setAttribute(_el$6, "id", _v$);
-      }
-    );
-    return _el$6;
-  })(),
-  "After"
+	(() => {
+		var _el$5 = _tmpl$();
+		_$effect(() => state.first, (_v$) => {
+			_$setAttribute(_el$5, "id", _v$);
+		});
+		return _el$5;
+	})(),
+	_$memo(() => {
+		return state.inserted;
+	}),
+	(() => {
+		var _el$6 = _tmpl$2();
+		_$effect(() => state.last, (_v$) => {
+			_$setAttribute(_el$6, "id", _v$);
+		});
+		return _el$6;
+	})(),
+	"After"
 ];
 const singleExpression = inserted;
 const singleDynamic = _$memo(inserted);
@@ -45,5 +44,15 @@ const firstComponent = [_$createComponent(Component, {}), _tmpl$3()];
 const lastStatic = [_tmpl$3(), inserted];
 const lastDynamic = [_tmpl$3(), _$memo(inserted)];
 const lastComponent = [_tmpl$3(), _$createComponent(Component, {})];
-const spaces = [_tmpl$4(), " ", _tmpl$5(), " ", _tmpl$6()];
-const multiLineTrailing = [_tmpl$4(), _tmpl$5(), _tmpl$6()];
+const spaces = [
+	_tmpl$4(),
+	" ",
+	_tmpl$5(),
+	" ",
+	_tmpl$6()
+];
+const multiLineTrailing = [
+	_tmpl$4(),
+	_tmpl$5(),
+	_tmpl$6()
+];

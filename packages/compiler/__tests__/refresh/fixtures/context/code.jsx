@@ -1,6 +1,6 @@
-import { createContext, createSignal } from "solid-js";
+import { createContext, createSignal } from 'solid-js';
 
-export const ThemeContext = createContext({ theme: "light" });
+export const ThemeContext = createContext({ theme: 'light' });
 const InternalContext = createContext();
 // Non-componentish name still registers (createContext is matched by callee).
 const lower_ctx = createContext(1);

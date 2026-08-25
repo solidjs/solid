@@ -10,23 +10,14 @@ var _el$6 = _el$4.nextSibling;
 var [_el$7, _el$8] = _$getNextMarker(_el$6.nextSibling);
 var _el$9 = _el$7.nextSibling;
 _$insert(_el$, _$createComponent(Component, {}), _el$4, _el$5);
-_$insert(
-  _el$,
-  () => {
-    return state.interpolation;
-  },
-  _el$7,
-  _el$8
-);
+_$insert(_el$, () => {
+	return state.interpolation;
+}, _el$7, _el$8);
 const template = _el$;
-const template2 = _$createComponent(Component, {
-  get children() {
-    return _$getNextElement();
-  }
-});
-const template3 = _$createComponent(Component, {
-  get children() {
-    return [_$getNextElement(), _$getNextElement()];
-  }
-});
+const template2 = _$createComponent(Component, { get children() {
+	return _$getNextElement();
+} });
+const template3 = _$createComponent(Component, { get children() {
+	return [_$getNextElement(), _$getNextElement()];
+} });
 const template4 = _$getNextElement();

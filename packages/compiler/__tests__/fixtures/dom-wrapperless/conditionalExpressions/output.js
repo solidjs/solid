@@ -8,7 +8,7 @@ _$insert(_el$, simple);
 const template1 = _el$;
 var _el$2 = _tmpl$();
 _$insert(_el$2, () => {
-  return state.dynamic;
+	return state.dynamic;
 });
 const template2 = _el$2;
 var _el$3 = _tmpl$();
@@ -16,182 +16,156 @@ _$insert(_el$3, simple ? good : bad);
 const template3 = _el$3;
 var _el$4 = _tmpl$();
 _$insert(_el$4, () => {
-  return simple ? good() : bad;
+	return simple ? good() : bad;
 });
 const template4 = _el$4;
 var _el$5 = _tmpl$();
 _$insert(_el$5, () => {
-  return state.dynamic ? good() : bad;
+	return state.dynamic ? good() : bad;
 });
 const template5 = _el$5;
 var _el$6 = _tmpl$();
 _$insert(_el$6, () => {
-  return state.dynamic && good();
+	return state.dynamic && good();
 });
 const template6 = _el$6;
 var _el$7 = _tmpl$();
 _$insert(_el$7, () => {
-  return state.count > 5 ? (state.dynamic ? best : good()) : bad;
+	return state.count > 5 ? state.dynamic ? best : good() : bad;
 });
 const template7 = _el$7;
 var _el$8 = _tmpl$();
 _$insert(_el$8, () => {
-  return state.dynamic && state.something && good();
+	return state.dynamic && state.something && good();
 });
 const template8 = _el$8;
 var _el$9 = _tmpl$();
 _$insert(_el$9, () => {
-  return (state.dynamic && good()) || bad;
+	return state.dynamic && good() || bad;
 });
 const template9 = _el$9;
 var _el$10 = _tmpl$();
 _$insert(_el$10, () => {
-  return state.a ? "a" : state.b ? "b" : state.c ? "c" : "fallback";
+	return state.a ? "a" : state.b ? "b" : state.c ? "c" : "fallback";
 });
 const template10 = _el$10;
 var _el$11 = _tmpl$();
 _$insert(_el$11, () => {
-  return state.a ? a() : state.b ? b() : state.c ? "c" : "fallback";
+	return state.a ? a() : state.b ? b() : state.c ? "c" : "fallback";
 });
 const template11 = _el$11;
-const template12 = _$createComponent(Comp, {
-  get render() {
-    return state.dynamic ? good() : bad;
-  }
-});
+const template12 = _$createComponent(Comp, { get render() {
+	return state.dynamic ? good() : bad;
+} });
 // no dynamic predicate
-const template13 = _$createComponent(Comp, {
-  get render() {
-    return state.dynamic ? good : bad;
-  }
-});
-const template14 = _$createComponent(Comp, {
-  get render() {
-    return state.dynamic && good();
-  }
-});
+const template13 = _$createComponent(Comp, { get render() {
+	return state.dynamic ? good : bad;
+} });
+const template14 = _$createComponent(Comp, { get render() {
+	return state.dynamic && good();
+} });
 // no dynamic predicate
-const template15 = _$createComponent(Comp, {
-  get render() {
-    return state.dynamic && good;
-  }
-});
-const template16 = _$createComponent(Comp, {
-  get render() {
-    return state.dynamic || good();
-  }
-});
-const template17 = _$createComponent(Comp, {
-  get render() {
-    return state.dynamic ? _$createComponent(Comp, {}) : _$createComponent(Comp, {});
-  }
-});
-const template18 = _$createComponent(Comp, {
-  get children() {
-    return state.dynamic ? _$createComponent(Comp, {}) : _$createComponent(Comp, {});
-  }
-});
+const template15 = _$createComponent(Comp, { get render() {
+	return state.dynamic && good;
+} });
+const template16 = _$createComponent(Comp, { get render() {
+	return state.dynamic || good();
+} });
+const template17 = _$createComponent(Comp, { get render() {
+	return state.dynamic ? _$createComponent(Comp, {}) : _$createComponent(Comp, {});
+} });
+const template18 = _$createComponent(Comp, { get children() {
+	return state.dynamic ? _$createComponent(Comp, {}) : _$createComponent(Comp, {});
+} });
 var _el$12 = _tmpl$();
 _el$12.innerHTML = state.dynamic ? _$createComponent(Comp, {}) : _$createComponent(Comp, {});
 const template19 = _el$12;
 var _el$13 = _tmpl$();
 _$insert(_el$13, () => {
-  return state.dynamic ? _$createComponent(Comp, {}) : _$createComponent(Comp, {});
+	return state.dynamic ? _$createComponent(Comp, {}) : _$createComponent(Comp, {});
 });
 const template20 = _el$13;
-const template21 = _$createComponent(Comp, {
-  get render() {
-    return state?.dynamic ? "a" : "b";
-  }
-});
-const template22 = _$createComponent(Comp, {
-  get children() {
-    return state?.dynamic ? "a" : "b";
-  }
-});
+const template21 = _$createComponent(Comp, { get render() {
+	return state?.dynamic ? "a" : "b";
+} });
+const template22 = _$createComponent(Comp, { get children() {
+	return state?.dynamic ? "a" : "b";
+} });
 var _el$14 = _tmpl$();
 _el$14.innerHTML = state?.dynamic ? "a" : "b";
 const template23 = _el$14;
 var _el$15 = _tmpl$();
 _$insert(_el$15, () => {
-  return state?.dynamic ? "a" : "b";
+	return state?.dynamic ? "a" : "b";
 });
 const template24 = _el$15;
-const template25 = _$createComponent(Comp, {
-  get render() {
-    return state.dynamic ?? _$createComponent(Comp, {});
-  }
-});
-const template26 = _$createComponent(Comp, {
-  get children() {
-    return state.dynamic ?? _$createComponent(Comp, {});
-  }
-});
+const template25 = _$createComponent(Comp, { get render() {
+	return state.dynamic ?? _$createComponent(Comp, {});
+} });
+const template26 = _$createComponent(Comp, { get children() {
+	return state.dynamic ?? _$createComponent(Comp, {});
+} });
 var _el$16 = _tmpl$();
 _el$16.innerHTML = state.dynamic ?? _$createComponent(Comp, {});
 const template27 = _el$16;
 var _el$17 = _tmpl$();
 _$insert(_el$17, () => {
-  return state.dynamic ?? _$createComponent(Comp, {});
+	return state.dynamic ?? _$createComponent(Comp, {});
 });
 const template28 = _el$17;
 var _el$18 = _tmpl$();
 _$insert(_el$18, () => {
-  return (thing() && thing1()) ?? thing2() ?? thing3();
+	return (thing() && thing1()) ?? thing2() ?? thing3();
 });
 const template29 = _el$18;
 var _el$19 = _tmpl$();
 _$insert(_el$19, () => {
-  return thing() || thing1() || thing2();
+	return thing() || thing1() || thing2();
 });
 const template30 = _el$19;
-const template31 = _$createComponent(Comp, {
-  get value() {
-    return count() ? (count() ? count() : count()) : count();
-  }
-});
+const template31 = _$createComponent(Comp, { get value() {
+	return count() ? count() ? count() : count() : count();
+} });
 var _el$20 = _tmpl$();
 _$insert(_el$20, () => {
-  return something?.();
+	return something?.();
 });
 const template32 = _el$20;
-const template33 = _$createComponent(Comp, {
-  get children() {
-    return something?.();
-  }
-});
+const template33 = _$createComponent(Comp, { get children() {
+	return something?.();
+} });
 const template34 = simple ? good : bad;
 const template35 = () => {
-  return simple ? good() : bad;
+	return simple ? good() : bad;
 };
 const template36 = () => {
-  return state.dynamic ? good() : bad;
+	return state.dynamic ? good() : bad;
 };
 const template37 = () => {
-  return state.dynamic && good();
+	return state.dynamic && good();
 };
 const template38 = () => {
-  return state.count > 5 ? (state.dynamic ? best : good()) : bad;
+	return state.count > 5 ? state.dynamic ? best : good() : bad;
 };
 const template39 = () => {
-  return state.dynamic && state.something && good();
+	return state.dynamic && state.something && good();
 };
 const template40 = () => {
-  return (state.dynamic && good()) || bad;
+	return state.dynamic && good() || bad;
 };
 const template41 = () => {
-  return state.a ? "a" : state.b ? "b" : state.c ? "c" : "fallback";
+	return state.a ? "a" : state.b ? "b" : state.c ? "c" : "fallback";
 };
 const template42 = () => {
-  return state.a ? a() : state.b ? b() : state.c ? "c" : "fallback";
+	return state.a ? a() : state.b ? b() : state.c ? "c" : "fallback";
 };
 const template43 = () => {
-  return obj1.prop ? (obj2.prop ? _tmpl$2() : []) : [];
+	return obj1.prop ? obj2.prop ? _tmpl$2() : [] : [];
 };
 // statically boolean left: memo value IS the expression value, logical form kept
 const template77 = () => {
-  return state.count > 5 && good();
+	return state.count > 5 && good();
 };
 const template77a = () => {
-  return !state.hidden && good.good;
+	return !state.hidden && good.good;
 };

@@ -99,6 +99,6 @@ _$insertNode(_el$32, _el$33);
 _$insert(_el$32, expr, _el$33);
 const trailingSpaceElement = _el$32;
 const escapeAttribute = _$createElement("div", {
-  normal: "Search&hellip;",
-  title: "Search&hellip;"
+	normal: "Search&hellip;",
+	title: "Search&hellip;"
 });

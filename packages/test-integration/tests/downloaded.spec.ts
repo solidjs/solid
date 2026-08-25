@@ -79,9 +79,9 @@ describe("Downloaded tests", () => {
       rm("-rf", resolve(join(__dirname, "./fixtures/downloaded")));
     }
 
-    // package solid and @solidjs/babel-plugin-jsx
+    // package solid and @solidjs/babel-plugin
     packedSolidPkg = pack(resolve(__dirname, "../../solid"));
-    packedBabelSolidPkg = pack(resolve(__dirname, "../../babel-plugin-jsx"));
+    packedBabelSolidPkg = pack(resolve(__dirname, "../../babel-plugin"));
     dependencies = [packedSolidPkg, packedBabelSolidPkg];
   });
 

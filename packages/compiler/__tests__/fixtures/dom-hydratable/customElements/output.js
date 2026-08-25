@@ -16,30 +16,27 @@ _el$._$owner = _$getOwner();
 const template = _el$;
 var _el$2 = _$getNextElement(_tmpl$);
 _el$2._$owner = _$getOwner();
-_$effect(
-  () => {
-    return {
-      e: state.name,
-      t: state.data,
-      a: state.data,
-      o: state.data
-    };
-  },
-  ({ e, t, a, o }, _p$) => {
-    e !== _p$?.e && _$setAttribute(_el$2, "some-attr", e);
-    t !== _p$?.t && _$setAttribute(_el$2, "notProp", t);
-    a !== _p$?.a && _$setAttribute(_el$2, "my-attr", a);
-    o !== _p$?.o && (_el$2.someProp = o);
-  }
-);
+_$effect(() => {
+	return {
+		e: state.name,
+		t: state.data,
+		a: state.data,
+		o: state.data
+	};
+}, ({ e, t, a, o }, _p$) => {
+	e !== _p$?.e && _$setAttribute(_el$2, "some-attr", e);
+	t !== _p$?.t && _$setAttribute(_el$2, "notProp", t);
+	a !== _p$?.a && _$setAttribute(_el$2, "my-attr", a);
+	o !== _p$?.o && (_el$2.someProp = o);
+});
 const template2 = _el$2;
 var _el$3 = _$getNextElement(_tmpl$2);
 _el$3._$owner = _$getOwner();
 const template3 = _el$3;
 const template4 = (() => {
-  var _el$4 = _$getNextElement(_tmpl$3);
-  _el$4._$owner = _$getOwner();
-  return _el$4;
+	var _el$4 = _$getNextElement(_tmpl$3);
+	_el$4._$owner = _$getOwner();
+	return _el$4;
 })();
 var _el$5 = _$getNextElement(_tmpl$4);
 _el$5._$owner = _$getOwner();

@@ -4,7 +4,7 @@ const { transform } = require("../index");
 
 const babelSsrHydratableFixtures = path.resolve(
   __dirname,
-  "../../babel-plugin-jsx/test/__ssr_hydratable_fixtures__"
+  "../../babel-plugin/test/__ssr_hydratable_fixtures__"
 );
 const oxcSsrHydratableFixtures = path.resolve(__dirname, "fixtures/ssr-hydratable");
 

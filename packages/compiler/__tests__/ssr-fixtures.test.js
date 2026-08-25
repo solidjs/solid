@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { transform } = require("../index");
 
-const babelSsrFixtures = path.resolve(__dirname, "../../babel-plugin-jsx/test/__ssr_fixtures__");
+const babelSsrFixtures = path.resolve(__dirname, "../../babel-plugin/test/__ssr_fixtures__");
 const oxcSsrFixtures = path.resolve(__dirname, "fixtures/ssr");
 
 const fixtureParity = {

@@ -1,13 +1,13 @@
 {
-  "name": "@solidjs/babel-plugin-jsx",
-  "description": "Babel plugin that compiles Solid JSX to fine-grained DOM updates",
+  "name": "@solidjs/babel-plugin",
+  "description": "Babel compiler plugin for Solid templates",
   "version": "2.0.0-rc.2",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/solidjs/solid.git",
-    "directory": "packages/babel-plugin-jsx"
+    "directory": "packages/babel-plugin"
   },
   "main": "index.js",
   "sideEffects": false,

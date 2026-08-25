@@ -107,11 +107,9 @@ var _el$56 = _el$55.nextSibling;
 var [_el$57, _el$58] = _$getNextMarker(_el$56.nextSibling);
 _$insert(_el$54, expr, _el$57, _el$58);
 const leadingSpaceElement = _el$54;
-const leadingSpaceComponent = _$createComponent(Div, {
-  get children() {
-    return [" ", expr];
-  }
-});
+const leadingSpaceComponent = _$createComponent(Div, { get children() {
+	return [" ", expr];
+} });
 const leadingSpaceFragment = [" ", expr];
 var _el$59 = _$getNextElement(_tmpl$17);
 var _el$60 = _el$59.firstChild;
@@ -119,27 +117,20 @@ var [_el$61, _el$62] = _$getNextMarker(_el$60.nextSibling);
 var _el$63 = _el$61.nextSibling;
 _$insert(_el$59, expr, _el$61, _el$62);
 const trailingSpaceElement = _el$59;
-const trailingSpaceComponent = _$createComponent(Div, {
-  get children() {
-    return [expr, " "];
-  }
-});
+const trailingSpaceComponent = _$createComponent(Div, { get children() {
+	return [expr, " "];
+} });
 const trailingSpaceFragment = [expr, " "];
 const escapeAttribute = _$getNextElement(_tmpl$18);
 const escapeCompAttribute = _$createComponent(Div, {
-  normal: "Search…",
-  title: "Search&hellip;"
+	normal: "Search…",
+	title: "Search&hellip;"
 });
 var _el$65 = _$getNextElement(_tmpl$19);
 var _el$66 = _el$65.firstChild;
 var _el$67 = _el$66.nextSibling;
 var [_el$68, _el$69] = _$getNextMarker(_el$67.nextSibling);
-_$insert(
-  _el$65,
-  _$scope(() => {
-    return expr();
-  }),
-  _el$68,
-  _el$69
-);
+_$insert(_el$65, _$scope(() => {
+	return expr();
+}), _el$68, _el$69);
 const lastElementExpression = _el$65;

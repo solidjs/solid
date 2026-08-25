@@ -251,7 +251,7 @@ not commitments — promote them only if the Tier-2 work demands it.
    100-cycle warmup and `--expose-gc`. The repo runs Solid 1.x and
    `solid-next` (2.0) side-by-side via parallel `solid/` and
    `solid-next/` entries with `file:` workspace dependencies for
-   `@solidjs/web` / `@solidjs/babel-plugin-jsx`, so every SSR run gives us
+   `@solidjs/web` / `@solidjs/babel-plugin`, so every SSR run gives us
    the 1.x→2.0 delta on `renderToString` plus React/Inferno
    competitors.
 

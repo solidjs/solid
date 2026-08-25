@@ -349,19 +349,17 @@ function requireBinding() {
     if (next.error) nativeError = next.error;
   }
 
-  if (!nativeError) {
-    const localCandidates = [];
-    if (suffix) localCandidates.push(`compiler.${suffix}.node`);
-    localCandidates.push("compiler.node");
-    for (const file of localCandidates) {
-      const full = path.join(__dirname, file);
-      if (fs.existsSync(full)) {
-        try {
-          return require(full);
-        } catch (error) {
-          nativeError = error;
-          break;
-        }
+  const localCandidates = [];
+  if (suffix) localCandidates.push(`compiler.${suffix}.node`);
+  localCandidates.push("compiler.node");
+  for (const file of localCandidates) {
+    const full = path.join(__dirname, file);
+    if (fs.existsSync(full)) {
+      try {
+        return require(full);
+      } catch (error) {
+        nativeError = error;
+        break;
       }
     }
   }

@@ -15,7 +15,7 @@ overrides:
   '@solidjs/signals': workspace:*
   solid-js: workspace:*
   '@solidjs/web': workspace:*
-  '@solidjs/babel-plugin-jsx': workspace:*
+  '@solidjs/babel-plugin': workspace:*
   # Platform binaries are not on the registry until the binaries workflow
   # publishes them; link in-repo stubs so frozen CI installs resolve.
   '@solidjs/compiler-darwin-x64': 'link:packages/compiler/npm/darwin-x64'

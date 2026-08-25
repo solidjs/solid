@@ -2,7 +2,10 @@ import { createServerReference as createServerReference_1 } from "@solidjs/web/s
 import { registerServerReference as registerServerReference_1 } from "@solidjs/web/server-functions";
 import { rows, meta, cursor, seed } from "./db";
 const names = [];
-for (const { meta: meta, name: name } of rows) {
+for (const {
+  meta: meta,
+  name: name
+} of rows) {
   names.push(name);
 }
 for (let index = 0, cursor = seed(); index < names.length; index++) {

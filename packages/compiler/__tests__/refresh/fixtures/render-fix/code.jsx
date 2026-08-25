@@ -1,6 +1,6 @@
-import { render, hydrate } from "@solidjs/web";
-import * as web from "@solidjs/web";
-import { render as domRender } from "solid-js/web";
+import { render, hydrate } from '@solidjs/web';
+import * as web from '@solidjs/web';
+import { render as domRender } from 'solid-js/web';
 
 render(() => 1, document.body);
 hydrate(() => 2, document.body);

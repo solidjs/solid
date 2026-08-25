@@ -8,7 +8,7 @@ overrides:
   '@solidjs/signals': workspace:*
   solid-js: workspace:*
   '@solidjs/web': workspace:*
-  '@solidjs/babel-plugin-jsx': workspace:*
+  '@solidjs/babel-plugin': workspace:*
   '@solidjs/compiler-darwin-x64': link:packages/compiler/npm/darwin-x64
   '@solidjs/compiler-darwin-arm64': link:packages/compiler/npm/darwin-arm64
   '@solidjs/compiler-linux-x64-gnu': link:packages/compiler/npm/linux-x64-gnu
@@ -50,9 +50,9 @@ importers:
       '@rollup/plugin-replace':
         specifier: ^5.0.2
         version: 5.0.7(rollup@4.59.0)
-      '@solidjs/babel-plugin-jsx':
+      '@solidjs/babel-plugin':
         specifier: workspace:*
-        version: link:packages/babel-plugin-jsx
+        version: link:packages/babel-plugin
       '@solidjs/vite-plugin':
         specifier: 3.0.0-next.30
         version: 3.0.0-next.30(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
@@ -298,7 +298,7 @@ importers:
         specifier: ^7.0.0
         version: 7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0)
 
-  packages/babel-plugin-jsx:
+  packages/babel-plugin:
     dependencies:
       '@babel/helper-module-imports':
         specifier: 7.18.6
@@ -459,9 +459,9 @@ importers:
 
   packages/test-integration:
     dependencies:
-      '@solidjs/babel-plugin-jsx':
+      '@solidjs/babel-plugin':
         specifier: workspace:*
-        version: link:../babel-plugin-jsx
+        version: link:../babel-plugin
       '@solidjs/h':
         specifier: workspace:*
         version: link:../h

@@ -13,7 +13,7 @@ const path = require("path");
 const { createRequire } = require("module");
 
 const compilerDir = path.resolve(__dirname, "../..");
-const babelPkgDir = path.resolve(compilerDir, "../babel-plugin-jsx");
+const babelPkgDir = path.resolve(compilerDir, "../babel-plugin");
 const babelTestDir = path.join(babelPkgDir, "test");
 
 const requireBabelPkg = createRequire(path.join(babelPkgDir, "package.json"));
@@ -58,7 +58,7 @@ const domElements = [
   "video"
 ];
 
-// Option sets mirror the per-mode suites in packages/babel-plugin-jsx/test/
+// Option sets mirror the per-mode suites in packages/babel-plugin/test/
 // and packages/compiler/__tests__/. Fixtures are discovered from the
 // Babel fixture directories so new fixtures automatically join the parity
 // suite.
@@ -459,7 +459,7 @@ function compareFixture(mode, fixture) {
   try {
     babelRaw = compileBabel(source, options);
   } catch (err) {
-    throw new Error(`babel-plugin-jsx failed on ${mode}/${fixture}: ${err.message}`);
+    throw new Error(`babel-plugin failed on ${mode}/${fixture}: ${err.message}`);
   }
   try {
     oxcRaw = compileOxc(source, fixture, options);

@@ -1,6 +1,6 @@
 # @solidjs/compiler
 
-Solid 2.0's native Oxc JSX compiler. Integrations call `transform()` once per source module; this package is not a Vite, Rollup, or Babel plugin by itself. The JavaScript fallback is [`@solidjs/babel-plugin-jsx`](../babel-plugin-jsx).
+Solid 2.0's native Oxc JSX compiler. Integrations call `transform()` once per source module; this package is not a Vite, Rollup, or Babel plugin by itself. The JavaScript fallback is [`@solidjs/babel-plugin`](../babel-plugin).
 
 > **Solid 2.0 (Release Candidate).** Pin exact versions. The Node `transform()` interface is the supported public contract; the Rust `compile` API is unstable.
 
@@ -21,7 +21,7 @@ A WASI fallback covers environments such as StackBlitz WebContainers, where Node
 
 ## Usage
 
-Omitted options match `@solidjs/babel-plugin-jsx` (and the old `babel-preset-solid`): `moduleName` is `"@solidjs/web"`, `generate` is `"dom"`, and control-flow tags (`For`, `Show`, `Switch`, `Match`, `Loading`, `Reveal`, `Portal`, `Repeat`, `Dynamic`, `Errored`) are auto-imported from that module.
+Omitted options match `@solidjs/babel-plugin` (and the old `babel-preset-solid`): `moduleName` is `"@solidjs/web"`, `generate` is `"dom"`, and control-flow tags (`For`, `Show`, `Switch`, `Match`, `Loading`, `Reveal`, `Portal`, `Repeat`, `Dynamic`, `Errored`) are auto-imported from that module.
 
 ```js
 const { transform } = require("@solidjs/compiler");
@@ -147,10 +147,10 @@ let output = compile(
 
 ## Performance
 
-Compared against `@solidjs/babel-plugin-jsx` compiling identical sources under identical options (Apple M5, 10 cores, 32 GB RAM, Node 26, release build, in-process, median of 7 iterations after warmup — run `pnpm bench` in this package to reproduce):
+Compared against `@solidjs/babel-plugin` compiling identical sources under identical options (Apple M5, 10 cores, 32 GB RAM, Node 26, release build, in-process, median of 7 iterations after warmup — run `pnpm bench` in this package to reproduce):
 
-| Workload                                        | babel-plugin-jsx | compiler | Speedup |
-| ----------------------------------------------- | ---------------: | -------: | ------: |
+| Workload                                        | babel-plugin | compiler | Speedup |
+| ----------------------------------------------- | -----------: | -------: | ------: |
 | Fixture corpus (88 files, 175 KB, all 10 modes) |           440 ms |    19 ms |     23x |
 | 129 KB single module                            |           545 ms |   9.4 ms |     58x |
 | 1 MB single module                              |        24,975 ms |    70 ms |    355x |

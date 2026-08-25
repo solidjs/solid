@@ -11,32 +11,31 @@ var _tmpl$4 = /* @__PURE__ */ _$template(`<span>1`);
 var _tmpl$5 = /* @__PURE__ */ _$template(`<span>2`);
 var _tmpl$6 = /* @__PURE__ */ _$template(`<span>3`);
 const multiStatic = [_$getNextElement(_tmpl$), _$getNextElement(_tmpl$2)];
-const multiExpression = [_$getNextElement(_tmpl$), inserted, _$getNextElement(_tmpl$2), "After"];
+const multiExpression = [
+	_$getNextElement(_tmpl$),
+	inserted,
+	_$getNextElement(_tmpl$2),
+	"After"
+];
 const multiDynamic = [
-  (() => {
-    var _el$5 = _$getNextElement(_tmpl$);
-    _$effect(
-      () => state.first,
-      _v$ => {
-        _$setAttribute(_el$5, "id", _v$);
-      }
-    );
-    return _el$5;
-  })(),
-  _$memo(() => {
-    return state.inserted;
-  }),
-  (() => {
-    var _el$6 = _$getNextElement(_tmpl$2);
-    _$effect(
-      () => state.last,
-      _v$ => {
-        _$setAttribute(_el$6, "id", _v$);
-      }
-    );
-    return _el$6;
-  })(),
-  "After"
+	(() => {
+		var _el$5 = _$getNextElement(_tmpl$);
+		_$effect(() => state.first, (_v$) => {
+			_$setAttribute(_el$5, "id", _v$);
+		});
+		return _el$5;
+	})(),
+	_$memo(() => {
+		return state.inserted;
+	}),
+	(() => {
+		var _el$6 = _$getNextElement(_tmpl$2);
+		_$effect(() => state.last, (_v$) => {
+			_$setAttribute(_el$6, "id", _v$);
+		});
+		return _el$6;
+	})(),
+	"After"
 ];
 const singleExpression = inserted;
 const singleDynamic = _$memo(inserted);
@@ -47,14 +46,14 @@ const lastStatic = [_$getNextElement(_tmpl$3), inserted];
 const lastDynamic = [_$getNextElement(_tmpl$3), _$memo(inserted)];
 const lastComponent = [_$getNextElement(_tmpl$3), _$createComponent(Component, {})];
 const spaces = [
-  _$getNextElement(_tmpl$4),
-  " ",
-  _$getNextElement(_tmpl$5),
-  " ",
-  _$getNextElement(_tmpl$6)
+	_$getNextElement(_tmpl$4),
+	" ",
+	_$getNextElement(_tmpl$5),
+	" ",
+	_$getNextElement(_tmpl$6)
 ];
 const multiLineTrailing = [
-  _$getNextElement(_tmpl$4),
-  _$getNextElement(_tmpl$5),
-  _$getNextElement(_tmpl$6)
+	_$getNextElement(_tmpl$4),
+	_$getNextElement(_tmpl$5),
+	_$getNextElement(_tmpl$6)
 ];

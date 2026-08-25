@@ -1,4 +1,4 @@
-import { withStyles, connect } from "./hoc";
+import { withStyles, connect } from './hoc';
 
 // Frozen plugin behavior: an inline component inside an arbitrary HOC call
 // is NOT registered (only TS wrappers like `as`/`!`/`satisfies` are peeled;

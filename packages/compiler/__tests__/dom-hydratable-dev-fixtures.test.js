@@ -4,7 +4,7 @@ const { transform } = require("../index");
 
 const babelDomHydratableDevFixtures = path.resolve(
   __dirname,
-  "../../babel-plugin-jsx/test/__dom_hydratable_dev_fixtures__"
+  "../../babel-plugin/test/__dom_hydratable_dev_fixtures__"
 );
 const oxcDomHydratableDevFixtures = path.resolve(__dirname, "fixtures/dom-hydratable-dev");
 

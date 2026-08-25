@@ -1,4 +1,4 @@
-import { lazy } from "react";
+import { lazy } from 'react';
 
-const E = lazy(() => import("./E"));
+const E = lazy(() => import('./E'));
 export default E;

@@ -48,7 +48,7 @@ both sides, with the slot reserved at registration (one parent slot each;
 content nests under it):
 
 - Predicates: `canChildSlotAllocateIds` (shared in
-  `babel-plugin-jsx/src/shared/utils.ts`) + the transform's own `dynamic`
+  `babel-plugin/src/shared/utils.ts`) + the transform's own `dynamic`
   flag, used identically by **both** generates so marking cannot desync.
   (An earlier `isDeferredChildSlotExpression` predicate keyed off the
   *transformed* expression shape and desynced: the dom generate simplifies

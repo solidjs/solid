@@ -4,7 +4,7 @@ const { transform } = require("../index");
 
 const babelDynamicFixtures = path.resolve(
   __dirname,
-  "../../babel-plugin-jsx/test/__dynamic_fixtures__"
+  "../../babel-plugin/test/__dynamic_fixtures__"
 );
 const oxcDynamicFixtures = path.resolve(__dirname, "fixtures/dynamic");
 

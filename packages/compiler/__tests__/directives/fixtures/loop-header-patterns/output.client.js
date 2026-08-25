@@ -7,10 +7,10 @@ import { rows } from "./db";
 // loops keep iterating.
 const names = [];
 for (const { name } of rows) {
-  names.push(name);
+	names.push(name);
 }
 for (let index = 0; index < names.length; index++) {
-  names.push(index);
+	names.push(index);
 }
 export const summarize = createServerReference_1("a02335a-0");
 export const keep = () => names;

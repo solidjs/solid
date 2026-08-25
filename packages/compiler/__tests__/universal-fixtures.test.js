@@ -4,7 +4,7 @@ const { transform } = require("../index");
 
 const babelUniversalFixtures = path.resolve(
   __dirname,
-  "../../babel-plugin-jsx/test/__universal_fixtures__"
+  "../../babel-plugin/test/__universal_fixtures__"
 );
 const oxcUniversalFixtures = path.resolve(__dirname, "fixtures/universal");
 

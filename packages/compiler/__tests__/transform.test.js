@@ -2,7 +2,7 @@ const { transform } = require("../index");
 const fs = require("fs");
 const path = require("path");
 
-const babelDomFixtures = path.resolve(__dirname, "../../babel-plugin-jsx/test/__dom_fixtures__");
+const babelDomFixtures = path.resolve(__dirname, "../../babel-plugin/test/__dom_fixtures__");
 
 function readFixture(name) {
   return fs.readFileSync(path.join(babelDomFixtures, name, "code.js"), "utf8");

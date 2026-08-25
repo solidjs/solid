@@ -8,10 +8,10 @@ import { rows, meta } from "./db";
 // `left`), so the native pass's valid output is the spec.
 const count = [];
 for (const { meta } of rows) {
-  count.push(1);
+	count.push(1);
 }
 const serverFunction_1 = registerServerReference_1("4691ef5d-0", async () => {
-  return meta.version;
+	return meta.version;
 });
 export const version = createServerReference_1(serverFunction_1);
 export const keep = () => count.length;

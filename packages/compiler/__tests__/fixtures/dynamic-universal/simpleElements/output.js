@@ -6,8 +6,8 @@ var _el$2 = _$createElement("style");
 var _el$3 = _$createElement("h1");
 var _el$4 = _$createElement("label", { for: "entry" });
 var _el$5 = _$createElement("input", {
-  id: "entry",
-  type: "text"
+	id: "entry",
+	type: "text"
 });
 _$insertNode(_el$, _el$2);
 _$insertNode(_el$, _el$3);

@@ -15,6 +15,33 @@ describe("binding loader", () => {
 
   const pathSep = require("path").sep;
 
+  test("uses a local build when the linked platform package has no binary", () => {
+    const nativePackage =
+      process.platform === "darwin"
+        ? `@solidjs/compiler-darwin-${process.arch}`
+        : process.platform === "linux"
+          ? `@solidjs/compiler-linux-${process.arch}-gnu`
+          : "@solidjs/compiler-win32-x64-msvc";
+    const originalLoad = Module._load;
+    Module._load = function (request, parent, isMain) {
+      if (request === nativePackage) {
+        const error = new Error(`Cannot find module '${request}/compiler.node'`);
+        error.code = "MODULE_NOT_FOUND";
+        throw error;
+      }
+      return originalLoad.call(this, request, parent, isMain);
+    };
+
+    try {
+      const compilerPath = require.resolve("..");
+      delete require.cache[compilerPath];
+      const compiler = require("..");
+      expect(compiler.transform("const value = 1").code).toContain("const value = 1");
+    } finally {
+      Module._load = originalLoad;
+    }
+  });
+
   test("falls back to WASI when native addons cannot load", () => {
     const forceWasi = process.env.NAPI_RS_FORCE_WASI;
     delete process.env.NAPI_RS_FORCE_WASI;

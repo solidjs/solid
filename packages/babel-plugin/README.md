@@ -1,6 +1,6 @@
-# @solidjs/babel-plugin-jsx
+# @solidjs/babel-plugin
 
-Solid 2.0's Babel JSX compiler. It lowers JSX to template clones, inserts, and reactive wrappers against `@solidjs/web` (or a custom renderer).
+Solid 2.0's Babel compiler integration. Configure this plugin once in a Babel pipeline; its current syntax frontend lowers JSX to template clones, inserts, and reactive wrappers against `@solidjs/web` (or a custom renderer).
 
 The native Oxc compiler — [`@solidjs/compiler`](../compiler) — is the default in `vite-plugin-solid`. Use this plugin when you need a Babel pipeline (or as the JavaScript fallback).
 
@@ -79,7 +79,7 @@ Omitted options are the Solid 2.0 defaults that used to live in `babel-preset-so
 {
   plugins: [
     [
-      "@solidjs/babel-plugin-jsx",
+      "@solidjs/babel-plugin",
       {
         moduleName: "@solidjs/web",
         generate: "dom",
@@ -208,7 +208,7 @@ Restrict JSX transformation to files whose `@jsxImportSource` pragma matches.
 {
   plugins: [
     [
-      "@solidjs/babel-plugin-jsx",
+      "@solidjs/babel-plugin",
       { requireImportSource: "@solidjs/web" }
     ]
   ]

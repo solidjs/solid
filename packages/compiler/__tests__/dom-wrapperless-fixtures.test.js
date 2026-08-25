@@ -4,7 +4,7 @@ const { transform } = require("../index");
 
 const babelDomWrapperlessFixtures = path.resolve(
   __dirname,
-  "../../babel-plugin-jsx/test/__dom_wrapperless_fixtures__"
+  "../../babel-plugin/test/__dom_wrapperless_fixtures__"
 );
 const oxcDomWrapperlessFixtures = path.resolve(__dirname, "fixtures/dom-wrapperless");
 

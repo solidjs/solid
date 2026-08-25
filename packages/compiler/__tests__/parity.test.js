@@ -61,7 +61,7 @@ describe("Babel vs Oxc compiler output parity", () => {
         );
         if (expected === "") {
           throw new Error(
-            `${mode}/${fixture} was at parity with babel-plugin-jsx but now diverges ` +
+            `${mode}/${fixture} was at parity with babel-plugin but now diverges ` +
               `(normalized diff below, babel = "-", oxc = "+").\n` +
               `If this divergence is intentional, regenerate expectations with ` +
               `UPDATE_PARITY=1 and commit ${relative}.\n\n${diff}`
@@ -69,12 +69,12 @@ describe("Babel vs Oxc compiler output parity", () => {
         }
         if (diff === "") {
           throw new Error(
-            `${mode}/${fixture} reached parity with babel-plugin-jsx. ` +
+            `${mode}/${fixture} reached parity with babel-plugin. ` +
               `Regenerate expectations with UPDATE_PARITY=1 to delete ${relative}.`
           );
         }
         throw new Error(
-          `${mode}/${fixture} diverges from babel-plugin-jsx differently than the ` +
+          `${mode}/${fixture} diverges from babel-plugin differently than the ` +
             `recorded expectation (babel = "-", oxc = "+").\n` +
             `Review the change; if intentional, regenerate with UPDATE_PARITY=1 ` +
             `and commit ${relative}.\n\n` +

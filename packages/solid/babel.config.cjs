@@ -9,7 +9,7 @@ module.exports = {
       ],
       plugins: [
         [
-          "@solidjs/babel-plugin-jsx",
+          "@solidjs/babel-plugin",
           {
             moduleName: path.join(__dirname, "../web/src/index"),
             contextToCustomElements: true,

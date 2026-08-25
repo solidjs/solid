@@ -3,7 +3,7 @@
 "@solidjs/h": minor
 "@solidjs/html": minor
 "@solidjs/universal": minor
-"@solidjs/babel-plugin-jsx": minor
+"@solidjs/babel-plugin": minor
 "@solidjs/compiler": minor
 ---
 

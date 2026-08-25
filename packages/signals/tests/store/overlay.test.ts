@@ -85,9 +85,10 @@ describe("overlay pending backings (#3044)", () => {
       });
       flush();
     }
-    // The quadratic clone regime measured ~350ms here; overlays take ~5ms.
-    // Generous bound so CI noise never flakes, while the O(N²) regime fails.
-    expect(performance.now() - start).toBeLessThan(150);
+    // The quadratic clone regime measured ~350ms here. Leave enough room for
+    // shared CI runners (which can push overlays near 200ms under the full
+    // workspace load) while keeping the O(N²) regime above the tripwire.
+    expect(performance.now() - start).toBeLessThan(250);
   });
 
   it("adoption resets overlay state: no crash and no stale view after a setter-return replacement", () => {

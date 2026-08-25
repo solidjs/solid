@@ -1,5 +1,5 @@
-import * as solid from "solid-js";
-import { createContext } from "solid-js/web";
+import * as solid from 'solid-js';
+import { createContext } from 'solid-js/web';
 
 export const A = solid.createContext(0);
 export const B = createContext({ deep: [1, 2] });

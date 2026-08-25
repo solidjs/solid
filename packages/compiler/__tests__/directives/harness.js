@@ -17,7 +17,7 @@ const { transformDirectives } = require(compilerDir);
 
 // Normalization re-prints through @babel/core; use the sibling package's
 // install like the JSX parity harness (no extra devDependency).
-const babelPkgDir = path.resolve(compilerDir, "../babel-plugin-jsx");
+const babelPkgDir = path.resolve(compilerDir, "../babel-plugin");
 const babel = createRequire(path.join(babelPkgDir, "package.json"))("@babel/core");
 
 // The compiler is pointed at the frozen runtime ABI:

@@ -41,10 +41,10 @@ The component body runs **once**. The `{doubled()}` expression is the only thing
 
 ```sh
 npm i solid-js @solidjs/web
-npm i -D @solidjs/babel-plugin-jsx
+npm i -D @solidjs/babel-plugin
 ```
 
-Add `@solidjs/babel-plugin-jsx` to your Babel config (or use Vite's Solid plugin), and set `tsconfig.json`:
+Add `@solidjs/babel-plugin` to your Babel config (or use Vite's Solid plugin), and set `tsconfig.json`:
 
 ```json
 {

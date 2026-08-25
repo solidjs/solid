@@ -20,7 +20,7 @@
 //
 //   UPDATE_PARITY=1 pnpm exec vitest run __tests__/cross-mode-parity.test.js
 //
-// Some Babel outputs are not even parseable JS (babel-plugin-jsx prints raw
+// Some Babel outputs are not even parseable JS (babel-plugin prints raw
 // newlines into universal-mode string props); those record a normalize-error
 // marker instead of a diff. Never hand-edit expectation files.
 
@@ -134,7 +134,7 @@ describe("cross-mode fixture-union parity", () => {
         const relative = path.relative(path.resolve(__dirname, "../.."), expectationPath(mode, id));
         if (expected === "") {
           throw new Error(
-            `${mode}/${id} was at cross-mode parity with babel-plugin-jsx but now diverges ` +
+            `${mode}/${id} was at cross-mode parity with babel-plugin but now diverges ` +
               `(babel = "-", oxc = "+").\n` +
               `If this divergence is intentional, regenerate expectations with ` +
               `UPDATE_PARITY=1 and commit ${relative}.\n\n${diff}`
@@ -142,12 +142,12 @@ describe("cross-mode fixture-union parity", () => {
         }
         if (diff === "") {
           throw new Error(
-            `${mode}/${id} reached cross-mode parity with babel-plugin-jsx. ` +
+            `${mode}/${id} reached cross-mode parity with babel-plugin. ` +
               `Regenerate expectations with UPDATE_PARITY=1 to delete ${relative}.`
           );
         }
         throw new Error(
-          `${mode}/${id} diverges from babel-plugin-jsx differently than the recorded ` +
+          `${mode}/${id} diverges from babel-plugin differently than the recorded ` +
             `expectation (babel = "-", oxc = "+").\n` +
             `Review the change; if intentional, regenerate with UPDATE_PARITY=1 ` +
             `and commit ${relative}.\n\n` +

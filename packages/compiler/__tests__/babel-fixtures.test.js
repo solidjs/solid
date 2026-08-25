@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { transform } = require("../index");
 
-const babelDomFixtures = path.resolve(__dirname, "../../babel-plugin-jsx/test/__dom_fixtures__");
+const babelDomFixtures = path.resolve(__dirname, "../../babel-plugin/test/__dom_fixtures__");
 const oxcDomFixtures = path.resolve(__dirname, "fixtures/dom");
 
 const parityLevel = {

@@ -88,11 +88,11 @@
       "dependsOn": ["solid-js#build", "@solidjs/universal#build"],
       "outputs": []
     },
-    "@solidjs/babel-plugin-jsx#build": {
+    "@solidjs/babel-plugin#build": {
       "outputs": ["index.js"]
     },
-    "@solidjs/babel-plugin-jsx#test": {
-      "dependsOn": ["@solidjs/babel-plugin-jsx#build"],
+    "@solidjs/babel-plugin#test": {
+      "dependsOn": ["@solidjs/babel-plugin#build"],
       "outputs": []
     },
     "@solidjs/compiler#test": {
