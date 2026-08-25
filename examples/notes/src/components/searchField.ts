@@ -18,6 +18,17 @@
 //   `?searchText` on deep links and back/forward; the spinner tracks the
 //   pending navigation) and dispose with the app.
 //
+// A word on fit, because this file shows the PATTERN'S BOUNDARY as much as
+// the pattern. Event props and one-way refs (the spinner) are the sweet
+// spot: behavior on chrome you'd never ship a component for — and in chat's
+// copy buttons, on markup the client couldn't author at all. The input's
+// value-sync effect below is the edge: once an element's STATE must track
+// client reactivity, a ref means hand-writing the binding that JSX's
+// `value={...}` gives a client component for free. We keep the input server
+// chrome here because one three-line effect is a fair trade for dissolving
+// the shell's last hydration island — but when an element is mostly client
+// state, make it a client position and let JSX do the syncing.
+//
 // Search state itself is unchanged: the `?searchText` query param, so typing
 // navigates — the router reruns the root preload and the notes-list server
 // component refetches, morphing the list boundary in place.

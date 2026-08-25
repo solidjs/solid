@@ -14,7 +14,10 @@
 // live props at dispatch, and the two refs hand the client the input and
 // spinner elements at adoption, where effects sync them against router
 // state. One input needed a whole shipped component before; now it needs
-// three functions.
+// three functions. (This is also the pattern's boundary: the input's value
+// tracks client router state, so one of those functions hand-syncs what a
+// client component would write as `value={...}` — see searchField.ts for
+// when to choose which.)
 //
 // The New button is NOT a client position either: EditButton is a plain
 // anchor, and the router intercepts every same-origin <a> at the document
