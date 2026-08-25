@@ -247,3 +247,132 @@ describe('"use server" closure-capture validation', () => {
     });
   });
 });
+
+// Module-level `"use server"` exports must be precisely the server
+// functions. The client build replaces each export with a direct network
+// reference and HTTP dispatch invokes the registered function, so a call
+// wrapper around the function would silently not apply on either path.
+// Wrapped exports are a compile error; composition belongs at the
+// function-level directive or the consumption site.
+describe('module-level "use server" wrapped exports', () => {
+  describe("errors", () => {
+    it("rejects a directly wrapped export", () => {
+      const code = [
+        '"use server";',
+        'import { GET } from "@solidjs/web";',
+        "export const getUser = GET(async id => {",
+        "  return { id };",
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(
+        /module-level "use server" exports must be the server functions themselves: export `getUser` wraps its function in a call expression/
+      );
+    });
+
+    it("rejects a wrapped binding exported through an alias chain", () => {
+      const code = [
+        '"use server";',
+        'import { withMeta } from "./meta";',
+        "const impl = withMeta(async () => 1, { tag: 'x' });",
+        "const alias = impl;",
+        "export { alias as tagged };"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(/export `tagged` wraps its function/);
+    });
+
+    it("rejects a wrapped default export", () => {
+      const code = [
+        '"use server";',
+        'import { GET } from "@solidjs/web";',
+        "export default GET(async () => 1);"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(/export `default` wraps its function/);
+    });
+
+    it("rejects wrapping a separately declared function by name", () => {
+      const code = [
+        '"use server";',
+        'import { wrap } from "./wrap";',
+        "async function getUser(id) { return id; }",
+        "export const wrapped = wrap(getUser);"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(/export `wrapped` wraps its function/);
+    });
+
+    it("rejects functions buried in nested calls", () => {
+      const code = [
+        '"use server";',
+        'import { outer, inner } from "./wrap";',
+        "export const layered = outer(inner(async () => 1));"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(/export `layered` wraps its function/);
+    });
+
+    it("errors in client mode too", () => {
+      const code = [
+        '"use server";',
+        'import { GET } from "@solidjs/web";',
+        "export const getUser = GET(async id => id);"
+      ].join("\n");
+      expect(() => compile(code, { mode: "client" })).toThrow(
+        /export `getUser` wraps its function/
+      );
+    });
+
+    it("reports the filename and wrapper position", () => {
+      const code = [
+        '"use server";',
+        'import { GET } from "@solidjs/web";',
+        "export const getUser = GET(async id => id);"
+      ].join("\n");
+      // The wrapper call starts on line 3, column 24.
+      expect(() => compile(code)).toThrow(/\/project\/src\/module\.ts:3:24: /);
+    });
+  });
+
+  describe("allowed", () => {
+    it("allows plain non-function call exports alongside server functions", () => {
+      const code = [
+        '"use server";',
+        "function clamp(n) { return n; }",
+        "export const limit = clamp(5);",
+        "export const getUser = async id => id;"
+      ].join("\n");
+      const result = compile(code);
+      expect(result.valid).toBe(true);
+      // Only the function export registers; `limit` stays a dropped
+      // non-function export as before.
+      expect(result.functions).toHaveLength(1);
+      expect(result.functions[0].exports).toEqual(["getUser"]);
+    });
+
+    it("allows declaring functions separately from their exports", () => {
+      const code = [
+        '"use server";',
+        "async function getUser(id) { return id; }",
+        "const save = async user => user;",
+        "const alias = save;",
+        "export { getUser, alias as saveUser };",
+        "export default getUser;"
+      ].join("\n");
+      const result = compile(code);
+      expect(result.valid).toBe(true);
+      expect(result.functions).toHaveLength(2);
+    });
+
+    it("leaves function-level wrapped declarations alone", () => {
+      // Wrapping is fine when the directive is inside the function: the
+      // wrapper composes around the reference in shared code.
+      const code = [
+        'import { GET } from "@solidjs/web";',
+        "export const getUser = GET(async id => {",
+        '  "use server";',
+        "  return { id };",
+        "});"
+      ].join("\n");
+      const result = compile(code);
+      expect(result.valid).toBe(true);
+      expect(result.functions).toHaveLength(1);
+    });
+  });
+});

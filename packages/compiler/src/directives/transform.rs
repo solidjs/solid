@@ -15,13 +15,13 @@
 //! naming (`serverFunction_1`, `fn_1`, `registerServerReference_1`, ...)
 //! and statement ordering.
 
-use oxc_allocator::{Allocator, CloneIn, Vec as ArenaVec};
+use oxc_allocator::{Allocator, Vec as ArenaVec};
 use oxc_ast::ast::{
     BindingPattern, Declaration, ExportDefaultDeclarationKind, Expression, FunctionType,
-    ImportDeclarationSpecifier, ImportOrExportKind, Program, Statement, VariableDeclarationKind,
+    ImportOrExportKind, Program, Statement, VariableDeclarationKind,
 };
 use oxc_ast_visit::{VisitMut, walk_mut};
-use oxc_span::Span;
+use oxc_span::{GetSpan, Span};
 
 use crate::shared::ast::{expression_to_argument, variable_statement};
 use crate::shared::ast_builder::AstBuilder;
@@ -85,6 +85,18 @@ pub(crate) struct DirectivesTransform<'a> {
     /// Babel implementation's `StateContext.orphans`.
     pub(crate) orphans: std::collections::HashSet<String>,
     module_level_applied: bool,
+    /// Set when a module-level directive file exports a call-wrapped server
+    /// function (`export const x = wrap(async () => ...)`), which the strict
+    /// module-level contract rejects; the caller surfaces it as a compile
+    /// error.
+    pub(crate) wrapped_export: Option<WrappedExportError>,
+}
+
+/// A module-level export whose initializer wraps a server function in a call
+/// expression. `name` is the exported binding, `span` the initializer.
+pub(crate) struct WrappedExportError {
+    pub(crate) name: String,
+    pub(crate) span: Span,
 }
 
 enum RuntimeImport {
@@ -119,6 +131,7 @@ impl<'a> DirectivesTransform<'a> {
             valid: false,
             orphans: std::collections::HashSet::new(),
             module_level_applied: false,
+            wrapped_export: None,
         }
     }
 
@@ -361,6 +374,25 @@ impl<'a> DirectivesTransform<'a> {
         self.bubble_top_level_functions(program);
 
         let bindings = collect_top_level_bindings(program);
+
+        // Strict module-level contract: what a module-level directive file
+        // exports is precisely the server function — the client build
+        // replaces each export with a direct network reference. A call
+        // wrapper around the function breaks that identity: this module's
+        // code (the wrapper included) is server code that never runs on the
+        // client, and HTTP dispatch invokes the *registered* function, so
+        // wrapper behavior would silently not apply to real calls either.
+        // Rejected at compile time; the fix is the function-level directive,
+        // where wrappers compose in shared code around each side's
+        // reference. (This also avoids pattern-matching "which argument is
+        // the function" — the directive names the function by position,
+        // which is why `"use server"` won over `server$()` in the first
+        // place.)
+        if let Some(error) = detect_wrapped_export(program, &bindings) {
+            self.wrapped_export = Some(error);
+            return;
+        }
+
         let exports = collect_exported_bindings(program, &bindings);
 
         match self.mode {
@@ -485,43 +517,10 @@ impl<'a> DirectivesTransform<'a> {
             source_ids.push((key, id, name));
         }
 
-        let mut wrapper_dependencies = std::collections::HashSet::new();
-        let mut wrapped_initializers = Vec::new();
-        for (key, id, name) in &source_ids {
-            if !binding_init_is_wrapped(program, *key) {
-                continue;
-            }
-            let create_local = self.import_local(RuntimeImport::Create);
-            let mut create_args = vec![self.string(id)];
-            if let Some(name_argument) = self.dev_name_argument(name) {
-                create_args.push(name_argument);
-            }
-            let replacement = self.call(&create_local, create_args);
-            let Some(slot) = binding_init_function_slot(program, *key) else {
-                continue;
-            };
-            *slot = replacement;
-            let Some(initializer) = take_binding_initializer(self.allocator, program, *key) else {
-                continue;
-            };
-            collect_referenced_names(&initializer, &mut wrapper_dependencies);
-            wrapped_initializers.push((*key, initializer));
-        }
-
-        let excluded = source_ids.iter().map(|(key, _, _)| *key).collect();
-        let preserved_bindings = clone_referenced_bindings(
-            self.allocator,
-            program,
-            &mut wrapper_dependencies,
-            &excluded,
-        );
-        let preserved_imports =
-            take_referenced_imports(self.allocator, program, &wrapper_dependencies);
-
-        // Rebuild the client module from wrapper dependencies and references.
+        // The client build keeps none of the module: every export becomes a
+        // reference and everything else (server-only imports, helpers,
+        // secrets) is dropped wholesale.
         program.body = ast.vec();
-        program.body.extend(preserved_imports);
-        program.body.extend(preserved_bindings);
 
         let mut declared: Vec<(BindingKey, String)> = Vec::new();
         let mut declarators = ast.vec();
@@ -537,26 +536,18 @@ impl<'a> DirectivesTransform<'a> {
                 };
                 let fn_id = fn_id.clone();
                 let name = name.clone();
-                let initializer = if let Some(index) = wrapped_initializers
-                    .iter()
-                    .position(|(wrapped_key, _)| wrapped_key == key)
-                {
-                    wrapped_initializers.remove(index).1
-                } else {
-                    let create_local = self.import_local(RuntimeImport::Create);
-                    let mut create_args = vec![self.string(&fn_id)];
-                    if let Some(name_argument) = self.dev_name_argument(&name) {
-                        create_args.push(name_argument);
-                    }
-                    self.call(&create_local, create_args)
-                };
+                let create_local = self.import_local(RuntimeImport::Create);
+                let mut create_args = vec![self.string(&fn_id)];
+                if let Some(name_argument) = self.dev_name_argument(&name) {
+                    create_args.push(name_argument);
+                }
                 let ast = self.ast();
                 declarators.push(ast.variable_declarator(
                     SPAN,
                     VariableDeclarationKind::Const,
                     ast.binding_pattern_binding_identifier(SPAN, ast.ident(&local)),
                     None,
-                    Some(initializer),
+                    Some(self.call(&create_local, create_args)),
                     false,
                 ));
                 declared.push((*key, local.clone()));
@@ -959,61 +950,8 @@ fn is_valid_function(expression: &Expression<'_>) -> bool {
     )
 }
 
-fn nested_function_count(expression: &Expression<'_>) -> u8 {
-    let expression = unwrap_expression(expression);
-    if is_valid_function(expression) {
-        return 1;
-    }
-    let Expression::CallExpression(call) = expression else {
-        return 0;
-    };
-    call.arguments.iter().fold(0, |count, argument| {
-        let Some(expression) = argument.as_expression() else {
-            return count;
-        };
-        count
-            .saturating_add(nested_function_count(expression))
-            .min(2)
-    })
-}
-
-fn nested_function<'e, 'a>(expression: &'e Expression<'a>) -> Option<&'e Expression<'a>> {
-    if nested_function_count(expression) != 1 {
-        return None;
-    }
-    let expression = unwrap_expression(expression);
-    if is_valid_function(expression) {
-        return Some(expression);
-    }
-    let Expression::CallExpression(call) = expression else {
-        return None;
-    };
-    call.arguments
-        .iter()
-        .filter_map(|argument| argument.as_expression())
-        .find_map(nested_function)
-}
-
-fn nested_function_mut<'e, 'a>(
-    expression: &'e mut Expression<'a>,
-) -> Option<&'e mut Expression<'a>> {
-    if nested_function_count(expression) != 1 {
-        return None;
-    }
-    let expression = unwrap_expression_mut(expression);
-    if is_valid_function(expression) {
-        return Some(expression);
-    }
-    let Expression::CallExpression(call) = expression else {
-        return None;
-    };
-    call.arguments
-        .iter_mut()
-        .filter_map(|argument| argument.as_expression_mut())
-        .find_map(nested_function_mut)
-}
-
-/// Follows aliases to a direct or call-wrapped function initializer.
+/// Babel's `traceBinding`: follow identifier-initialized declarators to a
+/// declarator whose init is a function/arrow expression.
 fn trace_binding(
     program: &Program<'_>,
     bindings: &std::collections::HashMap<String, BindingKey>,
@@ -1033,11 +971,141 @@ fn trace_binding(
             current = identifier.name.to_string();
             continue;
         }
-        if nested_function(init).is_some() {
+        if is_valid_function(init) {
             return Some(key);
         }
         return None;
     }
+}
+
+/// Follows identifier aliases (like `trace_binding`) to the terminal
+/// initializer of a top-level binding, whatever expression that turns out to
+/// be.
+fn trace_terminal_init<'p, 'a>(
+    program: &'p Program<'a>,
+    bindings: &std::collections::HashMap<String, BindingKey>,
+    name: &str,
+) -> Option<&'p Expression<'a>> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut current = name.to_string();
+    loop {
+        if !seen.insert(current.clone()) {
+            return None;
+        }
+        let key = *bindings.get(&current)?;
+        let declarator = binding_declarator(program, key)?;
+        let init = unwrap_expression(declarator.init.as_ref()?);
+        if let Expression::Identifier(identifier) = init {
+            current = identifier.name.to_string();
+            continue;
+        }
+        return Some(init);
+    }
+}
+
+/// Whether a call expression carries a server function through its
+/// arguments: a function expression directly, an identifier tracing to one,
+/// or a nested call that does.
+fn call_carries_function(
+    program: &Program<'_>,
+    bindings: &std::collections::HashMap<String, BindingKey>,
+    expression: &Expression<'_>,
+) -> bool {
+    let Expression::CallExpression(call) = unwrap_expression(expression) else {
+        return false;
+    };
+    call.arguments
+        .iter()
+        .filter_map(|argument| argument.as_expression())
+        .any(|argument| {
+            let argument = unwrap_expression(argument);
+            if is_valid_function(argument) {
+                return true;
+            }
+            if let Expression::Identifier(identifier) = argument {
+                return trace_binding(program, bindings, &identifier.name).is_some();
+            }
+            call_carries_function(program, bindings, argument)
+        })
+}
+
+/// Finds the first export of a module-level directive file whose value is a
+/// call expression wrapping a function — the export is then the wrapper's
+/// return value, not the server function, which the module-level contract
+/// forbids. Runs post-bubbling so function declarations participate in alias
+/// tracing. Calls that carry no function (`export const limit = clamp(5)`)
+/// are plain non-function exports and stay silently dropped as before.
+fn detect_wrapped_export(
+    program: &Program<'_>,
+    bindings: &std::collections::HashMap<String, BindingKey>,
+) -> Option<WrappedExportError> {
+    let check = |name: &str, init: &Expression<'_>| -> Option<WrappedExportError> {
+        call_carries_function(program, bindings, init).then(|| WrappedExportError {
+            name: name.to_string(),
+            span: init.span(),
+        })
+    };
+
+    for statement in &program.body {
+        match statement {
+            Statement::ExportDefaultDeclaration(export) => {
+                let Some(expression) = export.declaration.as_expression() else {
+                    continue;
+                };
+                let expression = unwrap_expression(expression);
+                let init = if let Expression::Identifier(identifier) = expression {
+                    trace_terminal_init(program, bindings, &identifier.name)
+                } else {
+                    Some(expression)
+                };
+                if let Some(init) = init
+                    && let Some(error) = check("default", init)
+                {
+                    return Some(error);
+                }
+            }
+            Statement::ExportNamedDeclaration(export) => {
+                if export.export_kind == ImportOrExportKind::Type {
+                    continue;
+                }
+                for specifier in &export.specifiers {
+                    let Some(local) = specifier.local.identifier_name() else {
+                        continue;
+                    };
+                    let exported_name = match &specifier.exported {
+                        oxc_ast::ast::ModuleExportName::StringLiteral(literal) => {
+                            literal.value.to_string()
+                        }
+                        other => other
+                            .identifier_name()
+                            .map(|name| name.to_string())
+                            .unwrap_or_default(),
+                    };
+                    if let Some(init) = trace_terminal_init(program, bindings, local.as_str())
+                        && let Some(error) = check(&exported_name, init)
+                    {
+                        return Some(error);
+                    }
+                }
+            }
+            Statement::ExportDeclaration(export) => {
+                if let Declaration::VariableDeclaration(declaration) = &export.declaration {
+                    for declarator in &declaration.declarations {
+                        let BindingPattern::BindingIdentifier(id) = &declarator.id else {
+                            continue;
+                        };
+                        if let Some(init) = trace_terminal_init(program, bindings, &id.name)
+                            && let Some(error) = check(&id.name, init)
+                        {
+                            return Some(error);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn collect_exported_bindings(
@@ -1109,11 +1177,13 @@ fn collect_exported_bindings(
 fn binding_descriptive_name(program: &Program<'_>, key: BindingKey) -> Option<String> {
     let declarator = binding_declarator(program, key)?;
     let init = unwrap_expression(declarator.init.as_ref()?);
-    let function = nested_function(init)?;
-    if let Expression::FunctionExpression(function) = function
+    if let Expression::FunctionExpression(function) = init
         && let Some(id) = &function.id
     {
         return Some(id.name.to_string());
+    }
+    if !is_valid_function(init) {
+        return None;
     }
     if let BindingPattern::BindingIdentifier(id) = &declarator.id {
         return Some(id.name.to_string());
@@ -1121,7 +1191,8 @@ fn binding_descriptive_name(program: &Program<'_>, key: BindingKey) -> Option<St
     Some("anonymous".to_string())
 }
 
-/// Mutable access to a traced binding's inner function expression.
+/// Mutable access to the function expression stored in a traced binding's
+/// init (through TS wrappers, like Babel replacing the inner function path).
 fn binding_init_function_slot<'p, 'a>(
     program: &'p mut Program<'a>,
     key: BindingKey,
@@ -1136,155 +1207,7 @@ fn binding_init_function_slot<'p, 'a>(
     };
     let declarator = declaration.declarations.get_mut(key.declarator)?;
     let slot = unwrap_expression_mut(declarator.init.as_mut()?);
-    nested_function_mut(slot)
-}
-
-fn binding_init_is_wrapped(program: &Program<'_>, key: BindingKey) -> bool {
-    binding_declarator(program, key)
-        .and_then(|declarator| declarator.init.as_ref())
-        .is_some_and(|init| {
-            let init = unwrap_expression(init);
-            !is_valid_function(init) && nested_function(init).is_some()
-        })
-}
-
-fn take_binding_initializer<'a>(
-    allocator: &'a Allocator,
-    program: &mut Program<'a>,
-    key: BindingKey,
-) -> Option<Expression<'a>> {
-    let declaration = match &mut program.body[key.statement] {
-        Statement::VariableDeclaration(declaration) => declaration,
-        Statement::ExportDeclaration(export) => match &mut export.declaration {
-            Declaration::VariableDeclaration(declaration) => declaration,
-            _ => return None,
-        },
-        _ => return None,
-    };
-    let declarator = declaration.declarations.get_mut(key.declarator)?;
-    let init = declarator.init.as_mut()?;
-    Some(std::mem::replace(
-        init,
-        AstBuilder::new(allocator).expression_null_literal(SPAN),
-    ))
-}
-
-fn collect_referenced_names(
-    expression: &Expression<'_>,
-    names: &mut std::collections::HashSet<String>,
-) {
-    use oxc_ast_visit::Visit;
-
-    struct ReferencedNames<'n> {
-        names: &'n mut std::collections::HashSet<String>,
-    }
-
-    impl<'a> Visit<'a> for ReferencedNames<'_> {
-        fn visit_identifier_reference(
-            &mut self,
-            identifier: &oxc_ast::ast::IdentifierReference<'a>,
-        ) {
-            self.names.insert(identifier.name.to_string());
-        }
-    }
-
-    ReferencedNames { names }.visit_expression(expression);
-}
-
-fn import_local_name<'s>(specifier: &'s ImportDeclarationSpecifier<'_>) -> &'s str {
-    match specifier {
-        ImportDeclarationSpecifier::ImportSpecifier(specifier) => &specifier.local.name,
-        ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier) => &specifier.local.name,
-        ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) => &specifier.local.name,
-    }
-}
-
-fn take_referenced_imports<'a>(
-    allocator: &'a Allocator,
-    program: &mut Program<'a>,
-    references: &std::collections::HashSet<String>,
-) -> Vec<Statement<'a>> {
-    let old = std::mem::replace(&mut program.body, AstBuilder::new(allocator).vec());
-    let mut imports = Vec::new();
-    for statement in old {
-        let Statement::ImportDeclaration(mut import) = statement else {
-            continue;
-        };
-        if import.import_kind.is_type() {
-            continue;
-        }
-        let Some(specifiers) = &mut import.specifiers else {
-            continue;
-        };
-        specifiers.retain(|specifier| {
-            references.contains(import_local_name(specifier))
-                && !matches!(specifier, ImportDeclarationSpecifier::ImportSpecifier(specifier) if specifier.import_kind.is_type())
-        });
-        if !specifiers.is_empty() {
-            imports.push(Statement::ImportDeclaration(import));
-        }
-    }
-    imports
-}
-
-fn clone_referenced_bindings<'a>(
-    allocator: &'a Allocator,
-    program: &Program<'a>,
-    references: &mut std::collections::HashSet<String>,
-    excluded: &std::collections::HashSet<BindingKey>,
-) -> Vec<Statement<'a>> {
-    let bindings = collect_top_level_bindings(program);
-    let mut selected = std::collections::HashSet::new();
-    let mut pending: Vec<String> = references.iter().cloned().collect();
-    let mut index = 0;
-    while index < pending.len() {
-        let name = &pending[index];
-        index += 1;
-        let Some(key) = bindings.get(name).copied() else {
-            continue;
-        };
-        if excluded.contains(&key) || !selected.insert(key) {
-            continue;
-        }
-        let Some(initializer) =
-            binding_declarator(program, key).and_then(|item| item.init.as_ref())
-        else {
-            continue;
-        };
-        let mut dependencies = std::collections::HashSet::new();
-        collect_referenced_names(initializer, &mut dependencies);
-        for dependency in dependencies {
-            if references.insert(dependency.clone()) {
-                pending.push(dependency);
-            }
-        }
-    }
-
-    let mut statements = Vec::new();
-    for (statement_index, statement) in program.body.iter().enumerate() {
-        let declaration = match statement {
-            Statement::VariableDeclaration(declaration) => declaration,
-            Statement::ExportDeclaration(export) => match &export.declaration {
-                Declaration::VariableDeclaration(declaration) => declaration,
-                _ => continue,
-            },
-            _ => continue,
-        };
-        let mut cloned = declaration.clone_in(allocator);
-        let mut declarator_index = 0;
-        cloned.declarations.retain(|_| {
-            let keep = selected.contains(&BindingKey {
-                statement: statement_index,
-                declarator: declarator_index,
-            });
-            declarator_index += 1;
-            keep
-        });
-        if !cloned.declarations.is_empty() {
-            statements.push(Statement::VariableDeclaration(cloned));
-        }
-    }
-    statements
+    is_valid_function(slot).then_some(slot)
 }
 
 /// Applies `(index, statement)` insertions before the indexed statements,

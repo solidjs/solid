@@ -152,6 +152,12 @@ pub fn transform_directives(
     );
     pass.run(&mut program);
 
+    if let Some(error) = &pass.wrapped_export {
+        return Err(Error::from_reason(validate::format_wrapped_export_error(
+            error, &code, filename,
+        )));
+    }
+
     let valid = pass.valid;
     let functions = pass
         .functions

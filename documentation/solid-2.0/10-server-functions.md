@@ -6,14 +6,14 @@
 
 ## Summary
 
-Solid 2.0 moves server functions into core: a `"use server"` directive compiled by the build plugin, backed by a framework-agnostic runtime at `@solidjs/web/server-functions`. The runtime ships *mechanisms* — transport, an HTTP handler with hooks, response helpers, a single-flight protocol — while routers and frameworks layer *policy* on top. The extension surface adds exactly four mechanisms: `GET(fn)`, `withMeta(fn, meta)`, the `getServerFunctionMetadata`/`isServerFunction` accessors, and a `prepareRequest` client hook.
+Solid 2.0 moves server functions into core: a `"use server"` directive compiled by the build plugin, backed by a framework-agnostic runtime at `@solidjs/web/server-functions`. The runtime ships _mechanisms_ — transport, an HTTP handler with hooks, response helpers, a single-flight protocol — while routers and frameworks layer _policy_ on top. The extension surface adds exactly four mechanisms: `GET(fn)`, `withMeta(fn, meta)`, the `getServerFunctionMetadata`/`isServerFunction` accessors, and a `prepareRequest` client hook.
 
 The governing philosophy: **the server side of a server function is your function body.** Per-function server concerns (validation, auth guards, logging, rate limiting) are lines of code inside the body; global concerns are the handler and transport hooks; there is no third place. Nothing is compiler-recognized; the compiler’s only contract is the directive.
 
 ## Motivation
 
 - **Server functions belong to core, not the metaframework:** In 1.x, `"use server"` lived in SolidStart (via vinxi). 2.0 collapses the runtime into core so any Vite app — with or without Start — gets typed RPC, streaming returns, progressive enhancement, and custom serialization.
-- **Mechanisms vs. policy:** Every prior era (Start 0.x `server$`, the v1 proxy) grew an ad-hoc extension surface — per-call `fetch(init)`, `withOptions`, registry mutation, compiler-recognized wrappers. Sorting those concerns by *lifetime* (declaration-static, session-dynamic, call-scoped) yields a much smaller surface and shows the call-scoped slot is actually empty.
+- **Mechanisms vs. policy:** Every prior era (Start 0.x `server$`, the v1 proxy) grew an ad-hoc extension surface — per-call `fetch(init)`, `withOptions`, registry mutation, compiler-recognized wrappers. Sorting those concerns by _lifetime_ (declaration-static, session-dynamic, call-scoped) yields a much smaller surface and shows the call-scoped slot is actually empty.
 - **The boundary is security-critical:** The handler decodes whatever an attacker sends — the codec reconstructs rich types — and hands it positionally to your function. TypeScript types are fiction at this boundary; treat arguments as untrusted input and check them in the function body.
 - **Avoiding the `server$` mistake:** Start 0.x’s `server$` was a compiler-recognized function whose every capability grew compiler knowledge. The directive model exists to avoid that; this design keeps the compiler’s contract at exactly one thing: `"use server"`.
 
@@ -33,16 +33,18 @@ export async function addTodo(title: string) {
 
 Two verified compiler behaviors anchor everything below:
 
-1. **Wrapper calls round-trip.** `export const getData = GET(async (id) => { "use server"; ... })` compiles by swapping only the function expression, so the surrounding `GET(...)` call survives in both server and client output. Module-level directives preserve wrapped exports the same way and keep only the wrapper dependencies needed by the client.
+1. **Wrapper calls round-trip at function level.** `export const getData = GET(async (id) => { "use server"; ... })` compiles by swapping only the function expression, so the surrounding `GET(...)` call survives in both server and client output. This works because the directive marks the function _by position_ — the compiler swaps exactly the expression carrying the directive and touches nothing around it.
 2. **Anything referenced only inside a `"use server"` body never reaches the client.** The extraction replaces the body with a reference, and the directive pass’s orphan-scoped dead-code elimination removes now-unused imports and bindings — schema libraries, database handles, helper imports all vanish from client output. **The directive boundary is itself the privacy mechanism.**
 
-One architectural fact worth stating: **a wrapper wraps the *reference*, not the registered function.** `registerServerReference(id, fn)` registers the raw inner function for HTTP dispatch before any wrapper runs, so wrapper-position code can only affect the client transport and the in-process callable — never HTTP dispatch. This is why anything that must run on the dispatch path (validation, auth, logging) belongs *inside* the body, and why the declaration surface (`GET`) is transport-only.
+One architectural fact worth stating: **a wrapper wraps the _reference_, not the registered function.** `registerServerReference(id, fn)` registers the raw inner function for HTTP dispatch before any wrapper runs, so wrapper-position code can only affect the client transport and the in-process callable — never HTTP dispatch. This is why anything that must run on the dispatch path (validation, auth, logging) belongs _inside_ the body, and why the declaration surface (`GET`) is transport-only.
+
+**Module-level directives take the invariant further: exports are precisely the server functions.** A module-level `"use server"` file’s client build is rebuilt from scratch as reference exports — none of the module’s own code runs on the client. A call wrapper around an export (`export const x = GET(async () => ...)`, `withMeta`, or any userland wrapper) therefore has nowhere honest to go: hoisting the wrapper call into the client build would execute server-module code on the client (a lie about what runs where), while dropping it would silently change behavior between the two builds — and either way HTTP dispatch invokes the registered inner function, so the wrapper never applies to real calls. Rather than pick a lie, **the compiler rejects wrapped module-level exports at compile time.** The error directs to the function-level form, where the directive sits inside the function and the wrapper composes in shared code around each side’s reference. This also keeps the compiler out of the pattern-matching business — recognizing “which argument is the function” inside arbitrary call expressions is exactly the `server$()` mistake that the positional `"use server"` directive was adopted to end. Plain aliasing and separate declaration remain fine (`async function f() {...}` … `export { f }`; alias chains; default exports of a named function): aliasing never changes what the export _is_, wrapping does.
 
 ### The runtime: `@solidjs/web/server-functions`
 
 The package resolves to a client entry in the browser and a server entry elsewhere.
 
-**Client:** `configureServerFunctionsClient({ endpoint?, codec?, prepareRequest?, serializeArgs?, responseHandler? })` — call once in the client entry, only when deviating from the defaults (endpoint defaults to `/_server`; `codec` takes seroval plugin options and must match the server’s; `prepareRequest` is the transport middleware hook below; `responseHandler` is the integration seam server components install — see [RFC 11](11-server-components.md)). Compiled client output produces callables that POST to the endpoint with the function id in the `X-Server-Function-Id` header and a per-call `X-Server-Function-Instance` id. **Argument encoding (updated since first draft):** arguments with a natural HTTP encoding (a lone string, FormData, File, Blob, ...) go as-is; everything else is sent as **plain JSON by default** — no serializer in the client bundle — and values JSON can’t carry faithfully (Dates, Maps, Sets, typed arrays, cycles) **throw with a directed message** unless you opt in once via `enableRichArguments()` from `@solidjs/web/server-functions/rich-args`, which installs the codec’s write half (~5 KB gz) as `serializeArgs` — importing the entry is the opt-in at the module-graph level, so the serializer ships only when the app asks for it. *Results* are unaffected — they always travel through the codec, whose decode half the client carries regardless. Async returns (promises, streams) settle over the open connection via length-prefixed chunk framing. (A `@solidjs/web/serialization` subpath exists; most of it is integration-facing plumbing — the bridge exposing the runtime’s serializer machinery for the runtime’s own entries and for integrations building transports — exempt from the 2.0 stability guarantee and subject to change. The one application-facing part is plugin *authoring*: `createPlugin` and `OpaqueReference` are re-exported there from the runtime’s own seroval instance, and custom plugins for the `codec` option must be built from that import — a plugin built against your own `seroval` dependency edge would not fail the build, it would emit nodes the other end of the wire can’t interpret (the version-pinning lesson of solid-start #1474). Application and router code authors plugins there and feeds them to `codec`; everything else on the subpath it should leave alone.)
+**Client:** `configureServerFunctionsClient({ endpoint?, codec?, prepareRequest?, serializeArgs?, responseHandler? })` — call once in the client entry, only when deviating from the defaults (endpoint defaults to `/_server`; `codec` takes seroval plugin options and must match the server’s; `prepareRequest` is the transport middleware hook below; `responseHandler` is the integration seam server components install — see [RFC 11](11-server-components.md)). Compiled client output produces callables that POST to the endpoint with the function id in the `X-Server-Function-Id` header and a per-call `X-Server-Function-Instance` id. **Argument encoding (updated since first draft):** arguments with a natural HTTP encoding (a lone string, FormData, File, Blob, ...) go as-is; everything else is sent as **plain JSON by default** — no serializer in the client bundle — and values JSON can’t carry faithfully (Dates, Maps, Sets, typed arrays, cycles) **throw with a directed message** unless you opt in once via `enableRichArguments()` from `@solidjs/web/server-functions/rich-args`, which installs the codec’s write half (~5 KB gz) as `serializeArgs` — importing the entry is the opt-in at the module-graph level, so the serializer ships only when the app asks for it. _Results_ are unaffected — they always travel through the codec, whose decode half the client carries regardless. Async returns (promises, streams) settle over the open connection via length-prefixed chunk framing. (A `@solidjs/web/serialization` subpath exists; most of it is integration-facing plumbing — the bridge exposing the runtime’s serializer machinery for the runtime’s own entries and for integrations building transports — exempt from the 2.0 stability guarantee and subject to change. The one application-facing part is plugin _authoring_: `createPlugin` and `OpaqueReference` are re-exported there from the runtime’s own seroval instance, and custom plugins for the `codec` option must be built from that import — a plugin built against your own `seroval` dependency edge would not fail the build, it would emit nodes the other end of the wire can’t interpret (the version-pinning lesson of solid-start #1474). Application and router code authors plugins there and feeds them to `codec`; everything else on the subpath it should leave alone.)
 
 **Server:** `configureServerFunctionsServer({ endpoint?, codec?, provideEvent?, wrapInvocation?, collectFlightData?, transformResult?, transformDirectResult? })` plus the web-standard HTTP handler:
 
@@ -65,9 +67,9 @@ The handler resolves the function id, decodes arguments, runs the function under
 - **`collectFlightData(event, outcome)`** — the single-flight hook (below).
 - **`handleNoJS(result, request, args, thrown?)`** — build the response for unscripted calls (below).
 
-Inside a function body, `getRequestEvent()` (from `@solidjs/web`) reads the current event and `getServerFunctionInvocation()` reads the in-flight call’s id — usable for keying caches or logs. (Renamed from `getServerFunctionMeta` to keep clear of `getServerFunctionMetadata(fn)`, which reads a reference’s *static declaration* metadata; the invocation accessor describes the call currently executing.) In-process SSR calls run the original function directly (no HTTP loopback) under a derived event marked `serverOnly`.
+Inside a function body, `getRequestEvent()` (from `@solidjs/web`) reads the current event and `getServerFunctionInvocation()` reads the in-flight call’s id — usable for keying caches or logs. (Renamed from `getServerFunctionMeta` to keep clear of `getServerFunctionMetadata(fn)`, which reads a reference’s _static declaration_ metadata; the invocation accessor describes the call currently executing.) In-process SSR calls run the original function directly (no HTTP loopback) under a derived event marked `serverOnly`.
 
-`registerServerFunction(id, fn)` / `getServerFunction(id)` remain exported for integrations building custom dispatch or introspection. Registry *mutation* as a userland extension pattern is rejected (see Alternatives).
+`registerServerFunction(id, fn)` / `getServerFunction(id)` remain exported for integrations building custom dispatch or introspection. Registry _mutation_ as a userland extension pattern is rejected (see Alternatives).
 
 ### Response helpers: `redirect`, `reload`, `respond`
 
@@ -105,14 +107,14 @@ Framework error hooks compose the same way: a `wrapInvocation`/`transformResult`
 
 ### Single-flight
 
-The protocol folds integration data (typically revalidated route data) into a mutation’s response, saving a round trip. Core standardizes only the wire shape and delivery; what the data *is* — a data-only render, route preloads, a cache query — is entirely the integration’s business.
+The protocol folds integration data (typically revalidated route data) into a mutation’s response, saving a round trip. Core standardizes only the wire shape and delivery; what the data _is_ — a data-only render, route preloads, a cache query — is entirely the integration’s business.
 
 - **Server:** the `collectFlightData(event, outcome)` hook (config or per-handler) receives the request event and a `ServerFunctionOutcome` — `{ id, value, response, request, thrown }` — and optionally returns a payload. The handler envelopes it as `{ value, data }` under the `X-Single-Flight` response header. It runs after `transformResult`, only for scripted calls that sent the header on the request; redirect-with-data works because the outcome’s `response` carries `Location`, so the hook can produce data for the destination route.
 - **Client:** `subscribeFlightData(consumer)` registers the consumer the transport delivers data to. On a single-flight response the transport decodes `{ value, data }`, delivers `data` (with the response as envelope context), awaits async consumers so caches are seeded first, and returns `value` to the caller as if the call were plain. One active consumer at a time; with none registered, the response passes through whole for the integration to `decodeResponse` itself.
 
-**Shipped change:** the request-leg `X-Single-Flight` header moved from per-call attachment (previously the integration sent it, e.g. via `withOptions`) to being set by the client transport **if and only if a flight-data consumer is registered** — subscribing *is* the opt-in. This is more correct than the per-call header: a consumer-less app never asks the server to do collection work. Same header, new emitter; the server side is unchanged.
+**Shipped change:** the request-leg `X-Single-Flight` header moved from per-call attachment (previously the integration sent it, e.g. via `withOptions`) to being set by the client transport **if and only if a flight-data consumer is registered** — subscribing _is_ the opt-in. This is more correct than the per-call header: a consumer-less app never asks the server to do collection work. Same header, new emitter; the server side is unchanged.
 
-**Shipped extension — markup in the payload:** when part of what a mutation invalidates is a *server component* (RFC 11), the plain envelope cannot carry it — markup never ships as data (single-copy). The handler exposes a `transformFlightResult(event, { value, data }, context)` seam — config or per-handler, the same fallback pattern as `transformResult` — that gets first refusal on the fold. The frames policy (`frameTransformFlightResult`) answers with a frame-stream response: each invalidated call’s markup rides as a region addressed by `(function, arguments)` — the one name both peers derive independently — while the `{ value, data }` envelope rides as response-scoped chunks with component-valued entries as references that resolve to the very boundaries showing those calls. Data reaches the same `subscribeFlightData` consumer, the caller gets the same `value`, and a data-only payload keeps the byte-identical plain envelope — a mutation reads the same whether or not any of what it invalidated was markup, and one round trip settles the value, the data, and the UI.
+**Shipped extension — markup in the payload:** when part of what a mutation invalidates is a _server component_ (RFC 11), the plain envelope cannot carry it — markup never ships as data (single-copy). The handler exposes a `transformFlightResult(event, { value, data }, context)` seam — config or per-handler, the same fallback pattern as `transformResult` — that gets first refusal on the fold. The frames policy (`frameTransformFlightResult`) answers with a frame-stream response: each invalidated call’s markup rides as a region addressed by `(function, arguments)` — the one name both peers derive independently — while the `{ value, data }` envelope rides as response-scoped chunks with component-valued entries as references that resolve to the very boundaries showing those calls. Data reaches the same `subscribeFlightData` consumer, the caller gets the same `value`, and a data-only payload keeps the byte-identical plain envelope — a mutation reads the same whether or not any of what it invalidated was markup, and one round trip settles the value, the data, and the UI.
 
 ### No-JS and progressive enhancement
 
@@ -120,7 +122,7 @@ A reference’s `.url` serves as a form `action`, and action urls are **self-des
 
 The full unscripted flow (flash cookie → redirect → SSR-seeded submission state) has a settled ownership chain:
 
-- **Core:** `handleNoJS` — *detection and the hook only*, already shipped. Core has no concept of submissions.
+- **Core:** `handleNoJS` — _detection and the hook only_, already shipped. Core has no concept of submissions.
 - **Router:** the flash-cookie convention **and** the SSR submission seeding. The router is the only consumer of both sides — submissions are its vocabulary — so its server integration supplies the `handleNoJS` implementation and the seed format.
 - **Start:** configures rather than implements, same as single-flight.
 
@@ -128,13 +130,13 @@ The full unscripted flow (flash cookie → redirect → SSR-seeded submission st
 
 Three lifetime slots organize everything the historical proxy surfaces conflated:
 
-| Lifetime | Concern | Surface |
-|---|---|---|
-| **Declaration-static** | properties of the function itself | `GET(fn)` for method; `withMeta(fn, meta)` for user-declared transport metadata |
-| **Session-dynamic** | cross-cutting transport policy that changes at runtime | `prepareRequest` client hook; server handler hooks (existing) |
-| **Call-scoped** | one specific invocation | *empty* — both candidate consumers found better homes |
+| Lifetime               | Concern                                                | Surface                                                                         |
+| ---------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| **Declaration-static** | properties of the function itself                      | `GET(fn)` for method; `withMeta(fn, meta)` for user-declared transport metadata |
+| **Session-dynamic**    | cross-cutting transport policy that changes at runtime | `prepareRequest` client hook; server handler hooks (existing)                   |
+| **Call-scoped**        | one specific invocation                                | _empty_ — both candidate consumers found better homes                           |
 
-Per-function *server* concerns have no slot here because they are not transport: they are body code. Mechanisms live in core; unprivileged patterns ship as standalone packages; conventions live at the layer that consumes them; everything else is code in the function.
+Per-function _server_ concerns have no slot here because they are not transport: they are body code. Mechanisms live in core; unprivileged patterns ship as standalone packages; conventions live at the layer that consumes them; everything else is code in the function.
 
 #### `GET(fn)`, `withMeta(fn, meta)`, and the metadata channel
 
@@ -167,21 +169,21 @@ export function withMeta<F extends (...args: any[]) => any>(fn: F, meta: ServerF
 
 `withMeta` attaches arbitrary user-declared transport metadata to a reference and returns it, shallow-merging later writes over earlier ones; it composes with `GET` in either order. The pattern is declare-on-function, react-in-hook: metadata declared here reaches `prepareRequest` as `context.meta`, so session-dynamic transport policy keys on declarations (e.g. `requiresAuth`) instead of comparing function ids.
 
-- **Routers detect from metadata, not properties:** `query()`’s current `if ((fn as any).GET) fn = fn.GET` sniffing goes away — a `GET(fn)` reference *already calls over GET*; the router reads metadata only where it needs to *know* (preload URLs, cacheability decisions).
+- **Routers detect from metadata, not properties:** `query()`’s current `if ((fn as any).GET) fn = fn.GET` sniffing goes away — a `GET(fn)` reference _already calls over GET_; the router reads metadata only where it needs to _know_ (preload URLs, cacheability decisions).
 - **Method enforcement:** registration records a has-method entry keyed by function id (internal bookkeeping, not public API) so the handler answers 405 when the request method contradicts the declaration.
 - **Why method is the only built-in entry:** sorting by lifetime left it the sole tenant. Per-function static `headers` — the other candidate — lost its last real use case to `prepareRequest`: every concrete example (auth tokens, tracing ids) turned out to be session-dynamic and uniform, not per-function and static. The general options bag returned in a narrowed, function-first form as `withMeta` — user-declared transport metadata only, never behavior — because without a public writer, `prepareRequest`’s `meta` parameter was unreachable for user declarations.
 
 The reference contract shrinks accordingly (no compatibility shims):
 
-| Surface | Status |
-|---|---|
-| callable | kept |
-| `id` | **added** (both proxies; the client already leaked it via `.url`) |
-| `url` | kept |
-| `getServerFunctionMetadata(fn)` | **added** |
-| `.GET` proxy getter | **removed** (the `GET(fn)` export replaces it; internal transport path remains) |
-| `.withOptions(init)` | **removed** — session-dynamic uses go through `prepareRequest`; call-scoped uses are cut |
-| Start’s `GET` export | **deleted**; `GET` imports from core |
+| Surface                         | Status                                                                                   |
+| ------------------------------- | ---------------------------------------------------------------------------------------- |
+| callable                        | kept                                                                                     |
+| `id`                            | **added** (both proxies; the client already leaked it via `.url`)                        |
+| `url`                           | kept                                                                                     |
+| `getServerFunctionMetadata(fn)` | **added**                                                                                |
+| `.GET` proxy getter             | **removed** (the `GET(fn)` export replaces it; internal transport path remains)          |
+| `.withOptions(init)`            | **removed** — session-dynamic uses go through `prepareRequest`; call-scoped uses are cut |
+| Start’s `GET` export            | **deleted**; `GET` imports from core                                                     |
 
 #### `prepareRequest`: client-side transport middleware
 
@@ -191,7 +193,7 @@ The motivating case is OAuth bearer tokens: dynamic credentials that rotate duri
 configureServerFunctionsClient({
   prepareRequest(init, { id, meta }) {
     return { ...init, headers: { ...init.headers, Authorization: `Bearer ${session.token()}` } };
-  },
+  }
 });
 ```
 
@@ -203,18 +205,18 @@ configureServerFunctionsClient({
 
 Validation deliberately ships from **neither core nor the router**. Core ships mechanisms — things that need privileged access to the transport, handler, or proxies — and the router ships only what it consumes; a validation helper touches no privileged surface in either, so it belongs outside both, as a standalone package plus a recipe in the docs. Nothing in the handler or transport exists for validation, and validation is never mandatory. (The same ethos kept try/catch action generators out of core.)
 
-The design works because **the body is the boundary**: validation is ordinary code at the top of the `"use server"` function, and the directive’s dead-code elimination (above) makes schemas server-only *by construction* — no compiler recognition, no client bundle cost, and the check runs identically on HTTP dispatch and in-process SSR calls. This is also why validation cannot live in wrapper position: wrappers never reach the HTTP dispatch path.
+The design works because **the body is the boundary**: validation is ordinary code at the top of the `"use server"` function, and the directive’s dead-code elimination (above) makes schemas server-only _by construction_ — no compiler recognition, no client bundle cost, and the check runs identically on HTTP dispatch and in-process SSR calls. This is also why validation cannot live in wrapper position: wrappers never reach the HTTP dispatch path.
 
-The intended shape, in brief: a non-throwing `validate(schema, value)` helper over [Standard Schema](https://standardschema.dev) (the types-only interface implemented by zod, valibot, arktype, and others) returning `{ ok: true, value }` or `{ ok: false, error }`, where the failure is **plain serializable data** — a fixed `name` plus the spec’s raw `issues` — recognized structurally rather than by class or brand, so it crosses any codec untouched. The caller chooses the failure plane per call site: return the error as an ordinary value (landing in submission state), or throw it wrapped in `respond(error, { status: 400 })` — the pre-existing envelope path, no new core policy. The failure *shape* is canonical by specification (without one shape, form components can’t work across routers — the same precedent as `respond`/`redirect`/`reload`), but canonical means specified, not shipped from core. The full specification — typing contract, projections, multi-arg handling, preflight guidance — belongs to the standalone package when it materializes, not this RFC.
+The intended shape, in brief: a non-throwing `validate(schema, value)` helper over [Standard Schema](https://standardschema.dev) (the types-only interface implemented by zod, valibot, arktype, and others) returning `{ ok: true, value }` or `{ ok: false, error }`, where the failure is **plain serializable data** — a fixed `name` plus the spec’s raw `issues` — recognized structurally rather than by class or brand, so it crosses any codec untouched. The caller chooses the failure plane per call site: return the error as an ordinary value (landing in submission state), or throw it wrapped in `respond(error, { status: 400 })` — the pre-existing envelope path, no new core policy. The failure _shape_ is canonical by specification (without one shape, form components can’t work across routers — the same precedent as `respond`/`redirect`/`reload`), but canonical means specified, not shipped from core. The full specification — typing contract, projections, multi-arg handling, preflight guidance — belongs to the standalone package when it materializes, not this RFC.
 
 ### Layering
 
-| Layer | Owns |
-|---|---|
-| **Core** | The directive contract, transport, handler + hooks, `respond`/`redirect`/`reload`, codec configuration, streaming; the shipped extension surface: `GET` + `withMeta` over the metadata channel, `getServerFunctionMetadata`/`isServerFunction`, `prepareRequest`, `id` on proxies, method 405 enforcement, automatic single-flight header via `subscribeFlightData`. Mechanisms only |
-| **Router** | Metadata detection in `query()`, single-flight via `subscribeFlightData` registration, errors landing in submission state (already true), the flash-cookie convention and SSR submission seeding via `handleNoJS` |
-| **Form layer (router/Start, future)** | Field-error UX conventions: typed field accessors, `aria-invalid` wiring, no-JS flash-cookie repopulation, FormData coercion |
-| **Userland** | Per-function server concerns as body code (validation, auth guards, logging, rate limiting); `prepareRequest` composition |
+| Layer                                 | Owns                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Core**                              | The directive contract, transport, handler + hooks, `respond`/`redirect`/`reload`, codec configuration, streaming; the shipped extension surface: `GET` + `withMeta` over the metadata channel, `getServerFunctionMetadata`/`isServerFunction`, `prepareRequest`, `id` on proxies, method 405 enforcement, automatic single-flight header via `subscribeFlightData`. Mechanisms only |
+| **Router**                            | Metadata detection in `query()`, single-flight via `subscribeFlightData` registration, errors landing in submission state (already true), the flash-cookie convention and SSR submission seeding via `handleNoJS`                                                                                                                                                                    |
+| **Form layer (router/Start, future)** | Field-error UX conventions: typed field accessors, `aria-invalid` wiring, no-JS flash-cookie repopulation, FormData coercion                                                                                                                                                                                                                                                         |
+| **Userland**                          | Per-function server concerns as body code (validation, auth guards, logging, rate limiting); `prepareRequest` composition                                                                                                                                                                                                                                                            |
 
 Unprivileged patterns that need neither core nor router access — the validation helper above being the canonical example — ship as standalone packages.
 
@@ -236,19 +238,19 @@ The boundary rule for future additions: **own the exchange, not the application 
 ### Compiler implications
 
 - **None, by design.** `GET` (like any in-body helper) is an ordinary runtime import; the wrapper round-trip and body-scoped DCE that make the design work are existing, verified behavior.
-- **Module-level wrappers are compiler-generic:** a wrapped export (`export const x = wrapper(async () => ...)`) extracts the inner function and preserves the wrapper call in both outputs. The compiler does not recognize `GET` or any other wrapper by name.
-- **Shipped since first draft:** the third `registerServerReference(id, fn, name)` argument carrying the compiler-*static* dev `name` now exists on both proxies (development output only); it seeds the metadata channel as a default that explicit `withMeta`/`GET` writes shallow-merge over. Compiler-*produced* metadata flowing to the runtime — not a userland convention the compiler recognizes.
+- **Module-level wrapped exports are a compile error:** in a module-level `"use server"` file, any export whose value wraps a function in a call expression — `GET` included, no wrapper is recognized by name — is rejected with an error directing to the function-level directive (see the invariant under the compiler contract above). The compiler never guesses which call argument “is” the function; the directive’s position is the only marker it honors.
+- **Shipped since first draft:** the third `registerServerReference(id, fn, name)` argument carrying the compiler-_static_ dev `name` now exists on both proxies (development output only); it seeds the metadata channel as a default that explicit `withMeta`/`GET` writes shallow-merge over. Compiler-_produced_ metadata flowing to the runtime — not a userland convention the compiler recognizes.
 
 ## Migration / replacement
 
-| Old | New |
-|---|---|
-| `import { GET } from "@solidjs/start"` | `import { GET } from "@solidjs/web/server-functions"` — Start’s export deleted |
+| Old                                                           | New                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `import { GET } from "@solidjs/start"`                        | `import { GET } from "@solidjs/web/server-functions"` — Start’s export deleted                                                                                                                                                              |
 | `import { createPlugin } from "@solidjs/start/serialization"` | `import { createPlugin } from "@solidjs/web/serialization"` — the same version-pinned seroval re-export (`createPlugin` + `OpaqueReference`, solid-start #1474); author plugins from it and feed them to the `codec` option on both entries |
-| `fn.GET` (property access) | gone; a `GET(fn)` reference already calls over GET |
-| `fn.withOptions(init)` | `prepareRequest` for session policy; call-scoped uses cut |
-| Router `query()` `.GET` sniffing | metadata detection via `getServerFunctionMetadata` (mostly: nothing — the callable is already the right transport) |
-| Router `action()` single-flight via `withOptions` header | automatic: the transport sets the header when the router registers via `subscribeFlightData` |
+| `fn.GET` (property access)                                    | gone; a `GET(fn)` reference already calls over GET                                                                                                                                                                                          |
+| `fn.withOptions(init)`                                        | `prepareRequest` for session policy; call-scoped uses cut                                                                                                                                                                                   |
+| Router `query()` `.GET` sniffing                              | metadata detection via `getServerFunctionMetadata` (mostly: nothing — the callable is already the right transport)                                                                                                                          |
+| Router `action()` single-flight via `withOptions` header      | automatic: the transport sets the header when the router registers via `subscribeFlightData`                                                                                                                                                |
 
 ## Removals
 
@@ -265,6 +267,7 @@ Recorded so they don’t reopen:
 - **General `extend`/`transport(meta, fn)` options bag** — originally deferred, not designed-in: method was the only declaration-static capability, and a one-key options bag is worse API than one named function. A narrowed form returned as **`withMeta(fn, meta)`** — transport/declaration metadata only, function-first, never behavior — because the declare-on-function, react-in-hook pattern needed a public writer to the channel (`prepareRequest`’s `meta` was otherwise unreachable for user declarations). The metadata channel remains the stable contract.
 - **Per-function static `headers` metadata** — cut; every concrete use case (bearer tokens, tracing) is session-dynamic and uniform → `prepareRequest`.
 - **Compiler recognition of framework functions** (schema-stripping, `extend` as a compiler convention) — rejected; repeats the `server$` mistake of growing compiler knowledge per capability. Dead, not deferred: body-scoped DCE removes the motivation, since schemas never reach the client in the first place.
+- **Transplanting wrapped module-level exports to the client build** (briefly landed, then reversed) — the compiler extracted the inner function from `export const x = wrap(async () => ...)` in a module-level directive file, replaced it with the reference, and cloned the wrapper call plus its reachable local dependencies into the client output. Rejected on three grounds: it executes server-module code on the client (module-level files promise the opposite), the wrapper never applies to HTTP dispatch anyway (registration precedes wrapping), and deciding which call argument “is” the function reintroduces the pattern-matching that the positional directive exists to avoid. Replaced by the compile error above; a recognized-wrapper allowlist (`GET`/`withMeta` only) was considered and rejected as the same problem with a shorter list.
 - **Validation in core (or the router)** — rejected: a validation helper touches zero privileged surface, so it lives outside both (see the decision record above). Core ships mechanisms; the router ships what it consumes; sugar that needs neither lives outside both.
 - **Validation API variants** — a throwing/auto-400 `validate` (bakes the failure-plane choice into the helper), an error class with a `Symbol.for` brand + codec plugin + rehydration (plain data plus a structural guard needs no machinery), and per-position `validateArgs(schemas, args)` (tuple schemas already cover multi-arg) — all cut.
 - **Schema-first router overloads** (`action(schema, fn)`, SvelteKit-style) — dead: validation is preflight or in-body, so router primitives don’t take schemas.
