@@ -13,7 +13,6 @@
     "preinstall": "npx only-allow pnpm",
     "postinstall": "simple-git-hooks",
     "test": "turbo run test test-types typecheck --filter=!test-integration --filter=!@solidjs/compiler",
-    "build": "turbo run build --filter=!@solidjs/compiler",
     "typecheck": "turbo run typecheck",
     "test:integration": "turbo run test --filter=test-integration",
     "coverage": "turbo run coverage",
