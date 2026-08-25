@@ -2,7 +2,20 @@
   "$schema": "https://unpkg.com/@changesets/config@2.2.0/schema.json",
   "changelog": "@changesets/cli/changelog",
   "commit": false,
-  "fixed": [["solid-js", "@solidjs/babel-plugin", "@solidjs/compiler", "@solidjs/web", "@solidjs/html", "@solidjs/h", "@solidjs/universal", "@solidjs/element", "@solidjs/signals"]],
+  "fixed": [
+    [
+      "solid-js",
+      "@solidjs/babel-plugin",
+      "@solidjs/compiler",
+      "@solidjs/web",
+      "@solidjs/html",
+      "@solidjs/h",
+      "@solidjs/universal",
+      "@solidjs/element",
+      "@solidjs/signals",
+      "@solidjs/diagnostics"
+    ]
+  ],
   "linked": [],
   "access": "public",
   "baseBranch": "main",

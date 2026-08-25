@@ -22,7 +22,8 @@
     "types",
     "types-cjs",
     "package.json",
-    "CHEATSHEET.md"
+    "CHEATSHEET.md",
+    "skills"
   ],
   "exports": {
     ".": {
