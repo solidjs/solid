@@ -14,7 +14,12 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(path.join(here, "..", "package.json"));
 const babel = require("@babel/core");
-const preset = require(path.join(here, "..", "packages", "babel-preset-solid", "index.js"));
+// Folded monorepo (dom-expressions absorption): the Babel integration lives
+// at packages/babel-plugin and is the raw PLUGIN (the preset wrapper was
+// retired in the absorption). Row-proof stamping requires patch mode, which
+// is DORMANT by default — the report opts in explicitly (it measures the
+// grammar's admission surface, not the shipping default).
+const plugin = require(path.join(here, "..", "packages", "babel-plugin", "index.js"));
 
 const corpus = process.argv[2] ?? "/Users/ryancarniato/Development/octane/benchmarks";
 
@@ -45,11 +50,25 @@ for (const file of jsxFiles(corpus)) {
   try {
     out = babel.transformSync(src, {
       filename: file,
-      presets: [[preset, { generate: "dom", hydratable: false }]],
-      plugins: file.endsWith(".tsx") ? [[require("@babel/plugin-transform-typescript"), { isTSX: true }]] : []
+      configFile: false,
+      babelrc: false,
+      plugins: [
+        ...(file.endsWith(".tsx")
+          ? [[require("@babel/plugin-transform-typescript"), { isTSX: true }]]
+          : []),
+        [
+          plugin,
+          {
+            moduleName: "@solidjs/web",
+            generate: "dom",
+            hydratable: false,
+            patchDriver: "patchDriver"
+          }
+        ]
+      ]
     }).code;
   } catch (e) {
-    rows.push([file, forCount, "COMPILE ERROR: " + String(e.message).split("\n")[0].slice(0, 60)]);
+    rows.push([file, forCount, "COMPILE ERROR: " + String(e.message).slice(0, 200)]);
     continue;
   }
   const stamped = (out.match(/rowProof\(/g) ?? []).length;
