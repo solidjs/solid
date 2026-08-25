@@ -258,7 +258,11 @@ const JSON_CODEC_DEPTH_LIMIT = 64;
 // Single source of truth for codec defaults — encode and decode must agree
 // on plugins and feature policy or payloads won't roundtrip. The encode
 // half (serializer.js) imports this so one entry defines the contract.
-export function resolveCodecOptions({ plugins, disabledFeatures, depthLimit } = {}) {
+export function resolveCodecOptions({
+  plugins,
+  disabledFeatures,
+  depthLimit
+}: JSONCodecOptions = {}) {
   return {
     plugins: resolveSerializerPlugins(plugins),
     disabledFeatures:
