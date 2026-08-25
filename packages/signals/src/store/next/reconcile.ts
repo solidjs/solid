@@ -19,7 +19,7 @@
  *   members (R11). Kind changes replace wholesale (R10).
  */
 import { isEqual } from "../../core/index.js";
-import { emitPatchLocal, emitRowOps, emitSlotPatch } from "./patch.js";
+import { emitPatchLocal, emitRowOps, emitSlotPatch, type RowOps } from "./patch.js";
 import {
   $PROXY,
   $TARGET,
@@ -427,11 +427,20 @@ const hasOwnP = Object.prototype.hasOwnProperty;
  * the key. Aligned arrays (value-only folds) emit nothing. */
 const identityKey = (r: any) => unwrapValue(r);
 export function emitSetterRowOps(t: StoreNextTarget, prevRows: any[], nextRows: any[]): void {
+  const ops = buildIdentityRowOps(prevRows, nextRows);
+  if (ops !== null) emitRowOps(t, nextRows, ops);
+}
+
+/** Identity-keyed structural diff, returned rather than emitted: shared by
+ * the setter channel (regular queue) and the OPTIMISTIC write channel (lane
+ * queue) — same retention semantics, different dispatch timing. Returns
+ * null when the lists are identity-aligned (no structure changed). */
+export function buildIdentityRowOps(prevRows: any[], nextRows: any[]): RowOps | null {
   let p = 0;
   const min = prevRows.length < nextRows.length ? prevRows.length : nextRows.length;
   while (p < min && unwrapValue(prevRows[p]) === unwrapValue(nextRows[p])) p++;
-  if (p === prevRows.length && p === nextRows.length) return;
-  buildAndEmitRowOps(t, prevRows, nextRows, p, identityKey);
+  if (p === prevRows.length && p === nextRows.length) return null;
+  return buildRowOps(prevRows, nextRows, p, identityKey);
 }
 
 /** Shared row-ops builder (keyed deep branch + shallow/positional branch):
@@ -444,6 +453,15 @@ function buildAndEmitRowOps(
   structStart: number,
   keyFn: KeyFn | null
 ): void {
+  emitRowOps(t, nextRows, buildRowOps(prevRows, nextRows, structStart, keyFn));
+}
+
+function buildRowOps(
+  prevRows: any[],
+  nextRows: any[],
+  structStart: number,
+  keyFn: KeyFn | null
+): RowOps {
   const plen = prevRows.length;
   const nlen = nextRows.length;
   const sources = new Array(nlen - structStart);
@@ -478,7 +496,7 @@ function buildAndEmitRowOps(
   for (let j = structStart; j < plen; j++) {
     if (consumed === null || !consumed.has(j)) removed.push(unwrapValue(prevRows[j]));
   }
-  emitRowOps(t, nextRows, { prefix: structStart, sources, removed });
+  return { prefix: structStart, sources, removed };
 }
 
 function descend(

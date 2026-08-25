@@ -228,14 +228,14 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   (evalOwner as any).dispose();
   let raw = subject != null ? patchableRaw(subject) : undefined;
   if (raw === undefined || !Array.isArray(raw)) return false;
-  // OPTIMISTIC family arrays decline (audit finding, narrowed): optimistic
-  // user writes ride node-level overrides — they never enter the reconcile
-  // walk, so no row/slot ops are emitted and the proxy identity is stable;
-  // an engaged list would freeze on optimistic structure. Classic mapArray
-  // handles them correctly. PROJECTION (non-optimistic) families are
-  // drivable — their recomputes walk reconcile, whose emissions are
-  // transition-stamped in the apply queue (equivalence-matrix gated).
-  if (storeHasOptimisticFamily(subject)) return false;
+  // OPTIMISTIC families engage (family increment 2): their structural
+  // writes emit lane-timed row ops from the override channel, and reverts
+  // emit an identity RESYNC (ops === null). The committed backing lags the
+  // visible state while optimism is in flight, so the initial bind reads
+  // the OPTIMISTIC VIEW through the proxy — classic mapArray reads the same
+  // view, and the equivalence matrix holds across writes/reverts/landings.
+  const optimistic = storeHasOptimisticFamily(subject);
+  if (optimistic) raw = untrack(() => Array.from(subject as any));
 
   // Hydration precheck (claim + register only — §5): rows are the region's
   // server-rendered elements, claimed positionally through each element's
@@ -362,8 +362,30 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
     }
   }
 
-  const applyOps = (next: any[], ops: { prefix: number; sources: number[] }) => {
+  // Synthetic full-window ops by ROW IDENTITY against the retained raws:
+  // used by identity swaps (`s.rows = newArr`) and by the optimistic revert
+  // RESYNC (ops === null — overrides are gone, the live view is truth, and
+  // retention must be rebuilt by identity). RAW identity on both sides:
+  // draft-authored permutations produce arrays of row PROXIES and deep
+  // ingest stores them verbatim — matching without unwrapping rebuilds
+  // every row (JFB keyed-reorder identity gate).
+  const identityOps = (nextArr: any[]): { prefix: number; sources: number[] } => {
+    const keyOf = (r: any) => {
+      const w = r != null ? patchableRaw(r) : undefined;
+      return w !== undefined ? w : r;
+    };
+    const oldIndex = new Map<any, number>();
+    for (let j = 0; j < prevRaws.length; j++) {
+      const k = keyOf(prevRaws[j]);
+      if (!oldIndex.has(k)) oldIndex.set(k, j);
+    }
+    const sources = new Array(nextArr.length);
+    for (let k = 0; k < nextArr.length; k++) sources[k] = oldIndex.get(keyOf(nextArr[k])) ?? -1;
+    return { prefix: 0, sources };
+  };
+  const applyOps = (next: any[], ops: { prefix: number; sources: number[] } | null) => {
     if (declined) return;
+    if (ops === null) ops = identityOps(next);
     const { prefix, sources } = ops;
     const retained = new Set<number>();
     for (let j = 0; j < sources.length; j++) if (sources[j] >= 0) retained.add(sources[j]);
@@ -490,7 +512,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
           lateClassic?.();
           return;
         }
-        if (nextRaw === undefined || !Array.isArray(nextRaw) || storeHasOptimisticFamily(value)) {
+        if (nextRaw === undefined || !Array.isArray(nextRaw)) {
           // Subject left the driver's contract (e.g. `each` switched from
           // the store array to a DERIVED array — a filtered view). Clear the
           // region and hand the list to the classic path, which renders the
@@ -505,24 +527,9 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
           lateClassic?.();
           return;
         }
-        // RAW identity on both sides: permutations authored inside drafts
-        // (`s.rows = [...permuted draft reads]`) produce arrays of row
-        // PROXIES, and deep ingest stores them verbatim — matching them
-        // against the previous raws without unwrapping rebuilds every row
-        // (caught by the JFB keyed-reorder identity gate).
-        const keyOf = (r: any) => {
-          const w = r != null ? patchableRaw(r) : undefined;
-          return w !== undefined ? w : r;
-        };
-        const oldIndex = new Map<any, number>();
-        for (let j = 0; j < prevRaws.length; j++) {
-          const k = keyOf(prevRaws[j]);
-          if (!oldIndex.has(k)) oldIndex.set(k, j);
-        }
-        const sources = new Array(nextRaw.length);
-        for (let k = 0; k < nextRaw.length; k++) sources[k] = oldIndex.get(keyOf(nextRaw[k])) ?? -1;
+        const swapOps = identityOps(nextRaw);
         subject = value;
-        applyOps(nextRaw, { prefix: 0, sources });
+        applyOps(nextRaw, swapOps);
         unbindOps = runWithOwner(listOwner, () => registerRowOps(subject, applyOps)) as () => void;
         if (shallow)
           unbindSlots = runWithOwner(listOwner, () =>

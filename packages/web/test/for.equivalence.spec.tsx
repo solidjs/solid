@@ -3,7 +3,16 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { createRenderEffect, createRoot, createStore, flush, For, reconcile } from "solid-js";
+import {
+  action,
+  createOptimisticStore,
+  createRenderEffect,
+  createRoot,
+  createStore,
+  flush,
+  For,
+  reconcile
+} from "solid-js";
 import { patchDriver, rowProof } from "@solidjs/web";
 
 // EQUIVALENCE MATRIX (PROPOSAL-KEYED-LIST-DRIVER §8.1, the audit's merge
@@ -246,5 +255,109 @@ describe("equivalence matrix: driver DOM ≡ classic DOM", () => {
     // Every record object is fresh in the payload (shallow reference
     // identity): all four rebuild — classic mapArray semantics exactly.
     expect(trace[1].topology).toEqual(["new", "new", "new", "new"]);
+  });
+});
+
+// OPTIMISTIC equivalence (family increment 2): structural optimism rides the
+// override channel — lane-timed row ops in flight, identity RESYNC on
+// revert. Each script snapshots mounted → in-flight → settled and asserts
+// driver ≡ classic at every point.
+describe("equivalence matrix: optimistic lists", () => {
+  type Mutate = (s: { list: Row[] }) => void;
+
+  async function runOptimistic(
+    useDriver: boolean,
+    mutate: Mutate,
+    outcome: "revert" | "land"
+  ): Promise<Step[]> {
+    const row = useDriver ? driverRow : classicRow;
+    const steps: Step[] = [];
+    let div!: HTMLDivElement;
+    let dispose!: () => void;
+    let save!: () => any;
+    let settle!: (ok: boolean) => void;
+    createRoot(d => {
+      dispose = d;
+      const [state, setState] = createOptimisticStore<{ list: Row[] }>({ list: make(1, 2, 3) });
+      <div ref={div}>
+        <For each={state.list}>{row}</For>
+      </div>;
+      save = action(function* () {
+        setState(mutate as any);
+        yield new Promise<void>((res, rej) => {
+          settle = ok => (ok ? res() : rej(new Error("revert")));
+        });
+      }) as any;
+    });
+    flush();
+
+    let nodes: Node[] = [];
+    const snap = () => {
+      const now = Array.from(div.querySelectorAll("tr")) as Node[];
+      const content = now
+        .map(n => `${(n as Element).getAttribute("data-id")}:${n.textContent}`)
+        .join(",");
+      const topology = now.map(n => {
+        const j = nodes.indexOf(n);
+        return j === -1 ? "new" : `from:${j}`;
+      });
+      nodes = now;
+      steps.push({ content, topology });
+    };
+
+    snap(); // mounted
+    const p = Promise.resolve(save()).catch(() => {});
+    flush();
+    snap(); // in-flight optimism
+    settle(outcome === "land");
+    await p;
+    flush();
+    snap(); // settled (landed or reverted)
+    dispose();
+    flush();
+    return steps;
+  }
+
+  async function assertOptimistic(mutate: Mutate, outcome: "revert" | "land") {
+    const driver = await runOptimistic(true, mutate, outcome);
+    const classic = await runOptimistic(false, mutate, outcome);
+    expect(driver).toEqual(classic);
+    return driver;
+  }
+
+  const scripts: Record<string, Mutate> = {
+    "push a row": s => {
+      s.list.push({ id: 9, label: "N9" });
+    },
+    "remove mid (splice)": s => {
+      s.list.splice(1, 1);
+    },
+    "reorder + value in one draft": s => {
+      const [a, b, c] = [s.list[0], s.list[1], s.list[2]];
+      s.list[0] = c;
+      s.list[1] = a;
+      s.list[2] = b;
+      s.list[0].label = "Z3";
+    },
+    "replace the whole list (parent key write)": s => {
+      (s as any).list = make(5, 6);
+    }
+  };
+
+  for (const [name, mutate] of Object.entries(scripts)) {
+    test(`optimistic / ${name} — revert`, async () => {
+      await assertOptimistic(mutate, "revert");
+    });
+    test(`optimistic / ${name} — land`, async () => {
+      await assertOptimistic(mutate, "land");
+    });
+  }
+
+  test("optimistic / in-flight visibility sanity: push shows before settle on BOTH sides", async () => {
+    const trace = await assertOptimistic(s => {
+      s.list.push({ id: 9, label: "N9" });
+    }, "revert");
+    expect(trace[1].content).toBe("1:L1,2:L2,3:L3,9:N9"); // optimism visible
+    expect(trace[2].content).toBe("1:L1,2:L2,3:L3"); // revert restores committed
   });
 });

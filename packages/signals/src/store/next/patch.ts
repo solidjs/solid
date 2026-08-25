@@ -219,6 +219,39 @@ export function emitPatchOptimistic(t: StoreNextTarget, next: any, prev: any): v
   }
 }
 
+/** Row-ops emission at OPTIMISTIC (lane) timing: user drafts on an
+ * optimistic family must show structure IN FLIGHT — bypassing the
+ * transition stash exactly like emitPatchOptimistic. Two forms:
+ * - `ops` given (write site): `nextRows` is the draft's intended visible
+ *   list, ops the identity diff against the pre-write optimistic view.
+ * - `ops === null` (revert site): RESYNC — the consumer rebuilds retention
+ *   by row identity against the live post-revert view, resolved from the
+ *   target at drain time (overrides are gone by then, so `pb ?? v` IS the
+ *   committed truth). */
+export function emitRowOpsOptimistic(
+  t: StoreNextTarget,
+  nextRows: any[] | null,
+  ops: RowOps | null
+): void {
+  const list = (t.pc !== null ? t.pc.ro : null) as RowOpsEntry[] | null;
+  if (list === null) return;
+  if (optQueue === null) optQueue = [];
+  optQueue.push({
+    list: list.map(e => ({
+      owner: e.owner,
+      fn: (n: any, _p: any) => e.fn(n as any[], ops as any)
+    })),
+    next: nextRows,
+    prev: null,
+    force: false,
+    t: nextRows === null ? t : null
+  });
+  if (!scheduled) {
+    scheduled = true;
+    globalQueue.enqueue(EFFECT_RENDER, drainApplyQueue);
+  }
+}
+
 /**
  * Register a compiled patch on a store record. Multi-consumer (two lists
  * can render one record); owner-scoped for disposal. Returns unbind.
@@ -315,7 +348,9 @@ export interface RowOps {
   removed: any[];
 }
 
-export type RowOpsFn = (next: any[], ops: RowOps) => void;
+/** `ops === null` is the RESYNC form (optimistic revert): the consumer
+ * rebuilds retention by row identity against `next` (the live view). */
+export type RowOpsFn = (next: any[], ops: RowOps | null) => void;
 
 interface RowOpsEntry {
   fn: RowOpsFn;

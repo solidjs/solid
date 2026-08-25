@@ -51,7 +51,10 @@ import {
   unwrapValue,
   wrapNext
 } from "./store.js";
-import { emitPatchOptimistic } from "./patch.js";
+import { emitPatchOptimistic, emitRowOpsOptimistic } from "./patch.js";
+// Cycle with reconcile.js is benign: the binding resolves at call time (the
+// optimistic write), long after both modules initialize.
+import { buildIdentityRowOps } from "./reconcile.js";
 import { setOptHooks, storeNextLookup } from "./target.js";
 type KeyFn = (item: any) => any;
 import { isRawValue, isWrappable, rawValuesUsed, setNextOptimisticViewResolver } from "../store.js";
@@ -80,6 +83,11 @@ function installNextBlockedHalf(): void {
         if (overlaid !== undefined) {
           for (const ot of overlaid) {
             if (ot.pc !== null && ot.pc.p !== null) emitPatchOptimistic(ot, null, null);
+            // Row-ops resync (family increment 2): reverts flip node values
+            // back engine-natively; a driven list must rebuild retention by
+            // row identity against the post-revert view (resolved from the
+            // target at drain — overrides are gone by then).
+            if (ot.pc !== null && ot.pc.ro !== null) emitRowOpsOptimistic(ot, null, null);
           }
         }
       }
@@ -205,6 +213,17 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
   // visible state; prev is the view before these overrides apply. Bypasses
   // the transition stash — optimism is visible in flight.
   if (t.pc !== null && t.pc.p !== null) emitPatchOptimistic(t, pb, optimisticView(t, old));
+  // Row-ops channel (family increment 2): optimistic STRUCTURE on an array
+  // rides node overrides — it never enters the reconcile walk — so a driven
+  // list must get its structural ops here, lane-timed. Identity diff of the
+  // pre-write optimistic view against the draft; aligned writes emit nothing.
+  if (t.pc !== null && t.pc.ro !== null && Array.isArray(pb)) {
+    const prevView = optimisticView(t, old);
+    if (Array.isArray(prevView)) {
+      const ops = buildIdentityRowOps(prevView, pb);
+      if (ops !== null) emitRowOpsOptimistic(t, pb, ops);
+    }
+  }
   const visible = (key: PropertyKey, fallback: any): any => {
     const node = t.n?.[key as any];
     return node !== undefined && hasActiveOverride(node)
