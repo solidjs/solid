@@ -14,6 +14,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   GET as serverGET,
+  configureServerFunctionsServer,
   createServerReference as createServerSideReference,
   getServerFunctionInvocation,
   getServerFunctionMetadata as getServerFunctionMetadataServer,
@@ -23,7 +24,10 @@ import {
   registerServerReference,
   withMeta as withMetaServer
 } from "@solidjs/web/server-functions/server";
-import type { ServerFunctionInvocation } from "@solidjs/web/server-functions/server";
+import type {
+  ServerFunctionInvocation,
+  WrapInvocationHook
+} from "@solidjs/web/server-functions/server";
 import {
   GET,
   configureServerFunctionsClient,
@@ -174,6 +178,51 @@ describe("server-function extension surface (built bundles)", () => {
       configureServerFunctionsClient({ prepareRequest: null as any });
       restore();
     }
+  });
+
+  it("passes declaration metadata to HTTP and direct invocation wrappers", async () => {
+    const reference = serverGET(
+      withMetaServer(
+        createServerSideReference(
+          registerServerReference("ext-wrap-meta-0", async (value: string) => value, "readValue")
+        ),
+        { requiresAuth: true }
+      )
+    );
+    const calls: Parameters<WrapInvocationHook>[1][] = [];
+    configureServerFunctionsServer({
+      wrapInvocation(run, context) {
+        calls.push(context);
+        return run();
+      }
+    });
+    const restore = connectTransport();
+    try {
+      expect(await createServerReference("ext-wrap-meta-0")("http")).toBe("http");
+      const event = { request: new Request("http://localhost/page"), locals: {} };
+      expect(await (globalThis as any)[RequestContext].run(event, () => reference("direct"))).toBe(
+        "direct"
+      );
+    } finally {
+      configureServerFunctionsServer({ wrapInvocation: null as any });
+      restore();
+    }
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toMatchObject({
+      id: "ext-wrap-meta-0",
+      meta: { name: "readValue", requiresAuth: true, method: "GET" },
+      args: ["http"],
+      direct: false,
+      request: expect.any(Request)
+    });
+    expect(calls[1]).toMatchObject({
+      id: "ext-wrap-meta-0",
+      meta: { name: "readValue", requiresAuth: true, method: "GET" },
+      args: ["direct"],
+      direct: true
+    });
+    expect(calls[1].request).toBeUndefined();
   });
 
   it("observes calls through the client bridge", async () => {

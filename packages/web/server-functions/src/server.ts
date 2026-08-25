@@ -172,8 +172,9 @@ export type CollectFlightDataHook = (
  * result — replacing it replaces the function's result; throwing routes
  * through the handler's normal error encoding.
  *
- * The context carries the call's identity (`id`, parsed `args`), its
- * `event`, and how it arrived: `direct` is `true` for in-process SSR calls
+ * The context carries the call's identity (`id`, declaration `meta`, parsed
+ * `args`), its `event`, and how it arrived: `direct` is `true` for in-process
+ * SSR calls
  * (where `request` is absent) and `false` for HTTP dispatch. On the direct
  * path the wrapper must stay transparent for synchronous functions —
  * return `run()`'s value, not an unconditional promise, unless it needs to
@@ -183,6 +184,7 @@ export type WrapInvocationHook = (
   run: () => unknown,
   context: {
     id: string;
+    meta: ServerFunctionMetadata | undefined;
     args: unknown[];
     event: ServerFunctionEvent;
     request?: Request;
@@ -541,6 +543,7 @@ function provideEvent(event, fn) {
 }
 
 const REGISTRATIONS = new Map();
+const DECLARATION_METADATA = new Map();
 // Declared-method bookkeeping keyed by function id (internal, not public
 // API): the server half of `GET` records entries here so the HTTP handler
 // can gate GET dispatch — a GET request to a function that never declared
@@ -645,6 +648,7 @@ export function createServerReference({ id, fn, name }) {
   // dev-only source name seeds it as a default — explicit `withMeta`/`GET`
   // writes shallow-merge over it like any other write.
   const metadata = name === undefined ? {} : { name };
+  DECLARATION_METADATA.set(id, metadata);
   return new Proxy(fn, {
     get(target, prop) {
       if (prop === "id") return id;
@@ -671,7 +675,13 @@ export function createServerReference({ id, fn, name }) {
         // the function during a render. The wrapper must return run()'s
         // value (this path stays synchronous for synchronous functions).
         return config.wrapInvocation
-          ? config.wrapInvocation(run, { id, args, event: evt, direct: true })
+          ? config.wrapInvocation(run, {
+              id,
+              meta: DECLARATION_METADATA.get(id) || metadata,
+              args,
+              event: evt,
+              direct: true
+            })
           : run();
       });
       // In-process mirror of the handler's transformResult: direct SSR calls
@@ -794,6 +804,7 @@ export function live(fn) {
   };
   wrapped[SERVER_FUNCTION_METADATA] = metadata;
   wrapped.id = fn.id;
+  DECLARATION_METADATA.set(fn.id, metadata);
   Object.defineProperty(wrapped, "url", {
     get: () => fn.url,
     configurable: true
@@ -1553,7 +1564,7 @@ export function handleServerFunctionRequest(
  *   middleware, auth, logging, error mapping). Called inside the event
  *   scope with the invocation identity already established
  *   (`getServerFunctionInvocation()` answers before, during and after
- *   `run()`); the context carries `{ id, args, event, request, direct }`.
+ *   `run()`); the context carries `{ id, meta, args, event, request, direct }`.
  *   Must return (or resolve to) `run()`'s result — replacing it replaces
  *   the function's result. The configured hook (see
  *   `configureServerFunctionsServer`) also wraps direct SSR calls, where
@@ -1616,6 +1627,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
     });
     return protectsRequest ? withCSRFVary(response) : response;
   }
+  const declarationMetadata = DECLARATION_METADATA.get(functionId);
 
   // method enforcement: GET requests only dispatch to functions that
   // declared GET (the server half of `GET` records them) — no crafted GET
@@ -1696,7 +1708,14 @@ export async function handleServerFunctionRequest(request, options = {}) {
         INVOCATIONS.set(event, { id: functionId });
         const run = () => serverFunction(...parsed);
         return wrapInvocation
-          ? wrapInvocation(run, { id: functionId, args: parsed, event, request, direct: false })
+          ? wrapInvocation(run, {
+              id: functionId,
+              meta: declarationMetadata,
+              args: parsed,
+              event,
+              request,
+              direct: false
+            })
           : run();
       });
 
