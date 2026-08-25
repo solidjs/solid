@@ -7,7 +7,8 @@ import {
   merge as mergeProps,
   flatten,
   createMemo,
-  createRenderEffect
+  createRenderEffect,
+  flush
 } from "solid-js";
 
 export interface RendererOptions<NodeType> {
@@ -372,12 +373,21 @@ export function createRenderer({
       try {
         root(dispose => {
           disposer = dispose;
-          insert(element, code(), undefined, undefined, {
+          // Accessor wrap: a concrete node would short-circuit insert and
+          // skip `schedule`. Evaluate `code()` once; the accessor is stable.
+          const tree = code();
+          insert(element, () => tree, undefined, undefined, {
+            schedule: true,
             onUpdate(value) {
               mounted = collectMounted(element, value);
             }
           });
         });
+        // Drain the queued mount so the no-async path is attached by return.
+        // Uncaught top-level async holds the initial commit on the active
+        // transition and attaches atomically once it settles — same as
+        // `@solidjs/web`'s `render`.
+        flush();
       } catch (err) {
         if (disposer) disposer();
         cleanup(element, mounted);

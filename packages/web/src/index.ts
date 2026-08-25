@@ -5,8 +5,6 @@ import {
   SVGElements,
   MathMLElements,
   Namespaces,
-  render as renderCore,
-  hydrate as hydrateCore,
   registerDelegatedContainer,
   unregisterDelegatedContainer,
   getDelegatedRoot
@@ -23,9 +21,6 @@ import {
   untrack,
   omit,
   sharedConfig,
-  enableHydration,
-  enforceLoadingBoundary,
-  flush,
   $DEVCOMP,
   Component,
   createEffect,
@@ -33,12 +28,12 @@ import {
   type Owner,
   type Setter
 } from "solid-js";
-import type { JSX } from "./jsx.js";
+import type { JSX } from "../jsx/jsx.js";
 
 export * from "./client.js";
 export * from "./server-mock.js";
 export * from "./response.js";
-export type { JSX } from "./jsx.js";
+export type { JSX } from "../jsx/jsx.js";
 export {
   For,
   Show,
@@ -51,18 +46,6 @@ export {
   NoHydration,
   Hydration
 } from "solid-js";
-
-import { merge } from "solid-js";
-
-/**
- * Compiler-emitted prop-spread helper. The JSX transform (in
- * `dom-expressions`) emits `mergeProps(...)` calls when compiling prop
- * spreads on components — it is *not* a user-facing API. Application code
- * should import `merge` from `solid-js` directly.
- *
- * @internal
- */
-export const mergeProps = merge;
 
 /**
  * Build-time constant indicating whether code is running on the server. This
@@ -104,7 +87,6 @@ export const isServer: boolean = false;
  */
 export const isDev: boolean = "_SOLID_DEV_" as unknown as boolean;
 
-type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
 export type IntrinsicElement = Extract<keyof JSX.IntrinsicElements, string>;
 export type ValidComponent = IntrinsicElement | Component<any> | (string & {});
 export type ComponentProps<T extends ValidComponent> =
@@ -118,85 +100,6 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
   [K in keyof P]: P[K];
 } & {
   component: T | null | undefined | false;
-};
-
-/**
- * Renders a component tree into a DOM element. Returns a dispose function
- * that tears the tree down and cleans up reactive scopes when called.
- *
- * @example
- * ```tsx
- * import { render } from "@solidjs/web";
- *
- * const dispose = render(() => <App />, document.getElementById("root")!);
- *
- * // Later, to unmount:
- * dispose();
- * ```
- *
- * @remarks
- * The top-level insert is queued via `insertOptions: { schedule: true }` so
- * its initial DOM attach goes through the effect queue rather than executing
- * inline. This lets the mount participate in transitions: if an uncaught
- * async read surfaces during the initial render (no `Loading` ancestor
- * absorbs it), the mount is held by the transition and attaches atomically
- * once all pending settles. On the no-async happy path the tail `flush()`
- * drains the queued callback so the attach is synchronous by the time
- * `render()` returns. The dev enforcement window scopes
- * `ASYNC_OUTSIDE_LOADING_BOUNDARY` to the initial mount only.
- */
-export function render(
-  code: () => JSX.Element,
-  element: MountableElement,
-  init?: unknown,
-  options: { renderId?: string } = {}
-): () => void {
-  // @ts-ignore — replaced at build time
-  if ("_DX_DEV_") enforceLoadingBoundary(true);
-  try {
-    const dispose = (
-      renderCore as unknown as (
-        code: () => JSX.Element,
-        element: MountableElement,
-        init: unknown,
-        options: { renderId?: string; insertOptions?: { schedule?: boolean } }
-      ) => () => void
-    )(code, element, init, { ...options, insertOptions: { schedule: true } });
-    flush();
-    return dispose;
-  } finally {
-    // @ts-ignore — replaced at build time
-    if ("_DX_DEV_") enforceLoadingBoundary(false);
-  }
-}
-
-/**
- * Resumes a server-rendered tree on the client, attaching event listeners
- * and reactive bindings without reconstructing the DOM. Returns a `dispose`
- * function that tears down reactive scopes (DOM nodes are left in place).
- *
- * Use this when the page HTML was produced by `renderToString` or
- * `renderToStream`. For client-only apps, use `render` instead.
- *
- * Pass `options.renderId` to hydrate one of multiple roots emitted by a
- * server render that used the same id.
- *
- * When the server renders a full document but the client hydrates only the
- * app subtree, the server must give that subtree its own id namespace: wrap
- * the document shell in `<NoHydration>` and re-enter with `<Hydration>`
- * around the app. Otherwise the app's hydration ids are allocated under the
- * document component's owner tree and this walk can never claim them.
- *
- * @example
- * ```tsx
- * import { hydrate } from "@solidjs/web";
- *
- * hydrate(() => <App />, document.getElementById("root")!);
- * ```
- */
-export const hydrate: typeof hydrateCore = (...args) => {
-  enableHydration();
-  return hydrateCore(...args);
 };
 
 /**

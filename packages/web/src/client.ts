@@ -9,11 +9,14 @@ import {
   untrack,
   merge as mergeProps,
   flatten,
-  createMemo
+  createMemo,
+  flush,
+  enableHydration,
+  enforceLoadingBoundary
 } from "solid-js";
 import { effect, memo } from "./render.js";
 
-import { JSX } from "./jsx.js";
+import { JSX } from "../jsx/jsx.js";
 
 import type { RequestEventLocals } from "./server.js";
 
@@ -161,10 +164,16 @@ export {
   untrack,
   getOwner,
   createComponent,
-  mergeProps,
   voidFn as generateHydrationScript,
   voidFn as HydrationScript
 };
+/**
+ * Compiler-emitted prop-spread helper. The JSX transform emits
+ * `mergeProps(...)` when compiling prop spreads on components — not a
+ * user-facing API. Application code should import `merge` from `solid-js`.
+ * @internal
+ */
+export { mergeProps };
 export const getRequestEvent: () => RequestEvent | undefined = voidFn;
 
 // The cookie codec (the platform-gap primitives — see cookies.js): the
@@ -189,11 +198,25 @@ export {
   isServerFunction
 } from "../server-functions/src/registry.js";
 
+/**
+ * Renders a component tree into a DOM element. Returns a dispose function
+ * that tears the tree down and cleans up reactive scopes when called.
+ *
+ * The top-level insert is queued via `{ schedule: true }` so its initial
+ * DOM attach goes through the effect queue rather than executing inline.
+ * This lets the mount participate in transitions: if an uncaught async
+ * read surfaces during the initial render (no `Loading` ancestor absorbs
+ * it), the mount is held by the transition and attaches atomically once
+ * all pending settles. On the no-async happy path the tail `flush()`
+ * drains the queued callback so the attach is synchronous by the time
+ * `render()` returns. The dev enforcement window scopes
+ * `ASYNC_OUTSIDE_LOADING_BOUNDARY` to the initial mount only.
+ */
 export function render(
   code: () => JSX.Element,
   element: MountableElement,
   init?: JSX.Element,
-  options?: { owner?: unknown }
+  options?: { owner?: unknown; renderId?: string }
 ): () => void;
 
 export function render(code, element, init, options = {}) {
@@ -202,6 +225,7 @@ export function render(code, element, init, options = {}) {
       "The `element` passed to `render(..., element)` doesn't exist. Make sure `element` exists in the document."
     );
   }
+  if ("_DX_DEV_") enforceLoadingBoundary(true);
   let disposer;
   registerDelegatedRoot(element);
   try {
@@ -216,21 +240,21 @@ export function render(code, element, init, options = {}) {
           );
         } else {
           const tree = code();
-          insert(
-            element,
-            () => tree,
-            element.firstChild ? null : undefined,
-            init,
-            options.insertOptions
-          );
+          insert(element, () => tree, element.firstChild ? null : undefined, init, {
+            ...options.insertOptions,
+            schedule: true
+          });
         }
       },
       { id: options.renderId }
     );
+    flush();
   } catch (err) {
     if (disposer) disposer();
     unregisterDelegatedRoot(element);
     throw err;
+  } finally {
+    if ("_DX_DEV_") enforceLoadingBoundary(false);
   }
   return () => {
     disposer();
@@ -1532,14 +1556,31 @@ function loadModuleAssets(mapping) {
   }
   return pending.length ? Promise.all(pending).then(() => {}) : undefined;
 }
+/**
+ * Resumes a server-rendered tree on the client, attaching event listeners
+ * and reactive bindings without reconstructing the DOM. Returns a `dispose`
+ * function that tears down reactive scopes (DOM nodes are left in place).
+ *
+ * Use this when the page HTML was produced by `renderToString` or
+ * `renderToStream`. For client-only apps, use `render` instead.
+ *
+ * Pass `options.renderId` to hydrate one of multiple roots emitted by a
+ * server render that used the same id.
+ *
+ * When the server renders a full document but the client hydrates only the
+ * app subtree, the server must give that subtree its own id namespace: wrap
+ * the document shell in `<NoHydration>` and re-enter with `<Hydration>`
+ * around the app. Otherwise the app's hydration ids are allocated under the
+ * document component's owner tree and this walk can never claim them.
+ */
 export function hydrate(
   fn: () => JSX.Element,
   node: MountableElement,
   options?: { renderId?: string; owner?: unknown }
 ): () => void;
 
-// Hydrate
 export function hydrate(code, element, options = {}) {
+  enableHydration();
   installHydrationRuntime();
   if (globalThis._$HY.done) return render(code, element, [...element.childNodes], options);
   options.renderId ||= "";

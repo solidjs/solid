@@ -1,3 +1,12 @@
+/**
+ * Lay out `tsc --project tsconfig.build.json` emit (mirrors the source
+ * tree under `.types-build/`) into the published `types/` folders, and
+ * rewrite source-relative imports to the published specifiers.
+ *
+ * Feature folders compile together so frames/server-functions can see
+ * sibling sources; this script is the only step that knows the published
+ * shape (`types/frames`, `serialization/types`, …).
+ */
 import fs from "node:fs";
 import path from "node:path";
 
@@ -71,8 +80,8 @@ copyDir(path.join(build, "frames/src"), path.join(root, "types/frames"), "frames
 fs.writeFileSync(path.join(root, "types/frames/serializer.d.ts"), serializer);
 fs.writeFileSync(path.join(root, "types/frames/serializer-decode.d.ts"), decode);
 
-fs.copyFileSync(path.join(root, "src/jsx.d.ts"), path.join(root, "types/jsx.d.ts"));
+fs.copyFileSync(path.join(root, "jsx/jsx.d.ts"), path.join(root, "types/jsx.d.ts"));
 fs.copyFileSync(
-  path.join(root, "src/jsx-properties.d.ts"),
+  path.join(root, "jsx/jsx-properties.d.ts"),
   path.join(root, "types/jsx-properties.d.ts")
 );

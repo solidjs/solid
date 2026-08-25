@@ -53,7 +53,7 @@ import {
   STYLESHEET_FETCH_META
 } from "./head.js";
 
-import { JSX } from "./jsx.js";
+import { JSX } from "../jsx/jsx.js";
 
 import { SerializerPlugin } from "../serialization/src/serializer-decode.js";
 

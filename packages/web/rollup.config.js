@@ -143,7 +143,7 @@ export default [
     // late header write into a crashed production request (#2982). Guarded
     // behaviorally by test/server/dist-server-artifact.spec.tsx (a string
     // scan can't catch this: the folding erases the marker either way).
-    input: "server/index.ts",
+    input: "src/index.server.ts",
     output: [
       {
         file: "dist/server.cjs",

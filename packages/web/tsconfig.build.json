@@ -15,10 +15,10 @@
   },
   "include": [
     "./src/**/*.ts",
-    "./src/**/*.d.ts",
+    "./jsx/**/*.d.ts",
     "./serialization/src/**/*.ts",
     "./server-functions/src/**/*.ts",
     "./frames/src/**/*.ts"
   ],
-  "exclude": ["./src/jsx-template.d.ts", "./src/jsx-h.d.ts"]
+  "exclude": ["./jsx/jsx-h.d.ts"]
 }

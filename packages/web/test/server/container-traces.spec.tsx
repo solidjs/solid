@@ -14,7 +14,7 @@
 //    the projection directly — pending reads suspend into the covering
 //    boundary like any server async read.
 //
-// The trace resolver is installed by the entries themselves (server/index.ts
+// The trace resolver is installed by the entries themselves (src/index.server.ts
 // and frames/src/server.ts): importing @solidjs/web here is what arms it,
 // which is exactly the no-wiring contract apps get.
 import { describe, expect, test } from "vitest";

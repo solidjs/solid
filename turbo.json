@@ -50,8 +50,8 @@
         "types-cjs/**",
         "**/types/**",
         "**/types-cjs/**",
-        "src/jsx.d.ts",
-        "src/jsx-properties.d.ts"
+        "jsx/jsx.d.ts",
+        "jsx/jsx-properties.d.ts"
       ]
     },
     "coverage": {

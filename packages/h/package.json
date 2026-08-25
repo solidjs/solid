@@ -68,9 +68,9 @@
     "build:js": "rollup -c",
     "types": "npm-run-all -nl types:clean types:copy types:h types:jsx types:cjs",
     "types:clean": "rimraf types/ types-cjs/ jsx-runtime/types-cjs/",
-    "types:copy": "ncp ../web/src/jsx-h.d.ts ./jsx-runtime/src/jsx.d.ts && ncp ../web/src/jsx-properties.d.ts ./jsx-runtime/src/jsx-properties.d.ts && node ../web/src/jsx-customize.mjs --input ./jsx-runtime/src/jsx.d.ts --element \"SolidElement | Node | FunctionElement | ArrayElement\" --import 'import type { Element as SolidElement } from \"solid-js\";'",
+    "types:copy": "ncp ../web/jsx/jsx-properties.d.ts ./jsx-runtime/src/jsx-properties.d.ts && node ../web/scripts/jsx-sync.mjs --input ../web/jsx/jsx-h.d.ts --output ./jsx-runtime/src/jsx.d.ts --element \"SolidElement | Node | FunctionElement | ArrayElement\" --import \"import type { Element as SolidElement } from \\\"solid-js\\\";\"",
     "types:h": "tsc --project ./tsconfig.json",
-    "types:jsx": "rimraf ./jsx-runtime/types && tsc --project ./jsx-runtime/tsconfig.json && ncp ../web/src/jsx-h.d.ts ./jsx-runtime/types/jsx.d.ts && ncp ../web/src/jsx-properties.d.ts ./jsx-runtime/types/jsx-properties.d.ts && node ../web/src/jsx-customize.mjs --input ./jsx-runtime/types/jsx.d.ts --element \"SolidElement | Node | FunctionElement | ArrayElement\" --import 'import type { Element as SolidElement } from \"solid-js\";'",
+    "types:jsx": "rimraf ./jsx-runtime/types && tsc --project ./jsx-runtime/tsconfig.json && ncp ../web/jsx/jsx-properties.d.ts ./jsx-runtime/types/jsx-properties.d.ts && node ../web/scripts/jsx-sync.mjs --input ../web/jsx/jsx-h.d.ts --output ./jsx-runtime/types/jsx.d.ts --element \"SolidElement | Node | FunctionElement | ArrayElement\" --import \"import type { Element as SolidElement } from \\\"solid-js\\\";\"",
     "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs ./jsx-runtime/types ./jsx-runtime/types-cjs",
     "link": "symlink-dir . node_modules/@solidjs/h",
     "test": "vitest run"

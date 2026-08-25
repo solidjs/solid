@@ -23,7 +23,7 @@ export default defineConfig({
     alias: {
       "@solidjs/web/server-functions/server": resolve(rootDir, "server-functions/dist/server.js"),
       "@solidjs/web/server-functions/client": resolve(rootDir, "server-functions/dist/client.js"),
-      "@solidjs/web": resolve(rootDir, "server/index.ts"),
+      "@solidjs/web": resolve(rootDir, "src/index.server.ts"),
       "solid-js": resolve(rootDir, "../solid/src/server/index.ts"),
     }
   }

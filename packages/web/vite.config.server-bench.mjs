@@ -32,7 +32,7 @@ export default defineConfig({
   resolve: {
     conditions: ["node"],
     alias: {
-      "@solidjs/web": resolve(rootDir, "server/index.ts"),
+      "@solidjs/web": resolve(rootDir, "src/index.server.ts"),
       "solid-js": resolve(rootDir, "../solid/src/server/index.ts")
     }
   }

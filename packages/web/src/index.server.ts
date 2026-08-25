@@ -1,9 +1,4 @@
-import {
-  ssrElement,
-  getRequestEvent,
-  type RequestEvent,
-  type ResponseStub
-} from "../src/server.js";
+import { ssrElement, getRequestEvent, type RequestEvent, type ResponseStub } from "./server.js";
 import {
   createComponent,
   createMemo,
@@ -15,7 +10,7 @@ import {
   sharedConfig,
   type Component
 } from "solid-js";
-import type { JSX } from "../src/jsx.js";
+import type { JSX } from "../jsx/jsx.js";
 // The container tier's server half: the runtime's trace plugin rides every
 // render's serializer (both faces — it is part of the codec's default
 // plugin set), but it is inert until the reactive core answers "is this
@@ -27,9 +22,9 @@ import { getProjectionTrace } from "solid-js";
 
 setContainerTraceResolver(getProjectionTrace);
 
-export * from "../src/server.js";
-export * from "../src/response.js";
-export type { JSX } from "../src/jsx.js";
+export * from "./server.js";
+export * from "./response.js";
+export type { JSX } from "../jsx/jsx.js";
 
 export {
   For,

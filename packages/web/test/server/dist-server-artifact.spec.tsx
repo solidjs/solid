@@ -2,7 +2,7 @@
  * @jsxImportSource @solidjs/web
  *
  * Direct coverage of the built PRODUCTION server artifact (dist/server.js).
- * The rest of this suite aliases `@solidjs/web` to server/index.ts source,
+ * The rest of this suite aliases `@solidjs/web` to src/index.server.ts source,
  * so a build-only regression is invisible to it — which is exactly how the
  * main server Rollup target shipped without `replaceDev(false)`: babel
  * constant-folded the unreplaced truthy `"_DX_DEV_"` literal and the prod
