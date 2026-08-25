@@ -23,8 +23,15 @@
 // importing a component module and a shared plain-helper module. Editing
 // the shared module re-executes both boundaries. The container must end up
 // with exactly one app tree and working event delegation.
-import { afterEach, describe, expect, test } from "vitest";
-import { createComponent, createContext, createSignal, flush, useContext } from "solid-js";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import {
+  createComponent,
+  createContext,
+  createEffect,
+  createSignal,
+  flush,
+  useContext
+} from "solid-js";
 import { $$component, $$refresh, $$registry } from "solid-js/refresh";
 import { render, delegateEvents } from "../src/index.js";
 
@@ -256,5 +263,97 @@ describe("multi-boundary Vite HMR flow (solid-refresh#85 / vite-plugin-solid#202
 
     clickPlusOne();
     expect(container.textContent).toContain("Count: 1");
+  });
+});
+
+describe("hot update revives a halted reactive system", () => {
+  let container!: HTMLDivElement;
+
+  afterEach(() => {
+    container.remove();
+    vi.restoreAllMocks();
+  });
+
+  test("patching a component module after a halt re-renders and restores reactivity", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const sim = new ViteSim();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+
+    let version = 1;
+    const [bomb, setBomb] = createSignal(0);
+    const [label, setLabel] = createSignal("start");
+
+    // The version flows through a function parameter: the compiler's static
+    // text folding must not bake the captured value into the template (a
+    // `const v = version` capture gets folded to version's INITIAL value).
+    const makeChildBody = (v: number) => () => {
+      createEffect(bomb, val => {
+        if (v === 1 && val > 0) throw new Error("child boom");
+      });
+      return (<div class="child">v{v}</div>) as any;
+    };
+
+    // src/Child.tsx — v1 crashes in a user effect when `bomb` fires.
+    sim.define("child", hot => {
+      const registry = $$registry();
+      const Child = $$component(registry, "Child", makeChildBody(version), {
+        signature: `child-sig-v${version}`,
+        dependencies: () => ({})
+      });
+      hot.accept();
+      $$refresh("vite", hot as any, registry);
+      return { Child };
+    });
+
+    // src/main.tsx — entry module. The child-only update below never
+    // re-executes it, so no render() runs during recovery: reviving the
+    // scheduler is entirely on the refresh runtime's patch path.
+    sim.define("main", hot => {
+      const { Child } = sim.import("child");
+      const registry = $$registry();
+      const App = $$component(
+        registry,
+        "App",
+        () =>
+          (
+            <div class="app">
+              <p>{label()}</p>
+              <Child />
+            </div>
+          ) as any,
+        { signature: "app-sig", dependencies: () => ({}) }
+      );
+      const cleanup = render(() => createComponent(App as any, {}), container);
+      hot.dispose(cleanup);
+      hot.accept();
+      $$refresh("vite", hot as any, registry);
+      return { App };
+    });
+
+    sim.import("main");
+    flush();
+    expect(container.textContent).toContain("v1");
+    expect(container.textContent).toContain("start");
+
+    // Uncaught user-effect error → REACTIVITY_HALTED; writes are now ignored.
+    expect(() => {
+      setBomb(1);
+      flush();
+    }).toThrow("child boom");
+    setLabel("dead");
+    flush();
+    expect(container.textContent).toContain("start");
+
+    // Edit only Child.tsx, fixing the crash. The changed signature forces a
+    // component swap — a signal write that the halted scheduler would drop.
+    version = 2;
+    sim.update(["child"], ["child"]);
+    expect(container.textContent).toContain("v2");
+
+    // The whole reactive system is alive again, not just the swapped subtree.
+    setLabel("recovered");
+    flush();
+    expect(container.textContent).toContain("recovered");
   });
 });

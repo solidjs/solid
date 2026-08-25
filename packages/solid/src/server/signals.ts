@@ -2634,6 +2634,9 @@ export function untrack<T>(fn: () => T): T {
 
 export function flush() {}
 
+// SSR is pull-based with no scheduler, so there is no halt state to reset.
+export function resetErrorHalt() {}
+
 export function resolve<T>(fn: () => T): Promise<T> {
   throw new Error("resolve is not implemented on the server");
 }

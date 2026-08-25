@@ -39,6 +39,7 @@ export {
   reconcile,
   refresh,
   repeat,
+  resetErrorHalt,
   resolve,
   NotReadyError,
   runInServerComponentScope,

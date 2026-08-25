@@ -30,6 +30,7 @@ import {
   createSignal,
   getOwner,
   onCleanup,
+  resetErrorHalt,
   sharedConfig,
   untrack,
   DEV
@@ -277,6 +278,11 @@ function patchComponents(oldData: Registry, newData: Registry): boolean {
 }
 
 function patchRegistry(oldRegistry: Registry, newRegistry: Registry): boolean {
+  // A hot update ships new code that may have fixed the crash that halted the
+  // reactive system (REACTIVITY_HALTED). Revive scheduling first — otherwise
+  // the component-swap signal writes below are silently ignored and the hot
+  // update appears to do nothing until a full page reload.
+  resetErrorHalt();
   return patchComponents(oldRegistry, newRegistry);
 }
 

@@ -12,7 +12,8 @@ import {
   createMemo,
   flush,
   enableHydration,
-  enforceLoadingBoundary
+  enforceLoadingBoundary,
+  resetErrorHalt
 } from "solid-js";
 import { effect, memo } from "./render.js";
 
@@ -230,6 +231,11 @@ export function render(code, element, init, options = {}) {
       "The `element` passed to `render(..., element)` doesn't exist. Make sure `element` exists in the document."
     );
   }
+  // A fresh mount is a new app instance: revive scheduling if an earlier
+  // uncaught error halted the reactive system (REACTIVITY_HALTED). Dev-only —
+  // playgrounds and HMR re-render into the same runtime without a page
+  // reload; in production a halt stays a hard crash.
+  if ("_SOLID_DEV_") resetErrorHalt();
   if ("_SOLID_DEV_") enforceLoadingBoundary(true);
   let disposer;
   registerDelegatedRoot(element);
