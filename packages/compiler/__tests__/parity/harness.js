@@ -162,22 +162,67 @@ const modes = {
       wrapConditionals: true,
       renderers: [{ name: "dom", moduleName: "r-dom", elements: domElements }]
     }
+  },
+  // TSRX syntax frontend: same fixture corpus as the Babel tsrx-*.spec.js
+  // suites, compiled through both compilers' `.tsrx` routing.
+  "tsrx-dom": {
+    fixtureDir: "__tsrx_dom_fixtures__",
+    sourceFile: "code.tsrx",
+    extension: ".tsrx",
+    // Statement containers in expression position (`const x = @{…}`,
+    // `{@{…}}`) are an upstream oxc-tsrx v0.6.0 parser gap; the native
+    // compiler pins their structured rejection in tests/tsrx_frontend.rs.
+    // See documentation/tsrx/frontend-notes.md.
+    babelOnly: ["codeBlocks", "lazyShadowing"],
+    options: {
+      moduleName: "r-dom",
+      builtIns: ["For", "Show", "Switch", "Match", "Errored", "Loading", "Dynamic"],
+      generate: "dom",
+      wrapConditionals: true,
+      contextToCustomElements: true,
+      requireImportSource: false
+    }
+  },
+  "tsrx-ssr": {
+    fixtureDir: "__tsrx_ssr_fixtures__",
+    sourceFile: "code.tsrx",
+    extension: ".tsrx",
+    options: {
+      moduleName: "r-server",
+      builtIns: ["For", "Show", "Switch", "Match", "Errored", "Loading", "Dynamic"],
+      generate: "ssr",
+      wrapConditionals: true,
+      contextToCustomElements: true,
+      requireImportSource: false
+    }
+  },
+  "tsrx-universal": {
+    fixtureDir: "__tsrx_universal_fixtures__",
+    sourceFile: "code.tsrx",
+    extension: ".tsrx",
+    options: {
+      moduleName: "r-custom",
+      builtIns: ["For", "Show", "Switch", "Match", "Errored", "Loading", "Dynamic"],
+      generate: "universal"
+    }
   }
 };
 
 function fixtureNames(mode) {
-  const dir = path.join(babelTestDir, modes[mode].fixtureDir);
+  const { fixtureDir, sourceFile = "code.js", babelOnly = [] } = modes[mode];
+  const dir = path.join(babelTestDir, fixtureDir);
   return fs
     .readdirSync(dir, { withFileTypes: true })
     .filter(entry => entry.isDirectory())
-    .filter(entry => fs.existsSync(path.join(dir, entry.name, "code.js")))
+    .filter(entry => fs.existsSync(path.join(dir, entry.name, sourceFile)))
     .map(entry => entry.name)
+    .filter(name => !babelOnly.includes(name))
     .sort();
 }
 
 function readFixtureSource(mode, fixture) {
   const source = fs.readFileSync(
-    path.join(babelTestDir, modes[mode].fixtureDir, fixture, "code.js"),
+    path.join(babelTestDir, modes[mode].fixtureDir, fixture, modes[mode].sourceFile ?? "code.js"),
     "utf8"
   );
   return supportedSubset(mode, fixture, source);
@@ -195,19 +240,21 @@ function supportedSubset(mode, fixture, source) {
   return source;
 }
 
-function compileBabel(code, options) {
+function compileBabel(code, options, filename) {
   // Patch mode is default-on in BOTH compilers (the Oxc port landed with
   // the §3c row-proof work), so parity covers it like any shared feature.
   return babel.transformSync(code, {
     babelrc: false,
     configFile: false,
     plugins: [[babelPlugin, options]],
-    parserOpts: { plugins: ["jsx"] }
+    parserOpts: { plugins: ["jsx"] },
+    // TSRX modes route on the `.tsrx` filename in both compilers.
+    ...(filename ? { filename } : null)
   }).code;
 }
 
-function compileOxc(code, fixture, options) {
-  return oxcTransform(code, { filename: `${fixture}.jsx`, ...options }).code;
+function compileOxc(code, fixture, options, extension = ".jsx") {
+  return oxcTransform(code, { filename: `${fixture}${extension}`, ...options }).code;
 }
 
 // --- Normalization ---------------------------------------------------------
@@ -421,7 +468,9 @@ function runPass(code, plugin) {
     babelrc: false,
     configFile: false,
     plugins: [plugin],
-    parserOpts: { plugins: ["jsx"] },
+    // TSRX fixtures are TypeScript sources; both compilers preserve type
+    // declarations (`interface P { … }`) in their output.
+    parserOpts: { plugins: ["jsx", "typescript"] },
     comments: false,
     compact: false
   }).code;
@@ -453,16 +502,19 @@ function normalize(code) {
 // Compiles a fixture with both compilers and returns normalized outputs plus
 // raw outputs. Throws with a labeled error if either compiler rejects input.
 function compareFixture(mode, fixture) {
-  const { options } = modes[mode];
+  const { options, extension = ".jsx" } = modes[mode];
   const source = readFixtureSource(mode, fixture);
   let babelRaw, oxcRaw;
   try {
-    babelRaw = compileBabel(source, options);
+    // Only TSRX modes set `extension`; JSX modes keep Babel filename-free so
+    // established expectations (e.g. dev-mode location info) stay untouched.
+    const babelFilename = modes[mode].extension ? `${fixture}${extension}` : undefined;
+    babelRaw = compileBabel(source, options, babelFilename);
   } catch (err) {
     throw new Error(`babel-plugin failed on ${mode}/${fixture}: ${err.message}`);
   }
   try {
-    oxcRaw = compileOxc(source, fixture, options);
+    oxcRaw = compileOxc(source, fixture, options, extension);
   } catch (err) {
     throw new Error(`compiler failed on ${mode}/${fixture}: ${err.message}`);
   }

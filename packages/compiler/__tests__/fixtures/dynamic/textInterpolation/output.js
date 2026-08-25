@@ -27,12 +27,12 @@ _$insert(_el$4, name, null);
 const trailingExpr = _el$4;
 var _el$6 = _tmpl$2();
 var _el$7 = _el$6.firstChild;
-_$insert(_el$6, greeting, _el$6.firstChild);
+_$insert(_el$6, greeting, _el$7);
 const leadingExpr = _el$6;
 var _el$8 = _tmpl$4();
 var _el$9 = _el$8.firstChild;
 var _el$10 = _el$9.nextSibling;
-_$insert(_el$8, greeting, _el$8.firstChild);
+_$insert(_el$8, greeting, _el$9);
 _$insert(_el$8, name, _el$10);
 /* prettier-ignore */
 const multiExpr = _el$8;
@@ -74,7 +74,7 @@ let number = 4 + 5;
 const evaluatedNonString = _tmpl$11();
 var _el$29 = _tmpl$12();
 var _el$30 = _el$29.firstChild;
-_$insert(_el$29, s, _el$29.firstChild);
+_$insert(_el$29, s, _el$30);
 const newLineLiteral = _el$29;
 var _el$31 = _tmpl$13();
 _$insert(_el$31, expr);
@@ -91,7 +91,7 @@ const leadingSpaceComponent = _$createComponent(Div, { get children() {
 const leadingSpaceFragment = [" ", expr];
 var _el$34 = _tmpl$14();
 var _el$35 = _el$34.firstChild;
-_$insert(_el$34, expr, _el$34.firstChild);
+_$insert(_el$34, expr, _el$35);
 const trailingSpaceElement = _el$34;
 const trailingSpaceComponent = _$createComponent(Div, { get children() {
 	return [expr, " "];

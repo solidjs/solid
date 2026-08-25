@@ -28,12 +28,19 @@
     "validate-html-nesting": "^1.2.1"
   },
   "peerDependencies": {
-    "@babel/core": "^7.20.12"
+    "@babel/core": "^7.20.12",
+    "@tsrx/core": "0.1.61"
+  },
+  "peerDependenciesMeta": {
+    "@tsrx/core": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@babel/core": "^7.29.0",
     "@solidjs/web": "workspace:*",
     "@rollup/plugin-babel": "7.0.0",
+    "@tsrx/core": "0.1.61",
     "@types/babel__core": "^7.20.5",
     "@types/babel__traverse": "^7.28.0"
   }

@@ -14,6 +14,10 @@ pub struct RendererOption {
 #[derive(Default)]
 pub struct TransformOptions {
     pub filename: Option<String>,
+    /// Source syntax routing, matching `@solidjs/babel-plugin`'s `syntax`:
+    /// `"auto"` (default) compiles `.tsrx` filenames with the TSRX frontend,
+    /// `"jsx"` never does, `"tsrx"` forces TSRX for every file.
+    pub syntax: Option<String>,
     /// Runtime module compiled output imports helpers from.
     /// Default `"@solidjs/web"`.
     pub module_name: Option<String>,

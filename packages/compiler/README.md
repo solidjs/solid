@@ -78,6 +78,18 @@ const result = transform(source, {
 });
 ```
 
+### TSRX (experimental)
+
+TSRX (TypeScript Render Extensions) is a syntax for declarative UI whose constructs (`@if`/`@else`, `@for … @empty`, `@switch`/`@case`, `@try`/`@catch`/`@pending`, `@{}` statement containers, lazy destructuring `&{ }` / `&[ ]`) desugar to the Solid control-flow components. `.tsrx` filenames route through the TSRX frontend automatically and compile to the same output as `@solidjs/babel-plugin`'s TSRX support, byte for byte.
+
+```js
+const result = transform(tsrxSource, { filename: "App.tsrx" });
+```
+
+Routing follows the filename by default (`syntax: "auto"`); pass `syntax: "tsrx"` or `syntax: "jsx"` to force a frontend regardless of filename. No extra install is needed — the shipped binaries include the frontend (Rust embedders can disable the default `tsrx` cargo feature).
+
+The frontend uses the community [oxc-tsrx](https://github.com/compiled-run/oxc-tsrx) parser at a pinned revision. Known gap: statement containers in expression position (`const x = @{ … }`, `{@{ … }}` inside JSX) are spec-valid and supported by the Babel plugin, but are rejected here with a structured diagnostic until upstream support lands — write the container as a direct element child (`<div>@{ … }</div>`) or move it into a helper function. See `documentation/tsrx/frontend-notes.md` in the repository for the full frontend notes.
+
 ### Source maps
 
 Pass `sourceMap: true` to receive a JSON source map string in `result.map`.
@@ -86,6 +98,7 @@ Pass `sourceMap: true` to receive a JSON source map string in `result.map`.
 
 - `filename`
 - `moduleName` (default `"@solidjs/web"`)
+- `syntax`: `"auto"`, `"jsx"`, or `"tsrx"` (default `"auto"` — routes `.tsrx` filenames through the TSRX frontend)
 - `generate`: `"dom"`, `"ssr"`, `"universal"`, or `"dynamic"` (default `"dom"`)
 - `hydratable`
 - `dev`
@@ -151,9 +164,9 @@ Compared against `@solidjs/babel-plugin` compiling identical sources under ident
 
 | Workload                                        | babel-plugin | compiler | Speedup |
 | ----------------------------------------------- | -----------: | -------: | ------: |
-| Fixture corpus (88 files, 175 KB, all 10 modes) |           440 ms |    19 ms |     23x |
-| 129 KB single module                            |           545 ms |   9.4 ms |     58x |
-| 1 MB single module                              |        24,975 ms |    70 ms |    355x |
+| Fixture corpus (88 files, 175 KB, all 10 modes) |       440 ms |    19 ms |     23x |
+| 129 KB single module                            |       545 ms |   9.4 ms |     58x |
+| 1 MB single module                              |    24,975 ms |    70 ms |    355x |
 
 Native throughput stays roughly flat as input grows, while Babel's per-file cost grows super-linearly.
 

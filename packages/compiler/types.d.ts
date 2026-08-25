@@ -2,6 +2,13 @@ export interface TransformOptions {
   filename?: string;
   /** Default `"@solidjs/web"`. */
   moduleName?: string;
+  /**
+   * Source syntax frontend, matching `@solidjs/babel-plugin`: `"auto"`
+   * (default) routes `.tsrx` filenames through the TSRX frontend and
+   * everything else through standard JSX; `"tsrx"` and `"jsx"` force a
+   * frontend regardless of filename. TSRX support is experimental.
+   */
+  syntax?: "auto" | "jsx" | "tsrx";
   generate?: "dom" | "ssr" | "universal" | "dynamic";
   hydratable?: boolean;
   dev?: boolean;

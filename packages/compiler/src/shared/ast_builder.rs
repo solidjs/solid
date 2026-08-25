@@ -686,6 +686,23 @@ impl<'a> AstBuilder<'a> {
         JSXExpressionContainer::new(span, expression, &self.inner())
     }
 
+    pub(crate) fn jsx_identifier(
+        &self,
+        span: Span,
+        name: impl Into<Str<'a>>,
+    ) -> JSXIdentifier<'a> {
+        JSXIdentifier::new(span, name, &self.inner())
+    }
+
+    pub(crate) fn alloc_jsx_member_expression(
+        &self,
+        span: Span,
+        object: JSXMemberExpressionObject<'a>,
+        property: JSXIdentifier<'a>,
+    ) -> ArenaBox<'a, JSXMemberExpression<'a>> {
+        JSXMemberExpression::boxed(span, object, property, &self.inner())
+    }
+
     pub(crate) fn template_element_with_lone_surrogates(
         &self,
         span: Span,

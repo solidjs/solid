@@ -9,8 +9,13 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["node"]
+default = ["node", "tsrx"]
 node = ["dep:napi", "dep:napi-derive"]
+# TSRX syntax frontend. `tsrx_parser_engine` (community oxc-tsrx project, pinned
+# rev) is the only TSRX grammar authority on the Rust side; it carries its own
+# git-pinned oxc (0.140) which coexists with our crates.io oxc — no oxc types
+# cross the boundary (the parse result is a revision-neutral FlatTape).
+tsrx = ["dep:tsrx_parser_engine", "dep:tsrx_tape_schema"]
 
 [dependencies]
 html5ever = "0.39.0"
@@ -27,6 +32,8 @@ oxc_semantic = "0.144"
 oxc_span = "0.144"
 oxc_str = "0.144"
 oxc_syntax = "0.144"
+tsrx_parser_engine = { git = "https://github.com/compiled-run/oxc-tsrx", rev = "6be6a8c7773407c84f79fad0e3f7d192b72e8102", optional = true }
+tsrx_tape_schema = { git = "https://github.com/compiled-run/oxc-tsrx", rev = "6be6a8c7773407c84f79fad0e3f7d192b72e8102", optional = true }
 
 [dev-dependencies]
 # `noop` stubs the Node-API symbols so `cargo test` can link the unit-test

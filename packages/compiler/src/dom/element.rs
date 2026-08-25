@@ -86,6 +86,12 @@ pub(crate) struct AstDomTransform<'a, 'source> {
     /// (`getFirstChild`/`getNextSibling`) chain from it by name — the plain
     /// member walks re-derive from the root instead (equalized by traversal).
     pub(crate) last_child_walk: Option<(String, usize)>,
+    /// A positional walk name pre-allocated by a dynamic slot's marker for
+    /// the immediately following template child (Babel rides
+    /// `childNodes[index + 1].id` / `nextChild`, which the sibling's own
+    /// transform declares). The next retained child's lowering must consume
+    /// this instead of allocating a fresh id.
+    pub(crate) pending_child_walk: Option<String>,
     /// Whether the current template root saw a delegated event handler or a
     /// spread (which may carry one); consumed at the root to emit a single
     /// `runHydrationEvents()` after setup.
@@ -185,6 +191,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
             skip_xmlns_attribute: false,
             hydration_walk_anchor: None,
             last_child_walk: None,
+            pending_child_walk: None,
             has_hydratable_event: false,
             element_index: 0,
             this_index: 0,
@@ -380,11 +387,10 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
                 subject: patched_subject.clone(),
             });
         }
-        if patched_subject.is_none() {
-            if let Some(statement) = self.wrap_dynamics_statement(dynamics) {
+        if patched_subject.is_none()
+            && let Some(statement) = self.wrap_dynamics_statement(dynamics) {
                 operations.push(statement);
             }
-        }
         if self.should_close_tag(&tag_name, CloseTagContext::root()) {
             template.html.push_str(&format!("</{tag_name}>"));
         }

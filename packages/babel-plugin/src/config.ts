@@ -8,6 +8,11 @@ export interface RendererConfig {
 
 export interface PluginConfig {
   moduleName: string;
+  /** Source syntax frontend: "auto" routes `.tsrx` files through the TSRX
+   * parser and everything else through standard JSX; "tsrx" forces TSRX for
+   * every file; "jsx" disables TSRX routing entirely. TSRX support is
+   * experimental and requires the optional `@tsrx/core` peer dependency. */
+  syntax: "auto" | "jsx" | "tsrx";
   generate: "dom" | "ssr" | "universal" | "dynamic";
   hydratable: boolean;
   dev: boolean;
@@ -41,6 +46,7 @@ export interface PluginConfig {
 
 const config: PluginConfig = {
   moduleName: "@solidjs/web",
+  syntax: "auto",
   generate: "dom",
   hydratable: false,
   dev: false,

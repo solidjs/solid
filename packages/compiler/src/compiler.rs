@@ -21,6 +21,19 @@ pub enum Generate {
     Dynamic,
 }
 
+/// Source syntax selection, mirroring the Babel plugin's `syntax` option.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Syntax {
+    /// Route `.tsrx` filenames through the TSRX frontend, everything else
+    /// through standard JSX.
+    #[default]
+    Auto,
+    /// Never use the TSRX frontend.
+    Jsx,
+    /// Force the TSRX frontend for every file.
+    Tsrx,
+}
+
 /// A wrapper import setting without any Node-API representation in its interface.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum Wrapper {
@@ -62,6 +75,9 @@ pub(crate) fn default_built_ins() -> Vec<String> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompileOptions {
     pub filename: Option<String>,
+    /// Source syntax routing (Babel's `syntax`): `Auto` sends `.tsrx`
+    /// filenames through the TSRX frontend (requires the `tsrx` feature).
+    pub syntax: Syntax,
     pub module_name: String,
     pub generate: Generate,
     pub hydratable: bool,
@@ -92,6 +108,7 @@ impl Default for CompileOptions {
     fn default() -> Self {
         Self {
             filename: None,
+            syntax: Syntax::default(),
             module_name: DEFAULT_MODULE_NAME.into(),
             generate: Generate::Dom,
             hydratable: false,
@@ -150,7 +167,44 @@ pub(crate) fn compile_for_node_adapter(
 }
 
 fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput, CompileError> {
-    let source_type = source_type_for_filename(options.filename.as_deref())?;
+    let tsrx_route = match options.syntax {
+        Syntax::Jsx => false,
+        Syntax::Tsrx => true,
+        Syntax::Auto => options
+            .filename
+            .as_deref()
+            .is_some_and(|filename| filename.ends_with(".tsrx")),
+    };
+
+    #[cfg(not(feature = "tsrx"))]
+    if tsrx_route {
+        return Err(CompileError::configuration(
+            "TSRX sources require a @solidjs/compiler build with the `tsrx` feature",
+        ));
+    }
+
+    // The projection owns the text the parser borrows; it must outlive the
+    // allocator-tied AST, so it is declared before the allocator.
+    #[cfg(feature = "tsrx")]
+    let projection = if tsrx_route {
+        Some(crate::tsrx::run_frontend(
+            source,
+            options.filename.as_deref(),
+        )?)
+    } else {
+        None
+    };
+    #[cfg(feature = "tsrx")]
+    let source: &str = projection
+        .as_ref()
+        .map_or(source, |projection| projection.text.as_str());
+
+    let source_type = if tsrx_route {
+        // The projected text is plain TSX regardless of the authored filename.
+        SourceType::tsx()
+    } else {
+        source_type_for_filename(options.filename.as_deref())?
+    };
     let allocator = Allocator::default();
     // Babel has no ParenthesizedExpression node (parens are trivia), so the
     // transform's expression matchers must never see one either. Preserving
@@ -177,6 +231,12 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
     }
 
     let mut program = parsed.program;
+
+    #[cfg(feature = "tsrx")]
+    if let Some(projection) = projection.as_ref() {
+        crate::tsrx::apply_rewrites(&allocator, &mut program, projection)?;
+    }
+
     match options.generate {
         Generate::Dom => {
             let mut transform = AstDomTransform::new(

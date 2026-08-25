@@ -11,7 +11,7 @@ pub use crate::directives::{
 };
 pub use crate::lazy::TransformLazyOptions;
 pub use crate::refresh::TransformRefreshOptions;
-use crate::{CompileOptions, Generate, Renderer, Wrapper};
+use crate::{CompileOptions, Generate, Renderer, Syntax, Wrapper};
 
 const UNSUPPORTED_GENERATE: &str =
     "The @solidjs/compiler backend implements DOM, SSR, universal, and dynamic modes only";
@@ -80,8 +80,16 @@ fn core_options(options: TransformOptions) -> Result<CompileOptions> {
         "dynamic" => Generate::Dynamic,
         _ => return Err(Error::from_reason(UNSUPPORTED_GENERATE)),
     };
+    // Same fallthrough as the Babel plugin's `isTsrxSource`: any value other
+    // than "tsrx"/"jsx" behaves as "auto".
+    let syntax = match options.syntax.as_deref() {
+        Some("tsrx") => Syntax::Tsrx,
+        Some("jsx") => Syntax::Jsx,
+        _ => Syntax::Auto,
+    };
     Ok(CompileOptions {
         filename: options.filename,
+        syntax,
         module_name,
         generate,
         hydratable: options.hydratable.unwrap_or(false),
