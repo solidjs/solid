@@ -18,10 +18,10 @@
     "coverage": "turbo run coverage",
     "build": "turbo run build --filter=!@solidjs/compiler",
     "types": "turbo run types",
-    "publish": "pnpm run build && pnpm run types && pnpm run release:only",
+    "publish": "pnpm run release",
     "bump": "changeset add",
-    "release": "pnpm build && changeset publish",
-    "release:only": "changeset publish",
+    "version-packages": "changeset version && pnpm --filter @solidjs/compiler run napi:version && pnpm install --lockfile-only",
+    "release": "node scripts/release.mjs",
     "format": "prettier --write --cache \"**/*.[tj]s?(x)\""
   },
   "devDependencies": {
