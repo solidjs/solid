@@ -137,7 +137,7 @@ jobs:
 
       - name: Test WASI binary
         working-directory: packages/compiler
-        run: NODE_NO_WARNINGS=1 NAPI_RS_FORCE_WASI=error pnpm exec vitest run --exclude '**/binding-loader.test.js'
+        run: NODE_NO_WARNINGS=1 SOLID_COMPILER_TEST_WASI=1 pnpm exec vitest run --exclude '**/binding-loader.test.js'
 
       # Authenticates via OIDC trusted publishing (id-token: write above) —
       # no npm token. Each platform package must have this repo + workflow
