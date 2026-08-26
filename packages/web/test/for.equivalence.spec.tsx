@@ -172,7 +172,11 @@ function runScenario(
   return steps;
 }
 
-function assertEquivalent(kind: "deep" | "shallow", ops: Op[], seed: Row[] = make(1, 2, 3, 4)) {
+function assertEquivalent(
+  kind: "deep" | "shallow" | "projection",
+  ops: Op[],
+  seed: Row[] = make(1, 2, 3, 4)
+) {
   const driver = runScenario(true, kind, ops, seed);
   const classic = runScenario(false, kind, ops, seed);
   expect(driver).toEqual(classic);
