@@ -675,6 +675,36 @@ export function createSignal<T>(
   fn: ComputeFunction<undefined | NoInfer<T>, T>,
   options?: ServerSignalOptions<T>
 ): Signal<T>;
+// --- Server write deprecation -----------------------------------------------
+//
+// Server render is pure: change enters through async sources, never setters.
+// Setter calls are tolerated this release (signal/store writes land as inert
+// data, optimistic writes are no-ops) but deprecated on the way to throwing —
+// see RFC 11's server mutation policy. Warned once per process per category
+// so subscription-driven writes can't flood server logs.
+const warnedServerWrites = new Set<string>();
+function warnServerWrite(category: "signal" | "store" | "optimistic"): void {
+  if (warnedServerWrites.has(category)) return;
+  warnedServerWrites.add(category);
+  const message =
+    category === "optimistic"
+      ? "[SERVER_WRITE] Optimistic writes are inert on the server and will become an error. " +
+        "Optimistic state reverts once the async work it accompanies settles, and server " +
+        "output is settled state — optimistic updates only have meaning on the client."
+      : category === "store"
+        ? "[SERVER_WRITE] Writing a store on the server is deprecated and will become an " +
+          "error. Server render is pure: state changes flow from async sources (promises, " +
+          "async iterables), never setters — this write landed as inert data (nothing " +
+          "re-renders). Derive the store from its source (createStore(fn, seed)) instead " +
+          "of writing into it."
+        : "[SERVER_WRITE] Writing a signal on the server is deprecated and will become an " +
+          "error. Server render is pure: state changes flow from async sources (promises, " +
+          "async iterables), never setters — this write landed as inert data (nothing " +
+          "re-renders). If you are bridging a subscription, make it the async source " +
+          "itself instead of pushing writes from its callback.";
+  console.warn(message);
+}
+
 export function createSignal<T>(
   first?: T | ComputeFunction<any, any>,
   second?: SignalOptions<any>
@@ -690,12 +720,19 @@ export function createSignal<T>(
           }
         : undefined;
     const memo = createMemo<T>((prev?: T) => (first as (prev?: T) => T)(prev), opts as any);
-    return [memo, (() => undefined) as Setter<T | undefined>];
+    return [
+      memo,
+      (() => {
+        warnServerWrite("signal");
+        return undefined;
+      }) as Setter<T | undefined>
+    ];
   }
   // Plain value form — no ID allocation (IDs are only for owners/computations)
   return [
     () => first as T,
     v => {
+      warnServerWrite("signal");
       return ((first as any) = typeof v === "function" ? (v as (prev: T) => T)(first as T) : v);
     }
   ] as Signal<T | undefined>;
@@ -1716,7 +1753,13 @@ export function createOptimistic<T>(
   // (Broader direction, recorded: server writes may eventually throw under
   // a dev-mode server build; that waits on having one.)
   const [read] = (createSignal as Function)(first, second) as Signal<T | undefined>;
-  return [read, (() => untrack(read)) as Setter<T | undefined>];
+  return [
+    read,
+    (() => {
+      warnServerWrite("optimistic");
+      return untrack(read);
+    }) as Setter<T | undefined>
+  ];
 }
 
 // === Store (plain objects, no proxy) ===
@@ -1765,6 +1808,7 @@ export function createStore<T extends object>(
  */
 function storeSetter<T extends object>(state: T): StoreSetter<T> {
   return ((fn: (state: T) => void | T) => {
+    warnServerWrite("store");
     const result = fn(state);
     if (result !== undefined && (result as unknown) !== state && isWrappable(result)) {
       replaceState(state, result as T);
@@ -1791,7 +1835,7 @@ export function createOptimisticStore<T extends object>(
   // setter never invokes its function — a draft mutation here would be a
   // literal (permanent) mutation, the opposite of optimistic.
   const [store] = (createStore as Function)(first, second, options) as [Store<T>, StoreSetter<T>];
-  return [store, (() => {}) as StoreSetter<T>];
+  return [store, (() => warnServerWrite("optimistic")) as StoreSetter<T>];
 }
 
 /**
