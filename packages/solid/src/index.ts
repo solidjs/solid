@@ -151,6 +151,17 @@ if (IS_DEV && globalThis) {
     );
 }
 
+// Point-of-pain discovery: the first console report of each diagnostic code
+// gains a footer naming the repair skill shipped with this package, so a
+// reader (human or agent) hitting the warning learns where the prescribed
+// fix lives without any prior knowledge of the skill system.
+if (IS_DEV && _DEV) {
+  _DEV.diagnostics.setConsoleFooter(
+    event =>
+      `[${event.code}] repair guide: node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md`
+  );
+}
+
 /* Not Implemented
 export {
   batch, // flush

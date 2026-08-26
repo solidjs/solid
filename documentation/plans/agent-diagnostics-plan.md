@@ -86,6 +86,12 @@ same as the rest of the fixed group.
   vite endpoint. Tools: `captureDuring`, `whyDidRun`, `graphStats`.
 - Protocol types published from `@solidjs/diagnostics`; the vite plugin's
   dependency version = which protocol it speaks.
+- Design constraint for future consumers: bridge capture sessions are global
+  (one begin/end window). Today the only in-page consumer is the injected
+  agent bridge, but the day a human-facing surface (e.g. a start-devtools
+  reactivity panel) consumes the same bridge, sessions need multiplexing or
+  an explicit single-owner rule — otherwise toolbar and agent captures stomp
+  each other's windows.
 
 ### P3 — First consumer: external port slice
 

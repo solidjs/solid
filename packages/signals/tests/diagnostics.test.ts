@@ -16,6 +16,7 @@ import {
   runWithOwner,
   untrack
 } from "../src/index.js";
+import { emitDiagnostic } from "../src/core/dev.js";
 
 // Several diagnostics are escaping errors, which halt the reactive system.
 afterEach(() => {
@@ -268,5 +269,77 @@ describe("diagnostics", () => {
 
     const events = capture.stop();
     expect(events.find(e => e.code === "SYNC_NODE_RECEIVED_ASYNC")).toBeUndefined();
+  });
+});
+
+describe("diagnostics console footer", () => {
+  afterEach(() => {
+    DEV!.diagnostics.setConsoleFooter(undefined);
+  });
+
+  it("prints a registered footer once per code", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    DEV!.diagnostics.setConsoleFooter(event => `footer:${event.code}`);
+
+    emitDiagnostic({
+      code: "STRICT_READ_UNTRACKED",
+      kind: "strict-read",
+      severity: "warn",
+      message: "one"
+    });
+    emitDiagnostic({
+      code: "STRICT_READ_UNTRACKED",
+      kind: "strict-read",
+      severity: "warn",
+      message: "two"
+    });
+    emitDiagnostic({ code: "HOT_SCOPE_RERUNS", kind: "perf", severity: "warn", message: "three" });
+    await Promise.resolve();
+
+    const footers = warn.mock.calls
+      .map(args => String(args[0]))
+      .filter(t => t.startsWith("footer:"));
+    expect(footers).toEqual(["footer:STRICT_READ_UNTRACKED", "footer:HOT_SCOPE_RERUNS"]);
+  });
+
+  it("suppresses the footer when the callback returns undefined", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    DEV!.diagnostics.setConsoleFooter(() => undefined);
+
+    emitDiagnostic({
+      code: "STRICT_READ_UNTRACKED",
+      kind: "strict-read",
+      severity: "warn",
+      message: "one"
+    });
+    await Promise.resolve();
+
+    expect(
+      warn.mock.calls.map(args => String(args[0])).filter(t => t.startsWith("footer:"))
+    ).toEqual([]);
+  });
+
+  it("re-registering resets the once-per-code memory", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    DEV!.diagnostics.setConsoleFooter(() => "footer:first");
+    emitDiagnostic({
+      code: "STRICT_READ_UNTRACKED",
+      kind: "strict-read",
+      severity: "warn",
+      message: "one"
+    });
+    DEV!.diagnostics.setConsoleFooter(() => "footer:second");
+    emitDiagnostic({
+      code: "STRICT_READ_UNTRACKED",
+      kind: "strict-read",
+      severity: "warn",
+      message: "two"
+    });
+    await Promise.resolve();
+
+    const footers = warn.mock.calls
+      .map(args => String(args[0]))
+      .filter(t => t.startsWith("footer:"));
+    expect(footers).toEqual(["footer:first", "footer:second"]);
   });
 });
