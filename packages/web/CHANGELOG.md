@@ -1,5 +1,31 @@
 # @solidjs/web
 
+## 2.0.0-rc.3
+
+### Minor Changes
+
+- 89a0531: Absorb the 0.50 expressions snapshot into this repo: lift compilers as `@solidjs/babel-plugin` and `@solidjs/compiler`, dump runtimes into `@solidjs/web` / `h` / `html` / `universal`. Origin: ryansolid/dom-expressions@e97e4290 (0.50.0-next.44).
+- 89a0531: Collapse the expressions dump: drop the rxcore seam, flatten runtimes into package `src/`, delete `babel-preset-solid`, and publish compiler natives as `@solidjs/compiler-*`.
+
+### Patch Changes
+
+- 8710b78: Type the shared JSON codec options resolver so packed CommonJS declarations remain valid for strict Node16 consumers.
+- e9ae1d2: Reuse text nodes for dynamic text in multi slots. `normalize` now leaves string/number values raw (the compute phase stays free of DOM writes and allocations, so transition forks cannot leak state before commit) and `insertExpression` materializes them at commit — adopting the positional text node with a `.data` write and allocating only when no text node is there. Previously every changed text value beside an element sibling allocated a replacement node and swapped it in, roughly halving update throughput on dbmon-style workloads. Hydration claiming still adopts the server's live text node, and a failed claim keeps the phantom-render semantics the old fresh-node allocation triggered.
+- 848d25a: Type the server entry against the client `solid-js` declarations it actually resolves, type the client `HydrationScript` stub as a JSX component, and point published `@solidjs/web` types at the same JSX module `jsx-runtime` uses so router `Action`s type-check as form `action`s.
+- 4fba79d: Fold render/hydrate policy into the runtime implementations, drop the duplicate `mergeProps` re-export, keep JSX type sources in `packages/web/jsx/`, and colocate the SSR package entry at `src/index.server.ts`.
+- 7182195: Migrate the dumped DOM runtime from JavaScript plus colocated `.d.ts` files to TypeScript sources, so published types come from `tsc`.
+- da59aea: Recover from `REACTIVITY_HALTED` in dev workflows. A halt is global to the runtime instance, so one uncaught error used to permanently brick HMR (hot swaps are signal writes, which a halted scheduler drops) and playground-style embedders (a fresh `render()` never mounts because its queued effects can never flush) until a full page reload. Now the refresh runtime revives scheduling before patching a hot update, and `render()` resets the halt in dev before mounting. `resetErrorHalt` is re-exported from `solid-js` (no-op on the server) so dev tooling can do the same. Production behavior is unchanged: a halt remains a hard crash.
+- b8c4534: Use Solid-native names for internal development markers and experimental frame protocol identifiers.
+- 7182195: Move frames, server-functions, and serialization implementations into their subpath folders. Bind `@solidjs/h` and `@solidjs/html` directly to `@solidjs/web` instead of taking a runtime argument.
+- Updated dependencies [a85c889]
+- Updated dependencies [28d5289]
+- Updated dependencies [bbcce0a]
+- Updated dependencies [35b30a1]
+- Updated dependencies [da59aea]
+- Updated dependencies [0205756]
+- Updated dependencies [b8c4534]
+  - solid-js@2.0.0-rc.3
+
 ## 2.0.0-rc.2
 
 ### Patch Changes
