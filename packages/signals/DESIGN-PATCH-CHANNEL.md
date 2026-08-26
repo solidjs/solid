@@ -1,4 +1,46 @@
 
+## 18. Impact sweep + A/B on the published pairing (2026-08-26)
+
+Octane migrated to the real consumer chain: `@solidjs/vite-plugin@3.0.0-next.34`
+→ `@solidjs/compiler@2.0.0-rc.3` (published napi binary). Two loader bugs
+fixed on next in the process (whitelist rejection; boolean `true` collapsing
+to `Wrapper::Default`, which `patch_driver` uniquely reads as disabled — the
+loader now normalizes `true` → `"patchDriver"`, so the published binary works
+without a native rebuild).
+
+### §18a. Which benchmarks compile patch grammar (Babel sweep, patch on)
+
+6 of 15 octane solid fixtures emit at least one patch body
+(`scripts/patch-impact-sweep.mjs` in the octane workspace):
+
+| suite | sites | notes |
+|---|---|---|
+| dbmon | 1 + rowProof | keyed deep-store list — flagship |
+| svg-dashboard | 12 + 3 rowProof | store-driven charts |
+| portal-swarm | 3 + rowProof | signal-only subjects — fallback path |
+| news (runtime-stress, store-selector-fanout) | 3 | |
+| async-waterfall | 1 | latency-dominated harness |
+| weather-app | 3 | static-ish states |
+
+Not impacted (no grammar): js-framework (signal rows), todomvc,
+chat-stream (hybrid signal patterns), effectful-list, memo-wall,
+recursive-context, signal-favoring, spa-navigation, streaming-ssr.
+
+### §18b. A/B (same runtime, flag-only; busy machine, deltas well over noise)
+
+- **dbmon (deep)**: mount 15.8→6.3, tick 8.3→1.8, partial 1.4→0.6,
+  remount 10.1→5.0, unmount 2.5→0.3, sort flat.
+- **svg-dashboard**: mount 9.1→7.0, charts_tick 3.9→3.1, drag 5.5→4.8,
+  churn 4.1→3.7, series 2.9→2.6, style pulse 6.4→6.0; nothing regresses.
+- **async-waterfall / weather-app**: flat (DOM censuses identical — a
+  correctness signal).
+- **portal-swarm**: open/close cycles +0.06–0.10 ms (~5%), reproduced at
+  40 iters. All-signal fixture: its 3 patch bodies always miss
+  `patchableRaw` and take the effect fallback, paying the probe + wrapper
+  per portal mount. This is the audit's "permanent cost for optional
+  modes," quantified on a worst-case mount-churn shape. Open item: shrink
+  the fallback bind cost.
+
 ## 17. Family channel complete + equivalence matrix (2026-08-25, stage-2 pickup on the absorbed monorepo)
 
 Stage 2 resumed on `stage2-channel` (folded repo; the pre-fold history
