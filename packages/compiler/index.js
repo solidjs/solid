@@ -234,7 +234,10 @@ const nativeOptionKeys = new Set([
   "omitLastClosingTag",
   "serverComponents",
   "builtIns",
-  "renderers"
+  "renderers",
+  // Patch-mode dual driver (stage 2, dormant by default): accepted so an
+  // explicit opt-in reaches the native core (napi maps to patch_driver).
+  "patchDriver"
 ]);
 
 function validateOptions(code, options) {
