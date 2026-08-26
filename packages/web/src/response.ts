@@ -66,7 +66,15 @@ export function isResponseEnvelope(value: unknown): value is ResponseEnvelope {
 export const HREF: unique symbol = Symbol.for("solid.Href") as any;
 
 export interface Href {
-  [HREF]: true;
+  /**
+   * The brand doubles as a channel: when the slot holds a string it is the
+   * value's *logical* path — the routable pathname before an integration's
+   * display rendering (eg. a hash router's `#` prefix). `redirect()` prefers
+   * it over coercion so Location headers carry routable paths; `toString()`
+   * remains the display href for the DOM. `true` brands a value whose
+   * string form is already logical.
+   */
+  [HREF]: true | string;
   toString(): string;
 }
 
@@ -157,7 +165,11 @@ export function redirect(url: string | Href, init: number | ResponseHelperInit =
   if (responseInit.status === undefined) {
     responseInit.status = 302;
   }
-  headers.set("Location", String(url));
+  // An Href whose brand slot carries its logical path (see `Href`) redirects
+  // there — String(url) would yield the display href (eg. `#/page1` under a
+  // hash router), which is an anchor value, not a location.
+  const target = typeof url === "string" ? url : (url as Href)[HREF];
+  headers.set("Location", typeof target === "string" ? target : String(url));
   return new Response(null, { ...responseInit, headers });
 }
 
