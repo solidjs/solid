@@ -612,6 +612,11 @@ type SlotRecord = { s: 0 | 1 | 2; v: any; d: DeferredPromise<any> | undefined };
 // Context clones (spread copies) share the parent's store by reference,
 // which is safe: owner ids are unique per render, so keys cannot collide.
 const SLOTS = /* @__PURE__ */ Symbol("settledSlots");
+// Projection flavor of the slot store (#3068): id → the pending-proxy store
+// returned by an async `createProjection` at that slot, so re-creations
+// across retry passes join the in-flight instance instead of allocating a
+// fresh one per pass. Same lifetime and keying rationale as SLOTS above.
+const PROJECTION_SLOTS = /* @__PURE__ */ Symbol("projectionSlots");
 
 function settleServerAsync<T, U>(
   initial: T | PromiseLike<T>,
@@ -1948,6 +1953,31 @@ export function createProjection<T extends object>(
 ): Store<T> {
   const ctx = sharedConfig.context;
   const owner = createOwner();
+  // Slot memory (#3068), the projection flavor of the memo slots above
+  // (#3003): retry loops converge by re-running creation scopes, and an
+  // async projection can NEVER be ready at creation-scope read time (a
+  // generator's first yield / a promise's resolution is at least a microtask
+  // away). Without memory, a body-time property read of the pending proxy
+  // threw NotReady, the retry re-ran the scope, and this function allocated
+  // a fresh generator + deferred + serialized promise per pass — the read
+  // could never succeed and the flush loop pinned the process (0 bytes,
+  // 100% CPU, unbounded blockingPromises growth). Owner ids are stable
+  // across re-runs (ssrScope zeroes the hole's child counter per attempt —
+  // the hydration id contract), so a re-created projection at a known slot
+  // returns the SAME proxy: pending passes join the in-flight instance —
+  // one generator, one trace, one serialized channel — and post-settle
+  // passes read through it synchronously. Only async shapes record (the
+  // four pending-proxy returns below); sync derives re-run like any other
+  // sync code in a retried scope.
+  const slotId = ctx && owner.id;
+  const slots: Record<string, Store<T>> | undefined = slotId
+    ? ((ctx as any)[PROJECTION_SLOTS] ||= Object.create(null))
+    : undefined;
+  if (slots && slots[slotId!]) return slots[slotId!];
+  const recordSlot = (proxy: Store<T>) => {
+    if (slots) slots[slotId!] = proxy;
+    return proxy;
+  };
   const [state] = createStore(initialValue as T);
 
   if (options?.ssrSource === "client") {
@@ -2015,7 +2045,7 @@ export function createProjection<T extends object>(
     registerSettledTrace(pending, deferred.promise, state);
     if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
       ctx.serialize(owner.id, deferred.promise, options?.deferStream);
-    return pending;
+    return recordSlot(pending);
   }
 
   // Async iterable (generator)
@@ -2059,7 +2089,7 @@ export function createProjection<T extends object>(
       registerSettledTrace(pending, deferred.promise, state);
       if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
         ctx.serialize(owner.id, deferred.promise, options?.deferStream);
-      return pending;
+      return recordSlot(pending);
     } else {
       // Full streaming: eagerly start first iteration. Tapped wrapper replays
       // first value as full state snapshot, then yields patch batches.
@@ -2185,7 +2215,7 @@ export function createProjection<T extends object>(
       if (ctx?.async && !getContext(NoHydrateContext) && owner.id) {
         ctx.serialize(owner.id, subscribe(), options?.deferStream);
       }
-      return pending;
+      return recordSlot(pending);
     }
   }
 
@@ -2212,7 +2242,7 @@ export function createProjection<T extends object>(
     registerSettledTrace(pending, deferred.promise, state);
     if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
       ctx.serialize(owner.id, deferred.promise, options?.deferStream);
-    return pending;
+    return recordSlot(pending);
   }
 
   // Synchronous: fn either mutated state directly (void) or returned a new value
