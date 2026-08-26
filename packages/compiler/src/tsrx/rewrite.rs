@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     AssignmentTarget, BindingPattern, Expression, JSXElementName, JSXMemberExpressionObject,
-    ObjectProperty, Program,
+    ObjectProperty, Program, SimpleAssignmentTarget, UpdateExpression,
 };
 use oxc_ast_visit::{VisitMut, walk_mut};
 use oxc_semantic::{Semantic, SemanticBuilder};
@@ -368,6 +368,30 @@ impl<'a> VisitMut<'a> for Rewriter<'a, '_> {
                 return;
             }
         walk_mut::walk_assignment_target(self, target);
+    }
+
+    fn visit_update_expression(&mut self, expression: &mut UpdateExpression<'a>) {
+        if let SimpleAssignmentTarget::AssignmentTargetIdentifier(ident) = &expression.argument
+            && let Some(Replacement::Member { object, access }) =
+                self.plan.references.get(&ident.span.start)
+        {
+            let span = ident.span;
+            let member = self.member_expression(span, object, access);
+            expression.argument = match member {
+                Expression::StaticMemberExpression(member) => {
+                    SimpleAssignmentTarget::StaticMemberExpression(member)
+                }
+                Expression::ComputedMemberExpression(member) => {
+                    SimpleAssignmentTarget::ComputedMemberExpression(member)
+                }
+                _ => unreachable!("member_expression builds member expressions"),
+            };
+            return;
+        }
+        // Accessor parameters (`@for` item/index and `@catch` errors) stay
+        // untouched in read-write positions, matching Babel's
+        // `rewriteReadsToCalls`; only lazy bindings become member targets.
+        walk_mut::walk_update_expression(self, expression);
     }
 
     fn visit_object_property(&mut self, property: &mut ObjectProperty<'a>) {

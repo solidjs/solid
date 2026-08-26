@@ -109,6 +109,12 @@ fn compiles_the_dom_fixture_corpus() {
     let lazy = by_name("lazyDestructuring");
     assert!(lazy.contains("__lazy"), "lazy rename: {lazy}");
 
+    let lazy_scopes = by_name("lazyScopes");
+    assert!(
+        lazy_scopes.contains("__lazy0.count++") && lazy_scopes.contains("++__lazy0.count"),
+        "lazy update target rewrite: {lazy_scopes}"
+    );
+
     let keyed = by_name("forKeyed");
     assert!(keyed.contains("_$For"), "For auto-import: {keyed}");
 }
@@ -216,6 +222,91 @@ fn rejects_return_inside_an_if_branch() {
     assert!(
         message.contains("Return statements are not allowed"),
         "@if return diagnostic: {message}"
+    );
+}
+
+#[test]
+fn rejects_control_flow_and_structural_early_errors() {
+    let cases = [
+        (
+            "return escaping @for",
+            "export function C({ xs }) @{ <ul>@for (const x of xs) { return <li>{x}</li>; }</ul> }",
+            "Return statements are not allowed",
+        ),
+        (
+            "continue escaping @for",
+            "export function C({ xs }) @{ <ul>@for (const x of xs) { continue; <li>{x}</li> }</ul> }",
+            "Continue statements are not allowed",
+        ),
+        (
+            "break escaping @switch",
+            "export const C = ({ x }) => @switch (x) { @case 1: { break; <p /> } };",
+            "Break statements are not allowed",
+        ),
+        (
+            "for-await",
+            "export function C({ xs }) @{ <ul>@for await (const x of xs) { <li>{x}</li> }</ul> }",
+            "`for await` is not supported",
+        ),
+        (
+            "for-in",
+            "export function C({ obj }) @{ <ul>@for (const key in obj) { <li>{key}</li> }</ul> }",
+            "@for must iterate with for...of",
+        ),
+        (
+            "keyed destructured @for",
+            "export function C({ xs }) @{ <ul>@for (const { id } of xs; key id) { <li>{id}</li> }</ul> }",
+            "Combining `key` with a destructured @for binding",
+        ),
+        (
+            "statement after output",
+            "export function C() @{ <p />; const x = 1; }",
+            "render expression precedes another statement",
+        ),
+        (
+            "multiple output nodes",
+            "export function C() @{ <p />; <span /> }",
+            "render expression precedes another statement",
+        ),
+        (
+            "destructured @catch",
+            "export const C = () => @try { <p /> } @catch ({ message }) { <p>{message}</p> };",
+            "error binding must be an identifier",
+        ),
+        (
+            "@finally",
+            "export const C = () => @try { <p /> } @finally { <p /> };",
+            "expected an `@pending` or `@catch` clause",
+        ),
+        (
+            "spaced statement-container sigil",
+            "export function C() @ { <p /> }",
+            "Expected a semicolon",
+        ),
+        (
+            "spaced lazy-pattern sigil",
+            "export function C({ x }) @{ const & { value } = x; <p>{value}</p> }",
+            "Unexpected token",
+        ),
+    ];
+
+    for (name, source, expected) in cases {
+        let message = compile_error(source);
+        assert!(
+            message.contains(expected),
+            "{name} diagnostic must contain {expected:?}: {message}"
+        );
+    }
+}
+
+#[test]
+fn unicode_offsets_preserve_authored_diagnostic_coordinates() {
+    let message = compile_error(
+        "const emoji = \"🚀\";\nexport function C() @{\n  <div>\n    @if (true) { return <p />; }\n  </div>\n}\n",
+    );
+    assert!(
+        message.ends_with("(4:17)"),
+        "UTF-16 spans must rebase to authored line/column coordinates: {message}"
     );
 }
 

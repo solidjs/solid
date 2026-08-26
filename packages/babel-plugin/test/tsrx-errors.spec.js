@@ -55,6 +55,69 @@ describe("TSRX diagnostics", () => {
     ).rejects.toThrow();
   });
 
+  test.each([
+    {
+      name: "return escaping an @for body",
+      source:
+        "export function C({ xs }) @{ <ul>@for (const x of xs) { return <li>{x}</li>; }</ul> }",
+      message: /Return statements are not allowed/
+    },
+    {
+      name: "continue escaping an @for body",
+      source:
+        "export function C({ xs }) @{ <ul>@for (const x of xs) { continue; <li>{x}</li> }</ul> }",
+      message: /Continue statements are not allowed/
+    },
+    {
+      name: "break escaping an @switch case",
+      source: "export const C = ({ x }) => @switch (x) { @case 1: { break; <p /> } };",
+      message: /break.*invalid/i
+    },
+    {
+      name: "for-await inside a template",
+      source: "export function C({ xs }) @{ <ul>@for await (const x of xs) { <li>{x}</li> }</ul> }",
+      message: /Unexpected token/
+    },
+    {
+      name: "keyed @for with a destructured binding",
+      source:
+        "export function C({ xs }) @{ <ul>@for (const { id } of xs; key id) { <li>{id}</li> }</ul> }",
+      message: /Combining `key` with a destructured @for binding/
+    },
+    {
+      name: "a statement after rendered output",
+      source: "export function C() @{ <p />; const x = 1; }",
+      message: /statements cannot follow the rendered output/
+    },
+    {
+      name: "multiple rendered output nodes",
+      source: "export function C() @{ <p />; <span /> }",
+      message: /renders a single node/
+    },
+    {
+      name: "a destructured @catch binding",
+      source: "export const C = () => @try { <p /> } @catch ({ message }) { <p>{message}</p> };",
+      message: /error binding must be an identifier/
+    },
+    {
+      name: "an @finally clause",
+      source: "export const C = () => @try { <p /> } @finally { <p /> };",
+      message: /Missing `@catch` or `@pending`/
+    },
+    {
+      name: "whitespace between @ and a statement container",
+      source: "export function C() @ { <p /> }",
+      message: /Unexpected token/
+    },
+    {
+      name: "whitespace between & and a lazy pattern",
+      source: "export function C({ x }) @{ const & { value } = x; <p>{value}</p> }",
+      message: /Unexpected token/
+    }
+  ])("rejects $name", async ({ source, message }) => {
+    await expect(compile(source)).rejects.toThrow(message);
+  });
+
   test("statement container without an output node is rejected", async () => {
     await expect(
       compile(`export function C() @{
