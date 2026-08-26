@@ -61,29 +61,6 @@ pub(crate) fn validate_captures(
     }
 }
 
-/// Error text for a module-level `"use server"` export whose value wraps its
-/// server function in a call expression (detected by the transform pass).
-/// Module-level exports must be precisely the server functions: the client
-/// build replaces each export with a direct network reference, so wrapper
-/// code in this module never runs there — and HTTP dispatch invokes the
-/// registered function, so it wouldn't apply to real calls either.
-pub(crate) fn format_wrapped_export_error(
-    error: &super::transform::WrappedExportError,
-    code: &str,
-    filename: &str,
-) -> String {
-    let (line, column) = line_column(code, error.span.start);
-    format!(
-        "{filename}:{line}:{column}: module-level \"use server\" exports must be the server \
-         functions themselves: export `{name}` wraps its function in a call expression. The \
-         client build replaces each export with a direct network reference, so the wrapper \
-         would silently not apply. Compose wrappers in shared code with a function-level \
-         directive instead: export const {name} = wrap(async (...args) => {{ \"use server\"; \
-         ... }}).",
-        name = error.name,
-    )
-}
-
 struct CaptureError {
     name: String,
     reference_span: Span,

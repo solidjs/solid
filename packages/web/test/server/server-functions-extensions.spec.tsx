@@ -106,6 +106,20 @@ describe("server-function extension surface (built bundles)", () => {
     expect(undeclared.headers.get("Allow")).toBe("POST");
   });
 
+  it("rejects non-function registrations at module eval (export-value boot check)", () => {
+    // Module-level "use server" registers each export's *evaluated value* —
+    // wrappers compose, and the compiler never inspects initializer shapes.
+    // "Is it actually a function" is owned here: a non-function export fails
+    // the server boot loudly instead of shipping a dead reference the client
+    // discovers per-call.
+    expect(() => registerServerReference("ext-boot-0", 5 as any)).toThrow(
+      /\(ext-boot-0\) is not a function: a module-level "use server" export must evaluate to a server function \(got number\)/
+    );
+    expect(() => registerServerReference("ext-boot-1", null as any, "limit")).toThrow(
+      /`limit`.*\(got null\)/
+    );
+  });
+
   it("exposes the in-flight invocation through the bridge (getServerFunctionInvocation)", async () => {
     // Distinct from getServerFunctionMetadata(fn) — this reads the call in
     // flight off the request event, not a reference's declaration metadata.

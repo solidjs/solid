@@ -616,6 +616,20 @@ export function registerServerReference<T extends any[], R>(
  * with it.
  */
 export function registerServerReference(id, fn, name) {
+  // Module-level "use server" registers each export's *evaluated value* —
+  // `export const x = withValidation(schema, fn)` registers the wrapper's
+  // return, composing it onto every call path. The compiler never inspects
+  // initializer shapes, so "is this actually a function" is owned here, at
+  // module eval: a non-function export fails the server boot loudly instead
+  // of shipping a dead reference the client discovers per-call.
+  if (typeof fn !== "function") {
+    throw new Error(
+      `Server function${name ? ` \`${name}\`` : ""} (${id}) is not a function: a module-level ` +
+        `"use server" export must evaluate to a server function (got ${
+          fn === null ? "null" : typeof fn
+        }). Move non-function exports out of the directive module.`
+    );
+  }
   registerServerFunction(id, fn);
   return { id, fn, name };
 } /**
