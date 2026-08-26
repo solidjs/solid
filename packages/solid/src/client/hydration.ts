@@ -386,6 +386,19 @@ function readHydratedValue(initP: any, refresh: () => void, options?: any) {
   return initP;
 }
 
+/**
+ * Nodes that have taken the serialized-adoption path once. Any LATER entry
+ * means a dependency changed while the node was held on its server value —
+ * the recompute itself is absorbed (the latch re-serves the serialized
+ * value, as it must), and with the node then clean, nothing would ever
+ * re-run it after hydration: the mid-stream change would be silently lost,
+ * not deferred. Arming the takeover gate on that re-entry re-runs exactly
+ * the diverged nodes against their live sources when hydration ends.
+ * (Async settles commit through the adopted thenable without re-entering
+ * the wrapper, so re-entry here is always invalidation-driven.)
+ */
+const latchedOnce = new WeakSet<object>();
+
 /** Shared “serialized init or run compute” path for memo/signal/optimistic/effect under hydration. */
 function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options?: any) {
   const o = getOwner()!;
@@ -396,6 +409,14 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options
   // So short-circuit to the server value whenever one is still waiting; once
   // hydration is `done`, always compute.
   if (sharedConfig.done || !sharedConfig.has!(o.id!)) return compute(prev);
+  // Divergence arming is a "server"/default-mode contract only: the hybrid
+  // signal-like wrapper runs this path under withHydrationGate, whose
+  // synchronous flip guarantees one internal re-entry that is not user
+  // divergence — and hybrid's sync/promise flavor deliberately latches
+  // (re-running its compute at done would clobber the adopted value).
+  if (latchedOnce.has(o)) {
+    if (options?.ssrSource !== "hybrid") armLiveTakeover();
+  } else latchedOnce.add(o);
   return readHydratedValue(sharedConfig.load!(o.id!), () => subFetch(compute, prev), options);
 }
 
@@ -1041,6 +1062,11 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
   return coreFn((prev: any) => {
     const o = getOwner()!;
     if (sharedConfig.done || !sharedConfig.has!(o.id!)) return fn(prev);
+    // Same divergence guard as readSerializedOrCompute: a re-entry while
+    // latched means a dependency changed mid-stream — arm the takeover so
+    // the change commits at hydration end instead of being lost.
+    if (latchedOnce.has(o)) armLiveTakeover();
+    else latchedOnce.add(o);
     let traced: any;
     const value = readHydratedValue(
       sharedConfig.load!(o.id!),

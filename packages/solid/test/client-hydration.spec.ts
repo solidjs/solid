@@ -2245,6 +2245,107 @@ describe("live-branded sources — automatic takeover", () => {
 });
 
 // ============================================================================
+// Latched divergence — dependency changes during hydration commit at done
+// ============================================================================
+
+describe("latched divergence — mid-stream dependency changes commit at hydration end", () => {
+  afterEach(() => {
+    stopHydration();
+  });
+
+  // A latched node whose dependency changes mid-stream re-runs its compute
+  // (invalidation) but must keep serving the serialized value — orphaning
+  // protection. Without a takeover that recompute leaves the node CLEAN:
+  // nothing ever re-runs it after hydration and the change is silently
+  // lost, not deferred. The re-entry into the latch path arms the takeover
+  // gate so exactly the diverged nodes recompute at hydration end.
+  test("memo: a dependency write while latched re-runs the compute after done", async () => {
+    startHydration({ t0: { v: "server-value", s: 1 } });
+
+    const [dep, setDep] = createSignal("initial");
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => `client-${dep()}`);
+      },
+      { id: "t" }
+    );
+    flush();
+    expect(result()).toBe("server-value");
+
+    // Divergence: a dependency changes while the node is latched. The
+    // recompute is absorbed — server truth owns the document mid-stream.
+    setDep("updated");
+    flush();
+    expect(result()).toBe("server-value");
+
+    stopHydration();
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    // Deferred, not lost: the takeover re-ran the compute live.
+    expect(result()).toBe("client-updated");
+  });
+
+  test("projection: same contract through the store path", async () => {
+    startHydration({ t0: { v: { value: "server-value" }, s: 1 } });
+
+    const [dep, setDep] = createSignal("initial");
+    let store: any;
+    createRoot(
+      () => {
+        store = createProjection(
+          (draft: any) => {
+            draft.value = `client-${dep()}`;
+          },
+          { value: "" }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+    expect(store.value).toBe("server-value");
+
+    setDep("updated");
+    flush();
+    expect(store.value).toBe("server-value");
+
+    stopHydration();
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(store.value).toBe("client-updated");
+  });
+
+  test("no divergence, no takeover: an untouched latched node stays adopted", async () => {
+    startHydration({ t0: { v: "server-value", s: 1 } });
+
+    const [dep] = createSignal("initial");
+    let computeRuns = 0;
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => {
+          computeRuns++;
+          return `client-${dep()}`;
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+    expect(result()).toBe("server-value");
+    const runsDuringHydration = computeRuns;
+
+    stopHydration();
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(result()).toBe("server-value");
+    expect(computeRuns).toBe(runsDuringHydration);
+  });
+});
+
+// ============================================================================
 // ssrSource "hybrid" — post-hydration transition with async generators
 // ============================================================================
 
