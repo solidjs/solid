@@ -280,6 +280,19 @@ function validateOptions(code, options) {
       nativeOptions.validate = value;
       continue;
     }
+    if (key === "patchDriver") {
+      if (typeof value !== "string" && typeof value !== "boolean") {
+        throw new TypeError(
+          "@solidjs/compiler `patchDriver` option must be a string import name or boolean"
+        );
+      }
+      // The napi wrapper mapping collapses boolean `true` into
+      // Wrapper::Default, which patch_driver treats as disabled (dormant
+      // default). Normalize the boolean opt-in to the default import name so
+      // it survives the native mapping.
+      nativeOptions.patchDriver = value === true ? "patchDriver" : value;
+      continue;
+    }
     if (nativeOptionKeys.has(key)) {
       if (key === "renderers") validateRenderers(value);
       nativeOptions[key] = value;
