@@ -662,19 +662,6 @@ function settleServerAsync<T, U>(
 
 // === Reactive Primitives (pull-based) ===
 
-export function createSignal<T>(): Signal<T | undefined>;
-export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
-// Commit #0 (loadingValue) removes the uninitialized window: never undefined
-// (the server flushes the loading value even for ssrSource "client"), and
-// `prev` is always T — mirrors the client wrapper and the signals core.
-export function createSignal<T>(
-  fn: ComputeFunction<NoInfer<T>, T>,
-  options: ServerSignalOptions<T> & { loadingValue: T }
-): Signal<T>;
-export function createSignal<T>(
-  fn: ComputeFunction<undefined | NoInfer<T>, T>,
-  options?: ServerSignalOptions<T>
-): Signal<T>;
 // --- Server write deprecation -----------------------------------------------
 //
 // Server render is pure: change enters through async sources, never setters.
@@ -705,6 +692,19 @@ function warnServerWrite(category: "signal" | "store" | "optimistic"): void {
   console.warn(message);
 }
 
+export function createSignal<T>(): Signal<T | undefined>;
+export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
+// Commit #0 (loadingValue) removes the uninitialized window: never undefined
+// (the server flushes the loading value even for ssrSource "client"), and
+// `prev` is always T — mirrors the client wrapper and the signals core.
+export function createSignal<T>(
+  fn: ComputeFunction<NoInfer<T>, T>,
+  options: ServerSignalOptions<T> & { loadingValue: T }
+): Signal<T>;
+export function createSignal<T>(
+  fn: ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: ServerSignalOptions<T>
+): Signal<T>;
 export function createSignal<T>(
   first?: T | ComputeFunction<any, any>,
   second?: SignalOptions<any>
