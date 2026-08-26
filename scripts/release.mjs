@@ -50,6 +50,16 @@ function remoteTagExists(tag) {
   );
 }
 
+function localTagExists(tag) {
+  return (
+    spawnSync("git", ["rev-parse", "--verify", "--quiet", `refs/tags/${tag}`], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: "ignore"
+    }).status === 0
+  );
+}
+
 async function findDispatchedRun(startedAt) {
   for (let attempt = 0; attempt < 30; attempt++) {
     const runs = JSON.parse(
@@ -173,5 +183,8 @@ for (const directory of packageDirectories) {
 // partial-release retries stay idempotent.
 for (const pkg of released) {
   const tag = `${pkg.name}@${pkg.version}`;
-  if (!remoteTagExists(tag)) console.log(`New tag: ${tag}`);
+  if (!remoteTagExists(tag)) {
+    if (!localTagExists(tag)) run("git", ["tag", tag]);
+    console.log(`New tag: ${tag}`);
+  }
 }
