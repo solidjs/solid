@@ -22,7 +22,13 @@ async function toggleScenario(scenario?: string): Promise<DiagnosticsArtifact> {
       flush();
       dispose();
     },
-    { scenario }
+    {
+      scenario,
+      // This suite exercises rerun budgets, not wall-clock profiling. Disable
+      // the default 8ms hot-scope warning so shared CI load cannot turn a
+      // trivial memo into unrelated diagnostic evidence.
+      attribution: { hotTime: false }
+    }
   );
   return artifact;
 }
