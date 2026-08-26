@@ -1707,8 +1707,16 @@ export function createOptimistic<T>(
   first?: T | ComputeFunction<any, any>,
   second?: SignalOptions<any>
 ): Signal<T | undefined> {
-  // On server, optimistic is the same as regular signal
-  return (createSignal as Function)(first, second);
+  // Server optimistic writes are NO-OPS. On the client an optimistic write
+  // is a mask that reverts when its transition settles; server output
+  // represents settled state, so the write's settled value is by definition
+  // the authoritative one already held. Landing the write instead (the old
+  // aliasing) would serialize the optimistic mask as authoritative state.
+  // The updater is not invoked at all — nothing could observe its result.
+  // (Broader direction, recorded: server writes may eventually throw under
+  // a dev-mode server build; that waits on having one.)
+  const [read] = (createSignal as Function)(first, second) as Signal<T | undefined>;
+  return [read, (() => untrack(read)) as Setter<T | undefined>];
 }
 
 // === Store (plain objects, no proxy) ===
@@ -1742,13 +1750,49 @@ export function createStore<T extends object>(
     // client/seedLoadingValue pairing, and createProjection re-checks at
     // runtime.
     const store = createProjection(first as any, second as T, options as any);
-    return [store as Store<T>, ((fn: (state: T) => void) => fn(store as T)) as StoreSetter<T>];
+    return [store as Store<T>, storeSetter(store as T)];
   }
   const state = first as T;
-  return [state as Store<T>, ((fn: (state: T) => void) => fn(state as T)) as StoreSetter<T>];
+  return [state as Store<T>, storeSetter(state)];
 }
 
-export const createOptimisticStore = createStore;
+/**
+ * Parity with the client's `storeSetterNext` as a plain data operation: run
+ * the function against the state (draft mutations are literal mutations
+ * here), and adopt a returned wrappable replacement into the same root
+ * (#3064). No reactivity is implied — server-side writes update data for
+ * subsequent reads and serialization only; nothing re-renders.
+ */
+function storeSetter<T extends object>(state: T): StoreSetter<T> {
+  return ((fn: (state: T) => void | T) => {
+    const result = fn(state);
+    if (result !== undefined && (result as unknown) !== state && isWrappable(result)) {
+      replaceState(state, result as T);
+    }
+  }) as StoreSetter<T>;
+}
+
+export function createOptimisticStore<T extends object>(
+  store: T | Store<T>,
+  options?: { name?: string; shallow?: boolean }
+): [get: Store<T>, set: StoreSetter<T>];
+export function createOptimisticStore<T extends object>(
+  fn: (store: T) => void | T | Promise<void | T>,
+  store: Partial<T> | Store<T>,
+  options?: ServerStoreOptions & { name?: string; shallow?: boolean }
+): [get: Store<T>, set: StoreSetter<T>];
+export function createOptimisticStore<T extends object>(
+  first: T | Store<T> | ((store: T) => void | T | Promise<void | T>),
+  second?: T | Store<T>,
+  options?: ServerSsrOptions & { name?: string; shallow?: boolean }
+): [get: Store<T>, set: StoreSetter<T>] {
+  // Same no-op rationale as createOptimistic above: optimistic writes are
+  // masks that revert at settle, and server output is settled state. The
+  // setter never invokes its function — a draft mutation here would be a
+  // literal (permanent) mutation, the opposite of optimistic.
+  const [store] = (createStore as Function)(first, second, options) as [Store<T>, StoreSetter<T>];
+  return [store, (() => {}) as StoreSetter<T>];
+}
 
 /**
  * Wraps a store in a Proxy that throws NotReadyError on property reads
@@ -1840,6 +1884,13 @@ function registerSettledTrace(pending: object, ready: Promise<any>, state: objec
  * and sets both join the emitted batch.
  */
 function replaceState<T extends object>(target: T, next: T): void {
+  if (Array.isArray(target) && Array.isArray(next)) {
+    // `delete` on an index leaves a hole without shrinking `length`, so
+    // arrays need explicit truncation rather than the key-diff below.
+    for (let i = 0; i < next.length; i++) target[i] = next[i];
+    target.length = next.length;
+    return;
+  }
   for (const key of Object.keys(target)) {
     if (!(key in (next as object))) delete (target as any)[key];
   }
