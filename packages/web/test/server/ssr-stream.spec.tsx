@@ -26,6 +26,7 @@ import {
   lazy,
   type Component
 } from "solid-js";
+import { hydrationRecordKeys } from "../harness/hydration-records.js";
 
 function delay(ms: number) {
   return new Promise(r => setTimeout(r, ms));
@@ -307,7 +308,7 @@ describe("SSR Streaming — Basic Rendering", () => {
       ),
       { manifest }
     );
-    const rKeys = [...html.matchAll(/_\$HY\.r\["([^"]+)"\]/g)].map(m => m[1]);
+    const rKeys = hydrationRecordKeys(html);
     // Error captured (it rides the rejected fragment), the streamed fragment
     // settled, and the shell did not get stuck on the placeholder.
     expect(html).toContain("lazy failed");
@@ -336,7 +337,7 @@ describe("SSR Streaming — Basic Rendering", () => {
       </div>
     ));
 
-    const rKeys = [...html.matchAll(/_\$HY\.r\["([^"]+)"\]/g)].map(m => m[1]);
+    const rKeys = hydrationRecordKeys(html);
     // The fragment channel owns the error: `_fr` rejects (the client
     // re-renders the subtree fresh and its Errored catches), and the memo's
     // rejected flight is serialized for adoption. The Errored boundary id
@@ -527,7 +528,7 @@ describe("SSR Streaming — Error Handling", () => {
     // stripped outside development (it leaks server paths), so nothing may
     // assert on stack text here.
     expect(html).toContain('new Error("Boom")');
-    expect(html).toContain('_$HY.r["100_fr"]');
+    expect(hydrationRecordKeys(html)).toContain("100_fr");
   });
 
   test("isPending inside an Errored fallback resolves to false on the errored source (#2790)", async () => {
@@ -594,8 +595,9 @@ describe("SSR Streaming — Error Handling", () => {
     expect([...html.matchAll(/class="test-block"/g)]).toHaveLength(2);
     expect(html).toContain('_hk=200000 class="test-block"');
     expect(html).toContain('_hk=500000 class="test-block"');
-    expect(html).toContain('_$HY.r["200_fr"]');
-    expect(html).toContain('_$HY.r["500_fr"]');
+    const rKeys = hydrationRecordKeys(html);
+    expect(rKeys).toContain("200_fr");
+    expect(rKeys).toContain("500_fr");
     expect(html).toContain("Test query result: <!--$-->key-1<!--/-->");
     expect(html).toContain("Test query result: <!--$-->key-2<!--/-->");
   });
