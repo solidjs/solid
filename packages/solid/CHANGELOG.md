@@ -1,5 +1,46 @@
 # solid-js
 
+## 2.0.0-rc.3
+
+### Patch Changes
+
+- a85c889: New package `@solidjs/diagnostics`: agent-consumable diagnostics harness. `captureArtifact()` runs a scenario with the dev-mode diagnostic and attribution channels open and folds both into a serializable artifact; assertion helpers (`expectNoDiagnostics`, `expectDiagnostic`, `expectRerunBudget`, `expectNoWaste`) and scenario budgets (`assertBudget`, checked-in budget files) gate correctness, update granularity, and wasted recomputes; Vitest matchers via `@solidjs/diagnostics/vitest`; a browser bridge (`@solidjs/diagnostics/browser`) plus a structurally-typed Playwright adapter (`@solidjs/diagnostics/playwright`) capture the same artifacts from real pages, with live `whyDidRun`/`costs` queries against an open session; `@solidjs/diagnostics/protocol` publishes the wire types for the vite-plugin dev-server endpoint; `artifactToJSONL()` provides line-oriented egress for offline/agent analysis. `solid-js` now ships a `skills/reactivity-diagnostics` repair guide mapping every diagnostic code to its fix.
+- 28d5289: Deprecate setter writes on the server with a `[SERVER_WRITE]` warning (once per process per category: signal, store, optimistic). Server render is pure — change enters through async sources, never setters. Behavior is unchanged this release: signal and store writes still land as inert data (nothing re-renders) and optimistic writes remain no-ops, but server writes will become an error in a future release. If you are bridging a subscription, make it the async source itself instead of pushing writes from its callback.
+- bbcce0a: Fix async-generator projections (and memos) freezing after SSR hydration (#3060)
+
+  A `createProjection`/`createMemo` driven by an async generator that settled
+  during SSR never resumed on the client: after hydration, a dependency change
+  or `refresh()` re-ran the adoption wrapper, which orphaned a fresh generator
+  via subFetch and handed back the already-consumed serialized replay — the
+  node froze at its SSR value forever. The adoption wrappers now track the
+  serialized stream's terminal state (done/error): re-runs before the terminal
+  are NotReady retries of the same flight and keep adopting the replay; re-runs
+  after it hand over to the live user compute.
+
+  Two deeper bugs surfaced by the fix:
+  - Projection drafts are now proxies over a fake target (the store's own
+    TargetShape trick) instead of the store proxy itself. Spec invariant
+    validation runs against a proxy's target after each trap returns — outside
+    the draft's write-override bracket — so `Object.keys(state)` in a derive
+    continuation re-entered the store's ownKeys, hit the seed-invisibility
+    firewall gate, and re-threw the projection's own pending NotReadyError into
+    the derive. The draft traps (including new ownKeys / getOwnPropertyDescriptor /
+    defineProperty coverage) forward to the store inside the bracket; invariants
+    only ever see the dummy.
+  - The store replay's first-pull thenable swallowed exceptions thrown while
+    applying the SSR snapshot (the rejection landed on a derived promise nobody
+    observed), silently killing the drain and wedging boundary hydration open.
+    Failures now route to the flight's rejection and surface through the normal
+    error channel.
+
+- 35b30a1: Keep server signal overload declarations adjacent to their implementation so declaration builds succeed.
+- da59aea: Recover from `REACTIVITY_HALTED` in dev workflows. A halt is global to the runtime instance, so one uncaught error used to permanently brick HMR (hot swaps are signal writes, which a halted scheduler drops) and playground-style embedders (a fresh `render()` never mounts because its queued effects can never flush) until a full page reload. Now the refresh runtime revives scheduling before patching a hot update, and `render()` resets the halt in dev before mounting. `resetErrorHalt` is re-exported from `solid-js` (no-op on the server) so dev tooling can do the same. Production behavior is unchanged: a halt remains a hard crash.
+- 0205756: Server store setters now apply returned replacements (#3064): a setter returning a wrappable value adopts it into the same root as a plain data operation, matching the client contract — previously the return value was silently dropped while draft mutations landed. Array replacements truncate correctly (also fixes an array-shrink hole in projection sync replacement). Optimistic writes are now true no-ops on the server: `createOptimistic` setters and `createOptimisticStore` setters neither run nor land, since optimistic writes are masks that revert at settle and server output represents settled state — the old aliasing serialized optimistic masks as authoritative state. Server-side writes remain data-only: they update state for subsequent reads and serialization; nothing re-renders.
+- b8c4534: Use Solid-native names for internal development markers and experimental frame protocol identifiers.
+- Updated dependencies [6717398]
+- Updated dependencies [bbcce0a]
+  - @solidjs/signals@2.0.0-rc.3
+
 ## 2.0.0-rc.2
 
 ### Patch Changes

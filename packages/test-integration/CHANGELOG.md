@@ -1,5 +1,35 @@
 # test-integration
 
+## 2.0.0-rc.3
+
+### Patch Changes
+
+- Updated dependencies [89a0531]
+- Updated dependencies [a85c889]
+- Updated dependencies [28d5289]
+- Updated dependencies [47a797e]
+- Updated dependencies [0d2810a]
+- Updated dependencies [8710b78]
+- Updated dependencies [e9ae1d2]
+- Updated dependencies [6717398]
+- Updated dependencies [bbcce0a]
+- Updated dependencies [848d25a]
+- Updated dependencies [35b30a1]
+- Updated dependencies [4fba79d]
+- Updated dependencies [7182195]
+- Updated dependencies [89a0531]
+- Updated dependencies [da59aea]
+- Updated dependencies [0205756]
+- Updated dependencies [b8c4534]
+- Updated dependencies [7182195]
+  - @solidjs/web@2.0.0-rc.3
+  - @solidjs/h@2.0.0-rc.3
+  - @solidjs/html@2.0.0-rc.3
+  - @solidjs/universal@2.0.0-rc.3
+  - @solidjs/babel-plugin@2.0.0-rc.3
+  - solid-js@2.0.0-rc.3
+  - @solidjs/signals@2.0.0-rc.3
+
 ## 2.0.0-rc.2
 
 ### Patch Changes

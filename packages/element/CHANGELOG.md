@@ -1,5 +1,28 @@
 # solid-element
 
+## 2.0.0-rc.3
+
+### Patch Changes
+
+- ea636af: Fall back to an ownerless root when the looked-up `_$owner` was stamped by a different copy of the Solid runtime (#3053). A compiled element library bundles its own solid-js; when embedded in a Solid host page, the host's JSX output stamps `_$owner` with an owner whose field layout the bundled copy cannot link into, and owner adoption crashed inside `connectedCallback`, leaving the shadow root empty. `withSolid` now catches a throw that occurs before the root body runs (which can only be the adoption wiring itself), warns, and renders in an independent root — the same behavior the element has on any non-Solid page. Errors thrown by the component itself still propagate. Same-runtime owner adoption (context into custom elements) is unchanged, and core pays no bytes for this.
+- Updated dependencies [89a0531]
+- Updated dependencies [a85c889]
+- Updated dependencies [28d5289]
+- Updated dependencies [8710b78]
+- Updated dependencies [e9ae1d2]
+- Updated dependencies [bbcce0a]
+- Updated dependencies [848d25a]
+- Updated dependencies [35b30a1]
+- Updated dependencies [4fba79d]
+- Updated dependencies [7182195]
+- Updated dependencies [89a0531]
+- Updated dependencies [da59aea]
+- Updated dependencies [0205756]
+- Updated dependencies [b8c4534]
+- Updated dependencies [7182195]
+  - @solidjs/web@2.0.0-rc.3
+  - solid-js@2.0.0-rc.3
+
 ## 2.0.0-rc.2
 
 ### Patch Changes

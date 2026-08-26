@@ -1,5 +1,27 @@
 # @solidjs/html
 
+## 2.0.0-rc.3
+
+### Minor Changes
+
+- 89a0531: Absorb the 0.50 expressions snapshot into this repo: lift compilers as `@solidjs/babel-plugin` and `@solidjs/compiler`, dump runtimes into `@solidjs/web` / `h` / `html` / `universal`. Origin: ryansolid/dom-expressions@e97e4290 (0.50.0-next.44).
+- 89a0531: Collapse the expressions dump: drop the rxcore seam, flatten runtimes into package `src/`, delete `babel-preset-solid`, and publish compiler natives as `@solidjs/compiler-*`.
+
+### Patch Changes
+
+- 7182195: Move frames, server-functions, and serialization implementations into their subpath folders. Bind `@solidjs/h` and `@solidjs/html` directly to `@solidjs/web` instead of taking a runtime argument.
+- Updated dependencies [89a0531]
+- Updated dependencies [8710b78]
+- Updated dependencies [e9ae1d2]
+- Updated dependencies [848d25a]
+- Updated dependencies [4fba79d]
+- Updated dependencies [7182195]
+- Updated dependencies [89a0531]
+- Updated dependencies [da59aea]
+- Updated dependencies [b8c4534]
+- Updated dependencies [7182195]
+  - @solidjs/web@2.0.0-rc.3
+
 ## 2.0.0-rc.2
 
 ### Patch Changes
