@@ -32,8 +32,9 @@ use crate::shared::constants::{
 };
 use crate::shared::utils::{
     child_slot_allocates_ids, decode_html_entities, element_name, escape_html_attribute,
-    escape_html_text_expression, expression_can_return_hydratable_child, format_number,
-    is_component_name, is_void_element, normalize_static_attribute_value, trim_jsx_text,
+    escape_html_text_expression, expression_can_return_hydratable_child,
+    expression_is_function_shaped, format_number, is_component_name, is_void_element,
+    normalize_static_attribute_value, trim_jsx_text,
 };
 
 use super::template::SsrTemplate;
@@ -1499,13 +1500,18 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                         self.classify()
                             .is_dynamic(Some(container.span.start), &expression, false);
                     let allocates = self.hydratable && child_slot_allocates_ids(child);
+                    // Function children never classify as dynamic (the literal
+                    // reads nothing at template time), but they are deferred
+                    // holes all the same — without a scope their owner ids
+                    // drift across async retry passes.
+                    let function_hole = expression_is_function_shaped(&expression);
                     let value = self.dynamic_child_value(container.span, expression, dynamic);
                     let value = if do_not_escape {
                         value
                     } else {
                         self.escape_expression_recursive(value, false, false)
                     };
-                    let value = if allocates && dynamic {
+                    let value = if allocates && (dynamic || function_hole) {
                         self.scope_expression(container.span, value)
                     } else {
                         value
@@ -2237,13 +2243,16 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                         self.classify()
                             .is_dynamic(Some(container.span.start), &expression, false);
                     let allocates = self.hydratable && child_slot_allocates_ids(child);
+                    // Function children are scope-eligible like dynamic ones —
+                    // see the template-children path above.
+                    let function_hole = expression_is_function_shaped(&expression);
                     let value = self.dynamic_child_value(container.span, expression, dynamic);
                     let value = if do_not_escape {
                         value
                     } else {
                         self.escape_expression_recursive(value, false, false)
                     };
-                    let value = if allocates && dynamic {
+                    let value = if allocates && (dynamic || function_hole) {
                         self.scope_expression(container.span, value)
                     } else {
                         value
@@ -2329,13 +2338,16 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         // never allocates, shifting every keyed sibling after it (#3015).
         let allocates =
             self.hydratable && can_allocate_ids && expression_can_return_hydratable_child(&value);
+        // `children={fn}` is a deferred function hole like its child-position
+        // twin; scope it so retry passes can't drift its owner ids.
+        let function_hole = expression_is_function_shaped(&value);
         let value = self.dynamic_child_value(span, value, dynamic);
         let value = if do_not_escape {
             value
         } else {
             self.escape_expression_recursive(value, false, false)
         };
-        let value = if allocates && dynamic {
+        let value = if allocates && (dynamic || function_hole) {
             self.scope_expression(span, value)
         } else {
             value
