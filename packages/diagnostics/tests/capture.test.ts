@@ -8,6 +8,7 @@ import {
   expectNoWaste,
   expectRerunBudget
 } from "../src/index.js";
+import { deterministicAttribution } from "./helpers.js";
 
 describe("captureArtifact — diagnostics channel", () => {
   it("captures rule diagnostics emitted during the scenario", async () => {
@@ -20,7 +21,7 @@ describe("captureArtifact — diagnostics channel", () => {
           () => {}
         );
       },
-      { scenario: "orphan effect" }
+      { scenario: "orphan effect", attribution: deterministicAttribution }
     );
 
     expect(artifact.formatVersion).toBe(1);
@@ -31,18 +32,21 @@ describe("captureArtifact — diagnostics channel", () => {
   });
 
   it("captures nothing for a clean scenario", async () => {
-    const { artifact } = await captureArtifact(() => {
-      const [count, setCount] = createSignal(0);
-      const dispose = createRoot(dispose => {
-        const double = createMemo(() => count() * 2);
-        createEffect(double, () => {});
-        return dispose;
-      });
-      flush();
-      setCount(1);
-      flush();
-      dispose();
-    });
+    const { artifact } = await captureArtifact(
+      () => {
+        const [count, setCount] = createSignal(0);
+        const dispose = createRoot(dispose => {
+          const double = createMemo(() => count() * 2);
+          createEffect(double, () => {});
+          return dispose;
+        });
+        flush();
+        setCount(1);
+        flush();
+        dispose();
+      },
+      { attribution: deterministicAttribution }
+    );
 
     expectNoDiagnostics(artifact);
   });
@@ -50,18 +54,21 @@ describe("captureArtifact — diagnostics channel", () => {
 
 describe("captureArtifact — attribution channel", () => {
   it("records re-runs with causes and enforces rerun budgets", async () => {
-    const { artifact } = await captureArtifact(() => {
-      const [count, setCount] = createSignal(0, { name: "count" });
-      const dispose = createRoot(dispose => {
-        const double = createMemo(() => count() * 2, { name: "double" });
-        createEffect(double, () => {}, { name: "render" });
-        return dispose;
-      });
-      flush();
-      setCount(1);
-      flush();
-      dispose();
-    });
+    const { artifact } = await captureArtifact(
+      () => {
+        const [count, setCount] = createSignal(0, { name: "count" });
+        const dispose = createRoot(dispose => {
+          const double = createMemo(() => count() * 2, { name: "double" });
+          createEffect(double, () => {}, { name: "render" });
+          return dispose;
+        });
+        flush();
+        setCount(1);
+        flush();
+        dispose();
+      },
+      { attribution: deterministicAttribution }
+    );
 
     expect(artifact.attribution).not.toBeNull();
     const reruns = artifact.attribution!.reruns;
@@ -90,22 +97,25 @@ describe("captureArtifact — attribution channel", () => {
   });
 
   it("flags wasted re-runs (unchanged recomputes)", async () => {
-    const { artifact } = await captureArtifact(() => {
-      const [count, setCount] = createSignal(0, { name: "count" });
-      const dispose = createRoot(dispose => {
-        // Equality cutoff: parity is 0 for both writes below — downstream
-        // recomputes are pure waste.
-        const parity = createMemo(() => count() % 2, { name: "parity" });
-        createEffect(parity, () => {});
-        return dispose;
-      });
-      flush();
-      setCount(2);
-      flush();
-      setCount(4);
-      flush();
-      dispose();
-    });
+    const { artifact } = await captureArtifact(
+      () => {
+        const [count, setCount] = createSignal(0, { name: "count" });
+        const dispose = createRoot(dispose => {
+          // Equality cutoff: parity is 0 for both writes below — downstream
+          // recomputes are pure waste.
+          const parity = createMemo(() => count() % 2, { name: "parity" });
+          createEffect(parity, () => {});
+          return dispose;
+        });
+        flush();
+        setCount(2);
+        flush();
+        setCount(4);
+        flush();
+        dispose();
+      },
+      { attribution: deterministicAttribution }
+    );
 
     expect(() => expectNoWaste(artifact)).toThrow(DiagnosticsAssertionError);
     expectNoWaste(artifact, { maxWastedRuns: 2 });
@@ -132,7 +142,7 @@ describe("artifact egress", () => {
         flush();
         dispose();
       },
-      { scenario: "jsonl" }
+      { scenario: "jsonl", attribution: deterministicAttribution }
     );
 
     const lines = artifactToJSONL(artifact).trim().split("\n");

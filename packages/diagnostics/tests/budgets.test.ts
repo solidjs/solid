@@ -7,6 +7,7 @@ import {
   parseBudgetFile
 } from "../src/index.js";
 import type { DiagnosticsArtifact } from "../src/index.js";
+import { deterministicAttribution } from "./helpers.js";
 
 async function toggleScenario(scenario?: string): Promise<DiagnosticsArtifact> {
   const { artifact } = await captureArtifact(
@@ -24,10 +25,7 @@ async function toggleScenario(scenario?: string): Promise<DiagnosticsArtifact> {
     },
     {
       scenario,
-      // This suite exercises rerun budgets, not wall-clock profiling. Disable
-      // the default 8ms hot-scope warning so shared CI load cannot turn a
-      // trivial memo into unrelated diagnostic evidence.
-      attribution: { hotTime: false }
+      attribution: deterministicAttribution
     }
   );
   return artifact;
