@@ -470,14 +470,22 @@ function buildRowOps(
   const plen = prevRows.length;
   const nlen = nextRows.length;
   const sources = new Array(nlen - structStart);
-  let oldIndexByKey: Map<any, number> | null = null;
+  // Occurrence-aware matching (re-audit): duplicate keys queue their old
+  // indices and each is consumed ONCE — first-wins reuse would hand the same
+  // source (and its one DOM row) to multiple next positions. The no-dup fast
+  // shape stays a bare number; collisions upgrade to a queue.
+  let oldIndexByKey: Map<any, number | number[]> | null = null;
   if (keyFn !== null && structStart < plen) {
     oldIndexByKey = new Map();
     for (let j = structStart; j < plen; j++) {
       const p = unwrapValue(prevRows[j]);
       if (p !== null && typeof p === "object") {
         const pk = keyFn(p);
-        if (pk !== undefined && !oldIndexByKey.has(pk)) oldIndexByKey.set(pk, j);
+        if (pk === undefined) continue;
+        const existing = oldIndexByKey.get(pk);
+        if (existing === undefined) oldIndexByKey.set(pk, j);
+        else if (Array.isArray(existing)) existing.push(j);
+        else oldIndexByKey.set(pk, [existing, j]);
       }
     }
   }
@@ -490,8 +498,14 @@ function buildRowOps(
       if (nk !== undefined) {
         const m = oldIndexByKey.get(nk);
         if (m !== undefined) {
-          oldIdx = m;
-          consumed!.add(m);
+          if (Array.isArray(m)) {
+            oldIdx = m.shift()!;
+            if (m.length === 1) oldIndexByKey.set(nk, m[0]);
+          } else {
+            oldIdx = m;
+            oldIndexByKey.delete(nk);
+          }
+          consumed!.add(oldIdx);
         }
       }
     }

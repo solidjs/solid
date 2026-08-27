@@ -398,6 +398,13 @@ function cloneRaw(source: Record<PropertyKey, any>, t?: StoreNextTarget): Record
     : Object.create(Object.getPrototypeOf(source), descs);
 }
 
+/** Scanned plainness for patch admission (patchableRaw): runs the one-time
+ * accessor scan if it hasn't happened yet — the sticky `a` flag alone is not
+ * trustworthy before a scan (it starts false and is discovered lazily). */
+export function targetIsPlain(target: StoreNextTarget): boolean {
+  return target.sc ? !target.a : scanAccessorsOnce(target);
+}
+
 /** One-time own-accessor scan (Annex-B probes, no descriptor allocation);
  * returns true when the container is plain data (overlay-safe). */
 function scanAccessorsOnce(target: StoreNextTarget): boolean {
@@ -566,6 +573,11 @@ function drainFolds(): void {
   const entries = [...foldOlds];
   foldOlds.clear();
   for (const [t, old] of entries) {
+    // Eager (write-override) family folds swap pb -> v at notifyWrites'
+    // tail: by the time this drain runs they carry no pb, and their
+    // structural ops must emit at the fold-commit site below (the clone
+    // branch never sees them). Re-audit blocker 4.
+    const foldedEager = t.pb === null;
     if (t.pb !== null) {
       // Setter path: nodes were setSignal'd at setter exit (write-time
       // notification — transitions/holds ride core machinery). Commit the
@@ -631,10 +643,17 @@ function drainFolds(): void {
         // registered list driver. Identity-keyed; aligned folds emit nothing.
         // Family targets defer to their own adoption emission (fam reconcile).
         // Arrays always fold on this clone branch (overlay is non-array only).
+        // Family setter drafts (writable projection push/splice through the
+        // masked setter) fold on this branch too and the fold IS their
+        // visibility moment — emit unless the structure already rode another
+        // channel: adoption folds (reconcile walk emitted ops) and
+        // optimistic families (lane-timed override channel). Re-audit
+        // blocker 4.
         if (
           t.pc !== null &&
           t.pc.ro !== null &&
-          t.fam === null &&
+          !t.adopted &&
+          t.fam?.opt !== true &&
           Array.isArray(pb) &&
           Array.isArray(t.v)
         )
@@ -650,7 +669,24 @@ function drainFolds(): void {
     // IS their visibility moment (held folds re-queued above emit when they
     // actually commit). Plain eager targets emitted at their walk/setter
     // sites already.
-    if (t.fam !== null && t.pc !== null && t.pc.p !== null) patchHooks!.emitPatchLocal(t, t.v, old);
+    if (t.fam !== null && t.pc !== null) {
+      // Structural ops for eager-folded family SETTER drafts (writable
+      // projection push/splice — the write-override path swaps pb -> v at
+      // notifyWrites' tail, so the clone branch never sees them). Adoption
+      // folds (`t.adopted`, recompute reconcile) already emitted their ops
+      // from the walk, and optimistic families ride the override channel
+      // (lane-timed ops + revert RESYNC) — both must not re-emit here.
+      if (
+        foldedEager &&
+        !t.adopted &&
+        t.pc.ro !== null &&
+        t.fam.opt !== true &&
+        Array.isArray(t.v) &&
+        Array.isArray(old)
+      )
+        patchHooks!.emitSetterRowOps(t, old as any[], t.v as any[]);
+      if (t.pc.p !== null) patchHooks!.emitPatchLocal(t, t.v, old);
+    }
     // Path copying (CAS: see the eager-fold twin above).
     if (t.u && t.u.v[t.pk!] === old) {
       privatizeCommitted(t.u);
@@ -1575,7 +1611,14 @@ const traps: ProxyHandler<StoreNextTarget> = {
     const override = !draft && getWriteOverride();
     if (!draft && !override) return true;
     if (key === "__proto__") return true;
-    if (desc.get || desc.set) target.a = true;
+    if (desc.get || desc.set) {
+      target.a = true;
+      // Accessor demotion (re-audit blocker 3): a record that acquires an
+      // accessor after patch registration stops being patchable — pull its
+      // patches and re-drive them as tracked effect fallbacks. Hooks are
+      // installed whenever pc.p exists (registration installs them).
+      if (target.pc !== null && target.pc.p !== null) patchHooks!.demoteToEffects(target);
+    }
     // Unwrap before ensurePB (see the set trap: self-reference materializes).
     if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };
     const pb = ensurePB(target);

@@ -37,6 +37,11 @@ import { installPatchHooks } from "./patch-hooks.js";
 // One-way: reconcile emits through the hooks (never imports this module),
 // so pulling its setter-channel emitter here creates no cycle.
 import { emitSetterRowOps } from "./reconcile.js";
+// Cycle with store.js is benign (established pattern above): both resolve at
+// call time, long after module initialization.
+import { targetIsPlain } from "./store.js";
+import { runWithOwner, untrack } from "../../core/core.js";
+import { createRenderEffect } from "../../signals.js";
 // Cycle with store.js is benign: pcOf is only called at registration time,
 // long after both modules initialize.
 import { pcOf } from "./store.js";
@@ -80,29 +85,46 @@ function drainApplyQueue(): void {
   for (let i = 0; i < q.length; i++) {
     const { list, prev, force, t } = q[i];
     const next = t !== null ? (t.pb ?? t.v) : q[i].next;
-    for (let j = 0; j < list.length; j++) {
-      const entry = list[j];
-      // Disposed owners drop their patches (the row unmounted mid-flush).
-      if (entry.owner !== null && isDisposed(entry.owner)) continue;
-      try {
-        entry.fn(next, prev, force);
-      } catch (err) {
-        let handled = false;
-        const owner = entry.owner as any;
-        if (owner !== null) {
-          const statusErr = new StatusError(owner, err);
-          ext(owner)._error = statusErr;
-          owner._statusFlags = (owner._statusFlags ?? 0) | STATUS_ERROR;
-          handled = owner._queue.notify(owner, STATUS_ERROR, STATUS_ERROR, statusErr);
-        }
-        if (!handled && firstError === UNSET) firstError = err;
-      }
-    }
+    firstError = applyEntries(list, next, prev, force, firstError);
   }
   if (firstError !== UNSET) throw firstError;
 }
 
 const UNSET: unique symbol = Symbol();
+
+/** ONE callback/error primitive for every drain (normal, transition-held,
+ * optimistic): per-entry isolation — a throwing patch must not abort its
+ * siblings (effect parity) — and failures route through the REGISTERING
+ * OWNER's queue chain exactly like a render-effect error (§2b): an Errored
+ * boundary above the row collects it. Unhandled errors are aggregated by the
+ * caller (first one rethrows after its drain completes). */
+function applyEntries(
+  list: { fn: Function; owner: Owner | null }[],
+  next: any,
+  prev: any,
+  force: boolean,
+  firstError: unknown
+): unknown {
+  for (let j = 0; j < list.length; j++) {
+    const entry = list[j];
+    // Disposed owners drop their patches (the row unmounted mid-flush).
+    if (entry.owner !== null && isDisposed(entry.owner)) continue;
+    try {
+      entry.fn(next, prev, force);
+    } catch (err) {
+      let handled = false;
+      const owner = entry.owner as any;
+      if (owner !== null) {
+        const statusErr = new StatusError(owner, err);
+        ext(owner)._error = statusErr;
+        owner._statusFlags = (owner._statusFlags ?? 0) | STATUS_ERROR;
+        handled = owner._queue.notify(owner, STATUS_ERROR, STATUS_ERROR, statusErr);
+      }
+      if (!handled && firstError === UNSET) firstError = err;
+    }
+  }
+  return firstError;
+}
 
 // Transition-stamped emissions (§2b, "the walk is not the visibility moment
 // inside a transition"): entries stash DIRECTLY on their transition
@@ -197,15 +219,16 @@ function drainOptimistic(): void {
   const q = optQueue;
   optQueue = null;
   if (q === null) return;
+  // Same isolation/routing primitive as the normal drain (re-audit blocker
+  // 5): one throwing optimistic patch must not abort its siblings, and it
+  // must reach the registering owner's Errored boundary.
+  let firstError: unknown = UNSET;
   for (let i = 0; i < q.length; i++) {
     const { list, prev, force, t } = q[i];
     const next = t !== null ? (t.pb ?? t.v) : q[i].next;
-    for (let j = 0; j < list.length; j++) {
-      const entry = list[j];
-      if (entry.owner !== null && isDisposed(entry.owner)) continue;
-      entry.fn(next, prev, force);
-    }
+    firstError = applyEntries(list, next, prev, force, firstError);
   }
+  if (firstError !== UNSET) throw firstError;
 }
 
 export function emitPatchOptimistic(t: StoreNextTarget, next: any, prev: any): void {
@@ -263,6 +286,12 @@ export function emitRowOpsOptimistic(
 // Global registration count: the cheap gate emission sites check before any
 // per-record work (unpatched apps pay one number compare per transition).
 let patchCount = 0;
+/** Test-only accounting probe: the live registration count must return to
+ * baseline across register/unbind/demote cycles. @internal */
+export function patchCountForTests(): number {
+  return patchCount;
+}
+
 export function hasPatches(): boolean {
   return patchCount > 0;
 }
@@ -292,9 +321,14 @@ export function registerPatch(record: any, fn: PatchFn): () => void {
   return () => {
     if (unbound) return;
     unbound = true;
-    patchCount--;
+    // Decrement ONLY on actual removal: a demotion (demoteToEffects) may
+    // have already pulled this entry and repaired the count — the splice
+    // miss is how this closure learns that.
     const idx = list.indexOf(entry);
-    if (idx >= 0) list.splice(idx, 1);
+    if (idx >= 0) {
+      list.splice(idx, 1);
+      patchCount--;
+    }
     if (list.length === 0 && pc.p === list) pc.p = null;
   };
 }
@@ -324,19 +358,70 @@ export function patchableRaw(record: any): Record<PropertyKey, any> | undefined 
   let t: StoreNextTarget | undefined = record?.[$TARGET];
   if (t === undefined || t.px !== record || t.a === true) return undefined;
   t = ultimateTarget(t);
-  if (t === undefined || t.a === true) return undefined;
+  // SCAN before trusting (re-audit blocker 3): `a` starts false and is only
+  // discovered lazily (first draft, deep walks) — admission must run the
+  // one-time own-accessor scan itself, or a getter-bearing record takes the
+  // patch path and its getter's OUTSIDE dependencies (signals, other
+  // records) never re-apply. Sticky `sc` makes this one probe pass per
+  // record lifetime.
+  if (t === undefined || !targetIsPlain(t)) return undefined;
   return t.pb ?? t.v;
 }
 
 /** Accessor demotion (design §5): a record that acquires an accessor after
  * registration stops being patchable — reads must go through tracked
- * evaluation. Clears patches; the dual-driver bind's effect fallback takes
- * over (wired by the compiler's bind closure via onDemote). */
+ * evaluation. Clears patches and repairs the global count; callers re-drive
+ * the pulled bodies (demoteToEffects). */
 export function demotePatches(t: StoreNextTarget): PatchEntry[] | null {
   if (t.pc === null) return null;
   const p = t.pc.p as PatchEntry[] | null;
   t.pc.p = null;
-  return p;
+  if (p === null) return null;
+  patchCount -= p.length;
+  // Drain IN PLACE: unbind closures captured this array — a late unbind must
+  // miss its indexOf and not double-decrement the repaired count.
+  return p.splice(0, p.length);
+}
+
+/** The demotion re-drive (re-audit blocker 3): each pulled body becomes the
+ * SAME dual-driver effect fallback the web runtime would have chosen had the
+ * record carried the accessor at bind — a tracked compute pass (next === prev
+ * short-circuits every compare into a pure read THROUGH THE PROXY, so getter
+ * dependencies track) plus an untracked force-apply at effect timing.
+ *
+ * Creation is DEFERRED to the effect phase: the trap that discovers the
+ * accessor runs mid-draft, and an effect's initial pass must not read
+ * through the proxy inside the write window. The record's own transition
+ * for that draft is covered by the new effect's initial force-apply.
+ *
+ * Known edge (documented): a demoted LIST-ROW body re-drives under its
+ * registering owner (the list owner), so per-row severing on removal is
+ * lost for demoted rows — the effect lives until the LIST disposes. Rows
+ * only demote when user code defines an accessor on a row record at
+ * runtime. */
+export function demoteToEffects(t: StoreNextTarget): void {
+  const entries = demotePatches(t);
+  if (entries === null || entries.length === 0) return;
+  const proxy = t.px;
+  globalQueue.enqueue(EFFECT_RENDER, () => {
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      if (entry.owner !== null && isDisposed(entry.owner)) continue;
+      const fn = entry.fn;
+      runWithOwner(entry.owner, () =>
+        createRenderEffect(
+          () => {
+            fn(proxy, proxy, false);
+          },
+          () => {
+            // Block body: a compiled patch body's return value must not be
+            // mistaken for an effect cleanup.
+            untrack(() => fn(proxy, undefined, true));
+          }
+        )
+      );
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -365,8 +450,11 @@ interface RowOpsEntry {
 /** Register a structural-ops consumer on a keyed store array (the list
  * container's channel — what `For` consumes through the seam). */
 export function registerRowOps(array: any, fn: RowOpsFn): () => void {
-  const t: StoreNextTarget | undefined = array?.[$TARGET];
+  let t: StoreNextTarget | undefined = array?.[$TARGET];
   if (t === undefined) throw new Error("registerRowOps: not a store array");
+  // Chained backings resolve to the ULTIMATE owner, same as registerPatch
+  // (§7b) — the walk/fold emits there (re-audit blocker 4).
+  t = ultimateTarget(t) ?? t;
   if (!commitHookInstalled) {
     commitHookInstalled = true;
     armPatchHooks();
@@ -413,8 +501,11 @@ export function registerSlotPatchNext(
   arr: any,
   fn: (index: number, next: any, prev: any) => void
 ): () => void {
-  const t: StoreNextTarget | undefined = arr?.[$TARGET];
+  let t: StoreNextTarget | undefined = arr?.[$TARGET];
   if (t === undefined) throw new Error("registerSlotPatchNext: not a store array");
+  // Chained backings resolve to the ULTIMATE owner, same as registerPatch
+  // (§7b) — the walk emits slot ticks there (re-audit blocker 4).
+  t = ultimateTarget(t) ?? t;
   if (!commitHookInstalled) {
     commitHookInstalled = true;
     armPatchHooks();
@@ -470,6 +561,7 @@ function armPatchHooks(): void {
     emitSlotPatch,
     emitRowOps,
     emitSetterRowOps,
-    hasPatches
+    hasPatches,
+    demoteToEffects
   });
 }

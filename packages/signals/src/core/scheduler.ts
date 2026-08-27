@@ -220,6 +220,19 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
     outgoing._affectsNodes.length = 0;
   }
   for (const store of outgoing._optimisticStores) target._optimisticStores.add(store);
+  // Patch-channel stash (store/next/patch.ts): entries held for the outgoing
+  // transition must ride the merge like every other per-transition
+  // collection — releaseBatch only reads the COMMITTING transition's stash,
+  // so a stranded sidecar would silently drop its patches. Move (don't
+  // copy), same aliasing rule as the collections above. The field is an
+  // expando so this module stays free of patch imports (pay-for-use).
+  const heldPatches = (outgoing as any)._heldPatches as unknown[] | undefined;
+  if (heldPatches !== undefined) {
+    (outgoing as any)._heldPatches = undefined;
+    const targetHeld = (target as any)._heldPatches as unknown[] | undefined;
+    if (targetHeld !== undefined) targetHeld.push(...heldPatches);
+    else (target as any)._heldPatches = heldPatches;
+  }
   // Legal transfer, not a new registration: entries move between transitions.
   if (__DEV__) beginAsyncReporterWrites();
   for (const [source, reporters] of outgoing._asyncReporters) {

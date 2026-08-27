@@ -195,7 +195,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   const listOwner = createOwner();
   let declined = false;
   const bindRow = (abs: number, claimId?: string): Node => {
-    if ("_DX_DEV_") {
+    if ("_SOLID_DEV_") {
       // Ownership assertion: a stamped row must attach NOTHING to the list
       // owner — the compiler proved the template, but handler/attribute
       // VALUE expressions are arbitrary user code, and owned work created
@@ -280,13 +280,29 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
       const w = r != null ? patchableRaw(r) : undefined;
       return w !== undefined ? w : r;
     };
-    const oldIndex = new Map<any, number>();
+    // Occurrence-aware (re-audit): duplicate references queue their old
+    // indices, each consumed once — first-wins reuse would map ONE retained
+    // DOM node to multiple next positions (the later insert steals it).
+    const oldIndex = new Map<any, number | number[]>();
     for (let j = 0; j < prevRaws.length; j++) {
       const k = keyOf(prevRaws[j]);
-      if (!oldIndex.has(k)) oldIndex.set(k, j);
+      const existing = oldIndex.get(k);
+      if (existing === undefined) oldIndex.set(k, j);
+      else if (Array.isArray(existing)) existing.push(j);
+      else oldIndex.set(k, [existing, j]);
     }
     const sources = new Array(nextArr.length);
-    for (let k = 0; k < nextArr.length; k++) sources[k] = oldIndex.get(keyOf(nextArr[k])) ?? -1;
+    for (let k = 0; k < nextArr.length; k++) {
+      const m = oldIndex.get(keyOf(nextArr[k]));
+      if (m === undefined) sources[k] = -1;
+      else if (Array.isArray(m)) {
+        sources[k] = m.shift()!;
+        if (m.length === 1) oldIndex.set(keyOf(nextArr[k]), m[0]);
+      } else {
+        sources[k] = m;
+        oldIndex.delete(keyOf(nextArr[k]));
+      }
+    }
     return { prefix: 0, sources };
   };
   const applyOps = (next: any[], ops: { prefix: number; sources: number[] } | null) => {
@@ -481,6 +497,12 @@ export const patchDriver = (subject, body) => {
     if (!sharedConfig.hydrating) body(raw, undefined, true);
     const unbind = registerPatch(subject, body);
     if (rowCollector !== null) rowCollector.unbinds.push(unbind);
+    // Ordinary (non-list-row) templates: the registration dies with the
+    // registering owner. Drains only SKIP disposed owners — without this,
+    // every unmounted patched component leaks its entry on the record (and
+    // patchCount never returns to baseline, keeping the setter-site
+    // hasPatches() gate on forever). Re-audit blocker 1.
+    else onCleanup(unbind);
   } else if (rowCollector !== null && subject === rowCollector.row) {
     rowCollector.bodies.push(body);
     if (!sharedConfig.hydrating) body(subject, undefined, true);

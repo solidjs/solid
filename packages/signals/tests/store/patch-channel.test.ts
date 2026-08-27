@@ -364,3 +364,188 @@ describe("patch channel (PR-A)", () => {
     expect(log).toEqual([]);
   });
 });
+
+describe("patch channel (re-audit hardening)", () => {
+  it("unbind returns the channel to baseline; double-unbind never double-counts", async () => {
+    const { patchCountForTests } = await import("../../src/store/next/patch.js");
+    // Earlier tests in this file leak registrations by design — assert the
+    // DELTA returns to this test's own baseline.
+    const base = patchCountForTests();
+    const [state] = createStore({ user: { name: "a" }, other: { name: "b" } });
+    const u1 = registerPatch(state.user, () => {});
+    const u2 = registerPatch(state.other, () => {});
+    expect(patchCountForTests()).toBe(base + 2);
+    u1();
+    u1(); // idempotent — must not double-decrement
+    expect(patchCountForTests()).toBe(base + 1);
+    u2();
+    expect(patchCountForTests()).toBe(base);
+  });
+
+  it("merged overlapping transitions release BOTH stashes of held patches at commit", async () => {
+    const [state, setState] = createStore({ a: { v: "a0" }, b: { v: "b0" } });
+    const log: string[] = [];
+    registerPatch(state.a, (n: any) => log.push("a:" + n.v));
+    registerPatch(state.b, (n: any) => log.push("b:" + n.v));
+    let resolveA!: () => void;
+    let resolveB!: () => void;
+    let saveA!: () => Promise<void> | void;
+    let saveB!: () => Promise<void> | void;
+    createRoot(() => {
+      saveA = action(function* () {
+        setState(s => {
+          s.a.v = "a1";
+        });
+        yield new Promise<void>(r => {
+          resolveA = r;
+        });
+      }) as any;
+      saveB = action(function* () {
+        setState(s => {
+          s.b.v = "b1";
+        });
+        yield new Promise<void>(r => {
+          resolveB = r;
+        });
+      }) as any;
+    });
+    const pa = saveA();
+    flush();
+    const pb = saveB();
+    flush();
+    // Both writes ride transitions — nothing visible, nothing patched.
+    expect(log).toEqual([]);
+    resolveA();
+    resolveB();
+    await pa;
+    await pb;
+    flush();
+    // Whatever merging happened between the overlapping transitions, each
+    // held patch releases exactly once at the surviving commit.
+    expect(log.sort()).toEqual(["a:a1", "b:b1"]);
+  });
+
+  it("optimistic drain isolates a throwing patch and routes it to the boundary", async () => {
+    const { createOptimisticStore, action: act } = await import("../../src/index.js");
+    const [state, setState] = (createOptimisticStore as any)({ a: { v: 0 }, b: { v: 0 } });
+    const applied: string[] = [];
+    let caught: unknown;
+    const b = createRoot(() =>
+      createErrorBoundary(
+        () => {
+          registerPatch(state.a, (n: any) => {
+            if (n.v > 0) throw new Error("optimistic boom");
+          });
+          registerPatch(state.b, (n: any) => applied.push("b:" + n.v));
+          return "content";
+        },
+        e => {
+          caught = e();
+          return "errored";
+        }
+      )
+    );
+    expect(b()).toBe("content");
+    let resolve!: () => void;
+    let save!: () => Promise<void> | void;
+    createRoot(() => {
+      save = act(function* () {
+        setState((s: any) => {
+          s.a.v = 1;
+          s.b.v = 1;
+        });
+        yield new Promise<void>(r => {
+          resolve = r;
+        });
+      }) as any;
+    });
+    const p = (save() as Promise<void>).catch(() => {});
+    // Lane-timed drain: the throwing sibling must not abort b's patch.
+    expect(() => flush()).not.toThrow();
+    expect(applied).toEqual(["b:1"]);
+    expect(b()).toBe("errored");
+    expect(String(caught)).toContain("optimistic boom");
+    resolve();
+    await p;
+    flush();
+  });
+
+  it("accessor-bearing records are NOT admitted (scan runs at admission)", async () => {
+    const { patchableRaw } = await import("../../src/index.js");
+    const [state] = createStore({
+      plain: { v: 1 },
+      computed: {
+        base: 2,
+        get double() {
+          return this.base * 2;
+        }
+      }
+    });
+    // Never written, never scanned — admission itself must run the scan.
+    expect(patchableRaw(state.computed)).toBeUndefined();
+    expect(patchableRaw(state.plain)).not.toBeUndefined();
+  });
+
+  it("a record that acquires an accessor demotes its patches to tracked effects", async () => {
+    const { patchCountForTests } = await import("../../src/store/next/patch.js");
+    const { createSignal } = await import("../../src/index.js");
+    const base = patchCountForTests();
+    const [dep, setDep] = createRoot(() => createSignal(10));
+    const [state, setState] = createStore<any>({ user: { name: "a" } });
+    const log: string[] = [];
+    let dispose!: () => void;
+    let unbind!: () => void;
+    createRoot(d => {
+      dispose = d;
+      unbind = registerPatch(state.user, (next: any) =>
+        log.push(next.name + ":" + (next.score ?? "-"))
+      );
+    });
+    setState(s => {
+      s.user.name = "b";
+    });
+    flush();
+    expect(log).toEqual(["b:-"]);
+    // The accessor arrives: patches demote — the SAME body re-drives as a
+    // tracked effect (initial force-apply at effect phase).
+    setState(s => {
+      Object.defineProperty(s.user, "score", {
+        get() {
+          return dep();
+        },
+        enumerable: true,
+        configurable: true
+      });
+    });
+    flush();
+    // Demotion repaired the count; the late unbind is inert (no negative).
+    expect(patchCountForTests()).toBe(base);
+    unbind();
+    expect(patchCountForTests()).toBe(base);
+    expect(log[log.length - 1]).toBe("b:10");
+    // The getter's OUTSIDE dependency now re-applies — the exact divergence
+    // unsound admission would have silently dropped.
+    setDep(11);
+    flush();
+    expect(log[log.length - 1]).toBe("b:11");
+    dispose();
+  });
+
+  it("writable projection arrays emit setter row ops at fold commit", async () => {
+    const { registerRowOps } = await import("../../src/index.js");
+    const [proj, setProj] = createRoot(() =>
+      createStore(() => ({ list: [{ id: 1 }, { id: 2 }] }), { list: [] as any[] })
+    );
+    flush();
+    const ops: any[] = [];
+    registerRowOps(proj.list, (_next: any[], o: any) => ops.push(o));
+    setProj((s: any) => {
+      s.list.push({ id: 3 });
+    });
+    flush();
+    // Pre-fix the fam !== null gate swallowed this: the driven list froze.
+    expect(ops.length).toBe(1);
+    expect(ops[0]).not.toBeNull();
+    expect(proj.list.length).toBe(3);
+  });
+});

@@ -26,6 +26,7 @@ export interface PatchHooks {
   emitRowOps(t: StoreNextTarget, next: any[], ops: RowOps): void;
   emitSetterRowOps(t: StoreNextTarget, prevRows: any[], nextRows: any[]): void;
   hasPatches(): boolean;
+  demoteToEffects(t: StoreNextTarget): void;
 }
 
 export let patchHooks: PatchHooks | null = null;
