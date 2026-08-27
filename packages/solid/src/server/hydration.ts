@@ -69,14 +69,19 @@ function ssrLoadingBoundary(
 ): () => unknown {
   const ctx = currentCtx;
   const parent = getOwner();
-  const parentHandler = parent && runWithOwner(parent, () => getContext(ErrorContext));
-  const revealGroup = parent && runWithOwner(parent, () => getContext(RevealGroupContext));
+  // One context lookup pass: both reads resolve off the parent's (shared,
+  // immutable-at-this-point) context map — no owner switch needed, and
+  // getContext takes the owner explicitly.
+  const parentHandler = parent && getContext(ErrorContext, parent);
+  const revealGroup = parent && getContext(RevealGroupContext, parent);
   const o = createOwner();
   // Boundaries sever reveal-group coordination for their subtree (matching the
   // client): only direct Loading children of a Reveal join its group. A nested
   // Loading is covered by its own fallback inside the (possibly held) slot and
   // activates independently instead of delaying the ancestor group (#2871).
-  setContext(RevealGroupContext, null, o);
+  // setContext clones the context map, so only pay it when there IS a group
+  // in scope to sever — without one, children read null regardless.
+  if (revealGroup) setContext(RevealGroupContext, null, o);
   const id = o.id!;
   (o as any).id = id + "00"; // fake depth to match client's createLoadingBoundary nesting
 

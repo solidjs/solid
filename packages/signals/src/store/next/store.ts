@@ -31,15 +31,23 @@ import {
 import {
   devGuardStoreSetterWrite,
   isEqual,
+  latestReadActive,
+  prepareComputed,
   read as readNode,
   READ_SLOW,
   readNodeFast,
+  setLatestReadActive,
   setSignal,
   signal,
   untrack,
   ext
 } from "../../core/core.js";
-import { activeTransition, globalQueue, insertSubs } from "../../core/scheduler.js";
+import {
+  activeTransition,
+  currentTransition,
+  globalQueue,
+  insertSubs
+} from "../../core/scheduler.js";
 import { getObserver, getOwner } from "../../core/owner.js";
 import {
   GlobalQueue,
@@ -129,6 +137,8 @@ function TargetShape(this: any) {
   this.ovl = undefined;
   this.del = undefined;
   this.pc = undefined;
+  this.hv = undefined;
+  this.ht = undefined;
 }
 TargetShape.prototype = Object.prototype;
 
@@ -171,6 +181,8 @@ function createTarget(
   t.s = false;
   t.ovl = false;
   t.del = null;
+  t.hv = null;
+  t.ht = null;
   t.px = new Proxy(t, traps);
   // Legacy interop: shared machinery (affects walks, wrap dedupe) reads the
   // proxy off looked-up targets as a field.
@@ -493,6 +505,28 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
   return pb;
 }
 
+/** Sentinel holder for `t.ht`: a latest()-pull staged this adoption outside
+ * any transition — the hold lasts until the fold commit (drainFolds). */
+const PLAIN_HOLD: unique symbol = Symbol("plainHold");
+
+/** True while a latest() read is pulling the projection computed up to date
+ * (see the get trap): adoptions landing during the pull are speculative
+ * against the un-flushed batch and stage a held view. (Not injectable — the
+ * derived createStore overload retains projection machinery in every store
+ * bundle, see treeshake.test.ts.) */
+let latestPullActive = false;
+
+/** Resolve the held committed view (#3074): answers the masked old backing
+ * while the hold is live, and lazily clears a hold whose transition has
+ * committed (transitions merge — resolve through currentTransition, same as
+ * foldHeld's node stamps). */
+function heldMaskView(t: StoreNextTarget): Record<PropertyKey, any> | null {
+  const ht = t.ht;
+  if (ht === null) return null;
+  if (ht !== PLAIN_HOLD && currentTransition(ht)?._done === true) return (t.ht = t.hv = null);
+  return t.hv;
+}
+
 /**
  * Adoption (2026-08-16c): the incoming object becomes the committed backing
  * IMMEDIATELY — reconcile is eagerly visible to every reader (shipped
@@ -512,6 +546,20 @@ export function adoptPB(
   if (!eager) {
     queueFold(target); // records the pre-batch old before we swap
     target.adopted = true;
+    // #3074/#3075: a projection recompute deriving from uncommitted inputs
+    // swaps the backing SPECULATIVELY — committed-visibility readers must
+    // keep the pre-hold view until the hold resolves (a source held by a
+    // live transition, or a latest()-pull ahead of the flush). Post-await
+    // landings (write-override) stay immediately visible — landed truth —
+    // and clear any hold; optimistic families ride the lane machinery.
+    if (target.fam?.opt !== true) {
+      if (getWriteOverride()) {
+        target.ht = target.hv = null;
+      } else if (activeTransition !== null || latestPullActive) {
+        if (heldMaskView(target) === null) target.hv = target.v;
+        target.ht = activeTransition ?? PLAIN_HOLD;
+      }
+    }
   }
   target.pb = null;
   // Overlay and accessor-scan state describe the OUTGOING backing — a
@@ -573,6 +621,10 @@ function drainFolds(): void {
   const entries = [...foldOlds];
   foldOlds.clear();
   for (const [t, old] of entries) {
+    // A latest()-pull staging holds only until the fold commit: this flush
+    // is committing the batch the pull ran ahead of. Transition holds stay —
+    // they clear when their transition is done (heldMaskView).
+    if (t.ht === PLAIN_HOLD) t.ht = t.hv = null;
     // Eager (write-override) family folds swap pb -> v at notifyWrites'
     // tail: by the time this drain runs they carry no pb, and their
     // structural ops must emit at the fold-commit site below (the clone
@@ -866,6 +918,9 @@ function notifyWrites(t: StoreNextTarget): void {
   //   downstream consumer's own async still holds the effect-level reveal
   //   (spec-async "verdicts never inherit consumers' in-flight state").
   if (t.fam !== null && t.pb !== null && getWriteOverride()) {
+    // Landed truth (post-await write-override): immediately visible to every
+    // reader — any staged held view is superseded.
+    if (t.ht !== null) t.ht = t.hv = null;
     const oldBacking = t.v;
     t.pb = null;
     t.v = pb;
@@ -1138,6 +1193,20 @@ function foldHeld(target: StoreNextTarget): boolean {
 }
 
 function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
+  // Held view first (#3074): an adoption staged under a live hold serves the
+  // pre-hold committed backing to committed-visibility readers. Speculative
+  // readers — drafts, write-override, owner-context computeds recomputing
+  // inside the transaction, and latest() reads — see the adopted backing.
+  if (
+    target.ht !== null &&
+    !latestReadActive &&
+    !inDraft(target) &&
+    !getWriteOverride() &&
+    !inOwnerContext()
+  ) {
+    const hv = heldMaskView(target);
+    if (hv !== null) return hv;
+  }
   // Signal-parity visibility (core read(): owner-context reads serve
   // _pendingValue, context-free reads serve committed — effects recompute
   // BEFORE commitPendingNodes in the flush, so the pending view must be
@@ -1202,9 +1271,11 @@ export function hasActiveOverride(node: Signal<any>): boolean {
  * FORCE sentinels never surface (they only bump subscribers of accessor
  * keys, which are served by the trap, not the node). */
 function nodeValue(node: Signal<any>, backing: any): any {
+  // latest() sees the in-flight parked value like an owner-context reader
+  // does (#3075) — signal/memo parity for store-node-backed keys.
   const v = hasActiveOverride(node)
     ? unwrapOverride(node._x?._overrideValue)
-    : node._pendingValue !== NOT_PENDING && inOwnerContext()
+    : node._pendingValue !== NOT_PENDING && (latestReadActive || inOwnerContext())
       ? node._pendingValue
       : backing;
   return v === (FORCE as any) ? backing : v;
@@ -1304,6 +1375,28 @@ function firewallGate(target: StoreNextTarget): void {
   if (fw != null && fw._statusFlags & (STATUS_UNINITIALIZED | STATUS_ERROR)) readNode(fw);
 }
 
+/** latest() pull (#3075): bring the projection computed up to date so the
+ * read serves the IN-FLIGHT derivation — signal/memo parity, where core
+ * read() routes latest() through a companion that recomputes speculatively.
+ * The latest flag is suspended for the recompute (the derive's own reads
+ * are normal reads), and latestPullActive marks any adoption it commits as
+ * staged (see adoptPB) — the speculative swap must not leak to
+ * committed-visibility readers before the flush. */
+function pullProjectionForLatest(target: StoreNextTarget): void {
+  const fw = target.fam!.node;
+  if (fw == null) return;
+  const prevLatest = latestReadActive;
+  setLatestReadActive(false);
+  const prevPull = latestPullActive;
+  latestPullActive = true;
+  try {
+    prepareComputed(fw as any, true);
+  } finally {
+    latestPullActive = prevPull;
+    setLatestReadActive(prevLatest);
+  }
+}
+
 const traps: ProxyHandler<StoreNextTarget> = {
   get(target, key, receiver) {
     // One typeof gates every brand-symbol compare off the hot string path
@@ -1331,6 +1424,11 @@ const traps: ProxyHandler<StoreNextTarget> = {
     }
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
     if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
+    // latest() pull (#3075): store traps never reach core read() without an
+    // observer, so bring the projection computed up to date here — signal/
+    // memo parity for latest() reads through a projection.
+    if (target.fam !== null && latestReadActive && !inDraft(target) && !getWriteOverride())
+      pullProjectionForLatest(target);
     const src = readSource(target);
     // Overlay delete (#3044): a prototype overlay cannot shadow a delete, so
     // deleted keys are tracked aside and read as absent in the pending view.
