@@ -210,8 +210,8 @@ function supportedSubset(mode, fixture, source) {
 }
 
 function compileBabel(code, options) {
-  // Patch mode is default-on in BOTH compilers (the Oxc port landed with
-  // the §3c row-proof work), so parity covers it like any shared feature.
+  // Patch mode is DORMANT by default in both compilers; the dom-patch mode
+  // above opts in explicitly so parity covers the patch grammar too.
   return babel.transformSync(code, {
     babelrc: false,
     configFile: false,
