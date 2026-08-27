@@ -1084,6 +1084,18 @@ function inOwnerContext(): boolean {
   return eff != null && !(eff._config & CONFIG_CHILDREN_FORBIDDEN);
 }
 
+/** CHILDREN_FORBIDDEN execution scope (createTrackedEffect / onSettled
+ * callbacks). Distinct from context-free: these scopes get committed
+ * visibility even against a projection's authoritative-elect pending
+ * backing (#3082) — parity with signals, where core read() serves
+ * committed to them regardless of staged writes. */
+function inForbiddenScope(): boolean {
+  const c: any = getOwner();
+  if (c === null) return false;
+  const eff = c._root ? c._parentComputed : c;
+  return eff != null && !!(eff._config & CONFIG_CHILDREN_FORBIDDEN);
+}
+
 /** A pending fold is transition-held when any written node's parked value is
  * stamped by a live transition (a plain batch parking — the lazy-recompute
  * read case — has no transition stamp and serves fresh). */
@@ -1130,8 +1142,10 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
       inOwnerContext() ||
       // A projection's pending backing is authoritative-elect: serve it to
       // context-free readers too UNLESS a transition is holding the node
-      // commits (downstream async hold — stale committed is the contract).
-      (target.fam !== null && !foldHeld(target)))
+      // commits (downstream async hold — stale committed is the contract)
+      // or the reader is a CHILDREN_FORBIDDEN scope, which never observes
+      // its own unsettled write (#3082, signal parity per #3006).
+      (target.fam !== null && !foldHeld(target) && !inForbiddenScope()))
   )
     return target.pb;
   return target.v;
