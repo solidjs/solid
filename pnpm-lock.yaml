@@ -54,8 +54,8 @@ importers:
         specifier: workspace:*
         version: link:packages/babel-plugin
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.33
-        version: 3.0.0-next.33(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.34
+        version: 3.0.0-next.34(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:packages/web
@@ -2363,6 +2363,9 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@solidjs/compiler@2.0.0-rc.3':
+    resolution: {integrity: sha512-gu2AnJwkrJfk3SBKGRxEUGuP/SZpwUGzHQS5zt56eNG4GFlEMyurahVRSLMWWBhtC1On7wH5SmLxybH2yDCqAg==}
+
   '@solidjs/router@2.0.0-next.13':
     resolution: {integrity: sha512-vNTXv/A+dhQMeJm/TuFZmnmXBOvoL6Y+anuEPXxMI6wSg/FMQ81Q3feNCoXxd5lFieIJx5dhZhmdLXfTrlUc3w==}
     peerDependencies:
@@ -2371,6 +2374,21 @@ packages:
 
   '@solidjs/vite-plugin@3.0.0-next.33':
     resolution: {integrity: sha512-8c6twAU/ko9TUEr3koPnWQ1CzET+muZPJFaxBSLYv0M+WRgtmbjlHl9GxTSfm5dd23JDwGhBcv3gdxr2slV/wg==}
+    engines: {node: ^20.19.0 || >=22.12.0}
+    peerDependencies:
+      '@solidjs/start-devtools': ^1.0.0-next.2
+      '@solidjs/web': workspace:*
+      '@testing-library/jest-dom': ^5.16.6 || ^5.17.0 || ^6.*
+      solid-js: workspace:*
+      vite: ^8.0.0 || ^9.0.0
+    peerDependenciesMeta:
+      '@solidjs/start-devtools':
+        optional: true
+      '@testing-library/jest-dom':
+        optional: true
+
+  '@solidjs/vite-plugin@3.0.0-next.34':
+    resolution: {integrity: sha512-uDxBcBjbcS6k509TXTsNw4PjubT59eInzLAny43N5Ieoa4jROCaWV+EwxedPqtCF7nsHoKGgwC+ysu6w105G0A==}
     engines: {node: ^20.19.0 || >=22.12.0}
     peerDependencies:
       '@solidjs/start-devtools': ^1.0.0-next.2
@@ -6274,6 +6292,15 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.59.0':
     optional: true
 
+  '@solidjs/compiler@2.0.0-rc.3':
+    optionalDependencies:
+      '@solidjs/compiler-darwin-arm64': link:packages/compiler/npm/darwin-arm64
+      '@solidjs/compiler-darwin-x64': link:packages/compiler/npm/darwin-x64
+      '@solidjs/compiler-linux-arm64-gnu': link:packages/compiler/npm/linux-arm64-gnu
+      '@solidjs/compiler-linux-x64-gnu': link:packages/compiler/npm/linux-x64-gnu
+      '@solidjs/compiler-wasm32-wasi': link:packages/compiler/npm/wasm32-wasi
+      '@solidjs/compiler-win32-x64-msvc': link:packages/compiler/npm/win32-x64-msvc
+
   '@solidjs/router@2.0.0-next.13(@solidjs/web@packages+web)(solid-js@packages+solid)':
     dependencies:
       '@solidjs/web': link:packages/web
@@ -6306,6 +6333,22 @@ snapshots:
       babel-preset-solid: 2.0.0-rc.2(@babel/core@7.29.0)(solid-js@packages+solid)
       merge-anything: 5.1.7
       solid-js: link:packages/solid
+      vite: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
+      vitefu: 1.1.3(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+    optionalDependencies:
+      '@testing-library/jest-dom': 6.9.1
+    transitivePeerDependencies:
+      - supports-color
+
+  '@solidjs/vite-plugin@3.0.0-next.34(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))':
+    dependencies:
+      '@ampproject/remapping': 2.3.0
+      '@babel/core': 7.29.0
+      '@solidjs/babel-plugin': link:packages/babel-plugin
+      '@solidjs/compiler': 2.0.0-rc.3
+      '@solidjs/web': link:packages/web
+      '@types/babel__core': 7.20.5
+      merge-anything: 5.1.7
       vite: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
       vitefu: 1.1.3(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
     optionalDependencies:
