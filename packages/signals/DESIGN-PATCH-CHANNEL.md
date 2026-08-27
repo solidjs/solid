@@ -41,6 +41,30 @@ recursive-context, signal-favoring, spa-navigation, streaming-ssr.
   modes," quantified on a worst-case mount-churn shape. Open item: shrink
   the fallback bind cost.
 
+## 19. Pay-for-use restructure (2026-08-26) — the merge blocker
+
+The size gate (scripts/size) failed 5/8 scenarios: every client app paid
+~2.4 KB brotli (simple-app floor 10.41 → 12.99 KB) because insert called
+`driveList` directly, and stores ~1 KB because the write paths imported
+patch.ts's emitters statically.
+
+Restructure:
+- **web**: driver moved to `patch-driver.ts`; insert dispatches through a
+  `listDriver` hook slot, armed lazily from `rowProof`/`patchDriver`
+  (module-scope install is an unshakeable top-level side effect in the
+  flat dist bundle — first attempt measurably FAILED; rowProof runs at
+  template creation, always before the list's insert, so lazy arming is
+  order-sound).
+- **signals**: emitters ride `patch-hooks.ts`, installed at first
+  registration. Sound: every emission is `pc`-guarded and `pc` only
+  exists via registration. `registerSlotPatchNext` moved into patch.ts so
+  slot-only registrations arm too.
+
+Result: all 8 scenarios green. App floors ~+100 B vs next (the hook slot
++ `$ll` metadata); store floors +~490 B of trap/walk seams (limits
+ratcheted with notes in .size-limit.js). Driver engagement unchanged
+(dbmon tick 1.60); full suite 32/32.
+
 ## 17. Family channel complete + equivalence matrix (2026-08-25, stage-2 pickup on the absorbed monorepo)
 
 Stage 2 resumed on `stage2-channel` (folded repo; the pre-fold history
