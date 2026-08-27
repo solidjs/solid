@@ -183,6 +183,34 @@ describe("server-function addressing (#3070, built bundles)", () => {
     expect(parseServerFunctionUrlServer("/_server/addr-url-0")).toBe("addr-url-0");
   });
 
+  it("hands an unscripted read its own query as one URLSearchParams", async () => {
+    // What `<form method="get" action={fn.url}>` sends: the browser replaces
+    // the action url's query with the form's fields, and the address in the
+    // path is what survives it.
+    serverGET(
+      createServerSideReference(
+        registerServerReference("addr-form-0", async (params: URLSearchParams) => ({
+          q: params.get("q"),
+          page: params.get("page")
+        }))
+      )
+    );
+    const response = await unscripted("/_server/addr-form-0?q=solid&page=2");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ q: "solid", page: "2" });
+  });
+
+  it("describes the same read on HEAD: same arguments, no body", async () => {
+    serverGET(
+      createServerSideReference(
+        registerServerReference("addr-form-2", async (params: URLSearchParams) => params.get("q"))
+      )
+    );
+    const response = await unscripted("/_server/addr-form-2?q=solid", { method: "HEAD" });
+    expect(response.status).toBe(200);
+    expect(response.body).toBeNull();
+  });
+
   it("keeps the address well-formed when the endpoint carries a trailing slash", () => {
     try {
       configureServerFunctionsClient({ endpoint: "/rpc/" });
@@ -197,6 +225,24 @@ describe("server-function addressing (#3070, built bundles)", () => {
     registerServerFunction("addr#dev-name", async () => "ok");
     const response = await unscripted(serverFunctionUrl("addr#dev-name"), { method: "POST" });
     expect(await response.text()).toBe("ok");
+  });
+
+  it("answers the same url the same way, scripted or not", async () => {
+    // The reading is decided by the url alone: a cache keys on the url, so a
+    // request header must never change what a call means.
+    serverGET(
+      createServerSideReference(
+        registerServerReference("addr-invariant-0", async (value: unknown) =>
+          value instanceof URLSearchParams ? `params:${value.get("q")}` : `other:${typeof value}`
+        )
+      )
+    );
+    const scripted = await unscripted("/_server/addr-invariant-0?q=solid", {
+      headers: { "X-Server-Function-Instance": "server-function:test" }
+    });
+    const plain = await unscripted("/_server/addr-invariant-0?q=solid");
+    expect(await scripted.text()).toBe("params:solid");
+    expect(await plain.text()).toBe("params:solid");
   });
 
   it("reserves `args` on the query: anything but an argument array is a 400", async () => {

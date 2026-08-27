@@ -884,6 +884,15 @@ async function parseArguments(request, url, instance, codec) {
     for (const arg of result) {
       parsed.push(arg);
     }
+  } else if (!args && url.search && (request.method === "GET" || request.method === "HEAD")) {
+    // A read whose query is not an argument encoding carries a form's own
+    // parameters: a `method="get"` submit replaces the action url's query
+    // with its fields (which is why only an address in the path survives
+    // one). They reach the function as a lone `URLSearchParams`, the
+    // read-side mirror of a no-JS form post decoding to a lone `FormData`.
+    // Which reading applies is decided by the url alone, never by a header:
+    // a cache keys on the url, so the same url must mean the same call.
+    parsed.push(url.searchParams);
   }
   if (request.method === "POST" && request.body !== null) {
     const decoded = await extractBody(request.clone(), codec);
