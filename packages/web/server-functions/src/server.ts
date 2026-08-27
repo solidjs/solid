@@ -1491,17 +1491,26 @@ function forbiddenResponse() {
   );
 } /**
  * Web-standard HTTP handler for server function calls: resolves the
- * function id from the request, gates GET dispatch on the declaration (405
- * for a GET request to a function that never declared `GET`; POST is always
- * accepted), decodes arguments, runs the function under a request-event scope,
- * and encodes the result (forwarding redirect/revalidation metadata
- * through headers). Mount it on the endpoint the client transport targets
- * (default `/_server`); platform adapters (h3, express, ...) convert their
- * request shape to a web `Request` around it.
+ * function id from the request, enforces the method allowlist (POST always
+ * dispatches; GET and HEAD dispatch only to functions that declared `GET`,
+ * with HEAD returning the equivalent GET's status and headers minus the
+ * body; every other method answers 405), decodes arguments, runs the
+ * function under a request-event scope, and encodes the result (forwarding
+ * redirect/revalidation metadata through headers). Mount it on the endpoint
+ * the client transport targets (default `/_server`); platform adapters (h3,
+ * express, ...) convert their request shape to a web `Request` around it.
  *
  * Requests are same-origin by default. The handler accepts browser requests
  * proven by `Sec-Fetch-Site`, `Origin`, or `Referer`, and rejects requests
- * without usable metadata unless explicitly configured otherwise.
+ * without usable metadata unless explicitly configured otherwise. GET/HEAD
+ * requests to `GET`-declared functions skip this gate: they are reads by
+ * contract, cross-site response READING is already blocked by same-origin
+ * policy, and skipping it keeps the `Vary: Sec-Fetch-Site, Origin, Referer`
+ * it would impose off the responses shared caches are meant to store.
+ *
+ * Every response leaves with `Cache-Control: no-store` unless the function
+ * set its own cache policy (via `respond()` headers or a returned
+ * `Response`) — caching is opt-in on the wire, not just in prose.
  *
  * When the event carries a `response` head stub (`event.response`, see the
  * server entry's `ResponseStub`), the handler folds it onto every outgoing
@@ -1608,17 +1617,28 @@ export function handleServerFunctionRequest(
 export async function handleServerFunctionRequest(request, options = {}) {
   const codec = options.codec !== undefined ? options.codec : getServerFunctionsCodec();
   const url = new URL(request.url);
+  const method = request.method;
+  const functionId = resolveFunctionId(request, url);
+  // GET-declared functions are reads by contract, and the read methods are
+  // exactly where the CSRF gate costs more than it buys: same-origin policy
+  // already prevents a cross-site caller from READING the response, while
+  // the gate's `Vary: Sec-Fetch-Site, Origin, Referer` fragments (or, on
+  // CDNs that ignore Vary, poisons) the shared-cache entries the GET helper
+  // exists to enable (#3071). State-changing dispatch (POST) stays gated.
+  const declaredRead =
+    (method === "GET" || method === "HEAD") &&
+    functionId !== null &&
+    METHODS.get(functionId) === "GET";
   const csrf = options.csrf !== undefined ? options.csrf : config.csrf;
-  const protectsRequest = csrf !== false;
+  const protectsRequest = csrf !== false && !declaredRead;
   if (protectsRequest && !(await allowsServerFunctionRequest(request, csrf === true ? {} : csrf))) {
-    return forbiddenResponse();
+    return finalizeTransportResponse(forbiddenResponse(), method);
   }
   const instance = request.headers.get(INSTANCE_HEADER);
-  const functionId = resolveFunctionId(request, url);
 
   if (!functionId) {
     const response = new Response(DEV ? "Server function not found" : null, { status: 404 });
-    return protectsRequest ? withCSRFVary(response) : response;
+    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
   }
 
   let serverFunction;
@@ -1628,24 +1648,27 @@ export async function handleServerFunctionRequest(request, options = {}) {
     const response = new Response(DEV ? `Unknown server function: ${functionId}` : null, {
       status: 404
     });
-    return protectsRequest ? withCSRFVary(response) : response;
+    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
   }
 
-  // method enforcement: GET requests only dispatch to functions that
-  // declared GET (the server half of `GET` records them) — no crafted GET
-  // URLs against functions that never opted in. Declaring GET grants GET
-  // without revoking POST: the same function stays callable over the
-  // default transport (e.g. a query()-wrapped function also called
-  // directly).
-  if (request.method === "GET" && METHODS.get(functionId) !== "GET") {
+  // Method allowlist: POST always dispatches (the default transport);
+  // GET and HEAD dispatch only to functions that declared GET (the server
+  // half of `GET` records them) — no crafted read URLs against functions
+  // that never opted in, and no side door through OTHER verbs either
+  // (before #3069 a HEAD — sent freely by link checkers, uptime probes and
+  // prefetchers — bypassed the gate entirely and executed any registered
+  // function). Declaring GET grants the read methods without revoking POST:
+  // the same function stays callable over the default transport (e.g. a
+  // query()-wrapped function also called directly).
+  if (method !== "POST" && !declaredRead) {
     const response = new Response(
       DEV ? `Method not allowed for server function: ${functionId}` : null,
       {
         status: 405,
-        headers: { Allow: "POST" }
+        headers: { Allow: METHODS.get(functionId) === "GET" ? "POST, GET, HEAD" : "POST" }
       }
     );
-    return protectsRequest ? withCSRFVary(response) : response;
+    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
   }
 
   const event = options.createEvent ? options.createEvent(request) : { request, locals: {} };
@@ -1875,5 +1898,47 @@ export async function handleServerFunctionRequest(request, options = {}) {
     }
   };
   const response = commitEventResponse(await dispatch(), event);
-  return protectsRequest ? withCSRFVary(response) : response;
+  return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+}
+
+/**
+ * Last-mile transport hygiene applied to every response leaving the handler.
+ *
+ * - `Cache-Control: no-store` unless the function set its own (via
+ *   `respond()` headers or a returned Response): caching is opt-in ON THE
+ *   WIRE the way the docs describe it in prose. Without the default, CDN
+ *   zones with override-TTL or "cache everything" rules store per-user RPC
+ *   responses (#3071).
+ * - HEAD responses drop their body, as HTTP requires — the function still
+ *   ran (HEAD is gated identically to GET), so status and headers are those
+ *   of the equivalent GET (#3069).
+ */
+function finalizeTransportResponse(response, method) {
+  const stripBody = method === "HEAD" && response.body !== null;
+  if (stripBody || !response.headers.has("Cache-Control")) {
+    try {
+      if (!response.headers.has("Cache-Control")) {
+        response.headers.set("Cache-Control", "no-store");
+      }
+      if (!stripBody) return response;
+      // discard, don't leak: the encoded body may be a live codec stream
+      response.body.cancel().catch(() => {});
+      return new Response(null, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers
+      });
+    } catch {
+      // immutable headers (e.g. a raw fetch() Response passed through)
+      const headers = new Headers(response.headers);
+      if (!headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
+      if (stripBody) response.body.cancel().catch(() => {});
+      return new Response(stripBody ? null : response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers
+      });
+    }
+  }
+  return response;
 }
