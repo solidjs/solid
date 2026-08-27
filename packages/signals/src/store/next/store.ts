@@ -84,10 +84,11 @@ import {
   type PatchChannel,
   optHooks
 } from "./target.js";
-import { emitPatch, emitPatchLocal, hasPatches } from "./patch.js";
-// Cycle with reconcile.js is benign: the binding resolves at call time (the
-// fold), long after both modules initialize.
-import { emitSetterRowOps } from "./reconcile.js";
+// Patch-channel emission rides installed hooks (patch-hooks.ts) so the
+// channel tree-shakes out of apps that never register a patch consumer.
+// Every call is `t.pc`-guarded — a target only acquires `pc` through
+// patch.js registration, which installs the hooks first.
+import { patchHooks } from "./patch-hooks.js";
 
 // ---------------------------------------------------------------------------
 // wrap / dedupe
@@ -637,7 +638,7 @@ function drainFolds(): void {
           Array.isArray(pb) &&
           Array.isArray(t.v)
         )
-          emitSetterRowOps(t, t.v as any[], pb as any[]);
+          patchHooks!.emitSetterRowOps(t, t.v as any[], pb as any[]);
         t.v = pb;
         t.ch = false; // pb is always a plain clone
         t.pb = null;
@@ -649,7 +650,7 @@ function drainFolds(): void {
     // IS their visibility moment (held folds re-queued above emit when they
     // actually commit). Plain eager targets emitted at their walk/setter
     // sites already.
-    if (t.fam !== null && t.pc !== null && t.pc.p !== null) emitPatchLocal(t, t.v, old);
+    if (t.fam !== null && t.pc !== null && t.pc.p !== null) patchHooks!.emitPatchLocal(t, t.v, old);
     // Path copying (CAS: see the eager-fold twin above).
     if (t.u && t.u.v[t.pk!] === old) {
       privatizeCommitted(t.u);
@@ -816,7 +817,8 @@ function notifyWrites(t: StoreNextTarget): void {
   // reach the row patch, §4b). One number compare when no patches exist.
   // Family targets skip this site: their visibility moment is the FOLD
   // commit (drainFolds emits), not the recompute/draft write.
-  if (t.fam === null && hasPatches()) emitPatch(t, pb, old);
+  if (t.fam === null && patchHooks !== null && patchHooks.hasPatches())
+    patchHooks.emitPatch(t, pb, old);
   // Projection backing folds split by channel (two pinned contracts):
   // - sync-derive drafts (recompute body): NEVER eager — a downstream async
   //   hold can form LATER in the same flush and the leaf must stay at stale
@@ -1693,32 +1695,6 @@ function isNextProxy(value: any): boolean {
     (value as any)[$TARGET] !== undefined &&
     ((value as any)[$TARGET] as StoreNextTarget).px === value
   );
-}
-
-/** Slot patch for shallow arrays: the reconcile walk emits (index, next,
- * prev) for KEY-ALIGNED value-replaced slots (structure rides row ops), and
- * the emission queues through the patch apply queue — effect-phase timing,
- * transition stamping, disposed-owner drop — like every other channel. */
-export function registerSlotPatchNext(
-  arr: any,
-  fn: (index: number, next: any, prev: any) => void
-): () => void {
-  const t: StoreNextTarget | undefined = arr?.[$TARGET];
-  if (t === undefined) throw new Error("registerSlotPatchNext: not a store array");
-  // Multi-consumer (external audit): one shallow array can drive several
-  // lists — registrations are a list, unbinds splice their own entry.
-  const pc = pcOf(t);
-  const entry = { fn, owner: getOwner() };
-  (pc.sp ??= []).push(entry);
-  markDescendants(t);
-  let unbound = false;
-  return () => {
-    if (unbound || pc.sp === null) return;
-    unbound = true;
-    const idx = pc.sp.indexOf(entry);
-    if (idx >= 0) pc.sp.splice(idx, 1);
-    if (pc.sp.length === 0) pc.sp = null;
-  };
 }
 
 /** True when `proxy` is a SHALLOW store (children served verbatim, slots

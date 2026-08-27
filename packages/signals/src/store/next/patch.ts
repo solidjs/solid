@@ -33,6 +33,10 @@ import {
 import type { Owner } from "../../core/types.js";
 import { $TARGET } from "../store.js";
 import { markDescendants, ownedRaw, type StoreNextTarget } from "./target.js";
+import { installPatchHooks } from "./patch-hooks.js";
+// One-way: reconcile emits through the hooks (never imports this module),
+// so pulling its setter-channel emitter here creates no cycle.
+import { emitSetterRowOps } from "./reconcile.js";
 // Cycle with store.js is benign: pcOf is only called at registration time,
 // long after both modules initialize.
 import { pcOf } from "./store.js";
@@ -272,6 +276,7 @@ export function registerPatch(record: any, fn: PatchFn): () => void {
   t = ultimateTarget(t) ?? t;
   if (!commitHookInstalled) {
     commitHookInstalled = true;
+    armPatchHooks();
     setPatchCommitHook(releaseBatch);
     GlobalQueue._drainPatchOptimistic = drainOptimistic;
   }
@@ -364,6 +369,7 @@ export function registerRowOps(array: any, fn: RowOpsFn): () => void {
   if (t === undefined) throw new Error("registerRowOps: not a store array");
   if (!commitHookInstalled) {
     commitHookInstalled = true;
+    armPatchHooks();
     setPatchCommitHook(releaseBatch);
     GlobalQueue._drainPatchOptimistic = drainOptimistic;
   }
@@ -399,6 +405,38 @@ export function emitSlotPatch(t: StoreNextTarget, index: number, next: any, prev
   });
 }
 
+/** Slot patch for shallow arrays: the reconcile walk emits (index, next,
+ * prev) for KEY-ALIGNED value-replaced slots (structure rides row ops), and
+ * the emission queues through the patch apply queue — effect-phase timing,
+ * transition stamping, disposed-owner drop — like every other channel. */
+export function registerSlotPatchNext(
+  arr: any,
+  fn: (index: number, next: any, prev: any) => void
+): () => void {
+  const t: StoreNextTarget | undefined = arr?.[$TARGET];
+  if (t === undefined) throw new Error("registerSlotPatchNext: not a store array");
+  if (!commitHookInstalled) {
+    commitHookInstalled = true;
+    armPatchHooks();
+    setPatchCommitHook(releaseBatch);
+    GlobalQueue._drainPatchOptimistic = drainOptimistic;
+  }
+  // Multi-consumer (external audit): one shallow array can drive several
+  // lists — registrations are a list, unbinds splice their own entry.
+  const pc = pcOf(t);
+  const entry = { fn, owner: getOwner() };
+  (pc.sp ??= []).push(entry);
+  markDescendants(t);
+  let unbound = false;
+  return () => {
+    if (unbound || pc.sp === null) return;
+    unbound = true;
+    const idx = pc.sp.indexOf(entry);
+    if (idx >= 0) pc.sp.splice(idx, 1);
+    if (pc.sp.length === 0) pc.sp = null;
+  };
+}
+
 /** Row-ops ride the SAME apply queue/timing as record patches: transition-
  * stamped, applied at effect phase, in emission order (structure before the
  * new rows' own patches can exist; retained rows' value patches commute). */
@@ -414,5 +452,24 @@ export function emitRowOps(t: StoreNextTarget, next: any[], ops: RowOps): void {
     prev: null,
     force: false,
     t: null
+  });
+}
+
+// Pay-for-use seam: the write paths (store/reconcile/optimistic) emit
+// through installed hooks instead of importing this module. Installation is
+// LAZY (first registration) rather than a module-scope call — the dist is a
+// flat bundle, and a top-level side effect would retain the whole channel in
+// every consumer. Sound because every emission site is `t.pc`-guarded and a
+// target only acquires `pc` through these registrations. See patch-hooks.ts.
+function armPatchHooks(): void {
+  installPatchHooks({
+    emitPatch,
+    emitPatchLocal,
+    emitPatchOptimistic,
+    emitRowOpsOptimistic,
+    emitSlotPatch,
+    emitRowOps,
+    emitSetterRowOps,
+    hasPatches
   });
 }

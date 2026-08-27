@@ -51,7 +51,9 @@ import {
   unwrapValue,
   wrapNext
 } from "./store.js";
-import { emitPatchOptimistic, emitRowOpsOptimistic } from "./patch.js";
+// Patch-channel emission rides installed hooks (patch-hooks.ts); all
+// calls are `t.pc`-guarded. See patch-hooks.ts for the soundness argument.
+import { patchHooks } from "./patch-hooks.js";
 // Cycle with reconcile.js is benign: the binding resolves at call time (the
 // optimistic write), long after both modules initialize.
 import { buildIdentityRowOps } from "./reconcile.js";
@@ -82,12 +84,13 @@ function installNextBlockedHalf(): void {
         const overlaid = t?.fam?.overlaid as Set<StoreNextTarget> | undefined;
         if (overlaid !== undefined) {
           for (const ot of overlaid) {
-            if (ot.pc !== null && ot.pc.p !== null) emitPatchOptimistic(ot, null, null);
+            if (ot.pc !== null && ot.pc.p !== null) patchHooks!.emitPatchOptimistic(ot, null, null);
             // Row-ops resync (family increment 2): reverts flip node values
             // back engine-natively; a driven list must rebuild retention by
             // row identity against the post-revert view (resolved from the
             // target at drain — overrides are gone by then).
-            if (ot.pc !== null && ot.pc.ro !== null) emitRowOpsOptimistic(ot, null, null);
+            if (ot.pc !== null && ot.pc.ro !== null)
+              patchHooks!.emitRowOpsOptimistic(ot, null, null);
           }
         }
       }
@@ -212,7 +215,8 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
   // Patch channel (override-application site): the draft IS the intended
   // visible state; prev is the view before these overrides apply. Bypasses
   // the transition stash — optimism is visible in flight.
-  if (t.pc !== null && t.pc.p !== null) emitPatchOptimistic(t, pb, optimisticView(t, old));
+  if (t.pc !== null && t.pc.p !== null)
+    patchHooks!.emitPatchOptimistic(t, pb, optimisticView(t, old));
   // Row-ops channel (family increment 2): optimistic STRUCTURE on an array
   // rides node overrides — it never enters the reconcile walk — so a driven
   // list must get its structural ops here, lane-timed. Identity diff of the
@@ -221,7 +225,7 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
     const prevView = optimisticView(t, old);
     if (Array.isArray(prevView)) {
       const ops = buildIdentityRowOps(prevView, pb);
-      if (ops !== null) emitRowOpsOptimistic(t, pb, ops);
+      if (ops !== null) patchHooks!.emitRowOpsOptimistic(t, pb, ops);
     }
   }
   const visible = (key: PropertyKey, fallback: any): any => {
@@ -358,7 +362,7 @@ export function consumeOverridesNext(fam: StoreNextFamily): void {
       // Patch channel (override-consumption site): visible truth flipped to
       // committed for the consumed keys — force a re-apply from the live
       // view so the DOM leaves the override state.
-      if (t.pc !== null && t.pc.p !== null) emitPatchOptimistic(t, null, null);
+      if (t.pc !== null && t.pc.p !== null) patchHooks!.emitPatchOptimistic(t, null, null);
     }
     overlaid.clear();
   });

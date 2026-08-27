@@ -129,7 +129,16 @@ module.exports = [
     // createStore overload retains projection machinery in every store graph
     // (see treeshake.test.ts) — an injection-table split was measured and
     // came out LARGER under brotli (indirection adds unique tokens).
-    limit: "13.5 KB",
+    //
+    // Stage-2 patch channel: 13.5 -> 14.1 KB (measured 13.71 pre-#3074, ~13.8
+    // with the held-view bytes). The channel itself is pay-for-use (emitters
+    // ride hooks installed at first registration — patch-hooks.ts — and
+    // shake out of this scenario); the ~490 B here are the write-path SEAMS
+    // that must live on always-retained trap/walk/fold code: the `pc`
+    // extension + guards at every emission site, the setter-channel row-ops
+    // branch in drainFolds, and the fold-commit family emission. Compare the
+    // app-floor scenarios below, which carry only the ~100 B insert seam.
+    limit: "14.1 KB",
     modifyEsbuildConfig
   },
   {
@@ -240,8 +249,15 @@ module.exports = [
     // at 24.80. The statusNotifierOf seam is always-retained core; it buys
     // -127 B/node heap and -15% effect creation (the per-effect NodeExtension
     // allocation it removes). The other floors absorbed it within headroom.
+    //
+    // Stage-2 patch channel: 24.9 -> 25.9 KB (measured 25.23 pre-#3074,
+    // pre-notifier) — the createStore write-path seams (~490 B, see that
+    // note) plus this scenario's optimistic/projection family emission seams
+    // and the web runtime's ~100 B insert hook. The driver + emitters
+    // themselves are pay-for-use and absent here (no compiled patch output
+    // imports them).
     path: "hydrating-store-app.js",
-    limit: "24.9 KB",
+    limit: "25.9 KB",
     modifyEsbuildConfig
   },
   {
