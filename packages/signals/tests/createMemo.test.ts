@@ -109,24 +109,29 @@ it("should only re-compute when needed", () => {
   expect(computed).toHaveBeenCalledTimes(3);
 });
 
-it("should release ownerless memos after an untracked read", () => {
+it("should release untracked-read ownerless memos at flush, idempotently within a tick", () => {
   const computed = vi.fn((v: number) => v);
   const [$x, setX] = createSignal(0);
   const $a = createMemo(() => computed($x()));
 
+  // Untracked reads within a tick are idempotent (#3078): the node stays
+  // alive and serves its cache instead of dispose-on-read + revival.
   expect($a()).toBe(0);
   expect(computed).toHaveBeenCalledTimes(1);
   expect($a()).toBe(0);
-  expect(computed).toHaveBeenCalledTimes(2);
+  expect(computed).toHaveBeenCalledTimes(1);
 
+  // The dormancy sweep at flush reclaims it BEFORE the dirty heap runs, so
+  // the same-tick write doesn't recompute a node nothing observes.
   setX(1);
   flush();
-  expect(computed).toHaveBeenCalledTimes(2);
+  expect(computed).toHaveBeenCalledTimes(1);
 
+  // Post-sweep reads revive it (pay-for-use) — once per tick.
   expect($a()).toBe(1);
-  expect(computed).toHaveBeenCalledTimes(3);
+  expect(computed).toHaveBeenCalledTimes(2);
   expect($a()).toBe(1);
-  expect(computed).toHaveBeenCalledTimes(4);
+  expect(computed).toHaveBeenCalledTimes(2);
 });
 
 it("should recompute ownerless chains on direct read after suspension", () => {

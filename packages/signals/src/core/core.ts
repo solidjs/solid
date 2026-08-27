@@ -46,7 +46,7 @@ import {
   type Refreshable
 } from "./constants.js";
 import { NotReadyError } from "./error.js";
-import { link, trimStaleDeps, unobserved } from "./graph.js";
+import { dormantNodes, link, trimStaleDeps } from "./graph.js";
 import {
   deleteFromHeap,
   enqueueSub,
@@ -1127,7 +1127,14 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     !(owner._statusFlags & STATUS_PENDING) &&
     !el._subs
   ) {
-    unobserved(el as Computed<unknown>);
+    // Deferred, not inline (#3078): an inline unobserved() here made untracked
+    // reads destructive — dispose on this read, full revival recompute on the
+    // next — so consecutive reads could answer differently with no write in
+    // between (the revival samples the ambient transition/lane context).
+    // The sweep at flush finalization re-validates and reclaims; schedule()
+    // guarantees that flush happens even if nothing else is queued.
+    dormantNodes.add(el as Computed<unknown>);
+    schedule();
   }
   return value;
 }

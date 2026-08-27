@@ -471,8 +471,22 @@ function pendingCheckRead(
  */
 function heldAwaitingAsync(el: Signal<any> | Computed<any>): boolean {
   const et = el._transition;
-  const t = et ? currentTransition(et) : null;
+  const t = et ? currentTransition(et) : activeTransition;
   if (!t || t._done) return false;
+  // A plain staged write (a signal/store leaf — no _fn) held while an action
+  // is still running is an INPUT to a computation still in flight (#3078):
+  // the pairing rule must not suppress the verdict, or a memo recomputing
+  // mid-action reads the staged value, gets told "not pending", and
+  // disagrees with a direct isPending() probe for the whole action window.
+  // A computed's staged value is the opposite case — a LANDED answer
+  // awaiting reveal — where the pairing rule stands even inside an open
+  // action (#2831: a reader that saw the new value must not also see
+  // pending); still-computing answers are covered by the reporter scan.
+  if (t._actions.length && !(el as Partial<Computed<any>>)._fn) return true;
+  // A node not yet stamped with a transition only qualifies through the
+  // action check above; the reporter scan below is for transition-held
+  // writes whose source async is still computing.
+  if (!et) return false;
   for (const [source, reporters] of t._asyncReporters) {
     if (
       reporters.size &&

@@ -25,6 +25,7 @@ import {
 import { currentOptimisticLane, ext } from "./core.js";
 import { DEV, emitDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
+import { sweepDormant } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
 import {
   activeLanes,
@@ -480,6 +481,10 @@ export class GlobalQueue extends Queue {
     ) {
       this._running = true;
       try {
+        // Sweep first: unobserved() pulls swept nodes out of the dirty heap,
+        // so a dormant memo dirtied in the same tick is reclaimed instead of
+        // recomputed (matching the old inline dispose-on-read counts).
+        sweepDormant();
         commitPendingNodes();
       } finally {
         this._running = false;
@@ -495,6 +500,10 @@ export class GlobalQueue extends Queue {
     this._running = true;
     try {
       if (__DEV__) devCheckFlushStart();
+      // Before runHeap for the same reason as the fast drain above; late
+      // subscribers (an effect reading a swept memo this flush) revive it,
+      // which is the pay-for-use contract.
+      sweepDormant();
       runHeap(dirtyQueue, GlobalQueue._update);
       if (activeTransition) {
         const isComplete = transitionComplete(activeTransition);
