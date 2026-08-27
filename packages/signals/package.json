@@ -44,7 +44,7 @@
     "build:clean": "rimraf dist/dev dist/prod dist/node dist/dev.js dist/prod.js dist/node.cjs",
     "build:js": "rollup -c && node ./scripts/mangle-props.mjs dist/prod dist/node.cjs && node ./scripts/check-pure.mjs dist/prod",
     "types": "tsc -p tsconfig.build.json && node ../../scripts/sync-dual-types.mjs ./dist/types ./dist/types-cjs",
-    "test": "vitest run",
+    "test": "vitest run && node --expose-gc ./scripts/memory-overhead.mjs",
     "test:watch": "vitest watch tests",
     "test:gc": "node --expose-gc ./vitest.js",
     "test:gc:watch": "node --expose-gc ./vitest.js --watch",
