@@ -3343,7 +3343,12 @@ function decodeSSREntities(s) {
         .replace(/&amp;/g, "&");
 }
 
-const SELECT_VALUE_ATTR = /\svalue="([^"]*)"/;
+// Matches the quoted form (`value="…"`) AND the bare form (`value` followed
+// by a space, `>`, or end-of-attrs): empty attribute values serialize as
+// bare attributes (see ssrSpread / compiled templates), and an empty-string
+// bound value is a real bound value — a `value=""` option must match it
+// (#3013 follow-up). Group 1 is undefined for the bare form → empty string.
+const SELECT_VALUE_ATTR = /\svalue(?:="([^"]*)")?(?=[\s>]|$)/;
 
 // True end (`>`) of the tag opening at `i`, skipping quoted attribute
 // values. -1 when the tag never closes in this string.
@@ -3421,7 +3426,7 @@ export function resolveSSRSelectValues(html) {
       cand = html.indexOf("<select", e0 + 1);
       continue;
     }
-    const bound = decodeSSREntities(m[1]);
+    const bound = decodeSSREntities(m[1] ?? "");
     const sel = {
       values: /\smultiple(?=[\s>=])/.test(open) ? bound.split(",") : [bound],
       strip: cand + m.index,
@@ -3468,8 +3473,9 @@ export function resolveSSRSelectValues(html) {
           else {
             const vm = SELECT_VALUE_ATTR.exec(attrs);
             // Spec: no value attribute → text content, whitespace collapsed.
+            // A bare `value` attribute (vm[1] undefined) IS a value: "".
             const value = vm
-              ? decodeSSREntities(vm[1])
+              ? decodeSSREntities(vm[1] ?? "")
               : decodeSSREntities(optionText(html, e + 1))
                   .replace(/\s+/g, " ")
                   .trim();
