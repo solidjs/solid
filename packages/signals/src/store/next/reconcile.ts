@@ -142,7 +142,8 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
   // visits parents before children, so ancestors emitted already. EAGER
   // only — family targets' visibility moment is their fold commit
   // (drainFolds emits there; emitting here too would double-fire).
-  if (eager && t.pc !== null && t.pc.p !== null) patchHooks!.emitPatchLocal(t, incoming, old);
+  if (patchHooks !== null && eager && t.pc !== null && t.pc.p !== null)
+    patchHooks.emitPatchLocal(t, incoming, old);
   // Shallow adoption: records are slot values — sticky raw-mark the incoming
   // set (R41) and never descend; slot notification is the positional diff.
   if (shallow) markRawIngest(incoming);
@@ -246,18 +247,23 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       // Row ops (PR-B): emit structural ops ONLY when structure changed —
       // aligned value ticks pay nothing. Built after the walk so retained
       // rows' value patches queue first (adds bind at op-apply).
-      if (t.pc !== null && t.pc.ro !== null && (structStart < nlen || plen !== nlen))
+      if (
+        rowHooks !== null &&
+        t.pc !== null &&
+        t.pc.ro !== null &&
+        (structStart < nlen || plen !== nlen)
+      )
         buildAndEmitRowOps(t, prevRows, nextRows, structStart, keyFn);
     } else {
       const dlen = Math.min(prevRows.length, nextRows.length);
       const nlen = nextRows.length;
       let dkBumpedP = false;
-      const sp = t.pc !== null ? t.pc.sp : null;
+      const sp = rowHooks !== null && t.pc !== null ? t.pc.sp : null;
       // Row ops for shallow/positional lists: track the key-aligned prefix
       // (keyed) so aligned value ticks emit nothing; keyless lists emit only
       // on length change (append/truncate). Slot-patch consumers need the
       // alignment tracking too (aligned = value tick, misaligned = ops).
-      const ro = t.pc !== null ? t.pc.ro : null;
+      const ro = rowHooks !== null && t.pc !== null ? t.pc.ro : null;
       let keyAligned = keyFn !== null && (ro !== null || sp !== null);
       let keyPrefix = 0;
       for (let i = 0; i < nlen; i++) {
