@@ -138,7 +138,15 @@ module.exports = [
     // extension + guards at every emission site, the setter-channel row-ops
     // branch in drainFolds, and the fold-commit family emission. Compare the
     // app-floor scenarios below, which carry only the ~100 B insert seam.
-    limit: "14.1 KB",
+    //
+    // Re-audit-2 correctness batch + upstream drift: 14.1 -> 14.35 KB
+    // (measured 14.31). Occurrence-aware key matching (adoption window +
+    // buildRowOps queues, SameValueZero everywhere keys compare), the
+    // same-batch coalescing stamp (pc.qa/ql + pushSelf), adoption-seam
+    // accessor demotion gates, and unhandled-halt parity; the rest is
+    // upstream core drift (#3082's visibility gate, the shared notifier,
+    // #3078's dormancy sweep) since the 14.1 ratchet.
+    limit: "14.35 KB",
     modifyEsbuildConfig
   },
   {
@@ -183,8 +191,12 @@ module.exports = [
     // the app growth across all four app scenarios tracks the signals
     // scenarios byte-for-byte (the linked dom-expressions runtime updates
     // contributed ~nothing to the client bundles).
+    //
+    // Upstream drift ratchet (2026-08-27): the shared effect notifier's
+    // always-retained core bytes ate the last headroom (measured 10.56).
+    // +50 B of cap, not a feature.
     path: "minimal-app.js",
-    limit: "10.55 KB",
+    limit: "10.6 KB",
     modifyEsbuildConfig
   },
   {
@@ -214,7 +226,10 @@ module.exports = [
     // Stage-3 batch (pre-release ratchet): 16.7 -> 17.25 KB, measured at
     // 16.92 — the signals-core bytes (see the core-floor note).
     path: "hydrating-app.js",
-    limit: "17.25 KB",
+    // Upstream drift ratchet (2026-08-27): shared effect notifier (+core)
+    // and #3057 invoke's client surface since the 17.25 cap (measured
+    // 17.38). Drift, not a stage-2 feature.
+    limit: "17.45 KB",
     modifyEsbuildConfig
   },
   {

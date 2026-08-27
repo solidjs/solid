@@ -43,7 +43,8 @@ import {
   notifyKeyDiff,
   targetsEqual,
   notifyKeyValue,
-  unwrapValue
+  unwrapValue,
+  targetIsPlain
 } from "./store.js";
 import {
   ownedRaw,
@@ -94,7 +95,7 @@ export function reconcileNextState(
     // positional so old-entity subtrees never merge into the new entity's).
     const prev = t.pb ?? t.v;
     const eq = keyFn(prev);
-    if (eq !== undefined && keyFn(incoming) !== eq) {
+    if (eq !== undefined && !sameKey(keyFn(incoming), eq)) {
       if (!replace)
         throw new Error(__DEV__ ? "Cannot reconcile states with different identity" : "");
       // Entity change: wholesale swap. The root proxy is stable for life
@@ -142,8 +143,16 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
   // visits parents before children, so ancestors emitted already. EAGER
   // only — family targets' visibility moment is their fold commit
   // (drainFolds emits there; emitting here too would double-fire).
-  if (patchHooks !== null && eager && t.pc !== null && t.pc.p !== null)
-    patchHooks.emitPatchLocal(t, incoming, old);
+  if (patchHooks !== null && eager && t.pc !== null && t.pc.p !== null) {
+    // Accessor demotion at the ADOPTION seam (re-audit 2, P1-1): adoptPB
+    // reset the scan verdict for the new backing — a getter-backed adoptee
+    // must not serve the patch channel (bodies would read getters untracked
+    // once; their outside dependencies would never re-apply). targetIsPlain
+    // runs the one-time scan against the NEW backing; the gate only pays it
+    // on records that actually carry patches.
+    if (targetIsPlain(t)) patchHooks.emitPatchLocal(t, incoming, old);
+    else patchHooks.demoteToEffects(t);
+  }
   // Shallow adoption: records are slot values — sticky raw-mark the incoming
   // set (R41) and never descend; slot notification is the positional diff.
   if (shallow) markRawIngest(incoming);
@@ -183,7 +192,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
             typeof pvRaw === "object" &&
             nv !== null &&
             typeof nv === "object" &&
-            keyFn(pvRaw) === keyFn(nv)
+            sameKey(keyFn(pvRaw), keyFn(nv))
           )
         )
           break; // misaligned: fall to the keyed remainder below
@@ -221,16 +230,34 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
           let pv: any;
           if (nk !== undefined) {
             if (prevByKey === null) {
+              // Occurrence-aware (re-audit 2, P1-5): duplicate keys queue
+              // their prev INDICES (rows can themselves be arrays, so index
+              // queues are the unambiguous encoding — same as buildRowOps)
+              // and each is consumed ONCE. First-wins would adopt two next
+              // rows into the SAME prev target while row ops retain two
+              // separate DOM rows (the second one stale).
               prevByKey = new Map();
               for (let j = 0; j < prevRows.length; j++) {
                 const p = unwrapValue(prevRows[j]);
                 if (p !== null && typeof p === "object") {
                   const pk = keyFn(p);
-                  if (pk !== undefined && !prevByKey.has(pk)) prevByKey.set(pk, p);
+                  if (pk === undefined) continue;
+                  const existing = prevByKey.get(pk);
+                  if (existing === undefined) prevByKey.set(pk, j);
+                  else if (Array.isArray(existing)) existing.push(j);
+                  else prevByKey.set(pk, [existing, j]);
                 }
               }
             }
-            pv = prevByKey.get(nk);
+            const m = prevByKey.get(nk);
+            if (m === undefined) pv = undefined;
+            else if (Array.isArray(m)) {
+              pv = unwrapValue(prevRows[m.shift()!]);
+              if (m.length === 1) prevByKey.set(nk, m[0]);
+            } else {
+              pv = unwrapValue(prevRows[m]);
+              prevByKey.delete(nk);
+            }
           } else {
             pv = unwrapValue(prevRows[i]); // keyless item: positional fallback
           }
@@ -437,6 +464,15 @@ const hasOwnP = Object.prototype.hasOwnProperty;
  * it. Setter mutations move the SAME row objects around, so RAW IDENTITY is
  * the key. Aligned arrays (value-only folds) emit nothing. */
 const identityKey = (r: any) => unwrapValue(r);
+
+/** Key equality for EVERY key comparison in this module (re-audit 2, P1-5):
+ * SameValueZero, matching the Map-based matchers (buildRowOps, the adoption
+ * window) — NaN keys are equal to themselves, so aligned NaN rows stay
+ * aligned in the prefix walk instead of forever misaligning. Adoption and
+ * row ops MUST agree on key equality or retained DOM rows go stale. */
+function sameKey(a: any, b: any): boolean {
+  return a === b || (a !== a && b !== b);
+}
 export function emitSetterRowOps(t: StoreNextTarget, prevRows: any[], nextRows: any[]): void {
   const ops = buildIdentityRowOps(prevRows, nextRows);
   if (ops !== null) rowHooks!.emitRowOps(t, nextRows, ops);
@@ -553,7 +589,10 @@ function descend(
     const nk = keyFn(nv);
     // Key mismatch detaches: the slot takes the new entity; the old proxy
     // keeps its (old) backing and a fresh proxy wraps the new value on read.
-    if (pk !== undefined && nk !== undefined && pk !== nk) return;
+    // SameValueZero (re-audit 2, P1-5): NaN keys are self-equal — strict
+    // inequality detached every NaN-keyed slot on every tick while the
+    // Map-based row-ops matcher retained its DOM row (stale forever).
+    if (pk !== undefined && nk !== undefined && !sameKey(pk, nk)) return;
   }
   // Reachability pruning (§6d) is MODE-dependent, both pinned:
   // - keyed matching descends only where subscriptions exist at/below (`d`) —

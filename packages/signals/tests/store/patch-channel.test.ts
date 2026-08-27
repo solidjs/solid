@@ -6,7 +6,8 @@ import {
   createStore,
   flush,
   reconcile,
-  registerPatch
+  registerPatch,
+  resetErrorHalt
 } from "../../src/index.js";
 
 describe("patch channel (PR-A)", () => {
@@ -273,6 +274,9 @@ describe("patch channel (PR-A)", () => {
     });
     expect(() => flush()).toThrow("boom");
     expect(applied).toEqual(["b:2"]);
+    // Unhandled patch errors HALT like unhandled effect errors — revive the
+    // scheduler for the rest of the file (standard test hook).
+    resetErrorHalt();
   });
 
   it("setter-channel structural mutation emits identity-keyed row ops", async () => {
@@ -529,6 +533,210 @@ describe("patch channel (re-audit hardening)", () => {
     flush();
     expect(log[log.length - 1]).toBe("b:11");
     dispose();
+  });
+
+  it("same-batch emissions coalesce: two setters, one application (effect parity)", () => {
+    const [state, setState] = createStore({ user: { name: "a", title: "x" } });
+    let applies = 0;
+    registerPatch(state.user, () => {
+      applies++;
+    });
+    setState(s => {
+      s.user.name = "b";
+    });
+    setState(s => {
+      s.user.title = "y";
+    });
+    flush();
+    // Both emissions capture the same live pending backing and the same
+    // committed prev — a classic effect runs once for the batch; so does
+    // the patch.
+    expect(applies).toBe(1);
+    expect(state.user.name).toBe("b");
+    expect(state.user.title).toBe("y");
+    // The NEXT batch applies again (stale-stamp check).
+    setState(s => {
+      s.user.name = "c";
+    });
+    flush();
+    expect(applies).toBe(2);
+  });
+
+  it("reconciling a getter-backed object into a patched record demotes to a tracked effect", async () => {
+    const { createSignal } = await import("../../src/index.js");
+    const [dep, setDep] = createRoot(() => createSignal(1));
+    const [state, setState] = createStore<any>({ user: { id: 1, name: "a" } });
+    const log: string[] = [];
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      registerPatch(state.user, (next: any) => log.push(next.name + ":" + (next.score ?? "-")));
+    });
+    // Adopt a getter-backed replacement through reconcile (stable key so the
+    // slot adopts rather than detaching as an entity change): the patch must
+    // NOT serve it (the getter's dep would never re-apply) — it demotes.
+    setState(s => {
+      reconcile(
+        {
+          user: {
+            id: 1,
+            name: "b",
+            get score() {
+              return dep();
+            }
+          }
+        },
+        "id"
+      )(s);
+    });
+    flush();
+    expect(log[log.length - 1]).toBe("b:1");
+    setDep(2);
+    flush();
+    // The exact divergence unsound adoption would drop: the getter's OUTSIDE
+    // dependency re-applies through the demoted effect.
+    expect(log[log.length - 1]).toBe("b:2");
+    dispose();
+  });
+
+  it("setter-returned root replacement emits patches and row ops at fold commit", async () => {
+    const { registerRowOps } = await import("../../src/index.js");
+    const [state, setState] = createStore<any>({ name: "a", rows: [{ id: 1 }, { id: 2 }] });
+    const log: string[] = [];
+    const ops: any[] = [];
+    registerPatch(state, (next: any) => log.push(next.name));
+    registerRowOps(state.rows, (_next: any[], o: any) => ops.push(o));
+    // Replacement via setter RETURN — an adoption with no reconcile walk.
+    setState(() => ({ name: "b", rows: [{ id: 2 }, { id: 3 }] }));
+    flush();
+    expect(log).toEqual(["b"]);
+    expect(state.name).toBe("b");
+    // The nested array slot re-points wholesale on root replacement — the
+    // ROOT patch covers it; structural ops for the array slot ride the next
+    // array-level transition. Now replace the ARRAY root directly:
+    const [arr, setArr] = createStore<any[]>([{ id: 1 }, { id: 2 }]);
+    const arrOps: any[] = [];
+    registerRowOps(arr, (_next: any[], o: any) => arrOps.push(o));
+    setArr(() => [{ id: 2 }, { id: 3 }]);
+    flush();
+    expect(arrOps.length).toBe(1);
+  });
+
+  it("adoption and row ops agree on duplicate keys (occurrence-aware both sides)", async () => {
+    const { registerRowOps } = await import("../../src/index.js");
+    const a1 = { id: "a", v: 1 };
+    const a2 = { id: "a", v: 2 };
+    const b = { id: "b", v: 3 };
+    const [state, setState] = createStore({ rows: [a1, a2, b] });
+    // Materialize child targets AND observe them (registerPatch marks
+    // descendants — keyed pruning detaches unobserved captures by design,
+    // R18; the list driver registers per-row patches exactly like this).
+    const r0 = state.rows[0];
+    const r1 = state.rows[1];
+    registerPatch(r0, () => {});
+    registerPatch(r1, () => {});
+    const ops: any[] = [];
+    registerRowOps(state.rows, (_next: any[], o: any) => ops.push(o));
+    // Reorder with duplicates: [b, a?, a?] — occurrence-aware matching must
+    // hand the FIRST a-key row to the first a occurrence and the SECOND to
+    // the second, on BOTH channels.
+    setState(s => {
+      reconcile(
+        [
+          { id: "b", v: 3 },
+          { id: "a", v: 10 },
+          { id: "a", v: 20 }
+        ],
+        "id"
+      )(s.rows);
+    });
+    flush();
+    // Adoption: distinct prev targets adopted per occurrence (values updated
+    // in place, not both into the first).
+    expect(r0.v).toBe(10);
+    expect(r1.v).toBe(20);
+    expect(state.rows[1]).toBe(r0);
+    expect(state.rows[2]).toBe(r1);
+    // Row ops: occurrence-aware sources (0 and 1, not 0 twice).
+    expect(ops.length).toBe(1);
+    const win = ops[0].sources.filter((s: number) => s >= 0).sort();
+    expect(new Set(win).size).toBe(win.length);
+  });
+
+  it("NaN keys are self-equal everywhere: aligned ticks stay aligned, roots don't throw", async () => {
+    const { registerRowOps } = await import("../../src/index.js");
+    const [state, setState] = createStore({
+      rows: [
+        { id: NaN, v: 1 },
+        { id: 2, v: 2 }
+      ]
+    });
+    const r0 = state.rows[0];
+    registerPatch(r0, () => {}); // observe: keyed adoption prunes unobserved rows
+    const ops: any[] = [];
+    registerRowOps(state.rows, (_next: any[], o: any) => ops.push(o));
+    // Aligned value tick on a NaN-keyed row: strict-equality prefixes would
+    // misalign forever (NaN !== NaN); SameValueZero keeps it aligned.
+    setState(s => {
+      reconcile(
+        [
+          { id: NaN, v: 5 },
+          { id: 2, v: 2 }
+        ],
+        "id"
+      )(s.rows);
+    });
+    flush();
+    expect(state.rows[0]).toBe(r0); // identity preserved
+    expect(r0.v).toBe(5); // value adopted in place
+    expect(ops.length).toBe(0); // aligned — no structural ops
+    // NaN ROOT identity: same-key reconcile must not throw.
+    const [obj, setObj] = createStore({ id: NaN, v: 1 });
+    expect(() => {
+      setObj(s => {
+        reconcile({ id: NaN, v: 9 }, "id")(s);
+      });
+      flush();
+    }).not.toThrow();
+    expect(obj.v).toBe(9);
+  });
+
+  it("Errored.reset() survives patch errors registered under plain owners", async () => {
+    const { createOwner, runWithOwner } = await import("../../src/index.js");
+    const [state, setState] = createStore({ a: { v: 0 } });
+    let boundary: any;
+    let resetFn!: () => void;
+    createRoot(() => {
+      boundary = createErrorBoundary(
+        () => {
+          // Mirror the list driver: registration under a PLAIN owner (no
+          // compute fn) inside the boundary.
+          const owner = createOwner();
+          runWithOwner(owner as any, () => {
+            registerPatch(state.a, (n: any) => {
+              if (n.v > 0) throw new Error("row boom");
+            });
+          });
+          return "content";
+        },
+        (_e, reset) => {
+          resetFn = reset;
+          return "errored";
+        }
+      );
+    });
+    expect(boundary()).toBe("content");
+    setState(s => {
+      s.a.v = 1;
+    });
+    expect(() => flush()).not.toThrow();
+    expect(boundary()).toBe("errored");
+    // reset() recomputes sources — a plain-owner registration must not crash
+    // it (nearest computed ancestor was routed instead, or skipped).
+    expect(() => {
+      resetFn();
+      flush();
+    }).not.toThrow();
   });
 
   it("writable projection arrays emit setter row ops at fold commit", async () => {

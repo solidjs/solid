@@ -144,7 +144,7 @@ TargetShape.prototype = Object.prototype;
 
 /** Lazily allocate the patch-channel extension (one literal shape). */
 export function pcOf(t: StoreNextTarget): PatchChannel {
-  return t.pc ?? (t.pc = { sp: null, p: null, ro: null, wk: null });
+  return t.pc ?? (t.pc = { sp: null, p: null, ro: null, wk: null, qa: null, ql: 0 });
 }
 
 function createTarget(
@@ -719,25 +719,32 @@ function drainFolds(): void {
     if (t.v === old) continue; // adopted then re-adopted back, or no-op
     // Patch channel (fold-commit site): family targets emit HERE — the fold
     // IS their visibility moment (held folds re-queued above emit when they
-    // actually commit). Plain eager targets emitted at their walk/setter
-    // sites already.
-    if (t.fam !== null && t.pc !== null) {
-      // Structural ops for eager-folded family SETTER drafts (writable
-      // projection push/splice — the write-override path swaps pb -> v at
-      // notifyWrites' tail, so the clone branch never sees them). Adoption
-      // folds (`t.adopted`, recompute reconcile) already emitted their ops
-      // from the walk, and optimistic families ride the override channel
-      // (lane-timed ops + revert RESYNC) — both must not re-emit here.
+    // actually commit) — and so do PLAIN fold-adopted targets (setter-
+    // returned root replacements, chained-store swaps: adoptions WITHOUT a
+    // reconcile walk, so no walk-site emission ever happened — re-audit 2,
+    // P1-2). Plain eager targets emitted at their walk/setter sites already.
+    if (t.pc !== null && (t.fam !== null || t.adopted)) {
+      // Structural ops for folds whose structure rode no other channel:
+      // eager-folded family SETTER drafts (write-override swaps pb -> v at
+      // notifyWrites' tail — the clone branch never sees them; adoption
+      // folds re-emitting would double the walk's ops) and PLAIN fold
+      // adoptions (no walk at all). Optimistic families ride the override
+      // channel (lane-timed ops + revert RESYNC) — never re-emit here.
       if (
-        foldedEager &&
-        !t.adopted &&
         t.pc.ro !== null &&
-        t.fam.opt !== true &&
+        t.fam?.opt !== true &&
+        (t.fam !== null ? foldedEager && !t.adopted : t.adopted) &&
         Array.isArray(t.v) &&
         Array.isArray(old)
       )
         rowHooks!.emitSetterRowOps(t, old as any[], t.v as any[]);
-      if (t.pc.p !== null) patchHooks!.emitPatchLocal(t, t.v, old);
+      if (t.pc.p !== null) {
+        // Accessor demotion at the adoption seam (re-audit 2, P1-1): the
+        // adopted backing was never scanned — getter-backed adoptees leave
+        // the patch channel for tracked effect fallbacks.
+        if (targetIsPlain(t)) patchHooks!.emitPatchLocal(t, t.v, old);
+        else patchHooks!.demoteToEffects(t);
+      }
     }
     // Path copying (CAS: see the eager-fold twin above).
     if (t.u && t.u.v[t.pk!] === old) {

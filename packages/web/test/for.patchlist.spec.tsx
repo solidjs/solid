@@ -16,6 +16,7 @@ import {
   reconcile
 } from "solid-js";
 import { patchDriver, rowProof } from "@solidjs/web";
+import { resetErrorHalt } from "solid-js";
 
 // Patch-mode list driver (DESIGN-PATCH-CHANNEL §3b/§3c): when a keyed
 // `<For>` over a store array carries a row function the COMPILER proved pure
@@ -552,6 +553,46 @@ describe("patch-mode list driver — audit regressions", () => {
       // is stable — an ENGAGED list would freeze. Declined lists render and
       // update through classic mapArray, which tracks the array read.
       expect(labels(div)).toBe("L1,L2");
+      dispose();
+    });
+  });
+
+  test("a throwing row factory leaves DOM and bookkeeping atomically unchanged (re-audit 2, P1-3)", () => {
+    createRoot(dispose => {
+      let div!: HTMLDivElement;
+      const poison = rowProof((db: Row) => {
+        if (db.label === "BOOM") throw new Error("row factory boom");
+        return buildRow(db);
+      });
+      const [state, setState] = createStore({ rows: make(1, 2, 3) });
+      <div ref={div}>
+        <For each={state.rows}>{poison}</For>
+      </div>;
+      expect(labels(div)).toBe("L1,L2,L3");
+      const [tr1, tr2, tr3] = rows(div);
+
+      // An update whose NEW row throws mid-construction: the ops application
+      // fails BEFORE any removal/move — DOM and driver bookkeeping stay
+      // exactly as they were (build-before-destroy).
+      setState(s => {
+        reconcile([make(1)[0], { id: 9, label: "BOOM" }, make(3)[0]], "id")(s.rows);
+      });
+      expect(() => flush()).toThrow("row factory boom");
+      resetErrorHalt();
+      expect(labels(div)).toBe("L1,L2,L3");
+      expect(rows(div)[0]).toBe(tr1);
+      expect(rows(div)[1]).toBe(tr2);
+      expect(rows(div)[2]).toBe(tr3);
+
+      // The driver still works: reconcile back to a healthy arrangement and
+      // apply a normal structural update — retention topology intact.
+      setState(s => {
+        reconcile([make(3)[0], make(1)[0]], "id")(s.rows);
+      });
+      flush();
+      expect(labels(div)).toBe("L3,L1");
+      expect(rows(div)[0]).toBe(tr3);
+      expect(rows(div)[1]).toBe(tr1);
       dispose();
     });
   });

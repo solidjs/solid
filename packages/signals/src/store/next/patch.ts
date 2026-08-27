@@ -22,6 +22,7 @@
 import { EFFECT_RENDER, STATUS_ERROR } from "../../core/constants.js";
 import { ext } from "../../core/core.js";
 import { StatusError } from "../../core/error.js";
+import { haltReactivity } from "../../core/scheduler.js";
 import { getOwner, isDisposed } from "../../core/owner.js";
 import {
   activeTransition,
@@ -87,7 +88,12 @@ function drainApplyQueue(): void {
     const next = t !== null ? (t.pb ?? t.v) : q[i].next;
     firstError = applyEntries(list, next, prev, force, firstError);
   }
-  if (firstError !== UNSET) throw firstError;
+  if (firstError !== UNSET) {
+    // Unhandled patch errors HALT like unhandled effect errors (re-audit 2,
+    // P1-4): app state is undefined past an unboundaried throw.
+    haltReactivity(firstError);
+    throw firstError;
+  }
 }
 
 const UNSET: unique symbol = Symbol();
@@ -115,10 +121,18 @@ function applyEntries(
       let handled = false;
       const owner = entry.owner as any;
       if (owner !== null) {
-        const statusErr = new StatusError(owner, err);
-        ext(owner)._error = statusErr;
-        owner._statusFlags = (owner._statusFlags ?? 0) | STATUS_ERROR;
-        handled = owner._queue.notify(owner, STATUS_ERROR, STATUS_ERROR, statusErr);
+        // Route through the nearest COMPUTED ancestor (re-audit 2, P1-4):
+        // <Errored>.reset() recomputes its sources, and a plain owner (the
+        // list driver's listOwner) is not recomputable — the component/memo
+        // scope above it is, and recomputing it rebuilds the rows, exactly
+        // what reset means for a throwing render effect.
+        let source = owner;
+        while (source !== null && source._fn === undefined) source = source._parent;
+        source ??= owner;
+        const statusErr = new StatusError(source, err);
+        ext(source)._error = statusErr;
+        source._statusFlags = (source._statusFlags ?? 0) | STATUS_ERROR;
+        handled = owner._queue.notify(source, STATUS_ERROR, STATUS_ERROR, statusErr);
       }
       if (!handled && firstError === UNSET) firstError = err;
     }
@@ -162,6 +176,35 @@ function push(item: QueuedApply): void {
   pushLive(item);
 }
 
+/** Self-entry push with SAME-BATCH COALESCING (re-audit 2, P2): a record's
+ * second non-forced emission into the same container is an exact duplicate —
+ * both entries capture the same live pb reference (mutated in place through
+ * the batch) and the same committed prev — so the body would apply twice
+ * with identical arguments (duplicate custom-element setter calls). Skip it
+ * unless the consumer list grew (a mid-batch registrant must still get its
+ * first application). Containers are per-batch arrays, so stale stamps
+ * mismatch naturally; forced entries and row/slot ops never coalesce. */
+function pushSelf(pc: { qa: unknown; ql: number }, item: QueuedApply): void {
+  const tx = activeTransition;
+  let arr: QueuedApply[];
+  if (tx !== null) {
+    let held = (tx as any)._heldPatches as QueuedApply[] | undefined;
+    if (held === undefined) (tx as any)._heldPatches = held = [];
+    arr = held;
+  } else {
+    if (queue === null) queue = [];
+    arr = queue;
+  }
+  if (pc.qa === arr && pc.ql === item.list.length) return;
+  pc.qa = arr;
+  pc.ql = item.list.length;
+  arr.push(item);
+  if (arr === queue && !scheduled) {
+    scheduled = true;
+    globalQueue.enqueue(EFFECT_RENDER, drainApplyQueue);
+  }
+}
+
 /** Shallow clone for the owned-prev rule (§2c): owned backings fold values
  * INTO the same raw at commit, so a queued prev must be snapshotted. */
 function clonePrev(prev: any): any {
@@ -175,7 +218,7 @@ function clonePrev(prev: any): any {
 export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
   const p = (t.pc !== null ? t.pc.p : null) as PatchEntry[] | null;
   if (p !== null)
-    push({
+    pushSelf(t.pc!, {
       list: p,
       next,
       prev: ownedRaw.has(prev) ? clonePrev(prev) : prev,
@@ -198,7 +241,7 @@ export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
 export function emitPatchLocal(t: StoreNextTarget, next: any, prev: any): void {
   const p = (t.pc !== null ? t.pc.p : null) as PatchEntry[] | null;
   if (p !== null)
-    push({
+    pushSelf(t.pc!, {
       list: p,
       next,
       prev: ownedRaw.has(prev) ? clonePrev(prev) : prev,
@@ -228,7 +271,10 @@ function drainOptimistic(): void {
     const next = t !== null ? (t.pb ?? t.v) : q[i].next;
     firstError = applyEntries(list, next, prev, force, firstError);
   }
-  if (firstError !== UNSET) throw firstError;
+  if (firstError !== UNSET) {
+    haltReactivity(firstError);
+    throw firstError;
+  }
 }
 
 export function emitPatchOptimistic(t: StoreNextTarget, next: any, prev: any): void {

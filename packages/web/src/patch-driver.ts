@@ -312,12 +312,41 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
     if (declined) return;
     if (ops === null) ops = identityOps(next);
     const { prefix, sources } = ops;
+    // EXCEPTION SAFETY (re-audit 2, P1-3): build every NEW row before any
+    // destructive step. A throwing row factory (user template code, a
+    // custom-element setter in the initial apply) must leave the DOM and
+    // the driver's bookkeeping exactly as they were — staged rows sever
+    // their own registrations on the way out, and the throw surfaces to
+    // the drain's per-entry isolation like any patch error.
+    const built: (Node | undefined)[] = new Array(sources.length);
+    const builtBodies: (any[] | undefined)[] | null =
+      rowBodies !== null ? new Array(sources.length) : null;
+    const builtUnbinds: ((() => void)[] | undefined)[] = new Array(sources.length);
+    let j = 0;
+    try {
+      for (; j < sources.length; j++) {
+        const abs = prefix + j;
+        const src = sources[j];
+        if (src === -1 || (refRebuild && src >= 0 && next[abs] !== prevRaws[src])) {
+          built[j] = bindRow(abs);
+          if (builtBodies !== null) builtBodies[j] = lastBodies!;
+          builtUnbinds[j] = lastUnbinds!;
+        }
+      }
+    } catch (err) {
+      for (let k = 0; k < j; k++) runUnbinds(builtUnbinds[k]);
+      throw err;
+    }
+    // Destructive phase — nothing below throws on healthy nodes.
     const retained = new Set<number>();
-    for (let j = 0; j < sources.length; j++) if (sources[j] >= 0) retained.add(sources[j]);
-    for (let j = prefix; j < entries.length; j++) {
-      if (!retained.has(j)) {
-        (entries[j] as ChildNode).remove();
-        runUnbinds(rowUnbinds[j]);
+    for (let k = 0; k < sources.length; k++) {
+      // A refRebuild replacement's old row is NOT retained (rebuilt above).
+      if (sources[k] >= 0 && built[k] === undefined) retained.add(sources[k]);
+    }
+    for (let k = prefix; k < entries.length; k++) {
+      if (!retained.has(k)) {
+        (entries[k] as ChildNode).remove();
+        runUnbinds(rowUnbinds[k]);
       }
     }
     const newEntries: Node[] = new Array(prefix + sources.length);
@@ -331,29 +360,20 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
     }
     const stable = lisPositions(sources);
     let anchor: Node | null = endAnchor;
-    for (let j = sources.length - 1; j >= 0; j--) {
-      const abs = prefix + j;
-      const src = sources[j];
+    for (let k = sources.length - 1; k >= 0; k--) {
+      const abs = prefix + k;
+      const src = sources[k];
       let node: Node;
-      if (src === -1) {
-        node = bindRow(abs);
-        if (newBodies !== null) newBodies[abs] = lastBodies!;
-        newUnbinds[abs] = lastUnbinds!;
-        parent.insertBefore(node, anchor);
-      } else if (refRebuild && next[abs] !== prevRaws[src]) {
-        // Reference-keyed shallow lists: a retained (key-matched, moved)
-        // slot whose record was replaced REBUILDS — reference semantics.
-        runUnbinds(rowUnbinds[src]);
-        (entries[src] as ChildNode).remove();
-        node = bindRow(abs);
-        if (newBodies !== null) newBodies[abs] = lastBodies!;
-        newUnbinds[abs] = lastUnbinds!;
+      if (built[k] !== undefined) {
+        node = built[k]!;
+        if (newBodies !== null) newBodies[abs] = builtBodies![k]!;
+        newUnbinds[abs] = builtUnbinds[k]!;
         parent.insertBefore(node, anchor);
       } else {
         node = entries[src];
         if (newBodies !== null) newBodies[abs] = rowBodies![src];
         newUnbinds[abs] = rowUnbinds[src];
-        if (!stable.has(j)) parent.insertBefore(node, anchor);
+        if (!stable.has(k)) parent.insertBefore(node, anchor);
       }
       newEntries[abs] = node;
       anchor = node;
