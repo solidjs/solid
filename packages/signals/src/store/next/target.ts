@@ -92,6 +92,17 @@ export interface StoreNextTarget {
   fam: StoreNextFamily | null;
   /** Shallow store root (values served raw). */
   s: boolean;
+  /** Held committed view (#3074/#3075): the pre-hold committed backing,
+   * served to committed-visibility readers while `ht` is live. Adoption is
+   * eager by contract, but a projection recompute deriving from uncommitted
+   * inputs (a transition-held source, or a latest()-pull ahead of the flush)
+   * swaps the backing SPECULATIVELY — the old view must stay servable until
+   * the hold resolves. */
+  hv: Record<PropertyKey, any> | null;
+  /** The holder for `hv`: a live transition (cleared lazily when it is done)
+   * or the PLAIN_HOLD sentinel (a latest()-pull staging — cleared by the
+   * fold commit). null = no hold. */
+  ht: any;
 }
 
 /**

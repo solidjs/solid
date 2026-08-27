@@ -121,7 +121,15 @@ module.exports = [
     // the pre-shaped target constructor (c38bc24e — #3044 fields tipped
     // object targets into dictionary mode), and the written-keys notify
     // bound (2888642e). All on paths createStore always retains.
-    limit: "13.4 KB",
+    //
+    // Projection transition isolation (#3074/#3075): 13.4 -> 13.5 KB,
+    // measured at 13.40 exactly. The held-view mask (adoption under a live
+    // transition serves the pre-hold committed backing to untracked readers)
+    // plus the latest() pull in the get trap. Not shakeable: the derived
+    // createStore overload retains projection machinery in every store graph
+    // (see treeshake.test.ts) — an injection-table split was measured and
+    // came out LARGER under brotli (indirection adds unique tokens).
+    limit: "13.5 KB",
     modifyEsbuildConfig
   },
   {
@@ -223,8 +231,12 @@ module.exports = [
     // Stage-3 batch (pre-release ratchet): 23.3 -> 24.65 KB, measured at
     // 24.19 — the signals-core bytes plus the store-side #3044/written-keys
     // work (see the createStore note; this scenario retains all of it).
+    //
+    // Projection transition isolation (#3074/#3075): 24.65 -> 24.75 KB,
+    // measured at 24.65 exactly — the held-view mask + latest() pull (see
+    // the createStore note; this scenario retains all of it).
     path: "hydrating-store-app.js",
-    limit: "24.65 KB",
+    limit: "24.75 KB",
     modifyEsbuildConfig
   },
   {
