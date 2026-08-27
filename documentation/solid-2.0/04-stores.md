@@ -117,6 +117,8 @@ const users = createProjection(async () => {
 }, [], { key: "id" });
 ```
 
+**A derive must never swallow `NotReadyError`** (#3073). Reading a not-yet-settled async source inside a derive throws; that propagation is load-bearing. It is how loading states coordinate on every build, and on the server build — which has no subscription graph — it is additionally the *only* re-derive channel: the projection machinery catches the escaping error, holds the projection pending, and retries the derive when the source settles. A derive that wraps its reads in a broad `try/catch` "completes" with partial state and severs that channel — the browser build masks the mistake (dependencies register before the throw, so reactivity re-runs the derive anyway), but the node build freezes at the first result. To branch on readiness instead of suspending, probe with `isPending()` rather than catching; not-ready handling (hold the previous state, retry at settlement) is already the machinery's job.
+
 **`createStore(fn, seed, options?)`** — a writable derived store. Same derive semantics as `createProjection`, but returns `[store, setter]` so you can also write to it imperatively. Use this when you need both reactively derived state *and* local mutations.
 
 ```js
