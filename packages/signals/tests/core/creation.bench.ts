@@ -9,7 +9,7 @@
 // allocation/store instructions on every PR.
 import { bench } from "vitest";
 import {
-  createEffect,
+  createRenderEffect,
   createMemo,
   createRoot,
   createSignal,
@@ -25,15 +25,18 @@ function runBench(name: string, fn: () => void) {
   if (filter.test(name)) bench(name, fn);
 }
 
-// Effect + owner-slot creation and first run (the `_x` split surface: a
-// per-effect extension allocation lands squarely here).
-runBench("createEffects:create1to1", () => {
+// Effect creation and first run (the `_x` split surface: a per-effect
+// extension allocation lands squarely here). RENDER effects specifically —
+// they're what compiled output mass-produces (one per binding), and user
+// effects share the identical creation path (only `_type`/queue timing
+// differ), so one fence covers both.
+runBench("createRenderEffects:create1to1", () => {
   const setters = new Array<(v: number) => number>(COUNT);
   createRoot(dispose => {
     for (let i = 0; i < COUNT; i++) {
       const [source, setSource] = createSignal(i);
       setters[i] = setSource;
-      createEffect(
+      createRenderEffect(
         () => source(),
         () => {}
       );

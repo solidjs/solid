@@ -651,7 +651,6 @@ export function createEffectNode<T>(
   effectFn: (val: T, prev: T | undefined) => void | (() => void),
   errorFn: ((err: unknown, cleanup: () => void) => void | (() => void)) | undefined,
   type: number,
-  notifyStatus: ((status?: number, error?: any) => void) | undefined,
   options: NodeOptions<T> | undefined
 ): any {
   const transparent = options?.transparent ?? false;
@@ -697,11 +696,39 @@ export function createEffectNode<T>(
     _x: null
   } as any;
   if (__DEV__) self._name = options?.name ?? "effect";
-  // Boundary effects carry a status channel; most effects never touch _x.
-  if (notifyStatus !== undefined) ext(self)._notifyStatus = notifyStatus;
+  // Effects dispatch status through the SHARED notifier (statusNotifierOf,
+  // keyed off _type) — storing it per node forced a full NodeExtension
+  // allocation on EVERY effect at creation (an alloc + 19 field stores,
+  // +23% effect creation, caught by the creation benches). Only genuinely
+  // per-node channels (boundaries) live on _x.
   if (options?.unobserved) ext(self)._unobserved = options.unobserved;
   setupComputedNode(self, lazyOptions);
   return self;
+}
+
+/**
+ * The shared status notifier for effect nodes, installed once by effect.ts
+ * at module evaluation (`this`-dispatched — one function serves every
+ * effect, so nodes never store it). Boundary computeds keep their own
+ * per-node channel on `_x._notifyStatus`, which takes precedence.
+ */
+export let effectStatusNotify: ((this: any, status?: number, error?: any) => void) | null = null;
+export function setEffectStatusNotify(fn: NonNullable<typeof effectStatusNotify>): void {
+  effectStatusNotify = fn;
+}
+
+/** Resolve a node's status notifier: an own `_x` channel (boundaries) wins;
+ * effect nodes (`_type` — EFFECT_PURE is 0, and only effect literals carry
+ * the field) fall back to the shared notifier. Presence doubles as the
+ * "display consumer" membership test in the status walks, exactly as the
+ * per-node field did when every effect carried one. */
+export function statusNotifierOf(
+  el: any
+): ((this: any, status?: number, error?: any) => void) | undefined {
+  const x = el._x;
+  const own = x !== null && x !== undefined ? x._notifyStatus : undefined;
+  if (own !== undefined) return own;
+  return el._type ? (effectStatusNotify ?? undefined) : undefined;
 }
 
 const lazyOptions = { lazy: true } as const;

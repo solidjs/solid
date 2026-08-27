@@ -95,7 +95,13 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // move into _x (computed literal 29 -> 27 fields) and the plain-commit
     // fast drain in GlobalQueue.flush — update1to1 -12% on top of §12
     // (measured at 20,610 post-change).
-    expect(minifiedBytes).toBeLessThan(20_900);
+    // CONSCIOUS BUMP (2026-08-27): +~350B for the shared effect status
+    // notifier (statusNotifierOf + install seam). Storing the SHARED
+    // notifyEffectStatus per node via ext() allocated the full 19-field
+    // NodeExtension on EVERY effect at creation — +127 B/node heap and +23%
+    // effect creation time (shipped unnoticed with stage 3; caught by the
+    // creation benches). Measured at 20,956 post-change.
+    expect(minifiedBytes).toBeLessThan(21_100);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

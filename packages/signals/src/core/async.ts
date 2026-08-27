@@ -14,7 +14,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { context, setSignal, untrack, ext } from "./core.js";
+import { context, setSignal, untrack, ext, statusNotifierOf } from "./core.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { emitDiagnostic } from "./dev.js";
 import { NotReadyError, StatusError } from "./error.js";
@@ -717,7 +717,8 @@ export function clearStatus(el: Computed<any>, clearUninitialized: boolean = fal
     GlobalQueue._updateChildCompanions !== null
   )
     GlobalQueue._updateChildCompanions(el);
-  if (el._x?._notifyStatus) el._x._notifyStatus.call(el);
+  const notify = statusNotifierOf(el);
+  if (notify) notify.call(el);
 }
 
 export function notifyStatus(
@@ -771,14 +772,15 @@ export function notifyStatus(
   const downstreamBlockStatus = blockStatus || startsBlocking;
   const downstreamLane = blockStatus || isOptimisticBoundary ? undefined : lane;
 
-  if (el._x?._notifyStatus) {
+  const elNotify = statusNotifierOf(el);
+  if (elNotify) {
     if (blockStatus && status === STATUS_PENDING) {
       return;
     }
     if (downstreamBlockStatus) {
-      el._x._notifyStatus!.call(el, status, error);
+      elNotify.call(el, status, error);
     } else {
-      el._x._notifyStatus!.call(el);
+      elNotify.call(el);
     }
     return;
   }
