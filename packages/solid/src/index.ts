@@ -14,6 +14,7 @@ export {
   getNextChildId,
   getObserver,
   getOwner,
+  peekNextChildId,
   isDisposed,
   isEqual,
   isPending,
