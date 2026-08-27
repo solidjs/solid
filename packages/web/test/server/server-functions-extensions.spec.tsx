@@ -65,6 +65,13 @@ function connectTransport() {
   };
 }
 
+/** Delivers a transport request to the built handler, as `connectTransport` does. */
+function deliver(address: string, init?: RequestInit) {
+  const request = new Request(new URL(address, "http://localhost"), init);
+  request.headers.set("Sec-Fetch-Site", "same-origin");
+  return handleServerFunctionRequest(request);
+}
+
 describe("server-function extension surface (built bundles)", () => {
   it("GET round-trips through both bundles and the handler enforces it", async () => {
     serverGET(
@@ -185,6 +192,132 @@ describe("server-function extension surface (built bundles)", () => {
       expect(await plain()).toBe(null);
     } finally {
       configureServerFunctionsClient({ prepareRequest: null as any });
+      restore();
+    }
+  });
+
+  it("sends through a configured fetch, which can address a call however it likes", async () => {
+    serverGET(
+      createServerSideReference(
+        registerServerReference("ext-fetch-0", async (word: string) => word.toUpperCase())
+      )
+    );
+    const seen: string[] = [];
+    // An app that wants a url of its own: the transport hands over the
+    // canonical address, the wrapper sends an app-shaped one, and the app's
+    // route rewrites it back before the handler sees it.
+    configureServerFunctionsClient({
+      fetch(address, init) {
+        const app = new URL(address, "http://localhost");
+        app.pathname = "/api/upper";
+        seen.push(app.pathname + app.search);
+        return deliver(
+          app.pathname.replace("/api/upper", "/_server/ext-fetch-0") + app.search,
+          init
+        );
+      }
+    });
+    try {
+      expect(await GET(createServerReference("ext-fetch-0"))("solid")).toBe("SOLID");
+      expect(seen).toEqual(["/api/upper?args=%5B%22solid%22%5D"]);
+    } finally {
+      configureServerFunctionsClient({ fetch: null });
+    }
+  });
+
+  it("hands the fetch one shape whether or not observers are attached", async () => {
+    registerServerFunction("ext-fetch-1", async () => "ok");
+    const shapes: string[] = [];
+    configureServerFunctionsClient({
+      fetch(address, init) {
+        shapes.push(`${typeof address}:${init?.method}`);
+        return deliver(address, init);
+      }
+    });
+    try {
+      expect(await createServerReference("ext-fetch-1")()).toBe("ok");
+      const stop = observeServerFunctionCalls(() => {});
+      try {
+        expect(await createServerReference("ext-fetch-1")()).toBe("ok");
+      } finally {
+        stop();
+      }
+      expect(shapes).toEqual(["string:POST", "string:POST"]);
+    } finally {
+      configureServerFunctionsClient({ fetch: null });
+    }
+  });
+
+  it("hands the fetch the init prepareRequest produced", async () => {
+    registerServerFunction("ext-fetch-2", async () => {
+      const store = (globalThis as any)[RequestContext].getStore();
+      return store.request.headers.get("X-Prepared");
+    });
+    configureServerFunctionsClient({
+      prepareRequest: init => ({
+        ...init,
+        headers: { ...(init.headers as Record<string, string>), "X-Prepared": "yes" }
+      }),
+      fetch: (address, init) => deliver(address, init)
+    });
+    try {
+      expect(await createServerReference("ext-fetch-2")()).toBe("yes");
+    } finally {
+      configureServerFunctionsClient({ prepareRequest: null as any, fetch: null });
+    }
+  });
+
+  it("names the seam when a wrapper answers with something else", async () => {
+    registerServerFunction("ext-fetch-4", async () => "ok");
+    configureServerFunctionsClient({ fetch: (() => undefined) as any });
+    try {
+      await expect(createServerReference("ext-fetch-4")()).rejects.toThrow(
+        /must answer with a Response/
+      );
+    } finally {
+      configureServerFunctionsClient({ fetch: null });
+    }
+  });
+
+  it("sends a GET-declared read through the configured fetch too", async () => {
+    serverGET(
+      createServerSideReference(registerServerReference("ext-fetch-5", async (n: number) => n * 2))
+    );
+    const seen: string[] = [];
+    const restore = connectTransport();
+    const send = globalThis.fetch;
+    configureServerFunctionsClient({
+      fetch: (address, init) => {
+        seen.push(`${init?.method ?? "POST"} ${address}`);
+        return send(address, init);
+      }
+    });
+    try {
+      expect(await GET(createServerReference("ext-fetch-5"))(21)).toBe(42);
+      expect(seen).toEqual(["GET /_server/ext-fetch-5?args=%5B21%5D"]);
+    } finally {
+      configureServerFunctionsClient({ fetch: null });
+      restore();
+    }
+  });
+
+  it("restores the global fetch when the option is set to null", async () => {
+    registerServerFunction("ext-fetch-3", async () => "ok");
+    let sends = 0;
+    configureServerFunctionsClient({
+      fetch: (address, init) => {
+        sends++;
+        return deliver(address, init);
+      }
+    });
+    const restore = connectTransport();
+    try {
+      await createServerReference("ext-fetch-3")();
+      configureServerFunctionsClient({ fetch: null });
+      await createServerReference("ext-fetch-3")();
+      expect(sends).toBe(1);
+    } finally {
+      configureServerFunctionsClient({ fetch: null });
       restore();
     }
   });

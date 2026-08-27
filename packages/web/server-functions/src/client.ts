@@ -105,14 +105,12 @@ export type PrepareRequestHook = (
 /** Options for `configureServerFunctionsClient`. */
 export interface ServerFunctionsClientConfig {
   /**
-   * Endpoint the server's HTTP handler is mounted on. Must match the
-   * server configuration — SSR'd reference `url`s (e.g. form actions) and
-   * client fetches both derive from it. Prefix it when the app serves from
-   * a base path (e.g. `` `${BASE_URL}_server` ``).
+   * Mount path the server's HTTP handler answers on. Must match the server
+   * configuration — the id travels as the segment after it, and SSR'd
+   * reference `url`s (e.g. form actions) and client fetches both derive
+   * from it. Prefix it when the app serves from a base path
+   * (e.g. `` `${BASE_URL}_server` ``).
    * @default "/_server"
-   *
-   * Mount path the handler is mounted on. Must match the server's: the
-   * id travels as the segment after it.
    */
   endpoint?: string;
   /**
@@ -121,6 +119,25 @@ export interface ServerFunctionsClientConfig {
    * `decodeResponse` sees them too.
    */
   codec?: JSONCodecOptions;
+  /**
+   * Sends every server-function request — retries, telemetry, a test
+   * double, or an app's own route. Always called as `(address, init)`, the
+   * address relative to the document as the global one receives it, so
+   * `parseServerFunctionUrl` reads the id back out for telemetry. `null`
+   * restores the global.
+   *
+   * ```ts
+   * configureServerFunctionsClient({
+   *   fetch: (address, init) => fetch(rewrite(address), init)
+   * });
+   * ```
+   *
+   * Keep the call same-origin — a cross-origin send is stamped
+   * `Sec-Fetch-Site: cross-site`, which the handler's origin gate refuses —
+   * and hand back what the peer answered: an unfollowed 3xx reads as a
+   * response the runtime did not write.
+   */
+  fetch?: ((address: string, init: RequestInit) => Promise<Response>) | null;
   /**
    * Runs before every server-function fetch. Return (or mutate and return)
    * the RequestInit the transport will use; `context.meta` is the
@@ -211,6 +228,7 @@ export interface ServerFunctionInvocation {
 
 const config = {
   endpoint: "/_server",
+  fetch: undefined,
   prepareRequest: undefined,
   responseHandler: undefined,
   serializeArgs: undefined
@@ -298,7 +316,7 @@ function serializeArguments(args) {
  * Configures the client transport. Call once, before any server function is
  * invoked — typically in the client entry, next to `hydrate()`. Only needed
  * when deviating from the defaults (custom endpoint, codec plugins, or a
- * `prepareRequest` hook).
+ * `prepareRequest` hook, or a custom `fetch`).
  */
 export function configureServerFunctionsClient(config?: ServerFunctionsClientConfig): void;
 
@@ -308,7 +326,8 @@ export function configureServerFunctionsClient(config?: ServerFunctionsClientCon
  * plugins etc. — must match the server's; stored in the shared layer so
  * `decodeResponse` sees them too), and the `prepareRequest` hook applied
  * to every outgoing server-function fetch (session-dynamic transport
- * policy — bearer tokens, tracing headers).
+ * policy — bearer tokens, tracing headers), and the `fetch` the transport
+ * sends with.
  *
  * `responseHandler` is the response-side integration seam — the client
  * mirror of the handler's `transformResult`. `handle(response, ctx)` sees
@@ -321,12 +340,14 @@ export function configureServerFunctionsClient(config?: ServerFunctionsClientCon
 export function configureServerFunctionsClient({
   endpoint,
   codec,
+  fetch,
   prepareRequest,
   responseHandler,
   serializeArgs
 } = {}) {
   if (endpoint !== undefined) config.endpoint = endpoint;
   if (codec !== undefined) configureServerFunctionsCodec(codec);
+  if (fetch !== undefined) config.fetch = fetch || undefined;
   if (prepareRequest !== undefined) config.prepareRequest = prepareRequest;
   if (responseHandler !== undefined) config.responseHandler = responseHandler;
   if (serializeArgs !== undefined) config.serializeArgs = serializeArgs;
@@ -367,6 +388,14 @@ function serverFunctionFailure(response, value) {
   return error;
 }
 
+// A configured `fetch` that forgets to return, or returns what it awaited
+// off the response, would otherwise surface as a property read on undefined
+// somewhere downstream, naming nothing.
+function sent(response) {
+  if (response instanceof Response) return response;
+  throw new TypeError("The `fetch` configured for server functions must answer with a Response");
+}
+
 async function createRequest(base, id, instance, options, meta) {
   const headers = {
     ...options.headers,
@@ -398,11 +427,16 @@ async function createRequest(base, id, instance, options, meta) {
   if (config.prepareRequest) {
     init = (await config.prepareRequest(init, { id, meta })) || init;
   }
-  if (CALL_OBSERVERS.size === 0) return fetch(base, init);
+  const send = config.fetch || fetch;
+  if (CALL_OBSERVERS.size === 0) return sent(await send(base, init));
 
+  // The send keeps the `(address, init)` shape it has on the path without
+  // observers — whether devtools are attached is not something a configured
+  // `fetch` should have to branch on — so what observers receive is a
+  // reconstruction of the dispatched request, not the object itself.
   const request = new Request(new URL(base, globalThis.location?.href || "http://localhost"), init);
   notifyCallObservers("request", id, instance, request, meta);
-  const response = await fetch(request);
+  const response = sent(await send(base, init));
   notifyCallObservers("response", id, instance, response, meta);
   return response;
 }
