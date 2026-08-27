@@ -235,8 +235,13 @@ module.exports = [
     // Projection transition isolation (#3074/#3075): 24.65 -> 24.75 KB,
     // measured at 24.65 exactly — the held-view mask + latest() pull (see
     // the createStore note; this scenario retains all of it).
+    //
+    // Shared effect status notifier (ba6c0b6f): 24.75 -> 24.9 KB, measured
+    // at 24.80. The statusNotifierOf seam is always-retained core; it buys
+    // -127 B/node heap and -15% effect creation (the per-effect NodeExtension
+    // allocation it removes). The other floors absorbed it within headroom.
     path: "hydrating-store-app.js",
-    limit: "24.75 KB",
+    limit: "24.9 KB",
     modifyEsbuildConfig
   },
   {
