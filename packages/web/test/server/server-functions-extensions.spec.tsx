@@ -83,11 +83,10 @@ describe("server-function extension surface (built bundles)", () => {
     // POST stays allowed on a GET declaration — declaring GET grants the
     // method, it does not revoke the default POST transport
     const granted = await handleServerFunctionRequest(
-      new Request("http://localhost/_server", {
+      new Request("http://localhost/_server/ext-get-0", {
         method: "POST",
         headers: {
           "Sec-Fetch-Site": "same-origin",
-          "X-Server-Function-Id": "ext-get-0",
           "X-Server-Function-Instance": "server-function:test"
         }
       })
@@ -97,7 +96,7 @@ describe("server-function extension surface (built bundles)", () => {
     // and GET without a declaration answers 405 too
     registerServerFunction("ext-post-0", async () => "x");
     const undeclared = await handleServerFunctionRequest(
-      new Request("http://localhost/_server?id=ext-post-0", {
+      new Request("http://localhost/_server/ext-post-0", {
         method: "GET",
         headers: { "Sec-Fetch-Site": "same-origin" }
       })
@@ -215,7 +214,7 @@ describe("server-function extension surface (built bundles)", () => {
   it("references expose id and drop the legacy escape hatches", () => {
     const ref = createServerReference("ext-contract-0");
     expect(ref.id).toBe("ext-contract-0");
-    expect(ref.url).toContain("id=ext-contract-0");
+    expect(ref.url).toBe("/_server/ext-contract-0");
     expect((ref as any).GET).toBeUndefined();
     expect((ref as any).withOptions).toBeUndefined();
   });

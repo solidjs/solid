@@ -325,10 +325,53 @@ function stableString(value, seen) {
     out += (i ? "," : "") + keys[i] + ":" + stableString(value[keys[i]], seen);
   }
   return out + "}";
-}
+} /**
+ * The wire address of a call: `<endpoint>/<id>`.
+ *
+ * The id lives in the path because the path is what per-function policy keys
+ * on — edge rules, cache policies by path pattern, log aggregation, route
+ * labels in traces — and because it leaves the URL with exactly one place to
+ * carry it, so no header can disagree with what a cache stored the response
+ * under. Arguments ride the query, which is keyed by standards-compliant
+ * caches, scrubbed by ordinary log tooling, and inert under the path
+ * normalization every proxy applies.
+ *
+ * Transport wire detail; not meant for hand-written code.
+ * @internal
+ */
+export function serverFunctionAddress(endpoint: string, id: string): string;
 
-/** Header carrying the server function id. */
-export const FUNCTION_HEADER = "X-Server-Function-Id";
+/** Builds the wire address for a call: `<endpoint>/<id>`. */
+export function serverFunctionAddress(endpoint, id) {
+  const mount = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
+  return `${mount}/${encodeURIComponent(id)}`;
+} /**
+ * Reads the id out of an address built by `serverFunctionAddress`. A path
+ * carrying more than the one segment the address gives meaning to — or an id
+ * segment whose percent-encoding does not decode — answers `null` rather than
+ * matching on its prefix: an address the runtime does not fully understand is
+ * a miss, not a call.
+ *
+ * Transport wire detail; not meant for hand-written code.
+ * @internal
+ */
+export function parseServerFunctionAddress(pathname: string, endpoint: string): string | null;
+
+/** Reads the id out of an address built by `serverFunctionAddress`. */
+export function parseServerFunctionAddress(pathname, endpoint) {
+  const mount = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
+  if (!pathname.startsWith(mount)) return null;
+  const rest = pathname.slice(mount.length);
+  if (!rest.startsWith("/")) return null;
+  const segment = rest.slice(1);
+  if (!segment || segment.includes("/")) return null;
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    // an id segment whose percent-encoding does not decode is not an address
+    return null;
+  }
+}
 
 /**
  * Response header marking a thrown server-function error. The value is the

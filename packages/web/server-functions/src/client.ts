@@ -8,7 +8,6 @@ import {
   BODY_FORMAT_HEADER,
   BodyFormat,
   ERROR_HEADER,
-  FUNCTION_HEADER,
   INSTANCE_HEADER,
   LIVE_SOURCE,
   SERVER_FUNCTION_METADATA,
@@ -20,7 +19,9 @@ import {
   getServerFunctionMetadata,
   isJSONSafe,
   isServerFunction,
+  parseServerFunctionAddress,
   provideServerFunctionRPC,
+  serverFunctionAddress,
   withMeta
 } from "./shared.js";
 
@@ -37,7 +38,6 @@ export {
   ChunkReader,
   ERROR_HEADER,
   FLASH_COOKIE,
-  FUNCTION_HEADER,
   INSTANCE_HEADER,
   SINGLE_FLIGHT_HEADER,
   clearFlashCookie,
@@ -105,6 +105,9 @@ export interface ServerFunctionsClientConfig {
    * client fetches both derive from it. Prefix it when the app serves from
    * a base path (e.g. `` `${BASE_URL}_server` ``).
    * @default "/_server"
+   *
+   * Mount path the handler is mounted on. Must match the server's: the
+   * id travels as the segment after it.
    */
   endpoint?: string;
   /**
@@ -234,6 +237,44 @@ export function observeServerFunctionCalls(
 export function observeServerFunctionCalls(observer) {
   CALL_OBSERVERS.add(observer);
   return () => CALL_OBSERVERS.delete(observer);
+} /**
+ * Builds the url a reference is called at, for integrations composing action
+ * urls the runtime did not render — a router turning a bound action into a
+ * `<form action>` for the no-JS path. `boundArgs` must be JSON-safe: the
+ * server reads them the way it reads a form post's, and that convention has
+ * no codec. Resolved against the configured endpoint, so a caller does not
+ * have to know where the handler is mounted. The server entry exports the
+ * same function so isomorphic `@solidjs/web/server-functions` imports resolve.
+ */
+export function serverFunctionUrl(id: string, boundArgs?: readonly unknown[]): string;
+
+/** Builds the url a reference is called at: `<endpoint>/<id>[?args=...]`. */
+export function serverFunctionUrl(id, boundArgs) {
+  const address = serverFunctionAddress(config.endpoint, id);
+  if (!boundArgs || !boundArgs.length) return address;
+  if (!isJSONSafe(boundArgs)) {
+    throw new Error(
+      "Bound arguments in an action url must be JSON-safe: the server reads them the way it " +
+        "reads a form post's, and that convention has no codec. Pass the value through the " +
+        "function's body, or call the reference instead of rendering a url for it."
+    );
+  }
+  return `${address}?args=${encodeURIComponent(JSON.stringify(boundArgs))}`;
+} /**
+ * Reads the function id back out of a server-rendered action url — the
+ * deconstruction half of `serverFunctionUrl`, for an integration that meets an
+ * action url before the module that declared it has loaded (a router
+ * synthesizing an invocation for a server component's form). Answers `null`
+ * when the url is not an address.
+ */
+export function parseServerFunctionUrl(url: string): string | null;
+
+/** Reads the function id back out of a server-rendered action url. */
+export function parseServerFunctionUrl(url) {
+  return parseServerFunctionAddress(
+    new URL(url, globalThis.location?.href || "http://localhost").pathname,
+    config.endpoint
+  );
 }
 
 function serializeArguments(args) {
@@ -288,6 +329,13 @@ export function configureServerFunctionsClient({
 
 let INSTANCE = 0;
 
+// Longest url the GET transport will build before falling back to POST.
+// Every proxy, CDN and server in a request's path draws its own line — the
+// lowest in common use is around 2 KB — so the transport stays under the
+// smallest of them rather than discovering the limit as a 414 in production.
+// Measured on the absolute url, which is what those limits apply to.
+const MAX_GET_URL_LENGTH = 2000;
+
 // Fills the late-bound RPC seam (registry.js) with this transport's
 // surface. Called from createServerReference/GET — the code compiled
 // `'use server'` output invokes at module scope — NOT at this module's own
@@ -317,7 +365,6 @@ function serverFunctionFailure(response, value) {
 async function createRequest(base, id, instance, options, meta) {
   const headers = {
     ...options.headers,
-    [FUNCTION_HEADER]: id,
     [INSTANCE_HEADER]: instance
   };
   // Subscribing to flight data IS the single-flight opt-in: with a consumer
@@ -558,7 +605,7 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
  * The optional `base` targets calls at that url verbatim instead of the
  * configured endpoint — for integrations reconstructing a callable from a
  * server-rendered action url (e.g. a router intercepting a form submit whose
- * `action="/_server?id=...&args=..."` came off the wire): bound arguments
+ * `action="/_server/<id>?args=..."` came off the wire): bound arguments
  * stay in the query string, where the server reads them for natural-encoding
  * bodies (FormData, urlencoded).
  * @internal
@@ -579,7 +626,7 @@ export function createServerReference(id, name, base) {
   provideRPC();
   const metadata = name === undefined ? {} : { name };
   // An explicit base targets that url verbatim — integrations reconstructing
-  // a callable from a server-rendered action url (`?id=...&args=...`) keep
+  // a callable from a server-rendered action url (`/_server/<id>?args=...`) keep
   // its bound arguments in the query string, where the server reads them
   // for natural-encoding bodies. Default calls derive from the configured
   // endpoint (lazily — it may be configured after module scope runs).
@@ -594,7 +641,13 @@ export function createServerReference(id, name, base) {
       const hit = handler.intercept({ id, meta: metadata, args });
       if (hit !== undefined) return hit;
     }
-    return fetchServerFunction(base || config.endpoint, id, {}, args, metadata);
+    return fetchServerFunction(
+      base || serverFunctionAddress(config.endpoint, id),
+      id,
+      {},
+      args,
+      metadata
+    );
   };
   fn[SERVER_FUNCTION_METADATA] = metadata;
 
@@ -602,7 +655,7 @@ export function createServerReference(id, name, base) {
     get(target, prop) {
       if (prop === "id") return id;
       if (prop === "url") {
-        return base || `${config.endpoint}?id=${encodeURIComponent(id)}`;
+        return base || serverFunctionAddress(config.endpoint, id);
       }
       return target[prop];
     }
@@ -671,21 +724,33 @@ export function GET(fn) {
       const hit = handler.intercept({ id, meta: metadata, args });
       if (hit !== undefined) return hit;
     }
-    let base = `${config.endpoint}?id=${encodeURIComponent(id)}`;
-    if (args.length) {
-      // The handler's GET path accepts both encodings: plain JSON and the
-      // codec's framed string (distinguished by the `;0x` frame prefix).
-      const encoded = isJSONSafe(args) ? JSON.stringify(args) : await serializeArguments(args);
-      base += `&args=${encodeURIComponent(encoded)}`;
+    const address = serverFunctionAddress(config.endpoint, id);
+    if (!args.length) {
+      return fetchServerFunction(address, id, { method: "GET" }, [], metadata, args);
     }
-    return fetchServerFunction(base, id, { method: "GET" }, [], metadata, args);
+    // The handler accepts both encodings: plain JSON and the codec's framed
+    // string (distinguished by the `;0x` frame prefix).
+    const encoded = isJSONSafe(args) ? JSON.stringify(args) : await serializeArguments(args);
+    const url = `${address}?args=${encodeURIComponent(encoded)}`;
+    const absolute = new URL(url, globalThis.location?.href || "http://localhost").href;
+    // Arguments too long for a url call over POST instead: a cache miss, not
+    // an error. A GET declaration grants the read methods without revoking
+    // the default transport, so the same call still dispatches — it just
+    // stops being cacheable, which beats a 414 from whichever proxy in the
+    // chain draws the line first. `read` keeps it a read: the declaration
+    // says so, and a POST-shaped read must not ask the server for
+    // single-flight collection, which is mutation policy.
+    if (absolute.length > MAX_GET_URL_LENGTH) {
+      return fetchServerFunction(address, id, { read: true }, args, metadata);
+    }
+    return fetchServerFunction(url, id, { method: "GET" }, [], metadata, args);
   };
   wrapped[SERVER_FUNCTION_METADATA] = metadata;
   wrapped.id = id;
   // lazy like the base proxy's: the endpoint may be configured after the
   // module-scope GET(...) call runs
   Object.defineProperty(wrapped, "url", {
-    get: () => `${config.endpoint}?id=${encodeURIComponent(id)}`,
+    get: () => serverFunctionAddress(config.endpoint, id),
     configurable: true
   });
   // the declaration itself is a metadata write like any other

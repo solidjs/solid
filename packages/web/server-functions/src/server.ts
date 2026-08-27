@@ -19,7 +19,6 @@ import {
   BODY_FORMAT_HEADER,
   BodyFormat,
   ERROR_HEADER,
-  FUNCTION_HEADER,
   INSTANCE_HEADER,
   LIVE_SOURCE,
   SERVER_FUNCTION_METADATA,
@@ -34,7 +33,9 @@ import {
   getServerFunctionsCodec,
   isJSONSafe,
   isServerFunction,
+  parseServerFunctionAddress,
   provideServerFunctionRPC,
+  serverFunctionAddress,
   createChunk,
   withMeta
 } from "./shared.js";
@@ -42,7 +43,6 @@ import {
 export {
   ERROR_HEADER,
   FLASH_COOKIE,
-  FUNCTION_HEADER,
   INSTANCE_HEADER,
   SINGLE_FLIGHT_HEADER,
   clearFlashCookie,
@@ -304,6 +304,9 @@ export interface ServerFunctionsServerConfig {
    * Prefix it when the app serves from a base path (e.g.
    * `` `${BASE_URL}_server` ``).
    * @default "/_server"
+   *
+   * Mount path the handler answers on: a request whose path does not
+   * start with it is not a call, and the id is the segment that follows.
    */
   endpoint?: string;
   /**
@@ -663,7 +666,7 @@ export function createServerReference({ id, fn, name }) {
     get(target, prop) {
       if (prop === "id") return id;
       if (prop === "url") {
-        return `${config.endpoint}?id=${encodeURIComponent(id)}`;
+        return serverFunctionAddress(config.endpoint, id);
       }
       if (prop === SERVER_FUNCTION_METADATA) return metadata;
       return target[prop];
@@ -855,12 +858,8 @@ export function getEventServerFunctionInvocation(event) {
   return event && INVOCATIONS.get(event);
 }
 
-function resolveFunctionId(request, url) {
-  const reference = request.headers.get(FUNCTION_HEADER);
-  if (reference) {
-    return reference.split("#")[0];
-  }
-  return url.searchParams.get("id");
+function resolveFunctionId(url) {
+  return parseServerFunctionAddress(url.pathname, config.endpoint);
 }
 
 async function parseArguments(request, url, instance, codec) {
@@ -872,17 +871,18 @@ async function parseArguments(request, url, instance, codec) {
   // client stubs with bound arguments serialize the full argument array in
   // the body and never put arguments in the url.
   const bodyFormat = request.method === "POST" ? request.headers.get(BODY_FORMAT_HEADER) : null;
-  if (!instance || request.method === "GET" || bodyFormat !== BodyFormat.Serialized) {
-    const args = url.searchParams.get("args");
-    if (args) {
-      // framed codec output (from the client runtime) or plain JSON (from
-      // integrations building no-JS urls by hand)
-      const result = args.startsWith(";0x")
-        ? await deserializeString(args, codec)
-        : JSON.parse(args);
-      for (const arg of result) {
-        parsed.push(arg);
-      }
+  const args = url.searchParams.get("args");
+  if (args && (!instance || request.method === "GET" || bodyFormat !== BodyFormat.Serialized)) {
+    // framed codec output (from the client runtime) or plain JSON (from
+    // integrations building urls by hand). Anything that is not an argument
+    // array is a malformed request, which dispatch answers as one: the query
+    // reserves `args`, so a caller that sends it sent an encoding.
+    const result = args.startsWith(";0x") ? await deserializeString(args, codec) : JSON.parse(args);
+    if (!Array.isArray(result)) {
+      throw new TypeError("Server function arguments must encode an array");
+    }
+    for (const arg of result) {
+      parsed.push(arg);
     }
   }
   if (request.method === "POST" && request.body !== null) {
@@ -1425,6 +1425,42 @@ export function observeServerFunctionCalls(
 // `@solidjs/web/server-functions` imports resolve on the server entry.
 export function observeServerFunctionCalls() {
   return () => {};
+} /**
+ * Builds the url a reference is called at, for integrations composing action
+ * urls the runtime did not render — a router turning a bound action into a
+ * `<form action>` for the no-JS path. `boundArgs` must be JSON-safe: the
+ * server reads them the way it reads a form post's, and that convention has
+ * no codec. Resolved against the configured endpoint, so a caller does not
+ * have to know where the handler is mounted. Present on both entries so
+ * isomorphic `@solidjs/web/server-functions` imports resolve.
+ */
+export function serverFunctionUrl(id: string, boundArgs?: readonly unknown[]): string;
+
+/** Builds the url a reference is called at: `<endpoint>/<id>[?args=...]`. */
+export function serverFunctionUrl(id, boundArgs) {
+  const address = serverFunctionAddress(config.endpoint, id);
+  if (!boundArgs || !boundArgs.length) return address;
+  if (!isJSONSafe(boundArgs)) {
+    throw new Error(
+      "Bound arguments in an action url must be JSON-safe: the server reads them the way it " +
+        "reads a form post's, and that convention has no codec. Pass the value through the " +
+        "function's body, or call the reference instead of rendering a url for it."
+    );
+  }
+  return `${address}?args=${encodeURIComponent(JSON.stringify(boundArgs))}`;
+} /**
+ * Reads the function id back out of a server-rendered action url — the
+ * deconstruction half of `serverFunctionUrl`, for an integration that meets an
+ * action url before the module that declared it has loaded (a router
+ * synthesizing an invocation for a server component's form). Answers `null`
+ * when the url is not an address. Present on both entries so isomorphic
+ * `@solidjs/web/server-functions` imports resolve.
+ */
+export function parseServerFunctionUrl(url: string): string | null;
+
+/** Reads the function id back out of a server-rendered action url. */
+export function parseServerFunctionUrl(url) {
+  return parseServerFunctionAddress(new URL(url, "http://localhost").pathname, config.endpoint);
 }
 
 async function matchesOrigin(origin, request, matcher) {
@@ -1618,7 +1654,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
   const codec = options.codec !== undefined ? options.codec : getServerFunctionsCodec();
   const url = new URL(request.url);
   const method = request.method;
-  const functionId = resolveFunctionId(request, url);
+  const functionId = resolveFunctionId(url);
   // GET-declared functions are reads by contract, and the read methods are
   // exactly where the CSRF gate costs more than it buys: same-origin policy
   // already prevents a cross-site caller from READING the response, while
@@ -1701,7 +1737,18 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // header, the server must have a hook to produce the data
   const collectsFlight = !!(flightHook && instance && request.headers.has(SINGLE_FLIGHT_HEADER));
 
-  const parsed = await parseArguments(request, url, instance, codec);
+  let parsed;
+  try {
+    parsed = await parseArguments(request, url, instance, codec);
+  } catch {
+    // A query that is not the encoding it claims to be is a malformed
+    // request, not a failing call: 400 keeps it out of the function's error
+    // channel, and answers the same way for every caller of that url.
+    const response = new Response(DEV ? "Malformed server function arguments" : null, {
+      status: 400
+    });
+    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+  }
 
   // What the fold needs to build a body itself, and what a result transform
   // needs to know to leave one for it. The call's identity (`id`, parsed

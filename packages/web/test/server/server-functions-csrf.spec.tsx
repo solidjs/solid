@@ -8,11 +8,10 @@ import type { ServerFunctionCSRFOptions } from "@solidjs/web/server-functions/se
 const provideEvent = <T,>(_event: unknown, run: () => T): T => run();
 
 function request(id: string, headers: Record<string, string> = {}) {
-  return new Request("https://app.example/_server", {
+  return new Request(`https://app.example/_server/${id}`, {
     method: "POST",
     headers: {
       ...headers,
-      "X-Server-Function-Id": id,
       "X-Server-Function-Instance": "server-function:test"
     }
   });
