@@ -41,6 +41,51 @@ recursive-context, signal-favoring, spa-navigation, streaming-ssr.
   modes," quantified on a worst-case mount-churn shape. Open item: shrink
   the fallback bind cost.
 
+## 20. Re-audit hardening (2026-08-26 night)
+
+External re-audit verdict: "materially improved, still not merge-ready" —
+six blockers, all verified in code before fixing (every one was real):
+
+1. **Registration lifecycle**: ordinary patchDriver binds discarded their
+   unbind — entries and patchCount leaked past unmount (drains only skip
+   disposed owners). Now owner-cleanup-tied; unbind decrements only on
+   actual removal.
+2. **Transition merges**: `_heldPatches` was an undeclared sidecar that
+   mergeTransitionState never moved — merged-away transitions silently
+   dropped their held patches. Now moved like every declared collection.
+3. **Accessor contract**: patchableRaw trusted the lazily-discovered `a`
+   flag (unsound admission — getter deps never re-applied); demotePatches
+   had no caller. Now: scan-at-admission (sticky, one pass per record) and
+   defineProperty-acquired accessors demote to tracked effect fallbacks
+   (deferred to effect phase; getter deps track through the proxy).
+4. **Family structure**: writable projection push/splice froze driven
+   lists (setter row ops gated to fam === null; both the clone branch and
+   the eager write-override fold now emit, gated off adoption folds and
+   optimistic families). Row-ops/slot registrations resolve chained
+   backings to the ultimate owner. A first attempt emitted at fold-commit
+   WITHOUT the adoption gate and double-applied matrix reorders — the
+   `t.adopted` flag is the discriminator.
+5. **Optimistic errors**: drainOptimistic invoked callbacks bare; now
+   shares the normal drain's applyEntries (isolation + boundary routing).
+6. **Compiler contract**: `patchDriver` typed in TransformOptions, Babel
+   normalizes boolean `true` like the native loader, and a `dom-patch`
+   parity tier compiles the full dom corpus with patch mode on —
+   **byte parity, zero ratchet files**.
+
+Also: `_DX_DEV_` → `_SOLID_DEV_` (the dev ownership diagnostic was
+shipping in production patch bundles — unreplaced truthy string), and
+occurrence-aware duplicate-key matching in buildRowOps + identityOps
+(first-wins handed one DOM row to multiple next positions).
+
+Known accepted edge: a demoted LIST-ROW body re-drives under the list
+owner, so per-row severing is lost for demoted rows (they only demote when
+user code defines an accessor on a row record at runtime).
+
+Deferred from the audit's secondary list: staged exception-safe applyOps
+(remove-before-build), per-store rather than global patchCount gating, the
+@ts-nocheck on patch-driver.ts, and a versioned internal compiler entry
+for the runtime primitives.
+
 ## 19. Pay-for-use restructure (2026-08-26) — the merge blocker
 
 The size gate (scripts/size) failed 5/8 scenarios: every client app paid
