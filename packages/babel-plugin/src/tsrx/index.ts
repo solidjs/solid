@@ -2,9 +2,10 @@
  * TSRX syntax frontend entry point.
  *
  * Routes `.tsrx` sources (or any source when `syntax: "tsrx"`) through
- * `@tsrx/core`'s parser + semantic analysis + lazy-destructuring transform,
- * desugars every TSRX construct to Solid builtIn JSX, and converts the result
- * to a Babel `File` for the unchanged JSX pipeline.
+ * `@tsrx/core`'s parser + semantic analysis, applies Solid's local
+ * lazy-destructuring transform, desugars every TSRX construct to Solid builtIn
+ * JSX, and converts the result to a Babel `File` for the unchanged JSX
+ * pipeline.
  *
  * `@tsrx/core` is an optional peer dependency loaded lazily on first TSRX
  * routing, so plain JSX users never pay for it.
@@ -13,6 +14,7 @@
 import type * as t from "@babel/types";
 import { desugarProgram, restoreIntrinsicJsxNames, type EsNode } from "./desugar";
 import { toBabelFile } from "./estree-to-babel";
+import { applyLazyTransforms } from "./lazy";
 
 // The plugin ships as CJS; `require` of the ESM-only `@tsrx/core` is
 // supported natively on Node >= 22.12. No @types/node in this package.
@@ -21,9 +23,6 @@ declare const require: ((id: string) => unknown) | undefined;
 interface TsrxCore {
   parseModule(source: string, filename?: string | null): EsNode;
   analyzeTsrx(ast: EsNode, filename?: string | null): unknown;
-  createLazyContext(): unknown;
-  preallocateLazyIds(root: EsNode, context: unknown): void;
-  applyLazyTransforms(node: EsNode, lazyBindings: Map<string, unknown>): EsNode;
 }
 
 let core: TsrxCore | undefined;
@@ -79,11 +78,9 @@ export function parseTsrx(code: string, filename?: string): t.File {
   // patterns themselves pass through the desugarer untouched.
   desugarProgram(program);
 
-  const lazyContext = tsrx.createLazyContext();
-  tsrx.preallocateLazyIds(program, lazyContext);
-  const transformed = tsrx.applyLazyTransforms(program, new Map());
-  // The lazy engine wrongly rewrites intrinsic lowercase tags whose name
-  // collides with a lazy binding; undo those rewrites (upstream bug).
+  const transformed = applyLazyTransforms(program);
+  // Keep this compatibility repair in place for trees produced by older
+  // desugaring paths. The local engine itself never rewrites intrinsic names.
   restoreIntrinsicJsxNames(transformed);
 
   return toBabelFile(transformed);

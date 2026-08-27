@@ -257,6 +257,8 @@ Requirements and behavior:
 - Compiling `.tsrx` sources requires the optional peer dependency `@tsrx/core` and Node.js >= 22.12. It loads lazily on first TSRX routing, so plain JSX users never pay for it.
 - Routing is filename-based by default (`syntax: "auto"`), so Babel must receive a `filename`.
 - Desugared constructs rely on the `builtIns` auto-imports, so those components must exist in `moduleName`.
+- Lazy patterns support synchronous and asynchronous arrow parameters, nested, renamed, and computed bindings, JavaScript-style defaults, object/array rest, and standalone `&{ … } = value;` / `&[ … ] = value;` statements. Defaults apply only when the deferred value is `undefined`; rest bindings are fresh read-only views. Standalone assignment patterns do not yet accept defaults.
+- Destructured bindings in keyed `@for` loops and `@catch` clauses stay deferred against Solid's item and error accessors, including nested patterns, defaults, computed keys, and rest.
 - The native compiler ([`@solidjs/compiler`](../compiler)) compiles the same sources to byte-identical output.
 
 ## Special Binding

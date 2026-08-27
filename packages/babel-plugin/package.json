@@ -29,7 +29,7 @@
   },
   "peerDependencies": {
     "@babel/core": "^7.20.12",
-    "@tsrx/core": "0.1.61"
+    "@tsrx/core": "0.1.63"
   },
   "peerDependenciesMeta": {
     "@tsrx/core": {
@@ -38,9 +38,9 @@
   },
   "devDependencies": {
     "@babel/core": "^7.29.0",
-    "@solidjs/web": "workspace:*",
     "@rollup/plugin-babel": "7.0.0",
-    "@tsrx/core": "0.1.61",
+    "@solidjs/web": "workspace:*",
+    "@tsrx/core": "0.1.63",
     "@types/babel__core": "^7.20.5",
     "@types/babel__traverse": "^7.28.0"
   }

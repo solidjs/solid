@@ -329,8 +329,8 @@ importers:
         specifier: workspace:*
         version: link:../web
       '@tsrx/core':
-        specifier: 0.1.61
-        version: 0.1.61
+        specifier: 0.1.63
+        version: 0.1.63
       '@types/babel__core':
         specifier: ^7.20.5
         version: 7.20.5
@@ -2391,11 +2391,11 @@ packages:
     resolution: {integrity: sha512-zIcONa+hVtVSSep9UT3jZ5rizo2BsxgyDYU7WFD5eICBE7no3881HGeb/QkGfsJs6JTkY1aQhT7rIPC7e+0nnA==}
     engines: {node: '>=14', npm: '>=6', yarn: '>=1'}
 
-  '@tsrx/core@0.1.61':
-    resolution: {integrity: sha512-JOGLL9iiuFbx6vcbjRziVddDJO6CZFtH5idWn0Mw4Rt92O5oPMPM0GeyqD5fFuGFo7K6zu7f+74jUGlYv56doQ==}
+  '@tsrx/core@0.1.63':
+    resolution: {integrity: sha512-EQIkCcqW7wTLtLGQQP8bRUe9O+GYFpBsZXXgs7088YIjtoHlNAE2qVgtsEPYY86oV5XBY9aGWLsjCS0SzXvLqw==}
 
-  '@tsrx/runtime@0.1.1':
-    resolution: {integrity: sha512-R7n2forc2XQvqCYpYMqGij1tCwoPILBubRczQ2Kbjj3d6naiseEq6qfMmljEkKp14ERYHstx7ISrw2wY7Ml0DA==}
+  '@tsrx/runtime@0.1.2':
+    resolution: {integrity: sha512-bhiacN/1cDKtBAY/sePUmRldkj5TvAXk8gqlyCxF22XM7l+gM0FIISDDSg0jIa1pcBfnyW2vnc82WdtfO9h7Ng==}
 
   '@tybys/wasm-util@0.10.3':
     resolution: {integrity: sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==}
@@ -6326,12 +6326,12 @@ snapshots:
       picocolors: 1.1.1
       redent: 3.0.0
 
-  '@tsrx/core@0.1.61':
+  '@tsrx/core@0.1.63':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
       '@noble/hashes': 2.3.0
       '@sveltejs/acorn-typescript': 1.0.13(acorn@8.18.0)
-      '@tsrx/runtime': 0.1.1
+      '@tsrx/runtime': 0.1.2
       '@types/estree': 1.0.8
       '@types/estree-jsx': 1.0.5
       acorn: 8.18.0
@@ -6342,7 +6342,7 @@ snapshots:
     transitivePeerDependencies:
       - '@typescript-eslint/types'
 
-  '@tsrx/runtime@0.1.1': {}
+  '@tsrx/runtime@0.1.2': {}
 
   '@tybys/wasm-util@0.10.3':
     dependencies:

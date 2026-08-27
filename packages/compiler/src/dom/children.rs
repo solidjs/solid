@@ -119,8 +119,7 @@ impl<'a> AstDomTransform<'a, '_> {
                                     self.detect_expressions(&filtered, position)
                                 })
                             {
-                                let name =
-                                    claimed.unwrap_or_else(|| self.next_element_id());
+                                let name = claimed.unwrap_or_else(|| self.next_element_id());
                                 let lookup = self.child_walk_expression(
                                     element.span,
                                     element_id,
@@ -245,8 +244,7 @@ impl<'a> AstDomTransform<'a, '_> {
                                     self.detect_expressions(&filtered, position)
                                 })
                             {
-                                let name =
-                                    claimed.unwrap_or_else(|| self.next_element_id());
+                                let name = claimed.unwrap_or_else(|| self.next_element_id());
                                 let lookup = self.child_walk_expression(
                                     element.span,
                                     element_id,

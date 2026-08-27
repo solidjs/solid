@@ -388,9 +388,10 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
             });
         }
         if patched_subject.is_none()
-            && let Some(statement) = self.wrap_dynamics_statement(dynamics) {
-                operations.push(statement);
-            }
+            && let Some(statement) = self.wrap_dynamics_statement(dynamics)
+        {
+            operations.push(statement);
+        }
         if self.should_close_tag(&tag_name, CloseTagContext::root()) {
             template.html.push_str(&format!("</{tag_name}>"));
         }

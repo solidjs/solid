@@ -34,18 +34,6 @@ pub fn run_frontend(source: &str, filename: Option<&str>) -> Result<Projection, 
 
     let result = parse_source(source, options)?;
     if result.status != ParseCompleteness::Complete {
-        // Known upstream gap (oxc-tsrx v0.6.0): statement containers in
-        // expression position (`const x = @{…}`, `{@{…}}`) are spec-valid and
-        // Babel-supported but fail the engine's projected parse with an
-        // unrelated-looking error. Name the real problem when it applies.
-        if let Some(offset) = expression_position_container(source) {
-            let (line, column) = line_column(source, offset);
-            return Err(CompileError::parse(format!(
-                "TSRX statement containers in expression position are not yet supported by the \
-                 native compiler; write the container as a direct element child \
-                 (`<div>@{{ … }}</div>`) or move it into a helper function ({line}:{column})"
-            )));
-        }
         return Err(first_diagnostic_error(source, &result));
     }
     let mut tape = result
@@ -53,8 +41,7 @@ pub fn run_frontend(source: &str, filename: Option<&str>) -> Result<Projection, 
         .ok_or_else(|| CompileError::parse("TSRX parse returned no program"))?;
 
     if result.coordinate_domain == CoordinateDomain::OriginalUtf16Units {
-        rebase_utf16_spans(source, &mut tape)
-            .map_err(CompileError::parse)?;
+        rebase_utf16_spans(source, &mut tape).map_err(CompileError::parse)?;
     }
 
     project::project(source, &tape).map_err(|error| {
@@ -126,40 +113,6 @@ fn rebase_utf16_spans(source: &str, tape: &mut tsrx_tape_schema::FlatTape) -> Re
     Ok(())
 }
 
-/// Authored offset of the first `@{` in expression position, if any.
-///
-/// The engine supports containers as function bodies (`) @{`), arrow bodies
-/// (`=> @{`), and direct JSX children; expression positions are recognized by
-/// the preceding token instead. Strings and comments are not lexed — this
-/// heuristic only refines diagnostics for sources the engine already
-/// rejected, and misses fall back to the engine's own message.
-fn expression_position_container(source: &str) -> Option<u32> {
-    let bytes = source.as_bytes();
-    for index in 0..bytes.len().saturating_sub(1) {
-        if bytes[index] != b'@' || bytes[index + 1] != b'{' {
-            continue;
-        }
-        let mut before = index;
-        while before > 0 && bytes[before - 1].is_ascii_whitespace() {
-            before -= 1;
-        }
-        if before == 0 {
-            continue;
-        }
-        let after_return = before >= 6
-            && &bytes[before - 6..before] == b"return"
-            && (before == 6 || !bytes[before - 7].is_ascii_alphanumeric());
-        if matches!(
-            bytes[before - 1],
-            b'=' | b'(' | b',' | b'[' | b':' | b'?' | b'{'
-        ) || after_return
-        {
-            return Some(index as u32);
-        }
-    }
-    None
-}
-
 fn first_diagnostic_error(source: &str, result: &TsrxParseResult) -> CompileError {
     let table = &result.errors;
     let Some(record) = table.records().first() else {
@@ -183,8 +136,7 @@ fn first_diagnostic_error(source: &str, result: &TsrxParseResult) -> CompileErro
             // Failed parses report in the authored domain of the used route;
             // for the UTF-16 route the offset is in code units, close enough
             // for a line/column computed over chars.
-            let (line, column) = if result.coordinate_domain
-                == CoordinateDomain::OriginalUtf16Units
+            let (line, column) = if result.coordinate_domain == CoordinateDomain::OriginalUtf16Units
             {
                 line_column_utf16(source, start)
             } else {

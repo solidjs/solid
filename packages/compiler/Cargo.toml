@@ -32,8 +32,8 @@ oxc_semantic = "0.144"
 oxc_span = "0.144"
 oxc_str = "0.144"
 oxc_syntax = "0.144"
-tsrx_parser_engine = { git = "https://github.com/compiled-run/oxc-tsrx", rev = "6be6a8c7773407c84f79fad0e3f7d192b72e8102", optional = true }
-tsrx_tape_schema = { git = "https://github.com/compiled-run/oxc-tsrx", rev = "6be6a8c7773407c84f79fad0e3f7d192b72e8102", optional = true }
+tsrx_parser_engine = { git = "https://github.com/tsrx-org/oxc", rev = "0702360d4a4e2137ae8e3e01ca3c9d78f126b175", optional = true }
+tsrx_tape_schema = { git = "https://github.com/tsrx-org/oxc", rev = "0702360d4a4e2137ae8e3e01ca3c9d78f126b175", optional = true }
 
 [dev-dependencies]
 # `noop` stubs the Node-API symbols so `cargo test` can link the unit-test

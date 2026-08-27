@@ -16,10 +16,12 @@ use std::path::{Path, PathBuf};
 use solidjs_compiler::{CompileErrorKind, CompileOptions, Generate, Syntax, compile};
 
 fn built_ins() -> Vec<String> {
-    ["For", "Show", "Switch", "Match", "Errored", "Loading", "Dynamic"]
-        .into_iter()
-        .map(String::from)
-        .collect()
+    [
+        "For", "Show", "Switch", "Match", "Errored", "Loading", "Dynamic",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
 }
 
 fn fixture_options(generate: Generate) -> CompileOptions {
@@ -44,13 +46,6 @@ fn fixture_root(dir: &str) -> PathBuf {
         .join(dir)
 }
 
-/// Fixtures that exercise statement containers in expression position
-/// (`const x = @{…}`, `{@{…}}`) — spec-valid TSRX that the Babel frontend
-/// compiles but the pinned `oxc-tsrx` engine cannot parse yet (upstream gap,
-/// see documentation/tsrx/frontend-notes.md). Their structured rejection is
-/// pinned by `rejects_expression_position_containers_with_guidance`.
-const EXPRESSION_POSITION_FIXTURES: &[&str] = &["codeBlocks", "lazyShadowing"];
-
 fn compile_corpus(dir: &str, generate: Generate) -> Vec<(String, String)> {
     let root = fixture_root(dir);
     let mut outputs = Vec::new();
@@ -60,7 +55,10 @@ fn compile_corpus(dir: &str, generate: Generate) -> Vec<(String, String)> {
         .filter(|path| path.is_dir())
         .collect();
     entries.sort();
-    assert!(!entries.is_empty(), "fixture corpus {dir} must not be empty");
+    assert!(
+        !entries.is_empty(),
+        "fixture corpus {dir} must not be empty"
+    );
 
     let mut failures = Vec::new();
     for fixture in entries {
@@ -69,9 +67,6 @@ fn compile_corpus(dir: &str, generate: Generate) -> Vec<(String, String)> {
             .expect("fixture directory name")
             .to_string_lossy()
             .into_owned();
-        if EXPRESSION_POSITION_FIXTURES.contains(&name.as_str()) {
-            continue;
-        }
         let source = std::fs::read_to_string(fixture.join("code.tsrx"))
             .unwrap_or_else(|error| panic!("{name}: fixture must have code.tsrx: {error}"));
         let options = CompileOptions {
@@ -117,6 +112,18 @@ fn compiles_the_dom_fixture_corpus() {
 
     let keyed = by_name("forKeyed");
     assert!(keyed.contains("_$For"), "For auto-import: {keyed}");
+
+    let code_blocks = by_name("codeBlocks");
+    assert!(
+        code_blocks.contains("const title = (() => {"),
+        "expression-position statement container: {code_blocks}"
+    );
+
+    let lazy_shadowing = by_name("lazyShadowing");
+    assert!(
+        lazy_shadowing.contains("__lazy") && lazy_shadowing.contains("inner"),
+        "lazy binding around expression-position container: {lazy_shadowing}"
+    );
 }
 
 #[test]
@@ -135,6 +142,33 @@ fn compiles_the_universal_fixture_corpus() {
         outputs.iter().all(|(_, code)| code.contains("r-custom")),
         "universal outputs import from the configured module"
     );
+}
+
+#[test]
+fn compiles_standalone_lazy_assignment_statements() {
+    let source = "export function run(source) @{\n\
+        &{ value, ...rest } = source;\n\
+        &[first, ...tail] = source.items;\n\
+        value++;\n\
+        return [value, rest, first, tail];\n\
+        <p />\n\
+    }";
+    let options = CompileOptions {
+        filename: Some("standalone-lazy.tsrx".into()),
+        ..fixture_options(Generate::Dom)
+    };
+    let output = compile(source, &options).expect("standalone lazy assignments compile");
+    assert!(
+        output.code.contains("const __lazy0 = source;"),
+        "{}",
+        output.code
+    );
+    assert!(
+        output.code.contains("const __lazy1 = source.items;"),
+        "{}",
+        output.code
+    );
+    assert!(output.code.contains("__lazy0.value++"), "{}", output.code);
 }
 
 // -- syntax routing ----------------------------------------------------------
@@ -209,7 +243,9 @@ fn rejects_scoped_style_blocks() {
         "export function C() @{\n  <div>\n    <style>\n      div { color: red; }\n    </style>\n    <p>hi</p>\n  </div>\n}\n",
     );
     assert!(
-        message.to_lowercase().contains("scoped <style> blocks are not yet supported"),
+        message
+            .to_lowercase()
+            .contains("scoped <style> blocks are not yet supported"),
         "style diagnostic: {message}"
     );
 }
@@ -254,11 +290,6 @@ fn rejects_control_flow_and_structural_early_errors() {
             "@for must iterate with for...of",
         ),
         (
-            "keyed destructured @for",
-            "export function C({ xs }) @{ <ul>@for (const { id } of xs; key id) { <li>{id}</li> }</ul> }",
-            "Combining `key` with a destructured @for binding",
-        ),
-        (
             "statement after output",
             "export function C() @{ <p />; const x = 1; }",
             "render expression precedes another statement",
@@ -267,11 +298,6 @@ fn rejects_control_flow_and_structural_early_errors() {
             "multiple output nodes",
             "export function C() @{ <p />; <span /> }",
             "render expression precedes another statement",
-        ),
-        (
-            "destructured @catch",
-            "export const C = () => @try { <p /> } @catch ({ message }) { <p>{message}</p> };",
-            "error binding must be an identifier",
         ),
         (
             "@finally",
@@ -317,25 +343,6 @@ fn rejects_statement_containers_without_rendered_output() {
         message.contains("A TSRX statement container is missing its rendered output node"),
         "renderless container diagnostic: {message}"
     );
-}
-
-#[test]
-fn rejects_expression_position_containers_with_guidance() {
-    // The Babel-only fixtures stay the source of truth for the authored
-    // forms; the native compiler must reject them with the structured
-    // diagnostic until the upstream oxc-tsrx gap is fixed.
-    for name in EXPRESSION_POSITION_FIXTURES {
-        let path = fixture_root("__tsrx_dom_fixtures__").join(format!("{name}/code.tsrx"));
-        let source = std::fs::read_to_string(&path)
-            .unwrap_or_else(|error| panic!("{name} fixture must exist: {error}"));
-        let message = compile_error(&source);
-        assert!(
-            message.contains(
-                "TSRX statement containers in expression position are not yet supported"
-            ),
-            "{name} diagnostic: {message}"
-        );
-    }
 }
 
 #[test]

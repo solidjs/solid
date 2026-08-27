@@ -12,7 +12,9 @@ use oxc_span::Span;
 use oxc_str::{Ident, Str};
 use oxc_syntax::{
     number::NumberBase,
-    operator::{AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator},
+    operator::{
+        AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator, UpdateOperator,
+    },
 };
 
 #[derive(Clone, Copy)]
@@ -213,6 +215,16 @@ impl<'a> AstBuilder<'a> {
         argument: Expression<'a>,
     ) -> Expression<'a> {
         Expression::new_unary_expression(span, operator, argument, &self.inner())
+    }
+
+    pub(crate) fn expression_update(
+        &self,
+        span: Span,
+        operator: UpdateOperator,
+        prefix: bool,
+        argument: SimpleAssignmentTarget<'a>,
+    ) -> Expression<'a> {
+        Expression::new_update_expression(span, operator, prefix, argument, &self.inner())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -686,11 +698,23 @@ impl<'a> AstBuilder<'a> {
         JSXExpressionContainer::new(span, expression, &self.inner())
     }
 
-    pub(crate) fn jsx_identifier(
+    pub(crate) fn jsx_attribute_item_expression(
         &self,
         span: Span,
-        name: impl Into<Str<'a>>,
-    ) -> JSXIdentifier<'a> {
+        name: &str,
+        expression: Expression<'a>,
+    ) -> JSXAttributeItem<'a> {
+        JSXAttributeItem::Attribute(JSXAttribute::boxed(
+            span,
+            JSXAttributeName::Identifier(JSXIdentifier::boxed(span, self.str(name), &self.inner())),
+            Some(JSXAttributeValue::ExpressionContainer(
+                JSXExpressionContainer::boxed(span, expression.into(), &self.inner()),
+            )),
+            &self.inner(),
+        ))
+    }
+
+    pub(crate) fn jsx_identifier(&self, span: Span, name: impl Into<Str<'a>>) -> JSXIdentifier<'a> {
         JSXIdentifier::new(span, name, &self.inner())
     }
 

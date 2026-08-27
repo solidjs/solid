@@ -28,7 +28,7 @@ pub struct Projection {
     pub text: String,
     /// Projected offset of each lazy pattern's opening bracket, with its
     /// preallocated `__lazyN` name.
-    pub lazy_patterns: Vec<(u32, String)>,
+    pub lazy_patterns: Vec<(u32, String, bool)>,
     /// Projected offset of a generated arrow (its parameter `(`), with the
     /// binding names whose reads must become zero-argument calls (RC accessor
     /// semantics for keyed `For` items, `For` indexes, and `@catch` errors).
@@ -134,11 +134,79 @@ fn is_lazy_pattern(node: Node<'_>) -> bool {
     matches!(node.ty(), "ArrayPattern" | "ObjectPattern") && node.bool_field("lazy")
 }
 
+fn lazy_assignment_pattern(node: Node<'_>) -> Option<Node<'_>> {
+    if node.ty() != "ExpressionStatement" {
+        return None;
+    }
+    let expression = node.node_field("expression")?;
+    if expression.ty() != "AssignmentExpression" || expression.str_field("operator") != Some("=") {
+        return None;
+    }
+    expression
+        .node_field("left")
+        .filter(|pattern| is_lazy_pattern(*pattern))
+}
+
+fn contains_lazy_pattern(node: Node<'_>) -> bool {
+    let mut found = false;
+    tape::walk(node, &mut |child| {
+        if is_lazy_pattern(child) {
+            found = true;
+            return false;
+        }
+        true
+    });
+    found
+}
+
+fn contains_pattern_default(node: Node<'_>) -> bool {
+    let mut found = false;
+    tape::walk(node, &mut |child| {
+        if child.ty() == "AssignmentPattern" {
+            found = true;
+            return false;
+        }
+        true
+    });
+    found
+}
+
+fn exported_lazy_declaration(root: Node<'_>) -> Option<Node<'_>> {
+    let mut invalid = None;
+    tape::walk(root, &mut |node| {
+        if matches!(
+            node.ty(),
+            "ExportNamedDeclaration" | "ExportDefaultDeclaration"
+        ) && let Some(declaration) = node.node_field("declaration")
+            && declaration.ty() == "VariableDeclaration"
+            && declaration
+                .list_field("declarations")
+                .flatten()
+                .any(|declarator| {
+                    declarator
+                        .node_field("id")
+                        .is_some_and(contains_lazy_pattern)
+                })
+        {
+            invalid = Some(declaration);
+            return false;
+        }
+        invalid.is_none()
+    });
+    invalid
+}
+
 pub fn project(source: &str, tape: &tsrx_tape_schema::FlatTape) -> Result<Projection> {
     let root = Node::root(tape).ok_or(ProjectError {
         message: "TSRX parse produced no program".into(),
         start: 0,
     })?;
+    if let Some(declaration) = exported_lazy_declaration(root) {
+        return Err(ProjectError::new(
+            "TSRX lazy bindings cannot be exported",
+            declaration,
+        ));
+    }
 
     let mut renderer = Renderer {
         source,
@@ -146,6 +214,7 @@ pub fn project(source: &str, tape: &tsrx_tape_schema::FlatTape) -> Result<Projec
         lazy_ids: collect_lazy_ids(root),
         lazy_patterns: Vec::new(),
         accessor_arrows: Vec::new(),
+        suppress_nested_lazy: 0,
     };
 
     renderer.emit_verbatim_with_specials(root, 0, source.len() as u32, Position::Expression)?;
@@ -162,15 +231,103 @@ pub fn project(source: &str, tape: &tsrx_tape_schema::FlatTape) -> Result<Projec
 fn collect_lazy_ids(root: Node<'_>) -> Vec<(u32, u32)> {
     let mut spans: Vec<(u32, u32)> = Vec::new();
     tape::walk(root, &mut |node| {
-        if is_lazy_pattern(node)
-            && let Some(span) = node.span() {
-                spans.push(span);
+        match node.ty() {
+            "VariableDeclarator" => {
+                if let Some(pattern) = node.node_field("id") {
+                    collect_topmost_lazy_patterns(pattern, &mut spans);
+                }
             }
+            "FunctionDeclaration" | "FunctionExpression" | "ArrowFunctionExpression" => {
+                for pattern in node.list_field("params").flatten() {
+                    collect_topmost_lazy_patterns(pattern, &mut spans);
+                }
+            }
+            "CatchClause" => {
+                if let Some(pattern) = node.node_field("param") {
+                    collect_topmost_lazy_patterns(pattern, &mut spans);
+                }
+            }
+            "ExpressionStatement" => {
+                if let Some(pattern) = lazy_assignment_pattern(node) {
+                    collect_topmost_lazy_patterns(pattern, &mut spans);
+                }
+            }
+            _ => {}
+        }
+        if node.ty() == "JSXForExpression"
+            && node.has_node_field("key")
+            && let Some(pattern) = for_binding_pattern(node)
+            && pattern.ty() != "Identifier"
+            && let Some(span) = pattern.span()
+        {
+            spans.push(span);
+        }
+        if node.ty() == "JSXTryExpression"
+            && let Some(pattern) = node
+                .node_field("handler")
+                .and_then(|handler| handler.node_field("param"))
+            && pattern.ty() != "Identifier"
+            && let Some(span) = pattern.span()
+        {
+            spans.push(span);
+        }
         true
     });
     spans.sort_unstable();
     spans.dedup();
     spans
+}
+
+fn collect_topmost_lazy_patterns(node: Node<'_>, spans: &mut Vec<(u32, u32)>) {
+    match node.ty() {
+        "AssignmentPattern" => {
+            if let Some(left) = node.node_field("left") {
+                collect_topmost_lazy_patterns(left, spans);
+            }
+        }
+        "RestElement" => {
+            if let Some(argument) = node.node_field("argument") {
+                collect_topmost_lazy_patterns(argument, spans);
+            }
+        }
+        "ObjectPattern" | "ArrayPattern" if is_lazy_pattern(node) => {
+            if let Some(span) = node.span() {
+                spans.push(span);
+            }
+        }
+        "ObjectPattern" => {
+            for property in node.list_field("properties").flatten() {
+                let child = if property.ty() == "RestElement" {
+                    property.node_field("argument")
+                } else {
+                    property.node_field("value")
+                };
+                if let Some(child) = child {
+                    collect_topmost_lazy_patterns(child, spans);
+                }
+            }
+        }
+        "ArrayPattern" => {
+            for element in node.list_field("elements").flatten() {
+                collect_topmost_lazy_patterns(element, spans);
+            }
+            if let Some(rest) = node.node_field("rest") {
+                collect_topmost_lazy_patterns(rest, spans);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn for_binding_pattern(node: Node<'_>) -> Option<Node<'_>> {
+    let left = node.node_field("left")?;
+    if left.ty() != "VariableDeclaration" {
+        return Some(left);
+    }
+    left.list_field("declarations")
+        .flatten()
+        .next()
+        .and_then(|declarator| declarator.node_field("id"))
 }
 
 // ---------------------------------------------------------------------------
@@ -192,7 +349,9 @@ struct Special<'t> {
 fn collect_specials<'t>(node: Node<'t>, position: Position, out: &mut Vec<Special<'t>>) {
     let ty = node.ty();
 
-    let special_span = if is_construct(ty) {
+    let special_span = if lazy_assignment_pattern(node).is_some() {
+        node.span()
+    } else if is_construct(ty) {
         // The engine's construct spans can exclude trailing clause blocks
         // (`@for … {…} @empty {…}` ends at the body); the replacement must
         // swallow every clause, so extend the end over clause-field spans.
@@ -205,7 +364,8 @@ fn collect_specials<'t>(node: Node<'t>, position: Position, out: &mut Vec<Specia
         node.span()
     } else if is_lazy_pattern(node) {
         // The `&` sigil sits immediately before the pattern's bracket.
-        node.span().map(|(start, end)| (start.saturating_sub(1), end))
+        node.span()
+            .map(|(start, end)| (start.saturating_sub(1), end))
     } else {
         None
     };
@@ -274,9 +434,10 @@ fn collect_children<'t>(node: Node<'t>, out: &mut Vec<Special<'t>>) {
                     let mut next = node.tape().list_first_value(list);
                     while let Some(entry) = next.filter(|entry| !entry.is_none()) {
                         if let Some(item) = node.tape().list_value(entry)
-                            && let Some(child) = Node::from_value(node.tape(), item) {
-                                collect_specials(child, child_position, out);
-                            }
+                            && let Some(child) = Node::from_value(node.tape(), item)
+                        {
+                            collect_specials(child, child_position, out);
+                        }
                         next = node.tape().list_value_next(entry);
                     }
                 }
@@ -349,10 +510,7 @@ fn partition_entries<'t>(entries: &[Node<'t>]) -> (Vec<Node<'t>>, Vec<Node<'t>>)
     let mut renders = Vec::new();
     for entry in entries {
         if is_render_entry(entry.ty()) {
-            if entry.ty() == "JSXText"
-                && entry
-                    .str_field("value")
-                    .is_some_and(decode_json_ws_only)
+            if entry.ty() == "JSXText" && entry.str_field("value").is_some_and(decode_json_ws_only)
             {
                 continue;
             }
@@ -384,8 +542,9 @@ struct Renderer<'s> {
     out: String,
     /// Document-ordered lazy pattern spans; index = lazy id.
     lazy_ids: Vec<(u32, u32)>,
-    lazy_patterns: Vec<(u32, String)>,
+    lazy_patterns: Vec<(u32, String, bool)>,
     accessor_arrows: Vec<(u32, Vec<String>)>,
+    suppress_nested_lazy: usize,
 }
 
 impl<'s> Renderer<'s> {
@@ -444,6 +603,7 @@ impl<'s> Renderer<'s> {
             || ty == "JSXStyleElement"
             || is_dynamic_element(node)
             || (ty == "JSXAttribute" && node.bool_field("shorthand"))
+            || lazy_assignment_pattern(node).is_some()
             || is_lazy_pattern(node)
         {
             return self.render_special(node, position);
@@ -467,6 +627,12 @@ impl<'s> Renderer<'s> {
             )),
             "JSXAttribute" => self.render_shorthand_attr(node),
             "JSXElement" => self.render_dynamic_element(node),
+            "ExpressionStatement" if lazy_assignment_pattern(node).is_some() => {
+                self.render_lazy_assignment(node)
+            }
+            "ArrayPattern" | "ObjectPattern" if self.suppress_nested_lazy > 0 => {
+                self.emit_eager_pattern(node)
+            }
             "ArrayPattern" | "ObjectPattern" => self.render_lazy_pattern(node),
             other => Err(ProjectError::new(
                 format!("Unsupported TSRX construct `{other}`"),
@@ -541,9 +707,7 @@ impl<'s> Renderer<'s> {
                 })?,
             });
             match current.node_field("alternate") {
-                Some(alternate)
-                    if matches!(alternate.ty(), "IfStatement" | "JSXIfExpression") =>
-                {
+                Some(alternate) if matches!(alternate.ty(), "IfStatement" | "JSXIfExpression") => {
                     current = alternate;
                 }
                 other => {
@@ -633,30 +797,13 @@ impl<'s> Renderer<'s> {
             ));
         }
 
-        let left = node
-            .node_field("left")
+        let pattern = for_binding_pattern(node)
             .ok_or_else(|| ProjectError::new("TSRX @for is missing its binding", node))?;
-        let pattern = if left.ty() == "VariableDeclaration" {
-            left.list_field("declarations")
-                .flatten()
-                .next()
-                .and_then(|declarator| declarator.node_field("id"))
-                .ok_or_else(|| ProjectError::new("TSRX @for is missing its binding", node))?
-        } else {
-            left
-        };
         let each = node
             .node_field("right")
             .ok_or_else(|| ProjectError::new("TSRX @for is missing its iterable", node))?;
         let index = node.node_field("index");
         let key = node.node_field("key");
-
-        if key.is_some() && pattern.ty() != "Identifier" {
-            return Err(ProjectError::new(
-                "Combining `key` with a destructured @for binding is not yet supported by the Solid TSRX frontend; bind an identifier instead",
-                node,
-            ));
-        }
 
         let body = node
             .node_field("body")
@@ -676,7 +823,11 @@ impl<'s> Renderer<'s> {
         self.push("}");
         if let Some(key) = key {
             self.push(" keyed={(");
-            self.emit_node(pattern, Position::Expression)?;
+            if pattern.ty() == "Identifier" {
+                self.emit_node(pattern, Position::Expression)?;
+            } else {
+                self.emit_eager_pattern(pattern)?;
+            }
             self.push(") => (");
             self.emit_node(key, Position::Expression)?;
             self.push(")}");
@@ -698,20 +849,26 @@ impl<'s> Renderer<'s> {
         // pass rewrites those reads to calls, anchored at this arrow.
         let mut accessor_names = Vec::new();
         if key.is_some()
-            && let Some(name) = ident_name(pattern) {
-                accessor_names.push(name.to_string());
-            }
+            && let Some(name) = ident_name(pattern)
+        {
+            accessor_names.push(name.to_string());
+        }
         if let Some(index) = index
-            && let Some(name) = ident_name(index) {
-                accessor_names.push(name.to_string());
-            }
+            && let Some(name) = ident_name(index)
+        {
+            accessor_names.push(name.to_string());
+        }
         if !accessor_names.is_empty() {
             self.accessor_arrows
                 .push((self.out.len() as u32, accessor_names));
         }
 
         self.push("(");
-        self.emit_node(pattern, Position::Expression)?;
+        if key.is_some() && pattern.ty() != "Identifier" {
+            self.render_lazy_pattern_with_source(pattern, true)?;
+        } else {
+            self.emit_node(pattern, Position::Expression)?;
+        }
         if let Some(index) = index {
             self.push(", ");
             self.emit_node(index, Position::Expression)?;
@@ -735,9 +892,9 @@ impl<'s> Renderer<'s> {
     // -- @switch — Switch / Match --------------------------------------------------
 
     fn render_switch(&mut self, node: Node<'_>) -> Result<()> {
-        let discriminant = node.node_field("discriminant").ok_or_else(|| {
-            ProjectError::new("TSRX @switch is missing its discriminant", node)
-        })?;
+        let discriminant = node
+            .node_field("discriminant")
+            .ok_or_else(|| ProjectError::new("TSRX @switch is missing its discriminant", node))?;
         let cases: Vec<Node<'_>> = node.list_field("cases").flatten().collect();
 
         // Validate every case in authored order first (the @default case is
@@ -758,7 +915,10 @@ impl<'s> Renderer<'s> {
             }
         }
 
-        let default_case = cases.iter().copied().find(|case| !case.has_node_field("test"));
+        let default_case = cases
+            .iter()
+            .copied()
+            .find(|case| !case.has_node_field("test"));
         let has_fallback = default_case.is_some_and(|case| {
             let (setup, renders) = partition_entries(&case_entries(case));
             !(setup.is_empty() && renders.is_empty())
@@ -852,17 +1012,22 @@ impl<'s> Renderer<'s> {
         let mut error_name = String::from("_e");
         let mut reset_name: Option<String> = None;
         let mut has_error_param = false;
+        let mut error_pattern = None;
         if let Some(handler) = handler {
             if let Some(param) = handler.node_field("param") {
-                if param.ty() != "Identifier" {
+                if !matches!(param.ty(), "Identifier" | "ObjectPattern" | "ArrayPattern") {
                     return Err(ProjectError::new(
-                        "The @catch error binding must be an identifier: Solid exposes the error as an accessor function",
+                        "The @catch error binding must be an identifier, object pattern, or array pattern",
                         param,
                     ));
                 }
-                if let Some(name) = ident_name(param) {
+                if param.ty() == "Identifier"
+                    && let Some(name) = ident_name(param)
+                {
                     error_name = name.to_string();
                     has_error_param = true;
+                } else {
+                    error_pattern = Some(param);
                 }
             }
             if let Some(reset) = handler.node_field("resetParam").and_then(ident_name) {
@@ -889,7 +1054,11 @@ impl<'s> Renderer<'s> {
         } else {
             predict_block_shape(block)
         };
-        let result_shape = if handler.is_some() { Shape::Jsx } else { inner_shape };
+        let result_shape = if handler.is_some() {
+            Shape::Jsx
+        } else {
+            inner_shape
+        };
 
         let wrap = position == Position::JsxChild && result_shape != Shape::Jsx;
         if wrap {
@@ -905,7 +1074,11 @@ impl<'s> Renderer<'s> {
                     .push((self.out.len() as u32, vec![error_name.clone()]));
             }
             self.push("(");
-            self.push(&error_name);
+            if let Some(pattern) = error_pattern {
+                self.render_lazy_pattern_with_source(pattern, true)?;
+            } else {
+                self.push(&error_name);
+            }
             if let Some(reset) = &reset_name {
                 self.push(", ");
                 self.push(reset);
@@ -1011,20 +1184,76 @@ impl<'s> Renderer<'s> {
     }
 
     fn render_lazy_pattern(&mut self, node: Node<'_>) -> Result<()> {
+        self.render_lazy_pattern_with_source(node, false)
+    }
+
+    fn render_lazy_pattern_with_source(
+        &mut self,
+        node: Node<'_>,
+        source_accessor: bool,
+    ) -> Result<()> {
         let span = span_of(node)?;
         let id = self
             .lazy_ids
             .iter()
             .position(|candidate| *candidate == span)
-            .ok_or_else(|| ProjectError::new("internal TSRX frontend error: unindexed lazy pattern", node))?;
-        self.lazy_patterns
-            .push((self.out.len() as u32, format!("__lazy{id}")));
+            .ok_or_else(|| {
+                ProjectError::new("internal TSRX frontend error: unindexed lazy pattern", node)
+            })?;
+        self.lazy_patterns.push((
+            self.out.len() as u32,
+            format!("__lazy{id}"),
+            source_accessor,
+        ));
         // Emit the pattern minus its `&` sigil; binding names stay authored so
         // the reparsed program resolves scope exactly, and the post-reparse
         // pass renames them.
         let mut specials = Vec::new();
         collect_children(node, &mut specials);
+        self.suppress_nested_lazy += 1;
+        let result = self.emit_region(span.0, span.1, &mut specials);
+        self.suppress_nested_lazy -= 1;
+        result
+    }
+
+    fn emit_eager_pattern(&mut self, node: Node<'_>) -> Result<()> {
+        let span = span_of(node)?;
+        let mut specials = Vec::new();
+        collect_children(node, &mut specials);
         self.emit_region(span.0, span.1, &mut specials)
+    }
+
+    fn render_lazy_assignment(&mut self, node: Node<'_>) -> Result<()> {
+        let expression = node.node_field("expression").ok_or_else(|| {
+            ProjectError::new(
+                "TSRX lazy assignment is missing its assignment expression",
+                node,
+            )
+        })?;
+        let pattern = lazy_assignment_pattern(node)
+            .ok_or_else(|| ProjectError::new("Malformed TSRX lazy assignment statement", node))?;
+        if contains_pattern_default(pattern) {
+            return Err(ProjectError::new(
+                "TSRX standalone lazy assignment defaults are not supported by the JavaScript TSRX parser",
+                pattern,
+            ));
+        }
+        let value = expression.node_field("right").ok_or_else(|| {
+            ProjectError::new(
+                "TSRX lazy assignment is missing its source expression",
+                expression,
+            )
+        })?;
+
+        // Reparse the assignment as a lexical declaration so oxc_semantic can
+        // resolve the introduced lazy names. The binding-pattern rewrite then
+        // collapses this scaffold to `const __lazyN`, matching the JS frontend.
+        self.push("const ");
+        self.render_lazy_pattern(pattern)?;
+        self.push(" = (");
+        self.emit_node(value, Position::Expression)?;
+        self.push(");");
+        Ok(())
     }
 
     // -- Template block helpers -----------------------------------------------------
@@ -1052,9 +1281,7 @@ impl<'s> Renderer<'s> {
         for entry in entries {
             if is_render_entry(entry.ty()) {
                 if entry.ty() == "JSXText"
-                    && entry
-                        .str_field("value")
-                        .is_some_and(decode_json_ws_only)
+                    && entry.str_field("value").is_some_and(decode_json_ws_only)
                 {
                     continue;
                 }

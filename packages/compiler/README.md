@@ -88,7 +88,11 @@ const result = transform(tsrxSource, { filename: "App.tsrx" });
 
 Routing follows the filename by default (`syntax: "auto"`); pass `syntax: "tsrx"` or `syntax: "jsx"` to force a frontend regardless of filename. No extra install is needed — the shipped binaries include the frontend (Rust embedders can disable the default `tsrx` cargo feature).
 
-The frontend uses the community [oxc-tsrx](https://github.com/compiled-run/oxc-tsrx) parser at a pinned revision. Known gap: statement containers in expression position (`const x = @{ … }`, `{@{ … }}` inside JSX) are spec-valid and supported by the Babel plugin, but are rejected here with a structured diagnostic until upstream support lands — write the container as a direct element child (`<div>@{ … }</div>`) or move it into a helper function. See `documentation/tsrx/frontend-notes.md` in the repository for the full frontend notes.
+Lazy patterns support synchronous and asynchronous arrow parameters, nested, renamed, and computed bindings, JavaScript-style defaults, object/array rest, and standalone `&{ … } = value;` / `&[ … ] = value;` statements. Defaults apply only when the deferred value is `undefined`; rest bindings are fresh read-only views. Matching the JavaScript TSRX parser, defaults are not yet accepted in standalone assignment patterns.
+
+Destructured bindings in keyed `@for` loops and `@catch` clauses stay deferred against Solid's item and error accessors, including nested patterns, defaults, computed keys, and rest.
+
+The frontend uses the community [oxc-tsrx](https://github.com/tsrx-org/oxc) parser at a pinned revision. Statement containers can be used as function bodies, statements, expressions (`const x = @{ … }`), and JSX children or expression containers. See `documentation/tsrx/frontend-notes.md` in the repository for the full frontend notes.
 
 ### Source maps
 

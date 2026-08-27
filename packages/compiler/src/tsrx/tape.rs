@@ -137,9 +137,10 @@ pub fn walk_children<'t>(node: Node<'t>, visit: &mut impl FnMut(Node<'t>) -> boo
                     let mut next = node.tape().list_first_value(list);
                     while let Some(entry) = next.filter(|entry| !entry.is_none()) {
                         if let Some(item) = node.tape().list_value(entry)
-                            && let Some(child) = Node::from_value(node.tape(), item) {
-                                walk(child, visit);
-                            }
+                            && let Some(child) = Node::from_value(node.tape(), item)
+                        {
+                            walk(child, visit);
+                        }
                         next = node.tape().list_value_next(entry);
                     }
                 }

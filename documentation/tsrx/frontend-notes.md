@@ -7,19 +7,19 @@ samples, then cross-checked against this repo's current 2.0 RC APIs.
 
 ## Version pins
 
-| Dependency | Pin | Notes |
-| --- | --- | --- |
-| TSRX specification | Draft / June 7, 2026 (first edition) | Snapshot in `tsrx-specification-snapshot.md` |
-| `@tsrx/core` | 0.1.61 | Official parser (acorn + `@sveltejs/acorn-typescript` + TSRXPlugin). ESTree AST + TSRX nodes. Babel-side parser. |
-| `@tsrx/solid` | 0.1.61 | Oracle only — we do not port it. Peer-deps `solid-js`/`@solidjs/web` `2.0.0-beta.15`. |
-| `oxc-tsrx` | rev `6be6a8c7773407c84f79fad0e3f7d192b72e8102` (v0.6.0, 2026-08-23) | Rust-side parser. Git dependency (not on crates.io): crates `tsrx_parser_engine`, `tsrx_syntax`, `tsrx_tape_schema`, `oxc_adapter` (feature `parser`). |
+| Dependency         | Pin                                                                 | Notes                                                                                                                                                  |
+| ------------------ | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| TSRX specification | Draft / June 7, 2026 (first edition)                                | Snapshot in `tsrx-specification-snapshot.md`                                                                                                           |
+| `@tsrx/core`       | 0.1.61                                                              | Official parser (acorn + `@sveltejs/acorn-typescript` + TSRXPlugin). ESTree AST + TSRX nodes. Babel-side parser.                                       |
+| `@tsrx/solid`      | 0.1.61                                                              | Oracle only — we do not port it. Peer-deps `solid-js`/`@solidjs/web` `2.0.0-beta.15`.                                                                  |
+| `oxc-tsrx`         | rev `6be6a8c7773407c84f79fad0e3f7d192b72e8102` (v0.6.0, 2026-08-23) | Rust-side parser. Git dependency (not on crates.io): crates `tsrx_parser_engine`, `tsrx_syntax`, `tsrx_tape_schema`, `oxc_adapter` (feature `parser`). |
 
 ### Oxc duplication
 
 `oxc-tsrx` pins oxc to git rev `8e0ed2eb…` (= oxc **0.140.0**); our compiler
 uses crates.io **0.144**. No oxc types cross the conversion boundary —
 `TsrxParseResult.program` is a `FlatTape` from `tsrx_tape_schema`, which is
-explicitly *revision-neutral and OXC-independent* — so the two copies coexist.
+explicitly _revision-neutral and OXC-independent_ — so the two copies coexist.
 Cost is compile time and binary size; revisit if `oxc-tsrx` upstreams into oxc.
 
 ### Parse result shapes
@@ -41,24 +41,26 @@ specified once and implemented twice.
 
 All flow-control imports come from `solid-js`; `dynamic` from `@solidjs/web`.
 
-| TSRX | Lowering | Verified oracle output |
-| --- | --- | --- |
-| `@{ body; render }` as function body | Inline statements + `return render` | yes |
-| `@{ body; render }` in expression/child position | IIFE `(() => { body; return render; })()` | yes |
-| `@if (c) { A }` | `<Show when={c}>A</Show>` | yes |
-| `@if (c) { A } @else { B }` | `<Show when={c} fallback={B}>A</Show>` | yes |
-| `@if / @else if / … / @else` (chain) | `<Switch fallback={else}>` + `<Match when={cN}>` per branch | yes |
-| `@for (const x of expr; index i; key k(x))` | `<For each={expr} keyed={(x) => k(x)}>{(x, i) => …}</For>` | yes — RC `For` has the `keyed: (item) => any` overload |
-| `@empty { F }` | `fallback={F}` on `For` | yes |
-| `@switch (v) { @case 'a': {A} @default: {D} }` | `<Switch fallback={D}><Match when={v === 'a'}>A</Match>…</Switch>` | yes |
-| `@try { C } @pending { P } @catch (e, reset) { E }` | `<Errored fallback={(e, reset) => E}><Loading fallback={P}>C</Loading></Errored>` | yes, with one adaptation (below) |
-| `<{expr}>…</{expr}>` | `const TsrxDynamic_N = dynamic(() => expr)` hoisted into scope, used as component | yes |
-| `{name}` prop shorthand | `name={name}` | yes |
-| `let/const &{ a, b } = expr` | `__lazyN = expr`; reads become `__lazyN.a` | yes |
-| `let &[a, b] = expr` | `__lazyN = expr`; reads become `__lazyN[0]` / `__lazyN[1]` — **no getter auto-calling** | yes (signal tuple: `__lazy0[0]` inserted as function child, unwrapped reactively at runtime) |
-| `&{ a }` in function-declaration params | `__lazyN` param (type annotation preserved), member reads | yes |
-| `<style>` | Deferred in v1 → structured diagnostic. (Oracle: hashed class `tsrx-<hash>`, `css` field on result, static-element hoisting.) | yes (for reference) |
-| Guard `if (!x) return null;` before render | Preserved as ordinary statements | yes |
+| TSRX                                                  | Lowering                                                                                                                      | Verified oracle output                                 |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `@{ body; render }` as function body                  | Inline statements + `return render`                                                                                           | yes                                                    |
+| `@{ body; render }` in expression/child position      | IIFE `(() => { body; return render; })()`                                                                                     | yes                                                    |
+| `@if (c) { A }`                                       | `<Show when={c}>A</Show>`                                                                                                     | yes                                                    |
+| `@if (c) { A } @else { B }`                           | `<Show when={c} fallback={B}>A</Show>`                                                                                        | yes                                                    |
+| `@if / @else if / … / @else` (chain)                  | `<Switch fallback={else}>` + `<Match when={cN}>` per branch                                                                   | yes                                                    |
+| `@for (const x of expr; index i; key k(x))`           | `<For each={expr} keyed={(x) => k(x)}>{(x, i) => …}</For>`                                                                    | yes — RC `For` has the `keyed: (item) => any` overload |
+| `@empty { F }`                                        | `fallback={F}` on `For`                                                                                                       | yes                                                    |
+| `@switch (v) { @case 'a': {A} @default: {D} }`        | `<Switch fallback={D}><Match when={v === 'a'}>A</Match>…</Switch>`                                                            | yes                                                    |
+| `@try { C } @pending { P } @catch (e, reset) { E }`   | `<Errored fallback={(e, reset) => E}><Loading fallback={P}>C</Loading></Errored>`                                             | yes, with one adaptation (below)                       |
+| `<{expr}>…</{expr}>`                                  | `const TsrxDynamic_N = dynamic(() => expr)` hoisted into scope, used as component                                             | yes                                                    |
+| `{name}` prop shorthand                               | `name={name}`                                                                                                                 | yes                                                    |
+| `let/const &{ a, b } = expr`                          | `__lazyN = expr`; reads become `__lazyN.a`                                                                                    | yes                                                    |
+| Nested/renamed/computed lazy bindings and `= default` | Deferred access chain; defaults apply only for `undefined`, evaluate lazily, and read the member once                         | yes                                                    |
+| `&{ selected, ...rest }`                              | Per-read reactive `omit(__lazyN, "selected")` view                                                                            | yes; the rest binding is read-only                     |
+| `let &[a, b, ...rest] = expr`                         | Indexed reads plus a fresh `Array.from(__lazyN).slice(2)` rest view per read — **no getter auto-calling**                     | yes; the rest binding is read-only                     |
+| `&{ a }` in function or arrow params                  | `__lazyN` param (type annotation/default preserved), member reads                                                             | yes; sync, async, multi-parameter, and generic arrows  |
+| `<style>`                                             | Deferred in v1 → structured diagnostic. (Oracle: hashed class `tsrx-<hash>`, `css` field on result, static-element hoisting.) | yes (for reference)                                    |
+| Guard `if (!x) return null;` before render            | Preserved as ordinary statements                                                                                              | yes                                                    |
 
 ### Deliberate adaptation: `@catch` error binding
 
@@ -76,26 +78,41 @@ treatment of `&` bindings. Report upstream to `@tsrx/solid`.
   enforces it (`validateNoControlFlowEscape`), reusing `@tsrx/solid`'s exact
   messages for `@if`/`@for` and uniform equivalents for the other constructs.
   These messages are part of the parity contract the Rust frontend mirrors.
-- **Lazy engine hijacks intrinsic tags (upstream bug, @tsrx/core 0.1.61).**
-  `rewrite_lazy_jsx_name` rewrites *any* JSX name matching a lazy binding —
+- **The previous lazy engine hijacked intrinsic tags (upstream bug,
+  @tsrx/core 0.1.61).**
+  `rewrite_lazy_jsx_name` rewrites _any_ JSX name matching a lazy binding —
   `<address>` with `const &{ address } = user` in scope becomes
   `<__lazy0.address>`, turning an element into a component. Per JSX semantics
-  a single lowercase identifier tag is always intrinsic; the frontend reverts
-  such rewrites (`restoreIntrinsicJsxNames`). Report upstream.
+  a single lowercase identifier tag is always intrinsic. The Solid-local
+  engine never performs that rewrite; `restoreIntrinsicJsxNames` remains as a
+  compatibility repair for trees produced by older paths.
 - **Ordering: desugar before lazy.** The lazy engine only collects block-level
   `let &[…]`/`const &{…}` bindings in its BlockStatement/Program handlers,
   which never fire while function bodies are still `JSXCodeBlock` nodes. The
   frontend therefore desugars first (containers become real blocks), then runs
   preallocate + apply on the plain tree. Lazy patterns pass through the
   desugarer untouched.
+- **Solid-local lazy lowering.** The Babel frontend no longer delegates lazy
+  rewriting to `@tsrx/core`. Both frontends implement the same lowering for
+  nested and computed paths, defaults, and object/array rest. Defaults use
+  JavaScript's `=== undefined` rule, evaluate the fallback only when needed,
+  and preserve direct source writes and prefix/postfix update results.
+  Bindings below an ancestor default and rest views are read-only; attempting
+  to write them produces a structured diagnostic instead of targeting an
+  invalid raw path.
 - **RC `For` accessor semantics (adaptation).** With a `keyed` function the
-  children callback receives the item as an *accessor*, and the index
+  children callback receives the item as an _accessor_, and the index
   parameter is an accessor in all modes: the desugarer rewrites reads of the
-  item binding (keyed only) and the index binding to calls, scope-aware, same
-  as the `@catch` `ErrorAccessor` adaptation. `key` combined with a
-  destructured loop binding is rejected in v1 with a structured diagnostic.
+  item binding (keyed only) and the index binding to calls, scope-aware.
+  Destructured keyed bindings become synthetic lazy parameters backed by that
+  accessor, so nested/defaulted/computed/rest reads remain deferred when a row
+  with the same key receives a replacement item.
+- **RC `@catch` accessor semantics (adaptation).** Identifier error bindings
+  rewrite to accessor calls. Object and array patterns become synthetic lazy
+  parameters backed by the `ErrorAccessor`, preserving defaults, computed
+  keys, rest views, and the current error value without eager destructuring.
 - **Dynamic tags lower to the `Dynamic` builtIn** (`<Dynamic component={expr}
-  …>`), not `@tsrx/solid`'s hoisted `dynamic()` factory — semantically
+…>`), not `@tsrx/solid`'s hoisted `dynamic()` factory — semantically
   equivalent (web's `Dynamic` wraps `dynamic()`), uniform with the other
   builtIn lowerings, and simpler to mirror byte-for-byte in Rust.
 
@@ -103,7 +120,7 @@ treatment of `&` bindings. Report upstream to `@tsrx/solid`.
 
 The plan's "walk `TsrxParseResult` → build `oxc_ast`" assumed a reusable
 tape→AST bridge. There is none: the `FlatTape` is a generic JSON record store
-of the *entire* ESTree program, and `oxc_adapter` only serializes the other
+of the _entire_ ESTree program, and `oxc_adapter` only serializes the other
 direction (`oxc_ast` → tape, for NAPI transfer). Building `oxc_ast` from the
 tape would mean a full-language ESTree deserializer against oxc 0.144 with a
 per-upgrade sync burden.
@@ -129,45 +146,21 @@ Revised architecture — **desugared text projection** (the same technique
 
 ### Known upstream gaps (pin in fixtures)
 
-- **Arrow-function lazy params:** `(&{ a }) => …` fails to parse in
-  `@tsrx/core` 0.1.61 (`Unexpected token`), though the docs show it and
-  function-declaration params work. Our behavior follows `@tsrx/core` (the
-  canonical parser); fixtures must assert `oxc-tsrx` rejects it identically —
-  this is exactly the class of drift the parity corpus exists to catch.
+- **Arrow-function lazy params:** supported by both parser frontends, including
+  synchronous, asynchronous, typed, defaulted, nested, multi-parameter, and
+  generic arrows. Until the upstream parser changes are released, local
+  verification uses the corresponding pinned revisions.
 - `@tsrx/core`'s `transform/lazy.js` is an exported framework-agnostic
   AST-to-AST lazy transform (`create_lazy_context`, `preallocateLazyIds`,
   `applyLazyTransforms`, deterministic `__lazyN` naming). The Babel frontend
   reuses it on the ESTree AST before conversion; the Rust frontend replicates
   the same algorithm so generated names match byte-for-byte.
-- **Expression-position statement containers (`oxc-tsrx` v0.6.0, Stage 3
-  finding, user-ruled: document the limitation):** the engine parses `@{}`
-  containers as function bodies (`function C() @{…}`), arrow bodies
-  (`() => @{…}`), and direct JSX children (`<div>@{…}</div>`), but not in
-  expression position (`const x = @{…}`, `{@{…}}` inside a JSX expression
-  container) — spec §4.4 allows all of these and `@tsrx/core` parses them.
-  Root cause: the engine's scanner recognizes the token
-  (`StructuralKind::FunctionBody` in `parser_scanner/region.rs`) but its
-  projection replaces `@{` with a bare `{`, which in expression position
-  parses as an object literal and fails (`Expected ':' but found
-  'Identifier'`); a fix needs a new projection/reconstruction lane upstream.
-  Consequences:
-  - The native compiler rejects these forms with a structured diagnostic
-    ("TSRX statement containers in expression position are not yet
-    supported…", `src/tsrx/mod.rs::expression_position_container` — a
-    post-failure heuristic on the preceding token).
-  - DOM fixtures `codeBlocks` and `lazyShadowing` are Babel-only; the Rust
-    suite pins their rejection
-    (`tests/tsrx_frontend.rs::EXPRESSION_POSITION_FIXTURES`) so the corpus
-    split is loud, not silent.
-  - Upstream issue draft (for github.com/compiled-run/oxc-tsrx):
-    *"Statement containers in expression position fail to parse. `const x =
-    @{ const y = 1; <span>{y}</span> };` and `<div>{@{ … }}</div>` report
-    `Expected ':' but found 'Identifier'` because the parser projection maps
-    `@{` to `{`, which is an object literal in expression position. Function
-    bodies, arrow bodies, and direct element children work. TSRX spec §4.4
-    lists 'an expression position' among valid container positions, and
-    `@tsrx/core` accepts these forms. Repro: v0.6.0,
-    `parse_tsrx(&TsrxParseRequest { source })`."*
+- **Expression-position statement containers:** the v0.6.0 parser gap was
+  fixed in [tsrx-org/oxc#34](https://github.com/tsrx-org/oxc/pull/34).
+  The native frontend now accepts the same function-body, statement,
+  expression (`const x = @{…}`), direct JSX-child, JSX attribute, and JSX
+  expression-container placements as `@tsrx/core`. The `codeBlocks` and
+  `lazyShadowing` fixtures run through both compilers.
 
 ## Frontend architecture (both compilers)
 

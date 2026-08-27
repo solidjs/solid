@@ -1,8 +1,8 @@
 /**
  * TSRX → Solid JSX desugaring.
  *
- * Walks the ESTree AST produced by `@tsrx/core` (after its lazy-destructuring
- * transform has run) and lowers every TSRX construct to Solid 2.0 builtIn
+ * Walks the ESTree AST produced by `@tsrx/core` (before Solid's local
+ * lazy-destructuring transform runs) and lowers every TSRX construct to Solid 2.0 builtIn
  * component JSX, in place. The result is a plain ESTree TSX program that
  * `estree-to-babel` converts for the existing JSX pipeline. BuiltIns are
  * referenced as bare identifiers (`Show`, `For`, …) so the plugin's normal
@@ -216,6 +216,34 @@ function cloneNode<T>(value: T): T {
     return out as T;
   }
   return value;
+}
+
+function accessorLazyPattern(pattern: EsNode): EsNode {
+  const clone = cloneNode(pattern);
+  clone.lazy = true;
+  const metadata = (clone.metadata ??= {}) as Record<string, unknown>;
+  delete metadata.lazy_id;
+  metadata.lazy_source_accessor = true;
+  return clone;
+}
+
+function eagerPattern(pattern: EsNode): EsNode {
+  const clone = cloneNode(pattern);
+  clearLazy(clone);
+  return clone;
+
+  function clearLazy(node: EsNode): void {
+    if (node.type === "ObjectPattern" || node.type === "ArrayPattern") node.lazy = false;
+    for (const key of Object.keys(node)) {
+      if (SKIP_KEYS.has(key)) continue;
+      const value = node[key];
+      if (Array.isArray(value)) {
+        for (const item of value) if (isNode(item)) clearLazy(item);
+      } else if (isNode(value)) {
+        clearLazy(value);
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -566,13 +594,6 @@ function forToJsx(node: EsNode): EsNode {
   const index = isNode(node.index) ? node.index : null;
   const key = isNode(node.key) ? node.key : null;
 
-  if (key && pattern.type !== "Identifier") {
-    fail(
-      "Combining `key` with a destructured @for binding is not yet supported by the Solid TSRX frontend; bind an identifier instead",
-      node
-    );
-  }
-
   const parts = blockToParts(toBlockBody(node.body as EsNode), "@for");
   const renderExpr = rendersToExpression(parts.renders, node.body as EsNode);
   if (!renderExpr) fail("A TSRX @for body must end with rendered output", node);
@@ -587,15 +608,18 @@ function forToJsx(node: EsNode): EsNode {
 
   // RC `For` semantics: keyed mode hands the callback an item accessor, and
   // the index parameter is always an accessor — rewrite reads to calls.
-  if (key) rewriteReadsToCalls(callbackBody, (pattern as unknown as { name: string }).name);
+  if (key && pattern.type === "Identifier")
+    rewriteReadsToCalls(callbackBody, (pattern as unknown as { name: string }).name);
   if (index) rewriteReadsToCalls(callbackBody, (index as unknown as { name: string }).name);
 
-  const params: EsNode[] = [pattern];
+  const callbackPattern =
+    key && pattern.type !== "Identifier" ? accessorLazyPattern(pattern) : pattern;
+  const params: EsNode[] = [callbackPattern];
   if (index) params.push(index);
 
   const attributes = [jsxAttr("each", each, node.right as EsNode)];
   if (key) {
-    attributes.push(jsxAttr("keyed", arrow([cloneNode(pattern)], transform(key), key), key));
+    attributes.push(jsxAttr("keyed", arrow([eagerPattern(pattern)], transform(key), key), key));
   }
   if (isNode(node.empty)) {
     const emptyExpr = blockToExpression(node.empty, "@empty");
@@ -685,9 +709,14 @@ function tryToJsx(node: EsNode): EsNode {
   if (isNode(node.handler)) {
     const handler = node.handler;
     const param = isNode(handler.param) ? handler.param : null;
-    if (param && param.type !== "Identifier") {
+    if (
+      param &&
+      param.type !== "Identifier" &&
+      param.type !== "ObjectPattern" &&
+      param.type !== "ArrayPattern"
+    ) {
       fail(
-        "The @catch error binding must be an identifier: Solid exposes the error as an accessor function",
+        "The @catch error binding must be an identifier, object pattern, or array pattern",
         param
       );
     }
@@ -699,7 +728,9 @@ function tryToJsx(node: EsNode): EsNode {
     // RC `Errored` passes an `ErrorAccessor`: reads of the binding become calls.
     if (param) rewriteReadsToCalls(handlerExpr, errorName);
 
-    const params: EsNode[] = [ident(errorName, param)];
+    const params: EsNode[] = [
+      param && param.type !== "Identifier" ? accessorLazyPattern(param) : ident(errorName, param)
+    ];
     if (resetParam)
       params.push(ident((resetParam as unknown as { name: string }).name, resetParam));
 
@@ -719,12 +750,13 @@ function tryToJsx(node: EsNode): EsNode {
 // ---------------------------------------------------------------------------
 
 /**
- * `@tsrx/core`'s lazy transform rewrites *any* JSX name matching a lazy
- * binding — including lowercase intrinsic tags (`<address>` with a lazy
- * `address` in scope becomes `<__lazy0.address>`), which hijacks the element
- * into a component. Per JSX semantics a single lowercase identifier tag is
- * always intrinsic, so such rewrites are unambiguously wrong: revert them.
- * (Upstream bug; reported against @tsrx/core 0.1.61.)
+ * Older lazy-transform paths rewrote *any* JSX name matching a lazy binding —
+ * including lowercase intrinsic tags (`<address>` with a lazy `address` in
+ * scope became `<__lazy0.address>`), which hijacked the element into a
+ * component. Per JSX semantics a single lowercase identifier tag is always
+ * intrinsic, so such rewrites are unambiguously wrong. Keep this repair for
+ * compatibility with trees produced by those paths; the local engine does not
+ * produce the invalid rewrite.
  */
 export function restoreIntrinsicJsxNames(root: EsNode): void {
   visit(root);

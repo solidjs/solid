@@ -79,12 +79,6 @@ describe("TSRX diagnostics", () => {
       message: /Unexpected token/
     },
     {
-      name: "keyed @for with a destructured binding",
-      source:
-        "export function C({ xs }) @{ <ul>@for (const { id } of xs; key id) { <li>{id}</li> }</ul> }",
-      message: /Combining `key` with a destructured @for binding/
-    },
-    {
       name: "a statement after rendered output",
       source: "export function C() @{ <p />; const x = 1; }",
       message: /statements cannot follow the rendered output/
@@ -93,11 +87,6 @@ describe("TSRX diagnostics", () => {
       name: "multiple rendered output nodes",
       source: "export function C() @{ <p />; <span /> }",
       message: /renders a single node/
-    },
-    {
-      name: "a destructured @catch binding",
-      source: "export const C = () => @try { <p /> } @catch ({ message }) { <p>{message}</p> };",
-      message: /error binding must be an identifier/
     },
     {
       name: "an @finally clause",

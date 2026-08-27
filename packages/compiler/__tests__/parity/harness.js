@@ -169,11 +169,6 @@ const modes = {
     fixtureDir: "__tsrx_dom_fixtures__",
     sourceFile: "code.tsrx",
     extension: ".tsrx",
-    // Statement containers in expression position (`const x = @{…}`,
-    // `{@{…}}`) are an upstream oxc-tsrx v0.6.0 parser gap; the native
-    // compiler pins their structured rejection in tests/tsrx_frontend.rs.
-    // See documentation/tsrx/frontend-notes.md.
-    babelOnly: ["codeBlocks", "lazyShadowing"],
     options: {
       moduleName: "r-dom",
       builtIns: ["For", "Show", "Switch", "Match", "Errored", "Loading", "Dynamic"],
