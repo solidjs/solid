@@ -24,7 +24,7 @@ import type { RowOps } from "./patch.js";
 // module must never import patch.js at runtime (patch.js imports
 // emitSetterRowOps from here, and the hooks are what keep the channel
 // tree-shakeable for non-patch apps). All calls are `t.pc`-guarded.
-import { patchHooks } from "./patch-hooks.js";
+import { patchHooks, rowHooks } from "./patch-hooks.js";
 import {
   $PROXY,
   $TARGET,
@@ -288,7 +288,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
         // clear-then-refill and pure appends crashed the driver.
         if (sp !== null && i < dlen && (keyFn === null || keyAligned)) {
           const pvS = prevRows[i];
-          if (pvS !== nvP) patchHooks!.emitSlotPatch(t, i, nvP, pvS);
+          if (pvS !== nvP) rowHooks!.emitSlotPatch(t, i, nvP, pvS);
         }
         if (!shallow && i < dlen && nvP !== null && typeof nvP === "object")
           descend(unwrapValue(prevRows[i]), nvP, keyFn, fam, proj);
@@ -433,7 +433,7 @@ const hasOwnP = Object.prototype.hasOwnProperty;
 const identityKey = (r: any) => unwrapValue(r);
 export function emitSetterRowOps(t: StoreNextTarget, prevRows: any[], nextRows: any[]): void {
   const ops = buildIdentityRowOps(prevRows, nextRows);
-  if (ops !== null) patchHooks!.emitRowOps(t, nextRows, ops);
+  if (ops !== null) rowHooks!.emitRowOps(t, nextRows, ops);
 }
 
 /** Identity-keyed structural diff, returned rather than emitted: shared by
@@ -458,7 +458,7 @@ function buildAndEmitRowOps(
   structStart: number,
   keyFn: KeyFn | null
 ): void {
-  patchHooks!.emitRowOps(t, nextRows, buildRowOps(prevRows, nextRows, structStart, keyFn));
+  rowHooks!.emitRowOps(t, nextRows, buildRowOps(prevRows, nextRows, structStart, keyFn));
 }
 
 function buildRowOps(

@@ -53,7 +53,7 @@ import {
 } from "./store.js";
 // Patch-channel emission rides installed hooks (patch-hooks.ts); all
 // calls are `t.pc`-guarded. See patch-hooks.ts for the soundness argument.
-import { patchHooks } from "./patch-hooks.js";
+import { patchHooks, rowHooks } from "./patch-hooks.js";
 // Cycle with reconcile.js is benign: the binding resolves at call time (the
 // optimistic write), long after both modules initialize.
 import { buildIdentityRowOps } from "./reconcile.js";
@@ -89,8 +89,7 @@ function installNextBlockedHalf(): void {
             // back engine-natively; a driven list must rebuild retention by
             // row identity against the post-revert view (resolved from the
             // target at drain — overrides are gone by then).
-            if (ot.pc !== null && ot.pc.ro !== null)
-              patchHooks!.emitRowOpsOptimistic(ot, null, null);
+            if (ot.pc !== null && ot.pc.ro !== null) rowHooks!.emitRowOpsOptimistic(ot, null, null);
           }
         }
       }
@@ -225,7 +224,7 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
     const prevView = optimisticView(t, old);
     if (Array.isArray(prevView)) {
       const ops = buildIdentityRowOps(prevView, pb);
-      if (ops !== null) patchHooks!.emitRowOpsOptimistic(t, pb, ops);
+      if (ops !== null) rowHooks!.emitRowOpsOptimistic(t, pb, ops);
     }
   }
   const visible = (key: PropertyKey, fallback: any): any => {

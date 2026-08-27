@@ -96,7 +96,7 @@ import {
 // channel tree-shakes out of apps that never register a patch consumer.
 // Every call is `t.pc`-guarded — a target only acquires `pc` through
 // patch.js registration, which installs the hooks first.
-import { patchHooks } from "./patch-hooks.js";
+import { patchHooks, rowHooks } from "./patch-hooks.js";
 
 // ---------------------------------------------------------------------------
 // wrap / dedupe
@@ -709,7 +709,7 @@ function drainFolds(): void {
           Array.isArray(pb) &&
           Array.isArray(t.v)
         )
-          patchHooks!.emitSetterRowOps(t, t.v as any[], pb as any[]);
+          rowHooks!.emitSetterRowOps(t, t.v as any[], pb as any[]);
         t.v = pb;
         t.ch = false; // pb is always a plain clone
         t.pb = null;
@@ -736,7 +736,7 @@ function drainFolds(): void {
         Array.isArray(t.v) &&
         Array.isArray(old)
       )
-        patchHooks!.emitSetterRowOps(t, old as any[], t.v as any[]);
+        rowHooks!.emitSetterRowOps(t, old as any[], t.v as any[]);
       if (t.pc.p !== null) patchHooks!.emitPatchLocal(t, t.v, old);
     }
     // Path copying (CAS: see the eager-fold twin above).

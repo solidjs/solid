@@ -33,7 +33,7 @@ import {
 import type { Owner } from "../../core/types.js";
 import { $TARGET } from "../store.js";
 import { markDescendants, ownedRaw, type StoreNextTarget } from "./target.js";
-import { installPatchHooks } from "./patch-hooks.js";
+import { installPatchHooks, installRowHooks } from "./patch-hooks.js";
 // One-way: reconcile emits through the hooks (never imports this module),
 // so pulling its setter-channel emitter here creates no cycle.
 import { emitSetterRowOps } from "./reconcile.js";
@@ -455,6 +455,7 @@ export function registerRowOps(array: any, fn: RowOpsFn): () => void {
   // Chained backings resolve to the ULTIMATE owner, same as registerPatch
   // (§7b) — the walk/fold emits there (re-audit blocker 4).
   t = ultimateTarget(t) ?? t;
+  armRowHooks();
   if (!commitHookInstalled) {
     commitHookInstalled = true;
     armPatchHooks();
@@ -506,6 +507,7 @@ export function registerSlotPatchNext(
   // Chained backings resolve to the ULTIMATE owner, same as registerPatch
   // (§7b) — the walk emits slot ticks there (re-audit blocker 4).
   t = ultimateTarget(t) ?? t;
+  armRowHooks();
   if (!commitHookInstalled) {
     commitHookInstalled = true;
     armPatchHooks();
@@ -546,22 +548,31 @@ export function emitRowOps(t: StoreNextTarget, next: any[], ops: RowOps): void {
   });
 }
 
-// Pay-for-use seam: the write paths (store/reconcile/optimistic) emit
+// Pay-for-use seams: the write paths (store/reconcile/optimistic) emit
 // through installed hooks instead of importing this module. Installation is
 // LAZY (first registration) rather than a module-scope call — the dist is a
 // flat bundle, and a top-level side effect would retain the whole channel in
-// every consumer. Sound because every emission site is `t.pc`-guarded and a
-// target only acquires `pc` through these registrations. See patch-hooks.ts.
+// every consumer. TWO TIERS so a value-only registration (registerPatch —
+// present in ~every bundle under patch-mode default) does not retain the
+// list machinery (row-ops emitters + reconcile's diff builders): row hooks
+// arm only from the list driver's registrations. Sound because every
+// emission site is guarded by the matching pc channel, which only the
+// corresponding registration creates. See patch-hooks.ts.
 function armPatchHooks(): void {
   installPatchHooks({
     emitPatch,
     emitPatchLocal,
     emitPatchOptimistic,
-    emitRowOpsOptimistic,
-    emitSlotPatch,
-    emitRowOps,
-    emitSetterRowOps,
     hasPatches,
     demoteToEffects
+  });
+}
+
+function armRowHooks(): void {
+  installRowHooks({
+    emitRowOps,
+    emitSlotPatch,
+    emitSetterRowOps,
+    emitRowOpsOptimistic
   });
 }

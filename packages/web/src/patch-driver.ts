@@ -27,10 +27,13 @@ const PURE_ROW = Symbol.for("solid.pure-row");
 
 // SIDE-EFFECT-FREE ARMING: the dist is a flat bundle, so a module-scope
 // install call would be an unshakeable top-level side effect retaining the
-// whole driver in every app. Instead the compiled entry points arm the
-// insert seam on first call — rowProof runs at template creation, always
-// before the list's insert; both are pure named exports that consumers
-// without patch-mode output never reference and fully shake.
+// whole driver in every app. Instead ROWPROOF arms the insert seam — it is
+// the compiled marker of a patch-mode LIST (stamped at template creation,
+// always before the list's insert), and the only consumer of the list
+// driver: an unstamped list never engages, so a bundle without rowProof
+// needs no driveList. patchDriver deliberately does NOT arm — non-list
+// patch templates must not retain the list driver (LIS, row binding, ops
+// apply) they can never use.
 const arm = () => {
   installListDriver(driveList);
 };
@@ -487,7 +490,6 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
 //   read; the commit pass force-applies, keeping DOM writes in the effect
 //   phase where transitions and batching expect them.
 export const patchDriver = (subject, body) => {
-  arm();
   const raw = patchableRaw(subject);
   if (raw !== undefined) {
     // Hydration is claim + register ONLY (DESIGN-PATCH-CHANNEL §5): the

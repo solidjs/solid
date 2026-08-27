@@ -280,6 +280,32 @@ module.exports = [
     modifyEsbuildConfig
   },
   {
+    name: "app: CSR flip preview — + patchDriver (non-list patch templates)",
+    // What patch-mode DEFAULT-ON adds to ~every app: nearly any real
+    // template has one eligible pure member-read binding, so the compiler
+    // emits at least one patchDriver call — retaining the dual driver and
+    // the store channel's value-tier machinery: registration, the apply
+    // queue/drains, error routing, and the demotion path (~1.5 KB brotli
+    // over the classic app). NOT here: the list driver (only rowProof arms
+    // the insert seam) and the row-ops emitters + reconcile diff builders
+    // (row hooks arm only from list registrations).
+    path: "csr-app-patch.js",
+    limit: "14.5 KB",
+    modifyEsbuildConfig
+  },
+  {
+    name: "app: CSR flip preview — + rowProof (patch-mode list driver)",
+    // The full flip cost: a compiled patch-mode list row (rowProof) arms
+    // the insert seam and retains the list driver plus the row-hooks tier
+    // (row-ops/slot emitters + reconcile's keyed/identity diff builders) —
+    // ~2.1 KB over the patchDriver floor, ~3.6 KB over classic. Paid
+    // exactly by apps with driver-eligible store lists — the tier the
+    // dbmon-class wins accrue to.
+    path: "csr-app-patch-lists.js",
+    limit: "16.65 KB",
+    modifyEsbuildConfig
+  },
+  {
     name: "frames: eager client consumer (frames client + transport, lazy codec)",
     // 10.37 KB measured after Stage 5 (container tier): the eager halves
     // are deliberately tiny — the trace materializer install + the
