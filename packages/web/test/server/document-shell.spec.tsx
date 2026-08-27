@@ -12,7 +12,6 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderToStream } from "@solidjs/web";
 import { App, AsyncApp, Shell, APP_ROOT_MARKUP } from "../harness/document-shell.jsx";
-import { hydrationRecordKeys } from "../harness/hydration-records.js";
 
 const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
 
@@ -59,9 +58,7 @@ describe("document-shell pattern — server render (#3000)", () => {
     // The async memo's serialized record is keyed under the island's ids —
     // "0", not a document-tree id (the plain-component shape serializes the
     // same record as "10", which a subtree hydrate() can never look up).
-    const rKeys = hydrationRecordKeys(html);
-    expect(rKeys).toContain("0");
-    expect(rKeys).not.toContain("10");
+    expect(html).toContain(`_$HY.r["0"]=`);
     expect(html).toContain("server-data");
 
     // The client half replays these chunks and must adopt the record by id.

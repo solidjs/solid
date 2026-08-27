@@ -12,7 +12,7 @@
  * entry per read-through object; zero layer slots; nodes, has-nodes, and the
  * key-set node are lazy, materialized only by subscription.
  */
-import type { Computed, Signal } from "../../core/types.js";
+import type { Computed, Owner, Signal } from "../../core/types.js";
 
 /** Projection family (§7b): children wrap into the family's own map (writes
  * land in the projection, never the source family), and every node created
@@ -34,6 +34,29 @@ export interface StoreNextFamily {
   shallow?: boolean;
 }
 
+/** Write-side patch-channel state (stage 2), grouped off the target's named
+ * fields — see the shape rule on `StoreNextTarget.pc`. One literal shape,
+ * allocated by `pcOf` on first use. */
+export interface PatchChannel {
+  /** Slot-patch hooks for shallow arrays — the reconcile walk emits
+   * (i, next, prev) for key-aligned value-replaced slots through the patch
+   * apply queue (records are raw, no per-record targets exist).
+   * MULTI-CONSUMER (external audit): one array can drive several lists. */
+  sp: { fn: (index: number, next: any, prev: any) => void; owner: Owner | null }[] | null;
+  /** Patch-channel consumers (next/patch.ts): per-record compiled patch
+   * entries, multi-consumer. null when unpatched (the common case). */
+  p: object[] | null;
+  /** Row-ops consumers (next/patch.ts, PR-B): structural list ops —
+   * (nextRows, { prefix, sources, removed }) at apply timing. */
+  ro: object[] | null;
+  /** Keys written through the traps since the last fold commit. Bounds the
+   * setter notify/hold-check to O(written) instead of O(subscribed nodes) —
+   * a record with thousands of per-key subscriptions (selection maps) would
+   * otherwise pay a full node scan on every write. null = no trap writes
+   * this batch (bulk paths fall back to the full scan). */
+  wk: Set<PropertyKey> | null;
+}
+
 export interface StoreNextTarget {
   /** Committed backing: source object (shared) or owned clone. */
   v: Record<PropertyKey, any>;
@@ -49,6 +72,15 @@ export interface StoreNextTarget {
   h: Record<PropertyKey, Signal<boolean>> | null;
   /** Lazy key-set node: membership/iteration/$TRACK subscriptions (§6). */
   k: Signal<number> | null;
+  /** Patch-channel extension (lazily allocated on first use): groups the
+   * write-side stage-2 fields so they never widen the TARGET's own named
+   * field count. LOAD-BEARING SHAPE RULE: array proxy targets carry their
+   * fields as named properties on a real array, and V8 normalizes an array
+   * to dictionary properties as the named count grows (empirically at
+   * counts ≡ 0 mod 3 from 18 up on V8 13.x) — every trap field read then
+   * becomes a hash lookup (~15% uibench, tree suites worst). New
+   * patch-channel state MUST go inside this object, not on the target. */
+  pc: PatchChannel | null;
   /** Lazy deep-witness node: `deep()` subscribes ONE node per record instead
    * of one per path; write paths bump it only when it exists. Separate from
    * `k` so $TRACK/mapArray never rerun on leaf value changes (R9). */
@@ -81,13 +113,6 @@ export interface StoreNextTarget {
   /** Keys deleted in the overlay window (a prototype overlay cannot shadow
    * a delete); null when none. */
   del: Set<PropertyKey> | null;
-  /** Keys written through the traps since the last fold commit. Bounds the
-   * setter notify/hold-check to O(written) instead of O(subscribed nodes) —
-   * a record with thousands of per-key subscriptions (selection maps) would
-   * otherwise pay a full node scan on every write. null = no trap writes
-   * this batch (bulk paths fall back to the full scan); WK_ALL sentinel =
-   * bound unusable this batch (array length write implies index deletes). */
-  wk: Set<PropertyKey> | null;
   /** Projection family, null for plain stores (§7b). */
   fam: StoreNextFamily | null;
   /** Shallow store root (values served raw). */
@@ -141,4 +166,14 @@ export interface OptStoreHooks {
 export let optHooks: OptStoreHooks | null = null;
 export function setOptHooks(h: OptStoreHooks): void {
   optHooks = h;
+}
+
+/** Sticky descendants flag walk (§6d): reconcile's keyed pruning descends
+ * only where subscriptions exist at/below. Nodes AND patches count. */
+export function markDescendants(target: StoreNextTarget): void {
+  let t: StoreNextTarget | null = target;
+  while (t && !t.d) {
+    t.d = true;
+    t = t.u;
+  }
 }

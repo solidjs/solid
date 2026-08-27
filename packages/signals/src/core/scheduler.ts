@@ -450,6 +450,10 @@ export class GlobalQueue extends Queue {
   static _transitionBlocked: ((transition: Transition) => boolean) | null = null;
   static _cleanupLanes: ((completingTransition: Transition | null) => void) | null = null;
   static _runLaneEffects: ((type: number) => void) | null = null;
+  /** Patch-channel optimistic drain (next/patch.ts): optimistic emissions
+   * apply at lane-effect timing — visible in flight, unlike the regular
+   * effect queues an action stashes. Injected; null when unused. */
+  static _drainPatchOptimistic: (() => void) | null = null;
   static _gatedRead:
     | ((el: Signal<any>, owner: OptimisticNode, c: Computed<any>) => boolean)
     | null = null;
@@ -800,6 +804,15 @@ export function setStoreCommitHook(fn: () => void): void {
   storeCommitHook = fn;
 }
 
+/** Patch-channel release hook (next/patch.ts): transition-stamped patch
+ * emissions are released when THEIR batch commits — reverted transitions
+ * never reach here, so their entries drop by construction. Injected like
+ * storeCommitHook to stay tree-shakeable. */
+export let patchCommitHook: ((batch: Transition) => void) | null = null;
+export function setPatchCommitHook(fn: (batch: Transition) => void): void {
+  patchCommitHook = fn;
+}
+
 function commitPendingNodes() {
   const pendingNodes = currentBatch._pendingNodes;
   for (let i = 0; i < pendingNodes.length; i++) {
@@ -807,6 +820,7 @@ function commitPendingNodes() {
   }
   pendingNodes.length = 0;
   storeCommitHook?.();
+  patchCommitHook?.(currentBatch);
 }
 
 export function finalizePureQueue(

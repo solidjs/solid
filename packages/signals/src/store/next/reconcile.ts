@@ -19,6 +19,7 @@
  *   members (R11). Kind changes replace wholesale (R10).
  */
 import { isEqual } from "../../core/index.js";
+import { emitPatchLocal, emitRowOps, emitSlotPatch } from "./patch.js";
 import {
   $PROXY,
   $TARGET,
@@ -131,6 +132,12 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
   const shallow = t.s === true;
   const old = t.v;
   adoptPB(t, incoming, eager);
+  // Patch channel (adoption site): this record transitioned — queue its
+  // patches with the pre-adopt prev. No bubbling walk: the adoption walk
+  // visits parents before children, so ancestors emitted already. EAGER
+  // only — family targets' visibility moment is their fold commit
+  // (drainFolds emits there; emitting here too would double-fire).
+  if (eager && t.pc !== null && t.pc.p !== null) emitPatchLocal(t, incoming, old);
   // Shallow adoption: records are slot values — sticky raw-mark the incoming
   // set (R41) and never descend; slot notification is the positional diff.
   if (shallow) markRawIngest(incoming);
@@ -198,6 +205,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
         }
       }
       if (t.dk !== null && !dkBumpedA && i < nextRows.length) bumpDeep(t);
+      const structStart = i; // misalignment point (== nlen on aligned ticks)
       let prevByKey: Map<any, any> | null = null;
       for (; i < nextRows.length; i++) {
         const nv = nextRows[i];
@@ -230,12 +238,47 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
           }
         }
       }
+      // Row ops (PR-B): emit structural ops ONLY when structure changed —
+      // aligned value ticks pay nothing. Built after the walk so retained
+      // rows' value patches queue first (adds bind at op-apply).
+      if (t.pc !== null && t.pc.ro !== null && (structStart < nlen || plen !== nlen))
+        buildAndEmitRowOps(t, prevRows, nextRows, structStart, keyFn);
     } else {
       const dlen = Math.min(prevRows.length, nextRows.length);
       const nlen = nextRows.length;
       let dkBumpedP = false;
+      const sp = t.pc !== null ? t.pc.sp : null;
+      // Row ops for shallow/positional lists: track the key-aligned prefix
+      // (keyed) so aligned value ticks emit nothing; keyless lists emit only
+      // on length change (append/truncate). Slot-patch consumers need the
+      // alignment tracking too (aligned = value tick, misaligned = ops).
+      const ro = t.pc !== null ? t.pc.ro : null;
+      let keyAligned = keyFn !== null && (ro !== null || sp !== null);
+      let keyPrefix = 0;
       for (let i = 0; i < nlen; i++) {
         const nvP = nextRows[i];
+        if (keyAligned && i < dlen) {
+          const pvK = prevRows[i];
+          if (
+            pvK !== null &&
+            typeof pvK === "object" &&
+            nvP !== null &&
+            typeof nvP === "object" &&
+            keyFn!(pvK) === keyFn!(nvP)
+          )
+            keyPrefix++;
+          else keyAligned = false;
+        }
+        // Slot-patch dispatch (shallow): a KEY-ALIGNED slot whose value was
+        // replaced by reference is a value tick — emit through the queue.
+        // Misaligned/appended slots are STRUCTURE (row ops rebuild or move
+        // them; new rows initial-apply at bind), so they emit nothing here.
+        // Keyless positional lists treat same-index replacement as the value
+        // tick for indices below the common length.
+        if (sp !== null && (keyFn !== null ? keyAligned : i < dlen)) {
+          const pvS = i < dlen ? prevRows[i] : undefined;
+          if (pvS !== nvP) emitSlotPatch(t, i, nvP, pvS);
+        }
         if (!shallow && i < dlen && nvP !== null && typeof nvP === "object")
           descend(unwrapValue(prevRows[i]), nvP, keyFn, fam, proj);
         if (
@@ -254,6 +297,15 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
             nodesHit++;
             notifyKeyDiff(node, i as any, old, incoming, false);
           }
+        }
+      }
+      if (ro !== null) {
+        const plen = prevRows.length;
+        if (keyFn !== null) {
+          if (keyPrefix < nlen || plen !== nlen)
+            buildAndEmitRowOps(t, prevRows, nextRows, keyPrefix, keyFn);
+        } else if (plen !== nlen) {
+          buildAndEmitRowOps(t, prevRows, nextRows, dlen, null);
         }
       }
     }
@@ -276,6 +328,22 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
     // slots must not notify, R9). This replaces the notifyFold re-walk that
     // doubled dbmon's diff cost. for-in covers own enumerable string keys
     // with no key-array allocation; symbols get a pass only when present.
+    // PROTOTYPE compiled-patch fast path: a pure-patch record (no nodes,
+    // no presence/key-set/deep subscribers, no family) adopts and hands the
+    // (next, prev) pair to its compiled patch — no per-key walk at all.
+    if (
+      t.pc !== null &&
+      t.pc.p !== null &&
+      eager &&
+      t.n === null &&
+      t.h === null &&
+      t.k === null &&
+      t.dk === null &&
+      fam === null
+    ) {
+      // Adoption already ran at applyAdopt entry; emission was queued there.
+      return;
+    }
     const nodes = eager ? t.n : null;
     let nodesHit = 0;
     let dkBumped = false;
@@ -344,6 +412,68 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
 }
 
 const hasOwnP = Object.prototype.hasOwnProperty;
+
+/** Setter-channel row ops (the fold site calls this for array targets with
+ * ops consumers): structural mutation through the setter — push/splice/index
+ * assignment/permutation — is a visibility transition for the list container
+ * just like a reconcile walk, and drivers consuming registerRowOps must see
+ * it. Setter mutations move the SAME row objects around, so RAW IDENTITY is
+ * the key. Aligned arrays (value-only folds) emit nothing. */
+const identityKey = (r: any) => unwrapValue(r);
+export function emitSetterRowOps(t: StoreNextTarget, prevRows: any[], nextRows: any[]): void {
+  let p = 0;
+  const min = prevRows.length < nextRows.length ? prevRows.length : nextRows.length;
+  while (p < min && unwrapValue(prevRows[p]) === unwrapValue(nextRows[p])) p++;
+  if (p === prevRows.length && p === nextRows.length) return;
+  buildAndEmitRowOps(t, prevRows, nextRows, p, identityKey);
+}
+
+/** Shared row-ops builder (keyed deep branch + shallow/positional branch):
+ * key-matches the misaligned window into { prefix, sources, removed }.
+ * `keyFn === null` degrades to positional ops (append/truncate only). */
+function buildAndEmitRowOps(
+  t: StoreNextTarget,
+  prevRows: any[],
+  nextRows: any[],
+  structStart: number,
+  keyFn: KeyFn | null
+): void {
+  const plen = prevRows.length;
+  const nlen = nextRows.length;
+  const sources = new Array(nlen - structStart);
+  let oldIndexByKey: Map<any, number> | null = null;
+  if (keyFn !== null && structStart < plen) {
+    oldIndexByKey = new Map();
+    for (let j = structStart; j < plen; j++) {
+      const p = unwrapValue(prevRows[j]);
+      if (p !== null && typeof p === "object") {
+        const pk = keyFn(p);
+        if (pk !== undefined && !oldIndexByKey.has(pk)) oldIndexByKey.set(pk, j);
+      }
+    }
+  }
+  const consumed = oldIndexByKey !== null ? new Set<number>() : null;
+  for (let k = structStart; k < nlen; k++) {
+    const nv = nextRows[k];
+    let oldIdx = -1;
+    if (nv !== null && typeof nv === "object" && oldIndexByKey !== null) {
+      const nk = keyFn!(nv);
+      if (nk !== undefined) {
+        const m = oldIndexByKey.get(nk);
+        if (m !== undefined) {
+          oldIdx = m;
+          consumed!.add(m);
+        }
+      }
+    }
+    sources[k - structStart] = oldIdx;
+  }
+  const removed: any[] = [];
+  for (let j = structStart; j < plen; j++) {
+    if (consumed === null || !consumed.has(j)) removed.push(unwrapValue(prevRows[j]));
+  }
+  emitRowOps(t, nextRows, { prefix: structStart, sources, removed });
+}
 
 function descend(
   pv: any,

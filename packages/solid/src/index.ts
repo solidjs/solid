@@ -24,6 +24,13 @@ export {
   onCleanup,
   onSettled,
   latest,
+  // Patch-channel compiler contract (undocumented as application API)
+  patchableRaw,
+  registerPatch,
+  registerRowOps,
+  registerSlotPatch,
+  storeIsShallow,
+  storeHasFamily,
   reconcile,
   refresh,
   repeat,

@@ -51,6 +51,7 @@ import {
   unwrapValue,
   wrapNext
 } from "./store.js";
+import { emitPatchOptimistic } from "./patch.js";
 import { setOptHooks, storeNextLookup } from "./target.js";
 type KeyFn = (item: any) => any;
 import { isRawValue, isWrappable, rawValuesUsed, setNextOptimisticViewResolver } from "../store.js";
@@ -70,6 +71,18 @@ function installNextBlockedHalf(): void {
   // so the hook only empties the batch set.
   if (!GlobalQueue._clearOptimisticStores) {
     GlobalQueue._clearOptimisticStores = (stores: Set<any>) => {
+      // Patch channel (revert site): engine-native reverts flip node values
+      // back to committed; patched records need a forced DOM re-apply from
+      // the post-revert view. Emission only — next keeps no layer to clear.
+      for (const px of stores) {
+        const t: StoreNextTarget | undefined = px?.[$TARGET];
+        const overlaid = t?.fam?.overlaid as Set<StoreNextTarget> | undefined;
+        if (overlaid !== undefined) {
+          for (const ot of overlaid) {
+            if (ot.pc !== null && ot.pc.p !== null) emitPatchOptimistic(ot, null, null);
+          }
+        }
+      }
       stores.clear();
     };
   }
@@ -188,6 +201,10 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
   const fw: any = t.fam?.node;
   if (fw?._transition) globalQueue.initTransition(fw._transition);
   const old = t.v;
+  // Patch channel (override-application site): the draft IS the intended
+  // visible state; prev is the view before these overrides apply. Bypasses
+  // the transition stash — optimism is visible in flight.
+  if (t.pc !== null && t.pc.p !== null) emitPatchOptimistic(t, pb, optimisticView(t, old));
   const visible = (key: PropertyKey, fallback: any): any => {
     const node = t.n?.[key as any];
     return node !== undefined && hasActiveOverride(node)
@@ -319,6 +336,10 @@ export function consumeOverridesNext(fam: StoreNextFamily): void {
         insertSubs(t.k, true);
         schedule();
       }
+      // Patch channel (override-consumption site): visible truth flipped to
+      // committed for the consumed keys — force a re-apply from the live
+      // view so the DOM leaves the override state.
+      if (t.pc !== null && t.pc.p !== null) emitPatchOptimistic(t, null, null);
     }
     overlaid.clear();
   });
