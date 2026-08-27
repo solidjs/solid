@@ -38,9 +38,11 @@
 // import site of the shared wire layer keeps working.
 export {
   LIVE_SOURCE,
+  SERVER_FUNCTION_INVOKE,
   SERVER_FUNCTION_METADATA,
   getServerFunctionMetadata,
   getServerFunctionRPC,
+  invoke,
   isServerFunction,
   provideServerFunctionRPC,
   withMeta
@@ -104,6 +106,44 @@ export interface ServerFunction<A extends readonly any[] = any[], T = any> {
   /** URL invoking this function directly over HTTP (form `action`s, raw fetches). */
   readonly url: string;
 }
+
+/**
+ * Per-call, invocation-scoped options for `invoke` — things that vary
+ * between calls of the SAME function and cannot be declared (`GET`,
+ * `withMeta`) or configured (`prepareRequest`). On the server the call is
+ * in-process: `signal` still rejects the caller, the transport hints are
+ * no-ops (they describe a wire that does not exist).
+ */
+export interface InvokeOptions {
+  /**
+   * The call's lifecycle. Aborting rejects the call with the signal's
+   * reason and cancels the request (firing `request.signal` server-side);
+   * a live source's iteration ends across reconnects. When provided, the
+   * signal owns the wire — timeouts compose through it
+   * (`AbortSignal.timeout`, `AbortSignal.any`).
+   */
+  signal?: AbortSignal;
+  /**
+   * Lets the request outlive the page — fire-and-forget calls during
+   * unload (`pagehide`). Maps to fetch's `keepalive`, body-size caps
+   * included.
+   */
+  keepalive?: boolean;
+  /** Fetch priority hint — speculative prefetch vs. interaction fetch. */
+  priority?: "high" | "low" | "auto";
+}
+
+/**
+ * A reference's invocation channel, carried under `SERVER_FUNCTION_INVOKE`:
+ * applies one call with per-call options. Wrappers composing over a
+ * reference forward this channel the way they forward declaration
+ * metadata, adapting the options to their own policy. Options arrive
+ * already validated — `invoke` admits only invocation-scoped keys.
+ */
+export type ServerFunctionInvoker<A extends readonly any[] = any[], R = any> = (
+  args: A,
+  options?: InvokeOptions
+) => R;
 
 /**
  * Declaration-static metadata attached to a server function reference

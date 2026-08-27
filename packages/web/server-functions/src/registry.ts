@@ -1,5 +1,12 @@
 // @ts-nocheck
-export type { ServerFunction, ServerFunctionMetadata, ServerFunctionRPC } from "./shared.js";
+export type {
+  InvokeOptions,
+  ServerFunction,
+  ServerFunctionInvoker,
+  ServerFunctionMetadata,
+  ServerFunctionRPC
+} from "./shared.js";
+import type { InvokeOptions } from "./shared.js";
 // The codec-free universal layer of the server function runtime: the
 // declaration-metadata channel and the late-bound transport seam. Everything
 // here is readable from an app's EAGER graph (re-exported through the core
@@ -75,6 +82,114 @@ export function withMeta(fn, meta) {
   }
   Object.assign(metadata, meta);
   return fn;
+}
+
+// The invocation channel. References (and declaration wrappers — GET, live)
+// carry their per-call invoker under a registered symbol, and `invoke`
+// dispatches to it. Part of the reference contract exactly like the
+// metadata channel: a wrapper that composes over a reference (a router's
+// query/action, userland composition) forwards this channel the way it
+// forwards metadata — adapting the options to its own policy (a caching
+// wrapper decides what a caller's abort means for a shared in-flight
+// call) — so `invoke` works uniformly on anything reference-shaped.
+export const SERVER_FUNCTION_INVOKE = Symbol.for("solid.ServerFunctionInvoke");
+
+// Refused options answer with a redirect, not a bare no: every concern that
+// is not invocation-scoped (does not vary between calls of the same
+// function) has a named home, and the error message points at it.
+const INVOKE_OPTION_REDIRECTS = {
+  headers:
+    "Session-dynamic headers belong to the prepareRequest hook, declaration metadata to " +
+    "withMeta(fn, meta), and data belongs in the arguments, where it is serialized, typed, " +
+    "and part of the cache key.",
+  method: "The method is declaration-scoped: declare the function with GET(fn).",
+  body: "The arguments are the body: pass them in the args array.",
+  timeout:
+    "Compose timeouts through `signal` with AbortSignal.timeout(ms) (and AbortSignal.any to " +
+    "combine it with a caller signal)."
+};
+
+/**
+ * Applies a server function once with per-call, invocation-scoped options —
+ * `Function.prototype.call` for server functions, the options bag in the
+ * `thisArg` slot (declaration wrappers like `GET` and `withMeta` are `bind`:
+ * they return a new reference with context baked in; `invoke` applies one
+ * call and leaves no residue on the reference).
+ *
+ * ```ts
+ * import { invoke } from "@solidjs/web/server-functions";
+ *
+ * const user = await invoke(getUser, { signal: controller.signal }, id);
+ * ```
+ *
+ * Options are strictly invocation-scoped — things that vary between calls
+ * of the SAME function and cannot be declared or configured: `signal`
+ * (the call's lifecycle; aborting rejects the call and cancels the
+ * request), `keepalive` (calls made while the page unloads), `priority`
+ * (fetch priority hint). Anything with a longer lifetime is refused with a
+ * pointer to its home: session-dynamic transport policy → `prepareRequest`;
+ * declaration-static shape → `GET`/`withMeta`; call policy (retries,
+ * dedupe, deadlines) → the data layer that owns the call, wired through
+ * `signal`.
+ *
+ * Dispatches through the reference's invocation channel
+ * (`SERVER_FUNCTION_INVOKE`), which wrappers forward like they forward
+ * declaration metadata — `GET` invokes over its query encoding, `live`
+ * ends its iteration on abort, and data-layer wrappers adapt the options
+ * to their own policy. On the server the call runs in-process: `signal`
+ * rejects the caller (the work, like a server behind HTTP, runs on unless
+ * the function observes a signal itself) and the transport hints are
+ * no-ops, since they describe a wire that does not exist.
+ */
+export function invoke<A extends readonly any[], R>(
+  fn: (...args: A) => R,
+  options: InvokeOptions,
+  ...args: A
+): R;
+
+/**
+ * Applies a server function once with per-call, invocation-scoped options
+ * (`signal`, `keepalive`, `priority`), dispatching through the reference's
+ * invocation channel. Anything with a longer lifetime is refused with a
+ * pointer to its home.
+ */
+export function invoke(fn, options, ...args) {
+  const channel = typeof fn === "function" && fn[SERVER_FUNCTION_INVOKE];
+  if (!channel) {
+    throw new Error(
+      isServerFunction(fn)
+        ? "invoke: this reference's wrapper does not forward the invocation channel " +
+            "(SERVER_FUNCTION_INVOKE). Wrappers compose per-call invocation the way they " +
+            "compose declaration metadata: forward the channel, adapting the options to the " +
+            "wrapper's own policy."
+        : "invoke expects a server function reference (or a wrapper that forwards its " +
+            "invocation channel). Per-call options apply at the transport; for a data " +
+            "layer's calls, use its per-call options instead."
+    );
+  }
+  // The options bag is positional (the `thisArg` slot) so the call's own
+  // arguments spread naturally — reject non-bags loudly rather than let a
+  // forgotten bag swallow the first argument.
+  if (options === null || typeof options !== "object") {
+    throw new Error(
+      "invoke's second argument is the invocation options bag: invoke(fn, { signal }, ...args)"
+    );
+  }
+  const picked = {};
+  for (const key in options) {
+    if (key !== "signal" && key !== "keepalive" && key !== "priority") {
+      throw new Error(
+        `\`${key}\` is not an invocation option. ` +
+          (INVOKE_OPTION_REDIRECTS[key] ||
+            "Options here are strictly invocation-scoped (they vary between calls of the " +
+              "same function): signal, keepalive, priority.")
+      );
+    }
+  }
+  if (options.signal !== undefined) picked.signal = options.signal;
+  if (options.keepalive !== undefined) picked.keepalive = options.keepalive;
+  if (options.priority !== undefined) picked.priority = options.priority;
+  return channel(args, picked);
 }
 
 // The live-source value brand. `live(fn)` declarations mark the async

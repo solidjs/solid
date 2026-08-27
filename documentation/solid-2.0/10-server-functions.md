@@ -2,18 +2,18 @@
 
 **Start here:** If you’re migrating an app, read the migration guide first: [MIGRATION.md](MIGRATION.md)
 
-> **Status note:** This RFC covers two layers. The base mechanics — the `"use server"` directive, the `@solidjs/web/server-functions` runtime, response helpers, single-flight, and no-JS handling — are **shipped** in the 2.0 prerelease line. The extension surface (`GET`, `withMeta`, the metadata accessors, `prepareRequest`, method enforcement, `id` on proxies) is now **shipped** as well; this document remains the canonical specification. One follow-up remains deferred: a dev observation hook for the server-function inspector (deliberately deferred until it can be designed together with its consumer). Dev-only compiler-emitted `name` metadata has since shipped (`registerServerReference(id, fn, name)` / `createServerReference(id, name)` seed the metadata channel). Server components build on this runtime — see [11 — Server components](11-server-components.md).
+> **Status note:** This RFC covers two layers. The base mechanics — the `"use server"` directive, the `@solidjs/web/server-functions` runtime, response helpers, single-flight, and no-JS handling — are **shipped** in the 2.0 prerelease line. The extension surface (`GET`, `withMeta`, the metadata accessors, `prepareRequest`, method enforcement, `id` on proxies, and — added when #3057 supplied the consumer the first draft was waiting on — the per-call invocator `invoke`) is now **shipped** as well; this document remains the canonical specification. One follow-up remains deferred: a dev observation hook for the server-function inspector (deliberately deferred until it can be designed together with its consumer). Dev-only compiler-emitted `name` metadata has since shipped (`registerServerReference(id, fn, name)` / `createServerReference(id, name)` seed the metadata channel). Server components build on this runtime — see [11 — Server components](11-server-components.md).
 
 ## Summary
 
-Solid 2.0 moves server functions into core: a `"use server"` directive compiled by the build plugin, backed by a framework-agnostic runtime at `@solidjs/web/server-functions`. The runtime ships _mechanisms_ — transport, an HTTP handler with hooks, response helpers, a single-flight protocol — while routers and frameworks layer _policy_ on top. The extension surface adds exactly four mechanisms: `GET(fn)`, `withMeta(fn, meta)`, the `getServerFunctionMetadata`/`isServerFunction` accessors, and a `prepareRequest` client hook.
+Solid 2.0 moves server functions into core: a `"use server"` directive compiled by the build plugin, backed by a framework-agnostic runtime at `@solidjs/web/server-functions`. The runtime ships _mechanisms_ — transport, an HTTP handler with hooks, response helpers, a single-flight protocol — while routers and frameworks layer _policy_ on top. The extension surface adds exactly five mechanisms: `GET(fn)`, `withMeta(fn, meta)`, the `getServerFunctionMetadata`/`isServerFunction` accessors, a `prepareRequest` client hook, and the per-call invocator `invoke(fn, options, ...args)`.
 
 The governing philosophy: **the server side of a server function is your function body.** Per-function server concerns (validation, auth guards, logging, rate limiting) are lines of code inside the body; global concerns are the handler and transport hooks; there is no third place. Nothing is compiler-recognized; the compiler’s only contract is the directive.
 
 ## Motivation
 
 - **Server functions belong to core, not the metaframework:** In 1.x, `"use server"` lived in SolidStart (via vinxi). 2.0 collapses the runtime into core so any Vite app — with or without Start — gets typed RPC, streaming returns, progressive enhancement, and custom serialization.
-- **Mechanisms vs. policy:** Every prior era (Start 0.x `server$`, the v1 proxy) grew an ad-hoc extension surface — per-call `fetch(init)`, `withOptions`, registry mutation, compiler-recognized wrappers. Sorting those concerns by _lifetime_ (declaration-static, session-dynamic, call-scoped) yields a much smaller surface and shows the call-scoped slot is actually empty.
+- **Mechanisms vs. policy:** Every prior era (Start 0.x `server$`, the v1 proxy) grew an ad-hoc extension surface — per-call `fetch(init)`, `withOptions`, registry mutation, compiler-recognized wrappers. Sorting those concerns by _lifetime_ (declaration-static, session-dynamic, call-scoped) yields a much smaller surface. The call-scoped slot was initially empty; a concrete consumer (data-layer cancellation, [#3057](https://github.com/solidjs/solid/issues/3057)) later filled it with `invoke` — a bounded per-call invocator, not the `RequestInit` passthrough the old surfaces grew.
 - **The boundary is security-critical:** The handler decodes whatever an attacker sends — the codec reconstructs rich types — and hands it positionally to your function. TypeScript types are fiction at this boundary; treat arguments as untrusted input and check them in the function body.
 - **Avoiding the `server$` mistake:** Start 0.x’s `server$` was a compiler-recognized function whose every capability grew compiler knowledge. The directive model exists to avoid that; this design keeps the compiler’s contract at exactly one thing: `"use server"`.
 
@@ -134,7 +134,7 @@ Three lifetime slots organize everything the historical proxy surfaces conflated
 | ---------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------- |
 | **Declaration-static** | properties of the function itself                      | `GET(fn)` for method; `withMeta(fn, meta)` for user-declared transport metadata |
 | **Session-dynamic**    | cross-cutting transport policy that changes at runtime | `prepareRequest` client hook; server handler hooks (existing)                   |
-| **Call-scoped**        | one specific invocation                                | _empty_ — both candidate consumers found better homes                           |
+| **Call-scoped**        | one specific invocation                                | `invoke(fn, options, ...args)` — signal, keepalive, priority                    |
 
 Per-function _server_ concerns have no slot here because they are not transport: they are body code. Mechanisms live in core; unprivileged patterns ship as standalone packages; conventions live at the layer that consumes them; everything else is code in the function.
 
@@ -182,7 +182,7 @@ The reference contract shrinks accordingly (no compatibility shims):
 | `url`                           | kept                                                                                     |
 | `getServerFunctionMetadata(fn)` | **added**                                                                                |
 | `.GET` proxy getter             | **removed** (the `GET(fn)` export replaces it; internal transport path remains)          |
-| `.withOptions(init)`            | **removed** — session-dynamic uses go through `prepareRequest`; call-scoped uses are cut |
+| `.withOptions(init)`            | **removed** — session-dynamic uses go through `prepareRequest`; call-scoped uses through `invoke` (bounded options, not `RequestInit`) |
 | Start’s `GET` export            | **deleted**; `GET` imports from core                                                     |
 
 #### `prepareRequest`: client-side transport middleware
@@ -199,7 +199,38 @@ configureServerFunctionsClient({
 
 **Single hook, not a chain** — composition is userland (wrap functions if you need layers). Note the symmetry this completes: server-side global policy is the existing handler hooks (`createEvent` / `transformResult` / `handleNoJS`); client-side global policy is `prepareRequest`.
 
-**There is no per-call API.** The two cases that leaned on one found better homes: single-flight opt-in becomes automatic via `subscribeFlightData` registration (above), and abort signals have no known consumer today — revisit only with a concrete use case in hand.
+#### `invoke`: the per-call invocator
+
+The call-scoped slot was empty in the first draft — its two candidate consumers had found better homes, and the standing rule was "revisit only with a concrete use case in hand." The use case arrived ([#3057](https://github.com/solidjs/solid/issues/3057)): a data layer supersedes a query — navigation, a newer search keystroke — and needs the in-flight HTTP request cancelled, which no declaration or session hook can express because it is a fact about _one call_. `invoke` fills the slot:
+
+```ts
+import { invoke } from "@solidjs/web/server-functions";
+
+const user = await invoke(getUser, { signal: controller.signal }, id);
+```
+
+The mental model: **declaration wrappers are `bind`, `invoke` is `call`.** `GET(fn)`/`withMeta(fn, meta)` return a new reference with context baked in that travels wherever the reference is passed; `invoke` applies one call with ephemeral context and leaves no residue on the reference — which is why the options bag sits positionally in the `thisArg` slot (`Function.prototype.call`'s silhouette) with the call's own arguments spreading naturally after it. The shape is deliberate the other way too: a curried form (`invoke(fn, options)` returning a callable) was rejected because it _is_ a bind — visually indistinguishable from the declaration wrappers, inviting held references and quietly reviving `withOptions`. Options are always required; with nothing to pass, call the function.
+
+**The admission test.** An option belongs here only if it varies between calls of the _same_ function and cannot be declared or configured. Three pass today:
+
+- **`signal`** — the call's lifecycle. Aborting rejects the call and cancels the request (firing `request.signal` server-side); a caller-supplied signal owns the wire (the transport skips its own controller). Timeouts compose through it (`AbortSignal.timeout`, `AbortSignal.any`) rather than being an option themselves.
+- **`keepalive`** — lets the request outlive the page: fire-and-forget calls during `pagehide`. The same function called in a different _moment_, not a different declaration.
+- **`priority`** — fetch priority hint; speculative prefetch vs. interaction fetch genuinely differ per call site.
+
+**Refusals are redirects.** Everything with a longer lifetime is rejected _with a pointer to its home_ — each backed by an invariant, not taste, and `invoke` throws the redirect at runtime rather than silently dropping:
+
+| Refused                       | Invariant it would break                                                     | Home                                                        |
+| ----------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `headers` / raw `RequestInit` | cache-key integrity — response-changing input must be keyed in the URL/args | `prepareRequest` (session), `withMeta` (declaration), args (data) |
+| `method`                      | CSRF posture — methods are server-gated by declaration                       | `GET(fn)`                                                   |
+| retries / deadlines / dedupe  | residue-free application — policy is state _across_ calls                    | the data layer, wired through `signal`                      |
+| response envelope access      | isomorphism — in-process calls have no `Response` to mirror                  | return metadata as part of the value                        |
+
+The test cuts both ways: an option with no invariant against it gets admitted. That is what keeps the surface principled rather than arbitrary.
+
+**Composition: the invocation channel is part of the reference contract.** `invoke` dispatches through a registered-symbol channel (`SERVER_FUNCTION_INVOKE`) on the reference — the same cross-bundle trick as the metadata channel — and wrappers forward it the way they forward metadata. `GET` invokes over its query encoding (URL-length POST fallback included); `live` ends its iteration on abort, across reconnects; a data-layer wrapper (the router's `query`/`action`) adapts the channel to its own policy — a caching wrapper decides what a caller's abort means for a shared in-flight call, per-caller detach with the underlying fetch aborted when the last interested caller leaves. This is the point: routers treat wrappers as the bottom — `GET` and `query` are interchangeable in user hands — so one verb must work on anything reference-shaped. A wrapper that composes over a reference without forwarding the channel is not invocable, exactly as it already loses `id`, `url`, and metadata; `invoke` answers it with a directed error naming the contract.
+
+**Server mirror.** On the server build the call runs in-process: `signal` still rejects the _caller_ with the signal's reason (the work, like a server behind HTTP, runs to completion unless the function observes a signal of its own), and the transport hints are no-ops — they describe a wire that does not exist.
 
 ### Validation (decision record)
 
@@ -213,7 +244,7 @@ The intended shape, in brief: a non-throwing `validate(schema, value)` helper ov
 
 | Layer                                 | Owns                                                                                                                                                                                                                                                                                                                                                                                 |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Core**                              | The directive contract, transport, handler + hooks, `respond`/`redirect`/`reload`, codec configuration, streaming; the shipped extension surface: `GET` + `withMeta` over the metadata channel, `getServerFunctionMetadata`/`isServerFunction`, `prepareRequest`, `id` on proxies, method 405 enforcement, automatic single-flight header via `subscribeFlightData`. Mechanisms only |
+| **Core**                              | The directive contract, transport, handler + hooks, `respond`/`redirect`/`reload`, codec configuration, streaming; the shipped extension surface: `GET` + `withMeta` over the metadata channel, `getServerFunctionMetadata`/`isServerFunction`, `prepareRequest`, `invoke` over the invocation channel, `id` on proxies, method 405 enforcement, automatic single-flight header via `subscribeFlightData`. Mechanisms only |
 | **Router**                            | Metadata detection in `query()`, single-flight via `subscribeFlightData` registration, errors landing in submission state (already true), the flash-cookie convention and SSR submission seeding via `handleNoJS`                                                                                                                                                                    |
 | **Form layer (router/Start, future)** | Field-error UX conventions: typed field accessors, `aria-invalid` wiring, no-JS flash-cookie repopulation, FormData coercion                                                                                                                                                                                                                                                         |
 | **Userland**                          | Per-function server concerns as body code (validation, auth guards, logging, rate limiting); `prepareRequest` composition                                                                                                                                                                                                                                                            |
@@ -248,7 +279,7 @@ The boundary rule for future additions: **own the exchange, not the application 
 | `import { GET } from "@solidjs/start"`                        | `import { GET } from "@solidjs/web/server-functions"` — Start’s export deleted                                                                                                                                                              |
 | `import { createPlugin } from "@solidjs/start/serialization"` | `import { createPlugin } from "@solidjs/web/serialization"` — the same version-pinned seroval re-export (`createPlugin` + `OpaqueReference`, solid-start #1474); author plugins from it and feed them to the `codec` option on both entries |
 | `fn.GET` (property access)                                    | gone; a `GET(fn)` reference already calls over GET                                                                                                                                                                                          |
-| `fn.withOptions(init)`                                        | `prepareRequest` for session policy; call-scoped uses cut                                                                                                                                                                                   |
+| `fn.withOptions(init)`                                        | `prepareRequest` for session policy; `invoke(fn, options, ...args)` for call-scoped options (bounded: signal, keepalive, priority — never `RequestInit`)                                                                                    |
 | Router `query()` `.GET` sniffing                              | metadata detection via `getServerFunctionMetadata` (mostly: nothing — the callable is already the right transport)                                                                                                                          |
 | Router `action()` single-flight via `withOptions` header      | automatic: the transport sets the header when the router registers via `subscribeFlightData`                                                                                                                                                |
 
@@ -263,7 +294,7 @@ The boundary rule for future additions: **own the exchange, not the application 
 Recorded so they don’t reopen:
 
 - **`decorateServerFunction` (registry-swap decoration)** — rejected outright, not even as a documented escape hatch. Action-at-a-distance magic (module evaluation mutating dispatch for an id), it contradicts the body-is-the-extension-point model, and it had no concrete consumer once validation moved into the body.
-- **`callServerFunction(fn, init, ...args)` (per-call escape hatch)** — cut; the settled inventory has no per-call mechanism. Its two candidate consumers found better homes: single-flight opt-in becomes automatic via `subscribeFlightData`, and abort signals have no known consumer today.
+- **`callServerFunction(fn, init, ...args)` (per-call escape hatch)** — cut from the first draft for lack of a consumer; the cut was explicitly conditional ("revisit only with a concrete use case in hand"), and the consumer arrived (#3057: data-layer cancellation). The shape returned as **`invoke(fn, options, ...args)`** with one decisive difference: a bounded, admission-tested options bag instead of raw `RequestInit` — the passthrough remains rejected (see the invoke section's redirect table). A curried form (`invoke(fn, options)` returning a callable) was considered for ergonomics and rejected: it is structurally a `bind`, indistinguishable from the declaration wrappers, and would quietly revive `withOptions`. An ambient form (options set in a stack-scoped window around a plain call) was rejected for action-at-a-distance and async-boundary fragility.
 - **General `extend`/`transport(meta, fn)` options bag** — originally deferred, not designed-in: method was the only declaration-static capability, and a one-key options bag is worse API than one named function. A narrowed form returned as **`withMeta(fn, meta)`** — transport/declaration metadata only, function-first, never behavior — because the declare-on-function, react-in-hook pattern needed a public writer to the channel (`prepareRequest`’s `meta` was otherwise unreachable for user declarations). The metadata channel remains the stable contract.
 - **Per-function static `headers` metadata** — cut; every concrete use case (bearer tokens, tracing) is session-dynamic and uniform → `prepareRequest`.
 - **Compiler recognition of framework functions** (schema-stripping, `extend` as a compiler convention) — rejected; repeats the `server$` mistake of growing compiler knowledge per capability. Dead, not deferred: body-scoped DCE removes the motivation, since schemas never reach the client in the first place.

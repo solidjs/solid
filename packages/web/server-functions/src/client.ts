@@ -10,6 +10,7 @@ import {
   ERROR_HEADER,
   INSTANCE_HEADER,
   LIVE_SOURCE,
+  SERVER_FUNCTION_INVOKE,
   SERVER_FUNCTION_METADATA,
   SINGLE_FLIGHT_HEADER,
   configureServerFunctionsCodec,
@@ -39,6 +40,7 @@ export {
   ERROR_HEADER,
   FLASH_COOKIE,
   INSTANCE_HEADER,
+  SERVER_FUNCTION_INVOKE,
   SINGLE_FLIGHT_HEADER,
   clearFlashCookie,
   createChunk,
@@ -52,6 +54,7 @@ export {
   getServerFunctionMetadata,
   getServerFunctionsCodec,
   hasFlashCookie,
+  invoke,
   isServerFunction,
   // the rich-args entry's codec write half: its bundled form (solid-web's
   // server-functions/dist/rich-args.js) resolves shared.js imports here so
@@ -67,7 +70,9 @@ import { JSONCodecOptions } from "../../serialization/src/serializer-decode.js";
 export type {
   FlightDataConsumer,
   FlightDataContext,
+  InvokeOptions,
   ServerFunction,
+  ServerFunctionInvoker,
   ServerFunctionMetadata,
   SingleFlightPayload
 } from "./shared.js";
@@ -630,7 +635,10 @@ export function createServerReference(id, name, base) {
   // its bound arguments in the query string, where the server reads them
   // for natural-encoding bodies. Default calls derive from the configured
   // endpoint (lazily — it may be configured after module scope runs).
-  const fn = (...args) => {
+  // One body for both entrances — `fn(...args)` and `invoke(fn, args,
+  // options)`: the invocation channel IS the call path with the per-call
+  // options slot exposed, so the two can never drift.
+  const run = (args, invokeOptions) => {
     // Local-answer seam, SYNCHRONOUS on purpose: an integration that already
     // holds this call's result (e.g. a document-SSR'd server-component
     // boundary at hydration time) answers without a promise — so async
@@ -644,12 +652,14 @@ export function createServerReference(id, name, base) {
     return fetchServerFunction(
       base || serverFunctionAddress(config.endpoint, id),
       id,
-      {},
+      invokeOptions ? { ...invokeOptions } : {},
       args,
       metadata
     );
   };
+  const fn = (...args) => run(args);
   fn[SERVER_FUNCTION_METADATA] = metadata;
+  fn[SERVER_FUNCTION_INVOKE] = run;
 
   return new Proxy(fn, {
     get(target, prop) {
@@ -718,15 +728,19 @@ export function GET(fn) {
   // the GET-transport callable inherits the source reference's declared
   // metadata (withMeta composes with GET in either order)
   const metadata = { ...getServerFunctionMetadata(fn) };
-  const wrapped = async (...args) => {
+  // Per-call invocation composes through the declaration: the channel is
+  // the same body with the options slot exposed, so `invoke(GET(fn), args,
+  // { signal })` goes over the query encoding, POST fallback included.
+  const run = async (args, invokeOptions) => {
     const handler = config.responseHandler;
     if (handler && handler.intercept) {
       const hit = handler.intercept({ id, meta: metadata, args });
       if (hit !== undefined) return hit;
     }
+    const opts = invokeOptions || {};
     const address = serverFunctionAddress(config.endpoint, id);
     if (!args.length) {
-      return fetchServerFunction(address, id, { method: "GET" }, [], metadata, args);
+      return fetchServerFunction(address, id, { ...opts, method: "GET" }, [], metadata, args);
     }
     // The handler accepts both encodings: plain JSON and the codec's framed
     // string (distinguished by the `;0x` frame prefix).
@@ -741,11 +755,13 @@ export function GET(fn) {
     // says so, and a POST-shaped read must not ask the server for
     // single-flight collection, which is mutation policy.
     if (absolute.length > MAX_GET_URL_LENGTH) {
-      return fetchServerFunction(address, id, { read: true }, args, metadata);
+      return fetchServerFunction(address, id, { ...opts, read: true }, args, metadata);
     }
-    return fetchServerFunction(url, id, { method: "GET" }, [], metadata, args);
+    return fetchServerFunction(url, id, { ...opts, method: "GET" }, [], metadata, args);
   };
+  const wrapped = (...args) => run(args);
   wrapped[SERVER_FUNCTION_METADATA] = metadata;
+  wrapped[SERVER_FUNCTION_INVOKE] = run;
   wrapped.id = id;
   // lazy like the base proxy's: the endpoint may be configured after the
   // module-scope GET(...) call runs
@@ -835,7 +851,7 @@ export function live(fn) {
   }
   const id = fn.id;
   const metadata = { ...getServerFunctionMetadata(fn), live: true };
-  const wrapped = (...args) => {
+  const makeIterable = (args, invokeOptions) => {
     const iterable = {
       [LIVE_SOURCE]: true,
       [Symbol.asyncIterator]() {
@@ -846,6 +862,19 @@ export function live(fn) {
         let ended = false; // "closed" fires exactly once per iteration
         let timer, wake; // interruptible backoff sleep
         const DONE = { done: true, value: undefined };
+        // The iteration owns a controller so ending consumption (`break`)
+        // severs the wire; a caller-supplied signal (invoke) rides alongside
+        // through AbortSignal.any — either ends the iteration, and because
+        // the combined signal reaches every (re)connect's fetch, an abort
+        // cancels the CURRENT connection whichever attempt it is.
+        const invokeSignal = invokeOptions && invokeOptions.signal;
+        const controller = new AbortController();
+        const wireOptions = {
+          ...invokeOptions,
+          signal: invokeSignal
+            ? AbortSignal.any([invokeSignal, controller.signal])
+            : controller.signal
+        };
         // Wire-state side channel: the retry loop erases deaths from the
         // value stream BY DESIGN (encapsulated reconnect), so the hook is
         // the only place downstream can learn them. Read late (at fire
@@ -878,17 +907,26 @@ export function live(fn) {
         };
         const callOnce = () => {
           // A GET-composed reference is already a flight-free read with its
-          // own query-string encoding — delegate to it. Otherwise call the
-          // transport directly so the POST is marked a read: live responses
-          // are streams, which have no single-flight envelope story (and
-          // flight collection is mutation policy).
-          if (metadata.method === "GET") return fn(...args);
+          // own query-string encoding — delegate through its invocation
+          // channel so the wire options (the combined signal included) reach
+          // its fetch. Otherwise call the transport directly so the POST is
+          // marked a read: live responses are streams, which have no
+          // single-flight envelope story (and flight collection is mutation
+          // policy).
+          if (metadata.method === "GET") return fn[SERVER_FUNCTION_INVOKE](args, wireOptions);
           const handler = config.responseHandler;
           if (handler && handler.intercept) {
             const hit = handler.intercept({ id, meta: metadata, args });
             if (hit !== undefined) return hit;
           }
-          return fetchServerFunction(fn.url, id, { read: true }, args, metadata, args);
+          return fetchServerFunction(
+            fn.url,
+            id,
+            { ...wireOptions, read: true },
+            args,
+            metadata,
+            args
+          );
         };
         const pull = async () => {
           while (!stopped) {
@@ -903,10 +941,11 @@ export function live(fn) {
                     : (async function* () {
                         yield result;
                       })();
-                // stopped while connecting: the just-arrived stream must still
-                // be ended (its return() aborts the request)
+                // stopped while connecting: the just-arrived stream must
+                // still be ended, and the controller severs its wire
                 if (stopped) {
                   closeIt();
+                  controller.abort();
                   return DONE;
                 }
                 emit("connected");
@@ -920,11 +959,22 @@ export function live(fn) {
               attempts = 0; // healthy value: backoff resets
               return r;
             } catch (error) {
+              // The consumer already ended the iteration (return() aborting
+              // a pending pull): the rejection is our own teardown, not news.
+              if (stopped) return DONE;
               // First-connect failures surface (normal call semantics); a
               // stream that had connected died — retry with backoff. The next
               // successful connect starts a NEW logical answer: value-shaped
               // sources re-yield current state on invocation by contract.
               if (!connected) throw error;
+              // A caller-supplied signal (invoke) aborting ends the
+              // iteration for good — surfaced as rejection like any aborted
+              // call, never retried.
+              if (invokeSignal && invokeSignal.aborted) {
+                stopped = true;
+                emitClosed(error);
+                throw error;
+              }
               // Definite rejections fail fast: a 4xx means the server
               // understood and refused — auth revoked, resource gone —
               // and retrying cannot change the answer. The error surfaces
@@ -950,9 +1000,13 @@ export function live(fn) {
                 // guard: non-browser consumers have no global EventTarget)
                 if (typeof addEventListener === "function")
                   addEventListener("online", resolve, { once: true });
+                // an invoke signal aborting wakes it too: the next loop's
+                // connect rejects immediately and the abort surfaces
+                if (invokeSignal) invokeSignal.addEventListener("abort", resolve, { once: true });
               });
               clearTimeout(timer);
               if (typeof removeEventListener === "function") removeEventListener("online", wake);
+              if (invokeSignal) invokeSignal.removeEventListener("abort", wake);
               timer = wake = undefined;
             }
           }
@@ -964,8 +1018,9 @@ export function live(fn) {
             stopped = true;
             if (timer !== undefined) clearTimeout(timer);
             if (wake) wake();
-            // ends the in-flight call through the transport's return() wiring
             closeIt(value);
+            // the iteration's controller severs the in-flight connection
+            controller.abort();
             emitClosed();
             return Promise.resolve({ done: true, value });
           }
@@ -974,7 +1029,9 @@ export function live(fn) {
     };
     return iterable;
   };
+  const wrapped = (...args) => makeIterable(args);
   wrapped[SERVER_FUNCTION_METADATA] = metadata;
+  wrapped[SERVER_FUNCTION_INVOKE] = makeIterable;
   wrapped.id = id;
   // lazy like the base proxy's: the endpoint may be configured after the
   // module-scope live(...) call runs

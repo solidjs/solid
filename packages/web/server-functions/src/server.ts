@@ -21,6 +21,7 @@ import {
   ERROR_HEADER,
   INSTANCE_HEADER,
   LIVE_SOURCE,
+  SERVER_FUNCTION_INVOKE,
   SERVER_FUNCTION_METADATA,
   SINGLE_FLIGHT_HEADER,
   configureServerFunctionsCodec,
@@ -44,6 +45,7 @@ export {
   ERROR_HEADER,
   FLASH_COOKIE,
   INSTANCE_HEADER,
+  SERVER_FUNCTION_INVOKE,
   SINGLE_FLIGHT_HEADER,
   clearFlashCookie,
   decodeErrorHeaderValue,
@@ -52,6 +54,7 @@ export {
   encodeErrorHeaderValue,
   getServerFunctionMetadata,
   hasFlashCookie,
+  invoke,
   isServerFunction,
   subscribeFlightData,
   withMeta
@@ -67,7 +70,9 @@ import { RequestEvent } from "../../src/server.js";
 export type {
   FlightDataConsumer,
   FlightDataContext,
+  InvokeOptions,
   ServerFunction,
+  ServerFunctionInvoker,
   ServerFunctionMetadata,
   SingleFlightPayload
 } from "./shared.js";
@@ -652,6 +657,43 @@ export function createServerReference<T extends any[], R>(
  * runs the original function in-process, under a request event derived from
  * the current one (marked server-only, carrying the function's meta).
  */
+// The in-process invocation channel: `invoke`'s server-build mirror. The
+// call runs in-process, so of the invocation options only `signal` has
+// meaning — aborting rejects the CALLER with the signal's reason, while the
+// work itself, exactly like a server behind HTTP, runs to completion unless
+// the function observes a signal of its own. The transport hints
+// (keepalive, priority) describe a wire that does not exist and are no-ops.
+function inProcessInvoker(call) {
+  return (args, options) => {
+    const signal = options && options.signal;
+    if (!signal) return call(...args);
+    if (signal.aborted) return Promise.reject(signal.reason);
+    return new Promise((resolve, reject) => {
+      const onAbort = () => reject(signal.reason);
+      signal.addEventListener("abort", onAbort, { once: true });
+      let result;
+      try {
+        // synchronous entry preserved: the event scope derives from the
+        // ambient request event exactly as a plain call's would
+        result = call(...args);
+      } catch (error) {
+        signal.removeEventListener("abort", onAbort);
+        return reject(error);
+      }
+      Promise.resolve(result).then(
+        value => {
+          signal.removeEventListener("abort", onAbort);
+          resolve(value);
+        },
+        error => {
+          signal.removeEventListener("abort", onAbort);
+          reject(error);
+        }
+      );
+    });
+  };
+}
+
 export function createServerReference({ id, fn, name }) {
   if (typeof fn !== "function")
     throw new Error("Export from a 'use server' module must be a function");
@@ -662,13 +704,15 @@ export function createServerReference({ id, fn, name }) {
   // dev-only source name seeds it as a default — explicit `withMeta`/`GET`
   // writes shallow-merge over it like any other write.
   const metadata = name === undefined ? {} : { name };
-  return new Proxy(fn, {
+  const invokeChannel = inProcessInvoker((...args) => proxy(...args));
+  const proxy = new Proxy(fn, {
     get(target, prop) {
       if (prop === "id") return id;
       if (prop === "url") {
         return serverFunctionAddress(config.endpoint, id);
       }
       if (prop === SERVER_FUNCTION_METADATA) return metadata;
+      if (prop === SERVER_FUNCTION_INVOKE) return invokeChannel;
       return target[prop];
     },
     apply(target, thisArg, args) {
@@ -703,6 +747,7 @@ export function createServerReference({ id, fn, name }) {
       return transform ? transform(result, { id, args, event: evt }) : result;
     }
   });
+  return proxy;
 } /**
  * Declares a server function callable over HTTP GET. The server half is
  * identity-flavored — SSR calls stay in-process — but it brands the
@@ -810,6 +855,7 @@ export function live(fn) {
     return result;
   };
   wrapped[SERVER_FUNCTION_METADATA] = metadata;
+  wrapped[SERVER_FUNCTION_INVOKE] = inProcessInvoker(wrapped);
   wrapped.id = fn.id;
   Object.defineProperty(wrapped, "url", {
     get: () => fn.url,
