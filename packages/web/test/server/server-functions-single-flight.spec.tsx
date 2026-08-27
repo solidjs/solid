@@ -43,11 +43,10 @@ afterAll(() => {
 
 // A scripted call that opted into single-flight, like a router mutation.
 function flightRequest(id: string) {
-  return new Request("http://localhost/_server", {
+  return new Request(`http://localhost/_server/${id}`, {
     method: "POST",
     headers: {
       "Sec-Fetch-Site": "same-origin",
-      "X-Server-Function-Id": id,
       "X-Server-Function-Instance": "server-function:test",
       [SINGLE_FLIGHT_HEADER]: "true"
     }

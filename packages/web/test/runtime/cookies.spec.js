@@ -246,7 +246,7 @@ describe("handleServerFunctionRequest folds the event response stub", () => {
 
   function dispatch(id, event, extraHeaders = {}, options = {}) {
     return handleServerFunctionRequest(
-      new Request(`http://localhost/_server?id=${encodeURIComponent(id)}`, {
+      new Request(`http://localhost/_server/${encodeURIComponent(id)}`, {
         method: "POST",
         headers: { ...INSTANCE_HEADERS, ...extraHeaders }
       }),
@@ -325,7 +325,7 @@ describe("handleServerFunctionRequest folds the event response stub", () => {
       return "saved";
     });
     const response = await handleServerFunctionRequest(
-      new Request("http://localhost/_server?id=cookie-nojs-0", {
+      new Request("http://localhost/_server/cookie-nojs-0", {
         method: "POST",
         headers: {
           "content-type": "application/x-www-form-urlencoded",
@@ -372,7 +372,7 @@ describe("handleServerFunctionRequest folds the event response stub", () => {
       return "saved";
     });
     const response = await handleServerFunctionRequest(
-      new Request("http://localhost/_server?id=cookie-nojs-ct-0", {
+      new Request("http://localhost/_server/cookie-nojs-ct-0", {
         method: "POST",
         headers: {
           "content-type": "application/x-www-form-urlencoded",

@@ -88,7 +88,7 @@ describe("thrown Response passes through SSR error handling", () => {
 describe("error sanitization passes thrown Responses through (production bundle)", () => {
   function dispatch(id: string) {
     return handleServerFunctionRequest(
-      new Request(`http://localhost/_server?id=${encodeURIComponent(id)}`, {
+      new Request(`http://localhost/_server/${encodeURIComponent(id)}`, {
         method: "POST",
         headers: {
           "Sec-Fetch-Site": "same-origin",

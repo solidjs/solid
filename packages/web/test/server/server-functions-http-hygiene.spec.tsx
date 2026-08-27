@@ -26,16 +26,15 @@ import {
 const provideEvent = <T,>(_event: unknown, run: () => T): T => run();
 
 function readRequest(id: string, method: string, headers: Record<string, string> = {}) {
-  return new Request(`https://app.example/_server?id=${id}`, { method, headers });
+  return new Request(`https://app.example/_server/${id}`, { method, headers });
 }
 
 function postRequest(id: string, headers: Record<string, string> = {}) {
-  return new Request("https://app.example/_server", {
+  return new Request(`https://app.example/_server/${id}`, {
     method: "POST",
     headers: {
       "Sec-Fetch-Site": "same-origin",
       ...headers,
-      "X-Server-Function-Id": id,
       "X-Server-Function-Instance": "server-function:test"
     }
   });
@@ -67,7 +66,7 @@ describe("server-function method allowlist (#3069)", () => {
 
     for (const method of ["PUT", "DELETE", "PATCH"]) {
       const response = await handleServerFunctionRequest(
-        new Request("https://app.example/_server?id=hygiene-verbs", {
+        new Request("https://app.example/_server/hygiene-verbs", {
           method,
           headers: { "Sec-Fetch-Site": "same-origin" }
         }),
@@ -80,7 +79,7 @@ describe("server-function method allowlist (#3069)", () => {
     // and on a GET-declared function the Allow header advertises the reads
     declareGET("hygiene-declared-verbs", async () => "ok");
     const response = await handleServerFunctionRequest(
-      new Request("https://app.example/_server?id=hygiene-declared-verbs", {
+      new Request("https://app.example/_server/hygiene-declared-verbs", {
         method: "PUT",
         headers: { "Sec-Fetch-Site": "same-origin" }
       }),
@@ -188,7 +187,7 @@ describe("server-function cache hygiene (#3071)", () => {
     );
 
     const response = await handleServerFunctionRequest(
-      new Request("https://app.example/_server?id=hygiene-opt-in", {
+      new Request("https://app.example/_server/hygiene-opt-in", {
         method: "GET",
         headers: { "X-Server-Function-Instance": "server-function:test" }
       }),
