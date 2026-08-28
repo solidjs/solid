@@ -739,11 +739,10 @@ function drainFolds(): void {
       )
         rowHooks!.emitSetterRowOps(t, old as any[], t.v as any[]);
       if (t.pc.p !== null) {
-        // Accessor demotion at the adoption seam (re-audit 2, P1-1): the
-        // adopted backing was never scanned — getter-backed adoptees leave
-        // the patch channel for tracked effect fallbacks.
-        if (targetIsPlain(t)) patchHooks!.emitPatchLocal(t, t.v, old);
-        else patchHooks!.demoteToEffects(t);
+        // Accessor demotion at the fold-commit seam is DEV-ONLY (see the
+        // reconcile seam note: prod never pays per-adoption scans).
+        if (__DEV__ && !targetIsPlain(t)) patchHooks!.demoteToEffects(t);
+        else patchHooks!.emitPatchLocal(t, t.v, old);
       }
     }
     // Path copying (CAS: see the eager-fold twin above).

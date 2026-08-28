@@ -129,6 +129,15 @@ per-emission, incl. the MIXED setter+adoption same-batch coalescing case
 key equality + occurrence handling + window start, every throw point's
 post-exception timeline, every registration's death paths.
 
+Perf re-check (Ryan's question caught it): the round-2 adoption-seam
+accessor demotion ran targetIsPlain per patched-record adoption — adoptPB
+resets the scan verdict, so dbmon re-probed every row's keys every tick:
+~12% tick regression on the flagship (strip-test attributed: 1.9 -> 1.7).
+Ruled by the degenerate-input principle: the demotion + diagnostic is
+DEV-ONLY now; prod emits directly (getter adoptees on patched records are
+caught loudly in development, never paid for in production). Registration
+admission keeps its one-time scan in both modes.
+
 Found and fixed: the SHALLOW branch's slot-alignment prefix still compared
 keys with strict `===` — a NaN-keyed shallow slot broke alignment
 (suppressing its value ticks) while the SameValueZero ops builder emitted

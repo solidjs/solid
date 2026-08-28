@@ -144,14 +144,26 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
   // only — family targets' visibility moment is their fold commit
   // (drainFolds emits there; emitting here too would double-fire).
   if (patchHooks !== null && eager && t.pc !== null && t.pc.p !== null) {
-    // Accessor demotion at the ADOPTION seam (re-audit 2, P1-1): adoptPB
-    // reset the scan verdict for the new backing — a getter-backed adoptee
-    // must not serve the patch channel (bodies would read getters untracked
-    // once; their outside dependencies would never re-apply). targetIsPlain
-    // runs the one-time scan against the NEW backing; the gate only pays it
-    // on records that actually carry patches.
-    if (targetIsPlain(t)) patchHooks.emitPatchLocal(t, incoming, old);
-    else patchHooks.demoteToEffects(t);
+    // Accessor demotion at the ADOPTION seam is DEV-ONLY (prod principle:
+    // explicitly-odd input must not cost correct-input prod — the
+    // per-adoption scan was ~12% of dbmon's tick since adoptPB resets the
+    // verdict every adoption). Dev demotes AND warns; prod emits directly,
+    // so a getter adoptee's OUTSIDE deps (signals) won't re-apply in prod —
+    // caught loudly during development instead. Registration-time admission
+    // (patchableRaw) keeps its full one-time scan in both modes.
+    if (__DEV__ && !targetIsPlain(t)) {
+      console.warn(
+        "A reconcile adopted an object with own getters into a record that " +
+          "carries compiled patches. Patches read raw values and will not " +
+          "track the getters' reactive dependencies — this record's patches " +
+          "are demoted to effects in development, but production will NOT " +
+          "demote. Avoid getters on patched records, or key them out of " +
+          "patch-eligible templates."
+      );
+      patchHooks.demoteToEffects(t);
+    } else {
+      patchHooks.emitPatchLocal(t, incoming, old);
+    }
   }
   // Shallow adoption: records are slot values — sticky raw-mark the incoming
   // set (R41) and never descend; slot notification is the positional diff.
