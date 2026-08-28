@@ -16,3 +16,20 @@ overrides:
   solid-js: workspace:*
   '@solidjs/web': workspace:*
   '@solidjs/babel-plugin': workspace:*
+  # The compiler resolves to the workspace so every consumer (the vite plugin
+  # in element/web suites especially) tests the LOCAL build — the registry
+  # package would silently substitute the last published release.
+  '@solidjs/compiler': workspace:*
+  # Platform binaries: link in-repo stubs so the lockfile stays
+  # version-independent. The release flow REQUIRES this — the version PR pins
+  # optionalDependencies to a version that reaches the registry only after
+  # release.mjs dispatches the binaries publish, so registry resolution
+  # deadlocks every frozen CI install on the release commit (rc.4 outage).
+  # The stubs (no .node inside) are safe because the workspace compiler's
+  # loader prefers a locally built compiler.node, and CI builds before testing.
+  '@solidjs/compiler-darwin-x64': 'link:packages/compiler/npm/darwin-x64'
+  '@solidjs/compiler-darwin-arm64': 'link:packages/compiler/npm/darwin-arm64'
+  '@solidjs/compiler-linux-x64-gnu': 'link:packages/compiler/npm/linux-x64-gnu'
+  '@solidjs/compiler-linux-arm64-gnu': 'link:packages/compiler/npm/linux-arm64-gnu'
+  '@solidjs/compiler-win32-x64-msvc': 'link:packages/compiler/npm/win32-x64-msvc'
+  '@solidjs/compiler-wasm32-wasi': 'link:packages/compiler/npm/wasm32-wasi'

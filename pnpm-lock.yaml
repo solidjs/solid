@@ -9,6 +9,13 @@ overrides:
   solid-js: workspace:*
   '@solidjs/web': workspace:*
   '@solidjs/babel-plugin': workspace:*
+  '@solidjs/compiler': workspace:*
+  '@solidjs/compiler-darwin-x64': link:packages/compiler/npm/darwin-x64
+  '@solidjs/compiler-darwin-arm64': link:packages/compiler/npm/darwin-arm64
+  '@solidjs/compiler-linux-x64-gnu': link:packages/compiler/npm/linux-x64-gnu
+  '@solidjs/compiler-linux-arm64-gnu': link:packages/compiler/npm/linux-arm64-gnu
+  '@solidjs/compiler-win32-x64-msvc': link:packages/compiler/npm/win32-x64-msvc
+  '@solidjs/compiler-wasm32-wasi': link:packages/compiler/npm/wasm32-wasi
 
 importers:
 
@@ -346,6 +353,25 @@ importers:
       emnapi:
         specifier: ^1.11.3
         version: 1.11.3
+    optionalDependencies:
+      '@solidjs/compiler-darwin-arm64':
+        specifier: link:npm/darwin-arm64
+        version: link:npm/darwin-arm64
+      '@solidjs/compiler-darwin-x64':
+        specifier: link:npm/darwin-x64
+        version: link:npm/darwin-x64
+      '@solidjs/compiler-linux-arm64-gnu':
+        specifier: link:npm/linux-arm64-gnu
+        version: link:npm/linux-arm64-gnu
+      '@solidjs/compiler-linux-x64-gnu':
+        specifier: link:npm/linux-x64-gnu
+        version: link:npm/linux-x64-gnu
+      '@solidjs/compiler-wasm32-wasi':
+        specifier: link:npm/wasm32-wasi
+        version: link:npm/wasm32-wasi
+      '@solidjs/compiler-win32-x64-msvc':
+        specifier: link:npm/win32-x64-msvc
+        version: link:npm/win32-x64-msvc
 
   packages/diagnostics:
     dependencies:
@@ -2337,40 +2363,6 @@ packages:
     resolution: {integrity: sha512-2HRCml6OztYXyJXAvdDXPKcawukWY2GpR5/nxKp4iBgiO3wcoEGkAaqctIbZcNB6KlUQBIqt8VYkNSj2397EfA==}
     cpu: [x64]
     os: [win32]
-
-  '@solidjs/compiler-darwin-arm64@2.0.0-rc.3':
-    resolution: {integrity: sha512-P9Ngf6KUwM+KGAAUZ40776+1utbk/n3+F+WhyyYm+rUpjO0um9EqBJLvafqEp6kGgSHQ2j5UhioqcuqhesMLbQ==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@solidjs/compiler-darwin-x64@2.0.0-rc.3':
-    resolution: {integrity: sha512-PozalaeiMJxPF7H5ePpqOGM8F9H07sFsSGxyHHZiUn8c4HIBlsacNpc06gUcoJ1xzm7AvayNCV9BJOw2hQYaYg==}
-    cpu: [x64]
-    os: [darwin]
-
-  '@solidjs/compiler-linux-arm64-gnu@2.0.0-rc.3':
-    resolution: {integrity: sha512-riY4uwHCqq5vfrlYY7AK8xy/r/Wd98NCnbGqFsDb7bL7TNw398VuA5+hoK4cnsQJe4dqvI2zXFEdmP5xSNAFSQ==}
-    cpu: [arm64]
-    os: [linux]
-    libc: [glibc]
-
-  '@solidjs/compiler-linux-x64-gnu@2.0.0-rc.3':
-    resolution: {integrity: sha512-y2GlcmfIqtWBrxOnvgLsGZvdH2tVK/9JzcFTUzWo5kjoiEy+VCV3NSNcBZrMbLJ7ozIDTiuWePZd/G5LphYdmA==}
-    cpu: [x64]
-    os: [linux]
-    libc: [glibc]
-
-  '@solidjs/compiler-wasm32-wasi@2.0.0-rc.3':
-    resolution: {integrity: sha512-mx7LnrAwKaXd9ZiaAwZeBlMjdWNdmR73F+3I1iOxSpH9Lh2Kyx9IIVff0a1AnwUy17tdDxXMbWxoI/ctYfZsdw==}
-    engines: {node: '>=14.0.0'}
-
-  '@solidjs/compiler-win32-x64-msvc@2.0.0-rc.3':
-    resolution: {integrity: sha512-7MQDvdSI42/+lSac6L6WVgCYkUezzliLRoCjo7ultpN2hHy3XgohxvrWfE005OQEMg2pamzzFmfeIl8FUi2JRA==}
-    cpu: [x64]
-    os: [win32]
-
-  '@solidjs/compiler@2.0.0-rc.3':
-    resolution: {integrity: sha512-gu2AnJwkrJfk3SBKGRxEUGuP/SZpwUGzHQS5zt56eNG4GFlEMyurahVRSLMWWBhtC1On7wH5SmLxybH2yDCqAg==}
 
   '@solidjs/router@2.0.0-next.13':
     resolution: {integrity: sha512-vNTXv/A+dhQMeJm/TuFZmnmXBOvoL6Y+anuEPXxMI6wSg/FMQ81Q3feNCoXxd5lFieIJx5dhZhmdLXfTrlUc3w==}
@@ -6298,37 +6290,6 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.59.0':
     optional: true
 
-  '@solidjs/compiler-darwin-arm64@2.0.0-rc.3':
-    optional: true
-
-  '@solidjs/compiler-darwin-x64@2.0.0-rc.3':
-    optional: true
-
-  '@solidjs/compiler-linux-arm64-gnu@2.0.0-rc.3':
-    optional: true
-
-  '@solidjs/compiler-linux-x64-gnu@2.0.0-rc.3':
-    optional: true
-
-  '@solidjs/compiler-wasm32-wasi@2.0.0-rc.3':
-    dependencies:
-      '@emnapi/core': 1.11.3
-      '@emnapi/runtime': 1.11.3
-      '@napi-rs/wasm-runtime': 1.1.6(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
-    optional: true
-
-  '@solidjs/compiler-win32-x64-msvc@2.0.0-rc.3':
-    optional: true
-
-  '@solidjs/compiler@2.0.0-rc.3':
-    optionalDependencies:
-      '@solidjs/compiler-darwin-arm64': 2.0.0-rc.3
-      '@solidjs/compiler-darwin-x64': 2.0.0-rc.3
-      '@solidjs/compiler-linux-arm64-gnu': 2.0.0-rc.3
-      '@solidjs/compiler-linux-x64-gnu': 2.0.0-rc.3
-      '@solidjs/compiler-wasm32-wasi': 2.0.0-rc.3
-      '@solidjs/compiler-win32-x64-msvc': 2.0.0-rc.3
-
   '@solidjs/router@2.0.0-next.13(@solidjs/web@packages+web)(solid-js@packages+solid)':
     dependencies:
       '@solidjs/web': link:packages/web
@@ -6373,7 +6334,7 @@ snapshots:
       '@ampproject/remapping': 2.3.0
       '@babel/core': 7.29.0
       '@solidjs/babel-plugin': link:packages/babel-plugin
-      '@solidjs/compiler': 2.0.0-rc.3
+      '@solidjs/compiler': link:packages/compiler
       '@solidjs/web': link:packages/web
       '@types/babel__core': 7.20.5
       merge-anything: 5.1.7
