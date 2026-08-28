@@ -257,22 +257,23 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   // their registrations under the never-mounted list — keeping patchCount
   // elevated GLOBALLY (every store's setter-site gate stays hot) long after
   // an error boundary recovers the region.
+  let initIdx = 0;
   try {
     if (hydrating) {
       // Claim pass: each bind claims its server row through the row-scoped
       // id (getNextElement resolves the `_hk` registry entry); patchDriver
       // skips the initial apply.
-      for (let i = 0; i < raw.length; i++) {
-        entries[i] = bindRow(i, rowIds![i]);
-        if (rowBodies !== null) rowBodies[i] = lastBodies!;
-        rowUnbinds[i] = lastUnbinds!;
+      for (; initIdx < raw.length; initIdx++) {
+        entries[initIdx] = bindRow(initIdx, rowIds![initIdx]);
+        if (rowBodies !== null) rowBodies[initIdx] = lastBodies!;
+        rowUnbinds[initIdx] = lastUnbinds!;
       }
     } else {
-      for (let i = 0; i < raw.length; i++) {
-        const node = bindRow(i);
-        entries[i] = node;
-        if (rowBodies !== null) rowBodies[i] = lastBodies!;
-        rowUnbinds[i] = lastUnbinds!;
+      for (; initIdx < raw.length; initIdx++) {
+        const node = bindRow(initIdx);
+        entries[initIdx] = node;
+        if (rowBodies !== null) rowBodies[initIdx] = lastBodies!;
+        rowUnbinds[initIdx] = lastUnbinds!;
         parent.insertBefore(node, endAnchor);
       }
     }
@@ -282,6 +283,13 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
     for (let j = 0; j < entries.length; j++) {
       const n = entries[j] as ChildNode | undefined;
       if (n !== undefined && n.parentNode === parent) n.remove();
+    }
+    // The THROWING row's server DOM was already claimed but never assigned
+    // to entries — remove it too (re-audit 6, P2-5), so a boundary fallback
+    // doesn't render beside a stale server row.
+    if (hydrating && domRows !== undefined && initIdx < domRows.length) {
+      const claimed = domRows[initIdx] as ChildNode;
+      if (claimed.parentNode === parent) claimed.remove();
     }
     (listOwner as any).dispose();
     throw err;
@@ -558,9 +566,26 @@ export const patchDriver = (subject, body) => {
     // Hydration is claim + register ONLY (DESIGN-PATCH-CHANNEL §5): the
     // server HTML already carries current values, so the initial force-apply
     // is skipped — no writes, no graph edges. The registration alone arms
-    // the record for post-hydration transitions.
-    if (!sharedConfig.hydrating) body(raw, undefined, true);
-    const unbind = registerPatch(subject, body);
+    // the record for post-hydration transitions (its read set records at
+    // the first drain apply instead).
+    let unbind: () => void;
+    if (!sharedConfig.hydrating) {
+      // Record the body's read set through the initial force-apply (patch
+      // grammar reads every bound key unconditionally, so one apply captures
+      // the complete set) — the store's adoption demotion gate probes ONLY
+      // these keys, keeping getter semantics prod-sound at bounded cost.
+      const keys = new Set();
+      const rec = new Proxy(raw, {
+        get(o, k, r) {
+          keys.add(k);
+          return Reflect.get(o, k, r);
+        }
+      });
+      body(rec, undefined, true);
+      unbind = registerPatch(subject, body, keys);
+    } else {
+      unbind = registerPatch(subject, body);
+    }
     if (rowCollector !== null) rowCollector.unbinds.push(unbind);
     // Ordinary (non-list-row) templates: the registration dies with the
     // registering owner. Drains only SKIP disposed owners — without this,

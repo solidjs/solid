@@ -52,6 +52,11 @@ export type PatchFn = (next: any, prev: any, force?: boolean) => void;
 interface PatchEntry {
   fn: PatchFn;
   owner: Owner | null;
+  /** Unbound mark: dispatch snapshots skip severed consumers. */
+  u?: boolean;
+  /** Keys recorded (adoption demotion probes); undefined = record at the
+   * next drain apply. */
+  k?: boolean;
 }
 
 // Per-flush apply queue. Bubbled (forced) emissions resolve `next` LAZILY at
@@ -64,9 +69,16 @@ interface QueuedApply {
   force: boolean;
   /** When set, `next` resolves at drain as `t.pb ?? t.v` (bubbles). */
   t: StoreNextTarget | null;
-  /** Coalescing backref (re-audit 3): set for stamped SELF entries so the
-   * drain can clear the channel's qa/qe stamps (retention). */
-  pc?: { qa: unknown; qe: unknown };
+  /** Coalescing + recording backref (re-audits 3/6): set for stamped SELF
+   * entries so the drain can clear the channel's qa/qe stamps (retention)
+   * and record first-apply read sets (ak). */
+  pc?: { qa: unknown; qe: unknown; ak: PropertyKey[] | null };
+  /** Structural row ops (re-audit 6): entries queue the LIVE consumer list
+   * plus the ops payload — cloned wrappers survived unbinding, so stale
+   * row callbacks fired after a subject switch. */
+  ops?: RowOps | null;
+  /** Slot-tick payload index (same live-list rationale as `ops`). */
+  si?: number;
 }
 let queue: QueuedApply[] | null = null;
 let scheduled = false;
@@ -90,7 +102,9 @@ function drainApplyQueue(): void {
     clearStamp(q[i]);
     const { list, prev, force, t } = q[i];
     const next = t !== null ? (t.pb ?? t.v) : q[i].next;
-    firstError = applyEntries(list, next, prev, force, firstError);
+    if (q[i].ops !== undefined || q[i].si !== undefined)
+      firstError = applyStructural(q[i], next, firstError);
+    else firstError = applyEntries(list, next, prev, force, firstError, q[i].pc);
   }
   if (firstError !== UNSET) {
     // Unhandled patch errors HALT like unhandled effect errors (re-audit 2,
@@ -98,6 +112,39 @@ function drainApplyQueue(): void {
     haltReactivity(firstError);
     throw firstError;
   }
+}
+
+/** Row-ops/slot-tick dispatch over the LIVE registration list (re-audit 6):
+ * queued clones survived unbinding — a subject switch between emission and
+ * drain fired stale structural callbacks against the new list state. Same
+ * per-entry isolation and error routing as value patches. */
+function applyStructural(item: QueuedApply, next: any, firstError: unknown): unknown {
+  const list = item.list as unknown as { fn: Function; owner: Owner | null; u?: boolean }[];
+  const snap = list.length > 1 ? list.slice() : list;
+  const len = snap.length;
+  for (let j = 0; j < len; j++) {
+    const entry = snap[j];
+    if (entry === undefined || entry.u === true) continue;
+    if (entry.owner !== null && isDisposed(entry.owner)) continue;
+    try {
+      if (item.si !== undefined) entry.fn(item.si, next, item.prev);
+      else entry.fn(next, item.ops);
+    } catch (err) {
+      let handled = false;
+      const owner = entry.owner as any;
+      if (owner !== null) {
+        let source = owner;
+        while (source !== null && source._fn === undefined) source = source._parent;
+        source ??= owner;
+        const statusErr = new StatusError(source, err);
+        ext(source)._error = statusErr;
+        source._statusFlags = (source._statusFlags ?? 0) | STATUS_ERROR;
+        handled = owner._queue.notify(source, STATUS_ERROR, STATUS_ERROR, statusErr);
+      }
+      if (!handled && firstError === UNSET) firstError = err;
+    }
+  }
+  return firstError;
 }
 
 const UNSET: unique symbol = Symbol();
@@ -109,11 +156,12 @@ const UNSET: unique symbol = Symbol();
  * boundary above the row collects it. Unhandled errors are aggregated by the
  * caller (first one rethrows after its drain completes). */
 function applyEntries(
-  list: { fn: Function; owner: Owner | null; u?: boolean }[],
+  list: PatchEntry[],
   next: any,
   prev: any,
   force: boolean,
-  firstError: unknown
+  firstError: unknown,
+  pc?: { ak: PropertyKey[] | null }
 ): unknown {
   // SNAPSHOT multi-consumer lists (re-audit 5, P1-3): a callback can dispose
   // a sibling's owner, whose unbind SPLICES this same array mid-iteration —
@@ -121,13 +169,33 @@ function applyEntries(
   // single-consumer case pays nothing; unbound entries are marked so a
   // snapshot never applies a consumer severed by an earlier callback.
   const snap = list.length > 1 ? list.slice() : list;
-  for (let j = 0; j < snap.length; j++) {
+  // FIXED WINDOW (re-audit 6, P2-4): the single-consumer fast path aliases
+  // the live list — a callback registering ANOTHER patch mid-dispatch must
+  // not run it in this same drain (it just received its initial apply).
+  const len = snap.length;
+  for (let j = 0; j < len; j++) {
     const entry = snap[j];
-    if (entry.u === true) continue;
+    if (entry === undefined || entry.u === true) continue;
     // Disposed owners drop their patches (the row unmounted mid-flush).
     if (entry.owner !== null && isDisposed(entry.owner)) continue;
     try {
-      entry.fn(next, prev, force);
+      // First-apply key recording (re-audit 6): entries registered without a
+      // recorded read set (hydration skips the initial apply) record here —
+      // one proxied apply per entry lifetime keeps the adoption demotion
+      // gate prod-sound for them too.
+      if (pc !== undefined && entry.k !== true && next !== null && typeof next === "object") {
+        entry.k = true;
+        const ak = (pc.ak ??= []);
+        const rec = new Proxy(next as object, {
+          get(o, key, r) {
+            if (ak.indexOf(key) === -1) ak.push(key);
+            return Reflect.get(o, key, r);
+          }
+        });
+        entry.fn(rec, prev, force);
+      } else {
+        entry.fn(next, prev, force);
+      }
     } catch (err) {
       let handled = false;
       const owner = entry.owner as any;
@@ -299,7 +367,9 @@ function drainOptimistic(): void {
     clearStamp(q[i]);
     const { list, prev, force, t } = q[i];
     const next = t !== null ? (t.pb ?? t.v) : q[i].next;
-    firstError = applyEntries(list, next, prev, force, firstError);
+    if (q[i].ops !== undefined || q[i].si !== undefined)
+      firstError = applyStructural(q[i], next, firstError);
+    else firstError = applyEntries(list, next, prev, force, firstError, q[i].pc);
   }
   if (firstError !== UNSET) {
     haltReactivity(firstError);
@@ -354,15 +424,14 @@ export function emitRowOpsOptimistic(
   const list = (t.pc !== null ? t.pc.ro : null) as RowOpsEntry[] | null;
   if (list === null) return;
   if (optQueue === null) optQueue = [];
+  // LIVE list + ops payload (re-audit 6): see emitRowOps.
   optQueue.push({
-    list: list.map(e => ({
-      owner: e.owner,
-      fn: (n: any, _p: any) => e.fn(n as any[], ops as any)
-    })),
+    list: list as unknown as PatchEntry[],
     next: nextRows,
     prev: null,
     force: false,
-    t: nextRows === null ? t : null
+    t: nextRows === null ? t : null,
+    ops
   });
   if (!scheduled) {
     scheduled = true;
@@ -387,7 +456,7 @@ export function hasPatches(): boolean {
   return patchCount > 0;
 }
 
-export function registerPatch(record: any, fn: PatchFn): () => void {
+export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<PropertyKey>): () => void {
   let t: StoreNextTarget | undefined = record?.[$TARGET];
   if (t === undefined) throw new Error("registerPatch: not a store record");
   // Chained backings (§7b): register on the ULTIMATE owner — that is where
@@ -404,6 +473,14 @@ export function registerPatch(record: any, fn: PatchFn): () => void {
   const pc = pcOf(t);
   const list = (pc.p ??= []) as PatchEntry[];
   list.push(entry);
+  // Accessed-key union (prod-sound adoption demotion): callers that ran the
+  // body against a recording proxy hand the read set here; hydration-time
+  // registrations record at their first drain apply instead.
+  if (keys !== undefined) {
+    const ak = (pc.ak ??= []);
+    for (const k of keys) if (ak.indexOf(k) === -1) ak.push(k);
+    entry.k = true; // recorded at the caller's initial apply
+  }
   patchCount++;
   // Bindings are subscriptions for reachability (§6d pruning must descend
   // into bound records).
@@ -564,6 +641,7 @@ export function registerRowOps(array: any, fn: RowOpsFn): () => void {
   return () => {
     if (unbound) return;
     unbound = true;
+    (entry as any).u = true; // queued structural work skips severed consumers
     patchCount--;
     const idx = list.indexOf(entry);
     if (idx >= 0) list.splice(idx, 1);
@@ -577,12 +655,15 @@ export function registerRowOps(array: any, fn: RowOpsFn): () => void {
 export function emitSlotPatch(t: StoreNextTarget, index: number, next: any, prev: any): void {
   const sp = t.pc !== null ? t.pc.sp : null;
   if (sp === null) return;
+  // LIVE list, payload on the entry (re-audit 6): an unbind between
+  // emission and drain must sever the queued work too.
   push({
-    list: sp.map(e => ({ owner: e.owner, fn: () => e.fn(index, next, prev) })),
+    list: sp as unknown as PatchEntry[],
     next,
     prev,
     force: false,
-    t: null
+    t: null,
+    si: index
   });
 }
 
@@ -616,6 +697,7 @@ export function registerSlotPatchNext(
   return () => {
     if (unbound || pc.sp === null) return;
     unbound = true;
+    (entry as any).u = true; // queued structural work skips severed consumers
     const idx = pc.sp.indexOf(entry);
     if (idx >= 0) pc.sp.splice(idx, 1);
     if (pc.sp.length === 0) pc.sp = null;
@@ -628,15 +710,14 @@ export function registerSlotPatchNext(
 export function emitRowOps(t: StoreNextTarget, next: any[], ops: RowOps): void {
   const list = (t.pc !== null ? t.pc.ro : null) as RowOpsEntry[] | null;
   if (list === null) return;
+  // LIVE list, ops on the entry (re-audit 6): see emitSlotPatch.
   push({
-    list: list.map(e => ({
-      owner: e.owner,
-      fn: (n: any, _p: any) => e.fn(n as any[], ops)
-    })),
+    list: list as unknown as PatchEntry[],
     next,
     prev: null,
     force: false,
-    t: null
+    t: null,
+    ops
   });
 }
 

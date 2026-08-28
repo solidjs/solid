@@ -232,16 +232,41 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
   const heldPatches = (outgoing as any)._heldPatches as unknown[] | undefined;
   if (heldPatches !== undefined) {
     (outgoing as any)._heldPatches = undefined;
-    let dest = (target as any)._heldPatches as unknown[] | undefined;
-    if (dest !== undefined) dest.push(...heldPatches);
-    else dest = (target as any)._heldPatches = heldPatches;
-    // Retarget the entries' coalescing stamps to the surviving stash
-    // (opaque backref contract with store/next/patch.ts): without this a
-    // post-merge emission misses the stamp and pushes a SECOND entry —
-    // the record's patch applies twice at commit (re-audit 5, P1-2).
-    for (let i = 0; i < heldPatches.length; i++) {
-      const pc = (heldPatches[i] as any).pc;
-      if (pc !== undefined && pc.qe === heldPatches[i]) pc.qa = dest;
+    let dest = (target as any)._heldPatches as any[] | undefined;
+    if (dest === undefined) {
+      dest = (target as any)._heldPatches = heldPatches;
+      for (let i = 0; i < heldPatches.length; i++) {
+        const pc = (heldPatches[i] as any).pc;
+        if (pc !== undefined && pc.qe === heldPatches[i]) pc.qa = dest;
+      }
+    } else {
+      // COALESCE same-channel collisions (re-audit 6, P1-2): a record that
+      // emitted in BOTH transactions must apply ONCE at the merged commit —
+      // the surviving entry resolves `next` LIVE at drain (via the channel's
+      // target backref) and keeps the destination's earlier prev; the moved
+      // duplicate is dropped. Opaque backref contract with
+      // store/next/patch.ts (entry.pc, pc.t/qa/qe).
+      const byPc = new Map<unknown, any>();
+      for (let i = 0; i < dest.length; i++) {
+        const pc = (dest[i] as any).pc;
+        if (pc !== undefined) byPc.set(pc, dest[i]);
+      }
+      for (let i = 0; i < heldPatches.length; i++) {
+        const entry: any = heldPatches[i];
+        const pc = entry.pc;
+        const dup = pc !== undefined ? byPc.get(pc) : undefined;
+        if (dup !== undefined) {
+          dup.t = pc.t; // drain resolves next live: t.pb ?? t.v
+          pc.qa = dest;
+          pc.qe = dup;
+        } else {
+          dest.push(entry);
+          if (pc !== undefined) {
+            byPc.set(pc, entry);
+            if (pc.qe === entry) pc.qa = dest;
+          }
+        }
+      }
     }
   }
   // Legal transfer, not a new registration: entries move between transitions.

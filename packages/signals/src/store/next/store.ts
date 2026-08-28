@@ -147,7 +147,9 @@ TargetShape.prototype = Object.prototype;
 
 /** Lazily allocate the patch-channel extension (one literal shape). */
 export function pcOf(t: StoreNextTarget): PatchChannel {
-  return t.pc ?? (t.pc = { sp: null, p: null, ro: null, wk: null, qa: null, qe: null });
+  return (
+    t.pc ?? (t.pc = { sp: null, p: null, ro: null, wk: null, qa: null, qe: null, ak: null, t })
+  );
 }
 
 function createTarget(
@@ -418,6 +420,19 @@ function cloneRaw(source: Record<PropertyKey, any>, t?: StoreNextTarget): Record
  * trustworthy before a scan (it starts false and is discovered lazily). */
 export function targetIsPlain(target: StoreNextTarget): boolean {
   return target.sc ? !target.a : scanAccessorsOnce(target);
+}
+
+/** Adoption-seam demotion gate, PROD-SOUND at bounded cost (re-audit 6):
+ * probes ONLY the keys the record's compiled bodies actually read (recorded
+ * from real applies — patch grammar guarantees unconditional member reads,
+ * so the set is complete). Unrecorded channels (registered under hydration,
+ * never yet applied) fall back to the full one-time scan. */
+export function targetKeysPlain(target: StoreNextTarget): boolean {
+  const ak = target.pc !== null ? target.pc.ak : null;
+  if (ak === null) return targetIsPlain(target);
+  const v = target.v;
+  for (let i = 0; i < ak.length; i++) if (lookupGetter.call(v, ak[i]) !== undefined) return false;
+  return true;
 }
 
 /** One-time own-accessor scan (Annex-B probes, no descriptor allocation);
@@ -808,10 +823,11 @@ function drainFolds(): void {
       )
         rowHooks!.emitSetterRowOps(t, old as any[], t.v as any[]);
       if (t.pc.p !== null) {
-        // Accessor demotion at the fold-commit seam is DEV-ONLY (see the
-        // reconcile seam note: prod never pays per-adoption scans).
-        if (__DEV__ && !targetIsPlain(t)) patchHooks!.demoteToEffects(t);
-        else patchHooks!.emitPatchLocal(t, t.v, old);
+        // Accessor demotion at the fold-commit seam: prod-sound accessed-key
+        // probes (see targetKeysPlain — re-audit 6 reversed the dev-only
+        // trade: own getters are supported store input).
+        if (targetKeysPlain(t)) patchHooks!.emitPatchLocal(t, t.v, old);
+        else patchHooks!.demoteToEffects(t);
       }
     }
     // Path copying (CAS: see the eager-fold twin above).

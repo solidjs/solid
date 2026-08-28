@@ -66,6 +66,16 @@ export interface PatchChannel {
    * retains nothing from its last batch. */
   qa: unknown;
   qe: unknown;
+  /** Accessed-key set for the channel's compiled bodies (union across
+   * registrations): recorded from real applies — patch grammar guarantees
+   * unconditional member reads, so one recorded apply captures a body's
+   * complete read set. Adoption emission probes ONLY these keys for own
+   * getters (prod-sound demotion at bounded cost); null = not yet recorded,
+   * fall back to the full scan. */
+  ak: PropertyKey[] | null;
+  /** Owning target backref (merge coalescing resolves collided entries to
+   * live-at-drain form). */
+  t: unknown;
   /** Row-ops consumers (next/patch.ts, PR-B): structural list ops —
    * (nextRows, { prefix, sources, removed }) at apply timing. */
   ro: object[] | null;

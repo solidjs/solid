@@ -44,7 +44,8 @@ import {
   targetsEqual,
   notifyKeyValue,
   unwrapValue,
-  targetIsPlain
+  targetIsPlain,
+  targetKeysPlain
 } from "./store.js";
 import {
   ownedRaw,
@@ -151,18 +152,16 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
     // so a getter adoptee's OUTSIDE deps (signals) won't re-apply in prod —
     // caught loudly during development instead. Registration-time admission
     // (patchableRaw) keeps its full one-time scan in both modes.
-    if (__DEV__ && !targetIsPlain(t)) {
-      console.warn(
-        "A reconcile adopted an object with own getters into a record that " +
-          "carries compiled patches. Patches read raw values and will not " +
-          "track the getters' reactive dependencies — this record's patches " +
-          "are demoted to effects in development, but production will NOT " +
-          "demote. Avoid getters on patched records, or key them out of " +
-          "patch-eligible templates."
-      );
-      patchHooks.demoteToEffects(t);
-    } else {
+    if (targetKeysPlain(t)) {
       patchHooks.emitPatchLocal(t, incoming, old);
+    } else {
+      if (__DEV__)
+        console.warn(
+          "A reconcile adopted an object whose getters shadow keys read by " +
+            "this record's compiled patches — the patches are demoted to " +
+            "tracked effects so the getters' reactive dependencies apply."
+        );
+      patchHooks.demoteToEffects(t);
     }
   }
   // Shallow adoption: records are slot values — sticky raw-mark the incoming
