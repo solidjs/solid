@@ -204,8 +204,14 @@ module.exports = [
     //
     // Stage-3 batch (pre-release ratchet): 16.7 -> 17.25 KB, measured at
     // 16.92 — the signals-core bytes (see the core-floor note).
+    //
+    // useHead prelude relocation (#3081): 17.25 -> 17.4 KB, measured at
+    // 17.31. ~120 B brotli in hydrate() itself — the head-prelude
+    // normalization runs before any claiming, so it sits on the one entry
+    // point every hydrating app retains and cannot shake. Golfing measured
+    // ~1 B; the bytes are the fix's real cost.
     path: "hydrating-app.js",
-    limit: "17.25 KB",
+    limit: "17.4 KB",
     modifyEsbuildConfig
   },
   {
