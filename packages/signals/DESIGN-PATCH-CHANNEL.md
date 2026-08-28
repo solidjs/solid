@@ -86,6 +86,41 @@ Deferred from the audit's secondary list: staged exception-safe applyOps
 @ts-nocheck on patch-driver.ts, and a versioned internal compiler entry
 for the runtime primitives.
 
+## 21. Re-audit rounds 2–3 (2026-08-27) — adoption seams, key equality, recovery
+
+Round 2 (six findings, all real): adoption seams demote accessor-bearing
+adoptees (targetIsPlain at both the walk and fold-commit emissions);
+setter-returned root replacements + chained-store swaps emit at fold
+commit (plain `adopted` targets — eager walk adoptions never queue folds,
+so the flag is the discriminator); applyOps went build-before-destroy;
+patch errors route to the nearest COMPUTED ancestor (Errored.reset()
+recomputes sources — plain list owners crashed it) and unhandled errors
+halt like effects; key equality went SameValueZero + occurrence-aware
+(the NaN repro's true site was descend's strict-!== detach — NaN slots
+detached every tick while row ops retained the DOM row); same-batch
+emissions coalesce.
+
+Round 3 (six findings, five real — the audit caught MY round-2 bugs):
+- Coalescing applied STALE state: adoption replaces the captured object,
+  so skip-on-duplicate applied the first capture while the store held the
+  last. Entries now update in place (latest next, earliest prev), and the
+  drain clears the stamps (retention).
+- The adoption remainder window built from index 0 — prefix-consumed rows
+  were re-offered to duplicates past an aligned prefix; now structStart,
+  exactly the ops builder's window.
+- Optimistic applyTentative had its own strict/first-wins matcher —
+  now shares sameKey + occurrence-aware queues.
+- Failed row-ops applies force an IDENTITY RESYNC on the next update
+  (store committed the failed topology; DOM kept the old — positional
+  ops mis-indexed). Recovery forfeits retention for that one apply.
+- The throwing row's own partial registrations sever (collectBind's
+  finally publishes the partial collector).
+
+Lesson pinned: every "safe skip" optimization on the emission path must
+be re-derived against ADOPTION semantics (captures are per-emission
+objects, not stable references) — the setter-path reasoning does not
+transfer.
+
 ## 19. Pay-for-use restructure (2026-08-26) — the merge blocker
 
 The size gate (scripts/size) failed 5/8 scenarios: every client app paid
