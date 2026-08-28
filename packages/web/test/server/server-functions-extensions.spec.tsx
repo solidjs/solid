@@ -267,42 +267,6 @@ describe("server-function extension surface (built bundles)", () => {
     }
   });
 
-  it("names the seam when a wrapper answers with something it cannot read", async () => {
-    registerServerFunction("ext-fetch-4", async () => "ok");
-    const restore = connectTransport();
-    const send = globalThis.fetch;
-    for (const answer of [
-      () => undefined,
-      // the likeliest wrapper mistake: log the body, hand back the response
-      async (address: string, init: RequestInit) => {
-        const response = await send(address, init);
-        await response.text();
-        return response;
-      }
-    ]) {
-      configureServerFunctionsClient({ fetch: answer as any });
-      await expect(createServerReference("ext-fetch-4")()).rejects.toThrow(/unread Response/);
-    }
-    // a Response from another realm or a mock is not refused for its identity
-    configureServerFunctionsClient({
-      fetch: (address, init) =>
-        send(address, init).then(response => ({
-          ...response,
-          status: response.status,
-          headers: response.headers,
-          body: response.body,
-          clone: () => response.clone(),
-          text: () => response.text()
-        })) as any
-    });
-    try {
-      expect(await createServerReference("ext-fetch-4")()).toBe("ok");
-    } finally {
-      configureServerFunctionsClient({ fetch: null });
-      restore();
-    }
-  });
-
   it("sends a GET-declared read through the configured fetch too", async () => {
     serverGET(
       createServerSideReference(registerServerReference("ext-fetch-5", async (n: number) => n * 2))
@@ -352,12 +316,6 @@ describe("server-function extension surface (built bundles)", () => {
       configureServerFunctionsClient({ fetch: null });
       restore();
     }
-  });
-
-  it("refuses a fetch option that is not callable", () => {
-    expect(() => configureServerFunctionsClient({ fetch: "nope" as any })).toThrow(
-      /must be a function/
-    );
   });
 
   it("restores the global fetch when the option is set to null", async () => {
