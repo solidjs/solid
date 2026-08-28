@@ -129,7 +129,13 @@ module.exports = [
     // createStore overload retains projection machinery in every store graph
     // (see treeshake.test.ts) — an injection-table split was measured and
     // came out LARGER under brotli (indirection adds unique tokens).
-    limit: "13.5 KB",
+    //
+    // Fold scheduling (#3089): 13.5 -> 13.6 KB, measured at 13.54. The always-
+    // arm in queueFold (the size-gated arm stranded later folds), the write-
+    // time transition stamp (foldBatches WeakMap + ensurePB stamp), and the
+    // drain's defer check. All load-bearing correctness on paths createStore
+    // always retains; golfing measured single-digit bytes.
+    limit: "13.6 KB",
     modifyEsbuildConfig
   },
   {
@@ -246,8 +252,11 @@ module.exports = [
     // at 24.80. The statusNotifierOf seam is always-retained core; it buys
     // -127 B/node heap and -15% effect creation (the per-effect NodeExtension
     // allocation it removes). The other floors absorbed it within headroom.
+    //
+    // Fold scheduling (#3089): 24.9 -> 25 KB, measured at 24.91 — the same
+    // bytes as the createStore note (this scenario retains all of it).
     path: "hydrating-store-app.js",
-    limit: "24.9 KB",
+    limit: "25 KB",
     modifyEsbuildConfig
   },
   {
