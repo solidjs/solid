@@ -539,7 +539,14 @@ export const BodyFormat = {
    * legs: argument lists on the request, results (single-flight envelopes
    * included) on the response.
    */
-  Json: "8"
+  Json: "8",
+  /**
+   * No body at all — a function that returned nothing. It marks the response
+   * as one the runtime encoded, which separates a void result with a status
+   * on it from a refusal answered by something else. A peer that predates
+   * the tag decodes it the same way, through the fallthrough.
+   */
+  Void: "9"
 };
 
 // Nesting deeper than this is not JSON-safe. The guard itself walks an
@@ -727,6 +734,8 @@ export async function extractBody(source, codecOptions) {
       return await deserializeStream(clone, codecOptions);
     case format === BodyFormat.Json:
       return JSON.parse(await clone.text());
+    case format === BodyFormat.Void:
+      return undefined;
     case format === BodyFormat.String:
       return await clone.text();
     case format === BodyFormat.File: {

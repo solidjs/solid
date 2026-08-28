@@ -544,6 +544,21 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
     if (handled !== undefined) return handled;
   }
 
+  // Every response the runtime encodes carries the body format (a void one
+  // included), so the two markers below identify its own; anything else at
+  // 300 and up is the peer answering something other than the call — the
+  // runtime never puts a redirect on the wire as a 3xx. Answered before the
+  // passthrough beneath, because a foreign refusal carries a `Location` of
+  // its own — an SSO interstitial is exactly that — and undecoded, because
+  // its body is someone else's, not a payload to hand the caller.
+  if (
+    response.status >= 300 &&
+    !response.headers.has(ERROR_HEADER) &&
+    !response.headers.has(BODY_FORMAT_HEADER)
+  ) {
+    throw serverFunctionFailure(response, undefined);
+  }
+
   // Proxies may omit the protocol error header on 5xx responses.
   const failed = response.headers.has(ERROR_HEADER) || response.status >= 500;
 
