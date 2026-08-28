@@ -247,15 +247,11 @@ struct FlatElement<'a> {
 
 pub(super) struct Arena<'a> {
     nodes: Vec<FlatElement<'a>>,
-    has_dynamic: bool,
 }
 
 impl<'a> Arena<'a> {
     pub(super) fn from_roots(roots: &'a [Element]) -> Self {
-        let mut arena = Self {
-            nodes: Vec::new(),
-            has_dynamic: false,
-        };
+        let mut arena = Self { nodes: Vec::new() };
         let root_indexes: Vec<_> = roots
             .iter()
             .map(|element| arena.add(element, None))
@@ -285,10 +281,7 @@ impl<'a> Arena<'a> {
             .iter()
             .filter_map(|child| match child {
                 ElementChild::Element(child) => Some(self.add(child, Some(index))),
-                ElementChild::Dynamic => {
-                    self.has_dynamic = true;
-                    None
-                }
+                ElementChild::Dynamic => None,
             })
             .collect();
         for (position, child) in child_indexes.iter().copied().enumerate() {
@@ -383,9 +376,6 @@ fn matches_complex(
     element: usize,
     parent: &Option<Vec<Complex>>,
 ) -> bool {
-    if arena.has_dynamic {
-        return true;
-    }
     let Some(last_local) = complex
         .parts
         .iter()

@@ -1,7 +1,5 @@
 use super::*;
 
-use super::*;
-
 fn input<'a>(css: &'a str, elements: &'a [Element], kind: StyleKind) -> StyleInput<'a> {
     StyleInput {
         css,
@@ -149,6 +147,8 @@ fn prunes_against_element_tree_and_tracks_scoped_ids() {
     ))
     .unwrap();
     assert!(!conservative.css.contains("(unused)"));
+    assert!(conservative.css.contains(".runtime-class.tsrx-"));
+    assert!(conservative.scoped_elements.contains(&3));
 }
 
 #[test]

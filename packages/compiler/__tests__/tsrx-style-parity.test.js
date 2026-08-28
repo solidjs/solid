@@ -94,6 +94,20 @@ section { display:block }
     expect(result.css).toContain(`@keyframes ${hash}-pulse`);
   });
 
+  test("keeps scoped selectors when an element has dynamic children", () => {
+    const result = compareStyleMetadata(
+      `export function Card(props: { label: string }) @{
+  <>
+    <style>.card { color:red }.unused { color:blue }</style>
+    <section class="card">{props.label}</section>
+  </>
+}`,
+      "style-dynamic-child.tsrx"
+    );
+
+    expect(result.css).toContain(`.card.${result.cssHash}`);
+  });
+
   test("emits class maps, style refs, and document-ordered metadata", () => {
     const expression = compareStyleMetadata(
       `export const first = <style>.first { color:red }</style>;
