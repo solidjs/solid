@@ -135,10 +135,13 @@ export interface InvokeOptions {
 
 /**
  * A reference's invocation channel, carried under `SERVER_FUNCTION_INVOKE`:
- * applies one call with per-call options. Wrappers composing over a
- * reference forward this channel the way they forward declaration
- * metadata, adapting the options to their own policy. Options arrive
- * already validated — `invoke` admits only invocation-scoped keys.
+ * applies one call with per-call options. Declaration wrappers (`GET`,
+ * `live`) forward it mechanically — they keep the call mapping 1:1. A
+ * wrapper that shares calls (a deduping cache, a multicast channel) opts
+ * in deliberately, deciding first what a caller's abort means for shared
+ * work — or declines, leaving `invoke` to answer with a directed error.
+ * Options arrive already validated — `invoke` admits only
+ * invocation-scoped keys.
  */
 export type ServerFunctionInvoker<A extends readonly any[] = any[], R = any> = (
   args: A,
