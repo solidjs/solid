@@ -204,8 +204,12 @@ module.exports = [
     // Upstream drift ratchet (2026-08-27): the shared effect notifier's
     // always-retained core bytes ate the last headroom (measured 10.56).
     // +50 B of cap, not a feature.
+    //
+    // next merge (2026-08-28): 10.6 -> 10.65 KB, measured at 10.61 — the
+    // branch's insert seam plus next's post-cap drift summing in the same
+    // floor.
     path: "minimal-app.js",
-    limit: "10.6 KB",
+    limit: "10.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -244,7 +248,11 @@ module.exports = [
     // Upstream drift ratchet (2026-08-27): shared effect notifier (+core)
     // and #3057 invoke's client surface since the 17.25 cap (measured
     // 17.38). Drift, not a stage-2 feature.
-    limit: "17.45 KB",
+    //
+    // next merge (2026-08-28): 17.45 -> 17.55 KB, measured at 17.48 — the
+    // useHead prelude relocation (#3081, ~120 B in hydrate(), see its note)
+    // arriving from next on top of the drift-ratcheted floor.
+    limit: "17.55 KB",
     modifyEsbuildConfig
   },
   {
