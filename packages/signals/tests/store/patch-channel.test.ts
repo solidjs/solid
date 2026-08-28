@@ -562,6 +562,102 @@ describe("patch channel (re-audit hardening)", () => {
     expect(applies).toBe(2);
   });
 
+  it("coalescing applies the LATEST same-batch state, once (re-audit 3, P1-1)", () => {
+    const [state, setState] = createStore({ user: { id: 1, name: "a" } });
+    // Observe the record (keyed adoption prunes unobserved captures).
+    const applied: string[] = [];
+    registerPatch(state.user, (next: any) => applied.push(next.name));
+    // Two eager reconciles in one batch capture DIFFERENT adopted objects —
+    // dropping the second would apply stale state to the DOM while the
+    // store holds the newer one.
+    setState(s => {
+      reconcile({ user: { id: 1, name: "b" } }, "id")(s);
+    });
+    setState(s => {
+      reconcile({ user: { id: 1, name: "c" } }, "id")(s);
+    });
+    flush();
+    expect(applied).toEqual(["c"]); // once, and the newest
+    expect(state.user.name).toBe("c");
+  });
+
+  it("duplicate keys AFTER an aligned prefix adopt per remaining occurrence (re-audit 3, P1-2)", async () => {
+    const { registerRowOps } = await import("../../src/index.js");
+    const a1 = { id: "a", v: 1 };
+    const b = { id: "b", v: 2 };
+    const a2 = { id: "a", v: 3 };
+    const [state, setState] = createStore({ rows: [a1, b, a2] });
+    const r0 = state.rows[0];
+    const r2 = state.rows[2];
+    registerPatch(r0, () => {});
+    registerPatch(r2, () => {});
+    const ops: any[] = [];
+    registerRowOps(state.rows, (_next: any[], o: any) => ops.push(o));
+    // Prefix aligns position 0 ('a' key): it adopts a10 into a1. The window
+    // (positions 1+) must NOT re-offer a1 — the remaining 'a' occurrence is
+    // a2, which row ops retain for position 1.
+    setState(s => {
+      reconcile(
+        [
+          { id: "a", v: 10 },
+          { id: "a", v: 20 },
+          { id: "b", v: 2 }
+        ],
+        "id"
+      )(s.rows);
+    });
+    flush();
+    expect(r0.v).toBe(10); // prefix adoption
+    expect(r2.v).toBe(20); // window adopts the REMAINING occurrence
+    expect(state.rows[1]).toBe(r2); // identity preserved where ops retained
+  });
+
+  it("optimistic tentative matching is SameValueZero and occurrence-aware (re-audit 3, P1-3)", async () => {
+    const { createOptimisticStore, action: act } = await import("../../src/index.js");
+    const [state, setState] = (createOptimisticStore as any)({
+      rows: [
+        { id: NaN, v: 1 },
+        { id: "x", v: 2 },
+        { id: "x", v: 3 }
+      ]
+    });
+    const r0 = state.rows[0];
+    const r1 = state.rows[1];
+    const r2 = state.rows[2];
+    let resolve!: () => void;
+    let save!: () => Promise<void> | void;
+    createRoot(() => {
+      save = act(function* () {
+        setState((s: any) => {
+          reconcile(
+            [
+              { id: NaN, v: 10 },
+              { id: "x", v: 20 },
+              { id: "x", v: 30 }
+            ],
+            "id"
+          )(s.rows);
+        });
+        yield new Promise<void>(r => {
+          resolve = r;
+        });
+      }) as any;
+    });
+    const p = save() as Promise<void>;
+    flush();
+    // In-flight tentative view: NaN-keyed row keeps its proxy identity
+    // (strict inequality detached it), duplicate keys map per occurrence.
+    expect(state.rows[0]).toBe(r0);
+    expect(state.rows[0].v).toBe(10);
+    expect(state.rows[1]).toBe(r1);
+    expect(state.rows[1].v).toBe(20);
+    expect(state.rows[2]).toBe(r2);
+    expect(state.rows[2].v).toBe(30);
+    resolve();
+    await p;
+    flush();
+  });
+
   it("reconciling a getter-backed object into a patched record demotes to a tracked effect", async () => {
     const { createSignal } = await import("../../src/index.js");
     const [dep, setDep] = createRoot(() => createSignal(1));

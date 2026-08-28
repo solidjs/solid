@@ -46,14 +46,15 @@ export interface PatchChannel {
   /** Patch-channel consumers (next/patch.ts): per-record compiled patch
    * entries, multi-consumer. null when unpatched (the common case). */
   p: object[] | null;
-  /** Same-batch coalescing stamp (re-audit 2, P2): the queue array this
-   * channel last pushed a non-forced SELF entry into, plus the consumer-list
-   * length at that push. A second identical emission into the same container
-   * is an exact duplicate application (both capture the same live pb
-   * reference and the same committed prev) and is skipped; container arrays
-   * are per-batch so stale stamps mismatch naturally. */
+  /** Same-batch coalescing stamp (re-audit 2/3): the container array this
+   * channel last pushed a non-forced SELF entry into, plus that entry. A
+   * later same-batch emission UPDATES the queued entry's `next` in place
+   * (latest state wins — adoption REPLACES the captured object, so dropping
+   * the later emission would apply stale state) while `prev` stays the
+   * batch's earliest. The drain clears both stamps so a quiet record
+   * retains nothing from its last batch. */
   qa: unknown;
-  ql: number;
+  qe: unknown;
   /** Row-ops consumers (next/patch.ts, PR-B): structural list ops —
    * (nextRows, { prefix, sources, removed }) at apply timing. */
   ro: object[] | null;

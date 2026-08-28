@@ -237,7 +237,12 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
               // rows into the SAME prev target while row ops retain two
               // separate DOM rows (the second one stale).
               prevByKey = new Map();
-              for (let j = 0; j < prevRows.length; j++) {
+              // From structStart, not 0 (re-audit 3, P1-2): prefix-aligned
+              // rows already adopted their incoming counterparts — re-offering
+              // them here let a duplicate key adopt a prefix row AGAIN while
+              // row ops (which correctly window from structStart) retained
+              // the later occurrence's DOM row against a never-adopted target.
+              for (let j = structStart; j < prevRows.length; j++) {
                 const p = unwrapValue(prevRows[j]);
                 if (p !== null && typeof p === "object") {
                   const pk = keyFn(p);
@@ -470,7 +475,7 @@ const identityKey = (r: any) => unwrapValue(r);
  * window) — NaN keys are equal to themselves, so aligned NaN rows stay
  * aligned in the prefix walk instead of forever misaligning. Adoption and
  * row ops MUST agree on key equality or retained DOM rows go stale. */
-function sameKey(a: any, b: any): boolean {
+export function sameKey(a: any, b: any): boolean {
   return a === b || (a !== a && b !== b);
 }
 export function emitSetterRowOps(t: StoreNextTarget, prevRows: any[], nextRows: any[]): void {

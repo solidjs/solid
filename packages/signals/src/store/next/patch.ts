@@ -64,6 +64,9 @@ interface QueuedApply {
   force: boolean;
   /** When set, `next` resolves at drain as `t.pb ?? t.v` (bubbles). */
   t: StoreNextTarget | null;
+  /** Coalescing backref (re-audit 3): set for stamped SELF entries so the
+   * drain can clear the channel's qa/qe stamps (retention). */
+  pc?: { qa: unknown; qe: unknown };
 }
 let queue: QueuedApply[] | null = null;
 let scheduled = false;
@@ -84,6 +87,7 @@ function drainApplyQueue(): void {
   // rethrow after the drain so they still surface.
   let firstError: unknown = UNSET;
   for (let i = 0; i < q.length; i++) {
+    clearStamp(q[i]);
     const { list, prev, force, t } = q[i];
     const next = t !== null ? (t.pb ?? t.v) : q[i].next;
     firstError = applyEntries(list, next, prev, force, firstError);
@@ -176,15 +180,16 @@ function push(item: QueuedApply): void {
   pushLive(item);
 }
 
-/** Self-entry push with SAME-BATCH COALESCING (re-audit 2, P2): a record's
- * second non-forced emission into the same container is an exact duplicate —
- * both entries capture the same live pb reference (mutated in place through
- * the batch) and the same committed prev — so the body would apply twice
- * with identical arguments (duplicate custom-element setter calls). Skip it
- * unless the consumer list grew (a mid-batch registrant must still get its
- * first application). Containers are per-batch arrays, so stale stamps
- * mismatch naturally; forced entries and row/slot ops never coalesce. */
-function pushSelf(pc: { qa: unknown; ql: number }, item: QueuedApply): void {
+/** Self-entry push with SAME-BATCH COALESCING (re-audit 2/3): a record's
+ * later non-forced emission into the same container UPDATES the queued
+ * entry in place — `next` takes the newest capture (adoption swaps the
+ * backing object per emission; dropping the later one applied STALE state),
+ * `prev` keeps the batch's earliest (effect semantics: one application per
+ * batch spanning the whole window). The entry's consumer list is the live
+ * pc.p array, so mid-batch registrants ride the single application. Forced
+ * entries and row/slot ops never coalesce; the drain clears the stamps so a
+ * quiet record retains nothing from its last batch. */
+function pushSelf(pc: { qa: unknown; qe: unknown }, item: QueuedApply): void {
   const tx = activeTransition;
   let arr: QueuedApply[];
   if (tx !== null) {
@@ -195,13 +200,30 @@ function pushSelf(pc: { qa: unknown; ql: number }, item: QueuedApply): void {
     if (queue === null) queue = [];
     arr = queue;
   }
-  if (pc.qa === arr && pc.ql === item.list.length) return;
+  if (pc.qa === arr && pc.qe !== null) {
+    const qe = pc.qe as QueuedApply;
+    qe.next = item.next;
+    qe.list = item.list; // pc.p can be re-created if emptied mid-batch
+    return;
+  }
   pc.qa = arr;
-  pc.ql = item.list.length;
+  pc.qe = item;
+  (item as any).pc = pc;
   arr.push(item);
   if (arr === queue && !scheduled) {
     scheduled = true;
     globalQueue.enqueue(EFFECT_RENDER, drainApplyQueue);
+  }
+}
+
+/** Drain-side stamp clear (re-audit 3, P2-6): without it a quiet long-lived
+ * record's channel retains its last batch's container array, entry, and both
+ * captured backings for the record's lifetime. */
+function clearStamp(item: QueuedApply): void {
+  const pc = (item as any).pc as { qa: unknown; qe: unknown } | undefined;
+  if (pc !== undefined && pc.qe === item) {
+    pc.qa = null;
+    pc.qe = null;
   }
 }
 
@@ -267,6 +289,7 @@ function drainOptimistic(): void {
   // must reach the registering owner's Errored boundary.
   let firstError: unknown = UNSET;
   for (let i = 0; i < q.length; i++) {
+    clearStamp(q[i]);
     const { list, prev, force, t } = q[i];
     const next = t !== null ? (t.pb ?? t.v) : q[i].next;
     firstError = applyEntries(list, next, prev, force, firstError);
@@ -282,7 +305,22 @@ export function emitPatchOptimistic(t: StoreNextTarget, next: any, prev: any): v
   if (p === null) return;
   if (optQueue === null) optQueue = [];
   if (next === null) optQueue.push({ list: p, next: null, prev: null, force: true, t });
-  else optQueue.push({ list: p, next, prev, force: false, t: null });
+  else {
+    // Same-batch coalescing, optimistic container (re-audit 3): later
+    // non-forced emission updates the queued entry's next in place.
+    const pc = t.pc! as unknown as { qa: unknown; qe: unknown };
+    if (pc.qa === optQueue && pc.qe !== null) {
+      const qe = pc.qe as QueuedApply;
+      qe.next = next;
+      qe.list = p;
+    } else {
+      const item: QueuedApply = { list: p, next, prev, force: false, t: null };
+      pc.qa = optQueue;
+      pc.qe = item;
+      (item as any).pc = pc;
+      optQueue.push(item);
+    }
+  }
   // Backup scheduling: the lane-slot drain covers in-flight application; a
   // stashed regular drain guarantees settle-time application when no lane
   // survives to the final flush (pure reverts).

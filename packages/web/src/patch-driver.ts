@@ -308,8 +308,16 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
     }
     return { prefix: 0, sources };
   };
+  // Failed-apply baseline flag (re-audit 3, P1-4): a throwing row factory
+  // leaves DOM/bookkeeping on the OLD arrangement while the STORE committed
+  // the new topology — subsequent positional ops would index against the
+  // store's baseline and corrupt retention. Until a full apply succeeds,
+  // ops are discarded in favor of an identity resync against prevRaws, and
+  // slot ticks are suppressed (the resync rebuild covers their values).
+  let resyncNeeded = false;
   const applyOps = (next: any[], ops: { prefix: number; sources: number[] } | null) => {
     if (declined) return;
+    if (resyncNeeded) ops = null;
     if (ops === null) ops = identityOps(next);
     const { prefix, sources } = ops;
     // EXCEPTION SAFETY (re-audit 2, P1-3): build every NEW row before any
@@ -334,7 +342,12 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
         }
       }
     } catch (err) {
+      // Sever completed staged rows AND the throwing row's own partial
+      // registrations (re-audit 3, P2-5): collectBind's finally published
+      // the partial collector before the throw propagated here.
       for (let k = 0; k < j; k++) runUnbinds(builtUnbinds[k]);
+      runUnbinds(lastUnbinds ?? undefined);
+      resyncNeeded = true;
       throw err;
     }
     // Destructive phase — nothing below throws on healthy nodes.
@@ -382,6 +395,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
     if (newBodies !== null) rowBodies = newBodies;
     rowUnbinds = newUnbinds;
     prevRaws = next.slice();
+    resyncNeeded = false; // a full successful apply restores the baseline
   };
 
   let unbindOps = runWithOwner(listOwner, () => registerRowOps(subject, applyOps)) as () => void;
@@ -414,7 +428,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   // Structure never lands here (the walk emits misaligned slots as row ops
   // only).
   const applySlot = (i: number, next: any, prev: any) => {
-    if (declined) return;
+    if (declined || resyncNeeded) return;
     if (refRebuild) {
       rebuildSlot(i);
       prevRaws[i] = next;

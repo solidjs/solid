@@ -316,8 +316,12 @@ module.exports = [
     // ~2.1 KB over the patchDriver floor, ~3.6 KB over classic. Paid
     // exactly by apps with driver-eligible store lists — the tier the
     // dbmon-class wins accrue to.
+    //
+    // Re-audit-3 hardening: 16.65 -> 16.75 KB (measured 16.69) — the
+    // driver's failed-apply resync flag + partial-registration severing and
+    // the coalescing entry updates ride this tier.
     path: "csr-app-patch-lists.js",
-    limit: "16.65 KB",
+    limit: "16.75 KB",
     modifyEsbuildConfig
   },
   {

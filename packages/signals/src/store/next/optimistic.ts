@@ -56,7 +56,7 @@ import {
 import { patchHooks, rowHooks } from "./patch-hooks.js";
 // Cycle with reconcile.js is benign: the binding resolves at call time (the
 // optimistic write), long after both modules initialize.
-import { buildIdentityRowOps } from "./reconcile.js";
+import { buildIdentityRowOps, sameKey } from "./reconcile.js";
 import { setOptHooks, storeNextLookup } from "./target.js";
 type KeyFn = (item: any) => any;
 import { isRawValue, isWrappable, rawValuesUsed, setNextOptimisticViewResolver } from "../store.js";
@@ -415,7 +415,9 @@ function applyTentative(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null):
     if (keyFn) {
       const pk = keyFn(pv);
       const nk = keyFn(nv);
-      if (pk !== undefined && nk !== undefined && pk !== nk) return null;
+      // SameValueZero (re-audit 3, P1-3): parity with the plain reconcile
+      // channel — NaN keys are self-equal.
+      if (pk !== undefined && nk !== undefined && !sameKey(pk, nk)) return null;
     }
     return map.get(unwrapValue(pv)) ?? null;
   };
@@ -430,16 +432,31 @@ function applyTentative(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null):
         const nk = keyFn(nv);
         if (nk !== undefined) {
           if (viewByKey === null) {
+            // Occurrence-aware index queues (re-audit 3, P1-3): parity with
+            // the plain adoption window — duplicate keys match per
+            // occurrence, each view row consumed once.
             viewByKey = new Map();
             for (let j = 0; j < viewRows.length; j++) {
               const p = unwrapValue(viewRows[j]);
               if (isWrappable(p)) {
                 const pk = keyFn(p);
-                if (pk !== undefined && !viewByKey.has(pk)) viewByKey.set(pk, p);
+                if (pk === undefined) continue;
+                const existing = viewByKey.get(pk);
+                if (existing === undefined) viewByKey.set(pk, j);
+                else if (Array.isArray(existing)) existing.push(j);
+                else viewByKey.set(pk, [existing, j]);
               }
             }
           }
-          pv = viewByKey.get(nk);
+          const m = viewByKey.get(nk);
+          if (m === undefined) pv = undefined;
+          else if (Array.isArray(m)) {
+            pv = unwrapValue(viewRows[m.shift()!]);
+            if (m.length === 1) viewByKey.set(nk, m[0]);
+          } else {
+            pv = unwrapValue(viewRows[m]);
+            viewByKey.delete(nk);
+          }
         } else pv = unwrapValue(viewRows[i]);
       } else pv = unwrapValue(viewRows[i]);
       const ct = match(pv, nv);

@@ -144,7 +144,7 @@ TargetShape.prototype = Object.prototype;
 
 /** Lazily allocate the patch-channel extension (one literal shape). */
 export function pcOf(t: StoreNextTarget): PatchChannel {
-  return t.pc ?? (t.pc = { sp: null, p: null, ro: null, wk: null, qa: null, ql: 0 });
+  return t.pc ?? (t.pc = { sp: null, p: null, ro: null, wk: null, qa: null, qe: null });
 }
 
 function createTarget(

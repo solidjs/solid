@@ -584,15 +584,78 @@ describe("patch-mode list driver — audit regressions", () => {
       expect(rows(div)[1]).toBe(tr2);
       expect(rows(div)[2]).toBe(tr3);
 
-      // The driver still works: reconcile back to a healthy arrangement and
-      // apply a normal structural update — retention topology intact.
+      // Recovery (re-audit 3, P1-4): the STORE committed the failed
+      // topology while DOM kept the old one — the driver's baseline is
+      // wrong, so the next update forces an IDENTITY RESYNC. Reconcile
+      // swaps backing raws, so the resync rebuilds rows: content is correct
+      // (that is the guarantee), retention is deliberately forfeited for
+      // this one recovery apply.
       setState(s => {
         reconcile([make(3)[0], make(1)[0]], "id")(s.rows);
       });
       flush();
       expect(labels(div)).toBe("L3,L1");
-      expect(rows(div)[0]).toBe(tr3);
-      expect(rows(div)[1]).toBe(tr1);
+      const [r3, r1] = rows(div);
+
+      // Baseline restored: the NEXT update retains again (keyed move keeps
+      // both nodes).
+      setState(s => {
+        reconcile(
+          [
+            { id: 1, label: "L1" },
+            { id: 3, label: "L3" }
+          ],
+          "id"
+        )(s.rows);
+      });
+      flush();
+      expect(labels(div)).toBe("L1,L3");
+      expect(rows(div)[0]).toBe(r1);
+      expect(rows(div)[1]).toBe(r3);
+      dispose();
+    });
+  });
+
+  test("a row that registers THEN throws severs its own partial registrations (re-audit 3, P2-5)", () => {
+    createRoot(dispose => {
+      let div!: HTMLDivElement;
+      let poisonApplies = 0;
+      const registerThenThrow = rowProof((db: Row) => {
+        if (db.label === "BOOM") {
+          const tr = document.createElement("tr");
+          // The compiled body registers on the record FIRST (real compiled
+          // output registers before later template statements can throw)...
+          patchDriver(db, () => {
+            poisonApplies++;
+          });
+          // ...then a later statement in the row factory throws.
+          throw new Error("late row boom");
+        }
+        return buildRow(db);
+      });
+      const [state, setState] = createStore({ rows: make(1, 2) });
+      <div ref={div}>
+        <For each={state.rows}>{registerThenThrow}</For>
+      </div>;
+      expect(labels(div)).toBe("L1,L2");
+
+      setState(s => {
+        reconcile([make(1)[0], { id: 9, label: "BOOM" }, make(2)[0]], "id")(s.rows);
+      });
+      expect(() => flush()).toThrow("late row boom");
+      resetErrorHalt();
+      expect(labels(div)).toBe("L1,L2");
+      // The initial force-apply ran before the throw — capture the count
+      // AFTER the failed bind; severing means it never grows again.
+      const boomApplies = poisonApplies;
+
+      // The poison record's registration was severed with the failed bind:
+      // a later write to it must NOT fire the orphaned patch.
+      setState(s => {
+        s.rows[1].label = "BOOM2";
+      });
+      flush();
+      expect(poisonApplies).toBe(boomApplies);
       dispose();
     });
   });
