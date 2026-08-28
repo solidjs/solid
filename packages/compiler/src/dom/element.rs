@@ -380,10 +380,10 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
                 subject: patched_subject.clone(),
             });
         }
-        if patched_subject.is_none() {
-            if let Some(statement) = self.wrap_dynamics_statement(dynamics) {
-                operations.push(statement);
-            }
+        if patched_subject.is_none()
+            && let Some(statement) = self.wrap_dynamics_statement(dynamics)
+        {
+            operations.push(statement);
         }
         if self.should_close_tag(&tag_name, CloseTagContext::root()) {
             template.html.push_str(&format!("</{tag_name}>"));

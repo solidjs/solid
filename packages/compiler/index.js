@@ -359,12 +359,10 @@ function requireBinding() {
   let nativeError;
   const suffix = platformArchSuffix();
 
-  if (suffix) {
-    const next = tryPackage(`@solidjs/compiler-${suffix}`);
-    if (next.binding) return next.binding;
-    if (next.error) nativeError = next.error;
-  }
-
+  // Local builds first: the published package ships no local binary (see
+  // "files"), so a `compiler.node` next to this file can only be a
+  // development build — which must shadow the installed platform package,
+  // or the monorepo's own tests silently run against the last release.
   const localCandidates = [];
   if (suffix) localCandidates.push(`compiler.${suffix}.node`);
   localCandidates.push("compiler.node");
@@ -374,10 +372,18 @@ function requireBinding() {
       try {
         return require(full);
       } catch (error) {
-        nativeError = error;
-        break;
+        // A present-but-unloadable dev build is an error, not a fallback:
+        // degrading to the published binary would silently test stale code.
+        error.message += `\nA local development build (${file}) exists but could not be loaded. Rebuild with \`pnpm run build:debug\` or delete it to use the installed @solidjs/compiler-* package.`;
+        throw error;
       }
     }
+  }
+
+  if (suffix) {
+    const next = tryPackage(`@solidjs/compiler-${suffix}`);
+    if (next.binding) return next.binding;
+    if (next.error) nativeError = next.error;
   }
 
   const wasi = requireWasi();
