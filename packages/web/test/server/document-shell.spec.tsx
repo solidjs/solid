@@ -11,7 +11,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderToStream } from "@solidjs/web";
-import { App, AsyncApp, Shell, APP_ROOT_MARKUP } from "../harness/document-shell.jsx";
+import { App, AsyncApp, HeadShellApp, Shell, APP_ROOT_MARKUP } from "../harness/document-shell.jsx";
 import { hydrationRecordKeys } from "../harness/hydration-records.js";
 
 const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
@@ -68,6 +68,28 @@ describe("document-shell pattern — server render (#3000)", () => {
     mkdirSync(artifactsDir, { recursive: true });
     writeFileSync(
       resolve(artifactsDir, "document-shell-async.json"),
+      JSON.stringify({ chunks }, null, 2)
+    );
+  });
+
+  test("useHead + shell-authored head children: prelude tag injected ahead, title rewritten in place (#3081)", async () => {
+    const chunks = await collectChunks(() => <HeadShellApp />);
+    const html = chunks.join("");
+
+    // The charset prelude splices right after `<head>` — BEFORE every
+    // shell-authored head child (its placement constraint). The client half
+    // must hydrate over that shift.
+    expect(html.indexOf('data-dh="charset"')).toBeGreaterThan(-1);
+    expect(html.indexOf('data-dh="charset"')).toBeLessThan(html.indexOf('name="shell-owned"'));
+    // The shell's static <title> is rewritten in place, keeping its position:
+    // winner text in the element, original stashed on data-dhf.
+    expect(html).toContain(
+      '<title data-dh="title" data-dhf="shell fallback title">managed title</title>'
+    );
+
+    mkdirSync(artifactsDir, { recursive: true });
+    writeFileSync(
+      resolve(artifactsDir, "document-shell-usehead-head.json"),
       JSON.stringify({ chunks }, null, 2)
     );
   });

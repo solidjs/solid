@@ -1752,7 +1752,8 @@ export function getNextElement(template) {
 export function getNextMatch(start: Node, elementName: string): Element;
 
 export function getNextMatch(el, nodeName) {
-  while (el && el.localName !== nodeName) el = el.nextSibling;
+  while (el && (el.localName !== nodeName || (sharedConfig.hydrating && isInjectedHeadTag(el))))
+    el = el.nextSibling;
   return el;
 } /** Hydration-walk primitive; not for hand-written code. @internal */
 export function getNextMarker(start: Node): [Node, Array<Node>];
@@ -1778,8 +1779,27 @@ export function getNextMarker(start) {
   return [end, current];
 }
 
+// Head-manager tags the server INJECTED around the shell's own markup — the
+// charset/base prelude spliced right after `<head>`, registry tags spliced
+// before `</head>` — never correspond to compiled shell markup, so the
+// positional head walk must step over them: one prepended prelude tag shifts
+// every subsequent read and hydration of the whole document dies (#3081).
+// Shell-authored tags the server rewrote IN PLACE (the static <title> given
+// the winner text) keep their position and must still be claimed; the
+// rewrite always leaves the `data-dhf` stash, which injected tags never
+// carry.
+function isInjectedHeadTag(node) {
+  return (
+    node.nodeType === 1 &&
+    node.parentNode === document.head &&
+    node.hasAttribute("data-dh") &&
+    !node.hasAttribute("data-dhf")
+  );
+}
+
 export function getFirstChild(node, expectedTag) {
-  const child = node.firstChild;
+  let child = node.firstChild;
+  while (child && sharedConfig.hydrating && isInjectedHeadTag(child)) child = child.nextSibling;
   if ("_SOLID_DEV_" && isHydrating() && expectedTag && child?.localName !== expectedTag) {
     const isMissing = !child || child.nodeType !== 1;
     console.warn(
@@ -1792,7 +1812,9 @@ export function getFirstChild(node, expectedTag) {
 }
 
 export function getNextSibling(node, expectedTag) {
-  const sibling = node.nextSibling;
+  let sibling = node.nextSibling;
+  while (sibling && sharedConfig.hydrating && isInjectedHeadTag(sibling))
+    sibling = sibling.nextSibling;
   if ("_SOLID_DEV_" && isHydrating() && expectedTag && sibling?.localName !== expectedTag) {
     const parent = node.parentNode;
     const isMissing = !sibling || sibling.nodeType !== 1;

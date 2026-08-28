@@ -15,8 +15,8 @@
  * the dom generate by test/hydration/document-shell.spec.tsx (which hydrates
  * against that same markup) — so the constant can't drift from either side.
  */
-import { createSignal, createMemo, Loading, NoHydration, Hydration } from "solid-js";
-import type { JSX } from "@solidjs/web";
+import { createSignal, createMemo, Loading, NoHydration, Hydration, Show } from "solid-js";
+import { useHead, type JSX } from "@solidjs/web";
 
 export function App() {
   const [count, setCount] = createSignal(0);
@@ -79,3 +79,43 @@ export function Shell(props: { children: JSX.Element }) {
 
 /** What the server renders inside #app-root for <Shell><App /></Shell>. */
 export const APP_ROOT_MARKUP = `<button _hk=0 id="counter" type="button">count: <!--$-->0<!--/--></button>`;
+
+/**
+ * Whole-document hydration with useHead + shell-authored <head> children
+ * (issue #3081). The charset registration is emitted as a prelude tag
+ * spliced AHEAD of the shell's own head children — the claim walk must step
+ * over it or the whole document dies on an off-by-one. The title
+ * registration rewrites the shell's static <title> IN PLACE (data-dh +
+ * data-dhf) — that element keeps its position and the walk must still take
+ * it.
+ */
+export const [headShellStarted, setHeadShellStarted] = createSignal(false);
+
+function HeadRegistrar() {
+  useHead([
+    { tag: "meta", props: { charset: "utf-8" }, key: "charset" },
+    { tag: "title", props: { children: "managed title" } }
+  ]);
+  return null;
+}
+
+export function HeadShellApp() {
+  return (
+    <html lang="en">
+      <head>
+        <meta name="shell-owned" content="first" />
+        <HeadRegistrar />
+        <Show when={true}>
+          <meta name="shell-owned-dynamic" content="marker-range" />
+        </Show>
+        <title>shell fallback title</title>
+      </head>
+      <body class={headShellStarted() ? "started" : ""}>
+        <main>
+          <h1>hello</h1>
+          <p id="status">{headShellStarted() ? "started" : "waiting"}</p>
+        </main>
+      </body>
+    </html>
+  );
+}
