@@ -46,7 +46,8 @@ import {
   activeTransition,
   currentTransition,
   globalQueue,
-  insertSubs
+  insertSubs,
+  type Transition
 } from "../../core/scheduler.js";
 import { getObserver, getOwner } from "../../core/owner.js";
 import {
@@ -444,6 +445,7 @@ export function materializePB(target: StoreNextTarget): void {
 }
 
 function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
+  if (activeTransition !== null) foldBatches.set(target, activeTransition);
   let pb = target.pb;
   if (pb === null) {
     // Prototype-chain overlay (#3044): plain-data non-array containers
@@ -566,15 +568,28 @@ export function adoptPB(
 
 function queueFold(target: StoreNextTarget): void {
   if (foldOlds.has(target)) return;
-  if (foldOlds.size === 0) {
-    if (!hookInstalled) {
-      hookInstalled = true;
-      setStoreCommitHook(drainFolds);
-    }
-    schedule(); // once per batch — drain clears the map
+  if (!hookInstalled) {
+    hookInstalled = true;
+    setStoreCommitHook(drainFolds);
   }
+  // Always arm — "map non-empty ⇒ drain scheduled" is NOT an invariant: a
+  // held re-queue, or an incomplete-transition flush (which skips
+  // commitPendingNodes entirely), leaves entries behind after `scheduled`
+  // was consumed. A size-gated arm then strands every LATER fold — queued
+  // silently, never drained, committed base frozen at stale state while its
+  // nodes commit (#3089). schedule() early-returns when already armed.
+  schedule();
   foldOlds.set(target, target.v);
 }
+
+/** Fold write-attribution (#3089): a draft written while a transition is
+ * active belongs to that transition — its fold must not commit before the
+ * transition settles. Observed keys already defer through the held check in
+ * drainFolds (their nodes carry _pendingValue); this write-time stamp is the
+ * equivalent hold for UNOBSERVED keys, which have no node to consult.
+ * Refreshed on every write; resolved through currentTransition at drain
+ * (transitions merge — same rule as heldMaskView). */
+const foldBatches = new WeakMap<StoreNextTarget, Transition>();
 
 /** Committed-time privatization for parent-chain slot updates (path copying). */
 function privatizeCommitted(target: StoreNextTarget): void {
@@ -601,6 +616,17 @@ function drainFolds(): void {
     // they clear when their transition is done (heldMaskView).
     if (t.ht === PLAIN_HOLD) t.ht = t.hv = null;
     if (t.pb !== null) {
+      // #3089: a fold written under a still-running transition defers to
+      // that transition's settle (the write-time stamp covers unobserved
+      // keys; observed keys also hit the pending-node held check below).
+      const fb = foldBatches.get(t);
+      if (fb !== undefined) {
+        if (currentTransition(fb)._done === false) {
+          foldOlds.set(t, old);
+          continue;
+        }
+        foldBatches.delete(t);
+      }
       // Setter path: nodes were setSignal'd at setter exit (write-time
       // notification — transitions/holds ride core machinery). Commit the
       // backing only for keys whose nodes have committed; a still-pending
