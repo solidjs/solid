@@ -56,7 +56,7 @@ impl ProjectionMap {
         });
     }
 
-    fn authored_offset(&self, projected_offset: u32) -> Option<u32> {
+    pub(super) fn authored_offset(&self, projected_offset: u32) -> Option<u32> {
         let index = self
             .segments
             .partition_point(|segment| segment.projected_start <= projected_offset);
@@ -122,6 +122,8 @@ pub(super) fn compose(
 struct LineOffsets<'a> {
     source: &'a str,
     starts: Vec<u32>,
+    /// Per-line `(relative UTF-8 byte, UTF-16 column)` boundaries.
+    columns: Vec<Vec<(u32, u32)>>,
 }
 
 impl<'a> LineOffsets<'a> {
@@ -143,32 +145,46 @@ impl<'a> LineOffsets<'a> {
             };
             starts.push(next as u32);
         }
-        Self { source, starts }
+        let columns = starts
+            .iter()
+            .enumerate()
+            .map(|(line, start)| {
+                let start = *start as usize;
+                let end = starts
+                    .get(line + 1)
+                    .copied()
+                    .map_or(source.len(), |offset| offset as usize);
+                let line = &source[start..end];
+                let mut utf16 = 0u32;
+                let mut boundaries = Vec::with_capacity(line.chars().count() + 1);
+                for (relative, character) in line.char_indices() {
+                    boundaries.push((relative as u32, utf16));
+                    utf16 += character.len_utf16() as u32;
+                }
+                boundaries.push((line.len() as u32, utf16));
+                boundaries
+            })
+            .collect();
+        Self {
+            source,
+            starts,
+            columns,
+        }
     }
 
     fn byte_offset(&self, line: u32, utf16_column: u32) -> Option<u32> {
-        let start = *self.starts.get(line as usize)? as usize;
-        let end = self
-            .starts
-            .get(line as usize + 1)
-            .copied()
-            .map_or(self.source.len(), |offset| offset as usize);
-        let mut column = 0u32;
-        for (relative, ch) in self.source[start..end].char_indices() {
-            if column == utf16_column {
-                return Some((start + relative) as u32);
-            }
-            column += ch.len_utf16() as u32;
-            if column > utf16_column {
-                return None;
-            }
-        }
-        (column == utf16_column).then_some(end as u32)
+        let line = line as usize;
+        let start = *self.starts.get(line)?;
+        let boundaries = self.columns.get(line)?;
+        let index = boundaries
+            .binary_search_by_key(&utf16_column, |(_, column)| *column)
+            .ok()?;
+        Some(start + boundaries[index].0)
     }
 
     fn line_column(&self, byte_offset: u32) -> Option<(u32, u32)> {
         let byte_offset = byte_offset as usize;
-        if byte_offset > self.source.len() || !self.source.is_char_boundary(byte_offset) {
+        if byte_offset > self.source.len() {
             return None;
         }
         let line = self
@@ -176,7 +192,12 @@ impl<'a> LineOffsets<'a> {
             .partition_point(|start| *start as usize <= byte_offset)
             .checked_sub(1)?;
         let start = self.starts[line] as usize;
-        let column = self.source[start..byte_offset].encode_utf16().count() as u32;
+        let relative = (byte_offset - start) as u32;
+        let boundaries = &self.columns[line];
+        let index = boundaries
+            .binary_search_by_key(&relative, |(byte, _)| *byte)
+            .ok()?;
+        let column = boundaries[index].1;
         Some((line as u32, column))
     }
 }

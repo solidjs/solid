@@ -89,6 +89,10 @@ impl<'t> Node<'t> {
     pub fn tape(self) -> &'t FlatTape {
         self.tape
     }
+
+    pub(crate) fn object(self) -> RecordIndex {
+        self.object
+    }
 }
 
 struct NodeIter<'t> {
@@ -148,4 +152,55 @@ pub fn walk_children<'t>(node: Node<'t>, visit: &mut impl FnMut(Node<'t>) -> boo
             _ => {}
         }
     }
+}
+
+/// Binding pattern introduced by a TSRX/JavaScript `for...of` record.
+pub fn for_binding_pattern(node: Node<'_>) -> Option<Node<'_>> {
+    let left = node.node_field("left")?;
+    if left.ty() != "VariableDeclaration" {
+        return Some(left);
+    }
+    left.list_field("declarations")
+        .flatten()
+        .next()
+        .and_then(|declarator| declarator.node_field("id"))
+}
+
+/// Whether an element uses TSRX's expression-valued dynamic tag syntax.
+pub fn is_dynamic_element(node: Node<'_>) -> bool {
+    node.ty() == "JSXElement"
+        && node
+            .node_field("openingElement")
+            .is_some_and(|opening| opening.bool_field("isDynamic"))
+}
+
+/// Lowercase intrinsic name of an ordinary JSX element.
+pub fn intrinsic_element_name(node: Node<'_>) -> Option<&str> {
+    if node.ty() != "JSXElement" || is_dynamic_element(node) {
+        return None;
+    }
+    node.node_field("openingElement")?
+        .node_field("name")?
+        .str_field("name")
+}
+
+/// Exact authored payload span of a paired JSX element.
+pub fn paired_element_payload_span(node: Node<'_>) -> Option<(u32, u32)> {
+    let start = node.node_field("openingElement")?.span()?.1;
+    let end = node.node_field("closingElement")?.span()?.0;
+    (start <= end).then_some((start, end))
+}
+
+/// Raw-text child supplied by the TSRX parser for an intrinsic element.
+///
+/// This deliberately requires the parser's `content` and child `raw` fields;
+/// callers must not infer raw-text regions by scanning authored source.
+pub fn raw_text_payload<'t>(node: Node<'t>, expected_name: &str) -> Option<Node<'t>> {
+    if intrinsic_element_name(node) != Some(expected_name) || node.str_field("content").is_none() {
+        return None;
+    }
+    let mut children = node.list_field("children").flatten();
+    let child = children.next()?;
+    (children.next().is_none() && child.ty() == "JSXText" && child.str_field("raw").is_some())
+        .then_some(child)
 }

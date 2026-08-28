@@ -99,6 +99,8 @@ Destructured bindings in keyed `@for` loops and `@catch` clauses stay deferred a
 
 The frontend uses the community [oxc-tsrx](https://github.com/tsrx-org/oxc) parser at a pinned revision. Statement containers can be used as function bodies, statements, expressions (`const x = @{ … }`), and JSX children or expression containers. See `documentation/tsrx/frontend-notes.md` in the repository for the full frontend notes.
 
+`projectTsrxForTypecheck(source, { filename })` is an experimental compiler-owned projection for editor and typecheck integrations. It returns independently typecheckable post-rewrite TSX without running the DOM/SSR/universal transforms, injecting collision-safe imports for generated Solid control-flow and dynamic-element helpers. The result also includes an authored `.tsrx` source map, processed `css`/`cssHash`, and parser-authored embedded CSS/raw-script regions. Embedded offsets use JavaScript UTF-16 string coordinates. This is a generic compiler API, not a Volar mapping adapter.
+
 ### Source maps
 
 Pass `sourceMap: true` to receive a JSON source map string in `result.map`. For TSRX, the compiler composes Oxc's generated-JavaScript map through the internal TSX text projection, returning the original `.tsrx` filename and source in `sources` and `sourcesContent`. Authored expressions and lazy/accessor rewrites map back to their TSRX locations; projection-only scaffolding remains explicitly unmapped rather than being attributed to nearby syntax.
@@ -155,15 +157,24 @@ The runtime module defaults to `@solidjs/web/server-functions`. Function IDs use
 The crate also exposes a host-independent Rust API. The crate name is `solidjs-compiler`; the Node `transform()` delegates to the same core.
 
 ```rust
-use solidjs_compiler::{compile, CompileOptions};
+use solidjs_compiler::{
+    compile, project_tsrx_for_typecheck, CompileOptions,
+    TsrxTypecheckProjectionOptions,
+};
 
 let output = compile(
     "const view = <div>{name()}</div>;",
     &CompileOptions::default(),
 )?;
+
+let tsrx_source = "export function View() @{ <div /> }";
+let virtual_tsx =
+    project_tsrx_for_typecheck(tsrx_source, &TsrxTypecheckProjectionOptions::default())?;
 ```
 
 `CompileOptions::default()` uses `module_name: "@solidjs/web"` and the same control-flow `built_ins` as the Babel plugin. Build with `--no-default-features` when embedding without the Node-API adapter.
+
+The unstable Rust typecheck projection reports embedded ranges in authored UTF-8 bytes. The N-API adapter converts those ranges to UTF-16 code units for JavaScript tooling.
 
 > **Stability:** the Rust API is unstable while the compiler is pre-1.0. Options, output, and error types may change in any release — pin an exact revision when embedding it.
 

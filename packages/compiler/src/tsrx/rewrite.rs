@@ -14,7 +14,7 @@
 //!   reads only: writes and read-write updates stay untouched, mirroring the
 //!   Babel frontend's `rewriteReadsToCalls`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use oxc_allocator::{Allocator, CloneIn};
 use oxc_ast::ast::{
@@ -34,29 +34,9 @@ use oxc_syntax::{
 
 use crate::shared::ast_builder::AstBuilder;
 
-use super::project::Projection;
+use super::{names::Names, project::Projection};
 
 type SpanKey = (u32, u32);
-
-#[derive(Default)]
-struct Names {
-    used: HashSet<String>,
-    next: HashMap<&'static str, u32>,
-}
-
-impl Names {
-    fn allocate(&mut self, prefix: &'static str) -> String {
-        let mut index = *self.next.get(prefix).unwrap_or(&0);
-        loop {
-            let name = format!("{prefix}{index}");
-            index += 1;
-            if self.used.insert(name.clone()) {
-                self.next.insert(prefix, index);
-                return name;
-            }
-        }
-    }
-}
 
 enum AccessStep<'a> {
     Static(String),
@@ -175,7 +155,7 @@ pub fn apply<'a>(
         .with_build_nodes(true)
         .build(program)
         .semantic;
-    let mut names = collect_names(&semantic);
+    let mut names = Names::from_semantic(&semantic);
     let plan = build_plan(allocator, &semantic, projection, &mut names)?;
     drop(semantic);
 
@@ -195,25 +175,6 @@ pub fn apply<'a>(
     } else {
         Ok(())
     }
-}
-
-fn collect_names(semantic: &Semantic<'_>) -> Names {
-    let mut names = Names::default();
-    for node in semantic.nodes() {
-        match node.kind() {
-            oxc_ast::AstKind::BindingIdentifier(ident) => {
-                names.used.insert(ident.name.to_string());
-            }
-            oxc_ast::AstKind::IdentifierReference(ident) => {
-                names.used.insert(ident.name.to_string());
-            }
-            oxc_ast::AstKind::JSXIdentifier(ident) => {
-                names.used.insert(ident.name.to_string());
-            }
-            _ => {}
-        }
-    }
-    names
 }
 
 fn build_plan<'a>(

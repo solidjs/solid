@@ -28,6 +28,7 @@ export function Grid({ rows, dense }) {
                   get each() {
                     return row().cells;
                   },
+                  keyed: false,
                   get fallback() {
                     return _tmpl$4();
                   },

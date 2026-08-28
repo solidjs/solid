@@ -38,8 +38,9 @@ export function WithSetup({ posts }) {
     _el$6,
     _$createComponent(_$For, {
       each: posts,
+      keyed: false,
       children: (post, n) => {
-        const heading = post.title.trim();
+        const heading = post().title.trim();
         var _el$7 = _tmpl$5(),
           _el$8 = _el$7.firstChild,
           _el$9 = _el$8.nextSibling,

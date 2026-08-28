@@ -561,6 +561,17 @@ fn unicode_offsets_preserve_authored_diagnostic_coordinates() {
         message.ends_with("(4:17)"),
         "UTF-16 spans must rebase to authored line/column coordinates: {message}"
     );
+
+    let source =
+        "const emoji = \"🚀\"; export function C({ obj }) @{ @for (const key in obj) { <p /> } }";
+    let expected_column = source[..source.find("@for").expect("@for")]
+        .encode_utf16()
+        .count();
+    let message = compile_error(source);
+    assert!(
+        message.ends_with(&format!("(1:{expected_column})")),
+        "same-line astral characters count as two UTF-16 units: {message}"
+    );
 }
 
 #[test]

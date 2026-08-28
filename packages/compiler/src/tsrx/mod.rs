@@ -2,21 +2,28 @@
 //!
 //! Routes `.tsrx` sources through `tsrx_parser_engine` (the community
 //! `oxc-tsrx` project, pinned by revision — the only TSRX grammar authority
-//! on the Rust side), desugars every TSRX construct to Solid builtIn JSX as
-//! a *text projection* over the authored source, reparses the projection
-//! with the crate's own oxc, and finishes with symbol-exact lazy/accessor
-//! rewrites. The desugaring contract is frozen by
-//! `@solidjs/babel-plugin/src/tsrx/desugar.ts` and its fixture corpus; both
-//! frontends must lower identically.
+//! on the Rust side), lowers parser interchange into compiler-owned typed
+//! Solid TSRX semantic IR, projects that IR to Solid builtIn JSX over the
+//! authored source, reparses the projection with the crate's own oxc, and
+//! finishes with symbol-exact lazy/accessor rewrites. The desugaring contract
+//! is frozen by `@solidjs/babel-plugin/src/tsrx/desugar.ts` and its fixture
+//! corpus; both frontends must lower identically.
 
+mod names;
 mod project;
 mod rewrite;
+mod semantic;
 mod source_map;
 mod style;
 mod style_projection;
 mod tape;
+mod tooling;
 
 pub use project::Projection;
+pub use tooling::{
+    TsrxEmbeddedRegion, TsrxEmbeddedRegionKind, TsrxTypecheckProjection,
+    TsrxTypecheckProjectionOptions, project_tsrx_for_typecheck,
+};
 
 use tsrx_parser_engine::{
     TsrxParseOptions, TsrxParseRequest, TsrxParseResult, TsrxUtf16ParseRequest,
@@ -65,6 +72,23 @@ pub fn apply_rewrites<'a>(
     source_maps: bool,
 ) -> Result<(), CompileError> {
     rewrite::apply(allocator, program, projection, source_maps).map_err(CompileError::transform)
+}
+
+/// Parse compiler-projected TSX with the exact runtime parser configuration.
+pub(crate) fn parse_projected_tsx<'a>(
+    allocator: &'a oxc_allocator::Allocator,
+    projection: &'a Projection,
+) -> Result<oxc_ast::ast::Program<'a>, CompileError> {
+    let parsed = oxc_parser::Parser::new(allocator, &projection.text, oxc_span::SourceType::tsx())
+        .with_options(oxc_parser::ParseOptions {
+            preserve_parens: false,
+            ..oxc_parser::ParseOptions::default()
+        })
+        .parse();
+    if let Some(error) = crate::shared::parser::first_parser_error(parsed.diagnostics) {
+        return Err(CompileError::parse(error));
+    }
+    Ok(parsed.program)
 }
 
 /// Compose codegen's projected-TSX source map back to authored TSRX.
@@ -183,7 +207,7 @@ fn line_column(source: &str, offset: u32) -> (u32, u32) {
         .rposition(|byte| *byte == b'\n')
         .map(|position| position + 1)
         .unwrap_or(0);
-    let column = source[line_start..offset].chars().count() as u32;
+    let column = source[line_start..offset].encode_utf16().count() as u32;
     (line, column)
 }
 

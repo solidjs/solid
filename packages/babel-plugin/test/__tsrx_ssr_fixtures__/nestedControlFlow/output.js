@@ -23,14 +23,15 @@ export function Grid({ rows, dense }) {
                   get each() {
                     return row().cells;
                   },
+                  keyed: false,
                   get fallback() {
                     return _$ssr(_tmpl$4);
                   },
                   children: (cell, c) => {
                     var _v$4, _v$5;
                     return (
-                      (_v$4 = () => _$escape(c())),
-                      (_v$5 = _$escape(cell)),
+                      (_v$4 = _$escape(c)),
+                      (_v$5 = () => _$escape(cell())),
                       _$ssr(_tmpl$5, _v$4, _v$5)
                     );
                   }

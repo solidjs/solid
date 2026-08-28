@@ -212,23 +212,17 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
         source_type_for_filename(options.filename.as_deref())?
     };
     let allocator = Allocator::default();
-    // Babel has no ParenthesizedExpression node (parens are trivia), so the
-    // transform's expression matchers must never see one either. Preserving
-    // parens here can hide logical expressions from conditional wrapping and
-    // desynchronize generated output from Babel.
-    let parsed = Parser::new(&allocator, source, source_type)
-        .with_options(ParseOptions {
-            preserve_parens: false,
-            ..ParseOptions::default()
-        })
-        .parse();
-
-    if let Some(error) = crate::shared::parser::first_parser_error(parsed.diagnostics) {
-        return Err(CompileError::parse(error));
-    }
+    #[cfg(feature = "tsrx")]
+    let mut program = if let Some(projection) = projection.as_ref() {
+        crate::tsrx::parse_projected_tsx(&allocator, projection)?
+    } else {
+        parse_program(&allocator, source, source_type)?
+    };
+    #[cfg(not(feature = "tsrx"))]
+    let mut program = parse_program(&allocator, source, source_type)?;
 
     if let Some(lib) = options.require_import_source.as_deref()
-        && !has_jsx_import_source(&parsed.program, source, lib)
+        && !has_jsx_import_source(&program, source, lib)
     {
         #[cfg(feature = "tsrx")]
         let (css, css_hash) = projection.as_ref().map_or((None, None), |projection| {
@@ -247,8 +241,6 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
             css_hash,
         });
     }
-
-    let mut program = parsed.program;
 
     #[cfg(feature = "tsrx")]
     if let Some(projection) = projection.as_ref() {
@@ -382,6 +374,27 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
         css,
         css_hash,
     })
+}
+
+fn parse_program<'a>(
+    allocator: &'a Allocator,
+    source: &'a str,
+    source_type: SourceType,
+) -> Result<oxc_ast::ast::Program<'a>, CompileError> {
+    // Babel has no ParenthesizedExpression node (parens are trivia), so the
+    // transform's expression matchers must never see one either. Preserving
+    // parens here can hide logical expressions from conditional wrapping and
+    // desynchronize generated output from Babel.
+    let parsed = Parser::new(allocator, source, source_type)
+        .with_options(ParseOptions {
+            preserve_parens: false,
+            ..ParseOptions::default()
+        })
+        .parse();
+    if let Some(error) = crate::shared::parser::first_parser_error(parsed.diagnostics) {
+        return Err(CompileError::parse(error));
+    }
+    Ok(parsed.program)
 }
 
 pub(crate) fn has_jsx_import_source(

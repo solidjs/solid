@@ -15,9 +15,10 @@
  * - `@if` — `Show` for a single branch, `Switch`/`Match` for chains; `@else`
  *   becomes `fallback`.
  * - `@for (const x of expr; index i; key k)` — `For`; `key` present emits
- *   `keyed={(x) => k}`; `@empty` becomes `fallback`. RC `For` hands the
- *   callback an item *accessor* in keyed mode and an index accessor always,
- *   so reads of `x` (keyed only) and `i` rewrite to calls.
+ *   `keyed={(x) => k}`, while an index without a key emits `keyed={false}`;
+ *   `@empty` becomes `fallback`. RC `For` hands the callback an item accessor
+ *   in custom-key and non-keyed modes. The index is an accessor only with a
+ *   custom key.
  * - `@switch` — `Switch` with one `Match when={disc === test}` per `@case`;
  *   `@default` becomes `fallback`.
  * - `@try/@pending/@catch (e, reset)` — `<Errored fallback={(e, reset) =>
@@ -592,6 +593,8 @@ function forToJsx(node: EsNode): EsNode {
   const each = transform(node.right as EsNode);
   const index = isNode(node.index) ? node.index : null;
   const key = isNode(node.key) ? node.key : null;
+  const usesIndexOnlyMode = index !== null && key === null;
+  const itemIsAccessor = key !== null || usesIndexOnlyMode;
 
   const parts = blockToParts(toBlockBody(node.body as EsNode), "@for");
   const renderExpr = rendersToExpression(parts.renders, node.body as EsNode);
@@ -605,20 +608,26 @@ function forToJsx(node: EsNode): EsNode {
         )
       : renderExpr;
 
-  // RC `For` semantics: keyed mode hands the callback an item accessor, and
-  // the index parameter is always an accessor — rewrite reads to calls.
-  if (key && pattern.type === "Identifier")
+  // RC `For` callback shape:
+  // - default keyed mode: raw item, accessor index (there is no TSRX index)
+  // - keyed={false}: accessor item, raw index
+  // - custom key: accessor item, accessor index
+  if (itemIsAccessor && pattern.type === "Identifier")
     rewriteReadsToCalls(callbackBody, (pattern as unknown as { name: string }).name);
-  if (index) rewriteReadsToCalls(callbackBody, (index as unknown as { name: string }).name);
+  if (key && index) rewriteReadsToCalls(callbackBody, (index as unknown as { name: string }).name);
 
   const callbackPattern =
-    key && pattern.type !== "Identifier" ? accessorLazyPattern(pattern) : pattern;
+    itemIsAccessor && pattern.type !== "Identifier" ? accessorLazyPattern(pattern) : pattern;
   const params: EsNode[] = [callbackPattern];
   if (index) params.push(index);
 
   const attributes = [jsxAttr("each", each, node.right as EsNode)];
   if (key) {
     attributes.push(jsxAttr("keyed", arrow([eagerPattern(pattern)], transform(key), key), key));
+  } else if (usesIndexOnlyMode) {
+    attributes.push(
+      jsxAttr("keyed", withLoc({ type: "Literal", value: false, raw: "false" }, index), index)
+    );
   }
   if (isNode(node.empty)) {
     const emptyExpr = blockToExpression(node.empty, "@empty");

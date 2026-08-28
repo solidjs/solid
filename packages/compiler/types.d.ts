@@ -54,6 +54,38 @@ export function transformAsync(
   options?: TransformOptions | null
 ): Promise<TransformResult>;
 
+export interface ProjectTsrxForTypecheckOptions {
+  filename?: string;
+}
+
+export interface TsrxTypecheckEmbeddedRegion {
+  kind: "css" | "script";
+  /** Authored JavaScript string offset in UTF-16 code units. */
+  start: number;
+  /** Authored JavaScript string offset in UTF-16 code units. */
+  end: number;
+  content: string;
+}
+
+export interface TsrxTypecheckProjectionResult {
+  /** Valid post-semantic-rewrite TypeScript/TSX. */
+  code: string;
+  /** JSON source map from virtual TSX back to the authored `.tsrx` source. */
+  map: string;
+  css: string;
+  cssHash: string | null;
+  embeddedRegions: TsrxTypecheckEmbeddedRegion[];
+}
+
+/**
+ * Experimental compiler-owned TSRX projection for typechecking and editor
+ * tooling. This API is host-independent and does not run a runtime renderer.
+ */
+export function projectTsrxForTypecheck(
+  code: string,
+  options?: ProjectTsrxForTypecheckOptions | null
+): TsrxTypecheckProjectionResult;
+
 export interface DirectiveImportDefinition {
   kind?: "named" | "default";
   name?: string;

@@ -30,6 +30,41 @@ function transformAsync(code, options) {
   return Promise.resolve().then(() => transform(code, options));
 }
 
+function projectTsrxForTypecheck(code, options) {
+  if (typeof code !== "string") {
+    throw new TypeError(
+      "@solidjs/compiler projectTsrxForTypecheck() expects source code as a string"
+    );
+  }
+  const nativeOptions = validateTypecheckProjectionOptions(options);
+  const result = native.projectTsrxForTypecheck(code, nativeOptions);
+  return {
+    code: result.code,
+    map: result.map,
+    css: result.css,
+    cssHash: result.cssHash ?? null,
+    embeddedRegions: result.embeddedRegions
+  };
+}
+
+function validateTypecheckProjectionOptions(options) {
+  if (options == null) return options;
+  if (typeof options !== "object" || Array.isArray(options)) {
+    throw new TypeError(
+      "@solidjs/compiler projectTsrxForTypecheck() expects options to be an object"
+    );
+  }
+  for (const key of Object.keys(options)) {
+    if (key !== "filename") {
+      throw new Error(`@solidjs/compiler received unknown option \`${key}\``);
+    }
+  }
+  if (options.filename !== undefined && typeof options.filename !== "string") {
+    throw new TypeError("@solidjs/compiler `filename` option must be a string");
+  }
+  return options;
+}
+
 function transformDirectives(code, options) {
   if (typeof code !== "string") {
     throw new TypeError("@solidjs/compiler transformDirectives() expects source code as a string");
@@ -413,6 +448,7 @@ function isMissingPackage(error, packageName) {
 module.exports = {
   transform,
   transformAsync,
+  projectTsrxForTypecheck,
   transformDirectives,
   transformDirectivesAsync,
   transformLazy,

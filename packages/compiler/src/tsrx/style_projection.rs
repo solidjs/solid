@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::project::ProjectError;
 use super::{
+    semantic::SolidTsrxModule,
     style::{
         self, Attribute, AttributeValue, ClassMapEntry, Element, ElementChild, ElementKind,
         StyleInput, StyleKind, StyleLocation,
@@ -40,9 +41,9 @@ pub(super) struct StyleProjection<'t> {
 pub(super) fn plan<'s, 't>(
     source: &'s str,
     filename: &'s str,
-    root: Node<'t>,
+    module: &SolidTsrxModule<'t>,
 ) -> Result<StyleProjection<'t>, ProjectError> {
-    StyleProcessor::process(source, filename, root)
+    StyleProcessor::process(source, filename, module.root)
 }
 
 struct StyleProcessor<'s, 't> {
@@ -532,7 +533,7 @@ fn build_style_element(node: Node<'_>) -> Element {
     let id = node.span().map_or(0, |span| span.0);
     let opening = node.node_field("openingElement");
     let name = opening.and_then(|opening| opening.node_field("name"));
-    let kind = if is_dynamic_element(node) {
+    let kind = if tape::is_dynamic_element(node) {
         ElementKind::Dynamic
     } else if let Some(name) = name
         && name.ty() == "JSXIdentifier"
@@ -733,11 +734,4 @@ pub(super) fn decode_json_string(value: &str) -> Option<String> {
         }
     }
     Some(out)
-}
-
-fn is_dynamic_element(node: Node<'_>) -> bool {
-    node.ty() == "JSXElement"
-        && node
-            .node_field("openingElement")
-            .is_some_and(|opening| opening.bool_field("isDynamic"))
 }
