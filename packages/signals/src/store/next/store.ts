@@ -716,7 +716,13 @@ function drainFolds(): void {
         if (t.pc !== null) t.pc.wk = null; // written-keys window closes with the fold commit
       }
     }
-    if (t.v === old) continue; // adopted then re-adopted back, or no-op
+    if (t.v === old) {
+      // A no-op adoption (A -> B -> A before flush) still consumed its walk:
+      // clear the flag or every later setter row-op gate (!t.adopted) stays
+      // failed and a driven family list freezes (re-audit 5, P1-1).
+      t.adopted = false;
+      continue;
+    }
     // Patch channel (fold-commit site): family targets emit HERE — the fold
     // IS their visibility moment (held folds re-queued above emit when they
     // actually commit) — and so do PLAIN fold-adopted targets (setter-

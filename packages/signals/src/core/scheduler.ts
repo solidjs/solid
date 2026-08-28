@@ -229,9 +229,17 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
   const heldPatches = (outgoing as any)._heldPatches as unknown[] | undefined;
   if (heldPatches !== undefined) {
     (outgoing as any)._heldPatches = undefined;
-    const targetHeld = (target as any)._heldPatches as unknown[] | undefined;
-    if (targetHeld !== undefined) targetHeld.push(...heldPatches);
-    else (target as any)._heldPatches = heldPatches;
+    let dest = (target as any)._heldPatches as unknown[] | undefined;
+    if (dest !== undefined) dest.push(...heldPatches);
+    else dest = (target as any)._heldPatches = heldPatches;
+    // Retarget the entries' coalescing stamps to the surviving stash
+    // (opaque backref contract with store/next/patch.ts): without this a
+    // post-merge emission misses the stamp and pushes a SECOND entry —
+    // the record's patch applies twice at commit (re-audit 5, P1-2).
+    for (let i = 0; i < heldPatches.length; i++) {
+      const pc = (heldPatches[i] as any).pc;
+      if (pc !== undefined && pc.qe === heldPatches[i]) pc.qa = dest;
+    }
   }
   // Legal transfer, not a new registration: entries move between transitions.
   if (__DEV__) beginAsyncReporterWrites();

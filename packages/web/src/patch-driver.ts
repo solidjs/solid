@@ -252,23 +252,39 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
     rowUnbinds = [];
   };
   let prevRaws: any[] = raw.slice();
-  if (hydrating) {
-    // Claim pass: each bind claims its server row through the row-scoped id
-    // (getNextElement resolves the `_hk` registry entry); patchDriver skips
-    // the initial apply.
-    for (let i = 0; i < raw.length; i++) {
-      entries[i] = bindRow(i, rowIds![i]);
-      if (rowBodies !== null) rowBodies[i] = lastBodies!;
-      rowUnbinds[i] = lastUnbinds!;
+  // Initial construction severs on throw like update-time builds (re-audit
+  // 5, P1-4): without this, rows registered before a throwing row leak
+  // their registrations under the never-mounted list — keeping patchCount
+  // elevated GLOBALLY (every store's setter-site gate stays hot) long after
+  // an error boundary recovers the region.
+  try {
+    if (hydrating) {
+      // Claim pass: each bind claims its server row through the row-scoped
+      // id (getNextElement resolves the `_hk` registry entry); patchDriver
+      // skips the initial apply.
+      for (let i = 0; i < raw.length; i++) {
+        entries[i] = bindRow(i, rowIds![i]);
+        if (rowBodies !== null) rowBodies[i] = lastBodies!;
+        rowUnbinds[i] = lastUnbinds!;
+      }
+    } else {
+      for (let i = 0; i < raw.length; i++) {
+        const node = bindRow(i);
+        entries[i] = node;
+        if (rowBodies !== null) rowBodies[i] = lastBodies!;
+        rowUnbinds[i] = lastUnbinds!;
+        parent.insertBefore(node, endAnchor);
+      }
     }
-  } else {
-    for (let i = 0; i < raw.length; i++) {
-      const node = bindRow(i);
-      entries[i] = node;
-      if (rowBodies !== null) rowBodies[i] = lastBodies!;
-      rowUnbinds[i] = lastUnbinds!;
-      parent.insertBefore(node, endAnchor);
+  } catch (err) {
+    unbindAllRows();
+    runUnbinds(lastUnbinds ?? undefined);
+    for (let j = 0; j < entries.length; j++) {
+      const n = entries[j] as ChildNode | undefined;
+      if (n !== undefined && n.parentNode === parent) n.remove();
     }
+    (listOwner as any).dispose();
+    throw err;
   }
 
   // Synthetic full-window ops by ROW IDENTITY against the retained raws:
@@ -428,7 +444,16 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   // Structure never lands here (the walk emits misaligned slots as row ops
   // only).
   const applySlot = (i: number, next: any, prev: any) => {
-    if (declined || resyncNeeded) return;
+    if (declined) return;
+    if (resyncNeeded) {
+      // ACTIVE recovery (re-audit 5, P2-5): a value-only fix after a failed
+      // apply emits slot ticks but no row ops — suppressing alone would
+      // leave the old DOM indefinitely. Resync now; a successful rebuild
+      // clears the flag (a repeat throw keeps it for the next event).
+      const live = subject != null ? patchableRaw(subject) : undefined;
+      if (live !== undefined && Array.isArray(live)) applyOps(live as any[], null);
+      return;
+    }
     if (refRebuild) {
       rebuildSlot(i);
       prevRaws[i] = next;
@@ -488,12 +513,16 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
         }
         const swapOps = identityOps(nextRaw);
         subject = value;
-        applyOps(nextRaw, swapOps);
+        // Register the NEW subject's channels BEFORE applying (re-audit 5,
+        // P2-6): a throwing row build mid-swap must leave the list
+        // recoverable — with channels connected, the next emission triggers
+        // the failed-apply resync instead of stranding a dead list.
         unbindOps = runWithOwner(listOwner, () => registerRowOps(subject, applyOps)) as () => void;
         if (shallow)
           unbindSlots = runWithOwner(listOwner, () =>
             registerSlotPatch(subject, applySlot)
           ) as () => void;
+        applyOps(nextRaw, swapOps);
       }
     )
   );

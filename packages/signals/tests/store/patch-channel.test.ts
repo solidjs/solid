@@ -562,6 +562,49 @@ describe("patch channel (re-audit hardening)", () => {
     expect(applies).toBe(2);
   });
 
+  it("a no-op adoption (A→B→A) does not freeze later setter row ops (re-audit 5, P1-1)", async () => {
+    const { registerRowOps } = await import("../../src/index.js");
+    const original = [{ id: 1 }, { id: 2 }];
+    const [arr, setArr] = createStore<any[]>(original);
+    const ops: any[] = [];
+    registerRowOps(arr, (_next: any[], o: any) => ops.push(o));
+    // Same-batch A -> B -> A: the fold commits back to the original backing
+    // (t.v === old) — the adopted flag must still clear, or every later
+    // !adopted row-op gate stays failed and the driven list freezes.
+    setArr(() => [{ id: 9 }]);
+    setArr(() => original);
+    flush();
+    setArr(s => {
+      s.push({ id: 3 });
+    });
+    flush();
+    expect(ops.length).toBeGreaterThan(0);
+    expect(arr.length).toBe(3);
+  });
+
+  it("a consumer unbinding during dispatch does not skip its siblings (re-audit 5, P1-3)", () => {
+    const [state, setState] = createStore({ user: { name: "a" } });
+    const applied: string[] = [];
+    let unbindA!: () => void;
+    unbindA = registerPatch(state.user, () => {
+      applied.push("A");
+      unbindA(); // self-unbind splices the live list mid-dispatch
+    });
+    registerPatch(state.user, (n: any) => applied.push("B:" + n.name));
+    setState(s => {
+      s.user.name = "b";
+    });
+    flush();
+    // Pre-fix: A's splice shifted B left and the index walk skipped it.
+    expect(applied).toEqual(["A", "B:b"]);
+    // A is gone; B alone next batch.
+    setState(s => {
+      s.user.name = "c";
+    });
+    flush();
+    expect(applied).toEqual(["A", "B:b", "B:c"]);
+  });
+
   it("coalescing applies the LATEST same-batch state, once (re-audit 3, P1-1)", () => {
     const [state, setState] = createStore({ user: { id: 1, name: "a" } });
     // Observe the record (keyed adoption prunes unobserved captures).

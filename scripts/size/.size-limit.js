@@ -67,7 +67,10 @@ module.exports = [
     // companion-walk gate (#3038, debc22b9), and the #3042/#3043 transition
     // fixes. Verified the prod chunks carry no dev diagnostics — this is
     // the batch's real retained cost, accepted for its runtime wins.
-    limit: "7.85 KB",
+    // Re-audit-5 hardening ripple (2026-08-27): the mergeTransitionState
+    // stash move + stamp retarget and the dispatch snapshot marks are
+    // core-retained — a few dozen brotli bytes on every scenario.
+    limit: "7.9 KB",
     modifyEsbuildConfig
   },
   {
@@ -291,7 +294,7 @@ module.exports = [
     // Stage-3 batch (pre-release ratchet): 12.3 -> 12.8 KB, measured at
     // 12.53 — the signals-core bytes (see the core-floor note).
     path: "csr-app.js",
-    limit: "12.8 KB",
+    limit: "12.9 KB",
     modifyEsbuildConfig
   },
   {
@@ -305,7 +308,7 @@ module.exports = [
     // the insert seam) and the row-ops emitters + reconcile diff builders
     // (row hooks arm only from list registrations).
     path: "csr-app-patch.js",
-    limit: "14.5 KB",
+    limit: "14.6 KB",
     modifyEsbuildConfig
   },
   {
@@ -321,7 +324,7 @@ module.exports = [
     // driver's failed-apply resync flag + partial-registration severing and
     // the coalescing entry updates ride this tier.
     path: "csr-app-patch-lists.js",
-    limit: "16.75 KB",
+    limit: "16.9 KB",
     modifyEsbuildConfig
   },
   {

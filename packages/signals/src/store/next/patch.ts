@@ -109,14 +109,21 @@ const UNSET: unique symbol = Symbol();
  * boundary above the row collects it. Unhandled errors are aggregated by the
  * caller (first one rethrows after its drain completes). */
 function applyEntries(
-  list: { fn: Function; owner: Owner | null }[],
+  list: { fn: Function; owner: Owner | null; u?: boolean }[],
   next: any,
   prev: any,
   force: boolean,
   firstError: unknown
 ): unknown {
-  for (let j = 0; j < list.length; j++) {
-    const entry = list[j];
+  // SNAPSHOT multi-consumer lists (re-audit 5, P1-3): a callback can dispose
+  // a sibling's owner, whose unbind SPLICES this same array mid-iteration —
+  // index-walking the live array skips the shifted consumer. The dominant
+  // single-consumer case pays nothing; unbound entries are marked so a
+  // snapshot never applies a consumer severed by an earlier callback.
+  const snap = list.length > 1 ? list.slice() : list;
+  for (let j = 0; j < snap.length; j++) {
+    const entry = snap[j];
+    if (entry.u === true) continue;
     // Disposed owners drop their patches (the row unmounted mid-flush).
     if (entry.owner !== null && isDisposed(entry.owner)) continue;
     try {
@@ -405,6 +412,7 @@ export function registerPatch(record: any, fn: PatchFn): () => void {
   return () => {
     if (unbound) return;
     unbound = true;
+    (entry as any).u = true; // dispatch snapshots skip severed consumers
     // Decrement ONLY on actual removal: a demotion (demoteToEffects) may
     // have already pulled this entry and repaired the count — the splice
     // miss is how this closure learns that.
