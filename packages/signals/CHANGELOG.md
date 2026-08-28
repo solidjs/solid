@@ -1,5 +1,94 @@
 # @solidjs/signals
 
+## 2.0.0-rc.4
+
+### Minor Changes
+
+- f0c3692: Point-of-pain discovery for diagnostics: `DEV.diagnostics.setConsoleFooter(fn)` registers a footer printed once per diagnostic code after that code's first console report. solid-js registers a footer in dev pointing at its shipped repair skill (`node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md`), so anyone — human or agent — hitting a diagnostic warning learns where the prescribed fix lives without prior knowledge of the skill system.
+- 8d249c7: Patch-mode list driver: keyed `<For>` over a store array is offered to the
+  runtime's row-ops driver (create/bind at op-apply, LIS moves, node removal —
+  no mapArray, no per-row owners, no DOM-side reconcile). `For` carries `$ll`
+  metadata on a lazy classic accessor so unaware renderers and declined lists
+  (non-store subject, impure rows proven by a bind-time owner probe, fallback
+  or index usage) fall through to today's mapArray path unchanged. Array
+  identity swaps keep keyed semantics by raw-identity matching. Adds
+  `ownerIsBlank` (signals) for the purity probe and `driveList` (web, rxcore
+  seam) for the runtime.
+- 8d249c7: Close two list-driver coverage gaps found by the JFB store scenario: setter-
+  channel structural mutation (push/splice/index assignment/permutation) now
+  emits identity-keyed row ops at the fold — a driven list stays DOM-correct
+  for stores mutated without reconcile — and empty-initial lists engage
+  TENTATIVELY, deferring the purity probe to the first created row, with a
+  late decline handing the region to the classic mapArray path through the
+  runtime's re-entry thunk
+- 8d249c7: Shallow store lists through the compiled driver: slot patches graduate from
+  prototype to channel semantics (key-aligned value-replaced slots only —
+  structure rides row ops — queued at effect phase under the registration
+  owner), and the list driver collects a shallow row's compiled bodies at bind
+  (rows are raw; nothing to register on) and dispatches them from the array's
+  slot channel, rebasing indices with structural ops. Adds storeIsShallow;
+  kind-changing subject swaps (shallow <-> deep) hand off to classic.
+
+### Patch Changes
+
+- 8d249c7: External-audit fixes on the patch-list driver surface: family (projection/optimistic) arrays now decline the driver — their structural changes emit no row/slot ops and the proxy identity is stable, so an engaged list would freeze on optimistic or projection structure (classic mapArray handles them correctly, including on identity-swap handoff). Shallow slot-patch registration is now multi-consumer — two driven lists over one shallow array previously overwrote each other's channel. Adds `storeHasFamily` (with server stub) and regression tests for both.
+- 8d249c7: Group the write-side patch-channel fields (`wk`, `p`, `ro`, `sp`) into one lazily-allocated `pc` extension on store targets and delete the dead prototype binding registry (`b`). Array proxy targets carry their fields as named properties on a real array, and V8 normalizes arrays to dictionary properties as the named count grows — at 24 fields every trap read had become a hash lookup (~15% uibench, tree-heavy scenarios worst). The target is capped at 20 named fields with the shape rule documented; future patch-channel state goes inside `pc`.
+- 505c73d: Fix `isPending` memos reading inconsistently during an action-held transition (#3078)
+
+  Two defects stacked in the report:
+  - Untracked top-level reads of subscriber-less auto-dispose memos were destructive: `read()` tore the node down inline (`unobserved`) and the next read revived it with a full recompute in the ambient transition/lane context, so consecutive reads could answer `false → true → false` with no write in between. Reads now queue the node for a re-validating dormancy sweep at the top of the next flush — reads are idempotent within a tick, the leak protection is preserved (reclamation within one microtask; the enqueue arms `schedule()`), and a same-tick dirtying is reclaimed instead of recomputed, matching the old compute counts across flushes.
+  - The fresh-read pairing rule (#2831/#3028) suppressed the pending verdict for any compute that saw a staged plain write while an action still held the transition, making `createMemo(() => isPending(x))` report `false` while a direct `isPending(x)` probe reported `true` for the whole action window. A plain signal's staged write is an input to a computation still in flight, not a landed answer awaiting reveal: `heldAwaitingAsync` now treats an unsettled action as "still computing" for input-staged (non-computed) nodes, while a computed's landed async answer keeps the pairing rule even inside an open action.
+
+- de9e3cb: Fix projection stores leaking unsettled writes to effect-phase readers (#3082)
+
+  A derived (projection) store's pending backing is authoritative-elect and served to context-free readers, but that clause also caught CHILDREN_FORBIDDEN execution scopes (`onSettled` / `createTrackedEffect` callbacks), so `setStore(...)` followed by a read inside the callback returned the staged draft while a signal write in the same scope correctly read committed. Projection reads in those scopes now get committed visibility, restoring the #3006 contract (a callback never observes its own unsettled write) and store/signal parity.
+
+- 0e37f90: Fix projection transition isolation and `latest()` parity (#3074, #3075). A projection recompute deriving from transition-held sources committed its output through the eager adoption channel, so untracked readers saw the uncommitted value after `flush()` while reads of the source signal correctly stayed committed. Adoption under a live hold now stages a held view: committed-visibility readers keep the pre-hold backing until the transition commits (speculative readers — drafts, owner-context computeds, `latest()` — see the adopted backing). And `latest()` now works through projections: store traps never reach core `read()` without an observer, so the get trap pulls the projection computed up to date under the latest window and serves the in-flight derivation — signal/memo parity.
+- 8d249c7: Fix shallow slot-patch emission racing row creation: appended positions past a fully-aligned prefix (vacuously aligned when the previous list was empty) emitted slot value-ticks for rows that do not exist yet — the slot queue applies before the row ops that create them, crashing the list driver on clear-then-refill and pure appends. Slots now dispatch only for indices with a previous slot; appends are structure-only. Found by the driver/classic equivalence matrix.
+- b96d7ce: Fix store folds silently stranding while any transition is in flight (#3089). The fold queue armed a drain only when it was empty, assuming every drain clears it — but a held re-queue or an incomplete-transition flush (which skips `commitPendingNodes` entirely) leaves entries behind after `scheduled` is consumed, and every later fold was then queued without ever scheduling a drain: the committed backing froze at stale state (a derived store's seed) while its nodes committed, and readers on different rails saw torn state — `length` 0, `Object.keys` `["0"]`, the element intact. `queueFold` now always arms the scheduler, and folds carry a write-time transition stamp so drafts written under a still-running transition — including unobserved keys, which have no pending node for the drain's held check to see — defer to that transition's settle instead of landing in whichever flush drains next.
+- 8d249c7: Optimistic family arrays are drivable by the patch-mode list driver, completing the family channel: structural optimism (push/splice/reorder/replace in optimistic drafts) emits identity-diffed row ops at lane timing from the override channel — visible in flight, bypassing the transition stash like optimistic record patches — and reverts emit an identity RESYNC the driver resolves against the live post-revert view. The driver binds optimistic lists from the optimistic view (classic reads the same view through the proxy), and the identity-swap matcher is shared between swaps and resyncs. Equivalence matrix extended with async optimistic scenarios (mounted → in-flight → settled, revert and land, element-level and parent-key structural writes).
+- 8d249c7: Patch channel is pay-for-use: the list driver and `patchDriver` moved out of the always-retained web runtime into `patch-driver.ts`, arming the insert seam lazily from `rowProof`/`patchDriver` (which only compiled patch-mode output imports); the store's emitters ride hooks installed at first registration (`patch-hooks.ts`) instead of static imports. Apps without patch-mode output retain only a ~100 B insert hook; the store write-path seams cost ~490 B on the store floor. Before this, every client app carried the full driver (~2.4 KB brotli).
+- 8d249c7: Stage 2 (PR-A): the patch channel. Compiled per-record patch consumers
+  (`registerPatch`, undocumented compiler-contract export) dispatched by store
+  visibility transitions at all four sites: adoption walk and setter notify
+  (plain stores, with ancestor bubbling for targeted nested writes), fold
+  commit (projections — held folds hold their patches), and the override
+  lifecycle (application emits the visible draft; consumption and engine
+  reverts force-reapply from the live view). Application timing: per-flush
+  apply queue at render-effect phase; transition-stamped emissions release
+  when THEIR batch commits (reverted transactions drop by GC); optimistic
+  emissions drain at lane-effect timing so in-flight visibility works while
+  actions stash the regular queues. Unpatched stores pay a null check and the
+  module tree-shakes out of non-store bundles. Gauntlet: effect-phase timing,
+  reconcile prev pairing, nested-write bubbling, unbind/multi-consumer,
+  transition hold, optimistic in-flight + DOM revert, projection refetch,
+  disposed-owner drop.
+- 8d249c7: Second re-audit hardening of the patch channel: adoption seams demote accessor-bearing adoptees to tracked effects in development, with a loud diagnostic (production emits directly — per-adoption accessor scans cost ~12% of dbmon's tick, and getter-bearing adoptees on patched records are a development-caught shape); setter-returned root replacements and chained-store swaps emit their patches and row ops at fold commit; the list driver's ops application builds every new row before any destructive step (a throwing row factory leaves DOM and bookkeeping atomically unchanged); patch errors route to the nearest computed ancestor so `Errored.reset()` can recompute it (reset also skips non-computed sources), and unhandled patch errors halt like unhandled effect errors; key equality is SameValueZero and occurrence-aware everywhere keys compare — NaN keys stay retained and duplicate keys adopt per occurrence on both channels; same-batch duplicate patch emissions coalesce (one application per batch, effect parity).
+- 8d249c7: Third re-audit hardening of the patch channel: same-batch coalescing updates the queued entry in place (latest `next` wins — adoption replaces the captured object, so dropping later emissions applied stale state) and the drain clears the channel stamps (no batch retention on quiet records); the adoption remainder window builds from the misalignment point so prefix-consumed rows are never re-offered to duplicate keys; optimistic tentative matching gains SameValueZero + occurrence-aware parity with the plain channel; a failed row-ops application forces an identity resync on the next update (the store committed the failed topology while DOM kept the old one — positional ops would mis-index) and suppresses slot ticks until the baseline is restored; a throwing row factory also severs its own partial registrations.
+- 8d249c7: Fifth-round hardening of the patch channel: no-op adoptions (A→B→A in one batch) clear the adopted flag so later setter row ops never freeze a driven list; transition merges retarget the moved entries' coalescing stamps (post-merge emissions coalesce instead of double-applying at commit); multi-consumer patch dispatch snapshots the registration list (a callback unbinding a sibling no longer skips consumers); the list driver's initial construction severs partial registrations on throw like update-time builds (one failed initial render no longer elevates patchCount globally); a failed apply actively resyncs from the next slot tick instead of waiting for a structural update; and identity swaps register the new subject's channels before applying so a throwing swap stays recoverable.
+- 8d249c7: Patch-channel contract hardening from the stage-2 re-audit: ordinary `patchDriver` registrations unbind with their owner (entries no longer leak past unmount); merged transitions move their held-patch stash so no patch strands; the optimistic drain shares the normal drain's per-entry error isolation and boundary routing; accessor-bearing records are excluded at admission (scan-before-trust) and records that acquire accessors demote their patches to tracked effect fallbacks; writable projection arrays emit setter row ops at their fold-commit visibility moment; row-ops/slot registrations resolve chained backings to the ultimate owner; duplicate keys match occurrence-aware instead of first-wins; the production dev-token typo (`_DX_DEV_`) is fixed; `patchDriver: true` normalizes identically in Babel and the native loader, the option is typed in `TransformOptions`, and a `dom-patch` parity tier ratchets patch-mode output across both compilers (currently byte-identical on all fixtures).
+- 8d249c7: Stage 2 (PR-B): row ops. The keyed adoption walk emits structural list ops
+  (`registerRowOps`: prefix, sources, removed) through the same apply queue as
+  record patches — aligned value ticks emit nothing; consumers apply minimal
+  DOM moves via one LIS over data ops instead of re-deriving moves from DOM
+  node arrays. Measured on dbmon: sort 10.7 → 4.5ms, remount 25.7 → 9.3ms
+  (octane 4.0/8.5), while ticks stay ahead (3.0/0.9 vs 3.2/1.3).
+- 8d249c7: Patch-channel semantics completion: a throwing patch now routes through its
+  registering owner's queue chain to the enclosing error boundary (render-
+  effect parity; sibling isolation preserved, unhandled errors still rethrow),
+  and the dual-driver effect fallback splits phases with the same compiled
+  body — a next===prev read pass tracks in compute, the force apply writes in
+  the effect phase where transitions and batching expect DOM writes
+- 8d249c7: Patch-channel held emissions stash directly on their transition object
+  instead of a WeakMap — the every-flush commit-hook check becomes one
+  property read, and reverted transitions drop their stash with the object
+- 8d249c7: Patch-channel arming is two-tier so the default-on cost stays proportional: `patchDriver` no longer retains the list driver (only `rowProof` — the compiled marker of a patch-mode list — arms the insert seam), and the store emitters split into value hooks (armed by `registerPatch`) and row hooks (armed by list registrations), so non-list patch templates never retain row binding, LIS, or reconcile's diff builders. Flip-preview size scenarios pin both tiers.
+- 8d249c7: Projection (non-optimistic) family arrays are drivable by the patch-mode list driver: their recomputes walk reconcile, whose row/slot emissions were never family-gated and ride the transition-stamped apply queue. The blanket family decline narrows to optimistic families only (`storeHasOptimisticFamily`), whose user writes ride node overrides and emit no structural ops. Fixes chained-backing patch registration: a projection wrapper's backing is another store's proxy, so `registerPatch`/`patchableRaw` now resolve through the chain to the ultimate owner target — patches registered on wrapped projection rows previously never fired (value transitions fold on the source). Equivalence matrix extended with 13 projection scenarios including recompute-driven structure and retention topology.
+- 8d249c7: The reconcile walk's patch-emission guards short-circuit on the installed-hooks binding before touching target fields, so stores without any patch consumer pay no per-record loads in the adoption walk (CodSpeed caught −7.7% on the 12k-path listened-paths bench).
+- 8d249c7: Patch-mode list admission moves entirely to compile time: driveList engages only for row functions carrying the compiler's `rowProof` stamp (exported from @solidjs/web), and the runtime purity probe is deleted — no speculative execution of user row code, no probeMark/probeGate seams, no ownerIsBlank, no tentative empty-list engagement with late decline. Unstamped rows take the classic mapArray path before any DOM work; `lateClassic` remains only for engaged lists whose subject later leaves the contract (identity swap to a derived array, shallow/deep kind switch).
+- 8d249c7: The shallow branch's slot-alignment prefix compares keys with SameValueZero: strict equality broke alignment on NaN keys, suppressing the slot's value ticks while the ops builder retained the row — a permanently stale DOM row (found by a full-surface self-sweep of every key-comparison site).
+- ba6c0b6: Effects dispatch status through one shared notifier instead of storing it per node: `effect()` stored the module-level `notifyEffectStatus` on every effect through `ext()`, allocating the full 19-field `NodeExtension` at every effect creation — +127 B/node and +23% effect creation time, shipped unnoticed with the stage-3 cold-field split. Status walks now resolve the notifier via `statusNotifierOf` (an own `_x` channel — boundaries — wins; effect nodes fall back to the shared one), which preserves the walks' display-consumer membership semantics exactly. Effect nodes drop to 488 B (below even the pre-stage-3 528) and creation recovers to ~1.07 ms/10k from 1.26.
+
 ## 2.0.0-rc.3
 
 ### Patch Changes

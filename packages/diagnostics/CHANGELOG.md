@@ -1,5 +1,38 @@
 # @solidjs/diagnostics
 
+## 2.0.0-rc.4
+
+### Patch Changes
+
+- Updated dependencies [8d249c7]
+- Updated dependencies [f0c3692]
+- Updated dependencies [8d249c7]
+- Updated dependencies [505c73d]
+- Updated dependencies [de9e3cb]
+- Updated dependencies [0e37f90]
+- Updated dependencies [8d249c7]
+- Updated dependencies [b96d7ce]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [ba6c0b6]
+  - @solidjs/signals@2.0.0-rc.4
+
 ## 2.0.0-rc.3
 
 ### Minor Changes
