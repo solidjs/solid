@@ -24,6 +24,17 @@ jobs:
   - name: Installing deps
     run: pnpm install
 
+  # The compiler resolves to the workspace (pnpm-workspace.yaml overrides),
+  # so suites that load it through @solidjs/vite-plugin (element, web) need
+  # the local binding built — the root build script skips the Rust build.
+  - uses: dtolnay/rust-toolchain@stable
+  - uses: Swatinem/rust-cache@v2
+    with:
+      workspaces: packages/compiler
+
+  - name: Building compiler binding
+    run: pnpm --filter @solidjs/compiler run build
+
   - name: Building
     run: pnpm run build
 
