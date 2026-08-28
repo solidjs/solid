@@ -75,6 +75,11 @@ pub struct TransformResult {
 }
 
 pub(crate) fn source_type_for_filename(filename: Option<&str>) -> Result<SourceType> {
+    if filename.is_some_and(|filename| filename.ends_with(".tsrx")) {
+        // Secondary passes receive already-projected ordinary code but retain
+        // the authored filename for stable path-derived metadata.
+        return Ok(SourceType::tsx());
+    }
     filename
         .map(SourceType::from_path)
         .transpose()

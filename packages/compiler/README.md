@@ -132,7 +132,7 @@ Pass `sourceMap: true` to receive a JSON source map string in `result.map`. TSRX
 
 ### Server function directives (experimental)
 
-`transformDirectives(code, options)` is a second pass for `"use server"`. It applies to plain `.js`/`.ts` as well as JSX/TSX.
+`transformDirectives(code, options)` is a second pass for `"use server"`. It accepts ordinary JavaScript/TypeScript, including JSX/TSX. For a `.tsrx` module, run `transform()` first, then pass its generated code to `transformDirectives()` with the same original `.tsrx` filename so function IDs use the manifest path. `transformDirectives()` does not parse raw TSRX syntax itself.
 
 ```js
 const { transformDirectives } = require("@solidjs/compiler");
