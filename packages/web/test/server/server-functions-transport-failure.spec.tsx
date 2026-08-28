@@ -176,6 +176,23 @@ describe("server-function transport failures (#3087)", () => {
     }
   });
 
+  it("leaves a redirect the peer answered with to the passthrough", async () => {
+    registerServerFunction("fail-3xx", async () => "ok");
+    // `fetch` follows redirects, so an interstitial arrives as its page at
+    // 200 and a 3xx only reaches the transport where something opted out of
+    // following one — control flow the runtime does not produce and the
+    // caller may still want to read
+    const restore = connectTransport({
+      answer: () => new Response(null, { status: 302, headers: { Location: "/login" } })
+    });
+    try {
+      const response = await createServerReference("fail-3xx")();
+      expect((response as Response).status).toBe(302);
+    } finally {
+      restore();
+    }
+  });
+
   it("cannot judge a 2xx, and does not try", async () => {
     registerServerFunction("fail-spa", async () => "ok");
     // a login page or an SPA index served at 200 is indistinguishable from a

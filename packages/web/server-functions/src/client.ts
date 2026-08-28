@@ -546,13 +546,12 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
 
   // Every response the runtime encodes carries the body format (a void one
   // included), so the two markers below identify its own; anything else at
-  // 300 and up is the peer answering something other than the call — the
-  // runtime never puts a redirect on the wire as a 3xx. Answered before the
-  // passthrough beneath, because a foreign refusal carries a `Location` of
-  // its own — an SSO interstitial is exactly that — and undecoded, because
-  // its body is someone else's, not a payload to hand the caller.
+  // 400 and up is the peer refusing. Answered before the passthrough
+  // beneath, because a refusal can carry a `Location` of its own and the
+  // passthrough would hand it back as control flow; and undecoded, because
+  // its body is someone else's, not a payload for the caller.
   if (
-    response.status >= 300 &&
+    response.status >= 400 &&
     !response.headers.has(ERROR_HEADER) &&
     !response.headers.has(BODY_FORMAT_HEADER)
   ) {
