@@ -612,6 +612,28 @@ describe("patch channel (re-audit hardening)", () => {
     expect(state.rows[1]).toBe(r2); // identity preserved where ops retained
   });
 
+  it("shallow slot alignment is SameValueZero: NaN-keyed slots keep their value ticks (self-sweep)", async () => {
+    const { registerRowOps, registerSlotPatch } = await import("../../src/index.js");
+    const keep = { id: 2, v: 2 };
+    const [state, setState] = createStore<any[]>([{ id: NaN, v: 1 }, keep], {
+      shallow: true
+    } as any);
+    const ticks: Array<[number, any]> = [];
+    const ops: any[] = [];
+    registerRowOps(state, () => ops.push(1));
+    registerSlotPatch(state, (i: number, next: any) => ticks.push([i, next.v]));
+    // Aligned value replacement on the NaN-keyed slot: strict-equality
+    // alignment broke at the NaN key, suppressing the slot tick while the
+    // SameValueZero ops builder emitted nothing (aligned) — the retained
+    // row went permanently stale.
+    setState(s => {
+      reconcile([{ id: NaN, v: 10 }, keep], "id")(s);
+    });
+    flush();
+    expect(ticks).toEqual([[0, 10]]);
+    expect(ops.length).toBe(0); // aligned — structure emitted nothing
+  });
+
   it("optimistic tentative matching is SameValueZero and occurrence-aware (re-audit 3, P1-3)", async () => {
     const { createOptimisticStore, action: act } = await import("../../src/index.js");
     const [state, setState] = (createOptimisticStore as any)({

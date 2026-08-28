@@ -307,7 +307,11 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
             typeof pvK === "object" &&
             nvP !== null &&
             typeof nvP === "object" &&
-            keyFn!(pvK) === keyFn!(nvP)
+            // SameValueZero (self-sweep): strict === here broke slot
+            // alignment on NaN keys while buildRowOps retained the row —
+            // retained DOM with suppressed value ticks (the round-1 NaN
+            // staleness, in the shallow branch).
+            sameKey(keyFn!(pvK), keyFn!(nvP))
           )
             keyPrefix++;
           else keyAligned = false;

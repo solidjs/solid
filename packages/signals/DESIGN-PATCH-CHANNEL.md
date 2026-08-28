@@ -121,6 +121,37 @@ be re-derived against ADOPTION semantics (captures are per-emission
 objects, not stable references) — the setter-path reasoning does not
 transfer.
 
+### §21a. Self-sweep (2026-08-27 night) — the auditor's method, applied
+
+Full-surface sweep: every emission site's capture class (stable-ref vs
+per-emission, incl. the MIXED setter+adoption same-batch coalescing case
+— derived correct: latest next, earliest prev spans both), every matcher's
+key equality + occurrence handling + window start, every throw point's
+post-exception timeline, every registration's death paths.
+
+Found and fixed: the SHALLOW branch's slot-alignment prefix still compared
+keys with strict `===` — a NaN-keyed shallow slot broke alignment
+(suppressing its value ticks) while the SameValueZero ops builder emitted
+nothing for the aligned structure: retained DOM row, permanently stale.
+The exact round-1 staleness shape, in the branch none of the four audits
+reached. sameKey now; regression test pinned.
+
+Documented, not fixed:
+- Reverted-transition stash retention: pc coalescing stamps keep one dead
+  entry (+ its two captures) alive per record per ABORTED transaction,
+  until that record's next emission restamps. Fixing requires a revert
+  hook through core transition teardown — accepted as bounded until the
+  channel earns one.
+- Keyless rows in the adoption window pair positionally while row ops
+  treat them as remove+create: DOM content correct either way (the fresh
+  bind reads the adopted proxy) — retention churn only, by construction
+  of "no key identity".
+
+Everything else checked consistent: window starts (structStart both
+sides), root/prefix/descend/window/tentative matchers, drain error
+isolation + stamp clearing, mixed-channel stamp collisions, demotion vs
+queued entries, hydration-claim vs resync interplay.
+
 ## 19. Pay-for-use restructure (2026-08-26) — the merge blocker
 
 The size gate (scripts/size) failed 5/8 scenarios: every client app paid
