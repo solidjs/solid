@@ -137,6 +137,14 @@ export interface ServerFunctionsClientConfig {
    * performs. Keep the call same-origin, since a cross-origin send is
    * stamped `Sec-Fetch-Site: cross-site` and the handler's origin gate
    * refuses it, and hand back what the peer answered, unread.
+   *
+   * A retrying wrapper may re-send a request that got NO response; it must
+   * never replay one whose response ended. A response that dies mid-body may
+   * have executed (mutations are not idempotent), and reconnecting a live
+   * source is the runtime's job — a replay would race it.
+   *
+   * The wrapper replaces delivery for the requests the runtime chooses to
+   * send; the call-to-request mapping itself is not contractual.
    */
   fetch?: ((address: string, init: RequestInit) => Response | Promise<Response>) | null;
   /**
