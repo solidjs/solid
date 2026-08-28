@@ -21,6 +21,12 @@ jobs:
       registry-url: "https://registry.npmjs.org"
       cache: "pnpm"
 
+  # Cheap guard for the workspace layout the release pipeline depends on
+  # (link stubs, workspace-resolved compiler, no registry pins in the
+  # lockfile). Violations deadlock the release commit — see the script.
+  - name: Release invariants
+    run: node scripts/check-release-invariants.mjs
+
   - name: Installing deps
     run: pnpm install
 

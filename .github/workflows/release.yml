@@ -17,6 +17,8 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.changesets.outputs.published }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -36,6 +38,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Create version pull request or publish
+        id: changesets
         uses: changesets/action@v1
         with:
           version: pnpm run version-packages
@@ -45,3 +48,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Installs the just-published packages from the real registry into a temp
+  # project and exercises them (dist-tags, native compiler binary, runtime).
+  smoke:
+    name: Smoke test published packages
+    needs: release
+    if: needs.release.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Smoke test
+        run: node scripts/smoke-release.mjs

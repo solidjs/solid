@@ -91,9 +91,12 @@ async function findDispatchedRun(startedAt) {
   throw new Error("Timed out locating the dispatched compiler binary workflow.");
 }
 
-// Fail before publishing anything if the release commit cannot build.
+// Fail before publishing anything if the release commit cannot build or
+// would publish broken tarballs.
 run("pnpm", ["run", "build"]);
 run("pnpm", ["run", "types"]);
+run("node", ["scripts/check-release-invariants.mjs"]);
+run("node", ["scripts/verify-release-artifacts.mjs"]);
 
 const compiler = JSON.parse(
   fs.readFileSync(new URL("../packages/compiler/package.json", import.meta.url), "utf8")
