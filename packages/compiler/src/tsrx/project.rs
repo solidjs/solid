@@ -22,6 +22,7 @@
 //! re-analyzed cheaply during emission.
 
 use super::{
+    source_map::ProjectionMap,
     style_projection::{
         self, RefSetup, StyleAction, StyleProjection, class_attribute, decode_json_string,
         is_callback_ref, is_class_attribute, is_direct_ref_target, push_class_map, push_js_string,
@@ -36,6 +37,8 @@ pub struct Projection {
     pub css: String,
     /// Space-separated scope hashes, or `None` when no styles were present.
     pub css_hash: Option<String>,
+    /// Exact authored ranges copied into `text`, used to compose codegen maps.
+    pub(super) source_map: ProjectionMap,
     /// Projected offset of each lazy pattern's opening bracket, with its
     /// preallocated `__lazyN` name.
     pub lazy_patterns: Vec<(u32, String, bool)>,
@@ -210,6 +213,7 @@ pub fn project(
     source: &str,
     filename: &str,
     tape: &tsrx_tape_schema::FlatTape,
+    source_maps: bool,
 ) -> Result<Projection> {
     let root = Node::root(tape).ok_or(ProjectError {
         message: "TSRX parse produced no program".into(),
@@ -233,6 +237,7 @@ pub fn project(
         lazy_patterns: Vec::new(),
         accessor_arrows: Vec::new(),
         suppress_nested_lazy: 0,
+        source_map: ProjectionMap::new(source_maps),
     };
 
     renderer.emit_verbatim_with_specials(root, 0, source.len() as u32, Position::Expression)?;
@@ -241,6 +246,7 @@ pub fn project(
         text: renderer.out,
         css,
         css_hash,
+        source_map: renderer.source_map,
         lazy_patterns: renderer.lazy_patterns,
         accessor_arrows: renderer.accessor_arrows,
     })
@@ -576,6 +582,7 @@ struct Renderer<'s, 't> {
     lazy_patterns: Vec<(u32, String, bool)>,
     accessor_arrows: Vec<(u32, Vec<String>)>,
     suppress_nested_lazy: usize,
+    source_map: ProjectionMap,
 }
 
 impl<'s, 't> Renderer<'s, 't> {
@@ -583,6 +590,8 @@ impl<'s, 't> Renderer<'s, 't> {
         if end <= start {
             return;
         }
+        self.source_map
+            .record_verbatim(self.out.len() as u32, start, end);
         self.out
             .push_str(&self.source[start as usize..end as usize]);
     }

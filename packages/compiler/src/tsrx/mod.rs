@@ -11,6 +11,7 @@
 
 mod project;
 mod rewrite;
+mod source_map;
 mod style;
 mod style_projection;
 mod tape;
@@ -26,7 +27,11 @@ use tsrx_tape_schema::{CoordinateDomain, ParseCompleteness, RecordIndex, ValueRe
 use crate::error::CompileError;
 
 /// Parse TSRX source and project it to plain TSX for the shared pipeline.
-pub fn run_frontend(source: &str, filename: Option<&str>) -> Result<Projection, CompileError> {
+pub fn run_frontend(
+    source: &str,
+    filename: Option<&str>,
+    source_maps: bool,
+) -> Result<Projection, CompileError> {
     let filename = filename.unwrap_or("input.tsrx");
     let options = TsrxParseOptions {
         filename,
@@ -46,7 +51,7 @@ pub fn run_frontend(source: &str, filename: Option<&str>) -> Result<Projection, 
         rebase_utf16_spans(source, &mut tape).map_err(CompileError::parse)?;
     }
 
-    project::project(source, filename, &tape).map_err(|error| {
+    project::project(source, filename, &tape, source_maps).map_err(|error| {
         let (line, column) = line_column(source, error.start);
         CompileError::parse(format!("{} ({line}:{column})", error.message))
     })
@@ -57,8 +62,25 @@ pub fn apply_rewrites<'a>(
     allocator: &'a oxc_allocator::Allocator,
     program: &mut oxc_ast::ast::Program<'a>,
     projection: &Projection,
+    source_maps: bool,
 ) -> Result<(), CompileError> {
-    rewrite::apply(allocator, program, projection).map_err(CompileError::transform)
+    rewrite::apply(allocator, program, projection, source_maps).map_err(CompileError::transform)
+}
+
+/// Compose codegen's projected-TSX source map back to authored TSRX.
+pub fn compose_source_map(
+    intermediate: &oxc_sourcemap::SourceMap<'_>,
+    projection: &Projection,
+    authored_source: &str,
+    filename: &str,
+) -> String {
+    source_map::compose(
+        intermediate,
+        &projection.source_map,
+        &projection.text,
+        authored_source,
+        filename,
+    )
 }
 
 fn parse_source(

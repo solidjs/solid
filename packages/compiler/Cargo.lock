@@ -1232,6 +1232,7 @@ dependencies = [
  "oxc_codegen",
  "oxc_parser 0.144.0",
  "oxc_semantic 0.144.0",
+ "oxc_sourcemap",
  "oxc_span 0.144.0",
  "oxc_str 0.144.0",
  "oxc_syntax 0.144.0",

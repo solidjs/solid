@@ -264,7 +264,7 @@ export const styles = <style ref={ignored}>.foo { color:red }</style>;`,
     expect(ordered.native.css.indexOf(".owner")).toBeLessThan(ordered.native.css.indexOf(".early"));
   });
 
-  test("preserves authored skip output and safely omits TSRX source maps", () => {
+  test("preserves authored skip output and emits compiled TSRX source maps", () => {
     const source = 'export const view = <><style>.x { color:red }</style><div class="x" /></>;';
     const filename = path.join(__dirname, "style-import-source-skip.tsrx");
     const skipped = transform(source, {
@@ -283,7 +283,9 @@ export const styles = <style ref={ignored}>.foo { color:red }</style>;`,
       filename,
       sourceMap: true
     });
-    expect(mapped.map).toBeNull();
+    const sourceMap = JSON.parse(mapped.map);
+    expect(sourceMap.sources).toEqual([filename]);
+    expect(sourceMap.sourcesContent).toEqual([source]);
     expect(
       transform("export const view = <div />;", {
         ...options,

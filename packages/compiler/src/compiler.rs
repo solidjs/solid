@@ -195,6 +195,7 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
         Some(crate::tsrx::run_frontend(
             source,
             options.filename.as_deref(),
+            options.source_map,
         )?)
     } else {
         None
@@ -251,7 +252,7 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
 
     #[cfg(feature = "tsrx")]
     if let Some(projection) = projection.as_ref() {
-        crate::tsrx::apply_rewrites(&allocator, &mut program, projection)?;
+        crate::tsrx::apply_rewrites(&allocator, &mut program, projection, options.source_map)?;
     }
 
     match options.generate {
@@ -340,16 +341,33 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
 
     let build = Codegen::new()
         .with_options(CodegenOptions {
-            // Projection and hash injection create text with no authored TSRX
-            // span. Until those generated ranges can be represented exactly,
-            // omitting the map is safer than claiming projected TSX was
-            // authored TSRX.
-            source_map_path: (options.source_map && !tsrx_route).then(|| {
-                std::path::PathBuf::from(options.filename.as_deref().unwrap_or("input.jsx"))
+            source_map_path: options.source_map.then(|| {
+                std::path::PathBuf::from(options.filename.as_deref().unwrap_or(if tsrx_route {
+                    "input.tsrx"
+                } else {
+                    "input.jsx"
+                }))
             }),
             ..CodegenOptions::default()
         })
         .build(&program);
+
+    #[cfg(feature = "tsrx")]
+    let source_map = build.map.as_ref().map(|map| {
+        projection.as_ref().map_or_else(
+            || map.to_json_string(),
+            |projection| {
+                crate::tsrx::compose_source_map(
+                    map,
+                    projection,
+                    authored_source,
+                    options.filename.as_deref().unwrap_or("input.tsrx"),
+                )
+            },
+        )
+    });
+    #[cfg(not(feature = "tsrx"))]
+    let source_map = build.map.as_ref().map(|map| map.to_json_string());
 
     #[cfg(feature = "tsrx")]
     let (css, css_hash) = projection.as_ref().map_or((None, None), |projection| {
@@ -360,7 +378,7 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
 
     Ok(CompileOutput {
         code: build.code,
-        source_map: build.map.map(|map| map.to_json_string()),
+        source_map,
         css,
         css_hash,
     })
@@ -768,7 +786,7 @@ export const view = <>
 
     #[cfg(feature = "tsrx")]
     #[test]
-    fn import_source_skip_preserves_authored_tsrx_and_css_but_omits_tsrx_maps() {
+    fn import_source_skip_preserves_authored_tsrx_while_compiled_tsrx_emits_maps() {
         let source = "export const view = <><style>.x { color:red }</style><div class=\"x\" /></>;";
         let skipped = compile(
             source,
@@ -796,7 +814,12 @@ export const view = <>
             },
         )
         .unwrap();
-        assert_eq!(tsrx.source_map, None);
+        let map = tsrx
+            .source_map
+            .as_deref()
+            .expect("compiled TSRX source map");
+        assert!(map.contains("\"sources\":[\"mapped.tsrx\"]"), "{map}");
+        assert!(map.contains("\"sourcesContent\""), "{map}");
 
         let jsx = compile(
             "export const view = <div />;",

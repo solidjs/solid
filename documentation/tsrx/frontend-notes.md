@@ -60,7 +60,7 @@ All flow-control imports come from `solid-js`; `dynamic` from `@solidjs/web`.
 | `let &[a, b, ...rest] = expr`                         | Indexed reads plus a fresh `Array.from(__lazyN).slice(2)` rest view per read — **no getter auto-calling**          | yes; the rest binding is read-only                     |
 | `&{ a }` in function or arrow params                  | `__lazyN` param (type annotation/default preserved), member reads                                                  | yes; sync, async, multi-parameter, and generic arrows  |
 | Scoped `<style>` blocks                               | Removed from JSX; scoped/pruned CSS returned separately and matching native/dynamic elements receive `tsrx-<hash>` | yes; Babel metadata and native result expose CSS/hash  |
-| Native TSRX source maps                               | Omitted until generated text-projection regions can be mapped accurately                                           | Babel maps remain available                            |
+| Native TSRX source maps                               | Compose codegen mappings through exact authored projection ranges; generated-only ranges remain unmapped           | yes; original filename/source content preserved        |
 | Guard `if (!x) return null;` before render            | Preserved as ordinary statements                                                                                   | yes                                                    |
 
 ### Deliberate adaptation: `@catch` error binding
@@ -142,8 +142,11 @@ Revised architecture — **desugared text projection** (the same technique
 4. Lazy `&` bindings: rewrite during projection (pattern → `__lazyN`,
    deterministic ids matching `@tsrx/core`'s `generate_lazy_id`), with reads
    rewritten scope-aware to match `applyLazyTransforms` output.
-5. Diagnostics after projection translate spans back through an affine offset
-   map (verbatim-copied ranges only), mirroring upstream `projection/mapping.rs`.
+5. Record an affine offset map for every verbatim-copied range. Native source
+   maps compose Oxc's generated-JavaScript → projected-TSX tokens through this
+   map to authored TSRX coordinates. Generated projection gaps emit source-less
+   tokens so preceding authored mappings cannot bleed across compiler-created
+   scaffolding, mirroring upstream `projection/mapping.rs`'s fail-closed policy.
 
 ### Known upstream gaps (pin in fixtures)
 

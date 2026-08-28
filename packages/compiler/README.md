@@ -101,7 +101,7 @@ The frontend uses the community [oxc-tsrx](https://github.com/tsrx-org/oxc) pars
 
 ### Source maps
 
-Pass `sourceMap: true` to receive a JSON source map string in `result.map`. TSRX transforms currently return `null`: text projection introduces generated regions that cannot yet be represented accurately, so the compiler omits the map rather than attributing projected TSX to the authored TSRX source.
+Pass `sourceMap: true` to receive a JSON source map string in `result.map`. For TSRX, the compiler composes Oxc's generated-JavaScript map through the internal TSX text projection, returning the original `.tsrx` filename and source in `sources` and `sourcesContent`. Authored expressions and lazy/accessor rewrites map back to their TSRX locations; projection-only scaffolding remains explicitly unmapped rather than being attributed to nearby syntax.
 
 ### Options
 

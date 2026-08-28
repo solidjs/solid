@@ -24,7 +24,7 @@ use oxc_ast::ast::{
 };
 use oxc_ast_visit::{VisitMut, walk_mut};
 use oxc_semantic::{Semantic, SemanticBuilder};
-use oxc_span::{GetSpan, Span};
+use oxc_span::{GetSpan, GetSpanMut, Span};
 use oxc_syntax::{
     number::NumberBase,
     operator::{AssignmentOperator, BinaryOperator, LogicalOperator},
@@ -165,6 +165,7 @@ pub fn apply<'a>(
     allocator: &'a Allocator,
     program: &mut Program<'a>,
     projection: &Projection,
+    source_maps: bool,
 ) -> Result<(), String> {
     if projection.lazy_patterns.is_empty() && projection.accessor_arrows.is_empty() {
         return Ok(());
@@ -185,6 +186,7 @@ pub fn apply<'a>(
         names,
         temp_scopes: vec![Vec::new()],
         active_expansions: Vec::new(),
+        source_maps,
         error: None,
     };
     rewriter.visit_program(program);
@@ -559,12 +561,78 @@ struct Rewriter<'a, 'p> {
     names: Names,
     temp_scopes: Vec<Vec<String>>,
     active_expansions: Vec<SymbolId>,
+    source_maps: bool,
     error: Option<String>,
+}
+
+struct SourceMapAnchor {
+    span: Span,
+}
+
+impl<'a> VisitMut<'a> for SourceMapAnchor {
+    fn visit_assignment_expression(
+        &mut self,
+        expression: &mut oxc_ast::ast::AssignmentExpression<'a>,
+    ) {
+        if expression.span.is_empty() {
+            expression.span = self.span;
+        }
+        walk_mut::walk_assignment_expression(self, expression);
+    }
+
+    fn visit_update_expression(&mut self, expression: &mut oxc_ast::ast::UpdateExpression<'a>) {
+        if expression.span.is_empty() {
+            expression.span = self.span;
+        }
+        walk_mut::walk_update_expression(self, expression);
+    }
+
+    fn visit_identifier_reference(
+        &mut self,
+        identifier: &mut oxc_ast::ast::IdentifierReference<'a>,
+    ) {
+        if identifier.span.is_empty() {
+            identifier.span = self.span;
+        }
+    }
 }
 
 impl<'a> Rewriter<'a, '_> {
     fn generated_span(span: Span) -> Span {
         Span::new(span.start, span.start)
+    }
+
+    fn authored_expression(&self, mut expression: Expression<'a>, span: Span) -> Expression<'a> {
+        if self.source_maps {
+            *expression.span_mut() = span;
+        }
+        expression
+    }
+
+    fn source_map_anchor(&self, span: Span) -> SourceMapAnchor {
+        SourceMapAnchor { span }
+    }
+
+    fn anchor_expression(&self, expression: &mut Expression<'a>, span: Span) {
+        if !self.source_maps {
+            return;
+        }
+        self.source_map_anchor(span).visit_expression(expression);
+    }
+
+    fn anchor_assignment_target(&self, target: &mut AssignmentTarget<'a>, span: Span) {
+        if !self.source_maps {
+            return;
+        }
+        self.source_map_anchor(span).visit_assignment_target(target);
+    }
+
+    fn anchor_simple_assignment_target(&self, target: &mut SimpleAssignmentTarget<'a>, span: Span) {
+        if !self.source_maps {
+            return;
+        }
+        let mut anchor = SourceMapAnchor { span };
+        anchor.visit_simple_assignment_target(target);
     }
 
     fn replacement(&self, span: Span) -> Option<Replacement<'a>> {
@@ -672,12 +740,13 @@ impl<'a> Rewriter<'a, '_> {
     }
 
     fn raw_access(&self, binding: &LazyBinding<'a>, span: Span) -> Expression<'a> {
-        binding
+        let expression = binding
             .steps
             .iter()
             .fold(self.source_access(binding, span), |value, step| {
                 self.apply_raw_step(value, step, span)
-            })
+            });
+        self.authored_expression(expression, span)
     }
 
     fn value_access(&mut self, binding: &LazyBinding<'a>, span: Span) -> Expression<'a> {
@@ -714,7 +783,7 @@ impl<'a> Rewriter<'a, '_> {
                 }
             }
         }
-        match &binding.kind {
+        let expression = match &binding.kind {
             LazyKind::Value => value,
             LazyKind::ObjectRest(keys) => {
                 let Some(omit) = self.plan.omit_name.as_deref() else {
@@ -770,7 +839,8 @@ impl<'a> Rewriter<'a, '_> {
                     false,
                 )
             }
-        }
+        };
+        self.authored_expression(expression, span)
     }
 
     fn identifier_target(&self, name: &str, span: Span) -> AssignmentTarget<'a> {
@@ -918,8 +988,10 @@ impl<'a> Rewriter<'a, '_> {
                 next,
             ));
         }
-        self.ast
-            .expression_sequence(Self::generated_span(span), expressions)
+        let sequence = self
+            .ast
+            .expression_sequence(Self::generated_span(span), expressions);
+        self.authored_expression(sequence, span)
     }
 
     fn lower_default_update(
@@ -1021,8 +1093,10 @@ impl<'a> Rewriter<'a, '_> {
             ));
             expressions.push(self.ident(&old_name, span));
         }
-        self.ast
-            .expression_sequence(Self::generated_span(span), expressions)
+        let sequence = self
+            .ast
+            .expression_sequence(Self::generated_span(span), expressions);
+        self.authored_expression(sequence, span)
     }
 
     fn temp_declaration(&self, names: Vec<String>) -> Statement<'a> {
@@ -1260,18 +1334,16 @@ impl<'a> VisitMut<'a> for Rewriter<'a, '_> {
             && let Some(Replacement::Lazy(binding)) = self.replacement(ident.span)
             && binding.direct_default.is_some()
         {
+            let span = assignment.span;
+            let reference_span = ident.span;
             let mut right = assignment.right.clone_in(self.allocator);
             self.visit_expression(&mut right);
-            let lowered = self.lower_default_assignment(
-                assignment.span,
-                assignment.operator,
-                right,
-                &binding,
-            );
+            let lowered = self.lower_default_assignment(span, assignment.operator, right, &binding);
             *expression = lowered;
             assert!(self.begin_expansion(&binding));
             walk_mut::walk_expression(self, expression);
             self.end_expansion(&binding);
+            self.anchor_expression(expression, reference_span);
             return;
         }
 
@@ -1301,11 +1373,13 @@ impl<'a> VisitMut<'a> for Rewriter<'a, '_> {
             && let Some(Replacement::Lazy(binding)) = self.replacement(ident.span)
             && binding.direct_default.is_some()
         {
+            let reference_span = ident.span;
             let lowered = self.lower_default_update(update, &binding);
             *expression = lowered;
             assert!(self.begin_expansion(&binding));
             walk_mut::walk_expression(self, expression);
             self.end_expansion(&binding);
+            self.anchor_expression(expression, reference_span);
             return;
         }
 
@@ -1323,6 +1397,7 @@ impl<'a> VisitMut<'a> for Rewriter<'a, '_> {
                 *expression = self.value_access(&binding, span);
                 walk_mut::walk_expression(self, expression);
                 self.end_expansion(&binding);
+                self.anchor_expression(expression, span);
             }
             Some(Replacement::Call) => {
                 let callee = std::mem::replace(expression, self.ast.expression_null_literal(span));
@@ -1353,6 +1428,7 @@ impl<'a> VisitMut<'a> for Rewriter<'a, '_> {
             assert!(self.begin_expansion(&binding));
             walk_mut::walk_assignment_target(self, target);
             self.end_expansion(&binding);
+            self.anchor_assignment_target(target, span);
             return;
         }
         walk_mut::walk_assignment_target(self, target);
@@ -1377,6 +1453,7 @@ impl<'a> VisitMut<'a> for Rewriter<'a, '_> {
             assert!(self.begin_expansion(&binding));
             walk_mut::walk_simple_assignment_target(self, &mut update.argument);
             self.end_expansion(&binding);
+            self.anchor_simple_assignment_target(&mut update.argument, span);
             return;
         }
         walk_mut::walk_update_expression(self, update);

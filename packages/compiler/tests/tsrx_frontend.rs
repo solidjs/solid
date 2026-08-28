@@ -13,6 +13,7 @@
 
 use std::path::{Path, PathBuf};
 
+use oxc_sourcemap::SourceMap;
 use solidjs_compiler::{CompileErrorKind, CompileOptions, Generate, Syntax, compile};
 
 fn built_ins() -> Vec<String> {
@@ -71,10 +72,17 @@ fn compile_corpus(dir: &str, generate: Generate) -> Vec<(String, String)> {
             .unwrap_or_else(|error| panic!("{name}: fixture must have code.tsrx: {error}"));
         let options = CompileOptions {
             filename: Some(format!("{name}.tsrx")),
+            source_map: true,
             ..fixture_options(generate)
         };
         match compile(&source, &options) {
-            Ok(output) => outputs.push((name, output.code)),
+            Ok(output) => {
+                assert!(
+                    output.source_map.is_some(),
+                    "{dir}/{name}: source-map request must return a map"
+                );
+                outputs.push((name, output.code));
+            }
             Err(error) => failures.push(format!("{dir}/{name}: {error}")),
         }
     }
@@ -84,6 +92,71 @@ fn compile_corpus(dir: &str, generate: Generate) -> Vec<(String, String)> {
         failures.join("\n")
     );
     outputs
+}
+
+fn line_column(source: &str, byte_offset: usize) -> (u32, u32) {
+    let mut line = 0u32;
+    let mut line_start = 0usize;
+    let mut chars = source[..byte_offset].char_indices().peekable();
+    while let Some((offset, ch)) = chars.next() {
+        let next = match ch {
+            '\r' => {
+                if chars.peek().is_some_and(|(_, next)| *next == '\n') {
+                    let (next_offset, next) = chars.next().expect("peeked line feed");
+                    next_offset + next.len_utf8()
+                } else {
+                    offset + ch.len_utf8()
+                }
+            }
+            '\n' | '\u{2028}' | '\u{2029}' => offset + ch.len_utf8(),
+            _ => continue,
+        };
+        line += 1;
+        line_start = next;
+    }
+    let column = source[line_start..byte_offset].encode_utf16().count() as u32;
+    (line, column)
+}
+
+fn assert_maps_to(
+    output: &solidjs_compiler::CompileOutput,
+    generated_needle: &str,
+    generated_relative_offset: usize,
+    authored_source: &str,
+    authored_needle: &str,
+) {
+    let generated_offset = output
+        .code
+        .find(generated_needle)
+        .unwrap_or_else(|| panic!("generated output does not contain {generated_needle:?}"))
+        + generated_relative_offset;
+    let authored_offset = authored_source
+        .find(authored_needle)
+        .unwrap_or_else(|| panic!("authored source does not contain {authored_needle:?}"));
+    let generated_position = line_column(&output.code, generated_offset);
+    let authored_position = line_column(authored_source, authored_offset);
+    let json = output.source_map.as_deref().expect("source map output");
+    let map = SourceMap::from_json_string(json).expect("valid source map");
+    let lookup = map.generate_lookup_table();
+    let token = map
+        .lookup_token(&lookup, generated_position.0, generated_position.1)
+        .unwrap_or_else(|| {
+            panic!(
+                "no mapping for {generated_needle:?} at {generated_position:?}\ncode:\n{}\nmap:\n{json}",
+                output.code
+            )
+        });
+    assert_eq!(
+        token.get_source_id(),
+        Some(0),
+        "{generated_needle:?} must map to authored TSRX"
+    );
+    assert_eq!(
+        (token.get_src_line(), token.get_src_col()),
+        authored_position,
+        "{generated_needle:?} must map to {authored_needle:?}"
+    );
+    assert_eq!(map.get_source_content(0), Some(authored_source));
 }
 
 #[test]
@@ -169,6 +242,133 @@ fn compiles_standalone_lazy_assignment_statements() {
         output.code
     );
     assert!(output.code.contains("__lazy0.value++"), "{}", output.code);
+}
+
+#[test]
+fn source_maps_compose_verbatim_tsrx_ranges_through_codegen() {
+    let source = r#"const marker = "🚀";
+export function Card(props: { visible: boolean; name: string }) @{
+  <section>
+    @if (props.visible) {
+      <span>{props.name}</span>
+    }
+  </section>
+}"#;
+    let output = compile(
+        source,
+        &CompileOptions {
+            filename: Some("unicode-card.tsrx".into()),
+            source_map: true,
+            ..fixture_options(Generate::Dom)
+        },
+    )
+    .expect("TSRX source maps compile");
+
+    let map = SourceMap::from_json_string(output.source_map.as_deref().expect("source map"))
+        .expect("valid source map");
+    assert_eq!(map.get_source(0), Some("unicode-card.tsrx"));
+    assert_maps_to(&output, "marker", 0, source, "marker");
+    assert_maps_to(&output, "props.visible", 0, source, "props.visible");
+    assert_maps_to(&output, "props.name", 0, source, "props.name");
+}
+
+#[test]
+fn source_maps_follow_lazy_reads_back_to_their_authored_use() {
+    let source = r#"export function User(props: { name: string }) @{
+  const &{ name } = props;
+  <p>{name}</p>
+}"#;
+    let output = compile(
+        source,
+        &CompileOptions {
+            filename: Some("lazy-user.tsrx".into()),
+            source_map: true,
+            ..fixture_options(Generate::Dom)
+        },
+    )
+    .expect("lazy TSRX source maps compile");
+
+    assert_maps_to(
+        &output,
+        "__lazy0.name",
+        "__lazy0.".len(),
+        source,
+        "name}</p>",
+    );
+}
+
+#[test]
+fn source_maps_cover_reordered_switches_and_accessor_rewrites() {
+    let switch_source = r#"export function Status({ status }) @{
+  @switch (status) {
+    @case "ready": { <p>{status}</p> }
+    @default: { <p>waiting</p> }
+  }
+}"#;
+    let switch_output = compile(
+        switch_source,
+        &CompileOptions {
+            filename: Some("status.tsrx".into()),
+            source_map: true,
+            ..fixture_options(Generate::Dom)
+        },
+    )
+    .expect("switch source maps compile");
+    assert_maps_to(&switch_output, "status ===", 0, switch_source, "status) {");
+
+    let for_source = r#"export function List({ items }) @{
+  <ul>
+    @for (const item of items; index index; key item.id) {
+      <li>{index + 1}. {item.name}</li>
+    }
+  </ul>
+}"#;
+    let for_output = compile(
+        for_source,
+        &CompileOptions {
+            filename: Some("list.tsrx".into()),
+            source_map: true,
+            ..fixture_options(Generate::Dom)
+        },
+    )
+    .expect("keyed for source maps compile");
+    assert_maps_to(&for_output, "item().name", 0, for_source, "item.name");
+    assert_maps_to(&for_output, "index()", 0, for_source, "index +");
+}
+
+#[test]
+fn source_maps_reset_to_each_defaulted_lazy_use_after_fallbacks() {
+    let source = r#"export function Counter(source) @{
+  const &{ value = 1 } = source;
+  const read = value;
+  ++value;
+  <p>{read}</p>
+}"#;
+    let output = compile(
+        source,
+        &CompileOptions {
+            filename: Some("counter.tsrx".into()),
+            source_map: true,
+            ..fixture_options(Generate::Dom)
+        },
+    )
+    .expect("defaulted lazy source maps compile");
+
+    assert_maps_to(
+        &output,
+        "? 1 : __lazyValue0",
+        "? 1 : ".len(),
+        source,
+        "value;\n  ++",
+    );
+    assert_maps_to(
+        &output,
+        "__lazyValue1[__lazyValue2] = ++",
+        0,
+        source,
+        "value;\n  <p>",
+    );
+    assert_maps_to(&output, "++__lazyValue3", 0, source, "value;\n  <p>");
 }
 
 // -- syntax routing ----------------------------------------------------------
