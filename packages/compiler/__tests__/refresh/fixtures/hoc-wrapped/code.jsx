@@ -1,8 +1,8 @@
 import { withStyles, connect } from './hoc';
 
-// Frozen plugin behavior: an inline component inside an arbitrary HOC call
-// is NOT registered (only TS wrappers like `as`/`!`/`satisfies` are peeled;
-// see the ts-wrapped fixture). HMR for these relies on module invalidation.
+// Unregistered by default: nothing proves these HOC calls produce components
+// — no in-module JSX usage (see call-expr-jsx-evidence) and no `@refresh
+// component` pragma (see call-expr-pragma) — so the calls stay bare (#3090).
 export const Fancy = withStyles(() => <div class="fancy" />);
 export const Chained = connect(withStyles(props => <div>{props.x}</div>));
 // A separately declared component is registered as usual, and the HOC call
