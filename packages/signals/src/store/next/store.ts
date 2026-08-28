@@ -148,7 +148,19 @@ TargetShape.prototype = Object.prototype;
 /** Lazily allocate the patch-channel extension (one literal shape). */
 export function pcOf(t: StoreNextTarget): PatchChannel {
   return (
-    t.pc ?? (t.pc = { sp: null, p: null, ro: null, wk: null, qa: null, qe: null, ak: null, t })
+    t.pc ??
+    (t.pc = {
+      sp: null,
+      p: null,
+      ro: null,
+      wk: null,
+      qa: null,
+      qe: null,
+      qo: null,
+      qeo: null,
+      ak: null,
+      t
+    })
   );
 }
 
@@ -417,22 +429,44 @@ function cloneRaw(source: Record<PropertyKey, any>, t?: StoreNextTarget): Record
 
 /** Scanned plainness for patch admission (patchableRaw): runs the one-time
  * accessor scan if it hasn't happened yet — the sticky `a` flag alone is not
- * trustworthy before a scan (it starts false and is discovered lazily). */
+ * trustworthy before a scan (it starts false and is discovered lazily).
+ * Prototype gate first (re-audit 7, P1-2b): class instances are wrappable
+ * store input whose accessors live on the PROTOTYPE — own-key scans never
+ * see them, so non-plain prototypes reject patch admission wholesale (their
+ * records keep tracked-effect semantics). */
 export function targetIsPlain(target: StoreNextTarget): boolean {
-  return target.sc ? !target.a : scanAccessorsOnce(target);
+  return isPlainProto(target.v) && (target.sc ? !target.a : scanAccessorsOnce(target));
 }
 
 /** Adoption-seam demotion gate, PROD-SOUND at bounded cost (re-audit 6):
- * probes ONLY the keys the record's compiled bodies actually read (recorded
- * from real applies — patch grammar guarantees unconditional member reads,
- * so the set is complete). Unrecorded channels (registered under hydration,
- * never yet applied) fall back to the full one-time scan. */
-export function targetKeysPlain(target: StoreNextTarget): boolean {
+ * probes ONLY the keys the record's compiled bodies actually read.
+ * STATELESS against the emission's actual `next` object (re-audit 7,
+ * P1-2a): sticky scan flags describe whatever backing was scanned last —
+ * at adoption seams the object the bodies will read is the INCOMING one
+ * (in setter drafts it is not even target.v yet), so the probe takes it
+ * explicitly. Unrecorded channels (registered under hydration, never yet
+ * applied) get a full fresh scan of the same object. */
+export function targetKeysPlain(target: StoreNextTarget, next: Record<PropertyKey, any>): boolean {
+  if (!isPlainProto(next)) return false;
   const ak = target.pc !== null ? target.pc.ak : null;
-  if (ak === null) return targetIsPlain(target);
-  const v = target.v;
-  for (let i = 0; i < ak.length; i++) if (lookupGetter.call(v, ak[i]) !== undefined) return false;
+  if (ak === null) {
+    for (const key of Reflect.ownKeys(next)) {
+      if (lookupGetter.call(next, key) !== undefined || lookupSetter.call(next, key) !== undefined)
+        return false;
+    }
+    return true;
+  }
+  for (let i = 0; i < ak.length; i++)
+    if (lookupGetter.call(next, ak[i]) !== undefined) return false;
   return true;
+}
+
+/** Patch-admission prototype gate. Distinct from the overlay path's own-key
+ * scan (`scanAccessorsOnce`): overlays remain VALID over class prototypes
+ * (reads fall through the chain), so `a` keeps meaning own accessors only. */
+function isPlainProto(o: object): boolean {
+  const p = Reflect.getPrototypeOf(o);
+  return p === Object.prototype || p === Array.prototype || p === null;
 }
 
 /** One-time own-accessor scan (Annex-B probes, no descriptor allocation);
@@ -824,9 +858,10 @@ function drainFolds(): void {
         rowHooks!.emitSetterRowOps(t, old as any[], t.v as any[]);
       if (t.pc.p !== null) {
         // Accessor demotion at the fold-commit seam: prod-sound accessed-key
-        // probes (see targetKeysPlain — re-audit 6 reversed the dev-only
-        // trade: own getters are supported store input).
-        if (targetKeysPlain(t)) patchHooks!.emitPatchLocal(t, t.v, old);
+        // probes against the JUST-COMMITTED backing (see targetKeysPlain —
+        // re-audit 6 reversed the dev-only trade; re-audit 7 made the probe
+        // stateless against the emission object).
+        if (targetKeysPlain(t, t.v)) patchHooks!.emitPatchLocal(t, t.v, old);
         else patchHooks!.demoteToEffects(t);
       }
     }

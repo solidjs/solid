@@ -70,9 +70,17 @@ interface QueuedApply {
   /** When set, `next` resolves at drain as `t.pb ?? t.v` (bubbles). */
   t: StoreNextTarget | null;
   /** Coalescing + recording backref (re-audits 3/6): set for stamped SELF
-   * entries so the drain can clear the channel's qa/qe stamps (retention)
-   * and record first-apply read sets (ak). */
-  pc?: { qa: unknown; qe: unknown; ak: PropertyKey[] | null };
+   * entries so the drain can clear the channel's stamps (retention), record
+   * first-apply read sets (ak), and resolve the VALUE consumer list LIVE
+   * (re-audit 7, P2-9/P1-5 dual: value applications are absolute, so they
+   * go to whoever is registered at drain — a list recreated while the entry
+   * was held or merged must not be missed). */
+  pc?: {
+    qa: unknown;
+    qe: unknown;
+    ak: PropertyKey[] | null;
+    p: object[] | null;
+  };
   /** Structural row ops (re-audit 6): entries queue the LIVE consumer list
    * plus the ops payload — cloned wrappers survived unbinding, so stale
    * row callbacks fired after a subject switch. */
@@ -100,11 +108,11 @@ function drainApplyQueue(): void {
   let firstError: unknown = UNSET;
   for (let i = 0; i < q.length; i++) {
     clearStamp(q[i]);
-    const { list, prev, force, t } = q[i];
+    const { prev, force, t } = q[i];
     const next = t !== null ? (t.pb ?? t.v) : q[i].next;
     if (q[i].ops !== undefined || q[i].si !== undefined)
       firstError = applyStructural(q[i], next, firstError);
-    else firstError = applyEntries(list, next, prev, force, firstError, q[i].pc);
+    else firstError = applyEntries(liveValueList(q[i]), next, prev, force, firstError, q[i].pc);
   }
   if (firstError !== UNSET) {
     // Unhandled patch errors HALT like unhandled effect errors (re-audit 2,
@@ -114,13 +122,29 @@ function drainApplyQueue(): void {
   }
 }
 
-/** Row-ops/slot-tick dispatch over the LIVE registration list (re-audit 6):
- * queued clones survived unbinding — a subject switch between emission and
- * drain fired stale structural callbacks against the new list state. Same
- * per-entry isolation and error routing as value patches. */
+const EMPTY_LIST: PatchEntry[] = [];
+
+/** VALUE entries dispatch to the channel's CURRENT consumer list (re-audit
+ * 7, P2-9): applications are absolute (latest state), so they belong to
+ * whoever is registered at drain time — a consumer list recreated while the
+ * entry was transition-held (or coalesced across a merge) must receive the
+ * commit, and a fully-unbound channel receives nothing. Entries without a
+ * channel backref (none exists today) keep their captured list. Structural
+ * entries are the DUAL — baseline-relative, snapshotted at emission. */
+function liveValueList(item: QueuedApply): PatchEntry[] {
+  const pc = item.pc ?? (item.t !== null ? (item.t.pc as QueuedApply["pc"]) : undefined);
+  if (pc == null) return item.list;
+  return (pc.p as PatchEntry[] | null) ?? EMPTY_LIST;
+}
+
+/** Row-ops/slot-tick dispatch over the EMISSION-TIME snapshot (re-audit 7,
+ * P1-5): baseline-relative structural work must reach exactly the consumers
+ * registered when it was computed — late registrants initialized from
+ * current state. Unbinds between emission and drain sever through the
+ * shared entries' `u` marks (re-audit 6). Same per-entry isolation and
+ * error routing as value patches. */
 function applyStructural(item: QueuedApply, next: any, firstError: unknown): unknown {
-  const list = item.list as unknown as { fn: Function; owner: Owner | null; u?: boolean }[];
-  const snap = list.length > 1 ? list.slice() : list;
+  const snap = item.list as unknown as { fn: Function; owner: Owner | null; u?: boolean }[];
   const len = snap.length;
   for (let j = 0; j < len; j++) {
     const entry = snap[j];
@@ -237,6 +261,23 @@ function releaseBatch(batch: Transition): void {
 
 function pushLive(item: QueuedApply): void {
   if (queue === null) queue = [];
+  // Same-drain coalescing for RELEASED entries (re-audit 7): two
+  // transitions settling in one flush each release a held entry for the
+  // same channel — an effect on that record runs ONCE for the flush, so
+  // the channel applies once (earliest prev, latest/live next). pushSelf
+  // handles same-batch writes; this is its cross-release twin.
+  const pc = (item as any).pc as { qa: unknown; qe: QueuedApply | null } | undefined;
+  if (pc !== undefined && !item.force) {
+    if (pc.qa === queue && pc.qe !== null) {
+      const qe = pc.qe;
+      qe.next = item.next;
+      qe.list = item.list;
+      if (item.t !== null) qe.t = item.t;
+      return;
+    }
+    pc.qa = queue;
+    pc.qe = item;
+  }
   queue.push(item);
   if (!scheduled) {
     scheduled = true;
@@ -293,12 +334,19 @@ function pushSelf(pc: { qa: unknown; qe: unknown }, item: QueuedApply): void {
 
 /** Drain-side stamp clear (re-audit 3, P2-6): without it a quiet long-lived
  * record's channel retains its last batch's container array, entry, and both
- * captured backings for the record's lifetime. */
+ * captured backings for the record's lifetime. Clears whichever stamp pair
+ * (normal or optimistic) this entry holds. */
 function clearStamp(item: QueuedApply): void {
-  const pc = (item as any).pc as { qa: unknown; qe: unknown } | undefined;
-  if (pc !== undefined && pc.qe === item) {
+  const pc = (item as any).pc as
+    | { qa: unknown; qe: unknown; qo: unknown; qeo: unknown }
+    | undefined;
+  if (pc === undefined) return;
+  if (pc.qe === item) {
     pc.qa = null;
     pc.qe = null;
+  } else if (pc.qeo === item) {
+    pc.qo = null;
+    pc.qeo = null;
   }
 }
 
@@ -365,11 +413,11 @@ function drainOptimistic(): void {
   let firstError: unknown = UNSET;
   for (let i = 0; i < q.length; i++) {
     clearStamp(q[i]);
-    const { list, prev, force, t } = q[i];
+    const { prev, force, t } = q[i];
     const next = t !== null ? (t.pb ?? t.v) : q[i].next;
     if (q[i].ops !== undefined || q[i].si !== undefined)
       firstError = applyStructural(q[i], next, firstError);
-    else firstError = applyEntries(list, next, prev, force, firstError, q[i].pc);
+    else firstError = applyEntries(liveValueList(q[i]), next, prev, force, firstError, q[i].pc);
   }
   if (firstError !== UNSET) {
     haltReactivity(firstError);
@@ -383,18 +431,19 @@ export function emitPatchOptimistic(t: StoreNextTarget, next: any, prev: any): v
   if (optQueue === null) optQueue = [];
   if (next === null) optQueue.push({ list: p, next: null, prev: null, force: true, t });
   else {
-    // Same-batch coalescing, optimistic container (re-audit 3): later
-    // non-forced emission updates the queued entry's next in place.
-    const pc = t.pc! as unknown as { qa: unknown; qe: unknown };
-    if (pc.qa === optQueue && pc.qe !== null) {
-      const qe = pc.qe as QueuedApply;
+    // Same-batch coalescing, optimistic container (re-audit 3) — on the
+    // DEDICATED optimistic stamp pair (re-audit 7, P2-3): the lane queue
+    // must not clobber the normal channel's qa/qe mid-batch.
+    const pc = t.pc! as unknown as { qo: unknown; qeo: unknown };
+    if (pc.qo === optQueue && pc.qeo !== null) {
+      const qe = pc.qeo as QueuedApply;
       qe.next = next;
       qe.list = p;
     } else {
       const item: QueuedApply = { list: p, next, prev, force: false, t: null };
-      pc.qa = optQueue;
-      pc.qe = item;
-      (item as any).pc = pc;
+      pc.qo = optQueue;
+      pc.qeo = item;
+      (item as any).pc = t.pc;
       optQueue.push(item);
     }
   }
@@ -424,9 +473,9 @@ export function emitRowOpsOptimistic(
   const list = (t.pc !== null ? t.pc.ro : null) as RowOpsEntry[] | null;
   if (list === null) return;
   if (optQueue === null) optQueue = [];
-  // LIVE list + ops payload (re-audit 6): see emitRowOps.
+  // Snapshot at emission, unbind safety via `u` marks — see emitSlotPatch.
   optQueue.push({
-    list: list as unknown as PatchEntry[],
+    list: list.slice() as unknown as PatchEntry[],
     next: nextRows,
     prev: null,
     force: false,
@@ -655,10 +704,12 @@ export function registerRowOps(array: any, fn: RowOpsFn): () => void {
 export function emitSlotPatch(t: StoreNextTarget, index: number, next: any, prev: any): void {
   const sp = t.pc !== null ? t.pc.sp : null;
   if (sp === null) return;
-  // LIVE list, payload on the entry (re-audit 6): an unbind between
-  // emission and drain must sever the queued work too.
+  // SNAPSHOT of entry references (re-audit 7, P1-5): structural work is
+  // baseline-relative — a consumer registering between emission and drain
+  // initialized from CURRENT state and must not receive it. Unbinds still
+  // sever queued work through the shared entries' `u` marks (re-audit 6).
   push({
-    list: sp as unknown as PatchEntry[],
+    list: sp.slice() as unknown as PatchEntry[],
     next,
     prev,
     force: false,
@@ -710,9 +761,9 @@ export function registerSlotPatchNext(
 export function emitRowOps(t: StoreNextTarget, next: any[], ops: RowOps): void {
   const list = (t.pc !== null ? t.pc.ro : null) as RowOpsEntry[] | null;
   if (list === null) return;
-  // LIVE list, ops on the entry (re-audit 6): see emitSlotPatch.
+  // Snapshot at emission, unbind safety via `u` marks — see emitSlotPatch.
   push({
-    list: list as unknown as PatchEntry[],
+    list: list.slice() as unknown as PatchEntry[],
     next,
     prev: null,
     force: false,

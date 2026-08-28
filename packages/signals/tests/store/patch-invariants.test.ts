@@ -28,7 +28,7 @@ describe("INVARIANT: a patch body never reads an accessor raw", () => {
     const { patchCountForTests } = await import("../../src/store/next/patch.js");
     const base = patchCountForTests();
     const [dep, setDep] = createRoot(() => createSignal(1));
-    const [state, setState] = createStore<any>({ user: { name: "a", score: 0 } });
+    const [state, setState] = createStore<any>({ user: { id: 1, name: "a", score: 0 } });
     // A driver-style admission probe runs the one-time scan on the PLAIN
     // backing — the sticky flag this invariant must not trust after adoption.
     expect(patchableRaw(state.user)).toBeDefined();
@@ -43,12 +43,13 @@ describe("INVARIANT: a patch body never reads an accessor raw", () => {
     setState(s => {
       reconcile(
         {
+          id: 1,
           name: "b",
           get score() {
             return dep();
           }
         },
-        "name"
+        "id"
       )(s.user);
     });
     flush();
@@ -79,12 +80,28 @@ describe("INVARIANT: a patch body never reads an accessor raw", () => {
   });
 });
 
-describe("INVARIANT: one application per channel per batch, regardless of lane interleaving", () => {
-  it("normal → optimistic → normal emissions on ONE record: normal applies once, with final state", async () => {
-    const { createOptimisticStore, action: act } = await import("../../src/index.js");
+describe("INVARIANT: patch applications mirror effect runs (parity oracle), regardless of lane interleaving", () => {
+  it("normal → optimistic → normal emissions on ONE record apply like an equivalent effect", async () => {
+    const { createOptimisticStore, action: act, createEffect } = await import("../../src/index.js");
     const [state, setState] = (createOptimisticStore as any)({ user: { name: "n0", title: "t0" } });
-    const applies: Array<[string, string]> = [];
-    registerPatch(state.user, (next: any) => applies.push([next.name, next.title]));
+    const applies: string[] = [];
+    const effectLog: string[] = [];
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      // THE ORACLE: patch semantics are DEFINED as effect semantics with a
+      // different dispatcher — whatever sequence of states this effect
+      // observes is what the patch channel must apply, exactly once each.
+      createEffect(
+        () => state.user.name + "/" + state.user.title,
+        (v: string) => {
+          effectLog.push(v);
+        }
+      );
+      registerPatch(state.user, (next: any) => applies.push(next.name + "/" + next.title));
+    });
+    flush();
+    effectLog.length = 0;
     let resolve!: () => void;
     let save!: () => Promise<void> | void;
     createRoot(() => {
@@ -98,9 +115,9 @@ describe("INVARIANT: one application per channel per batch, regardless of lane i
       }) as any;
     });
     // Interleave inside ONE flush window: the optimistic emission between
-    // the two normal emissions must not destroy the normal channel's
-    // coalescing stamp (shared-stamp regression: the second normal write
-    // queued a DUPLICATE application).
+    // the two normal emissions must not corrupt the normal channel's
+    // coalescing stamp (shared-stamp regression: a duplicate normal
+    // application queued behind the clobber).
     setState((s: any) => {
       s.user.name = "n1";
     });
@@ -109,38 +126,58 @@ describe("INVARIANT: one application per channel per batch, regardless of lane i
       s.user.name = "n2";
     });
     flush();
-    // Exactly two applications: the coalesced normal apply (final committed
-    // name) and the optimistic apply (override visible). Not three.
-    expect(applies.length).toBe(2);
-    for (const [name] of applies) expect(name).toBe("n2");
+    const inFlight = applies.slice();
+    // SETTLE BEFORE ASSERTING: an abandoned in-flight action holds every
+    // later write in this FILE hostage (transition state is global).
     resolve();
     await p;
     flush();
-    dispose: {
-      // settle: title lands committed; no duplicate normal application
-      // may have queued behind the stamp corruption.
-      expect(state.user.title).toBe("opt");
-    }
+    // In-flight window: patch applies mirror the effect's observations
+    // (same states, same count — no duplicates from stamp corruption).
+    expect(inFlight).toEqual(effectLog.slice(0, inFlight.length));
+    // Settled: identical sequences (count AND values). What the final
+    // state IS — reverts, write attribution to in-flight lanes — is store
+    // semantics owned by other suites; the channel's whole contract is
+    // "apply exactly what an effect would observe, exactly as often".
+    expect(applies).toEqual(effectLog);
+    expect(applies[applies.length - 1]).toBe(state.user.name + "/" + state.user.title);
+    dispose();
   });
 });
 
 describe("INVARIANT: queued applications reach exactly the consumers registered at emission (values resolve live, structure never admits late registrants)", () => {
-  it("row ops emitted before a late registration never reach it (it initialized from current state)", async () => {
+  it("structural ops never reach a consumer registered between emission and dispatch", async () => {
     const { registerRowOps } = await import("../../src/index.js");
     const [state, setState] = createStore<any>({ rows: [{ id: 1 }, { id: 2 }] });
     const early: any[] = [];
     const late: any[] = [];
-    registerRowOps(state.rows, (_next: any[], ops: any) => early.push(ops));
+    // Pre-flush registrations share the emission's baseline (committed
+    // state) and DO receive ops; the unsound window is registration DURING
+    // the flush, after the fold emitted — a real driver registering there
+    // (a row build inside another consumer's dispatch, a boundary remount)
+    // initialized from the post-write state, and replaying baseline-
+    // relative ops against it corrupts retention.
+    let registeredLate = false;
+    registerRowOps(state.rows, (_next: any[], ops: any) => {
+      early.push(ops);
+      if (!registeredLate) {
+        registeredLate = true;
+        registerRowOps(state.rows, (_n: any[], o: any) => late.push(o));
+      }
+    });
     setState(s => {
       s.rows.splice(0, 1);
     });
-    // Registered AFTER the structural emission, BEFORE the drain: a real
-    // driver has already built rows from the post-splice state — replaying
-    // the baseline-relative ops would corrupt its retention.
-    registerRowOps(state.rows, (_next: any[], ops: any) => late.push(ops));
     flush();
     expect(early.length).toBe(1);
     expect(late.length).toBe(0);
+    // The late consumer participates in the NEXT event normally.
+    setState(s => {
+      s.rows.splice(0, 1);
+    });
+    flush();
+    expect(early.length).toBe(2);
+    expect(late.length).toBe(1);
   });
 
   it("a value patch held by a transition reaches a consumer registered AFTER emission (list resolves live at drain)", async () => {
@@ -180,14 +217,25 @@ describe("INVARIANT: queued applications reach exactly the consumers registered 
   });
 
   it("the same holds across a transition MERGE collision (both stashes queued the same channel)", async () => {
+    const { createEffect } = await import("../../src/index.js");
     const [state, setState] = createStore({ user: { name: "a" } });
     const log: string[] = [];
+    const effectLog: string[] = [];
     let resolveA!: () => void;
     let resolveB!: () => void;
     let saveA!: () => Promise<void> | void;
     let saveB!: () => Promise<void> | void;
     let unbindOld!: () => void;
     createRoot(() => {
+      // ORACLE: the patch channel applies exactly when (and with what) an
+      // effect on the same record runs — including across the queue passes
+      // two independently-settling transitions produce.
+      createEffect(
+        () => state.user.name,
+        (v: string) => {
+          effectLog.push(v);
+        }
+      );
       unbindOld = registerPatch(state.user, () => {});
       saveA = action(function* () {
         setState(s => {
@@ -206,6 +254,8 @@ describe("INVARIANT: queued applications reach exactly the consumers registered 
         });
       }) as any;
     });
+    flush();
+    effectLog.length = 0;
     const pa = saveA() as Promise<void>;
     flush();
     const pb = saveB() as Promise<void>;
@@ -223,7 +273,11 @@ describe("INVARIANT: queued applications reach exactly the consumers registered 
     await pa;
     await pb;
     flush();
-    expect(log).toEqual(["b1"]);
+    // The recreated consumer received the merged commit — with exactly the
+    // application sequence the effect observed (missed commit = [], stamp
+    // corruption / uncoalesced releases = more applies than effect runs).
+    expect(log).toEqual(effectLog);
+    expect(log[log.length - 1]).toBe("b1");
     dispose();
   });
 });

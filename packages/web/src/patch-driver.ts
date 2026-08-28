@@ -284,12 +284,15 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
       const n = entries[j] as ChildNode | undefined;
       if (n !== undefined && n.parentNode === parent) n.remove();
     }
-    // The THROWING row's server DOM was already claimed but never assigned
-    // to entries — remove it too (re-audit 6, P2-5), so a boundary fallback
-    // doesn't render beside a stale server row.
-    if (hydrating && domRows !== undefined && initIdx < domRows.length) {
-      const claimed = domRows[initIdx] as ChildNode;
-      if (claimed.parentNode === parent) claimed.remove();
+    // Surrender the list's ENTIRE server region (re-audit 7, P2-2): the
+    // throwing row's claimed element AND every trailing unclaimed server
+    // row belong to this list — a boundary fallback rendering into the
+    // region must not sit beside stale server rows.
+    if (hydrating && domRows !== undefined) {
+      for (let j = initIdx; j < domRows.length; j++) {
+        const server = domRows[j] as ChildNode;
+        if (server.parentNode === parent) server.remove();
+      }
     }
     (listOwner as any).dispose();
     throw err;
@@ -435,10 +438,24 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   //   - shallow + `keyed={fn}`: replacement under a matching key is a value
   //     tick — patch the row in place (the declared semantics).
   const refRebuild = shallow && typeof meta.keyed !== "function";
+  // BUILD BEFORE DESTROY (re-audit 7, P1-6): the old row must stay mounted
+  // AND registered until the replacement exists — unbinding first left a
+  // throwing factory's slot severed-but-visible (silent staleness, the
+  // worst failure shape) plus the partial build's registrations leaked.
   const rebuildSlot = (i: number): void => {
-    runUnbinds(rowUnbinds[i]);
     const old = entries[i] as ChildNode;
-    const node = bindRow(i);
+    let node: Node;
+    try {
+      node = bindRow(i);
+    } catch (err) {
+      // Sever the failed build's own partial registrations (collectBind's
+      // finally published them); the old row keeps patching. The armed
+      // resync retries through the next event, same as applyOps.
+      runUnbinds(lastUnbinds ?? undefined);
+      resyncNeeded = true;
+      throw err;
+    }
+    runUnbinds(rowUnbinds[i]);
     rowBodies![i] = lastBodies!;
     rowUnbinds[i] = lastUnbinds!;
     parent.insertBefore(node, old);

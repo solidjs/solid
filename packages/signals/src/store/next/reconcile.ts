@@ -145,14 +145,12 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
   // only — family targets' visibility moment is their fold commit
   // (drainFolds emits there; emitting here too would double-fire).
   if (patchHooks !== null && eager && t.pc !== null && t.pc.p !== null) {
-    // Accessor demotion at the ADOPTION seam is DEV-ONLY (prod principle:
-    // explicitly-odd input must not cost correct-input prod — the
-    // per-adoption scan was ~12% of dbmon's tick since adoptPB resets the
-    // verdict every adoption). Dev demotes AND warns; prod emits directly,
-    // so a getter adoptee's OUTSIDE deps (signals) won't re-apply in prod —
-    // caught loudly during development instead. Registration-time admission
-    // (patchableRaw) keeps its full one-time scan in both modes.
-    if (targetKeysPlain(t)) {
+    // Accessor demotion at the ADOPTION seam, PROD-SOUND (re-audit 6
+    // reversed the earlier dev-only trade; re-audit 7 made the probe
+    // STATELESS against `incoming` — the object the queued bodies will
+    // actually read, which in setter drafts is not target.v). Recorded-key
+    // channels pay O(|ak|); unrecorded ones a fresh scan of the adoptee.
+    if (targetKeysPlain(t, incoming)) {
       patchHooks.emitPatchLocal(t, incoming, old);
     } else {
       if (__DEV__)

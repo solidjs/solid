@@ -66,6 +66,11 @@ export interface PatchChannel {
    * retains nothing from its last batch. */
   qa: unknown;
   qe: unknown;
+  /** Optimistic-container stamp pair (re-audit 7, P2-3): the lane queue
+   * coalesces independently — sharing qa/qe let an interleaved optimistic
+   * emission destroy the normal stamp and queue a duplicate application. */
+  qo: unknown;
+  qeo: unknown;
   /** Accessed-key set for the channel's compiled bodies (union across
    * registrations): recorded from real applies — patch grammar guarantees
    * unconditional member reads, so one recorded apply captures a body's
