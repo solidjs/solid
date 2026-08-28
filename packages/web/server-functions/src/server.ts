@@ -304,14 +304,12 @@ export interface ServerFunctionsServerConfig {
       ) => Response | Promise<Response>)
     | null;
   /**
-   * Endpoint the HTTP handler is mounted on, used for the `url` of SSR'd
-   * references (e.g. form actions) — must match the client configuration.
-   * Prefix it when the app serves from a base path (e.g.
-   * `` `${BASE_URL}_server` ``).
+   * Mount path the HTTP handler answers on. Must match the client
+   * configuration — the id travels as the segment after it, a request whose
+   * path does not start with it is not a call, and SSR'd reference `url`s
+   * (e.g. form actions) derive from it. Prefix it when the app serves from
+   * a base path (e.g. `` `${BASE_URL}_server` ``).
    * @default "/_server"
-   *
-   * Mount path the handler answers on: a request whose path does not
-   * start with it is not a call, and the id is the segment that follows.
    */
   endpoint?: string;
   /**
@@ -1376,6 +1374,7 @@ function encodeResult(value, headers, status, codec, signal) {
   // client load its decode half (see shared.js loadSerializer). Negotiated
   // per response: mixed pages simply carry both formats.
   if (value === undefined) {
+    headers.set(BODY_FORMAT_HEADER, BodyFormat.Void);
     return new Response(null, { status, headers });
   }
   // By the time a result is being encoded the function has already run —

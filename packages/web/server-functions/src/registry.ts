@@ -86,12 +86,14 @@ export function withMeta(fn, meta) {
 
 // The invocation channel. References (and declaration wrappers — GET, live)
 // carry their per-call invoker under a registered symbol, and `invoke`
-// dispatches to it. Part of the reference contract exactly like the
-// metadata channel: a wrapper that composes over a reference (a router's
-// query/action, userland composition) forwards this channel the way it
-// forwards metadata — adapting the options to its own policy (a caching
-// wrapper decides what a caller's abort means for a shared in-flight
-// call) — so `invoke` works uniformly on anything reference-shaped.
+// dispatches to it. Core's wrappers forward it mechanically because they
+// keep the call mapping 1:1 — one caller, one wire. Wrappers that SHARE
+// calls (deduping caches, multicast channels) face a real decision first —
+// a caller's signal cannot own a wire other callers are reading — so
+// forwarding there is opt-in: adapt (caller-detach is the safe shape) or
+// decline, in which case `invoke` answers with a directed error. Consumers
+// that own per-call policy (data layers) sit BELOW such wrappers anyway:
+// they hold the reference and invoke it directly with their own signal.
 export const SERVER_FUNCTION_INVOKE = Symbol.for("solid.ServerFunctionInvoke");
 
 // Refused options answer with a redirect, not a bare no: every concern that
@@ -133,10 +135,12 @@ const INVOKE_OPTION_REDIRECTS = {
  * `signal`.
  *
  * Dispatches through the reference's invocation channel
- * (`SERVER_FUNCTION_INVOKE`), which wrappers forward like they forward
- * declaration metadata — `GET` invokes over its query encoding, `live`
- * ends its iteration on abort, and data-layer wrappers adapt the options
- * to their own policy. On the server the call runs in-process: `signal`
+ * (`SERVER_FUNCTION_INVOKE`). Core's declaration wrappers forward it —
+ * `GET` invokes over its query encoding, `live` ends its iteration on
+ * abort. Wrappers that share calls (caches, channels) may adapt or decline
+ * it; a data layer needs neither — it holds the reference below such
+ * wrappers and invokes it directly with its own signal. On the server the
+ * call runs in-process: `signal`
  * rejects the caller (the work, like a server behind HTTP, runs on unless
  * the function observes a signal itself) and the transport hints are
  * no-ops, since they describe a wire that does not exist.
@@ -158,10 +162,10 @@ export function invoke(fn, options, ...args) {
   if (!channel) {
     throw new Error(
       isServerFunction(fn)
-        ? "invoke: this reference's wrapper does not forward the invocation channel " +
-            "(SERVER_FUNCTION_INVOKE). Wrappers compose per-call invocation the way they " +
-            "compose declaration metadata: forward the channel, adapting the options to the " +
-            "wrapper's own policy."
+        ? "invoke: this wrapper does not forward the invocation channel " +
+            "(SERVER_FUNCTION_INVOKE). Wrappers that share calls (caches, channels) opt in " +
+            "deliberately — a caller's signal cannot own a wire other callers share. Invoke " +
+            "the underlying reference directly, or use the wrapper's own per-call idioms."
         : "invoke expects a server function reference (or a wrapper that forwards its " +
             "invocation channel). Per-call options apply at the transport; for a data " +
             "layer's calls, use its per-call options instead."

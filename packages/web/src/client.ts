@@ -1566,6 +1566,24 @@ export function hydrate(code, element, options = {}) {
   enableHydration();
   installHydrationRuntime();
   if (globalThis._$HY.done) return render(code, element, [...element.childNodes], options);
+  // #3081: the server splices useHead's charset/base prelude immediately
+  // after the <head> open tag — a byte-placement constraint (charset within
+  // the first 1024 bytes, base before URL-bearing tags) the parser has
+  // already consumed by now. The compiled walk reads head's children
+  // positionally, so registry-INSERTED tags (data-dh without the data-dhf
+  // in-place-rewrite stash) sitting ahead of the shell's authored children
+  // shift every read by one. Move that leading run — inert metas in an
+  // unrendered element — to the end of head before any claiming. For apps
+  // without a prelude the loop exits on its first check.
+  const head = (element.nodeType === 9 ? element : element.ownerDocument).head;
+  if (head && element.contains(head)) {
+    let n = head.firstChild;
+    while (n && n.nodeType === 1 && n.hasAttribute("data-dh") && !n.hasAttribute("data-dhf")) {
+      const next = n.nextSibling;
+      head.appendChild(n);
+      n = next;
+    }
+  }
   options.renderId ||= "";
   if (!globalThis._$HY.modules) globalThis._$HY.modules = {};
   if (!globalThis._$HY.loading) globalThis._$HY.loading = {};

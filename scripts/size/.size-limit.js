@@ -149,7 +149,13 @@ module.exports = [
     // accessor demotion gates, and unhandled-halt parity; the rest is
     // upstream core drift (#3082's visibility gate, the shared notifier,
     // #3078's dormancy sweep) since the 14.1 ratchet.
-    limit: "14.35 KB",
+    //
+    // Fold scheduling (#3089, merged from next): 14.35 -> 14.45 KB. The
+    // always-arm in queueFold (the size-gated arm stranded later folds), the
+    // write-time transition stamp (foldBatches WeakMap + ensurePB stamp), and
+    // the drain's defer check — ~40 B measured on the pre-stage-2 base. All
+    // load-bearing correctness on paths createStore always retains.
+    limit: "14.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -228,6 +234,12 @@ module.exports = [
     //
     // Stage-3 batch (pre-release ratchet): 16.7 -> 17.25 KB, measured at
     // 16.92 — the signals-core bytes (see the core-floor note).
+    //
+    // useHead prelude relocation (#3081): 17.25 -> 17.4 KB, measured at
+    // 17.31. ~120 B brotli in hydrate() itself — the head-prelude
+    // normalization runs before any claiming, so it sits on the one entry
+    // point every hydrating app retains and cannot shake. Golfing measured
+    // ~1 B; the bytes are the fix's real cost.
     path: "hydrating-app.js",
     // Upstream drift ratchet (2026-08-27): shared effect notifier (+core)
     // and #3057 invoke's client surface since the 17.25 cap (measured
@@ -274,8 +286,11 @@ module.exports = [
     // and the web runtime's ~100 B insert hook. The driver + emitters
     // themselves are pay-for-use and absent here (no compiled patch output
     // imports them).
+    //
+    // Fold scheduling (#3089, merged from next): 25.9 -> 26 KB — the same
+    // bytes as the createStore note (this scenario retains all of it).
     path: "hydrating-store-app.js",
-    limit: "25.9 KB",
+    limit: "26 KB",
     modifyEsbuildConfig
   },
   {

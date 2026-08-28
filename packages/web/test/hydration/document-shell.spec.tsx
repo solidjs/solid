@@ -17,7 +17,14 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { flush } from "solid-js";
 import { hydrate } from "@solidjs/web";
-import { App, AsyncApp, computeRuns, APP_ROOT_MARKUP } from "../harness/document-shell.jsx";
+import {
+  App,
+  AsyncApp,
+  HeadShellApp,
+  computeRuns,
+  setHeadShellStarted,
+  APP_ROOT_MARKUP
+} from "../harness/document-shell.jsx";
 
 const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
 
@@ -104,5 +111,55 @@ describe("document-shell pattern — client hydrate (#3000)", () => {
     warn.mockRestore();
     dispose();
     container.remove();
+  });
+
+  test("useHead prelude ahead of shell-authored head children hydrates whole document (#3081)", async () => {
+    (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { html } = JSON.parse(
+      readFileSync(resolve(artifactsDir, "document-shell-usehead.json"), "utf-8")
+    ) as { html: string };
+
+    // Whole-document hydration: the server bytes replace the jsdom document.
+    document.open();
+    document.write(html);
+    document.close();
+
+    const shellMeta = document.head.querySelector('meta[name="shell-owned"]');
+    const dynamicMeta = document.head.querySelector('meta[name="shell-owned-dynamic"]');
+    const titleEl = document.head.querySelector("title");
+
+    const dispose = hydrate(() => <HeadShellApp />, document);
+    flush();
+    await sleep(20);
+    flush();
+
+    // The registry-inserted charset prelude no longer sits ahead of the
+    // shell's authored children — the positional walk saw exactly what the
+    // shell compiled. Everything claimed, nothing recreated.
+    expect(document.head.querySelector('meta[name="shell-owned"]')).toBe(shellMeta);
+    expect(document.head.querySelector('meta[name="shell-owned-dynamic"]')).toBe(dynamicMeta);
+    // The in-place rewritten title (data-dh + data-dhf) kept its authored
+    // position and was claimed as the shell's own node.
+    expect(document.head.querySelector("title")).toBe(titleEl);
+    expect(titleEl!.textContent).toBe("managed title");
+    // The charset tag survives, registry-findable, just out of the walk.
+    expect(document.head.querySelector("meta[charset]")).not.toBeNull();
+
+    // Hydration is alive: a post-hydration write reaches its binding
+    // (#3081's symptom was the whole document dead — reactivity halted).
+    setHeadShellStarted(true);
+    flush();
+    expect(document.getElementById("status")!.textContent).toBe("started");
+
+    // The single expected dev notice: charset registrations are shell-only,
+    // so the client registry declines to manage the re-registered tag. No
+    // hydration-mismatch or unclaimed-node warnings.
+    expect(warn.mock.calls.map(c => c.join(" "))).toEqual([
+      "useHead: <meta> (charset) is shell-only and ignored on the client"
+    ]);
+    warn.mockRestore();
+    dispose();
+    setHeadShellStarted(false);
   });
 });
