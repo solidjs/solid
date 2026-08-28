@@ -42,6 +42,10 @@ export interface RendererOption {
 export interface TransformResult {
   code: string;
   map?: string | null;
+  /** Extracted scoped CSS for TSRX sources. */
+  css?: string | null;
+  /** Space-separated TSRX scope hashes. */
+  cssHash?: string | null;
 }
 
 export function transform(code: string, options?: TransformOptions | null): TransformResult;

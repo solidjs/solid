@@ -238,14 +238,41 @@ fn compile_error(source: &str) -> String {
 }
 
 #[test]
-fn rejects_scoped_style_blocks() {
+fn compiles_scoped_style_blocks_with_authored_location_hashes() {
+    let source = "export function C() @{\n  <>\n    <style>\n.used { color: red; }\n.unused { color: blue; }\n    </style>\n    <div class=\"used\" />\n  </>\n}\n";
+    let filename = "/exact/components/card.tsrx";
+    let outputs: Vec<_> = [Generate::Dom, Generate::Ssr, Generate::Universal]
+        .into_iter()
+        .map(|generate| {
+            compile(
+                source,
+                &CompileOptions {
+                    filename: Some(filename.into()),
+                    ..fixture_options(generate)
+                },
+            )
+            .expect("scoped styles compile")
+        })
+        .collect();
+    let expected_css = outputs[0].css.as_deref().expect("TSRX CSS result");
+    let expected_hash = outputs[0].css_hash.as_deref().expect("scope hash");
+    assert!(expected_css.contains(&format!(".used.{expected_hash}")));
+    assert!(expected_css.contains("(unused)"), "{expected_css}");
+    for output in &outputs {
+        assert_eq!(output.css.as_deref(), Some(expected_css));
+        assert_eq!(output.css_hash.as_deref(), Some(expected_hash));
+        assert!(!output.code.contains("<style"));
+        assert!(output.code.contains(expected_hash));
+    }
+}
+
+#[test]
+fn rejects_multiple_scoped_style_blocks_at_the_second_tag() {
     let message = compile_error(
-        "export function C() @{\n  <div>\n    <style>\n      div { color: red; }\n    </style>\n    <p>hi</p>\n  </div>\n}\n",
+        "export const C = () => <>\n  <style>.a { color:red }</style>\n  <style>.b { color:blue }</style>\n  <div />\n</>;",
     );
     assert!(
-        message
-            .to_lowercase()
-            .contains("scoped <style> blocks are not yet supported"),
+        message.contains("TSRX fragments can only have one style tag (3:2)"),
         "style diagnostic: {message}"
     );
 }

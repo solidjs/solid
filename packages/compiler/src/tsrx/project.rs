@@ -21,11 +21,21 @@
 //! attribute), blocks are validated in the Babel frontend's order first and
 //! re-analyzed cheaply during emission.
 
-use super::tape::{self, Node};
+use super::{
+    style_projection::{
+        self, RefSetup, StyleAction, StyleProjection, class_attribute, decode_json_string,
+        is_callback_ref, is_class_attribute, is_direct_ref_target, push_class_map, push_js_string,
+    },
+    tape::{self, Node},
+};
 
 /// Result of projecting one TSRX module to plain TSX.
 pub struct Projection {
     pub text: String,
+    /// Concatenated extracted stylesheets in owner-visitor order.
+    pub css: String,
+    /// Space-separated scope hashes, or `None` when no styles were present.
+    pub css_hash: Option<String>,
     /// Projected offset of each lazy pattern's opening bracket, with its
     /// preallocated `__lazyN` name.
     pub lazy_patterns: Vec<(u32, String, bool)>,
@@ -196,7 +206,11 @@ fn exported_lazy_declaration(root: Node<'_>) -> Option<Node<'_>> {
     invalid
 }
 
-pub fn project(source: &str, tape: &tsrx_tape_schema::FlatTape) -> Result<Projection> {
+pub fn project(
+    source: &str,
+    filename: &str,
+    tape: &tsrx_tape_schema::FlatTape,
+) -> Result<Projection> {
     let root = Node::root(tape).ok_or(ProjectError {
         message: "TSRX parse produced no program".into(),
         start: 0,
@@ -208,9 +222,13 @@ pub fn project(source: &str, tape: &tsrx_tape_schema::FlatTape) -> Result<Projec
         ));
     }
 
+    let styles = style_projection::plan(source, filename, root)?;
+    let css = styles.css.clone();
+    let css_hash = styles.css_hash.clone();
     let mut renderer = Renderer {
         source,
         out: String::with_capacity(source.len() + source.len() / 4),
+        styles,
         lazy_ids: collect_lazy_ids(root),
         lazy_patterns: Vec::new(),
         accessor_arrows: Vec::new(),
@@ -221,6 +239,8 @@ pub fn project(source: &str, tape: &tsrx_tape_schema::FlatTape) -> Result<Projec
 
     Ok(Projection {
         text: renderer.out,
+        css,
+        css_hash,
         lazy_patterns: renderer.lazy_patterns,
         accessor_arrows: renderer.accessor_arrows,
     })
@@ -346,8 +366,14 @@ struct Special<'t> {
 /// in document order. Does not descend into found specials: their renderers
 /// re-collect within themselves. `position` classifies `node` itself when it
 /// is special.
-fn collect_specials<'t>(node: Node<'t>, position: Position, out: &mut Vec<Special<'t>>) {
+fn collect_specials<'t>(
+    node: Node<'t>,
+    position: Position,
+    styles: &StyleProjection<'t>,
+    out: &mut Vec<Special<'t>>,
+) {
     let ty = node.ty();
+    let start = node.span().map_or(u32::MAX, |span| span.0);
 
     let special_span = if lazy_assignment_pattern(node).is_some() {
         node.span()
@@ -359,6 +385,10 @@ fn collect_specials<'t>(node: Node<'t>, position: Position, out: &mut Vec<Specia
     } else if ty == "JSXCodeBlock"
         || ty == "JSXStyleElement"
         || is_dynamic_element(node)
+        || (ty == "JSXElement"
+            && (styles.element_hashes.contains_key(&start)
+                || styles.owner_setups.contains_key(&start)))
+        || (ty == "JSXFragment" && styles.owner_setups.contains_key(&start))
         || (ty == "JSXAttribute" && node.bool_field("shorthand"))
     {
         node.span()
@@ -379,7 +409,7 @@ fn collect_specials<'t>(node: Node<'t>, position: Position, out: &mut Vec<Specia
         return;
     }
 
-    collect_children(node, out);
+    collect_children(node, styles, out);
 }
 
 /// A construct's authored span extended to the furthest end of any direct
@@ -412,7 +442,7 @@ fn construct_replacement_span(node: Node<'_>) -> Option<(u32, u32)> {
     Some((start, end))
 }
 
-fn collect_children<'t>(node: Node<'t>, out: &mut Vec<Special<'t>>) {
+fn collect_children<'t>(node: Node<'t>, styles: &StyleProjection<'t>, out: &mut Vec<Special<'t>>) {
     let ty = node.ty();
     for (key, value) in node.fields() {
         if matches!(key, "type" | "start" | "end" | "metadata" | "loc" | "range") {
@@ -426,7 +456,7 @@ fn collect_children<'t>(node: Node<'t>, out: &mut Vec<Special<'t>>) {
         match value.kind() {
             tsrx_tape_schema::ValueKind::Object => {
                 if let Some(child) = Node::from_value(node.tape(), value) {
-                    collect_specials(child, child_position, out);
+                    collect_specials(child, child_position, styles, out);
                 }
             }
             tsrx_tape_schema::ValueKind::List => {
@@ -436,7 +466,7 @@ fn collect_children<'t>(node: Node<'t>, out: &mut Vec<Special<'t>>) {
                         if let Some(item) = node.tape().list_value(entry)
                             && let Some(child) = Node::from_value(node.tape(), item)
                         {
-                            collect_specials(child, child_position, out);
+                            collect_specials(child, child_position, styles, out);
                         }
                         next = node.tape().list_value_next(entry);
                     }
@@ -537,9 +567,10 @@ struct BlockParts<'t> {
     renders: Vec<Node<'t>>,
 }
 
-struct Renderer<'s> {
+struct Renderer<'s, 't> {
     source: &'s str,
     out: String,
+    styles: StyleProjection<'t>,
     /// Document-ordered lazy pattern spans; index = lazy id.
     lazy_ids: Vec<(u32, u32)>,
     lazy_patterns: Vec<(u32, String, bool)>,
@@ -547,7 +578,7 @@ struct Renderer<'s> {
     suppress_nested_lazy: usize,
 }
 
-impl<'s> Renderer<'s> {
+impl<'s, 't> Renderer<'s, 't> {
     fn push_verbatim(&mut self, start: u32, end: u32) {
         if end <= start {
             return;
@@ -570,7 +601,7 @@ impl<'s> Renderer<'s> {
         position: Position,
     ) -> Result<()> {
         let mut specials = Vec::new();
-        collect_specials(scope, position, &mut specials);
+        collect_specials(scope, position, &self.styles, &mut specials);
         self.emit_region(start, end, &mut specials)
     }
 
@@ -598,10 +629,15 @@ impl<'s> Renderer<'s> {
     /// directly, copies everything else verbatim with nested specials.
     fn emit_node(&mut self, node: Node<'_>, position: Position) -> Result<()> {
         let ty = node.ty();
+        let start = node.span().map_or(u32::MAX, |span| span.0);
         if ty == "JSXCodeBlock"
             || is_construct(ty)
             || ty == "JSXStyleElement"
             || is_dynamic_element(node)
+            || (ty == "JSXElement"
+                && (self.styles.element_hashes.contains_key(&start)
+                    || self.styles.owner_setups.contains_key(&start)))
+            || (ty == "JSXFragment" && self.styles.owner_setups.contains_key(&start))
             || (ty == "JSXAttribute" && node.bool_field("shorthand"))
             || lazy_assignment_pattern(node).is_some()
             || is_lazy_pattern(node)
@@ -610,7 +646,7 @@ impl<'s> Renderer<'s> {
         }
         let (start, end) = span_of(node)?;
         let mut specials = Vec::new();
-        collect_children(node, &mut specials);
+        collect_children(node, &self.styles, &mut specials);
         self.emit_region(start, end, &mut specials)
     }
 
@@ -621,12 +657,10 @@ impl<'s> Renderer<'s> {
             "JSXForExpression" => self.render_for(node),
             "JSXSwitchExpression" => self.render_switch(node),
             "JSXTryExpression" => self.render_try(node, position),
-            "JSXStyleElement" => Err(ProjectError::new(
-                "TSRX scoped <style> blocks are not yet supported by the Solid TSRX frontend",
-                node,
-            )),
+            "JSXStyleElement" => self.render_style(node),
+            "JSXFragment" => self.render_scoped_fragment(node, position),
             "JSXAttribute" => self.render_shorthand_attr(node),
-            "JSXElement" => self.render_dynamic_element(node),
+            "JSXElement" => self.render_scoped_element(node, position),
             "ExpressionStatement" if lazy_assignment_pattern(node).is_some() => {
                 self.render_lazy_assignment(node)
             }
@@ -651,18 +685,27 @@ impl<'s> Renderer<'s> {
             )
         })?;
         let setup: Vec<Node<'_>> = node.list_field("body").flatten().collect();
+        let style_setups = self
+            .styles
+            .owner_setups
+            .get(&span_of(node)?.0)
+            .cloned()
+            .unwrap_or_default();
 
         match position {
             Position::FunctionBody => {
                 self.push("{\n");
                 self.emit_statements(&setup)?;
+                for setup in &style_setups {
+                    self.emit_ref_setup(setup)?;
+                }
                 self.push("return ");
                 self.render_entry_expression(render)?;
                 self.push(";\n}");
             }
             Position::Expression | Position::JsxChild => {
                 let wrap = position == Position::JsxChild
-                    && (if setup.is_empty() {
+                    && (if setup.is_empty() && style_setups.is_empty() {
                         predict_entry_shape(render) == Shape::Expr
                     } else {
                         true
@@ -670,11 +713,14 @@ impl<'s> Renderer<'s> {
                 if wrap {
                     self.push("{");
                 }
-                if setup.is_empty() {
+                if setup.is_empty() && style_setups.is_empty() {
                     self.render_entry_expression(render)?;
                 } else {
                     self.push("(() => {\n");
                     self.emit_statements(&setup)?;
+                    for setup in &style_setups {
+                        self.emit_ref_setup(setup)?;
+                    }
                     self.push("return ");
                     self.render_entry_expression(render)?;
                     self.push(";\n})()");
@@ -1130,7 +1176,226 @@ impl<'s> Renderer<'s> {
 
     // -- Dynamic tags and shorthand props -----------------------------------------
 
-    fn render_dynamic_element(&mut self, node: Node<'_>) -> Result<()> {
+    fn render_style(&mut self, node: Node<'_>) -> Result<()> {
+        let start = span_of(node)?.0;
+        match self.styles.actions.get(&start).cloned() {
+            Some(StyleAction::Remove) => Ok(()),
+            Some(StyleAction::ClassMap(entries)) => {
+                push_class_map(&mut self.out, &entries);
+                Ok(())
+            }
+            Some(StyleAction::EmptyElement) => {
+                let opening = node.node_field("openingElement").ok_or_else(|| {
+                    ProjectError::new("A TSRX <style> element is malformed", node)
+                })?;
+                let (opening_start, opening_end) = span_of(opening)?;
+                if opening.bool_field("selfClosing") {
+                    self.emit_verbatim_with_specials(
+                        opening,
+                        opening_start,
+                        opening_end,
+                        Position::Expression,
+                    )
+                } else {
+                    self.emit_verbatim_with_specials(
+                        opening,
+                        opening_start,
+                        opening_end.saturating_sub(1),
+                        Position::Expression,
+                    )?;
+                    self.out.push_str(" />");
+                    Ok(())
+                }
+            }
+            None => Err(ProjectError::new(
+                "internal TSRX frontend error: unprocessed style element",
+                node,
+            )),
+        }
+    }
+
+    fn render_scoped_fragment(&mut self, node: Node<'_>, position: Position) -> Result<()> {
+        let start = span_of(node)?.0;
+        let setups = self
+            .styles
+            .owner_setups
+            .get(&start)
+            .cloned()
+            .unwrap_or_default();
+        self.begin_style_setup(&setups, position)?;
+        let (start, end) = span_of(node)?;
+        let mut specials = Vec::new();
+        collect_children(node, &self.styles, &mut specials);
+        self.emit_region(start, end, &mut specials)?;
+        self.end_style_setup(&setups, position);
+        Ok(())
+    }
+
+    fn render_scoped_element(&mut self, node: Node<'_>, position: Position) -> Result<()> {
+        let start = span_of(node)?.0;
+        let setups = self
+            .styles
+            .owner_setups
+            .get(&start)
+            .cloned()
+            .unwrap_or_default();
+        let hashes = self
+            .styles
+            .element_hashes
+            .get(&start)
+            .map(|hashes| hashes.join(" "))
+            .unwrap_or_default();
+        self.begin_style_setup(&setups, position)?;
+        if is_dynamic_element(node) {
+            self.render_dynamic_element(node, &hashes)?;
+        } else {
+            self.render_native_scoped_element(node, &hashes)?;
+        }
+        self.end_style_setup(&setups, position);
+        Ok(())
+    }
+
+    fn begin_style_setup(&mut self, setups: &[RefSetup<'t>], position: Position) -> Result<()> {
+        if setups.is_empty() {
+            return Ok(());
+        }
+        if position == Position::JsxChild {
+            self.push("{");
+        }
+        self.push("(() => {\n");
+        for setup in setups {
+            self.emit_ref_setup(setup)?;
+        }
+        self.push("return ");
+        Ok(())
+    }
+
+    fn end_style_setup(&mut self, setups: &[RefSetup<'t>], position: Position) {
+        if setups.is_empty() {
+            return;
+        }
+        self.push(";\n})()");
+        if position == Position::JsxChild {
+            self.push("}");
+        }
+    }
+
+    fn emit_ref_setup(&mut self, setup: &RefSetup<'t>) -> Result<()> {
+        if is_direct_ref_target(setup.target) {
+            self.emit_node(setup.target, Position::Expression)?;
+            self.push(" = ");
+            push_class_map(&mut self.out, &setup.class_map);
+            self.push(";\n");
+            return Ok(());
+        }
+        if is_callback_ref(setup.target) {
+            self.push("(");
+            self.emit_node(setup.target, Position::Expression)?;
+            self.push(")(");
+            push_class_map(&mut self.out, &setup.class_map);
+            self.push(");\n");
+            return Ok(());
+        }
+        let temp = setup.temp_name.as_deref().ok_or_else(|| {
+            ProjectError::new(
+                "internal TSRX frontend error: dynamic style ref has no temporary",
+                setup.target,
+            )
+        })?;
+        self.push("let ");
+        self.push(temp);
+        self.push(" = ");
+        self.emit_node(setup.target, Position::Expression)?;
+        self.push(";\nif (typeof ");
+        self.push(temp);
+        self.push(" === \"function\") {\n");
+        self.push(temp);
+        self.push("(");
+        push_class_map(&mut self.out, &setup.class_map);
+        self.push(");\n} else if (");
+        self.push(temp);
+        self.push(" && typeof ");
+        self.push(temp);
+        self.push(" === \"object\") {\nif (\"current\" in ");
+        self.push(temp);
+        self.push(") ");
+        self.push(temp);
+        self.push(".current = ");
+        push_class_map(&mut self.out, &setup.class_map);
+        self.push(";\nelse if (\"value\" in ");
+        self.push(temp);
+        self.push(") ");
+        self.push(temp);
+        self.push(".value = ");
+        push_class_map(&mut self.out, &setup.class_map);
+        self.push(";\n}\n");
+        Ok(())
+    }
+
+    fn render_native_scoped_element(&mut self, node: Node<'_>, hash: &str) -> Result<()> {
+        let opening = node
+            .node_field("openingElement")
+            .ok_or_else(|| ProjectError::new("JSX element is missing its opening tag", node))?;
+        let (opening_start, opening_end) = span_of(opening)?;
+        let mut specials = Vec::new();
+        collect_children(opening, &self.styles, &mut specials);
+
+        if hash.is_empty() {
+            self.emit_region(opening_start, opening_end, &mut specials)?;
+        } else if let Some(attribute) = class_attribute(opening) {
+            if let Some(value) = attribute.node_field("value") {
+                let (value_start, value_end) = span_of(value)?;
+                self.emit_region(opening_start, value_start, &mut specials)?;
+                self.emit_scoped_attribute_value(value, hash)?;
+                self.emit_region(value_end, opening_end, &mut specials)?;
+            } else {
+                let (_, attribute_end) = span_of(attribute)?;
+                self.emit_region(opening_start, attribute_end, &mut specials)?;
+                self.push("=");
+                push_js_string(&mut self.out, hash);
+                self.emit_region(attribute_end, opening_end, &mut specials)?;
+            }
+        } else {
+            let source = &self.source[opening_start as usize..opening_end as usize];
+            let suffix = if source.ends_with("/>") { 2 } else { 1 };
+            let insertion = opening_end.saturating_sub(suffix);
+            self.emit_region(opening_start, insertion, &mut specials)?;
+            self.push(" class=");
+            push_js_string(&mut self.out, hash);
+            self.emit_region(insertion, opening_end, &mut specials)?;
+        }
+
+        let (_, node_end) = span_of(node)?;
+        let mut children = Vec::new();
+        for child in node.list_field("children").flatten() {
+            collect_specials(child, Position::JsxChild, &self.styles, &mut children);
+        }
+        self.emit_region(opening_end, node_end, &mut children)
+    }
+
+    fn emit_scoped_attribute_value(&mut self, value: Node<'_>, hash: &str) -> Result<()> {
+        if value.ty() == "Literal"
+            && let Some(current) = value.str_field("value").and_then(decode_json_string)
+        {
+            push_js_string(&mut self.out, &format!("{current} {hash}"));
+            return Ok(());
+        }
+        let expression = if value.ty() == "JSXExpressionContainer" {
+            value.node_field("expression").ok_or_else(|| {
+                ProjectError::new("A JSX class expression is missing its value", value)
+            })?
+        } else {
+            value
+        };
+        self.push("{`${");
+        self.emit_node(expression, Position::Expression)?;
+        self.push("} ");
+        self.push(hash);
+        self.push("`}");
+        Ok(())
+    }
+
+    fn render_dynamic_element(&mut self, node: Node<'_>, hash: &str) -> Result<()> {
         let opening = node
             .node_field("openingElement")
             .ok_or_else(|| ProjectError::new("Dynamic tag is missing its opening element", node))?;
@@ -1144,9 +1409,30 @@ impl<'s> Renderer<'s> {
         self.push("<Dynamic component={");
         self.emit_node(component, Position::Expression)?;
         self.push("}");
+        let mut found_class = false;
         for attribute in opening.list_field("attributes").flatten() {
             self.push(" ");
-            self.emit_node(attribute, Position::Expression)?;
+            if !hash.is_empty() && is_class_attribute(attribute) {
+                found_class = true;
+                let name = attribute
+                    .node_field("name")
+                    .and_then(|name| name.str_field("name"))
+                    .unwrap_or("class");
+                self.push(name);
+                if let Some(value) = attribute.node_field("value") {
+                    self.push("=");
+                    self.emit_scoped_attribute_value(value, hash)?;
+                } else {
+                    self.push("=");
+                    push_js_string(&mut self.out, hash);
+                }
+            } else {
+                self.emit_node(attribute, Position::Expression)?;
+            }
+        }
+        if !hash.is_empty() && !found_class {
+            self.push(" class=");
+            push_js_string(&mut self.out, hash);
         }
 
         let has_children = node.list_field("children").next().is_some();
@@ -1164,7 +1450,7 @@ impl<'s> Renderer<'s> {
         // specials (preserves JSXText exactly, like the Babel frontend).
         let mut specials = Vec::new();
         for child in node.list_field("children").flatten() {
-            collect_specials(child, Position::JsxChild, &mut specials);
+            collect_specials(child, Position::JsxChild, &self.styles, &mut specials);
         }
         self.emit_region(opening_end, children_end, &mut specials)?;
         self.push("</Dynamic>");
@@ -1209,7 +1495,7 @@ impl<'s> Renderer<'s> {
         // the reparsed program resolves scope exactly, and the post-reparse
         // pass renames them.
         let mut specials = Vec::new();
-        collect_children(node, &mut specials);
+        collect_children(node, &self.styles, &mut specials);
         self.suppress_nested_lazy += 1;
         let result = self.emit_region(span.0, span.1, &mut specials);
         self.suppress_nested_lazy -= 1;
@@ -1219,7 +1505,7 @@ impl<'s> Renderer<'s> {
     fn emit_eager_pattern(&mut self, node: Node<'_>) -> Result<()> {
         let span = span_of(node)?;
         let mut specials = Vec::new();
-        collect_children(node, &mut specials);
+        collect_children(node, &self.styles, &mut specials);
         self.emit_region(span.0, span.1, &mut specials)
     }
 
@@ -1259,25 +1545,25 @@ impl<'s> Renderer<'s> {
     // -- Template block helpers -----------------------------------------------------
 
     /// Validate and split a template block (Babel `blockToParts`).
-    fn block_parts<'t>(
+    fn block_parts<'n>(
         &mut self,
-        block: Node<'t>,
+        block: Node<'n>,
         construct: Option<&str>,
-    ) -> Result<BlockParts<'t>> {
+    ) -> Result<BlockParts<'n>> {
         let entries = block_entries(block);
         self.block_parts_of_entries(&entries, construct)
     }
 
-    fn block_parts_of_entries<'t>(
+    fn block_parts_of_entries<'n>(
         &mut self,
-        entries: &[Node<'t>],
+        entries: &[Node<'n>],
         construct: Option<&str>,
-    ) -> Result<BlockParts<'t>> {
+    ) -> Result<BlockParts<'n>> {
         if let Some(construct) = construct {
             validate_no_control_flow_escape(entries, construct)?;
         }
         let mut setup = Vec::new();
-        let mut renders: Vec<Node<'t>> = Vec::new();
+        let mut renders: Vec<Node<'n>> = Vec::new();
         for entry in entries {
             if is_render_entry(entry.ty()) {
                 if entry.ty() == "JSXText"

@@ -11,6 +11,8 @@
 
 mod project;
 mod rewrite;
+mod style;
+mod style_projection;
 mod tape;
 
 pub use project::Projection;
@@ -44,7 +46,7 @@ pub fn run_frontend(source: &str, filename: Option<&str>) -> Result<Projection, 
         rebase_utf16_spans(source, &mut tape).map_err(CompileError::parse)?;
     }
 
-    project::project(source, &tape).map_err(|error| {
+    project::project(source, filename, &tape).map_err(|error| {
         let (line, column) = line_column(source, error.start);
         CompileError::parse(format!("{} ({line}:{column})", error.message))
     })

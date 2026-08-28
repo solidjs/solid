@@ -12,10 +12,18 @@ function transform(code, options) {
 
   const nativeOptions = validateOptions(code, options);
   const result = native.transform(code, nativeOptions);
-  return {
+  const output = {
     code: result.code,
     map: result.map ?? null
   };
+  // Preserve the established JSX result shape. Native TSRX transforms always
+  // return a CSS string (including `""` when no styles are present), which
+  // makes the sidecar fields a route-specific extension.
+  if (result.css != null) {
+    output.css = result.css;
+    output.cssHash = result.cssHash ?? null;
+  }
+  return output;
 }
 
 function transformAsync(code, options) {

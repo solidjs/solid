@@ -25,7 +25,9 @@
  *   `Errored` passes an `ErrorAccessor`, so reads of `e` rewrite to calls.
  * - `<{expr}>` — `<Dynamic component={expr} …>` (deliberate adaptation from
  *   `@tsrx/solid`'s hoisted `dynamic()` factory; semantically equivalent).
- * - `<style>` — structured "not yet supported" diagnostic (deferred v1).
+ *
+ * Scoped `<style>` elements are handled and stripped by the preceding style
+ * pass, so they must never reach this transform.
  */
 
 export interface EsNode {
@@ -269,10 +271,7 @@ function transform(node: EsNode): EsNode {
     case "JSXTryExpression":
       return tryToJsx(node);
     case "JSXStyleElement":
-      return fail(
-        "TSRX scoped <style> blocks are not yet supported by the Solid TSRX frontend",
-        node
-      );
+      return fail("A TSRX <style> element survived the scoped style pass", node);
     case "JSXElement":
       return desugarElement(node);
     case "JSXFragment":

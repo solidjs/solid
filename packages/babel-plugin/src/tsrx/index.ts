@@ -2,28 +2,33 @@
  * TSRX syntax frontend entry point.
  *
  * Routes `.tsrx` sources (or any source when `syntax: "tsrx"`) through
- * `@tsrx/core`'s parser + semantic analysis, applies Solid's local
- * lazy-destructuring transform, desugars every TSRX construct to Solid builtIn
- * JSX, and converts the result to a Babel `File` for the unchanged JSX
- * pipeline.
+ * `@tsrx/core`'s parser + semantic analysis, processes scoped styles with
+ * core's CSS helpers, desugars every TSRX construct to Solid builtIn JSX,
+ * applies Solid's local lazy-destructuring transform, and converts the result
+ * to a Babel `File` for the unchanged JSX pipeline.
  *
  * `@tsrx/core` is an optional peer dependency loaded lazily on first TSRX
  * routing, so plain JSX users never pay for it.
  */
 
-import type * as t from "@babel/types";
 import { desugarProgram, restoreIntrinsicJsxNames, type EsNode } from "./desugar";
 import { toBabelFile } from "./estree-to-babel";
 import { applyLazyTransforms } from "./lazy";
+import { processTsrxStyles, type TsrxStyleCore } from "./style";
+import type { TsrxBabelAst, TsrxStyleResult } from "../types";
 
 // The plugin ships as CJS; `require` of the ESM-only `@tsrx/core` is
 // supported natively on Node >= 22.12. No @types/node in this package.
 declare const require: ((id: string) => unknown) | undefined;
 
-interface TsrxCore {
+interface TsrxCore extends TsrxStyleCore {
   parseModule(source: string, filename?: string | null): EsNode;
   analyzeTsrx(ast: EsNode, filename?: string | null): unknown;
 }
+
+export type TsrxBabelFile = TsrxBabelAst & {
+  tsrxStyle: TsrxStyleResult;
+};
 
 let core: TsrxCore | undefined;
 
@@ -66,11 +71,12 @@ export function isTsrxSource(syntax: SyntaxOption | undefined, filename: unknown
 
 /** Parse TSRX source text into a Babel `File` with all TSRX constructs
  * lowered to Solid builtIn JSX. */
-export function parseTsrx(code: string, filename?: string): t.File {
+export function parseTsrx(code: string, filename?: string): TsrxBabelFile {
   const tsrx = loadTsrxCore();
   const program = tsrx.parseModule(code, filename ?? "module.tsrx");
   // Throws structured diagnostics (invalid returns, misplaced directives, …).
   tsrx.analyzeTsrx(program, filename ?? null);
+  const styleResult = processTsrxStyles(program, tsrx);
 
   // Desugar before the lazy transform: the lazy engine collects block-level
   // `let &[…]`/`const &{…}` bindings in its BlockStatement/Program handlers,
@@ -83,5 +89,10 @@ export function parseTsrx(code: string, filename?: string): t.File {
   // desugaring paths. The local engine itself never rewrites intrinsic names.
   restoreIntrinsicJsxNames(transformed);
 
-  return toBabelFile(transformed);
+  const file = toBabelFile(transformed) as TsrxBabelFile;
+  // Babel's default AST clone preserves enumerable string keys. Program.enter
+  // lifts this temporary payload into transform metadata and removes it from
+  // the AST, avoiding mutable plugin-factory state (and concurrent-run races).
+  file.tsrxStyle = styleResult;
+  return file;
 }

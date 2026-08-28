@@ -66,6 +66,8 @@ pub fn transform(code: String, options: Option<TransformOptions>) -> Result<Tran
     Ok(TransformResult {
         code: output.code,
         map: output.source_map,
+        css: output.css,
+        css_hash: output.css_hash,
     })
 }
 
@@ -157,6 +159,8 @@ fn legacy_preflight(
         return Ok(TransformResult {
             code: code.to_owned(),
             map: None,
+            css: None,
+            css_hash: None,
         });
     }
     Err(Error::from_reason(validation_error))

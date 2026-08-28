@@ -18,17 +18,20 @@ async function compile(code, { filename = "case.tsrx", syntax } = {}) {
 }
 
 describe("TSRX diagnostics", () => {
-  test("scoped style blocks are rejected with a structured diagnostic", async () => {
+  test("multiple runtime style blocks in one component scope are rejected", async () => {
     await expect(
       compile(`export function C() @{
-  <div>
+  <>
     <style>
-      div { color: red; }
+      .first { color: red; }
     </style>
-    <p>hi</p>
-  </div>
+    <style>
+      .second { color: blue; }
+    </style>
+    <p class="first">hi</p>
+  </>
 }`)
-    ).rejects.toThrow(/scoped <style> blocks are not yet supported/i);
+    ).rejects.toThrow(/only have one style tag/i);
   });
 
   test("return inside an @if branch is rejected", async () => {

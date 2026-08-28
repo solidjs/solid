@@ -84,9 +84,14 @@ TSRX (TypeScript Render Extensions) is a syntax for declarative UI whose constru
 
 ```js
 const result = transform(tsrxSource, { filename: "App.tsrx" });
+// TSRX <style> blocks are extracted alongside the JavaScript:
+result.css;
+result.cssHash;
 ```
 
 Routing follows the filename by default (`syntax: "auto"`); pass `syntax: "tsrx"` or `syntax: "jsx"` to force a frontend regardless of filename. No extra install is needed — the shipped binaries include the frontend (Rust embedders can disable the default `tsrx` cargo feature).
+
+Scoped `<style>` blocks are compile-time only. The compiler removes the style element, adds its `tsrx-<hash>` class to matching native and dynamic elements, scopes and prunes the CSS, and returns the stylesheet in `css` with its scope identifier in `cssHash`. Style expressions produce class-map objects, `<style ref={styles}>` initializes the requested class map, and `:global(...)` opts individual selectors out of scoping. A bundler integration must emit the returned CSS; the core compiler does not inject a runtime style helper.
 
 Lazy patterns support synchronous and asynchronous arrow parameters, nested, renamed, and computed bindings, JavaScript-style defaults, object/array rest, and standalone `&{ … } = value;` / `&[ … ] = value;` statements. Defaults apply only when the deferred value is `undefined`; rest bindings are fresh read-only views. Matching the JavaScript TSRX parser, defaults are not yet accepted in standalone assignment patterns.
 
@@ -96,7 +101,7 @@ The frontend uses the community [oxc-tsrx](https://github.com/tsrx-org/oxc) pars
 
 ### Source maps
 
-Pass `sourceMap: true` to receive a JSON source map string in `result.map`.
+Pass `sourceMap: true` to receive a JSON source map string in `result.map`. TSRX transforms currently return `null`: text projection introduces generated regions that cannot yet be represented accurately, so the compiler omits the map rather than attributing projected TSX to the authored TSRX source.
 
 ### Options
 

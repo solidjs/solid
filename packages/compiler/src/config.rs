@@ -68,6 +68,10 @@ pub struct TransformOptions {
 pub struct TransformResult {
     pub code: String,
     pub map: Option<String>,
+    /// Extracted TSRX stylesheet output. Absent for ordinary JSX transforms.
+    pub css: Option<String>,
+    /// Space-separated TSRX scope hashes. Absent when no stylesheet was emitted.
+    pub css_hash: Option<String>,
 }
 
 pub(crate) fn source_type_for_filename(filename: Option<&str>) -> Result<SourceType> {
