@@ -304,14 +304,12 @@ export interface ServerFunctionsServerConfig {
       ) => Response | Promise<Response>)
     | null;
   /**
-   * Endpoint the HTTP handler is mounted on, used for the `url` of SSR'd
-   * references (e.g. form actions) — must match the client configuration.
-   * Prefix it when the app serves from a base path (e.g.
-   * `` `${BASE_URL}_server` ``).
+   * Mount path the HTTP handler answers on. Must match the client
+   * configuration — the id travels as the segment after it, a request whose
+   * path does not start with it is not a call, and SSR'd reference `url`s
+   * (e.g. form actions) derive from it. Prefix it when the app serves from
+   * a base path (e.g. `` `${BASE_URL}_server` ``).
    * @default "/_server"
-   *
-   * Mount path the handler answers on: a request whose path does not
-   * start with it is not a call, and the id is the segment that follows.
    */
   endpoint?: string;
   /**
