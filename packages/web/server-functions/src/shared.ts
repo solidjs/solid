@@ -543,8 +543,8 @@ export const BodyFormat = {
   /**
    * No body at all — a function that returned nothing. It marks the response
    * as one the runtime encoded, which separates a void result with a status
-   * on it from a refusal answered by something else. A peer that predates
-   * the tag decodes it the same way, through the fallthrough.
+   * on it from a refusal answered by something else. Decoding falls through
+   * to `undefined`, which is what a peer predating the tag reads too.
    */
   Void: "9"
 };
@@ -734,8 +734,6 @@ export async function extractBody(source, codecOptions) {
       return await deserializeStream(clone, codecOptions);
     case format === BodyFormat.Json:
       return JSON.parse(await clone.text());
-    case format === BodyFormat.Void:
-      return undefined;
     case format === BodyFormat.String:
       return await clone.text();
     case format === BodyFormat.File: {
