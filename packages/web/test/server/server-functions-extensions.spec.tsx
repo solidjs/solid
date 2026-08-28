@@ -267,15 +267,39 @@ describe("server-function extension surface (built bundles)", () => {
     }
   });
 
-  it("names the seam when a wrapper answers with something else", async () => {
+  it("names the seam when a wrapper answers with something it cannot read", async () => {
     registerServerFunction("ext-fetch-4", async () => "ok");
-    configureServerFunctionsClient({ fetch: (() => undefined) as any });
+    const restore = connectTransport();
+    const send = globalThis.fetch;
+    for (const answer of [
+      () => undefined,
+      // the likeliest wrapper mistake: log the body, hand back the response
+      async (address: string, init: RequestInit) => {
+        const response = await send(address, init);
+        await response.text();
+        return response;
+      }
+    ]) {
+      configureServerFunctionsClient({ fetch: answer as any });
+      await expect(createServerReference("ext-fetch-4")()).rejects.toThrow(/unread Response/);
+    }
+    // a Response from another realm or a mock is not refused for its identity
+    configureServerFunctionsClient({
+      fetch: (address, init) =>
+        send(address, init).then(response => ({
+          ...response,
+          status: response.status,
+          headers: response.headers,
+          body: response.body,
+          clone: () => response.clone(),
+          text: () => response.text()
+        })) as any
+    });
     try {
-      await expect(createServerReference("ext-fetch-4")()).rejects.toThrow(
-        /must answer with a Response/
-      );
+      expect(await createServerReference("ext-fetch-4")()).toBe("ok");
     } finally {
       configureServerFunctionsClient({ fetch: null });
+      restore();
     }
   });
 
@@ -299,6 +323,41 @@ describe("server-function extension surface (built bundles)", () => {
       configureServerFunctionsClient({ fetch: null });
       restore();
     }
+  });
+
+  it("keeps observers out of the call's way", async () => {
+    registerServerFunction(
+      "ext-fetch-6",
+      async (value: unknown) => (value as any)?.constructor?.name ?? "none"
+    );
+    const restore = connectTransport();
+    const send = globalThis.fetch;
+    let seenBody: unknown;
+    configureServerFunctionsClient({
+      fetch: (address, init) => {
+        seenBody = init.body;
+        return send(address, init);
+      }
+    });
+    const stop = observeServerFunctionCalls(() => {});
+    try {
+      // the observed request is reconstructed from the same init, so it must
+      // not consume what the send is about to use
+      const body = new FormData();
+      body.set("k", "v");
+      expect(await createServerReference("ext-fetch-6")(body)).toBe("FormData");
+      expect(seenBody).toBe(body);
+    } finally {
+      stop();
+      configureServerFunctionsClient({ fetch: null });
+      restore();
+    }
+  });
+
+  it("refuses a fetch option that is not callable", () => {
+    expect(() => configureServerFunctionsClient({ fetch: "nope" as any })).toThrow(
+      /must be a function/
+    );
   });
 
   it("restores the global fetch when the option is set to null", async () => {

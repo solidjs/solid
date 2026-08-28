@@ -1479,6 +1479,17 @@ export function observeServerFunctionCalls(
 export function observeServerFunctionCalls() {
   return () => {};
 } /**
+ * Configures the client transport. A no-op on this entry, so a config module
+ * shared by both builds resolves — the options it carries describe a wire
+ * this entry never uses.
+ */
+export function configureServerFunctionsClient(config?: unknown): void;
+
+// Client-only transport configuration. Present as a no-op so isomorphic
+// `@solidjs/web/server-functions` imports resolve on the server entry.
+export function configureServerFunctionsClient() {}
+
+/**
  * Builds the url a reference is called at, for integrations composing action
  * urls the runtime did not render — a router turning a bound action into a
  * `<form action>` for the no-JS path. `boundArgs` must be JSON-safe: the

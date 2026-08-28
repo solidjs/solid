@@ -132,12 +132,13 @@ export interface ServerFunctionsClientConfig {
    * });
    * ```
    *
-   * Keep the call same-origin — a cross-origin send is stamped
-   * `Sec-Fetch-Site: cross-site`, which the handler's origin gate refuses —
-   * and hand back what the peer answered: an unfollowed 3xx reads as a
-   * response the runtime did not write.
+   * Forward `init` — the call's `signal` rides on it, and dropping it voids
+   * both the caller's abort and the teardown a live source's `break`
+   * performs. Keep the call same-origin, since a cross-origin send is
+   * stamped `Sec-Fetch-Site: cross-site` and the handler's origin gate
+   * refuses it, and hand back what the peer answered, unread.
    */
-  fetch?: ((address: string, init: RequestInit) => Promise<Response>) | null;
+  fetch?: ((address: string, init: RequestInit) => Response | Promise<Response>) | null;
   /**
    * Runs before every server-function fetch. Return (or mutate and return)
    * the RequestInit the transport will use; `context.meta` is the
@@ -347,7 +348,12 @@ export function configureServerFunctionsClient({
 } = {}) {
   if (endpoint !== undefined) config.endpoint = endpoint;
   if (codec !== undefined) configureServerFunctionsCodec(codec);
-  if (fetch !== undefined) config.fetch = fetch || undefined;
+  if (fetch !== undefined) {
+    if (fetch !== null && typeof fetch !== "function") {
+      throw new TypeError("`fetch` must be a function, or null to restore the global one");
+    }
+    config.fetch = fetch || undefined;
+  }
   if (prepareRequest !== undefined) config.prepareRequest = prepareRequest;
   if (responseHandler !== undefined) config.responseHandler = responseHandler;
   if (serializeArgs !== undefined) config.serializeArgs = serializeArgs;
@@ -388,12 +394,15 @@ function serverFunctionFailure(response, value) {
   return error;
 }
 
-// A configured `fetch` that forgets to return, or returns what it awaited
-// off the response, would otherwise surface as a property read on undefined
-// somewhere downstream, naming nothing.
+// A configured `fetch` that forgets to return, or hands back a response it
+// already read, would otherwise surface as a property read on undefined or an
+// undici clone error somewhere downstream, naming nothing. Duck-typed on
+// purpose: a mock, a polyfill and another realm's `Response` are all fine.
 function sent(response) {
-  if (response instanceof Response) return response;
-  throw new TypeError("The `fetch` configured for server functions must answer with a Response");
+  if (response && typeof response.clone === "function" && !response.bodyUsed) return response;
+  throw new TypeError(
+    "The `fetch` configured for server functions must answer with an unread Response"
+  );
 }
 
 async function createRequest(base, id, instance, options, meta) {
@@ -433,9 +442,20 @@ async function createRequest(base, id, instance, options, meta) {
   // The send keeps the `(address, init)` shape it has on the path without
   // observers — whether devtools are attached is not something a configured
   // `fetch` should have to branch on — so what observers receive is a
-  // reconstruction of the dispatched request, not the object itself.
-  const request = new Request(new URL(base, globalThis.location?.href || "http://localhost"), init);
-  notifyCallObservers("request", id, instance, request, meta);
+  // reconstruction of the dispatched request, not the object itself. Built
+  // without a streaming body, and skipped entirely if the init will not make
+  // one: a read-only dev seam may not consume the call's body, and may not
+  // decide whether the call is sent at all.
+  let request;
+  try {
+    request = new Request(new URL(base, globalThis.location?.href || "http://localhost"), {
+      ...init,
+      body: init.body instanceof ReadableStream ? undefined : init.body
+    });
+  } catch {
+    request = undefined;
+  }
+  if (request) notifyCallObservers("request", id, instance, request, meta);
   const response = sent(await send(base, init));
   notifyCallObservers("response", id, instance, response, meta);
   return response;
