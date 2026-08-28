@@ -217,6 +217,8 @@ The mental model: **declaration wrappers are `bind`, `invoke` is `call`.** `GET(
 - **`keepalive`** — lets the request outlive the page: fire-and-forget calls during `pagehide`. The same function called in a different _moment_, not a different declaration.
 - **`priority`** — fetch priority hint; speculative prefetch vs. interaction fetch genuinely differ per call site.
 
+The three are not peers: `signal` is **contract** — every transport a reference's invoker adapts to must honor cancel (it is also the teardown handle for connection-shaped responses, scoped to the subscription across reconnects, per `live`) — while `keepalive` and `priority` are **carrier hints** in today's fetch vocabulary. A carrier without the concept no-ops the hint rather than rejecting the call: hints tune delivery, they never change what the call means.
+
 **Refusals are redirects.** Everything with a longer lifetime is rejected _with a pointer to its home_ — each backed by an invariant, not taste, and `invoke` throws the redirect at runtime rather than silently dropping:
 
 | Refused                       | Invariant it would break                                                     | Home                                                        |
