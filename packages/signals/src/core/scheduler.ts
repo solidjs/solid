@@ -818,8 +818,10 @@ export function setStoreCommitHook(fn: () => void): void {
 }
 
 /** Patch-channel release hook (next/patch.ts): transition-stamped patch
- * emissions are released when THEIR batch commits — reverted transitions
- * never reach here, so their entries drop by construction. Injected like
+ * emissions are released when THEIR batch commits. Transitions never
+ * abort: failed actions still commit (only optimistic overrides revert),
+ * and merged-away transitions hand their stash to the survivor
+ * (mergeTransitionState) — every stash drains exactly once. Injected like
  * storeCommitHook to stay tree-shakeable. */
 export let patchCommitHook: ((batch: Transition) => void) | null = null;
 export function setPatchCommitHook(fn: (batch: Transition) => void): void {

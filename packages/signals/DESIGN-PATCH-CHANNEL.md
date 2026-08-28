@@ -137,11 +137,13 @@ The exact round-1 staleness shape, in the branch none of the four audits
 reached. sameKey now; regression test pinned.
 
 Documented, not fixed:
-- Reverted-transition stash retention: pc coalescing stamps keep one dead
-  entry (+ its two captures) alive per record per ABORTED transaction,
-  until that record's next emission restamps. Fixing requires a revert
-  hook through core transition teardown — accepted as bounded until the
-  channel earns one.
+- ~~Reverted-transition stash retention~~ RETRACTED (probe-verified):
+  transitions never abort in this design — a FAILED action still commits
+  its transition (plain writes land, the held stash drains through
+  releaseBatch; only optimistic overrides revert). Every stash either
+  drains at commit or moves on merge, so the coalescing stamps always
+  clear. The retraction also corrects patchCommitHook's misleading
+  "reverted transitions" comment.
 - Keyless rows in the adoption window pair positionally while row ops
   treat them as remove+create: DOM content correct either way (the fresh
   bind reads the adopted proxy) — retention churn only, by construction
