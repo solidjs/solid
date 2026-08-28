@@ -584,6 +584,16 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
     if (handled !== undefined) return handled;
   }
 
+  // Every response the runtime encodes carries the body format — a void one
+  // and a thrown one included — so at 400 and up its absence means the peer
+  // refused. Answered before the passthrough beneath, because a refusal can
+  // carry a `Location` of its own and the passthrough would hand it back as
+  // control flow; and undecoded, because its body is someone else's, not a
+  // payload for the caller.
+  if (response.status >= 400 && !response.headers.has(BODY_FORMAT_HEADER)) {
+    throw serverFunctionFailure(response, undefined);
+  }
+
   // Proxies may omit the protocol error header on 5xx responses.
   const failed = response.headers.has(ERROR_HEADER) || response.status >= 500;
 

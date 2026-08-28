@@ -1374,6 +1374,7 @@ function encodeResult(value, headers, status, codec, signal) {
   // client load its decode half (see shared.js loadSerializer). Negotiated
   // per response: mixed pages simply carry both formats.
   if (value === undefined) {
+    headers.set(BODY_FORMAT_HEADER, BodyFormat.Void);
     return new Response(null, { status, headers });
   }
   // By the time a result is being encoded the function has already run —
