@@ -346,25 +346,6 @@ importers:
       emnapi:
         specifier: ^1.11.3
         version: 1.11.3
-    optionalDependencies:
-      '@solidjs/compiler-darwin-arm64':
-        specifier: 2.0.0-rc.3
-        version: 2.0.0-rc.3
-      '@solidjs/compiler-darwin-x64':
-        specifier: 2.0.0-rc.3
-        version: 2.0.0-rc.3
-      '@solidjs/compiler-linux-arm64-gnu':
-        specifier: 2.0.0-rc.3
-        version: 2.0.0-rc.3
-      '@solidjs/compiler-linux-x64-gnu':
-        specifier: 2.0.0-rc.3
-        version: 2.0.0-rc.3
-      '@solidjs/compiler-wasm32-wasi':
-        specifier: 2.0.0-rc.3
-        version: 2.0.0-rc.3
-      '@solidjs/compiler-win32-x64-msvc':
-        specifier: 2.0.0-rc.3
-        version: 2.0.0-rc.3
 
   packages/diagnostics:
     dependencies:

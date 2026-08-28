@@ -1,5 +1,57 @@
 # solid-js
 
+## 2.0.0-rc.4
+
+### Minor Changes
+
+- f0c3692: Point-of-pain discovery for diagnostics: `DEV.diagnostics.setConsoleFooter(fn)` registers a footer printed once per diagnostic code after that code's first console report. solid-js registers a footer in dev pointing at its shipped repair skill (`node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md`), so anyone — human or agent — hitting a diagnostic warning learns where the prescribed fix lives without prior knowledge of the skill system.
+- 8d249c7: Patch-mode list driver: keyed `<For>` over a store array is offered to the
+  runtime's row-ops driver (create/bind at op-apply, LIS moves, node removal —
+  no mapArray, no per-row owners, no DOM-side reconcile). `For` carries `$ll`
+  metadata on a lazy classic accessor so unaware renderers and declined lists
+  (non-store subject, impure rows proven by a bind-time owner probe, fallback
+  or index usage) fall through to today's mapArray path unchanged. Array
+  identity swaps keep keyed semantics by raw-identity matching. Adds
+  `ownerIsBlank` (signals) for the purity probe and `driveList` (web, rxcore
+  seam) for the runtime.
+
+### Patch Changes
+
+- 8d249c7: External-audit fixes on the patch-list driver surface: family (projection/optimistic) arrays now decline the driver — their structural changes emit no row/slot ops and the proxy identity is stable, so an engaged list would freeze on optimistic or projection structure (classic mapArray handles them correctly, including on identity-swap handoff). Shallow slot-patch registration is now multi-consumer — two driven lists over one shallow array previously overwrote each other's channel. Adds `storeHasFamily` (with server stub) and regression tests for both.
+- f3da41e: Fix mid-stream dependency changes being silently lost by hydration-latched computations. A node adopting its serialized server value re-serves it on every recompute while the stream is open (orphaning protection) — but that recompute left the node clean, so a dependency that changed during the hydration window never re-ran the compute afterwards: the change was lost, not deferred. Re-entry into the serialized-adoption path now arms the hydration-end takeover gate (the same mechanism live-branded sources use), re-running exactly the diverged nodes against their live sources once hydration completes. Applies to the default/"server" `ssrSource` paths; hybrid's sync/promise adopt-and-latch semantics are unchanged.
+- a10cf1a: Fix streaming SSR hanging permanently (0 bytes, 100% CPU) when a component body reads a property of a pending `createProjection`/`createStore(asyncFn)` store (#3068). An async projection can never be ready at creation-scope read time, so the read threw NotReadyError and the retry re-ran the scope — but `createProjection` allocated a fresh generator, deferred, and serialized promise on every pass, so the read could never succeed and the flush loop spun forever. Server projections now keep by-slot flight memory (the #3003 memo mechanism): a re-created projection at a known slot returns the same in-flight proxy — one generator run, one trace, one serialized channel — and post-settle passes read through it synchronously.
+- 8d249c7: Patch-mode lists now implement the identity semantics the view declares instead of the reconcile key's. Deep lists are unaffected (adoption preserves proxy identity, so key ops and reference semantics coincide). Shallow reference-keyed lists rebuild rows whose records were replaced — matching classic `mapArray` exactly, where the driver previously patched them in place (a default-on compiler mode must never change observable DOM identity). `For` forwards its `keyed` prop on the list metadata; explicit `keyed={fn}` lists decline the driver until the accessor-row binding contract lands.
+- 8d249c7: Projection (non-optimistic) family arrays are drivable by the patch-mode list driver: their recomputes walk reconcile, whose row/slot emissions were never family-gated and ride the transition-stamped apply queue. The blanket family decline narrows to optimistic families only (`storeHasOptimisticFamily`), whose user writes ride node overrides and emit no structural ops. Fixes chained-backing patch registration: a projection wrapper's backing is another store's proxy, so `registerPatch`/`patchableRaw` now resolve through the chain to the ultimate owner target — patches registered on wrapped projection rows previously never fired (value transitions fold on the source). Equivalence matrix extended with 13 projection scenarios including recompute-driven structure and retention topology.
+- 8d249c7: Patch-mode list admission moves entirely to compile time: driveList engages only for row functions carrying the compiler's `rowProof` stamp (exported from @solidjs/web), and the runtime purity probe is deleted — no speculative execution of user row code, no probeMark/probeGate seams, no ownerIsBlank, no tentative empty-list engagement with late decline. Unstamped rows take the classic mapArray path before any DOM work; `lateClassic` remains only for engaged lists whose subject later leaves the contract (identity swap to a derived array, shallow/deep kind switch).
+- Updated dependencies [8d249c7]
+- Updated dependencies [f0c3692]
+- Updated dependencies [8d249c7]
+- Updated dependencies [505c73d]
+- Updated dependencies [de9e3cb]
+- Updated dependencies [0e37f90]
+- Updated dependencies [8d249c7]
+- Updated dependencies [b96d7ce]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [ba6c0b6]
+  - @solidjs/signals@2.0.0-rc.4
+
 ## 2.0.0-rc.3
 
 ### Patch Changes
