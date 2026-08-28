@@ -503,7 +503,12 @@ export function createErrorBoundary<T, U>(
 ): Accessor<T | U> {
   return createCollectionBoundary<T | U>(STATUS_ERROR, fn, queue => {
     return fallback(accessor(queue._error), () => {
-      for (const source of queue._sources) recompute(source);
+      for (const source of queue._sources) {
+        // Non-computed sources (patch-channel registrations under plain
+        // owners) are not recomputable — their reset is the record's next
+        // transition re-applying the patch (re-audit 2, P1-4).
+        if ((source as any)._fn !== undefined) recompute(source);
+      }
       schedule();
     });
   });

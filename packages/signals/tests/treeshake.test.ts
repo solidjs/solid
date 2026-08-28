@@ -101,7 +101,12 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // NodeExtension on EVERY effect at creation — +127 B/node heap and +23%
     // effect creation time (shipped unnoticed with stage 3; caught by the
     // creation benches). Measured at 20,956 post-change.
-    expect(minifiedBytes).toBeLessThan(21_100);
+    // CONSCIOUS BUMP (stage-2, 2026-08-27): +~180B in mergeTransitionState —
+    // the held-patch stash move + coalescing-stamp retarget (re-audit 5:
+    // merged-away stashes double-applied their records' patches at commit).
+    // Core-retained by necessity: transition merging cannot be pay-for-use.
+    // Measured at 21,134 post-change.
+    expect(minifiedBytes).toBeLessThan(21_250);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

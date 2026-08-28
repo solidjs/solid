@@ -51,6 +51,12 @@ import {
   unwrapValue,
   wrapNext
 } from "./store.js";
+// Patch-channel emission rides installed hooks (patch-hooks.ts); all
+// calls are `t.pc`-guarded. See patch-hooks.ts for the soundness argument.
+import { patchHooks, rowHooks } from "./patch-hooks.js";
+// Cycle with reconcile.js is benign: the binding resolves at call time (the
+// optimistic write), long after both modules initialize.
+import { buildIdentityRowOps, sameKey } from "./reconcile.js";
 import { setOptHooks, storeNextLookup } from "./target.js";
 type KeyFn = (item: any) => any;
 import { isRawValue, isWrappable, rawValuesUsed, setNextOptimisticViewResolver } from "../store.js";
@@ -70,6 +76,23 @@ function installNextBlockedHalf(): void {
   // so the hook only empties the batch set.
   if (!GlobalQueue._clearOptimisticStores) {
     GlobalQueue._clearOptimisticStores = (stores: Set<any>) => {
+      // Patch channel (revert site): engine-native reverts flip node values
+      // back to committed; patched records need a forced DOM re-apply from
+      // the post-revert view. Emission only — next keeps no layer to clear.
+      for (const px of stores) {
+        const t: StoreNextTarget | undefined = px?.[$TARGET];
+        const overlaid = t?.fam?.overlaid as Set<StoreNextTarget> | undefined;
+        if (overlaid !== undefined) {
+          for (const ot of overlaid) {
+            if (ot.pc !== null && ot.pc.p !== null) patchHooks!.emitPatchOptimistic(ot, null, null);
+            // Row-ops resync (family increment 2): reverts flip node values
+            // back engine-natively; a driven list must rebuild retention by
+            // row identity against the post-revert view (resolved from the
+            // target at drain — overrides are gone by then).
+            if (ot.pc !== null && ot.pc.ro !== null) rowHooks!.emitRowOpsOptimistic(ot, null, null);
+          }
+        }
+      }
       stores.clear();
     };
   }
@@ -188,6 +211,22 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
   const fw: any = t.fam?.node;
   if (fw?._transition) globalQueue.initTransition(fw._transition);
   const old = t.v;
+  // Patch channel (override-application site): the draft IS the intended
+  // visible state; prev is the view before these overrides apply. Bypasses
+  // the transition stash — optimism is visible in flight.
+  if (t.pc !== null && t.pc.p !== null)
+    patchHooks!.emitPatchOptimistic(t, pb, optimisticView(t, old));
+  // Row-ops channel (family increment 2): optimistic STRUCTURE on an array
+  // rides node overrides — it never enters the reconcile walk — so a driven
+  // list must get its structural ops here, lane-timed. Identity diff of the
+  // pre-write optimistic view against the draft; aligned writes emit nothing.
+  if (t.pc !== null && t.pc.ro !== null && Array.isArray(pb)) {
+    const prevView = optimisticView(t, old);
+    if (Array.isArray(prevView)) {
+      const ops = buildIdentityRowOps(prevView, pb);
+      if (ops !== null) rowHooks!.emitRowOpsOptimistic(t, pb, ops);
+    }
+  }
   const visible = (key: PropertyKey, fallback: any): any => {
     const node = t.n?.[key as any];
     return node !== undefined && hasActiveOverride(node)
@@ -319,6 +358,10 @@ export function consumeOverridesNext(fam: StoreNextFamily): void {
         insertSubs(t.k, true);
         schedule();
       }
+      // Patch channel (override-consumption site): visible truth flipped to
+      // committed for the consumed keys — force a re-apply from the live
+      // view so the DOM leaves the override state.
+      if (t.pc !== null && t.pc.p !== null) patchHooks!.emitPatchOptimistic(t, null, null);
     }
     overlaid.clear();
   });
@@ -372,7 +415,9 @@ function applyTentative(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null):
     if (keyFn) {
       const pk = keyFn(pv);
       const nk = keyFn(nv);
-      if (pk !== undefined && nk !== undefined && pk !== nk) return null;
+      // SameValueZero (re-audit 3, P1-3): parity with the plain reconcile
+      // channel — NaN keys are self-equal.
+      if (pk !== undefined && nk !== undefined && !sameKey(pk, nk)) return null;
     }
     return map.get(unwrapValue(pv)) ?? null;
   };
@@ -387,16 +432,31 @@ function applyTentative(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null):
         const nk = keyFn(nv);
         if (nk !== undefined) {
           if (viewByKey === null) {
+            // Occurrence-aware index queues (re-audit 3, P1-3): parity with
+            // the plain adoption window — duplicate keys match per
+            // occurrence, each view row consumed once.
             viewByKey = new Map();
             for (let j = 0; j < viewRows.length; j++) {
               const p = unwrapValue(viewRows[j]);
               if (isWrappable(p)) {
                 const pk = keyFn(p);
-                if (pk !== undefined && !viewByKey.has(pk)) viewByKey.set(pk, p);
+                if (pk === undefined) continue;
+                const existing = viewByKey.get(pk);
+                if (existing === undefined) viewByKey.set(pk, j);
+                else if (Array.isArray(existing)) existing.push(j);
+                else viewByKey.set(pk, [existing, j]);
               }
             }
           }
-          pv = viewByKey.get(nk);
+          const m = viewByKey.get(nk);
+          if (m === undefined) pv = undefined;
+          else if (Array.isArray(m)) {
+            pv = unwrapValue(viewRows[m.shift()!]);
+            if (m.length === 1) viewByKey.set(nk, m[0]);
+          } else {
+            pv = unwrapValue(viewRows[m]);
+            viewByKey.delete(nk);
+          }
         } else pv = unwrapValue(viewRows[i]);
       } else pv = unwrapValue(viewRows[i]);
       const ct = match(pv, nv);

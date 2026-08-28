@@ -4,7 +4,9 @@ import {
   getOwner,
   runWithOwner,
   createComponent,
+  createOwner,
   createRoot as root,
+  onCleanup,
   sharedConfig,
   untrack,
   merge as mergeProps,
@@ -121,12 +123,17 @@ export const waitAsset = (promise: Promise<unknown>): void => {
   gate();
 };
 
-// Optional patch-channel seams (DESIGN §16): dormant (default-off). Cores
-// that don't provide them degrade gracefully — list accessors run classic
-// mapArray, compiled bodies run the dual-phase effect.
-const driveList = undefined;
-const patchableRaw = undefined;
-const registerPatch = undefined;
+// Patch-mode list driver seam (pay-for-use): the driver lives in
+// ./patch-driver.ts, which is retained ONLY by compiled patch-mode output
+// (its `patchDriver`/`rowProof` imports) and installs itself here at module
+// evaluation. Classic apps retain nothing but this undefined check.
+export let listDriver:
+  | ((parent: Node, listFn: any, marker?: Node, lateClassic?: () => void) => boolean)
+  | undefined;
+export function installListDriver(driver: typeof listDriver): void {
+  listDriver = driver;
+}
+
 import reconcileArrays from "./reconcile.js";
 import { DOMWithState } from "./constants.js";
 import {
@@ -680,17 +687,7 @@ export function ref(fn, element) {
   runWithOwner(null, () => applyRef(resolved, element));
 }
 
-// Compile-time row proof (DESIGN-PATCH-CHANNEL §3c): the compiler wraps row
-// functions it PROVED pure — single compiled template, no reactive or owned
-// work, patches only on the row parameter — and the patch-mode list driver
-// engages only for stamped rows. `Symbol.for` so the stamp survives
-// duplicated module instances (compiled app code and the driver's core may
-// resolve different copies of this runtime).
-const PURE_ROW = Symbol.for("solid.pure-row");
-export function rowProof(fn) {
-  fn[PURE_ROW] = true;
-  return fn;
-} /** Compiler-emitted primitive; not for hand-written code. @internal */
+/** Compiler-emitted primitive; not for hand-written code. @internal */
 export function scope<T extends () => any>(fn: T): T;
 
 // Compiler tag for holes that can allocate hydration ids: the outer insert
@@ -791,32 +788,7 @@ function stripTextSeparators(nodes) {
   return nodes;
 }
 
-// Patch-mode dual driver: compiled template scopes whose bindings are pure
-// member reads of ONE subject hand a single compiled body
-// `(next, prev, force) => { compares + writes }` here.
-// - Patchable record (core provides the seams): the initial force-apply
-//   reads the raw backing, then the core's own visibility transitions
-//   dispatch the body through its patch channel. Under hydration the
-//   registration alone arms the record — server HTML already carries
-//   current values, so the initial apply is skipped.
-// - Anything else (props, derived objects, unaware cores): a dual-phase
-//   effect runs the same body — the compute pass calls it with
-//   next === prev so every compare fails and it becomes a pure tracked
-//   read; the commit pass force-applies, keeping DOM writes in the effect
-//   phase where transitions and batching expect them.
-export function patchDriver(subject, body) {
-  const raw =
-    patchableRaw !== undefined && registerPatch !== undefined ? patchableRaw(subject) : undefined;
-  if (raw !== undefined) {
-    if (!sharedConfig.hydrating) body(raw, undefined, true);
-    registerPatch(subject, body);
-  } else {
-    effect(
-      () => body(subject, subject, false),
-      () => body(subject, undefined, true)
-    );
-  }
-} /**
+/**
  * Compiler-emitted primitive; not for hand-written code.
  * @internal
  */
@@ -853,11 +825,11 @@ export function insert(parent, accessor, marker, initial, options) {
   // derived array, a shallow<->deep kind switch) — the driver clears the
   // region and re-enters this insert with a bare accessor (no `$ll` marker)
   // under the ORIGINAL owner.
-  if (driveList !== undefined && typeof accessor === "function" && accessor.$ll !== undefined) {
+  if (listDriver !== undefined && typeof accessor === "function" && accessor.$ll !== undefined) {
     const listAccessor = accessor;
     const owner = getOwner();
     if (
-      driveList(parent, accessor, marker, () =>
+      listDriver(parent, accessor, marker, () =>
         runWithOwner(owner, () =>
           insert(
             parent,

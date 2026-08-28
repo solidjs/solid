@@ -67,7 +67,10 @@ module.exports = [
     // companion-walk gate (#3038, debc22b9), and the #3042/#3043 transition
     // fixes. Verified the prod chunks carry no dev diagnostics — this is
     // the batch's real retained cost, accepted for its runtime wins.
-    limit: "7.85 KB",
+    // Re-audit-5 hardening ripple (2026-08-27): the mergeTransitionState
+    // stash move + stamp retarget and the dispatch snapshot marks are
+    // core-retained — a few dozen brotli bytes on every scenario.
+    limit: "7.9 KB",
     modifyEsbuildConfig
   },
   {
@@ -130,12 +133,29 @@ module.exports = [
     // (see treeshake.test.ts) — an injection-table split was measured and
     // came out LARGER under brotli (indirection adds unique tokens).
     //
-    // Fold scheduling (#3089): 13.5 -> 13.6 KB, measured at 13.54. The always-
-    // arm in queueFold (the size-gated arm stranded later folds), the write-
-    // time transition stamp (foldBatches WeakMap + ensurePB stamp), and the
-    // drain's defer check. All load-bearing correctness on paths createStore
-    // always retains; golfing measured single-digit bytes.
-    limit: "13.6 KB",
+    // Stage-2 patch channel: 13.5 -> 14.1 KB (measured 13.71 pre-#3074, ~13.8
+    // with the held-view bytes). The channel itself is pay-for-use (emitters
+    // ride hooks installed at first registration — patch-hooks.ts — and
+    // shake out of this scenario); the ~490 B here are the write-path SEAMS
+    // that must live on always-retained trap/walk/fold code: the `pc`
+    // extension + guards at every emission site, the setter-channel row-ops
+    // branch in drainFolds, and the fold-commit family emission. Compare the
+    // app-floor scenarios below, which carry only the ~100 B insert seam.
+    //
+    // Re-audit-2 correctness batch + upstream drift: 14.1 -> 14.35 KB
+    // (measured 14.31). Occurrence-aware key matching (adoption window +
+    // buildRowOps queues, SameValueZero everywhere keys compare), the
+    // same-batch coalescing stamp (pc.qa/ql + pushSelf), adoption-seam
+    // accessor demotion gates, and unhandled-halt parity; the rest is
+    // upstream core drift (#3082's visibility gate, the shared notifier,
+    // #3078's dormancy sweep) since the 14.1 ratchet.
+    //
+    // Fold scheduling (#3089, merged from next): 14.35 -> 14.45 KB. The
+    // always-arm in queueFold (the size-gated arm stranded later folds), the
+    // write-time transition stamp (foldBatches WeakMap + ensurePB stamp), and
+    // the drain's defer check — ~40 B measured on the pre-stage-2 base. All
+    // load-bearing correctness on paths createStore always retains.
+    limit: "14.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -180,8 +200,16 @@ module.exports = [
     // the app growth across all four app scenarios tracks the signals
     // scenarios byte-for-byte (the linked dom-expressions runtime updates
     // contributed ~nothing to the client bundles).
+    //
+    // Upstream drift ratchet (2026-08-27): the shared effect notifier's
+    // always-retained core bytes ate the last headroom (measured 10.56).
+    // +50 B of cap, not a feature.
+    //
+    // next merge (2026-08-28): 10.6 -> 10.65 KB, measured at 10.61 — the
+    // branch's insert seam plus next's post-cap drift summing in the same
+    // floor.
     path: "minimal-app.js",
-    limit: "10.55 KB",
+    limit: "10.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -217,7 +245,14 @@ module.exports = [
     // point every hydrating app retains and cannot shake. Golfing measured
     // ~1 B; the bytes are the fix's real cost.
     path: "hydrating-app.js",
-    limit: "17.4 KB",
+    // Upstream drift ratchet (2026-08-27): shared effect notifier (+core)
+    // and #3057 invoke's client surface since the 17.25 cap (measured
+    // 17.38). Drift, not a stage-2 feature.
+    //
+    // next merge (2026-08-28): 17.45 -> 17.55 KB, measured at 17.48 — the
+    // useHead prelude relocation (#3081, ~120 B in hydrate(), see its note)
+    // arriving from next on top of the drift-ratcheted floor.
+    limit: "17.55 KB",
     modifyEsbuildConfig
   },
   {
@@ -253,10 +288,17 @@ module.exports = [
     // -127 B/node heap and -15% effect creation (the per-effect NodeExtension
     // allocation it removes). The other floors absorbed it within headroom.
     //
-    // Fold scheduling (#3089): 24.9 -> 25 KB, measured at 24.91 — the same
+    // Stage-2 patch channel: 24.9 -> 25.9 KB (measured 25.23 pre-#3074,
+    // pre-notifier) — the createStore write-path seams (~490 B, see that
+    // note) plus this scenario's optimistic/projection family emission seams
+    // and the web runtime's ~100 B insert hook. The driver + emitters
+    // themselves are pay-for-use and absent here (no compiled patch output
+    // imports them).
+    //
+    // Fold scheduling (#3089, merged from next): 25.9 -> 26 KB — the same
     // bytes as the createStore note (this scenario retains all of it).
     path: "hydrating-store-app.js",
-    limit: "25 KB",
+    limit: "26 KB",
     modifyEsbuildConfig
   },
   {
@@ -275,7 +317,37 @@ module.exports = [
     // Stage-3 batch (pre-release ratchet): 12.3 -> 12.8 KB, measured at
     // 12.53 — the signals-core bytes (see the core-floor note).
     path: "csr-app.js",
-    limit: "12.8 KB",
+    limit: "12.9 KB",
+    modifyEsbuildConfig
+  },
+  {
+    name: "app: CSR flip preview — + patchDriver (non-list patch templates)",
+    // What patch-mode DEFAULT-ON adds to ~every app: nearly any real
+    // template has one eligible pure member-read binding, so the compiler
+    // emits at least one patchDriver call — retaining the dual driver and
+    // the store channel's value-tier machinery: registration, the apply
+    // queue/drains, error routing, and the demotion path (~1.5 KB brotli
+    // over the classic app). NOT here: the list driver (only rowProof arms
+    // the insert seam) and the row-ops emitters + reconcile diff builders
+    // (row hooks arm only from list registrations).
+    path: "csr-app-patch.js",
+    limit: "14.6 KB",
+    modifyEsbuildConfig
+  },
+  {
+    name: "app: CSR flip preview — + rowProof (patch-mode list driver)",
+    // The full flip cost: a compiled patch-mode list row (rowProof) arms
+    // the insert seam and retains the list driver plus the row-hooks tier
+    // (row-ops/slot emitters + reconcile's keyed/identity diff builders) —
+    // ~2.1 KB over the patchDriver floor, ~3.6 KB over classic. Paid
+    // exactly by apps with driver-eligible store lists — the tier the
+    // dbmon-class wins accrue to.
+    //
+    // Re-audit-3 hardening: 16.65 -> 16.75 KB (measured 16.69) — the
+    // driver's failed-apply resync flag + partial-registration severing and
+    // the coalescing entry updates ride this tier.
+    path: "csr-app-patch-lists.js",
+    limit: "16.9 KB",
     modifyEsbuildConfig
   },
   {
