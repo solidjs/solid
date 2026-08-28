@@ -296,9 +296,8 @@ describe("server-function extension surface (built bundles)", () => {
     configureServerFunctionsClient({
       prepareRequest: init => ({
         ...init,
+        // a stream body needs `duplex`, which the DOM lib's RequestInit omits
         body: new Blob(["streamed"]).stream(),
-        // @ts-expect-error — duplex is required for a stream body and absent
-        // from the DOM lib's RequestInit
         duplex: "half"
       }),
       fetch: (address, init) => send(address, init)
