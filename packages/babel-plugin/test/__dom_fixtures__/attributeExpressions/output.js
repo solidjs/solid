@@ -2,6 +2,7 @@ import { template as _$template } from "r-dom";
 import { delegateEvents as _$delegateEvents } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { applyRef as _$applyRef } from "r-dom";
+import { patchDriver as _$patchDriver } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { memo as _$memo } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
@@ -376,32 +377,26 @@ const template32 = _tmpl$4();
 const template33 = [
   (() => {
     var _el$43 = _tmpl$19();
-    _$effect(
-      () => styles.button,
-      (_v$, _$p) => {
-        _$className(_el$43, _v$, _$p);
-      }
-    );
+    _$patchDriver(styles, (_n$, _p$, _f$) => {
+      const _v$ = _n$.button;
+      if (_f$ || _v$ !== _p$.button) _$className(_el$43, _v$);
+    });
     return _el$43;
   })(),
   (() => {
     var _el$44 = _tmpl$19();
-    _$effect(
-      () => styles["foo--bar"],
-      (_v$, _$p) => {
-        _$className(_el$44, _v$, _$p);
-      }
-    );
+    _$patchDriver(styles, (_n$, _p$, _f$) => {
+      const _v$ = _n$["foo--bar"];
+      if (_f$ || _v$ !== _p$["foo--bar"]) _$className(_el$44, _v$);
+    });
     return _el$44;
   })(),
   (() => {
     var _el$45 = _tmpl$19();
-    _$effect(
-      () => styles.foo.bar,
-      (_v$, _$p) => {
-        _$className(_el$45, _v$, _$p);
-      }
-    );
+    _$patchDriver(styles, (_n$, _p$, _f$) => {
+      const _v$ = _n$.foo.bar;
+      if (_f$ || _v$ !== _p$.foo.bar) _$className(_el$45, _v$);
+    });
     return _el$45;
   })(),
   (() => {
@@ -655,12 +650,10 @@ var _el$100 = _tmpl$4();
 _$style(_el$100, /* @static */ styleProp.style);
 const template85 = _el$100;
 var _el$101 = _tmpl$4();
-_$effect(
-  () => styleProp.style,
-  (_v$, _$p) => {
-    _$style(_el$101, _v$, _$p);
-  }
-);
+_$patchDriver(styleProp, (_n$, _p$, _f$) => {
+  const _v$ = _n$.style;
+  if (_f$ || _v$ !== _p$.style) _$style(_el$101, _v$);
+});
 const template86 = _el$101;
 const style = {
   background: "red",

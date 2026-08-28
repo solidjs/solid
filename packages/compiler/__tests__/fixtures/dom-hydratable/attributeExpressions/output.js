@@ -4,6 +4,7 @@ import { getNextMarker as _$getNextMarker } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { scope as _$scope } from "r-dom";
 import { memo as _$memo } from "r-dom";
+import { patchDriver as _$patchDriver } from "r-dom";
 import { spread as _$spread } from "r-dom";
 import { mergeProps as _$mergeProps } from "r-dom";
 import { ref as _$ref } from "r-dom";
@@ -307,22 +308,25 @@ const template32 = _$getNextElement(_tmpl$4);
 const template33 = [
 	(() => {
 		var _el$51 = _$getNextElement(_tmpl$21);
-		_$effect(() => styles.button, (_v$, _$p) => {
-			_$className(_el$51, _v$, _$p);
+		_$patchDriver(styles, (_n$, _p$, _f$) => {
+			const _v$ = _n$.button;
+			if (_f$ || _v$ !== _p$.button) _$className(_el$51, _v$);
 		});
 		return _el$51;
 	})(),
 	(() => {
 		var _el$52 = _$getNextElement(_tmpl$21);
-		_$effect(() => styles["foo--bar"], (_v$, _$p) => {
-			_$className(_el$52, _v$, _$p);
+		_$patchDriver(styles, (_n$, _p$, _f$) => {
+			const _v$ = _n$["foo--bar"];
+			if (_f$ || _v$ !== _p$["foo--bar"]) _$className(_el$52, _v$);
 		});
 		return _el$52;
 	})(),
 	(() => {
 		var _el$53 = _$getNextElement(_tmpl$21);
-		_$effect(() => styles.foo.bar, (_v$, _$p) => {
-			_$className(_el$53, _v$, _$p);
+		_$patchDriver(styles, (_n$, _p$, _f$) => {
+			const _v$ = _n$.foo.bar;
+			if (_f$ || _v$ !== _p$.foo.bar) _$className(_el$53, _v$);
 		});
 		return _el$53;
 	})(),
@@ -550,8 +554,9 @@ _$style(
 );
 const template85 = _el$108;
 var _el$109 = _$getNextElement(_tmpl$4);
-_$effect(() => styleProp.style, (_v$, _$p) => {
-	_$style(_el$109, _v$, _$p);
+_$patchDriver(styleProp, (_n$, _p$, _f$) => {
+	const _v$ = _n$.style;
+	if (_f$ || _v$ !== _p$.style) _$style(_el$109, _v$);
 });
 const template86 = _el$109;
 const style = {

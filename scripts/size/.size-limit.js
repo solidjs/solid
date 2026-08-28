@@ -71,24 +71,11 @@ module.exports = [
     // stash move + stamp retarget and the dispatch snapshot marks are
     // core-retained — a few dozen brotli bytes on every scenario.
     //
-    // #3122 eager iterator teardown (2026-08-31): 7.9 -> 7.91 KB, measured
-    // at 7.903. The _flightTeardown release sits on recompute's supersede
-    // path, which the core loop always retains. Conscious bump — see the
-    // in-package treeshake budget note.
-    //
-    // #3164 fold ruling (2026-08-31): 7.91 -> 7.95 KB, measured at 7.94.
-    // read()'s A17-for-held-truth arm (fold-staged truth masked from
-    // ordinary readers under a live optimism-retaining transition) plus the
-    // GlobalQueue._heldTruthMasked hook slot. The mask's ledger and the
-    // transition-optimism probe live in the optimistic module behind the
-    // hook — the floor pays only the guarded call site.
-    //
-    // Fold relocation pass (2026-09-01): 7.95 -> 7.94 KB, measured at 7.93.
-    // heldTruthNodes + transitionHoldsOptimism moved from scheduler.ts into
-    // the optimistic module, and read()'s latest()/authoritative-read
-    // exemptions moved inside the hook (which now takes the observer) —
-    // the floor keeps only `config-gate && hook?.(el, c)`.
-    limit: "7.94 KB",
+    // Re-audit-6 (2026-08-28): same-channel merge coalescing in
+    // mergeTransitionState (both stashes holding the same record's entry
+    // now collapse to one live-resolving entry). Core-retained; measured
+    // 7.91.
+    limit: "7.95 KB",
     modifyEsbuildConfig
   },
   {
@@ -174,22 +161,10 @@ module.exports = [
     // the drain's defer check — ~40 B measured on the pre-stage-2 base. All
     // load-bearing correctness on paths createStore always retains.
     //
-    // #3122/#3123 correctness batch (2026-08-31): 14.45 -> 14.51 KB,
-    // measured at 14.503. The #3122 teardown core bytes plus the store-walk
-    // exports (arrayStructureChanged/membershipChanged) the landing-
-    // contradiction gate reads; the replay machinery itself stays in the
-    // optimistic module (see the store-family app scenario).
-    //
-    // #3164 fold ruling (2026-08-31): 14.51 -> 14.56 KB, measured at 14.55.
-    // The core-floor arm (see that note) plus the held-truth mask SEAMS on
-    // always-retained store paths: nodeValue's guarded _heldTruthMasked
-    // call, readSource's optHooks.retainsOptimism dispatch, and the
-    // tentativePBs draft-session guard in ensurePB. The mask bodies
-    // themselves ride the optimistic module (see the store-family app
-    // scenario).
-    //
-    // Fold relocation pass (2026-09-01): 14.56 -> 14.55 KB, measured at
-    // 14.54 — the core-floor relocation (see that note).
+    // Re-audit-6 (2026-08-28): merge coalescing (core, see the core-floor
+    // note) plus the prod-sound getter-demotion seams — accessed-key union
+    // on the channel (pc.ak) and the targetKeysPlain bounded probe at both
+    // adoption emission sites, replacing the dev-only check. Measured 14.46.
     limit: "14.55 KB",
     modifyEsbuildConfig
   },
@@ -218,27 +193,9 @@ module.exports = [
     // companion mid-transition backfill, which lives in the optimistic
     // module this scenario retains via latest().
     //
-    // rc.5 signals drift (2026-08-30): 9.85 -> 9.9 KB, measured at 9.87.
-    // The #3108 truth-author authoritative-read fix (88fa9d64) lives in the
-    // optimistic module this scenario retains via latest(), and the
-    // refresh() quiescence promise (51ffcb9a) leaves marks on the settle
-    // walk. Drift, not a regression.
-    //
-    // #3104/#3122 correctness batch (2026-08-31): 9.9 -> 9.94 KB, measured
-    // at 9.932. The latest()/collectPending probe-suspension symmetry
-    // (#3104) lives in the verdict layer this scenario exists to measure;
-    // the rest is the #3122 teardown core bytes.
-    //
-    // #3164/#3166 batch (2026-08-31): 9.94 -> 9.99 KB, measured at 9.98.
-    // The core-floor fold arm (see that note), asyncWrite's authoritative-
-    // observer wake (#3164 signal path: a landing staged under an active
-    // override must wake until()'s predicate or it deadlocks), and the
-    // mid-flight latest(isPending()) probe fix (#3166) in the verdict
-    // layer this scenario retains.
-    //
-    // Fold relocation pass (2026-09-01): 9.99 -> 9.98 KB, measured at 9.97
-    // — the core-floor relocation (see that note).
-    limit: "9.98 KB",
+    // Re-audit-6 (2026-08-28): merge coalescing (core) — this scenario had
+    // ~no headroom left after the audit-5 ripple. Measured 9.93.
+    limit: "10 KB",
     modifyEsbuildConfig
   },
   {
@@ -265,17 +222,9 @@ module.exports = [
     // branch's insert seam plus next's post-cap drift summing in the same
     // floor.
     //
-    // rc.5 signals drift (2026-08-30): 10.65 -> 10.7 KB, measured at 10.66.
-    // The refresh() quiescence promise's settle-walk bytes (51ffcb9a) are
-    // core-retained, so every app floor pays them. Drift, not a regression.
-    //
-    // #3164 fold ruling (2026-08-31): 10.7 -> 10.73 KB, measured at 10.72
-    // — the signals core-floor arm + asyncWrite wake (see those notes).
-    //
-    // Fold relocation pass (2026-09-01): 10.73 -> 10.72 KB, measured at
-    // 10.71 — the core-floor relocation (see that note).
+    // Re-audit-6 (2026-08-28): merge coalescing (core). Measured 10.70.
     path: "minimal-app.js",
-    limit: "10.72 KB",
+    limit: "10.75 KB",
     modifyEsbuildConfig
   },
   {
@@ -319,13 +268,8 @@ module.exports = [
     // useHead prelude relocation (#3081, ~120 B in hydrate(), see its note)
     // arriving from next on top of the drift-ratcheted floor.
     //
-    // #3164 fold ruling (2026-08-31): 17.55 -> 17.6 KB, measured at 17.59
-    // — the signals core-floor arm + asyncWrite wake (see those notes).
-    //
-    // Fold relocation pass (2026-09-01): 17.6 -> 17.56 KB, measured at
-    // 17.54 — this bundle's import graph retained the scheduler-resident
-    // ledger; the relocation lets it shake.
-    limit: "17.56 KB",
+    // Re-audit-6 (2026-08-28): merge coalescing (core). Measured 17.56.
+    limit: "17.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -371,32 +315,11 @@ module.exports = [
     // Fold scheduling (#3089, merged from next): 25.9 -> 26 KB — the same
     // bytes as the createStore note (this scenario retains all of it).
     //
-    // rc.5 signals drift (2026-08-30): 26 -> 26.1 KB, measured at 26.07.
-    // The #3108 truth-author fix (88fa9d64, optimistic module) plus the
-    // refresh() quiescence promise (51ffcb9a, settle walk) — this scenario
-    // retains every store family, so it pays both. Drift, not a regression.
-    //
-    // Transaction-lifecycle fixes (2026-08-31): 26.1 -> 26.15 KB, measured at
-    // 26.12. #3141 (initTransition guarantees a flush) and #3140 (commit
-    // clears _transition stamps; initTransition refuses a done transaction)
-    // — ~25 B of scheduler prod code for an ambient-capture fix and a
-    // prod-hang fix. The other nine budgets absorbed it within headroom.
-    //
-    // #3123/#3164 fold ruling (2026-08-31): 26.15 -> 26.71 KB, measured at
-    // 26.70. The optimistic-store reckoning, re-ruled from replay to FOLD
-    // after GabbeV's union-tear report (#3164): the interim #3123 replay
-    // machinery (retained-setter replay, echo dedupe, settle re-derivation,
-    // ~26.535 measured) was backed out and replaced by landing folds —
-    // truth landings stage into the retaining transaction
-    // (runAsTransitionBatch), held-truth masks keep ordinary readers on
-    // committed until the atomic reveal (heldTruthNodes ledger +
-    // transitionHoldsOptimism, dispatched through _heldTruthMasked /
-    // optHooks.retainsOptimism), until()/latest() tunnel through, and the
-    // revert path resyncs overlaid keysets for mapArray. This scenario
-    // retains every store family, so it pays the whole module. Ruled
-    // correctness-over-size in the #3164 thread; conscious bump.
+    // Re-audit-6 (2026-08-28): merge coalescing (core) + the getter-
+    // demotion recording/probe seams (see the createStore note; this
+    // scenario retains the store engine). Measured 26.13.
     path: "hydrating-store-app.js",
-    limit: "26.71 KB",
+    limit: "26.25 KB",
     modifyEsbuildConfig
   },
   {
@@ -414,23 +337,16 @@ module.exports = [
     //
     // Stage-3 batch (pre-release ratchet): 12.3 -> 12.8 KB, measured at
     // 12.53 — the signals-core bytes (see the core-floor note).
-    //
-    // #3122 eager iterator teardown (2026-08-31): 12.9 -> 12.92 KB,
-    // measured at 12.911 — the core-floor teardown bytes (see that note).
-    //
-    // #3164 fold ruling (2026-08-31): 12.92 -> 12.94 KB, measured at 12.93
-    // — the signals core-floor arm + asyncWrite wake (see those notes).
-    //
-    // Fold relocation pass (2026-09-01): 12.94 -> 12.95 KB, measured at
-    // 12.948. The one counter-mover: this bundle never retained the
-    // scheduler-resident ledger (nothing to shake), so it pays only the
-    // hook call site's second argument plus brotli layout drift.
     path: "csr-app.js",
-    limit: "12.95 KB",
+    limit: "12.9 KB",
     modifyEsbuildConfig
   },
   {
-    name: "app: CSR flip preview — + patchDriver (non-list patch templates)",
+    name: "app: CSR default-on — + patchDriver (non-list patch templates)",
+    // FLIP LANDED (2026-08-28): patch mode is the compiler default in both
+    // Babel and Oxc; this is no longer a preview, it's what ~every app
+    // ships. Opt out: patchDriver: false.
+    //
     // What patch-mode DEFAULT-ON adds to ~every app: nearly any real
     // template has one eligible pure member-read binding, so the compiler
     // emits at least one patchDriver call — retaining the dual driver and
@@ -440,22 +356,18 @@ module.exports = [
     // the insert seam) and the row-ops emitters + reconcile diff builders
     // (row hooks arm only from list registrations).
     //
-    // rc.5 signals drift (2026-08-30): 14.6 -> 14.65 KB, measured at 14.61
-    // — the same core-retained quiescence bytes as the simple-app floor.
-    //
-    // #3164 fold ruling (2026-08-31): 14.65 -> 14.69 KB, measured at 14.68
-    // — the core-floor arm + asyncWrite wake plus the store-seam bytes
-    // (see the createStore note; the value-tier machinery this scenario
-    // retains carries the nodeValue mask seam).
-    //
-    // Fold relocation pass (2026-09-01): 14.69 -> 14.68 KB, measured at
-    // 14.67 — the core-floor relocation (see that note).
+    // Re-audit-6 (2026-08-28): the value-tier share of the hardening —
+    // key recording at registration (the recording proxy in patchDriver's
+    // initial apply + first-drain recording), applyStructural's live-list
+    // dispatch, and the merge coalescing core bytes. Measured 14.91.
     path: "csr-app-patch.js",
-    limit: "14.68 KB",
+    limit: "15 KB",
     modifyEsbuildConfig
   },
   {
-    name: "app: CSR flip preview — + rowProof (patch-mode list driver)",
+    name: "app: CSR default-on — + rowProof (patch-mode list driver)",
+    // FLIP LANDED (2026-08-28) — see the patchDriver scenario note.
+    //
     // The full flip cost: a compiled patch-mode list row (rowProof) arms
     // the insert seam and retains the list driver plus the row-hooks tier
     // (row-ops/slot emitters + reconcile's keyed/identity diff builders) —
@@ -467,16 +379,13 @@ module.exports = [
     // driver's failed-apply resync flag + partial-registration severing and
     // the coalescing entry updates ride this tier.
     //
-    // #3122 eager iterator teardown (2026-08-31): 16.9 -> 16.92 KB,
-    // measured at 16.901 — the core-floor teardown bytes (see that note).
-    //
-    // #3164 fold ruling (2026-08-31): 16.92 -> 16.94 KB, measured at 16.93
-    // — the same bytes as the patchDriver scenario (see that note).
-    //
-    // Fold relocation pass (2026-09-01): 16.94 -> 16.91 KB, measured at
-    // 16.90 — retained-ledger shake, same as the hydrating no-store note.
+    // Re-audit-6 (2026-08-28): the list-tier share of the hardening —
+    // initial-construction sever-on-throw (client + hydration), ACTIVE
+    // failed-apply resync on slot ticks, structural queue u-mark dispatch,
+    // occurrence-aware identityOps — plus the value-tier bytes above.
+    // Measured 17.20.
     path: "csr-app-patch-lists.js",
-    limit: "16.91 KB",
+    limit: "17.35 KB",
     modifyEsbuildConfig
   },
   {

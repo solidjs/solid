@@ -23,14 +23,12 @@ export interface PluginConfig {
   contextToCustomElements: boolean;
   staticMarker: string;
   effectWrapper: string | false;
-  /** Patch-mode driver import name (DESIGN-PATCH-CHANNEL.md): when set,
-   * template scopes whose dynamic bindings are pure member reads of one
-   * subject compile to a compiled patch body + driver call instead of the
-   * grouped effect. DORMANT (off) by default while the patch channel
-   * completes on its stage-2 branch (extraction ruling, solid DESIGN §16):
-   * compiled output must not import driver exports the release core only
-   * stubs. Set to the driver's export name (e.g. "patchDriver") to opt a
-   * build in against a channel-bearing core. */
+  /**
+   * Patch-mode dual driver import name — DEFAULT-ON (`"patchDriver"`): every
+   * eligible template compiles to the store patch channel; the runtime falls
+   * back to classic effects per subject at runtime. Set `false` to compile
+   * fully classic output.
+   */
   patchDriver: string | boolean;
   memoWrapper: string | false;
   validate: boolean;
@@ -67,7 +65,7 @@ const config: PluginConfig = {
   contextToCustomElements: true,
   staticMarker: "@static",
   effectWrapper: "effect",
-  patchDriver: false,
+  patchDriver: "patchDriver",
   memoWrapper: "memo",
   validate: true,
   inlineStyles: true,

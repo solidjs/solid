@@ -73,10 +73,11 @@ const modes = {
       requireImportSource: false
     }
   },
-  // Patch-mode parity (re-audit blocker 6): the SAME dom corpus with the
-  // dual driver on — patch grammar (wrapPatchMode/rowProof stamping) must
-  // stay byte-identical across backends, ratcheted like every other mode.
-  "dom-patch": {
+  // Classic-output parity: patch mode is DEFAULT-ON, so the plain `dom`
+  // mode covers the patch grammar; this tier fences the EXPLICIT OPT-OUT
+  // (patchDriver: false) — fully classic output must stay byte-identical
+  // across backends too.
+  "dom-nopatch": {
     fixtureDir: "__dom_fixtures__",
     options: {
       moduleName: "r-dom",
@@ -84,7 +85,7 @@ const modes = {
       wrapConditionals: true,
       contextToCustomElements: true,
       requireImportSource: false,
-      patchDriver: "patchDriver"
+      patchDriver: false
     }
   },
   "dom-hydratable": {
@@ -200,7 +201,7 @@ function readFixtureSource(mode, fixture) {
 // Same parser-blocked subset carve-out as babel-fixtures.test.js: Oxc cannot
 // parse hyphenated JSX member segments (`<module.a-b />`).
 function supportedSubset(mode, fixture, source) {
-  if ((mode === "dom" || mode === "dom-patch") && fixture === "namespaceElements") {
+  if ((mode === "dom" || mode === "dom-nopatch") && fixture === "namespaceElements") {
     return [
       source.slice(source.indexOf("const template ="), source.indexOf("const template4")),
       source.slice(source.indexOf("const template6"))
@@ -210,8 +211,8 @@ function supportedSubset(mode, fixture, source) {
 }
 
 function compileBabel(code, options) {
-  // Patch mode is DORMANT by default in both compilers; the dom-patch mode
-  // above opts in explicitly so parity covers the patch grammar too.
+  // Patch mode is DEFAULT-ON in both compilers (the dom modes cover the
+  // patch grammar); dom-nopatch fences the explicit opt-out.
   return babel.transformSync(code, {
     babelrc: false,
     configFile: false,
