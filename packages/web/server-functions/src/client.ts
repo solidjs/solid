@@ -348,7 +348,7 @@ export function configureServerFunctionsClient({
 } = {}) {
   if (endpoint !== undefined) config.endpoint = endpoint;
   if (codec !== undefined) configureServerFunctionsCodec(codec);
-  if (fetch !== undefined) config.fetch = fetch || undefined;
+  if (fetch !== undefined) config.fetch = fetch;
   if (prepareRequest !== undefined) config.prepareRequest = prepareRequest;
   if (responseHandler !== undefined) config.responseHandler = responseHandler;
   if (serializeArgs !== undefined) config.serializeArgs = serializeArgs;

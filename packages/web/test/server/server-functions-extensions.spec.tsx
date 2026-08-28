@@ -289,31 +289,26 @@ describe("server-function extension surface (built bundles)", () => {
     }
   });
 
-  it("keeps observers out of the call's way", async () => {
-    registerServerFunction(
-      "ext-fetch-6",
-      async (value: unknown) => (value as any)?.constructor?.name ?? "none"
-    );
+  it("does not consume a streaming body to show it to observers", async () => {
+    registerServerFunction("ext-fetch-7", async (value: unknown) => String(value));
     const restore = connectTransport();
     const send = globalThis.fetch;
-    let seenBody: unknown;
     configureServerFunctionsClient({
-      fetch: (address, init) => {
-        seenBody = init.body;
-        return send(address, init);
-      }
+      prepareRequest: init => ({
+        ...init,
+        body: new Blob(["streamed"]).stream(),
+        // @ts-expect-error — duplex is required for a stream body and absent
+        // from the DOM lib's RequestInit
+        duplex: "half"
+      }),
+      fetch: (address, init) => send(address, init)
     });
     const stop = observeServerFunctionCalls(() => {});
     try {
-      // the observed request is reconstructed from the same init, so it must
-      // not consume what the send is about to use
-      const body = new FormData();
-      body.set("k", "v");
-      expect(await createServerReference("ext-fetch-6")(body)).toBe("FormData");
-      expect(seenBody).toBe(body);
+      expect(await createServerReference("ext-fetch-7")("ignored")).toBe("streamed");
     } finally {
       stop();
-      configureServerFunctionsClient({ fetch: null });
+      configureServerFunctionsClient({ prepareRequest: null as any, fetch: null });
       restore();
     }
   });
