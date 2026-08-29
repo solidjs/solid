@@ -1199,7 +1199,11 @@ function mergeResponseHeaders(target, source) {
 // middleware early return leaves through the same fold this handler's
 // responses do), so the gap-fill/denylist semantics cannot drift.
 
-// https://developer.mozilla.org/en-US/docs/Web/HTTP/Status#redirection_messages
+// The statuses fetch treats as redirects and follows (Fetch §2.2.3,
+// https://fetch.spec.whatwg.org/#redirect-status). Doing double duty: the
+// statuses the no-JS handler may answer a form post with, and the exact set
+// the dispatch masks to 200 + Location for scripted callers — the rest of
+// the 3xx band (304 notably) is never followed by fetch and forwards as-is.
 const validRedirectStatuses = new Set([301, 302, 303, 307, 308]); /**
  * Builds the `handleNoJS` implementation for the no-JS form convention: a
  * form posted without the client runtime has no way to receive a value, so
@@ -1981,7 +1985,19 @@ export async function handleServerFunctionRequest(request, options = {}) {
         if (response && response.headers) {
           mergeResponseHeaders(headers, response.headers);
         }
-        if (response && response.status && (response.status < 300 || response.status >= 400)) {
+        // Forward the status — except the statuses fetch FOLLOWS, for
+        // scripted callers: the transport would never see the 3xx (and
+        // `redirect: "manual"` yields an opaque response with the Location
+        // unreadable), so redirect intent travels masked, as 200 + Location
+        // metadata for the client integration to act on. Only the followable
+        // set masks (see validRedirectStatuses) — a 304 is not a redirect
+        // and is the natural answer for a conditional read (#3096) — and
+        // unscripted callers always get real HTTP.
+        if (
+          response &&
+          response.status &&
+          (!instance || !validRedirectStatuses.has(response.status))
+        ) {
           status = response.status;
         }
         metadata = response;
@@ -1994,9 +2010,10 @@ export async function handleServerFunctionRequest(request, options = {}) {
           if (result.headers) {
             mergeResponseHeaders(headers, result.headers);
           }
-          // forward non-redirect statuses (redirect handling is the client
-          // integration's job — the fetch call must not follow it)
-          if (result.status && (result.status < 300 || result.status >= 400)) {
+          // forward statuses fetch would not follow (redirect handling is
+          // the client integration's job — the fetch call must not follow
+          // it); non-redirect 3xx like 304 pass through (#3096)
+          if (result.status && !validRedirectStatuses.has(result.status)) {
             status = result.status;
           }
           metadata = result;
@@ -2027,9 +2044,16 @@ export async function handleServerFunctionRequest(request, options = {}) {
 
       // calls made without the client runtime (no-JS form posts)
       if (!instance) {
-        if (handleNoJS) return handleNoJS(result, request, parsed);
+        // `result` is an envelope's unwrapped value here, but the no-JS
+        // handler reads redirect metadata off its argument — hand it the
+        // envelope's response when the value is empty, matching what the
+        // thrown path passes (#3096: a returned redirect envelope must
+        // navigate a form post too).
+        if (handleNoJS) return handleNoJS(result ?? metadata, request, parsed);
         if (result instanceof Response) return result;
-        return encodeResult(result, headers, 200, codec, request.signal);
+        // the envelope's status forwards for unscripted callers too — this
+        // used to hardcode 200 where the thrown path forwarded it (#3096)
+        return encodeResult(result, headers, status, codec, request.signal);
       }
 
       return encodeResult(result, headers, status, codec, request.signal);
@@ -2048,7 +2072,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
           if (
             response &&
             response.status &&
-            (!instance || response.status < 300 || response.status >= 400)
+            (!instance || !validRedirectStatuses.has(response.status))
           ) {
             status = response.status;
           }
@@ -2058,7 +2082,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
           if (x.headers) {
             mergeResponseHeaders(headers, x.headers);
           }
-          if (x.status && (!instance || x.status < 300 || x.status >= 400)) {
+          if (x.status && (!instance || !validRedirectStatuses.has(x.status))) {
             status = x.status;
           }
           metadata = x;
