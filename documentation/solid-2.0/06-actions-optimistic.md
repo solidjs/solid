@@ -127,10 +127,45 @@ const addTodo = action(function* (todo) {
 });
 ```
 
+### `until()` (live-source acknowledgment)
+
+The flows above assume the mutation's own response confirms the write: await it, `refresh()`, done. Actions that feed **live sources** — sockets, subscriptions, live queries — have no such ack: the transport call returns immediately (or is fire-and-forget), and the authoritative update arrives later on the data channel. Without a hold, the action settles at the transport ack, the optimistic state reverts, and the confirmed data flickers in a beat later.
+
+`until(fn, options?)` is that hold. It returns a promise that resolves the first time the reactive predicate `fn` settles **truthy**, with that (narrowed) value. Falsy results and pending async reads both mean "not yet" — the subscription stays live and re-evaluates as sources change. Yield it from an action to hold the transaction — and every optimistic override riding it — open until the world confirms:
+
+```js
+const [messages, setMessages] = createOptimisticStore(() => liveQuery("messages"), []);
+
+const send = action(async function* (text) {
+  const clientId = crypto.randomUUID();
+  setMessages((m) => { m.push({ clientId, text, pending: true }); }); // optimistic
+  await socket.send({ clientId, text });                              // fire-and-forget
+  // Hold until the live source echoes the write:
+  yield until(() => messages.some((m) => m.clientId === clientId), { timeout: 10_000 });
+  // settle → the override drops onto data that already contains the real row
+});
+```
+
+Two properties make this sound:
+
+- **Authoritative-view reads.** Inside an action, the predicate reads the *authoritative* view, and the carve-out is exactly one layer deep: active optimistic **overrides** (and the structure they add — membership, array length, `Object.keys`) are invisible to it, so your own tentative write can never satisfy your own ack — even on the single-primitive shape above, where the optimistic store *is* the live-fed store. Everything else reads normally, **including uncommitted transition-staged data**: truth that arrives *into* the open transaction (the landing of a `refresh()` the action issued, an entangled write) stages and cannot commit until the hold releases — a predicate that refused staged reads would deadlock on the very data it is waiting for. Real data is real wherever it currently lives; only the overlay is optimism. (Derived computeds read by the predicate serve their normal cached values, so express the condition over sources of truth, not derived views of the overlay.)
+- **Level-triggered, transport-agnostic.** The predicate is a condition over state, not a listener on a channel. If the confirmation landed before you started waiting, the predicate is already true — there is no subscribe/deliver race, no message buffering, and no coupling to how truth arrives (push, refetch, another tab). Correlation stays in the predicate: a client-generated id the server echoes, or a version check like `doc.version >= saved.version`.
+
+Failure composes with action semantics. `until` rejects on a predicate error, an async source rejection, `{ timeout }` (with `TimeoutError`), or `{ signal }` abort (with the signal's reason); the rejection is thrown back into the generator at the `yield` point — catchable there, or the action fails and its optimistic state reverts. Set `timeout` whenever the confirming truth arrives over a transport that can drop; a dead socket otherwise holds the transaction forever.
+
+Practical guidance:
+
+- **Correlate by key**, not just in the predicate: give the optimistic row the same identity the confirmed row will carry (e.g. the echoed `clientId` as the store key), so the landing replaces it instead of briefly sitting next to it.
+- **Scope `affects()` narrowly** during long holds — mark the row, not the store, or every pending-driven affordance reads busy for the whole confirmation window.
+- **Any arrival path confirms.** Live-channel landings, other transactions' commits (they land beneath the hold), and refetches the action itself issued (they land *staged into* the hold, and the predicate reads staged data) all satisfy the predicate the moment they carry the confirming truth.
+
+Where `resolve(fn)` answers "what is this value" (first settled value, whatever it is), `until(fn)` answers "when does the world confirm this condition" (first *truthy* settle). They share delivery machinery; the one read-semantics difference is deliberate: `resolve` reads your own transaction's view, overrides included — it is reporting your state. `until` reads the authoritative view, overrides carved out — it is waiting on the world, and your own optimism must not be able to answer for it. Both see transition-staged data; neither can deadlock on a value the surrounding action holds.
+
 ## Migration / replacement
 
 - If you previously used ad-hoc “mutation wrappers” + manual flags, prefer consolidating the pattern into `action()` + optimistic primitives.
 - If you used `startTransition` or `useTransition` for mutation UX, those go away; actions/transitions are integrated into the runtime model, and pending UX should be expressed via `isPending`/`Loading` (RFC 05).
+- If you paired live sources with timers or manual "pending row" bookkeeping to bridge the mutation-to-subscription gap, replace the bridge with `yield until(...)` — optimistic state clears when truth lands or the hold fails, never on a timer.
 
 ## Removals
 
@@ -141,3 +176,4 @@ No direct removals; this RFC is additive. (It complements the removal of `useTra
 - AsyncContext-based mutation scope: rejected for now (not widely available/portable).
 - React-style `startTransition` wrappers: rejected in favor of built-in transitions and structured actions.
 - Manually passing in a resume function to call after await instead of using generators.
+- For live-source acknowledgment: waiting on channel *messages* (edge-triggered `waitForMessage(...)`) — rejected as racy (the ack can arrive before the wait starts), transport-coupled, and correlation-protocol-specific. Holding the *overlay* until the source's next delivery instead of holding the action — rejected because "next delivery" is not "my ack" on a busy channel, and fixing that requires a predicate anyway; it converges to `until` with worse failure semantics.

@@ -726,6 +726,7 @@ These APIs are new additions (not renames of 1.x APIs):
 - **`refresh(target)`** — explicit recomputation/invalidation of derived reads (a quiet re-ask — not pending).
 - **`affects(target, key?)`** — declare that in-flight work will change the targeted data; the marked record (or the single named slot) reads pending until the transaction settles.
 - **`resolve(fn)`** — returns a Promise that resolves when a reactive expression settles.
+- **`until(fn, options?)`** — returns a Promise that resolves the first time a reactive predicate settles truthy (with `timeout`/`signal` rejection). Yielded from an `action()`, it holds the transaction — and its optimistic state — open until arriving truth confirms the mutation (live sockets, subscriptions, live queries, or a refetch the action itself issued). The predicate reads the authoritative view: optimistic overrides are invisible (the action's own tentative writes can never satisfy it), while real data — committed or still staged in the open transaction — reads normally. See [RFC 06](06-actions-optimistic.md).
 - **`Loading` `on` prop** — controls when a Loading boundary re-shows fallback during revalidation.
 - **`deep(store)`** — deep observation of a store (tracks all nested changes).
 - **`reconcile(value, key)`** — diffing function for updating stores from new data.

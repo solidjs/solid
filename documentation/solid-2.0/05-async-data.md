@@ -130,6 +130,8 @@ const user = await resolve(() => userMemo());
 const result = await resolve(() => computedValue());
 ```
 
+Its sibling `until(fn, options?)` waits for a reactive *condition* instead of a value: it resolves the first time `fn` settles **truthy** (falsy results keep waiting), with optional `timeout`/`signal` rejection. Inside an `action()` it reads the authoritative view — optimistic overrides are invisible to it (your own tentative write cannot satisfy your own ack), while real data reads normally wherever it lives, including values still staged in the open transaction. That makes it the acknowledgment mechanism for mutations confirmed on a live data channel — see [RFC 06](06-actions-optimistic.md).
+
 ### `loadingValue` / `seedLoadingValue`: declared first paint (advanced)
 
 The primary pattern for first-load UI is structural: wrap the branch in `Loading`. This option is the escape hatch for the cases where the right loading UI *is* the real UI rendered with provisional data — a feed that renders placeholder rows through the same components it renders real rows, a chart drawn from default data, dimmed with an inline indicator. Instead of branching to a fallback tree, the computation declares what it renders before its first answer:

@@ -33,6 +33,11 @@ export interface NodeOptions<T> {
   ownedWrite?: boolean;
   /** Exclude this signal from snapshot capture (internal — not part of public API) */
   _noSnapshot?: boolean;
+  /** Extra CONFIG_* bits OR'd into the node's config at creation (internal —
+   * not part of public API). Used by resolve()/until() for
+   * CONFIG_DIRECT_COMMIT / CONFIG_AUTHORITATIVE_READ, keeping the per-flag
+   * option arms out of the core creation path. */
+  _extraConfig?: number;
   unobserved?: () => void;
   lazy?: boolean;
   sync?: boolean;

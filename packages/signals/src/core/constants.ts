@@ -61,6 +61,34 @@ export const CONFIG_CHILD_COMPANIONS = 1 << 11;
  * moved into the cold extension (§12), and an unconditional `_x` deref per
  * marked node measurably taxed the propagation hot path (diamond -22%). */
 export const CONFIG_FW_CHILDREN = 1 << 12;
+/** Authoritative-view reader (`until()`): while this node computes, reads
+ * dodge active optimistic OVERRIDES only — the predicate must observe
+ * arriving truth, never the caller's own tentative writes (which would
+ * trivially satisfy it). Everything else reads normally, INCLUDING
+ * transition-staged `_pendingValue`: staged data is authoritative (optimism
+ * lives only in override slots), and a hold that refused staged reads would
+ * deadlock on data the open transaction itself is holding (a refresh the
+ * action issued lands staged and cannot commit until the hold releases).
+ * read() checks the bit on the reading computation (`context`) directly — no
+ * ambient flag — so a shared computed the predicate pulls recomputes as
+ * itself (no bit) under the normal view, and its cache never forks. */
+export const CONFIG_AUTHORITATIVE_READ = 1 << 13;
+/** Sticky mark: an authoritative-view reader read this node PAST an active
+ * override. The ack shape — an authoritative arrival EQUAL to the override —
+ * rides paths that are deliberately silent under A17 (every ordinary reader
+ * sees the override, so an equal landing changes nothing for them). A marked
+ * node notifies those readers on such paths anyway, so the landed truth is
+ * seen without re-firing ordinary subscribers. Never cleared — only nodes an
+ * until() predicate observed mid-override pay. */
+export const CONFIG_AUTHORITATIVE_OBSERVED = 1 << 14;
+/** Promise-delivery effect (resolve()/until()): commits its computed value
+ * directly even when recomputing under its own held transition. These
+ * effects deliver applies on a microtask (#2930) instead of the stashed
+ * effect queues, so the value must ride the same immediate schedule — a
+ * staged value with an immediate apply delivers stale state (resolve) or
+ * deadlocks the hold (until). Safe because the node is a private leaf: no
+ * subscriber reads an effect's value, only its own apply does. */
+export const CONFIG_DIRECT_COMMIT = 1 << 15;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;

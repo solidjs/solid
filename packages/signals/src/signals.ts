@@ -3,14 +3,18 @@ import {
   $REFRESH,
   cleanup,
   computed,
+  TimeoutError,
+  CONFIG_AUTHORITATIVE_READ,
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_DIRECT_COMMIT,
   createRoot,
   dispose,
   effect,
   EFFECT_USER,
   getObserver,
   getOwner,
+  installAuthoritativeRead,
   NotReadyError,
   optimisticComputed,
   optimisticSignal,
@@ -740,8 +744,133 @@ export function resolve<T>(fn: () => T): Promise<T> {
           rej(err);
           dispose();
         },
-        { user: true }
+        // DIRECT_COMMIT: a source settling INTO the held transaction (e.g. a
+        // refresh this action issued) stages its landing; the effect's own
+        // recompute must not stage too, or the microtask apply reads the
+        // stale mainline value and resolves with old data.
+        { user: true, _extraConfig: CONFIG_DIRECT_COMMIT }
       );
+    });
+  });
+}
+
+/** Falsy values a truthy predicate result is narrowed against. */
+export type Truthy<T> = Exclude<T, false | 0 | 0n | "" | null | undefined>;
+
+export interface UntilOptions {
+  /** Reject with `TimeoutError` if the predicate has not turned truthy within
+   * this many milliseconds. Strongly recommended when the confirming truth
+   * arrives over a transport that can drop (sockets, subscriptions). */
+  timeout?: number;
+  /** Reject with `signal.reason` on abort. */
+  signal?: AbortSignal;
+}
+
+/**
+ * Awaits a reactive predicate and resolves the first time it settles *truthy*,
+ * with that (narrowed) value. Falsy results and pending async reads both mean
+ * "not yet": the subscription stays live and re-evaluates as sources change.
+ * If the predicate settles with an error — a throw, or an async source that
+ * rejects — the promise rejects with it, as do timeout and abort.
+ *
+ * Where {@link resolve} answers "what is this value" (first settled value,
+ * whatever it is), `until` answers "when does the world confirm this
+ * condition". The difference matters inside an `action()`: `yield until(...)`
+ * holds the action's transaction — and any optimistic state riding it — open
+ * until the condition is independently true.
+ *
+ * To make that sound, `until`'s predicate reads the AUTHORITATIVE view — and
+ * this is the one read-semantics difference from `resolve`, which reads the
+ * normal (transaction's own) view where overrides are visible:
+ *
+ * - **Optimistic overrides are invisible** to the predicate. Your own
+ *   tentative write can never satisfy your own ack, even on the
+ *   single-primitive shape where the optimistic store IS the live-fed store.
+ *   (Derived computeds serve their normal cached values — express the
+ *   condition over sources of truth, not derived views of the overlay.)
+ * - **Everything else reads normally, including uncommitted transition-staged
+ *   data.** Real data is real wherever it currently lives. This is
+ *   load-bearing, not a loophole: truth that arrives *into* the open
+ *   transaction (a `refresh()` this action issued, an entangled landing)
+ *   stages and cannot commit until the hold releases — a predicate that
+ *   refused staged reads would deadlock on the very data it is waiting for.
+ *
+ * This is the acknowledgment mechanism for mutations confirmed on a live data
+ * channel (sockets, subscriptions, live queries) rather than by the mutation's
+ * own response: correlate by a client-generated id or version in the predicate,
+ * and let truth arrive however it arrives — push, refetch, or another tab.
+ *
+ * Failure composes with action semantics: a rejection is thrown back into the
+ * generator at the `yield` point — catchable there, or the action fails and
+ * its optimistic state reverts.
+ *
+ * Must be called *outside* a tracking scope.
+ *
+ * @example
+ * ```ts
+ * const send = action(async function* (text: string) {
+ *   const clientId = crypto.randomUUID();
+ *   setMessages(m => { m.push({ clientId, text, pending: true }); }); // optimistic
+ *   await socket.send({ clientId, text }); // fire-and-forget transport
+ *   // Hold until the live source echoes the write (authoritative view —
+ *   // the optimistic row above cannot satisfy this):
+ *   yield until(() => messages.some(m => m.clientId === clientId), { timeout: 10_000 });
+ * });
+ * ```
+ *
+ * @param fn a reactive predicate over authoritative state
+ * @param options optional `timeout` (ms) and abort `signal`
+ */
+export function until<T>(fn: () => T, options?: UntilOptions): Promise<Truthy<T>> {
+  if (__DEV__ && getObserver()) {
+    throw new Error(
+      "Cannot call until inside a reactive scope; await it from an action or another imperative scope."
+    );
+  }
+  // Late-bind the wakeup hook for the A17-silent ack paths (pay-for-use:
+  // apps that never call until() never retain it).
+  installAuthoritativeRead();
+  return new Promise((res, rej) => {
+    const signal = options?.signal;
+    if (signal?.aborted) return rej(signal.reason);
+    createRoot(dispose => {
+      // Same delivery contract as resolve() (#2930): effect applies ride a
+      // microtask so the promise can settle while the transaction the caller
+      // yielded it into is still open — that transaction being open is the
+      // entire point of the hold.
+      const owner = getOwner()!;
+      const queue = new MicrotaskQueue();
+      queue._parent = owner._queue;
+      owner._queue = queue;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let onAbort: (() => void) | undefined;
+      const settle = (fire: () => void) => {
+        if (timer !== undefined) clearTimeout(timer);
+        if (onAbort !== undefined) signal!.removeEventListener("abort", onAbort);
+        fire();
+        dispose();
+      };
+      effect(
+        fn,
+        value => {
+          // Falsy is "not yet": keep the subscription live and wait for the
+          // next evaluation. Only a truthy settled value resolves.
+          if (value) settle(() => res(value as Truthy<T>));
+        },
+        err => settle(() => rej(err)),
+        // AUTHORITATIVE_READ: overrides invisible to the predicate.
+        // DIRECT_COMMIT: truth that stages into the held transaction (a
+        // refresh the action issued) must flow through to the microtask
+        // apply — a staged effect value would deadlock the hold on data
+        // the hold itself is keeping uncommitted.
+        { user: true, _extraConfig: CONFIG_AUTHORITATIVE_READ | CONFIG_DIRECT_COMMIT }
+      );
+      if (options?.timeout !== undefined)
+        timer = setTimeout(() => settle(() => rej(new TimeoutError())), options.timeout);
+      if (signal !== undefined) {
+        onAbort = () => settle(() => rej(signal.reason));
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
     });
   });
 }

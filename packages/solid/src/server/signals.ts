@@ -18,6 +18,7 @@ export {
   NotReadyError,
   NoOwnerError,
   ContextNotFoundError,
+  TimeoutError,
   isEqual,
   isWrappable,
   SUPPORTS_PROXY,
@@ -2764,6 +2765,13 @@ export function resetErrorHalt() {}
 
 export function resolve<T>(fn: () => T): Promise<T> {
   throw new Error("resolve is not implemented on the server");
+}
+
+export function until<T>(
+  fn: () => T,
+  options?: { timeout?: number; signal?: AbortSignal }
+): Promise<T> {
+  throw new Error("until is not implemented on the server");
 }
 
 export function isPending(fn: () => any): boolean {

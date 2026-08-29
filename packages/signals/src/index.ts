@@ -3,6 +3,7 @@ export {
   ContextNotFoundError,
   NoOwnerError,
   NotReadyError,
+  TimeoutError,
   action,
   createContext,
   createOwner,
@@ -59,10 +60,13 @@ export {
   createReaction,
   createOptimistic,
   resolve,
+  until,
   onSettled,
   onCleanup
 } from "./signals.js";
 export type {
+  Truthy,
+  UntilOptions,
   Accessor,
   SourceAccessor,
   Setter,

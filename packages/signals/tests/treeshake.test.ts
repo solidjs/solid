@@ -106,6 +106,15 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // merged-away stashes double-applied their records' patches at commit).
     // Core-retained by necessity: transition merging cannot be pay-for-use.
     // Measured at 21,134 post-change.
+    // NOTE (2026-08-29, no bump): +~100B for until()/resolve()'s seams — the
+    // read() A17 carve-out (checks CONFIG_AUTHORITATIVE_READ on the reading
+    // computation directly; no ambient flag), the createEffectNode
+    // _extraConfig arm, recompute's CONFIG_DIRECT_COMMIT clause (promise
+    // effects commit values on their microtask-delivery schedule), the
+    // silent-ack notify in recompute, and the
+    // GlobalQueue._notifyAuthoritativeObservers slot. Inline in retained hot
+    // functions by necessity; the wakeup walk itself is hook-installed at
+    // first until() call and shakes with it. Measured at 21,235 post-change.
     expect(minifiedBytes).toBeLessThan(21_250);
   });
 

@@ -62,6 +62,19 @@ export function unwrapStatusError(error: unknown): unknown {
   return error instanceof StatusError ? error.cause : error;
 }
 
+/**
+ * Rejection value of `until(fn, { timeout })` when the predicate does not turn
+ * truthy within the window. Inside an `action()`, the rejection is thrown back
+ * in at the `yield` point — catchable there, or the action fails and its
+ * optimistic state reverts.
+ */
+export class TimeoutError extends Error {
+  constructor(message = "Timed out waiting for condition") {
+    super(message);
+    this.name = "TimeoutError";
+  }
+}
+
 export class NoOwnerError extends Error {
   constructor() {
     super(__DEV__ ? "Context can only be accessed under a reactive root." : "");

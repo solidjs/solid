@@ -15,6 +15,7 @@
  */
 import { ext } from "../../core/core.js";
 import {
+  CONFIG_AUTHORITATIVE_OBSERVED,
   NOT_PENDING,
   STATUS_PENDING,
   unwrapOverride,
@@ -41,6 +42,7 @@ import {
 import { runProjectionComputedNext } from "./projection.js";
 import {
   bumpDeep,
+  authoritativeRead,
   getHasNode,
   getKeySetNode,
   getNode,
@@ -315,6 +317,12 @@ export function consumeOverridesNext(fam: StoreNextFamily): void {
         if (!node._equals || !node._equals(prev, committed)) {
           insertSubs(node, true);
           schedule();
+        } else if (node._config & CONFIG_AUTHORITATIVE_OBSERVED) {
+          // Landing equal to the override is silent for A17 readers, but a
+          // authoritative-view reader (until()) that observed this node past its
+          // override is waiting for exactly this arrival — wake it alone.
+          // (Hook installed by until(), the only setter of the gating bit.)
+          GlobalQueue._notifyAuthoritativeObservers!(node);
         }
       };
       // Landing consumes STRUCTURAL optimism only (legacy layer parity):
@@ -369,12 +377,15 @@ export function consumeOverridesNext(fam: StoreNextFamily): void {
 
 /** Optimistic-view composition for snapshot/deep (O1: snapshot is the CURRENT
  * view, lane values included; a fresh copy per call during pending windows —
- * RUL-12). Returns `src` untouched when no override is active on `t`. */
+ * RUL-12). Returns `src` untouched when no override is active on `t`.
+ * Authoritative-view reads (until()'s predicate) skip composition entirely:
+ * the predicate observes authoritative truth, never the caller's tentative
+ * overlay. (Write-side emission callers never run under such a compute.) */
 export function optimisticView(
   t: StoreNextTarget,
   src: Record<PropertyKey, any>
 ): Record<PropertyKey, any> {
-  if (t.fam?.opt !== true) return src;
+  if (t.fam?.opt !== true || authoritativeRead()) return src;
   let out: Record<PropertyKey, any> | null = null;
   const ensure = () => (out ??= Array.isArray(src) ? [...(src as any[])] : { ...src });
   const nodes = t.n;
