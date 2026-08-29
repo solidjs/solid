@@ -411,8 +411,27 @@ function serverFunctionFailure(response, value) {
   // channels) can classify the failure: 4xx is a definite rejection that
   // retrying cannot change, 5xx/status-less is transient. An error that
   // already carries a status (app-authored) keeps its own.
-  if (error instanceof Error && !("status" in error)) error.status = response.status;
+  if (error instanceof Error && !("status" in error)) {
+    error.status = response.status;
+    // Retry-After survives to the retry layers too: a peer naming the wait
+    // (a rate limiter's 429, a load balancer's 503) has answered the only
+    // question a backoff guesses at (#3100). Seconds, like the header —
+    // the HTTP-date form is converted.
+    const retryAfter = parseRetryAfter(response.headers.get("Retry-After"));
+    if (retryAfter !== undefined) error.retryAfter = retryAfter;
+  }
   return error;
+}
+
+// RFC 9110 §10.2.3: delta-seconds or an HTTP-date. Anything else is a header
+// the peer got wrong, and guessing at it would put garbage on the error.
+function parseRetryAfter(header) {
+  if (!header) return undefined;
+  const trimmed = header.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  const date = Date.parse(trimmed);
+  if (!Number.isNaN(date)) return Math.max(0, Math.ceil((date - Date.now()) / 1000));
+  return undefined;
 }
 
 async function createRequest(base, id, instance, options, meta) {
@@ -920,8 +939,10 @@ export function live<A extends readonly any[], R>(
  * post-connect death, `"closed"` when the source completes or the
  * consumer ends it. Retry is for transient deaths only: a definite
  * rejection (4xx — the server understood and refused) fails fast, firing
- * `"closed"` with the error and rejecting the consumer's pull.
- * First-connect failures emit nothing (the rejection
+ * `"closed"` with the error and rejecting the consumer's pull — except
+ * the statuses that themselves say "retry" (408, 425, 429) and any
+ * answer carrying Retry-After, which reconnect like a 5xx, honoring the
+ * named wait. First-connect failures emit nothing (the rejection
  * already surfaces through the call). The hook is per CALL: iterating one
  * object twice interleaves both lifecycles into it. Data freshness is
  * usually the better question and belongs in the value (timestamps /
@@ -1073,12 +1094,24 @@ export function live(fn) {
               // understood and refused — auth revoked, resource gone —
               // and retrying cannot change the answer. The error surfaces
               // through the consumer like a first-connect failure would.
+              // Except where the status itself says the opposite: 408 (the
+              // server timed the REQUEST out and invites a repeat, RFC 9110
+              // §15.5.9), 425 (early data refused, retry after handshake,
+              // RFC 8470) and 429 (rate limited — the one status that
+              // exists to say "come back later", RFC 6585 §4) are transient
+              // by definition, and usually infrastructure's answer rather
+              // than the application's (#3100). A Retry-After on any status
+              // is the peer inviting the retry in as many words.
               if (
                 error !== null &&
                 typeof error === "object" &&
                 typeof error.status === "number" &&
                 error.status >= 400 &&
-                error.status < 500
+                error.status < 500 &&
+                error.status !== 408 &&
+                error.status !== 425 &&
+                error.status !== 429 &&
+                typeof error.retryAfter !== "number"
               ) {
                 stopped = true;
                 emitClosed(error);
@@ -1088,7 +1121,20 @@ export function live(fn) {
               emit("reconnecting", error);
               await new Promise(resolve => {
                 wake = resolve;
-                timer = setTimeout(resolve, Math.min(500 * 2 ** attempts++, 10000));
+                // A peer that named the wait (Retry-After) is answering the
+                // question the exponential backoff guesses at — honor it,
+                // capped: retrying a shade early against a misconfigured
+                // header costs one more (again-named) wait, while sitting
+                // out an unbounded one would end the stream in all but name.
+                // The named wait doesn't consume an attempt; the backoff
+                // resumes where it left off if the header disappears.
+                const named =
+                  error !== null &&
+                  typeof error === "object" &&
+                  typeof error.retryAfter === "number"
+                    ? Math.min(error.retryAfter * 1000, 60000)
+                    : undefined;
+                timer = setTimeout(resolve, named ?? Math.min(500 * 2 ** attempts++, 10000));
                 // connectivity returning wakes the sleep — no reason to sit
                 // out an 8s backoff when the network just came back (typeof
                 // guard: non-browser consumers have no global EventTarget)

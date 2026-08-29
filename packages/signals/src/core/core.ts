@@ -68,6 +68,7 @@ import {
   warnStrictReadUntracked
 } from "./dev.js";
 import { attrHooks } from "./attribution-hooks.js";
+import { awaitQuiescence } from "./quiescence.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { cleanup, disposeChildren, inheritId, markDisposal } from "./owner.js";
 import {
@@ -1413,25 +1414,48 @@ export function staleValues<T>(fn: () => T, set = true): T {
 
 /**
  * Invalidates one reactive source, forcing it to re-execute even if its inputs
- * haven't changed.
+ * haven't changed, and returns a promise for the target's NEXT QUIESCENT
+ * STATE — the re-ask (and anything that supersedes it) has settled.
  *
  * Pass either a Solid-created accessor or a projected store created from
  * `createStore(fn, ...)` / `createProjection(...)`. `refresh()` is a
  * write-like invalidation operation: it does not read the target's value, and
  * refreshing a plain signal accessor is a no-op.
  *
- * Use it to invalidate cached async values (e.g. force a re-fetch) without
- * tearing the consumer down.
+ * The returned promise is safe to ignore (fire-and-forget refresh is
+ * unchanged, and a failed refetch will not surface an unhandled rejection).
+ * Awaiting it gives imperative flows the settle point without a reactive
+ * read:
+ * - Accessor targets resolve with the settled value; store targets resolve
+ *   with the store node passed (reads through it are fresh after the await).
+ * - A failed re-ask rejects with the error (inside an action's generator,
+ *   `yield refresh(x)` throws back at the yield point and the action reverts
+ *   like any other failure).
+ * - Semantics are quiescence, not flight identity: if another refresh (or
+ *   any invalidation) supersedes this one mid-flight, the promise waits for
+ *   — and delivers — whatever finally lands.
+ * - Inside an action, truth landing into the held transaction is STAGED;
+ *   the promise still settles then (matching `resolve()`/`until()`, #2930)
+ *   and delivers the staged value — the caller's own optimistic override is
+ *   never the delivered value.
+ * - The re-ask itself stays verdict-quiet exactly as before: `isPending`
+ *   does not flip for a bare refresh (pair with `affects()` for a visible
+ *   pending window).
  *
  * @example
  * ```ts
  * const user = createMemo(async () => fetch(`/users/${id()}`).then(r => r.json()));
  *
- * // Re-fetch on demand
+ * // Fire-and-forget re-fetch
  * <button onClick={() => refresh(user)}>Reload</button>
+ *
+ * // Imperative settle point
+ * const fresh = await refresh(user);
  * ```
  */
-export function refresh<T>(target: Refreshable<T>): void {
+export function refresh<T>(
+  target: Refreshable<T>
+): Promise<T extends (...args: any) => infer V ? V : T> {
   const node = (target as any)?.[$REFRESH] as Computed<any> | undefined;
   if (!node) {
     if (__DEV__) {
@@ -1446,7 +1470,7 @@ export function refresh<T>(target: Refreshable<T>): void {
       });
       throw new Error(message);
     }
-    return;
+    return Promise.resolve(undefined as any);
   }
   if (
     __DEV__ &&
@@ -1466,7 +1490,8 @@ export function refresh<T>(target: Refreshable<T>): void {
     });
     throw new Error(REACTIVE_WRITE_IN_OWNED_SCOPE_REFRESH_MESSAGE);
   }
-  if (typeof node._fn === "function" && !(node._flags & REACTIVE_DISPOSED)) {
+  let mark = typeof node._fn === "function" && !(node._flags & REACTIVE_DISPOSED);
+  if (mark) {
     if (node._flags & REACTIVE_MANUAL_WRITE) {
       // A manual write in the CURRENT tick wins over the refresh (#2692).
       // A mask stamped in an earlier tick only survives because a
@@ -1474,8 +1499,8 @@ export function refresh<T>(target: Refreshable<T>): void {
       // refresh is a later, explicit re-ask and lifts the mask — otherwise
       // any setStore early in an action silently swallows every refresh()
       // for the rest of the transaction (#3026).
-      if (node._manualWriteTime === clock) return;
-      node._flags &= ~REACTIVE_MANUAL_WRITE;
+      if (node._manualWriteTime === clock) mark = false;
+      else node._flags &= ~REACTIVE_MANUAL_WRITE;
       // No REASK below: the batch carries a manual value change, so the
       // recompute is not a quiet re-ask of an unchanged question.
     }
@@ -1490,6 +1515,8 @@ export function refresh<T>(target: Refreshable<T>): void {
       node._flags |= REACTIVE_REASK;
       armReaskClear();
     }
+  }
+  if (mark) {
     node._flags = (node._flags & ~REACTIVE_CHECK) | REACTIVE_DIRTY;
     // A refresh() self-invalidation is a root cause too — the target's next
     // run has no changed dep to point at, so it points here instead.
@@ -1497,4 +1524,19 @@ export function refresh<T>(target: Refreshable<T>): void {
     insertIntoHeap(node, queueFor(node));
     schedule();
   }
+  // Quiescence waiter — registered AFTER the mark so the initial level check
+  // sees the queued re-ask (unmarked paths — same-tick manual write, disposed
+  // targets — are already quiescent and resolve immediately). Forcing the
+  // extension lets recompute's status-free fast path still reach clearStatus,
+  // where the dispatch gate admits this node by its config bit.
+  ext(node);
+  const read =
+    typeof target === "function"
+      ? (n: Computed<any>) => (n._pendingValue !== NOT_PENDING ? n._pendingValue : n._value)
+      : () => target;
+  const promise = awaitQuiescence(node, read);
+  // Fire-and-forget refresh must not turn a failed refetch into an unhandled
+  // rejection; awaiting callers attach their own handlers to `promise`.
+  promise.catch(() => {});
+  return promise as any;
 }

@@ -115,6 +115,11 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // GlobalQueue._notifyAuthoritativeObservers slot. Inline in retained hot
     // functions by necessity; the wakeup walk itself is hook-installed at
     // first until() call and shakes with it. Measured at 21,235 post-change.
+    // NOTE (2026-08-29, no bump): awaitable refresh() adds ONE term to
+    // clearStatus's dispatch gate (CONFIG_QUIESCENCE_OBSERVED — the waiters'
+    // settle seam; the registry itself lives in core/quiescence.ts and
+    // shakes out with refresh()). Paid for by converting three
+    // `slot !== null && slot(...)` gates to `slot?.(...)`.
     expect(minifiedBytes).toBeLessThan(21_250);
   });
 
