@@ -1,5 +1,5 @@
 ---
-"@solidjs/web": minor
+"@solidjs/web": patch
 ---
 
 Multi-source single-flight: named flight-data sources alongside the unnamed hook
