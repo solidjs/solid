@@ -4,6 +4,10 @@
 // the function body never reaches this bundle. Hoisted from SolidStart's
 // fns/client.ts with neutral header names and a configurable endpoint.
 import { REVALIDATE_HEADER } from "../../src/response.js";
+// Local bindings for the annotations below — the `export type` block only
+// re-exports these names without bringing them into scope, and declaration
+// emit would leave them dangling (implicit any for every consumer).
+import type { ServerFunction, ServerFunctionMetadata } from "./shared.js";
 import {
   BODY_FORMAT_HEADER,
   BodyFormat,

@@ -73,6 +73,11 @@ import { JSONCodecOptions } from "../../serialization/src/serializer-decode.js";
 
 import { RequestEvent } from "../../src/server.js";
 
+// Local bindings for the annotations below — the `export type` block only
+// re-exports these names without bringing them into scope, and declaration
+// emit would leave them dangling (implicit any for every consumer).
+import type { ServerFunction, ServerFunctionMetadata } from "./shared.js";
+
 export type {
   FlightDataConsumer,
   FlightDataContext,
