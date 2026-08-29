@@ -161,6 +161,7 @@ export function pcOf(t: StoreNextTarget): PatchChannel {
       qeo: null,
       qf: null,
       qfo: null,
+      dn: null,
       ak: null,
       dp: null,
       ks: false,
@@ -898,7 +899,7 @@ function drainFolds(): void {
         Array.isArray(old)
       )
         rowHooks!.emitSetterRowOps(t, old as any[], t.v as any[]);
-      if (t.pc.p !== null) {
+      if (t.pc.p !== null || t.pc.dn !== null) {
         // Accessor demotion at the fold-commit seam: prod-sound accessed-key
         // probes against the JUST-COMMITTED backing (see targetKeysPlain —
         // re-audit 6 reversed the dev-only trade; re-audit 7 made the probe

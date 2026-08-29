@@ -183,7 +183,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
   // visits parents before children, so ancestors emitted already. EAGER
   // only — family targets' visibility moment is their fold commit
   // (drainFolds emits there; emitting here too would double-fire).
-  if (patchHooks !== null && eager && t.pc !== null && t.pc.p !== null) {
+  if (patchHooks !== null && eager && t.pc !== null && (t.pc.p !== null || t.pc.dn !== null)) {
     // Accessor demotion at the ADOPTION seam, PROD-SOUND (re-audit 6
     // reversed the earlier dev-only trade; re-audit 7 made the probe
     // STATELESS against `incoming` — the object the queued bodies will

@@ -20,7 +20,7 @@
  * never schedule the queue.
  */
 import { EFFECT_RENDER, STATUS_ERROR } from "../../core/constants.js";
-import { ext } from "../../core/core.js";
+import { ext, read as readSignal, setSignal, signal } from "../../core/core.js";
 import { StatusError } from "../../core/error.js";
 import { haltReactivity } from "../../core/scheduler.js";
 import { getOwner, isDisposed } from "../../core/owner.js";
@@ -423,6 +423,7 @@ function clonePrev(prev: any): any {
  * `t.d` cheaply; this function re-checks and walks ancestors (§4b).
  */
 export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
+  if (t.pc !== null) bumpDelivery(t.pc as any);
   const p = (t.pc !== null ? t.pc.p : null) as PatchEntry[] | null;
   if (p !== null)
     pushSelf(t.pc!, {
@@ -447,6 +448,7 @@ export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
 export function emitPatchAncestors(t: StoreNextTarget): void {
   let u = t.u;
   while (u !== null) {
+    if (u.pc !== null) bumpDelivery(u.pc as any);
     const up = (u.pc !== null ? u.pc.p : null) as PatchEntry[] | null;
     if (up !== null) pushForced(u);
     u = u.u;
@@ -527,6 +529,7 @@ export function emitPatchAncestorsOptimistic(t: StoreNextTarget, tx: unknown): v
  * hand and have already handled ancestors (the adoption walk descends —
  * parents were visited first), so no bubbling walk. */
 export function emitPatchLocal(t: StoreNextTarget, next: any, prev: any): void {
+  if (t.pc !== null) bumpDelivery(t.pc as any);
   const p = (t.pc !== null ? t.pc.p : null) as PatchEntry[] | null;
   if (p !== null)
     pushSelf(t.pc!, {
@@ -739,6 +742,42 @@ function unionKeys(
       insertPath((pc.dp ??= []), segs);
     } else if (ak.indexOf(k) === -1) ak.push(k);
   }
+}
+
+/** NODE-DELIVERY PROTOTYPE: tracked read of the record's version signal.
+ * Creating it counts toward hasPatches() so write-path gates arm. */
+export function patchVersion(record: any): void {
+  let t: StoreNextTarget | undefined = record?.[$TARGET];
+  if (t === undefined) return;
+  t = ultimateTarget(t) ?? t;
+  const pc = pcOf(t);
+  if (pc.dn === null) {
+    pc.dn = signal(0, { equals: false });
+    patchCount++;
+    markDescendants(t);
+    if (!commitHookInstalled) {
+      commitHookInstalled = true;
+      armPatchHooks();
+      setPatchCommitHook(releaseBatch);
+      GlobalQueue._drainPatchOptimistic = drainOptimistic;
+    }
+  }
+  readSignal(pc.dn as any);
+}
+
+function bumpDelivery(pc: { dn: unknown }): void {
+  if (pc.dn !== null) setSignal(pc.dn as any, (v: number) => v + 1);
+}
+
+/** NODE-DELIVERY PROTOTYPE: held-aware committed backing WITHOUT admission
+ * scans — the emission-seam gates own accessor soundness; per-delivery
+ * re-probing doubled the probe bill. */
+export function patchCommittedRaw(record: any): Record<PropertyKey, any> | undefined {
+  let t: StoreNextTarget | undefined = record?.[$TARGET];
+  if (t === undefined) return undefined;
+  t = ultimateTarget(t) ?? t;
+  if (t === undefined) return undefined;
+  return t.ht !== null ? ((t.hv ?? t.v) as Record<PropertyKey, any>) : t.v;
 }
 
 export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<PropertyKey>): () => void {

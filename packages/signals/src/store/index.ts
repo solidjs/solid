@@ -35,7 +35,9 @@ export {
   registerRowOps,
   registerSlotPatchNext as registerSlotPatch,
   patchableRaw,
-  patchProxyFor
+  patchCommittedRaw,
+  patchProxyFor,
+  patchVersion
 } from "./next/patch.js";
 export { storeIsShallow, storeHasFamily, storeHasOptimisticFamily } from "./next/store.js";
 export { createOptimisticStoreNext as createOptimisticStore } from "./next/optimistic.js";
