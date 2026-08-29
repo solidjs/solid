@@ -35,6 +35,7 @@ import type { Owner } from "../../core/types.js";
 import { $TARGET, isWrappable } from "../store.js";
 import { markDescendants, ownedRaw, type StoreNextTarget } from "./target.js";
 import { installPatchHooks, installRowHooks, wrapRecordHook } from "./patch-hooks.js";
+import { optHooks } from "./target.js";
 // One-way: reconcile emits through the hooks (never imports this module),
 // so pulling its setter-channel emitter here creates no cycle.
 import { emitSetterRowOps } from "./reconcile.js";
@@ -47,6 +48,7 @@ import { InvariantHooks } from "../../core/invariants.js";
 import { assertInvariant } from "../../core/dev.js";
 import { runWithOwner, untrack } from "../../core/core.js";
 import { createRenderEffect } from "../../signals.js";
+import { createRoot } from "../../core/owner.js";
 // Cycle with store.js is benign: pcOf is only called at registration time,
 // long after both modules initialize.
 import { pcOf } from "./store.js";
@@ -126,17 +128,6 @@ function drainApplyQueue(): void {
     const next = t !== null ? (force ? forcedNext(t) : (t.pb ?? t.v)) : q[i].next;
     if (q[i].ops !== undefined || q[i].si !== undefined)
       firstError = applyStructural(q[i], next, firstError);
-    else if (force && t !== null && deepProbeFails(t, next)) demoteToEffects(t);
-    else
-      firstError = applyEntries(
-        liveValueList(q[i]),
-        next,
-        prev,
-        force,
-        firstError,
-        q[i].pc,
-        q[i].cm === true ? q[i].g : undefined
-      );
   }
   if (firstError !== UNSET) {
     // Unhandled patch errors HALT like unhandled effect errors (re-audit 2,
@@ -144,16 +135,6 @@ function drainApplyQueue(): void {
     haltReactivity(firstError);
     throw firstError;
   }
-}
-
-/** Deep-path demotion at FORCED applies (re-audit 7, P1-1 nested half):
- * ancestor bubbles re-read whole chains from the live backing — a getter
- * that arrived at a nested step through a TARGETED child adoption has no
- * root adoption gate to catch it, so the forced apply is the seam. Costs
- * one null check for channels without deep paths. */
-function deepProbeFails(t: StoreNextTarget, next: any): boolean {
-  const dp = t.pc !== null ? t.pc.dp : null;
-  return dp !== null && next !== null && typeof next === "object" && !deepPathsPlain(dp, next);
 }
 
 /** Forced-apply `next` resolution. Deep-path channels read through the
@@ -164,21 +145,6 @@ function deepProbeFails(t: StoreNextTarget, next: any): boolean {
  * Depth-1 channels keep the raw fast path. */
 function forcedNext(t: StoreNextTarget): any {
   return t.pc !== null && t.pc.dp !== null ? t.px : (t.pb ?? t.v);
-}
-
-const EMPTY_LIST: PatchEntry[] = [];
-
-/** VALUE entries dispatch to the channel's CURRENT consumer list (re-audit
- * 7, P2-9): applications are absolute (latest state), so they belong to
- * whoever is registered at drain time — a consumer list recreated while the
- * entry was transition-held (or coalesced across a merge) must receive the
- * commit, and a fully-unbound channel receives nothing. Entries without a
- * channel backref (none exists today) keep their captured list. Structural
- * entries are the DUAL — baseline-relative, snapshotted at emission. */
-function liveValueList(item: QueuedApply): PatchEntry[] {
-  const pc = item.pc ?? (item.t !== null ? (item.t.pc as QueuedApply["pc"]) : undefined);
-  if (pc == null) return item.list;
-  return (pc.p as PatchEntry[] | null) ?? EMPTY_LIST;
 }
 
 /** Row-ops/slot-tick dispatch over the EMISSION-TIME snapshot (re-audit 7,
@@ -229,8 +195,7 @@ function applyEntries(
   prev: any,
   force: boolean,
   firstError: unknown,
-  pc?: { ak: PropertyKey[] | null },
-  gen?: number
+  pc?: { ak: PropertyKey[] | null }
 ): unknown {
   // SNAPSHOT multi-consumer lists (re-audit 5, P1-3): a callback can dispose
   // a sibling's owner, whose unbind SPLICES this same array mid-iteration —
@@ -245,11 +210,6 @@ function applyEntries(
   for (let j = 0; j < len; j++) {
     const entry = snap[j];
     if (entry === undefined || entry.u === true) continue;
-    // Generation skip (re-audit 8, P2-6): a consumer registered AFTER this
-    // entry's emission initialized from its state (or newer) — re-applying
-    // is an observable duplicate setter call. Transition releases exempt
-    // themselves (`rl`): their late consumers saw the PRE-commit view.
-    if (gen !== undefined && entry.gen !== undefined && entry.gen > gen) continue;
     // Disposed owners drop their patches (the row unmounted mid-flush).
     if (entry.owner !== null && isDisposed(entry.owner)) continue;
     try {
@@ -311,25 +271,7 @@ function releaseBatch(batch: Transition): void {
 }
 
 function pushLive(item: QueuedApply): void {
-  if (queue === null) queue = [];
-  // Same-drain coalescing for RELEASED entries (re-audit 7): two
-  // transitions settling in one flush each release a held entry for the
-  // same channel — an effect on that record runs ONCE for the flush, so
-  // the channel applies once (earliest prev, latest/live next). pushSelf
-  // handles same-batch writes; this is its cross-release twin.
-  const pc = (item as any).pc as { qa: unknown; qe: QueuedApply | null } | undefined;
-  if (pc !== undefined && !item.force) {
-    if (pc.qa === queue && pc.qe !== null) {
-      const qe = pc.qe;
-      qe.next = item.next;
-      qe.list = item.list;
-      if (item.t !== null) qe.t = item.t;
-      return;
-    }
-    pc.qa = queue;
-    pc.qe = item;
-  }
-  queue.push(item);
+  (queue ??= []).push(item);
   if (!scheduled) {
     scheduled = true;
     globalQueue.enqueue(EFFECT_RENDER, drainApplyQueue);
@@ -337,12 +279,9 @@ function pushLive(item: QueuedApply): void {
 }
 
 function push(item: QueuedApply): void {
-  item.g = regGen;
   const tx = activeTransition;
   if (tx !== null) {
-    let held = (tx as any)._heldPatches as QueuedApply[] | undefined;
-    if (held === undefined) (tx as any)._heldPatches = held = [];
-    held.push(item);
+    (((tx as any)._heldPatches ??= []) as QueuedApply[]).push(item);
     return;
   }
   pushLive(item);
@@ -357,60 +296,8 @@ function push(item: QueuedApply): void {
  * pc.p array, so mid-batch registrants ride the single application. Forced
  * entries and row/slot ops never coalesce; the drain clears the stamps so a
  * quiet record retains nothing from its last batch. */
-function pushSelf(pc: { qa: unknown; qe: unknown }, item: QueuedApply): void {
-  item.g = regGen;
-  // Uncommitted payloads never skip late consumers (re-audit 9, P1-1).
-  if (item.cm === undefined) item.cm = activeTransition === null;
-  const tx = activeTransition;
-  let arr: QueuedApply[];
-  if (tx !== null) {
-    let held = (tx as any)._heldPatches as QueuedApply[] | undefined;
-    if (held === undefined) (tx as any)._heldPatches = held = [];
-    arr = held;
-  } else {
-    if (queue === null) queue = [];
-    arr = queue;
-  }
-  if (pc.qa === arr && pc.qe !== null) {
-    const qe = pc.qe as QueuedApply;
-    qe.next = item.next;
-    qe.list = item.list; // pc.p can be re-created if emptied mid-batch
-    return;
-  }
-  pc.qa = arr;
-  pc.qe = item;
-  (item as any).pc = pc;
-  arr.push(item);
-  if (arr === queue && !scheduled) {
-    scheduled = true;
-    globalQueue.enqueue(EFFECT_RENDER, drainApplyQueue);
-  }
-}
 
-/** Drain-side stamp clear (re-audit 3, P2-6): without it a quiet long-lived
- * record's channel retains its last batch's container array, entry, and both
- * captured backings for the record's lifetime. Clears whichever stamp pair
- * (normal or optimistic) this entry holds. */
-function clearStamp(item: QueuedApply): void {
-  const pc = (item as any).pc as
-    | { qa: unknown; qe: unknown; qo: unknown; qeo: unknown }
-    | undefined;
-  if (pc === undefined) return;
-  if (pc.qe === item) {
-    pc.qa = null;
-    pc.qe = null;
-  } else if (pc.qeo === item) {
-    pc.qo = null;
-    pc.qeo = null;
-  }
-  if (item.force === true) {
-    // Clear ONLY the stamp this entry holds (re-audit 9, P1-5): a lane
-    // drain clearing the SETTLE stamp let a second tentative walk stage a
-    // duplicate settle twin.
-    if ((item as any).fq === "o") (pc as any).qfo = null;
-    else (pc as any).qf = null;
-  }
-}
+function clearStamp(_item: QueuedApply): void {}
 
 /** Shallow clone for the owned-prev rule (§2c): owned backings fold values
  * INTO the same raw at commit, so a queued prev must be snapshotted. */
@@ -423,19 +310,7 @@ function clonePrev(prev: any): any {
  * `t.d` cheaply; this function re-checks and walks ancestors (§4b).
  */
 export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
-  if (t.pc !== null) bumpDelivery(t.pc as any);
-  const p = (t.pc !== null ? t.pc.p : null) as PatchEntry[] | null;
-  if (p !== null)
-    pushSelf(t.pc!, {
-      list: p,
-      next,
-      prev: ownedRaw.has(prev) ? clonePrev(prev) : prev,
-      force: false,
-      t: null,
-      cm: next === t.v && t.ht === null
-    });
-  // Bubbling: ancestors force-re-apply from their LIVE backing, resolved at
-  // drain (privatization may clone it between now and then).
+  if (t.pc !== null) bumpDelivery(t.pc);
   emitPatchAncestors(t);
 }
 
@@ -448,26 +323,8 @@ export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
 export function emitPatchAncestors(t: StoreNextTarget): void {
   let u = t.u;
   while (u !== null) {
-    if (u.pc !== null) bumpDelivery(u.pc as any);
-    const up = (u.pc !== null ? u.pc.p : null) as PatchEntry[] | null;
-    if (up !== null) pushForced(u);
+    if (u.pc !== null) bumpDelivery(u.pc);
     u = u.u;
-  }
-}
-
-function pushForced(u: StoreNextTarget): void {
-  const pc = u.pc! as unknown as { qf: unknown };
-  const tx = activeTransition;
-  const arr = tx !== null ? (((tx as any)._heldPatches ??= []) as QueuedApply[]) : (queue ??= []);
-  if (pc.qf === arr) return; // already forced into this container this batch
-  pc.qf = arr;
-  const item: QueuedApply = { list: EMPTY_LIST, next: null, prev: null, force: true, t: u };
-  item.g = regGen;
-  (item as any).pc = u.pc;
-  arr.push(item);
-  if (arr === queue && !scheduled) {
-    scheduled = true;
-    globalQueue.enqueue(EFFECT_RENDER, drainApplyQueue);
   }
 }
 
@@ -476,51 +333,10 @@ function pushForced(u: StoreNextTarget): void {
  * on the transaction for settle (revert restores committed truth to
  * ancestor expressions; landings show the landed state). Both resolve
  * live at their drains. */
-export function emitPatchAncestorsOptimistic(t: StoreNextTarget, tx: unknown): void {
+export function emitPatchAncestorsOptimistic(t: StoreNextTarget, _tx: unknown): void {
   let u = t.u;
   while (u !== null) {
-    const up = (u.pc !== null ? u.pc.p : null) as PatchEntry[] | null;
-    if (up !== null) {
-      const pc = u.pc! as unknown as { qfo: unknown };
-      if (pc.qfo !== optQueue || optQueue === null) {
-        if (optQueue === null) optQueue = [];
-        pc.qfo = optQueue;
-        const item: QueuedApply = {
-          list: EMPTY_LIST,
-          next: null,
-          prev: null,
-          force: true,
-          t: u
-        };
-        item.g = regGen;
-        (item as any).fq = "o";
-        (item as any).pc = u.pc;
-        optQueue.push(item);
-        if (!scheduled) {
-          scheduled = true;
-          globalQueue.enqueue(EFFECT_RENDER, drainApplyQueue);
-        }
-      }
-      if (tx !== null) {
-        const held = ((tx as any)._heldPatches ??= []) as QueuedApply[];
-        const pcH = u.pc! as unknown as { qf: unknown };
-        if (pcH.qf !== held) {
-          pcH.qf = held;
-          const settle: QueuedApply = {
-            list: EMPTY_LIST,
-            next: null,
-            prev: null,
-            force: true,
-            t: u
-          };
-          settle.g = regGen;
-          settle.cm = false; // settle payload resolves live at commit
-          (settle as any).fq = "n";
-          (settle as any).pc = u.pc;
-          held.push(settle);
-        }
-      }
-    }
+    if (u.pc !== null) bumpDeliveryOptimistic(u.pc);
     u = u.u;
   }
 }
@@ -529,21 +345,7 @@ export function emitPatchAncestorsOptimistic(t: StoreNextTarget, tx: unknown): v
  * hand and have already handled ancestors (the adoption walk descends —
  * parents were visited first), so no bubbling walk. */
 export function emitPatchLocal(t: StoreNextTarget, next: any, prev: any): void {
-  if (t.pc !== null) bumpDelivery(t.pc as any);
-  const p = (t.pc !== null ? t.pc.p : null) as PatchEntry[] | null;
-  if (p !== null)
-    pushSelf(t.pc!, {
-      list: p,
-      next,
-      prev: ownedRaw.has(prev) ? clonePrev(prev) : prev,
-      force: false,
-      t: null,
-      // Committed-VISIBLE payloads only (re-audit 9, P1-1): setter drafts
-      // (next !== t.v) and speculative adoptions under a hold (t.ht) are
-      // invisible to a mounting consumer's initial read — skipping it
-      // would strand it stale forever.
-      cm: next === t.v && t.ht === null
-    });
+  if (t.pc !== null) bumpDelivery(t.pc);
 }
 
 /** Optimistic-channel emission: overrides are visible THIS flush while the
@@ -568,10 +370,6 @@ function drainOptimistic(): void {
     const next = t !== null ? (force ? forcedNext(t) : (t.pb ?? t.v)) : q[i].next;
     if (q[i].ops !== undefined || q[i].si !== undefined)
       firstError = applyStructural(q[i], next, firstError);
-    else if (force && t !== null && deepProbeFails(t, next)) demoteToEffects(t);
-    else if (optProbeFails(q[i], next))
-      demoteToEffects((q[i].pc as any).t as StoreNextTarget, true);
-    else firstError = applyEntries(liveValueList(q[i]), next, prev, force, firstError, q[i].pc);
   }
   if (firstError !== UNSET) {
     haltReactivity(firstError);
@@ -579,44 +377,8 @@ function drainOptimistic(): void {
   }
 }
 
-/** Optimistic non-forced payloads probe before applying (re-audit 9,
- * P1-4): tentative replacements never pass an adoption gate — a nested
- * getter in the tentative view would be read raw, untracked. */
-function optProbeFails(item: QueuedApply, next: any): boolean {
-  const pc = item.pc as unknown as { t: StoreNextTarget; ak: PropertyKey[] | null } | undefined;
-  if (pc === undefined || next === null || typeof next !== "object") return false;
-  return !targetKeysPlain(pc.t, next);
-}
-
 export function emitPatchOptimistic(t: StoreNextTarget, next: any, prev: any): void {
-  const p = (t.pc !== null ? t.pc.p : null) as PatchEntry[] | null;
-  if (p === null) return;
-  if (optQueue === null) optQueue = [];
-  if (next === null) optQueue.push({ list: p, next: null, prev: null, force: true, t });
-  else {
-    // Same-batch coalescing, optimistic container (re-audit 3) — on the
-    // DEDICATED optimistic stamp pair (re-audit 7, P2-3): the lane queue
-    // must not clobber the normal channel's qa/qe mid-batch.
-    const pc = t.pc! as unknown as { qo: unknown; qeo: unknown };
-    if (pc.qo === optQueue && pc.qeo !== null) {
-      const qe = pc.qeo as QueuedApply;
-      qe.next = next;
-      qe.list = p;
-    } else {
-      const item: QueuedApply = { list: p, next, prev, force: false, t: null };
-      pc.qo = optQueue;
-      pc.qeo = item;
-      (item as any).pc = t.pc;
-      optQueue.push(item);
-    }
-  }
-  // Backup scheduling: the lane-slot drain covers in-flight application; a
-  // stashed regular drain guarantees settle-time application when no lane
-  // survives to the final flush (pure reverts).
-  if (!scheduled) {
-    scheduled = true;
-    globalQueue.enqueue(EFFECT_RENDER, drainApplyQueue);
-  }
+  if (t.pc !== null) bumpDeliveryOptimistic(t.pc);
 }
 
 /** Row-ops emission at OPTIMISTIC (lane) timing: user drafts on an
@@ -765,10 +527,6 @@ export function patchVersion(record: any): void {
   readSignal(pc.dn as any);
 }
 
-function bumpDelivery(pc: { dn: unknown }): void {
-  if (pc.dn !== null) setSignal(pc.dn as any, (v: number) => v + 1);
-}
-
 /** NODE-DELIVERY PROTOTYPE: held-aware committed backing WITHOUT admission
  * scans — the emission-seam gates own accessor soundness; per-delivery
  * re-probing doubled the probe bill. */
@@ -778,6 +536,88 @@ export function patchCommittedRaw(record: any): Record<PropertyKey, any> | undef
   t = ultimateTarget(t) ?? t;
   if (t === undefined) return undefined;
   return t.ht !== null ? ((t.hv ?? t.v) as Record<PropertyKey, any>) : t.v;
+}
+
+/** NODE DELIVERY (the structural successor to the queue machinery): one
+ * plain version signal per channel, bumped at the emission seams; ONE
+ * render effect per channel dispatches every entry with an exact
+ * manifest-shaped prev snapshot. Timing — transitions, holds, lanes,
+ * merges, mount order — is scheduler-owned by construction. */
+function bumpDelivery(pc: any): void {
+  if (pc.dn !== null) setSignal(pc.dn, (v: number) => v + 1);
+}
+
+function bumpDeliveryOptimistic(pc: any): void {
+  if (pc.dn === null) return;
+  // Override-armed write: in-flight visibility now, re-notify on revert —
+  // the engine is installed by every optimistic caller of this seam.
+  const w = GlobalQueue._optimisticWrite;
+  if (w !== null && w !== undefined) w(pc.dn, (pc.dn._value ?? 0) + 1);
+  else setSignal(pc.dn, (v: number) => v + 1);
+}
+
+/** Manifest-shaped prev snapshot: roots copied flat, deep paths rebuilt as
+ * nested literals — compares stay exact even when folds mutate backings in
+ * place, which is what let forced re-applies retire entirely. */
+function manifestSnapshot(pc: any, next: any): any {
+  if (next === null || typeof next !== "object") return next;
+  const snap: any = Array.isArray(next) ? next.slice() : { ...next };
+  const dp = pc.dp as DeepNode[] | null;
+  if (dp !== null) for (let i = 0; i < dp.length; i++) snapNode(dp[i], next, snap);
+  return snap;
+}
+
+function snapNode(node: DeepNode, src: any, dst: any): void {
+  if (src === null || typeof src !== "object") return;
+  const v = src[node.k];
+  if (node.c === null) {
+    dst[node.k] = v;
+    return;
+  }
+  if (v === null || typeof v !== "object") {
+    dst[node.k] = v;
+    return;
+  }
+  const child: any = Array.isArray(v) ? [] : {};
+  dst[node.k] = child;
+  for (let i = 0; i < node.c.length; i++) snapNode(node.c[i], v, child);
+}
+
+/** What an untracked reader sees RIGHT NOW: optimistic families serve the
+ * override view, held targets the mask, everyone else committed. THE single
+ * visibility decision — the queue design made it at five different seams. */
+function visibleView(t: StoreNextTarget): any {
+  if (t.fam?.opt === true && optHooks !== null) return optHooks.optimisticView(t, t.pb ?? t.v);
+  return t.ht !== null ? (t.hv ?? t.v) : t.v;
+}
+
+function ensureDelivery(t: StoreNextTarget, pc: any): void {
+  if (pc.dn !== null) return;
+  const dn = (pc.dn = signal(0, { equals: false }));
+  pc.dv = 0; // last dispatched version — the pure-registration flush skips
+  pc.pv = manifestSnapshot(pc, visibleView(t));
+  createRoot(d => {
+    pc.de = d;
+    createRenderEffect(
+      () => readSignal(dn) as number,
+      (v: number) => {
+        if (v === pc.dv) {
+          pc.pv = manifestSnapshot(pc, visibleView(t));
+          return;
+        }
+        pc.dv = v;
+        const p = pc.p as PatchEntry[] | null;
+        if (p === null) return; // demoted or emptied — inert
+        const next = visibleView(t);
+        const prev = pc.pv;
+        const snap = p.length > 1 ? p.slice() : p;
+        let firstError: unknown = UNSET;
+        firstError = applyEntries(snap, next, prev, false, firstError, pc);
+        pc.pv = manifestSnapshot(pc, next);
+        if (firstError !== UNSET) throw firstError;
+      }
+    );
+  });
 }
 
 export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<PropertyKey>): () => void {
@@ -827,6 +667,7 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
     entry.k = true; // read envelope known — no drain-side recording
   }
   patchCount++;
+  ensureDelivery(t, pc);
   // Bindings are subscriptions for reachability (§6d pruning must descend
   // into bound records).
   markDescendants(t);
@@ -843,7 +684,14 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
       list.splice(idx, 1);
       patchCount--;
     }
-    if (list.length === 0 && pc.p === list) pc.p = null;
+    if (list.length === 0 && pc.p === list) {
+      pc.p = null;
+      if (pc.de !== undefined) {
+        (pc.de as () => void)();
+        pc.de = undefined;
+        pc.dn = null;
+      }
+    }
   };
 }
 

@@ -84,10 +84,16 @@ export interface PatchChannel {
    * and optimistic (qfo). One forced re-apply per container per batch. */
   qf: unknown;
   qfo: unknown;
-  /** NODE-DELIVERY PROTOTYPE: bare per-record version signal — bumped at
-   * the same emission seams, read (tracked) by the driver's delivery
-   * effect. No walk, no payloads; timing rides the scheduler. */
+  /** Node delivery: bare per-record version signal — bumped at the
+   * emission seams, tracked by the channel's delivery effect. */
   dn: unknown;
+  /** Delivery-effect root disposer (created with the first entry, disposed
+   * with the last). */
+  de?: (() => void) | undefined;
+  /** Last dispatched version (the pure-registration flush skips). */
+  dv?: number;
+  /** Manifest-shaped prev snapshot for exact compares. */
+  pv?: unknown;
   /** Accessed-key set for the channel's compiled bodies (union across
    * registrations). Compiler-manifested registrations (re-audit 7, P1-1)
    * hand the STATIC read envelope — complete across branches the applies

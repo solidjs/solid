@@ -588,42 +588,6 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
 //   phase where transitions and batching expect them.
 export const patchDriver = (subject, body, keys?: string[]) => {
   const raw = patchableRaw(subject, keys);
-  // ── NODE-DELIVERY PROTOTYPE (design experiment, flag-gated) ──
-  // Delivery rides ONE hidden node per record: the store's own deep-
-  // tracking signal (`deep()` — bumped by every write path with scheduler
-  // semantics the store already owns: transitions, holds, lanes, merges).
-  // The compiled body is unchanged; `prev` is a post-apply snapshot. No
-  // queues, no stamps, no skip rules — timing is effect timing by
-  // construction. Admission (accessor safety via the manifest) unchanged.
-  if ((globalThis as any).__PATCH_NODE__ === true && raw !== undefined) {
-    let prev: any;
-    let first = true;
-    // Own root: row severing must dispose THIS record's delivery effect
-    // individually (the structural cost of node delivery — one disposable
-    // owner + effect per registration; a leaner disposable-effect
-    // primitive is the optimization if this design wins).
-    let disposer!: () => void;
-    createRoot(d => {
-      disposer = d;
-      effect(
-        () => {
-          patchVersion(subject); // ONE tracked edge: bare version signal
-        },
-        () => {
-          const next = patchCommittedRaw(subject) ?? raw;
-          untrack(() => body(next, prev, first));
-          first = false;
-          // Post-apply snapshot: in-place folds reuse the backing object,
-          // so compares need a stable prev. (Optimization headroom:
-          // manifest-key-only snapshots.)
-          prev = Array.isArray(next) ? (next as any[]).slice() : { ...(next as object) };
-        }
-      );
-    });
-    if (rowCollector !== null) rowCollector.unbinds.push(disposer);
-    else onCleanup(disposer);
-    return;
-  }
   if (raw !== undefined) {
     // Hydration is claim + register ONLY (DESIGN-PATCH-CHANNEL §5): the
     // server HTML already carries current values, so the initial force-apply
