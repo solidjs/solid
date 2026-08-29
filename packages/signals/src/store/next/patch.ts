@@ -240,7 +240,12 @@ function applyEntries(
           (entry as any).pv = untrack(() => manifestSnapshot(pc as any, next));
       } else {
         const ep = prev === PER_ENTRY_PREV ? (entry as any).pv : prev;
-        entry.fn(next, ep, force);
+        // A consumer whose baseline never materialized (projection backing
+        // absent at registration) takes its first delivery FORCED — there
+        // is nothing to compare against, and compiled bodies only tolerate
+        // an undefined prev under force.
+        if (ep == null && prev === PER_ENTRY_PREV) entry.fn(next, undefined, true);
+        else entry.fn(next, ep, force);
         if (prev === PER_ENTRY_PREV)
           (entry as any).pv = untrack(() => manifestSnapshot(pc as any, next));
       }
@@ -325,7 +330,12 @@ function clonePrev(prev: any): any {
  * `t.d` cheaply; this function re-checks and walks ancestors (§4b).
  */
 export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
-  if (t.pc !== null) bumpDelivery(t.pc);
+  const pc = t.pc as any;
+  if (pc !== null) {
+    bumpDelivery(pc);
+    pc.np = next;
+    pc.npb = pc.bc;
+  }
   emitPatchAncestors(t);
 }
 
@@ -360,7 +370,14 @@ export function emitPatchAncestorsOptimistic(t: StoreNextTarget, _tx: unknown): 
  * hand and have already handled ancestors (the adoption walk descends —
  * parents were visited first), so no bubbling walk. */
 export function emitPatchLocal(t: StoreNextTarget, next: any, prev: any): void {
-  if (t.pc !== null) bumpDelivery(t.pc);
+  const pc = t.pc as any;
+  if (pc === null) return;
+  bumpDelivery(pc);
+  // Payload fast path (raw-read thesis): the emission's own state rides
+  // the channel — deliveries read it RAW instead of proxy-resolving.
+  // bc-tagged: a later bump (including post-revert) invalidates it.
+  pc.np = next;
+  pc.npb = pc.bc;
 }
 
 /** Optimistic-channel emission: overrides are visible THIS flush while the
@@ -610,14 +627,16 @@ function snapNode(node: DeepNode, src: any, dst: any): void {
 /** What an untracked reader sees RIGHT NOW: optimistic families serve the
  * override view, held targets the mask, everyone else committed. THE single
  * visibility decision — the queue design made it at five different seams. */
-function visibleView(t: StoreNextTarget): any {
-  // Optimistic families read THROUGH THE PROXY: tentative values live in
-  // node overrides at ANY depth (a root-level view merge misses children),
-  // and untracked proxy reads resolve them all. Everyone else: the SAME
+function visibleView(t: StoreNextTarget, pc?: any): any {
+  // THROUGH THE PROXY when raw reads can go stale: optimistic families
+  // (tentative values live in node overrides at any depth) and DEEP-PATH
+  // channels (eager child adoption swaps nested backings without rewriting
+  // ancestor raw slots — the queue design's forcedNext made the same
+  // call). Untracked proxy reads resolve both. Everyone else: the SAME
   // hold resolution the store's traps use (heldMaskView checks whether the
-  // holding transition finished — a raw ht read served stale masks after
-  // landings), else committed raw.
+  // holding transition finished), else committed raw.
   if (t.fam?.opt === true) return t.px;
+  if (pc !== undefined && pc.dp !== null) return t.px;
   const hm = heldMaskView(t);
   return hm !== null ? hm : t.v;
 }
@@ -669,7 +688,7 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
             demoteToEffects(t, true);
             return;
           }
-          const next = visibleView(t);
+          const next = visibleView(t, pc);
           const snap = p.length > 1 ? p.slice() : p;
           let firstError: unknown = UNSET;
           firstError = applyEntries(snap, next, PER_ENTRY_PREV, false, firstError, pc);
@@ -746,7 +765,7 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
   // optimistic views are proxies — a tracked spread inside the registrant's
   // computation subscribes every key onto it (a boundary re-ran per write,
   // accumulating live re-registrations).
-  (entry as any).pv = untrack(() => manifestSnapshot(pc, visibleView(t)));
+  (entry as any).pv = untrack(() => manifestSnapshot(pc, visibleView(t, pc)));
   // Bindings are subscriptions for reachability (§6d pruning must descend
   // into bound records).
   markDescendants(t);
