@@ -12,7 +12,7 @@
  _$ssrSelectValues__r_server();
  import * as styles from "./styles.module.css";
  import { binding } from "somewhere";
-@@ -122,118 +121,118 @@
+@@ -126,62 +125,62 @@
      return _$escape__r_server(row.label || " ");
    }, _$ssr__r_server(_g11$, _g3$)), _$ssr__r_server("<div><div/></div>")];
  }, true);
@@ -104,10 +104,12 @@
 -const template17 = _$ssr__r_server(_g23$, _g82$, "a  b  c");
 +var _g81$ = _$ssrHydrationKey__r_server();
 +const template17 = _$ssr__r_server(_g23$, _g81$, "a  b  c");
- const template18 = _$ssrElement__r_server("div", {
-   get [key()]() {
-     return props.value;
-   }
+ const template18 = _$ssrElement__r_server("div", () => {
+   return _$mergeProps__r_server(() => {
+     return {
+@@ -191,57 +190,57 @@
+     };
+   });
  }, undefined, true);
 -var _g83$ = _$ssrHydrationKey__r_server();
 -const template19 = _$ssr__r_server(_g24$, _g83$, _$ssrClassName__r_server([{
@@ -183,9 +185,9 @@
  const template26 = _$ssrElement__r_server("div", () => {
    return _$mergeProps__r_server({
      start: "Hi",
-@@ -258,146 +257,146 @@
-     }, "<!--/-->"];
-   }, false), _$ssrElement__r_server("input", api(), undefined, false), _$ssrElement__r_server("div", api(), undefined, false)];
+@@ -274,146 +273,146 @@
+     return _$mergeProps__r_server(api);
+   }, undefined, false)];
  }, true);
 -var _g98$ = _$ssrHydrationKey__r_server();
 -var _g99$ = !!someValue;
@@ -416,7 +418,7 @@
  const propsSpread = {
    something: color(),
    style: {
-@@ -438,39 +437,39 @@
+@@ -454,39 +453,39 @@
      height: props.height
    }
  };
@@ -472,7 +474,7 @@
  const o = {
    ref: null
  };
-@@ -479,76 +478,76 @@
+@@ -495,76 +494,76 @@
  };
  const valid = Div({
    ref(r$) {

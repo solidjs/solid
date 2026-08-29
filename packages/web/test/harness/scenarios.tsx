@@ -1443,6 +1443,25 @@ function InnerHTMLCallSiblings() {
 }
 
 // ---------------------------------------------------------------------------
+// A reactive lone spread creates a merge memo on the client. The server must
+// create the same memo after it allocates the spread element's hydration key,
+// or the following button uses a different key and remains unclaimed.
+let setLoneSpreadLabel!: (v: string) => void;
+function ReactiveLoneSpread() {
+  const attrs = () => ({ class: "example" });
+  const [label, setLabel] = createSignal("before");
+  setLoneSpreadLabel = setLabel;
+  return (
+    <>
+      <div {...attrs()}>
+        <span>spread</span>
+      </div>
+      <button>{label()}</button>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // solidjs/solid#3033: a conditional expression in a JSX prop compiles to a
 // condition memo INSIDE the prop getter, minted when the getter is first
 // read — and the two sides read it at different points in their walks (the
@@ -1974,6 +1993,14 @@ export const scenarios: Scenario[] = [
     update: () => setInnerHTMLToggle(true),
     expectedTextAfterUpdate: "r1r2on",
     stableSelector: "div, label"
+  },
+  {
+    name: "reactive-lone-spread-id-parity",
+    App: ReactiveLoneSpread,
+    expectedText: "spreadbefore",
+    update: () => setLoneSpreadLabel("after"),
+    expectedTextAfterUpdate: "spreadafter",
+    stableSelector: "div, span, button"
   },
   {
     name: "prop-condition-memo-id-parity",

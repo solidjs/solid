@@ -1,0 +1,5 @@
+{
+  "name": "reactive-lone-spread-id-parity",
+  "shell": "<div _hk=0 class=\"example\"><span>spread</span></div><button _hk=2>before</button>",
+  "rest": ""
+}

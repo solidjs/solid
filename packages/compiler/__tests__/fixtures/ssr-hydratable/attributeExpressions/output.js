@@ -209,7 +209,11 @@ const template = _$ssrElement("div", () => {
 		return _ref$ = link, _$ssr(_tmpl$, "ccc ddd");
 	}, false);
 }, true);
-const template2 = _$ssrElement("div", getProps("test"), () => {
+const template2 = _$ssrElement("div", () => {
+	return _$mergeProps(() => {
+		return getProps("test");
+	});
+}, () => {
 	return [
 		(_v$ = _$escape(rowId || " "), _$ssr(_tmpl$2, _v$)),
 		(_v$2 = () => {
@@ -266,9 +270,13 @@ var _v$21 = _$ssrHydrationKey();
 const template16 = _$ssr(_tmpl$14, _v$21, _$ssrClassName(["static", { hi: "k" }]));
 var _v$22 = _$ssrHydrationKey();
 const template17 = _$ssr(_tmpl$15, _v$22, "a  b  c");
-const template18 = _$ssrElement("div", { get [key()]() {
-	return props.value;
-} }, undefined, true);
+const template18 = _$ssrElement("div", () => {
+	return _$mergeProps(() => {
+		return { get [key()]() {
+			return props.value;
+		} };
+	});
+}, undefined, true);
 var _v$23 = _$ssrHydrationKey();
 const template19 = _$ssr(_tmpl$16, _v$23, _$ssrClassName([{ "bg-red-500": true }, "flex flex-col"]));
 var _v$24 = _$ssrHydrationKey(), _g$3 = _$ssrGroup(() => {
@@ -318,9 +326,13 @@ const template27 = _$ssrElement("div", () => {
 }, () => {
 	return "Hi";
 }, true);
-const template28 = _$ssrElement("label", api(), () => {
+const template28 = _$ssrElement("label", () => {
+	return _$mergeProps(api);
+}, () => {
 	return [
-		_$ssrElement("span", api(), () => {
+		_$ssrElement("span", () => {
+			return _$mergeProps(api);
+		}, () => {
 			return [
 				"Input is ",
 				"<!--$-->",
@@ -330,8 +342,12 @@ const template28 = _$ssrElement("label", api(), () => {
 				"<!--/-->"
 			];
 		}, false),
-		_$ssrElement("input", api(), undefined, false),
-		_$ssrElement("div", api(), undefined, false)
+		_$ssrElement("input", () => {
+			return _$mergeProps(api);
+		}, undefined, false),
+		_$ssrElement("div", () => {
+			return _$mergeProps(api);
+		}, undefined, false)
 	];
 }, true);
 var _v$40 = _$ssrHydrationKey(), _v$41 = !!someValue;

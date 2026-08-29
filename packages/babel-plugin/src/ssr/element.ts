@@ -1003,7 +1003,14 @@ function createElement(
     }, []);
 
   let props: babelTypes.Expression[];
-  if (attributes.length === 1 && t.isJSXSpreadAttribute(attributes[0].node)) {
+  if (
+    attributes.length === 1 &&
+    t.isJSXSpreadAttribute(attributes[0].node) &&
+    (!hydratable ||
+      !isDynamic(attributes[0].get("argument"), {
+        checkMember: true
+      }))
+  ) {
     props = [attributes[0].node.argument];
   } else {
     props = [];

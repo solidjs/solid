@@ -1294,9 +1294,14 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         attributes: &[JSXAttributeItem<'a>],
         has_children: bool,
     ) -> Result<Expression<'a>> {
-        // A lone spread attribute passes its argument straight through.
+        // A lone spread attribute passes its argument straight through unless
+        // its reactive merge must consume the same hydration id as the client.
         if attributes.len() == 1
             && let JSXAttributeItem::SpreadAttribute(spread) = &attributes[0]
+            && (!self.hydratable
+                || !self
+                    .classify()
+                    .is_dynamic(Some(spread.span.start), &spread.argument, false))
         {
             return Ok(spread.argument.clone_in(self.allocator));
         }

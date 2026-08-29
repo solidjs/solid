@@ -3,7 +3,6 @@
  */
 import { describe, expect, test } from "vitest";
 import { renderToString } from "@solidjs/web";
-import { createSignal } from "solid-js";
 
 function extractHydrationKeys(html: string): string[] {
   const matches = [...html.matchAll(/_hk=([^\s>]+)/g)];
@@ -11,7 +10,7 @@ function extractHydrationKeys(html: string): string[] {
 }
 
 describe("Spread element hydration key alignment", () => {
-  test("two sibling spread elements produce sequential _hk values", () => {
+  test("two sibling spread elements reserve matching merge IDs", () => {
     function Link(props: { linkProps: any; count: number }) {
       return <a {...props.linkProps}>My Link {props.count}</a>;
     }
@@ -29,9 +28,7 @@ describe("Spread element hydration key alignment", () => {
     const html = renderToString(() => <App />);
     const keys = extractHydrationKeys(html);
 
-    // With the bug, memo() in ssrElement children consumes an extra parent slot
-    // per spread element, shifting the second <a>'s _hk value.
-    // The two <a> elements should have consecutive last-segment IDs.
+    // Each reactive spread reserves one child ID after its element key.
     const anchorKeys = keys.filter((_, i) => i > 0); // skip the outer <div>
     expect(anchorKeys).toHaveLength(2);
 
@@ -39,7 +36,7 @@ describe("Spread element hydration key alignment", () => {
     const secondParts = anchorKeys[1].split("-");
     const firstLast = parseInt(firstParts[firstParts.length - 1]);
     const secondLast = parseInt(secondParts[secondParts.length - 1]);
-    expect(secondLast - firstLast).toBe(1);
+    expect(secondLast - firstLast).toBe(2);
   });
 
   test("spread element followed by another spread sibling — three siblings", () => {
@@ -68,10 +65,10 @@ describe("Spread element hydration key alignment", () => {
     // 4 _hk values: 1 for <div> + 3 for <a> elements
     expect(keys).toHaveLength(4);
 
-    // All three <a> elements should have consecutive last-segment IDs
+    // Each reactive spread reserves the ID between two element keys.
     const anchorKeys = keys.slice(1);
     const lastSegments = anchorKeys.map(k => parseInt(k.split("-").pop()!));
-    expect(lastSegments[1] - lastSegments[0]).toBe(1);
-    expect(lastSegments[2] - lastSegments[1]).toBe(1);
+    expect(lastSegments[1] - lastSegments[0]).toBe(2);
+    expect(lastSegments[2] - lastSegments[1]).toBe(2);
   });
 });
