@@ -12,7 +12,12 @@
 // envelope, the flash cookie, folding cookies for work re-run after a
 // mutation — and never what they carry. Which data a mutation invalidates,
 // and how an outcome reaches the UI, stay with the integration.
-import { REVALIDATE_HEADER, isResponseEnvelope, isSafeError } from "../../src/response.js";
+import {
+  NULL_BODY_STATUSES,
+  REVALIDATE_HEADER,
+  isResponseEnvelope,
+  isSafeError
+} from "../../src/response.js";
 import { RequestContext, commitEventResponse, getRequestEvent } from "../../src/server.js";
 import { encodeFlashCookie } from "./flash.js";
 import {
@@ -1355,6 +1360,28 @@ function serializedResponse(value, headers, codec, signal) {
 }
 
 function encodeResult(value, headers, status, codec, signal) {
+  // A null-body status can answer void results only. Encoding a value would
+  // throw a TypeError from the Response constructor AFTER the function ran,
+  // escaping into dispatch's catch where it used to be sanitized into a
+  // phantom generic error at 200 with the real cause appearing nowhere
+  // (#3095). Answer the void shapes with a real null-body response, and
+  // report a value-carrying result as the authoring error it is — legibly
+  // in every build (the message names only the status), and built HERE
+  // rather than thrown: this encoder also runs inside dispatch's catch,
+  // where a throw would escape the handler entirely.
+  if (NULL_BODY_STATUSES.has(status)) {
+    if (value === undefined || value === null) {
+      headers.set(BODY_FORMAT_HEADER, BodyFormat.Void);
+      return new Response(null, { status, headers });
+    }
+    const error = new Error(
+      `Server function answered status ${status}, which forbids a response body, with a value. ` +
+        `Return respond(undefined, { status: ${status} }) for a bodiless answer, or drop the ` +
+        `status to send the value.`
+    );
+    headers.set(ERROR_HEADER, encodeErrorHeaderValue(error.message));
+    return encodeResult(error, headers, 500, codec, signal);
+  }
   const direct = getHeadersAndBody(value);
   if (direct) {
     for (const [key, val] of Object.entries(direct.headers || {})) {
@@ -1397,6 +1424,29 @@ function encodeResult(value, headers, status, codec, signal) {
   }
   const response = serializedResponse(value, headers, codec, signal);
   return status === 200 ? response : new Response(response.body, { status, headers });
+}
+
+// The error header is a classification label — the structured error travels
+// in the body (the client throws the DECODED BODY and reads the header only
+// for presence) — so nothing is lost by bounding it, and an unbounded one is
+// fatal: a message past a receiver's header limit (undici defaults to 16 KB,
+// nginx proxy buffers to 4-8 KB for the WHOLE header block) makes the whole
+// response unreadable, replacing the application error with a network error
+// (#3093). Percent-encoding inflates non-latin1 up to nine-fold, so the
+// bound is enforced on the ENCODED value by re-encoding a shrinking slice of
+// the source — never by cutting the encoding, where a split escape sequence
+// would not decode.
+const ERROR_HEADER_VALUE_LIMIT = 1024;
+
+function boundedErrorHeaderValue(message) {
+  let label = message.length > 256 ? message.slice(0, 256) : message;
+  let encoded = encodeErrorHeaderValue(label);
+  while (encoded.length > ERROR_HEADER_VALUE_LIMIT && label.length > 1) {
+    // a slice can split a surrogate pair; the encoder well-forms it
+    label = label.slice(0, Math.ceil(label.length / 2));
+    encoded = encodeErrorHeaderValue(label);
+  }
+  return encoded;
 }
 
 /** Message a sanitized (production) server error carries on the wire. */
@@ -1993,8 +2043,10 @@ export async function handleServerFunctionRequest(request, options = {}) {
       const error = safe instanceof Error ? safe.message : typeof safe === "string" ? safe : "true";
       // header values are latin1 ByteStrings — Headers.set throws on anything
       // above U+00FF, so non-latin1 messages ride percent-encoded (the client
-      // decodes symmetrically; the structured error still travels in the body)
-      headers.set(ERROR_HEADER, encodeErrorHeaderValue(error));
+      // decodes symmetrically; the structured error still travels in the
+      // body) — and bounded, so a long message cannot blow the response past
+      // a receiver's header limits (see boundedErrorHeaderValue)
+      headers.set(ERROR_HEADER, boundedErrorHeaderValue(error));
       return encodeResult(safe, headers, 200, codec, request.signal);
     }
   };

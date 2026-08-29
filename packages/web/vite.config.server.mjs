@@ -23,6 +23,10 @@ export default defineConfig({
     alias: {
       "@solidjs/web/server-functions/server": resolve(rootDir, "server-functions/dist/server.js"),
       "@solidjs/web/server-functions/client": resolve(rootDir, "server-functions/dist/client.js"),
+      // the transport's lazy codec imports — without these the bare
+      // "@solidjs/web" alias below swallows the subpath
+      "@solidjs/web/serialization/decode": resolve(rootDir, "serialization/dist/decode.js"),
+      "@solidjs/web/serialization": resolve(rootDir, "serialization/dist/serialization.js"),
       "@solidjs/web": resolve(rootDir, "src/index.server.ts"),
       "solid-js": resolve(rootDir, "../solid/src/server/index.ts"),
     }

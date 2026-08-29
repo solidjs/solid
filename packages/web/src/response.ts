@@ -183,6 +183,16 @@ export function reload(init: ResponseHelperInit = {}) {
 }
 
 /**
+ * Statuses HTTP forbids a body on — the `Response` constructor enforces it
+ * by throwing on ANY body, `JSON.stringify(undefined)`'s `"undefined"`
+ * included. Shared with the server-function encoder, which answers void
+ * results on these statuses with a real null-body response and reports
+ * value-carrying ones as authoring errors (#3095).
+ * @internal
+ */
+export const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 304]);
+
+/**
  * A value paired with response metadata (status, headers, `revalidate`) —
  * for the things a naked return can't express. Progressive enhancement
  * stays invisible: the carried response holds a plain JSON body so
@@ -191,6 +201,14 @@ export function reload(init: ResponseHelperInit = {}) {
  */
 export function respond<T>(value: T, init: ResponseHelperInit = {}) {
   const { responseInit, headers } = initWithRevalidate(init);
+  // A null-body status cannot carry the passthrough JSON body — building it
+  // would throw right here, at 200, masking the author's intent (#3095).
+  // Carry the metadata bodiless; the server-function encoder answers the
+  // void shapes with a real null-body response and reports value-carrying
+  // ones legibly.
+  if (NULL_BODY_STATUSES.has(responseInit.status)) {
+    return new ResponseEnvelope(new Response(null, { ...responseInit, headers }), value);
+  }
   headers.set("Content-Type", "application/json");
   return new ResponseEnvelope(
     new Response(JSON.stringify(value), { ...responseInit, headers }),
