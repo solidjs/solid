@@ -208,6 +208,108 @@ describe("INVARIANT: a throwing row build leaves DOM, bookkeeping, and sibling r
   });
 });
 
+describe("INVARIANT: driver initial applies render the VISIBLE view (round 9)", () => {
+  test("a patch template mounting after a lane drain shows the optimistic override", async () => {
+    const { createOptimisticStore, action } = await import("solid-js");
+    const [state, setState] = (createOptimisticStore as any)({
+      row: { id: 1, label: "committed" }
+    });
+    let resolve!: () => void;
+    let save!: () => Promise<void> | void;
+    createRoot(() => {
+      save = (action as any)(function* () {
+        setState((s: any) => {
+          s.row.label = "optimistic";
+        });
+        yield new Promise<void>(r => {
+          resolve = r;
+        });
+      });
+    });
+    const p = save() as Promise<void>;
+    flush(); // lane drain done — override visible to every reader
+    const text = document.createTextNode("");
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      patchDriver(
+        state.row,
+        (n: any, p2: any, f?: boolean) => {
+          if (f || n.label !== p2.label) text.data = n.label;
+        },
+        ["label"]
+      );
+    });
+    // Siblings mounted before the action show "optimistic"; a late mount
+    // must not render the committed value beside them.
+    expect(text.data).toBe("optimistic");
+    resolve();
+    await p;
+    flush();
+    expect(text.data).toBe("committed");
+    dispose();
+  });
+
+  test("the effect fallback never writes during its tracked compute pass (NaN fields)", () => {
+    // A NON-record subject takes the effect fallback; a NaN field makes
+    // `n.x !== p.x` true even with next === prev — the compute pass must
+    // stay read-only regardless.
+    const subject = { x: NaN, label: "L" };
+    const text = document.createTextNode("");
+    let writes = 0;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      patchDriver(
+        subject,
+        (n: any, p: any, f?: boolean) => {
+          if (f || n.x !== p.x || n.label !== p.label) {
+            writes++;
+            text.data = n.label + ":" + n.x;
+          }
+        },
+        ["x", "label"]
+      );
+    });
+    flush();
+    // Exactly ONE write — the commit-phase force apply. A compute-phase
+    // write means DOM/custom setters run inside a tracked computation
+    // (and twice per update).
+    expect(writes).toBe(1);
+    expect(text.data).toBe("L:NaN");
+    dispose();
+  });
+
+  test("Map rows pass through raw — no incompatible-receiver proxy wrap", () => {
+    createRoot(dispose => {
+      let div!: HTMLDivElement;
+      const m1 = new Map([["k", 1]]);
+      const m2 = new Map([
+        ["k", 1],
+        ["j", 2]
+      ]);
+      const mapRow = rowProof((db: Map<string, number>) => {
+        const tr = document.createElement("tr");
+        // `.size` is a prototype ACCESSOR with a Map brand check — a
+        // wrapped receiver throws.
+        tr.textContent = "size:" + db.size;
+        return tr as unknown as any;
+      });
+      const [state, setState] = createStore<any>({ rows: [m1] });
+      <div ref={div}>
+        <For each={state.rows}>{mapRow}</For>
+      </div>;
+      expect(labels(div)).toBe("size:1");
+      setState((s: any) => {
+        s.rows.push(m2);
+      });
+      flush();
+      expect(labels(div)).toBe("size:1,size:2");
+      dispose();
+    });
+  });
+});
+
 describe("INVARIANT: structural operations build rows from THEIR OWN captured state", () => {
   test("two structural updates queued in one flush each bind their operation's records", () => {
     createRoot(dispose => {

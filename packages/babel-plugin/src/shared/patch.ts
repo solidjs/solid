@@ -44,7 +44,10 @@ function isEligibleExpr(node: t.Node, subject: string, asMemberBase = false): bo
         // (re-audit 8 — `state[1.2]` would probe as state["1"]["2"]).
         if (t.isStringLiteral(m.property)) {
           if (m.property.value.indexOf(".") !== -1) return false;
-        } else if (!t.isNumericLiteral(m.property) || !Number.isInteger(m.property.value)) {
+        } else if (!t.isNumericLiteral(m.property) || !Number.isSafeInteger(m.property.value)) {
+          // Safe integers only (re-audit 9): 1e20 is "integer" but its
+          // string form diverges between engines/formatters — and the Oxc
+          // mirror casts through i64.
           return false;
         }
       } else if (!t.isIdentifier(m.property)) {

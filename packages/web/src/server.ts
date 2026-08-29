@@ -4766,8 +4766,21 @@ export {
   notSup as runHydrationEvents,
   notSup as ref,
   notSup as setStyleProperty,
-  notSup as acquireAsset
+  notSup as acquireAsset,
+  // patchDriver executes only when a DOM template runs — same class as
+  // `template` above (re-audit 9: dom-compiled modules must LINK under
+  // Node; SSR renders through the ssr() pipeline instead).
+  notSup as patchDriver
 };
+
+/** Server identity: rowProof wraps row functions at DEFINITION sites in
+ * isomorphic modules — it must be callable, not just linkable. The stamp
+ * is meaningless without the client list driver. */
+export function rowProof<F>(fn: F): F;
+
+export function rowProof(fn) {
+  return fn;
+}
 
 function notSup() {
   throw new Error(

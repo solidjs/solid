@@ -237,7 +237,13 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
       dest = (target as any)._heldPatches = heldPatches;
       for (let i = 0; i < heldPatches.length; i++) {
         const pc = (heldPatches[i] as any).pc;
-        if (pc !== undefined && pc.qe === heldPatches[i]) pc.qa = dest;
+        if (pc !== undefined) {
+          if (pc.qe === heldPatches[i]) pc.qa = dest;
+          // Forced stamps follow their container too (re-audit 9, P2):
+          // a stale qf lets the next bubble stage a duplicate twin.
+          if ((heldPatches[i] as any).force === true && (heldPatches[i] as any).fq !== "o")
+            pc.qf = dest;
+        }
       }
     } else {
       // COALESCE same-channel collisions (re-audit 6, P1-2): a record that
@@ -254,6 +260,16 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
       for (let i = 0; i < heldPatches.length; i++) {
         const entry: any = heldPatches[i];
         const pc = entry.pc;
+        if (entry.force === true) {
+          // Forced entries dedupe per channel across the merge and retarget
+          // their stamp (re-audit 9, P2).
+          if (pc !== undefined && entry.fq !== "o") {
+            if (pc.qf === dest) continue; // destination already staged one
+            pc.qf = dest;
+          }
+          dest.push(entry);
+          continue;
+        }
         const dup = pc !== undefined ? byPc.get(pc) : undefined;
         if (dup !== undefined) {
           dup.t = pc.t; // drain resolves next live: t.pb ?? t.v

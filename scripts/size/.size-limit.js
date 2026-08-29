@@ -75,7 +75,10 @@ module.exports = [
     // mergeTransitionState (both stashes holding the same record's entry
     // now collapse to one live-resolving entry). Core-retained; measured
     // 7.91.
-    limit: "7.95 KB",
+    //
+    // Re-audit-9 (2026-08-29): forced-entry dedup + stamp retargeting in
+    // the merge path. Measured 7.92.
+    limit: "8 KB",
     modifyEsbuildConfig
   },
   {
@@ -171,7 +174,11 @@ module.exports = [
     // (deepPathsPlain), split normal/optimistic stamps, and the reconcile
     // root ancestor bubble — all on store paths createStore retains.
     // Measured 14.58.
-    limit: "14.7 KB",
+    //
+    // Re-audit-9 (2026-08-29): held-view admission, committed-visible skip
+    // markers, tentative self-emission, unchanged-reconcile gate, function-
+    // intermediate probes. Measured 14.80.
+    limit: "14.9 KB",
     modifyEsbuildConfig
   },
   {
@@ -350,8 +357,11 @@ module.exports = [
     //
     // Stage-3 batch (pre-release ratchet): 12.3 -> 12.8 KB, measured at
     // 12.53 — the signals-core bytes (see the core-floor note).
+    //
+    // Re-audit-9 (2026-08-29): the merge-path core bytes (see core floor).
+    // Measured 12.90.
     path: "csr-app.js",
-    limit: "12.9 KB",
+    limit: "13 KB",
     modifyEsbuildConfig
   },
   {
@@ -383,8 +393,12 @@ module.exports = [
     //
     // Re-audit-8 (2026-08-28): manifest deep-probe at admission, generation
     // skip, forced coalescing, lane-timed ancestor bubbles. Measured 15.69.
+    //
+    // Re-audit-9 (2026-08-29): manifest-read effect fallback (write-free
+    // compute), optimistic-view initial applies, committed-visible skip
+    // markers, optimistic drain probes. Measured 15.99.
     path: "csr-app-patch.js",
-    limit: "15.8 KB",
+    limit: "16.1 KB",
     modifyEsbuildConfig
   },
   {
@@ -417,8 +431,11 @@ module.exports = [
     // record row binds (patchProxyFor riding the createTarget-installed
     // wrap hook — the direct wrapNext edge would have retained the whole
     // trap engine here, +3.7 kB, caught at this gate). Measured 18.09.
+    //
+    // Re-audit-9 (2026-08-29): the value-tier bytes above plus isWrappable
+    // row-bind guards and immediate lane demotion. Measured 18.47.
     path: "csr-app-patch-lists.js",
-    limit: "18.2 KB",
+    limit: "18.6 KB",
     modifyEsbuildConfig
   },
   {

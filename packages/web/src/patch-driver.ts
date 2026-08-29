@@ -596,7 +596,16 @@ export const patchDriver = (subject, body, keys?: string[]) => {
       // runtime recording can never guarantee (untaken branches read
       // nothing). No recording proxy; hydration registrations get the
       // envelope up front instead of waiting for a first drain apply.
-      if (!sharedConfig.hydrating) body(raw, undefined, true);
+      //
+      // Initial applies read the VISIBLE view (re-audit 9, P1-2): for
+      // optimistic-family records the committed raw lags live overrides —
+      // a mount after the lane drain must match its siblings, so it reads
+      // through the PROXY (untracked; the raw fast path stays for plain
+      // records).
+      if (!sharedConfig.hydrating) {
+        const src = storeHasOptimisticFamily(subject) ? subject : raw;
+        untrack(() => body(src, undefined, true));
+      }
       unbind = registerPatch(subject, body, keys);
     } else if (!sharedConfig.hydrating) {
       // Manifest-less callers (hand-written registrations): record the
@@ -625,14 +634,31 @@ export const patchDriver = (subject, body, keys?: string[]) => {
   } else if (rowCollector !== null && subject === rowCollector.row) {
     rowCollector.bodies.push(body);
     if (!sharedConfig.hydrating) body(subject, undefined, true);
+  } else if (keys !== undefined) {
+    // Effect fallback, MANIFEST form (re-audit 9, P1-3): the compute pass
+    // reads the declared envelope directly — running the body with
+    // next === prev is NOT reliably read-only (NaN fields and unstable
+    // getters make compares true, firing DOM/custom setters inside a
+    // tracked computation and again at commit). The manifest IS the read
+    // set, so the compute is exact and pure by construction.
+    const paths = keys.map(k => (k.indexOf(".") === -1 ? k : k.split(".")));
+    effect(
+      () => {
+        for (let i = 0; i < paths.length; i++) {
+          const p = paths[i];
+          if (typeof p === "string") {
+            subject?.[p];
+          } else {
+            let o: any = subject;
+            for (let d = 0; d < p.length && o != null; d++) o = o[p[d]];
+          }
+        }
+      },
+      () => untrack(() => body(subject, undefined, true))
+    );
   } else {
-    // Effect fallback with correct WRITE TIMING: the compute pass calls the
-    // body with next === prev, so every compare fails and it becomes a pure
-    // TRACKED READ of each binding expression (eligible expressions are pure
-    // member chains — double evaluation is free of side effects); the commit
-    // pass force-applies, putting DOM writes in the effect phase where
-    // transitions and batching expect them — same split as classic compiled
-    // effects, same single compiled body.
+    // Manifest-less fallback (hand-written callers): dual-run compute.
+    // Bodies with NaN/unstable reads should pass a manifest instead.
     effect(
       () => body(subject, subject, false),
       // untrack: the commit pass re-evaluates binding expressions by design

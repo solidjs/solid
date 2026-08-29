@@ -41,7 +41,10 @@ fn is_eligible_expr(node: &Expression<'_>, subject: &str, as_member_base: bool) 
                     }
                 }
                 Expression::NumericLiteral(lit) => {
-                    if lit.value.fract() != 0.0 {
+                    // Safe integers only (re-audit 9): matches Babel's
+                    // Number.isSafeInteger — larger integral literals
+                    // format differently through the i64 cast.
+                    if lit.value.fract() != 0.0 || lit.value.abs() > 9_007_199_254_740_991.0 {
                         return false;
                     }
                 }

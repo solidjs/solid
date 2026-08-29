@@ -266,7 +266,11 @@ describe("why-did-this-run attribution", () => {
     expect(hot[0].nodeName).toBe("hot-effect");
     expect(hot[0].data).toMatchObject({ runs: 3, windowMs: 60_000 });
     expect(hot[0].message).toContain('"n" (write)');
-    expect(warn).toHaveBeenCalledTimes(1);
+    // Count THIS diagnostic's warns, not the process-global total — other
+    // suites in a reused worker may legitimately warn (e.g. store getter
+    // demotion notices), and a global count is flaky by construction.
+    const hotWarns = warn.mock.calls.filter(c => String(c[0]).includes('"n" (write)'));
+    expect(hotWarns).toHaveLength(1);
   });
 
   it("warns on wide scopes and re-warns only on 50% growth", () => {

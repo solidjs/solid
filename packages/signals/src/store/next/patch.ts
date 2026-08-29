@@ -32,7 +32,7 @@ import {
   type Transition
 } from "../../core/scheduler.js";
 import type { Owner } from "../../core/types.js";
-import { $TARGET } from "../store.js";
+import { $TARGET, isWrappable } from "../store.js";
 import { markDescendants, ownedRaw, type StoreNextTarget } from "./target.js";
 import { installPatchHooks, installRowHooks, wrapRecordHook } from "./patch-hooks.js";
 // One-way: reconcile emits through the hooks (never imports this module),
@@ -40,7 +40,7 @@ import { installPatchHooks, installRowHooks, wrapRecordHook } from "./patch-hook
 import { emitSetterRowOps } from "./reconcile.js";
 // Cycle with store.js is benign (established pattern above): both resolve at
 // call time, long after module initialization.
-import { deepPathsPlain, targetIsPlain } from "./store.js";
+import { deepPathsPlain, targetIsPlain, targetKeysPlain } from "./store.js";
 import type { DeepNode } from "./target.js";
 
 import { InvariantHooks } from "../../core/invariants.js";
@@ -71,11 +71,13 @@ interface PatchEntry {
 interface QueuedApply {
   list: PatchEntry[];
   /** Registration-generation watermark (re-audit 8, P2-6): captured at
-   * emission; consumers registered LATER (their initial apply read this or
-   * newer state) are skipped unless the entry crossed a transition release
-   * (`rl` — those consumers initialized from the PRE-commit view). */
+   * emission; consumers registered LATER are skipped ONLY when the entry
+   * was emitted from ALREADY-COMMITTED state (`cm` — re-audit 9, P1-1:
+   * walk-in-setter and transition-held emissions carry uncommitted
+   * payloads, so late consumers read the OLD committed view and must
+   * receive the apply). */
   g?: number;
-  rl?: boolean;
+  cm?: boolean;
   next: any;
   prev: any;
   force: boolean;
@@ -133,7 +135,7 @@ function drainApplyQueue(): void {
         force,
         firstError,
         q[i].pc,
-        q[i].rl === true ? undefined : q[i].g
+        q[i].cm === true ? q[i].g : undefined
       );
   }
   if (firstError !== UNSET) {
@@ -305,10 +307,7 @@ function releaseBatch(batch: Transition): void {
   const held = (batch as any)._heldPatches as QueuedApply[] | undefined;
   if (held === undefined) return;
   (batch as any)._heldPatches = undefined;
-  for (let i = 0; i < held.length; i++) {
-    held[i].rl = true; // post-release: late consumers saw the PRE-commit view
-    pushLive(held[i]);
-  }
+  for (let i = 0; i < held.length; i++) pushLive(held[i]);
 }
 
 function pushLive(item: QueuedApply): void {
@@ -360,6 +359,8 @@ function push(item: QueuedApply): void {
  * quiet record retains nothing from its last batch. */
 function pushSelf(pc: { qa: unknown; qe: unknown }, item: QueuedApply): void {
   item.g = regGen;
+  // Uncommitted payloads never skip late consumers (re-audit 9, P1-1).
+  if (item.cm === undefined) item.cm = activeTransition === null;
   const tx = activeTransition;
   let arr: QueuedApply[];
   if (tx !== null) {
@@ -403,8 +404,11 @@ function clearStamp(item: QueuedApply): void {
     pc.qeo = null;
   }
   if (item.force === true) {
-    (pc as any).qf = null;
-    (pc as any).qfo = null;
+    // Clear ONLY the stamp this entry holds (re-audit 9, P1-5): a lane
+    // drain clearing the SETTLE stamp let a second tentative walk stage a
+    // duplicate settle twin.
+    if ((item as any).fq === "o") (pc as any).qfo = null;
+    else (pc as any).qf = null;
   }
 }
 
@@ -426,7 +430,8 @@ export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
       next,
       prev: ownedRaw.has(prev) ? clonePrev(prev) : prev,
       force: false,
-      t: null
+      t: null,
+      cm: next === t.v && t.ht === null
     });
   // Bubbling: ancestors force-re-apply from their LIVE backing, resolved at
   // drain (privatization may clone it between now and then).
@@ -486,6 +491,7 @@ export function emitPatchAncestorsOptimistic(t: StoreNextTarget, tx: unknown): v
           t: u
         };
         item.g = regGen;
+        (item as any).fq = "o";
         (item as any).pc = u.pc;
         optQueue.push(item);
         if (!scheduled) {
@@ -506,6 +512,8 @@ export function emitPatchAncestorsOptimistic(t: StoreNextTarget, tx: unknown): v
             t: u
           };
           settle.g = regGen;
+          settle.cm = false; // settle payload resolves live at commit
+          (settle as any).fq = "n";
           (settle as any).pc = u.pc;
           held.push(settle);
         }
@@ -526,7 +534,12 @@ export function emitPatchLocal(t: StoreNextTarget, next: any, prev: any): void {
       next,
       prev: ownedRaw.has(prev) ? clonePrev(prev) : prev,
       force: false,
-      t: null
+      t: null,
+      // Committed-VISIBLE payloads only (re-audit 9, P1-1): setter drafts
+      // (next !== t.v) and speculative adoptions under a hold (t.ht) are
+      // invisible to a mounting consumer's initial read — skipping it
+      // would strand it stale forever.
+      cm: next === t.v && t.ht === null
     });
 }
 
@@ -553,12 +566,23 @@ function drainOptimistic(): void {
     if (q[i].ops !== undefined || q[i].si !== undefined)
       firstError = applyStructural(q[i], next, firstError);
     else if (force && t !== null && deepProbeFails(t, next)) demoteToEffects(t);
+    else if (optProbeFails(q[i], next))
+      demoteToEffects((q[i].pc as any).t as StoreNextTarget, true);
     else firstError = applyEntries(liveValueList(q[i]), next, prev, force, firstError, q[i].pc);
   }
   if (firstError !== UNSET) {
     haltReactivity(firstError);
     throw firstError;
   }
+}
+
+/** Optimistic non-forced payloads probe before applying (re-audit 9,
+ * P1-4): tentative replacements never pass an adoption gate — a nested
+ * getter in the tentative view would be read raw, untracked. */
+function optProbeFails(item: QueuedApply, next: any): boolean {
+  const pc = item.pc as unknown as { t: StoreNextTarget; ak: PropertyKey[] | null } | undefined;
+  if (pc === undefined || next === null || typeof next !== "object") return false;
+  return !targetKeysPlain(pc.t, next);
 }
 
 export function emitPatchOptimistic(t: StoreNextTarget, next: any, prev: any): void {
@@ -790,7 +814,7 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
  * subject instead builds the wrong row once a second operation queues.
  * Shallow slot values (never wrapped) resolve to themselves. */
 export function patchProxyFor(list: any, raw: any, key?: PropertyKey): any {
-  if (raw === null || typeof raw !== "object") return raw;
+  if (raw === null || typeof raw !== "object" || !isWrappable(raw)) return raw;
   let t: StoreNextTarget | undefined = list?.[$TARGET];
   if (t === undefined) return raw;
   t = ultimateTarget(t) ?? t;
@@ -835,11 +859,12 @@ export function patchableRaw(record: any, keys?: string[]): Record<PropertyKey, 
   // records) never re-apply. Sticky `sc` makes this one probe pass per
   // record lifetime.
   if (t === undefined || !targetIsPlain(t)) return undefined;
-  // COMMITTED view (re-audit 8, P2-6 root cause): a driver mounting
-  // mid-transition must render what an untracked reader sees — the
-  // committed backing — not a transition's deferred draft; the held
-  // entry's release re-applies the commit to it.
-  const raw = t.v;
+  // COMMITTED-VISIBLE view (re-audits 8/9): a driver mounting
+  // mid-transition must render what an untracked reader sees. Adoption
+  // swaps t.v SPECULATIVELY under a transition (#3074) — the visible truth
+  // is the held mask until the hold resolves; the held entry's release
+  // re-applies the resolved state to the mount.
+  const raw = t.ht !== null ? ((t.hv ?? t.v) as Record<PropertyKey, any>) : t.v;
   // Manifest deep-path admission (re-audit 8, P1-1): a getter ALREADY
   // nested on a declared read path rejects patch admission outright — the
   // adoption gates only see FUTURE adoptions.
@@ -881,11 +906,15 @@ export function demotePatches(t: StoreNextTarget): PatchEntry[] | null {
  * lost for demoted rows — the effect lives until the LIST disposes. Rows
  * only demote when user code defines an accessor on a row record at
  * runtime. */
-export function demoteToEffects(t: StoreNextTarget): void {
+export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
   const entries = demotePatches(t);
   if (entries === null || entries.length === 0) return;
   const proxy = t.px;
-  globalQueue.enqueue(EFFECT_RENDER, () => {
+  // Lane-timed demotions run their re-drives NOW (re-audit 9, P1-4): the
+  // optimistic drain IS effect timing, and the global render queue is
+  // stashed by the in-flight action — deferring would postpone the
+  // tentative view (and the getter's tracked evaluation) to settle.
+  const redrive = () => {
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       if (entry.owner !== null && isDisposed(entry.owner)) continue;
@@ -903,7 +932,9 @@ export function demoteToEffects(t: StoreNextTarget): void {
         )
       );
     }
-  });
+  };
+  if (immediate) redrive();
+  else globalQueue.enqueue(EFFECT_RENDER, redrive);
 }
 
 // ---------------------------------------------------------------------------

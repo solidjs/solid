@@ -435,13 +435,35 @@ export function createRenderer({
     // (compute pass reads with next === prev; commit pass force-applies —
     // untracked, matching the web fallback: force short-circuits compares,
     // not reads, and dev strict-read would flag the re-reads otherwise).
-    patchDriver(subject, body) {
-      effect(
-        () => body(subject, subject, false),
-        () => {
-          untrack(() => body(subject, undefined, true));
-        }
-      );
+    patchDriver(subject, body, keys) {
+      if (keys !== undefined) {
+        // Manifest compute: exact tracked reads, write-free by construction
+        // (the dual-run form fires setters during compute for NaN/unstable
+        // fields — re-audit 9, P1-3).
+        const paths = keys.map(k => (k.indexOf(".") === -1 ? k : k.split(".")));
+        effect(
+          () => {
+            for (let i = 0; i < paths.length; i++) {
+              const p = paths[i];
+              if (typeof p === "string") subject?.[p];
+              else {
+                let o = subject;
+                for (let d = 0; d < p.length && o != null; d++) o = o[p[d]];
+              }
+            }
+          },
+          () => {
+            untrack(() => body(subject, undefined, true));
+          }
+        );
+      } else {
+        effect(
+          () => body(subject, subject, false),
+          () => {
+            untrack(() => body(subject, undefined, true));
+          }
+        );
+      }
     },
     // Compiler-proven pure list rows arrive wrapped in `rowProof` under the
     // default-on patch compiler. The universal flavor has no list driver —

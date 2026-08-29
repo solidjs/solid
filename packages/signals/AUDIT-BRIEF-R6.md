@@ -1,4 +1,55 @@
-# Audit brief — rounds 6–8 + patch-mode default flip
+# Audit brief — rounds 6–9 + patch-mode default flip
+
+## Round 9 (response to the 11-finding audit)
+
+- **P1 gen-stale mounts** — the skip rule now applies only to entries
+  emitted from COMMITTED-VISIBLE state (`cm`: setter drafts, held
+  adoptions, and transaction stashes never skip); `patchableRaw` serves the
+  held view (`hv`) for masked targets, and mounts anchor to the same
+  visibility an untracked proxy reader sees (invariant test uses that
+  oracle directly). Ambient eager adoptions self-correct (mounts read the
+  swapped backing) — pinned by test.
+- **P1 optimistic-window mounts** — manifested initial applies read the
+  OPTIMISTIC VIEW через the proxy (untracked) for family records.
+- **P1 fallback compute writes** — the manifest IS the read set: the
+  effect fallback's compute pass reads the declared envelope directly and
+  never runs the body (NaN/unstable-getter compares can fire setters
+  inside tracked computations). Applied to web AND universal drivers;
+  manifest-less callers keep dual-run.
+- **P1 tentative accessor safety** — tentative reconciles now emit the
+  TENTATIVE VIEW on the record's own channel at lane timing (they
+  previously never told the channel at all — effects saw the view, patches
+  did not); the optimistic drain probes non-forced payloads and demotes
+  getter-bearing views IMMEDIATELY (the global render queue is stashed
+  in-flight, so deferral would postpone visibility to settle).
+- **P1 stamp granularity** — forced entries clear only the stamp they hold
+  (lane vs settle); transition merges retarget/dedupe forced stamps.
+- **P1 isWrappable guard** on captured-record binds; **P1 server entry**
+  exports patchDriver (notSup, same class as template) and rowProof
+  (identity — callable in isomorphic modules); **P1 function
+  intermediates** demote conservatively (accessor carriers, never plain);
+  **P1 safe-integer keys** only (both compilers — 1e20 formats divergently
+  through the i64 mirror).
+- **P2 unchanged reconciles** don't bubble (identity-skip mirrored at the
+  top); **P2 merge** repairs forced stamps (above).
+
+CI: the attribution warn-count flake is fixed two-sided (the harness mutes
+its expected demotion warnings; the attribution test counts its own
+diagnostic's warns, not the process-global total).
+
+dbmon: 6.3 / 2.1 / 0.6 — within noise of rounds 7-8. Sizes ratcheted with
+dated notes (~+0.2-0.4 kB per tier).
+
+**Architectural note (for the next design conversation):** most P1s across
+rounds 7-9 are visibility-rule divergences — the channel bypasses the
+reactive graph, so every visibility rule nodes enforce implicitly is
+replicated by hand at each seam. Two structural candidates are on the
+table: centralizing visibleView()/shouldDeliver() decisions, or
+NODE-DRIVEN DELIVERY (one hidden node per patched record; compiled bodies
+unchanged) which would inherit transition/lane/hold timing by
+construction. The latter is being prototyped before the next round.
+
+---
 
 ## Round 8 (response to the 8-finding audit)
 

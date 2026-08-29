@@ -486,7 +486,9 @@ function deepNodePlain(node: DeepNode, parent: any, rootProbed: boolean): boolea
   const children = node.c;
   if (children === null) return true; // leaf: the key probe was the work
   let o: any = parent[node.k];
-  if (o === null || typeof o !== "object") return true;
+  // FUNCTIONS are accessor carriers too (re-audit 9, P1-8) — and their
+  // prototype is never plain, so descending demotes them conservatively.
+  if (o === null || (typeof o !== "object" && typeof o !== "function")) return true;
   const inner: StoreNextTarget | undefined = o[$TARGET];
   if (inner !== undefined) o = inner.pb ?? inner.v;
   if (!isPlainProto(o)) return false;

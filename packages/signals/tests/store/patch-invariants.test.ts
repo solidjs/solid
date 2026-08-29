@@ -7,7 +7,7 @@
  * green; a new audit finding here means the invariant statement itself was
  * wrong or missing, and the fix must extend the harness FIRST.
  */
-import { describe, expect, it } from "vitest";
+import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
 import {
   action,
   createRoot,
@@ -16,8 +16,20 @@ import {
   flush,
   reconcile,
   registerPatch,
-  patchableRaw
+  patchableRaw,
+  untrack as untrackRead
 } from "../../src/index.js";
+
+// Getter demotions warn by design (dev notice); the assertions here are the
+// demotion SEMANTICS — mute the expected console noise so reused workers
+// don't leak counts into unrelated suites' global-console assertions.
+let warnSpy: ReturnType<typeof vi.spyOn>;
+beforeAll(() => {
+  warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+});
+afterAll(() => {
+  warnSpy.mockRestore();
+});
 
 describe("INVARIANT: a patch body never reads an accessor raw", () => {
   // Admission scans, adoption gates, and demotion must together guarantee
@@ -145,6 +157,60 @@ describe("INVARIANT: patch applications mirror effect runs (parity oracle), rega
   });
 });
 
+describe("INVARIANT: optimistic applies honor accessor safety and late mounts (round 9)", () => {
+  it("an optimistic replacement carrying a nested getter demotes instead of reading it raw", async () => {
+    const { createOptimisticStore, action: act } = await import("../../src/index.js");
+    const [dep, setDep] = createRoot(() => createSignal("g0"));
+    const [state, setState] = (createOptimisticStore as any)({
+      row: { id: 1, meta: { label: "m0" } }
+    });
+    const log: string[] = [];
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      registerPatch(state.row, (n: any) => log.push(String(n.meta?.label)), ["meta.label"]);
+    });
+    let resolve!: () => void;
+    let save!: () => Promise<void> | void;
+    createRoot(() => {
+      save = act(function* () {
+        setState((s: any) => {
+          reconcile(
+            {
+              id: 1,
+              meta: {
+                get label() {
+                  return dep();
+                }
+              }
+            },
+            "id"
+          )(s.row);
+        });
+        yield new Promise<void>(r => {
+          resolve = r;
+        });
+      }) as any;
+    });
+    const p = save() as Promise<void>;
+    flush();
+    const inFlight = log[log.length - 1];
+    setDep("g1");
+    flush();
+    const afterDep = log[log.length - 1];
+    // SETTLE BEFORE ASSERTING (abandoned transactions strand the file).
+    resolve();
+    await p;
+    flush();
+    // The getter's outside dependency must keep applying while the
+    // tentative view was live — an untracked raw read renders once and
+    // goes silently stale.
+    expect(inFlight).toBe("g0");
+    expect(afterDep).toBe("g1");
+    dispose();
+  });
+});
+
 describe("INVARIANT: optimistic visibility covers the whole read envelope, ancestors included", () => {
   it("a targeted child reconcile inside an action re-applies ANCESTOR patches in flight", async () => {
     const { createOptimisticStore, action: act } = await import("../../src/index.js");
@@ -167,13 +233,92 @@ describe("INVARIANT: optimistic visibility covers the whole read envelope, ances
     });
     const p = save() as Promise<void>;
     flush();
-    // In-flight visibility is what optimism MEANS: the ancestor's compiled
-    // body reads through the child — it must re-apply now, not at settle.
-    expect(log[log.length - 1]).toBe("opt");
+    const inFlight = log[log.length - 1];
     resolve();
     await p;
     flush();
-    expect(log[log.length - 1]).toBe("m0"); // revert re-applies committed
+    // In-flight visibility is what optimism MEANS: the ancestor's compiled
+    // body reads through the child — it must re-apply at the lane drain,
+    // not at settle; the settle then re-applies committed truth (revert).
+    expect(inFlight).toBe("opt");
+    expect(log[log.length - 1]).toBe("m0");
+  });
+});
+
+describe("INVARIANT: a consumer is never left stale by the skip rule (round 9)", () => {
+  it("a consumer mounting mid-transaction reads the HELD view and receives the commit", async () => {
+    const { patchableRaw } = await import("../../src/index.js");
+    const [state, setState] = createStore<any>({ user: { id: 1, name: "a" } });
+    const log: string[] = [];
+    registerPatch(state.user, () => {});
+    let resolve!: () => void;
+    let save!: () => Promise<void> | void;
+    createRoot(() => {
+      save = action(function* () {
+        setState(s => {
+          reconcile({ id: 1, name: "b" }, "id")(s.user);
+        });
+        yield new Promise<void>(r => {
+          resolve = r;
+        });
+      }) as any;
+    });
+    const p = save() as Promise<void>;
+    flush();
+    // Driver-style mount MID-TRANSACTION: whatever visibility rule the
+    // store applies (held masks for family adoptions, speculative swaps
+    // for eager ones), the mount's initial read must MATCH what an
+    // untracked proxy reader sees at the same moment — and the commit must
+    // reach it if it read the pre-commit view.
+    const visible = untrackRead(() => state.user.name);
+    const raw = patchableRaw(state.user) as any;
+    log.push("init:" + raw.name);
+    registerPatch(state.user, (n: any) => log.push("apply:" + n.name));
+    expect(log[0]).toBe("init:" + visible);
+    resolve();
+    await p;
+    flush();
+    expect(state.user.name).toBe("b");
+    const last = log[log.length - 1];
+    // Either the mount read "b" already (skip fine) or the commit applied.
+    expect(log[0] === "init:b" || last === "apply:b").toBe(true);
+  });
+
+  it("an ambient eager reconcile self-corrects: pre-flush mounts read the adopted state", async () => {
+    const { patchableRaw } = await import("../../src/index.js");
+    const [state, setState] = createStore<any>({ user: { id: 1, name: "a" } });
+    registerPatch(state.user, () => {});
+    setState(s => {
+      reconcile({ id: 1, name: "b" }, "id")(s.user);
+    });
+    // Eager adoption swapped the committed backing at walk time — a mount
+    // here reads "b" already; the queued entry may skip it safely.
+    const raw = patchableRaw(state.user) as any;
+    expect(raw.name).toBe("b");
+    const log: string[] = [];
+    registerPatch(state.user, (n: any) => log.push(n.name));
+    flush();
+    // Functional next event regardless of whether this flush skipped it.
+    setState(s => {
+      s.user.name = "c";
+    });
+    flush();
+    expect(log[log.length - 1]).toBe("c");
+  });
+
+  it("admission rejects manifested paths crossing FUNCTION intermediates (accessor carriers)", async () => {
+    const { patchableRaw } = await import("../../src/index.js");
+    const [dep] = createRoot(() => createSignal("f0"));
+    const format: any = () => {};
+    Object.defineProperty(format, "label", {
+      get() {
+        return dep();
+      },
+      enumerable: true,
+      configurable: true
+    });
+    const [state] = createStore<any>({ row: { id: 1, format } });
+    expect(patchableRaw(state.row, ["format.label"])).toBeUndefined();
   });
 });
 
@@ -204,6 +349,89 @@ describe("INVARIANT: one forced ancestor application per flush (effect parity)",
     });
     flush();
     expect(applies).toBe(2);
+  });
+
+  it("an UNCHANGED reconcile (same reference, no divergence) forces nothing", () => {
+    const [state, setState] = createStore<any>({
+      row: { id: 1, meta: { label: "m" } }
+    });
+    let applies = 0;
+    registerPatch(
+      state.row,
+      () => {
+        applies++;
+      },
+      ["meta.label"]
+    );
+    const sameMeta = { label: "m" };
+    setState(s => {
+      reconcile(sameMeta, "id")(s.row.meta);
+    });
+    flush();
+    const after = applies;
+    // Reconciling the CHILD with its identical adopted reference again: an
+    // effect reading through the ancestor would not re-run; neither may
+    // the ancestor bubble force a re-apply.
+    setState(s => {
+      reconcile(sameMeta, "id")(s.row.meta);
+    });
+    flush();
+    expect(applies).toBe(after);
+  });
+
+  it("forced settle twins survive lane drains, applying once at settle (effect parity)", async () => {
+    const { createOptimisticStore, action: act, createEffect } = await import("../../src/index.js");
+    const [state, setState] = (createOptimisticStore as any)({
+      row: { id: 1, meta: { label: "m0" } }
+    });
+    const effectLog: string[] = [];
+    const applies: string[] = [];
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      createEffect(
+        () => state.row.meta.label,
+        (v: string) => {
+          effectLog.push(v);
+        }
+      );
+      registerPatch(state.row, (n: any) => applies.push(n.meta?.label ?? "?"), ["meta.label"]);
+    });
+    flush();
+    effectLog.length = 0;
+    applies.length = 0;
+    let r1!: () => void;
+    let r2!: () => void;
+    let save!: () => Promise<void> | void;
+    createRoot(() => {
+      save = act(function* () {
+        setState((s: any) => {
+          reconcile({ label: "opt1" }, "id")(s.row.meta);
+        });
+        yield new Promise<void>(r => {
+          r1 = r;
+        });
+        // Second tentative walk with its own lane window: the first lane
+        // drain cleared the LANE stamp only — a cleared SETTLE stamp here
+        // would stage a duplicate settle twin.
+        setState((s: any) => {
+          reconcile({ label: "opt2" }, "id")(s.row.meta);
+        });
+        yield new Promise<void>(r => {
+          r2 = r;
+        });
+      }) as any;
+    });
+    const p = save() as Promise<void>;
+    flush(); // lane window 1: opt1 visible
+    r1();
+    await Promise.resolve();
+    flush(); // lane window 2: opt2 visible
+    r2();
+    await p;
+    flush(); // settle: revert to committed truth, ONCE
+    expect(applies).toEqual(effectLog);
+    dispose();
   });
 });
 

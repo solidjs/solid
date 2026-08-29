@@ -133,6 +133,20 @@ describe("compiled imports ⊆ documented runtime surface", () => {
     expect(missing).toEqual([]);
   });
 
+  it("the SERVER entry links every patch-tier import (SSR pipelines load dom-compiled modules)", async () => {
+    const server = await import(path.resolve(__dirname, "../../web/dist/server.js"));
+    expect(typeof server.patchDriver).toBe("function");
+    expect(typeof server.rowProof).toBe("function");
+  });
+
+  it("unsafe-integer numeric keys are patch-ineligible (manifest formatting diverges)", () => {
+    const out = transform(
+      "const row = state.rows[0];\nconst v = <div textContent={row[1e20]} title={row.label} />;",
+      { filename: "c.jsx", moduleName: "@solidjs/web" }
+    );
+    expect(out.code.includes("patchDriver")).toBe(false);
+  });
+
   it("non-integer numeric keys are patch-ineligible (dot-collision with manifest paths)", () => {
     // `state[1.2]` would manifest as "1.2" and probe as state["1"]["2"] —
     // the compiler must compile such scopes classic instead.
