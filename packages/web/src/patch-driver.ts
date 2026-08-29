@@ -577,29 +577,35 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
 //   next === prev so every compare fails and it becomes a pure tracked
 //   read; the commit pass force-applies, keeping DOM writes in the effect
 //   phase where transitions and batching expect them.
-export const patchDriver = (subject, body) => {
+export const patchDriver = (subject, body, keys?: string[]) => {
   const raw = patchableRaw(subject);
   if (raw !== undefined) {
     // Hydration is claim + register ONLY (DESIGN-PATCH-CHANNEL §5): the
     // server HTML already carries current values, so the initial force-apply
-    // is skipped — no writes, no graph edges. The registration alone arms
-    // the record for post-hydration transitions (its read set records at
-    // the first drain apply instead).
+    // is skipped — no writes, no graph edges.
     let unbind: () => void;
-    if (!sharedConfig.hydrating) {
-      // Record the body's read set through the initial force-apply (patch
-      // grammar reads every bound key unconditionally, so one apply captures
-      // the complete set) — the store's adoption demotion gate probes ONLY
-      // these keys, keeping getter semantics prod-sound at bounded cost.
-      const keys = new Set();
+    if (keys !== undefined) {
+      // COMPILER MANIFEST (re-audit 7, P1-1): the static read envelope —
+      // complete across ternary/logical branches and nested chains, which
+      // runtime recording can never guarantee (untaken branches read
+      // nothing). No recording proxy; hydration registrations get the
+      // envelope up front instead of waiting for a first drain apply.
+      if (!sharedConfig.hydrating) body(raw, undefined, true);
+      unbind = registerPatch(subject, body, keys);
+    } else if (!sharedConfig.hydrating) {
+      // Manifest-less callers (hand-written registrations): record the
+      // EXECUTED read set through the initial force-apply. Incomplete for
+      // branch-reading bodies by construction — compiled output always
+      // ships the manifest.
+      const rkeys = new Set();
       const rec = new Proxy(raw, {
         get(o, k, r) {
-          keys.add(k);
+          rkeys.add(k);
           return Reflect.get(o, k, r);
         }
       });
       body(rec, undefined, true);
-      unbind = registerPatch(subject, body, keys);
+      unbind = registerPatch(subject, body, rkeys);
     } else {
       unbind = registerPatch(subject, body);
     }

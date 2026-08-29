@@ -57,6 +57,22 @@ export default (path: NodePath<t.Program>, state: PluginPass) => {
     domTemplates.length > 0 && appendTemplatesDOM(path, domTemplates);
     ssrTemplates.length > 0 && appendTemplatesSSR(path, ssrTemplates);
   }
+  // Hoisted patch read manifests (re-audit 7): one module-scope array per
+  // distinct manifest, above the template declarations. Identity-stable
+  // arrays let the runtime intern the processed key sets once per module.
+  if (data.patchManifests?.length) {
+    path.node.body.unshift(
+      t.variableDeclaration(
+        "var",
+        data.patchManifests.map(m =>
+          t.variableDeclarator(
+            t.cloneNode(m.id),
+            t.arrayExpression(m.paths.map(p => t.stringLiteral(p)))
+          )
+        )
+      )
+    );
+  }
 
   // Compile-time row proofs (DESIGN-PATCH-CHANNEL §3c): wrap each function
   // recorded by recordPureRow with the runtime's `rowProof` marker so the

@@ -522,6 +522,29 @@ pub(crate) fn next_unique_template_id(
     }
 }
 
+/// `_mf$`-family ids for hoisted patch read manifests (re-audit 7), same
+/// numbering/collision rules as `_tmpl$` (Babel: generateUidIdentifier).
+pub(crate) fn manifest_id(index: usize) -> String {
+    if index == 0 {
+        "_mf$".to_string()
+    } else {
+        format!("_mf${}", index + 1)
+    }
+}
+
+pub(crate) fn next_unique_manifest_id(
+    index: &mut usize,
+    bindings: &crate::shared::bindings::BindingTable,
+) -> String {
+    loop {
+        let name = manifest_id(*index);
+        *index += 1;
+        if !bindings.is_taken(&name) {
+            return name;
+        }
+    }
+}
+
 /// Mirror of the Babel plugin's `canChildSlotAllocateIds`: whether a child
 /// slot can produce hydratable content that consumes hydration ids. Shared by
 /// the dom and ssr generates so marking can never desync between them.

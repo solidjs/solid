@@ -290,11 +290,17 @@ impl<'a> AstDomTransform<'a, '_> {
         self.template_state.uses_patch_driver = true;
         let body = self.arrow_with_statements(span, vec!["_n$", "_p$", "_f$"], statements);
         let subject_expr = self.identifier_expression(span, &subject);
+        // Static read manifest (re-audit 7, P1-1): the runtime's demotion
+        // probes need the body's FULL read envelope — branches included —
+        // which only the compiler knows. Mirrors Babel byte-for-byte.
+        let manifest = crate::shared::patch::collect_subject_paths(&values, &subject);
+        let manifest_local = self.manifest_local(manifest);
+        let manifest_expr = self.identifier_expression(span, &manifest_local);
         let driver_local = format!("_${driver}");
         Some((
             self.ast().statement_expression(
                 span,
-                self.call_identifier(span, &driver_local, vec![subject_expr, body]),
+                self.call_identifier(span, &driver_local, vec![subject_expr, body, manifest_expr]),
             ),
             subject,
         ))

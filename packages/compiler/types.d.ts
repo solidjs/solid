@@ -21,12 +21,15 @@ export interface TransformOptions {
   omitLastClosingTag?: boolean;
   serverComponents?: boolean;
   /**
-   * Patch-mode dual driver (dormant by default): `true` or an import name
-   * (`"patchDriver"`) opts compiled templates whose bindings are pure member
-   * reads of one subject into the store patch channel. The loader normalizes
-   * `true` to the default import name (the napi wrapper mapping treats bare
-   * booleans as "default", which this option reads as disabled).
-   * @default false
+   * Patch-mode dual driver, ON BY DEFAULT: compiled templates whose bindings
+   * are pure member reads of one subject register on the store patch channel
+   * (emitting `patchDriver`/`rowProof` imports with a static read manifest);
+   * ineligible scopes keep classic effects. Set `false` to compile every
+   * scope classic; a string overrides the driver's import name. NOTE: the
+   * runtime module (`moduleName`) must export `patchDriver`/`rowProof` —
+   * `@solidjs/web` does, and `createRenderer()` provides `patchDriver` for
+   * universal renderers.
+   * @default "patchDriver"
    */
   patchDriver?: boolean | string;
   /** Default `["For", "Show", "Switch", "Match", "Loading", "Reveal", "Portal", "Repeat", "Dynamic", "Errored"]`. */

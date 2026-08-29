@@ -85,6 +85,7 @@ import {
   witnessAffectsMark
 } from "../store.js";
 import {
+  type DeepNode,
   devAssertNeverUserMutation,
   ingestedRaw,
   markDescendants,
@@ -159,6 +160,8 @@ export function pcOf(t: StoreNextTarget): PatchChannel {
       qo: null,
       qeo: null,
       ak: null,
+      dp: null,
+      ks: false,
       t
     })
   );
@@ -458,6 +461,40 @@ export function targetKeysPlain(target: StoreNextTarget, next: Record<PropertyKe
   }
   for (let i = 0; i < ak.length; i++)
     if (lookupGetter.call(next, ak[i]) !== undefined) return false;
+  const dp = target.pc !== null ? target.pc.dp : null;
+  return dp === null || deepPathsPlain(dp, next);
+}
+
+/** Walk the manifested deep-path PREFIX TREE through `next`, probing every
+ * step for accessors and plain prototypes — shared prefixes probe exactly
+ * once. A branch that leaves objects stops probing (the body's own read
+ * would fault/short there, not hit a getter). Steps landing on store
+ * proxies probe the raw backing. Root nodes skip their own getter probe —
+ * `ak` (probed by the caller against the record) covers first segments. */
+export function deepPathsPlain(dp: DeepNode[], next: any): boolean {
+  for (let i = 0; i < dp.length; i++) {
+    if (!deepNodePlain(dp[i], next, true)) return false;
+  }
+  return true;
+}
+
+function deepNodePlain(node: DeepNode, parent: any, rootProbed: boolean): boolean {
+  if (!rootProbed && lookupGetter.call(parent, node.k) !== undefined) return false;
+  const children = node.c;
+  if (children === null) return true; // leaf: the key probe was the work
+  let o: any = parent[node.k];
+  if (o === null || typeof o !== "object") return true;
+  const inner: StoreNextTarget | undefined = o[$TARGET];
+  if (inner !== undefined) o = inner.pb ?? inner.v;
+  if (!isPlainProto(o)) return false;
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    // Leaves inline (they dominate real manifests — dbmon is 10 leaves per
+    // 6 interior nodes; the recursion frames were ~20% of the probe).
+    if (child.c === null) {
+      if (lookupGetter.call(o, child.k) !== undefined) return false;
+    } else if (!deepNodePlain(child, o, false)) return false;
+  }
   return true;
 }
 

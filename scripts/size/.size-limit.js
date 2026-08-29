@@ -165,7 +165,13 @@ module.exports = [
     // note) plus the prod-sound getter-demotion seams — accessed-key union
     // on the channel (pc.ak) and the targetKeysPlain bounded probe at both
     // adoption emission sites, replacing the dev-only check. Measured 14.46.
-    limit: "14.55 KB",
+    //
+    // Re-audit-7 (2026-08-28): stateless adoption probes (gates take the
+    // incoming backing + prototype check), deep-path probe machinery
+    // (deepPathsPlain), split normal/optimistic stamps, and the reconcile
+    // root ancestor bubble — all on store paths createStore retains.
+    // Measured 14.58.
+    limit: "14.7 KB",
     modifyEsbuildConfig
   },
   {
@@ -318,8 +324,11 @@ module.exports = [
     // Re-audit-6 (2026-08-28): merge coalescing (core) + the getter-
     // demotion recording/probe seams (see the createStore note; this
     // scenario retains the store engine). Measured 26.13.
+    //
+    // Re-audit-7 perf pass: manifest interning (WeakMap cache + prefix-tree
+    // builder) so list mounts stopped re-processing per row. Measured 26.28.
     path: "hydrating-store-app.js",
-    limit: "26.25 KB",
+    limit: "26.35 KB",
     modifyEsbuildConfig
   },
   {
@@ -360,8 +369,15 @@ module.exports = [
     // key recording at registration (the recording proxy in patchDriver's
     // initial apply + first-drain recording), applyStructural's live-list
     // dispatch, and the merge coalescing core bytes. Measured 14.91.
+    //
+    // Re-audit-7 (2026-08-28): static read manifests — compiled templates
+    // now carry their key/path arrays (bytes IN the compiled fixture) and
+    // the driver/channel gained the manifest branch, deep-path probes, and
+    // per-drain stamp split. Buys prod-sound demotion across ternary
+    // branches and nested chains. Measured 15.30; 15.51 after the perf pass
+    // (manifest interning + hoisted _mf$ arrays in compiled output).
     path: "csr-app-patch.js",
-    limit: "15 KB",
+    limit: "15.55 KB",
     modifyEsbuildConfig
   },
   {
@@ -384,8 +400,13 @@ module.exports = [
     // failed-apply resync on slot ticks, structural queue u-mark dispatch,
     // occurrence-aware identityOps — plus the value-tier bytes above.
     // Measured 17.20.
+    //
+    // Re-audit-7 (2026-08-28): the value-tier manifest bytes above plus
+    // build-before-destroy slot rebuilds, hydration full-region surrender,
+    // and emission-snapshot structural queues. Measured 17.56; 17.80 after
+    // the perf pass (interning + prefix-tree probe + hoisted manifests).
     path: "csr-app-patch-lists.js",
-    limit: "17.35 KB",
+    limit: "17.85 KB",
     modifyEsbuildConfig
   },
   {

@@ -48,6 +48,14 @@ export interface StoreNextFamily {
 /** Write-side patch-channel state (stage 2), grouped off the target's named
  * fields — see the shape rule on `StoreNextTarget.pc`. One literal shape,
  * allocated by `pcOf` on first use. */
+/** One step of a manifested deep read path (see PatchChannel.dp): the key
+ * to probe/descend under its parent object, plus child steps (null = leaf —
+ * probing the key suffices, no descent needed). */
+export interface DeepNode {
+  k: string;
+  c: DeepNode[] | null;
+}
+
 export interface PatchChannel {
   /** Slot-patch hooks for shallow arrays — the reconcile walk emits
    * (i, next, prev) for key-aligned value-replaced slots through the patch
@@ -72,12 +80,28 @@ export interface PatchChannel {
   qo: unknown;
   qeo: unknown;
   /** Accessed-key set for the channel's compiled bodies (union across
-   * registrations): recorded from real applies — patch grammar guarantees
-   * unconditional member reads, so one recorded apply captures a body's
-   * complete read set. Adoption emission probes ONLY these keys for own
-   * getters (prod-sound demotion at bounded cost); null = not yet recorded,
-   * fall back to the full scan. */
+   * registrations). Compiler-manifested registrations (re-audit 7, P1-1)
+   * hand the STATIC read envelope — complete across branches the applies
+   * never took; runtime-recorded sets (manifest-less callers) cover only
+   * executed reads. Adoption emission probes ONLY these keys for getters
+   * (prod-sound demotion at bounded cost); null = not yet recorded, fall
+   * back to the full scan. */
   ak: PropertyKey[] | null;
+  /** DEEP read paths from compiler manifests (nested chains like
+   * `row.queries.0.elapsed`) as a PREFIX TREE — shared prefixes probe once
+   * (dbmon-shape manifests share one array root across ten leaves; flat
+   * per-path probing was ~250 ms of a 20-round profile). Roots of the tree
+   * are the SECOND path segments (first segments ride `ak`, probed against
+   * the record itself). Probed against the incoming backing at adoption
+   * gates and the live backing at forced applies — a getter at ANY step
+   * demotes. Tree roots are FIRST path segments; their own getter probe
+   * rides `ak` (every first segment is also a root key), so root nodes only
+   * read + descend. null = no deep paths (the common case; one null
+   * check). */
+  dp: DeepNode[] | null;
+  /** `ak`/`dp` are INTERNED manifest arrays shared across channels (copy-
+   * on-write: ensureOwnedKeys clones before any union/record mutation). */
+  ks: boolean;
   /** Owning target backref (merge coalescing resolves collided entries to
    * live-at-drain form). */
   t: unknown;

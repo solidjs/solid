@@ -27,18 +27,28 @@
 import * as t from "@babel/types";
 
 // Node types allowed inside an eligible binding expression (Tier 1+2).
-function isEligibleExpr(node: t.Node, subject: string): boolean {
+// `asMemberBase` marks the position at the root of a member chain: the bare
+// subject identifier is ONLY eligible there (re-audit 7) — a standalone
+// `{subject}` read has no key envelope, so the static manifest could never
+// cover it; those scopes keep classic effects.
+function isEligibleExpr(node: t.Node, subject: string, asMemberBase = false): boolean {
   switch (node.type) {
     case "Identifier":
-      return node.name === subject || node.name === "undefined";
+      return (asMemberBase && node.name === subject) || node.name === "undefined";
     case "MemberExpression": {
       const m = node as t.MemberExpression;
       if (m.computed) {
-        if (!t.isStringLiteral(m.property) && !t.isNumericLiteral(m.property)) return false;
+        // Literal keys only — and no "." inside string keys, which would
+        // collide with the manifest's path separator (re-audit 7).
+        if (t.isStringLiteral(m.property)) {
+          if (m.property.value.indexOf(".") !== -1) return false;
+        } else if (!t.isNumericLiteral(m.property)) {
+          return false;
+        }
       } else if (!t.isIdentifier(m.property)) {
         return false;
       }
-      return isEligibleExpr(m.object, subject);
+      return isEligibleExpr(m.object, subject, true);
     }
     case "StringLiteral":
     case "NumericLiteral":
@@ -134,6 +144,53 @@ export function analyzePatchEligibility(values: t.Expression[]): PatchEligibilit
     if (!isEligibleExpr(v, subject)) return null;
   }
   return { subject };
+}
+
+/** Collect the STATIC read manifest (re-audit 7, P1-1): every member path
+ * rooted at the subject, dot-joined ("label", "queries.0.elapsed"). The
+ * grammar makes this complete — keys are identifier/literal-only, so every
+ * read any branch can perform is syntactically present. The runtime probes
+ * exactly these keys/paths at adoption seams; runtime recording could never
+ * see an untaken ternary branch. Order: dynamics order, chains innermost-
+ * first within each expression, first occurrence kept (mirrored byte-for-
+ * byte by the Oxc compiler). */
+export function collectSubjectPaths(values: t.Expression[], subject: string): string[] {
+  const paths: string[] = [];
+  const chainOf = (m: t.MemberExpression): string | null => {
+    const segs: string[] = [];
+    let cur: t.Node = m;
+    while (t.isMemberExpression(cur)) {
+      const prop = cur.property;
+      if (t.isIdentifier(prop) && !cur.computed) segs.push(prop.name);
+      else if (t.isStringLiteral(prop)) segs.push(prop.value);
+      else if (t.isNumericLiteral(prop)) segs.push(String(prop.value));
+      else return null;
+      cur = cur.object;
+    }
+    if (!t.isIdentifier(cur) || cur.name !== subject) return null;
+    return segs.reverse().join(".");
+  };
+  const walk = (node: t.Node): void => {
+    if (t.isMemberExpression(node)) {
+      const chain = chainOf(node);
+      if (chain !== null) {
+        if (paths.indexOf(chain) === -1) paths.push(chain);
+        return; // the whole chain is consumed — don't descend
+      }
+    }
+    for (const key of Object.keys(node)) {
+      const value: any = (node as any)[key];
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (item && typeof item.type === "string") walk(item);
+        }
+      } else if (value && typeof value.type === "string") {
+        walk(value);
+      }
+    }
+  };
+  for (const v of values) walk(v);
+  return paths;
 }
 
 /** Clone `expr` substituting the subject identifier with `replacement`.

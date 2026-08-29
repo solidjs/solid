@@ -16,6 +16,7 @@ import { setAttribute as _$setAttribute } from "r-dom";
 import { claimElement as _$claimElement } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
 import { delegateEvents as _$delegateEvents } from "r-dom";
+var _mf$ = ["button"], _mf$2 = ["foo--bar"], _mf$3 = ["foo.bar"], _mf$4 = ["style"];
 var _tmpl$ = /* @__PURE__ */ _$template(`<div><h1><a href=/>Welcome`);
 var _tmpl$2 = /* @__PURE__ */ _$template(`<div><div></div><div> </div><div>`);
 var _tmpl$3 = /* @__PURE__ */ _$template(`<div foo>`);
@@ -284,7 +285,7 @@ const template33 = [
 		_$patchDriver(styles, (_n$, _p$, _f$) => {
 			const _v$ = _n$.button;
 			if (_f$ || _v$ !== _p$.button) _$className(_el$45, _v$);
-		});
+		}, _mf$);
 		return _el$45;
 	})(),
 	(() => {
@@ -292,7 +293,7 @@ const template33 = [
 		_$patchDriver(styles, (_n$, _p$, _f$) => {
 			const _v$ = _n$["foo--bar"];
 			if (_f$ || _v$ !== _p$["foo--bar"]) _$className(_el$46, _v$);
-		});
+		}, _mf$2);
 		return _el$46;
 	})(),
 	(() => {
@@ -300,7 +301,7 @@ const template33 = [
 		_$patchDriver(styles, (_n$, _p$, _f$) => {
 			const _v$ = _n$.foo.bar;
 			if (_f$ || _v$ !== _p$.foo.bar) _$className(_el$47, _v$);
-		});
+		}, _mf$3);
 		return _el$47;
 	})(),
 	(() => {
@@ -535,7 +536,7 @@ var _el$106 = _tmpl$4();
 _$patchDriver(styleProp, (_n$, _p$, _f$) => {
 	const _v$ = _n$.style;
 	if (_f$ || _v$ !== _p$.style) _$style(_el$106, _v$);
-});
+}, _mf$4);
 const template86 = _el$106;
 const style = {
 	background: "red",

@@ -18,6 +18,10 @@ import { ref as _$ref } from "r-dom";
 import { claimElement as _$claimElement } from "r-dom";
 import { spread as _$spread } from "r-dom";
 import { mergeProps as _$mergeProps } from "r-dom";
+var _mf$ = ["button"],
+  _mf$2 = ["foo--bar"],
+  _mf$3 = ["foo.bar"],
+  _mf$4 = ["style"];
 var _tmpl$ = /*#__PURE__*/ _$template(`<div><h1><a href=/>Welcome`),
   _tmpl$2 = /*#__PURE__*/ _$template(`<div><div></div><div> </div><div>`),
   _tmpl$3 = /*#__PURE__*/ _$template(`<div foo>`),
@@ -394,26 +398,38 @@ const template32 = _$getNextElement(_tmpl$4);
 const template33 = [
   (() => {
     var _el$47 = _$getNextElement(_tmpl$19);
-    _$patchDriver(styles, (_n$, _p$, _f$) => {
-      const _v$ = _n$.button;
-      if (_f$ || _v$ !== _p$.button) _$className(_el$47, _v$);
-    });
+    _$patchDriver(
+      styles,
+      (_n$, _p$, _f$) => {
+        const _v$ = _n$.button;
+        if (_f$ || _v$ !== _p$.button) _$className(_el$47, _v$);
+      },
+      _mf$
+    );
     return _el$47;
   })(),
   (() => {
     var _el$48 = _$getNextElement(_tmpl$19);
-    _$patchDriver(styles, (_n$, _p$, _f$) => {
-      const _v$ = _n$["foo--bar"];
-      if (_f$ || _v$ !== _p$["foo--bar"]) _$className(_el$48, _v$);
-    });
+    _$patchDriver(
+      styles,
+      (_n$, _p$, _f$) => {
+        const _v$ = _n$["foo--bar"];
+        if (_f$ || _v$ !== _p$["foo--bar"]) _$className(_el$48, _v$);
+      },
+      _mf$2
+    );
     return _el$48;
   })(),
   (() => {
     var _el$49 = _$getNextElement(_tmpl$19);
-    _$patchDriver(styles, (_n$, _p$, _f$) => {
-      const _v$ = _n$.foo.bar;
-      if (_f$ || _v$ !== _p$.foo.bar) _$className(_el$49, _v$);
-    });
+    _$patchDriver(
+      styles,
+      (_n$, _p$, _f$) => {
+        const _v$ = _n$.foo.bar;
+        if (_f$ || _v$ !== _p$.foo.bar) _$className(_el$49, _v$);
+      },
+      _mf$3
+    );
     return _el$49;
   })(),
   (() => {
@@ -672,10 +688,14 @@ var _el$104 = _$getNextElement(_tmpl$4);
 _$style(_el$104, /* @static */ styleProp.style);
 const template85 = _el$104;
 var _el$105 = _$getNextElement(_tmpl$4);
-_$patchDriver(styleProp, (_n$, _p$, _f$) => {
-  const _v$ = _n$.style;
-  if (_f$ || _v$ !== _p$.style) _$style(_el$105, _v$);
-});
+_$patchDriver(
+  styleProp,
+  (_n$, _p$, _f$) => {
+    const _v$ = _n$.style;
+    if (_f$ || _v$ !== _p$.style) _$style(_el$105, _v$);
+  },
+  _mf$4
+);
 const template86 = _el$105;
 const style = {
   background: "red",

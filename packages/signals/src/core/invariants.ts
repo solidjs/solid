@@ -41,7 +41,12 @@ export const InvariantHooks: {
   pendingProbeActive: (() => boolean) | null;
   /** Fresh oracle for what an isPending companion SHOULD read right now. */
   computePendingState: ((node: AnyNode) => boolean) | null;
-} = { pendingProbeActive: null, computePendingState: null };
+  /** Patch-channel quiescence check (PINV-1..3, re-audit 7): installed by
+   * store/next/patch.ts when the channel first arms (pay-for-use — apps
+   * without patches never load it). Asserts registration accounting,
+   * cleared coalescing stamps, and drained apply queues. */
+  patchQuiescent: (() => void) | null;
+} = { pendingProbeActive: null, computePendingState: null, patchQuiescent: null };
 
 // INV-7: nodes that received a transition-held `_pendingValue`. A node still
 // holding one at quiescence with no queued commit is a leak (#2827 class).
@@ -268,6 +273,7 @@ function censusRecord(key: string): void {
  */
 export function devCheckQuiescent(isQueuedForCommit: (node: AnyNode) => boolean): void {
   if (!__TEST__) return;
+  InvariantHooks.patchQuiescent?.();
   for (const node of heldPendingNodes) {
     if (isDisposed(node) || node._pendingValue === NOT_PENDING) {
       heldPendingNodes.delete(node);

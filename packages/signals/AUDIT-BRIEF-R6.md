@@ -1,4 +1,58 @@
-# Audit brief — round 6 + patch-mode default flip
+# Audit brief — rounds 6–7 + patch-mode default flip
+
+## Round 7 (response to the 9-finding audit)
+
+All nine findings verified against a RED invariant harness first (commit
+order: harness → fixes), then fixed:
+
+- **P1 recording completeness** — runtime recording replaced by a
+  compiler-emitted STATIC read manifest (both compilers, hoisted `_mf$`
+  arrays, interned by identity at registration). Deep paths probe as a
+  prefix tree at adoption gates and forced applies; targeted reconciles now
+  bubble ancestors; forced applies for deep-path channels read through the
+  proxy (eager adoption does not rewrite ancestor raw slots). Bare-subject
+  reads and dotted string keys are statically ineligible. Residue:
+  manifest-less hand-written `registerPatch` callers keep best-effort
+  recording (documented).
+- **P1 sticky sc** — adoption gates probe the emission's ACTUAL object
+  (incoming/just-committed), statelessly.
+- **P1 prototype getters** — non-plain prototypes reject admission (class
+  instances keep tracked effects); overlay drafts still work over class
+  prototypes (own-key scan semantics unchanged).
+- **P1 renderer surface** — `Renderer` type + README + `createRenderer`
+  re-export list now include `patchDriver`; contract tests pin compiled
+  imports ⊆ documented surfaces per generate mode. (Verified: universal
+  output never imports patch symbols; the link-break class was dom-generate
+  custom runtimes, same as any dom runtime surface addition.)
+- **P1 structural late registrants** — structural queues snapshot entry
+  refs at emission (unbinds still sever via shared `u` marks); VALUE queues
+  are the documented dual — they resolve the consumer list LIVE at drain
+  (fixes the merge/recreated-list miss) and coalesce across same-flush
+  releases (effect-parity oracle tests).
+- **P1 slot rebuild atomicity** — build-before-destroy; a throwing
+  replacement leaves the old row mounted AND live.
+- **P2 hydration region** — a throwing claim removes completed, claimed,
+  and trailing server rows.
+- **P2 stamp collision** — normal/optimistic queues coalesce on separate
+  stamp pairs.
+- **P2 merge collision list** — subsumed by live value-list resolution.
+
+New permanent infrastructure: `patch-invariants.test.ts` (channel
+contracts), `for.patchinvariants.spec.tsx` + hydration slice (driver throw-
+atomicity matrix over every build entry point), `renderer-contract.test.js`
+(imports ⊆ surface), and PINV-1..3 per-flush ledger checks wired into the
+`__TEST__` invariant infra.
+
+Perf: quiet-machine dbmon tick 2.1 ms (round-6: 1.9; classic: 6.7) — the
++0.2 is the deep-path probe, taken twice through the profiler (manifest
+interning + prefix-tree probing + leaf inlining recovered the initial 2.5).
+Mount ~7.2–7.5 vs 6.4 pre-audit; the final hoisting pass eliminated the
+remaining intern misses per the profile but needs a quiet-machine
+confirmation run (a parallel build was loading the box).
+
+---
+
+# Original brief — round 6 + default flip
 
 **Scope:** `next..patch-hardening-r6`. Two bodies of work: (A) fixes for the
 six round-6 findings against `adf10e9b`, (B) the patch-mode DEFAULT-ON flip

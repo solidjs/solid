@@ -208,7 +208,78 @@ describe("INVARIANT: a throwing row build leaves DOM, bookkeeping, and sibling r
   });
 });
 
-describe("INVARIANT: recorded read sets cover every key a Tier-2 body CAN read (branches included)", () => {
+describe("INVARIANT: a body's declared read envelope is honored at EVERY depth and branch", () => {
+  test("a nested-chain body keeps applying when the nested value changes through a targeted reconcile", () => {
+    const [state, setState] = createStore<any>({
+      row: { id: 1, queries: [{ elapsed: "1" }] }
+    });
+    const text = document.createTextNode("");
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      // Compiled shape for `textContent={row.queries[0].elapsed}` (depth-2
+      // chain with a numeric-literal step — the dbmon cell shape).
+      patchDriver(
+        state.row,
+        (n: any, p: any, f?: boolean) => {
+          if (f || n.queries[0].elapsed !== p.queries[0].elapsed) text.data = n.queries[0].elapsed;
+        },
+        ["queries.0.elapsed"]
+      );
+    });
+    expect(text.data).toBe("1");
+    // Reconcile TARGETED at the nested record — the ancestor's patch must
+    // re-apply (effect parity: an effect tracking the chain re-runs).
+    setState((s: any) => {
+      reconcile({ elapsed: "2" }, "id")(s.row.queries[0]);
+    });
+    flush();
+    expect(text.data).toBe("2");
+    dispose();
+  });
+
+  test("a getter arriving at a nested step of a read path demotes the ancestor's patch", () => {
+    const [dep, setDep] = createRoot(() => createSignal("g1"));
+    const [state, setState] = createStore<any>({
+      row: { id: 1, meta: { label: "m1" } }
+    });
+    const text = document.createTextNode("");
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      patchDriver(
+        state.row,
+        (n: any, p: any, f?: boolean) => {
+          if (f || n.meta.label !== p.meta.label) text.data = n.meta.label;
+        },
+        ["meta.label"]
+      );
+    });
+    expect(text.data).toBe("m1");
+    // Root-level adoption whose NESTED object carries the getter: the
+    // declared path row.meta.label crosses it — must demote, and the
+    // getter's dependency must keep applying through the fallback.
+    setState((s: any) => {
+      reconcile(
+        {
+          id: 1,
+          meta: {
+            get label() {
+              return dep();
+            }
+          }
+        },
+        "id"
+      )(s.row);
+    });
+    flush();
+    expect(text.data).toBe("g1");
+    setDep("g2");
+    flush();
+    expect(text.data).toBe("g2");
+    dispose();
+  });
+
   test("a ternary body's untaken branch still demotes when that key becomes a getter", () => {
     const [dep, setDep] = createRoot(() => createSignal("sig-b"));
     const [state, setState] = createStore<any>({
@@ -221,10 +292,14 @@ describe("INVARIANT: recorded read sets cover every key a Tier-2 body CAN read (
       // Hand-written mirror of Tier-2 compiled output for
       // `textContent={cell.flag ? cell.a : cell.b}` — under the initial
       // force-apply only ONE branch's key is read.
-      patchDriver(state.cell, (n: any, p: any, f?: boolean) => {
-        if (f || n.flag !== p.flag || (n.flag ? n.a : n.b) !== (p.flag ? p.a : p.b))
-          text.data = n.flag ? n.a : n.b;
-      });
+      patchDriver(
+        state.cell,
+        (n: any, p: any, f?: boolean) => {
+          if (f || n.flag !== p.flag || (n.flag ? n.a : n.b) !== (p.flag ? p.a : p.b))
+            text.data = n.flag ? n.a : n.b;
+        },
+        ["flag", "a", "b"]
+      );
     });
     expect(text.data).toBe("A");
     // `b` — never read by any apply so far — becomes getter-backed while

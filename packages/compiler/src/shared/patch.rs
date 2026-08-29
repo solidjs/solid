@@ -14,23 +14,34 @@ use oxc_ast::ast::{BinaryOperator, Expression, UnaryOperator};
 use oxc_ast_visit::{VisitMut, walk_mut};
 
 /// Node types allowed inside an eligible binding expression (Tier 1+2).
-fn is_eligible_expr(node: &Expression<'_>, subject: &str) -> bool {
+/// `as_member_base` marks the root position of a member chain: the bare
+/// subject identifier is ONLY eligible there (re-audit 7) — a standalone
+/// `{subject}` read has no key envelope for the static manifest, so those
+/// scopes keep classic effects. Mirrors the Babel plugin exactly.
+fn is_eligible_expr(node: &Expression<'_>, subject: &str, as_member_base: bool) -> bool {
     match node {
-        Expression::Identifier(ident) => ident.name == subject || ident.name == "undefined",
+        Expression::Identifier(ident) => {
+            (as_member_base && ident.name == subject) || ident.name == "undefined"
+        }
         Expression::StaticMemberExpression(member) => {
-            !member.optional && is_eligible_expr(&member.object, subject)
+            !member.optional && is_eligible_expr(&member.object, subject, true)
         }
         Expression::ComputedMemberExpression(member) => {
             if member.optional {
                 return false;
             }
-            if !matches!(
-                member.expression,
-                Expression::StringLiteral(_) | Expression::NumericLiteral(_)
-            ) {
-                return false;
+            // Literal keys only — and no "." inside string keys, which would
+            // collide with the manifest's path separator (re-audit 7).
+            match &member.expression {
+                Expression::StringLiteral(lit) => {
+                    if lit.value.contains('.') {
+                        return false;
+                    }
+                }
+                Expression::NumericLiteral(_) => {}
+                _ => return false,
             }
-            is_eligible_expr(&member.object, subject)
+            is_eligible_expr(&member.object, subject, true)
         }
         Expression::StringLiteral(_)
         | Expression::NumericLiteral(_)
@@ -38,9 +49,9 @@ fn is_eligible_expr(node: &Expression<'_>, subject: &str) -> bool {
         | Expression::NullLiteral(_)
         | Expression::BigIntLiteral(_) => true,
         Expression::ConditionalExpression(cond) => {
-            is_eligible_expr(&cond.test, subject)
-                && is_eligible_expr(&cond.consequent, subject)
-                && is_eligible_expr(&cond.alternate, subject)
+            is_eligible_expr(&cond.test, subject, false)
+                && is_eligible_expr(&cond.consequent, subject, false)
+                && is_eligible_expr(&cond.alternate, subject, false)
         }
         Expression::BinaryExpression(binary) => {
             if matches!(
@@ -49,22 +60,26 @@ fn is_eligible_expr(node: &Expression<'_>, subject: &str) -> bool {
             ) {
                 return false;
             }
-            is_eligible_expr(&binary.left, subject) && is_eligible_expr(&binary.right, subject)
+            is_eligible_expr(&binary.left, subject, false)
+                && is_eligible_expr(&binary.right, subject, false)
         }
         Expression::LogicalExpression(logical) => {
-            is_eligible_expr(&logical.left, subject) && is_eligible_expr(&logical.right, subject)
+            is_eligible_expr(&logical.left, subject, false)
+                && is_eligible_expr(&logical.right, subject, false)
         }
         Expression::UnaryExpression(unary) => {
             if matches!(unary.operator, UnaryOperator::Delete) {
                 return false;
             }
-            is_eligible_expr(&unary.argument, subject)
+            is_eligible_expr(&unary.argument, subject, false)
         }
         Expression::TemplateLiteral(template) => template
             .expressions
             .iter()
-            .all(|expression| is_eligible_expr(expression, subject)),
-        Expression::ParenthesizedExpression(paren) => is_eligible_expr(&paren.expression, subject),
+            .all(|expression| is_eligible_expr(expression, subject, false)),
+        Expression::ParenthesizedExpression(paren) => {
+            is_eligible_expr(&paren.expression, subject, false)
+        }
         _ => false,
     }
 }
@@ -115,7 +130,7 @@ pub(crate) fn analyze_patch_eligibility(values: &[&Expression<'_>]) -> Option<St
     }
     let subject = subject?;
     for value in values {
-        if !is_eligible_expr(value, &subject) {
+        if !is_eligible_expr(value, &subject, false) {
             return None;
         }
     }
@@ -155,4 +170,92 @@ pub(crate) fn substitute_subject<'a>(
     };
     walk_mut::walk_expression(&mut substituter, &mut clone);
     clone
+}
+
+/// Collect the STATIC read manifest (re-audit 7, P1-1): every member path
+/// rooted at the subject, dot-joined. Order mirrors the Babel plugin
+/// byte-for-byte: dynamics order, chains consumed whole at first
+/// encounter, first occurrence kept.
+pub(crate) fn collect_subject_paths(values: &[&Expression<'_>], subject: &str) -> Vec<String> {
+    fn chain_of(node: &Expression<'_>, subject: &str) -> Option<String> {
+        let mut segs: Vec<String> = Vec::new();
+        let mut cur = node;
+        loop {
+            match cur {
+                Expression::StaticMemberExpression(member) => {
+                    segs.push(member.property.name.to_string());
+                    cur = &member.object;
+                }
+                Expression::ComputedMemberExpression(member) => {
+                    match &member.expression {
+                        Expression::StringLiteral(lit) => segs.push(lit.value.to_string()),
+                        Expression::NumericLiteral(lit) => {
+                            // Match JS String(n) for the literal keys the
+                            // grammar admits (integer/decimal indices).
+                            #[allow(clippy::cast_possible_truncation)]
+                            let text = if lit.value.fract() == 0.0 && lit.value.abs() < 1e15 {
+                                (lit.value as i64).to_string()
+                            } else {
+                                lit.value.to_string()
+                            };
+                            segs.push(text);
+                        }
+                        _ => return None,
+                    }
+                    cur = &member.object;
+                }
+                Expression::Identifier(ident) => {
+                    if ident.name == subject {
+                        segs.reverse();
+                        return Some(segs.join("."));
+                    }
+                    return None;
+                }
+                _ => return None,
+            }
+        }
+    }
+    fn walk(node: &Expression<'_>, subject: &str, paths: &mut Vec<String>) {
+        if matches!(
+            node,
+            Expression::StaticMemberExpression(_) | Expression::ComputedMemberExpression(_)
+        ) {
+            if let Some(chain) = chain_of(node, subject) {
+                if !paths.contains(&chain) {
+                    paths.push(chain);
+                }
+                return; // the whole chain is consumed
+            }
+        }
+        match node {
+            Expression::StaticMemberExpression(member) => walk(&member.object, subject, paths),
+            Expression::ComputedMemberExpression(member) => walk(&member.object, subject, paths),
+            Expression::ConditionalExpression(cond) => {
+                walk(&cond.test, subject, paths);
+                walk(&cond.consequent, subject, paths);
+                walk(&cond.alternate, subject, paths);
+            }
+            Expression::BinaryExpression(binary) => {
+                walk(&binary.left, subject, paths);
+                walk(&binary.right, subject, paths);
+            }
+            Expression::LogicalExpression(logical) => {
+                walk(&logical.left, subject, paths);
+                walk(&logical.right, subject, paths);
+            }
+            Expression::UnaryExpression(unary) => walk(&unary.argument, subject, paths),
+            Expression::TemplateLiteral(template) => {
+                for expression in &template.expressions {
+                    walk(expression, subject, paths);
+                }
+            }
+            Expression::ParenthesizedExpression(paren) => walk(&paren.expression, subject, paths),
+            _ => {}
+        }
+    }
+    let mut paths: Vec<String> = Vec::new();
+    for value in values {
+        walk(value, subject, &mut paths);
+    }
+    paths
 }

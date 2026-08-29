@@ -15,6 +15,10 @@ use crate::shared::ast::{
 use crate::shared::ast_builder::AstBuilder;
 pub(crate) struct DomTemplateState {
     pub(crate) templates: std::vec::Vec<DomTemplate>,
+    /// Hoisted patch read manifests (re-audit 7): one module-scope array per
+    /// distinct manifest so the runtime interns by array identity.
+    pub(crate) manifests: std::vec::Vec<DomManifest>,
+    pub(crate) manifest_index: usize,
     pub(crate) uses_template: bool,
     pub(crate) uses_get_next_element: bool,
     pub(crate) uses_get_next_marker: bool,
@@ -48,6 +52,12 @@ pub(crate) struct DomTemplateState {
     /// Last used 0-based `_tmpl$` index (collision skips advance it past the
     /// registry length).
     pub(crate) template_index: usize,
+}
+
+pub(crate) struct DomManifest {
+    pub(crate) paths: std::vec::Vec<String>,
+    /// Generated `_mf$N` local (collision-checked against source names).
+    pub(crate) name: String,
 }
 
 pub(crate) struct DomTemplate {
@@ -109,6 +119,8 @@ impl DomTemplateState {
     pub(crate) fn new() -> Self {
         Self {
             templates: std::vec::Vec::new(),
+            manifests: std::vec::Vec::new(),
+            manifest_index: 0,
             uses_template: false,
             uses_get_next_element: false,
             uses_get_next_marker: false,
@@ -279,6 +291,9 @@ impl<'a> AstDomTransform<'a, '_> {
                     )));
                 }
             }
+        }
+        if !self.template_state.manifests.is_empty() {
+            statements.push(self.manifests_declaration());
         }
         for template in &self.template_state.templates {
             statements.push(self.template_declaration(template));
@@ -565,6 +580,58 @@ impl<'a> AstDomTransform<'a, '_> {
             .as_deref()
             .unwrap_or(self.module_name);
         import_named(self.allocator, module, imported, local)
+    }
+
+    /// One `var _mf$ = [...], _mf$2 = [...]` declaration (mirrors Babel's
+    /// program-exit unshift; identity-stable arrays for runtime interning).
+    fn manifests_declaration(&self) -> Statement<'a> {
+        let span = Span::new(0, 0);
+        let ast = self.ast();
+        let mut declarators = ast.vec();
+        for manifest in &self.template_state.manifests {
+            let elements = ast.vec_from_iter(manifest.paths.iter().map(|path| {
+                oxc_ast::ast::ArrayExpressionElement::StringLiteral(ast.alloc_string_literal(
+                    span,
+                    ast.str(path),
+                    None,
+                ))
+            }));
+            let init = ast.expression_array(span, elements);
+            declarators.push(ast.variable_declarator(
+                span,
+                oxc_ast::ast::VariableDeclarationKind::Var,
+                ast.binding_pattern_binding_identifier(span, ast.ident(&manifest.name)),
+                None,
+                Some(init),
+                false,
+            ));
+        }
+        Statement::VariableDeclaration(ast.alloc_variable_declaration(
+            span,
+            oxc_ast::ast::VariableDeclarationKind::Var,
+            declarators,
+            false,
+        ))
+    }
+
+    /// Find-or-create the hoisted local for a manifest (dedup by paths).
+    pub(crate) fn manifest_local(&mut self, paths: std::vec::Vec<String>) -> String {
+        if let Some(existing) = self
+            .template_state
+            .manifests
+            .iter()
+            .find(|candidate| candidate.paths == paths)
+        {
+            return existing.name.clone();
+        }
+        let name = crate::shared::utils::next_unique_manifest_id(
+            &mut self.template_state.manifest_index,
+            &self.bindings,
+        );
+        self.template_state
+            .manifests
+            .push(DomManifest { paths, name: name.clone() });
+        name
     }
 
     fn template_declaration(&self, template: &DomTemplate) -> Statement<'a> {

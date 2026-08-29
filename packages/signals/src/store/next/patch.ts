@@ -40,7 +40,10 @@ import { installPatchHooks, installRowHooks } from "./patch-hooks.js";
 import { emitSetterRowOps } from "./reconcile.js";
 // Cycle with store.js is benign (established pattern above): both resolve at
 // call time, long after module initialization.
-import { targetIsPlain } from "./store.js";
+import { deepPathsPlain, targetIsPlain } from "./store.js";
+import type { DeepNode } from "./target.js";
+import { InvariantHooks } from "../../core/invariants.js";
+import { assertInvariant } from "../../core/dev.js";
 import { runWithOwner, untrack } from "../../core/core.js";
 import { createRenderEffect } from "../../signals.js";
 // Cycle with store.js is benign: pcOf is only called at registration time,
@@ -109,9 +112,10 @@ function drainApplyQueue(): void {
   for (let i = 0; i < q.length; i++) {
     clearStamp(q[i]);
     const { prev, force, t } = q[i];
-    const next = t !== null ? (t.pb ?? t.v) : q[i].next;
+    const next = t !== null ? (force ? forcedNext(t) : (t.pb ?? t.v)) : q[i].next;
     if (q[i].ops !== undefined || q[i].si !== undefined)
       firstError = applyStructural(q[i], next, firstError);
+    else if (force && t !== null && deepProbeFails(t, next)) demoteToEffects(t);
     else firstError = applyEntries(liveValueList(q[i]), next, prev, force, firstError, q[i].pc);
   }
   if (firstError !== UNSET) {
@@ -120,6 +124,26 @@ function drainApplyQueue(): void {
     haltReactivity(firstError);
     throw firstError;
   }
+}
+
+/** Deep-path demotion at FORCED applies (re-audit 7, P1-1 nested half):
+ * ancestor bubbles re-read whole chains from the live backing — a getter
+ * that arrived at a nested step through a TARGETED child adoption has no
+ * root adoption gate to catch it, so the forced apply is the seam. Costs
+ * one null check for channels without deep paths. */
+function deepProbeFails(t: StoreNextTarget, next: any): boolean {
+  const dp = t.pc !== null ? t.pc.dp : null;
+  return dp !== null && next !== null && typeof next === "object" && !deepPathsPlain(dp, next);
+}
+
+/** Forced-apply `next` resolution. Deep-path channels read through the
+ * PROXY (re-audit 7): eager adoption swaps a child's backing without
+ * rewriting ancestor raw slots (proxy readers resolve children through
+ * their targets), so a raw parent walk would read the PRE-ADOPTION child.
+ * The drain runs untracked — proxy reads resolve fresh without edges.
+ * Depth-1 channels keep the raw fast path. */
+function forcedNext(t: StoreNextTarget): any {
+  return t.pc !== null && t.pc.dp !== null ? t.px : (t.pb ?? t.v);
 }
 
 const EMPTY_LIST: PatchEntry[] = [];
@@ -209,6 +233,7 @@ function applyEntries(
       // gate prod-sound for them too.
       if (pc !== undefined && entry.k !== true && next !== null && typeof next === "object") {
         entry.k = true;
+        ensureOwnedKeys(pc as any); // interned manifests are copy-on-write
         const ak = (pc.ak ??= []);
         const rec = new Proxy(next as object, {
           get(o, key, r) {
@@ -372,6 +397,14 @@ export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
     });
   // Bubbling: ancestors force-re-apply from their LIVE backing, resolved at
   // drain (privatization may clone it between now and then).
+  emitPatchAncestors(t);
+}
+
+/** Ancestor bubble, standalone (re-audit 7): targeted reconciles emit
+ * walk-locally for the walked subtree but ancestors' compiled bodies can
+ * read INTO it through nested chains — the walk root must bubble exactly
+ * like a nested setter write does. */
+export function emitPatchAncestors(t: StoreNextTarget): void {
   let u = t.u;
   while (u !== null) {
     const up = (u.pc !== null ? u.pc.p : null) as PatchEntry[] | null;
@@ -414,9 +447,10 @@ function drainOptimistic(): void {
   for (let i = 0; i < q.length; i++) {
     clearStamp(q[i]);
     const { prev, force, t } = q[i];
-    const next = t !== null ? (t.pb ?? t.v) : q[i].next;
+    const next = t !== null ? (force ? forcedNext(t) : (t.pb ?? t.v)) : q[i].next;
     if (q[i].ops !== undefined || q[i].si !== undefined)
       firstError = applyStructural(q[i], next, firstError);
+    else if (force && t !== null && deepProbeFails(t, next)) demoteToEffects(t);
     else firstError = applyEntries(liveValueList(q[i]), next, prev, force, firstError, q[i].pc);
   }
   if (firstError !== UNSET) {
@@ -505,6 +539,78 @@ export function hasPatches(): boolean {
   return patchCount > 0;
 }
 
+interface ProcessedManifest {
+  roots: PropertyKey[];
+  dp: DeepNode[] | null;
+}
+const manifestCache = new WeakMap<string[], ProcessedManifest>();
+
+/** Insert a dot-split path into the prefix tree (see PatchChannel.dp). */
+function insertPath(dp: DeepNode[], segs: string[]): void {
+  let level = dp;
+  for (let d = 0; d < segs.length; d++) {
+    let node: DeepNode | undefined;
+    for (let i = 0; i < level.length; i++) {
+      if (level[i].k === segs[d]) {
+        node = level[i];
+        break;
+      }
+    }
+    if (node === undefined) {
+      node = { k: segs[d], c: null };
+      level.push(node);
+    }
+    if (d < segs.length - 1) level = node.c ??= [];
+  }
+}
+
+function internManifest(keys: string[]): ProcessedManifest {
+  let m = manifestCache.get(keys);
+  if (m !== undefined) return m;
+  const roots: PropertyKey[] = [];
+  let dp: DeepNode[] | null = null;
+  for (const k of keys) {
+    if (typeof k === "string" && k.indexOf(".") !== -1) {
+      const segs = k.split(".");
+      if (roots.indexOf(segs[0]) === -1) roots.push(segs[0]);
+      insertPath((dp ??= []), segs);
+    } else if (roots.indexOf(k) === -1) {
+      roots.push(k);
+    }
+  }
+  m = { roots, dp };
+  manifestCache.set(keys, m);
+  return m;
+}
+
+function cloneTree(dp: DeepNode[]): DeepNode[] {
+  return dp.map(n => ({ k: n.k, c: n.c === null ? null : cloneTree(n.c) }));
+}
+
+/** Copy-on-write guard for interned key structures (see registerPatch). */
+function ensureOwnedKeys(pc: { ak: PropertyKey[] | null; dp: DeepNode[] | null; ks?: boolean }) {
+  if (pc.ks === true) {
+    pc.ak = pc.ak === null ? null : pc.ak.slice();
+    pc.dp = pc.dp === null ? null : cloneTree(pc.dp);
+    pc.ks = false;
+  }
+}
+
+function unionKeys(
+  pc: { ak: PropertyKey[] | null; dp: DeepNode[] | null; ks?: boolean },
+  keys: Iterable<PropertyKey>
+): void {
+  ensureOwnedKeys(pc);
+  const ak = (pc.ak ??= []);
+  for (const k of keys) {
+    if (typeof k === "string" && k.indexOf(".") !== -1) {
+      const segs = k.split(".");
+      if (ak.indexOf(segs[0]) === -1) ak.push(segs[0]);
+      insertPath((pc.dp ??= []), segs);
+    } else if (ak.indexOf(k) === -1) ak.push(k);
+  }
+}
+
 export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<PropertyKey>): () => void {
   let t: StoreNextTarget | undefined = record?.[$TARGET];
   if (t === undefined) throw new Error("registerPatch: not a store record");
@@ -520,15 +626,36 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
   }
   const entry: PatchEntry = { fn, owner: getOwner() };
   const pc = pcOf(t);
+  if (__TEST__) devTrackChannel(pc);
   const list = (pc.p ??= []) as PatchEntry[];
   list.push(entry);
-  // Accessed-key union (prod-sound adoption demotion): callers that ran the
-  // body against a recording proxy hand the read set here; hydration-time
-  // registrations record at their first drain apply instead.
+  // Accessed-key union (prod-sound adoption demotion). Two sources:
+  // compiler MANIFESTS (re-audit 7, P1-1 — the static read envelope,
+  // complete across ternary/logical branches; dot-joined strings mark
+  // nested chains and split into deep paths) and recording-proxy sets from
+  // manifest-less callers (executed reads only; hydration registrations
+  // without a manifest record at their first drain apply instead).
+  //
+  // Manifests are INTERNED by array identity: compiled templates share ONE
+  // manifest literal across every row they bind, so the split/dedup runs
+  // once and each channel takes the processed arrays BY REFERENCE (list
+  // mounts were paying ~3 ms/1000 rows for per-row processing). Shared
+  // arrays are copy-on-write: any later union (a second template on the
+  // same record, drain-side recording) clones first via ensureOwnedKeys.
   if (keys !== undefined) {
-    const ak = (pc.ak ??= []);
-    for (const k of keys) if (ak.indexOf(k) === -1) ak.push(k);
-    entry.k = true; // recorded at the caller's initial apply
+    if (Array.isArray(keys)) {
+      const m = internManifest(keys as string[]);
+      if (pc.ak === null && pc.dp === null) {
+        pc.ak = m.roots;
+        pc.dp = m.dp;
+        pc.ks = true;
+      } else if (pc.ak !== m.roots) {
+        unionKeys(pc, keys);
+      }
+    } else {
+      unionKeys(pc, keys);
+    }
+    entry.k = true; // read envelope known — no drain-side recording
   }
   patchCount++;
   // Bindings are subscriptions for reachability (§6d pruning must descend
@@ -682,6 +809,7 @@ export function registerRowOps(array: any, fn: RowOpsFn): () => void {
   }
   const entry: RowOpsEntry = { fn, owner: getOwner() };
   const pc = pcOf(t);
+  if (__TEST__) devTrackChannel(pc);
   const list = (pc.ro ??= []) as RowOpsEntry[];
   list.push(entry);
   patchCount++;
@@ -786,10 +914,52 @@ function armPatchHooks(): void {
   installPatchHooks({
     emitPatch,
     emitPatchLocal,
+    emitPatchAncestors,
     emitPatchOptimistic,
     hasPatches,
     demoteToEffects
   });
+  if (__TEST__) InvariantHooks.patchQuiescent = devPatchQuiescent;
+}
+
+// ---------------------------------------------------------------------------
+// Test-mode channel invariants (PINV, re-audit 7) — the audits kept finding
+// accounting/retention bugs one instance at a time; these assert the ledger
+// itself at every quiescence point. Pattern: core/invariants.ts.
+
+const devChannels = __TEST__ ? new Set<any>() : (null as never);
+
+function devTrackChannel(pc: unknown): void {
+  if (__TEST__) devChannels.add(pc);
+}
+
+function devPatchQuiescent(): void {
+  let live = 0;
+  for (const pc of devChannels) {
+    const p = pc.p as unknown[] | null;
+    const ro = pc.ro as unknown[] | null;
+    if (p === null && ro === null && pc.sp === null) {
+      if (pc.qa === null && pc.qe === null && pc.qo === null && pc.qeo === null)
+        devChannels.delete(pc);
+      // fall through: a dead channel with live stamps is still a PINV-2 hit
+    }
+    live += (p?.length ?? 0) + (ro?.length ?? 0);
+    assertInvariant(
+      pc.qa === null && pc.qe === null && pc.qo === null && pc.qeo === null,
+      "PINV-2",
+      "a patch channel holds coalescing stamps at quiescence — a drain path skipped clearStamp (retention: the stamped entry pins both captured backings)"
+    );
+  }
+  assertInvariant(
+    patchCount === live,
+    "PINV-1",
+    `patchCount (${patchCount}) diverged from the live registration ledger (${live}) — an unbind/demotion path double-counted or leaked`
+  );
+  assertInvariant(
+    queue === null && optQueue === null,
+    "PINV-3",
+    "the patch apply queue is non-empty at quiescence — queued applications can never run (a release/schedule path lost its drain)"
+  );
 }
 
 function armRowHooks(): void {

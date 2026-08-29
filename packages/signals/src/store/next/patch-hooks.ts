@@ -26,6 +26,10 @@ import type { RowOps } from "./patch.js";
 export interface PatchValueHooks {
   emitPatch(t: StoreNextTarget, next: any, prev: any): void;
   emitPatchLocal(t: StoreNextTarget, next: any, prev: any): void;
+  /** Forced ancestor bubble alone (re-audit 7): targeted reconciles cover
+   * the walked subtree locally, but ancestor bodies read INTO it through
+   * nested chains — the walk root bubbles like a nested setter write. */
+  emitPatchAncestors(t: StoreNextTarget): void;
   emitPatchOptimistic(t: StoreNextTarget, next: any, prev: any): void;
   hasPatches(): boolean;
   demoteToEffects(t: StoreNextTarget): void;

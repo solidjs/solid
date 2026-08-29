@@ -65,7 +65,11 @@ export const {
   setProp,
   mergeProps,
   applyRef,
-  ref
+  ref,
+  // Required since patch mode became the compiler default: compiled
+  // templates with pure member-read bindings import `patchDriver` from your
+  // renderer module. createRenderer provides it — just re-export.
+  patchDriver
 } = createRenderer({
   createElement(string) {
     return document.createElement(string);

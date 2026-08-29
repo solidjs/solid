@@ -46,6 +46,16 @@ export interface Renderer<NodeType> {
     fn: () => ((element: NodeType) => void) | ((element: NodeType) => void)[],
     element: NodeType
   ): void;
+  /** Patch-mode dual driver (compiled output imports this under the
+   * DEFAULT-ON patch compiler): runs the compiled body as a dual-phase
+   * effect. `createRenderer` synthesizes it — custom renderers just
+   * re-export it like every other member. The optional third argument is
+   * the compiler's static read manifest (unused by the universal flavor). */
+  patchDriver(
+    subject: unknown,
+    body: (next: any, prev: any, force?: boolean) => void,
+    keys?: string[]
+  ): void;
 }
 
 const transparentOptions = { transparent: true, sync: true };

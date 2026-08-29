@@ -28,6 +28,10 @@ export interface ProgramScopeData {
    * the param itself. Wrapped with `rowProof` at program exit so the list
    * driver can engage without the (removed) runtime purity probe. */
   pureRows?: Set<t.ArrowFunctionExpression | t.FunctionExpression>;
+  /** Distinct patch read manifests (re-audit 7), hoisted to module scope at
+   * program exit (`var _mf$ = ["label", "queries.0.elapsed"]`) so the
+   * runtime can intern processed manifests by array identity. */
+  patchManifests?: { id: t.Identifier; key: string; paths: string[] }[];
 }
 
 export type BabelFileWithMetadata = {

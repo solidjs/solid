@@ -10,7 +10,7 @@ import {
   wrapForEffect
 } from "../shared/utils";
 import { setAttr } from "./element";
-import { analyzePatchEligibility, substituteSubject } from "../shared/patch";
+import { analyzePatchEligibility, collectSubjectPaths, substituteSubject } from "../shared/patch";
 import type { NodePath } from "@babel/traverse";
 import type { DynamicBinding, ProgramScopeData, TemplateRecord, TransformResult } from "../types";
 
@@ -314,11 +314,29 @@ function wrapPatchMode(
     );
   }
   const driverId = registerImportMethod(path, config.patchDriver as string, undefined);
+  // Static read manifest (re-audit 7, P1-1): the runtime's demotion probes
+  // need the body's FULL read envelope — branches included — which only the
+  // compiler knows. HOISTED to one module-scope array per distinct manifest
+  // (like _tmpl$): the runtime interns processed manifests BY ARRAY
+  // IDENTITY, so a per-call literal would re-process on every row bind.
+  const manifest = collectSubjectPaths(
+    dynamics.map(d => d.value as t.Expression),
+    subject
+  );
+  const data = path.scope.getProgramParent().data as ProgramScopeData;
+  const manifests = data.patchManifests || (data.patchManifests = []);
+  const manifestKey = JSON.stringify(manifest);
+  let entry = manifests.find(m => m.key === manifestKey);
+  if (!entry) {
+    entry = { id: path.scope.generateUidIdentifier("mf$"), key: manifestKey, paths: manifest };
+    manifests.push(entry);
+  }
   return {
     stmt: t.expressionStatement(
       t.callExpression(driverId, [
         t.identifier(subject),
-        t.arrowFunctionExpression([nId, pId, fId], t.blockStatement(stmts))
+        t.arrowFunctionExpression([nId, pId, fId], t.blockStatement(stmts)),
+        t.cloneNode(entry.id)
       ])
     ),
     subject

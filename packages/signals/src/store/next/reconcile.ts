@@ -65,6 +65,23 @@ export function reconcileNextState(
   key: string | KeyFn | null | undefined,
   replace = false
 ): void {
+  reconcileTop(value, state, key, replace);
+  // Ancestor bubble for TARGETED reconciles (re-audit 7): the walk emits
+  // locally for its own subtree — parents above the walk ROOT read into it
+  // through nested compiled chains and must force-re-apply, exactly as a
+  // nested setter write bubbles. One null check when no patches exist.
+  if (patchHooks !== null && patchHooks.hasPatches()) {
+    const t: StoreNextTarget | undefined = state?.[$TARGET];
+    if (t !== undefined && t.u !== null) patchHooks.emitPatchAncestors(t);
+  }
+}
+
+function reconcileTop(
+  value: any,
+  state: any,
+  key: string | KeyFn | null | undefined,
+  replace = false
+): void {
   if (state == null) throw new Error(__DEV__ ? "Cannot reconcile null or undefined state" : "");
   const t: StoreNextTarget | undefined = state?.[$TARGET];
   if (t === undefined || t.px !== state)
