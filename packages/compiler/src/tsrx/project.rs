@@ -23,8 +23,8 @@
 
 use super::{
     semantic::{
-        self, CatchBinding, CodeBlock, ControlFlow, ForLoop, IfChain, Switch as SemanticSwitch,
-        SwitchArm, Try as SemanticTry,
+        self, CatchBinding, CodeBlock, ControlFlow, ForLoop, IfChain, RenderShape as Shape,
+        Switch as SemanticSwitch, SwitchArm, TemplateSite, Try as SemanticTry,
     },
     source_map::ProjectionMap,
     style_projection::{
@@ -73,14 +73,6 @@ impl ProjectError {
 
 type Result<T> = std::result::Result<T, ProjectError>;
 
-/// Whether a rendered expression is structurally JSX (usable as a bare JSX
-/// child) or needs an expression container.
-#[derive(Clone, Copy, PartialEq)]
-enum Shape {
-    Jsx,
-    Expr,
-}
-
 /// Where a node sits, which decides its rendered form.
 #[derive(Clone, Copy, PartialEq)]
 enum Position {
@@ -98,71 +90,8 @@ const FUNCTION_TYPES: [&str; 3] = [
     "ArrowFunctionExpression",
 ];
 
-const RENDER_ENTRY_TYPES: [&str; 9] = [
-    "JSXElement",
-    "JSXFragment",
-    "JSXText",
-    "JSXCodeBlock",
-    "JSXIfExpression",
-    "JSXForExpression",
-    "JSXSwitchExpression",
-    "JSXTryExpression",
-    "JSXStyleElement",
-];
-
-const LOOP_TYPES: [&str; 5] = [
-    "ForStatement",
-    "ForInStatement",
-    "ForOfStatement",
-    "WhileStatement",
-    "DoWhileStatement",
-];
-
-/// TSRX constructs are validation boundaries: their blocks are checked when
-/// they desugar, with their own construct label.
-const ESCAPE_BOUNDARY_TYPES: [&str; 5] = [
-    "JSXCodeBlock",
-    "JSXIfExpression",
-    "JSXForExpression",
-    "JSXSwitchExpression",
-    "JSXTryExpression",
-];
-
 fn is_function(ty: &str) -> bool {
     FUNCTION_TYPES.contains(&ty)
-}
-
-fn is_render_entry(ty: &str) -> bool {
-    RENDER_ENTRY_TYPES.contains(&ty)
-}
-
-fn is_lazy_pattern(node: Node<'_>) -> bool {
-    matches!(node.ty(), "ArrayPattern" | "ObjectPattern") && node.bool_field("lazy")
-}
-
-fn lazy_assignment_pattern(node: Node<'_>) -> Option<Node<'_>> {
-    if node.ty() != "ExpressionStatement" {
-        return None;
-    }
-    let expression = node.node_field("expression")?;
-    if expression.ty() != "AssignmentExpression" || expression.str_field("operator") != Some("=") {
-        return None;
-    }
-    expression
-        .node_field("left")
-        .filter(|pattern| is_lazy_pattern(*pattern))
-}
-
-fn contains_lazy_pattern(node: Node<'_>) -> bool {
-    let mut found = false;
-    tape::walk(node, &mut |child| {
-        if is_lazy_pattern(child) {
-            found = true;
-            return false;
-        }
-        true
-    });
-    found
 }
 
 fn contains_pattern_default(node: Node<'_>) -> bool {
@@ -177,65 +106,34 @@ fn contains_pattern_default(node: Node<'_>) -> bool {
     found
 }
 
-fn exported_lazy_declaration(root: Node<'_>) -> Option<Node<'_>> {
-    let mut invalid = None;
-    tape::walk(root, &mut |node| {
-        if matches!(
-            node.ty(),
-            "ExportNamedDeclaration" | "ExportDefaultDeclaration"
-        ) && let Some(declaration) = node.node_field("declaration")
-            && declaration.ty() == "VariableDeclaration"
-            && declaration
-                .list_field("declarations")
-                .flatten()
-                .any(|declarator| {
-                    declarator
-                        .node_field("id")
-                        .is_some_and(contains_lazy_pattern)
-                })
-        {
-            invalid = Some(declaration);
-            return false;
-        }
-        invalid.is_none()
-    });
-    invalid
-}
-
 pub fn project(
     source: &str,
     filename: &str,
-    tape: &tsrx_tape_schema::FlatTape,
+    semantic: &semantic::SolidTsrxModule<'_>,
     source_maps: bool,
 ) -> Result<Projection> {
-    let root = Node::root(tape).ok_or(ProjectError {
-        message: "TSRX parse produced no program".into(),
-        start: 0,
-    })?;
-    if let Some(declaration) = exported_lazy_declaration(root) {
-        return Err(ProjectError::new(
-            "TSRX lazy bindings cannot be exported",
-            declaration,
-        ));
-    }
+    let styles = style_projection::plan(source, filename, semantic)?;
+    project_with_styles(source, semantic, styles, source_maps)
+}
 
-    let semantic = semantic::lower(root).map_err(|error| ProjectError {
-        message: error.message,
-        start: error.start,
-    })?;
-    let styles = style_projection::plan(source, filename, &semantic)?;
+pub fn project_with_styles(
+    source: &str,
+    semantic: &semantic::SolidTsrxModule<'_>,
+    styles: StyleProjection<'_>,
+    source_maps: bool,
+) -> Result<Projection> {
+    let root = semantic.root;
     let css = styles.css.clone();
     let css_hash = styles.css_hash.clone();
     let embedded_regions = semantic.embedded_regions.clone();
     let mut renderer = Renderer {
         source,
         out: String::with_capacity(source.len() + source.len() / 4),
-        semantic: &semantic,
+        semantic,
         styles,
-        lazy_ids: collect_lazy_ids(root, &semantic),
+        lazy_ids: collect_lazy_ids(semantic),
         lazy_patterns: Vec::new(),
         accessor_arrows: Vec::new(),
-        suppress_nested_lazy: 0,
         source_map: ProjectionMap::new(source_maps),
     };
 
@@ -254,96 +152,12 @@ pub fn project(
 
 /// Preallocate `__lazyN` names for every lazy pattern in document order,
 /// mirroring `@tsrx/core`'s `preallocateLazyIds`. Keyed by pattern span.
-fn collect_lazy_ids(root: Node<'_>, semantic: &semantic::SolidTsrxModule<'_>) -> Vec<(u32, u32)> {
-    let mut spans: Vec<(u32, u32)> = Vec::new();
-    tape::walk(root, &mut |node| {
-        match node.ty() {
-            "VariableDeclarator" => {
-                if let Some(pattern) = node.node_field("id") {
-                    collect_topmost_lazy_patterns(pattern, &mut spans);
-                }
-            }
-            "FunctionDeclaration" | "FunctionExpression" | "ArrowFunctionExpression" => {
-                for pattern in node.list_field("params").flatten() {
-                    collect_topmost_lazy_patterns(pattern, &mut spans);
-                }
-            }
-            "CatchClause" => {
-                if let Some(pattern) = node.node_field("param") {
-                    collect_topmost_lazy_patterns(pattern, &mut spans);
-                }
-            }
-            "ExpressionStatement" => {
-                if let Some(pattern) = lazy_assignment_pattern(node) {
-                    collect_topmost_lazy_patterns(pattern, &mut spans);
-                }
-            }
-            _ => {}
-        }
-        true
-    });
-    for control in &semantic.control_flow {
-        let pattern = match control {
-            ControlFlow::For(loop_) if loop_.callback_mode.item_is_accessor() => {
-                Some(loop_.pattern)
-            }
-            ControlFlow::Try(try_) => try_.catch.as_ref().and_then(|catch| match catch.binding {
-                Some(CatchBinding::Pattern(pattern)) => Some(pattern),
-                _ => None,
-            }),
-            _ => None,
-        };
-        if let Some(pattern) = pattern
-            && pattern.ty() != "Identifier"
-            && let Some(span) = pattern.span()
-        {
-            spans.push(span);
-        }
-    }
-    spans.sort_unstable();
-    spans.dedup();
-    spans
-}
-
-fn collect_topmost_lazy_patterns(node: Node<'_>, spans: &mut Vec<(u32, u32)>) {
-    match node.ty() {
-        "AssignmentPattern" => {
-            if let Some(left) = node.node_field("left") {
-                collect_topmost_lazy_patterns(left, spans);
-            }
-        }
-        "RestElement" => {
-            if let Some(argument) = node.node_field("argument") {
-                collect_topmost_lazy_patterns(argument, spans);
-            }
-        }
-        "ObjectPattern" | "ArrayPattern" if is_lazy_pattern(node) => {
-            if let Some(span) = node.span() {
-                spans.push(span);
-            }
-        }
-        "ObjectPattern" => {
-            for property in node.list_field("properties").flatten() {
-                let child = if property.ty() == "RestElement" {
-                    property.node_field("argument")
-                } else {
-                    property.node_field("value")
-                };
-                if let Some(child) = child {
-                    collect_topmost_lazy_patterns(child, spans);
-                }
-            }
-        }
-        "ArrayPattern" => {
-            for element in node.list_field("elements").flatten() {
-                collect_topmost_lazy_patterns(element, spans);
-            }
-            if let Some(rest) = node.node_field("rest") {
-                collect_topmost_lazy_patterns(rest, spans);
-            }
-        }
-        _ => {}
-    }
+fn collect_lazy_ids(semantic: &semantic::SolidTsrxModule<'_>) -> Vec<(u32, u32)> {
+    semantic
+        .lazy_patterns
+        .iter()
+        .map(|pattern| (pattern.origin.span.start, pattern.origin.span.end))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -372,23 +186,19 @@ fn collect_specials<'t>(
     let ty = node.ty();
     let start = node.span().map_or(u32::MAX, |span| span.0);
 
-    let special_span = if lazy_assignment_pattern(node).is_some() {
+    let special_span = if semantic.lazy_assignment_for(node).is_some() {
         node.span()
     } else if let Some(control) = semantic.control_for(node) {
         let extent = control.origin().extent;
         Some((extent.start, extent.end))
-    } else if ty == "JSXCodeBlock"
-        || ty == "JSXStyleElement"
-        || semantic.raw_text_script_for(node).is_some()
-        || tape::is_dynamic_element(node)
+    } else if semantic.template_site_for(node).is_some()
         || (ty == "JSXElement"
             && (styles.element_hashes.contains_key(&start)
                 || styles.owner_setups.contains_key(&start)))
         || (ty == "JSXFragment" && styles.owner_setups.contains_key(&start))
-        || (ty == "JSXAttribute" && node.bool_field("shorthand"))
     {
         node.span()
-    } else if is_lazy_pattern(node) {
+    } else if semantic.is_authored_lazy_pattern(node) {
         // The `&` sigil sits immediately before the pattern's bracket.
         node.span()
             .map(|(start, end)| (start.saturating_sub(1), end))
@@ -449,94 +259,8 @@ fn collect_children<'t>(
 }
 
 // ---------------------------------------------------------------------------
-// Shape prediction (decides `{…}` wrapping before any text is emitted)
-// ---------------------------------------------------------------------------
-
-/// Shape of one render entry once lowered to an expression.
-fn predict_entry_shape(node: Node<'_>) -> Shape {
-    match node.ty() {
-        "JSXElement" | "JSXFragment" | "JSXStyleElement" => Shape::Jsx,
-        "JSXText" => Shape::Expr,
-        "JSXIfExpression" | "JSXForExpression" | "JSXSwitchExpression" => Shape::Jsx,
-        "JSXTryExpression" => predict_try_shape(node),
-        "JSXCodeBlock" => {
-            if node.list_field("body").next().is_some() {
-                Shape::Expr
-            } else {
-                node.node_field("render")
-                    .map(predict_entry_shape)
-                    .unwrap_or(Shape::Expr)
-            }
-        }
-        _ => Shape::Expr,
-    }
-}
-
-fn predict_try_shape(node: Node<'_>) -> Shape {
-    if node.has_node_field("handler") || node.has_node_field("pending") {
-        return Shape::Jsx;
-    }
-    node.node_field("block")
-        .map(|block| predict_block_shape(block))
-        .unwrap_or(Shape::Expr)
-}
-
-/// Shape of a whole template block lowered to an expression (ignoring the
-/// empty case, which callers reject or omit before wrapping decisions).
-fn predict_block_shape(block: Node<'_>) -> Shape {
-    let (setup, renders) = partition_entries(&block_entries(block));
-    if !setup.is_empty() {
-        return Shape::Expr;
-    }
-    match renders.as_slice() {
-        [only] => predict_entry_shape(*only),
-        [] => Shape::Expr,
-        _ => Shape::Jsx,
-    }
-}
-
-fn block_entries<'t>(block: Node<'t>) -> Vec<Node<'t>> {
-    if block.ty() == "BlockStatement" {
-        block.list_field("body").flatten().collect()
-    } else {
-        vec![block]
-    }
-}
-
-/// Split entries into setup statements and render outputs, skipping
-/// whitespace-only JSXText. Pure analysis; ordering errors surface in
-/// [`Renderer::block_parts_of_entries`].
-fn partition_entries<'t>(entries: &[Node<'t>]) -> (Vec<Node<'t>>, Vec<Node<'t>>) {
-    let mut setup = Vec::new();
-    let mut renders = Vec::new();
-    for entry in entries {
-        if is_render_entry(entry.ty()) {
-            if entry.ty() == "JSXText" && entry.str_field("value").is_some_and(decode_json_ws_only)
-            {
-                continue;
-            }
-            renders.push(*entry);
-        } else if renders.is_empty() {
-            setup.push(*entry);
-        }
-    }
-    (setup, renders)
-}
-
-/// Whether a template block lowers to nothing (fully empty block).
-fn block_is_empty(block: Node<'_>) -> bool {
-    let (setup, renders) = partition_entries(&block_entries(block));
-    setup.is_empty() && renders.is_empty()
-}
-
-// ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
-
-struct BlockParts<'t> {
-    setup: Vec<Node<'t>>,
-    renders: Vec<Node<'t>>,
-}
 
 struct Renderer<'s, 'm, 't> {
     source: &'s str,
@@ -547,7 +271,6 @@ struct Renderer<'s, 'm, 't> {
     lazy_ids: Vec<(u32, u32)>,
     lazy_patterns: Vec<(u32, String, bool)>,
     accessor_arrows: Vec<(u32, Vec<String>)>,
-    suppress_nested_lazy: usize,
     source_map: ProjectionMap,
 }
 
@@ -606,16 +329,14 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
         let ty = node.ty();
         let start = node.span().map_or(u32::MAX, |span| span.0);
         if self.semantic.control_for(node).is_some()
-            || ty == "JSXStyleElement"
-            || self.semantic.raw_text_script_for(node).is_some()
-            || tape::is_dynamic_element(node)
+            || self.semantic.template_site_for(node).is_some()
             || (ty == "JSXElement"
                 && (self.styles.element_hashes.contains_key(&start)
                     || self.styles.owner_setups.contains_key(&start)))
             || (ty == "JSXFragment" && self.styles.owner_setups.contains_key(&start))
-            || (ty == "JSXAttribute" && node.bool_field("shorthand"))
-            || lazy_assignment_pattern(node).is_some()
-            || is_lazy_pattern(node)
+            || self.semantic.lazy_assignment_for(node).is_some()
+            || self.semantic.is_authored_lazy_pattern(node)
+            || self.semantic.lazy_pattern_for(node).is_some()
         {
             return self.render_special(node, position);
         }
@@ -635,21 +356,24 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
                 ControlFlow::Try(try_) => self.render_try(try_, position),
             };
         }
+        if let Some(site) = self.semantic.template_site_for(node) {
+            return match site {
+                TemplateSite::StyleElement { .. } => self.render_style(node),
+                TemplateSite::ShorthandAttribute { name, .. } => self.render_shorthand_attr(name),
+                TemplateSite::RawTextScript(_) => self.render_raw_text_script(node, position),
+                TemplateSite::DynamicElement { .. } => self.render_scoped_element(node, position),
+            };
+        }
+        if let Some(assignment) = self.semantic.lazy_assignment_for(node) {
+            return self.render_lazy_assignment(assignment);
+        }
         match node.ty() {
-            "JSXStyleElement" => self.render_style(node),
             "JSXFragment" => self.render_scoped_fragment(node, position),
-            "JSXAttribute" => self.render_shorthand_attr(node),
-            "JSXElement" if self.semantic.raw_text_script_for(node).is_some() => {
-                self.render_raw_text_script(node, position)
-            }
             "JSXElement" => self.render_scoped_element(node, position),
-            "ExpressionStatement" if lazy_assignment_pattern(node).is_some() => {
-                self.render_lazy_assignment(node)
+            "ArrayPattern" | "ObjectPattern" if self.semantic.lazy_pattern_for(node).is_some() => {
+                self.render_lazy_pattern(node)
             }
-            "ArrayPattern" | "ObjectPattern" if self.suppress_nested_lazy > 0 => {
-                self.emit_eager_pattern(node)
-            }
-            "ArrayPattern" | "ObjectPattern" => self.render_lazy_pattern(node),
+            "ArrayPattern" | "ObjectPattern" => self.emit_eager_pattern(node),
             other => Err(ProjectError::new(
                 format!("Unsupported TSRX construct `{other}`"),
                 node,
@@ -684,7 +408,7 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
             Position::Expression | Position::JsxChild => {
                 let wrap = position == Position::JsxChild
                     && (if setup.is_empty() && style_setups.is_empty() {
-                        predict_entry_shape(render) == Shape::Expr
+                        semantic::predict_entry_shape(render) == Shape::Expr
                     } else {
                         true
                     });
@@ -714,18 +438,10 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
     // -- @if — Show / Switch+Match ---------------------------------------------
 
     fn render_if(&mut self, chain: &IfChain<'t>) -> Result<()> {
-        // Validate in the Babel frontend's order: @else first, then branches.
-        if let Some(fallback) = &chain.fallback {
-            self.block_parts(fallback.node, Some("@else"))?;
-        }
-        for branch in &chain.branches {
-            self.block_parts(branch.body.node, Some("@if"))?;
-        }
-
         let has_fallback = chain
             .fallback
             .as_ref()
-            .is_some_and(|fallback| !block_is_empty(fallback.node));
+            .is_some_and(|fallback| !fallback.is_empty());
 
         if let [branch] = chain.branches.as_slice() {
             self.push("<Show when={");
@@ -733,16 +449,16 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
             self.push("}");
             if has_fallback {
                 self.push(" fallback={");
-                self.emit_block_expression(chain.fallback.as_ref().unwrap().node, "@else")?;
+                self.emit_template_block_expression(chain.fallback.as_ref().unwrap(), "@else")?;
                 self.push("}");
             }
-            return self.emit_construct_children(branch.body.node, "@if", "</Show>");
+            return self.emit_construct_children(&branch.body, "@if", "</Show>");
         }
 
         self.push("<Switch");
         if has_fallback {
             self.push(" fallback={");
-            self.emit_block_expression(chain.fallback.as_ref().unwrap().node, "@else")?;
+            self.emit_template_block_expression(chain.fallback.as_ref().unwrap(), "@else")?;
             self.push("}");
         }
         self.push(">");
@@ -750,7 +466,7 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
             self.push("<Match when={");
             self.emit_node(branch.test, Position::Expression)?;
             self.push("}");
-            self.emit_construct_children(branch.body.node, "@if", "</Match>")?;
+            self.emit_construct_children(&branch.body, "@if", "</Match>")?;
         }
         self.push("</Switch>");
         Ok(())
@@ -760,21 +476,20 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
     /// block renders nothing), then the closing tag.
     fn emit_construct_children(
         &mut self,
-        block: Node<'_>,
+        block: &semantic::TemplateBlock<'_>,
         construct: &str,
         closing: &str,
     ) -> Result<()> {
-        if block_is_empty(block) {
+        if block.is_empty() {
             self.push("/>");
             return Ok(());
         }
         self.push(">");
-        let shape = predict_block_shape(block);
-        if shape == Shape::Jsx {
-            self.emit_block_expression(block, construct)?;
+        if block.shape == Shape::Jsx {
+            self.emit_template_block_expression(block, construct)?;
         } else {
             self.push("{");
-            self.emit_block_expression(block, construct)?;
+            self.emit_template_block_expression(block, construct)?;
             self.push("}");
         }
         self.push(closing);
@@ -790,11 +505,8 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
         let index = loop_.index;
         let key = loop_.key;
         let mode = loop_.callback_mode;
-        let body = loop_.body.node;
-        // Validate the body before attribute emission (Babel order); reject a
-        // renderless body up front.
-        let parts = self.block_parts(body, Some("@for"))?;
-        if parts.renders.is_empty() {
+        let body = &loop_.body;
+        if body.renders.is_empty() {
             return Err(ProjectError::new(
                 "A TSRX @for body must end with rendered output",
                 node,
@@ -817,16 +529,12 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
         } else if mode.emits_non_keyed_intent() {
             self.push(" keyed={false}");
         }
-        if let Some(empty) = &loop_.empty {
-            let empty = empty.node;
-            if !block_is_empty(empty) {
-                self.push(" fallback={");
-                self.emit_block_expression(empty, "@empty")?;
-                self.push("}");
-            } else {
-                // Still validate the empty block (escape rules apply).
-                self.block_parts(empty, Some("@empty"))?;
-            }
+        if let Some(empty) = &loop_.empty
+            && !empty.is_empty()
+        {
+            self.push(" fallback={");
+            self.emit_template_block_expression(empty, "@empty")?;
+            self.push("}");
         }
         self.push(">{");
 
@@ -854,7 +562,7 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
 
         self.push("(");
         if mode.item_is_accessor() && pattern.ty() != "Identifier" {
-            self.render_lazy_pattern_with_source(pattern, true)?;
+            self.render_lazy_pattern(pattern)?;
         } else {
             self.emit_node(pattern, Position::Expression)?;
         }
@@ -863,15 +571,15 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
             self.emit_node(index, Position::Expression)?;
         }
         self.push(") => ");
-        if parts.setup.is_empty() {
+        if body.setup.is_empty() {
             self.push("(");
-            self.emit_renders_expression(&parts.renders)?;
+            self.emit_renders_expression(&body.renders)?;
             self.push(")");
         } else {
             self.push("{\n");
-            self.emit_statements(&parts.setup)?;
+            self.emit_statements(&body.setup)?;
             self.push("return ");
-            self.emit_renders_expression(&parts.renders)?;
+            self.emit_renders_expression(&body.renders)?;
             self.push(";\n}");
         }
         self.push("}</For>");
@@ -884,12 +592,8 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
         // Validate every case in authored order first (the @default case is
         // emitted out of order, as the leading `fallback` attribute).
         for arm in &switch.arms {
-            let label = match arm {
-                SwitchArm::Case { .. } => "@case",
-                SwitchArm::Default { .. } => "@default",
-            };
-            let parts = self.block_parts_of_entries(arm.entries(), Some(label))?;
-            if !parts.setup.is_empty() && parts.renders.is_empty() {
+            let block = arm.block();
+            if !block.setup.is_empty() && block.renders.is_empty() {
                 return Err(ProjectError::new(
                     "A TSRX @case block with setup statements must end with rendered output",
                     arm.origin().tape,
@@ -898,20 +602,17 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
         }
 
         let default_arm = switch.default_arm();
-        let has_fallback = default_arm.is_some_and(|arm| {
-            let (setup, renders) = partition_entries(arm.entries());
-            !(setup.is_empty() && renders.is_empty())
-        });
+        let has_fallback = default_arm.is_some_and(|arm| !arm.block().is_empty());
 
         self.push("<Switch");
         if has_fallback {
             self.push(" fallback={");
-            self.emit_case_expression(default_arm.unwrap().entries(), "@default")?;
+            self.emit_template_block_expression(default_arm.unwrap().block(), "@default")?;
             self.push("}");
         }
         self.push(">");
         for arm in &switch.arms {
-            let SwitchArm::Case { test, entries, .. } = arm else {
+            let SwitchArm::Case { test, block, .. } = arm else {
                 continue;
             };
             self.push("<Match when={(");
@@ -920,25 +621,24 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
             self.emit_node(*test, Position::Expression)?;
             self.push(")}");
 
-            let (setup, renders) = partition_entries(entries);
-            if setup.is_empty() && renders.is_empty() {
+            if block.is_empty() {
                 self.push("/>");
                 continue;
             }
             self.push(">");
-            let shape = if setup.is_empty() {
-                match renders.as_slice() {
-                    [only] => predict_entry_shape(*only),
+            let shape = if block.setup.is_empty() {
+                match block.renders.as_slice() {
+                    [only] => semantic::predict_entry_shape(*only),
                     _ => Shape::Jsx,
                 }
             } else {
                 Shape::Expr
             };
             if shape == Shape::Jsx {
-                self.emit_case_expression(entries, "@case")?;
+                self.emit_template_block_expression(block, "@case")?;
             } else {
                 self.push("{");
-                self.emit_case_expression(entries, "@case")?;
+                self.emit_template_block_expression(block, "@case")?;
                 self.push("}");
             }
             self.push("</Match>");
@@ -947,35 +647,24 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
         Ok(())
     }
 
-    fn emit_case_expression(&mut self, entries: &[Node<'_>], label: &str) -> Result<()> {
-        let parts = self.block_parts_of_entries(entries, Some(label))?;
-        self.emit_parts_expression(&parts)
-    }
-
     // -- @try / @pending / @catch — Errored / Loading -------------------------------
 
     fn render_try(&mut self, try_: &SemanticTry<'t>, position: Position) -> Result<()> {
         let node = try_.origin.tape;
-        let block = try_.body.node;
-        // Validate in the Babel frontend's order: @try, then @pending, then
-        // @catch — output order is the reverse nesting.
-        let content_parts = self.block_parts(block, Some("@try"))?;
-        if content_parts.renders.is_empty() {
+        let block = &try_.body;
+        if block.renders.is_empty() {
             // Setup-only blocks get blockToExpression's message; fully empty
             // ones get the @try-specific message, matching the Babel frontend.
-            return Err(if content_parts.setup.is_empty() {
+            return Err(if block.setup.is_empty() {
                 ProjectError::new("A TSRX @try block must end with rendered output", node)
             } else {
                 ProjectError::new(
                     "A TSRX @try block with setup statements must end with rendered output",
-                    block,
+                    block.node,
                 )
             });
         }
-        let pending = try_.pending.as_ref().map(|pending| pending.node);
-        if let Some(pending) = pending {
-            self.block_parts(pending, Some("@pending"))?;
-        }
+        let pending = try_.pending.as_ref();
         let handler = try_.catch.as_ref();
         let mut error_name = String::from("_e");
         let mut reset_name: Option<String> = None;
@@ -994,10 +683,8 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
             if let Some(reset) = handler.reset.and_then(ident_name) {
                 reset_name = Some(reset.to_string());
             }
-            let handler_body = handler.body.node;
-            let handler_parts = self.block_parts(handler_body, Some("@catch"))?;
-            if handler_parts.renders.is_empty() {
-                return Err(if handler_parts.setup.is_empty() {
+            if handler.body.renders.is_empty() {
+                return Err(if handler.body.setup.is_empty() {
                     ProjectError::new(
                         "A TSRX @catch block must end with rendered output",
                         handler.origin.tape,
@@ -1005,7 +692,7 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
                 } else {
                     ProjectError::new(
                         "A TSRX @catch block with setup statements must end with rendered output",
-                        handler_body,
+                        handler.body.node,
                     )
                 });
             }
@@ -1014,7 +701,7 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
         let inner_shape = if pending.is_some() {
             Shape::Jsx
         } else {
-            predict_block_shape(block)
+            block.shape
         };
         let result_shape = if handler.is_some() {
             Shape::Jsx
@@ -1037,7 +724,7 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
             }
             self.push("(");
             if let Some(pattern) = error_pattern {
-                self.render_lazy_pattern_with_source(pattern, true)?;
+                self.render_lazy_pattern(pattern)?;
             } else {
                 self.push(&error_name);
             }
@@ -1046,38 +733,38 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
                 self.push(reset);
             }
             self.push(") => (");
-            self.emit_block_expression(handler.body.node, "@catch")?;
+            self.emit_template_block_expression(&handler.body, "@catch")?;
             self.push(")}>");
         }
 
         if let Some(pending) = pending {
             self.push("<Loading");
-            if !block_is_empty(pending) {
+            if !pending.is_empty() {
                 self.push(" fallback={");
-                self.emit_block_expression(pending, "@pending")?;
+                self.emit_template_block_expression(pending, "@pending")?;
                 self.push("}");
             }
             self.push(">");
-            let content_shape = predict_block_shape(block);
+            let content_shape = block.shape;
             if content_shape == Shape::Jsx {
-                self.emit_block_expression(block, "@try")?;
+                self.emit_template_block_expression(block, "@try")?;
             } else {
                 self.push("{");
-                self.emit_block_expression(block, "@try")?;
+                self.emit_template_block_expression(block, "@try")?;
                 self.push("}");
             }
             self.push("</Loading>");
         } else if handler.is_some() {
-            let content_shape = predict_block_shape(block);
+            let content_shape = block.shape;
             if content_shape == Shape::Jsx {
-                self.emit_block_expression(block, "@try")?;
+                self.emit_template_block_expression(block, "@try")?;
             } else {
                 self.push("{");
-                self.emit_block_expression(block, "@try")?;
+                self.emit_template_block_expression(block, "@try")?;
                 self.push("}");
             }
         } else {
-            self.emit_block_expression(block, "@try")?;
+            self.emit_template_block_expression(block, "@try")?;
         }
 
         if handler.is_some() {
@@ -1161,7 +848,7 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
             .map(|hashes| hashes.join(" "))
             .unwrap_or_default();
         self.begin_style_setup(&setups, position)?;
-        if tape::is_dynamic_element(node) {
+        if self.semantic.is_dynamic_element(node) {
             self.render_dynamic_element(node, &hashes)?;
         } else {
             self.render_native_scoped_element(node, &hashes)?;
@@ -1422,11 +1109,7 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
         Ok(())
     }
 
-    fn render_shorthand_attr(&mut self, node: Node<'_>) -> Result<()> {
-        let name = node
-            .node_field("name")
-            .and_then(ident_name)
-            .ok_or_else(|| ProjectError::new("Shorthand prop is missing its name", node))?;
+    fn render_shorthand_attr(&mut self, name: &str) -> Result<()> {
         self.push(name);
         self.push("={");
         self.push(name);
@@ -1435,14 +1118,13 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
     }
 
     fn render_lazy_pattern(&mut self, node: Node<'_>) -> Result<()> {
-        self.render_lazy_pattern_with_source(node, false)
-    }
-
-    fn render_lazy_pattern_with_source(
-        &mut self,
-        node: Node<'_>,
-        source_accessor: bool,
-    ) -> Result<()> {
+        let source_accessor = self
+            .semantic
+            .lazy_pattern_for(node)
+            .ok_or_else(|| {
+                ProjectError::new("internal TSRX frontend error: unknown lazy pattern", node)
+            })?
+            .source_accessor;
         let span = span_of(node)?;
         let id = self
             .lazy_ids
@@ -1461,10 +1143,7 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
         // pass renames them.
         let mut specials = Vec::new();
         collect_children(node, &self.styles, self.semantic, &mut specials);
-        self.suppress_nested_lazy += 1;
-        let result = self.emit_region(span.0, span.1, &mut specials);
-        self.suppress_nested_lazy -= 1;
-        result
+        self.emit_region(span.0, span.1, &mut specials)
     }
 
     fn emit_eager_pattern(&mut self, node: Node<'_>) -> Result<()> {
@@ -1474,27 +1153,15 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
         self.emit_region(span.0, span.1, &mut specials)
     }
 
-    fn render_lazy_assignment(&mut self, node: Node<'_>) -> Result<()> {
-        let expression = node.node_field("expression").ok_or_else(|| {
-            ProjectError::new(
-                "TSRX lazy assignment is missing its assignment expression",
-                node,
-            )
-        })?;
-        let pattern = lazy_assignment_pattern(node)
-            .ok_or_else(|| ProjectError::new("Malformed TSRX lazy assignment statement", node))?;
+    fn render_lazy_assignment(&mut self, assignment: &semantic::LazyAssignment<'t>) -> Result<()> {
+        let pattern = assignment.pattern;
         if contains_pattern_default(pattern) {
             return Err(ProjectError::new(
                 "TSRX standalone lazy assignment defaults are not supported by the JavaScript TSRX parser",
                 pattern,
             ));
         }
-        let value = expression.node_field("right").ok_or_else(|| {
-            ProjectError::new(
-                "TSRX lazy assignment is missing its source expression",
-                expression,
-            )
-        })?;
+        let value = assignment.value;
 
         // Reparse the assignment as a lexical declaration so oxc_semantic can
         // resolve the introduced lazy names. The binding-pattern rewrite then
@@ -1509,70 +1176,32 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
 
     // -- Template block helpers -----------------------------------------------------
 
-    /// Validate and split a template block (Babel `blockToParts`).
-    fn block_parts<'n>(
-        &mut self,
-        block: Node<'n>,
-        construct: Option<&str>,
-    ) -> Result<BlockParts<'n>> {
-        let entries = block_entries(block);
-        self.block_parts_of_entries(&entries, construct)
-    }
-
-    fn block_parts_of_entries<'n>(
-        &mut self,
-        entries: &[Node<'n>],
-        construct: Option<&str>,
-    ) -> Result<BlockParts<'n>> {
-        if let Some(construct) = construct {
-            validate_no_control_flow_escape(entries, construct)?;
-        }
-        let mut setup = Vec::new();
-        let mut renders: Vec<Node<'n>> = Vec::new();
-        for entry in entries {
-            if is_render_entry(entry.ty()) {
-                if entry.ty() == "JSXText"
-                    && entry.str_field("value").is_some_and(decode_json_ws_only)
-                {
-                    continue;
-                }
-                renders.push(*entry);
-            } else {
-                if !renders.is_empty() {
-                    return Err(ProjectError::new(
-                        "Statements may not follow the rendered output inside a TSRX template block",
-                        *entry,
-                    ));
-                }
-                setup.push(*entry);
-            }
-        }
-        Ok(BlockParts { setup, renders })
-    }
-
     /// Lower a whole template block to one expression (Babel
     /// `blockToExpression`). Callers must not invoke this for empty blocks.
-    fn emit_block_expression(&mut self, block: Node<'_>, construct: &str) -> Result<()> {
-        let parts = self.block_parts(block, Some(construct))?;
-        if !parts.setup.is_empty() && parts.renders.is_empty() {
+    fn emit_template_block_expression(
+        &mut self,
+        block: &semantic::TemplateBlock<'_>,
+        construct: &str,
+    ) -> Result<()> {
+        if !block.setup.is_empty() && block.renders.is_empty() {
             return Err(ProjectError::new(
                 format!(
                     "A TSRX {construct} block with setup statements must end with rendered output"
                 ),
-                block,
+                block.node,
             ));
         }
-        self.emit_parts_expression(&parts)
+        self.emit_parts_expression(&block.setup, &block.renders)
     }
 
-    fn emit_parts_expression(&mut self, parts: &BlockParts<'_>) -> Result<()> {
-        if parts.setup.is_empty() {
-            return self.emit_renders_expression(&parts.renders);
+    fn emit_parts_expression(&mut self, setup: &[Node<'_>], renders: &[Node<'_>]) -> Result<()> {
+        if setup.is_empty() {
+            return self.emit_renders_expression(renders);
         }
         self.push("(() => {\n");
-        self.emit_statements(&parts.setup)?;
+        self.emit_statements(setup)?;
         self.push("return ");
-        self.emit_renders_expression(&parts.renders)?;
+        self.emit_renders_expression(renders)?;
         self.push(";\n})()");
         Ok(())
     }
@@ -1636,145 +1265,5 @@ fn ident_name<'t>(node: Node<'t>) -> Option<&'t str> {
         node.str_field("name")
     } else {
         None
-    }
-}
-
-/// Whether a tape JSON string scalar (quotes stripped, escapes intact)
-/// decodes to whitespace only.
-fn decode_json_ws_only(escaped: &str) -> bool {
-    let mut chars = escaped.chars();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '\\' => match chars.next() {
-                Some('n' | 'r' | 't' | 'f' | 'b') => {}
-                Some('u') => {
-                    let code: String = chars.by_ref().take(4).collect();
-                    match u32::from_str_radix(&code, 16).ok().and_then(char::from_u32) {
-                        Some(decoded) if decoded.is_whitespace() => {}
-                        _ => return false,
-                    }
-                }
-                _ => return false,
-            },
-            other if other.is_whitespace() => {}
-            _ => return false,
-        }
-    }
-    true
-}
-
-// ---------------------------------------------------------------------------
-// Control-flow escape validation (mirrors validateNoControlFlowEscape)
-// ---------------------------------------------------------------------------
-
-fn escape_message(kind: &str, construct: &str) -> String {
-    // Match the ecosystem (@tsrx/solid) diagnostics verbatim for @if and @for.
-    if construct == "@if" || construct == "@else" {
-        return match kind {
-            "return" => "Return statements are not allowed inside TSRX template @if blocks. Move the return before the template output or render conditionally instead.".into(),
-            "break" => "Break statements are not allowed inside TSRX template @if blocks.".into(),
-            _ => "Continue statements are not allowed inside TSRX template @if blocks. Filter before rendering or use conditional output instead.".into(),
-        };
-    }
-    if construct == "@for" || construct == "@empty" {
-        return match kind {
-            "return" => "Return statements are not allowed inside TSRX template for...of loops. Filter the iterable before rendering or use an @empty fallback for empty lists.".into(),
-            "break" => "Break statements are not allowed inside TSRX template for...of loops.".into(),
-            _ => "Continue statements are not allowed inside TSRX template for...of loops. Filter the iterable before rendering.".into(),
-        };
-    }
-    let noun = match kind {
-        "return" => "Return",
-        "break" => "Break",
-        _ => "Continue",
-    };
-    format!("{noun} statements are not allowed inside TSRX template {construct} blocks.")
-}
-
-fn validate_no_control_flow_escape(entries: &[Node<'_>], construct: &str) -> Result<()> {
-    let mut labels: Vec<String> = Vec::new();
-    for entry in entries {
-        check(*entry, 0, 0, &mut labels, construct)?;
-    }
-    return Ok(());
-
-    fn check(
-        node: Node<'_>,
-        loops: u32,
-        breakables: u32,
-        labels: &mut Vec<String>,
-        construct: &str,
-    ) -> Result<()> {
-        let ty = node.ty();
-        if is_function(ty) || ESCAPE_BOUNDARY_TYPES.contains(&ty) {
-            return Ok(());
-        }
-        match ty {
-            "ReturnStatement" => {
-                return Err(ProjectError::new(escape_message("return", construct), node));
-            }
-            "BreakStatement" => {
-                let label = node.node_field("label").and_then(ident_name);
-                let escapes = match label {
-                    Some(label) => !labels.iter().any(|known| known == label),
-                    None => breakables == 0,
-                };
-                if escapes {
-                    return Err(ProjectError::new(escape_message("break", construct), node));
-                }
-                return Ok(());
-            }
-            "ContinueStatement" => {
-                let label = node.node_field("label").and_then(ident_name);
-                let escapes = match label {
-                    Some(label) => !labels.iter().any(|known| known == label),
-                    None => loops == 0,
-                };
-                if escapes {
-                    return Err(ProjectError::new(
-                        escape_message("continue", construct),
-                        node,
-                    ));
-                }
-                return Ok(());
-            }
-            "SwitchStatement" => {
-                if let Some(discriminant) = node.node_field("discriminant") {
-                    check(discriminant, loops, breakables, labels, construct)?;
-                }
-                for case in node.list_field("cases").flatten() {
-                    check(case, loops, breakables + 1, labels, construct)?;
-                }
-                return Ok(());
-            }
-            "LabeledStatement" => {
-                let label = node
-                    .node_field("label")
-                    .and_then(ident_name)
-                    .unwrap_or("")
-                    .to_string();
-                labels.push(label);
-                if let Some(body) = node.node_field("body") {
-                    check(body, loops, breakables, labels, construct)?;
-                }
-                labels.pop();
-                return Ok(());
-            }
-            _ => {}
-        }
-        let is_loop = LOOP_TYPES.contains(&ty);
-        let next_loops = if is_loop { loops + 1 } else { loops };
-        let next_breakables = if is_loop { breakables + 1 } else { breakables };
-
-        let mut result = Ok(());
-        tape::walk_children(node, &mut |child| {
-            if result.is_err() {
-                return false;
-            }
-            result = check(child, next_loops, next_breakables, labels, construct);
-            // Each child handles its own recursion.
-            false
-        });
-        result
     }
 }

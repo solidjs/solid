@@ -14,13 +14,15 @@
 //!   reads only: writes and read-write updates stay untouched, mirroring the
 //!   Babel frontend's `rewriteReadsToCalls`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use oxc_allocator::{Allocator, CloneIn};
 use oxc_ast::ast::{
-    Argument, ArrowFunctionBody, AssignmentTarget, BindingPattern, Expression, Function,
-    FunctionBody, ImportOrExportKind, JSXElementName, JSXMemberExpressionObject, ObjectProperty,
-    Program, PropertyKey, SimpleAssignmentTarget, Statement, VariableDeclarationKind,
+    Argument, ArrowFunctionBody, AssignmentTarget, BindingPattern, CatchClause, CatchParameter,
+    Expression, FormalParameter, FormalParameters, Function, FunctionBody, ImportOrExportKind,
+    JSXElementName, JSXExpressionContainer, JSXMemberExpressionObject, ObjectProperty, Program,
+    PropertyKey, SimpleAssignmentTarget, Statement, VariableDeclaration, VariableDeclarationKind,
+    VariableDeclarator,
 };
 use oxc_ast_visit::{VisitMut, walk_mut};
 use oxc_semantic::{Semantic, SemanticBuilder};
@@ -37,6 +39,12 @@ use crate::shared::ast_builder::AstBuilder;
 use super::{names::Names, project::Projection};
 
 type SpanKey = (u32, u32);
+
+#[derive(Default)]
+pub struct RewriteArtifacts {
+    pub lazy_patterns: Vec<(u32, String, bool)>,
+    pub accessor_arrows: Vec<(u32, Vec<String>)>,
+}
 
 enum AccessStep<'a> {
     Static(String),
@@ -147,7 +155,24 @@ pub fn apply<'a>(
     projection: &Projection,
     source_maps: bool,
 ) -> Result<(), String> {
-    if projection.lazy_patterns.is_empty() && projection.accessor_arrows.is_empty() {
+    apply_artifacts(
+        allocator,
+        program,
+        &RewriteArtifacts {
+            lazy_patterns: projection.lazy_patterns.clone(),
+            accessor_arrows: projection.accessor_arrows.clone(),
+        },
+        source_maps,
+    )
+}
+
+pub fn apply_artifacts<'a>(
+    allocator: &'a Allocator,
+    program: &mut Program<'a>,
+    artifacts: &RewriteArtifacts,
+    source_maps: bool,
+) -> Result<(), String> {
+    if artifacts.lazy_patterns.is_empty() && artifacts.accessor_arrows.is_empty() {
         return Ok(());
     }
 
@@ -156,8 +181,13 @@ pub fn apply<'a>(
         .build(program)
         .semantic;
     let mut names = Names::from_semantic(&semantic);
-    let plan = build_plan(allocator, &semantic, projection, &mut names)?;
+    let plan = build_plan(allocator, &semantic, artifacts, &mut names)?;
     drop(semantic);
+    RootLazyPatternReplacer {
+        ast: AstBuilder::new(allocator),
+        patterns: &plan.patterns,
+    }
+    .visit_program(program);
 
     let mut rewriter = Rewriter {
         allocator,
@@ -177,17 +207,110 @@ pub fn apply<'a>(
     }
 }
 
+pub fn clear_generated_spans<'a>(
+    program: &mut Program<'a>,
+    artifacts: &RewriteArtifacts,
+    source_maps: bool,
+) {
+    if !source_maps {
+        AllSpanClearer.visit_program(program);
+        return;
+    }
+    GeneratedSpanClearer.visit_program(program);
+    LazyPatternParentSpanClearer {
+        starts: artifacts
+            .lazy_patterns
+            .iter()
+            .map(|(start, _, _)| *start)
+            .collect(),
+    }
+    .visit_program(program);
+}
+
+struct AllSpanClearer;
+
+impl<'a> VisitMut<'a> for AllSpanClearer {
+    fn visit_span(&mut self, span: &mut Span) {
+        *span = Span::default();
+        walk_mut::walk_span(self, span);
+    }
+}
+
+struct GeneratedSpanClearer;
+
+impl<'a> VisitMut<'a> for GeneratedSpanClearer {
+    fn visit_span(&mut self, span: &mut Span) {
+        if span.start == span.end {
+            *span = Span::default();
+        }
+        walk_mut::walk_span(self, span);
+    }
+}
+
+struct LazyPatternParentSpanClearer {
+    starts: HashSet<u32>,
+}
+
+impl LazyPatternParentSpanClearer {
+    fn contains(&self, span: Span) -> bool {
+        self.starts
+            .iter()
+            .any(|start| span.start <= *start && *start <= span.end)
+    }
+}
+
+impl<'a> VisitMut<'a> for LazyPatternParentSpanClearer {
+    fn visit_jsx_expression_container(&mut self, container: &mut JSXExpressionContainer<'a>) {
+        walk_mut::walk_jsx_expression_container(self, container);
+        if container
+            .expression
+            .as_expression()
+            .is_some_and(|expression| expression.span() == Span::default())
+        {
+            container.span = Span::default();
+        }
+    }
+
+    fn visit_formal_parameters(&mut self, parameters: &mut FormalParameters<'a>) {
+        if self.contains(parameters.span) {
+            parameters.span = Span::default();
+        }
+        walk_mut::walk_formal_parameters(self, parameters);
+    }
+
+    fn visit_formal_parameter(&mut self, parameter: &mut FormalParameter<'a>) {
+        if self.contains(parameter.span) {
+            parameter.span = Span::default();
+        }
+        walk_mut::walk_formal_parameter(self, parameter);
+    }
+
+    fn visit_variable_declarator(&mut self, declarator: &mut VariableDeclarator<'a>) {
+        if self.contains(declarator.id.span()) {
+            declarator.span = Span::default();
+        }
+        walk_mut::walk_variable_declarator(self, declarator);
+    }
+
+    fn visit_catch_parameter(&mut self, parameter: &mut CatchParameter<'a>) {
+        if self.contains(parameter.span) {
+            parameter.span = Span::default();
+        }
+        walk_mut::walk_catch_parameter(self, parameter);
+    }
+}
+
 fn build_plan<'a>(
     allocator: &'a Allocator,
     semantic: &Semantic<'_>,
-    projection: &Projection,
+    artifacts: &RewriteArtifacts,
     names: &mut Names,
 ) -> Result<Plan<'a>, String> {
     let mut lazy_by_start = HashMap::new();
-    for (start, _, source_accessor) in &projection.lazy_patterns {
+    for (start, _, source_accessor) in &artifacts.lazy_patterns {
         lazy_by_start.insert(*start, (names.allocate("__lazy"), *source_accessor));
     }
-    let arrows_by_start: HashMap<u32, &Vec<String>> = projection
+    let arrows_by_start: HashMap<u32, &Vec<String>> = artifacts
         .accessor_arrows
         .iter()
         .map(|(start, names)| (*start, names))
@@ -237,7 +360,7 @@ fn build_plan<'a>(
         }
     }
 
-    for (start, _, _) in &projection.lazy_patterns {
+    for (start, _, _) in &artifacts.lazy_patterns {
         if !planner
             .patterns
             .keys()
@@ -512,6 +635,47 @@ impl<'a> Planner<'a, '_, '_> {
             self.references.insert((span.start, span.end), owned);
         }
         Ok(())
+    }
+}
+
+struct RootLazyPatternReplacer<'a, 'p> {
+    ast: AstBuilder<'a>,
+    patterns: &'p HashMap<SpanKey, String>,
+}
+
+impl<'a> RootLazyPatternReplacer<'a, '_> {
+    fn replace(&self, pattern: &mut BindingPattern<'a>) -> bool {
+        let span = pattern.span();
+        let Some(name) = self.patterns.get(&(span.start, span.end)) else {
+            return false;
+        };
+        *pattern = self
+            .ast
+            .binding_pattern_binding_identifier(Span::default(), self.ast.ident(name));
+        true
+    }
+}
+
+impl<'a> VisitMut<'a> for RootLazyPatternReplacer<'a, '_> {
+    fn visit_formal_parameters(&mut self, parameters: &mut FormalParameters<'a>) {
+        for parameter in &mut parameters.items {
+            self.replace(&mut parameter.pattern);
+        }
+        walk_mut::walk_formal_parameters(self, parameters);
+    }
+
+    fn visit_variable_declaration(&mut self, declaration: &mut VariableDeclaration<'a>) {
+        for declarator in &mut declaration.declarations {
+            self.replace(&mut declarator.id);
+        }
+        walk_mut::walk_variable_declaration(self, declaration);
+    }
+
+    fn visit_catch_clause(&mut self, clause: &mut CatchClause<'a>) {
+        if let Some(parameter) = &mut clause.param {
+            self.replace(&mut parameter.pattern);
+        }
+        walk_mut::walk_catch_clause(self, clause);
     }
 }
 
@@ -1217,7 +1381,54 @@ impl<'a> VisitMut<'a> for Rewriter<'a, '_> {
         }
     }
 
+    fn visit_formal_parameter(&mut self, parameter: &mut oxc_ast::ast::FormalParameter<'a>) {
+        let span = parameter.pattern.span();
+        if let Some(lazy_name) = self.plan.patterns.get(&(span.start, span.end)) {
+            parameter.pattern = self
+                .ast
+                .binding_pattern_binding_identifier(Span::default(), self.ast.ident(lazy_name));
+            if let Some(initializer) = &mut parameter.initializer {
+                self.visit_expression(initializer);
+            }
+            return;
+        }
+        walk_mut::walk_formal_parameter(self, parameter);
+    }
+
+    fn visit_variable_declarator(&mut self, declarator: &mut oxc_ast::ast::VariableDeclarator<'a>) {
+        let span = declarator.id.span();
+        if let Some(lazy_name) = self.plan.patterns.get(&(span.start, span.end)) {
+            declarator.id = self
+                .ast
+                .binding_pattern_binding_identifier(Span::default(), self.ast.ident(lazy_name));
+            if let Some(initializer) = &mut declarator.init {
+                self.visit_expression(initializer);
+            }
+            return;
+        }
+        walk_mut::walk_variable_declarator(self, declarator);
+    }
+
+    fn visit_catch_parameter(&mut self, parameter: &mut oxc_ast::ast::CatchParameter<'a>) {
+        let span = parameter.pattern.span();
+        if let Some(lazy_name) = self.plan.patterns.get(&(span.start, span.end)) {
+            parameter.pattern = self
+                .ast
+                .binding_pattern_binding_identifier(Span::default(), self.ast.ident(lazy_name));
+            return;
+        }
+        walk_mut::walk_catch_parameter(self, parameter);
+    }
+
     fn visit_function(&mut self, function: &mut Function<'a>, _flags: ScopeFlags) {
+        for parameter in &mut function.params.items {
+            let span = parameter.pattern.span();
+            if let Some(lazy_name) = self.plan.patterns.get(&(span.start, span.end)) {
+                parameter.pattern = self
+                    .ast
+                    .binding_pattern_binding_identifier(Span::default(), self.ast.ident(lazy_name));
+            }
+        }
         walk_mut::walk_formal_parameters(self, &mut function.params);
         if let Some(body) = &mut function.body {
             self.temp_scopes.push(Vec::new());
@@ -1231,6 +1442,14 @@ impl<'a> VisitMut<'a> for Rewriter<'a, '_> {
         &mut self,
         arrow: &mut oxc_ast::ast::ArrowFunctionExpression<'a>,
     ) {
+        for parameter in &mut arrow.params.items {
+            let span = parameter.pattern.span();
+            if let Some(lazy_name) = self.plan.patterns.get(&(span.start, span.end)) {
+                parameter.pattern = self
+                    .ast
+                    .binding_pattern_binding_identifier(Span::default(), self.ast.ident(lazy_name));
+            }
+        }
         walk_mut::walk_formal_parameters(self, &mut arrow.params);
         self.temp_scopes.push(Vec::new());
         self.visit_arrow_function_body(&mut arrow.body);
@@ -1475,7 +1694,7 @@ impl<'a> VisitMut<'a> for Rewriter<'a, '_> {
         if let Some(lazy_name) = self.plan.patterns.get(&(span.start, span.end)) {
             *pattern = self
                 .ast
-                .binding_pattern_binding_identifier(span, self.ast.ident(lazy_name));
+                .binding_pattern_binding_identifier(Span::default(), self.ast.ident(lazy_name));
             return;
         }
         walk_mut::walk_binding_pattern(self, pattern);

@@ -15,7 +15,12 @@ node = ["dep:napi", "dep:napi-derive"]
 # rev) is the only TSRX grammar authority on the Rust side; it carries its own
 # git-pinned oxc (0.140) which coexists with our crates.io oxc — no oxc types
 # cross the boundary (the parse result is a revision-neutral FlatTape).
-tsrx = ["dep:oxc_sourcemap", "dep:tsrx_parser_engine", "dep:tsrx_tape_schema"]
+tsrx = [
+  "dep:oxc_sourcemap",
+  "dep:tsrx_parser_engine",
+  "dep:tsrx_syntax",
+  "dep:tsrx_tape_schema",
+]
 
 [dependencies]
 html5ever = "0.39.0"
@@ -34,6 +39,7 @@ oxc_span = "0.144"
 oxc_str = "0.144"
 oxc_syntax = "0.144"
 tsrx_parser_engine = { git = "https://github.com/tsrx-org/oxc", rev = "135653a23aab15231557112548812275baba8727", optional = true }
+tsrx_syntax = { git = "https://github.com/tsrx-org/oxc", rev = "135653a23aab15231557112548812275baba8727", optional = true }
 tsrx_tape_schema = { git = "https://github.com/tsrx-org/oxc", rev = "135653a23aab15231557112548812275baba8727", optional = true }
 
 [dev-dependencies]

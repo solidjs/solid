@@ -3,12 +3,13 @@
 //! Routes `.tsrx` sources through `tsrx_parser_engine` (the community
 //! `oxc-tsrx` project, pinned by revision — the only TSRX grammar authority
 //! on the Rust side), lowers parser interchange into compiler-owned typed
-//! Solid TSRX semantic IR, projects that IR to Solid builtIn JSX over the
-//! authored source, reparses the projection with the crate's own oxc, and
-//! finishes with symbol-exact lazy/accessor rewrites. The desugaring contract
+//! Solid TSRX semantic IR, lowers that IR directly to the crate's Oxc AST,
+//! and finishes with symbol-exact lazy/accessor rewrites. The desugaring contract
 //! is frozen by `@solidjs/babel-plugin/src/tsrx/desugar.ts` and its fixture
 //! corpus; both frontends must lower identically.
 
+mod leaf;
+mod lower;
 mod names;
 mod project;
 mod rewrite;
@@ -40,6 +41,25 @@ pub fn run_frontend(
     source_maps: bool,
 ) -> Result<Projection, CompileError> {
     let filename = filename.unwrap_or("input.tsrx");
+    let tape = parse_tape(source, filename)?;
+    let semantic = lower_semantic(source, &tape)?;
+    project_semantic(source, filename, &semantic, source_maps)
+}
+
+pub(crate) fn run_compiler_frontend<'a>(
+    allocator: &'a oxc_allocator::Allocator,
+    source: &str,
+    filename: Option<&str>,
+) -> Result<lower::DirectLowered<'a>, CompileError> {
+    let filename = filename.unwrap_or("input.tsrx");
+    let tape = parse_tape(source, filename)?;
+    let semantic = lower_semantic(source, &tape)?;
+    let styles = style_projection::plan(source, filename, &semantic)
+        .map_err(|error| project_error(source, error))?;
+    lower::lower(allocator, source, &semantic, &styles)
+}
+
+fn parse_tape(source: &str, filename: &str) -> Result<tsrx_tape_schema::FlatTape, CompileError> {
     let options = TsrxParseOptions {
         filename,
         include_ts_fields: true,
@@ -57,14 +77,37 @@ pub fn run_frontend(
     if result.coordinate_domain == CoordinateDomain::OriginalUtf16Units {
         rebase_utf16_spans(source, &mut tape).map_err(CompileError::parse)?;
     }
+    Ok(tape)
+}
 
-    project::project(source, filename, &tape, source_maps).map_err(|error| {
+fn lower_semantic<'t>(
+    source: &str,
+    tape: &'t tsrx_tape_schema::FlatTape,
+) -> Result<semantic::SolidTsrxModule<'t>, CompileError> {
+    let root = tape::Node::root(tape)
+        .ok_or_else(|| CompileError::parse("TSRX parse produced no program"))?;
+    semantic::lower(root).map_err(|error| {
         let (line, column) = line_column(source, error.start);
         CompileError::parse(format!("{} ({line}:{column})", error.message))
     })
 }
 
-/// Apply the post-reparse lazy/accessor rewrites to the projected program.
+fn project_semantic(
+    source: &str,
+    filename: &str,
+    semantic: &semantic::SolidTsrxModule<'_>,
+    source_maps: bool,
+) -> Result<Projection, CompileError> {
+    project::project(source, filename, semantic, source_maps)
+        .map_err(|error| project_error(source, error))
+}
+
+fn project_error(source: &str, error: project::ProjectError) -> CompileError {
+    let (line, column) = line_column(source, error.start);
+    CompileError::parse(format!("{} ({line}:{column})", error.message))
+}
+
+/// Apply lazy/accessor rewrites to the explicit tooling projection.
 pub fn apply_rewrites<'a>(
     allocator: &'a oxc_allocator::Allocator,
     program: &mut oxc_ast::ast::Program<'a>,
@@ -74,7 +117,19 @@ pub fn apply_rewrites<'a>(
     rewrite::apply(allocator, program, projection, source_maps).map_err(CompileError::transform)
 }
 
-/// Parse compiler-projected TSX with the exact runtime parser configuration.
+pub fn apply_direct_rewrites<'a>(
+    allocator: &'a oxc_allocator::Allocator,
+    program: &mut oxc_ast::ast::Program<'a>,
+    artifacts: &rewrite::RewriteArtifacts,
+    source_maps: bool,
+) -> Result<(), CompileError> {
+    rewrite::apply_artifacts(allocator, program, artifacts, source_maps)
+        .map_err(CompileError::transform)?;
+    rewrite::clear_generated_spans(program, artifacts, source_maps);
+    Ok(())
+}
+
+/// Parse compiler-projected TSX for the explicit tooling path.
 pub(crate) fn parse_projected_tsx<'a>(
     allocator: &'a oxc_allocator::Allocator,
     projection: &'a Projection,

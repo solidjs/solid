@@ -149,7 +149,7 @@ treatment of `&` bindings. Report upstream to `@tsrx/solid`.
   equivalent (web's `Dynamic` wraps `dynamic()`), uniform with the other
   builtIn lowerings, and simpler to mirror byte-for-byte in Rust.
 
-### Stage 3 architecture (revised from the plan, user-confirmed)
+### Stage 3 architecture and direct-AST migration
 
 The plan's "walk `TsrxParseResult` → build `oxc_ast`" assumed a reusable
 tape→AST bridge. There is none: the `FlatTape` is a generic JSON record store
@@ -158,8 +158,8 @@ direction (`oxc_ast` → tape, for NAPI transfer). Building `oxc_ast` from the
 tape would mean a full-language ESTree deserializer against oxc 0.144 with a
 per-upgrade sync burden.
 
-Revised architecture — **compiler-owned semantic IR followed by desugared text
-projection**:
+Current architecture — **compiler-owned semantic IR with direct runtime AST
+lowering**:
 
 1. `tsrx_parser_engine::parse_tsrx` (pinned rev) parses and validates the
    TSRX source — the only TSRX grammar authority on the Rust side; its
@@ -168,33 +168,31 @@ projection**:
    `SolidTsrxModule`: typed code blocks, if chains, for loops (including
    computed callback mode), switches, and try/pending/catch clauses with
    authored UTF-8 spans. It structurally validates required fields and records
-   typed dynamic/lazy/style/raw-script/shorthand/element sites for later
-   backends.
-   Ordinary JavaScript expressions and blocks remain read-only tape nodes in
-   this transitional slice; `FlatTape` itself is not the compiler IR.
-3. `project.rs` consumes those typed Solid nodes and emits projected TSX:
-   original bytes verbatim outside constructs, the Babel frontend's exact
-   desugared Solid-JSX form inside (contract frozen by the Stage 2 fixture
-   snapshots). Escape-rule validation remains at template-block projection
-   boundaries so its messages, authored locations, and validation order stay
-   unchanged.
-4. Parse the projection with our crates.io oxc 0.144. `oxc_ast::Program` is
-   the convergence seam with the existing dom/ssr/universal transforms. A
-   future direct backend can lower the semantic IR to that same seam without
-   requiring a full generic ESTree tape deserializer.
-5. Lazy `&` bindings: rewrite during projection (pattern → `__lazyN`,
-   deterministic ids matching `@tsrx/core`'s `generate_lazy_id`), with reads
-   rewritten scope-aware to match `applyLazyTransforms` output.
-6. Record an affine offset map for every verbatim-copied range. Native source
-   maps compose Oxc's generated-JavaScript → projected-TSX tokens through this
-   map to authored TSRX coordinates. Generated projection gaps emit source-less
-   tokens so preceding authored mappings cannot bleed across compiler-created
-   scaffolding, mirroring upstream `projection/mapping.rs`'s fail-closed policy.
-7. `tooling.rs` stops at that seam after semantic lazy/accessor rewrites and
-   uses Oxc codegen to print valid TypeScript/TSX. Runtime compilation and this
-   backend call the same projected-TSX parser and rewrite helpers; tooling never
-   reparses authored TSRX or rediscovers Solid callback semantics. Its standard
-   source map composes back to authored `.tsrx`, and its CSS/raw-script embeds
+   typed dynamic, lazy, lazy-assignment, style, raw-script, and shorthand sites.
+   Lazy ids and accessor-backed pattern intent are assigned here rather than
+   rediscovered by a backend.
+   Ordinary JavaScript expressions and blocks remain read-only tape nodes;
+   `FlatTape` itself is not the compiler IR.
+3. `leaf.rs` asks `tsrx_syntax` for a legal parser scaffold and parses it once
+   with crates.io oxc 0.144. The scaffold is only a carrier for authored
+   JavaScript, TypeScript, and JSX leaves; it is not a Solid-JSX desugaring and
+   is never reparsed.
+4. `lower.rs` consumes `SolidTsrxModule`, clones authored leaves with rebased
+   UTF-8 spans, and constructs code blocks, controls, dynamic elements,
+   shorthand attributes, raw scripts, and scoped-style edits directly with
+   `AstBuilder`. Every parser scaffold must be consumed before the program can
+   enter the shared compiler.
+5. Lazy `&` bindings and accessor callbacks feed compiler-owned rewrite
+   artifacts into the existing symbol-aware AST pass (pattern → deterministic
+   `__lazyN`, reads → deferred property/index access). No generated Solid-JSX
+   text is parsed.
+6. Native source maps use authored spans on cloned leaves. Generated-only
+   nodes are unspanned, so mappings cannot bleed across compiler-created
+   structure.
+7. `project.rs` remains an explicit tooling projector. `tooling.rs` uses it to
+   print independently type-checkable TSX and compose mappings back to authored
+   `.tsrx`; runtime compilation no longer calls `project.rs`,
+   `parse_projected_tsx`, or projection-map composition. CSS/raw-script embeds
    come from typed parser sites. Rust ranges remain authored UTF-8 bytes; the
    N-API adapter converts them to JavaScript UTF-16 string offsets.
 
@@ -209,6 +207,15 @@ by semantic, style, and projection passes live in `tape.rs`; transitional
 fields need a named future backend consumer rather than an open-ended
 compatibility shim. Every slice records its net code growth, preserves the
 full byte-parity corpus, and is cleaned up before the next backend is added.
+The migration is complete for runtime compilation: `project.rs` and
+`style_projection.rs` now consume semantic template/lazy indices, and the
+duplicate lazy preallocation, export validation, dynamic-tag, style-tag, and
+shorthand discovery paths have been removed. Template blocks are partitioned
+and escape-validated once in the IR, which also owns their post-lowering
+render shape; the corresponding projector analysis and validation code has
+been deleted. Runtime constructs now lower directly to Oxc AST and the
+projected-TSX compiler reparse bridge has been deleted. The projector and its
+parser remain intentionally scoped to the public type-checking/tooling path.
 
 ### Known upstream gaps (pin in fixtures)
 
@@ -235,9 +242,8 @@ full byte-parity corpus, and is cleaned up before the next backend is added.
    paths are untouched.
 2. Parse with the foreign parser (`@tsrx/core` / `oxc-tsrx`).
 3. Babel desugars on its ESTree path. The Rust frontend lowers FlatTape into
-   `SolidTsrxModule`, projects byte-identical TSX, then reparses to
-   `oxc_ast::Program`; direct IR lowering can replace only that projection
-   bridge in a later slice.
+   `SolidTsrxModule`, loads authored standard-language leaves once, and lowers
+   TSRX constructs directly into `oxc_ast::Program`.
 4. Existing shared lowering (`shared/` + `dom`/`ssr`/`universal`) runs
    unchanged; builtIns handling picks up `Show`/`For`/`Switch`/`Match`/
    `Errored`/`Loading` as usual.

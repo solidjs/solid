@@ -188,33 +188,30 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
         ));
     }
 
-    // The projection owns the text the parser borrows; it must outlive the
-    // allocator-tied AST, so it is declared before the allocator.
+    let allocator = Allocator::default();
     #[cfg(feature = "tsrx")]
-    let projection = if tsrx_route {
-        Some(crate::tsrx::run_frontend(
-            source,
-            options.filename.as_deref(),
-            options.source_map,
-        )?)
+    let (mut direct_program, direct_artifacts, direct_css, direct_css_hash) = if tsrx_route {
+        let lowered =
+            crate::tsrx::run_compiler_frontend(&allocator, source, options.filename.as_deref())?;
+        (
+            Some(lowered.program),
+            Some(lowered.artifacts),
+            Some(lowered.css),
+            lowered.css_hash,
+        )
     } else {
-        None
+        (None, None, None, None)
     };
-    #[cfg(feature = "tsrx")]
-    let source: &str = projection
-        .as_ref()
-        .map_or(source, |projection| projection.text.as_str());
 
     let source_type = if tsrx_route {
-        // The projected text is plain TSX regardless of the authored filename.
+        // TSRX leaves and generated nodes are represented as a TSX program.
         SourceType::tsx()
     } else {
         source_type_for_filename(options.filename.as_deref())?
     };
-    let allocator = Allocator::default();
     #[cfg(feature = "tsrx")]
-    let mut program = if let Some(projection) = projection.as_ref() {
-        crate::tsrx::parse_projected_tsx(&allocator, projection)?
+    let mut program = if let Some(program) = direct_program.take() {
+        program
     } else {
         parse_program(&allocator, source, source_type)?
     };
@@ -225,16 +222,17 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
         && !has_jsx_import_source(&program, source, lib)
     {
         #[cfg(feature = "tsrx")]
-        let (css, css_hash) = projection.as_ref().map_or((None, None), |projection| {
-            (Some(projection.css.clone()), projection.css_hash.clone())
-        });
+        let (css, css_hash) = if tsrx_route {
+            (direct_css.clone(), direct_css_hash.clone())
+        } else {
+            (None, None)
+        };
         #[cfg(not(feature = "tsrx"))]
         let (css, css_hash) = (None, None);
         return Ok(CompileOutput {
             // Babel's requireImportSource gate skips the transform, so callers
-            // receive exactly what they authored rather than the internal TSRX
-            // projection. Style metadata was already extracted and remains
-            // available to pipeline integrations.
+            // receive exactly what they authored. Style metadata was already
+            // extracted and remains available to pipeline integrations.
             code: authored_source.to_string(),
             source_map: None,
             css,
@@ -243,8 +241,13 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
     }
 
     #[cfg(feature = "tsrx")]
-    if let Some(projection) = projection.as_ref() {
-        crate::tsrx::apply_rewrites(&allocator, &mut program, projection, options.source_map)?;
+    if let Some(artifacts) = direct_artifacts.as_ref() {
+        crate::tsrx::apply_direct_rewrites(
+            &allocator,
+            &mut program,
+            artifacts,
+            options.source_map,
+        )?;
     }
 
     match options.generate {
@@ -345,26 +348,16 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
         .build(&program);
 
     #[cfg(feature = "tsrx")]
-    let source_map = build.map.as_ref().map(|map| {
-        projection.as_ref().map_or_else(
-            || map.to_json_string(),
-            |projection| {
-                crate::tsrx::compose_source_map(
-                    map,
-                    projection,
-                    authored_source,
-                    options.filename.as_deref().unwrap_or("input.tsrx"),
-                )
-            },
-        )
-    });
+    let source_map = build.map.as_ref().map(|map| map.to_json_string());
     #[cfg(not(feature = "tsrx"))]
     let source_map = build.map.as_ref().map(|map| map.to_json_string());
 
     #[cfg(feature = "tsrx")]
-    let (css, css_hash) = projection.as_ref().map_or((None, None), |projection| {
-        (Some(projection.css.clone()), projection.css_hash.clone())
-    });
+    let (css, css_hash) = if tsrx_route {
+        (direct_css, direct_css_hash)
+    } else {
+        (None, None)
+    };
     #[cfg(not(feature = "tsrx"))]
     let (css, css_hash) = (None, None);
 

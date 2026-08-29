@@ -43,12 +43,13 @@ pub(super) fn plan<'s, 't>(
     filename: &'s str,
     module: &SolidTsrxModule<'t>,
 ) -> Result<StyleProjection<'t>, ProjectError> {
-    StyleProcessor::process(source, filename, module.root)
+    StyleProcessor::process(source, filename, module)
 }
 
 struct StyleProcessor<'s, 't> {
     source: &'s str,
     filename: &'s str,
+    module: &'s SolidTsrxModule<'t>,
     consumed: BTreeSet<u32>,
     actions: BTreeMap<u32, StyleAction>,
     element_hashes: BTreeMap<u32, Vec<String>>,
@@ -62,8 +63,9 @@ impl<'s, 't> StyleProcessor<'s, 't> {
     fn process(
         source: &'s str,
         filename: &'s str,
-        root: Node<'t>,
+        module: &'s SolidTsrxModule<'t>,
     ) -> Result<StyleProjection<'t>, ProjectError> {
+        let root = module.root;
         let mut identifiers = BTreeSet::new();
         tape::walk(root, &mut |node| {
             if node.ty() == "Identifier"
@@ -76,6 +78,7 @@ impl<'s, 't> StyleProcessor<'s, 't> {
         let mut processor = Self {
             source,
             filename,
+            module,
             consumed: BTreeSet::new(),
             actions: BTreeMap::new(),
             element_hashes: BTreeMap::new(),
@@ -105,7 +108,7 @@ impl<'s, 't> StyleProcessor<'s, 't> {
     }
 
     fn visit(&mut self, node: Node<'t>, parent: Option<Node<'t>>) -> Result<(), ProjectError> {
-        if node.ty() == "JSXStyleElement" {
+        if self.module.is_style_element(node) {
             let start = span_of(node)?.0;
             if !self.consumed.contains(&start) {
                 if is_style_expression_position(parent) {
@@ -147,7 +150,7 @@ impl<'s, 't> StyleProcessor<'s, 't> {
         if is_function_or_class_boundary(node) {
             return;
         }
-        if node.ty() == "JSXStyleElement" {
+        if self.module.is_style_element(node) {
             if let Some((start, _)) = node.span()
                 && !self.consumed.contains(&start)
             {
@@ -164,7 +167,7 @@ impl<'s, 't> StyleProcessor<'s, 't> {
         if is_function_or_class_boundary(node) {
             return;
         }
-        if node.ty() == "JSXStyleElement" {
+        if self.module.is_style_element(node) {
             if let Some((start, _)) = node.span() {
                 self.consumed.insert(start);
                 self.actions.insert(start, StyleAction::Remove);
@@ -184,7 +187,7 @@ impl<'s, 't> StyleProcessor<'s, 't> {
         let render_children = structural_children(render_owner, StructuralMode::Runtime);
         let mut styles = Vec::new();
         for child in &render_children {
-            collect_runtime_styles(*child, &self.consumed, &mut styles);
+            collect_runtime_styles(*child, self.module, &self.consumed, &mut styles);
         }
         if styles.len() > 1 {
             return Err(error(
@@ -201,7 +204,7 @@ impl<'s, 't> StyleProcessor<'s, 't> {
         }
 
         let (css, location) = self.style_source(style_node)?;
-        let roots = build_style_elements(&render_children);
+        let roots = build_style_elements(&render_children, self.module);
         let mut annotatable = BTreeSet::new();
         collect_annotatable_ids(&roots, &mut annotatable);
         let refs = style_ref_targets(style_node);
@@ -476,10 +479,11 @@ fn structural_children(node: Node<'_>, mode: StructuralMode) -> Vec<Node<'_>> {
 
 fn collect_runtime_styles<'t>(
     node: Node<'t>,
+    module: &SolidTsrxModule<'t>,
     consumed: &BTreeSet<u32>,
     styles: &mut Vec<Node<'t>>,
 ) {
-    if node.ty() == "JSXStyleElement" {
+    if module.is_style_element(node) {
         if node.span().is_some_and(|span| !consumed.contains(&span.0)) {
             styles.push(node);
         }
@@ -489,14 +493,14 @@ fn collect_runtime_styles<'t>(
         return;
     }
     for child in structural_children(node, StructuralMode::Collection) {
-        collect_runtime_styles(child, consumed, styles);
+        collect_runtime_styles(child, module, consumed, styles);
     }
 }
 
-fn build_style_elements(nodes: &[Node<'_>]) -> Vec<Element> {
+fn build_style_elements(nodes: &[Node<'_>], module: &SolidTsrxModule<'_>) -> Vec<Element> {
     let mut roots = Vec::new();
     for node in nodes {
-        append_style_nodes(*node, &mut roots);
+        append_style_nodes(*node, module, &mut roots);
     }
     roots
 }
@@ -514,26 +518,26 @@ fn collect_annotatable_ids(elements: &[Element], out: &mut BTreeSet<u32>) {
     }
 }
 
-fn append_style_nodes(node: Node<'_>, out: &mut Vec<Element>) {
-    if is_function_or_class_boundary(node) || node.ty() == "JSXStyleElement" {
+fn append_style_nodes(node: Node<'_>, module: &SolidTsrxModule<'_>, out: &mut Vec<Element>) {
+    if is_function_or_class_boundary(node) || module.is_style_element(node) {
         return;
     }
     match node.ty() {
-        "JSXElement" => out.push(build_style_element(node)),
+        "JSXElement" => out.push(build_style_element(node, module)),
         "JSXText" => {}
         _ => {
             for child in semantic_children(node) {
-                append_style_nodes(child, out);
+                append_style_nodes(child, module, out);
             }
         }
     }
 }
 
-fn build_style_element(node: Node<'_>) -> Element {
+fn build_style_element(node: Node<'_>, module: &SolidTsrxModule<'_>) -> Element {
     let id = node.span().map_or(0, |span| span.0);
     let opening = node.node_field("openingElement");
     let name = opening.and_then(|opening| opening.node_field("name"));
-    let kind = if tape::is_dynamic_element(node) {
+    let kind = if module.is_dynamic_element(node) {
         ElementKind::Dynamic
     } else if let Some(name) = name
         && name.ty() == "JSXIdentifier"
@@ -584,27 +588,31 @@ fn build_style_element(node: Node<'_>) -> Element {
         }
     }
     for child in node.list_field("children").flatten() {
-        append_style_children(child, &mut element.children);
+        append_style_children(child, module, &mut element.children);
     }
     element
 }
 
-fn append_style_children(node: Node<'_>, out: &mut Vec<ElementChild>) {
-    if is_function_or_class_boundary(node) || node.ty() == "JSXStyleElement" {
+fn append_style_children(
+    node: Node<'_>,
+    module: &SolidTsrxModule<'_>,
+    out: &mut Vec<ElementChild>,
+) {
+    if is_function_or_class_boundary(node) || module.is_style_element(node) {
         return;
     }
     match node.ty() {
-        "JSXElement" => out.push(ElementChild::Element(build_style_element(node))),
+        "JSXElement" => out.push(ElementChild::Element(build_style_element(node, module))),
         "JSXText" => {}
         "JSXExpressionContainer" | "JSXSpreadChild" => {
             out.push(ElementChild::Dynamic);
             for child in semantic_children(node) {
-                append_style_children(child, out);
+                append_style_children(child, module, out);
             }
         }
         _ => {
             for child in semantic_children(node) {
-                append_style_children(child, out);
+                append_style_children(child, module, out);
             }
         }
     }
