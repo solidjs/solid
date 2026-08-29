@@ -232,58 +232,13 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
   const heldPatches = (outgoing as any)._heldPatches as unknown[] | undefined;
   if (heldPatches !== undefined) {
     (outgoing as any)._heldPatches = undefined;
-    let dest = (target as any)._heldPatches as any[] | undefined;
-    if (dest === undefined) {
-      dest = (target as any)._heldPatches = heldPatches;
-      for (let i = 0; i < heldPatches.length; i++) {
-        const pc = (heldPatches[i] as any).pc;
-        if (pc !== undefined) {
-          if (pc.qe === heldPatches[i]) pc.qa = dest;
-          // Forced stamps follow their container too (re-audit 9, P2):
-          // a stale qf lets the next bubble stage a duplicate twin.
-          if ((heldPatches[i] as any).force === true && (heldPatches[i] as any).fq !== "o")
-            pc.qf = dest;
-        }
-      }
-    } else {
-      // COALESCE same-channel collisions (re-audit 6, P1-2): a record that
-      // emitted in BOTH transactions must apply ONCE at the merged commit —
-      // the surviving entry resolves `next` LIVE at drain (via the channel's
-      // target backref) and keeps the destination's earlier prev; the moved
-      // duplicate is dropped. Opaque backref contract with
-      // store/next/patch.ts (entry.pc, pc.t/qa/qe).
-      const byPc = new Map<unknown, any>();
-      for (let i = 0; i < dest.length; i++) {
-        const pc = (dest[i] as any).pc;
-        if (pc !== undefined) byPc.set(pc, dest[i]);
-      }
-      for (let i = 0; i < heldPatches.length; i++) {
-        const entry: any = heldPatches[i];
-        const pc = entry.pc;
-        if (entry.force === true) {
-          // Forced entries dedupe per channel across the merge and retarget
-          // their stamp (re-audit 9, P2).
-          if (pc !== undefined && entry.fq !== "o") {
-            if (pc.qf === dest) continue; // destination already staged one
-            pc.qf = dest;
-          }
-          dest.push(entry);
-          continue;
-        }
-        const dup = pc !== undefined ? byPc.get(pc) : undefined;
-        if (dup !== undefined) {
-          dup.t = pc.t; // drain resolves next live: t.pb ?? t.v
-          pc.qa = dest;
-          pc.qe = dup;
-        } else {
-          dest.push(entry);
-          if (pc !== undefined) {
-            byPc.set(pc, entry);
-            if (pc.qe === entry) pc.qa = dest;
-          }
-        }
-      }
-    }
+    const dest = (target as any)._heldPatches as any[] | undefined;
+    // Only STRUCTURAL payloads ride the held stash under node delivery
+    // (values ride per-record signals, which the scheduler merges
+    // natively) — a plain move suffices; the per-channel dedup/stamp
+    // repair of the queue era is gone with the queues.
+    if (dest === undefined) (target as any)._heldPatches = heldPatches;
+    else dest.push(...heldPatches);
   }
   // Legal transfer, not a new registration: entries move between transitions.
   if (__DEV__) beginAsyncReporterWrites();

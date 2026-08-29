@@ -69,8 +69,6 @@ interface PatchEntry {
   /** Keys recorded (adoption demotion probes); undefined = record at the
    * next drain apply. */
   k?: boolean;
-  /** Registration generation (re-audit 8, P2-6). */
-  gen?: number;
 }
 
 // Per-flush apply queue. Bubbled (forced) emissions resolve `next` LAZILY at
@@ -78,14 +76,6 @@ interface PatchEntry {
 // backing between emission and drain, so a captured reference goes stale.
 interface QueuedApply {
   list: PatchEntry[];
-  /** Registration-generation watermark (re-audit 8, P2-6): captured at
-   * emission; consumers registered LATER are skipped ONLY when the entry
-   * was emitted from ALREADY-COMMITTED state (`cm` — re-audit 9, P1-1:
-   * walk-in-setter and transition-held emissions carry uncommitted
-   * payloads, so late consumers read the OLD committed view and must
-   * receive the apply). */
-  g?: number;
-  cm?: boolean;
   next: any;
   prev: any;
   force: boolean;
@@ -129,7 +119,6 @@ function drainApplyQueue(): void {
   // rethrow after the drain so they still surface.
   let firstError: unknown = UNSET;
   for (let i = 0; i < q.length; i++) {
-    clearStamp(q[i]);
     const { prev, force, t } = q[i];
     const next = t !== null ? (force ? forcedNext(t) : (t.pb ?? t.v)) : q[i].next;
     if (q[i].ops !== undefined || q[i].si !== undefined)
@@ -236,8 +225,10 @@ function applyEntries(
           }
         });
         entry.fn(rec, prev === PER_ENTRY_PREV ? (entry as any).pv : prev, force);
-        if (prev === PER_ENTRY_PREV)
-          (entry as any).pv = untrack(() => manifestSnapshot(pc as any, next));
+        if (prev === PER_ENTRY_PREV) {
+          const px = (pc as any).t?.px;
+          (entry as any).pv = next === px ? untrack(() => manifestSnapshot(pc as any, next)) : next;
+        }
       } else {
         const ep = prev === PER_ENTRY_PREV ? (entry as any).pv : prev;
         // A consumer whose baseline never materialized (projection backing
@@ -246,8 +237,10 @@ function applyEntries(
         // an undefined prev under force.
         if (ep == null && prev === PER_ENTRY_PREV) entry.fn(next, undefined, true);
         else entry.fn(next, ep, force);
-        if (prev === PER_ENTRY_PREV)
-          (entry as any).pv = untrack(() => manifestSnapshot(pc as any, next));
+        if (prev === PER_ENTRY_PREV) {
+          const px = (pc as any).t?.px;
+          (entry as any).pv = next === px ? untrack(() => manifestSnapshot(pc as any, next)) : next;
+        }
       }
     } catch (err) {
       let handled = false;
@@ -316,8 +309,6 @@ function push(item: QueuedApply): void {
  * pc.p array, so mid-batch registrants ride the single application. Forced
  * entries and row/slot ops never coalesce; the drain clears the stamps so a
  * quiet record retains nothing from its last batch. */
-
-function clearStamp(_item: QueuedApply): void {}
 
 /** Shallow clone for the owned-prev rule (§2c): owned backings fold values
  * INTO the same raw at commit, so a queued prev must be snapshotted. */
@@ -397,7 +388,6 @@ function drainOptimistic(): void {
   // must reach the registering owner's Errored boundary.
   let firstError: unknown = UNSET;
   for (let i = 0; i < q.length; i++) {
-    clearStamp(q[i]);
     const { prev, force, t } = q[i];
     const next = t !== null ? (force ? forcedNext(t) : (t.pb ?? t.v)) : q[i].next;
     if (q[i].ops !== undefined || q[i].si !== undefined)
@@ -452,10 +442,6 @@ export function emitRowOpsOptimistic(
 // Global registration count: the cheap gate emission sites check before any
 // per-record work (unpatched apps pay one number compare per transition).
 let patchCount = 0;
-// Registration generation (re-audit 8, P2-6): monotonic; queued entries
-// capture the counter at emission so drains can skip consumers that
-// initialized from state at-or-after the emission.
-let regGen = 0;
 /** Test-only accounting probe: the live registration count must return to
  * baseline across register/unbind/demote cycles. @internal */
 export function patchCountForTests(): number {
@@ -536,39 +522,6 @@ function unionKeys(
       insertPath((pc.dp ??= []), segs);
     } else if (ak.indexOf(k) === -1) ak.push(k);
   }
-}
-
-/** NODE-DELIVERY PROTOTYPE: tracked read of the record's version signal.
- * Creating it counts toward hasPatches() so write-path gates arm. */
-export function patchVersion(record: any): void {
-  let t: StoreNextTarget | undefined = record?.[$TARGET];
-  if (t === undefined) return;
-  t = ultimateTarget(t) ?? t;
-  const pc = pcOf(t);
-  if (pc.dn === null) {
-    pc.dn = signal(0, { equals: false });
-    patchCount++;
-    markDescendants(t);
-    if (!commitHookInstalled) {
-      commitHookInstalled = true;
-      armPatchHooks();
-      setPatchCommitHook(releaseBatch);
-      GlobalQueue._drainPatchOptimistic = drainOptimistic;
-    }
-  }
-  readSignal(pc.dn as any);
-}
-
-/** NODE-DELIVERY PROTOTYPE: held-aware committed backing WITHOUT admission
- * scans — the emission-seam gates own accessor soundness; per-delivery
- * re-probing doubled the probe bill. */
-export function patchCommittedRaw(record: any): Record<PropertyKey, any> | undefined {
-  let t: StoreNextTarget | undefined = record?.[$TARGET];
-  if (t === undefined) return undefined;
-  t = ultimateTarget(t) ?? t;
-  if (t === undefined) return undefined;
-  const hm = heldMaskView(t);
-  return (hm ?? t.v) as Record<PropertyKey, any>;
 }
 
 /** NODE DELIVERY (the structural successor to the queue machinery): one
@@ -688,7 +641,15 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
             demoteToEffects(t, true);
             return;
           }
-          const next = visibleView(t, pc);
+          // Payload fast path (raw-read thesis): self emissions stashed
+          // their fresh state (bc-tagged against later bumps/reverts) —
+          // deliveries read it RAW. Proxy resolution only for payload-less
+          // dispatches (ancestor bumps, optimistic views, holds).
+          const npHit = pc.np !== undefined && pc.npb === pc.bc;
+          if ((globalThis as any).__DBG__ !== undefined)
+            (globalThis as any).__DBG__[npHit ? "hit" : "miss"]++;
+          const next = npHit ? pc.np : visibleView(t, pc);
+          pc.np = undefined;
           const snap = p.length > 1 ? p.slice() : p;
           let firstError: unknown = UNSET;
           firstError = applyEntries(snap, next, PER_ENTRY_PREV, false, firstError, pc);
@@ -722,7 +683,7 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
     setPatchCommitHook(releaseBatch);
     GlobalQueue._drainPatchOptimistic = drainOptimistic;
   }
-  const entry: PatchEntry = { fn, owner: getOwner(), gen: ++regGen };
+  const entry: PatchEntry = { fn, owner: getOwner() };
   const pc = pcOf(t);
   if (__TEST__) devTrackChannel(pc);
   const list = (pc.p ??= []) as PatchEntry[];
@@ -761,11 +722,14 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
   // initial apply saw — a consumer mounting mid-batch compares against the
   // batch's outcome (no duplicate setter writes), while one mounting
   // mid-transaction compares against the held view (the commit delivers).
-  // No counters, no skip rules: the compare IS the decision. UNTRACKED:
-  // optimistic views are proxies — a tracked spread inside the registrant's
-  // computation subscribes every key onto it (a boundary re-ran per write,
-  // accumulating live re-registrations).
-  (entry as any).pv = untrack(() => manifestSnapshot(pc, visibleView(t, pc)));
+  // No counters, no skip rules: the compare IS the decision.
+  // ZERO-ALLOC baselines: raw backings are immutable after adoption swaps,
+  // so the baseline is a REFERENCE; the overlay (in-place) fold — the one
+  // mutator — clones just-in-time via prepareInPlaceFold, exactly where the
+  // queue design ran clonePrev. Optimistic views are proxies: snapshot
+  // (UNTRACKED — a tracked spread subscribes the registrant's computation).
+  (entry as any).pv =
+    t.fam?.opt === true ? untrack(() => manifestSnapshot(pc, t.px)) : (heldMaskView(t) ?? t.v);
   // Bindings are subscriptions for reachability (§6d pruning must descend
   // into bound records).
   markDescendants(t);
@@ -893,6 +857,22 @@ export function demotePatches(t: StoreNextTarget): PatchEntry[] | null {
  * lost for demoted rows — the effect lives until the LIST disposes. Rows
  * only demote when user code defines an accessor on a row record at
  * runtime. */
+/** In-place folds mutate the committed backing — reference baselines and
+ * stashed payloads pointing at it must clone/invalidate FIRST (the queue's
+ * clonePrev moment, now pay-per-overlay-fold instead of per-emission). */
+export function prepareInPlaceFold(t: StoreNextTarget): void {
+  const pc = t.pc as any;
+  if (pc === null) return;
+  const v = t.v;
+  const p = pc.p as PatchEntry[] | null;
+  if (p !== null) {
+    for (let i = 0; i < p.length; i++) {
+      if ((p[i] as any).pv === v) (p[i] as any).pv = untrack(() => manifestSnapshot(pc, v));
+    }
+  }
+  if (pc.np === v) pc.np = undefined; // the post-merge bump re-stashes
+}
+
 export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
   const entries = demotePatches(t);
   if (entries === null || entries.length === 0) return;
@@ -1073,7 +1053,8 @@ function armPatchHooks(): void {
     emitPatchAncestorsOptimistic,
     emitPatchOptimistic,
     hasPatches,
-    demoteToEffects
+    demoteToEffects,
+    prepareInPlaceFold
   });
   if (__TEST__) InvariantHooks.patchQuiescent = devPatchQuiescent;
 }
@@ -1095,15 +1076,13 @@ function devPatchQuiescent(): void {
     const p = pc.p as unknown[] | null;
     const ro = pc.ro as unknown[] | null;
     if (p === null && ro === null && pc.sp === null) {
-      if (pc.qa === null && pc.qe === null && pc.qo === null && pc.qeo === null)
-        devChannels.delete(pc);
-      // fall through: a dead channel with live stamps is still a PINV-2 hit
+      devChannels.delete(pc);
     }
     live += (p?.length ?? 0) + (ro?.length ?? 0);
     assertInvariant(
-      pc.qa === null && pc.qe === null && pc.qo === null && pc.qeo === null,
+      pc.bc === undefined || pc.dv === undefined || pc.bc === pc.dv || p === null,
       "PINV-2",
-      "a patch channel holds coalescing stamps at quiescence — a drain path skipped clearStamp (retention: the stamped entry pins both captured backings)"
+      "a live channel has undispatched bumps at quiescence — a delivery effect was never scheduled or lost its subscription"
     );
   }
   assertInvariant(

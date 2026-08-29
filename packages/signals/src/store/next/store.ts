@@ -820,6 +820,9 @@ function drainFolds(): void {
         continue;
       }
       if (t.ovl) {
+        // Reference baselines clone BEFORE the in-place merge (node
+        // delivery — the queue's clonePrev moment).
+        if (t.pc !== null && patchHooks !== null) patchHooks.prepareInPlaceFold(t);
         // Overlay flatten (#3044): apply this batch's writes onto an OWNED
         // committed backing in place — O(written), not O(container). The
         // backing keeps its identity, so the `t.v === old` gate below skips

@@ -2840,12 +2840,6 @@ export function patchProxyFor(_list: any, raw: any): any {
   return raw; // SSR renders once from whatever it is handed
 }
 
-export function patchVersion(_record: any): void {}
-
-export function patchCommittedRaw(_record: any): undefined {
-  return undefined;
-}
-
 export function patchableRaw(_record: any): undefined {
   return undefined;
 }

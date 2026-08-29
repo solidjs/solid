@@ -20,9 +20,7 @@ import {
   storeHasOptimisticFamily,
   storeIsShallow,
   untrack,
-  createRoot,
-  patchVersion,
-  patchCommittedRaw
+  createRoot
 } from "solid-js";
 import { effect } from "./render.js";
 import { installListDriver } from "./client.js";

@@ -36,6 +36,9 @@ export interface PatchValueHooks {
   emitPatchOptimistic(t: StoreNextTarget, next: any, prev: any): void;
   hasPatches(): boolean;
   demoteToEffects(t: StoreNextTarget, immediate?: boolean): void;
+  /** Pre-merge clone hook for in-place (overlay) folds — see
+   * prepareInPlaceFold (reference baselines clone just-in-time). */
+  prepareInPlaceFold(t: StoreNextTarget): void;
 }
 
 export interface PatchRowHooks {
