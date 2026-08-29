@@ -34,7 +34,7 @@ import {
 import type { Owner } from "../../core/types.js";
 import { $TARGET } from "../store.js";
 import { markDescendants, ownedRaw, type StoreNextTarget } from "./target.js";
-import { installPatchHooks, installRowHooks } from "./patch-hooks.js";
+import { installPatchHooks, installRowHooks, wrapRecordHook } from "./patch-hooks.js";
 // One-way: reconcile emits through the hooks (never imports this module),
 // so pulling its setter-channel emitter here creates no cycle.
 import { emitSetterRowOps } from "./reconcile.js";
@@ -42,6 +42,7 @@ import { emitSetterRowOps } from "./reconcile.js";
 // call time, long after module initialization.
 import { deepPathsPlain, targetIsPlain } from "./store.js";
 import type { DeepNode } from "./target.js";
+
 import { InvariantHooks } from "../../core/invariants.js";
 import { assertInvariant } from "../../core/dev.js";
 import { runWithOwner, untrack } from "../../core/core.js";
@@ -60,6 +61,8 @@ interface PatchEntry {
   /** Keys recorded (adoption demotion probes); undefined = record at the
    * next drain apply. */
   k?: boolean;
+  /** Registration generation (re-audit 8, P2-6). */
+  gen?: number;
 }
 
 // Per-flush apply queue. Bubbled (forced) emissions resolve `next` LAZILY at
@@ -67,6 +70,12 @@ interface PatchEntry {
 // backing between emission and drain, so a captured reference goes stale.
 interface QueuedApply {
   list: PatchEntry[];
+  /** Registration-generation watermark (re-audit 8, P2-6): captured at
+   * emission; consumers registered LATER (their initial apply read this or
+   * newer state) are skipped unless the entry crossed a transition release
+   * (`rl` — those consumers initialized from the PRE-commit view). */
+  g?: number;
+  rl?: boolean;
   next: any;
   prev: any;
   force: boolean;
@@ -116,7 +125,16 @@ function drainApplyQueue(): void {
     if (q[i].ops !== undefined || q[i].si !== undefined)
       firstError = applyStructural(q[i], next, firstError);
     else if (force && t !== null && deepProbeFails(t, next)) demoteToEffects(t);
-    else firstError = applyEntries(liveValueList(q[i]), next, prev, force, firstError, q[i].pc);
+    else
+      firstError = applyEntries(
+        liveValueList(q[i]),
+        next,
+        prev,
+        force,
+        firstError,
+        q[i].pc,
+        q[i].rl === true ? undefined : q[i].g
+      );
   }
   if (firstError !== UNSET) {
     // Unhandled patch errors HALT like unhandled effect errors (re-audit 2,
@@ -209,7 +227,8 @@ function applyEntries(
   prev: any,
   force: boolean,
   firstError: unknown,
-  pc?: { ak: PropertyKey[] | null }
+  pc?: { ak: PropertyKey[] | null },
+  gen?: number
 ): unknown {
   // SNAPSHOT multi-consumer lists (re-audit 5, P1-3): a callback can dispose
   // a sibling's owner, whose unbind SPLICES this same array mid-iteration —
@@ -224,6 +243,11 @@ function applyEntries(
   for (let j = 0; j < len; j++) {
     const entry = snap[j];
     if (entry === undefined || entry.u === true) continue;
+    // Generation skip (re-audit 8, P2-6): a consumer registered AFTER this
+    // entry's emission initialized from its state (or newer) — re-applying
+    // is an observable duplicate setter call. Transition releases exempt
+    // themselves (`rl`): their late consumers saw the PRE-commit view.
+    if (gen !== undefined && entry.gen !== undefined && entry.gen > gen) continue;
     // Disposed owners drop their patches (the row unmounted mid-flush).
     if (entry.owner !== null && isDisposed(entry.owner)) continue;
     try {
@@ -281,7 +305,10 @@ function releaseBatch(batch: Transition): void {
   const held = (batch as any)._heldPatches as QueuedApply[] | undefined;
   if (held === undefined) return;
   (batch as any)._heldPatches = undefined;
-  for (let i = 0; i < held.length; i++) pushLive(held[i]);
+  for (let i = 0; i < held.length; i++) {
+    held[i].rl = true; // post-release: late consumers saw the PRE-commit view
+    pushLive(held[i]);
+  }
 }
 
 function pushLive(item: QueuedApply): void {
@@ -311,6 +338,7 @@ function pushLive(item: QueuedApply): void {
 }
 
 function push(item: QueuedApply): void {
+  item.g = regGen;
   const tx = activeTransition;
   if (tx !== null) {
     let held = (tx as any)._heldPatches as QueuedApply[] | undefined;
@@ -331,6 +359,7 @@ function push(item: QueuedApply): void {
  * entries and row/slot ops never coalesce; the drain clears the stamps so a
  * quiet record retains nothing from its last batch. */
 function pushSelf(pc: { qa: unknown; qe: unknown }, item: QueuedApply): void {
+  item.g = regGen;
   const tx = activeTransition;
   let arr: QueuedApply[];
   if (tx !== null) {
@@ -373,6 +402,10 @@ function clearStamp(item: QueuedApply): void {
     pc.qo = null;
     pc.qeo = null;
   }
+  if (item.force === true) {
+    (pc as any).qf = null;
+    (pc as any).qfo = null;
+  }
 }
 
 /** Shallow clone for the owned-prev rule (§2c): owned backings fold values
@@ -403,12 +436,81 @@ export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
 /** Ancestor bubble, standalone (re-audit 7): targeted reconciles emit
  * walk-locally for the walked subtree but ancestors' compiled bodies can
  * read INTO it through nested chains — the walk root must bubble exactly
- * like a nested setter write does. */
+ * like a nested setter write does. Forced entries COALESCE per container
+ * (re-audit 8, P2-7): N nested writes in one batch force ONE ancestor
+ * re-apply, effect parity; the drain clears the stamp. */
 export function emitPatchAncestors(t: StoreNextTarget): void {
   let u = t.u;
   while (u !== null) {
     const up = (u.pc !== null ? u.pc.p : null) as PatchEntry[] | null;
-    if (up !== null) push({ list: up, next: null, prev: null, force: true, t: u });
+    if (up !== null) pushForced(u);
+    u = u.u;
+  }
+}
+
+function pushForced(u: StoreNextTarget): void {
+  const pc = u.pc! as unknown as { qf: unknown };
+  const tx = activeTransition;
+  const arr = tx !== null ? (((tx as any)._heldPatches ??= []) as QueuedApply[]) : (queue ??= []);
+  if (pc.qf === arr) return; // already forced into this container this batch
+  pc.qf = arr;
+  const item: QueuedApply = { list: EMPTY_LIST, next: null, prev: null, force: true, t: u };
+  item.g = regGen;
+  (item as any).pc = u.pc;
+  arr.push(item);
+  if (arr === queue && !scheduled) {
+    scheduled = true;
+    globalQueue.enqueue(EFFECT_RENDER, drainApplyQueue);
+  }
+}
+
+/** Tentative (optimistic) ancestor bubble (re-audit 8, P1-3): in-flight
+ * visibility rides the LANE queue — and the SAME forced entries are staged
+ * on the transaction for settle (revert restores committed truth to
+ * ancestor expressions; landings show the landed state). Both resolve
+ * live at their drains. */
+export function emitPatchAncestorsOptimistic(t: StoreNextTarget, tx: unknown): void {
+  let u = t.u;
+  while (u !== null) {
+    const up = (u.pc !== null ? u.pc.p : null) as PatchEntry[] | null;
+    if (up !== null) {
+      const pc = u.pc! as unknown as { qfo: unknown };
+      if (pc.qfo !== optQueue || optQueue === null) {
+        if (optQueue === null) optQueue = [];
+        pc.qfo = optQueue;
+        const item: QueuedApply = {
+          list: EMPTY_LIST,
+          next: null,
+          prev: null,
+          force: true,
+          t: u
+        };
+        item.g = regGen;
+        (item as any).pc = u.pc;
+        optQueue.push(item);
+        if (!scheduled) {
+          scheduled = true;
+          globalQueue.enqueue(EFFECT_RENDER, drainApplyQueue);
+        }
+      }
+      if (tx !== null) {
+        const held = ((tx as any)._heldPatches ??= []) as QueuedApply[];
+        const pcH = u.pc! as unknown as { qf: unknown };
+        if (pcH.qf !== held) {
+          pcH.qf = held;
+          const settle: QueuedApply = {
+            list: EMPTY_LIST,
+            next: null,
+            prev: null,
+            force: true,
+            t: u
+          };
+          settle.g = regGen;
+          (settle as any).pc = u.pc;
+          held.push(settle);
+        }
+      }
+    }
     u = u.u;
   }
 }
@@ -529,6 +631,10 @@ export function emitRowOpsOptimistic(
 // Global registration count: the cheap gate emission sites check before any
 // per-record work (unpatched apps pay one number compare per transition).
 let patchCount = 0;
+// Registration generation (re-audit 8, P2-6): monotonic; queued entries
+// capture the counter at emission so drains can skip consumers that
+// initialized from state at-or-after the emission.
+let regGen = 0;
 /** Test-only accounting probe: the live registration count must return to
  * baseline across register/unbind/demote cycles. @internal */
 export function patchCountForTests(): number {
@@ -624,7 +730,7 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
     setPatchCommitHook(releaseBatch);
     GlobalQueue._drainPatchOptimistic = drainOptimistic;
   }
-  const entry: PatchEntry = { fn, owner: getOwner() };
+  const entry: PatchEntry = { fn, owner: getOwner(), gen: ++regGen };
   const pc = pcOf(t);
   if (__TEST__) devTrackChannel(pc);
   const list = (pc.p ??= []) as PatchEntry[];
@@ -678,6 +784,25 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
   };
 }
 
+/** Resolve a captured RAW record to its live proxy under `list`'s family
+ * (re-audit 8, P1-2): structural operations carry raw row arrays captured at
+ * emission — the driver must BIND those records, and indexing the live
+ * subject instead builds the wrong row once a second operation queues.
+ * Shallow slot values (never wrapped) resolve to themselves. */
+export function patchProxyFor(list: any, raw: any, key?: PropertyKey): any {
+  if (raw === null || typeof raw !== "object") return raw;
+  let t: StoreNextTarget | undefined = list?.[$TARGET];
+  if (t === undefined) return raw;
+  t = ultimateTarget(t) ?? t;
+  if (t === undefined || t.s === true) return raw; // shallow rows are raw
+  // Same wrap a live `list[key]` read performs (fresh records create their
+  // target here — bind-time is their first touch), minus the live indexing.
+  // Routed through the createTarget-installed hook: the list target's very
+  // existence proves it is installed, and the indirection keeps the trap/
+  // write engine shakeable in store-less bundles.
+  return wrapRecordHook!(raw, t, key ?? null, t.fam);
+}
+
 /** Resolve a target through CHAINED backings (§7b) to the ultimate owner.
  * A projection family wrapper's backing IS another store's proxy: value
  * transitions fold on the ULTIMATE target (the wrapper's identity never
@@ -699,7 +824,7 @@ function ultimateTarget(t: StoreNextTarget): StoreNextTarget | undefined {
  * returns undefined otherwise (driver falls back to the effect path).
  * Not patchable: non-records, non-proxies, accessor-bearing records
  * (patches read raw — getters need tracked evaluation), broken chains. */
-export function patchableRaw(record: any): Record<PropertyKey, any> | undefined {
+export function patchableRaw(record: any, keys?: string[]): Record<PropertyKey, any> | undefined {
   let t: StoreNextTarget | undefined = record?.[$TARGET];
   if (t === undefined || t.px !== record || t.a === true) return undefined;
   t = ultimateTarget(t);
@@ -710,7 +835,19 @@ export function patchableRaw(record: any): Record<PropertyKey, any> | undefined 
   // records) never re-apply. Sticky `sc` makes this one probe pass per
   // record lifetime.
   if (t === undefined || !targetIsPlain(t)) return undefined;
-  return t.pb ?? t.v;
+  // COMMITTED view (re-audit 8, P2-6 root cause): a driver mounting
+  // mid-transition must render what an untracked reader sees — the
+  // committed backing — not a transition's deferred draft; the held
+  // entry's release re-applies the commit to it.
+  const raw = t.v;
+  // Manifest deep-path admission (re-audit 8, P1-1): a getter ALREADY
+  // nested on a declared read path rejects patch admission outright — the
+  // adoption gates only see FUTURE adoptions.
+  if (keys !== undefined) {
+    const m = internManifest(keys);
+    if (m.dp !== null && !deepPathsPlain(m.dp, raw)) return undefined;
+  }
+  return raw;
 }
 
 /** Accessor demotion (design §5): a record that acquires an accessor after
@@ -915,6 +1052,7 @@ function armPatchHooks(): void {
     emitPatch,
     emitPatchLocal,
     emitPatchAncestors,
+    emitPatchAncestorsOptimistic,
     emitPatchOptimistic,
     hasPatches,
     demoteToEffects

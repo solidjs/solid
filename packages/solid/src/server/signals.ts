@@ -2836,6 +2836,10 @@ export function registerPatch(
 export function registerRowOps(_array: any, _fn: (next: any[], ops: any) => void): () => void {
   return noopUnbind;
 }
+export function patchProxyFor(_list: any, raw: any): any {
+  return raw; // SSR renders once from whatever it is handed
+}
+
 export function patchableRaw(_record: any): undefined {
   return undefined;
 }

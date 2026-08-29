@@ -327,8 +327,12 @@ module.exports = [
     //
     // Re-audit-7 perf pass: manifest interning (WeakMap cache + prefix-tree
     // builder) so list mounts stopped re-processing per row. Measured 26.28.
+    //
+    // Re-audit-8 (2026-08-28): committed-view admission, generation-stamped
+    // drains, forced-bubble coalescing stamps, tentative ancestor bubbling.
+    // Measured 26.35.
     path: "hydrating-store-app.js",
-    limit: "26.35 KB",
+    limit: "26.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -376,8 +380,11 @@ module.exports = [
     // per-drain stamp split. Buys prod-sound demotion across ternary
     // branches and nested chains. Measured 15.30; 15.51 after the perf pass
     // (manifest interning + hoisted _mf$ arrays in compiled output).
+    //
+    // Re-audit-8 (2026-08-28): manifest deep-probe at admission, generation
+    // skip, forced coalescing, lane-timed ancestor bubbles. Measured 15.69.
     path: "csr-app-patch.js",
-    limit: "15.55 KB",
+    limit: "15.8 KB",
     modifyEsbuildConfig
   },
   {
@@ -405,8 +412,13 @@ module.exports = [
     // build-before-destroy slot rebuilds, hydration full-region surrender,
     // and emission-snapshot structural queues. Measured 17.56; 17.80 after
     // the perf pass (interning + prefix-tree probe + hoisted manifests).
+    //
+    // Re-audit-8 (2026-08-28): the value-tier bytes above plus captured-
+    // record row binds (patchProxyFor riding the createTarget-installed
+    // wrap hook — the direct wrapNext edge would have retained the whole
+    // trap engine here, +3.7 kB, caught at this gate). Measured 18.09.
     path: "csr-app-patch-lists.js",
-    limit: "17.85 KB",
+    limit: "18.2 KB",
     modifyEsbuildConfig
   },
   {

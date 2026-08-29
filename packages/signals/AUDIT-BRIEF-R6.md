@@ -1,4 +1,40 @@
-# Audit brief — rounds 6–7 + patch-mode default flip
+# Audit brief — rounds 6–8 + patch-mode default flip
+
+## Round 8 (response to the 8-finding audit)
+
+- **P1 admission nested getters** — `patchableRaw` deep-probes the manifest
+  at registration; getter-bearing paths take the tracked fallback from the
+  start. Admission also reads the COMMITTED backing (root cause under the
+  P2 duplicate-apply finding: `pb ?? v` leaked deferred transition drafts to
+  mid-transition mounts).
+- **P1 structural builds** — rows bind their operation's CAPTURED record
+  (`patchProxyFor` resolves raws through the list target's wrap, riding a
+  createTarget-installed hook: a direct wrapNext import would retain the
+  whole trap engine in store-less bundles — +3.7 kB, caught by the size
+  gate).
+- **P1 tentative ancestor bubble** — lane-timed forced entries for
+  in-flight visibility PLUS settle-held twins (revert/landing re-applies
+  resolved truth to ancestor expressions).
+- **P1 renderer surface** — `rowProof` on createRenderer (identity —
+  universal keeps classic lists), Renderer type, README; contract test pins
+  the whole patch tier.
+- **P1 decimal keys** — non-integer numeric keys statically ineligible
+  (both compilers), same class as dotted string keys.
+- **P2 duplicate applies** — generation-stamped entries: consumers
+  registered after emission (initialized from that state) are skipped;
+  transition releases exempt themselves (their late consumers saw the
+  pre-commit view). The fold path was verified UNREACHABLE for this
+  (the walk queues value entries before structural ops by design — test
+  pins it); the cross-queue optimistic window was real.
+- **P2 forced coalescing** — one forced ancestor re-apply per container per
+  batch (`qf`/`qfo` stamps), effect parity.
+- **P2 universal untrack** — commit phase untracked, matching web.
+
+dbmon: identical to round-7 finals (mount 6.4, tick 2.0, partial 0.5 —
+quiet machine, both orders). Byte cost ~+0.3 kB store apps / +0.3 kB patch
+tiers, ratcheted with notes.
+
+---
 
 ## Round 7 (response to the 9-finding audit)
 

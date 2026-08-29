@@ -208,7 +208,78 @@ describe("INVARIANT: a throwing row build leaves DOM, bookkeeping, and sibling r
   });
 });
 
+describe("INVARIANT: structural operations build rows from THEIR OWN captured state", () => {
+  test("two structural updates queued in one flush each bind their operation's records", () => {
+    createRoot(dispose => {
+      let div!: HTMLDivElement;
+      const [state, setState] = createStore({ rows: make(1, 2, 3) });
+      const pure = rowProof(buildRow);
+      <div ref={div}>
+        <For each={state.rows}>{pure}</For>
+      </div>;
+      expect(labels(div)).toBe("L1,L2,L3");
+      // ONE flush, TWO structural emissions: a keyed reconcile adding a row
+      // (walk-site ops) followed by a head splice (setter-site ops). The
+      // first operation's new-row build must bind ITS captured record — a
+      // live `subject[abs]` read sees the post-splice list and binds the
+      // wrong record, corrupting every later operation's baseline.
+      setState(s => {
+        reconcile(make(1, 2, 3, 4), "id")(s.rows);
+      });
+      setState(s => {
+        s.rows.splice(0, 1);
+      });
+      flush();
+      expect(labels(div)).toBe("L2,L3,L4");
+      // Retention/baseline intact: a follow-up keyed move retains nodes.
+      const [tr2, tr3, tr4] = rows(div);
+      setState(s => {
+        reconcile(make(4, 3, 2), "id")(s.rows);
+      });
+      flush();
+      expect(labels(div)).toBe("L4,L3,L2");
+      expect(rows(div)[0]).toBe(tr4);
+      expect(rows(div)[1]).toBe(tr3);
+      expect(rows(div)[2]).toBe(tr2);
+      dispose();
+    });
+  });
+});
+
 describe("INVARIANT: a body's declared read envelope is honored at EVERY depth and branch", () => {
+  test("a nested getter PRESENT AT REGISTRATION takes the tracked fallback from the start", () => {
+    const [dep, setDep] = createRoot(() => createSignal("s0"));
+    const [state] = createStore<any>({
+      row: {
+        id: 1,
+        meta: {
+          get label() {
+            return dep();
+          }
+        }
+      }
+    });
+    const text = document.createTextNode("");
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      patchDriver(
+        state.row,
+        (n: any, p: any, f?: boolean) => {
+          if (f || n.meta.label !== p.meta.label) text.data = n.meta.label;
+        },
+        ["meta.label"]
+      );
+    });
+    // The initial render works either way — the DIVERGENCE is the getter's
+    // outside dependency: admission must have chosen the tracked fallback.
+    expect(text.data).toBe("s0");
+    setDep("s1");
+    flush();
+    expect(text.data).toBe("s1");
+    dispose();
+  });
+
   test("a nested-chain body keeps applying when the nested value changes through a targeted reconcile", () => {
     const [state, setState] = createStore<any>({
       row: { id: 1, queries: [{ elapsed: "1" }] }

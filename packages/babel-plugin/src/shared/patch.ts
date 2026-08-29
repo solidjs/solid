@@ -38,11 +38,13 @@ function isEligibleExpr(node: t.Node, subject: string, asMemberBase = false): bo
     case "MemberExpression": {
       const m = node as t.MemberExpression;
       if (m.computed) {
-        // Literal keys only — and no "." inside string keys, which would
-        // collide with the manifest's path separator (re-audit 7).
+        // Literal keys only — and nothing that stringifies with a ".",
+        // which would collide with the manifest's path separator:
+        // dotted string keys (re-audit 7) and non-integer numeric keys
+        // (re-audit 8 — `state[1.2]` would probe as state["1"]["2"]).
         if (t.isStringLiteral(m.property)) {
           if (m.property.value.indexOf(".") !== -1) return false;
-        } else if (!t.isNumericLiteral(m.property)) {
+        } else if (!t.isNumericLiteral(m.property) || !Number.isInteger(m.property.value)) {
           return false;
         }
       } else if (!t.isIdentifier(m.property)) {

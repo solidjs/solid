@@ -30,15 +30,21 @@ fn is_eligible_expr(node: &Expression<'_>, subject: &str, as_member_base: bool) 
             if member.optional {
                 return false;
             }
-            // Literal keys only — and no "." inside string keys, which would
-            // collide with the manifest's path separator (re-audit 7).
+            // Literal keys only — and nothing that stringifies with a ".",
+            // which would collide with the manifest's path separator:
+            // dotted string keys (re-audit 7) and non-integer numeric keys
+            // (re-audit 8 — `state[1.2]` would probe as state["1"]["2"]).
             match &member.expression {
                 Expression::StringLiteral(lit) => {
                     if lit.value.contains('.') {
                         return false;
                     }
                 }
-                Expression::NumericLiteral(_) => {}
+                Expression::NumericLiteral(lit) => {
+                    if lit.value.fract() != 0.0 {
+                        return false;
+                    }
+                }
                 _ => return false,
             }
             is_eligible_expr(&member.object, subject, true)
@@ -190,15 +196,10 @@ pub(crate) fn collect_subject_paths(values: &[&Expression<'_>], subject: &str) -
                     match &member.expression {
                         Expression::StringLiteral(lit) => segs.push(lit.value.to_string()),
                         Expression::NumericLiteral(lit) => {
-                            // Match JS String(n) for the literal keys the
-                            // grammar admits (integer/decimal indices).
+                            // Eligibility admits INTEGER keys only (re-audit
+                            // 8); match JS String(n) for them.
                             #[allow(clippy::cast_possible_truncation)]
-                            let text = if lit.value.fract() == 0.0 && lit.value.abs() < 1e15 {
-                                (lit.value as i64).to_string()
-                            } else {
-                                lit.value.to_string()
-                            };
-                            segs.push(text);
+                            segs.push((lit.value as i64).to_string());
                         }
                         _ => return None,
                     }

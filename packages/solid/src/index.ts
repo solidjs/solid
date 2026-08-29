@@ -26,6 +26,7 @@ export {
   latest,
   // Patch-channel compiler contract (undocumented as application API)
   patchableRaw,
+  patchProxyFor,
   registerPatch,
   registerRowOps,
   registerSlotPatch,

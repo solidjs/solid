@@ -67,9 +67,11 @@ export const {
   applyRef,
   ref,
   // Required since patch mode became the compiler default: compiled
-  // templates with pure member-read bindings import `patchDriver` from your
-  // renderer module. createRenderer provides it — just re-export.
-  patchDriver
+  // templates with pure member-read bindings import `patchDriver`, and
+  // compiled pure list rows import `rowProof`, from your renderer module.
+  // createRenderer provides both — just re-export.
+  patchDriver,
+  rowProof
 } = createRenderer({
   createElement(string) {
     return document.createElement(string);

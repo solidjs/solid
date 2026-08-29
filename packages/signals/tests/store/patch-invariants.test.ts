@@ -145,6 +145,68 @@ describe("INVARIANT: patch applications mirror effect runs (parity oracle), rega
   });
 });
 
+describe("INVARIANT: optimistic visibility covers the whole read envelope, ancestors included", () => {
+  it("a targeted child reconcile inside an action re-applies ANCESTOR patches in flight", async () => {
+    const { createOptimisticStore, action: act } = await import("../../src/index.js");
+    const [state, setState] = (createOptimisticStore as any)({
+      row: { id: 1, meta: { label: "m0" } }
+    });
+    const log: string[] = [];
+    registerPatch(state.row, (next: any) => log.push(next.meta?.label ?? "?"), ["meta.label"]);
+    let resolve!: () => void;
+    let save!: () => Promise<void> | void;
+    createRoot(() => {
+      save = act(function* () {
+        setState((s: any) => {
+          reconcile({ label: "opt" }, "id")(s.row.meta);
+        });
+        yield new Promise<void>(r => {
+          resolve = r;
+        });
+      }) as any;
+    });
+    const p = save() as Promise<void>;
+    flush();
+    // In-flight visibility is what optimism MEANS: the ancestor's compiled
+    // body reads through the child — it must re-apply now, not at settle.
+    expect(log[log.length - 1]).toBe("opt");
+    resolve();
+    await p;
+    flush();
+    expect(log[log.length - 1]).toBe("m0"); // revert re-applies committed
+  });
+});
+
+describe("INVARIANT: one forced ancestor application per flush (effect parity)", () => {
+  it("multiple nested writes in one batch coalesce their ancestor bubbles", () => {
+    const [state, setState] = createStore<any>({
+      row: { id: 1, q0: { elapsed: "a0" }, q1: { elapsed: "b0" } }
+    });
+    let applies = 0;
+    registerPatch(
+      state.row,
+      () => {
+        applies++;
+      },
+      ["q0.elapsed", "q1.elapsed"]
+    );
+    setState(s => {
+      s.row.q0.elapsed = "a1";
+      s.row.q1.elapsed = "b1";
+    });
+    flush();
+    // An effect reading both chains runs ONCE for the batch; so does the
+    // forced ancestor re-apply.
+    expect(applies).toBe(1);
+    // Next batch applies again (stamp cleared at drain).
+    setState(s => {
+      s.row.q0.elapsed = "a2";
+    });
+    flush();
+    expect(applies).toBe(2);
+  });
+});
+
 describe("INVARIANT: queued applications reach exactly the consumers registered at emission (values resolve live, structure never admits late registrants)", () => {
   it("structural ops never reach a consumer registered between emission and dispatch", async () => {
     const { registerRowOps } = await import("../../src/index.js");
@@ -178,6 +240,41 @@ describe("INVARIANT: queued applications reach exactly the consumers registered 
     flush();
     expect(early.length).toBe(2);
     expect(late.length).toBe(1);
+  });
+
+  it("a value entry never re-applies to a consumer that initialized FROM its state (mid-flush mount)", async () => {
+    const { registerRowOps } = await import("../../src/index.js");
+    const [state, setState] = createStore<any>({ rows: [{ id: 1, label: "L1" }] });
+    const spy: string[] = [];
+    let mounted = false;
+    // A pre-existing consumer keeps the record's channel live so the value
+    // write actually queues an entry.
+    registerPatch(state.rows[0], () => {});
+    // A structural consumer that MOUNTS a value consumer during its own
+    // dispatch — the driver's row build, exactly: the new consumer's initial
+    // force-apply reads current (post-write) state.
+    registerRowOps(state.rows, () => {
+      if (!mounted) {
+        mounted = true;
+        registerPatch(state.rows[0], (n: any) => spy.push(n.label));
+      }
+    });
+    // ONE flush: structural change queues row ops FIRST, then the value
+    // write queues the record's entry — the drain mounts the consumer, then
+    // must NOT hand it the value entry (it initialized from that state; a
+    // re-apply is an observable duplicate setter call).
+    setState(s => {
+      s.rows.push({ id: 2, label: "L2" });
+      s.rows[0].label = "X1";
+    });
+    flush();
+    expect(spy).toEqual([]);
+    // Functional from the NEXT event on.
+    setState(s => {
+      s.rows[0].label = "Y1";
+    });
+    flush();
+    expect(spy).toEqual(["Y1"]);
   });
 
   it("a value patch held by a transition reaches a consumer registered AFTER emission (list resolves live at drain)", async () => {

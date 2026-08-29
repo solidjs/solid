@@ -119,4 +119,34 @@ describe("compiled imports ⊆ documented runtime surface", () => {
     // every custom renderer following the docs — patchDriver's exact hole.
     expect(undocumented).toEqual([]);
   });
+
+  it("every patch-tier import dom output can emit exists on the createRenderer surface", async () => {
+    // Custom dom-flavored renderers re-export createRenderer members as
+    // their module surface; default-on `<For>` output imports rowProof, so
+    // the surface must carry the WHOLE patch tier, not just patchDriver.
+    const runtime = new Set(await universalRuntimeSurface());
+    const out = transform(CORPUS, { filename: "c.jsx", moduleName: "@solidjs/web" });
+    const names = importsFrom(out.code, "@solidjs/web");
+    const patchTier = names.filter(n => n === "patchDriver" || n === "rowProof");
+    expect(patchTier.sort()).toEqual(["patchDriver", "rowProof"]);
+    const missing = patchTier.filter(n => !runtime.has(n));
+    expect(missing).toEqual([]);
+  });
+
+  it("non-integer numeric keys are patch-ineligible (dot-collision with manifest paths)", () => {
+    // `state[1.2]` would manifest as "1.2" and probe as state["1"]["2"] —
+    // the compiler must compile such scopes classic instead.
+    const out = transform(
+      "const row = state.rows[0];\nconst v = <div textContent={row[1.2]} title={row.label} />;",
+      { filename: "c.jsx", moduleName: "@solidjs/web" }
+    );
+    expect(out.code.includes("patchDriver")).toBe(false);
+    // Integer keys stay eligible.
+    const ok = transform(
+      "const row = state.rows[0];\nconst v = <div textContent={row.queries[0].elapsed} />;",
+      { filename: "c.jsx", moduleName: "@solidjs/web" }
+    );
+    expect(ok.code.includes("patchDriver")).toBe(true);
+    expect(ok.code.includes('"queries.0.elapsed"')).toBe(true);
+  });
 });

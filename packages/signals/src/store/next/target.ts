@@ -79,6 +79,11 @@ export interface PatchChannel {
    * emission destroy the normal stamp and queue a duplicate application. */
   qo: unknown;
   qeo: unknown;
+  /** Forced-bubble coalescing stamps (re-audit 8, P2-7): the container this
+   * channel last pushed a FORCED (ancestor) entry into — normal/held (qf)
+   * and optimistic (qfo). One forced re-apply per container per batch. */
+  qf: unknown;
+  qfo: unknown;
   /** Accessed-key set for the channel's compiled bodies (union across
    * registrations). Compiler-manifested registrations (re-audit 7, P1-1)
    * hand the STATIC read envelope — complete across branches the applies

@@ -55,7 +55,7 @@ import {
   optHooks
 } from "./target.js";
 import { getWriteOverride } from "../store.js";
-import { projectionWriteActive } from "../../core/scheduler.js";
+import { activeTransition, projectionWriteActive } from "../../core/scheduler.js";
 
 type KeyFn = (item: any) => any;
 
@@ -65,14 +65,20 @@ export function reconcileNextState(
   key: string | KeyFn | null | undefined,
   replace = false
 ): void {
-  reconcileTop(value, state, key, replace);
+  const tentative = reconcileTop(value, state, key, replace);
   // Ancestor bubble for TARGETED reconciles (re-audit 7): the walk emits
   // locally for its own subtree — parents above the walk ROOT read into it
   // through nested compiled chains and must force-re-apply, exactly as a
   // nested setter write bubbles. One null check when no patches exist.
+  // TENTATIVE (optimistic) walks bubble at LANE timing plus a settle-held
+  // twin (re-audit 8, P1-3): in-flight ancestors show the tentative view,
+  // settle/revert re-applies resolved truth.
   if (patchHooks !== null && patchHooks.hasPatches()) {
     const t: StoreNextTarget | undefined = state?.[$TARGET];
-    if (t !== undefined && t.u !== null) patchHooks.emitPatchAncestors(t);
+    if (t !== undefined && t.u !== null) {
+      if (tentative) patchHooks.emitPatchAncestorsOptimistic(t, activeTransition);
+      else patchHooks.emitPatchAncestors(t);
+    }
   }
 }
 
@@ -81,7 +87,7 @@ function reconcileTop(
   state: any,
   key: string | KeyFn | null | undefined,
   replace = false
-): void {
+): boolean {
   if (state == null) throw new Error(__DEV__ ? "Cannot reconcile null or undefined state" : "");
   const t: StoreNextTarget | undefined = state?.[$TARGET];
   if (t === undefined || t.px !== state)
@@ -99,9 +105,9 @@ function reconcileTop(
   // store's existing subscribers of the swap.
   if (replace && value !== state && value?.[$TARGET] !== undefined) {
     const prev = t.pb ?? t.v;
-    if (prev === value) return; // already chained to this store
+    if (prev === value) return false; // already chained to this store
     adoptPB(t, value);
-    return;
+    return false;
   }
   const incoming = unwrapValue(value);
   if (keyFn) {
@@ -123,7 +129,7 @@ function reconcileTop(
       // resolving to this proxy; re-handed later it wraps fresh.
       (t.fam?.map ?? storeNextLookup).delete(t.pb ?? t.v);
       adoptPB(t, incoming);
-      return;
+      return false;
     }
   }
   // Tentative channel (§6b, RUL-5): a user-context reconcile on an optimistic
@@ -133,9 +139,10 @@ function reconcileTop(
   // existing child targets instead of overriding their parent slots.
   if (t.fam?.opt === true && !projectionWriteActive && !getWriteOverride()) {
     optHooks!.applyTentative(t, incoming, keyFn);
-    return;
+    return true;
   }
   applyAdopt(t, incoming, keyFn, replace);
+  return false;
 }
 
 function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj = false): void {

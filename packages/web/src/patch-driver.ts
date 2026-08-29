@@ -11,6 +11,7 @@ import {
   createOwner,
   onCleanup,
   patchableRaw,
+  patchProxyFor,
   registerPatch,
   registerRowOps,
   registerSlotPatch,
@@ -180,9 +181,9 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   const shallow = storeIsShallow(subject);
   let lastBodies: any[] | null = null;
   let lastUnbinds: (() => void)[] | null = null;
-  const collectBind = (abs: number, build: () => Node): Node => {
+  const collectBind = (rec: any, build: () => Node): Node => {
     const prevC = rowCollector;
-    rowCollector = { row: shallow ? subject[abs] : undefined, bodies: [], unbinds: [] };
+    rowCollector = { row: shallow ? rec : undefined, bodies: [], unbinds: [] };
     try {
       return build();
     } finally {
@@ -197,7 +198,12 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   // stay aligned on both the engage and (pre-owner) decline paths.
   const listOwner = createOwner();
   let declined = false;
-  const bindRow = (abs: number, claimId?: string): Node => {
+  // Rows bind THEIR OPERATION'S captured record (re-audit 8, P1-2): queued
+  // structural work must not index the live subject — a second operation
+  // queued before the drain shifts it, binding the wrong record and
+  // corrupting every later operation's baseline. Captured raws resolve to
+  // their proxies through the list's family lookup.
+  const bindRow = (rec: any, claimId?: string): Node => {
     if ("_SOLID_DEV_") {
       // Ownership assertion: a stamped row must attach NOTHING to the list
       // owner — the compiler proved the template, but handler/attribute
@@ -207,13 +213,13 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
       const o = listOwner as any;
       const prevChild = o._firstChild;
       const prevDisposal = o._disposal;
-      const node = collectBind(abs, () =>
+      const node = collectBind(rec, () =>
         runWithOwner(listOwner, () =>
           claimId !== undefined
             ? (runWithOwner(createOwner({ id: claimId }) as any, () =>
-                untrack(() => rowFn(subject[abs]))
+                untrack(() => rowFn(rec))
               ) as Node)
-            : (untrack(() => rowFn(subject[abs])) as Node)
+            : (untrack(() => rowFn(rec)) as Node)
         )
       ) as Node;
       if (o._firstChild !== prevChild || o._disposal !== prevDisposal) {
@@ -227,13 +233,13 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
       }
       return node;
     }
-    return collectBind(abs, () =>
+    return collectBind(rec, () =>
       runWithOwner(listOwner, () =>
         claimId !== undefined
           ? (runWithOwner(createOwner({ id: claimId }) as any, () =>
-              untrack(() => rowFn(subject[abs]))
+              untrack(() => rowFn(rec))
             ) as Node)
-          : (untrack(() => rowFn(subject[abs])) as Node)
+          : (untrack(() => rowFn(rec)) as Node)
       )
     ) as Node;
   };
@@ -264,13 +270,13 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
       // id (getNextElement resolves the `_hk` registry entry); patchDriver
       // skips the initial apply.
       for (; initIdx < raw.length; initIdx++) {
-        entries[initIdx] = bindRow(initIdx, rowIds![initIdx]);
+        entries[initIdx] = bindRow(patchProxyFor(subject, raw[initIdx], initIdx), rowIds![initIdx]);
         if (rowBodies !== null) rowBodies[initIdx] = lastBodies!;
         rowUnbinds[initIdx] = lastUnbinds!;
       }
     } else {
       for (; initIdx < raw.length; initIdx++) {
-        const node = bindRow(initIdx);
+        const node = bindRow(patchProxyFor(subject, raw[initIdx], initIdx));
         entries[initIdx] = node;
         if (rowBodies !== null) rowBodies[initIdx] = lastBodies!;
         rowUnbinds[initIdx] = lastUnbinds!;
@@ -363,7 +369,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
         const abs = prefix + j;
         const src = sources[j];
         if (src === -1 || (refRebuild && src >= 0 && next[abs] !== prevRaws[src])) {
-          built[j] = bindRow(abs);
+          built[j] = bindRow(patchProxyFor(subject, next[abs], abs));
           if (builtBodies !== null) builtBodies[j] = lastBodies!;
           builtUnbinds[j] = lastUnbinds!;
         }
@@ -442,11 +448,11 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   // AND registered until the replacement exists — unbinding first left a
   // throwing factory's slot severed-but-visible (silent staleness, the
   // worst failure shape) plus the partial build's registrations leaked.
-  const rebuildSlot = (i: number): void => {
+  const rebuildSlot = (i: number, rec: any): void => {
     const old = entries[i] as ChildNode;
     let node: Node;
     try {
-      node = bindRow(i);
+      node = bindRow(rec);
     } catch (err) {
       // Sever the failed build's own partial registrations (collectBind's
       // finally published them); the old row keeps patching. The armed
@@ -480,7 +486,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
       return;
     }
     if (refRebuild) {
-      rebuildSlot(i);
+      rebuildSlot(i, next);
       prevRaws[i] = next;
       return;
     }
@@ -578,7 +584,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
 //   read; the commit pass force-applies, keeping DOM writes in the effect
 //   phase where transitions and batching expect them.
 export const patchDriver = (subject, body, keys?: string[]) => {
-  const raw = patchableRaw(subject);
+  const raw = patchableRaw(subject, keys);
   if (raw !== undefined) {
     // Hydration is claim + register ONLY (DESIGN-PATCH-CHANNEL §5): the
     // server HTML already carries current values, so the initial force-apply

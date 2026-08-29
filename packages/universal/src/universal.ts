@@ -56,6 +56,10 @@ export interface Renderer<NodeType> {
     body: (next: any, prev: any, force?: boolean) => void,
     keys?: string[]
   ): void;
+  /** Pure-row stamp for compiled `<For>` output (default-on patch
+   * compiler). The universal flavor keeps classic list semantics — this is
+   * an identity function that exists so compiled imports link. */
+  rowProof<F>(fn: F): F;
 }
 
 const transparentOptions = { transparent: true, sync: true };
@@ -428,12 +432,23 @@ export function createRenderer({
     ref,
     // Patch-mode dual driver, universal flavor: no store/record seams here,
     // so every compiled body runs through the classic dual-phase effect
-    // (compute pass reads with next === prev; commit pass force-applies).
+    // (compute pass reads with next === prev; commit pass force-applies —
+    // untracked, matching the web fallback: force short-circuits compares,
+    // not reads, and dev strict-read would flag the re-reads otherwise).
     patchDriver(subject, body) {
       effect(
         () => body(subject, subject, false),
-        () => body(subject, undefined, true)
+        () => {
+          untrack(() => body(subject, undefined, true));
+        }
       );
+    },
+    // Compiler-proven pure list rows arrive wrapped in `rowProof` under the
+    // default-on patch compiler. The universal flavor has no list driver —
+    // the stamp is meaningless here — but the export must exist for the
+    // compiled import to link; identity keeps classic list semantics.
+    rowProof(fn) {
+      return fn;
     }
   };
 }
