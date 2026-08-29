@@ -2156,7 +2156,14 @@ export async function handleServerFunctionRequest(request, options = {}) {
       // body) — and bounded, so a long message cannot blow the response past
       // a receiver's header limits (see boundedErrorHeaderValue)
       headers.set(ERROR_HEADER, boundedErrorHeaderValue(error));
-      return encodeResult(safe, headers, 200, codec, request.signal);
+      // A real 500, not a 200 wearing the tag: the failure is known before a
+      // byte of body exists, so the status line is still free to tell
+      // intermediaries — CDN metrics, load-balancer health, log alerts —
+      // what the tag tells the client (#3097). The tag stays the client's
+      // authoritative signal (a failure discovered MID-STREAM still rides a
+      // 200, in-band in the codec, because by then the status is spent);
+      // thrown envelopes keep the author's status above.
+      return encodeResult(safe, headers, 500, codec, request.signal);
     }
   };
   const response = commitEventResponse(await dispatch(), event);

@@ -600,8 +600,14 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
     throw serverFunctionFailure(response, undefined);
   }
 
-  // Proxies may omit the protocol error header on 5xx responses.
-  const failed = response.headers.has(ERROR_HEADER) || response.status >= 500;
+  // The protocol's own error tag is the failure signal, alone: among
+  // responses the runtime encoded (body format present), the status is the
+  // author's to choose — `respond(value, { status: 500 })` resolves like any
+  // other returned value, and only a THROWN outcome rejects (#3097). A
+  // peer's own 5xx (proxy, load balancer) carries no body format and was
+  // already refused above, so dropping the status from this decision loses
+  // nothing.
+  const failed = response.headers.has(ERROR_HEADER);
 
   // Single-flight responses: with a registered consumer the transport owns
   // the unwrap — the standardized `{ value, data }` body is decoded, the
