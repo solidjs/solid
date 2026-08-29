@@ -907,6 +907,17 @@ function drainFolds(): void {
         if (targetKeysPlain(t, t.v)) patchHooks!.emitPatchLocal(t, t.v, old);
         else patchHooks!.demoteToEffects(t);
       }
+    } else if (t.pc !== null && patchHooks !== null) {
+      // PLAIN setter folds (node delivery): the value bump moved here from
+      // the setter site — post-swap, so deliveries read committed state,
+      // and with ancestor bubbling (targeted nested writes reach row
+      // patches, §4b).
+      if (t.pc.p !== null || t.pc.dn !== null) {
+        if (targetKeysPlain(t, t.v)) patchHooks.emitPatch(t, t.v, old);
+        else patchHooks.demoteToEffects(t);
+      } else {
+        patchHooks.emitPatchAncestors(t);
+      }
     }
     // Path copying (CAS: see the eager-fold twin above).
     if (t.u && t.u.v[t.pk!] === old) {
@@ -1069,13 +1080,9 @@ function notifyWrites(t: StoreNextTarget): void {
     }
     if (changed) setSignal(t.k, v => v + 1);
   }
-  // Patch channel (setter site): a committed write transitions this record —
-  // queue its patches and bubble to ancestors (targeted nested writes must
-  // reach the row patch, §4b). One number compare when no patches exist.
-  // Family targets skip this site: their visibility moment is the FOLD
-  // commit (drainFolds emits), not the recompute/draft write.
-  if (t.fam === null && patchHooks !== null && patchHooks.hasPatches())
-    patchHooks.emitPatch(t, pb, old);
+  // Patch channel: setter writes bump at FOLD COMMIT (post-swap), not here
+  // — a write-time bump raced the fold at transition settle, delivering
+  // pre-fold state (node-delivery port). drainFolds owns the emission.
   // Projection backing folds split by channel (two pinned contracts):
   // - sync-derive drafts (recompute body): NEVER eager — a downstream async
   //   hold can form LATER in the same flush and the leaf must stay at stale

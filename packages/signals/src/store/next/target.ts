@@ -90,8 +90,10 @@ export interface PatchChannel {
   /** Delivery-effect root disposer (created with the first entry, disposed
    * with the last). */
   de?: (() => void) | undefined;
-  /** Last dispatched version (the pure-registration flush skips). */
+  /** Last dispatched bump count (the pure-registration flush skips). */
   dv?: number;
+  /** Synchronous bump counter (dedup; the signal is pure notification). */
+  bc?: number;
   /** Manifest-shaped prev snapshot for exact compares. */
   pv?: unknown;
   /** Accessed-key set for the channel's compiled bodies (union across

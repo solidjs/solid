@@ -19,7 +19,7 @@
  * Tree-shaking: core never imports this module; stores without patches
  * never schedule the queue.
  */
-import { EFFECT_RENDER, STATUS_ERROR } from "../../core/constants.js";
+import { EFFECT_RENDER, EFFECT_USER, NOT_PENDING, STATUS_ERROR } from "../../core/constants.js";
 import { ext, read as readSignal, setSignal, signal } from "../../core/core.js";
 import { StatusError } from "../../core/error.js";
 import { haltReactivity } from "../../core/scheduler.js";
@@ -544,13 +544,19 @@ export function patchCommittedRaw(record: any): Record<PropertyKey, any> | undef
  * manifest-shaped prev snapshot. Timing — transitions, holds, lanes,
  * merges, mount order — is scheduler-owned by construction. */
 function bumpDelivery(pc: any): void {
-  if (pc.dn !== null) setSignal(pc.dn, (v: number) => v + 1);
+  if (pc.dn === null) return;
+  // Synchronous dedup counter + pure-notification signal: the WRITE may be
+  // held by a transition (its commit IS the delivery moment), but the
+  // dispatch decision must never read a mid-commit signal value.
+  pc.bc = (pc.bc ?? 0) + 1;
+  setSignal(pc.dn, (v: number) => v + 1);
 }
 
 function bumpDeliveryOptimistic(pc: any): void {
   if (pc.dn === null) return;
   // Override-armed write: in-flight visibility now, re-notify on revert —
   // the engine is installed by every optimistic caller of this seam.
+  pc.bc = (pc.bc ?? 0) + 1;
   const w = GlobalQueue._optimisticWrite;
   if (w !== null && w !== undefined) w(pc.dn, (pc.dn._value ?? 0) + 1);
   else setSignal(pc.dn, (v: number) => v + 1);
@@ -587,25 +593,43 @@ function snapNode(node: DeepNode, src: any, dst: any): void {
  * override view, held targets the mask, everyone else committed. THE single
  * visibility decision — the queue design made it at five different seams. */
 function visibleView(t: StoreNextTarget): any {
-  if (t.fam?.opt === true && optHooks !== null) return optHooks.optimisticView(t, t.pb ?? t.v);
+  // Optimistic families read THROUGH THE PROXY: tentative values live in
+  // node overrides at ANY depth (a root-level view merge misses children),
+  // and untracked proxy reads resolve them all. Everyone else reads raw.
+  if (t.fam?.opt === true) return t.px;
   return t.ht !== null ? (t.hv ?? t.v) : t.v;
 }
 
 function ensureDelivery(t: StoreNextTarget, pc: any): void {
-  if (pc.dn !== null) return;
-  const dn = (pc.dn = signal(0, { equals: false }));
-  pc.dv = 0; // last dispatched version — the pure-registration flush skips
-  pc.pv = manifestSnapshot(pc, visibleView(t));
+  if (pc.de !== undefined) return;
+  // The delivery SIGNAL and its bookkeeping persist across consumer churn
+  // (only the effect root lives with consumers): a write-time emission held
+  // by a transition rides the signal's pending commit — disposing the
+  // signal with the last consumer dropped that delivery, permanently
+  // staleing a consumer registered before the settle.
+  if (pc.dn === null) {
+    const dn = (pc.dn = signal(0, { equals: false }));
+    // Arm the override slot (NOT_PENDING) WITHOUT CONFIG_OPTIMISTIC: plain
+    // bumps keep held-write semantics under transactions, while optimistic
+    // bumps route through the engine's write with correct revert
+    // registration (an UNARMED slot reads as an active override there —
+    // INV-2 caught the miss).
+    ext(dn)._overrideValue = NOT_PENDING;
+    pc.dv = 0; // last dispatched bump count — the pure-registration flush skips
+    pc.bc = 0;
+    pc.pv = manifestSnapshot(pc, visibleView(t));
+  }
+  const dn = pc.dn;
   createRoot(d => {
     pc.de = d;
     createRenderEffect(
       () => readSignal(dn) as number,
-      (v: number) => {
-        if (v === pc.dv) {
+      () => {
+        if (pc.bc === pc.dv) {
           pc.pv = manifestSnapshot(pc, visibleView(t));
           return;
         }
-        pc.dv = v;
+        pc.dv = pc.bc;
         const p = pc.p as PatchEntry[] | null;
         if (p === null) return; // demoted or emptied — inert
         const next = visibleView(t);
@@ -614,7 +638,17 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
         let firstError: unknown = UNSET;
         firstError = applyEntries(snap, next, prev, false, firstError, pc);
         pc.pv = manifestSnapshot(pc, next);
-        if (firstError !== UNSET) throw firstError;
+        if (firstError !== UNSET) {
+          // CHANNEL CONTRACT (round-2 pin): every healthy patch applies
+          // before an unboundaried error crashes the system. A raw rethrow
+          // here would halt sibling channels' render-phase effects — defer
+          // the halt one phase so the flush still throws, after siblings.
+          const err = firstError;
+          globalQueue.enqueue(EFFECT_USER, () => {
+            haltReactivity(err);
+            throw err;
+          });
+        }
       }
     );
   });
@@ -689,7 +723,8 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
       if (pc.de !== undefined) {
         (pc.de as () => void)();
         pc.de = undefined;
-        pc.dn = null;
+        // dn/bc/dv/pv persist: held write-time emissions must survive
+        // consumer churn (see ensureDelivery).
       }
     }
   };
