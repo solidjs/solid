@@ -24,6 +24,7 @@ import {
   parseServerFunctionAddress,
   provideServerFunctionRPC,
   serverFunctionAddress,
+  serverFunctionDataAddress,
   withMeta
 } from "./shared.js";
 
@@ -305,10 +306,11 @@ export function parseServerFunctionUrl(url: string): string | null;
 
 /** Reads the function id back out of a server-rendered action url. */
 export function parseServerFunctionUrl(url) {
-  return parseServerFunctionAddress(
+  const parsed = parseServerFunctionAddress(
     new URL(url, globalThis.location?.href || "http://localhost").pathname,
     config.endpoint
   );
+  return parsed && parsed.id;
 }
 
 function serializeArguments(args) {
@@ -387,6 +389,20 @@ function provideRPC() {
   if (rpcProvided) return;
   rpcProvided = true;
   provideServerFunctionRPC({ GET, decodeResponse });
+}
+
+// A reconstructed callable's base is a rendered PLAIN-HTTP address
+// (`/_server/<id>?args=...`) — what a form posts to without the runtime.
+// The transport's own calls belong at the data address, where answers are
+// the codec's (#3094), so the data segment is spliced in ahead of the id;
+// mount, origin and the query (bound arguments) ride along untouched.
+function dataAddressFor(base) {
+  const splitAt = base.search(/[?#]/);
+  const path = splitAt < 0 ? base : base.slice(0, splitAt);
+  const rest = splitAt < 0 ? "" : base.slice(splitAt);
+  const slash = path.lastIndexOf("/");
+  if (path.endsWith("/data/", slash + 1)) return base; // already one
+  return `${path.slice(0, slash + 1)}data/${path.slice(slash + 1)}${rest}`;
 }
 
 function serverFunctionFailure(response, value) {
@@ -681,12 +697,14 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
  * metadata channel; never emitted in production). Not meant for
  * hand-written code.
  *
- * The optional `base` targets calls at that url verbatim instead of the
- * configured endpoint — for integrations reconstructing a callable from a
+ * The optional `base` roots calls at that url instead of the configured
+ * endpoint — for integrations reconstructing a callable from a
  * server-rendered action url (e.g. a router intercepting a form submit whose
  * `action="/_server/<id>?args=..."` came off the wire): bound arguments
  * stay in the query string, where the server reads them for natural-encoding
- * bodies (FormData, urlencoded).
+ * bodies (FormData, urlencoded). The rendered url is the plain-HTTP address;
+ * the callable's own calls are scripted, so they go to its data-address
+ * sibling (`/_server/data/<id>?args=...`) — same mount, same query.
  * @internal
  */
 export function createServerReference(id: string, name?: string, base?: string): ServerFunction;
@@ -704,11 +722,13 @@ export function createServerReference(id: string, name?: string, base?: string):
 export function createServerReference(id, name, base) {
   provideRPC();
   const metadata = name === undefined ? {} : { name };
-  // An explicit base targets that url verbatim — integrations reconstructing
+  // An explicit base roots calls at that url — integrations reconstructing
   // a callable from a server-rendered action url (`/_server/<id>?args=...`) keep
   // its bound arguments in the query string, where the server reads them
-  // for natural-encoding bodies. Default calls derive from the configured
-  // endpoint (lazily — it may be configured after module scope runs).
+  // for natural-encoding bodies; the call itself goes to the rendered
+  // address's data-address sibling (see dataAddressFor). Default calls
+  // derive from the configured endpoint (lazily — it may be configured
+  // after module scope runs).
   // One body for both entrances — `fn(...args)` and `invoke(fn, args,
   // options)`: the invocation channel IS the call path with the per-call
   // options slot exposed, so the two can never drift.
@@ -724,7 +744,7 @@ export function createServerReference(id, name, base) {
       if (hit !== undefined) return hit;
     }
     return fetchServerFunction(
-      base || serverFunctionAddress(config.endpoint, id),
+      base ? dataAddressFor(base) : serverFunctionDataAddress(config.endpoint, id),
       id,
       invokeOptions ? { ...invokeOptions } : {},
       args,
@@ -812,7 +832,7 @@ export function GET(fn) {
       if (hit !== undefined) return hit;
     }
     const opts = invokeOptions || {};
-    const address = serverFunctionAddress(config.endpoint, id);
+    const address = serverFunctionDataAddress(config.endpoint, id);
     if (!args.length) {
       return fetchServerFunction(address, id, { ...opts, method: "GET" }, [], metadata, args);
     }

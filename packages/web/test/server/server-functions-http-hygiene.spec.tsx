@@ -186,14 +186,40 @@ describe("server-function cache hygiene (#3071)", () => {
       async () => new Response(null, { headers: { "Cache-Control": "public, max-age=60" } })
     );
 
-    const response = await handleServerFunctionRequest(
-      new Request("https://app.example/_server/hygiene-opt-in", {
+    // the scripted transport's own address (#3094)
+    const scripted = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/hygiene-opt-in", { method: "GET" }),
+      { provideEvent }
+    );
+    expect(scripted.status).toBe(200);
+    expect(scripted.headers.get("Cache-Control")).toBe("public, max-age=60");
+
+    // the plain-HTTP address serves the response verbatim, policy included
+    const plain = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/hygiene-opt-in", { method: "GET" }),
+      { provideEvent }
+    );
+    expect(plain.status).toBe(200);
+    expect(plain.headers.get("Cache-Control")).toBe("public, max-age=60");
+  });
+
+  it("never lets the legacy header-shaped answer into a cache (#3094)", async () => {
+    declareGET(
+      "hygiene-legacy-shape",
+      async () => new Response(null, { headers: { "Cache-Control": "public, max-age=60" } })
+    );
+
+    // a pre-split client: scripted-ness rides the instance header at the
+    // BARE address, where plain-HTTP callers read — the codec shape it
+    // summons must never be stored there, whatever the function's policy
+    const legacy = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/hygiene-legacy-shape", {
         method: "GET",
         headers: { "X-Server-Function-Instance": "server-function:test" }
       }),
       { provideEvent }
     );
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toBe("public, max-age=60");
+    expect(legacy.status).toBe(200);
+    expect(legacy.headers.get("Cache-Control")).toBe("no-store");
   });
 });

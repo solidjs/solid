@@ -282,7 +282,7 @@ describe("server-function extension surface (built bundles)", () => {
     });
     try {
       expect(await GET(createServerReference("ext-fetch-5"))(21)).toBe(42);
-      expect(seen).toEqual(["GET /_server/ext-fetch-5?args=%5B21%5D"]);
+      expect(seen).toEqual(["GET /_server/data/ext-fetch-5?args=%5B21%5D"]);
     } finally {
       configureServerFunctionsClient({ fetch: null });
       restore();

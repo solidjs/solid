@@ -427,7 +427,7 @@ function stableString(value, seen) {
   }
   return out + "}";
 } /**
- * The wire address of a call: `<endpoint>/<id>`.
+ * The plain-HTTP address of a function: `<endpoint>/<id>`.
  *
  * The id lives in the path because the path is what per-function policy keys
  * on — edge rules, cache policies by path pattern, log aggregation, route
@@ -437,37 +437,78 @@ function stableString(value, seen) {
  * caches, scrubbed by ordinary log tooling, and inert under the path
  * normalization every proxy applies.
  *
+ * This is the address rendered into documents (`<form action>`, a
+ * reference's `.url`) and the one a scriptless or hand-driven caller hits:
+ * answers at it are plain HTTP — raw `Response` values verbatim, real
+ * redirect statuses, form-convention handling. The transport's own calls go
+ * to `serverFunctionDataAddress`, whose answers are the codec's; splitting
+ * the two shapes across two paths is what lets a shared cache store either
+ * without one caller kind poisoning the other (#3094).
+ *
  * Transport wire detail; not meant for hand-written code.
  * @internal
  */
 export function serverFunctionAddress(endpoint: string, id: string): string;
 
-/** Builds the wire address for a call: `<endpoint>/<id>`. */
+/** Builds the plain-HTTP address of a function: `<endpoint>/<id>`. */
 export function serverFunctionAddress(endpoint, id) {
   const mount = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
   return `${mount}/${encodeURIComponent(id)}`;
 } /**
- * Reads the id out of an address built by `serverFunctionAddress`. A path
- * carrying more than the one segment the address gives meaning to — or an id
- * segment whose percent-encoding does not decode — answers `null` rather than
- * matching on its prefix: an address the runtime does not fully understand is
- * a miss, not a call.
+ * The wire address of a scripted call: `<endpoint>/data/<id>`.
+ *
+ * Same address discipline as `serverFunctionAddress` — id in the path,
+ * arguments in the query — at a path of its own, because the two caller
+ * kinds receive differently shaped answers (codec encodings vs plain HTTP)
+ * and a shared cache keys on the URL, not on request headers nothing tells
+ * it to vary by. With each shape at its own path, a cached answer can only
+ * ever be replayed to the caller kind it was made for (#3094).
+ *
+ * The literal `data` segment cannot collide with a function id: an id
+ * occupies exactly one segment, so a two-segment path is only ever a data
+ * address — a function id spelled `data` still parses at the bare address.
  *
  * Transport wire detail; not meant for hand-written code.
  * @internal
  */
-export function parseServerFunctionAddress(pathname: string, endpoint: string): string | null;
+export function serverFunctionDataAddress(endpoint: string, id: string): string;
 
-/** Reads the id out of an address built by `serverFunctionAddress`. */
+/** Builds the wire address of a scripted call: `<endpoint>/data/<id>`. */
+export function serverFunctionDataAddress(endpoint, id) {
+  const mount = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
+  return `${mount}/data/${encodeURIComponent(id)}`;
+} /**
+ * Reads an address built by `serverFunctionAddress` or
+ * `serverFunctionDataAddress` back into its id and caller kind (`data` names
+ * the shape the caller addressed, and with it the shape of the answer). A
+ * path carrying more segments than the addresses give meaning to — or an id
+ * segment whose percent-encoding does not decode — answers `null` rather
+ * than matching on its prefix: an address the runtime does not fully
+ * understand is a miss, not a call.
+ *
+ * Transport wire detail; not meant for hand-written code.
+ * @internal
+ */
+export function parseServerFunctionAddress(
+  pathname: string,
+  endpoint: string
+): { id: string; data: boolean } | null;
+
+/** Reads an address back into its id and caller kind. */
 export function parseServerFunctionAddress(pathname, endpoint) {
   const mount = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
   if (!pathname.startsWith(mount)) return null;
   const rest = pathname.slice(mount.length);
   if (!rest.startsWith("/")) return null;
-  const segment = rest.slice(1);
+  let segment = rest.slice(1);
+  let data = false;
+  if (segment.startsWith("data/")) {
+    segment = segment.slice(5);
+    data = true;
+  }
   if (!segment || segment.includes("/")) return null;
   try {
-    return decodeURIComponent(segment);
+    return { id: decodeURIComponent(segment), data };
   } catch {
     // an id segment whose percent-encoding does not decode is not an address
     return null;

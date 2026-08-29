@@ -954,21 +954,21 @@ export function getEventServerFunctionInvocation(event) {
   return event && INVOCATIONS.get(event);
 }
 
-function resolveFunctionId(url) {
+function resolveAddress(url) {
   return parseServerFunctionAddress(url.pathname, config.endpoint);
 }
 
-async function parseArguments(request, url, instance, codec) {
+async function parseArguments(request, url, scripted, codec) {
   const parsed = [];
   // Bound arguments arrive on the url for GET calls, no-JS form posts, and
-  // instance-carrying POSTs whose body is a natural HTTP encoding (FormData,
+  // scripted POSTs whose body is a natural HTTP encoding (FormData,
   // urlencoded) — e.g. a router intercepting a form whose action url was
   // rendered by the server. Codec-serialized bodies are the exception:
   // client stubs with bound arguments serialize the full argument array in
   // the body and never put arguments in the url.
   const bodyFormat = request.method === "POST" ? request.headers.get(BODY_FORMAT_HEADER) : null;
   const args = url.searchParams.get("args");
-  if (args && (!instance || request.method === "GET" || bodyFormat !== BodyFormat.Serialized)) {
+  if (args && (!scripted || request.method === "GET" || bodyFormat !== BodyFormat.Serialized)) {
     // framed codec output (from the client runtime) or plain JSON (from
     // integrations building urls by hand). Anything that is not an argument
     // array is a malformed request, which dispatch answers as one: the query
@@ -1637,7 +1637,11 @@ export function parseServerFunctionUrl(url: string): string | null;
 
 /** Reads the function id back out of a server-rendered action url. */
 export function parseServerFunctionUrl(url) {
-  return parseServerFunctionAddress(new URL(url, "http://localhost").pathname, config.endpoint);
+  const parsed = parseServerFunctionAddress(
+    new URL(url, "http://localhost").pathname,
+    config.endpoint
+  );
+  return parsed && parsed.id;
 }
 
 async function matchesOrigin(origin, request, matcher) {
@@ -1831,7 +1835,8 @@ export async function handleServerFunctionRequest(request, options = {}) {
   const codec = options.codec !== undefined ? options.codec : getServerFunctionsCodec();
   const url = new URL(request.url);
   const method = request.method;
-  const functionId = resolveFunctionId(url);
+  const address = resolveAddress(url);
+  const functionId = address && address.id;
   // GET-declared functions are reads by contract, and the read methods are
   // exactly where the CSRF gate costs more than it buys: same-origin policy
   // already prevents a cross-site caller from READING the response, while
@@ -1853,6 +1858,21 @@ export async function handleServerFunctionRequest(request, options = {}) {
     const response = new Response(DEV ? "Server function not found" : null, { status: 404 });
     return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
   }
+
+  // Which of the two answer shapes this call gets — codec encodings for the
+  // client transport, plain HTTP for everyone else — is decided by the
+  // ADDRESS: the data address IS the scripted protocol, the bare address is
+  // plain HTTP. On the url, not a header, because shared caches key on the
+  // url and store one answer per key — a header-driven shape means one
+  // caller kind's cached answer can be replayed to the other (#3094).
+  //
+  // TRANSITIONAL (remove before 2.0 stable): clients that predate the data
+  // address signal scripted-ness with the instance header on the bare
+  // address — an already-loaded tab keeps working across a server deploy.
+  // Honoring it reopens the shared-url shape divergence, so answers it
+  // shapes are never cacheable (see the no-store where dispatch's answer
+  // meets the transport).
+  const scripted = address.data || !!instance;
 
   let serverFunction;
   try {
@@ -1918,7 +1938,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // its collection. Unrecognized-but-present headers (a hand-tagged
   // request from an older integration) fall back to the unnamed hook, so
   // any value that opted in before still opts in.
-  const flightHeader = instance ? request.headers.get(SINGLE_FLIGHT_HEADER) : null;
+  const flightHeader = scripted ? request.headers.get(SINGLE_FLIGHT_HEADER) : null;
   const flightHooks = flightHeader
     ? flightHeader.split(",").flatMap(source => {
         const hook = source === "true" ? flightHook : flightSources.get(source);
@@ -1932,7 +1952,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
 
   let parsed;
   try {
-    parsed = await parseArguments(request, url, instance, codec);
+    parsed = await parseArguments(request, url, scripted, codec);
   } catch {
     // A query that is not the encoding it claims to be is a malformed
     // request, not a failing call: 400 keeps it out of the function's error
@@ -1988,7 +2008,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
         const { response, value } = result;
         // consumers without the client runtime get the carried response
         // whole — e.g. respond()'s real JSON body (invisible PE)
-        if (!instance && !handleNoJS && response && response.body) {
+        if (!scripted && !handleNoJS && response && response.body) {
           return response;
         }
         if (response && response.headers) {
@@ -2005,7 +2025,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
         if (
           response &&
           response.status &&
-          (!instance || !validRedirectStatuses.has(response.status))
+          (!scripted || !validRedirectStatuses.has(response.status))
         ) {
           status = response.status;
         }
@@ -2014,7 +2034,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
       } else if (result instanceof Response) {
         // raw responses pass through untouched
         if (result.headers && result.headers.has("X-Content-Raw")) return result;
-        if (instance) {
+        if (scripted) {
           // forward headers
           if (result.headers) {
             mergeResponseHeaders(headers, result.headers);
@@ -2052,7 +2072,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
       }
 
       // calls made without the client runtime (no-JS form posts)
-      if (!instance) {
+      if (!scripted) {
         // `result` is an envelope's unwrapped value here, but the no-JS
         // handler reads redirect metadata off its argument — hand it the
         // envelope's response when the value is empty, matching what the
@@ -2081,7 +2101,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
           if (
             response &&
             response.status &&
-            (!instance || !validRedirectStatuses.has(response.status))
+            (!scripted || !validRedirectStatuses.has(response.status))
           ) {
             status = response.status;
           }
@@ -2091,7 +2111,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
           if (x.headers) {
             mergeResponseHeaders(headers, x.headers);
           }
-          if (x.status && (!instance || !validRedirectStatuses.has(x.status))) {
+          if (x.status && (!scripted || !validRedirectStatuses.has(x.status))) {
             status = x.status;
           }
           metadata = x;
@@ -2126,7 +2146,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
         }
 
         headers.set(ERROR_HEADER, "true");
-        if (!instance) {
+        if (!scripted) {
           // `x` was nulled when the thrown Response had no body, but the no-JS
           // handler reads redirect metadata off the result — hand it the
           // original Response, matching what the returned path passes.
@@ -2143,7 +2163,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
       // ERROR_HEADER message derive from the sanitized value.
       const safe = sanitizeServerError(x);
 
-      if (!instance) {
+      if (!scripted) {
         if (handleNoJS) return handleNoJS(safe, request, parsed, true);
         const message = safe instanceof Error ? safe.message : String(safe);
         return new Response(DEV ? message : null, { status: 500 });
@@ -2166,8 +2186,38 @@ export async function handleServerFunctionRequest(request, options = {}) {
       return encodeResult(safe, headers, 500, codec, request.signal);
     }
   };
-  const response = commitEventResponse(await dispatch(), event);
+  let response = commitEventResponse(await dispatch(), event);
+  // TRANSITIONAL (leaves with the instance-header fallback above): an answer
+  // the header shaped lives at the bare address, where plain-HTTP callers
+  // read — a cache must never hold the codec shape there, so it is forced
+  // no-store over any policy the function set (#3094). The data address is
+  // untouched: one shape per url is the point of the split. Not guarded with
+  // Vary because CDNs commonly refuse to store anything varying beyond
+  // Accept-Encoding, which would revoke the cacheable declared reads #3071
+  // restored; the reverse replay — a stored plain-HTTP entry answering a
+  // LEGACY scripted reader — stays possible for author-cacheable reads until
+  // that session reloads, and closes with the fallback.
+  if (scripted && !address.data) {
+    response = withForcedNoStore(response);
+  }
   return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+}
+
+// TRANSITIONAL — see the call site.
+function withForcedNoStore(response) {
+  try {
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  } catch {
+    // immutable headers (e.g. a raw fetch() Response passed through)
+    const headers = new Headers(response.headers);
+    headers.set("Cache-Control", "no-store");
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    });
+  }
 }
 
 /**
