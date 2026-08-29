@@ -19,7 +19,13 @@
  * Tree-shaking: core never imports this module; stores without patches
  * never schedule the queue.
  */
-import { EFFECT_RENDER, EFFECT_USER, NOT_PENDING, STATUS_ERROR } from "../../core/constants.js";
+import {
+  CONFIG_OWNED_WRITE,
+  EFFECT_RENDER,
+  EFFECT_USER,
+  NOT_PENDING,
+  STATUS_ERROR
+} from "../../core/constants.js";
 import { ext, read as readSignal, setSignal, signal } from "../../core/core.js";
 import { StatusError } from "../../core/error.js";
 import { haltReactivity } from "../../core/scheduler.js";
@@ -41,7 +47,7 @@ import { optHooks } from "./target.js";
 import { emitSetterRowOps } from "./reconcile.js";
 // Cycle with store.js is benign (established pattern above): both resolve at
 // call time, long after module initialization.
-import { deepPathsPlain, targetIsPlain, targetKeysPlain } from "./store.js";
+import { deepPathsPlain, heldMaskView, targetIsPlain, targetKeysPlain } from "./store.js";
 import type { DeepNode } from "./target.js";
 
 import { InvariantHooks } from "../../core/invariants.js";
@@ -182,6 +188,8 @@ function applyStructural(item: QueuedApply, next: any, firstError: unknown): unk
 }
 
 const UNSET: unique symbol = Symbol();
+/** Sentinel: applyEntries resolves prev per entry (node delivery). */
+const PER_ENTRY_PREV: unique symbol = Symbol();
 
 /** ONE callback/error primitive for every drain (normal, transition-held,
  * optimistic): per-entry isolation — a throwing patch must not abort its
@@ -227,9 +235,14 @@ function applyEntries(
             return Reflect.get(o, key, r);
           }
         });
-        entry.fn(rec, prev, force);
+        entry.fn(rec, prev === PER_ENTRY_PREV ? (entry as any).pv : prev, force);
+        if (prev === PER_ENTRY_PREV)
+          (entry as any).pv = untrack(() => manifestSnapshot(pc as any, next));
       } else {
-        entry.fn(next, prev, force);
+        const ep = prev === PER_ENTRY_PREV ? (entry as any).pv : prev;
+        entry.fn(next, ep, force);
+        if (prev === PER_ENTRY_PREV)
+          (entry as any).pv = untrack(() => manifestSnapshot(pc as any, next));
       }
     } catch (err) {
       let handled = false;
@@ -248,6 +261,8 @@ function applyEntries(
         source._statusFlags = (source._statusFlags ?? 0) | STATUS_ERROR;
         handled = owner._queue.notify(source, STATUS_ERROR, STATUS_ERROR, statusErr);
       }
+      if ((globalThis as any).__DBG__)
+        console.log("[route]", "handled:", handled, "hasOwner:", entry.owner !== null);
       if (!handled && firstError === UNSET) firstError = err;
     }
   }
@@ -535,7 +550,8 @@ export function patchCommittedRaw(record: any): Record<PropertyKey, any> | undef
   if (t === undefined) return undefined;
   t = ultimateTarget(t) ?? t;
   if (t === undefined) return undefined;
-  return t.ht !== null ? ((t.hv ?? t.v) as Record<PropertyKey, any>) : t.v;
+  const hm = heldMaskView(t);
+  return (hm ?? t.v) as Record<PropertyKey, any>;
 }
 
 /** NODE DELIVERY (the structural successor to the queue machinery): one
@@ -557,6 +573,8 @@ function bumpDeliveryOptimistic(pc: any): void {
   // Override-armed write: in-flight visibility now, re-notify on revert —
   // the engine is installed by every optimistic caller of this seam.
   pc.bc = (pc.bc ?? 0) + 1;
+  if ((globalThis as any).__DBG__)
+    console.log("[opt-bump] bc:", pc.bc, new Error().stack?.split("\n")[2]?.trim());
   const w = GlobalQueue._optimisticWrite;
   if (w !== null && w !== undefined) w(pc.dn, (pc.dn._value ?? 0) + 1);
   else setSignal(pc.dn, (v: number) => v + 1);
@@ -595,9 +613,13 @@ function snapNode(node: DeepNode, src: any, dst: any): void {
 function visibleView(t: StoreNextTarget): any {
   // Optimistic families read THROUGH THE PROXY: tentative values live in
   // node overrides at ANY depth (a root-level view merge misses children),
-  // and untracked proxy reads resolve them all. Everyone else reads raw.
+  // and untracked proxy reads resolve them all. Everyone else: the SAME
+  // hold resolution the store's traps use (heldMaskView checks whether the
+  // holding transition finished — a raw ht read served stale masks after
+  // landings), else committed raw.
   if (t.fam?.opt === true) return t.px;
-  return t.ht !== null ? (t.hv ?? t.v) : t.v;
+  const hm = heldMaskView(t);
+  return hm !== null ? hm : t.v;
 }
 
 function ensureDelivery(t: StoreNextTarget, pc: any): void {
@@ -615,43 +637,57 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
     // registration (an UNARMED slot reads as an active override there —
     // INV-2 caught the miss).
     ext(dn)._overrideValue = NOT_PENDING;
+    // Internal machinery: bumps fire from walk/fold seams that may run
+    // under owned scopes (the queue design pushed arrays there; a signal
+    // write must carry the same exemption).
+    (dn as any)._config |= CONFIG_OWNED_WRITE;
     pc.dv = 0; // last dispatched bump count — the pure-registration flush skips
     pc.bc = 0;
-    pc.pv = manifestSnapshot(pc, visibleView(t));
   }
   const dn = pc.dn;
-  createRoot(d => {
-    pc.de = d;
-    createRenderEffect(
-      () => readSignal(dn) as number,
-      () => {
-        if (pc.bc === pc.dv) {
-          pc.pv = manifestSnapshot(pc, visibleView(t));
-          return;
+  // OWNER-NEUTRAL delivery: the channel is shared infrastructure (multi-
+  // consumer across boundaries) — created under a boundary's computation,
+  // the effect would land in that boundary's queue and miss lane-timed
+  // runs (bisected: boundary-owned registrations got no in-flight
+  // deliveries). Errors still route per-entry to each REGISTRANT's owner.
+  runWithOwner(null, () =>
+    createRoot(d => {
+      pc.de = d;
+      createRenderEffect(
+        () => readSignal(dn) as number,
+        () => {
+          if (pc.bc === pc.dv) return; // pure-registration run: baselines are per-entry
+          pc.dv = pc.bc;
+          const p = pc.p as PatchEntry[] | null;
+          if (p === null) return; // demoted or emptied — inert
+          // Deferred demotion (tentative getter views): performed HERE — the
+          // delivery effect is clean, lane-timed effect context, so the
+          // re-driven bodies subscribe correctly (creations inside a setter's
+          // write window never track).
+          if (pc.dmq === true) {
+            pc.dmq = false;
+            demoteToEffects(t, true);
+            return;
+          }
+          const next = visibleView(t);
+          const snap = p.length > 1 ? p.slice() : p;
+          let firstError: unknown = UNSET;
+          firstError = applyEntries(snap, next, PER_ENTRY_PREV, false, firstError, pc);
+          if (firstError !== UNSET) {
+            // CHANNEL CONTRACT (round-2 pin): every healthy patch applies
+            // before an unboundaried error crashes the system. A raw rethrow
+            // here would halt sibling channels' render-phase effects — defer
+            // the halt one phase so the flush still throws, after siblings.
+            const err = firstError;
+            globalQueue.enqueue(EFFECT_USER, () => {
+              haltReactivity(err);
+              throw err;
+            });
+          }
         }
-        pc.dv = pc.bc;
-        const p = pc.p as PatchEntry[] | null;
-        if (p === null) return; // demoted or emptied — inert
-        const next = visibleView(t);
-        const prev = pc.pv;
-        const snap = p.length > 1 ? p.slice() : p;
-        let firstError: unknown = UNSET;
-        firstError = applyEntries(snap, next, prev, false, firstError, pc);
-        pc.pv = manifestSnapshot(pc, next);
-        if (firstError !== UNSET) {
-          // CHANNEL CONTRACT (round-2 pin): every healthy patch applies
-          // before an unboundaried error crashes the system. A raw rethrow
-          // here would halt sibling channels' render-phase effects — defer
-          // the halt one phase so the flush still throws, after siblings.
-          const err = firstError;
-          globalQueue.enqueue(EFFECT_USER, () => {
-            haltReactivity(err);
-            throw err;
-          });
-        }
-      }
-    );
-  });
+      );
+    })
+  );
 }
 
 export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<PropertyKey>): () => void {
@@ -702,6 +738,15 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
   }
   patchCount++;
   ensureDelivery(t, pc);
+  // PER-ENTRY prev baseline (node delivery): the state this consumer's
+  // initial apply saw — a consumer mounting mid-batch compares against the
+  // batch's outcome (no duplicate setter writes), while one mounting
+  // mid-transaction compares against the held view (the commit delivers).
+  // No counters, no skip rules: the compare IS the decision. UNTRACKED:
+  // optimistic views are proxies — a tracked spread inside the registrant's
+  // computation subscribes every key onto it (a boundary re-ran per write,
+  // accumulating live re-registrations).
+  (entry as any).pv = untrack(() => manifestSnapshot(pc, visibleView(t)));
   // Bindings are subscriptions for reachability (§6d pruning must descend
   // into bound records).
   markDescendants(t);
@@ -786,7 +831,8 @@ export function patchableRaw(record: any, keys?: string[]): Record<PropertyKey, 
   // swaps t.v SPECULATIVELY under a transition (#3074) — the visible truth
   // is the held mask until the hold resolves; the held entry's release
   // re-applies the resolved state to the mount.
-  const raw = t.ht !== null ? ((t.hv ?? t.v) as Record<PropertyKey, any>) : t.v;
+  const hm = heldMaskView(t);
+  const raw = (hm ?? t.v) as Record<PropertyKey, any>;
   // Manifest deep-path admission (re-audit 8, P1-1): a getter ALREADY
   // nested on a declared read path rejects patch admission outright — the
   // adoption gates only see FUTURE adoptions.

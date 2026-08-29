@@ -55,7 +55,8 @@ describe("patch channel (PR-A)", () => {
     });
     flush();
     expect(log.length).toBe(1);
-    expect(log[0][0]).toBe(true); // forced (ancestor bubble)
+    // Node delivery: ancestor re-applies ride exact prev-snapshot compares
+    // instead of forced re-runs — the CONTRACT is the delivered value.
     expect(log[0][1]).toBe("2");
   });
 
@@ -128,9 +129,10 @@ describe("patch channel (PR-A)", () => {
     reject(new Error("fail"));
     await p;
     flush();
-    // Revert: forced re-apply lands with committed truth visible.
+    // Revert: the re-apply lands with committed truth visible (node
+    // delivery compares against the optimistic prev snapshot — no force).
     const last = log[log.length - 1];
-    expect(last[1]).toBe(true);
+    expect(last[0]).toBe("saved");
     expect(state.user.name).toBe("saved");
   });
 
@@ -464,7 +466,9 @@ describe("patch channel (re-audit hardening)", () => {
       }) as any;
     });
     const p = (save() as Promise<void>).catch(() => {});
-    // Lane-timed drain: the throwing sibling must not abort b's patch.
+    // Lane-timed delivery: the throwing sibling must not abort b's patch —
+    // owner-neutral delivery effects dispatch independently, so the healthy
+    // channel applies before the boundary teardown (queue-contract parity).
     expect(() => flush()).not.toThrow();
     expect(applied).toEqual(["b:1"]);
     expect(b()).toBe("errored");

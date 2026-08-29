@@ -638,7 +638,7 @@ let latestPullActive = false;
  * while the hold is live, and lazily clears a hold whose transition has
  * committed (transitions merge — resolve through currentTransition, same as
  * foldHeld's node stamps). */
-function heldMaskView(t: StoreNextTarget): Record<PropertyKey, any> | null {
+export function heldMaskView(t: StoreNextTarget): Record<PropertyKey, any> | null {
   const ht = t.ht;
   if (ht === null) return null;
   if (ht !== PLAIN_HOLD && currentTransition(ht)?._done === true) return (t.ht = t.hv = null);
@@ -842,6 +842,17 @@ function drainFolds(): void {
         (t.fam?.map ?? storeNextLookup).delete(pb);
         t.pb = null;
         t.ovl = false;
+        // Patch bump AT THE MERGE (node delivery): overlay flattens preserve
+        // identity, so the `t.v === old` gate below skips every downstream
+        // emission — this is the one moment in-place folds are visible.
+        // Post-merge, so deliveries read committed state (write-time bumps
+        // raced transition settles).
+        if (t.pc !== null && patchHooks !== null && (t.pc.p !== null || t.pc.dn !== null)) {
+          if (targetKeysPlain(t, t.v)) patchHooks.emitPatch(t, t.v, old);
+          else patchHooks.demoteToEffects(t);
+        } else if (t.pc !== null && patchHooks !== null) {
+          patchHooks.emitPatchAncestors(t);
+        }
         if (t.pc !== null) t.pc.wk = null; // written-keys window closes with the fold commit
       } else {
         // Setter-channel structural ops: a fold that changes an array's shape
@@ -1107,6 +1118,12 @@ function notifyWrites(t: StoreNextTarget): void {
     t.pb = null;
     t.v = pb;
     t.ch = false;
+    // Node delivery: post-await landings commit HERE (no fold pass) — bump
+    // post-swap so the delivery reads landed truth.
+    if (t.pc !== null && patchHooks !== null && (t.pc.p !== null || t.pc.dn !== null)) {
+      if (targetKeysPlain(t, t.v)) patchHooks.emitPatch(t, t.v, oldBacking);
+      else patchHooks.demoteToEffects(t);
+    }
     if (t.u && t.u.v[t.pk!] === oldBacking) {
       privatizeCommitted(t.u);
       devAssertNeverUserMutation(t.u.v);

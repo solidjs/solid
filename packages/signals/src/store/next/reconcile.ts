@@ -143,12 +143,17 @@ function reconcileTop(
     optHooks!.applyTentative(t, incoming, keyFn);
     // Tentative SELF visibility (re-audit 9, P1-4 root): engine overrides
     // notify effects through nodes, but the record's own patch channel
-    // never heard about the walk — emit the TENTATIVE VIEW at lane timing
-    // (the optimistic drain's accessor probe demotes getter-bearing views
-    // instead of reading them raw).
+    // never heard about the walk. ACCESSOR GATE HERE (node delivery): a
+    // getter-bearing tentative view must demote — deliveries read raw/
+    // proxy untracked, so the getter's dependencies would never re-apply.
     if (patchHooks !== null && t.pc !== null && t.pc.p !== null) {
-      const view = optHooks!.optimisticView(t, t.pb ?? t.v);
-      patchHooks.emitPatchOptimistic(t, view, t.v);
+      // Probe the INCOMING object: the view materializes values (getters
+      // already invoked), so accessors are only visible on the input.
+      // Getter-bearing views DEMOTE AT DELIVERY (pc.dmq): effects created
+      // inside this setter's write window never subscribe — the delivery
+      // effect performs the demotion from clean lane-timed effect context.
+      if (!targetKeysPlain(t, incoming)) (t.pc as any).dmq = true;
+      patchHooks.emitPatchOptimistic(t, null, t.v);
     }
     return "tentative";
   }

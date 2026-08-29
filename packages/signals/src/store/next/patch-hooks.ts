@@ -35,7 +35,7 @@ export interface PatchValueHooks {
   emitPatchAncestorsOptimistic(t: StoreNextTarget, tx: unknown): void;
   emitPatchOptimistic(t: StoreNextTarget, next: any, prev: any): void;
   hasPatches(): boolean;
-  demoteToEffects(t: StoreNextTarget): void;
+  demoteToEffects(t: StoreNextTarget, immediate?: boolean): void;
 }
 
 export interface PatchRowHooks {

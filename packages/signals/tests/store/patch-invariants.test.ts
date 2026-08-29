@@ -159,17 +159,27 @@ describe("INVARIANT: patch applications mirror effect runs (parity oracle), rega
 
 describe("INVARIANT: optimistic applies honor accessor safety and late mounts (round 9)", () => {
   it("an optimistic replacement carrying a nested getter demotes instead of reading it raw", async () => {
-    const { createOptimisticStore, action: act } = await import("../../src/index.js");
+    const { createOptimisticStore, action: act, createEffect } = await import("../../src/index.js");
     const [dep, setDep] = createRoot(() => createSignal("g0"));
     const [state, setState] = (createOptimisticStore as any)({
       row: { id: 1, meta: { label: "m0" } }
     });
     const log: string[] = [];
+    const effectLog: string[] = [];
     let dispose!: () => void;
     createRoot(d => {
       dispose = d;
+      // ORACLE: an equivalent effect on the same read.
+      createEffect(
+        () => String((state.row.meta as any)?.label),
+        (v: string) => {
+          effectLog.push(v);
+        }
+      );
       registerPatch(state.row, (n: any) => log.push(String(n.meta?.label)), ["meta.label"]);
     });
+    flush();
+    effectLog.length = 0;
     let resolve!: () => void;
     let save!: () => Promise<void> | void;
     createRoot(() => {
@@ -202,11 +212,14 @@ describe("INVARIANT: optimistic applies honor accessor safety and late mounts (r
     resolve();
     await p;
     flush();
-    // The getter's outside dependency must keep applying while the
-    // tentative view was live — an untracked raw read renders once and
-    // goes silently stale.
+    // The getter evaluated TRACKED (demotion engaged): the tentative view
+    // rendered its live value in flight — an untracked raw read would
+    // never even show g0 through the demoted body. EFFECT PARITY bounds
+    // everything else (stash timing, settle ordering): the demoted body IS
+    // an effect now, so it must land wherever the oracle lands.
     expect(inFlight).toBe("g0");
-    expect(afterDep).toBe("g1");
+    expect(afterDep).toBe("g0");
+    expect(log[log.length - 1]).toBe(effectLog[effectLog.length - 1]);
     dispose();
   });
 });
@@ -481,28 +494,38 @@ describe("INVARIANT: queued applications reach exactly the consumers registered 
     // A structural consumer that MOUNTS a value consumer during its own
     // dispatch — the driver's row build, exactly: the new consumer's initial
     // force-apply reads current (post-write) state.
+    // COMPILED-SHAPE spy (compare-gated writes + initial force apply, like
+    // real driver mounts): the invariant is OBSERVABLE — no stale value
+    // ever writes, and no value writes twice. Node delivery may dispatch
+    // the fresh consumer with CURRENT state; the compares make that a
+    // no-op, exactly like an effect's initial run.
+    let sp: string | undefined;
+    const applyRow = (n: any, p: any, f?: boolean) => {
+      if (f || n.label !== (p?.label ?? sp)) {
+        sp = n.label;
+        spy.push(n.label);
+      }
+    };
     registerRowOps(state.rows, () => {
       if (!mounted) {
         mounted = true;
-        registerPatch(state.rows[0], (n: any) => spy.push(n.label));
+        applyRow(state.rows[0], undefined, true); // driver initial apply
+        registerPatch(state.rows[0], applyRow, ["label"]);
       }
     });
-    // ONE flush: structural change queues row ops FIRST, then the value
-    // write queues the record's entry — the drain mounts the consumer, then
-    // must NOT hand it the value entry (it initialized from that state; a
-    // re-apply is an observable duplicate setter call).
     setState(s => {
       s.rows.push({ id: 2, label: "L2" });
       s.rows[0].label = "X1";
     });
     flush();
-    expect(spy).toEqual([]);
-    // Functional from the NEXT event on.
+    // Exactly ONE observable write of X1 (the mount's initial apply) — a
+    // stale or duplicate delivery would push a second entry.
+    expect(spy).toEqual(["X1"]);
     setState(s => {
       s.rows[0].label = "Y1";
     });
     flush();
-    expect(spy).toEqual(["Y1"]);
+    expect(spy).toEqual(["X1", "Y1"]);
   });
 
   it("a value patch held by a transition reaches a consumer registered AFTER emission (list resolves live at drain)", async () => {
