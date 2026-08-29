@@ -14,6 +14,7 @@ import {
   configureServerFunctionsServer,
   decodeResponse,
   handleServerFunctionRequest,
+  registerFlightDataSource,
   registerServerFunction,
   subscribeFlightData
 } from "@solidjs/web/server-functions/server";
@@ -42,13 +43,15 @@ afterAll(() => {
 });
 
 // A scripted call that opted into single-flight, like a router mutation.
-function flightRequest(id: string) {
+// `sources` is the request-leg header value: the source ids the client's
+// registered consumers can use ("true" is the unnamed legacy source).
+function flightRequest(id: string, sources = "true") {
   return new Request(`http://localhost/_server/${id}`, {
     method: "POST",
     headers: {
       "Sec-Fetch-Site": "same-origin",
       "X-Server-Function-Instance": "server-function:test",
-      [SINGLE_FLIGHT_HEADER]: "true"
+      [SINGLE_FLIGHT_HEADER]: sources
     }
   });
 }
@@ -99,6 +102,88 @@ describe("single-flight server bridge (built server bundle)", () => {
     expect(typeof unsubscribe).toBe("function");
     unsubscribe();
   });
+
+  it("folds named sources into a keyed envelope and names them in the header", async () => {
+    registerServerFunction("sf-bridge-multi-0", async () => "mutated");
+    // A named source folding alongside the unnamed hook, and one declining
+    // (undefined omits it from the envelope AND the header).
+    const unregisterQuery = registerFlightDataSource("sq", () => ({ queries: ["fresh"] }));
+    const unregisterSkip = registerFlightDataSource("skip", () => undefined);
+    try {
+      const response = await handleServerFunctionRequest(
+        flightRequest("sf-bridge-multi-0", "true,sq,skip"),
+        { collectFlightData: () => ({ "/notes": ["fresh"] }) }
+      );
+      expect(response.headers.get(SINGLE_FLIGHT_HEADER)).toBe("true,sq");
+      expect(await decodeResponse(response)).toEqual({
+        value: "mutated",
+        data: { true: { "/notes": ["fresh"] }, sq: { queries: ["fresh"] } }
+      });
+    } finally {
+      unregisterQuery();
+      unregisterSkip();
+    }
+  });
+
+  it("a named source alone folds keyed — never the raw legacy shape", async () => {
+    registerServerFunction("sf-bridge-named-0", async () => "mutated");
+    const unregister = registerFlightDataSource("sq", () => ({ queries: ["fresh"] }));
+    try {
+      // No unnamed hook anywhere: the client only advertised "sq".
+      const response = await handleServerFunctionRequest(flightRequest("sf-bridge-named-0", "sq"));
+      expect(response.headers.get(SINGLE_FLIGHT_HEADER)).toBe("sq");
+      expect(await decodeResponse(response)).toEqual({
+        value: "mutated",
+        data: { sq: { queries: ["fresh"] } }
+      });
+    } finally {
+      unregister();
+    }
+  });
+
+  it("sources the client did not advertise never run", async () => {
+    registerServerFunction("sf-bridge-unadvertised-0", async () => "mutated");
+    const collector = vi.fn(() => ({ queries: ["fresh"] }));
+    const unregister = registerFlightDataSource("sq", collector);
+    try {
+      // A legacy client ("true" alone): the named source does no collection
+      // work and the payload keeps the raw legacy shape.
+      const response = await handleServerFunctionRequest(
+        flightRequest("sf-bridge-unadvertised-0", "true"),
+        { collectFlightData: () => ({ "/notes": ["fresh"] }) }
+      );
+      expect(collector).not.toHaveBeenCalled();
+      expect(response.headers.get(SINGLE_FLIGHT_HEADER)).toBe("true");
+      expect(await decodeResponse(response)).toEqual({
+        value: "mutated",
+        data: { "/notes": ["fresh"] }
+      });
+    } finally {
+      unregister();
+    }
+  });
+
+  it("an unrecognized opt-in value still reaches the unnamed hook", async () => {
+    // Hand-tagged requests from integrations predating named sources sent
+    // arbitrary truthy values; any of them must keep opting in.
+    registerServerFunction("sf-bridge-handtag-0", async () => "mutated");
+    const response = await handleServerFunctionRequest(flightRequest("sf-bridge-handtag-0", "1"), {
+      collectFlightData: () => ({ "/notes": ["fresh"] })
+    });
+    expect(response.headers.get(SINGLE_FLIGHT_HEADER)).toBe("true");
+    expect(await decodeResponse(response)).toEqual({
+      value: "mutated",
+      data: { "/notes": ["fresh"] }
+    });
+  });
+
+  it("rejects reserved and malformed source ids on both halves", () => {
+    expect(() => registerFlightDataSource("true", () => ({}))).toThrow(TypeError);
+    expect(() => registerFlightDataSource("a,b", () => ({}))).toThrow(TypeError);
+    expect(() => registerFlightDataSource("", () => ({}))).toThrow(TypeError);
+    expect(() => subscribeFlightData("true", () => {})).toThrow(TypeError);
+    expect(() => subscribeFlightData("a,b", () => {})).toThrow(TypeError);
+  });
 });
 
 describe("single-flight client bridge (built client bundle)", () => {
@@ -138,6 +223,90 @@ describe("single-flight client bridge (built client bundle)", () => {
       expect(delivered[0].context.response.headers.get(SINGLE_FLIGHT_HEADER)).toBe("true");
     } finally {
       unsubscribe();
+      restore();
+    }
+  });
+
+  it("routes keyed slices to their subscribed consumers", async () => {
+    registerServerFunction("sf-bridge-multi-client-0", async () => "mutated");
+    let requestLeg: string | null = null;
+    const unregister = registerFlightDataSource("sq", () => ({ fromQuery: true }));
+    const restore = connectTransport({
+      collectFlightData: (_event, outcome) => {
+        requestLeg = outcome.request.headers.get(SINGLE_FLIGHT_HEADER);
+        return { fromRouter: true };
+      }
+    });
+    const routerSeen: any[] = [];
+    const querySeen: any[] = [];
+    // registration order is header order: the unnamed consumer first
+    const unsubscribeRouter = subscribeFlightDataClient(data => {
+      routerSeen.push(data);
+    });
+    const unsubscribeQuery = subscribeFlightDataClient("sq", data => {
+      querySeen.push(data);
+    });
+    try {
+      const result = await createServerReference("sf-bridge-multi-client-0")();
+      expect(result).toBe("mutated");
+      // the request leg advertised both consumers' sources
+      expect(requestLeg).toBe("true,sq");
+      // each cache saw only its own slice, seeded before the caller's await
+      expect(routerSeen).toEqual([{ fromRouter: true }]);
+      expect(querySeen).toEqual([{ fromQuery: true }]);
+    } finally {
+      unsubscribeRouter();
+      unsubscribeQuery();
+      unregister();
+      restore();
+    }
+  });
+
+  it("a named consumer alone advertises and receives only its source", async () => {
+    registerServerFunction("sf-bridge-named-client-0", async () => "mutated");
+    const legacyHook = vi.fn(() => ({ fromRouter: true }));
+    const unregister = registerFlightDataSource("sq", () => ({ fromQuery: true }));
+    const restore = connectTransport({ collectFlightData: legacyHook });
+    const querySeen: any[] = [];
+    const unsubscribe = subscribeFlightDataClient("sq", data => {
+      querySeen.push(data);
+    });
+    try {
+      const result = await createServerReference("sf-bridge-named-client-0")();
+      expect(result).toBe("mutated");
+      expect(querySeen).toEqual([{ fromQuery: true }]);
+      // no unnamed consumer on the page: the router hook never ran
+      expect(legacyHook).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+      unregister();
+      restore();
+    }
+  });
+
+  it("degrades to the legacy shape against a server folding only the unnamed hook", async () => {
+    // The cross-version case: the client advertises "true,sq" but the
+    // server has no "sq" collector registered (an older deployment). Only
+    // the unnamed hook folds, the echo is "true", and the whole payload
+    // reaches the unnamed consumer raw — the named consumer simply starves.
+    registerServerFunction("sf-bridge-degrade-0", async () => "mutated");
+    const restore = connectTransport({
+      collectFlightData: () => ({ fromRouter: true })
+    });
+    const routerSeen: any[] = [];
+    const queryConsumer = vi.fn();
+    const unsubscribeRouter = subscribeFlightDataClient(data => {
+      routerSeen.push(data);
+    });
+    const unsubscribeQuery = subscribeFlightDataClient("sq", queryConsumer);
+    try {
+      const result = await createServerReference("sf-bridge-degrade-0")();
+      expect(result).toBe("mutated");
+      expect(routerSeen).toEqual([{ fromRouter: true }]);
+      expect(queryConsumer).not.toHaveBeenCalled();
+    } finally {
+      unsubscribeRouter();
+      unsubscribeQuery();
       restore();
     }
   });

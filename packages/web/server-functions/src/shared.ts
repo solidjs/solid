@@ -233,55 +233,113 @@ export function getServerFunctionsCodec() {
   return codecConfig.codec;
 }
 
-// The single-flight consumer also lives in the universal layer: routers are
+// The single-flight consumers also live in the universal layer: routers are
 // universal code, so the registration must be importable from any build
-// (the server side simply never delivers to it).
-const flightConfig = { consumer: undefined }; /**
+// (the server side simply never delivers to them). Consumers are keyed by
+// source id — the id list travels on the wire in both directions (the
+// request leg advertises what the client can consume, the response leg
+// names what was folded), and the unnamed legacy registration rides under
+// the reserved token "true" so a single legacy consumer produces the
+// original header value and old peers interoperate unchanged.
+const LEGACY_FLIGHT_SOURCE = "true";
+const flightConfig = { consumers: new Map() };
+
+/**
+ * Validates a flight data source id (both registration halves share the
+ * rule): ids travel the `SINGLE_FLIGHT_HEADER` as a comma-separated list,
+ * so they cannot be empty or contain commas, and "true" is reserved for
+ * the unnamed legacy registration.
+ *
+ * Transport building block; not meant for hand-written code.
+ * @internal
+ */
+export function assertFlightSource(source: string): void;
+
+/** Validates a flight data source id. */
+export function assertFlightSource(source) {
+  if (source === LEGACY_FLIGHT_SOURCE || source === "" || source.includes(",")) {
+    throw new TypeError(
+      `Invalid flight data source id "${source}": ids ride the ` +
+        `${SINGLE_FLIGHT_HEADER} header as a comma-separated list, and "true" is ` +
+        `reserved for the unnamed registration (the bare consumer/hook signatures).`
+    );
+  }
+} /**
  * Registers the consumer the client transport delivers single-flight data
- * to. Subscribing is the single-flight opt-in: while a consumer is
+ * to. Subscribing is the single-flight opt-in: while any consumer is
  * registered the transport sends the request-leg `SINGLE_FLIGHT_HEADER` on
  * non-GET calls (GET reads stay plain and cacheable), asking the server's
- * collection hook to fold data into the response. When a single-flight
+ * collection hooks to fold data into the response. When a single-flight
  * response arrives, the transport decodes the standardized
- * `{ value, data }` payload, delivers `data` (with the response as
+ * `{ value, data }` payload, delivers the data (with the response as
  * envelope context — redirect location, revalidation keys), and returns
  * `value` to the caller as if the call were plain. What to do with the
  * data (seed caches, navigate, ...) is entirely the consumer's business.
- * One active consumer at a time — a later registration replaces the
- * current one; returns an unsubscribe function. With no consumer
+ *
+ * The one-argument form registers the unnamed consumer — the integration
+ * that owns data production (a router), receiving the whole payload, wire-
+ * compatible with peers that predate named sources. The two-argument form
+ * registers under a source id, pairing with the server's
+ * `registerFlightDataSource(id, hook)`: each named consumer receives only
+ * its own source's slice of the keyed envelope, so independent caches
+ * (a router's and a query library's) coexist on one round trip without
+ * displacing each other.
+ *
+ * One active consumer per source — a later registration replaces the
+ * current one; returns an unsubscribe function. With no consumers
  * registered, no header is sent and the server does no collection work;
  * responses an integration opted in manually still pass through to the
  * caller whole, exactly like other integration responses.
  */
 export function subscribeFlightData<D = unknown>(consumer: FlightDataConsumer<D>): () => void;
+export function subscribeFlightData<D = unknown>(
+  source: string,
+  consumer: FlightDataConsumer<D>
+): () => void;
 
 /**
- * Registers the consumer the client transport delivers single-flight data
+ * Registers a consumer the client transport delivers single-flight data
  * to: `consumer(data, { response })` — the integration-produced payload
- * plus the response as envelope context (redirect location, revalidation
- * keys, status). What the data means and what to do with it (seed caches,
- * navigate, ...) is entirely the consumer's business. One active consumer
- * at a time (a later registration replaces the current one); returns an
- * unsubscribe function. With no consumer registered, single-flight
- * responses pass through to the caller whole, exactly like other
- * integration responses.
+ * (the whole payload for the unnamed one-argument form, the source's own
+ * slice for the named form) plus the response as envelope context
+ * (redirect location, revalidation keys, status). One active consumer per
+ * source (a later registration replaces the current one); returns an
+ * unsubscribe function.
  */
-export function subscribeFlightData(consumer) {
-  flightConfig.consumer = consumer;
+export function subscribeFlightData(sourceOrConsumer, maybeConsumer) {
+  const named = typeof sourceOrConsumer === "string";
+  if (named) assertFlightSource(sourceOrConsumer);
+  const source = named ? sourceOrConsumer : LEGACY_FLIGHT_SOURCE;
+  const consumer = named ? maybeConsumer : sourceOrConsumer;
+  flightConfig.consumers.set(source, consumer);
   return () => {
-    if (flightConfig.consumer === consumer) flightConfig.consumer = undefined;
+    if (flightConfig.consumers.get(source) === consumer) flightConfig.consumers.delete(source);
   };
 } /**
- * The currently registered single-flight consumer.
+ * The registered single-flight consumer for a source id ("true" — or no
+ * argument — is the unnamed legacy registration).
  *
  * Transport building block; not meant for hand-written code.
  * @internal
  */
-export function getFlightDataConsumer(): FlightDataConsumer | undefined;
+export function getFlightDataConsumer(source?: string): FlightDataConsumer | undefined;
 
-/** The currently registered single-flight consumer. */
-export function getFlightDataConsumer() {
-  return flightConfig.consumer;
+/** The registered single-flight consumer for a source id. */
+export function getFlightDataConsumer(source) {
+  return flightConfig.consumers.get(source === undefined ? LEGACY_FLIGHT_SOURCE : source);
+} /**
+ * The source ids with a registered consumer, in registration order — the
+ * request-leg `SINGLE_FLIGHT_HEADER` value is exactly this list joined
+ * with commas (a lone legacy registration yields the original "true").
+ *
+ * Transport building block; not meant for hand-written code.
+ * @internal
+ */
+export function getFlightDataSourceIds(): string[];
+
+/** The source ids with a registered consumer. */
+export function getFlightDataSourceIds() {
+  return [...flightConfig.consumers.keys()];
 } /**
  * The intrinsic wire address of a server-component call: the function id,
  * suffixed with a realm-stable hash of the arguments when there are any.

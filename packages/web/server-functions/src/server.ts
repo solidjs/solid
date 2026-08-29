@@ -29,6 +29,7 @@ import {
   SERVER_FUNCTION_INVOKE,
   SERVER_FUNCTION_METADATA,
   SINGLE_FLIGHT_HEADER,
+  assertFlightSource,
   configureServerFunctionsCodec,
   decodeResponse,
   deserializeString,
@@ -245,10 +246,13 @@ export interface ServerFunctionsServerConfig {
    */
   wrapInvocation?: WrapInvocationHook;
   /**
-   * The single-flight hook: produces the data payload folded into
+   * The unnamed single-flight hook: produces the data payload folded into
    * responses of calls that opted in (see `CollectFlightDataHook`).
    * Registered once by the integration that owns data production (a
-   * router); per-handler `collectFlightData` options override it.
+   * router); per-handler `collectFlightData` options override it. Other
+   * integrations contribute additively through
+   * `registerFlightDataSource(id, hook)` instead of competing for this
+   * slot.
    */
   collectFlightData?: CollectFlightDataHook;
   /**
@@ -538,6 +542,49 @@ export function configureServerFunctionsServer({
   if (endpoint !== undefined) config.endpoint = endpoint;
   if (csrf !== undefined) config.csrf = csrf;
   if (codec !== undefined) configureServerFunctionsCodec(codec);
+}
+
+// Named flight-data collectors, keyed by source id. The unnamed
+// `collectFlightData` hook (config or per-handler option) stays the
+// integration that owns data production — a router; named sources are the
+// additive seam for everyone else (a query cache refreshing its own
+// entries), each folding a slice under its id without displacing the
+// owner. Which collectors run for a call is the client's request-leg
+// header: the ids its registered consumers can actually use.
+const flightSources = new Map(); /**
+ * Registers a named single-flight data source: `hook` runs for mutation
+ * calls whose client advertised `source` in the request-leg
+ * `SINGLE_FLIGHT_HEADER` (the client half is
+ * `subscribeFlightData(source, consumer)`), alongside the unnamed
+ * `collectFlightData` hook and any other named sources. Each defined
+ * result is folded into the response under its id — with named sources in
+ * play the payload's `data` is the keyed envelope
+ * `{ [source]: slice, ... }` and the response header names the folded
+ * sources — so independent caches share one round trip without competing
+ * for the single unnamed slot. Returning undefined omits the source from
+ * the response; when nothing folds, the response is byte-identical to a
+ * plain call.
+ *
+ * Hooks receive the same digested outcome as `collectFlightData` (target
+ * URL, folded cookie headers, revalidation keys) and run sequentially in
+ * registration order after the unnamed hook. One hook per source — a
+ * later registration replaces the current one; returns an unregister
+ * function. Call at server startup, next to
+ * `configureServerFunctionsServer`.
+ */
+export function registerFlightDataSource(source: string, hook: CollectFlightDataHook): () => void;
+
+/**
+ * Registers a named single-flight data source (the server half of
+ * `subscribeFlightData(source, consumer)`); returns an unregister
+ * function.
+ */
+export function registerFlightDataSource(source, hook) {
+  assertFlightSource(source);
+  flightSources.set(source, hook);
+  return () => {
+    if (flightSources.get(source) === hook) flightSources.delete(source);
+  };
 }
 
 function provideEvent(event, fn) {
@@ -955,23 +1002,36 @@ async function parseArguments(request, url, instance, codec) {
 }
 
 /**
- * Runs the single-flight hook and standardizes its contribution: when the
- * hook returns data, the body becomes the `{ value, data }` payload and the
- * response is tagged with the single-flight header; when it returns
- * undefined the response is byte-identical to a call without the hook.
- * Data production is the hook's black box — core never sees how the
- * integration computed it, but the generic halves of the protocol are
- * pre-digested onto the outcome (see `digestOutcome`) so integrations only
- * supply the data strategy. A raw body-carrying `Response` value is the
- * caller's verbatim payload — there is no envelope to fold data into, so
- * the hook never runs for one.
+ * Runs the single-flight hooks and standardizes their contribution: each
+ * `[source, hook]` pair that returns data is folded into the body's
+ * `{ value, data }` payload, and the response's single-flight header names
+ * the folded sources — the client routes slices to consumers by it. A lone
+ * unnamed fold ("true") keeps the legacy raw payload shape and header
+ * value, byte-identical to the single-hook protocol, so peers that predate
+ * named sources interoperate unchanged; named sources produce the keyed
+ * envelope `{ [source]: slice, ... }`. When every hook declines the
+ * response is byte-identical to a call without hooks. Data production is
+ * each hook's black box — core never sees how the integration computed it,
+ * but the generic halves of the protocol are pre-digested onto the outcome
+ * (see `digestOutcome`, run once for all hooks) so integrations only
+ * supply the data strategy. Hooks run sequentially: collectors re-run
+ * reads inside request-event scopes, and interleaving those is asking for
+ * cross-talk. A raw body-carrying `Response` value is the caller's
+ * verbatim payload — there is no envelope to fold data into, so no hook
+ * runs for one.
  */
-async function foldFlightData(hook, event, headers, outcome, context = {}) {
+async function foldFlightData(hooks, event, headers, outcome, context = {}) {
   if (outcome.value instanceof Response && outcome.value.body) return outcome.value;
   digestOutcome(event, outcome);
-  const data = await hook(event, outcome);
-  if (data === undefined) return outcome.value;
-  headers.set(SINGLE_FLIGHT_HEADER, "true");
+  const folded = [];
+  for (const [source, hook] of hooks) {
+    const slice = await hook(event, outcome);
+    if (slice !== undefined) folded.push([source, slice]);
+  }
+  if (folded.length === 0) return outcome.value;
+  const legacy = folded.length === 1 && folded[0][0] === "true";
+  const data = legacy ? folded[0][1] : Object.fromEntries(folded);
+  headers.set(SINGLE_FLIGHT_HEADER, folded.map(([source]) => source).join(","));
   // A payload can be partly markup — an invalidated region the integration
   // answered with a server component. That needs a body only the frame
   // policy knows how to build, so it gets first refusal on the fold;
@@ -1838,8 +1898,24 @@ export async function handleServerFunctionRequest(request, options = {}) {
           ? defaultNoJSHandler || (defaultNoJSHandler = createNoJSHandler())
           : undefined;
   // single-flight is scripted-client opt-in: the caller sends the request
-  // header, the server must have a hook to produce the data
-  const collectsFlight = !!(flightHook && instance && request.headers.has(SINGLE_FLIGHT_HEADER));
+  // header naming the sources it can consume ("true" is the unnamed hook —
+  // and the whole header, for clients that predate named sources), the
+  // server must have hooks to produce the data. Only advertised sources
+  // run: a client that never subscribed a source's consumer never pays for
+  // its collection. Unrecognized-but-present headers (a hand-tagged
+  // request from an older integration) fall back to the unnamed hook, so
+  // any value that opted in before still opts in.
+  const flightHeader = instance ? request.headers.get(SINGLE_FLIGHT_HEADER) : null;
+  const flightHooks = flightHeader
+    ? flightHeader.split(",").flatMap(source => {
+        const hook = source === "true" ? flightHook : flightSources.get(source);
+        return hook ? [[source, hook]] : [];
+      })
+    : [];
+  if (flightHeader && flightHooks.length === 0 && flightHook) {
+    flightHooks.push(["true", flightHook]);
+  }
+  const collectsFlight = flightHooks.length > 0;
 
   let parsed;
   try {
@@ -1932,7 +2008,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
 
       if (collectsFlight) {
         result = await foldFlightData(
-          flightHook,
+          flightHooks,
           event,
           headers,
           {
@@ -1995,7 +2071,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
         // flight data for the destination route
         if (collectsFlight) {
           x = await foldFlightData(
-            flightHook,
+            flightHooks,
             event,
             headers,
             {
