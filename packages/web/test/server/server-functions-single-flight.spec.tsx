@@ -163,6 +163,37 @@ describe("single-flight server bridge (built server bundle)", () => {
     }
   });
 
+  it("a throwing collector loses only its own slice", async () => {
+    registerServerFunction("sf-bridge-throw-0", async () => "mutated");
+    const unregisterBroken = registerFlightDataSource("broken", () => {
+      throw new Error("collector exploded");
+    });
+    const unregisterQuery = registerFlightDataSource("sq", () => ({ queries: ["fresh"] }));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await handleServerFunctionRequest(
+        flightRequest("sf-bridge-throw-0", "broken,sq")
+      );
+      // The mutation's outcome and the healthy cache's slice both survive —
+      // a thrown hook must not fall into the handler's error path (the
+      // client would receive an error for a mutation that succeeded) or
+      // take the other sources down with it.
+      expect(response.headers.get(SINGLE_FLIGHT_HEADER)).toBe("sq");
+      expect(await decodeResponse(response)).toEqual({
+        value: "mutated",
+        data: { sq: { queries: ["fresh"] } }
+      });
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining('"broken"'),
+        expect.any(Error)
+      );
+    } finally {
+      consoleError.mockRestore();
+      unregisterBroken();
+      unregisterQuery();
+    }
+  });
+
   it("an unrecognized opt-in value still reaches the unnamed hook", async () => {
     // Hand-tagged requests from integrations predating named sources sent
     // arbitrary truthy values; any of them must keep opting in.

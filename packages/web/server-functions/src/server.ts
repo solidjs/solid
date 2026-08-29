@@ -1025,8 +1025,17 @@ async function foldFlightData(hooks, event, headers, outcome, context = {}) {
   digestOutcome(event, outcome);
   const folded = [];
   for (const [source, hook] of hooks) {
-    const slice = await hook(event, outcome);
-    if (slice !== undefined) folded.push([source, slice]);
+    // Contained per source: one cache's collector failing must not cost the
+    // mutation's outcome or the other caches' slices — without this, a
+    // thrown hook falls into the handler's outer catch and the client
+    // receives an ERROR for a mutation that succeeded. A missing slice just
+    // means that cache revalidates the normal way.
+    try {
+      const slice = await hook(event, outcome);
+      if (slice !== undefined) folded.push([source, slice]);
+    } catch (error) {
+      console.error(`Error collecting flight data for source "${source}"`, error);
+    }
   }
   if (folded.length === 0) return outcome.value;
   const legacy = folded.length === 1 && folded[0][0] === "true";
