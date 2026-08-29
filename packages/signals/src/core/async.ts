@@ -1,6 +1,5 @@
 import {
   CONFIG_CHILD_COMPANIONS,
-  CONFIG_QUIESCENCE_OBSERVED,
   CONFIG_AUTO_DISPOSE,
   CONFIG_SYNC,
   EFFECT_TRACKED,
@@ -394,7 +393,7 @@ export function handleAsync<T>(
       // only notified when the hold is visible to them: under an active
       // override every reader sees the override (A17), so waking subs would
       // re-show an unchanged view — the revert is the notification point.
-      GlobalQueue._syncCompanions?.(el, value);
+      GlobalQueue._syncCompanions !== null && GlobalQueue._syncCompanions(el, value);
       if (!hasActiveOverride(el)) {
         if (__DEV__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, true);
         insertSubs(el);
@@ -412,7 +411,7 @@ export function handleAsync<T>(
           // The latest() shadow write gives latest() effects independent lanes; the
           // _pendingSignal update is a no-op repeat of the clearStatus() call above
           // (computePendingState doesn't read _value).
-          GlobalQueue._syncCompanions?.(el, value);
+          GlobalQueue._syncCompanions !== null && GlobalQueue._syncCompanions(el, value);
           insertSubs(el, true);
         }
       } catch (e) {
@@ -710,17 +709,8 @@ export function clearStatus(el: Computed<any>, clearUninitialized: boolean = fal
   el._statusFlags = clearUninitialized ? 0 : el._statusFlags & STATUS_UNINITIALIZED;
   if (el._x?._error) setPendingError(el);
   // Update pending signal for isPending() reactivity (companions only exist
-  // once the verdict layer created them, which installs the hooks). The
-  // quiescence bit admits awaited-refresh targets with no companions: this
-  // seam fires on EVERY landing — equal-value (otherwise silent to the
-  // graph) and staged-under-hold included — so it is the waiters' witness
-  // (see core/quiescence.ts, whose installer guarantees the slot is set).
-  if (
-    el._x?._pendingSignal ||
-    el._x?._latestValueComputed ||
-    el._config & CONFIG_QUIESCENCE_OBSERVED
-  )
-    GlobalQueue._updatePendingSignal!(el);
+  // once the verdict layer created them, which installs the hooks).
+  if (el._x?._pendingSignal || el._x?._latestValueComputed) GlobalQueue._updatePendingSignal!(el);
   if (
     el._x?._child &&
     el._config & CONFIG_CHILD_COMPANIONS &&
@@ -766,7 +756,7 @@ export function notifyStatus(
         status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
       ext(el)._error = error;
     }
-    GlobalQueue._updatePendingSignal?.(el);
+    GlobalQueue._updatePendingSignal !== null && GlobalQueue._updatePendingSignal(el);
     if (
       el._x?._child &&
       el._config & CONFIG_CHILD_COMPANIONS &&

@@ -89,14 +89,6 @@ export const CONFIG_AUTHORITATIVE_OBSERVED = 1 << 14;
  * deadlocks the hold (until). Safe because the node is a private leaf: no
  * subscriber reads an effect's value, only its own apply does. */
 export const CONFIG_DIRECT_COMMIT = 1 << 15;
-/** An awaited `refresh()` is watching this node for quiescence. The bit is a
- * cheap seam gate, not the registry: waiters live in core/quiescence.ts,
- * keyed by node, and both settle seams (clearStatus on landing, notifyStatus
- * on error) already dispatch through `GlobalQueue._updatePendingSignal` —
- * the bit's only job is to admit companion-less nodes through clearStatus's
- * gate. Sticky (the waiter map is authoritative); only refreshed-and-awaited
- * nodes ever carry it. */
-export const CONFIG_QUIESCENCE_OBSERVED = 1 << 16;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
