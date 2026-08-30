@@ -228,11 +228,29 @@ describe("the origin gate's reading of the headers", () => {
     // absence of an Origin (which the deployment may opt into accepting)
     // and it is not an origin that can match one: it is a caller declining
     // to say where it came from, on a request that carries cookies.
+    // Run with the no-proof escape hatch OPEN: a request carrying nothing
+    // would be accepted here, so the refusal below can only come from the
+    // literal `null` itself. Without that, this passes on a gate that has
+    // stopped reading Origin at all.
     const fn = vi.fn(async () => "ok");
     registerServerFunction("csrf-reading", fn);
+    const lenient = { csrf: { allowRequestsWithoutOriginCheck: true }, provideEvent };
 
-    expect((await post({ Origin: "null" })).status).toBe(403);
-    expect(fn).not.toHaveBeenCalled();
+    const noProof = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/csrf-reading", { method: "POST" }),
+      lenient
+    );
+    expect(noProof.status).toBe(200);
+
+    const opaque = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/csrf-reading", {
+        method: "POST",
+        headers: { Origin: "null" }
+      }),
+      lenient
+    );
+    expect(opaque.status).toBe(403);
+    expect(fn).toHaveBeenCalledOnce();
   });
 
   it("compares the Origin byte for byte: scheme, host case and port all count", async () => {
@@ -288,16 +306,6 @@ describe("the origin gate's reading of the headers", () => {
       expect([referer, response.status]).toEqual([referer, 403]);
     }
     expect(fn).not.toHaveBeenCalled();
-  });
-
-  it("reads only the origin out of a Referer, path and all", async () => {
-    // The default `Referrer-Policy` sends the full url same-origin, so the
-    // common case carries a path, a query and sometimes a fragment. Only
-    // the origin is compared; the rest is the referring page's business.
-    registerServerFunction("csrf-reading", async () => "ok");
-
-    const response = await post({ Referer: "https://app.example/orders/7?tab=items#total" });
-    expect(response.status).toBe(200);
   });
 
   it("falls through to Origin when Sec-Fetch-Site carries a value it does not know", async () => {

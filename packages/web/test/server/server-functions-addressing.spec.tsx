@@ -413,7 +413,7 @@ describe("server-function addressing (#3070, built bundles)", () => {
     expect(fn).not.toHaveBeenCalled();
   });
 
-  it("refuses an oversized id before reading the request body", async () => {
+  it("answers an unknown id before buffering the request body", async () => {
     // An id is a compiler-minted string; a 200 KB one is somebody probing.
     // It has to cost nothing to say no: the id is resolved from the path
     // before the body is buffered or decoded, so the refusal is a registry
