@@ -843,12 +843,15 @@ export function refresh<T>(
       // stay quiet. The waiter swaps in its microtask queue during its own
       // first compute (before the initial apply enqueue), replacing the
       // root-owner plumbing.
-      let waiter: Owner | null = null;
+      // Typed as the effect node, not Owner: the capture runs inside the
+      // effect's own compute, where the ambient owner IS the effect —
+      // exactly what dispose() takes.
+      let waiter: Computed<unknown> | null = null;
       const make = () =>
         effect(
           () => {
             if (waiter === null) {
-              waiter = getOwner()!;
+              waiter = getOwner() as Computed<unknown>;
               const queue = new MicrotaskQueue();
               queue._parent = waiter._queue;
               waiter._queue = queue;
