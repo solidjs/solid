@@ -292,9 +292,11 @@ describe("a streamed result nobody is reading", () => {
       await new Promise(resolve => setImmediate(resolve));
     }
 
-    // liveness: test 1 passes just as well if the gate never reopens, so
-    // this is the case that would catch a deadlock. A healthy run tracks
-    // the reads almost exactly; the bound is loose enough for a slow CI.
+    // This pins the CANCEL half — that a departed consumer stops the
+    // producer. It does not catch a gate that never reopens: reading in a
+    // tight loop keeps a read request pending, so `desiredSize` never
+    // drops and nothing ever parks. The pausing test above is the one that
+    // catches that, and it took two attempts to learn the difference.
     expect(whileReading).toBeGreaterThanOrEqual(10);
     // ...and a departed consumer stops it, give or take the pull in flight
     expect(produced).toBeLessThanOrEqual(atCancel + 1);
