@@ -20,6 +20,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { markSafeError, respond } from "@solidjs/web";
 import {
   ERROR_HEADER,
+  decodeErrorHeaderValue,
   handleServerFunctionRequest,
   registerServerFunction
 } from "@solidjs/web/server-functions/server";
@@ -162,4 +163,40 @@ describe("null-body statuses (#3095)", () => {
       restore();
     }
   });
+});
+
+/**
+ * The bound is enforced by re-encoding a shrinking slice of the SOURCE,
+ * never by cutting the encoded form — a percent escape severed in half
+ * (`%D0` without its second byte) leaves a header that no longer decodes.
+ * Asserting only the length cannot tell the two implementations apart:
+ * ASCII encodes to itself, and a truncated Cyrillic value is still short
+ * enough to pass. Decoding it is what pins the difference.
+ */
+describe("the bound applies to the source, not to the encoding (#3093)", () => {
+  // A percent escape is six characters (`%D0%AF`), so where the ceiling
+  // lands inside the encoded form depends on what precedes the run. With
+  // no padding it lands on an escape boundary and a naive
+  // `encode(message).slice(0, LIMIT)` produces a value that still decodes
+  // — that case cannot tell the two implementations apart. One character
+  // of padding moves the ceiling into the middle of an escape, and the
+  // naive form stops decoding. Both are here so the property is stated
+  // rather than sampled.
+  for (const padding of [0, 1]) {
+    it(`a bounded non-latin1 header decodes back to a prefix of the message (padding ${padding})`, async () => {
+      const message = `${"x".repeat(padding)}${"\u042f".repeat(600)}`;
+      const id = `bounded-cyrillic-roundtrip-${padding}`;
+      registerServerFunction(id, async () => {
+        throw markSafeError(new Error(message));
+      });
+
+      const response = await handleServerFunctionRequest(scriptedPost(id));
+      const encoded = response.headers.get(ERROR_HEADER)!;
+
+      expect(encoded.length).toBeLessThanOrEqual(1024);
+      const decoded = decodeErrorHeaderValue(encoded);
+      expect(decoded.length).toBeGreaterThan(0);
+      expect(message.startsWith(decoded)).toBe(true);
+    });
+  }
 });

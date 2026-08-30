@@ -278,3 +278,30 @@ describe("the no-JS form convention honors returned redirects (#3096)", () => {
     expect(response.headers.get("Location")).toBe("https://app.example/elsewhere");
   });
 });
+
+/**
+ * The mask is justified by ONE fact — that fetch follows these statuses —
+ * so it has to cover exactly the set fetch follows. Exercising 302 alone
+ * cannot show that: narrowing the set to {302, 303}, or dropping 307/308,
+ * leaves a scripted caller a real redirect that fetch chases before the
+ * transport can read it, and the redirect is silently lost.
+ */
+describe("every status in the Fetch redirect set masks, and only for scripted callers (#3096)", () => {
+  // 302 is covered above; these are the four the file never exercised.
+  it.each([301, 303, 307, 308])(
+    "%i travels as the redirect carrier for scripted callers, real for the rest",
+    async status => {
+      const id = `redirect-set-${status}`;
+      registerServerFunction(id, async () => respond(undefined, { status, headers: location }));
+
+      const masked = await handleServerFunctionRequest(scripted(id));
+      expect(masked.status).toBe(200);
+      expect(masked.headers.get(REDIRECT_HEADER)).toBe(`${status} https://app.example/elsewhere`);
+      expect(masked.headers.get("Location")).toBeNull();
+
+      const real = await handleServerFunctionRequest(unscripted(id));
+      expect(real.status).toBe(status);
+      expect(real.headers.get("Location")).toBe("/elsewhere");
+    }
+  );
+});
