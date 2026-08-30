@@ -161,17 +161,18 @@ describe("a result the codec cannot encode", () => {
 });
 
 describe("a streamed result nobody is reading", () => {
-  // GAP (#3118): the producer runs unboundedly ahead. The response stream is built
-  // with no `pull` and no queuing strategy, and every codec node is
-  // enqueued the moment it is parsed, so the producer runs as fast as it
-  // can resolve whether or not anyone reads. On a large or infinite stream
-  // one slow client buffers the whole result in server memory, invisibly
-  // to application code.
+  // Closed (#3118): the source is pulled behind a demand gate. The stream
+  // was built with no `pull` and no queuing strategy, and every codec node
+  // is enqueued the moment it is parsed, so the producer ran as fast as it
+  // could resolve whether or not anyone read — one slow client buffered
+  // the whole result in server memory, invisibly to application code. The
+  // consumer's reads now drive `pull`, which releases one source pull at a
+  // time. Ordinary guard now.
   //
-  // Counted in event-loop turns rather than wall-clock: a bounded producer
-  // stays near the queue size whatever the machine, an unbounded one
-  // tracks the turn count.
-  test.fails("does not let the producer run ahead of the consumer", async () => {
+  // Counted in event-loop turns rather than wall-clock, so the assertion
+  // means the same thing on any machine: a gated producer stays near the
+  // queue size, an ungated one tracks the turn count.
+  test("does not let the producer run ahead of the consumer", async () => {
     let produced = 0;
     registerServerFunction("gap-backpressure", async function* () {
       while (produced < 100_000) {
@@ -190,6 +191,32 @@ describe("a streamed result nobody is reading", () => {
     await reader.cancel();
 
     expect(produced).toBeLessThan(50);
+  });
+
+  test("resumes as the consumer reads, and stops when it leaves", async () => {
+    let produced = 0;
+    registerServerFunction("gap-backpressure-resume", async function* () {
+      while (produced < 100_000) {
+        produced++;
+        yield { n: produced };
+        await new Promise(resolve => setImmediate(resolve));
+      }
+    });
+
+    const response = await handleServerFunctionRequest(scriptedPost("gap-backpressure-resume"));
+    const reader = response.body!.getReader();
+    for (let read = 0; read < 20; read++) await reader.read();
+    const whileReading = produced;
+    await reader.cancel();
+    const atCancel = produced;
+    for (let turn = 0; turn < 50; turn++) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+
+    // it kept up with the reads rather than stalling behind them...
+    expect(whileReading).toBeGreaterThan(1);
+    // ...and a departed consumer stops it, give or take the pull in flight
+    expect(produced).toBeLessThanOrEqual(atCancel + 1);
   });
 });
 

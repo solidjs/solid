@@ -1676,6 +1676,20 @@ export function serializeResponseStream(value, codecOptions, signal) {
   value = guardFailures(value);
   let closeIterator = null;
   let closed = false;
+  // Demand gate. seroval's pump pulls the source as fast as it resolves and
+  // enqueues every node the moment it is parsed, so without this a slow
+  // consumer never slows the producer: the whole result accumulates in the
+  // stream's queue, in server memory, unbounded. The consumer's reads drive
+  // `pull`, which releases one source pull at a time.
+  let streamController = null;
+  let releaseDemand = null;
+  const wantsMore = () => !streamController || streamController.desiredSize > 0;
+  const awaitDemand = () => new Promise(resolve => (releaseDemand = resolve));
+  const supplyDemand = () => {
+    const resolve = releaseDemand;
+    releaseDemand = null;
+    if (resolve) resolve();
+  };
   let cancelSerialize = null;
   let onAbort = null;
   const teardown = () => {
@@ -1684,6 +1698,7 @@ export function serializeResponseStream(value, codecOptions, signal) {
     if (onAbort) signal.removeEventListener("abort", onAbort);
     if (cancelSerialize) cancelSerialize();
     if (closeIterator) closeIterator();
+    supplyDemand();
   };
   if (
     value !== null &&
@@ -1711,8 +1726,12 @@ export function serializeResponseStream(value, codecOptions, signal) {
         // torn down before the codec opened the value (abort raced the
         // codec load): close the source immediately, never pull
         if (closed) closeIterator();
+        const step = () => (finished ? { done: true, value: undefined } : it.next());
         return {
-          next: () => (finished ? Promise.resolve({ done: true, value: undefined }) : it.next())
+          // Waits for the consumer to want a chunk before pulling the next
+          // one; `finished` is re-read after the wait, since teardown can
+          // land while it is parked.
+          next: () => (wantsMore() ? Promise.resolve(step()) : awaitDemand().then(step))
         };
       }
     };
@@ -1722,6 +1741,7 @@ export function serializeResponseStream(value, codecOptions, signal) {
     // the top of shared.js), and a ReadableStream start may return a
     // promise — reads wait for it, so the stream's contract is unchanged
     async start(controller) {
+      streamController = controller;
       if (signal) {
         if (signal.aborted) {
           teardown();
@@ -1792,6 +1812,9 @@ export function serializeResponseStream(value, codecOptions, signal) {
           }
         }
       });
+    },
+    pull() {
+      supplyDemand();
     },
     cancel() {
       teardown();
