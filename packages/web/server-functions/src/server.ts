@@ -231,6 +231,18 @@ export interface ServerFunctionCSRFOptions {
    * @default false
    */
   allowRequestsWithoutOriginCheck?: boolean;
+  /**
+   * Applies the origin gate to GET-declared reads as well. By default the
+   * gate is skipped for declared reads: same-origin policy already keeps a
+   * cross-site caller from READING the response, and the gate's `Vary`
+   * fragments (or, on CDNs that ignore Vary, poisons) the shared-cache
+   * entries the `GET` helper exists to enable (#3071). The premise that
+   * skip rests on is `GET()`'s safety contract — declared reads are safe
+   * to EXECUTE from any origin (#3114). A deployment that does not rely
+   * on shared caches can enable this to gate its reads too.
+   * @default false
+   */
+  protectDeclaredReads?: boolean;
 }
 
 /** Options for `configureServerFunctionsServer`. */
@@ -848,6 +860,21 @@ export function createServerReference({ id, fn, name }) {
  * default POST transport (declaring GET grants, it does not revoke);
  * functions that never declared GET answer GET requests with 405.
  *
+ * DECLARING GET IS A SAFETY ASSERTION, not only a transport choice: the
+ * CSRF origin gate is skipped for declared reads by design (same-origin
+ * policy already keeps a cross-site caller from READING the response, and
+ * the gate's `Vary` would fragment the shared-cache entries this helper
+ * exists to enable), so a GET-declared function is EXECUTABLE from any
+ * origin, with caller-chosen arguments, carrying the user's ambient
+ * cookies — a cross-site `<form method="GET">` or top-level navigation
+ * reaches it (#3114). Declare GET only for reads that are safe in the
+ * HTTP sense (RFC 9110 §9.2.1): nothing a hostile caller gains by
+ * triggering it — no quota burn, no audit write, no mail, nothing
+ * expensive enough to be a denial-of-service lever. Anything less stays
+ * on POST, which remains origin-gated; a deployment that does not rely on
+ * shared caches can gate its reads too with
+ * `csrf: { protectDeclaredReads: true }`.
+ *
  * Wrap the reference at its declaration; the compiler round-trips the call
  * in both builds:
  *
@@ -871,6 +898,11 @@ export function GET<A extends readonly any[], R>(
  * honors it: GET-declared functions accept GET requests in addition to the
  * default POST transport (declaring GET grants, it does not revoke);
  * functions that never declared GET answer GET requests with 405.
+ *
+ * Declaring GET is a safety assertion (see the public overload's notes and
+ * #3114): the origin gate is skipped for declared reads, so the function
+ * is executable from any origin with the user's ambient cookies — it must
+ * be a safe read in the RFC 9110 §9.2.1 sense.
  *
  * Wrap the reference at its declaration; the compiler round-trips the call
  * in both builds:
@@ -1542,8 +1574,7 @@ export function guardFailures(value, state) {
         return {
           next: () =>
             iterator.next().then(
-              step =>
-                step.done ? step : { done: false, value: guardFailures(step.value, state) },
+              step => (step.done ? step : { done: false, value: guardFailures(step.value, state) }),
               error => {
                 throw sanitizeServerError(error);
               }
@@ -2190,7 +2221,12 @@ export async function handleServerFunctionRequest(request, options = {}) {
     functionId !== null &&
     METHODS.get(functionId) === "GET";
   const csrf = options.csrf !== undefined ? options.csrf : config.csrf;
-  const protectsRequest = csrf !== false && !declaredRead;
+  // The skip is `GET()`'s safety contract at work (see its notes and
+  // #3114); `protectDeclaredReads` is the opt-in for deployments that
+  // would rather gate reads than share their cache entries.
+  const protectsRequest =
+    csrf !== false &&
+    (!declaredRead || (typeof csrf === "object" && csrf.protectDeclaredReads === true));
   if (protectsRequest && !(await allowsServerFunctionRequest(request, csrf === true ? {} : csrf))) {
     return finalizeTransportResponse(forbiddenResponse(), method);
   }

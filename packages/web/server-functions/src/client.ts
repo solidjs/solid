@@ -826,6 +826,18 @@ export function createServerReference(id, name, base) {
  * GET requests with 405. Server-side the wrapper is identity-flavored — SSR
  * calls stay in-process.
  *
+ * DECLARING GET IS A SAFETY ASSERTION, not only a transport choice: the
+ * server's CSRF origin gate is skipped for declared reads by design
+ * (same-origin policy already keeps a cross-site caller from READING the
+ * response, and the gate's `Vary` would fragment the shared-cache entries
+ * this helper exists to enable), so a GET-declared function is EXECUTABLE
+ * from any origin, with caller-chosen arguments, carrying the user's
+ * ambient cookies (#3114). Declare GET only for reads that are safe in the
+ * HTTP sense (RFC 9110 §9.2.1): nothing a hostile caller gains by
+ * triggering it. Anything less stays on POST, which remains origin-gated;
+ * a deployment that does not rely on shared caches can gate its reads too
+ * with `csrf: { protectDeclaredReads: true }`.
+ *
  * Wrap the reference at its declaration; the compiler round-trips the call
  * in both builds:
  *
@@ -849,6 +861,10 @@ export function GET<A extends readonly any[], R>(
  * honors it: the declaration grants GET dispatch without revoking the
  * default POST transport, while GET requests to undeclared functions
  * answer 405.
+ *
+ * Declaring GET is a safety assertion (see the public overload's notes and
+ * #3114): the origin gate is skipped for declared reads, so the function
+ * must be a safe read in the RFC 9110 §9.2.1 sense.
  *
  * Wrap the reference at its declaration; the compiler round-trips the call
  * in both builds:

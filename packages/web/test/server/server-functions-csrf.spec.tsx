@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createServerReference,
+  GET,
   handleServerFunctionRequest,
-  registerServerFunction
+  registerServerFunction,
+  registerServerReference
 } from "@solidjs/web/server-functions/server";
 import type { ServerFunctionCSRFOptions } from "@solidjs/web/server-functions/server";
 
@@ -199,5 +202,69 @@ describe("the origin gate's decision matrix", () => {
       { csrf, provideEvent }
     );
     expect(refused.status).toBe(403);
+  });
+});
+
+/**
+ * GET-declared reads and the gate (#3114). The default skip is deliberate —
+ * same-origin policy already keeps a cross-site caller from READING the
+ * response, and the gate's `Vary` fragments the shared-cache entries the
+ * GET helper exists to enable (#3071) — resting on `GET()`'s documented
+ * safety contract: a declared read is safe to EXECUTE from any origin.
+ * Both halves are pinned here: the skip (so nobody "fixes" it into cache
+ * poisoning) and the `protectDeclaredReads` opt-in for deployments that
+ * would rather gate reads than share cache entries.
+ */
+describe("GET-declared reads and the origin gate", () => {
+  function declareRead(id: string, fn: (...args: any[]) => any) {
+    GET(createServerReference(registerServerReference(id, fn)));
+  }
+
+  function read(id: string, headers: Record<string, string> = {}) {
+    return new Request(`https://app.example/_server/${id}`, { headers });
+  }
+
+  it("executes a declared read cross-site by default — the documented contract", async () => {
+    const fn = vi.fn(async () => "read");
+    declareRead("csrf-declared-read", fn);
+
+    const response = await handleServerFunctionRequest(
+      read("csrf-declared-read", { "Sec-Fetch-Site": "cross-site" }),
+      { provideEvent }
+    );
+    expect(response.status).toBe(200);
+    expect(fn).toHaveBeenCalledOnce();
+  });
+
+  it("gates a declared read when protectDeclaredReads is set", async () => {
+    const fn = vi.fn(async () => "read");
+    declareRead("csrf-protected-read", fn);
+    const csrf: ServerFunctionCSRFOptions = { protectDeclaredReads: true };
+
+    const refused = await handleServerFunctionRequest(
+      read("csrf-protected-read", { "Sec-Fetch-Site": "cross-site" }),
+      { csrf, provideEvent }
+    );
+    expect(refused.status).toBe(403);
+    expect(fn).not.toHaveBeenCalled();
+
+    const allowed = await handleServerFunctionRequest(
+      read("csrf-protected-read", { "Sec-Fetch-Site": "same-origin" }),
+      { csrf, provideEvent }
+    );
+    expect(allowed.status).toBe(200);
+    expect(fn).toHaveBeenCalledOnce();
+  });
+
+  it("keeps POST dispatch to the same function gated either way", async () => {
+    const fn = vi.fn(async () => "read");
+    declareRead("csrf-read-post", fn);
+
+    const refused = await handleServerFunctionRequest(
+      request("csrf-read-post", { "Sec-Fetch-Site": "cross-site" }),
+      { provideEvent }
+    );
+    expect(refused.status).toBe(403);
+    expect(fn).not.toHaveBeenCalled();
   });
 });
