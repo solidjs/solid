@@ -1367,47 +1367,117 @@ function isFormPost(request) {
  * server function"); iterables nested inside user objects are consumed by
  * the codec directly and stay untouched.
  */
-// A failure that escapes through the RESULT GRAPH — a rejected promise, an
-// async iterable that throws, a stream that errors — reaches the codec as
-// a value to encode rather than as a throw, so it never passes the
-// sanitizer guarding every other way an error leaves dispatch. It is the
-// same failure by a different road, and the leak is the exact one
-// `sanitizeServerError` exists to stop: an ORM error's message and
-// own-properties (failing query, connection string, bound params) ride the
-// wire verbatim. Worse than the thrown case, because the head is already
-// committed — the answer is a 200 carrying no error tag.
+// `sanitizeServerError` guards the one road a thrown error takes out of
+// dispatch. A failure can also escape through the RESULT GRAPH — a rejected
+// promise, an async iterable that throws, a stream that errors — where it
+// reaches the codec as a value to encode rather than as a throw, and never
+// meets the sanitizer. Same failure, different road, and the leak is the
+// one the sanitizer exists to stop: a driver error's message and
+// own-properties (failing query, connection string, bound params) riding
+// the wire verbatim. Worse than the thrown case, because the head is
+// already committed — the answer is a 200 carrying no error tag.
 //
-// Claimed as a codec plugin rather than by walking the result: a walk
-// would have to run before serialization, and a rejection has not happened
-// yet at that point. The replacement is branded safe so the plugin does
-// not claim it again, which also leaves the wire shape a plain Error node
-// — the peer needs no matching plugin, and nothing about the protocol
-// changes.
+// So the CHANNELS are wrapped before the codec sees them. Not the rejection
+// (it has not happened yet) and not the Errors already in the graph (an
+// Error returned as data is a value, and values are the author's) — only
+// the three shapes through which a future failure can arrive.
 //
-// The sanitizer is composed AHEAD of an app's own plugins: a custom error
-// type reaching the client is intent, and intent is spelled
-// `markSafeError`, not "shadowed the default".
-let failureSanitizer;
+// Containers are rebuilt only along paths that actually contain a channel:
+// everything else is passed through by reference, so the common response
+// allocates nothing and reference identity survives for the codec. The
+// WeakMap keeps a repeated reference one object, and terminates cycles.
+function guardFailures(value, seen) {
+  if (value === null || typeof value !== "object") return value;
+  if (!seen) seen = new WeakMap();
+  const cached = seen.get(value);
+  if (cached !== undefined) return cached;
 
-function sanitizingPlugins(createPlugin, plugins) {
-  if (DEV) return plugins;
-  if (!failureSanitizer) {
-    failureSanitizer = createPlugin({
-      tag: "solid/server-function-failure",
-      test: value => value instanceof Error && !isSafeError(value),
-      parse: {
-        sync: (value, ctx) => ctx.parse(markSafeError(sanitizeServerError(value))),
-        async: async (value, ctx) => ctx.parse(markSafeError(sanitizeServerError(value))),
-        stream: (value, ctx) => ctx.parse(markSafeError(sanitizeServerError(value)))
-      },
-      serialize: (node, ctx) => ctx.serialize(node),
-      deserialize: (node, ctx) => ctx.deserialize(node)
-    });
+  if (typeof value.then === "function") {
+    const guardedPromise = Promise.resolve(value).then(
+      resolved => guardFailures(resolved, seen),
+      error => {
+        throw sanitizeServerError(error);
+      }
+    );
+    seen.set(value, guardedPromise);
+    return guardedPromise;
   }
-  return plugins ? [failureSanitizer, ...plugins] : [failureSanitizer];
+
+  if (typeof value[Symbol.asyncIterator] === "function") {
+    const source = value;
+    const guardedIterable = {
+      [Symbol.asyncIterator]() {
+        const iterator = source[Symbol.asyncIterator]();
+        return {
+          next: () =>
+            iterator.next().then(
+              step => (step.done ? step : { done: false, value: guardFailures(step.value, seen) }),
+              error => {
+                throw sanitizeServerError(error);
+              }
+            ),
+          return: iterator.return && (() => iterator.return())
+        };
+      }
+    };
+    seen.set(value, guardedIterable);
+    return guardedIterable;
+  }
+
+  if (typeof ReadableStream !== "undefined" && value instanceof ReadableStream) {
+    const reader = value.getReader();
+    const guardedStream = new ReadableStream({
+      async pull(controller) {
+        try {
+          const { done, value: chunk } = await reader.read();
+          done ? controller.close() : controller.enqueue(chunk);
+        } catch (error) {
+          controller.error(sanitizeServerError(error));
+        }
+      },
+      cancel(reason) {
+        return reader.cancel(reason);
+      }
+    });
+    seen.set(value, guardedStream);
+    return guardedStream;
+  }
+
+  if (Array.isArray(value)) {
+    let changed = false;
+    const next = value.map(entry => {
+      const guarded = guardFailures(entry, seen);
+      if (guarded !== entry) changed = true;
+      return guarded;
+    });
+    const result = changed ? next : value;
+    seen.set(value, result);
+    return result;
+  }
+
+  // Plain objects only: a class instance's own properties are not ours to
+  // rebuild (private fields, getters, invariants), and neither is a Date,
+  // a Response, or anything else the codec has its own reading of.
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    seen.set(value, value);
+    return value;
+  }
+
+  let changed = false;
+  const next = {};
+  for (const key of Object.keys(value)) {
+    const guarded = guardFailures(value[key], seen);
+    if (guarded !== value[key]) changed = true;
+    next[key] = guarded;
+  }
+  const result = changed ? next : value;
+  seen.set(value, result);
+  return result;
 }
 
 export function serializeResponseStream(value, codecOptions, signal) {
+  value = guardFailures(value);
   let closeIterator = null;
   let closed = false;
   let cancelSerialize = null;
@@ -1478,9 +1548,7 @@ export function serializeResponseStream(value, codecOptions, signal) {
         };
         signal.addEventListener("abort", onAbort);
       }
-      const { createPlugin, serializeJSON } = await import(
-        "../../serialization/src/serializer.js"
-      );
+      const { serializeJSON } = await import("../../serialization/src/serializer.js");
       if (closed) {
         // torn down while the codec was loading; nothing was started
         try {
@@ -1490,7 +1558,6 @@ export function serializeResponseStream(value, codecOptions, signal) {
       }
       cancelSerialize = serializeJSON(value, {
         ...codecOptions,
-        plugins: sanitizingPlugins(createPlugin, codecOptions && codecOptions.plugins),
         onParse(node) {
           if (!closed) controller.enqueue(createChunk(JSON.stringify(node)));
         },
@@ -1535,10 +1602,8 @@ function encodeResult(value, headers, status, codec, signal) {
       headers.set(BODY_FORMAT_HEADER, BodyFormat.Void);
       return new Response(null, { status, headers });
     }
-    // Branded safe: this is an authoring error the developer must be able to
-    // read, so it is intentional client-facing content by definition — the
-    // failure sanitizer below would otherwise flatten it to the generic
-    // message and take the diagnosis with it.
+    // Branded safe: an authoring error the developer must be able to read is
+    // intentional client-facing content by definition.
     const error = markSafeError(
       new Error(
         `Server function answered status ${status}, which forbids a response body, with a value. ` +
