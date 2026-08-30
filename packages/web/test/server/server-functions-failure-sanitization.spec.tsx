@@ -165,6 +165,33 @@ describe("what the guard must not disturb", () => {
     expect((outcome as { value: any }).value.failure.message).toBe("returned, not thrown");
   });
 
+  // The walk reads data properties only. Reading through a getter would
+  // invoke it here as well as when the codec encodes, and a throwing one
+  // would escape into dispatch's catch to be reported as the function
+  // itself failing — the phantom error over a call that succeeded that
+  // `encodeResult` goes out of its way to avoid.
+  it("does not invoke an accessor while walking", async () => {
+    registerServerFunction("graph-accessor", async () => ({
+      ok: 1,
+      get lazy() {
+        throw new Error("an accessor the runtime must not call");
+      }
+    }));
+
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/graph-accessor", {
+        method: "POST",
+        body: "[]",
+        headers: {
+          "Sec-Fetch-Site": "same-origin",
+          "X-Server-Function-Instance": "server-function:test"
+        }
+      })
+    );
+
+    expect(response.status).toBe(200);
+  });
+
   it("passes a healthy result through untouched, nested promise included", async () => {
     registerServerFunction("graph-healthy", async () => ({
       items: [1, 2],

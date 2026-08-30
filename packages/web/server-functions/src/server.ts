@@ -1464,14 +1464,23 @@ function guardFailures(value, seen) {
     return value;
   }
 
+  // Data properties only. Reading through a getter would invoke it here and
+  // again when the codec encodes — twice for a side-effecting one, and a
+  // throwing one would escape into dispatch's catch and be reported as the
+  // function itself failing, the phantom error encodeResult goes out of its
+  // way to avoid. A channel behind an accessor is left unguarded, which is
+  // the same bargain as the class instance above: not ours to invoke.
+  const descriptors = Object.getOwnPropertyDescriptors(value);
   let changed = false;
-  const next = {};
   for (const key of Object.keys(value)) {
-    const guarded = guardFailures(value[key], seen);
-    if (guarded !== value[key]) changed = true;
-    next[key] = guarded;
+    const descriptor = descriptors[key];
+    if (!descriptor || !("value" in descriptor)) continue;
+    const guarded = guardFailures(descriptor.value, seen);
+    if (guarded === descriptor.value) continue;
+    descriptors[key] = { ...descriptor, value: guarded };
+    changed = true;
   }
-  const result = changed ? next : value;
+  const result = changed ? Object.create(prototype, descriptors) : value;
   seen.set(value, result);
   return result;
 }
