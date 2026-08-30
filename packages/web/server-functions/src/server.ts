@@ -29,6 +29,7 @@ import {
   SERVER_FUNCTION_INVOKE,
   SERVER_FUNCTION_METADATA,
   SINGLE_FLIGHT_HEADER,
+  UNKNOWN_HEADER,
   assertFlightSource,
   configureServerFunctionsCodec,
   decodeResponse,
@@ -53,6 +54,7 @@ export {
   INSTANCE_HEADER,
   SERVER_FUNCTION_INVOKE,
   SINGLE_FLIGHT_HEADER,
+  UNKNOWN_HEADER,
   clearFlashCookie,
   decodeErrorHeaderValue,
   decodeResponse,
@@ -1878,8 +1880,16 @@ export async function handleServerFunctionRequest(request, options = {}) {
   try {
     serverFunction = getServerFunction(functionId);
   } catch {
+    // Labelled (#3110): the address is well-formed but its id is not part
+    // of this deployment — the wire shape of version skew (a tab holding
+    // the previous build's ids) or a genuinely removed function. Without
+    // the label this 404 is indistinguishable from a CDN's or a proxy's,
+    // and the one recovery that works — reload onto the current build —
+    // cannot be targeted. The meaningless-path 404 above stays bare: a
+    // mistyped route is not skew.
     const response = new Response(DEV ? `Unknown server function: ${functionId}` : null, {
-      status: 404
+      status: 404,
+      headers: { [UNKNOWN_HEADER]: "true" }
     });
     return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
   }

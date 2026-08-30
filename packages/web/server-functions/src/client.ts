@@ -13,6 +13,7 @@ import {
   SERVER_FUNCTION_INVOKE,
   SERVER_FUNCTION_METADATA,
   SINGLE_FLIGHT_HEADER,
+  UNKNOWN_HEADER,
   configureServerFunctionsCodec,
   decodeResponse,
   getFlightDataConsumer,
@@ -44,6 +45,7 @@ export {
   INSTANCE_HEADER,
   SERVER_FUNCTION_INVOKE,
   SINGLE_FLIGHT_HEADER,
+  UNKNOWN_HEADER,
   clearFlashCookie,
   createChunk,
   decodeErrorHeaderValue,
@@ -406,7 +408,17 @@ function dataAddressFor(base) {
 }
 
 function serverFunctionFailure(response, value) {
-  const error = value ?? new Error(`Server function call failed with status ${response.status}`);
+  // The labelled unknown-id 404 (#3110): the deployment that answered does
+  // not know this call's id — version skew (a tab holding the previous
+  // build's ids across a deploy) or a genuinely removed function.
+  const unknown = response.headers.get(UNKNOWN_HEADER) !== null;
+  const error =
+    value ??
+    new Error(
+      unknown
+        ? "Server function is not part of the deployment that answered (version skew or removed function)"
+        : `Server function call failed with status ${response.status}`
+    );
   // Stamp the HTTP status so policy layers (live retry loops, router
   // channels) can classify the failure: 4xx is a definite rejection that
   // retrying cannot change, 5xx/status-less is transient. An error that
@@ -420,6 +432,11 @@ function serverFunctionFailure(response, value) {
     const retryAfter = parseRetryAfter(response.headers.get("Retry-After"));
     if (retryAfter !== undefined) error.retryAfter = retryAfter;
   }
+  // Named on the error so an integration can recover from skew — reload
+  // the document onto the current build — instead of surfacing a generic
+  // failed call. Retrying cannot help: the id will stay unknown until the
+  // page runs the new bundle.
+  if (unknown && error instanceof Error) error.unknownFunction = true;
   return error;
 }
 

@@ -612,6 +612,16 @@ export const INSTANCE_HEADER = "X-Server-Function-Instance";
 export const BODY_FORMAT_HEADER = "X-Server-Function-Format";
 
 /**
+ * Header labelling the unknown-id 404: the address was well-formed but its
+ * id is not registered in the deployment that answered (#3110). This is the
+ * ordinary shape of version skew — a tab holding the previous build's ids
+ * across a deploy — and the label is what lets an integration recover
+ * (e.g. reload the document) instead of surfacing a generic failed call.
+ * Nothing distinguishes it otherwise: a CDN 404 and a skew 404 look alike.
+ */
+export const UNKNOWN_HEADER = "X-Server-Function-Unknown";
+
+/**
  * Header driving the single-flight protocol on both legs: on the request it
  * opts the call into flight-data collection (the integration sends it on
  * calls whose response should fold in data), on the response it marks a
