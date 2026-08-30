@@ -4,7 +4,8 @@
  * `test/lifecycle-matrix/MATRIX.md`: the marker is the point — the suite
  * stays green while the gap is open and turns red the day it closes, at
  * which point the marker comes off and the test becomes an ordinary guard.
- * Each carries the issue that tracks it: #3117, #3118, #3119.
+ * Each carries the issue that tracks it: #3117, #3118 (open); #3119
+ * (closed by #3115's request bounds — its test is an ordinary guard now).
  *
  * Like the other server-function specs, these run against the built
  * bundles (server-functions/dist/*, wired up in vite.config.server.mjs).
@@ -139,11 +140,12 @@ describe("a streamed result nobody is reading", () => {
 });
 
 describe("the decode depth cap", () => {
-  // GAP (#3119): the cap is opt-out. `depthLimit: 64` exists "because payloads may
-  // come from an untrusted peer" and guards the seroval path only, while
-  // the body format is chosen by the CALLER — selecting the JSON format
-  // hands the payload to a bare JSON.parse and skips the cap entirely.
-  test.fails("holds whichever body format the caller selects", async () => {
+  // Closed (#3119, with #3115's request bounds): the plain-JSON format now
+  // walks the decoded payload against the same 64-level ceiling the seroval
+  // path enforces, so the caller's format choice no longer opts out of the
+  // cap. Kept here as an ordinary guard; the full bounds matrix lives in
+  // server-functions-request-bounds.spec.tsx.
+  test("holds whichever body format the caller selects", async () => {
     registerServerFunction("gap-depth", async (value: unknown) => {
       let depth = 0;
       let cursor: any = value;

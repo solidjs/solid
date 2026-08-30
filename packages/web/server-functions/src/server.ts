@@ -338,6 +338,24 @@ export interface ServerFunctionsServerConfig {
    * `decodeResponse` sees them too.
    */
   codec?: JSONCodecOptions;
+  /**
+   * Upper bound, in bytes, on a call's argument payload — the POST body,
+   * or the `?args=` query encoding. The payload is buffered and decoded
+   * before dispatch, so its cost is paid before application code can
+   * decline it; the bound is enforced up front and a request over it is
+   * refused with `413` before any decoding (#3115). Raise it for functions
+   * that accept large uploads, or set `Infinity` to remove the bound.
+   * @default 1_048_576 (1 MiB)
+   */
+  bodySizeLimit?: number;
+  /**
+   * Upper bound on the number of arguments a call may carry. The decoded
+   * argument array is spread into the function call, so an unbounded list
+   * forces a range error out of any function regardless of what it does;
+   * past the bound the request is refused with `400` (#3115).
+   * @default 1000
+   */
+  maxArguments?: number;
 }
 
 /**
@@ -467,6 +485,16 @@ export interface HandleServerFunctionOptions {
   csrf?: boolean | ServerFunctionCSRFOptions;
   /** Overrides the configured codec options for this handler. */
   codec?: JSONCodecOptions;
+  /**
+   * Overrides the configured argument payload bound for this handler (see
+   * `ServerFunctionsServerConfig.bodySizeLimit`).
+   */
+  bodySizeLimit?: number;
+  /**
+   * Overrides the configured argument count bound for this handler (see
+   * `ServerFunctionsServerConfig.maxArguments`).
+   */
+  maxArguments?: number;
 }
 
 export interface ServerFunctionRequestCall {
@@ -498,7 +526,9 @@ const config = {
   transformDirectResult: undefined,
   handleNoJS: undefined,
   endpoint: "/_server",
-  csrf: true
+  csrf: true,
+  bodySizeLimit: 1_048_576,
+  maxArguments: 1000
 }; /**
  * Configures the server runtime. Call once at server startup, before
  * handling requests. Only needed when deviating from the defaults (custom
@@ -535,7 +565,9 @@ export function configureServerFunctionsServer({
   handleNoJS,
   endpoint,
   csrf,
-  codec
+  codec,
+  bodySizeLimit,
+  maxArguments
 } = {}) {
   if (provideEvent !== undefined) config.provideEvent = provideEvent;
   if (wrapInvocation !== undefined) config.wrapInvocation = wrapInvocation;
@@ -547,6 +579,8 @@ export function configureServerFunctionsServer({
   if (endpoint !== undefined) config.endpoint = endpoint;
   if (csrf !== undefined) config.csrf = csrf;
   if (codec !== undefined) configureServerFunctionsCodec(codec);
+  if (bodySizeLimit !== undefined) config.bodySizeLimit = bodySizeLimit;
+  if (maxArguments !== undefined) config.maxArguments = maxArguments;
 }
 
 // Named flight-data collectors, keyed by source id. The unnamed
@@ -963,6 +997,68 @@ function resolveAddress(url) {
   return parseServerFunctionAddress(url.pathname, config.endpoint);
 }
 
+// Mirrors the codec's JSON_CODEC_DEPTH_LIMIT (serialization/serializer-decode):
+// the seroval path enforces it because payloads may come from an untrusted
+// peer, but the body FORMAT is the caller's choice — selecting the plain
+// JSON format handed the payload to a bare JSON.parse and skipped the cap
+// entirely (#3119). This applies the same ceiling to that road.
+const DECODE_DEPTH_LIMIT = 64;
+
+/**
+ * Breadth-first depth check over a decoded plain-JSON payload. Iterative on
+ * purpose: the attack input is deep nesting, and a recursive walk would
+ * re-create the stack overflow the cap exists to prevent. `JSON.parse`
+ * output is acyclic and prototype-free, so plain enumeration covers it.
+ */
+function assertDecodeDepth(value) {
+  let level = [value];
+  for (let depth = 0; level.length > 0; depth++) {
+    if (depth > DECODE_DEPTH_LIMIT) {
+      throw new TypeError("Server function arguments exceed the decode depth limit");
+    }
+    const next = [];
+    for (const node of level) {
+      if (node === null || typeof node !== "object") continue;
+      if (Array.isArray(node)) {
+        for (const child of node) next.push(child);
+      } else {
+        for (const key of Object.keys(node)) next.push(node[key]);
+      }
+    }
+    level = next;
+  }
+}
+
+/**
+ * Buffers a POST body that declared no length (chunked transfer), refusing
+ * once it runs past the limit — a declared length is enforced by the HTTP
+ * server's own framing and is checked against the limit before this runs.
+ * Returns a replacement Request carrying the buffered body (everything
+ * else, signal included, is inherited), or `null` past the limit.
+ */
+async function bufferBodyWithin(request, limit) {
+  const reader = request.clone().body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new Request(request, { body });
+}
+
 async function parseArguments(request, url, scripted, codec) {
   const parsed = [];
   // Bound arguments arrive on the url for GET calls, no-JS form posts, and
@@ -978,7 +1074,15 @@ async function parseArguments(request, url, scripted, codec) {
     // integrations building urls by hand). Anything that is not an argument
     // array is a malformed request, which dispatch answers as one: the query
     // reserves `args`, so a caller that sends it sent an encoding.
-    const result = args.startsWith(";0x") ? await deserializeString(args, codec) : JSON.parse(args);
+    let result;
+    if (args.startsWith(";0x")) {
+      result = await deserializeString(args, codec);
+    } else {
+      // The framed codec enforces its own depth cap; bare JSON must not be
+      // the uncapped alternative (#3119).
+      result = JSON.parse(args);
+      assertDecodeDepth(result);
+    }
     if (!Array.isArray(result)) {
       throw new TypeError("Server function arguments must encode an array");
     }
@@ -997,8 +1101,16 @@ async function parseArguments(request, url, scripted, codec) {
   }
   if (request.method === "POST" && request.body !== null) {
     const decoded = await extractBody(request.clone(), codec);
-    // Both argument-array encodings: codec-framed and plain JSON.
+    // Both argument-array encodings: codec-framed and plain JSON. The
+    // framed codec enforces its own depth cap during decode; bare JSON
+    // must not be the uncapped alternative (#3119). Either way the payload
+    // is spread into the call, so anything but an array is malformed — a
+    // 400, not a range error out of the function.
     if (bodyFormat === BodyFormat.Serialized || bodyFormat === BodyFormat.Json) {
+      if (bodyFormat === BodyFormat.Json) assertDecodeDepth(decoded);
+      if (!Array.isArray(decoded)) {
+        throw new TypeError("Server function arguments must encode an array");
+      }
       return decoded;
     }
     parsed.push(decoded);
@@ -1951,6 +2063,47 @@ export async function handleServerFunctionRequest(request, options = {}) {
     return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
   }
 
+  // The argument payload is buffered and decoded before dispatch, so its
+  // cost is paid before application code can decline it — bound it before
+  // paying (#3115). A declared Content-Length is trusted (the HTTP server's
+  // framing enforces it); a body without one is buffered under the cap. The
+  // `?args=` encoding is the same payload on a different road, so it gets
+  // the same ceiling.
+  const bodySizeLimit =
+    options.bodySizeLimit !== undefined ? options.bodySizeLimit : config.bodySizeLimit;
+  const argsEncoding = url.searchParams.get("args");
+  if (argsEncoding !== null && argsEncoding.length > bodySizeLimit) {
+    const response = new Response(
+      DEV ? "Server function arguments exceed the configured bodySizeLimit" : null,
+      { status: 413 }
+    );
+    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+  }
+  if (method === "POST" && request.body !== null && bodySizeLimit !== Infinity) {
+    const declared = Number(request.headers.get("content-length"));
+    if (declared > bodySizeLimit) {
+      const response = new Response(
+        DEV ? "Server function request body exceeds the configured bodySizeLimit" : null,
+        { status: 413 }
+      );
+      return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+    }
+    if (!declared) {
+      const bounded = await bufferBodyWithin(request, bodySizeLimit);
+      if (bounded === null) {
+        const response = new Response(
+          DEV ? "Server function request body exceeds the configured bodySizeLimit" : null,
+          { status: 413 }
+        );
+        return finalizeTransportResponse(
+          protectsRequest ? withCSRFVary(response) : response,
+          method
+        );
+      }
+      request = bounded;
+    }
+  }
+
   const event = options.createEvent ? options.createEvent(request) : { request, locals: {} };
   const provide = options.provideEvent || provideEvent;
   const flightHook =
@@ -2002,6 +2155,19 @@ export async function handleServerFunctionRequest(request, options = {}) {
     const response = new Response(DEV ? "Malformed server function arguments" : null, {
       status: 400
     });
+    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+  }
+
+  // The decoded array is spread into the call, so an unbounded argument
+  // list forces a range error out of ANY function regardless of what it
+  // does (#3115). Refused as the malformed request it is.
+  const maxArguments =
+    options.maxArguments !== undefined ? options.maxArguments : config.maxArguments;
+  if (parsed.length > maxArguments) {
+    const response = new Response(
+      DEV ? "Server function call exceeds the configured maxArguments" : null,
+      { status: 400 }
+    );
     return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
   }
 
