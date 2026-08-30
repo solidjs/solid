@@ -622,6 +622,43 @@ export const BODY_FORMAT_HEADER = "X-Server-Function-Format";
 export const UNKNOWN_HEADER = "X-Server-Function-Unknown";
 
 /**
+ * Header carrying a redirect to scripted callers. fetch FOLLOWS redirect
+ * statuses before the transport can read them, so a scripted answer masks
+ * the 3xx to 200 and this header carries what the mask erases: the author's
+ * status and the target RESOLVED against the request url — exactly the
+ * meaning HTTP assigns the `Location` a form post would have received.
+ * Value: `<status> <absolute-url>`, decode with `decodeRedirectHeaderValue`.
+ *
+ * Carrying the resolved absolute form is the point (#3102, #3107): the
+ * reader never guesses navigation strategy from how the author spelled the
+ * target — `redirect("/")` and `redirect(new URL("/", url).href)` arrive
+ * identical by construction, and same-origin vs cross-origin is a real URL
+ * comparison, not a `startsWith("http")` coin toss. `Location` itself never
+ * rides a masked answer: on a 200 it has no HTTP meaning, and it collided
+ * with authored Locations on statuses that forward (a 201's created-at is
+ * data, not navigation).
+ */
+export const REDIRECT_HEADER = "X-Server-Function-Redirect";
+
+/**
+ * Decodes a `REDIRECT_HEADER` value into the author's status and the
+ * resolved absolute target. Integration plumbing for readers of the header
+ * (routers); the wire format is the runtime's own, not a contract to parse
+ * by hand.
+ */
+export function decodeRedirectHeaderValue(
+  value: string | null | undefined
+): { status: number; url: string } | undefined {
+  if (typeof value !== "string") return undefined;
+  const at = value.indexOf(" ");
+  if (at < 0) return undefined;
+  const status = Number(value.slice(0, at));
+  const url = value.slice(at + 1);
+  if (!Number.isInteger(status) || !url) return undefined;
+  return { status, url };
+}
+
+/**
  * Header driving the single-flight protocol on both legs: on the request it
  * opts the call into flight-data collection (the integration sends it on
  * calls whose response should fold in data), on the response it marks a

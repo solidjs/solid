@@ -46,7 +46,7 @@ afterAll(() => {
 // `sources` is the request-leg header value: the source ids the client's
 // registered consumers can use ("true" is the unnamed legacy source).
 function flightRequest(id: string, sources = "true") {
-  return new Request(`http://localhost/_server/${id}`, {
+  return new Request(`http://localhost/_server/data/${id}`, {
     method: "POST",
     headers: {
       "Sec-Fetch-Site": "same-origin",

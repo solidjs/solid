@@ -10,6 +10,7 @@ import {
   ERROR_HEADER,
   INSTANCE_HEADER,
   LIVE_SOURCE,
+  REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
   SERVER_FUNCTION_METADATA,
   SINGLE_FLIGHT_HEADER,
@@ -43,12 +44,14 @@ export {
   ERROR_HEADER,
   FLASH_COOKIE,
   INSTANCE_HEADER,
+  REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
   SINGLE_FLIGHT_HEADER,
   UNKNOWN_HEADER,
   clearFlashCookie,
   createChunk,
   decodeErrorHeaderValue,
+  decodeRedirectHeaderValue,
   decodeResponse,
   decodeResponsePayload,
   deserializeStream,
@@ -671,8 +674,9 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
   // new ones folding only the unnamed hook — produce); an id list means
   // `data` is the keyed envelope and each slice goes to its source's
   // consumer. Error semantics mirror the passthrough path below: responses
-  // carrying integration metadata (Location/X-Revalidate) are control flow
-  // for the consumer to interpret, bare error-tagged ones throw the value.
+  // carrying integration metadata (the redirect carrier/X-Revalidate) are
+  // control flow for the consumer to interpret, bare error-tagged ones
+  // throw the value.
   if (response.headers.has(SINGLE_FLIGHT_HEADER)) {
     const folded = response.headers.get(SINGLE_FLIGHT_HEADER).split(",");
     const legacy = folded.length === 1 && folded[0] === "true";
@@ -686,7 +690,11 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
       for (const [source, consumer] of consumers) {
         await consumer(legacy ? payload.data : payload.data[source], { response });
       }
-      if (failed && !response.headers.has("Location") && !response.headers.has(REVALIDATE_HEADER)) {
+      if (
+        failed &&
+        !response.headers.has(REDIRECT_HEADER) &&
+        !response.headers.has(REVALIDATE_HEADER)
+      ) {
         throw serverFunctionFailure(response, payload.value);
       }
       return payload.value;
@@ -696,11 +704,17 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
   // Responses the caller's integration needs to see whole (redirects,
   // revalidation, single-flight payloads without a registered consumer)
   // pass through untouched — the integration decodes the body itself with
-  // `decodeResponse`.
+  // `decodeResponse`. The runtime's redirects ride REDIRECT_HEADER (#3102;
+  // an authored `Location` on a forwarding status like 201 is data, not
+  // control flow, and decodes normally). A real 3xx status is a peer's
+  // control flow: fetch follows the followable set before the transport
+  // sees it, so one only arrives where something opted out of following —
+  // except 304, which is the answer to a conditional read, not navigation.
   if (
-    response.headers.has("Location") ||
+    response.headers.has(REDIRECT_HEADER) ||
     response.headers.has(REVALIDATE_HEADER) ||
-    response.headers.has(SINGLE_FLIGHT_HEADER)
+    response.headers.has(SINGLE_FLIGHT_HEADER) ||
+    (response.status >= 300 && response.status < 400 && response.status !== 304)
   ) {
     return response;
   }

@@ -25,6 +25,7 @@ import { REVALIDATE_HEADER } from "./response.js";
 import {
   BODY_FORMAT_HEADER,
   ERROR_HEADER,
+  REDIRECT_HEADER,
   SINGLE_FLIGHT_HEADER
 } from "../server-functions/src/shared.js";
 // The cookie codec (the platform-gap primitives — see cookies.js for the
@@ -4268,9 +4269,14 @@ function copyInitHeaders(init) {
 // outcome that declared them. Header names via the shared wire constants;
 // lowercased once because `Headers` iteration keys are lowercase.
 const STUB_GAP_FILL_EXCLUDED = /*#__PURE__*/ new Set(
-  [ERROR_HEADER, BODY_FORMAT_HEADER, SINGLE_FLIGHT_HEADER, REVALIDATE_HEADER, "Location"].map(
-    header => header.toLowerCase()
-  )
+  [
+    ERROR_HEADER,
+    BODY_FORMAT_HEADER,
+    SINGLE_FLIGHT_HEADER,
+    REVALIDATE_HEADER,
+    REDIRECT_HEADER,
+    "Location"
+  ].map(header => header.toLowerCase())
 );
 
 // Whether a stub header may gap-fill onto the outgoing response: not a

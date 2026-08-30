@@ -5,11 +5,16 @@
  * The scripted mask exists because fetch FOLLOWS redirect statuses —
  * 301/302/303/307/308, Fetch §2.2.3 — before the transport can read them
  * (`redirect: "manual"` yields an opaque response with the Location
- * unreadable), so redirect intent travels as 200 + Location for the client
- * integration to act on. That is the whole justification, so the mask
- * covers exactly that set and exactly scripted callers: a 304 is never
- * followed and forwards untouched (it is the natural answer for a
- * conditional read), and unscripted callers always get real HTTP.
+ * unreadable), so redirect intent travels as 200 + X-Server-Function-
+ * Redirect, carrying the author's status and the target resolved against
+ * the request url (#3102) — never as a Location on a 200, which has no
+ * HTTP meaning and collided with authored Locations on statuses that
+ * forward. Resolving server-side means relative and absolute spellings
+ * arrive identical, so the reader never guesses navigation strategy from
+ * string shape (#3107). The mask covers exactly the followable set and
+ * exactly scripted callers: a 304 is never followed and forwards untouched
+ * (the natural answer for a conditional read), and unscripted callers
+ * always get real HTTP.
  *
  * Like the other server-function specs, these run against the built
  * bundles (server-functions/dist/*, wired up in vite.config.server.mjs).
@@ -19,6 +24,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { redirect, respond } from "@solidjs/web";
 import {
   ERROR_HEADER,
+  REDIRECT_HEADER,
   handleServerFunctionRequest,
   registerServerFunction
 } from "@solidjs/web/server-functions/server";
@@ -35,7 +41,7 @@ afterAll(() => {
 });
 
 function scripted(id: string) {
-  return new Request(`https://app.example/_server/${id}`, {
+  return new Request(`https://app.example/_server/data/${id}`, {
     method: "POST",
     headers: {
       "Sec-Fetch-Site": "same-origin",
@@ -92,7 +98,8 @@ describe("redirect statuses mask for scripted callers only (#3096)", () => {
 
     const masked = await handleServerFunctionRequest(scripted("redirect-return-302"));
     expect(masked.status).toBe(200);
-    expect(masked.headers.get("Location")).toBe("/elsewhere");
+    expect(masked.headers.get(REDIRECT_HEADER)).toBe("302 https://app.example/elsewhere");
+    expect(masked.headers.get("Location")).toBeNull();
 
     const real = await handleServerFunctionRequest(unscripted("redirect-return-302"));
     expect(real.status).toBe(302);
@@ -106,7 +113,8 @@ describe("redirect statuses mask for scripted callers only (#3096)", () => {
 
     const masked = await handleServerFunctionRequest(scripted("redirect-throw-302"));
     expect(masked.status).toBe(200);
-    expect(masked.headers.get("Location")).toBe("/elsewhere");
+    expect(masked.headers.get(REDIRECT_HEADER)).toBe("302 https://app.example/elsewhere");
+    expect(masked.headers.get("Location")).toBeNull();
     expect(masked.headers.has(ERROR_HEADER)).toBe(true);
 
     const real = await handleServerFunctionRequest(unscripted("redirect-throw-302"));
@@ -125,7 +133,7 @@ describe("redirect statuses mask for scripted callers only (#3096)", () => {
     // scripted: masked, value still delivered
     const masked = await handleServerFunctionRequest(scripted("redirect-return-loaded"));
     expect(masked.status).toBe(200);
-    expect(masked.headers.get("Location")).toBe("/elsewhere");
+    expect(masked.headers.get(REDIRECT_HEADER)).toBe("302 https://app.example/elsewhere");
     expect(await masked.json()).toEqual({ a: 1 });
   });
 
@@ -136,10 +144,45 @@ describe("redirect statuses mask for scripted callers only (#3096)", () => {
 
     const masked = await handleServerFunctionRequest(scripted("redirect-throw-helper"));
     expect(masked.status).toBe(200);
-    expect(masked.headers.get("Location")).toBe("/elsewhere");
+    expect(masked.headers.get(REDIRECT_HEADER)).toBe("302 https://app.example/elsewhere");
 
     const real = await handleServerFunctionRequest(unscripted("redirect-throw-helper"));
     expect(real.status).toBe(302);
+  });
+
+  it("relative and absolute spellings arrive identical (#3107)", async () => {
+    registerServerFunction("redirect-spelled-relative", async () => {
+      throw redirect("/elsewhere");
+    });
+    registerServerFunction("redirect-spelled-absolute", async () => {
+      throw redirect("https://app.example/elsewhere");
+    });
+
+    const relative = await handleServerFunctionRequest(scripted("redirect-spelled-relative"));
+    const absolute = await handleServerFunctionRequest(scripted("redirect-spelled-absolute"));
+    expect(relative.headers.get(REDIRECT_HEADER)).toBe("302 https://app.example/elsewhere");
+    expect(absolute.headers.get(REDIRECT_HEADER)).toBe(relative.headers.get(REDIRECT_HEADER));
+
+    // a cross-origin target survives as itself — the reader compares
+    // origins on a real url instead of sniffing the author's spelling
+    registerServerFunction("redirect-cross-origin", async () => {
+      throw redirect("https://other.example/next");
+    });
+    const cross = await handleServerFunctionRequest(scripted("redirect-cross-origin"));
+    expect(cross.headers.get(REDIRECT_HEADER)).toBe("302 https://other.example/next");
+  });
+
+  it("an authored Location on a forwarding status stays data (#3102)", async () => {
+    registerServerFunction("redirect-created-at", async () =>
+      respond({ id: 7 }, { status: 201, headers: { Location: "/items/7" } })
+    );
+
+    // 201 is not in the followable set: the status forwards, the Location
+    // is the author's created-at metadata, and no redirect carrier appears
+    const created = await handleServerFunctionRequest(scripted("redirect-created-at"));
+    expect(created.status).toBe(201);
+    expect(created.headers.get("Location")).toBe("/items/7");
+    expect(created.headers.get(REDIRECT_HEADER)).toBeNull();
   });
 });
 
