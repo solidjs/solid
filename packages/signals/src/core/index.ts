@@ -12,7 +12,7 @@ export {
   optimisticSignal,
   optimisticComputed,
   installAuthoritativeRead,
-  refresh,
+  markRefresh,
   staleValues,
   setSnapshotCapture,
   markSnapshotScope,

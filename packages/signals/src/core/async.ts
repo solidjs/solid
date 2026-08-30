@@ -206,11 +206,11 @@ export function settlePendingSource(el: Computed<any>): void {
     const errored = node._statusFlags & STATUS_ERROR;
     if (remaining) {
       if (!errored) setPendingError(node, remaining);
-      updateCompanions !== null && updateCompanions(node);
+      updateCompanions?.(node);
     } else {
       node._statusFlags &= ~STATUS_PENDING;
       if (!errored) setPendingError(node);
-      updateCompanions !== null && updateCompanions(node);
+      updateCompanions?.(node);
       if (node._x?._blocked) {
         enqueueSub(node);
         scheduled = true;
@@ -393,7 +393,7 @@ export function handleAsync<T>(
       // only notified when the hold is visible to them: under an active
       // override every reader sees the override (A17), so waking subs would
       // re-show an unchanged view — the revert is the notification point.
-      GlobalQueue._syncCompanions !== null && GlobalQueue._syncCompanions(el, value);
+      GlobalQueue._syncCompanions?.(el, value);
       if (!hasActiveOverride(el)) {
         if (__DEV__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, true);
         insertSubs(el);
@@ -411,7 +411,7 @@ export function handleAsync<T>(
           // The latest() shadow write gives latest() effects independent lanes; the
           // _pendingSignal update is a no-op repeat of the clearStatus() call above
           // (computePendingState doesn't read _value).
-          GlobalQueue._syncCompanions !== null && GlobalQueue._syncCompanions(el, value);
+          GlobalQueue._syncCompanions?.(el, value);
           insertSubs(el, true);
         }
       } catch (e) {
@@ -756,7 +756,7 @@ export function notifyStatus(
         status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
       ext(el)._error = error;
     }
-    GlobalQueue._updatePendingSignal !== null && GlobalQueue._updatePendingSignal(el);
+    GlobalQueue._updatePendingSignal?.(el);
     if (
       el._x?._child &&
       el._config & CONFIG_CHILD_COMPANIONS &&
