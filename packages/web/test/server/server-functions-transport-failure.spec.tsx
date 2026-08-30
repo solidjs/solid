@@ -170,7 +170,9 @@ describe("server-function transport failures (#3087)", () => {
     try {
       const response = await createServerReference("fail-redirect")();
       expect(response).toBeInstanceOf(Response);
-      expect((response as Response).headers.get("Location")).toBe("/login");
+      expect((response as Response).headers.get("X-Server-Function-Redirect")).toBe(
+        "302 http://localhost/login"
+      );
     } finally {
       restore();
     }

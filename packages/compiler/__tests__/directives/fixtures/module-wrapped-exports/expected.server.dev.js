@@ -7,18 +7,18 @@ const saveUserImpl = async function saveUserImpl(user) {
 import { withValidation, withDelay } from "./wrappers.js";
 import { userSchema } from "./schema.js";
 import { saveToDb } from "./db.js";
-const serverFunction_1 = registerServerReference_1("64795c56-0-getUser", withValidation(userSchema, async id => {
+const serverFunction_1 = registerServerReference_1("getUser-64795c56", withValidation(userSchema, async id => {
   return {
     id: id
   };
 }), "getUser");
 export const getUser = createServerReference_1(serverFunction_1);
-const serverFunction_2 = registerServerReference_1("64795c56-1-impl", withDelay(saveUserImpl, 400), "impl");
+const serverFunction_2 = registerServerReference_1("impl-64795c56", withDelay(saveUserImpl, 400), "impl");
 const impl = createServerReference_1(serverFunction_2);
 const alias = impl;
 export { alias as saveUser };
-const serverFunction_3 = registerServerReference_1("64795c56-2-plain", async () => "plain", "plain");
+const serverFunction_3 = registerServerReference_1("plain-64795c56", async () => "plain", "plain");
 export const plain = createServerReference_1(serverFunction_3);
-const serverFunction_4 = registerServerReference_1("64795c56-3-defaultExport_1", withDelay(async () => "mocked", 400), "defaultExport_1");
+const serverFunction_4 = registerServerReference_1("defaultExport_1-64795c56", withDelay(async () => "mocked", 400), "defaultExport_1");
 const defaultExport_1 = createServerReference_1(serverFunction_4);
 export default defaultExport_1;

@@ -89,6 +89,16 @@ export const CONFIG_AUTHORITATIVE_OBSERVED = 1 << 14;
  * deadlocks the hold (until). Safe because the node is a private leaf: no
  * subscriber reads an effect's value, only its own apply does. */
 export const CONFIG_DIRECT_COMMIT = 1 << 15;
+/** Fresh-pull reader (awaitable `refresh()`'s waiter effect): a read of a
+ * dirty source recomputes it inline even when the height gate defers to the
+ * flush. Closes the same-flush ordering race where a waiter created
+ * alongside a refresh() mark read the PRE-re-ask value as settled and
+ * delivered stale; with the pull, the waiter either parks on the re-ask's
+ * pending window (async — woken by the settle walk, which runs on every
+ * landing including equal-value ones) or serves its sync answer. resolve()
+ * deliberately keeps that race — its contract is "first settled value"
+ * (#2930), not "next quiescent state". */
+export const CONFIG_FRESH_READ = 1 << 16;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;

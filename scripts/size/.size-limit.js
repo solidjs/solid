@@ -182,7 +182,13 @@ module.exports = [
     // 9.67 — the core-floor batch (see that note) plus the #3042 latest()
     // companion mid-transition backfill, which lives in the optimistic
     // module this scenario retains via latest().
-    limit: "9.85 KB",
+    //
+    // rc.5 signals drift (2026-08-30): 9.85 -> 9.9 KB, measured at 9.87.
+    // The #3108 truth-author authoritative-read fix (88fa9d64) lives in the
+    // optimistic module this scenario retains via latest(), and the
+    // refresh() quiescence promise (51ffcb9a) leaves marks on the settle
+    // walk. Drift, not a regression.
+    limit: "9.9 KB",
     modifyEsbuildConfig
   },
   {
@@ -208,8 +214,12 @@ module.exports = [
     // next merge (2026-08-28): 10.6 -> 10.65 KB, measured at 10.61 — the
     // branch's insert seam plus next's post-cap drift summing in the same
     // floor.
+    //
+    // rc.5 signals drift (2026-08-30): 10.65 -> 10.7 KB, measured at 10.66.
+    // The refresh() quiescence promise's settle-walk bytes (51ffcb9a) are
+    // core-retained, so every app floor pays them. Drift, not a regression.
     path: "minimal-app.js",
-    limit: "10.65 KB",
+    limit: "10.7 KB",
     modifyEsbuildConfig
   },
   {
@@ -297,8 +307,13 @@ module.exports = [
     //
     // Fold scheduling (#3089, merged from next): 25.9 -> 26 KB — the same
     // bytes as the createStore note (this scenario retains all of it).
+    //
+    // rc.5 signals drift (2026-08-30): 26 -> 26.1 KB, measured at 26.07.
+    // The #3108 truth-author fix (88fa9d64, optimistic module) plus the
+    // refresh() quiescence promise (51ffcb9a, settle walk) — this scenario
+    // retains every store family, so it pays both. Drift, not a regression.
     path: "hydrating-store-app.js",
-    limit: "26 KB",
+    limit: "26.1 KB",
     modifyEsbuildConfig
   },
   {
@@ -330,8 +345,11 @@ module.exports = [
     // over the classic app). NOT here: the list driver (only rowProof arms
     // the insert seam) and the row-ops emitters + reconcile diff builders
     // (row hooks arm only from list registrations).
+    //
+    // rc.5 signals drift (2026-08-30): 14.6 -> 14.65 KB, measured at 14.61
+    // — the same core-retained quiescence bytes as the simple-app floor.
     path: "csr-app-patch.js",
-    limit: "14.6 KB",
+    limit: "14.65 KB",
     modifyEsbuildConfig
   },
   {

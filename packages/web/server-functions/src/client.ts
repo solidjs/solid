@@ -10,9 +10,11 @@ import {
   ERROR_HEADER,
   INSTANCE_HEADER,
   LIVE_SOURCE,
+  REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
   SERVER_FUNCTION_METADATA,
   SINGLE_FLIGHT_HEADER,
+  UNKNOWN_HEADER,
   configureServerFunctionsCodec,
   decodeResponse,
   getFlightDataConsumer,
@@ -42,11 +44,14 @@ export {
   ERROR_HEADER,
   FLASH_COOKIE,
   INSTANCE_HEADER,
+  REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
   SINGLE_FLIGHT_HEADER,
+  UNKNOWN_HEADER,
   clearFlashCookie,
   createChunk,
   decodeErrorHeaderValue,
+  decodeRedirectHeaderValue,
   decodeResponse,
   decodeResponsePayload,
   deserializeStream,
@@ -406,7 +411,17 @@ function dataAddressFor(base) {
 }
 
 function serverFunctionFailure(response, value) {
-  const error = value ?? new Error(`Server function call failed with status ${response.status}`);
+  // The labelled unknown-id 404 (#3110): the deployment that answered does
+  // not know this call's id — version skew (a tab holding the previous
+  // build's ids across a deploy) or a genuinely removed function.
+  const unknown = response.headers.get(UNKNOWN_HEADER) !== null;
+  const error =
+    value ??
+    new Error(
+      unknown
+        ? "Server function is not part of the deployment that answered (version skew or removed function)"
+        : `Server function call failed with status ${response.status}`
+    );
   // Stamp the HTTP status so policy layers (live retry loops, router
   // channels) can classify the failure: 4xx is a definite rejection that
   // retrying cannot change, 5xx/status-less is transient. An error that
@@ -420,6 +435,11 @@ function serverFunctionFailure(response, value) {
     const retryAfter = parseRetryAfter(response.headers.get("Retry-After"));
     if (retryAfter !== undefined) error.retryAfter = retryAfter;
   }
+  // Named on the error so an integration can recover from skew — reload
+  // the document onto the current build — instead of surfacing a generic
+  // failed call. Retrying cannot help: the id will stay unknown until the
+  // page runs the new bundle.
+  if (unknown && error instanceof Error) error.unknownFunction = true;
   return error;
 }
 
@@ -443,9 +463,9 @@ async function createRequest(base, id, instance, options, meta) {
   // registered the transport asks the server for collection on every
   // mutation call; a consumer-less app never asks the server to do
   // collection work. The header value is the registered source ids — the
-  // server runs only the collectors the client can consume, and a lone
-  // legacy registration produces the original "true" (see
-  // getFlightDataSourceIds), so old servers see the header they expect.
+  // server runs only the collectors the client can consume; the unnamed
+  // registration rides under its reserved id "true" (see
+  // getFlightDataSourceIds).
   // GET-encoded calls are reads (cacheable URLs) and stay plain — folding
   // per-request flight data into them would defeat caching. `read: true`
   // marks a POST-shaped call as a read the same way (e.g. live sources:
@@ -649,16 +669,14 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
   // data is delivered (with the response as envelope context: redirect
   // location, revalidation keys, status), and `value` returns to the
   // caller as if the call were plain. The response header names the folded
-  // sources, making the payload shape self-describing: "true" alone is the
-  // legacy raw payload for the unnamed consumer (what old servers — and
-  // new ones folding only the unnamed hook — produce); an id list means
-  // `data` is the keyed envelope and each slice goes to its source's
-  // consumer. Error semantics mirror the passthrough path below: responses
-  // carrying integration metadata (Location/X-Revalidate) are control flow
-  // for the consumer to interpret, bare error-tagged ones throw the value.
+  // sources; `data` is the keyed envelope and each slice goes to its
+  // source's consumer (the unnamed one subscribes under the reserved id
+  // "true"). Error semantics mirror the passthrough path below: responses
+  // carrying integration metadata (the redirect carrier/X-Revalidate) are
+  // control flow for the consumer to interpret, bare error-tagged ones
+  // throw the value.
   if (response.headers.has(SINGLE_FLIGHT_HEADER)) {
     const folded = response.headers.get(SINGLE_FLIGHT_HEADER).split(",");
-    const legacy = folded.length === 1 && folded[0] === "true";
     const consumers = folded
       .map(source => [source, getFlightDataConsumer(source)])
       .filter(([, consumer]) => consumer);
@@ -667,9 +685,13 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
       // Sequential, awaited delivery: caches are seeded before the caller
       // sees the value, whichever source they subscribe through.
       for (const [source, consumer] of consumers) {
-        await consumer(legacy ? payload.data : payload.data[source], { response });
+        await consumer(payload.data[source], { response });
       }
-      if (failed && !response.headers.has("Location") && !response.headers.has(REVALIDATE_HEADER)) {
+      if (
+        failed &&
+        !response.headers.has(REDIRECT_HEADER) &&
+        !response.headers.has(REVALIDATE_HEADER)
+      ) {
         throw serverFunctionFailure(response, payload.value);
       }
       return payload.value;
@@ -679,11 +701,17 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
   // Responses the caller's integration needs to see whole (redirects,
   // revalidation, single-flight payloads without a registered consumer)
   // pass through untouched — the integration decodes the body itself with
-  // `decodeResponse`.
+  // `decodeResponse`. The runtime's redirects ride REDIRECT_HEADER (#3102;
+  // an authored `Location` on a forwarding status like 201 is data, not
+  // control flow, and decodes normally). A real 3xx status is a peer's
+  // control flow: fetch follows the followable set before the transport
+  // sees it, so one only arrives where something opted out of following —
+  // except 304, which is the answer to a conditional read, not navigation.
   if (
-    response.headers.has("Location") ||
+    response.headers.has(REDIRECT_HEADER) ||
     response.headers.has(REVALIDATE_HEADER) ||
-    response.headers.has(SINGLE_FLIGHT_HEADER)
+    response.headers.has(SINGLE_FLIGHT_HEADER) ||
+    (response.status >= 300 && response.status < 400 && response.status !== 304)
   ) {
     return response;
   }

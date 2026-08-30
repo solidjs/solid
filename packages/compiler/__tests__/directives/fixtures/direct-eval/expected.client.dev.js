@@ -3,5 +3,5 @@ const inspect = function inspect(expr) {
   return eval(expr);
 };
 import { db } from "./db";
-export const run = createServerReference_1("b5494e4b-0-run", "run");
+export const run = createServerReference_1("run-b5494e4b", "run");
 export { inspect };

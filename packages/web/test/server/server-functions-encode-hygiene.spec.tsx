@@ -54,7 +54,7 @@ function connectTransport() {
 
 /** A scripted POST as the client runtime sends it. */
 function scriptedPost(id: string) {
-  return new Request(`https://app.example/_server/${id}`, {
+  return new Request(`https://app.example/_server/data/${id}`, {
     method: "POST",
     headers: {
       "Sec-Fetch-Site": "same-origin",

@@ -3,5 +3,5 @@ import { loadConfig } from "./config";
 const {
   site: site
 } = loadConfig();
-export const remove = createServerReference_1("2bfb27d5-0-remove", "remove");
+export const remove = createServerReference_1("remove-2bfb27d5", "remove");
 export const title = site.name;

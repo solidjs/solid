@@ -7,7 +7,7 @@ try {
 } catch (error) {
   logError(error);
 }
-const serverFunction_1 = registerServerReference_1("9774c758-0-save", async data => {
+const serverFunction_1 = registerServerReference_1("save-9774c758", async data => {
   try {
     return conn.save(data);
   } catch (error) {

@@ -1,6 +1,7 @@
 import {
   action,
   affects,
+  createEffect,
   createMemo,
   createOptimisticStore,
   createProjection,
@@ -15,6 +16,7 @@ import {
   mapArray,
   refresh,
   snapshot,
+  until,
   untrack,
   type Refreshable
 } from "../../src/index.js";
@@ -3121,5 +3123,132 @@ describe("createOptimisticStore", () => {
       expect($id()).toBe(2); // committed
       expect(isPending(() => state!.data)).toBe(false);
     });
+  });
+});
+
+/**
+ * #3108: a derived optimistic store's source is the TRUTH AUTHOR — its draft
+ * reads (sync body and post-await continuations alike) must serve the
+ * authoritative view, never a caller's tentative overlay. Before the fix, a
+ * generator continuation's `store.push` read `length` through an action's
+ * optimistic row (1 instead of 0) and landed truth at index 1, permanently
+ * committing `[null, row]`. User setter drafts keep composing on the
+ * optimistic view (#2951) — the gate is the authoritative-write posture, the
+ * same pair ensurePB classifies drafts by.
+ */
+describe("truth-author drafts read the authoritative view (#3108)", () => {
+  const tick = () => Promise.resolve();
+
+  it("reporter shape: optimistic push + draft-mutating generator + until neither corrupts nor flickers", async () => {
+    let resolveGate!: () => void;
+    const gate = new Promise<void>(r => (resolveGate = r));
+
+    let items!: { id: number }[];
+    let setItems!: (fn: (s: { id: number }[]) => void) => void;
+    const views: unknown[][] = [];
+    let dispose!: () => void;
+
+    createRoot(d => {
+      dispose = d;
+      const [s, set] = createOptimisticStore<{ id: number }[]>(async function* (store) {
+        yield [];
+        await gate;
+        yield;
+        store.push({ id: 1 });
+      }, []);
+      items = s;
+      setItems = set;
+      createEffect(
+        () => items.map(item => item.id),
+        v => void views.push(v)
+      );
+    });
+    flush();
+    await tick();
+    await tick();
+    flush();
+    expect(views.at(-1)).toEqual([]);
+
+    const order: string[] = [];
+    const click = action(function* () {
+      setItems(s => {
+        s.push({ id: 1 });
+      });
+      order.push("written");
+      resolveGate();
+      yield until(() => items.some(item => item.id === 1));
+      order.push("acked");
+    });
+    const done = click().then(() => order.push("settled"));
+    flush();
+    await tick();
+    await tick();
+    flush();
+    await tick();
+    flush();
+    await tick();
+    await tick();
+    flush();
+    await done;
+
+    expect(order).toEqual(["written", "acked", "settled"]);
+    expect(items.map(i => i.id)).toEqual([1]);
+    // The app view never contained an undefined/null row at any point.
+    for (const v of views) expect(v).not.toContain(undefined);
+    for (const v of views) expect(v).not.toContain(null);
+    dispose();
+  });
+
+  it("a continuation's draft push indexes off authoritative length, not the caller's overlay", async () => {
+    let resolveGate!: () => void;
+    const gate = new Promise<void>(r => (resolveGate = r));
+
+    let items!: { id: number }[];
+    let setItems!: (fn: (s: { id: number }[]) => void) => void;
+    let dispose!: () => void;
+
+    createRoot(d => {
+      dispose = d;
+      const [s, set] = createOptimisticStore<{ id: number }[]>(async function* (store) {
+        yield [];
+        await gate;
+        yield;
+        store.push({ id: 1 });
+      }, []);
+      items = s;
+      setItems = set;
+    });
+    flush();
+    await tick();
+    await tick();
+    flush();
+
+    let release!: () => void;
+    const hold = new Promise<void>(r => (release = r));
+    const click = action(function* () {
+      setItems(s => {
+        s.push({ id: 1 });
+      });
+      resolveGate();
+      yield hold;
+    });
+    const done = click();
+    flush();
+    await tick();
+    await tick();
+    flush();
+    await tick();
+    flush();
+    // Mid-hold: the landing occupies index 0; the optimistic row rides on top
+    // of it — never a hole at index 0 with truth at index 1.
+    expect(items[0]).toEqual({ id: 1 });
+    release();
+    await done;
+    flush();
+    await tick();
+    flush();
+    // Committed truth: exactly the authored row, no null hole.
+    expect(JSON.parse(JSON.stringify(items))).toEqual([{ id: 1 }]);
+    dispose();
   });
 });

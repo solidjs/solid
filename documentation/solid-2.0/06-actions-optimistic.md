@@ -76,6 +76,30 @@ const addTodo = action(function* (todo) {
 
 `refresh()` is also an action: call it from event handlers, effects, or other actions rather than from pure computations. It starts invalidation work; it does not carry user-visible optimistic state by itself. Because it re-asks the *same* question (no input changed), a bare `refresh()` is quiet: the fresh value reveals silently and `isPending` stays `false`. When the reload should read as pending, declare it with `affects()`.
 
+#### Awaitable `refresh()`
+
+`refresh()` returns a promise for the target's **next quiescent state**: the re-ask — and anything that supersedes it — has settled. Fire-and-forget callers can keep ignoring it (an ignored promise never surfaces an unhandled rejection); awaiting it turns refresh into a sequencing point:
+
+```js
+const submit = action(async function* (order) {
+  setOptimisticOrder(order);
+  yield api.placeOrder(order);
+  // Wait for the refetch to actually land, then act on fresh server state.
+  const inv = yield refresh(inventory);
+  if (inv[order.sku] < threshold) yield api.flagRestock(order.sku);
+});
+```
+
+The contract:
+
+- **Value delivery.** Accessor targets resolve with the settled value. Store targets resolve with the store node you passed — stores are identity-stable containers, so the await is the ordering and any read through the node afterwards is fresh. Refreshing a nested store node re-asks the whole family (refresh granularity is the derive function's granularity) but resolves with the node the caller was looking at.
+- **Quiescence, not flight identity.** If a second refresh — or any invalidation — supersedes this one mid-flight, the promise waits for whatever finally lands and delivers that. A superseded flight that never settles on its own means nothing; the superseding answer contains or replaces it.
+- **Failures propagate.** A failed re-ask rejects the promise. Inside an action, `yield refresh(x)` throws back at the yield point, so the failure joins the action's normal story: catch it to compensate, or let it revert the optimistic state with the failed action.
+- **Staged delivery inside actions.** Truth landing into the open transaction stages (it cannot commit while the action holds); the promise still settles then, delivering the staged value — matching `resolve()`/`until()` delivery. The caller's own optimistic override is never the delivered value.
+- **Still quiet.** Awaiting does not create a pending window; pair with `affects()` as before when the reload should read as pending.
+
+This is the mutate-then-refetch sequencing primitive: the confirmation is simply "the refetch I issued has settled", with no condition to express and no version fields to invent. When the confirmation instead arrives on a live channel the mutation didn't ask — sockets, subscriptions — reach for `until()` below.
+
 ### `affects(target, key?)` (declare what in-flight work will change)
 
 `affects` declares that the surrounding work will change the targeted data. The marked data — and anything derived from it — reads as pending (`isPending` → `true`) from the declaration until the transaction settles or reverts, exactly as if a real fetch for it were in flight; the values themselves stay readable throughout. It is additive only: a declaration can turn pending *on* for data the graph can't see changing yet; nothing turns pending *off* while a real change is in flight — pairing `affects(x)` with `refresh(x)` keeps the whole window pending even though the bare refresh alone would be quiet.
@@ -129,7 +153,7 @@ const addTodo = action(function* (todo) {
 
 ### `until()` (live-source acknowledgment)
 
-The flows above assume the mutation's own response confirms the write: await it, `refresh()`, done. Actions that feed **live sources** — sockets, subscriptions, live queries — have no such ack: the transport call returns immediately (or is fire-and-forget), and the authoritative update arrives later on the data channel. Without a hold, the action settles at the transport ack, the optimistic state reverts, and the confirmed data flickers in a beat later.
+The flows above assume the mutation's own response confirms the write: await it, `yield refresh()`, done — the refetch's settle point is the confirmation. Actions that feed **live sources** — sockets, subscriptions, live queries — have no such ack: the transport call returns immediately (or is fire-and-forget), and the authoritative update arrives later on the data channel. Without a hold, the action settles at the transport ack, the optimistic state reverts, and the confirmed data flickers in a beat later.
 
 `until(fn, options?)` is that hold. It returns a promise that resolves the first time the reactive predicate `fn` settles **truthy**, with that (narrowed) value. Falsy results and pending async reads both mean "not yet" — the subscription stays live and re-evaluates as sources change. Yield it from an action to hold the transaction — and every optimistic override riding it — open until the world confirms:
 
@@ -159,7 +183,7 @@ Practical guidance:
 - **Scope `affects()` narrowly** during long holds — mark the row, not the store, or every pending-driven affordance reads busy for the whole confirmation window.
 - **Any arrival path confirms.** Live-channel landings, other transactions' commits (they land beneath the hold), and refetches the action itself issued (they land *staged into* the hold, and the predicate reads staged data) all satisfy the predicate the moment they carry the confirming truth.
 
-Where `resolve(fn)` answers "what is this value" (first settled value, whatever it is), `until(fn)` answers "when does the world confirm this condition" (first *truthy* settle). They share delivery machinery; the one read-semantics difference is deliberate: `resolve` reads your own transaction's view, overrides included — it is reporting your state. `until` reads the authoritative view, overrides carved out — it is waiting on the world, and your own optimism must not be able to answer for it. Both see transition-staged data; neither can deadlock on a value the surrounding action holds.
+Where `resolve(fn)` answers "what is this value" (first settled value, whatever it is), `until(fn)` answers "when does the world confirm this condition" (first *truthy* settle), and an awaited `refresh(x)` answers "when has this re-ask settled" (no condition at all — the settle point of a refetch you issued). They share delivery machinery; the read-semantics differences are deliberate: `resolve` reads your own transaction's view, overrides included — it is reporting your state. `until` reads the authoritative view, overrides carved out — it is waiting on the world, and your own optimism must not be able to answer for it. `refresh` delivers the landed (staged-or-committed) value, never the caller's override. All see transition-staged data; none can deadlock on a value the surrounding action holds. Most mutate-then-refetch flows want `yield refresh(...)`; only confirmations arriving on a channel the mutation didn't ask genuinely need `until`.
 
 ## Migration / replacement
 
