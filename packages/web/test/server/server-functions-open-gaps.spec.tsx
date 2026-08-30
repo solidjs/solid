@@ -4,7 +4,7 @@
  * `test/lifecycle-matrix/MATRIX.md`: the marker is the point — the suite
  * stays green while the gap is open and turns red the day it closes, at
  * which point the marker comes off and the test becomes an ordinary guard.
- * Each carries the issue that tracks it: #3118 (open); #3117 (closed by
+ * Each carries the issue that tracks it: #3118 (closed); #3117 (closed by
  * the error trailer frame) and #3119 (closed by #3115's request bounds)
  * remain as ordinary guards, with the trailer's full matrix alongside.
  *
@@ -193,6 +193,57 @@ describe("a streamed result nobody is reading", () => {
     expect(produced).toBeLessThan(50);
   });
 
+  test("drains to completion, so the gate cannot swallow the tail", async () => {
+    registerServerFunction("gap-backpressure-drain", async function* () {
+      for (let n = 0; n < 40; n++) {
+        yield { n };
+        await new Promise(resolve => setImmediate(resolve));
+      }
+    });
+
+    const response = await handleServerFunctionRequest(scriptedPost("gap-backpressure-drain"));
+    // a gate that never reopened, or one that missed the last chunk, hangs
+    // here instead of failing an assertion — which is the point
+    expect((await response.text()).length).toBeGreaterThan(0);
+  });
+
+  // A pull parked on the gate holds the source open, and `desiredSize` is 0
+  // after close and null after error — so the gate never reopens on its own
+  // and every path that ends the stream has to release it. Without that the
+  // source's cleanup silently never runs, once per failed request.
+  test("releases a parked pull when the codec ends the stream", async () => {
+    let cleanedUp = false;
+    registerServerFunction("gap-backpressure-cleanup", async () => ({
+      rows: (async function* () {
+        try {
+          for (let n = 0; n < 20; n++) {
+            yield { n };
+            await new Promise(resolve => setImmediate(resolve));
+          }
+        } finally {
+          cleanedUp = true;
+        }
+      })(),
+      unencodable: {
+        get boom(): never {
+          throw new Error("a deferred encode failure, landing while a pull is parked");
+        }
+      }
+    }));
+
+    const response = await handleServerFunctionRequest(scriptedPost("gap-backpressure-cleanup"));
+    const reader = response.body!.getReader();
+    // ONE read, then stop: the source parks on the gate, and the encode
+    // failure on the sibling branch ends the stream while it is parked.
+    // Draining instead would never park, and would never reach the defect.
+    await reader.read();
+    for (let turn = 0; turn < 20; turn++) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    expect(cleanedUp).toBe(true);
+  });
+
   test("resumes as the consumer reads, and stops when it leaves", async () => {
     let produced = 0;
     registerServerFunction("gap-backpressure-resume", async function* () {
@@ -213,8 +264,10 @@ describe("a streamed result nobody is reading", () => {
       await new Promise(resolve => setImmediate(resolve));
     }
 
-    // it kept up with the reads rather than stalling behind them...
-    expect(whileReading).toBeGreaterThan(1);
+    // liveness: test 1 passes just as well if the gate never reopens, so
+    // this is the case that would catch a deadlock. A healthy run tracks
+    // the reads almost exactly; the bound is loose enough for a slow CI.
+    expect(whileReading).toBeGreaterThanOrEqual(10);
     // ...and a departed consumer stops it, give or take the pull in flight
     expect(produced).toBeLessThanOrEqual(atCancel + 1);
   });

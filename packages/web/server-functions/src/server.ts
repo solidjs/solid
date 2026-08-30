@@ -1681,9 +1681,18 @@ export function serializeResponseStream(value, codecOptions, signal) {
   // consumer never slows the producer: the whole result accumulates in the
   // stream's queue, in server memory, unbounded. The consumer's reads drive
   // `pull`, which releases one source pull at a time.
+  //
+  // `desiredSize > 0` means "fewer than one chunk queued": the stream takes
+  // no queuing strategy, so it runs on the default high-water mark of 1.
+  // That default is what sets the depth, and raising it is how you would
+  // trade memory for fewer round trips.
+  //
+  // One resolver is enough because the pump is sequential — the same reason
+  // the wrapper below only exposes `next()`. Two concurrent pulls would
+  // overwrite it and strand the first.
   let streamController = null;
   let releaseDemand = null;
-  const wantsMore = () => !streamController || streamController.desiredSize > 0;
+  const wantsMore = () => streamController.desiredSize > 0;
   const awaitDemand = () => new Promise(resolve => (releaseDemand = resolve));
   const supplyDemand = () => {
     const resolve = releaseDemand;
@@ -1692,13 +1701,20 @@ export function serializeResponseStream(value, codecOptions, signal) {
   };
   let cancelSerialize = null;
   let onAbort = null;
+  // Ends the source and releases a pull parked on the demand gate. Every
+  // path that stops the stream has to run this: a parked pull holds the
+  // source open and nothing else will resolve it — `desiredSize` is 0 after
+  // close and null after error, so the gate never reopens on its own.
+  const finishSource = () => {
+    if (closeIterator) closeIterator();
+    supplyDemand();
+  };
   const teardown = () => {
     if (closed) return;
     closed = true;
     if (onAbort) signal.removeEventListener("abort", onAbort);
     if (cancelSerialize) cancelSerialize();
-    if (closeIterator) closeIterator();
-    supplyDemand();
+    finishSource();
   };
   if (
     value !== null &&
@@ -1728,9 +1744,9 @@ export function serializeResponseStream(value, codecOptions, signal) {
         if (closed) closeIterator();
         const step = () => (finished ? { done: true, value: undefined } : it.next());
         return {
-          // Waits for the consumer to want a chunk before pulling the next
-          // one; `finished` is re-read after the wait, since teardown can
-          // land while it is parked.
+          // Pulls straight through while the queue has room, and parks
+          // until a read makes room when it does not. `finished` is re-read
+          // after the wait, since teardown can land while it is parked.
           next: () => (wantsMore() ? Promise.resolve(step()) : awaitDemand().then(step))
         };
       }
@@ -1781,12 +1797,14 @@ export function serializeResponseStream(value, codecOptions, signal) {
           if (closed) return;
           closed = true;
           if (onAbort) signal.removeEventListener("abort", onAbort);
+          finishSource();
           controller.close();
         },
         onError(error) {
           if (closed) return;
           closed = true;
           if (onAbort) signal.removeEventListener("abort", onAbort);
+          finishSource();
           // The head is committed by the time an encode failure arrives, so
           // the status is spent and no error tag can be added — and merely
           // erroring the stream truncates the body over a socket, which the
