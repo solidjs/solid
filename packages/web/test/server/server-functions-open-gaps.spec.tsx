@@ -1,28 +1,23 @@
 /**
- * Gaps that are open on `next` today, written as `it.fails` so the suite
- * stays green while they are open and turns RED the day each is fixed —
- * at which point the marker comes off and the test becomes an ordinary
- * guard. (The repo's existing idiom for "intended, not yet held" is
- * `test.skip`; these use `.fails` instead because the point is to notice
- * the fix, which a skipped test cannot do.)
- *
- * Each assertion states the behaviour that is wanted, not the behaviour
- * that happens.
+ * Gaps that are open on `next` today. Each test states the behaviour that
+ * is wanted and is marked `test.fails`, per the convention in
+ * `test/lifecycle-matrix/MATRIX.md`: the marker is the point — the suite
+ * stays green while the gap is open and turns red the day it closes, at
+ * which point the marker comes off and the test becomes an ordinary guard.
  *
  * Like the other server-function specs, these run against the built
  * bundles (server-functions/dist/*, wired up in vite.config.server.mjs).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
-  BODY_FORMAT_HEADER,
-  ERROR_HEADER,
   handleServerFunctionRequest,
   registerServerFunction
 } from "@solidjs/web/server-functions/server";
 import { createServerReference } from "@solidjs/web/server-functions/client";
 
 const RequestContext = Symbol.for("solid.RequestContext");
+const BODY_FORMAT_HEADER = "X-Server-Function-Format";
 
 beforeAll(() => {
   (globalThis as any)[RequestContext] = new AsyncLocalStorage();
@@ -46,10 +41,11 @@ function scriptedPost(id: string) {
 /**
  * Routes the client stub through the handler the way a socket does: the
  * body is drained into a buffer first, so a stream that errors mid-flight
- * reaches the client as a TRUNCATED body rather than as a live exception.
- * That is the difference between an in-process call and a deployed one.
+ * arrives as a TRUNCATED body rather than as a live exception. That is the
+ * difference between an in-process call and a deployed one, and it is the
+ * difference this gap hides behind.
  */
-function connectWire() {
+function connectBufferedTransport() {
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const address = input instanceof Request ? input.url : input.toString();
@@ -74,14 +70,13 @@ function connectWire() {
 }
 
 describe("a result the codec cannot encode", () => {
-  // The function already ran and committed its side effects; only the
-  // ENCODING failed, and it failed after the head was committed, so the
-  // status is spent and no error tag can be added. The truncated body
-  // then decodes to `undefined` — the same answer a void function gives.
-  // A caller cannot tell "this mutation returned nothing" from "this
-  // mutation's result was lost", which is the worst possible reading of a
-  // write that succeeded.
-  it.fails("reaches the caller as a failure rather than as undefined", async () => {
+  // GAP: the caller receives `undefined`. The function already ran and
+  // committed its side effects; only the ENCODING failed, and it failed
+  // after the head was committed, so the status is spent and no error tag
+  // can be added. The truncated body decodes to the answer a void function
+  // gives, so a write that succeeded is indistinguishable from one that
+  // returned nothing — and a data layer may retry it.
+  test.fails("reaches the caller as a failure rather than as undefined", async () => {
     let ran = 0;
     registerServerFunction("gap-encode-failure", async () => {
       ran++;
@@ -93,24 +88,34 @@ describe("a result the codec cannot encode", () => {
       };
     });
 
-    const disconnect = connectWire();
+    const restore = connectBufferedTransport();
+    let outcome: { resolved: true; value: unknown } | { resolved: false; error: unknown };
     try {
-      await expect(createServerReference("gap-encode-failure")()).rejects.toThrow();
-      expect(ran).toBe(1);
+      outcome = { resolved: true, value: await createServerReference("gap-encode-failure")() };
+    } catch (error) {
+      outcome = { resolved: false, error };
     } finally {
-      disconnect();
+      restore();
     }
+
+    expect(ran).toBe(1);
+    expect(outcome.resolved).toBe(false);
+    expect((outcome as { error: unknown }).error).toBeInstanceOf(Error);
   });
 });
 
-describe("a streamed result with a consumer that reads slowly", () => {
-  // The response stream is built with no `pull` and no queuing strategy,
-  // and every codec node is enqueued the moment it is parsed, so the
-  // producer runs as fast as it can resolve regardless of whether anyone
-  // is reading. One slow client on a large or infinite stream therefore
-  // buffers the whole result in server memory — invisible to application
-  // code, and unbounded.
-  it.fails("does not let the producer run unboundedly ahead", async () => {
+describe("a streamed result nobody is reading", () => {
+  // GAP: the producer runs unboundedly ahead. The response stream is built
+  // with no `pull` and no queuing strategy, and every codec node is
+  // enqueued the moment it is parsed, so the producer runs as fast as it
+  // can resolve whether or not anyone reads. On a large or infinite stream
+  // one slow client buffers the whole result in server memory, invisibly
+  // to application code.
+  //
+  // Counted in event-loop turns rather than wall-clock: a bounded producer
+  // stays near the queue size whatever the machine, an unbounded one
+  // tracks the turn count.
+  test.fails("does not let the producer run ahead of the consumer", async () => {
     let produced = 0;
     registerServerFunction("gap-backpressure", async function* () {
       while (produced < 100_000) {
@@ -122,24 +127,22 @@ describe("a streamed result with a consumer that reads slowly", () => {
 
     const response = await handleServerFunctionRequest(scriptedPost("gap-backpressure"));
     const reader = response.body!.getReader();
-    for (let i = 0; i < 3; i++) {
-      await reader.read();
-      await new Promise(resolve => setTimeout(resolve, 20));
+    await reader.read();
+    for (let turn = 0; turn < 200; turn++) {
+      await new Promise(resolve => setImmediate(resolve));
     }
     await reader.cancel();
 
-    // A generous ceiling: a bounded producer stays near the queue size,
-    // an unbounded one reaches five figures in this window.
-    expect(produced).toBeLessThan(500);
+    expect(produced).toBeLessThan(50);
   });
 });
 
 describe("the decode depth cap", () => {
-  // The codec's `depthLimit: 64` exists "because payloads may come from an
-  // untrusted peer", and it guards the seroval path only. The body format
-  // is chosen by the CALLER, so selecting the JSON format opts out of the
-  // cap entirely: `extractBody` hands the payload to a bare JSON.parse.
-  it.fails("holds whichever body format the caller selects", async () => {
+  // GAP: the cap is opt-out. `depthLimit: 64` exists "because payloads may
+  // come from an untrusted peer" and guards the seroval path only, while
+  // the body format is chosen by the CALLER — selecting the JSON format
+  // hands the payload to a bare JSON.parse and skips the cap entirely.
+  test.fails("holds whichever body format the caller selects", async () => {
     registerServerFunction("gap-depth", async (value: unknown) => {
       let depth = 0;
       let cursor: any = value;
@@ -150,9 +153,11 @@ describe("the decode depth cap", () => {
       return { depth };
     });
 
+    // comfortably past the 64-level cap, and well short of the ~5900
+    // nested objects that overflow V8's default stack in JSON.stringify
     const root: any = {};
     let cursor = root;
-    for (let i = 0; i < 5_000; i++) {
+    for (let i = 0; i < 500; i++) {
       cursor.a = {};
       cursor = cursor.a;
     }
@@ -169,8 +174,7 @@ describe("the decode depth cap", () => {
       })
     );
 
-    // the seroval path answers 400 for a payload past the cap
+    // the capped path answers 400 for a payload past the limit
     expect(response.status).toBe(400);
-    expect(response.headers.has(ERROR_HEADER)).toBe(false);
   });
 });
