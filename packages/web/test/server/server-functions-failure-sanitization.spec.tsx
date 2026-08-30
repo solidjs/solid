@@ -127,6 +127,16 @@ describe("a failure escaping through the result graph", () => {
     expect(body).toContain("Internal Server Error");
   });
 
+  it("is sanitized when the rejection sits in a Map", async () => {
+    registerServerFunction("graph-failure-map", async () =>
+      new Map([["pending", Promise.reject(databaseError())]])
+    );
+
+    const body = await wireBody("graph-failure-map");
+    for (const secret of SECRETS) expect(body).not.toContain(secret);
+    expect(body).toContain("Internal Server Error");
+  });
+
   it("keeps an error the author branded as intentional", async () => {
     registerServerFunction("graph-failure-safe", async function* () {
       yield { page: 1 };
@@ -191,6 +201,38 @@ describe("what the guard must not disturb", () => {
     );
 
     expect(response.status).toBe(200);
+  });
+
+  // The walk records each container before descending, so a self-reference
+  // resolves to the container being built. Getting this wrong recursed
+  // until the stack gave out, and the RangeError escaped into dispatch's
+  // catch as a 500 — on a shape the codec encodes natively as a back
+  // reference.
+  it("does not choke on a cycle", async () => {
+    registerServerFunction("graph-cycle", async () => {
+      const node: any = { name: "n" };
+      node.self = node;
+      return node;
+    });
+
+    const outcome = await callThrough("graph-cycle");
+    expect(outcome.resolved).toBe(true);
+    const value = (outcome as { value: any }).value;
+    expect(value.self).toBe(value);
+  });
+
+  it("keeps a null-prototype object null-prototyped", async () => {
+    registerServerFunction("graph-null-proto", async () => {
+      const bare = Object.create(null);
+      bare.deferred = Promise.reject(databaseError());
+      return bare;
+    });
+
+    const body = await wireBody("graph-null-proto");
+    for (const secret of SECRETS) expect(body).not.toContain(secret);
+    // NullConstructor rather than a plain Object: rebuilding must not
+    // hand the value a prototype it did not have.
+    expect(body).toContain('"t":11');
   });
 
   it("passes a healthy result through untouched, nested promise included", async () => {
