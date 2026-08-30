@@ -992,6 +992,53 @@ export class ChunkReader {
       interpret(result.value);
     }
   }
+}
+
+// A codec frame's payload is `JSON.stringify` of a SerovalNode — it always
+// opens with `{` — so a payload opening with `!` is unambiguously not data.
+// The error trailer rides that seam: when encoding fails AFTER the head is
+// committed (status spent, no error tag possible), the failure travels in
+// band as a terminal `!`-frame instead of a truncated body the peer would
+// decode as `undefined` (#3117). The decoder throws it — as the response
+// value when it is the first frame, and into every still-pending async
+// value when it arrives mid-stream.
+const ERROR_TRAILER_PREFIX = "!";
+
+/**
+ * Encodes a terminal error-trailer frame payload. The value is expected to
+ * be already sanitized by the caller; only `name` and `message` travel.
+ * Transport wire detail; not meant for hand-written code.
+ * @internal
+ */
+export function encodeErrorTrailer(error: unknown): string;
+
+/** Encodes a terminal error-trailer frame payload (see the notes above). */
+export function encodeErrorTrailer(error) {
+  const shaped = error instanceof Error ? error : new Error(String(error));
+  return (
+    ERROR_TRAILER_PREFIX +
+    JSON.stringify(
+      shaped.name && shaped.name !== "Error"
+        ? { name: shaped.name, message: shaped.message }
+        : { message: shaped.message }
+    )
+  );
+}
+
+function errorFromTrailer(payload) {
+  let shape;
+  try {
+    shape = JSON.parse(payload.slice(1));
+  } catch {
+    shape = null;
+  }
+  const error = new Error(
+    shape && typeof shape.message === "string"
+      ? shape.message
+      : "Server function result could not be delivered."
+  );
+  if (shape && typeof shape.name === "string") error.name = shape.name;
+  return error;
 } /**
  * Serializes a value as a stream of length-prefixed SerovalNode chunks.
  * Async values (promises, streams) keep the stream open until they settle,
@@ -1075,6 +1122,13 @@ export async function deserializeStream(source, codecOptions) {
   const reader = new ChunkReader(source.body);
   const result = await reader.next();
   if (!result.done) {
+    // An error trailer as the FIRST frame is the whole answer: encoding
+    // failed before any value was delivered, and the failure is the result
+    // (#3117). Thrown here so the caller sees a failed call, never a void
+    // success.
+    if (result.value.startsWith(ERROR_TRAILER_PREFIX)) {
+      throw errorFromTrailer(result.value);
+    }
     // The codec's decode half loads here — when a Serialized body has
     // actually arrived — so a client whose responses all ride the JSON fast
     // path never pays for it (see the loading notes at the top). The
@@ -1086,6 +1140,13 @@ export async function deserializeStream(source, codecOptions) {
     const deserializeChunk = createJSONDeserializer(codecOptions);
 
     function interpretChunk(chunk) {
+      // Mid-stream, the trailer means a LATER value's encoding failed: the
+      // resolved head keeps its data, and the throw below rejects the drain,
+      // whose abort sweep fails every still-pending async value with the
+      // carried reason instead of a generic truncation error (#3117).
+      if (chunk.startsWith(ERROR_TRAILER_PREFIX)) {
+        throw errorFromTrailer(chunk);
+      }
       return deserializeChunk(JSON.parse(chunk));
     }
 

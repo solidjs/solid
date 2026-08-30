@@ -46,6 +46,7 @@ import {
   provideServerFunctionRPC,
   serverFunctionAddress,
   createChunk,
+  encodeErrorTrailer,
   withMeta
 } from "./shared.js";
 
@@ -1735,7 +1736,29 @@ export function serializeResponseStream(value, codecOptions, signal) {
           if (closed) return;
           closed = true;
           if (onAbort) signal.removeEventListener("abort", onAbort);
-          controller.error(error);
+          // The head is committed by the time an encode failure arrives, so
+          // the status is spent and no error tag can be added — and merely
+          // erroring the stream truncates the body over a socket, which the
+          // peer decodes as `undefined`: a write that succeeded becomes
+          // indistinguishable from one that returned nothing, the worst
+          // available reading for a non-idempotent mutation (#3117). So the
+          // failure travels IN BAND: a terminal error frame the decoder
+          // recognizes and throws. Sanitized like any other failure — an
+          // encode error's message can carry the value that refused to
+          // encode; the dev build keeps the cause for DX.
+          try {
+            const delivered = sanitizeServerError(
+              DEV && error instanceof Error
+                ? new Error(`Server function result could not be encoded: ${error.message}`)
+                : error
+            );
+            controller.enqueue(createChunk(encodeErrorTrailer(delivered)));
+            controller.close();
+          } catch {
+            try {
+              controller.error(error);
+            } catch {}
+          }
         }
       });
     },

@@ -4,8 +4,9 @@
  * `test/lifecycle-matrix/MATRIX.md`: the marker is the point — the suite
  * stays green while the gap is open and turns red the day it closes, at
  * which point the marker comes off and the test becomes an ordinary guard.
- * Each carries the issue that tracks it: #3117, #3118 (open); #3119
- * (closed by #3115's request bounds — its test is an ordinary guard now).
+ * Each carries the issue that tracks it: #3118 (open); #3117 (closed by
+ * the error trailer frame) and #3119 (closed by #3115's request bounds)
+ * remain as ordinary guards, with the trailer's full matrix alongside.
  *
  * Like the other server-function specs, these run against the built
  * bundles (server-functions/dist/*, wired up in vite.config.server.mjs).
@@ -72,13 +73,13 @@ function connectBufferedTransport() {
 }
 
 describe("a result the codec cannot encode", () => {
-  // GAP (#3117): the caller receives `undefined`. The function already ran and
-  // committed its side effects; only the ENCODING failed, and it failed
-  // after the head was committed, so the status is spent and no error tag
-  // can be added. The truncated body decodes to the answer a void function
-  // gives, so a write that succeeded is indistinguishable from one that
-  // returned nothing — and a data layer may retry it.
-  test.fails("reaches the caller as a failure rather than as undefined", async () => {
+  // Closed (#3117): an encode failure now travels IN BAND as a terminal
+  // error trailer frame — the head is committed by the time it arrives, so
+  // the status is spent and no error tag is possible, and a merely
+  // truncated body decodes to the answer a void function gives. The
+  // decoder throws the trailer, so a lost result is a failed call, never
+  // an empty success. Ordinary guard now.
+  test("reaches the caller as a failure rather than as undefined", async () => {
     let ran = 0;
     registerServerFunction("gap-encode-failure", async () => {
       ran++;
@@ -103,6 +104,59 @@ describe("a result the codec cannot encode", () => {
     expect(ran).toBe(1);
     expect(outcome.resolved).toBe(false);
     expect((outcome as { error: unknown }).error).toBeInstanceOf(Error);
+    // The trailer is sanitized like any other failure: an encode error's
+    // message can carry the value that refused to encode, and this suite
+    // runs the production bundles.
+    expect(((outcome as { error: unknown }).error as Error).message).toBe("Internal Server Error");
+    expect(((outcome as { error: unknown }).error as Error).message).not.toContain("cannot encode");
+  });
+
+  // Mid-stream, the head has already resolved with its data; only the value
+  // whose encoding failed may be lost, and it must fail rather than hang or
+  // silently resolve.
+  test("fails a later value whose encoding failed, keeping the delivered head", async () => {
+    registerServerFunction("gap-encode-late-failure", async () => ({
+      head: 1,
+      deferred: Promise.resolve({
+        get unencodable() {
+          throw new Error("cannot encode");
+        }
+      })
+    }));
+
+    const restore = connectBufferedTransport();
+    try {
+      const value = (await createServerReference("gap-encode-late-failure")()) as {
+        head: number;
+        deferred: Promise<unknown>;
+      };
+      expect(value.head).toBe(1);
+      await expect(value.deferred).rejects.toThrow("Internal Server Error");
+    } finally {
+      restore();
+    }
+  });
+
+  // The trailer prefix is a wire reserved character; a caller crafting one
+  // into its ARGUMENTS must get a malformed-request answer, not a crash and
+  // not an echo of its own payload.
+  test("answers a crafted trailer frame in the arguments as malformed", async () => {
+    registerServerFunction("gap-trailer-injection", async () => "ran");
+
+    const payload = '!{"message":"crafted"}';
+    const chunk = `;0x${payload.length.toString(16).padStart(8, "0")};${payload}`;
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/gap-trailer-injection", {
+        method: "POST",
+        body: chunk,
+        headers: {
+          "Sec-Fetch-Site": "same-origin",
+          "X-Server-Function-Instance": "server-function:test",
+          [BODY_FORMAT_HEADER]: "0"
+        }
+      })
+    );
+    expect(response.status).toBe(400);
   });
 });
 
