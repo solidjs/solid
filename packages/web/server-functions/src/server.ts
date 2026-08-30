@@ -1386,7 +1386,14 @@ function isFormPost(request) {
 // everything else is passed through by reference, so the common response
 // allocates nothing and reference identity survives for the codec. The
 // WeakMap keeps a repeated reference one object, and terminates cycles.
-function guardFailures(value, seen) {
+/**
+ * Wraps the failure channels in a value so a rejection reaching the codec
+ * is sanitized like any other error. Applied to every server-function
+ * response body; the frames flight sink applies it to its own outcome,
+ * which is encoded by a different serializer.
+ * @internal
+ */
+export function guardFailures(value, seen) {
   if (value === null || typeof value !== "object") return value;
   if (!seen) seen = new WeakMap();
   const cached = seen.get(value);

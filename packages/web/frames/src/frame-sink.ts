@@ -145,7 +145,10 @@ import {
   frameAddress,
   serializeStream
 } from "../../server-functions/src/shared.js";
-import { getEventServerFunctionInvocation } from "../../server-functions/src/server.js";
+import {
+  getEventServerFunctionInvocation,
+  guardFailures
+} from "../../server-functions/src/server.js";
 import { isResponseEnvelope } from "../../src/response.js";
 import {
   FRAME_STREAM_HEADER,
@@ -2023,7 +2026,13 @@ export function frameFlightResponse({ primary, regions = [], outcome, codec }, i
           // Component-valued entries serialize as flight references — the
           // protocol injects its own plugin (see `flightCodec`), so nothing
           // registers it.
-          const reader = new ChunkReader(serializeStream(outcome, flightCodec(codec)));
+          // Guarded like every other server-function body: this sink has its
+          // own serializer, so a rejection nested in flight data would
+          // otherwise reach the wire with its message and own-properties
+          // intact — under a 200, since the head is long committed.
+          const reader = new ChunkReader(
+            serializeStream(guardFailures(outcome), flightCodec(codec))
+          );
           for (let node = await reader.next(); !node.done; node = await reader.next()) {
             write({ type: "outcome", payload: node.value });
           }

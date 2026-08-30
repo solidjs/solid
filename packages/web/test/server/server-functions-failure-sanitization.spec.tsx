@@ -26,6 +26,7 @@ import {
   registerServerFunction
 } from "@solidjs/web/server-functions/server";
 import { createServerReference } from "@solidjs/web/server-functions/client";
+import { frameTransformFlightResult } from "@solidjs/web/frames/server";
 
 const RequestContext = Symbol.for("solid.RequestContext");
 
@@ -203,5 +204,35 @@ describe("what the guard must not disturb", () => {
     const value = (outcome as { value: any }).value;
     expect(value.items).toEqual([1, 2]);
     await expect(value.nested.deferred).resolves.toBe("value");
+  });
+});
+
+describe("the frames flight sink", () => {
+  // It encodes its outcome with its own serializer, so the guard has to be
+  // applied there too — the same rejection that is sanitized on the plain
+  // response path reached the wire intact through this one.
+  it("sanitizes a failure nested in flight data", async () => {
+    // a markup-valued result is what routes the response through frames
+    registerServerFunction("flight-markup", async () => () => "ok");
+
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/flight-markup", {
+        method: "POST",
+        body: "[]",
+        headers: {
+          "Sec-Fetch-Site": "same-origin",
+          "X-Server-Function-Instance": "server-function:test",
+          "X-Single-Flight": "true"
+        }
+      }),
+      {
+        collectFlightData: () => ({ "/notes": { pending: Promise.reject(databaseError()) } }),
+        transformFlightResult: frameTransformFlightResult
+      }
+    );
+
+    const body = await response.text();
+    for (const secret of SECRETS) expect(body).not.toContain(secret);
+    expect(body).toContain("Internal Server Error");
   });
 });
