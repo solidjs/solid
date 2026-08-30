@@ -1463,6 +1463,168 @@ function isFormPost(request) {
   );
 }
 
+// `sanitizeServerError` guards the one road a thrown error takes out of
+// dispatch. A failure can also escape through the RESULT GRAPH — a rejected
+// promise, an async iterable that throws, a stream that errors — where it
+// reaches the codec as a value to encode rather than as a throw, and never
+// meets the sanitizer. The leak is the one the sanitizer exists to stop: a
+// driver error's message and own-properties (failing query, connection
+// string, bound params) riding the wire verbatim. Worse than the thrown
+// case, because the head is already committed — the answer is a 200
+// carrying no error tag.
+//
+// So the CHANNELS are wrapped before the codec sees them. Not the rejection
+// (it has not happened yet), and not the Errors already in the graph: an
+// Error reached as a value was never thrown, so it is data and the author's.
+//
+// Each container is recorded BEFORE its children are walked, so a cycle —
+// which seroval encodes natively as a back-reference — resolves to the
+// container being built instead of recursing forever. A cycle also forces
+// the rebuild to stand, since a descendant already holds it. Containers
+// that changed nothing are passed through by reference so identity survives
+// for the codec, though the rebuilt shell is allocated either way: it has to
+// exist before the walk that decides whether it was needed.
+//
+// Left alone deliberately, so a channel behind either is unguarded: class
+// instances, whose own properties are not ours to rebuild (private fields,
+// getters, invariants), and accessors, which are not ours to invoke.
+/** @internal */
+export function guardFailures(value, state) {
+  if (value === null || typeof value !== "object") return value;
+  if (!state) state = { seen: new WeakMap(), cyclic: new WeakSet() };
+  if (state.seen.has(value)) {
+    state.cyclic.add(value);
+    return state.seen.get(value);
+  }
+
+  // Ahead of the async-iterable branch: a ReadableStream is async-iterable
+  // on every server runtime, so that branch would claim it and this one
+  // would never run.
+  if (typeof ReadableStream !== "undefined" && value instanceof ReadableStream) {
+    let reader;
+    const guardedStream = new ReadableStream({
+      async pull(controller) {
+        try {
+          if (!reader) reader = value.getReader();
+          const { done, value: chunk } = await reader.read();
+          // the chunk is walked like a step value: a channel nested in one
+          // would otherwise reach the codec unguarded
+          done ? controller.close() : controller.enqueue(guardFailures(chunk, state));
+        } catch (error) {
+          controller.error(sanitizeServerError(error));
+        }
+      },
+      cancel(reason) {
+        return reader ? reader.cancel(reason) : value.cancel(reason);
+      }
+    });
+    state.seen.set(value, guardedStream);
+    return guardedStream;
+  }
+
+  if (typeof value.then === "function") {
+    const guardedPromise = Promise.resolve(value).then(
+      resolved => guardFailures(resolved, state),
+      error => {
+        throw sanitizeServerError(error);
+      }
+    );
+    state.seen.set(value, guardedPromise);
+    return guardedPromise;
+  }
+
+  if (typeof value[Symbol.asyncIterator] === "function") {
+    const source = value;
+    const guardedIterable = {
+      [Symbol.asyncIterator]() {
+        const iterator = source[Symbol.asyncIterator]();
+        return {
+          next: () =>
+            iterator.next().then(
+              step =>
+                step.done ? step : { done: false, value: guardFailures(step.value, state) },
+              error => {
+                throw sanitizeServerError(error);
+              }
+            ),
+          return: iterator.return && (() => iterator.return())
+        };
+      }
+    };
+    state.seen.set(value, guardedIterable);
+    return guardedIterable;
+  }
+
+  if (Array.isArray(value)) {
+    const next = value.slice();
+    state.seen.set(value, next);
+    let changed = false;
+    for (let index = 0; index < value.length; index++) {
+      const guarded = guardFailures(value[index], state);
+      if (guarded === value[index]) continue;
+      next[index] = guarded;
+      changed = true;
+    }
+    return keepGuarded(value, next, changed, state);
+  }
+
+  if (value instanceof Map) {
+    const next = new Map();
+    state.seen.set(value, next);
+    let changed = false;
+    for (const [key, entry] of value) {
+      const guarded = guardFailures(entry, state);
+      if (guarded !== entry) changed = true;
+      next.set(key, guarded);
+    }
+    return keepGuarded(value, next, changed, state);
+  }
+
+  if (value instanceof Set) {
+    const next = new Set();
+    state.seen.set(value, next);
+    let changed = false;
+    for (const entry of value) {
+      const guarded = guardFailures(entry, state);
+      if (guarded !== entry) changed = true;
+      next.add(guarded);
+    }
+    return keepGuarded(value, next, changed, state);
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    state.seen.set(value, value);
+    return value;
+  }
+
+  // Data properties only: reading through a getter would invoke it here as
+  // well as when the codec encodes, and a throwing one would escape into
+  // dispatch's catch to be reported as the function itself failing — the
+  // phantom error over a call that succeeded. Descriptors carry across, so
+  // a frozen or non-writable shape survives the rebuild.
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const next = Object.create(prototype, descriptors);
+  state.seen.set(value, next);
+  let changed = false;
+  for (const key of Object.keys(descriptors)) {
+    const descriptor = descriptors[key];
+    if (!("value" in descriptor)) continue;
+    const guarded = guardFailures(descriptor.value, state);
+    if (guarded === descriptor.value) continue;
+    Object.defineProperty(next, key, { ...descriptor, value: guarded });
+    changed = true;
+  }
+  return keepGuarded(value, next, changed, state);
+}
+
+/** A rebuild stands if anything below changed, or if a cycle already took it. */
+function keepGuarded(value, next, changed, state) {
+  if (changed || state.cyclic.has(value)) return next;
+  state.seen.set(value, value);
+  return value;
+}
+
 /**
  * The response-side codec stream: `serializeStream` (shared.js) hardened
  * with request-lifetime teardown. Server-only on purpose — the shared half
@@ -1479,6 +1641,7 @@ function isFormPost(request) {
  * the codec directly and stay untouched.
  */
 export function serializeResponseStream(value, codecOptions, signal) {
+  value = guardFailures(value);
   let closeIterator = null;
   let closed = false;
   let cancelSerialize = null;
