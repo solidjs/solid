@@ -20,6 +20,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { markSafeError, respond } from "@solidjs/web";
 import {
   ERROR_HEADER,
+  decodeErrorHeaderValue,
   handleServerFunctionRequest,
   registerServerFunction
 } from "@solidjs/web/server-functions/server";
@@ -162,4 +163,37 @@ describe("null-body statuses (#3095)", () => {
       restore();
     }
   });
+});
+
+/**
+ * The bound is enforced by re-encoding a shrinking slice of the SOURCE,
+ * never by cutting the encoded form — a percent escape severed in half
+ * (`%D0` without its second byte) leaves a header that no longer decodes.
+ * Asserting only the length cannot tell the two implementations apart:
+ * ASCII encodes to itself, and a truncated Cyrillic value is still short
+ * enough to pass. Decoding it is what pins the difference.
+ */
+describe("the bound applies to the source, not to the encoding (#3093)", () => {
+  // Padding shifts where the 1024-byte ceiling lands inside the encoded
+  // form. A naive `encode(message).slice(0, LIMIT)` survives the paddings
+  // that happen to land on an escape boundary, so one message cannot tell
+  // the implementations apart — the sweep is the test.
+  it.each([0, 1, 2, 3, 4, 5])(
+    "a bounded non-latin1 header decodes back to a prefix of the message (padding %i)",
+    async padding => {
+      const message = `${"x".repeat(padding)}${"Я".repeat(600)}`;
+      const id = `bounded-cyrillic-roundtrip-${padding}`;
+      registerServerFunction(id, async () => {
+        throw markSafeError(new Error(message));
+      });
+
+      const response = await handleServerFunctionRequest(scriptedPost(id));
+      const encoded = response.headers.get(ERROR_HEADER)!;
+
+      expect(encoded.length).toBeLessThanOrEqual(1024);
+      const decoded = decodeErrorHeaderValue(encoded);
+      expect(decoded.length).toBeGreaterThan(0);
+      expect(message.startsWith(decoded)).toBe(true);
+    }
+  );
 });
