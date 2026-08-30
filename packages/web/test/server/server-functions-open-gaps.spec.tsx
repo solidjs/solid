@@ -193,18 +193,41 @@ describe("a streamed result nobody is reading", () => {
     expect(produced).toBeLessThan(50);
   });
 
-  test("drains to completion, so the gate cannot swallow the tail", async () => {
-    registerServerFunction("gap-backpressure-drain", async function* () {
-      for (let n = 0; n < 40; n++) {
-        yield { n };
-        await new Promise(resolve => setImmediate(resolve));
-      }
+  // The gate has to REOPEN, not merely close, and nothing above proves it:
+  // a consumer that reads in a tight loop always has a read request
+  // pending, so `desiredSize` never drops and the producer never parks.
+  // Pausing between reads is what puts it on the gate. Deleting `pull()`
+  // outright leaves every other test in this file green and deadlocks this
+  // one, which is the whole point of it.
+  test("keeps delivering after the consumer pauses long enough to park it", async () => {
+    registerServerFunction("gap-backpressure-park", async function* () {
+      for (let n = 0; n < 12; n++) yield { n };
     });
 
-    const response = await handleServerFunctionRequest(scriptedPost("gap-backpressure-drain"));
-    // a gate that never reopened, or one that missed the last chunk, hangs
-    // here instead of failing an assertion — which is the point
-    expect((await response.text()).length).toBeGreaterThan(0);
+    const response = await handleServerFunctionRequest(scriptedPost("gap-backpressure-park"));
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let body = "";
+
+    for (;;) {
+      // long enough for the queue to drain and the next pull to park
+      for (let turn = 0; turn < 5; turn++) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      const next = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("the gate parked and never reopened")), 2000)
+        )
+      ]);
+      if (next.done) break;
+      body += decoder.decode(next.value as Uint8Array);
+    }
+
+    // every item arrived, so the gate released each park in turn. Counted
+    // by this test's own key rather than by the codec's node shapes, which
+    // are not what it is about.
+    expect(body.split('["n"]').length - 1).toBe(12);
   });
 
   // A pull parked on the gate holds the source open, and `desiredSize` is 0

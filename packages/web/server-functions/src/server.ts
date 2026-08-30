@@ -1745,9 +1745,14 @@ export function serializeResponseStream(value, codecOptions, signal) {
         const step = () => (finished ? { done: true, value: undefined } : it.next());
         return {
           // Pulls straight through while the queue has room, and parks
-          // until a read makes room when it does not. `finished` is re-read
-          // after the wait, since teardown can land while it is parked.
-          next: () => (wantsMore() ? Promise.resolve(step()) : awaitDemand().then(step))
+          // until a read makes room when it does not. `finished` is checked
+          // FIRST: teardown can land while a pull is in flight, and the
+          // release it fires then finds nothing parked — so a gate checked
+          // first would park the next pull on a resolver nobody will ever
+          // call, stranding the codec's pump. `finished` is re-read after
+          // the wait for the same reason from the other direction.
+          next: () =>
+            finished || wantsMore() ? Promise.resolve(step()) : awaitDemand().then(step)
         };
       }
     };
