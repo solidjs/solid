@@ -18,7 +18,7 @@
  * (server-functions/dist/*, wired up in vite.config.server.mjs).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   GET as serverGET,
   createServerReference as createServerSideReference,
@@ -364,5 +364,86 @@ describe("server-function addressing (#3070, built bundles)", () => {
 
   it("refuses to render bound arguments JSON cannot carry", () => {
     expect(() => serverFunctionUrl("addr-bound-1", [new Date()])).toThrow(/JSON-safe/);
+  });
+
+  it("does not fold an encoded path or control character onto the plain id", async () => {
+    // The segment is percent-DECODED before the registry is asked, so what
+    // arrives is a different string than the id it was built from and the
+    // lookup misses. The failure mode this rules out is the opposite one:
+    // a runtime that normalized, trimmed or stripped the decoded segment
+    // would let a caller reach `addr-encoded` by an address that no edge
+    // rule, cache key or log line agrees is `addr-encoded` — per-function
+    // policy keyed on the path stops applying to a call that dispatches.
+    const fn = vi.fn(async () => "reached");
+    registerServerFunction("addr-encoded", fn);
+
+    for (const path of [
+      "/_server/%2e%2e%2faddr-encoded", // `../addr-encoded`
+      "/_server/data/%2e%2e%2faddr-encoded",
+      "/_server/addr-encoded%00", // a trailing NUL
+      "/_server/addr-encoded%20", // trailing space
+      "/_server/addr-encoded%0a", // trailing newline
+      "/_server/%20addr-encoded" // leading space
+    ]) {
+      const response = await unscripted(path, { method: "POST" });
+      expect([path, response.status]).toEqual([path, 404]);
+    }
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("reads the `data` segment and the mount literally", async () => {
+    // `data` is a path segment, not a keyword: matched case-sensitively
+    // like every other segment, so `DATA` is simply a two-segment path the
+    // addresses give no meaning to. The mount is compared at a segment
+    // boundary for the same reason — a sibling route whose path merely
+    // STARTS with the mount is somebody else's route, and answering on it
+    // would put a dispatch behind an address the app never advertised.
+    const fn = vi.fn(async () => "reached");
+    registerServerFunction("addr-literal", fn);
+
+    for (const path of [
+      "/_server/DATA/addr-literal",
+      "/_server/Data/addr-literal",
+      "/_serverfoo/data/addr-literal",
+      "/_serverfoo/addr-literal"
+    ]) {
+      const response = await unscripted(path, { method: "POST" });
+      expect([path, response.status]).toEqual([path, 404]);
+    }
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("refuses an oversized id before reading the request body", async () => {
+    // An id is a compiler-minted string; a 200 KB one is somebody probing.
+    // It has to cost nothing to say no: the id is resolved from the path
+    // before the body is buffered or decoded, so the refusal is a registry
+    // miss and the payload behind it is never paid for. Moving the bounds
+    // check ahead of the lookup — a plausible-looking tidy-up — would make
+    // every junk address cost a full body read first.
+    registerServerFunction("addr-oversized", async () => "ok");
+    // a chunked upload, so the body is only paid for if something reads it
+    let pulls = 0;
+    const body = new ReadableStream({
+      pull(controller) {
+        pulls++;
+        controller.enqueue(new TextEncoder().encode("[]"));
+        if (pulls >= 64) controller.close();
+      }
+    });
+    const response = await handleServerFunctionRequest(
+      new Request(`http://localhost/_server/${"z".repeat(200_000)}`, {
+        method: "POST",
+        body,
+        // @ts-expect-error a streaming request body needs the node duplex flag
+        duplex: "half",
+        headers: { "Sec-Fetch-Site": "same-origin" }
+      })
+    );
+
+    expect(response.status).toBe(404);
+    // one pull is the stream filling its own queue on construction; more
+    // than that is the runtime reading a payload it has already decided
+    // to refuse
+    expect(pulls).toBeLessThanOrEqual(1);
   });
 });
