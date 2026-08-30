@@ -656,7 +656,7 @@ function flattenArray(
         } while (typeof child === "function" && !child.length);
       }
       if (Array.isArray(child)) {
-        needsUnwrap = flattenArray(child, results, options);
+        needsUnwrap = flattenArray(child, results, options) || needsUnwrap;
       } else if (
         options?.skipNonRendered &&
         (child == null || child === true || child === false || child === "")
