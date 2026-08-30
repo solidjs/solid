@@ -106,9 +106,9 @@ var _el$5 = _el$4.firstChild;
 var _el$6 = _el$5.nextSibling;
 var _el$7 = _el$6.firstChild;
 var _el$8 = _el$6.nextSibling;
-_$spread(_el$4, _$mergeProps(() => {
+_$spread(_el$4, () => {
 	return getProps("test");
-}), true);
+}, true);
 _el$5.textContent = rowId;
 _el$8.innerHTML = "<div/>";
 _$effect(() => row.label, (_v$) => {
@@ -185,11 +185,11 @@ var _el$22 = _tmpl$12();
 _$addEvent(_el$22, "click", increment, true);
 const template17 = _el$22;
 var _el$23 = _tmpl$4();
-_$spread(_el$23, _$mergeProps(() => {
+_$spread(_el$23, () => {
 	return { get [key()]() {
 		return props.value;
 	} };
-}), false);
+}, false);
 const template18 = _el$23;
 var _el$24 = _tmpl$4();
 _$className(_el$24, [{ "bg-red-500": true }, "flex flex-col"]);
@@ -258,13 +258,13 @@ var _el$37 = _el$36.firstChild;
 var _el$38 = _el$37.firstChild;
 var _el$39 = _el$37.nextSibling;
 var _el$40 = _el$39.nextSibling;
-_$spread(_el$36, _$mergeProps(api), true);
-_$spread(_el$37, _$mergeProps(api), true);
+_$spread(_el$36, api, true);
+_$spread(_el$37, api, true);
 _$insert(_el$37, () => {
 	return api() ? "checked" : "unchecked";
 }, null);
-_$spread(_el$39, _$mergeProps(api), false);
-_$spread(_el$40, _$mergeProps(api), false);
+_$spread(_el$39, api, false);
+_$spread(_el$40, api, false);
 const template28 = _el$36;
 var _el$41 = _tmpl$4();
 _$setAttribute(_el$41, "attribute", !!someValue);

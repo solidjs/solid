@@ -1612,7 +1612,6 @@ function processSpreads(
   const filteredAttributes: JSXAttributePath[] = [];
   const spreadArgs: babelTypes.Expression[] = [];
   let runningObject: Array<babelTypes.ObjectProperty | babelTypes.ObjectMethod> = [];
-  let dynamicSpread = false;
   attributes.forEach(attribute => {
     const node = attribute.node;
     const key =
@@ -1631,12 +1630,11 @@ function processSpreads(
         runningObject = [];
       }
 
-      const s =
-        isDynamic(attribute.get("argument"), {
-          checkMember: true
-        }) && (dynamicSpread = true)
-          ? inlineCallExpression(node.argument)
-          : node.argument;
+      const s = isDynamic(attribute.get("argument"), {
+        checkMember: true
+      })
+        ? inlineCallExpression(node.argument)
+        : node.argument;
 
       spreadArgs.push(isStatic ? t.objectExpression([t.spreadElement(s)]) : s);
     } else if (key && key !== "ref") {
@@ -1683,8 +1681,12 @@ function processSpreads(
     spreadArgs.push(t.objectExpression(runningObject));
   }
 
+  // A lone spread — reactive included — passes straight through: spread()
+  // resolves a function source inside its own tracking scopes, and merging
+  // one source would mint a memo that consumes a hydration id the SSR fast
+  // path never allocates (#3105).
   const props =
-    spreadArgs.length === 1 && !dynamicSpread
+    spreadArgs.length === 1
       ? spreadArgs[0]
       : t.callExpression(registerImportMethod(path, "mergeProps"), spreadArgs);
 

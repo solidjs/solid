@@ -145,11 +145,7 @@ var _el$4 = _$getNextElement(_tmpl$2),
   _el$6 = _el$5.nextSibling,
   _el$7 = _el$6.firstChild,
   _el$8 = _el$6.nextSibling;
-_$spread(
-  _el$4,
-  _$mergeProps(() => getProps("test")),
-  true
-);
+_$spread(_el$4, () => getProps("test"), true);
 _$setProperty(_el$5, "textContent", rowId);
 _$setProperty(_el$8, "innerHTML", "<div/>");
 _$effect(
@@ -241,11 +237,11 @@ const template17 = _el$20;
 var _el$21 = _$getNextElement(_tmpl$4);
 _$spread(
   _el$21,
-  _$mergeProps(() => ({
+  () => ({
     get [key()]() {
       return props.value;
     }
-  })),
+  }),
   false
 );
 _$runHydrationEvents();
@@ -373,11 +369,11 @@ var _el$36 = _$getNextElement(_tmpl$17),
   [_el$40, _co$2] = _$getNextMarker(_el$39.nextSibling),
   _el$41 = _el$37.nextSibling,
   _el$42 = _el$41.nextSibling;
-_$spread(_el$36, _$mergeProps(api), true);
-_$spread(_el$37, _$mergeProps(api), true);
+_$spread(_el$36, api, true);
+_$spread(_el$37, api, true);
 _$insert(_el$37, () => (api() ? "checked" : "unchecked"), _el$40, _co$2);
-_$spread(_el$41, _$mergeProps(api), false);
-_$spread(_el$42, _$mergeProps(api), false);
+_$spread(_el$41, api, false);
+_$spread(_el$42, api, false);
 _$runHydrationEvents();
 const template28 = _el$36;
 var _el$43 = _$getNextElement(_tmpl$4);

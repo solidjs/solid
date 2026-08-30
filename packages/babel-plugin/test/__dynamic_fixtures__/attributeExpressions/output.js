@@ -136,11 +136,7 @@ var _el$4 = _tmpl$2(),
   _el$6 = _el$5.nextSibling,
   _el$7 = _el$6.firstChild,
   _el$8 = _el$6.nextSibling;
-_$spread(
-  _el$4,
-  _$mergeProps(() => getProps("test")),
-  true
-);
+_$spread(_el$4, () => getProps("test"), true);
 _el$5.textContent = rowId;
 _el$8.innerHTML = "<div/>";
 _$effect(
@@ -230,11 +226,11 @@ const template17 = _el$20;
 var _el$21 = _tmpl$4();
 _$spread(
   _el$21,
-  _$mergeProps(() => ({
+  () => ({
     get [key()]() {
       return props.value;
     }
-  })),
+  }),
   false
 );
 const template18 = _el$21;
@@ -347,11 +343,11 @@ var _el$34 = _tmpl$17(),
   _el$36 = _el$35.firstChild,
   _el$37 = _el$35.nextSibling,
   _el$38 = _el$37.nextSibling;
-_$spread(_el$34, _$mergeProps(api), true);
-_$spread(_el$35, _$mergeProps(api), true);
+_$spread(_el$34, api, true);
+_$spread(_el$35, api, true);
 _$insert(_el$35, () => (api() ? "checked" : "unchecked"), null);
-_$spread(_el$37, _$mergeProps(api), false);
-_$spread(_el$38, _$mergeProps(api), false);
+_$spread(_el$37, api, false);
+_$spread(_el$38, api, false);
 const template28 = _el$34;
 var _el$39 = _tmpl$4();
 _$setAttribute(_el$39, "attribute", !!someValue);

@@ -636,20 +636,26 @@ export function spread<T>(node: Element, accessor: T, skipChildren?: Boolean): v
 // TODO: make this better
 export function spread(node, props = {}, skipChildren) {
   const prevProps = {};
-  if (!skipChildren) insert(node, () => props.children);
+  // A lone reactive spread compiles to its accessor directly: merging one
+  // source is pure overhead, and the mergeProps memo would consume a
+  // hydration id the server-side fast path never allocates (#3105). The
+  // accessor resolves inside each tracking scope instead.
+  const get = typeof props === "function" ? props : () => props;
+  if (!skipChildren) insert(node, () => get().children);
   effect(
     () => {
-      const r = props.ref;
+      const r = get().ref;
       (typeof r === "function" || Array.isArray(r)) && ref(() => r, node);
     },
     () => {}
   );
   effect(
     () => {
+      const source = get();
       const newProps = {};
-      for (const prop in props) {
+      for (const prop in source) {
         if (prop === "children" || prop === "ref") continue;
-        newProps[prop] = props[prop];
+        newProps[prop] = source[prop];
       }
       return newProps;
     },
