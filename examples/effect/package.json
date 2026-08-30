@@ -1,0 +1,26 @@
+{
+  "name": "effect-example",
+  "description": "Solid 2.0 × Effect — typeahead with fiber interruption on the read path (createMemo consuming Effects as AsyncIterables) and a cancellable checkout saga on the action path (effectAction: transaction steps as interruptible fibers with typed errors and compensation)",
+  "version": "0.0.0",
+  "private": true,
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "start": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "effect": "^3.22.0"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "3.0.0-next.35",
+    "@solidjs/web": "workspace:*",
+    "@types/node": "^25.6.0",
+    "solid-js": "workspace:*",
+    "typescript": "^6.0.2",
+    "vite": "^7.0.0"
+  }
+}

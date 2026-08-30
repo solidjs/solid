@@ -1,0 +1,118 @@
+// The entire Solid 2.0 × Effect integration. Two exports, no wrapper types.
+//
+// Read path — `runEffect`: adapts an Effect to the AsyncIterable protocol,
+// which any Solid 2.0 computation consumes natively. No Result wrapper, no
+// hook layer: pending flows to `<Loading>` via NotReadyError, failure flows
+// to `<Errored>`, and stale-while-revalidate comes from `latest`/`isPending`.
+// The load-bearing alignment is cancellation: when a memo recomputes, Solid
+// closes the superseded flight's iterator (`it.return()`), and our `return()`
+// interrupts the fiber — so Effect's structured interruption (retries,
+// timeouts, finalizers, the whole tree) composes with Solid's flight
+// semantics without either side knowing about the other.
+//
+// Action path — `effectAction`: a Solid `action` whose suspension points are
+// Effect programs. Effect values are iterable (that's how `Effect.gen`
+// works), so `yield*` inside a plain generator delegates a `YieldWrap`ped
+// Effect out to our driver loop with full inferred types. Each yielded
+// Effect runs as its own interruptible fiber; writes between yields stay
+// inside the action's transaction. Because every suspension is a `yield*`
+// (Effect has no `await`), the "`await` escapes the transaction" hazard
+// documented on `action` cannot be expressed — the discipline Effect
+// enforces is exactly the discipline the transaction wants.
+
+import { Cause, Effect, Exit, Fiber } from "effect";
+import { YieldWrap, yieldWrapGet } from "effect/Utils";
+import { action } from "solid-js";
+
+/** Run an Effect as a Solid-consumable async source. Interruptible: if the
+ * consuming computation re-runs or disposes before the fiber settles, the
+ * fiber is interrupted and its finalizers run. */
+export function runEffect<A, E>(effect: Effect.Effect<A, E>): AsyncIterable<A> {
+  return {
+    [Symbol.asyncIterator]() {
+      const fiber = Effect.runFork(effect);
+      let yielded = false; // the single value was already delivered
+      let closed = false; // return() was called (supersede / dispose)
+      const DONE = { done: true, value: undefined } as const;
+      return {
+        async next(): Promise<IteratorResult<A>> {
+          if (yielded || closed) return DONE;
+          const exit = await Effect.runPromise(Fiber.await(fiber));
+          if (closed) return DONE; // superseded while in flight
+          if (Exit.isSuccess(exit)) {
+            yielded = true;
+            return { done: false, value: exit.value };
+          }
+          closed = true;
+          if (Exit.isInterrupted(exit)) return DONE;
+          throw Cause.squash(exit.cause);
+        },
+        // Solid calls this when the flight is superseded or the owner
+        // disposes — the bridge from Solid's flight identity to Effect's
+        // structured interruption.
+        async return(): Promise<IteratorResult<A>> {
+          if (!yielded && !closed) Effect.runFork(Fiber.interrupt(fiber));
+          closed = true;
+          return DONE;
+        }
+      };
+    }
+  };
+}
+
+/** Thrown into the saga generator when its in-flight step is interrupted
+ * (cancel button, superseding invocation). Catch it to run compensation;
+ * rethrow to reject the action and revert optimistic state. */
+export class ActionInterruptedError extends Error {
+  constructor() {
+    super("Action interrupted");
+    this.name = "ActionInterruptedError";
+  }
+}
+
+type SagaStep = YieldWrap<Effect.Effect<any, any, never>>;
+
+export interface EffectAction<Args extends unknown[], R> {
+  (...args: Args): Promise<R>;
+  /** Interrupt the in-flight step's fiber. The interruption surfaces inside
+   * the generator as a thrown `ActionInterruptedError` at the `yield*`. */
+  interrupt(): void;
+}
+
+/** A Solid action written as an Effect saga. Each `yield*`-ed Effect is one
+ * transaction step running as an interruptible fiber; typed failures are
+ * thrown back into the generator at the `yield*` (so `instanceof` narrows
+ * `Data.TaggedError` classes), and interruption arrives as
+ * `ActionInterruptedError`. A superseding invocation interrupts the previous
+ * one's in-flight fiber before starting. */
+export function effectAction<Args extends unknown[], R>(
+  genFn: (...args: Args) => Generator<SagaStep, R, never>
+): EffectAction<Args, R> {
+  let inFlight: Fiber.RuntimeFiber<any, any> | null = null;
+
+  const base = action(function* (...args: Args) {
+    const it = genFn(...args);
+    let step = it.next();
+    while (!step.done) {
+      const fiber = Effect.runFork(yieldWrapGet(step.value));
+      inFlight = fiber;
+      const exit: Exit.Exit<any, any> = yield Effect.runPromise(Fiber.await(fiber));
+      if (inFlight === fiber) inFlight = null;
+      if (Exit.isSuccess(exit)) step = it.next(exit.value as never);
+      else if (Exit.isInterrupted(exit)) step = it.throw(new ActionInterruptedError());
+      else step = it.throw(Cause.squash(exit.cause));
+    }
+    return step.value;
+  });
+
+  const invoke = (...args: Args) => {
+    invoke.interrupt(); // superseding call cancels the previous flight
+    return base(...args);
+  };
+  invoke.interrupt = () => {
+    const fiber = inFlight;
+    inFlight = null;
+    if (fiber) Effect.runFork(Fiber.interrupt(fiber));
+  };
+  return invoke;
+}
