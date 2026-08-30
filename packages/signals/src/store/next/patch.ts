@@ -54,7 +54,7 @@ import { InvariantHooks } from "../../core/invariants.js";
 import { assertInvariant } from "../../core/dev.js";
 import { runWithOwner, untrack } from "../../core/core.js";
 import { createRenderEffect } from "../../signals.js";
-import { createRoot } from "../../core/owner.js";
+import { deliveryEffect } from "../../core/effect.js";
 // Cycle with store.js is benign: pcOf is only called at registration time,
 // long after both modules initialize.
 import { pcOf } from "./store.js";
@@ -323,7 +323,7 @@ function clonePrev(prev: any): any {
 export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
   const pc = t.pc as any;
   if (pc !== null) {
-    bumpDelivery(pc);
+    bumpDelivery(t, pc);
     pc.np = next;
     pc.npb = pc.bc;
   }
@@ -339,7 +339,7 @@ export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
 export function emitPatchAncestors(t: StoreNextTarget): void {
   let u = t.u;
   while (u !== null) {
-    if (u.pc !== null) bumpDelivery(u.pc);
+    if (u.pc !== null) bumpDelivery(u, u.pc);
     u = u.u;
   }
 }
@@ -352,7 +352,7 @@ export function emitPatchAncestors(t: StoreNextTarget): void {
 export function emitPatchAncestorsOptimistic(t: StoreNextTarget, _tx: unknown): void {
   let u = t.u;
   while (u !== null) {
-    if (u.pc !== null) bumpDeliveryOptimistic(u.pc);
+    if (u.pc !== null) bumpDeliveryOptimistic(u, u.pc);
     u = u.u;
   }
 }
@@ -363,7 +363,7 @@ export function emitPatchAncestorsOptimistic(t: StoreNextTarget, _tx: unknown): 
 export function emitPatchLocal(t: StoreNextTarget, next: any, prev: any): void {
   const pc = t.pc as any;
   if (pc === null) return;
-  bumpDelivery(pc);
+  bumpDelivery(t, pc);
   // Payload fast path (raw-read thesis): the emission's own state rides
   // the channel — deliveries read it RAW instead of proxy-resolving.
   // bc-tagged: a later bump (including post-revert) invalidates it.
@@ -400,7 +400,7 @@ function drainOptimistic(): void {
 }
 
 export function emitPatchOptimistic(t: StoreNextTarget, next: any, prev: any): void {
-  if (t.pc !== null) bumpDeliveryOptimistic(t.pc);
+  if (t.pc !== null) bumpDeliveryOptimistic(t, t.pc);
 }
 
 /** Row-ops emission at OPTIMISTIC (lane) timing: user drafts on an
@@ -528,23 +528,38 @@ function unionKeys(
  * plain version signal per channel, bumped at the emission seams; ONE
  * render effect per channel dispatches every entry with an exact
  * manifest-shaped prev snapshot. Timing — transitions, holds, lanes,
- * merges, mount order — is scheduler-owned by construction. */
-function bumpDelivery(pc: any): void {
-  if (pc.dn === null) return;
+ * merges, mount order — is scheduler-owned by construction.
+ *
+ * PAY-FOR-USE CREATION (mount pass): the signal + effect are built at the
+ * FIRST consumer-visible emission, not at registration — a mounted list
+ * that never updates allocates nothing here. Once built, the machinery
+ * persists across consumer churn AND is never torn down with the last
+ * consumer: a held write bumping during an unbound window must still
+ * deliver to a consumer that registers before the settle (the old
+ * dispose-on-empty kept only the signal and rebuilt the effect; keeping
+ * both closes the same window and makes re-binding rows free). Channels
+ * whose machinery was never built skip silently — a first-ever consumer's
+ * registration baseline (`entry.pv`) already reflects those writes. */
+function bumpDelivery(t: StoreNextTarget, pc: any): void {
+  if (pc.de === undefined) {
+    if (pc.p === null) return;
+    ensureDelivery(t, pc);
+  }
   // Synchronous dedup counter + pure-notification signal: the WRITE may be
   // held by a transition (its commit IS the delivery moment), but the
   // dispatch decision must never read a mid-commit signal value.
-  pc.bc = (pc.bc ?? 0) + 1;
+  pc.bc++;
   setSignal(pc.dn, (v: number) => v + 1);
 }
 
-function bumpDeliveryOptimistic(pc: any): void {
-  if (pc.dn === null) return;
+function bumpDeliveryOptimistic(t: StoreNextTarget, pc: any): void {
+  if (pc.de === undefined) {
+    if (pc.p === null) return;
+    ensureDelivery(t, pc);
+  }
   // Override-armed write: in-flight visibility now, re-notify on revert —
   // the engine is installed by every optimistic caller of this seam.
-  pc.bc = (pc.bc ?? 0) + 1;
-  if ((globalThis as any).__DBG__)
-    console.log("[opt-bump] bc:", pc.bc, new Error().stack?.split("\n")[2]?.trim());
+  pc.bc++;
   const w = GlobalQueue._optimisticWrite;
   if (w !== null && w !== undefined) w(pc.dn, (pc.dn._value ?? 0) + 1);
   else setSignal(pc.dn, (v: number) => v + 1);
@@ -596,11 +611,10 @@ function visibleView(t: StoreNextTarget, pc?: any): any {
 
 function ensureDelivery(t: StoreNextTarget, pc: any): void {
   if (pc.de !== undefined) return;
-  // The delivery SIGNAL and its bookkeeping persist across consumer churn
-  // (only the effect root lives with consumers): a write-time emission held
-  // by a transition rides the signal's pending commit — disposing the
-  // signal with the last consumer dropped that delivery, permanently
-  // staleing a consumer registered before the settle.
+  // The whole machinery persists once built (see bumpDelivery): a
+  // write-time emission held by a transition rides the signal's pending
+  // commit — tearing anything down with the last consumer dropped that
+  // delivery, permanently staleing a consumer registered before the settle.
   if (pc.dn === null) {
     const dn = (pc.dn = signal(0, { equals: false }));
     // Arm the override slot (NOT_PENDING) WITHOUT CONFIG_OPTIMISTIC: plain
@@ -622,52 +636,52 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
   // the effect would land in that boundary's queue and miss lane-timed
   // runs (bisected: boundary-owned registrations got no in-flight
   // deliveries). Errors still route per-entry to each REGISTRANT's owner.
-  runWithOwner(null, () =>
-    createRoot(d => {
-      pc.de = d;
-      createRenderEffect(
-        () => readSignal(dn) as number,
-        () => {
-          if (pc.bc === pc.dv) return; // pure-registration run: baselines are per-entry
-          pc.dv = pc.bc;
-          const p = pc.p as PatchEntry[] | null;
-          if (p === null) return; // demoted or emptied — inert
-          // Deferred demotion (tentative getter views): performed HERE — the
-          // delivery effect is clean, lane-timed effect context, so the
-          // re-driven bodies subscribe correctly (creations inside a setter's
-          // write window never track).
-          if (pc.dmq === true) {
-            pc.dmq = false;
-            demoteToEffects(t, true);
-            return;
-          }
-          // Payload fast path (raw-read thesis): self emissions stashed
-          // their fresh state (bc-tagged against later bumps/reverts) —
-          // deliveries read it RAW. Proxy resolution only for payload-less
-          // dispatches (ancestor bumps, optimistic views, holds).
-          const npHit = pc.np !== undefined && pc.npb === pc.bc;
-          if ((globalThis as any).__DBG__ !== undefined)
-            (globalThis as any).__DBG__[npHit ? "hit" : "miss"]++;
-          const next = npHit ? pc.np : visibleView(t, pc);
-          pc.np = undefined;
-          const snap = p.length > 1 ? p.slice() : p;
-          let firstError: unknown = UNSET;
-          firstError = applyEntries(snap, next, PER_ENTRY_PREV, false, firstError, pc);
-          if (firstError !== UNSET) {
-            // CHANNEL CONTRACT (round-2 pin): every healthy patch applies
-            // before an unboundaried error crashes the system. A raw rethrow
-            // here would halt sibling channels' render-phase effects — defer
-            // the halt one phase so the flush still throws, after siblings.
-            const err = firstError;
-            globalQueue.enqueue(EFFECT_USER, () => {
-              haltReactivity(err);
-              throw err;
-            });
-          }
+  //
+  // DETACHED PRIMITIVE (mount pass): deliveryEffect is a bare node with one
+  // static source — no root, no owner bookkeeping. The node IS pc.de: it
+  // is never disposed (persistence rule above); a bump with no consumers
+  // takes the inert `p === null` return, and the record's death releases
+  // the whole subgraph. The null-owner wrap keeps the queue global.
+  runWithOwner(null, () => {
+    pc.de = deliveryEffect(
+      () => void readSignal(dn),
+      () => {
+        if (pc.bc === pc.dv) return; // pure-registration run: baselines are per-entry
+        pc.dv = pc.bc;
+        const p = pc.p as PatchEntry[] | null;
+        if (p === null) return; // demoted or emptied — inert
+        // Deferred demotion (tentative getter views): performed HERE — the
+        // delivery effect is clean, lane-timed effect context, so the
+        // re-driven bodies subscribe correctly (creations inside a setter's
+        // write window never track).
+        if (pc.dmq === true) {
+          pc.dmq = false;
+          demoteToEffects(t, true);
+          return;
         }
-      );
-    })
-  );
+        // Payload fast path (raw-read thesis): self emissions stashed
+        // their fresh state (bc-tagged against later bumps/reverts) —
+        // deliveries read it RAW. Proxy resolution only for payload-less
+        // dispatches (ancestor bumps, optimistic views, holds).
+        const next = pc.np !== undefined && pc.npb === pc.bc ? pc.np : visibleView(t, pc);
+        pc.np = undefined;
+        const snap = p.length > 1 ? p.slice() : p;
+        let firstError: unknown = UNSET;
+        firstError = applyEntries(snap, next, PER_ENTRY_PREV, false, firstError, pc);
+        if (firstError !== UNSET) {
+          // CHANNEL CONTRACT (round-2 pin): every healthy patch applies
+          // before an unboundaried error crashes the system. A raw rethrow
+          // here would halt sibling channels' render-phase effects — defer
+          // the halt one phase so the flush still throws, after siblings.
+          const err = firstError;
+          globalQueue.enqueue(EFFECT_USER, () => {
+            haltReactivity(err);
+            throw err;
+          });
+        }
+      }
+    );
+  });
 }
 
 export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<PropertyKey>): () => void {
@@ -717,7 +731,9 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
     entry.k = true; // read envelope known — no drain-side recording
   }
   patchCount++;
-  ensureDelivery(t, pc);
+  // NO delivery machinery here (mount pass): the signal + effect are built
+  // by the first consumer-visible bump (see bumpDelivery) — a list that
+  // mounts and never updates allocates none of it.
   // PER-ENTRY prev baseline (node delivery): the state this consumer's
   // initial apply saw — a consumer mounting mid-batch compares against the
   // batch's outcome (no duplicate setter writes), while one mounting
@@ -747,13 +763,10 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
       patchCount--;
     }
     if (list.length === 0 && pc.p === list) {
+      // The delivery machinery (dn/de/bc/dv) persists — held write-time
+      // emissions must survive consumer churn, and a re-binding row reuses
+      // the node (see bumpDelivery's persistence rule).
       pc.p = null;
-      if (pc.de !== undefined) {
-        (pc.de as () => void)();
-        pc.de = undefined;
-        // dn/bc/dv/pv persist: held write-time emissions must survive
-        // consumer churn (see ensureDelivery).
-      }
     }
   };
 }

@@ -78,6 +78,27 @@ export function effect<T>(
   }
 }
 
+/**
+ * Detached single-source render effect (the store patch channel's delivery
+ * primitive). Owner-less BY DESIGN — the channel is shared infrastructure
+ * across boundaries, errors route per-consumer inside `commit`, and the
+ * caller owns disposal via the returned node (`dispose(node)`). Skips the
+ * generic path's root/owner allocation and the NO_OWNER_EFFECT diagnostic,
+ * which is a true positive everywhere else.
+ */
+export function deliveryEffect(compute: () => void, commit: () => void): Computed<unknown> {
+  const node = createEffectNode(
+    compute as (prev?: unknown) => unknown,
+    commit as (val: unknown, prev: unknown) => void,
+    undefined,
+    EFFECT_RENDER,
+    undefined
+  ) as Effect<unknown>;
+  recompute(node, true);
+  runEffect(node); // initial run: dispatch dedup makes it a subscribe-only pass
+  return node;
+}
+
 function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): void {
   // Use passed values if provided, otherwise read from node
   const actualStatus = status !== undefined ? status : this._statusFlags;

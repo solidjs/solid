@@ -86,6 +86,48 @@ Deferred from the audit's secondary list: staged exception-safe applyOps
 @ts-nocheck on patch-driver.ts, and a versioned internal compiler entry
 for the runtime primitives.
 
+## 22. Node-delivery mount pass (2026-08-30) — pay-for-use machinery
+
+The node-delivery prototype's remaining dbmon gap vs the channel was mount
+(+1.3 ms/1000 rows) and, apparently, unmount. Three changes, one finding:
+
+- **`deliveryEffect` primitive** (`core/effect.ts`): a detached
+  single-source render effect — `createEffectNode` + `recompute` +
+  initial run, no `createRoot`, no owner. The channel is shared
+  infrastructure and owner-less BY DESIGN (errors route per-entry to
+  registrant owners), so the generic path's root allocation and
+  NO_OWNER_EFFECT diagnostic were pure overhead. This alone recovered
+  little (~0.1 ms): the node/signal/ext allocations dominated, not the
+  root.
+- **Lazy creation at first bump**: the delivery signal + effect are
+  built by the first consumer-visible emission (`bumpDelivery`), not at
+  registration. A mounted list that never updates allocates nothing.
+  Soundness pin: once built, machinery is NEVER torn down — a held
+  write bumping during an unbound consumer window must still deliver to
+  a consumer registering before the settle (the old dispose-on-empty
+  kept the signal for exactly this reason; keeping the node too closes
+  the same window and makes row re-binding free). Channels never built
+  skip bumps silently: a first-ever consumer's `entry.pv` baseline
+  already reflects those writes.
+- **No dispose on last unbind**: `pc.p = null` is the only teardown;
+  the node takes the inert `p === null` return on later bumps and the
+  record's death releases the subgraph. Perf-over-memory ruling
+  (records outliving consumers retain ~200 B of dormant machinery).
+
+Finding: the bench's unmount split (channel 0.3 ms vs node 1.5 ms) was a
+HARNESS ARTIFACT — a direct same-methodology probe (mount, yield for the
+async flush, gc, timed unmount) measures **1.9 ms on both builds**; the
+delta is which side of the timing window a GC lands on. Post-flush
+unmount work is dominated by GC, not teardown; pre-flush unmount is
+0.2 ms on both.
+
+dbmon after the pass (same session, quiet machine, both builds through
+the identical Oxc default-on fixture): mount 6.4 (channel 6.4), tick 2.1
+(2.2), partial 0.6 (0.5), remount 4.6 (5.0), sort 2.2 (2.4). Node
+delivery now dominates or ties the channel on every op. All gates green
+(1,415 signals / 683 web / 352 SSR / 150 hydrate / 32 turbo tasks, all
+size scenarios under limits).
+
 ## 21. Re-audit rounds 2–3 (2026-08-27) — adoption seams, key equality, recovery
 
 Round 2 (six findings, all real): adoption seams demote accessor-bearing
