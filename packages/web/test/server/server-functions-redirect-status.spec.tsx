@@ -20,13 +20,14 @@
  * bundles (server-functions/dist/*, wired up in vite.config.server.mjs).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { redirect, respond } from "@solidjs/web";
 import {
   ERROR_HEADER,
   REDIRECT_HEADER,
   handleServerFunctionRequest,
-  registerServerFunction
+  registerServerFunction,
+  setServerFunctionsDev
 } from "@solidjs/web/server-functions/server";
 import { createServerReference } from "@solidjs/web/server-functions/client";
 
@@ -215,6 +216,33 @@ describe("non-redirect statuses forward for every caller and shape (#3096)", () 
       await expect(createServerReference("redirect-304-roundtrip")()).resolves.toBeUndefined();
     } finally {
       restore();
+    }
+  });
+
+  it("warns in dev when a scripted call answers 304 (#3101)", async () => {
+    registerServerFunction("redirect-304-dev-warn", async () =>
+      respond(undefined, { status: 304 })
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // the production bundle stays silent
+      await handleServerFunctionRequest(scripted("redirect-304-dev-warn"));
+      expect(warn).not.toHaveBeenCalled();
+
+      // dev: the scripted transport sent no conditional headers, so a 304
+      // resolves the call to undefined — worth telling the author about
+      setServerFunctionsDev(true);
+      await handleServerFunctionRequest(scripted("redirect-304-dev-warn"));
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("304");
+      expect(warn.mock.calls[0][0]).toContain("redirect-304-dev-warn");
+
+      // unscripted callers get real HTTP — a 304 is meaningful there
+      await handleServerFunctionRequest(unscripted("redirect-304-dev-warn"));
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      setServerFunctionsDev(false);
+      warn.mockRestore();
     }
   });
 

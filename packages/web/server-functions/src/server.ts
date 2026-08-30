@@ -1239,6 +1239,26 @@ function maskRedirect(headers, response, requestUrl) {
     headers.set(REDIRECT_HEADER, `${response.status} ${new URL(target, requestUrl)}`);
   }
   headers.delete("Location");
+}
+
+// Dev-only (#3101): a 304 forwards transparently — it is not a redirect,
+// and unscripted callers need the real status — but the scripted transport
+// sends no conditional headers (no If-None-Match), so a hand-rolled 304
+// answers a question the caller never asked: its bodiless answer decodes
+// to `undefined` and consumer state clears, reading as data loss. The
+// conditional exchange belongs to the BROWSER on a GET-declared function
+// with ETag/Cache-Control, where a 304 revalidates the HTTP cache and the
+// caller replays the cached 200 without ever seeing the 304.
+function warnScripted304(functionId) {
+  if (DEV) {
+    console.warn(
+      `Server function "${functionId}" answered a scripted call with 304 Not Modified. ` +
+        `The client transport sends no conditional headers, so nothing was asked to be ` +
+        `revalidated: the call resolves to undefined, not "unchanged". For conditional ` +
+        `reads, declare the function GET and set ETag/Cache-Control response headers - ` +
+        `the browser owns that exchange and replays its cached answer on a 304.`
+    );
+  }
 } /**
  * Builds the `handleNoJS` implementation for the no-JS form convention: a
  * form posted without the client runtime has no way to receive a value, so
@@ -2118,6 +2138,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
         return encodeResult(result, headers, status, codec, request.signal);
       }
 
+      if (status === 304) warnScripted304(functionId);
       return encodeResult(result, headers, status, codec, request.signal);
     } catch (x) {
       if (x instanceof Response || isResponseEnvelope(x)) {
@@ -2190,6 +2211,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
           if (handleNoJS) return handleNoJS(x ?? metadata, request, parsed, true);
           if (x instanceof Response) return x;
         }
+        if (scripted && status === 304) warnScripted304(functionId);
         return encodeResult(x, headers, status, codec, request.signal);
       }
 
