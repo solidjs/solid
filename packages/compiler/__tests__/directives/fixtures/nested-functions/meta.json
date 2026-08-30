@@ -2,12 +2,12 @@
   "valid": true,
   "functions": [
     {
-      "id": "cb5f8b97-0",
+      "id": "inner-cb5f8b97",
       "name": "inner",
       "exports": []
     },
     {
-      "id": "cb5f8b97-1",
+      "id": "run-cb5f8b97",
       "name": "run",
       "exports": []
     }

@@ -2,28 +2,28 @@
   "valid": true,
   "functions": [
     {
-      "id": "64795c56-0",
+      "id": "getUser-64795c56",
       "name": "getUser",
       "exports": [
         "getUser"
       ]
     },
     {
-      "id": "64795c56-1",
+      "id": "impl-64795c56",
       "name": "impl",
       "exports": [
         "saveUser"
       ]
     },
     {
-      "id": "64795c56-2",
+      "id": "plain-64795c56",
       "name": "plain",
       "exports": [
         "plain"
       ]
     },
     {
-      "id": "64795c56-3",
+      "id": "defaultExport_1-64795c56",
       "name": "defaultExport_1",
       "exports": [
         "default"

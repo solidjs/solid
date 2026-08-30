@@ -2,5 +2,5 @@ import { createServerReference as createServerReference_1 } from "@solidjs/web/s
 import { getTriple, getList } from "./data";
 const [, second] = getTriple();
 const [head] = getList();
-export const send = createServerReference_1("70d95093-0");
+export const send = createServerReference_1("send-70d95093");
 export const keep = () => second;
