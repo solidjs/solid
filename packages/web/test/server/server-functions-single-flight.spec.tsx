@@ -44,9 +44,10 @@ afterAll(() => {
 
 // A scripted call that opted into single-flight, like a router mutation.
 // `sources` is the request-leg header value: the source ids the client's
-// registered consumers can use ("true" is the unnamed legacy source).
+// registered consumers can use ("true" is the unnamed registration's
+// reserved id).
 function flightRequest(id: string, sources = "true") {
-  return new Request(`http://localhost/_server/${id}`, {
+  return new Request(`http://localhost/_server/data/${id}`, {
     method: "POST",
     headers: {
       "Sec-Fetch-Site": "same-origin",
@@ -68,9 +69,10 @@ describe("single-flight server bridge (built server bundle)", () => {
       }
     });
     expect(response.headers.get(SINGLE_FLIGHT_HEADER)).toBe("true");
+    // one envelope shape: the unnamed hook's slice is keyed like any other
     expect(await decodeResponse(response)).toEqual({
       value: "mutated",
-      data: { "/notes": ["fresh"] }
+      data: { true: { "/notes": ["fresh"] } }
     });
     expect(seen.outcome.id).toBe("sf-bridge-0");
     expect(seen.outcome.value).toBe("mutated");
@@ -87,7 +89,7 @@ describe("single-flight server bridge (built server bundle)", () => {
       const response = await handleServerFunctionRequest(flightRequest("sf-bridge-config-0"));
       expect(await decodeResponse(response)).toEqual({
         value: "value",
-        data: { from: "config" }
+        data: { true: { from: "config" } }
       });
     } finally {
       configureServerFunctionsServer({ collectFlightData: null as any });
@@ -125,7 +127,7 @@ describe("single-flight server bridge (built server bundle)", () => {
     }
   });
 
-  it("a named source alone folds keyed — never the raw legacy shape", async () => {
+  it("a named source alone folds keyed — the envelope is one shape", async () => {
     registerServerFunction("sf-bridge-named-0", async () => "mutated");
     const unregister = registerFlightDataSource("sq", () => ({ queries: ["fresh"] }));
     try {
@@ -146,8 +148,8 @@ describe("single-flight server bridge (built server bundle)", () => {
     const collector = vi.fn(() => ({ queries: ["fresh"] }));
     const unregister = registerFlightDataSource("sq", collector);
     try {
-      // A legacy client ("true" alone): the named source does no collection
-      // work and the payload keeps the raw legacy shape.
+      // The client only advertised the unnamed source: the named source
+      // does no collection work and only the unnamed slice folds.
       const response = await handleServerFunctionRequest(
         flightRequest("sf-bridge-unadvertised-0", "true"),
         { collectFlightData: () => ({ "/notes": ["fresh"] }) }
@@ -156,7 +158,7 @@ describe("single-flight server bridge (built server bundle)", () => {
       expect(response.headers.get(SINGLE_FLIGHT_HEADER)).toBe("true");
       expect(await decodeResponse(response)).toEqual({
         value: "mutated",
-        data: { "/notes": ["fresh"] }
+        data: { true: { "/notes": ["fresh"] } }
       });
     } finally {
       unregister();
@@ -194,18 +196,17 @@ describe("single-flight server bridge (built server bundle)", () => {
     }
   });
 
-  it("an unrecognized opt-in value still reaches the unnamed hook", async () => {
-    // Hand-tagged requests from integrations predating named sources sent
-    // arbitrary truthy values; any of them must keep opting in.
+  it("an id naming no registered hook folds nothing", async () => {
+    // Only exact source ids run collection — an unrecognized value is not
+    // an opt-in to anything, so the response is a plain call's response.
     registerServerFunction("sf-bridge-handtag-0", async () => "mutated");
+    const unnamedHook = vi.fn(() => ({ "/notes": ["fresh"] }));
     const response = await handleServerFunctionRequest(flightRequest("sf-bridge-handtag-0", "1"), {
-      collectFlightData: () => ({ "/notes": ["fresh"] })
+      collectFlightData: unnamedHook
     });
-    expect(response.headers.get(SINGLE_FLIGHT_HEADER)).toBe("true");
-    expect(await decodeResponse(response)).toEqual({
-      value: "mutated",
-      data: { "/notes": ["fresh"] }
-    });
+    expect(unnamedHook).not.toHaveBeenCalled();
+    expect(response.headers.has(SINGLE_FLIGHT_HEADER)).toBe(false);
+    expect(await decodeResponse(response)).toBe("mutated");
   });
 
   it("rejects reserved and malformed source ids on both halves", () => {
@@ -315,11 +316,11 @@ describe("single-flight client bridge (built client bundle)", () => {
     }
   });
 
-  it("degrades to the legacy shape against a server folding only the unnamed hook", async () => {
-    // The cross-version case: the client advertises "true,sq" but the
-    // server has no "sq" collector registered (an older deployment). Only
-    // the unnamed hook folds, the echo is "true", and the whole payload
-    // reaches the unnamed consumer raw — the named consumer simply starves.
+  it("a source with no server hook simply starves its consumer", async () => {
+    // The client advertises "true,sq" but the server has no "sq" collector
+    // registered. Only the unnamed hook folds, the echo is "true", the
+    // unnamed consumer receives its slice — the named consumer starves and
+    // its cache revalidates the normal way.
     registerServerFunction("sf-bridge-degrade-0", async () => "mutated");
     const restore = connectTransport({
       collectFlightData: () => ({ fromRouter: true })
@@ -367,12 +368,12 @@ describe("single-flight client bridge (built client bundle)", () => {
       expect(consumer).toHaveBeenCalledTimes(1);
       // no consumer registered: the integration decodes the response itself
       expect(response).toBeInstanceOf(Response);
-      const payload = await decodeResponse<SingleFlightPayload<string, { data: boolean }>>(
-        response as Response
-      );
+      const payload = await decodeResponse<
+        SingleFlightPayload<string, { true: { data: boolean } }>
+      >(response as Response);
       expect(payload).toEqual({
         value: "value",
-        data: { data: true }
+        data: { true: { data: true } }
       });
     } finally {
       configureServerFunctionsClient({ prepareRequest: null as any });

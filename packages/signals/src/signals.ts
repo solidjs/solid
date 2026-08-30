@@ -1,4 +1,4 @@
-import type { Disposable, Owner, Refreshable } from "./core/index.js";
+import type { Computed, Disposable, Owner, Refreshable } from "./core/index.js";
 import {
   $REFRESH,
   cleanup,
@@ -8,6 +8,7 @@ import {
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_DIRECT_COMMIT,
+  CONFIG_FRESH_READ,
   createRoot,
   dispose,
   effect,
@@ -15,6 +16,7 @@ import {
   getObserver,
   getOwner,
   installAuthoritativeRead,
+  markRefresh,
   NotReadyError,
   optimisticComputed,
   optimisticSignal,
@@ -752,6 +754,130 @@ export function resolve<T>(fn: () => T): Promise<T> {
       );
     });
   });
+}
+
+/**
+ * Invalidates one reactive source, forcing it to re-execute even if its inputs
+ * haven't changed, and returns a promise for the target's NEXT QUIESCENT
+ * STATE — the re-ask (and anything that supersedes it) has settled.
+ *
+ * Pass either a Solid-created accessor or a projected store created from
+ * `createStore(fn, ...)` / `createProjection(...)`. `refresh()` is a
+ * write-like invalidation operation: it does not read the target's value, and
+ * refreshing a plain signal accessor is a no-op that resolves immediately.
+ *
+ * The returned promise is safe to ignore (fire-and-forget refresh is
+ * unchanged, and a failed refetch will not surface an unhandled rejection).
+ * Awaiting it gives imperative flows the settle point without a reactive
+ * read:
+ * - Accessor targets resolve with the settled value; store targets resolve
+ *   with the store node passed (reads through it are fresh after the await).
+ * - A failed re-ask rejects with the error (inside an action's generator,
+ *   `yield refresh(x)` throws back at the yield point and the action reverts
+ *   like any other failure).
+ * - Semantics are quiescence, not flight identity: if another refresh (or
+ *   any invalidation) supersedes this one mid-flight, the promise waits for
+ *   — and delivers — whatever finally lands.
+ * - Inside an action, truth landing into the held transaction is STAGED;
+ *   the promise still settles then (matching `resolve()`/`until()`, #2930)
+ *   and delivers the staged value — the caller's own optimistic override is
+ *   never the delivered value.
+ * - The re-ask itself stays verdict-quiet exactly as before: `isPending`
+ *   does not flip for a bare refresh (pair with `affects()` for a visible
+ *   pending window).
+ *
+ * @example
+ * ```ts
+ * const user = createMemo(async () => fetch(`/users/${id()}`).then(r => r.json()));
+ *
+ * // Fire-and-forget re-fetch
+ * <button onClick={() => refresh(user)}>Reload</button>;
+ *
+ * // Imperative settle point
+ * const fresh = await refresh(user);
+ * ```
+ */
+export function refresh<T>(
+  target: Refreshable<T>
+): Promise<T extends (...args: any) => infer V ? V : T> {
+  const node = (target as any)?.[$REFRESH] as Computed<any> | undefined;
+  if (!node) {
+    if (__DEV__) {
+      const message =
+        "[INVALID_REFRESH_TARGET] refresh() expects a Solid source accessor or refreshable store. " +
+        "Pass the original source target, not a wrapper function or derived property read.";
+      emitDiagnostic({
+        code: "INVALID_REFRESH_TARGET",
+        kind: "write",
+        severity: "error",
+        message
+      });
+      throw new Error(message);
+    }
+    return Promise.resolve(undefined as any);
+  }
+  // Mark now, watch on a microtask. The waiter is resolve()'s machinery with
+  // two extra reader bits, but it must NOT compute at call time (effects
+  // recompute eagerly on creation): same-tick refreshes coalesce into ONE
+  // re-ask only because every mark lands before anything pulls, and eager
+  // per-call pulls turned three refreshes into three fetches. Deferred, the
+  // waiter's first read sees the coalesced state: FRESH_READ pulls the node
+  // through recompute if it is still dirty (self-deduping — a clean node
+  // no-ops, so N waiters cost one pull; this also closes the race where a
+  // waiter reads the PRE-re-ask value as settled and delivers stale), after
+  // which the read either parks on the re-ask's pending window (async — the
+  // settle walk re-runs it on every landing, equal-value and
+  // staged-under-hold included, and a rejection arrives through the effect's
+  // error channel) or serves the sync answer. AUTHORITATIVE_READ keeps an
+  // action's own optimistic override out of the delivered value. resolve()'s
+  // own eager compute is untouched: created after a refresh it still settles
+  // stale-while-revalidate (#2930) — its contract is "first settled value",
+  // not "next quiescent state".
+  markRefresh(node);
+  const promise = new Promise<any>((res, rej) => {
+    queueMicrotask(() => {
+      // No createRoot: the microtask has no ambient owner, so the effect is
+      // naturally detached, and settle disposes the node directly — the root
+      // added ~560B of otherwise-shakeable machinery for nothing but the
+      // dev-mode NO_OWNER_EFFECT warning, so dev keeps a root husk purely to
+      // stay quiet. The waiter swaps in its microtask queue during its own
+      // first compute (before the initial apply enqueue), replacing the
+      // root-owner plumbing.
+      // Typed as the effect node, not Owner: the capture runs inside the
+      // effect's own compute, where the ambient owner IS the effect —
+      // exactly what dispose() takes.
+      let waiter: Computed<unknown> | null = null;
+      const make = () =>
+        effect(
+          () => {
+            if (waiter === null) {
+              waiter = getOwner() as Computed<unknown>;
+              const queue = new MicrotaskQueue();
+              queue._parent = waiter._queue;
+              waiter._queue = queue;
+            }
+            return read(node);
+          },
+          value => {
+            res(typeof target === "function" ? value : target);
+            dispose(waiter!);
+          },
+          err => {
+            rej(err);
+            dispose(waiter!);
+          },
+          {
+            user: true,
+            _extraConfig: CONFIG_DIRECT_COMMIT | CONFIG_AUTHORITATIVE_READ | CONFIG_FRESH_READ
+          }
+        );
+      __DEV__ ? createRoot(make) : make();
+    });
+  });
+  // Fire-and-forget refresh must not turn a failed refetch into an unhandled
+  // rejection; awaiting callers attach their own handlers to `promise`.
+  promise.catch(() => {});
+  return promise;
 }
 
 /** Falsy values a truthy predicate result is narrowed against. */

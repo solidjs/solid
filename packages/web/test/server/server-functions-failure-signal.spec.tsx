@@ -37,7 +37,7 @@ afterAll(() => {
 });
 
 function scripted(id: string) {
-  return new Request(`https://app.example/_server/${id}`, {
+  return new Request(`https://app.example/_server/data/${id}`, {
     method: "POST",
     headers: {
       "Sec-Fetch-Site": "same-origin",

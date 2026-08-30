@@ -2,7 +2,7 @@
   "valid": true,
   "functions": [
     {
-      "id": "d0bb28bc-0",
+      "id": "getUser-d0bb28bc",
       "name": "getUser",
       "exports": [
         "getUser",
@@ -10,14 +10,14 @@
       ]
     },
     {
-      "id": "d0bb28bc-1",
+      "id": "deleteUser-d0bb28bc",
       "name": "deleteUser",
       "exports": [
         "deleteUser"
       ]
     },
     {
-      "id": "d0bb28bc-2",
+      "id": "impl-d0bb28bc",
       "name": "impl",
       "exports": [
         "runQuery"

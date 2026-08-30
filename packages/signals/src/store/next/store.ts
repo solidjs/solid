@@ -1305,12 +1305,24 @@ export function hasActiveOverride(node: Signal<any>): boolean {
 
 /** The reading computation is until()'s authoritative-view predicate — same
  * source of truth as core read()'s A17 carve-out (`context`, which persists
- * under untrack). Trap-level overlays gate on this so membership/keys/values
- * all serve the authoritative view (override-free; staged reads normally)
- * together. */
+ * under untrack). optimisticView()'s composition gate consults exactly this:
+ * write-side machinery (patch emission, tentative re-application) must keep
+ * composing even when it runs inside an authoritative-write bracket. */
 export function authoritativeRead(): boolean {
   const c = context as any;
   return c !== null && (c._config & CONFIG_AUTHORITATIVE_READ) !== 0;
+}
+
+/** Serve-side authoritative gate: until()'s predicate PLUS truth authors —
+ * the projection derive's draft (wrapDraft trap brackets, runAuthoritative;
+ * the same posture pair ensurePB classifies drafts by). A source computing
+ * the next truth must never read its callers' tentative overlays: a derive
+ * continuation's `store.push` computing its index from an action's
+ * optimistic row landed truth in the wrong slot and corrupted committed
+ * state (#3108). Trap-level overlay serves gate on this so values, length,
+ * membership, and keys leave the authoritative view together. */
+export function authoritativeServe(): boolean {
+  return projectionWriteActive || getWriteOverride() || authoritativeRead();
 }
 
 /** Context-aware node view for reads outside tracking: active override >
@@ -1327,7 +1339,7 @@ function nodeValue(node: Signal<any>, backing: any): any {
   // only: staged pending values are authoritative, overrides are the
   // caller's optimism.
   const v =
-    !authoritativeRead() && hasActiveOverride(node)
+    !authoritativeServe() && hasActiveOverride(node)
       ? unwrapOverride(node._x?._overrideValue)
       : node._pendingValue !== NOT_PENDING && (latestReadActive || inOwnerContext())
         ? node._pendingValue
@@ -1363,13 +1375,18 @@ function serveDataKey(
         readNode(getNode(target, key, backingValue));
       }
     }
-    return (optHooks!.optimisticView(target, src) as any[]).length;
+    // Truth authors read the backing's own length — an optimistic row from
+    // the caller's transaction must not shift where the author's next write
+    // lands (#3108).
+    return ((authoritativeServe() ? src : optHooks!.optimisticView(target, src)) as any[]).length;
   }
   if (inDraft(target)) {
     // Optimistic drafts before their first write have no pending backing yet;
     // reads must still see the live optimistic view (compose, not clobber —
     // #2951). Once ensurePB runs, the seeded clone carries the view.
-    if (target.fam?.opt && target.pb === null) {
+    // AUTHORITATIVE drafts (projection derive) never overlay — ensurePB's
+    // seeding rule, applied to the read side (#3108).
+    if (target.fam?.opt && target.pb === null && !authoritativeServe()) {
       const node = target.n?.[key as any];
       if (node !== undefined && hasActiveOverride(node))
         v = unwrapOverride(node._x?._overrideValue);
@@ -1619,12 +1636,12 @@ const traps: ProxyHandler<StoreNextTarget> = {
         // skips the override arm for them, so nv is authoritative presence.
         const nv = readNode(node);
         if (hasActiveOverride(node)) present = !!nv;
-      } else if (!authoritativeRead()) {
+      } else if (!authoritativeServe()) {
         const node = target.h?.[key as any];
         if (node !== undefined && hasActiveOverride(node))
           present = !!unwrapOverride(node._x?._overrideValue);
       }
-    } else if (target.fam?.opt && target.pb === null) {
+    } else if (target.fam?.opt && target.pb === null && !authoritativeServe()) {
       const node = target.h?.[key as any];
       if (node !== undefined && hasActiveOverride(node))
         present = !!unwrapOverride(node._x?._overrideValue);
@@ -1651,9 +1668,10 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // Optimistic membership overlay: presence-node overrides add/remove keys
     // (per-transaction lifecycle rides the nodes — §6, FINDING-2's fix).
     // Draft reads before the first write overlay too (pb, once created, is
-    // seeded with the view). Authoritative-view reads (until()) skip the overlay.
+    // seeded with the view). Authoritative-view reads (until()'s predicate,
+    // truth-author drafts) skip the overlay.
     if (
-      !authoritativeRead() &&
+      !authoritativeServe() &&
       target.fam?.opt &&
       target.h !== null &&
       (!inDraft(target) || target.pb === null)
@@ -1680,7 +1698,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
       if (target.del !== null && target.del.has(key)) return undefined;
       if (desc === undefined) desc = Object.getOwnPropertyDescriptor(target.v, key);
     }
-    if (!authoritativeRead() && target.fam?.opt && !inDraft(target)) {
+    if (!authoritativeServe() && target.fam?.opt && !inDraft(target)) {
       const node = target.h?.[key as any];
       if (node !== undefined && hasActiveOverride(node)) {
         if (!unwrapOverride(node._x?._overrideValue)) return undefined; // opt delete

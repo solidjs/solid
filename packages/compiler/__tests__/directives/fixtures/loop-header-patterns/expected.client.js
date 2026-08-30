@@ -9,5 +9,5 @@ for (const {
 for (let index = 0; index < names.length; index++) {
   names.push(index);
 }
-export const summarize = createServerReference_1("a02335a-0");
+export const summarize = createServerReference_1("summarize-a02335a");
 export const keep = () => names;

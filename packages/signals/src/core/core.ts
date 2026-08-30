@@ -13,6 +13,7 @@ import {
   CONFIG_AUTHORITATIVE_OBSERVED,
   CONFIG_AUTHORITATIVE_READ,
   CONFIG_DIRECT_COMMIT,
+  CONFIG_FRESH_READ,
   CONFIG_IN_SNAPSHOT_SCOPE,
   CONFIG_HAS_COMPANIONS,
   CONFIG_HAS_LANE,
@@ -543,7 +544,9 @@ function updateIfNecessary(el: Computed<unknown>): void {
   // (_depsTail/_depGen) is live, and a nested recompute would corrupt it.
   // A mid-pass mark stays latched for recompute's own tail to reschedule
   // (#3037); readers meanwhile serve the values the pass has so far.
-  if (el._flags & REACTIVE_RECOMPUTING_DEPS) return;
+  // Never recompute a DISPOSED node either: recompute rewrites _flags and
+  // would resurrect it (#2983) — readers serve its last value.
+  if (el._flags & (REACTIVE_RECOMPUTING_DEPS | REACTIVE_DISPOSED)) return;
   if (el._flags & REACTIVE_CHECK) {
     for (let d = el._deps; d; d = d._nextDep) {
       const dep1 = d._dep;
@@ -590,7 +593,7 @@ export function computed<T>(
       (options?.sync ? CONFIG_SYNC : 0) |
       (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0) |
       (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
-    _equals: options?.equals != null ? options.equals : isEqual,
+    _equals: options?.equals ?? isEqual,
     _disposal: null,
     _queue: context?._queue ?? globalQueue,
     _context: context?._context ?? defaultContext,
@@ -743,8 +746,7 @@ export function setEffectStatusNotify(fn: NonNullable<typeof effectStatusNotify>
 export function statusNotifierOf(
   el: any
 ): ((this: any, status?: number, error?: any) => void) | undefined {
-  const x = el._x;
-  const own = x !== null && x !== undefined ? x._notifyStatus : undefined;
+  const own = el._x?._notifyStatus;
   if (own !== undefined) return own;
   return el._type ? (effectStatusNotify ?? undefined) : undefined;
 }
@@ -802,7 +804,7 @@ export function signal<T>(
   firewall: Computed<unknown> | null = null
 ): Signal<T> {
   const s = {
-    _equals: options?.equals != null ? options.equals : isEqual,
+    _equals: options?.equals ?? isEqual,
     _config:
       (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
       (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0),
@@ -1075,6 +1077,13 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         markHeap(elQueue);
         updateIfNecessary(owner);
       }
+      // Fresh-pull readers (awaitable refresh's waiter) recompute a dirty
+      // source inline even when the height gate defers to the flush: the
+      // waiter must park on the re-ask's window (or serve its sync answer),
+      // never read the PRE-re-ask value as settled. Self-guarded: a clean
+      // node no-ops and updateIfNecessary refuses disposed nodes (#2983) —
+      // a dead target serves its last value, which is already quiescent.
+      else if (c._config & CONFIG_FRESH_READ) updateIfNecessary(owner);
       const height = owner._height;
       // parent check is shallow, might need to be recursive
       if (height >= (c as Computed<any>)._height && (el as Computed<any>)._parent !== c) {
@@ -1412,42 +1421,13 @@ export function staleValues<T>(fn: () => T, set = true): T {
 }
 
 /**
- * Invalidates one reactive source, forcing it to re-execute even if its inputs
- * haven't changed.
- *
- * Pass either a Solid-created accessor or a projected store created from
- * `createStore(fn, ...)` / `createProjection(...)`. `refresh()` is a
- * write-like invalidation operation: it does not read the target's value, and
- * refreshing a plain signal accessor is a no-op.
- *
- * Use it to invalidate cached async values (e.g. force a re-fetch) without
- * tearing the consumer down.
- *
- * @example
- * ```ts
- * const user = createMemo(async () => fetch(`/users/${id()}`).then(r => r.json()));
- *
- * // Re-fetch on demand
- * <button onClick={() => refresh(user)}>Reload</button>
- * ```
+ * Core marking half of `refresh()` (the public wrapper lives in signals.ts —
+ * it validates the target, marks through here, then builds the quiescence
+ * promise on the resolve()/until() effect machinery). Flags the node's next
+ * recompute as a quiet re-ask and schedules it; no-ops for non-derived or
+ * disposed targets and for same-tick manual writes.
  */
-export function refresh<T>(target: Refreshable<T>): void {
-  const node = (target as any)?.[$REFRESH] as Computed<any> | undefined;
-  if (!node) {
-    if (__DEV__) {
-      const message =
-        "[INVALID_REFRESH_TARGET] refresh() expects a Solid source accessor or refreshable store. " +
-        "Pass the original source target, not a wrapper function or derived property read.";
-      emitDiagnostic({
-        code: "INVALID_REFRESH_TARGET",
-        kind: "write",
-        severity: "error",
-        message
-      });
-      throw new Error(message);
-    }
-    return;
-  }
+export function markRefresh(node: Computed<any>): void {
   if (
     __DEV__ &&
     context &&

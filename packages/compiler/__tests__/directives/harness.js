@@ -135,10 +135,10 @@ function normalize(code) {
   }).code;
 }
 
-// Function IDs embedded in compiled output (`hash-count` or
-// `hash-count-name` in development).
+// Function IDs embedded in compiled output (`<name>-<hash>` with a trailing
+// ordinal for repeated names; identical in both envs).
 function extractIds(code) {
-  const matches = code.match(/"[0-9a-f]{1,8}-\d+(?:-[A-Za-z0-9_$]+)?"/g) || [];
+  const matches = code.match(/"[A-Za-z0-9_$]+-[0-9a-f]{1,8}(?:-\d+)?"/g) || [];
   return [...new Set(matches.map(entry => entry.slice(1, -1)))].sort();
 }
 

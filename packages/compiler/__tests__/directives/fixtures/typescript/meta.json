@@ -2,14 +2,14 @@
   "valid": true,
   "functions": [
     {
-      "id": "1db3b5f2-0",
+      "id": "findUser-1db3b5f2",
       "name": "findUser",
       "exports": [
         "findUser"
       ]
     },
     {
-      "id": "1db3b5f2-1",
+      "id": "touch-1db3b5f2",
       "name": "touch",
       "exports": [
         "touch"

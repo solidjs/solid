@@ -2,12 +2,12 @@
   "valid": true,
   "functions": [
     {
-      "id": "32e00052-0",
+      "id": "saveRecord-32e00052",
       "name": "saveRecord",
       "exports": []
     },
     {
-      "id": "32e00052-1",
+      "id": "handlers-32e00052",
       "name": "handlers",
       "exports": []
     }

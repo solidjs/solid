@@ -242,6 +242,19 @@ refresh(user);
 
 Like an `action(...)` result, `refresh()` is an imperative callback when you hand it to UI. Call it from event handlers, effects, or action workflows. A bare `refresh()` is a quiet re-ask — the fresh value reveals silently and `isPending` stays `false`; pair it with `affects()` when the reload should read as pending (RFC 06).
 
+`refresh()` also returns a promise for the target's **next quiescent state** — the re-ask (and anything that supersedes it) has settled. Accessor targets resolve with the settled value; store targets resolve with the store node you passed, so reads through it after the `await` are fresh:
+
+```js
+const fresh = await refresh(user);
+// or, for a store/projection:
+await refresh(todos);
+navigate(`/todos/${todos.at(-1).id}`);
+```
+
+The promise is safe to ignore — fire-and-forget `refresh()` is unchanged, and a failed refetch never surfaces an unhandled rejection from an ignored promise. The semantics are quiescence, not flight identity: if a second refresh (or any invalidation) supersedes this one mid-flight, the promise waits for — and delivers — whatever finally lands. A failed re-ask rejects with the error. Awaiting does not change the quiet-re-ask contract: `isPending` still stays `false` for a bare refresh.
+
+Refresh granularity is the granularity of the *derive function*: refreshing a nested store node re-asks the whole family projection (there is no per-path refetch to re-run), though the promise still resolves with the node you passed. Inside actions, `yield refresh(x)` is the mutate-then-refetch sequencing primitive — see RFC 06.
+
 #### `resource.mutate` → `createOptimisticStore` / `action`
 
 In 1.x, `mutate` replaced the resource value wholesale. This had several problems: no granular updates (the entire list re-rendered), no reconciliation (identity lost on every mutation), and no protection against race conditions (concurrent mutations could clobber each other):

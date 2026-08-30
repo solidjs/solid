@@ -26,9 +26,11 @@ import {
   ERROR_HEADER,
   INSTANCE_HEADER,
   LIVE_SOURCE,
+  REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
   SERVER_FUNCTION_METADATA,
   SINGLE_FLIGHT_HEADER,
+  UNKNOWN_HEADER,
   assertFlightSource,
   configureServerFunctionsCodec,
   decodeResponse,
@@ -51,10 +53,13 @@ export {
   ERROR_HEADER,
   FLASH_COOKIE,
   INSTANCE_HEADER,
+  REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
   SINGLE_FLIGHT_HEADER,
+  UNKNOWN_HEADER,
   clearFlashCookie,
   decodeErrorHeaderValue,
+  decodeRedirectHeaderValue,
   decodeResponse,
   decodeResponsePayload,
   encodeErrorHeaderValue,
@@ -1005,11 +1010,10 @@ async function parseArguments(request, url, scripted, codec) {
  * Runs the single-flight hooks and standardizes their contribution: each
  * `[source, hook]` pair that returns data is folded into the body's
  * `{ value, data }` payload, and the response's single-flight header names
- * the folded sources — the client routes slices to consumers by it. A lone
- * unnamed fold ("true") keeps the legacy raw payload shape and header
- * value, byte-identical to the single-hook protocol, so peers that predate
- * named sources interoperate unchanged; named sources produce the keyed
- * envelope `{ [source]: slice, ... }`. When every hook declines the
+ * the folded sources — the client routes slices to consumers by it. The
+ * envelope is always keyed by source id, `{ [source]: slice, ... }` — the
+ * unnamed hook's slice rides under its reserved id "true" like any other,
+ * so the payload shape is one shape, not two. When every hook declines the
  * response is byte-identical to a call without hooks. Data production is
  * each hook's black box — core never sees how the integration computed it,
  * but the generic halves of the protocol are pre-digested onto the outcome
@@ -1038,8 +1042,7 @@ async function foldFlightData(hooks, event, headers, outcome, context = {}) {
     }
   }
   if (folded.length === 0) return outcome.value;
-  const legacy = folded.length === 1 && folded[0][0] === "true";
-  const data = legacy ? folded[0][1] : Object.fromEntries(folded);
+  const data = Object.fromEntries(folded);
   headers.set(SINGLE_FLIGHT_HEADER, folded.map(([source]) => source).join(","));
   // A payload can be partly markup — an invalidated region the integration
   // answered with a server component. That needs a body only the frame
@@ -1211,9 +1214,50 @@ function mergeResponseHeaders(target, source) {
 // The statuses fetch treats as redirects and follows (Fetch §2.2.3,
 // https://fetch.spec.whatwg.org/#redirect-status). Doing double duty: the
 // statuses the no-JS handler may answer a form post with, and the exact set
-// the dispatch masks to 200 + Location for scripted callers — the rest of
-// the 3xx band (304 notably) is never followed by fetch and forwards as-is.
-const validRedirectStatuses = new Set([301, 302, 303, 307, 308]); /**
+// the dispatch masks to 200 + REDIRECT_HEADER for scripted callers — the
+// rest of the 3xx band (304 notably) is never followed by fetch and
+// forwards as-is.
+const validRedirectStatuses = new Set([301, 302, 303, 307, 308]);
+
+// A scripted caller can never see a real 3xx — fetch follows the redirect
+// statuses before the transport reads them (`redirect: "manual"` yields an
+// opaque response with the Location unreadable) — so the redirect is masked
+// to 200 and carried whole in REDIRECT_HEADER: the author's status plus the
+// target RESOLVED against the request url, exactly the meaning HTTP assigns
+// the Location a form post to this address would have received (#3102).
+// Resolving server-side removes the reader's string-shape guess between
+// relative and absolute spellings (#3107) — both arrive as the same
+// absolute url by construction. Location itself is dropped from the masked
+// answer: on a 200 it has no HTTP meaning, and it collided with authored
+// Locations on statuses that forward (a 201's created-at is data, not
+// navigation).
+function maskRedirect(headers, response, requestUrl) {
+  const target = response.headers && response.headers.get("Location");
+  if (target) {
+    headers.set(REDIRECT_HEADER, `${response.status} ${new URL(target, requestUrl)}`);
+  }
+  headers.delete("Location");
+}
+
+// Dev-only (#3101): a 304 forwards transparently — it is not a redirect,
+// and unscripted callers need the real status — but the scripted transport
+// sends no conditional headers (no If-None-Match), so a hand-rolled 304
+// answers a question the caller never asked: its bodiless answer decodes
+// to `undefined` and consumer state clears, reading as data loss. The
+// conditional exchange belongs to the BROWSER on a GET-declared function
+// with ETag/Cache-Control, where a 304 revalidates the HTTP cache and the
+// caller replays the cached 200 without ever seeing the 304.
+function warnScripted304(functionId) {
+  if (DEV) {
+    console.warn(
+      `Server function "${functionId}" answered a scripted call with 304 Not Modified. ` +
+        `The client transport sends no conditional headers, so nothing was asked to be ` +
+        `revalidated: the call resolves to undefined, not "unchanged". For conditional ` +
+        `reads, declare the function GET and set ETag/Cache-Control response headers - ` +
+        `the browser owns that exchange and replays its cached answer on a 304.`
+    );
+  }
+} /**
  * Builds the `handleNoJS` implementation for the no-JS form convention: a
  * form posted without the client runtime has no way to receive a value, so
  * the call redirects back to the referring page (or to the result's own
@@ -1864,22 +1908,25 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // ADDRESS: the data address IS the scripted protocol, the bare address is
   // plain HTTP. On the url, not a header, because shared caches key on the
   // url and store one answer per key — a header-driven shape means one
-  // caller kind's cached answer can be replayed to the other (#3094).
-  //
-  // TRANSITIONAL (remove before 2.0 stable): clients that predate the data
-  // address signal scripted-ness with the instance header on the bare
-  // address — an already-loaded tab keeps working across a server deploy.
-  // Honoring it reopens the shared-url shape divergence, so answers it
-  // shapes are never cacheable (see the no-store where dispatch's answer
-  // meets the transport).
-  const scripted = address.data || !!instance;
+  // caller kind's cached answer can be replayed to the other (#3094). The
+  // instance header does not shape the answer; it still identifies the
+  // call (invocation context, no-JS gating).
+  const scripted = address.data;
 
   let serverFunction;
   try {
     serverFunction = getServerFunction(functionId);
   } catch {
+    // Labelled (#3110): the address is well-formed but its id is not part
+    // of this deployment — the wire shape of version skew (a tab holding
+    // the previous build's ids) or a genuinely removed function. Without
+    // the label this 404 is indistinguishable from a CDN's or a proxy's,
+    // and the one recovery that works — reload onto the current build —
+    // cannot be targeted. The meaningless-path 404 above stays bare: a
+    // mistyped route is not skew.
     const response = new Response(DEV ? `Unknown server function: ${functionId}` : null, {
-      status: 404
+      status: 404,
+      headers: { [UNKNOWN_HEADER]: "true" }
     });
     return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
   }
@@ -1931,13 +1978,11 @@ export async function handleServerFunctionRequest(request, options = {}) {
           ? defaultNoJSHandler || (defaultNoJSHandler = createNoJSHandler())
           : undefined;
   // single-flight is scripted-client opt-in: the caller sends the request
-  // header naming the sources it can consume ("true" is the unnamed hook —
-  // and the whole header, for clients that predate named sources), the
-  // server must have hooks to produce the data. Only advertised sources
-  // run: a client that never subscribed a source's consumer never pays for
-  // its collection. Unrecognized-but-present headers (a hand-tagged
-  // request from an older integration) fall back to the unnamed hook, so
-  // any value that opted in before still opts in.
+  // header naming the sources it can consume ("true" is the unnamed hook's
+  // reserved id), the server must have hooks to produce the data. Only
+  // advertised sources run: a client that never subscribed a source's
+  // consumer never pays for its collection, and an id naming no registered
+  // hook simply does not fold.
   const flightHeader = scripted ? request.headers.get(SINGLE_FLIGHT_HEADER) : null;
   const flightHooks = flightHeader
     ? flightHeader.split(",").flatMap(source => {
@@ -1945,9 +1990,6 @@ export async function handleServerFunctionRequest(request, options = {}) {
         return hook ? [[source, hook]] : [];
       })
     : [];
-  if (flightHeader && flightHooks.length === 0 && flightHook) {
-    flightHooks.push(["true", flightHook]);
-  }
   const collectsFlight = flightHooks.length > 0;
 
   let parsed;
@@ -2015,19 +2057,20 @@ export async function handleServerFunctionRequest(request, options = {}) {
           mergeResponseHeaders(headers, response.headers);
         }
         // Forward the status — except the statuses fetch FOLLOWS, for
-        // scripted callers: the transport would never see the 3xx (and
-        // `redirect: "manual"` yields an opaque response with the Location
-        // unreadable), so redirect intent travels masked, as 200 + Location
-        // metadata for the client integration to act on. Only the followable
-        // set masks (see validRedirectStatuses) — a 304 is not a redirect
-        // and is the natural answer for a conditional read (#3096) — and
-        // unscripted callers always get real HTTP.
+        // scripted callers: redirect intent travels masked, as 200 +
+        // REDIRECT_HEADER for the client integration to act on (see
+        // maskRedirect). Only the followable set masks (see
+        // validRedirectStatuses) — a 304 is not a redirect and is the
+        // natural answer for a conditional read (#3096) — and unscripted
+        // callers always get real HTTP.
         if (
           response &&
           response.status &&
           (!scripted || !validRedirectStatuses.has(response.status))
         ) {
           status = response.status;
+        } else if (response && response.status) {
+          maskRedirect(headers, response, request.url);
         }
         metadata = response;
         result = value;
@@ -2041,9 +2084,12 @@ export async function handleServerFunctionRequest(request, options = {}) {
           }
           // forward statuses fetch would not follow (redirect handling is
           // the client integration's job — the fetch call must not follow
-          // it); non-redirect 3xx like 304 pass through (#3096)
+          // it); non-redirect 3xx like 304 pass through (#3096), redirects
+          // ride REDIRECT_HEADER (see maskRedirect)
           if (result.status && !validRedirectStatuses.has(result.status)) {
             status = result.status;
+          } else if (result.status) {
+            maskRedirect(headers, result, request.url);
           }
           metadata = result;
           if (result.body == null) {
@@ -2085,6 +2131,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
         return encodeResult(result, headers, status, codec, request.signal);
       }
 
+      if (status === 304) warnScripted304(functionId);
       return encodeResult(result, headers, status, codec, request.signal);
     } catch (x) {
       if (x instanceof Response || isResponseEnvelope(x)) {
@@ -2104,6 +2151,8 @@ export async function handleServerFunctionRequest(request, options = {}) {
             (!scripted || !validRedirectStatuses.has(response.status))
           ) {
             status = response.status;
+          } else if (response && response.status) {
+            maskRedirect(headers, response, request.url);
           }
           metadata = response;
           x = value;
@@ -2113,6 +2162,8 @@ export async function handleServerFunctionRequest(request, options = {}) {
           }
           if (x.status && (!scripted || !validRedirectStatuses.has(x.status))) {
             status = x.status;
+          } else if (x.status) {
+            maskRedirect(headers, x, request.url);
           }
           metadata = x;
           if (x.body == null) {
@@ -2153,6 +2204,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
           if (handleNoJS) return handleNoJS(x ?? metadata, request, parsed, true);
           if (x instanceof Response) return x;
         }
+        if (scripted && status === 304) warnScripted304(functionId);
         return encodeResult(x, headers, status, codec, request.signal);
       }
 
@@ -2186,38 +2238,8 @@ export async function handleServerFunctionRequest(request, options = {}) {
       return encodeResult(safe, headers, 500, codec, request.signal);
     }
   };
-  let response = commitEventResponse(await dispatch(), event);
-  // TRANSITIONAL (leaves with the instance-header fallback above): an answer
-  // the header shaped lives at the bare address, where plain-HTTP callers
-  // read — a cache must never hold the codec shape there, so it is forced
-  // no-store over any policy the function set (#3094). The data address is
-  // untouched: one shape per url is the point of the split. Not guarded with
-  // Vary because CDNs commonly refuse to store anything varying beyond
-  // Accept-Encoding, which would revoke the cacheable declared reads #3071
-  // restored; the reverse replay — a stored plain-HTTP entry answering a
-  // LEGACY scripted reader — stays possible for author-cacheable reads until
-  // that session reloads, and closes with the fallback.
-  if (scripted && !address.data) {
-    response = withForcedNoStore(response);
-  }
+  const response = commitEventResponse(await dispatch(), event);
   return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
-}
-
-// TRANSITIONAL — see the call site.
-function withForcedNoStore(response) {
-  try {
-    response.headers.set("Cache-Control", "no-store");
-    return response;
-  } catch {
-    // immutable headers (e.g. a raw fetch() Response passed through)
-    const headers = new Headers(response.headers);
-    headers.set("Cache-Control", "no-store");
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers
-    });
-  }
 }
 
 /**
