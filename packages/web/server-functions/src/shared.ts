@@ -63,20 +63,23 @@ import { JSONCodecOptions } from "../../serialization/src/serializer-decode.js";
  * HTTP handler. Integrations decoding passthrough responses themselves (no
  * registered consumer) see this shape from `decodeResponse`. The top level
  * is reserved for the protocol — integration payload lives entirely under
- * `data`, which can be any codec-serializable value.
+ * `data`, the envelope keyed by source id (the unnamed registration's
+ * slice rides under the reserved id "true"); each slice can be any
+ * codec-serializable value.
  */
 export interface SingleFlightPayload<T = unknown, D = unknown> {
   /** The server function's return (or thrown) value. */
   value: T;
-  /** The integration-produced data payload. */
+  /** The integration-produced data payload, keyed by source id. */
   data: D;
 }
 
 /**
  * Envelope context delivered alongside single-flight data: the transport
- * response, whose headers carry the integration metadata (`Location` for
- * redirect-with-data, `X-Revalidate` keys) and status. The body is already
- * consumed — read `data` and `value` from the delivery, not from here.
+ * response, whose headers carry the integration metadata (the redirect
+ * carrier for redirect-with-data, `X-Revalidate` keys) and status. The
+ * body is already consumed — read `data` and `value` from the delivery,
+ * not from here.
  */
 export interface FlightDataContext {
   /** The HTTP response the data arrived on (metadata only). */
@@ -238,17 +241,16 @@ export function getServerFunctionsCodec() {
 // (the server side simply never delivers to them). Consumers are keyed by
 // source id — the id list travels on the wire in both directions (the
 // request leg advertises what the client can consume, the response leg
-// names what was folded), and the unnamed legacy registration rides under
-// the reserved token "true" so a single legacy consumer produces the
-// original header value and old peers interoperate unchanged.
-const LEGACY_FLIGHT_SOURCE = "true";
+// names what was folded) — and the unnamed registration (the bare
+// consumer/hook signatures) rides under the reserved id "true".
+const UNNAMED_FLIGHT_SOURCE = "true";
 const flightConfig = { consumers: new Map() };
 
 /**
  * Validates a flight data source id (both registration halves share the
  * rule): ids travel the `SINGLE_FLIGHT_HEADER` as a comma-separated list,
  * so they cannot be empty or contain commas, and "true" is reserved for
- * the unnamed legacy registration.
+ * the unnamed registration.
  *
  * Transport building block; not meant for hand-written code.
  * @internal
@@ -257,7 +259,7 @@ export function assertFlightSource(source: string): void;
 
 /** Validates a flight data source id. */
 export function assertFlightSource(source) {
-  if (source === LEGACY_FLIGHT_SOURCE || source === "" || source.includes(",")) {
+  if (source === UNNAMED_FLIGHT_SOURCE || source === "" || source.includes(",")) {
     throw new TypeError(
       `Invalid flight data source id "${source}": ids ride the ` +
         `${SINGLE_FLIGHT_HEADER} header as a comma-separated list, and "true" is ` +
@@ -277,8 +279,8 @@ export function assertFlightSource(source) {
  * data (seed caches, navigate, ...) is entirely the consumer's business.
  *
  * The one-argument form registers the unnamed consumer — the integration
- * that owns data production (a router), receiving the whole payload, wire-
- * compatible with peers that predate named sources. The two-argument form
+ * that owns data production (a router), riding the keyed envelope under
+ * the reserved id "true". The two-argument form
  * registers under a source id, pairing with the server's
  * `registerFlightDataSource(id, hook)`: each named consumer receives only
  * its own source's slice of the keyed envelope, so independent caches
@@ -299,17 +301,16 @@ export function subscribeFlightData<D = unknown>(
 
 /**
  * Registers a consumer the client transport delivers single-flight data
- * to: `consumer(data, { response })` — the integration-produced payload
- * (the whole payload for the unnamed one-argument form, the source's own
- * slice for the named form) plus the response as envelope context
- * (redirect location, revalidation keys, status). One active consumer per
- * source (a later registration replaces the current one); returns an
- * unsubscribe function.
+ * to: `consumer(data, { response })` — the source's own slice of the keyed
+ * envelope (the unnamed one-argument form rides under the reserved id
+ * "true") plus the response as envelope context (redirect carrier,
+ * revalidation keys, status). One active consumer per source (a later
+ * registration replaces the current one); returns an unsubscribe function.
  */
 export function subscribeFlightData(sourceOrConsumer, maybeConsumer) {
   const named = typeof sourceOrConsumer === "string";
   if (named) assertFlightSource(sourceOrConsumer);
-  const source = named ? sourceOrConsumer : LEGACY_FLIGHT_SOURCE;
+  const source = named ? sourceOrConsumer : UNNAMED_FLIGHT_SOURCE;
   const consumer = named ? maybeConsumer : sourceOrConsumer;
   flightConfig.consumers.set(source, consumer);
   return () => {
@@ -317,7 +318,7 @@ export function subscribeFlightData(sourceOrConsumer, maybeConsumer) {
   };
 } /**
  * The registered single-flight consumer for a source id ("true" — or no
- * argument — is the unnamed legacy registration).
+ * argument — is the unnamed registration).
  *
  * Transport building block; not meant for hand-written code.
  * @internal
@@ -326,11 +327,11 @@ export function getFlightDataConsumer(source?: string): FlightDataConsumer | und
 
 /** The registered single-flight consumer for a source id. */
 export function getFlightDataConsumer(source) {
-  return flightConfig.consumers.get(source === undefined ? LEGACY_FLIGHT_SOURCE : source);
+  return flightConfig.consumers.get(source === undefined ? UNNAMED_FLIGHT_SOURCE : source);
 } /**
  * The source ids with a registered consumer, in registration order — the
  * request-leg `SINGLE_FLIGHT_HEADER` value is exactly this list joined
- * with commas (a lone legacy registration yields the original "true").
+ * with commas (the unnamed registration rides as "true").
  *
  * Transport building block; not meant for hand-written code.
  * @internal

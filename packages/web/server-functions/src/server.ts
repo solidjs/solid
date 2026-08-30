@@ -1010,11 +1010,10 @@ async function parseArguments(request, url, scripted, codec) {
  * Runs the single-flight hooks and standardizes their contribution: each
  * `[source, hook]` pair that returns data is folded into the body's
  * `{ value, data }` payload, and the response's single-flight header names
- * the folded sources — the client routes slices to consumers by it. A lone
- * unnamed fold ("true") keeps the legacy raw payload shape and header
- * value, byte-identical to the single-hook protocol, so peers that predate
- * named sources interoperate unchanged; named sources produce the keyed
- * envelope `{ [source]: slice, ... }`. When every hook declines the
+ * the folded sources — the client routes slices to consumers by it. The
+ * envelope is always keyed by source id, `{ [source]: slice, ... }` — the
+ * unnamed hook's slice rides under its reserved id "true" like any other,
+ * so the payload shape is one shape, not two. When every hook declines the
  * response is byte-identical to a call without hooks. Data production is
  * each hook's black box — core never sees how the integration computed it,
  * but the generic halves of the protocol are pre-digested onto the outcome
@@ -1043,8 +1042,7 @@ async function foldFlightData(hooks, event, headers, outcome, context = {}) {
     }
   }
   if (folded.length === 0) return outcome.value;
-  const legacy = folded.length === 1 && folded[0][0] === "true";
-  const data = legacy ? folded[0][1] : Object.fromEntries(folded);
+  const data = Object.fromEntries(folded);
   headers.set(SINGLE_FLIGHT_HEADER, folded.map(([source]) => source).join(","));
   // A payload can be partly markup — an invalidated region the integration
   // answered with a server component. That needs a body only the frame
@@ -1980,13 +1978,11 @@ export async function handleServerFunctionRequest(request, options = {}) {
           ? defaultNoJSHandler || (defaultNoJSHandler = createNoJSHandler())
           : undefined;
   // single-flight is scripted-client opt-in: the caller sends the request
-  // header naming the sources it can consume ("true" is the unnamed hook —
-  // and the whole header, for clients that predate named sources), the
-  // server must have hooks to produce the data. Only advertised sources
-  // run: a client that never subscribed a source's consumer never pays for
-  // its collection. Unrecognized-but-present headers (a hand-tagged
-  // request from an older integration) fall back to the unnamed hook, so
-  // any value that opted in before still opts in.
+  // header naming the sources it can consume ("true" is the unnamed hook's
+  // reserved id), the server must have hooks to produce the data. Only
+  // advertised sources run: a client that never subscribed a source's
+  // consumer never pays for its collection, and an id naming no registered
+  // hook simply does not fold.
   const flightHeader = scripted ? request.headers.get(SINGLE_FLIGHT_HEADER) : null;
   const flightHooks = flightHeader
     ? flightHeader.split(",").flatMap(source => {
@@ -1994,9 +1990,6 @@ export async function handleServerFunctionRequest(request, options = {}) {
         return hook ? [[source, hook]] : [];
       })
     : [];
-  if (flightHeader && flightHooks.length === 0 && flightHook) {
-    flightHooks.push(["true", flightHook]);
-  }
   const collectsFlight = flightHooks.length > 0;
 
   let parsed;

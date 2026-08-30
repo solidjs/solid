@@ -463,9 +463,9 @@ async function createRequest(base, id, instance, options, meta) {
   // registered the transport asks the server for collection on every
   // mutation call; a consumer-less app never asks the server to do
   // collection work. The header value is the registered source ids — the
-  // server runs only the collectors the client can consume, and a lone
-  // legacy registration produces the original "true" (see
-  // getFlightDataSourceIds), so old servers see the header they expect.
+  // server runs only the collectors the client can consume; the unnamed
+  // registration rides under its reserved id "true" (see
+  // getFlightDataSourceIds).
   // GET-encoded calls are reads (cacheable URLs) and stay plain — folding
   // per-request flight data into them would defeat caching. `read: true`
   // marks a POST-shaped call as a read the same way (e.g. live sources:
@@ -669,17 +669,14 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
   // data is delivered (with the response as envelope context: redirect
   // location, revalidation keys, status), and `value` returns to the
   // caller as if the call were plain. The response header names the folded
-  // sources, making the payload shape self-describing: "true" alone is the
-  // legacy raw payload for the unnamed consumer (what old servers — and
-  // new ones folding only the unnamed hook — produce); an id list means
-  // `data` is the keyed envelope and each slice goes to its source's
-  // consumer. Error semantics mirror the passthrough path below: responses
+  // sources; `data` is the keyed envelope and each slice goes to its
+  // source's consumer (the unnamed one subscribes under the reserved id
+  // "true"). Error semantics mirror the passthrough path below: responses
   // carrying integration metadata (the redirect carrier/X-Revalidate) are
   // control flow for the consumer to interpret, bare error-tagged ones
   // throw the value.
   if (response.headers.has(SINGLE_FLIGHT_HEADER)) {
     const folded = response.headers.get(SINGLE_FLIGHT_HEADER).split(",");
-    const legacy = folded.length === 1 && folded[0] === "true";
     const consumers = folded
       .map(source => [source, getFlightDataConsumer(source)])
       .filter(([, consumer]) => consumer);
@@ -688,7 +685,7 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
       // Sequential, awaited delivery: caches are seeded before the caller
       // sees the value, whichever source they subscribe through.
       for (const [source, consumer] of consumers) {
-        await consumer(legacy ? payload.data : payload.data[source], { response });
+        await consumer(payload.data[source], { response });
       }
       if (
         failed &&
