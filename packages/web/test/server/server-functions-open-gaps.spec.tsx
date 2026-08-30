@@ -4,6 +4,7 @@
  * `test/lifecycle-matrix/MATRIX.md`: the marker is the point — the suite
  * stays green while the gap is open and turns red the day it closes, at
  * which point the marker comes off and the test becomes an ordinary guard.
+ * Each carries the issue that tracks it: #3117, #3118, #3119.
  *
  * Like the other server-function specs, these run against the built
  * bundles (server-functions/dist/*, wired up in vite.config.server.mjs).
@@ -70,7 +71,7 @@ function connectBufferedTransport() {
 }
 
 describe("a result the codec cannot encode", () => {
-  // GAP: the caller receives `undefined`. The function already ran and
+  // GAP (#3117): the caller receives `undefined`. The function already ran and
   // committed its side effects; only the ENCODING failed, and it failed
   // after the head was committed, so the status is spent and no error tag
   // can be added. The truncated body decodes to the answer a void function
@@ -105,7 +106,7 @@ describe("a result the codec cannot encode", () => {
 });
 
 describe("a streamed result nobody is reading", () => {
-  // GAP: the producer runs unboundedly ahead. The response stream is built
+  // GAP (#3118): the producer runs unboundedly ahead. The response stream is built
   // with no `pull` and no queuing strategy, and every codec node is
   // enqueued the moment it is parsed, so the producer runs as fast as it
   // can resolve whether or not anyone reads. On a large or infinite stream
@@ -138,7 +139,7 @@ describe("a streamed result nobody is reading", () => {
 });
 
 describe("the decode depth cap", () => {
-  // GAP: the cap is opt-out. `depthLimit: 64` exists "because payloads may
+  // GAP (#3119): the cap is opt-out. `depthLimit: 64` exists "because payloads may
   // come from an untrusted peer" and guards the seroval path only, while
   // the body format is chosen by the CALLER — selecting the JSON format
   // hands the payload to a bare JSON.parse and skips the cap entirely.
