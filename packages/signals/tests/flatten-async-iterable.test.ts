@@ -6,7 +6,8 @@ import {
   createSignal,
   flush,
   isPending,
-  NotReadyError
+  NotReadyError,
+  refresh
 } from "../src/index.js";
 
 afterEach(() => flush());
@@ -346,5 +347,60 @@ describe("promise-of-AsyncIterable flattening (live posture: sync thenable)", ()
     flush();
     expect(memo()).toBe(42);
     expect(isPending(memo)).toBe(false);
+  });
+});
+
+describe("refresh over an iterable-backed memo (supersession)", () => {
+  // The live() wire contract (server-functions) assumes refresh means
+  // SUPERSESSION: close the old iteration, open a fresh one — never two
+  // pumps on one node, never a late yield from a closed connection landing.
+  it("closes the superseded iteration; late yields from it never land", async () => {
+    const s1 = controlledIterable<number>();
+    const s2 = controlledIterable<number>();
+    const streams = [s1, s2];
+    let run = 0;
+    let memo!: () => number;
+    const values: number[] = [];
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      memo = createMemo(() => streams[run++].iterable as unknown as number);
+      createEffect(memo, v => void values.push(v));
+    });
+    flush();
+    s1.yield(1);
+    await tick();
+    flush();
+    expect(values).toEqual([1]);
+    expect(memo()).toBe(1);
+
+    refresh(memo as any);
+    flush();
+    await tick();
+    // Supersession: the old iteration is CLOSED (its return() called), and
+    // exactly one fresh iteration is pumping.
+    expect(run).toBe(2);
+    expect(s1.returnCalls).toBe(1);
+    // Stale-while-revalidate, and QUIET (RFC 06: "the bare refresh alone
+    // would be quiet" — pair with affects() for a pending window): the last
+    // value keeps serving, unmarked, until the fresh iteration's first yield.
+    expect(memo()).toBe(1);
+    expect(isPending(memo)).toBe(false);
+
+    // A late yield from the superseded iteration must not land — the fresh
+    // connection is the only writer.
+    s1.yield(99);
+    await tick();
+    flush();
+    expect(memo()).toBe(1);
+    expect(values).toEqual([1]);
+
+    s2.yield(2);
+    await tick();
+    flush();
+    expect(memo()).toBe(2);
+    expect(values).toEqual([1, 2]);
+    expect(isPending(memo)).toBe(false);
+    dispose();
   });
 });

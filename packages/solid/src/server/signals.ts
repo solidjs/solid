@@ -18,6 +18,7 @@ export {
   NotReadyError,
   NoOwnerError,
   ContextNotFoundError,
+  TimeoutError,
   isEqual,
   isWrappable,
   SUPPORTS_PROXY,
@@ -2766,6 +2767,13 @@ export function resolve<T>(fn: () => T): Promise<T> {
   throw new Error("resolve is not implemented on the server");
 }
 
+export function until<T>(
+  fn: () => T,
+  options?: { timeout?: number; signal?: AbortSignal }
+): Promise<T> {
+  throw new Error("until is not implemented on the server");
+}
+
 export function isPending(fn: () => any): boolean {
   try {
     fn();
@@ -2780,8 +2788,20 @@ export function latest<T>(fn: () => T): T {
   return fn();
 }
 
-export function refresh<T>(_target: Refreshable<T>): void {
-  return undefined;
+export function refresh<T>(
+  target: Refreshable<T>
+): Promise<T extends (...args: any) => infer V ? V : T> {
+  // No re-ask happens on the server — the target is already quiescent, so
+  // the promise resolves immediately with the current state (the accessor's
+  // value, or the store node itself), matching the client's early-return
+  // paths. An unready read resolves undefined rather than throwing from a
+  // write-like call.
+  if (typeof target !== "function") return Promise.resolve(target as any);
+  try {
+    return Promise.resolve((target as any)());
+  } catch {
+    return Promise.resolve(undefined as any);
+  }
 }
 
 export function affects(_target: unknown, _key?: PropertyKey): void {

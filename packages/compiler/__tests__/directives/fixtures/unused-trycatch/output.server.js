@@ -10,7 +10,7 @@ try {
 } catch (error) {
 	logError(error);
 }
-const serverFunction_1 = registerServerReference_1("9774c758-0", async (data) => {
+const serverFunction_1 = registerServerReference_1("save-9774c758", async (data) => {
 	// Server-fn-internal try/catch with an unused catch binding (SolidStart's
 	// server-function-unused-trycatch e2e shape): replaced wholesale on the
 	// client, kept verbatim on the server.

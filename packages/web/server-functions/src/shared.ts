@@ -63,20 +63,23 @@ import { JSONCodecOptions } from "../../serialization/src/serializer-decode.js";
  * HTTP handler. Integrations decoding passthrough responses themselves (no
  * registered consumer) see this shape from `decodeResponse`. The top level
  * is reserved for the protocol — integration payload lives entirely under
- * `data`, which can be any codec-serializable value.
+ * `data`, the envelope keyed by source id (the unnamed registration's
+ * slice rides under the reserved id "true"); each slice can be any
+ * codec-serializable value.
  */
 export interface SingleFlightPayload<T = unknown, D = unknown> {
   /** The server function's return (or thrown) value. */
   value: T;
-  /** The integration-produced data payload. */
+  /** The integration-produced data payload, keyed by source id. */
   data: D;
 }
 
 /**
  * Envelope context delivered alongside single-flight data: the transport
- * response, whose headers carry the integration metadata (`Location` for
- * redirect-with-data, `X-Revalidate` keys) and status. The body is already
- * consumed — read `data` and `value` from the delivery, not from here.
+ * response, whose headers carry the integration metadata (the redirect
+ * carrier for redirect-with-data, `X-Revalidate` keys) and status. The
+ * body is already consumed — read `data` and `value` from the delivery,
+ * not from here.
  */
 export interface FlightDataContext {
   /** The HTTP response the data arrived on (metadata only). */
@@ -238,17 +241,16 @@ export function getServerFunctionsCodec() {
 // (the server side simply never delivers to them). Consumers are keyed by
 // source id — the id list travels on the wire in both directions (the
 // request leg advertises what the client can consume, the response leg
-// names what was folded), and the unnamed legacy registration rides under
-// the reserved token "true" so a single legacy consumer produces the
-// original header value and old peers interoperate unchanged.
-const LEGACY_FLIGHT_SOURCE = "true";
+// names what was folded) — and the unnamed registration (the bare
+// consumer/hook signatures) rides under the reserved id "true".
+const UNNAMED_FLIGHT_SOURCE = "true";
 const flightConfig = { consumers: new Map() };
 
 /**
  * Validates a flight data source id (both registration halves share the
  * rule): ids travel the `SINGLE_FLIGHT_HEADER` as a comma-separated list,
  * so they cannot be empty or contain commas, and "true" is reserved for
- * the unnamed legacy registration.
+ * the unnamed registration.
  *
  * Transport building block; not meant for hand-written code.
  * @internal
@@ -257,7 +259,7 @@ export function assertFlightSource(source: string): void;
 
 /** Validates a flight data source id. */
 export function assertFlightSource(source) {
-  if (source === LEGACY_FLIGHT_SOURCE || source === "" || source.includes(",")) {
+  if (source === UNNAMED_FLIGHT_SOURCE || source === "" || source.includes(",")) {
     throw new TypeError(
       `Invalid flight data source id "${source}": ids ride the ` +
         `${SINGLE_FLIGHT_HEADER} header as a comma-separated list, and "true" is ` +
@@ -277,8 +279,8 @@ export function assertFlightSource(source) {
  * data (seed caches, navigate, ...) is entirely the consumer's business.
  *
  * The one-argument form registers the unnamed consumer — the integration
- * that owns data production (a router), receiving the whole payload, wire-
- * compatible with peers that predate named sources. The two-argument form
+ * that owns data production (a router), riding the keyed envelope under
+ * the reserved id "true". The two-argument form
  * registers under a source id, pairing with the server's
  * `registerFlightDataSource(id, hook)`: each named consumer receives only
  * its own source's slice of the keyed envelope, so independent caches
@@ -299,17 +301,16 @@ export function subscribeFlightData<D = unknown>(
 
 /**
  * Registers a consumer the client transport delivers single-flight data
- * to: `consumer(data, { response })` — the integration-produced payload
- * (the whole payload for the unnamed one-argument form, the source's own
- * slice for the named form) plus the response as envelope context
- * (redirect location, revalidation keys, status). One active consumer per
- * source (a later registration replaces the current one); returns an
- * unsubscribe function.
+ * to: `consumer(data, { response })` — the source's own slice of the keyed
+ * envelope (the unnamed one-argument form rides under the reserved id
+ * "true") plus the response as envelope context (redirect carrier,
+ * revalidation keys, status). One active consumer per source (a later
+ * registration replaces the current one); returns an unsubscribe function.
  */
 export function subscribeFlightData(sourceOrConsumer, maybeConsumer) {
   const named = typeof sourceOrConsumer === "string";
   if (named) assertFlightSource(sourceOrConsumer);
-  const source = named ? sourceOrConsumer : LEGACY_FLIGHT_SOURCE;
+  const source = named ? sourceOrConsumer : UNNAMED_FLIGHT_SOURCE;
   const consumer = named ? maybeConsumer : sourceOrConsumer;
   flightConfig.consumers.set(source, consumer);
   return () => {
@@ -317,7 +318,7 @@ export function subscribeFlightData(sourceOrConsumer, maybeConsumer) {
   };
 } /**
  * The registered single-flight consumer for a source id ("true" — or no
- * argument — is the unnamed legacy registration).
+ * argument — is the unnamed registration).
  *
  * Transport building block; not meant for hand-written code.
  * @internal
@@ -326,11 +327,11 @@ export function getFlightDataConsumer(source?: string): FlightDataConsumer | und
 
 /** The registered single-flight consumer for a source id. */
 export function getFlightDataConsumer(source) {
-  return flightConfig.consumers.get(source === undefined ? LEGACY_FLIGHT_SOURCE : source);
+  return flightConfig.consumers.get(source === undefined ? UNNAMED_FLIGHT_SOURCE : source);
 } /**
  * The source ids with a registered consumer, in registration order — the
  * request-leg `SINGLE_FLIGHT_HEADER` value is exactly this list joined
- * with commas (a lone legacy registration yields the original "true").
+ * with commas (the unnamed registration rides as "true").
  *
  * Transport building block; not meant for hand-written code.
  * @internal
@@ -427,7 +428,7 @@ function stableString(value, seen) {
   }
   return out + "}";
 } /**
- * The wire address of a call: `<endpoint>/<id>`.
+ * The plain-HTTP address of a function: `<endpoint>/<id>`.
  *
  * The id lives in the path because the path is what per-function policy keys
  * on — edge rules, cache policies by path pattern, log aggregation, route
@@ -437,37 +438,78 @@ function stableString(value, seen) {
  * caches, scrubbed by ordinary log tooling, and inert under the path
  * normalization every proxy applies.
  *
+ * This is the address rendered into documents (`<form action>`, a
+ * reference's `.url`) and the one a scriptless or hand-driven caller hits:
+ * answers at it are plain HTTP — raw `Response` values verbatim, real
+ * redirect statuses, form-convention handling. The transport's own calls go
+ * to `serverFunctionDataAddress`, whose answers are the codec's; splitting
+ * the two shapes across two paths is what lets a shared cache store either
+ * without one caller kind poisoning the other (#3094).
+ *
  * Transport wire detail; not meant for hand-written code.
  * @internal
  */
 export function serverFunctionAddress(endpoint: string, id: string): string;
 
-/** Builds the wire address for a call: `<endpoint>/<id>`. */
+/** Builds the plain-HTTP address of a function: `<endpoint>/<id>`. */
 export function serverFunctionAddress(endpoint, id) {
   const mount = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
   return `${mount}/${encodeURIComponent(id)}`;
 } /**
- * Reads the id out of an address built by `serverFunctionAddress`. A path
- * carrying more than the one segment the address gives meaning to — or an id
- * segment whose percent-encoding does not decode — answers `null` rather than
- * matching on its prefix: an address the runtime does not fully understand is
- * a miss, not a call.
+ * The wire address of a scripted call: `<endpoint>/data/<id>`.
+ *
+ * Same address discipline as `serverFunctionAddress` — id in the path,
+ * arguments in the query — at a path of its own, because the two caller
+ * kinds receive differently shaped answers (codec encodings vs plain HTTP)
+ * and a shared cache keys on the URL, not on request headers nothing tells
+ * it to vary by. With each shape at its own path, a cached answer can only
+ * ever be replayed to the caller kind it was made for (#3094).
+ *
+ * The literal `data` segment cannot collide with a function id: an id
+ * occupies exactly one segment, so a two-segment path is only ever a data
+ * address — a function id spelled `data` still parses at the bare address.
  *
  * Transport wire detail; not meant for hand-written code.
  * @internal
  */
-export function parseServerFunctionAddress(pathname: string, endpoint: string): string | null;
+export function serverFunctionDataAddress(endpoint: string, id: string): string;
 
-/** Reads the id out of an address built by `serverFunctionAddress`. */
+/** Builds the wire address of a scripted call: `<endpoint>/data/<id>`. */
+export function serverFunctionDataAddress(endpoint, id) {
+  const mount = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
+  return `${mount}/data/${encodeURIComponent(id)}`;
+} /**
+ * Reads an address built by `serverFunctionAddress` or
+ * `serverFunctionDataAddress` back into its id and caller kind (`data` names
+ * the shape the caller addressed, and with it the shape of the answer). A
+ * path carrying more segments than the addresses give meaning to — or an id
+ * segment whose percent-encoding does not decode — answers `null` rather
+ * than matching on its prefix: an address the runtime does not fully
+ * understand is a miss, not a call.
+ *
+ * Transport wire detail; not meant for hand-written code.
+ * @internal
+ */
+export function parseServerFunctionAddress(
+  pathname: string,
+  endpoint: string
+): { id: string; data: boolean } | null;
+
+/** Reads an address back into its id and caller kind. */
 export function parseServerFunctionAddress(pathname, endpoint) {
   const mount = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
   if (!pathname.startsWith(mount)) return null;
   const rest = pathname.slice(mount.length);
   if (!rest.startsWith("/")) return null;
-  const segment = rest.slice(1);
+  let segment = rest.slice(1);
+  let data = false;
+  if (segment.startsWith("data/")) {
+    segment = segment.slice(5);
+    data = true;
+  }
   if (!segment || segment.includes("/")) return null;
   try {
-    return decodeURIComponent(segment);
+    return { id: decodeURIComponent(segment), data };
   } catch {
     // an id segment whose percent-encoding does not decode is not an address
     return null;
@@ -569,6 +611,53 @@ export const INSTANCE_HEADER = "X-Server-Function-Instance";
 
 /** Header carrying the body format tag (a `BodyFormat` value). */
 export const BODY_FORMAT_HEADER = "X-Server-Function-Format";
+
+/**
+ * Header labelling the unknown-id 404: the address was well-formed but its
+ * id is not registered in the deployment that answered (#3110). This is the
+ * ordinary shape of version skew — a tab holding the previous build's ids
+ * across a deploy — and the label is what lets an integration recover
+ * (e.g. reload the document) instead of surfacing a generic failed call.
+ * Nothing distinguishes it otherwise: a CDN 404 and a skew 404 look alike.
+ */
+export const UNKNOWN_HEADER = "X-Server-Function-Unknown";
+
+/**
+ * Header carrying a redirect to scripted callers. fetch FOLLOWS redirect
+ * statuses before the transport can read them, so a scripted answer masks
+ * the 3xx to 200 and this header carries what the mask erases: the author's
+ * status and the target RESOLVED against the request url — exactly the
+ * meaning HTTP assigns the `Location` a form post would have received.
+ * Value: `<status> <absolute-url>`, decode with `decodeRedirectHeaderValue`.
+ *
+ * Carrying the resolved absolute form is the point (#3102, #3107): the
+ * reader never guesses navigation strategy from how the author spelled the
+ * target — `redirect("/")` and `redirect(new URL("/", url).href)` arrive
+ * identical by construction, and same-origin vs cross-origin is a real URL
+ * comparison, not a `startsWith("http")` coin toss. `Location` itself never
+ * rides a masked answer: on a 200 it has no HTTP meaning, and it collided
+ * with authored Locations on statuses that forward (a 201's created-at is
+ * data, not navigation).
+ */
+export const REDIRECT_HEADER = "X-Server-Function-Redirect";
+
+/**
+ * Decodes a `REDIRECT_HEADER` value into the author's status and the
+ * resolved absolute target. Integration plumbing for readers of the header
+ * (routers); the wire format is the runtime's own, not a contract to parse
+ * by hand.
+ */
+export function decodeRedirectHeaderValue(
+  value: string | null | undefined
+): { status: number; url: string } | undefined {
+  if (typeof value !== "string") return undefined;
+  const at = value.indexOf(" ");
+  if (at < 0) return undefined;
+  const status = Number(value.slice(0, at));
+  const url = value.slice(at + 1);
+  if (!Number.isInteger(status) || !url) return undefined;
+  return { status, url };
+}
 
 /**
  * Header driving the single-flight protocol on both legs: on the request it

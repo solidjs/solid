@@ -65,6 +65,9 @@ pub(crate) struct DirectivesTransform<'a> {
     directive: String,
     hash: String,
     count: u32,
+    /// Occurrences of each descriptive name, for the duplicate ordinal in
+    /// `create_id`.
+    id_name_counts: std::collections::HashMap<String, u32>,
     register: ImportDef,
     create: ImportDef,
     /// Babel's `generateUniqueName` collision set: every binding identifier,
@@ -110,6 +113,7 @@ impl<'a> DirectivesTransform<'a> {
             directive,
             hash,
             count: 0,
+            id_name_counts: std::collections::HashMap::new(),
             register,
             create,
             taken: std::collections::HashSet::new(),
@@ -222,14 +226,26 @@ impl<'a> DirectivesTransform<'a> {
         }
     }
 
-    /// Babel's `createID`: `<hash>-<count>` with the descriptive name
-    /// appended in development for readable IDs.
+    /// The wire id: `<name>-<hash>`, with a trailing ordinal only when the
+    /// same descriptive name recurs in one file (several `anonymous`
+    /// closures, shadowed bindings). Keyed on identity — file plus name —
+    /// rather than position, so appending, deleting, or reordering functions
+    /// never re-points an address another build already handed out
+    /// (solidjs/solid#3109); a removed or renamed function becomes a clean
+    /// 404 instead of a wrong dispatch. Identical in development and
+    /// production so both exercise the same addresses. The name is a JS
+    /// identifier (never contains `-`), so the hash is always
+    /// `split('-')[1]` for consumers mapping ids back to files.
     fn create_id(&mut self, name: &str) -> String {
-        let base = format!("{}-{}", self.hash, self.count);
         self.count += 1;
-        match self.env {
-            Env::Development => format!("{base}-{name}"),
-            Env::Production => base,
+        let seen = self
+            .id_name_counts
+            .entry(name.to_string())
+            .and_modify(|count| *count += 1)
+            .or_insert(0);
+        match *seen {
+            0 => format!("{}-{}", name, self.hash),
+            ordinal => format!("{}-{}-{}", name, self.hash, ordinal),
         }
     }
 

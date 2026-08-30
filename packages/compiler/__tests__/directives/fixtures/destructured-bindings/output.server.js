@@ -4,7 +4,7 @@ import { createClient } from "./db";
 import { loadConfig } from "./config";
 const { db } = createClient(loadConfig());
 const { site, secret } = loadConfig();
-const serverFunction_1 = registerServerReference_1("2bfb27d5-0", async (id) => {
+const serverFunction_1 = registerServerReference_1("remove-2bfb27d5", async (id) => {
 	await db.delete(id, secret);
 });
 export const remove = createServerReference_1(serverFunction_1);

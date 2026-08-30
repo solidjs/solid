@@ -1,13 +1,18 @@
 /**
- * The wire address of a server function call (#3070): `<endpoint>/<id>`, with
- * arguments in the query.
+ * The wire addresses of a server function call (#3070, #3094): the plain-HTTP
+ * address `<endpoint>/<id>` — rendered into documents, hit by form posts and
+ * hand-driven callers — and the data address `<endpoint>/data/<id>` the
+ * client transport's own calls go to. Arguments ride the query on both.
  *
  * The id is in the path because that is what per-function policy keys on —
  * edge rules, cache policies by path pattern, log aggregation, route labels —
  * and because it leaves one place in the request carrying it, so nothing can
  * disagree with what a cache stored the response under. Arguments stay in the
  * query, which caches key on, log tooling scrubs, and path normalization
- * leaves alone.
+ * leaves alone. The two caller kinds get differently shaped answers (codec
+ * encodings vs plain HTTP), and a shared cache stores one answer per url —
+ * splitting the shapes across two paths is what keeps one caller kind's
+ * cached answer from ever being replayed to the other (#3094).
  *
  * Like the extension specs, these run against the built bundles
  * (server-functions/dist/*, wired up in vite.config.server.mjs).
@@ -78,13 +83,15 @@ describe("server-function addressing (#3070, built bundles)", () => {
     const restore = connectTransport(seen);
     try {
       const fetchDouble = GET(createServerReference("addr-get-0"));
+      // `.url` is the PLAIN-HTTP address — what renders into a document
       expect(fetchDouble.url).toBe("/_server/addr-get-0");
       expect(await fetchDouble(21)).toBe(42);
     } finally {
       restore();
     }
+    // the transport's own call goes to the data address (#3094)
     expect(seen.map(request => request.url)).toEqual([
-      "http://localhost/_server/addr-get-0?args=%5B21%5D"
+      "http://localhost/_server/data/addr-get-0?args=%5B21%5D"
     ]);
   });
 
@@ -97,7 +104,7 @@ describe("server-function addressing (#3070, built bundles)", () => {
     } finally {
       restore();
     }
-    expect(seen.map(request => request.url)).toEqual(["http://localhost/_server/addr-post-0"]);
+    expect(seen.map(request => request.url)).toEqual(["http://localhost/_server/data/addr-post-0"]);
   });
 
   it("falls back to POST when the arguments outgrow the url", async () => {
@@ -118,8 +125,8 @@ describe("server-function addressing (#3070, built bundles)", () => {
       restore();
     }
     expect(seen.map(request => `${request.method} ${new URL(request.url).pathname}`)).toEqual([
-      "GET /_server/addr-long-0",
-      "POST /_server/addr-long-0"
+      "GET /_server/data/addr-long-0",
+      "POST /_server/data/addr-long-0"
     ]);
     expect(new URL(seen[1].url).search).toBe("");
   });
@@ -174,6 +181,9 @@ describe("server-function addressing (#3070, built bundles)", () => {
     expect(parseServerFunctionUrl("/_server/addr-url-0?args=%5B%22story-7%22%5D")).toBe(
       "addr-url-0"
     );
+    // the data address reads back to the same id — telemetry reading the
+    // transport's own requests resolves them like rendered urls
+    expect(parseServerFunctionUrl("/_server/data/addr-url-0")).toBe("addr-url-0");
     expect(parseServerFunctionUrl("/somewhere/else")).toBeNull();
     // the server entry ships the same pair, so isomorphic integration code
     // resolves on either side
@@ -245,6 +255,39 @@ describe("server-function addressing (#3070, built bundles)", () => {
     expect(await plain.text()).toBe("params:solid");
   });
 
+  it("shapes the answer by the url alone (#3094)", async () => {
+    // The two caller kinds get differently shaped answers — the codec's at
+    // the data address, plain HTTP at the bare one — and a shared cache
+    // stores one answer per url. So the shape must be a function of the url,
+    // never of a request header: at either address, the same url answers
+    // with the same shape whether or not the instance header rides along.
+    serverGET(
+      createServerSideReference(
+        registerServerReference(
+          "addr-shape-0",
+          async () =>
+            new Response("<rss/>", {
+              headers: { "Content-Type": "application/rss+xml" }
+            })
+        )
+      )
+    );
+
+    // data address: the codec shape, header or no header
+    const dataTagged = await unscripted("/_server/data/addr-shape-0", {
+      headers: { "X-Server-Function-Instance": "server-function:test" }
+    });
+    const dataPlain = await unscripted("/_server/data/addr-shape-0");
+    expect(dataTagged.headers.has("X-Server-Function-Format")).toBe(true);
+    expect(dataPlain.headers.has("X-Server-Function-Format")).toBe(true);
+
+    // bare address: the raw Response verbatim
+    const bare = await unscripted("/_server/addr-shape-0");
+    expect(bare.headers.has("X-Server-Function-Format")).toBe(false);
+    expect(bare.headers.get("Content-Type")).toBe("application/rss+xml");
+    expect(await bare.text()).toBe("<rss/>");
+  });
+
   it("reserves `args` on the query: anything but an argument array is a 400", async () => {
     serverGET(
       createServerSideReference(
@@ -300,6 +343,23 @@ describe("server-function addressing (#3070, built bundles)", () => {
     expect((await unscripted("/_server", { method: "POST" })).status).toBe(404);
     expect((await unscripted("/_server/", { method: "POST" })).status).toBe(404);
     expect((await unscripted("/_server/addr-extra-0/extra", { method: "POST" })).status).toBe(404);
+    expect((await unscripted("/_server/data/", { method: "POST" })).status).toBe(404);
+    expect((await unscripted("/_server/data/addr-extra-0/extra", { method: "POST" })).status).toBe(
+      404
+    );
+  });
+
+  it("a function id spelled `data` still parses at the bare address", async () => {
+    // the literal `data` segment cannot shadow an id: an id occupies exactly
+    // one segment, so segment count decides which address this is
+    registerServerFunction("data", async () => "the id named data");
+    const bare = await unscripted("/_server/data", { method: "POST" });
+    expect(await bare.text()).toBe("the id named data");
+    const scripted = await unscripted("/_server/data/data", {
+      method: "POST",
+      headers: { "X-Server-Function-Instance": "server-function:test" }
+    });
+    expect(scripted.status).toBe(200);
   });
 
   it("refuses to render bound arguments JSON cannot carry", () => {

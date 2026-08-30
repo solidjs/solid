@@ -86,6 +86,45 @@ it("affects + refresh + yield resolve: settles stale-while-revalidate, commit st
   expect(round).toBe(2);
 });
 
+it("resolve of an in-flight source settling INTO the held transition delivers the landed value", async () => {
+  // The landing of a source the action itself refreshed stages into the open
+  // transaction (it cannot commit while the action holds). resolve()'s apply
+  // rides a microtask (not the stashed queues), so its own recompute must
+  // commit directly (CONFIG_DIRECT_COMMIT) — staged, the immediate apply read
+  // the stale mainline value and resolved with pre-refresh data.
+  const resolvers: ((v: number) => void)[] = [];
+  let version!: () => number;
+  createRoot(() => {
+    version = createMemo(() => new Promise<number>(r => resolvers.push(r))) as any;
+  });
+  flush();
+  await wait(0);
+  resolvers[0](0);
+  await wait(0);
+  flush();
+  expect(version()).toBe(0);
+
+  let got: unknown = "unset";
+  const run = action(function* () {
+    refresh(version as any);
+    yield Promise.resolve(); // let the refresh recompute: source now in flight
+    got = yield resolve(() => version());
+  });
+  const p = (run as any)();
+  flush();
+  await wait(0);
+  flush();
+  await wait(0);
+  expect(resolvers.length).toBe(2);
+  resolvers[1](1); // lands into the held transition (staged, uncommitted)
+  await wait(0);
+  flush();
+  await wait(0);
+  flush();
+  expect(await race(p, 500)).toBe("settled: undefined");
+  expect(got).toBe(1);
+});
+
 it("control: resolve outside an action still settles", async () => {
   let m!: () => number;
   createRoot(() => {

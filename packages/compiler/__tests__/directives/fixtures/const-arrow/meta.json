@@ -2,7 +2,7 @@
   "valid": true,
   "functions": [
     {
-      "id": "2f561cbf-0",
+      "id": "sendMessage-2f561cbf",
       "name": "sendMessage",
       "exports": []
     }

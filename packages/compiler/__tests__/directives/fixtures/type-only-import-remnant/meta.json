@@ -2,7 +2,7 @@
   "valid": true,
   "functions": [
     {
-      "id": "31e1639f-0",
+      "id": "serverAction-31e1639f",
       "name": "serverAction",
       "exports": []
     }

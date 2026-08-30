@@ -10,6 +10,10 @@ import {
   $REFRESH,
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_AUTHORITATIVE_OBSERVED,
+  CONFIG_AUTHORITATIVE_READ,
+  CONFIG_DIRECT_COMMIT,
+  CONFIG_FRESH_READ,
   CONFIG_IN_SNAPSHOT_SCOPE,
   CONFIG_HAS_COMPANIONS,
   CONFIG_HAS_LANE,
@@ -415,7 +419,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // values directly — the pending round-trip (queuePendingNode +
         // commitPendingNodes) exists to sequence transition reveals, and
         // paying it per effect on the plain path is pure overhead.
-        (isEffect && (activeTransition !== el._transition || activeTransition === null)) ||
+        // DIRECT_COMMIT effects (resolve/until) commit directly even under
+        // their own held transition: their applies deliver on a microtask,
+        // not the stashed queues, so a staged value would hand the immediate
+        // apply stale state — see CONFIG_DIRECT_COMMIT.
+        (isEffect &&
+          (activeTransition !== el._transition ||
+            activeTransition === null ||
+            el._config & CONFIG_DIRECT_COMMIT)) ||
         isOptimisticDirty
         // NOTE (stage-3, 2026-08-21): a quiet-world MEMO direct-commit was
         // attempted here and REVERTED — memo staging is load-bearing beyond
@@ -464,6 +475,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._pendingValue = value;
       if (__DEV__) devTrackHeldPending(el);
       if (wasLoading) el._loading = true; // see the held branch above (#2990)
+      // A authoritative-view reader (until()) observed this node past its
+      // override — and "authoritative arrival equal to the override" is
+      // exactly the acknowledgment it waits for. Wake those readers only;
+      // A17 silence holds for every ordinary subscriber. (Hook installed by
+      // until(), the only setter of the gating bit.)
+      if (el._config & CONFIG_AUTHORITATIVE_OBSERVED)
+        GlobalQueue._notifyAuthoritativeObservers!(el);
     } else if (el._height != oldHeight) {
       for (let s = el._subs; s !== null; s = s._nextSub) {
         insertIntoHeapHeight(s._sub, queueFor(s._sub));
@@ -526,7 +544,9 @@ function updateIfNecessary(el: Computed<unknown>): void {
   // (_depsTail/_depGen) is live, and a nested recompute would corrupt it.
   // A mid-pass mark stays latched for recompute's own tail to reschedule
   // (#3037); readers meanwhile serve the values the pass has so far.
-  if (el._flags & REACTIVE_RECOMPUTING_DEPS) return;
+  // Never recompute a DISPOSED node either: recompute rewrites _flags and
+  // would resurrect it (#2983) — readers serve its last value.
+  if (el._flags & (REACTIVE_RECOMPUTING_DEPS | REACTIVE_DISPOSED)) return;
   if (el._flags & REACTIVE_CHECK) {
     for (let d = el._deps; d; d = d._nextDep) {
       const dep1 = d._dep;
@@ -573,7 +593,7 @@ export function computed<T>(
       (options?.sync ? CONFIG_SYNC : 0) |
       (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0) |
       (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
-    _equals: options?.equals != null ? options.equals : isEqual,
+    _equals: options?.equals ?? isEqual,
     _disposal: null,
     _queue: context?._queue ?? globalQueue,
     _context: context?._context ?? defaultContext,
@@ -660,6 +680,7 @@ export function createEffectNode<T>(
       (transparent ? CONFIG_TRANSPARENT : 0) |
       (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
       (options?.sync ? CONFIG_SYNC : 0) |
+      (options?._extraConfig ?? 0) |
       (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
     _equals: false as unknown as Computed<T>["_equals"],
     _disposal: null,
@@ -725,8 +746,7 @@ export function setEffectStatusNotify(fn: NonNullable<typeof effectStatusNotify>
 export function statusNotifierOf(
   el: any
 ): ((this: any, status?: number, error?: any) => void) | undefined {
-  const x = el._x;
-  const own = x !== null && x !== undefined ? x._notifyStatus : undefined;
+  const own = el._x?._notifyStatus;
   if (own !== undefined) return own;
   return el._type ? (effectStatusNotify ?? undefined) : undefined;
 }
@@ -784,7 +804,7 @@ export function signal<T>(
   firewall: Computed<unknown> | null = null
 ): Signal<T> {
   const s = {
-    _equals: options?.equals != null ? options.equals : isEqual,
+    _equals: options?.equals ?? isEqual,
     _config:
       (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
       (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0),
@@ -936,6 +956,37 @@ export const READ_SLOW = Symbol("read-slow");
  * snapshot / transition / lane / dev-strictRead state all take the full
  * resolution. Anything slow returns READ_SLOW; the caller then calls read().
  */
+/**
+ * Wake only authoritative-view readers (until() predicates) subscribed to `el`.
+ * The A17-silent ack paths — an authoritative arrival equal to the active
+ * override — use this so the predicate re-evaluates without re-firing
+ * ordinary subscribers whose visible (override) value did not change.
+ * Pay-for-use: reached through GlobalQueue._notifyAuthoritativeObservers,
+ * installed at first until() call — apps that never use until() shake it.
+ */
+export function notifyAuthoritativeObservers(el: Signal<any> | Computed<any>): void {
+  for (let s = el._subs; s !== null; s = s._nextSub) {
+    const sub = s._sub;
+    if (!(sub._config & CONFIG_AUTHORITATIVE_READ)) continue;
+    // Missed-wake latch (#3037), same contract as insertSubs: the reader may
+    // itself have pulled this recompute (updateIfNecessary from its own
+    // read), and the heap refuses RECOMPUTING nodes — latch so recompute's
+    // tail reschedules it with the staged value visible.
+    if (sub._flags & REACTIVE_RECOMPUTING_DEPS && s._gen === sub._depGen && s !== sub._depsTail)
+      sub._flags |= REACTIVE_MISSED_WAKE;
+    enqueueSub(sub);
+  }
+  schedule();
+}
+
+/** Installs the until() machinery hook. Idempotent; called by until() before
+ * any authoritative-view read happens (same late-binding contract as the
+ * optimistic engine). */
+export function installAuthoritativeRead(): void {
+  if (GlobalQueue._notifyAuthoritativeObservers === null)
+    GlobalQueue._notifyAuthoritativeObservers = notifyAuthoritativeObservers;
+}
+
 export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
   if (
     latestReadActive ||
@@ -1026,6 +1077,13 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         markHeap(elQueue);
         updateIfNecessary(owner);
       }
+      // Fresh-pull readers (awaitable refresh's waiter) recompute a dirty
+      // source inline even when the height gate defers to the flush: the
+      // waiter must park on the re-ask's window (or serve its sync answer),
+      // never read the PRE-re-ask value as settled. Self-guarded: a clean
+      // node no-ops and updateIfNecessary refuses disposed nodes (#2983) —
+      // a dead target serves its last value, which is already quiescent.
+      else if (c._config & CONFIG_FRESH_READ) updateIfNecessary(owner);
       const height = owner._height;
       // parent check is shallow, might need to be recursive
       if (height >= (c as Computed<any>)._height && (el as Computed<any>)._parent !== c) {
@@ -1108,8 +1166,19 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     });
 
   if (el._x?._overrideValue !== undefined && el._x?._overrideValue !== NOT_PENDING) {
-    // A17: the override IS the value for every reader.
-    return unwrapOverride<T>(el._x?._overrideValue);
+    // A17: the override IS the value for every reader — except an authoritative
+    // reader (until()'s predicate carries CONFIG_AUTHORITATIVE_READ): it must
+    // observe independently-arriving truth, and serving it the caller's own
+    // tentative write would trivially satisfy the predicate. The bit is checked
+    // on the reading computation itself, so a shared computed the predicate
+    // pulls recomputes as ITSELF (context = the memo, no bit) under the normal
+    // view. Fall through to normal value selection (staged `_pendingValue` is
+    // authoritative — optimism never lives there); the sticky mark makes the
+    // A17-silent "landing equals override" paths notify this node's subs so
+    // the reader re-runs when truth arrives.
+    if (!(c && c._config & CONFIG_AUTHORITATIVE_READ))
+      return unwrapOverride<T>(el._x?._overrideValue);
+    el._config |= CONFIG_AUTHORITATIVE_OBSERVED;
   }
 
   // Entanglement gate: a reader recomputing under an optimistic lane that reads
@@ -1352,42 +1421,13 @@ export function staleValues<T>(fn: () => T, set = true): T {
 }
 
 /**
- * Invalidates one reactive source, forcing it to re-execute even if its inputs
- * haven't changed.
- *
- * Pass either a Solid-created accessor or a projected store created from
- * `createStore(fn, ...)` / `createProjection(...)`. `refresh()` is a
- * write-like invalidation operation: it does not read the target's value, and
- * refreshing a plain signal accessor is a no-op.
- *
- * Use it to invalidate cached async values (e.g. force a re-fetch) without
- * tearing the consumer down.
- *
- * @example
- * ```ts
- * const user = createMemo(async () => fetch(`/users/${id()}`).then(r => r.json()));
- *
- * // Re-fetch on demand
- * <button onClick={() => refresh(user)}>Reload</button>
- * ```
+ * Core marking half of `refresh()` (the public wrapper lives in signals.ts —
+ * it validates the target, marks through here, then builds the quiescence
+ * promise on the resolve()/until() effect machinery). Flags the node's next
+ * recompute as a quiet re-ask and schedules it; no-ops for non-derived or
+ * disposed targets and for same-tick manual writes.
  */
-export function refresh<T>(target: Refreshable<T>): void {
-  const node = (target as any)?.[$REFRESH] as Computed<any> | undefined;
-  if (!node) {
-    if (__DEV__) {
-      const message =
-        "[INVALID_REFRESH_TARGET] refresh() expects a Solid source accessor or refreshable store. " +
-        "Pass the original source target, not a wrapper function or derived property read.";
-      emitDiagnostic({
-        code: "INVALID_REFRESH_TARGET",
-        kind: "write",
-        severity: "error",
-        message
-      });
-      throw new Error(message);
-    }
-    return;
-  }
+export function markRefresh(node: Computed<any>): void {
   if (
     __DEV__ &&
     context &&

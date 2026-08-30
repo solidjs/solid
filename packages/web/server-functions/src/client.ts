@@ -14,9 +14,11 @@ import {
   ERROR_HEADER,
   INSTANCE_HEADER,
   LIVE_SOURCE,
+  REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
   SERVER_FUNCTION_METADATA,
   SINGLE_FLIGHT_HEADER,
+  UNKNOWN_HEADER,
   configureServerFunctionsCodec,
   decodeResponse,
   getFlightDataConsumer,
@@ -28,6 +30,7 @@ import {
   parseServerFunctionAddress,
   provideServerFunctionRPC,
   serverFunctionAddress,
+  serverFunctionDataAddress,
   withMeta
 } from "./shared.js";
 
@@ -45,11 +48,14 @@ export {
   ERROR_HEADER,
   FLASH_COOKIE,
   INSTANCE_HEADER,
+  REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
   SINGLE_FLIGHT_HEADER,
+  UNKNOWN_HEADER,
   clearFlashCookie,
   createChunk,
   decodeErrorHeaderValue,
+  decodeRedirectHeaderValue,
   decodeResponse,
   decodeResponsePayload,
   deserializeStream,
@@ -309,10 +315,11 @@ export function parseServerFunctionUrl(url: string): string | null;
 
 /** Reads the function id back out of a server-rendered action url. */
 export function parseServerFunctionUrl(url) {
-  return parseServerFunctionAddress(
+  const parsed = parseServerFunctionAddress(
     new URL(url, globalThis.location?.href || "http://localhost").pathname,
     config.endpoint
   );
+  return parsed && parsed.id;
 }
 
 function serializeArguments(args) {
@@ -393,14 +400,62 @@ function provideRPC() {
   provideServerFunctionRPC({ GET, decodeResponse });
 }
 
+// A reconstructed callable's base is a rendered PLAIN-HTTP address
+// (`/_server/<id>?args=...`) — what a form posts to without the runtime.
+// The transport's own calls belong at the data address, where answers are
+// the codec's (#3094), so the data segment is spliced in ahead of the id;
+// mount, origin and the query (bound arguments) ride along untouched.
+function dataAddressFor(base) {
+  const splitAt = base.search(/[?#]/);
+  const path = splitAt < 0 ? base : base.slice(0, splitAt);
+  const rest = splitAt < 0 ? "" : base.slice(splitAt);
+  const slash = path.lastIndexOf("/");
+  if (path.endsWith("/data/", slash + 1)) return base; // already one
+  return `${path.slice(0, slash + 1)}data/${path.slice(slash + 1)}${rest}`;
+}
+
 function serverFunctionFailure(response, value) {
-  const error = value ?? new Error(`Server function call failed with status ${response.status}`);
+  // The labelled unknown-id 404 (#3110): the deployment that answered does
+  // not know this call's id — version skew (a tab holding the previous
+  // build's ids across a deploy) or a genuinely removed function.
+  const unknown = response.headers.get(UNKNOWN_HEADER) !== null;
+  const error =
+    value ??
+    new Error(
+      unknown
+        ? "Server function is not part of the deployment that answered (version skew or removed function)"
+        : `Server function call failed with status ${response.status}`
+    );
   // Stamp the HTTP status so policy layers (live retry loops, router
   // channels) can classify the failure: 4xx is a definite rejection that
   // retrying cannot change, 5xx/status-less is transient. An error that
   // already carries a status (app-authored) keeps its own.
-  if (error instanceof Error && !("status" in error)) error.status = response.status;
+  if (error instanceof Error && !("status" in error)) {
+    error.status = response.status;
+    // Retry-After survives to the retry layers too: a peer naming the wait
+    // (a rate limiter's 429, a load balancer's 503) has answered the only
+    // question a backoff guesses at (#3100). Seconds, like the header —
+    // the HTTP-date form is converted.
+    const retryAfter = parseRetryAfter(response.headers.get("Retry-After"));
+    if (retryAfter !== undefined) error.retryAfter = retryAfter;
+  }
+  // Named on the error so an integration can recover from skew — reload
+  // the document onto the current build — instead of surfacing a generic
+  // failed call. Retrying cannot help: the id will stay unknown until the
+  // page runs the new bundle.
+  if (unknown && error instanceof Error) error.unknownFunction = true;
   return error;
+}
+
+// RFC 9110 §10.2.3: delta-seconds or an HTTP-date. Anything else is a header
+// the peer got wrong, and guessing at it would put garbage on the error.
+function parseRetryAfter(header) {
+  if (!header) return undefined;
+  const trimmed = header.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  const date = Date.parse(trimmed);
+  if (!Number.isNaN(date)) return Math.max(0, Math.ceil((date - Date.now()) / 1000));
+  return undefined;
 }
 
 async function createRequest(base, id, instance, options, meta) {
@@ -412,9 +467,9 @@ async function createRequest(base, id, instance, options, meta) {
   // registered the transport asks the server for collection on every
   // mutation call; a consumer-less app never asks the server to do
   // collection work. The header value is the registered source ids — the
-  // server runs only the collectors the client can consume, and a lone
-  // legacy registration produces the original "true" (see
-  // getFlightDataSourceIds), so old servers see the header they expect.
+  // server runs only the collectors the client can consume; the unnamed
+  // registration rides under its reserved id "true" (see
+  // getFlightDataSourceIds).
   // GET-encoded calls are reads (cacheable URLs) and stay plain — folding
   // per-request flight data into them would defeat caching. `read: true`
   // marks a POST-shaped call as a read the same way (e.g. live sources:
@@ -604,24 +659,28 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
     throw serverFunctionFailure(response, undefined);
   }
 
-  // Proxies may omit the protocol error header on 5xx responses.
-  const failed = response.headers.has(ERROR_HEADER) || response.status >= 500;
+  // The protocol's own error tag is the failure signal, alone: among
+  // responses the runtime encoded (body format present), the status is the
+  // author's to choose — `respond(value, { status: 500 })` resolves like any
+  // other returned value, and only a THROWN outcome rejects (#3097). A
+  // peer's own 5xx (proxy, load balancer) carries no body format and was
+  // already refused above, so dropping the status from this decision loses
+  // nothing.
+  const failed = response.headers.has(ERROR_HEADER);
 
   // Single-flight responses: with a registered consumer the transport owns
   // the unwrap — the standardized `{ value, data }` body is decoded, the
   // data is delivered (with the response as envelope context: redirect
   // location, revalidation keys, status), and `value` returns to the
   // caller as if the call were plain. The response header names the folded
-  // sources, making the payload shape self-describing: "true" alone is the
-  // legacy raw payload for the unnamed consumer (what old servers — and
-  // new ones folding only the unnamed hook — produce); an id list means
-  // `data` is the keyed envelope and each slice goes to its source's
-  // consumer. Error semantics mirror the passthrough path below: responses
-  // carrying integration metadata (Location/X-Revalidate) are control flow
-  // for the consumer to interpret, bare error-tagged ones throw the value.
+  // sources; `data` is the keyed envelope and each slice goes to its
+  // source's consumer (the unnamed one subscribes under the reserved id
+  // "true"). Error semantics mirror the passthrough path below: responses
+  // carrying integration metadata (the redirect carrier/X-Revalidate) are
+  // control flow for the consumer to interpret, bare error-tagged ones
+  // throw the value.
   if (response.headers.has(SINGLE_FLIGHT_HEADER)) {
     const folded = response.headers.get(SINGLE_FLIGHT_HEADER).split(",");
-    const legacy = folded.length === 1 && folded[0] === "true";
     const consumers = folded
       .map(source => [source, getFlightDataConsumer(source)])
       .filter(([, consumer]) => consumer);
@@ -630,9 +689,13 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
       // Sequential, awaited delivery: caches are seeded before the caller
       // sees the value, whichever source they subscribe through.
       for (const [source, consumer] of consumers) {
-        await consumer(legacy ? payload.data : payload.data[source], { response });
+        await consumer(payload.data[source], { response });
       }
-      if (failed && !response.headers.has("Location") && !response.headers.has(REVALIDATE_HEADER)) {
+      if (
+        failed &&
+        !response.headers.has(REDIRECT_HEADER) &&
+        !response.headers.has(REVALIDATE_HEADER)
+      ) {
         throw serverFunctionFailure(response, payload.value);
       }
       return payload.value;
@@ -642,11 +705,17 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
   // Responses the caller's integration needs to see whole (redirects,
   // revalidation, single-flight payloads without a registered consumer)
   // pass through untouched — the integration decodes the body itself with
-  // `decodeResponse`.
+  // `decodeResponse`. The runtime's redirects ride REDIRECT_HEADER (#3102;
+  // an authored `Location` on a forwarding status like 201 is data, not
+  // control flow, and decodes normally). A real 3xx status is a peer's
+  // control flow: fetch follows the followable set before the transport
+  // sees it, so one only arrives where something opted out of following —
+  // except 304, which is the answer to a conditional read, not navigation.
   if (
-    response.headers.has("Location") ||
+    response.headers.has(REDIRECT_HEADER) ||
     response.headers.has(REVALIDATE_HEADER) ||
-    response.headers.has(SINGLE_FLIGHT_HEADER)
+    response.headers.has(SINGLE_FLIGHT_HEADER) ||
+    (response.status >= 300 && response.status < 400 && response.status !== 304)
   ) {
     return response;
   }
@@ -679,12 +748,14 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
  * metadata channel; never emitted in production). Not meant for
  * hand-written code.
  *
- * The optional `base` targets calls at that url verbatim instead of the
- * configured endpoint — for integrations reconstructing a callable from a
+ * The optional `base` roots calls at that url instead of the configured
+ * endpoint — for integrations reconstructing a callable from a
  * server-rendered action url (e.g. a router intercepting a form submit whose
  * `action="/_server/<id>?args=..."` came off the wire): bound arguments
  * stay in the query string, where the server reads them for natural-encoding
- * bodies (FormData, urlencoded).
+ * bodies (FormData, urlencoded). The rendered url is the plain-HTTP address;
+ * the callable's own calls are scripted, so they go to its data-address
+ * sibling (`/_server/data/<id>?args=...`) — same mount, same query.
  * @internal
  */
 export function createServerReference(id: string, name?: string, base?: string): ServerFunction;
@@ -702,11 +773,13 @@ export function createServerReference(id: string, name?: string, base?: string):
 export function createServerReference(id, name, base) {
   provideRPC();
   const metadata = name === undefined ? {} : { name };
-  // An explicit base targets that url verbatim — integrations reconstructing
+  // An explicit base roots calls at that url — integrations reconstructing
   // a callable from a server-rendered action url (`/_server/<id>?args=...`) keep
   // its bound arguments in the query string, where the server reads them
-  // for natural-encoding bodies. Default calls derive from the configured
-  // endpoint (lazily — it may be configured after module scope runs).
+  // for natural-encoding bodies; the call itself goes to the rendered
+  // address's data-address sibling (see dataAddressFor). Default calls
+  // derive from the configured endpoint (lazily — it may be configured
+  // after module scope runs).
   // One body for both entrances — `fn(...args)` and `invoke(fn, args,
   // options)`: the invocation channel IS the call path with the per-call
   // options slot exposed, so the two can never drift.
@@ -722,7 +795,7 @@ export function createServerReference(id, name, base) {
       if (hit !== undefined) return hit;
     }
     return fetchServerFunction(
-      base || serverFunctionAddress(config.endpoint, id),
+      base ? dataAddressFor(base) : serverFunctionDataAddress(config.endpoint, id),
       id,
       invokeOptions ? { ...invokeOptions } : {},
       args,
@@ -810,7 +883,7 @@ export function GET(fn) {
       if (hit !== undefined) return hit;
     }
     const opts = invokeOptions || {};
-    const address = serverFunctionAddress(config.endpoint, id);
+    const address = serverFunctionDataAddress(config.endpoint, id);
     if (!args.length) {
       return fetchServerFunction(address, id, { ...opts, method: "GET" }, [], metadata, args);
     }
@@ -898,8 +971,10 @@ export function live<A extends readonly any[], R>(
  * post-connect death, `"closed"` when the source completes or the
  * consumer ends it. Retry is for transient deaths only: a definite
  * rejection (4xx — the server understood and refused) fails fast, firing
- * `"closed"` with the error and rejecting the consumer's pull.
- * First-connect failures emit nothing (the rejection
+ * `"closed"` with the error and rejecting the consumer's pull — except
+ * the statuses that themselves say "retry" (408, 425, 429) and any
+ * answer carrying Retry-After, which reconnect like a 5xx, honoring the
+ * named wait. First-connect failures emit nothing (the rejection
  * already surfaces through the call). The hook is per CALL: iterating one
  * object twice interleaves both lifecycles into it. Data freshness is
  * usually the better question and belongs in the value (timestamps /
@@ -1051,12 +1126,24 @@ export function live(fn) {
               // understood and refused — auth revoked, resource gone —
               // and retrying cannot change the answer. The error surfaces
               // through the consumer like a first-connect failure would.
+              // Except where the status itself says the opposite: 408 (the
+              // server timed the REQUEST out and invites a repeat, RFC 9110
+              // §15.5.9), 425 (early data refused, retry after handshake,
+              // RFC 8470) and 429 (rate limited — the one status that
+              // exists to say "come back later", RFC 6585 §4) are transient
+              // by definition, and usually infrastructure's answer rather
+              // than the application's (#3100). A Retry-After on any status
+              // is the peer inviting the retry in as many words.
               if (
                 error !== null &&
                 typeof error === "object" &&
                 typeof error.status === "number" &&
                 error.status >= 400 &&
-                error.status < 500
+                error.status < 500 &&
+                error.status !== 408 &&
+                error.status !== 425 &&
+                error.status !== 429 &&
+                typeof error.retryAfter !== "number"
               ) {
                 stopped = true;
                 emitClosed(error);
@@ -1066,7 +1153,20 @@ export function live(fn) {
               emit("reconnecting", error);
               await new Promise(resolve => {
                 wake = resolve;
-                timer = setTimeout(resolve, Math.min(500 * 2 ** attempts++, 10000));
+                // A peer that named the wait (Retry-After) is answering the
+                // question the exponential backoff guesses at — honor it,
+                // capped: retrying a shade early against a misconfigured
+                // header costs one more (again-named) wait, while sitting
+                // out an unbounded one would end the stream in all but name.
+                // The named wait doesn't consume an attempt; the backoff
+                // resumes where it left off if the header disappears.
+                const named =
+                  error !== null &&
+                  typeof error === "object" &&
+                  typeof error.retryAfter === "number"
+                    ? Math.min(error.retryAfter * 1000, 60000)
+                    : undefined;
+                timer = setTimeout(resolve, named ?? Math.min(500 * 2 ** attempts++, 10000));
                 // connectivity returning wakes the sleep — no reason to sit
                 // out an 8s backoff when the network just came back (typeof
                 // guard: non-browser consumers have no global EventTarget)
