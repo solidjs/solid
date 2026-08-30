@@ -211,36 +211,41 @@ describe("a streamed result nobody is reading", () => {
   // after close and null after error — so the gate never reopens on its own
   // and every path that ends the stream has to release it. Without that the
   // source's cleanup silently never runs, once per failed request.
-  test("releases a parked pull when the codec ends the stream", async () => {
+  test("a codec failure landing while a pull is parked still closes the source", async () => {
     let cleanedUp = false;
-    registerServerFunction("gap-backpressure-cleanup", async () => ({
-      rows: (async function* () {
-        try {
-          for (let n = 0; n < 20; n++) {
-            yield { n };
-            await new Promise(resolve => setImmediate(resolve));
-          }
-        } finally {
-          cleanedUp = true;
+    let produced = 0;
+    // The failure has to ride INSIDE a yielded chunk of the top-level
+    // source. Putting it on a sibling branch makes the generator nested,
+    // and a nested iterable never reaches the gate at all — which is why
+    // `produced` is asserted too: it proves the source really parked, so
+    // this cannot quietly decay into testing nothing.
+    registerServerFunction("gap-backpressure-teardown", async function* () {
+      try {
+        produced++;
+        yield {
+          late: Promise.resolve().then(() => ({
+            get boom(): never {
+              throw new Error("unencodable, discovered after the gate parked");
+            }
+          }))
+        };
+        for (let n = 0; n < 20; n++) {
+          produced++;
+          yield { n };
         }
-      })(),
-      unencodable: {
-        get boom(): never {
-          throw new Error("a deferred encode failure, landing while a pull is parked");
-        }
+      } finally {
+        cleanedUp = true;
       }
-    }));
+    });
 
-    const response = await handleServerFunctionRequest(scriptedPost("gap-backpressure-cleanup"));
+    const response = await handleServerFunctionRequest(scriptedPost("gap-backpressure-teardown"));
     const reader = response.body!.getReader();
-    // ONE read, then stop: the source parks on the gate, and the encode
-    // failure on the sibling branch ends the stream while it is parked.
-    // Draining instead would never park, and would never reach the defect.
     await reader.read();
     for (let turn = 0; turn < 20; turn++) {
       await new Promise(resolve => setTimeout(resolve, 0));
     }
 
+    expect(produced).toBe(1);
     expect(cleanedUp).toBe(true);
   });
 
