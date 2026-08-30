@@ -286,8 +286,9 @@ describe("the no-JS form convention honors returned redirects (#3096)", () => {
  * leaves a scripted caller a real redirect that fetch chases before the
  * transport can read it, and the redirect is silently lost.
  */
-describe("every status in the Fetch redirect set masks, and only for scripted callers", () => {
-  it.each([301, 302, 303, 307, 308])(
+describe("every status in the Fetch redirect set masks, and only for scripted callers (#3096)", () => {
+  // 302 is covered above; these are the four the file never exercised.
+  it.each([301, 303, 307, 308])(
     "%i travels as the redirect carrier for scripted callers, real for the rest",
     async status => {
       const id = `redirect-set-${status}`;

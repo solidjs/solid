@@ -156,4 +156,48 @@ describe("the origin gate's decision matrix", () => {
     });
     expect(allowed.status).toBe(200);
   });
+  it("asks a function matcher, and honours its refusal", async () => {
+    registerServerFunction("csrf-origin-fn", async () => "ok");
+    const seen: string[] = [];
+    const csrf: ServerFunctionCSRFOptions = {
+      origin: async origin => {
+        seen.push(origin);
+        return origin === "https://trusted.example";
+      }
+    };
+
+    const allowed = await handleServerFunctionRequest(
+      request("csrf-origin-fn", { Origin: "https://trusted.example" }),
+      { csrf, provideEvent }
+    );
+    expect(allowed.status).toBe(200);
+
+    const refused = await handleServerFunctionRequest(
+      request("csrf-origin-fn", { Origin: "https://evil.example" }),
+      { csrf, provideEvent }
+    );
+    expect(refused.status).toBe(403);
+    expect(seen).toEqual(["https://trusted.example", "https://evil.example"]);
+  });
+
+  it("treats a list as the whole allowlist", async () => {
+    registerServerFunction("csrf-origin-list", async () => "ok");
+    const csrf: ServerFunctionCSRFOptions = {
+      origin: ["https://one.example", "https://two.example"]
+    };
+
+    for (const origin of ["https://one.example", "https://two.example"]) {
+      const allowed = await handleServerFunctionRequest(
+        request("csrf-origin-list", { Origin: origin }),
+        { csrf, provideEvent }
+      );
+      expect(allowed.status).toBe(200);
+    }
+
+    const refused = await handleServerFunctionRequest(
+      request("csrf-origin-list", { Origin: "https://three.example" }),
+      { csrf, provideEvent }
+    );
+    expect(refused.status).toBe(403);
+  });
 });

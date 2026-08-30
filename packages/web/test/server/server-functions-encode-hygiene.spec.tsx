@@ -174,14 +174,18 @@ describe("null-body statuses (#3095)", () => {
  * enough to pass. Decoding it is what pins the difference.
  */
 describe("the bound applies to the source, not to the encoding (#3093)", () => {
-  // Padding shifts where the 1024-byte ceiling lands inside the encoded
-  // form. A naive `encode(message).slice(0, LIMIT)` survives the paddings
-  // that happen to land on an escape boundary, so one message cannot tell
-  // the implementations apart — the sweep is the test.
-  it.each([0, 1, 2, 3, 4, 5])(
+  // A percent escape is six characters (`%D0%AF`), so where the ceiling
+  // lands inside the encoded form depends on what precedes the run. With
+  // no padding it lands on an escape boundary and a naive
+  // `encode(message).slice(0, LIMIT)` produces a value that still decodes
+  // — that case cannot tell the two implementations apart. One character
+  // of padding moves the ceiling into the middle of an escape, and the
+  // naive form stops decoding. Both are here so the property is stated
+  // rather than sampled.
+  it.each([0, 1])(
     "a bounded non-latin1 header decodes back to a prefix of the message (padding %i)",
     async padding => {
-      const message = `${"x".repeat(padding)}${"Я".repeat(600)}`;
+      const message = `${"x".repeat(padding)}${"\u042f".repeat(600)}`;
       const id = `bounded-cyrillic-roundtrip-${padding}`;
       registerServerFunction(id, async () => {
         throw markSafeError(new Error(message));
