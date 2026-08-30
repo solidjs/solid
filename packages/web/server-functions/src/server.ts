@@ -16,7 +16,8 @@ import {
   NULL_BODY_STATUSES,
   REVALIDATE_HEADER,
   isResponseEnvelope,
-  isSafeError
+  isSafeError,
+  markSafeError
 } from "../../src/response.js";
 import { RequestContext, commitEventResponse, getRequestEvent } from "../../src/server.js";
 import { encodeFlashCookie } from "./flash.js";
@@ -1366,6 +1367,46 @@ function isFormPost(request) {
  * server function"); iterables nested inside user objects are consumed by
  * the codec directly and stay untouched.
  */
+// A failure that escapes through the RESULT GRAPH — a rejected promise, an
+// async iterable that throws, a stream that errors — reaches the codec as
+// a value to encode rather than as a throw, so it never passes the
+// sanitizer guarding every other way an error leaves dispatch. It is the
+// same failure by a different road, and the leak is the exact one
+// `sanitizeServerError` exists to stop: an ORM error's message and
+// own-properties (failing query, connection string, bound params) ride the
+// wire verbatim. Worse than the thrown case, because the head is already
+// committed — the answer is a 200 carrying no error tag.
+//
+// Claimed as a codec plugin rather than by walking the result: a walk
+// would have to run before serialization, and a rejection has not happened
+// yet at that point. The replacement is branded safe so the plugin does
+// not claim it again, which also leaves the wire shape a plain Error node
+// — the peer needs no matching plugin, and nothing about the protocol
+// changes.
+//
+// The sanitizer is composed AHEAD of an app's own plugins: a custom error
+// type reaching the client is intent, and intent is spelled
+// `markSafeError`, not "shadowed the default".
+let failureSanitizer;
+
+function sanitizingPlugins(createPlugin, plugins) {
+  if (DEV) return plugins;
+  if (!failureSanitizer) {
+    failureSanitizer = createPlugin({
+      tag: "solid/server-function-failure",
+      test: value => value instanceof Error && !isSafeError(value),
+      parse: {
+        sync: (value, ctx) => ctx.parse(markSafeError(sanitizeServerError(value))),
+        async: async (value, ctx) => ctx.parse(markSafeError(sanitizeServerError(value))),
+        stream: (value, ctx) => ctx.parse(markSafeError(sanitizeServerError(value)))
+      },
+      serialize: (node, ctx) => ctx.serialize(node),
+      deserialize: (node, ctx) => ctx.deserialize(node)
+    });
+  }
+  return plugins ? [failureSanitizer, ...plugins] : [failureSanitizer];
+}
+
 export function serializeResponseStream(value, codecOptions, signal) {
   let closeIterator = null;
   let closed = false;
@@ -1437,7 +1478,9 @@ export function serializeResponseStream(value, codecOptions, signal) {
         };
         signal.addEventListener("abort", onAbort);
       }
-      const { serializeJSON } = await import("../../serialization/src/serializer.js");
+      const { createPlugin, serializeJSON } = await import(
+        "../../serialization/src/serializer.js"
+      );
       if (closed) {
         // torn down while the codec was loading; nothing was started
         try {
@@ -1447,6 +1490,7 @@ export function serializeResponseStream(value, codecOptions, signal) {
       }
       cancelSerialize = serializeJSON(value, {
         ...codecOptions,
+        plugins: sanitizingPlugins(createPlugin, codecOptions && codecOptions.plugins),
         onParse(node) {
           if (!closed) controller.enqueue(createChunk(JSON.stringify(node)));
         },
@@ -1491,10 +1535,16 @@ function encodeResult(value, headers, status, codec, signal) {
       headers.set(BODY_FORMAT_HEADER, BodyFormat.Void);
       return new Response(null, { status, headers });
     }
-    const error = new Error(
-      `Server function answered status ${status}, which forbids a response body, with a value. ` +
-        `Return respond(undefined, { status: ${status} }) for a bodiless answer, or drop the ` +
-        `status to send the value.`
+    // Branded safe: this is an authoring error the developer must be able to
+    // read, so it is intentional client-facing content by definition — the
+    // failure sanitizer below would otherwise flatten it to the generic
+    // message and take the diagnosis with it.
+    const error = markSafeError(
+      new Error(
+        `Server function answered status ${status}, which forbids a response body, with a value. ` +
+          `Return respond(undefined, { status: ${status} }) for a bodiless answer, or drop the ` +
+          `status to send the value.`
+      )
     );
     headers.set(ERROR_HEADER, encodeErrorHeaderValue(error.message));
     return encodeResult(error, headers, 500, codec, signal);
