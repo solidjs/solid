@@ -67,9 +67,8 @@ describe("server-function CSRF bridge", () => {
  *   deployment has explicitly opted out.
  */
 describe("the origin gate's decision matrix", () => {
-  it.each(["same-site", "none"])(
-    "refuses a %s call even when the Origin is trusted",
-    async site => {
+  for (const site of ["same-site", "none"]) {
+    it(`refuses a ${site} call even when the Origin is trusted`, async () => {
       const fn = vi.fn(async () => "ok");
       registerServerFunction(`csrf-site-${site}`, fn);
 
@@ -83,8 +82,8 @@ describe("the origin gate's decision matrix", () => {
 
       expect(response.status).toBe(403);
       expect(fn).not.toHaveBeenCalled();
-    }
-  );
+    });
+  }
 
   it("refuses an Origin the deployment does not trust", async () => {
     const fn = vi.fn(async () => "ok");
@@ -156,6 +155,7 @@ describe("the origin gate's decision matrix", () => {
     });
     expect(allowed.status).toBe(200);
   });
+
   it("asks a function matcher, and honours its refusal", async () => {
     registerServerFunction("csrf-origin-fn", async () => "ok");
     const seen: string[] = [];

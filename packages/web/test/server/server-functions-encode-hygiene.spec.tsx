@@ -182,9 +182,8 @@ describe("the bound applies to the source, not to the encoding (#3093)", () => {
   // of padding moves the ceiling into the middle of an escape, and the
   // naive form stops decoding. Both are here so the property is stated
   // rather than sampled.
-  it.each([0, 1])(
-    "a bounded non-latin1 header decodes back to a prefix of the message (padding %i)",
-    async padding => {
+  for (const padding of [0, 1]) {
+    it(`a bounded non-latin1 header decodes back to a prefix of the message (padding ${padding})`, async () => {
       const message = `${"x".repeat(padding)}${"\u042f".repeat(600)}`;
       const id = `bounded-cyrillic-roundtrip-${padding}`;
       registerServerFunction(id, async () => {
@@ -198,6 +197,6 @@ describe("the bound applies to the source, not to the encoding (#3093)", () => {
       const decoded = decodeErrorHeaderValue(encoded);
       expect(decoded.length).toBeGreaterThan(0);
       expect(message.startsWith(decoded)).toBe(true);
-    }
-  );
+    });
+  }
 });
