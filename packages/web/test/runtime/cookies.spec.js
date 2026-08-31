@@ -90,8 +90,43 @@ describe("serializeCookie", () => {
   });
 
   it("normalizes sameSite casing", () => {
-    expect(serializeCookie("a", "b", { sameSite: "none" })).toBe("a=b; Path=/; SameSite=None");
+    expect(serializeCookie("a", "b", { sameSite: "none", secure: true })).toBe(
+      "a=b; Path=/; Secure; SameSite=None"
+    );
     expect(serializeCookie("a", "b", { sameSite: "Strict" })).toBe("a=b; Path=/; SameSite=Strict");
+  });
+
+  it("emits Partitioned (CHIPS) when asked", () => {
+    expect(serializeCookie("widget", "v", { secure: true, partitioned: true })).toBe(
+      "widget=v; Path=/; Secure; Partitioned"
+    );
+  });
+
+  it("refuses in dev the shapes every browser silently rejects (#3138)", () => {
+    // The rejection happens on ARRIVAL and leaves no trace anywhere — the
+    // cookie simply never comes back. Dev is the only place the author can
+    // be told; each of these is one attribute away from a stored cookie.
+    // __Host-: requires Secure, Path=/, no Domain — and the option that
+    // breaks it is the one you would naturally set (`path: "/admin"` on a
+    // session cookie silently disables login).
+    expect(() => serializeCookie("__Host-sid", "v", { path: "/orders", secure: true })).toThrow(
+      /__Host-/
+    );
+    expect(() =>
+      serializeCookie("__Host-sid", "v", { domain: "example.com", secure: true })
+    ).toThrow(/__Host-/);
+    expect(() => serializeCookie("__Host-sid", "v", {})).toThrow(/__Host-/);
+    // prefixes are matched case-insensitively, as browsers apply them
+    expect(() => serializeCookie("__host-sid", "v", {})).toThrow(/__Host-/);
+    expect(() => serializeCookie("__Secure-tok", "v", {})).toThrow(/__Secure-/);
+    expect(() => serializeCookie("cross", "v", { sameSite: "none" })).toThrow(/SameSite=None/);
+    expect(() => serializeCookie("widget", "v", { partitioned: true })).toThrow(/Partitioned/);
+
+    // the controls: done right, each shape emits
+    expect(serializeCookie("__Host-ok", "v", { secure: true })).toBe("__Host-ok=v; Path=/; Secure");
+    expect(serializeCookie("__Secure-ok", "v", { secure: true })).toBe(
+      "__Secure-ok=v; Path=/; Secure"
+    );
   });
 
   it("percent-encodes name and value so any string round-trips", () => {

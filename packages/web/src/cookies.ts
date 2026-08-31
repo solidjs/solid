@@ -37,6 +37,12 @@ export interface CookieOptions {
   secure?: boolean;
   /** Cookie `SameSite` attribute, any case. */
   sameSite?: "lax" | "strict" | "none" | "Lax" | "Strict" | "None";
+  /**
+   * Emit the `Partitioned` attribute (CHIPS): a third-party cookie keyed to
+   * the top-level site it was set under — the only third-party cookie that
+   * keeps working as browsers finish removing the rest. Requires `secure`.
+   */
+  partitioned?: boolean;
 }
 
 /**
@@ -87,7 +93,13 @@ function decodeSafe(text: string): string {
  * value, options))`, which every head materialization path carries to the
  * wire entry-by-entry.
  */
+// Build-variant dev flag: the string literal is replaced at build time, so
+// prod minification drops the guarded branch and the assert behind it — the
+// validation costs no production bytes.
+const DEV = "_SOLID_DEV_" as unknown as boolean;
+
 export function serializeCookie(name: string, value: string, options: CookieOptions = {}): string {
+  if (DEV) assertServableCookie(name, options);
   let cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
   cookie += `; Path=${options.path === undefined ? "/" : options.path}`;
   if (options.domain) cookie += `; Domain=${options.domain}`;
@@ -95,11 +107,49 @@ export function serializeCookie(name: string, value: string, options: CookieOpti
   if (options.expires) cookie += `; Expires=${options.expires.toUTCString()}`;
   if (options.httpOnly) cookie += "; HttpOnly";
   if (options.secure) cookie += "; Secure";
+  if (options.partitioned) cookie += "; Partitioned";
   if (options.sameSite) {
     const sameSite = options.sameSite.toLowerCase();
     cookie += `; SameSite=${sameSite === "none" ? "None" : sameSite === "strict" ? "Strict" : "Lax"}`;
   }
   return cookie;
+}
+
+// Shapes the browser enforces ON ARRIVAL and rejects with no trace — no
+// response error, no console line, nothing server-side; the cookie simply
+// never comes back (#3138). For a `__Host-` session cookie that reads as
+// "the user is never logged in", and the option that breaks it is the one
+// you would naturally set (`path: "/admin"` — a sensible-looking scoping
+// that silently disables login). Dev refuses to emit them, which is the
+// only place the author is ever told; production emits exactly what it is
+// handed — the check compiles out, no bytes change. The prefix match is
+// case-insensitive, as browsers apply it (RFC 6265bis §4.1.3).
+function assertServableCookie(name: string, options: CookieOptions): void {
+  const reject = (reason: string) => {
+    throw new Error(
+      `serializeCookie: every browser silently rejects this cookie — ${reason}. ` +
+        `It would never come back on a request, with no error anywhere.`
+    );
+  };
+  const lower = name.toLowerCase();
+  if (lower.startsWith("__host-")) {
+    if (!options.secure) reject(`the __Host- prefix on \`${name}\` requires \`secure: true\``);
+    if (options.path !== undefined && options.path !== "/")
+      reject(
+        `the __Host- prefix on \`${name}\` requires \`Path=/\` (got \`${options.path}\`) — ` +
+          `host-locking is the prefix's whole contract, so it cannot be path-scoped`
+      );
+    if (options.domain)
+      reject(`the __Host- prefix on \`${name}\` forbids \`Domain\` (got \`${options.domain}\`)`);
+  } else if (lower.startsWith("__secure-") && !options.secure) {
+    reject(`the __Secure- prefix on \`${name}\` requires \`secure: true\``);
+  }
+  if (options.sameSite && options.sameSite.toLowerCase() === "none" && !options.secure) {
+    reject("`SameSite=None` requires `secure: true`");
+  }
+  if (options.partitioned && !options.secure) {
+    reject("`Partitioned` requires `secure: true`");
+  }
 }
 
 // ---- the flash cookie's isomorphic half ----
