@@ -4,6 +4,10 @@
 // the function body never reaches this bundle. Hoisted from SolidStart's
 // fns/client.ts with neutral header names and a configurable endpoint.
 import { REVALIDATE_HEADER } from "../../src/response.js";
+// Local bindings for the annotations below — the `export type` block only
+// re-exports these names without bringing them into scope, and declaration
+// emit would leave them dangling (implicit any for every consumer).
+import type { ServerFunction, ServerFunctionMetadata } from "./shared.js";
 import {
   BODY_FORMAT_HEADER,
   BodyFormat,
@@ -929,6 +933,23 @@ export function GET(fn) {
   // the declaration itself is a metadata write like any other
   return withMeta(wrapped, { method: "GET" });
 } /**
+ * A live reference: calling it opens an iteration and hands back the
+ * reconnecting iterable ITSELF, synchronously — not a promise of one (the
+ * transport connects lazily, on the first pull). This is the client-half
+ * shape; the server half's in-process call is async and resolves to the
+ * branded iterable, so isomorphic consumers `await` the call — awaiting
+ * the client's plain iterable is identity. Identity fields mirror
+ * `ServerFunction`.
+ */
+export interface LiveServerFunction<A extends readonly any[] = any[], R = any> {
+  (...args: A): LiveSource<R>;
+  /** The build-stable function id (stable across the client and server builds). */
+  readonly id: string;
+  /** URL invoking this function directly over HTTP. */
+  readonly url: string;
+}
+
+/**
  * Declares a value-shaped live source: a server function returning an async
  * iterable whose yields are successive VALUES of one logical query, with the
  * contract that the source re-yields current state on every invocation.
@@ -942,7 +963,7 @@ export function GET(fn) {
  */
 export function live<A extends readonly any[], R>(
   fn: (...args: A) => R
-): ServerFunction<A, LiveSource<Awaited<R>>>;
+): LiveServerFunction<A, Awaited<R>>;
 
 /**
  * Declares a value-shaped live source: a server function returning an async
