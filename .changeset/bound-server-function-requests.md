@@ -1,5 +1,5 @@
 ---
-"@solidjs/web": minor
+"@solidjs/web": patch
 ---
 
 Bound what a server-function call may send (#3115). The argument payload is buffered and decoded before dispatch, so its cost was paid before application code could decline it: a 32 MB body was accepted and decoded, and a modest argument list forced a range error out of any function when spread into the call. `bodySizeLimit` (default 1 MiB, matching the neighbours' server-action ceilings) now refuses an oversized POST body or `?args=` encoding with 413 before any decoding — a declared Content-Length is checked up front, a chunked body is buffered under the cap — and `maxArguments` (default 1000) refuses an oversized argument list with 400. Both are configurable through `configureServerFunctionsServer` and per-handler options; `Infinity` removes a bound. The decode depth cap also now holds whichever body format the caller selects (#3119): the plain-JSON format walked into a bare `JSON.parse` with no ceiling, where the framed codec enforced 64 levels — the same ceiling now applies to both, and a non-array argument encoding in either body format answers 400 instead of surfacing as the function's own failure.
