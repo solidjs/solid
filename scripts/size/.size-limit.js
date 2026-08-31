@@ -342,7 +342,9 @@ module.exports = [
     // hold routing (per-entry queue defer), demotion fanout isolation,
     // family retention token. Measured 26.47.
     path: "hydrating-store-app.js",
-    limit: "26.55 KB",
+    // Round-10.9 (2026-08-31): demotion-lifecycle bytes (per-entry
+    // envelopes, commit skip, akAll refcount). Measured 26.56.
+    limit: "26.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -408,7 +410,10 @@ module.exports = [
     // Size pass (2026-08-31): recording proxy deleted (akAll full-scan),
     // applyEntries single-mode, deferHalt/routeEntryError consolidation.
     // Measured 16.05 — ratchet tightened.
-    limit: "16.15 KB",
+    // Round-10.9 (2026-08-31): per-entry manifest envelopes (write-free
+    // demotion computes), failed-compute commit skip, akAll refcount,
+    // transparent redrive roots. Measured 16.25.
+    limit: "16.3 KB",
     modifyEsbuildConfig
   },
   {
@@ -449,7 +454,9 @@ module.exports = [
     path: "csr-app-patch-lists.js",
     // Round-10.7: same bytes as the value tier. 18.79.
     // Size pass (2026-08-31): same trims. Measured 18.60 — tightened.
-    limit: "18.7 KB",
+    // Round-10.9 (2026-08-31): demotion-lifecycle bytes (see value tier).
+    // Measured 18.72.
+    limit: "18.8 KB",
     modifyEsbuildConfig
   },
   {

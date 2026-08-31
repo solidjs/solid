@@ -88,8 +88,10 @@ export interface PatchChannel {
   dw?: number;
   /** Manifest-less consumer present (size pass): the accessed-key union is
    * unknowable — adoption/delivery probes full-scan instead of trusting a
-   * partial `ak`. Replaces the drain-side recording proxy. */
+   * partial `ak`. Replaces the drain-side recording proxy. Ref-counted by
+   * `mlc` (round 10.9): released with the last manifest-less consumer. */
   akAll?: boolean;
+  mlc?: number;
   /** Transaction-scoped dedup stamps (round 10.6): the transition that
    * last wrote the delivery signal — plain (`bt`) and optimistic (`bo`)
    * tracked separately (a held plain write is not lane-visible). Repeats

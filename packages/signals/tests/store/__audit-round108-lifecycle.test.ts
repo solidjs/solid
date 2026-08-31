@@ -165,7 +165,11 @@ describe("compute capture and tracking", () => {
     expect(queue.queues[0]).toHaveLength(2);
     resetErrorHalt();
     queue.run(EFFECT_RENDER);
-    expect(log).toEqual(["thrower-commit", "healthy:v1"]);
+    // Round 10.9: a FAILED compute skips its commit (the swallow-then-
+    // -apply this originally pinned was the audit finding); the healthy
+    // sibling — whose OWN envelope never touches the throwing key —
+    // installs and applies.
+    expect(log).toEqual(["healthy:v1"]);
     owner.dispose();
   });
 
@@ -196,7 +200,8 @@ describe("compute capture and tracking", () => {
     expect(() => flush()).not.toThrow();
     expect(queue.queues[0]).toHaveLength(2);
     queue.run(EFFECT_RENDER);
-    expect(log).toEqual(["thrower-commit", "healthy:v1"]);
+    // Round 10.9: handled or not, a failed compute never commits.
+    expect(log).toEqual(["healthy:v1"]);
     owner.dispose();
   });
 
@@ -253,14 +258,17 @@ describe("compute capture and tracking", () => {
       });
     });
     expect(() => flush()).toThrow("recoverable");
-    expect(log).toEqual(["commit"]);
+    // Round 10.9: the failed compute's commit is skipped…
+    expect(log).toEqual([]);
     resetErrorHalt();
     setThrows(false);
     flush();
-    expect(log).toEqual(["commit", "commit"]);
+    // …and recovery (the pre-throw read stayed tracked) commits cleanly,
+    // with the successful run's later reads adding their dependencies.
+    expect(log).toEqual(["commit"]);
     setDep("d2");
     flush();
-    expect(log).toEqual(["commit", "commit", "commit"]);
+    expect(log).toEqual(["commit", "commit"]);
     dispose();
   });
 });

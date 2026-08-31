@@ -801,6 +801,25 @@ describe("INVARIANT: demotion fanout is per-entry isolated (round 10)", () => {
   });
 });
 
+describe("INVARIANT: the full-scan poison lives exactly as long as its consumers (round 10.9)", () => {
+  it("akAll releases with the last manifest-less consumer", async () => {
+    const { $TARGET } = await import("../../src/store/store.js");
+    const [state] = createStore<any>({ user: { name: "a" } });
+    let u1!: () => void;
+    let u2!: () => void;
+    createRoot(() => {
+      u1 = registerPatch(state.user, () => {}) as () => void; // manifest-less
+      u2 = registerPatch(state.user, () => {}, ["name"]) as () => void; // compiled
+    });
+    const pc = (state.user as any)[$TARGET].pc;
+    expect(pc.akAll).toBe(true);
+    u1();
+    // The compiled consumer gets manifest-narrow probes back.
+    expect(pc.akAll).toBe(false);
+    u2();
+  });
+});
+
 describe("INVARIANT: channel fan-out stays diagnosable (attribution parity)", () => {
   it("mass registration and wide dispatch fire the graph-size diagnostics", async () => {
     const [state, setState] = createStore<any>({ cfg: { theme: "a" } });

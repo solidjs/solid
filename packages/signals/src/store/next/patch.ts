@@ -83,6 +83,14 @@ interface PatchEntry {
    * becoming an effect) but NOT user-unbound — the redrive installs it;
    * `u` alone means the consumer left and cancels even a queued redrive. */
   dm?: boolean;
+  /** Manifest-less registration — holds a ref on the channel's `akAll`
+   * full-scan poison (round 10.9, P2). */
+  ml?: boolean;
+  /** THIS entry's interned manifest (round 10.9, P1): the demotion
+   * fallback's compute subscribes exactly this envelope — the channel
+   * UNION would make every sibling read (and fail on) every other
+   * sibling's keys. null = manifest-less (dual-run fallback). */
+  mk?: { roots: PropertyKey[]; dp: DeepNode[] | null } | null;
   /** Fallback-effect disposer (round 10.8): the re-drive's root — unbind
    * calls it so the demoted effect dies with its consumer. */
   dd?: () => void;
@@ -597,6 +605,17 @@ function bumpOne(t: StoreNextTarget, pc: any): void {
   if (__DEV__ && attrHooks !== null) attrHooks.patchEmit(pc.dn, targetPath(t), null, null, false);
 }
 
+/** Tracked read of a manifest deep-path subtree THROUGH the proxy — the
+ * demotion fallback's compute pass (round 10.9): subscribes exactly the
+ * declared envelope, runs no body code. */
+function readDeepNode(node: DeepNode, o: any): void {
+  if (o === null || typeof o !== "object") return;
+  const v = o[node.k];
+  const children = node.c;
+  if (children !== null && v !== null && typeof v === "object")
+    for (let i = 0; i < children.length; i++) readDeepNode(children[i], v);
+}
+
 /** DEV: the record's store path ("store.rows.3") — the name cause chains
  * and rerun events use for patch machinery (matches the "store.key" naming
  * key nodes get under attribution). */
@@ -883,6 +902,7 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
   if (keys !== undefined) {
     if (Array.isArray(keys)) {
       const m = internManifest(keys as string[]);
+      entry.mk = m; // this entry's OWN envelope (demotion computes read it)
       if (pc.ak === null && pc.dp === null) {
         pc.ak = m.roots;
         pc.dp = m.dp;
@@ -891,7 +911,11 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
         unionKeys(pc, keys);
       }
     } else {
-      unionKeys(pc, keys);
+      // One-shot iterables: materialize once — the union AND the entry's
+      // own envelope both need the keys.
+      const arr = Array.from(keys, k => String(k));
+      entry.mk = internManifest(arr);
+      unionKeys(pc, arr);
     }
   } else {
     // MANIFEST-LESS consumer (hand-written registerPatch; size pass): the
@@ -900,6 +924,12 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
     // sibling must not narrow probes below this consumer's reads). This
     // replaced the drain-side recording proxy: compiled output always
     // ships manifests, so only hand-written callers pay the wider probe.
+    // REF-COUNTED (round 10.9, P2): the poison leaves with the last
+    // manifest-less consumer — later compiled consumers get manifest-
+    // -narrow probes back.
+    entry.ml = true;
+    entry.mk = null;
+    pc.mlc = (pc.mlc ?? 0) + 1;
     pc.akAll = true;
   }
   patchCount++;
@@ -937,6 +967,8 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
     if (idx >= 0) {
       list.splice(idx, 1);
       patchCount--;
+      // The full-scan poison leaves with its consumer (round 10.9, P2).
+      if (entry.ml === true && --pc.mlc! === 0) pc.akAll = false;
     }
     if (list.length === 0 && pc.p === list) {
       // The delivery machinery (dn/de/bc/dv) persists — held write-time
@@ -1038,7 +1070,12 @@ export function demotePatches(t: StoreNextTarget): PatchEntry[] | null {
   // from the stale callback. `dm`, not `u`: an explicit unbind AFTER
   // demotion must still be able to cancel the queued redrive, and the
   // redrive distinguishes "severed for conversion" from "consumer left".
-  for (let i = 0; i < p.length; i++) p[i].dm = true;
+  // Demoted entries stop being PATCH consumers — the full-scan poison
+  // leaves with them (their fallback effects track their own reads).
+  for (let i = 0; i < p.length; i++) {
+    p[i].dm = true;
+    if (p[i].ml === true && --(t.pc as any).mlc === 0) (t.pc as any).akAll = false;
+  }
   // Drain IN PLACE: unbind closures captured this array — a late unbind must
   // miss its indexOf and not double-decrement the repaired count.
   return p.splice(0, p.length);
@@ -1109,18 +1146,34 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
       // in-flight, and deferral would postpone the tentative view).
       const oq = entry.q as any;
       const held = heldProbe !== null && oq != null && oq !== globalQueue && heldProbe(oq);
-      // COMPUTE throws are captured PER ENTRY (round 10.8, P1): a throwing
-      // getter in the tracked pass would otherwise route through the
-      // effect's own error machinery — an unboundaried one calls
-      // haltReactivity DURING creation/scheduling, poisoning the system
-      // before held healthy siblings ever release (the outer try/catch
-      // only sees the rethrow, too late). Reads before the throw stay
-      // tracked; unhandled errors defer one halt a phase later, after the
-      // fanout — the dispatch loop's exact contract.
-      const captured = (run: () => void) => {
+      // COMPUTE throws are captured PER ENTRY (round 10.8, P1) — a
+      // throwing getter would otherwise route through the effect's own
+      // error machinery and halt DURING creation/scheduling, before held
+      // healthy siblings release. And a FAILED compute must not commit
+      // (round 10.9, P1): the latch below makes the commit a no-op for
+      // that run — core saw "success", the entry saw its error routed,
+      // and recovery (the dependency changing back) re-runs cleanly.
+      // Manifested entries compute by READING THEIR OWN ENVELOPE (round
+      // 10.9, P1 — the driver's round-9 rule, shared by demotion): the
+      // body never runs inside the tracked pass, so NaN fields and
+      // unstable getters cannot fire DOM writes during compute. PER
+      // ENTRY, never the channel union: the union would subscribe every
+      // sibling to every other sibling's keys — and fail every sibling on
+      // one sibling's throwing getter. Manifest-less entries keep the
+      // documented dual-run, same as the driver's fallback.
+      const mk = entry.mk ?? null;
+      let computeFailed = false;
+      const compute = () => {
+        computeFailed = false;
         try {
-          run();
+          if (mk !== null) {
+            const roots = mk.roots;
+            for (let k = 0; k < roots.length; k++) (proxy as any)[roots[k]];
+            const dp = mk.dp;
+            if (dp !== null) for (let k = 0; k < dp.length; k++) readDeepNode(dp[k], proxy);
+          } else fn(proxy, proxy, false);
         } catch (err) {
+          computeFailed = true;
           if (!routeEntryError(entry, err)) deferHalt(err);
         }
       };
@@ -1129,9 +1182,14 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
       // keep classic effect error semantics.
       let first = held;
       const commit = () => {
+        if (computeFailed) return; // the tracked pass failed — no apply
         if (first) {
           first = false;
-          captured(() => untrack(() => fn(proxy, undefined, true)));
+          try {
+            untrack(() => fn(proxy, undefined, true));
+          } catch (err) {
+            if (!routeEntryError(entry, err)) deferHalt(err);
+          }
           return;
         }
         // Block body: a compiled patch body's return value must not be
@@ -1142,21 +1200,17 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
         // OWN ROOT per re-driven entry (round 10.8, P2): the entry's
         // unbind disposes it — an explicit unbind after the fallback
         // effect exists (queued OR live) cancels the effect and its
-        // subscriptions, instead of leaving it applying until the OWNER
-        // dies (this also retires the round-8 "demoted list rows outlive
-        // removal" accepted edge for driver rows, whose per-row unbinds
-        // run on removal).
+        // subscriptions. TRANSPARENT (round 10.9, P2): the root shares its
+        // parent's id, so demotion keeps the classic fallback's
+        // owner/hydration-ID depth.
         runWithOwner(entry.owner, () =>
-          createRoot(d => {
-            (entry as any).dd = d;
-            createRenderEffect(
-              () => {
-                captured(() => fn(proxy, proxy, false));
-              },
-              commit,
-              held ? { schedule: true } : undefined
-            );
-          })
+          createRoot(
+            d => {
+              (entry as any).dd = d;
+              createRenderEffect(compute, commit, held ? { schedule: true } : undefined);
+            },
+            { transparent: true }
+          )
         );
       } catch (err) {
         if (!routeEntryError(entry, err) && firstError === UNSET) firstError = err;
