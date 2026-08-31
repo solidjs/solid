@@ -9,7 +9,7 @@
  * `true`-branded Href keeps coercing through String().
  */
 import { describe, expect, it } from "vitest";
-import { redirect, isHref, HREF } from "../../src/response.js";
+import { redirect, reload, isHref, HREF, REVALIDATE_HEADER } from "../../src/response.js";
 
 const displayHref = (logical, display) => ({
   [HREF]: logical,
@@ -72,5 +72,41 @@ describe("redirect() non-ASCII targets (#3135)", () => {
   it("encodes the logical path of an Href the same way", () => {
     const node = displayHref("/поиск", "#/поиск");
     expect(redirect(node).headers.get("Location")).toBe("/%D0%BF%D0%BE%D0%B8%D1%81%D0%BA");
+  });
+});
+
+describe("composed response headers refuse rather than overflow (#3131)", () => {
+  // A value past a receiver's limit makes the WHOLE response unreadable —
+  // nginx's proxy_buffer_size is one 4-8 KiB page for the entire upstream
+  // header block — so the caller gets a socket-level parse error on a
+  // mutation that already committed. Truncation is not an option for
+  // either value (a cut target is a different address; a cut key list is
+  // a silently stale cache), so the helpers refuse with something the
+  // author can read. The bound sits at the producers, which run inside
+  // the function body: the returned AND thrown spellings both land on the
+  // ordinary error path, nothing new escapes dispatch.
+  it("redirect() refuses a target past the bound, legibly", () => {
+    const target = "/search?q=" + "x".repeat(8000);
+    expect(() => redirect(target)).toThrow(/8010 characters[\s\S]*different address/);
+    // ...and passes one at the bound
+    const atLimit = "/p" + "x".repeat(4094);
+    expect(redirect(atLimit).headers.get("Location")).toBe(atLimit);
+  });
+
+  it("counts the ENCODED length — percent-encoding inflation is what hits the wire", () => {
+    // ~1500 cyrillic chars: under the bound raw, 3x past it encoded
+    expect(() => redirect("/" + "п".repeat(1500))).toThrow(/characters/);
+  });
+
+  it("refuses a revalidate list past the bound, naming the remedy", () => {
+    const keys = Array.from({ length: 300 }, (_, i) => `orders:tenant-42:list:page-${i}`);
+    // ~28 chars * 300 keys ≈ 8.7 KB — frenzzy measured the 8 KiB proxy
+    // ceiling at 261 keys of this exact shape: a bulk edit, not pathology
+    expect(() => reload({ revalidate: keys })).toThrow(/coarser keys|Split the invalidation/);
+    expect(() => redirect("/done", { revalidate: keys })).toThrow(/refuses rather than trims/);
+
+    // an ordinary invalidation rides the header untouched
+    const ordinary = reload({ revalidate: ["orders", "orders:list"] });
+    expect(ordinary.headers.get(REVALIDATE_HEADER)).toBe("orders,orders:list");
   });
 });

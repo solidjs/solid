@@ -279,6 +279,61 @@ describe("the no-JS form convention honors returned redirects (#3096)", () => {
   });
 });
 
+describe("oversized composed headers die at the helper, not at the socket (#3131)", () => {
+  // Before the bound, a 20K-char redirect target or a 2000-key revalidate
+  // list produced a response that undici and any proxied receiver refused
+  // to PARSE (HPE_HEADER_OVERFLOW) — a network error pointing at nothing,
+  // on a mutation that committed. The helpers now refuse while the
+  // function body is still running, so what leaves dispatch is the
+  // ordinary error shape: legible, attributable, and parseable.
+  it("a thrown oversized redirect answers the error shape with bounded headers", async () => {
+    registerServerFunction("bounds-redirect-big", async () => {
+      throw redirect("/search?q=" + "x".repeat(20_000));
+    });
+
+    const response = await handleServerFunctionRequest(scripted("bounds-redirect-big"));
+    expect(response.status).toBe(500);
+    expect(response.headers.get("X-Server-Function-Redirect")).toBeNull();
+    // the whole point: every header the response carries fits a receiver
+    for (const [, value] of response.headers) {
+      expect(value.length).toBeLessThanOrEqual(4096);
+    }
+  });
+
+  it("an oversized revalidate list answers the error shape too", async () => {
+    registerServerFunction("bounds-revalidate-big", async () =>
+      respond(
+        { ok: true },
+        { revalidate: Array.from({ length: 2000 }, (_, i) => `orders:tenant-42:list:page-${i}`) }
+      )
+    );
+
+    const response = await handleServerFunctionRequest(scripted("bounds-revalidate-big"));
+    expect(response.status).toBe(500);
+    expect(response.headers.get("X-Revalidate")).toBeNull();
+    for (const [, value] of response.headers) {
+      expect(value.length).toBeLessThanOrEqual(4096);
+    }
+  });
+
+  it("ordinary redirects and revalidations are untouched", async () => {
+    registerServerFunction("bounds-ordinary", async () =>
+      respond(undefined, {
+        status: 302,
+        headers: location,
+        revalidate: ["orders", "orders:list"]
+      })
+    );
+
+    const response = await handleServerFunctionRequest(scripted("bounds-ordinary"));
+    expect(response.status).toBe(200); // masked for the scripted caller
+    expect(response.headers.get("X-Server-Function-Redirect")).toBe(
+      "302 https://app.example/elsewhere"
+    );
+    expect(response.headers.get("X-Revalidate")).toBe("orders,orders:list");
+  });
+});
+
 describe("the bare address reads the caller kind off Sec-Fetch-Mode (#3139)", () => {
   // The no-JS convention — 303, outcome in a flash cookie — exists for
   // form NAVIGATIONS. It used to engage on shape alone (form content type,

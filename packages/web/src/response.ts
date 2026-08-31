@@ -128,6 +128,20 @@ export interface ResponseHelperInit extends ResponseInit {
   revalidate?: string | string[];
 }
 
+// A response header the runtime composes cannot be allowed to cost the
+// response (#3131, the #3093 class): a value past a receiver's limit makes
+// the WHOLE response unreadable — undici's default header budget is 16 KiB,
+// and nginx's proxy_buffer_size is one 4-8 KiB page for the entire upstream
+// header block — so the caller gets a socket-level parse error on a
+// mutation that committed. Truncation is not an option for these two
+// values: a trimmed redirect target is a DIFFERENT address the client
+// navigates to, and a trimmed key list is a stale cache, silently (the
+// error header could be trimmed in #3093 because it is a label; these are
+// load-bearing). So the bound refuses, loudly and legibly, at the helper
+// that produces the value — which runs inside the function body, so both
+// the returned and the thrown spellings land on the ordinary error path.
+const RESPONSE_HEADER_VALUE_LIMIT = 4096;
+
 function initWithRevalidate(init: number | ResponseHelperInit = {}) {
   const resolved: any = typeof init === "number" ? { status: init } : init;
   const { revalidate, ...responseInit } = resolved;
@@ -147,7 +161,20 @@ function initWithRevalidate(init: number | ResponseHelperInit = {}) {
   } else {
     headers = new Headers(responseInit.headers);
   }
-  revalidate !== undefined && headers.set(REVALIDATE_HEADER, revalidate.toString());
+  if (revalidate !== undefined) {
+    const keys = revalidate.toString();
+    if (keys.length > RESPONSE_HEADER_VALUE_LIMIT) {
+      throw new TypeError(
+        `revalidate names ${keys.length} characters of cache keys; past ` +
+          `${RESPONSE_HEADER_VALUE_LIMIT} the ${REVALIDATE_HEADER} header would overflow ` +
+          `receivers (an 8 KiB proxy buffer holds the whole header block) and the response ` +
+          `dies at the socket after the mutation committed. Split the invalidation across ` +
+          `calls or use coarser keys — a dropped key would be a silently stale cache, so ` +
+          `the runtime refuses rather than trims.`
+      );
+    }
+    headers.set(REVALIDATE_HEADER, keys);
+  }
   return { responseInit, headers };
 }
 
@@ -179,7 +206,24 @@ export function redirect(url: string | Href, init: number | ResponseHelperInit =
   // encode the non-ASCII code points (UTF-8, the encoding a URL means);
   // ASCII — separators, query syntax, existing %-escapes — passes through
   // untouched, so an already-encoded target is not double-encoded.
-  headers.set("Location", location.replace(/[^\x00-\x7f]/gu, encodeURIComponent));
+  const encoded = location.replace(/[^\x00-\x7f]/gu, encodeURIComponent);
+  if (encoded.length > RESPONSE_HEADER_VALUE_LIMIT) {
+    // A legitimate destination is tens to hundreds of bytes (nginx's own
+    // request-line buffer is 8 KiB, so a longer url could not even be
+    // requested back); what reaches this size is unbounded input echoed
+    // into the target — a `?returnTo=`, a search string, a nested callback
+    // chain. The runtime's answer must not be a socket error pointing at
+    // nothing, and must not be a trimmed target (a different address).
+    throw new TypeError(
+      `redirect() target is ${encoded.length} characters; past ` +
+        `${RESPONSE_HEADER_VALUE_LIMIT} the Location header (and the scripted transport's ` +
+        `redirect header) would overflow receivers and the response dies at the socket. ` +
+        `A target this size is usually unbounded input echoed into the url — carry the ` +
+        `state server-side instead. Refused rather than trimmed: a cut target is a ` +
+        `different address.`
+    );
+  }
+  headers.set("Location", encoded);
   return new Response(null, { ...responseInit, headers });
 }
 
