@@ -1,5 +1,5 @@
 ---
-"@solidjs/babel-plugin-jsx": minor
+"@solidjs/babel-plugin": minor
 "@solidjs/compiler": minor
 ---
 
