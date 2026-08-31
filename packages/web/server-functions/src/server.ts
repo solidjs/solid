@@ -1564,6 +1564,13 @@ function isFormPost(request) {
 // Left alone deliberately, so a channel behind either is unguarded: class
 // instances, whose own properties are not ours to rebuild (private fields,
 // getters, invariants), and accessors, which are not ours to invoke.
+//
+// `state.gate` (optional — serializeResponseStream threads it, #3125) hooks
+// the two STREAMING channels into the response lifetime as they are walked:
+// wantsMore/awaitDemand park a source's pulls behind the response queue's
+// demand, and onOpen registers an idempotent closer with the response
+// teardown. Without it (frame-sink, tests) the channels are sanitize-only,
+// as before.
 /** @internal */
 export function guardFailures(value, state) {
   if (value === null || typeof value !== "object") return value;
@@ -1578,9 +1585,27 @@ export function guardFailures(value, state) {
   // would never run.
   if (typeof ReadableStream !== "undefined" && value instanceof ReadableStream) {
     let reader;
+    const gate = state.gate;
+    let finished = false;
+    const close = () => {
+      if (finished) return;
+      finished = true;
+      try {
+        const cancelled = reader ? reader.cancel() : value.cancel();
+        if (cancelled && typeof cancelled.then === "function") cancelled.then(undefined, () => {});
+      } catch {}
+    };
     const guardedStream = new ReadableStream({
       async pull(controller) {
         try {
+          // Demand gate + teardown (#3125): same contract as the iterable
+          // branch below — park ahead of the source read, re-check finished
+          // after the wait (teardown can land while parked).
+          if (gate && !finished && !gate.wantsMore()) await gate.awaitDemand();
+          if (finished) {
+            controller.close();
+            return;
+          }
           if (!reader) reader = value.getReader();
           const { done, value: chunk } = await reader.read();
           // the chunk is walked like a step value: a channel nested in one
@@ -1591,9 +1616,11 @@ export function guardFailures(value, state) {
         }
       },
       cancel(reason) {
+        finished = true;
         return reader ? reader.cancel(reason) : value.cancel(reason);
       }
     });
+    if (gate) gate.onOpen(close);
     state.seen.set(value, guardedStream);
     return guardedStream;
   }
@@ -1611,18 +1638,54 @@ export function guardFailures(value, state) {
 
   if (typeof value[Symbol.asyncIterator] === "function") {
     const source = value;
+    const gate = state.gate;
     const guardedIterable = {
       [Symbol.asyncIterator]() {
         const iterator = source[Symbol.asyncIterator]();
+        let finished = false;
+        const close = () => {
+          if (finished) return;
+          finished = true;
+          try {
+            const returned = iterator.return && iterator.return();
+            if (returned && typeof returned.then === "function") returned.then(undefined, () => {});
+          } catch {}
+        };
+        // Registers with the response teardown (#3125): the codec pumps
+        // EVERY iterable in the graph — nested ones included — so each open
+        // must be closable when the consumer leaves, or an abandoned request
+        // leaks the producer (a DB cursor's finally that never runs).
+        if (gate) gate.onOpen(close);
+        const step = () =>
+          finished
+            ? Promise.resolve({ done: true, value: undefined })
+            : iterator.next().then(
+                step => {
+                  if (step.done) {
+                    finished = true;
+                    return step;
+                  }
+                  return { done: false, value: guardFailures(step.value, state) };
+                },
+                error => {
+                  throw sanitizeServerError(error);
+                }
+              );
         return {
+          // Pulls straight through while the response queue has room, and
+          // parks until a read makes room when it does not. `finished` is
+          // checked FIRST: teardown can land while a pull is in flight, and
+          // the release it fires then finds nothing parked — so a gate
+          // checked first would park the next pull on a resolver nobody
+          // will ever call, stranding the codec's pump. `finished` is
+          // re-read inside step() for the same reason from the other
+          // direction.
           next: () =>
-            iterator.next().then(
-              step => (step.done ? step : { done: false, value: guardFailures(step.value, state) }),
-              error => {
-                throw sanitizeServerError(error);
-              }
-            ),
-          return: iterator.return && (() => iterator.return())
+            finished || !gate || gate.wantsMore() ? step() : gate.awaitDemand().then(step),
+          return: () => {
+            close();
+            return Promise.resolve({ done: true, value: undefined });
+          }
         };
       }
     };
@@ -1708,48 +1771,68 @@ function keepGuarded(value, next, changed, state) {
  * An abort of `signal` (the platform fires request.signal when the caller's
  * fetch aborts or the tab goes away) or the consumer cancelling the
  * ReadableStream (how platforms surface a dropped connection to the body)
- * stops pending serialization and tears down a top-level async-iterable
- * value — the producer's `iterator.return()` runs, so generator `finally`
- * blocks execute instead of the server pumping a stream nobody is reading.
- * Top-level only: that is the value-tier shape ("return a stream from the
- * server function"); iterables nested inside user objects are consumed by
- * the codec directly and stay untouched.
+ * stops pending serialization and tears down EVERY async-iterable or
+ * ReadableStream source in the result graph, nested ones included (#3125) —
+ * each producer's `iterator.return()` / `reader.cancel()` runs, so
+ * generator `finally` blocks execute instead of the server pumping streams
+ * nobody is reading. The wiring rides guardFailures' walk: it already wraps
+ * every channel before the codec sees the value, so the demand gate and the
+ * teardown registry are threaded through its state (`{ items: rows() }` —
+ * a cursor beside a total — gets the same two guarantees as `return rows()`).
  */
 export function serializeResponseStream(value, codecOptions, signal) {
-  value = guardFailures(value);
-  let closeIterator = null;
   let closed = false;
-  // Demand gate. seroval's pump pulls the source as fast as it resolves and
+  // Demand gate. seroval's pump pulls each source as fast as it resolves and
   // enqueues every node the moment it is parsed, so without this a slow
   // consumer never slows the producer: the whole result accumulates in the
   // stream's queue, in server memory, unbounded. The consumer's reads drive
-  // `pull`, which releases one source pull at a time.
+  // `pull`, which releases parked source pulls.
   //
   // `desiredSize > 0` means "fewer than one chunk queued": the stream takes
   // no queuing strategy, so it runs on the default high-water mark of 1.
   // That default is what sets the depth, and raising it is how you would
   // trade memory for fewer round trips.
   //
-  // One resolver is enough because the pump is sequential — the same reason
-  // the wrapper below only exposes `next()`. Two concurrent pulls would
-  // overwrite it and strand the first.
+  // The waiters are a LIST because the codec pumps every source in the
+  // graph concurrently (#3125), and a pull must wake ALL of them: waking
+  // one would strand the rest when the woken source finishes without
+  // enqueuing (a done step produces no chunk, so no further pull ever
+  // fires). Wake-all keeps per-pull production bounded by the live source
+  // count — each woken source steps once and re-parks on its next pull.
   let streamController = null;
-  let releaseDemand = null;
-  const wantsMore = () => streamController.desiredSize > 0;
-  const awaitDemand = () => new Promise(resolve => (releaseDemand = resolve));
+  let demandWaiters = null;
+  const wantsMore = () => streamController !== null && streamController.desiredSize > 0;
+  const awaitDemand = () => new Promise(resolve => (demandWaiters ??= []).push(resolve));
   const supplyDemand = () => {
-    const resolve = releaseDemand;
-    releaseDemand = null;
-    if (resolve) resolve();
+    const resolvers = demandWaiters;
+    demandWaiters = null;
+    if (resolvers) for (const resolve of resolvers) resolve();
   };
+  // Every source the codec has opened, top-level and nested alike —
+  // guardFailures registers each through gate.onOpen as the codec reaches
+  // it. Closers are idempotent.
+  const sourceClosers = new Set();
+  const gate = {
+    wantsMore,
+    awaitDemand,
+    onOpen(close) {
+      // torn down before the codec opened this source (abort raced the
+      // codec load, or a nested open raced teardown): close it immediately,
+      // never pull
+      if (closed) close();
+      else sourceClosers.add(close);
+    }
+  };
+  value = guardFailures(value, { seen: new WeakMap(), cyclic: new WeakSet(), gate });
   let cancelSerialize = null;
   let onAbort = null;
-  // Ends the source and releases a pull parked on the demand gate. Every
-  // path that stops the stream has to run this: a parked pull holds the
+  // Ends the sources and releases pulls parked on the demand gate. Every
+  // path that stops the stream has to run this: a parked pull holds its
   // source open and nothing else will resolve it — `desiredSize` is 0 after
   // close and null after error, so the gate never reopens on its own.
   const finishSource = () => {
-    if (closeIterator) closeIterator();
+    for (const close of sourceClosers) close();
+    sourceClosers.clear();
     supplyDemand();
   };
   const teardown = () => {
@@ -1759,46 +1842,6 @@ export function serializeResponseStream(value, codecOptions, signal) {
     if (cancelSerialize) cancelSerialize();
     finishSource();
   };
-  if (
-    value !== null &&
-    typeof value === "object" &&
-    typeof value[Symbol.asyncIterator] === "function"
-  ) {
-    // Teardown-aware wrapper, installed BEFORE the codec sees the value:
-    // seroval's stream pump has no cancellation of its own — once it holds
-    // the iterator it pulls until done — so this wrapper is the only seam
-    // where a dropped consumer can stop the producer. The codec only ever
-    // calls next(), so that is all the wrapper exposes.
-    const source = value;
-    value = {
-      [Symbol.asyncIterator]() {
-        const it = source[Symbol.asyncIterator]();
-        let finished = false;
-        closeIterator = () => {
-          if (finished) return;
-          finished = true;
-          try {
-            const returned = it.return && it.return();
-            if (returned && typeof returned.then === "function") returned.then(undefined, () => {});
-          } catch {}
-        };
-        // torn down before the codec opened the value (abort raced the
-        // codec load): close the source immediately, never pull
-        if (closed) closeIterator();
-        const step = () => (finished ? { done: true, value: undefined } : it.next());
-        return {
-          // Pulls straight through while the queue has room, and parks
-          // until a read makes room when it does not. `finished` is checked
-          // FIRST: teardown can land while a pull is in flight, and the
-          // release it fires then finds nothing parked — so a gate checked
-          // first would park the next pull on a resolver nobody will ever
-          // call, stranding the codec's pump. `finished` is re-read after
-          // the wait for the same reason from the other direction.
-          next: () => (finished || wantsMore() ? Promise.resolve(step()) : awaitDemand().then(step))
-        };
-      }
-    };
-  }
   return new ReadableStream({
     // async on purpose: the codec is late-loaded (see the loading notes at
     // the top of shared.js), and a ReadableStream start may return a

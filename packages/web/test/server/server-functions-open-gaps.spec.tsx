@@ -273,6 +273,151 @@ describe("a streamed result nobody is reading", () => {
     expect(cleanedUp).toBe(true);
   });
 
+  // Closed (#3125): the demand gate and the teardown registry now ride
+  // guardFailures' walk, so a stream NESTED inside the result — `{ items:
+  // rows() }`, the cursor-beside-a-total shape — gets the same two
+  // guarantees as `return rows()`. Before, only the top-level value was
+  // wrapped: a nested generator produced unbounded (200k items in 300ms in
+  // the report) and its `finally` never ran after cancel — a permanent
+  // resource leak per abandoned request.
+  test("a nested stream does not run ahead of the consumer (#3125)", async () => {
+    let produced = 0;
+    registerServerFunction("gap-nested-backpressure", async () => {
+      const rows = (async function* () {
+        while (produced < 100_000) {
+          produced++;
+          yield { n: produced };
+          await new Promise(resolve => setImmediate(resolve));
+        }
+      })();
+      return { items: rows, total: 100_000 };
+    });
+
+    const response = await handleServerFunctionRequest(scriptedPost("gap-nested-backpressure"));
+    const reader = response.body!.getReader();
+    await reader.read();
+    for (let turn = 0; turn < 200; turn++) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    await reader.cancel();
+
+    expect(produced).toBeLessThan(50);
+  });
+
+  test("cancel tears down a nested stream — its finally runs (#3125)", async () => {
+    let produced = 0;
+    let finallyRan = false;
+    registerServerFunction("gap-nested-teardown", async () => {
+      const rows = (async function* () {
+        try {
+          for (;;) {
+            produced++;
+            yield { n: produced };
+            await new Promise(resolve => setImmediate(resolve));
+          }
+        } finally {
+          finallyRan = true;
+        }
+      })();
+      return { items: rows };
+    });
+
+    const response = await handleServerFunctionRequest(scriptedPost("gap-nested-teardown"));
+    const reader = response.body!.getReader();
+    await reader.read();
+    const atCancel = produced;
+    await reader.cancel();
+    for (let turn = 0; turn < 50; turn++) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+
+    expect(finallyRan).toBe(true);
+    // give or take the pull in flight when the cancel landed
+    expect(produced).toBeLessThanOrEqual(atCancel + 1);
+  });
+
+  test("an abort of the request signal tears down a nested stream (#3125)", async () => {
+    let finallyRan = false;
+    registerServerFunction("gap-nested-abort", async () => {
+      const rows = (async function* () {
+        try {
+          for (let n = 0; ; n++) {
+            yield { n };
+            await new Promise(resolve => setImmediate(resolve));
+          }
+        } finally {
+          finallyRan = true;
+        }
+      })();
+      return { items: rows };
+    });
+
+    const controller = new AbortController();
+    const request = new Request("https://app.example/_server/data/gap-nested-abort", {
+      method: "POST",
+      body: "[]",
+      signal: controller.signal,
+      headers: {
+        "Sec-Fetch-Site": "same-origin",
+        "X-Server-Function-Format": "8",
+        "X-Server-Function-Instance": "server-function:test"
+      }
+    });
+    const response = await handleServerFunctionRequest(request);
+    const reader = response.body!.getReader();
+    await reader.read();
+    controller.abort();
+    for (let turn = 0; turn < 50; turn++) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+
+    expect(finallyRan).toBe(true);
+  });
+
+  // The multi-source half of #3125: the codec pumps every stream in the
+  // graph concurrently, so the gate is a waiter LIST and a pull wakes all
+  // of it. Waking one would strand the rest the first time a woken source
+  // stepped to done (no chunk enqueued, no further pull). Both sources
+  // must drain fully — this is the nested analog of the "parked and never
+  // reopened" test above — and both finallys must run at the end.
+  test("two nested streams share the gate, both drain, both close (#3125)", async () => {
+    const closed: string[] = [];
+    registerServerFunction("gap-nested-pair", async () => {
+      const make = (name: string, count: number) =>
+        (async function* () {
+          try {
+            for (let n = 0; n < count; n++) yield `${name}${n}`;
+          } finally {
+            closed.push(name);
+          }
+        })();
+      return { a: make("a", 7), b: make("b", 3) };
+    });
+
+    const response = await handleServerFunctionRequest(scriptedPost("gap-nested-pair"));
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let body = "";
+    for (;;) {
+      // pause long enough for the queue to drain and the pulls to park
+      for (let turn = 0; turn < 5; turn++) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      const next = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("a parked nested source was never woken")), 2000)
+        )
+      ]);
+      if (next.done) break;
+      body += decoder.decode(next.value as Uint8Array);
+    }
+
+    for (let n = 0; n < 7; n++) expect(body).toContain(`"a${n}"`);
+    for (let n = 0; n < 3; n++) expect(body).toContain(`"b${n}"`);
+    expect(closed.sort()).toEqual(["a", "b"]);
+  });
+
   test("resumes as the consumer reads, and stops when it leaves", async () => {
     let produced = 0;
     registerServerFunction("gap-backpressure-resume", async function* () {
