@@ -4341,24 +4341,23 @@ export function commitEventResponse(response, event = getRequestEvent()) {
     if (fillsStubGap(key, response.headers, response)) hasGaps = true;
   });
   if (!cookies.length && !hasGaps) return response;
-  try {
-    for (const cookie of cookies) response.headers.append("Set-Cookie", cookie);
-    stub.headers.forEach((value, key) => {
-      if (fillsStubGap(key, response.headers, response)) response.headers.set(key, value);
-    });
-    return response;
-  } catch {
-    const headers = copyInitHeaders(response.headers);
-    for (const cookie of cookies) headers.append("Set-Cookie", cookie);
-    stub.headers.forEach((value, key) => {
-      if (fillsStubGap(key, headers, response)) headers.set(key, value);
-    });
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers
-    });
-  }
+  // Always fold onto a rebuilt Response, never in place: the response is the
+  // application's object, and an app may return the same one again — a
+  // module-level redirect singleton, a memoized per-tenant Response. Folding
+  // in place accumulates every request's cookies onto that shared object, so
+  // one user's Set-Cookie is served to the next (#3155). Rebuilding also
+  // absorbs immutable-headers responses (Response.redirect) for free; the
+  // cost lands only on responses that were going to be modified anyway.
+  const headers = copyInitHeaders(response.headers);
+  for (const cookie of cookies) headers.append("Set-Cookie", cookie);
+  stub.headers.forEach((value, key) => {
+    if (fillsStubGap(key, headers, response)) headers.set(key, value);
+  });
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
 }
 
 function deriveHead(stub, responseInit = {}) {

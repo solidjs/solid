@@ -2709,6 +2709,9 @@ export async function handleServerFunctionRequest(request, options = {}) {
           // this is the path that carries markup for the destination — it still
           // has to be flagged as thrown for the client to re-throw it.
           if (x instanceof Response && x.headers.has("X-Content-Raw")) {
+            // ownership before the write — the fold may hand back a Response
+            // an integration hook caches (see ownResponse)
+            x = ownResponse(x);
             x.headers.set(ERROR_HEADER, "true");
             return x;
           }
@@ -2756,8 +2759,33 @@ export async function handleServerFunctionRequest(request, options = {}) {
       return encodeResult(safe, headers, 500, codec, request.signal);
     }
   };
-  const response = commitEventResponse(await dispatch(), event);
+  // Ownership seam (#3155): the dispatched value may be a Response the
+  // application still holds — a module-level redirect singleton, a memoized
+  // per-tenant Response — and every stamp past this line (the stub fold's
+  // cookies, `Vary`, `Cache-Control`) would otherwise land on that shared
+  // object permanently: one caller's session cookie served to the next, with
+  // no error anywhere. Copying once here lets the whole transport tail
+  // mutate freely instead of auditing every write site, and covers every
+  // foreign-response path at once (raw passthrough, unscripted returns and
+  // throws, custom handleNoJS results, envelope-carried responses).
+  const response = commitEventResponse(ownResponse(await dispatch()), event);
   return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+}
+
+// A fresh Response around the same body: status, statusText and headers are
+// copied (Response doubles as its own ResponseInit), so the copy's headers
+// are mutable even when the source's were immutable (Response.redirect, a
+// raw fetch() response). The body stream is shared, not duplicated — a
+// body-carrying singleton still self-destructs on second use ("Body is
+// unusable"), which is the loud failure that was always there. The catch
+// covers shapes the constructor refuses (Response.error()'s status 0):
+// those pass through as before.
+function ownResponse(response) {
+  try {
+    return new Response(response.body, response);
+  } catch {
+    return response;
+  }
 }
 
 /**
