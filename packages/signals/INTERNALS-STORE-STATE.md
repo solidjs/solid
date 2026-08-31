@@ -485,17 +485,61 @@ implementation, deduplicated across reports.
     identity IS content, non-keyed deltas anchor to the exact arrangement;
     object membership change). An equal poll landing carries no new
     information and holds; held overrides still die with their owning
-    transaction at settle (the honest revert moment). Differing truth
-    replaces, verbatim rule 2 — #2719 unchanged. Mechanism: contradiction
-    marks fire inside the landing's synchronous commit (adoptPB + setter-
-    exit notify — the fold drain runs AFTER consumption and is too late),
-    admitted only for overlaid targets, intersected and cleared by
-    consumeOverridesNext. Underlying axis, recorded for post-RC: override
-    holdability tracks REFERENT IDENTITY STABILITY — named object keys
-    stable (value carve sound), keyed rows stable (rebase-across-changed-
-    landings possible: retain buildIdentityRowOps intent + a satisfaction
-    rule — the open design), unkeyed positions unstable (consume on
-    contradiction is the only honest behavior, forever).
+    transaction at settle (the honest revert moment). Mechanism:
+    contradiction marks fire inside the landing's synchronous commit
+    (adoptPB + setter-exit notify — the fold drain runs AFTER consumption
+    and is too late), admitted only for overlaid targets, intersected and
+    cleared by consumeOverridesNext.
+  - **RUL-2 re-ruling — RULED (Ryan, 2026-08-31b, #3123 reopen):
+    function-of-truth replay, flight-gated.** The durable record of
+    tentative intent is the RETAINED SETTER CALL, not the node patches it
+    materializes into (patches are positional claims a changed base
+    invalidates; the function re-derives its own positions — no intent
+    inference, the function IS the intent). Each optimistic setter invoked
+    under a live transaction is retained `[transition, fn]` on the family,
+    in invocation order; entries die with their transaction (liveness
+    resolves through the merge chain — entangled actions share one joint
+    lifetime, matching armed-node semantics). What a contradicting landing
+    does with them is decided by the FLIGHT GATE:
+    - **Equal landing (any channel): holds.** Contradicts nothing, touches
+      nothing (2026-08-31 entry above, unchanged).
+    - **Contradicting CONTINUATION (same-flight landings: later yields,
+      post-answer draft writes of the live invocation — one living answer
+      advancing): rebases.** Wipe the family's structural materialization,
+      re-execute live retained setters in order against the landed base,
+      arming fresh overrides for their owners. Each replay runs through the
+      ordinary tentative channel under its own transaction as BOTH ambient
+      transaction and registration batch (runAsTransitionBatch — a bare
+      activeTransition swap strands registrations in the interrupted
+      window's plain batch, which reverts them at its next flush), postures
+      cleared (the draft-write channel invokes consumption inside a trap
+      holding the write override). A replay that throws forfeits its entry
+      (dev-warned); landed truth stands.
+    - **Contradicting REPLACEMENT (a new invocation's first answer —
+      navigation, refresh, poll; boundary: first commit OR the flight's own
+      resolution, so a void draft-mutator's writes are its answer):
+      consumes AND drops retained edits.** #2719 verbatim: the question was
+      re-asked from scratch and a pending add must not ghost onto the next
+      dataset. The API shape encodes the intent: a refetch says "the whole
+      truth again" (replaces), a continuation stream says "incremental
+      updates to one living collection" (rebases).
+    - **Keyed satisfaction (replay-only): keep-first per key.** A replayed
+      add whose key the draft already carries earlier was confirmed by the
+      landing (the echo) — deduped via `fam.key` (projection resolution,
+      "id" default). Blind pushes on keyed rows are therefore echo-safe;
+      unkeyed rows carry no verdict, so their idempotency is the documented
+      reducer contract: setters re-run whenever truth changes beneath them
+      and must tolerate any plausible base.
+    - **Settle is the second reckoning point:** when a retaining
+      transaction dies, survivors' materializations were computed against a
+      base that included the dead transaction's rows — the settle drain
+      (post-revert, _clearOptimisticStores) wipes and re-executes remaining
+      live edits (rederiveAtSettle). No dead entry → no-op.
+    The 2026-08-31 entry's post-RC "keyed satisfaction rule" open design is
+    CLOSED by this ruling (the replay satisfaction rule above is it).
+    Cost: +1,228 B min / +433 B gz on the optimistic-only bundle, core
+    floor untouched (all machinery in store/next/optimistic.ts +
+    runAsTransitionBatch, tree-shaken from plain-store bundles).
 - **RUL-3 — RESOLVED (verified 2026-08-16).** Ownership already lives
   per-node in core (`_overrideOwner` in `core/types.ts`, `lanes.ts`,
   `core/optimistic.ts`); the store-side `STORE_OPTIMISTIC_OWNERS` map exists

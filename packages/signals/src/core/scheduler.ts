@@ -1139,3 +1139,27 @@ export function runInTransition<T>(transition: Transition, fn: () => T): T {
     activeTransition = prevTransition;
   }
 }
+
+/** Run `fn` with `transition` as BOTH the ambient transaction and the
+ * registration batch, restoring both after. runInTransition alone is not
+ * enough for code that WRITES on behalf of a transaction from inside someone
+ * else's window (optimistic replay re-arming a still-open action's edits
+ * during a landing commit, #3123): registrations route through the queue's
+ * batch pointer, and a bare activeTransition swap leaves them in the ambient
+ * batch — a plain batch "completes" at the next flush and reverts optimistic
+ * registrations that were supposed to live with the transaction.
+ * initTransition is the wrong tool here: it MERGES the currently ambient
+ * transaction into the target, entangling whatever the interrupted window
+ * belonged to. */
+export function runAsTransitionBatch<T>(transition: Transition, fn: () => T): T {
+  const prevTransition = activeTransition;
+  const prevBatch = globalQueue._batch;
+  try {
+    activeTransition = currentTransition(transition);
+    currentBatch = globalQueue._batch = activeTransition;
+    return fn();
+  } finally {
+    activeTransition = prevTransition;
+    currentBatch = globalQueue._batch = prevBatch;
+  }
+}

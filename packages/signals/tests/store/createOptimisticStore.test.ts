@@ -3097,6 +3097,320 @@ describe("createOptimisticStore", () => {
       });
     });
 
+    // Function-of-truth replay, flight-gated (#3123 reopen). Retained
+    // setter calls are the durable record of tentative intent; armed nodes
+    // are their materialization. A CONTINUATION landing (later yields /
+    // draft writes of the live flight — one living answer advancing) that
+    // contradicts the base wipes the materialization and re-executes the
+    // still-open transactions' setters against what landed; a REPLACING
+    // landing (an invocation's first answer — navigation/refresh/poll)
+    // drops them (#2719 pins that half above). Keyed rows carry a
+    // satisfaction verdict: a replayed add whose key the landing already
+    // carries was confirmed by it — deduped, not duplicated.
+    describe("retained-edit replay across continuation landings (#3123 reopen)", () => {
+      const settle = async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        flush();
+      };
+
+      it("holds overlapping keyed adds across each other's continuation landings (GabbeV's repro)", async () => {
+        type Row = { id: number };
+        let notify!: { promise: Promise<Row>; resolve: (row: Row) => void };
+        const reset = () => {
+          let resolve!: (row: Row) => void;
+          const promise = new Promise<Row>(r => (resolve = r));
+          notify = { promise, resolve };
+        };
+        reset();
+        const confirm = (row: Row) => {
+          const current = notify;
+          reset();
+          current.resolve(row);
+        };
+        let items!: Refreshable<readonly Row[]>;
+        let setItems!: (fn: (rows: Row[]) => void) => void;
+        const rendered: number[][] = [];
+        const dispose = createRoot(dispose => {
+          [items, setItems] = createOptimisticStore(async function* (store) {
+            yield [] as Row[];
+            while (true) {
+              const row = await notify.promise;
+              yield;
+              store.push(row);
+            }
+          }, [] as Row[]);
+          createRenderEffect(
+            () => items.map(row => row.id),
+            value => {
+              rendered.push(value);
+            }
+          );
+          return dispose;
+        });
+        flush();
+        await settle();
+        expect(rendered.at(-1)).toEqual([]);
+
+        // Blind pushes — the keyed satisfaction rule owns echo idempotency.
+        const add = action(function* (row: Row) {
+          setItems(store => {
+            store.push(row);
+          });
+          yield until(() => items.some(x => x.id === row.id));
+        });
+        const addA = add({ id: 0 });
+        flush();
+        expect(rendered.at(-1)).toEqual([0]);
+        const addB = add({ id: 1 });
+        flush();
+        expect(rendered.at(-1)).toEqual([0, 1]);
+        const watermark = rendered.length;
+
+        // A's confirmation: a continuation landing carrying A's own row.
+        // The contradiction wipes and replays — A's re-push is satisfied by
+        // key (no duplicate), B's re-push re-derives its position on the
+        // new base (no flash). The rc.4 behavior GabbeV reopened over
+        // rendered [0] here.
+        confirm({ id: 0 });
+        await settle();
+        await settle();
+        expect(rendered.at(-1)).toEqual([0, 1]);
+
+        confirm({ id: 1 });
+        await settle();
+        await Promise.all([addA, addB]);
+        await settle();
+        expect(rendered.at(-1)).toEqual([0, 1]);
+        expect(snapshot(items).map(row => row.id)).toEqual([0, 1]);
+        for (const frame of rendered.slice(watermark)) expect(frame).toEqual([0, 1]);
+        dispose();
+      });
+
+      it("rebases an unkeyed pending add over a foreign continuation landing; settle reverts it", async () => {
+        let feed!: (value: number) => void;
+        let notify!: { promise: Promise<number>; resolve: (value: number) => void };
+        const reset = () => {
+          let resolve!: (value: number) => void;
+          const promise = new Promise<number>(r => (resolve = r));
+          notify = { promise, resolve };
+        };
+        reset();
+        feed = value => {
+          const current = notify;
+          reset();
+          current.resolve(value);
+        };
+        let items!: Refreshable<readonly number[]>;
+        let setItems!: (fn: (values: number[]) => void) => void;
+        const rendered: number[][] = [];
+        const dispose = createRoot(dispose => {
+          [items, setItems] = createOptimisticStore(async function* (store) {
+            yield [1];
+            while (true) {
+              const value = await notify.promise;
+              yield;
+              store.push(value);
+            }
+          }, [] as number[]);
+          createRenderEffect(
+            () => items.map(n => n),
+            value => {
+              rendered.push(value);
+            }
+          );
+          return dispose;
+        });
+        flush();
+        await settle();
+        expect(rendered.at(-1)).toEqual([1]);
+
+        let confirm!: () => void;
+        const add = action(function* () {
+          setItems(store => {
+            store.push(2);
+          });
+          yield new Promise<void>(resolve => {
+            confirm = resolve;
+          });
+        })();
+        flush();
+        expect(rendered.at(-1)).toEqual([1, 2]);
+
+        // Foreign row over the live stream: the continuation contradicts
+        // the base, the pending unkeyed add re-executes on top of it.
+        feed(3);
+        await settle();
+        await settle();
+        expect(rendered.at(-1)).toEqual([1, 3, 2]);
+
+        // The server never applied the add: it dies with its transaction —
+        // settle-time re-derivation drops it and landed truth stands.
+        confirm();
+        await add;
+        await settle();
+        expect(rendered.at(-1)).toEqual([1, 3]);
+        expect(snapshot(items)).toEqual([1, 3]);
+        dispose();
+      });
+
+      it("drops a retained edit whose replay throws, leaving landed truth", async () => {
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+          let clearAll!: () => void;
+          let notify!: { promise: Promise<void>; resolve: () => void };
+          const reset = () => {
+            let resolve!: () => void;
+            const promise = new Promise<void>(r => (resolve = r));
+            notify = { promise, resolve };
+          };
+          reset();
+          clearAll = () => {
+            const current = notify;
+            reset();
+            current.resolve();
+          };
+          type Row = { id: number };
+          let items!: Refreshable<readonly Row[]>;
+          let setItems!: (fn: (rows: Row[]) => void) => void;
+          const rendered: number[][] = [];
+          const dispose = createRoot(dispose => {
+            [items, setItems] = createOptimisticStore(async function* (store) {
+              yield [{ id: 1 }] as Row[];
+              while (true) {
+                await notify.promise;
+                yield;
+                store.length = 0;
+              }
+            }, [] as Row[]);
+            createRenderEffect(
+              () => items.map(row => row.id),
+              value => {
+                rendered.push(value);
+              }
+            );
+            return dispose;
+          });
+          flush();
+          await settle();
+          expect(rendered.at(-1)).toEqual([1]);
+
+          let confirm!: () => void;
+          const add = action(function* () {
+            // Reads the draft unconditionally — re-run over an emptied base
+            // this throws, and the edit forfeits (landed truth stands).
+            setItems(store => {
+              store.push({ id: store[0].id + 10 });
+            });
+            yield new Promise<void>(resolve => {
+              confirm = resolve;
+            });
+          })();
+          flush();
+          expect(rendered.at(-1)).toEqual([1, 11]);
+
+          clearAll();
+          await settle();
+          await settle();
+          expect(rendered.at(-1)).toEqual([]);
+          expect(errorSpy).toHaveBeenCalled();
+
+          confirm();
+          await add;
+          await settle();
+          expect(rendered.at(-1)).toEqual([]);
+          dispose();
+        } finally {
+          errorSpy.mockRestore();
+        }
+      });
+
+      it("a replacing landing drops retained edits — they do not haunt later continuations", async () => {
+        let feed!: (value: number) => void;
+        let notify!: { promise: Promise<number>; resolve: (value: number) => void };
+        const reset = () => {
+          let resolve!: (value: number) => void;
+          const promise = new Promise<number>(r => (resolve = r));
+          notify = { promise, resolve };
+        };
+        reset();
+        feed = value => {
+          const current = notify;
+          reset();
+          current.resolve(value);
+        };
+        let serverData = [1];
+        const fetches: Array<() => void> = [];
+        let setVersion!: (fn: (v: number) => number) => number;
+        let items!: Refreshable<readonly number[]>;
+        let setItems!: (fn: (values: number[]) => void) => void;
+        const rendered: number[][] = [];
+        const dispose = createRoot(dispose => {
+          const [version, setV] = createSignal(0);
+          setVersion = setV;
+          [items, setItems] = createOptimisticStore(async function* (store) {
+            version();
+            const data = await new Promise<number[]>(resolve => {
+              fetches.push(() => resolve([...serverData]));
+            });
+            yield data;
+            while (true) {
+              const value = await notify.promise;
+              yield;
+              store.push(value);
+            }
+          }, [] as number[]);
+          createRenderEffect(
+            () => items.map(n => n),
+            value => {
+              rendered.push(value);
+            }
+          );
+          return dispose;
+        });
+        flush();
+        fetches.shift()!();
+        await settle();
+        expect(rendered.at(-1)).toEqual([1]);
+
+        let confirm!: () => void;
+        const add = action(function* () {
+          setItems(store => {
+            store.push(2);
+          });
+          yield new Promise<void>(resolve => {
+            confirm = resolve;
+          });
+        })();
+        flush();
+        expect(rendered.at(-1)).toEqual([1, 2]);
+
+        // Refresh with foreign change: the re-invocation's first answer
+        // REPLACES — the pending add is consumed and its retained edit dies
+        // with the answer it was declared against (#2719).
+        serverData = [1, 5];
+        setVersion(v => v + 1);
+        flush();
+        fetches.shift()!();
+        await settle();
+        expect(rendered.at(-1)).toEqual([1, 5]);
+
+        // A later continuation landing must not resurrect the dropped edit.
+        feed(7);
+        await settle();
+        await settle();
+        expect(rendered.at(-1)).toEqual([1, 5, 7]);
+
+        confirm();
+        await add;
+        await settle();
+        expect(rendered.at(-1)).toEqual([1, 5, 7]);
+        expect(snapshot(items)).toEqual([1, 5, 7]);
+        dispose();
+      });
+    });
+
     it("clears optimistic rows when a draft-mutating projection resolves fresh data", async () => {
       type Comment = { id: number; text: string };
       const serverComments = [

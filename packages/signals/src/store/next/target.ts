@@ -28,6 +28,20 @@ export interface StoreNextFamily {
   /** Targets currently carrying active node overrides (landing-consumption
    * walk, RUL-2: visible landed truth replaces optimism). */
   overlaid?: Set<any>;
+  /** Retained optimistic edits (RUL-2 as re-ruled for #3123 reopen): each
+   * transaction-owned setter call, in invocation order — the durable record
+   * of tentative intent. Armed nodes are only its MATERIALIZATION: a landing
+   * that contradicts the family wipes them and replays the live entries
+   * against the new base (the setter re-derives its own positions — no
+   * intent inference). Entries drop when their transition resolves dead
+   * (pruned at replay) or on replay failure. */
+  re?: Array<[any, (draft: any) => any]>;
+  /** Normalized row-key fn (same resolution as the projection channels:
+   * `options.key`, "id" default, null = unkeyed). Replay's satisfaction rule
+   * reads it: a re-executed add whose key the base already carries was
+   * satisfied by the landing — kept, it would be a duplicate key in a keyed
+   * store, an invalid state no user wrote. */
+  key?: ((item: any) => any) | null;
   map: WeakMap<object, StoreNextTarget>;
   /** The projection computed — assigned after creation (accessor pattern). */
   node: Computed<any> | null;
