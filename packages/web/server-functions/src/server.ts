@@ -1681,14 +1681,45 @@ export function serializeResponseStream(value, codecOptions, signal) {
   value = guardFailures(value);
   let closeIterator = null;
   let closed = false;
+  // Demand gate. seroval's pump pulls the source as fast as it resolves and
+  // enqueues every node the moment it is parsed, so without this a slow
+  // consumer never slows the producer: the whole result accumulates in the
+  // stream's queue, in server memory, unbounded. The consumer's reads drive
+  // `pull`, which releases one source pull at a time.
+  //
+  // `desiredSize > 0` means "fewer than one chunk queued": the stream takes
+  // no queuing strategy, so it runs on the default high-water mark of 1.
+  // That default is what sets the depth, and raising it is how you would
+  // trade memory for fewer round trips.
+  //
+  // One resolver is enough because the pump is sequential — the same reason
+  // the wrapper below only exposes `next()`. Two concurrent pulls would
+  // overwrite it and strand the first.
+  let streamController = null;
+  let releaseDemand = null;
+  const wantsMore = () => streamController.desiredSize > 0;
+  const awaitDemand = () => new Promise(resolve => (releaseDemand = resolve));
+  const supplyDemand = () => {
+    const resolve = releaseDemand;
+    releaseDemand = null;
+    if (resolve) resolve();
+  };
   let cancelSerialize = null;
   let onAbort = null;
+  // Ends the source and releases a pull parked on the demand gate. Every
+  // path that stops the stream has to run this: a parked pull holds the
+  // source open and nothing else will resolve it — `desiredSize` is 0 after
+  // close and null after error, so the gate never reopens on its own.
+  const finishSource = () => {
+    if (closeIterator) closeIterator();
+    supplyDemand();
+  };
   const teardown = () => {
     if (closed) return;
     closed = true;
     if (onAbort) signal.removeEventListener("abort", onAbort);
     if (cancelSerialize) cancelSerialize();
-    if (closeIterator) closeIterator();
+    finishSource();
   };
   if (
     value !== null &&
@@ -1716,8 +1747,17 @@ export function serializeResponseStream(value, codecOptions, signal) {
         // torn down before the codec opened the value (abort raced the
         // codec load): close the source immediately, never pull
         if (closed) closeIterator();
+        const step = () => (finished ? { done: true, value: undefined } : it.next());
         return {
-          next: () => (finished ? Promise.resolve({ done: true, value: undefined }) : it.next())
+          // Pulls straight through while the queue has room, and parks
+          // until a read makes room when it does not. `finished` is checked
+          // FIRST: teardown can land while a pull is in flight, and the
+          // release it fires then finds nothing parked — so a gate checked
+          // first would park the next pull on a resolver nobody will ever
+          // call, stranding the codec's pump. `finished` is re-read after
+          // the wait for the same reason from the other direction.
+          next: () =>
+            finished || wantsMore() ? Promise.resolve(step()) : awaitDemand().then(step)
         };
       }
     };
@@ -1727,6 +1767,7 @@ export function serializeResponseStream(value, codecOptions, signal) {
     // the top of shared.js), and a ReadableStream start may return a
     // promise — reads wait for it, so the stream's contract is unchanged
     async start(controller) {
+      streamController = controller;
       if (signal) {
         if (signal.aborted) {
           teardown();
@@ -1766,12 +1807,14 @@ export function serializeResponseStream(value, codecOptions, signal) {
           if (closed) return;
           closed = true;
           if (onAbort) signal.removeEventListener("abort", onAbort);
+          finishSource();
           controller.close();
         },
         onError(error) {
           if (closed) return;
           closed = true;
           if (onAbort) signal.removeEventListener("abort", onAbort);
+          finishSource();
           // The head is committed by the time an encode failure arrives, so
           // the status is spent and no error tag can be added — and merely
           // erroring the stream truncates the body over a socket, which the
@@ -1797,6 +1840,9 @@ export function serializeResponseStream(value, codecOptions, signal) {
           }
         }
       });
+    },
+    pull() {
+      supplyDemand();
     },
     cancel() {
       teardown();

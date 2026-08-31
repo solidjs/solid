@@ -4,7 +4,7 @@
  * `test/lifecycle-matrix/MATRIX.md`: the marker is the point — the suite
  * stays green while the gap is open and turns red the day it closes, at
  * which point the marker comes off and the test becomes an ordinary guard.
- * Each carries the issue that tracks it: #3118 (open); #3117 (closed by
+ * Each carries the issue that tracks it: #3118 (closed); #3117 (closed by
  * the error trailer frame) and #3119 (closed by #3115's request bounds)
  * remain as ordinary guards, with the trailer's full matrix alongside.
  *
@@ -161,17 +161,18 @@ describe("a result the codec cannot encode", () => {
 });
 
 describe("a streamed result nobody is reading", () => {
-  // GAP (#3118): the producer runs unboundedly ahead. The response stream is built
-  // with no `pull` and no queuing strategy, and every codec node is
-  // enqueued the moment it is parsed, so the producer runs as fast as it
-  // can resolve whether or not anyone reads. On a large or infinite stream
-  // one slow client buffers the whole result in server memory, invisibly
-  // to application code.
+  // Closed (#3118): the source is pulled behind a demand gate. The stream
+  // was built with no `pull` and no queuing strategy, and every codec node
+  // is enqueued the moment it is parsed, so the producer ran as fast as it
+  // could resolve whether or not anyone read — one slow client buffered
+  // the whole result in server memory, invisibly to application code. The
+  // consumer's reads now drive `pull`, which releases one source pull at a
+  // time. Ordinary guard now.
   //
-  // Counted in event-loop turns rather than wall-clock: a bounded producer
-  // stays near the queue size whatever the machine, an unbounded one
-  // tracks the turn count.
-  test.fails("does not let the producer run ahead of the consumer", async () => {
+  // Counted in event-loop turns rather than wall-clock, so the assertion
+  // means the same thing on any machine: a gated producer stays near the
+  // queue size, an ungated one tracks the turn count.
+  test("does not let the producer run ahead of the consumer", async () => {
     let produced = 0;
     registerServerFunction("gap-backpressure", async function* () {
       while (produced < 100_000) {
@@ -190,6 +191,115 @@ describe("a streamed result nobody is reading", () => {
     await reader.cancel();
 
     expect(produced).toBeLessThan(50);
+  });
+
+  // The gate has to REOPEN, not merely close, and nothing above proves it:
+  // a consumer that reads in a tight loop always has a read request
+  // pending, so `desiredSize` never drops and the producer never parks.
+  // Pausing between reads is what puts it on the gate. Deleting `pull()`
+  // outright leaves every other test in this file green and deadlocks this
+  // one, which is the whole point of it.
+  test("keeps delivering after the consumer pauses long enough to park it", async () => {
+    registerServerFunction("gap-backpressure-park", async function* () {
+      for (let n = 0; n < 12; n++) yield { n };
+    });
+
+    const response = await handleServerFunctionRequest(scriptedPost("gap-backpressure-park"));
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let body = "";
+
+    for (;;) {
+      // long enough for the queue to drain and the next pull to park
+      for (let turn = 0; turn < 5; turn++) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      const next = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("the gate parked and never reopened")), 2000)
+        )
+      ]);
+      if (next.done) break;
+      body += decoder.decode(next.value as Uint8Array);
+    }
+
+    // every item arrived, so the gate released each park in turn. Counted
+    // by this test's own key rather than by the codec's node shapes, which
+    // are not what it is about.
+    expect(body.split('["n"]').length - 1).toBe(12);
+  });
+
+  // A pull parked on the gate holds the source open, and `desiredSize` is 0
+  // after close and null after error — so the gate never reopens on its own
+  // and every path that ends the stream has to release it. Without that the
+  // source's cleanup silently never runs, once per failed request.
+  test("a codec failure landing while a pull is parked still closes the source", async () => {
+    let cleanedUp = false;
+    let produced = 0;
+    // The failure has to ride INSIDE a yielded chunk of the top-level
+    // source. Putting it on a sibling branch makes the generator nested,
+    // and a nested iterable never reaches the gate at all — which is why
+    // `produced` is asserted too: it proves the source really parked, so
+    // this cannot quietly decay into testing nothing.
+    registerServerFunction("gap-backpressure-teardown", async function* () {
+      try {
+        produced++;
+        yield {
+          late: Promise.resolve().then(() => ({
+            get boom(): never {
+              throw new Error("unencodable, discovered after the gate parked");
+            }
+          }))
+        };
+        for (let n = 0; n < 20; n++) {
+          produced++;
+          yield { n };
+        }
+      } finally {
+        cleanedUp = true;
+      }
+    });
+
+    const response = await handleServerFunctionRequest(scriptedPost("gap-backpressure-teardown"));
+    const reader = response.body!.getReader();
+    await reader.read();
+    for (let turn = 0; turn < 20; turn++) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    expect(produced).toBe(1);
+    expect(cleanedUp).toBe(true);
+  });
+
+  test("resumes as the consumer reads, and stops when it leaves", async () => {
+    let produced = 0;
+    registerServerFunction("gap-backpressure-resume", async function* () {
+      while (produced < 100_000) {
+        produced++;
+        yield { n: produced };
+        await new Promise(resolve => setImmediate(resolve));
+      }
+    });
+
+    const response = await handleServerFunctionRequest(scriptedPost("gap-backpressure-resume"));
+    const reader = response.body!.getReader();
+    for (let read = 0; read < 20; read++) await reader.read();
+    const whileReading = produced;
+    await reader.cancel();
+    const atCancel = produced;
+    for (let turn = 0; turn < 50; turn++) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+
+    // This pins the CANCEL half — that a departed consumer stops the
+    // producer. It does not catch a gate that never reopens: reading in a
+    // tight loop keeps a read request pending, so `desiredSize` never
+    // drops and nothing ever parks. The pausing test above is the one that
+    // catches that, and it took two attempts to learn the difference.
+    expect(whileReading).toBeGreaterThanOrEqual(10);
+    // ...and a departed consumer stops it, give or take the pull in flight
+    expect(produced).toBeLessThanOrEqual(atCancel + 1);
   });
 });
 
