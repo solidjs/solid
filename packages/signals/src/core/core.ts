@@ -1256,8 +1256,17 @@ export function devGuardStoreSetterWrite(): void {
       ownerName: (context as any)._name,
       data: { operation: "setStore" }
     });
-    throw new Error(REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE);
+    // the owner name reaches the THROWN message too, not just the
+    // diagnostics channel apps don't subscribe to by default (#3157)
+    throw new Error(ownedScopeWriteMessage(context));
   }
+}
+
+function ownedScopeWriteMessage(owner: Owner) {
+  const name = (owner as any)._name;
+  return name
+    ? `${REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE} (in ${name})`
+    : REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE;
 }
 
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
@@ -1278,7 +1287,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
       nodeName: (el as any)._name,
       data: { operation: "setSignal" }
     });
-    throw new Error(REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE);
+    throw new Error(ownedScopeWriteMessage(context));
   }
 
   if (el._transition && activeTransition !== el._transition)

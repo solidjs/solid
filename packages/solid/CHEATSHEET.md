@@ -512,7 +512,7 @@ import { renderToString, renderToStream, isServer, isDev } from "@solidjs/web";
 Common dev-mode warnings/errors you may hit:
 
 - **Top-level reactive read in component body** — read inside JSX or wrap in `untrack`/`createMemo`.
-- **Write under owned scope** — move setters into event handlers / `onSettled` / `untrack`, or opt in with `{ ownedWrite: true }`.
+- **Write under owned scope** — move setters into event handlers / `onSettled` (`untrack` does NOT exempt writes: the guard is owner-based, and untrack only stops tracking), or opt in with `{ ownedWrite: true }`.
 - **Strict read untracked** — extract values in the compute phase; don't read store proxies inside the effect callback.
 - **Multiple Solid instances** — single `solid-js` install required.
 
@@ -645,7 +645,7 @@ If your training data is 1.x, these are the corrections. **Read this before gene
 
 - **`createEffect` takes two arguments now**: `(compute, apply)`. The single-arg form is gone — using it is an error.
 - **Setters don't update reads immediately** — values become visible after the microtask flushes (or via `flush()`).
-- **No writes inside owned scope** — writing a signal/store from inside a memo, effect compute, or component body throws in dev. Move writes to event handlers, `onSettled`, or untracked blocks. Opt in narrowly with `{ ownedWrite: true }` for internal state.
+- **No writes inside owned scope** — writing a signal/store from inside a memo, effect compute, or component body throws in dev. Move writes to event handlers or `onSettled`. (`untrack` does not help: the guard fires on the ambient OWNER, which untrack never touches — component bodies already run untracked and are exactly where the guard fires.) Opt in narrowly with `{ ownedWrite: true }` for internal state.
 - **No top-level reactive reads in component body** — reading signals/props directly at the top of a component warns. Read inside JSX, a memo, or `untrack`.
 - **Props are values, not accessors** — at the call site call accessors (`<X v={count()} />`, not `<X v={count} />`). The single most common AI-generated bug.
 - **Don't destructure props** — `function Comp({ name })` warns; use `props.name` to keep reactivity. (Same root cause as above; see the Props section.)
