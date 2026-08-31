@@ -184,7 +184,6 @@ function applyStructural(item: QueuedApply, next: any, firstError: unknown): unk
     attrHooks.patchDispatch((dch as object) ?? (item.list as object), len, dchannel, null);
     dstart = performance.now();
   }
-  const heldProbe = GlobalQueue._queueHeld;
   for (let j = 0; j < len; j++) {
     const entry = snap[j] as {
       fn: Function;
@@ -201,7 +200,7 @@ function applyStructural(item: QueuedApply, next: any, firstError: unknown): unk
     // would be stale by then) and slot values can be superseded, so the
     // deferred form is the RESYNC, reading the release moment's truth.
     const oq = entry.q as any;
-    if (heldProbe !== null && oq != null && oq !== globalQueue && heldProbe(oq)) {
+    if (queueIsHeld(oq)) {
       deferHeldStructural(entry, oq, item);
       continue;
     }
@@ -273,16 +272,11 @@ function deferHeldStructural(
   oq: any,
   item: QueuedApply
 ): void {
-  if (entry.hq === true) return;
-  entry.hq = true;
-  oq.enqueue(EFFECT_RENDER, () => {
-    entry.hq = false;
-    if (entry.u === true) return;
-    if (entry.owner !== null && isDisposed(entry.owner)) return;
+  deferIntoQueue(entry, oq, () => {
     try {
       structuralResync(entry, item);
     } catch (err) {
-      if (!routeEntryError(entry as any, err)) deferHalt(err);
+      if (!routeEntryError(entry as any, err)) return err as unknown;
     }
   });
 }
@@ -300,16 +294,34 @@ const UNSET: unique symbol = Symbol();
  * not the channel's — decides when the entry sees the update. Reads the
  * visible view at RUN time (the settled state, exactly what the held render
  * effect would compute). One queued run per entry per hold window. */
-function deferHeldEntry(entry: PatchEntry, oq: any, pc: any): void {
+/** ONE held-owner-queue probe (size pass 2): shared by value dispatch,
+ * structural dispatch, and demotion scheduling. */
+function queueIsHeld(oq: unknown): boolean {
+  const probe = GlobalQueue._queueHeld;
+  return probe !== null && oq != null && oq !== globalQueue && probe(oq as any);
+}
+
+/** ONE deferred-run shape for every held consumer (size pass 2): dedup
+ * flag, owner-queue enqueue, liveness guards, error deferral. `run`
+ * re-derives from LIVE state at release by construction. */
+function deferIntoQueue(
+  entry: { u?: boolean; dm?: boolean; hq?: boolean; owner: Owner | null },
+  oq: any,
+  run: () => unknown
+): void {
   if (entry.hq === true) return;
   entry.hq = true;
   oq.enqueue(EFFECT_RENDER, () => {
     entry.hq = false;
     if (entry.u === true || entry.dm === true) return;
     if (entry.owner !== null && isDisposed(entry.owner)) return;
-    const err = applyEntries([entry], visibleView(pc.t, pc), UNSET, pc);
-    if (err !== UNSET) deferHalt(err);
+    const err = run();
+    if (err !== undefined && err !== UNSET) deferHalt(err);
   });
+}
+
+function deferHeldEntry(entry: PatchEntry, oq: any, pc: any): void {
+  deferIntoQueue(entry, oq, () => applyEntries([entry], visibleView(pc.t, pc), UNSET, pc));
 }
 
 /** Route a consumer's throw to its registering owner's boundary. Shared by
@@ -350,7 +362,6 @@ function applyEntries(list: PatchEntry[], next: any, firstError: unknown, pc: an
   // not run it in this same drain (it just received its initial apply).
   const snap = list.length > 1 ? list.slice() : list;
   const len = snap.length;
-  const heldProbe = GlobalQueue._queueHeld;
   for (let j = 0; j < len; j++) {
     const entry = snap[j];
     if (entry === undefined || entry.u === true || entry.dm === true) continue;
@@ -361,7 +372,7 @@ function applyEntries(list: PatchEntry[], next: any, firstError: unknown, pc: an
     // like the render effect it replaced — the entry re-applies FROM ITS
     // OWN QUEUE at release, reading the visible state of that moment.
     const oq = entry.q as any;
-    if (heldProbe !== null && oq != null && oq !== globalQueue && heldProbe(oq)) {
+    if (queueIsHeld(oq)) {
       deferHeldEntry(entry, oq, pc);
       continue;
     }
@@ -984,19 +995,46 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
   });
 }
 
-export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<PropertyKey>): () => void {
-  let t: StoreNextTarget | undefined = record?.[$TARGET];
-  if (t === undefined) throw new Error("registerPatch: not a store record");
-  // Chained backings (§7b): register on the ULTIMATE owner — that is where
-  // value transitions fold and dispatch; the wrapper's identity is stable
-  // and would never fire (see ultimateTarget).
-  t = ultimateTarget(t) ?? t;
+/** Shared registration prologue (size pass 2): resolve the record to its
+ * ULTIMATE backing (§7b — chained backings fold and dispatch there; the
+ * wrapper's identity is stable and would never fire) and arm the commit
+ * hooks once. Row hooks arm separately — value-only apps must not retain
+ * the structural walk. */
+function channelTarget(record: any, api: string): StoreNextTarget {
+  const t: StoreNextTarget | undefined = record?.[$TARGET];
+  if (t === undefined) throw new Error(api + ": not a store record");
   if (!commitHookInstalled) {
     commitHookInstalled = true;
     armPatchHooks();
     setPatchCommitHook(releaseBatch);
     GlobalQueue._drainPatchOptimistic = drainOptimistic;
   }
+  return ultimateTarget(t) ?? t;
+}
+
+/** Shared structural unbind (size pass 2): mark-severed + splice + empty
+ * list release, identical for row-ops and slot-patch consumers. */
+function structuralUnbind(
+  entry: object & { u?: boolean },
+  list: unknown[],
+  pc: any,
+  field: "ro" | "sp",
+  counted: boolean
+): () => void {
+  let unbound = false;
+  return () => {
+    if (unbound) return;
+    unbound = true;
+    entry.u = true; // queued structural work skips severed consumers
+    if (counted) patchCount--;
+    const idx = list.indexOf(entry);
+    if (idx >= 0) list.splice(idx, 1);
+    if (list.length === 0 && pc[field] === list) pc[field] = null;
+  };
+}
+
+export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<PropertyKey>): () => void {
+  const t = channelTarget(record, "registerPatch");
   const owner = getOwner();
   // Owner queue captured at registration (round 10, P1-4): dispatch defers
   // into it while its boundary holds — render-effect parity.
@@ -1262,7 +1300,6 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
     // failure defers a single halt AFTER the fanout (the same contract the
     // dispatch loop pins).
     let firstError: unknown = UNSET;
-    const heldProbe = GlobalQueue._queueHeld;
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       // An explicit unbind AFTER demotion cancels the redrive (round 10.7,
@@ -1279,7 +1316,7 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
       // (lane-timed demotions NEED it: the global render queue is stashed
       // in-flight, and deferral would postpone the tentative view).
       const oq = entry.q as any;
-      const held = heldProbe !== null && oq != null && oq !== globalQueue && heldProbe(oq);
+      const held = queueIsHeld(oq);
       // COMPUTE throws are captured PER ENTRY (round 10.8, P1) — a
       // throwing getter would otherwise route through the effect's own
       // error machinery and halt DURING creation/scheduling, before held
@@ -1398,18 +1435,8 @@ interface RowOpsEntry {
 /** Register a structural-ops consumer on a keyed store array (the list
  * container's channel — what `For` consumes through the seam). */
 export function registerRowOps(array: any, fn: RowOpsFn): () => void {
-  let t: StoreNextTarget | undefined = array?.[$TARGET];
-  if (t === undefined) throw new Error("registerRowOps: not a store array");
-  // Chained backings resolve to the ULTIMATE owner, same as registerPatch
-  // (§7b) — the walk/fold emits there (re-audit blocker 4).
-  t = ultimateTarget(t) ?? t;
+  const t = channelTarget(array, "registerRowOps");
   armRowHooks();
-  if (!commitHookInstalled) {
-    commitHookInstalled = true;
-    armPatchHooks();
-    setPatchCommitHook(releaseBatch);
-    GlobalQueue._drainPatchOptimistic = drainOptimistic;
-  }
   const rowner = getOwner();
   const entry: RowOpsEntry = { fn, owner: rowner, q: (rowner as any)?._queue ?? null };
   const pc = pcOf(t);
@@ -1420,16 +1447,7 @@ export function registerRowOps(array: any, fn: RowOpsFn): () => void {
     warnChannelFanOut(list.length, "row-ops (structural list)");
   patchCount++;
   markDescendants(t);
-  let unbound = false;
-  return () => {
-    if (unbound) return;
-    unbound = true;
-    (entry as any).u = true; // queued structural work skips severed consumers
-    patchCount--;
-    const idx = list.indexOf(entry);
-    if (idx >= 0) list.splice(idx, 1);
-    if (list.length === 0 && pc.ro === list) pc.ro = null;
-  };
+  return structuralUnbind(entry, list, pc, "ro", true);
 }
 
 /** Slot patches (shallow arrays) ride the same apply queue: the walk emits
@@ -1461,36 +1479,19 @@ export function registerSlotPatchNext(
   arr: any,
   fn: (index: number, next: any, prev: any) => void
 ): () => void {
-  let t: StoreNextTarget | undefined = arr?.[$TARGET];
-  if (t === undefined) throw new Error("registerSlotPatchNext: not a store array");
-  // Chained backings resolve to the ULTIMATE owner, same as registerPatch
-  // (§7b) — the walk emits slot ticks there (re-audit blocker 4).
-  t = ultimateTarget(t) ?? t;
+  const t = channelTarget(arr, "registerSlotPatchNext");
   armRowHooks();
-  if (!commitHookInstalled) {
-    commitHookInstalled = true;
-    armPatchHooks();
-    setPatchCommitHook(releaseBatch);
-    GlobalQueue._drainPatchOptimistic = drainOptimistic;
-  }
   // Multi-consumer (external audit): one shallow array can drive several
   // lists — registrations are a list, unbinds splice their own entry.
   const pc = pcOf(t);
   const sowner = getOwner();
   const entry = { fn, owner: sowner, q: (sowner as any)?._queue ?? null };
-  (pc.sp ??= []).push(entry);
-  if (__DEV__ && shouldWarnGraphSize((pc.sp as any[]).length))
-    warnChannelFanOut((pc.sp as any[]).length, "slot-patch (shallow list)");
+  const list = (pc.sp ??= []) as unknown[];
+  list.push(entry);
+  if (__DEV__ && shouldWarnGraphSize(list.length))
+    warnChannelFanOut(list.length, "slot-patch (shallow list)");
   markDescendants(t);
-  let unbound = false;
-  return () => {
-    if (unbound || pc.sp === null) return;
-    unbound = true;
-    (entry as any).u = true; // queued structural work skips severed consumers
-    const idx = pc.sp.indexOf(entry);
-    if (idx >= 0) pc.sp.splice(idx, 1);
-    if (pc.sp.length === 0) pc.sp = null;
-  };
+  return structuralUnbind(entry, list, pc, "sp", false);
 }
 
 /** Row-ops ride the SAME apply queue/timing as record patches: transition-
