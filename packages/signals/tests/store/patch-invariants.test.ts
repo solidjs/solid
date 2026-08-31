@@ -1185,3 +1185,186 @@ describe("INVARIANT: the deferred-demotion latch cannot outlive its consumers (r
     expect(patchCountForTests()).toBeGreaterThan(0);
   });
 });
+
+describe("INVARIANT: landings integrate with the patch channel at classic-effect parity (#3123)", () => {
+  // RUL-2 as re-ruled: an EQUAL landing (membership/arrangement unchanged)
+  // holds live overrides — classic effects keep showing the optimistic view.
+  // A CONTRADICTING landing consumes them authoritatively — classic
+  // reversion effects ride the regular queues of the landing's commit.
+  // The patch channel must match both, delivery for delivery.
+  const settle = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+  };
+
+  function landingHarness(initialRows: any[]) {
+    let serverData = initialRows.map(r => ({ ...r }));
+    const fetches: Array<() => void> = [];
+    let items: any;
+    let setItems: any;
+    let setVersion!: (v: (p: number) => number) => number;
+    let dispose!: () => void;
+    let store: { createOptimisticStore: any; action: any };
+    const build = async () => {
+      const mod = await import("../../src/index.js");
+      store = { createOptimisticStore: mod.createOptimisticStore, action: mod.action };
+      createRoot(d => {
+        dispose = d;
+        const [version, setV] = createSignal(0);
+        setVersion = setV;
+        [items, setItems] = (store.createOptimisticStore as any)(
+          () =>
+            new Promise<any[]>(resolve => {
+              version();
+              fetches.push(() => resolve(serverData.map(r => ({ ...r }))));
+            }),
+          [] as any[]
+        );
+      });
+      flush();
+      fetches.shift()!(); // initial landing
+      await settle();
+    };
+    return {
+      build,
+      get items() {
+        return items;
+      },
+      get setItems() {
+        return setItems;
+      },
+      get action() {
+        return store.action;
+      },
+      get dispose() {
+        return dispose;
+      },
+      setServer(data: any[]) {
+        serverData = data.map(r => ({ ...r }));
+      },
+      poll() {
+        setVersion(v => v + 1);
+        flush();
+        fetches.shift()!();
+      }
+    };
+  }
+
+  it("an equal landing never flashes committed state through value patches", async () => {
+    const h = landingHarness([{ id: 1, label: "a", count: 1 }]);
+    await h.build();
+    expect(h.items[0].label).toBe("a");
+
+    const { createRenderEffect } = await import("../../src/index.js");
+    const patched: string[] = [];
+    const classic: string[] = [];
+    let disposeConsumers!: () => void;
+    createRoot(d => {
+      disposeConsumers = d;
+      registerPatch(h.items[0], (next: any) => patched.push(next.label + ":" + next.count), [
+        "label",
+        "count"
+      ]);
+      createRenderEffect(
+        () => h.items[0].label + ":" + h.items[0].count,
+        (v: string) => {
+          classic.push(v);
+        }
+      );
+    });
+    flush();
+
+    // Optimistic edit on `label`, held in flight.
+    let confirm!: () => void;
+    const run = h.action(function* (this: any) {
+      h.setItems((draft: any[]) => {
+        draft[0].label = "x";
+      });
+      yield new Promise<void>(resolve => {
+        confirm = resolve;
+      });
+    })();
+    flush();
+    expect(classic.at(-1)).toBe("x:1");
+    const watermark = patched.length;
+
+    // EQUAL interim landing: membership unchanged (same single id), but a
+    // sibling field moved (count 1 -> 2) so adoption genuinely emits. The
+    // label override is HELD — classic keeps "x"; the patch channel must
+    // deliver the override-composed view, never raw committed "a".
+    h.setServer([{ id: 1, label: "a", count: 2 }]);
+    h.poll();
+    await settle();
+    expect(classic.at(-1)).toBe("x:2");
+    const sinceLanding = patched.slice(watermark);
+    expect(sinceLanding.some(v => v.startsWith("a:"))).toBe(false);
+    expect(patched.at(-1)).toBe("x:2");
+
+    confirm();
+    await run;
+    await settle();
+    disposeConsumers();
+    h.dispose();
+  });
+
+  it("a contradicting landing is one authoritative delivery with a structural resync", async () => {
+    const h = landingHarness([{ id: 1, label: "a" }]);
+    await h.build();
+    const { registerRowOps } = await import("../../src/index.js");
+
+    const patched: string[] = [];
+    const rowEvents: Array<{ ids: any[]; resync: boolean }> = [];
+    let disposeConsumers!: () => void;
+    createRoot(d => {
+      disposeConsumers = d;
+      registerPatch(h.items[0], (next: any) => patched.push(next.label), ["label"]);
+      registerRowOps(h.items, (next: any[], ops: any) =>
+        rowEvents.push({ ids: next.map((r: any) => r.id), resync: ops === null })
+      );
+    });
+    flush();
+
+    // Optimistic structural add, held in flight.
+    let confirm!: () => void;
+    const run = h.action(function* (this: any) {
+      h.setItems((draft: any[]) => {
+        draft.push({ id: 2, label: "b" });
+      });
+      yield new Promise<void>(resolve => {
+        confirm = resolve;
+      });
+    })();
+    flush();
+    expect(rowEvents.at(-1)?.ids).toEqual([1, 2]);
+    const patchMark = patched.length;
+    const rowMark = rowEvents.length;
+
+    // CONTRADICTING landing: arrangement changed (id 2 never landed, id 3
+    // did) — overrides are consumed AT THE LANDING. The driven list must be
+    // told the view flipped NOW (resync against live truth — the optimistic
+    // ops it holds are baseline-relative and stale), and the value channel
+    // must deliver the authoritative view exactly once.
+    h.setServer([
+      { id: 1, label: "a2" },
+      { id: 3, label: "c" }
+    ]);
+    h.poll();
+    await settle();
+
+    // Structural consumers saw the flip at the landing, not at owner settle.
+    const structSince = rowEvents.slice(rowMark);
+    expect(structSince.length).toBeGreaterThan(0);
+    expect(structSince.at(-1)!.ids).toEqual([1, 3]);
+    // Value channel: authoritative view, exactly one application.
+    expect(patched.slice(patchMark)).toEqual(["a2"]);
+
+    confirm();
+    await run;
+    await settle();
+    expect(rowEvents.at(-1)!.ids).toEqual([1, 3]);
+    disposeConsumers();
+    h.dispose();
+  });
+});

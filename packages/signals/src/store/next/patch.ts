@@ -449,8 +449,15 @@ export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
   const pc = t.pc as any;
   if (pc !== null) {
     bumpOne(t, pc);
-    pc.np = next;
-    pc.npb = pc.bc;
+    // RAW PAYLOAD only where raw IS visible truth (#3123 P1, equal-landing
+    // flash): optimistic families compose override views at read time — an
+    // authoritative landing's committed backing served raw would flash
+    // through overrides an EQUAL landing holds. Those deliveries take the
+    // visibleView proxy read, same as every classic reader.
+    if (t.fam?.opt !== true) {
+      pc.np = next;
+      pc.npb = pc.bc;
+    }
     // Self emission knows both sides — upgrade the chain stamp with the
     // record transition ("store.rows.3 {label: a…} → {label: b…}").
     if (__DEV__ && attrHooks !== null && pc.dn !== null)

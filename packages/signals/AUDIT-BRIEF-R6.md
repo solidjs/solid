@@ -1,5 +1,40 @@
 # Audit brief — rounds 6–9 + patch-mode default flip + node delivery
 
+## Round 10.14 (2026-08-31) — #3123 landed; the two PAUSED P1s FIXED
+
+Rebased onto next with #3123's final landing-consumption semantics
+(retained-setter replay, equality-scoped consumption, echo dedupe).
+Both paused items reproduced RED against the settled seam, then fixed:
+
+- **FIXED P1 (equal-landing flash)**: `emitPatch`'s raw payload fast path
+  (`pc.np`) served the adoption's committed backing directly to
+  deliveries — bypassing `visibleView`, which routes optimistic families
+  through the override-composing proxy. An EQUAL landing (overrides
+  HELD) flashed committed state through value patches while classic
+  effects read override-masked nodes. The stash is now gated on
+  `t.fam?.opt !== true`: optimistic-family deliveries always take the
+  proxy read — the same visibility rule visibleView already pinned; the
+  fast path was an accidental bypass. Non-optimistic perf paths
+  (dbmon-class) keep the payload.
+- **FIXED P1 (contradicting-landing notification)**: landing consumption
+  (`consumeOverridesNext` → `wipeStructuralOverrides`) emitted through
+  the OPTIMISTIC lane for an authoritative change — timing divergence
+  from the classic reversion effects (regular queues), duplicate
+  delivery against the adoption's own emission, and NO structural
+  resync (consumption removes the target from `overlaid` before the
+  settle drain's resync loop reads it — the driven list was never
+  told). The wipe now takes a `landing` posture: a regular `emitPatch`
+  bump (coalesces with the adoption's emission into ONE delivery on the
+  classic schedule) plus the row-ops RESYNC form at the landing (held
+  optimistic ops are baseline-relative; consumption changed the
+  baseline under them). The settle-drain call site keeps the lane form
+  — its own resync loop covers structure there.
+- Invariant harness: "landings integrate with the patch channel at
+  classic-effect parity" — equal-landing no-flash (with classic parity
+  oracle) and contradicting-landing single-delivery + resync-at-landing.
+- Size: hydrating-store-app 27.10 → 27.08, patch-lists 19.02 → 19.07 —
+  inside existing budgets, no ratchets.
+
 ## Round 10.13 (2026-08-31) — structural holds/late registrants; #3123 items PAUSED
 
 - FIXED P1: structural row/slot dispatch defers into collapsed owner
