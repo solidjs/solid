@@ -6,6 +6,8 @@
  *   message (nine-fold inflated by percent-encoding for non-latin1) blows
  *   past receiver header limits and the whole response stops being
  *   readable: a network error in place of the application error (#3093).
+ *   The same value is flattened of CR/LF, so a message built from input
+ *   cannot split the response into headers of its own making.
  * - Null-body statuses (204, 205, 304) answer void results with a real
  *   null-body response instead of a `TypeError` from the `Response`
  *   constructor that dispatch's catch used to sanitize into a phantom
@@ -112,6 +114,37 @@ describe("error header value is bounded (#3093)", () => {
 
     const response = await handleServerFunctionRequest(scriptedPost("encode-header-short"));
     expect(response.headers.get(ERROR_HEADER)).toBe("boom");
+  });
+
+  it("strips CR/LF so the label cannot become a header of its own", async () => {
+    // The label is derived from an error MESSAGE, and a message is often
+    // built from input — a parse error quoting the offending line, a
+    // validation error echoing a field. A bare CRLF in a header value is
+    // response splitting: everything after it reads as further headers,
+    // and then as a body, to anything on the path that parses the response
+    // itself (a proxy, a cache, an older HTTP client). The value is
+    // stripped rather than encoded here because the label is only ever a
+    // classification hint; the message itself travels in the body, so
+    // nothing is lost by flattening it.
+    registerServerFunction("encode-header-crlf", async () => {
+      throw markSafeError(new Error("boom\r\nX-Injected: yes"));
+    });
+
+    const response = await handleServerFunctionRequest(scriptedPost("encode-header-crlf"));
+    const header = response.headers.get(ERROR_HEADER)!;
+    expect(header).toBe("boomX-Injected: yes");
+    expect(header).not.toMatch(/[\r\n]/);
+    expect(response.headers.has("X-Injected")).toBe(false);
+
+    // the real message, newlines included, still arrives through the body
+    const restore = connectTransport();
+    try {
+      await expect(createServerReference("encode-header-crlf")()).rejects.toMatchObject({
+        message: "boom\r\nX-Injected: yes"
+      });
+    } finally {
+      restore();
+    }
   });
 });
 
