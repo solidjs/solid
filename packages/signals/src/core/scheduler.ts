@@ -843,7 +843,9 @@ export function setPatchCommitHook(fn: (batch: Transition) => void): void {
 function commitPendingNodes() {
   const pendingNodes = currentBatch._pendingNodes;
   for (let i = 0; i < pendingNodes.length; i++) {
-    commitPendingNode(pendingNodes[i]);
+    const node = pendingNodes[i];
+    commitPendingNode(node);
+    node._transition = null;
   }
   pendingNodes.length = 0;
   storeCommitHook?.();
