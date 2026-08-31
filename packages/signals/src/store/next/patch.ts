@@ -85,7 +85,7 @@ interface PatchEntry {
    * fallback's compute subscribes exactly this envelope — the channel
    * UNION would make every sibling read (and fail on) every other
    * sibling's keys. null = manifest-less (dual-run fallback). */
-  mk?: { roots: PropertyKey[]; dp: DeepNode[] | null } | null;
+  mk?: ProcessedManifest | null;
   /** Fallback-effect disposer (round 10.8): the re-drive's root — unbind
    * calls it so the demoted effect dies with its consumer. */
   dd?: () => void;
@@ -178,6 +178,15 @@ function forcedNext(t: StoreNextTarget): any {
 function applyStructural(item: QueuedApply, next: any, firstError: unknown): unknown {
   const snap = item.list as unknown as { fn: Function; owner: Owner | null; u?: boolean }[];
   const len = snap.length;
+  // Structural dispatch width rides the same engine policy (round 10.11,
+  // P2) — no signal to stamp, so the consumer list is the memo key.
+  if (__DEV__ && attrHooks !== null)
+    attrHooks.patchDispatch(
+      item.list as object,
+      len,
+      item.si !== undefined ? "slot-patch" : "row-ops",
+      null
+    );
   for (let j = 0; j < len; j++) {
     const entry = snap[j];
     if (entry === undefined || entry.u === true) continue;
@@ -468,6 +477,8 @@ export function hasPatches(): boolean {
 interface ProcessedManifest {
   roots: PropertyKey[];
   dp: DeepNode[] | null;
+  /** Root-aligned deep index: dpr[i] = roots[i]'s deep subtree or null. */
+  dpr: (DeepNode | null)[] | null;
 }
 const manifestCache = new WeakMap<PropertyKey[], ProcessedManifest>();
 
@@ -504,7 +515,23 @@ function internManifest(keys: PropertyKey[]): ProcessedManifest {
       roots.push(k);
     }
   }
-  m = { roots, dp };
+  // Root-aligned deep index (round 10.11, P2): dpr[i] is roots[i]'s deep
+  // subtree (or null) — the envelope walk was scanning every deep root per
+  // manifest root (quadratic per compute). Built once per interned
+  // manifest.
+  let dpr: (DeepNode | null)[] | null = null;
+  if (dp !== null) {
+    dpr = new Array(roots.length);
+    for (let i = 0; i < roots.length; i++) {
+      dpr[i] = null;
+      for (let j = 0; j < dp.length; j++)
+        if (dp[j].k === roots[i]) {
+          dpr[i] = dp[j];
+          break;
+        }
+    }
+  }
+  m = { roots, dp, dpr };
   manifestCache.set(keys, m);
   return m;
 }
@@ -583,7 +610,12 @@ function bumpOne(t: StoreNextTarget, pc: any, origin?: unknown): void {
     // transition B's involvement unrecorded, and A's resolution could
     // deliver B's still-pending value early. Dedup never outranks the
     // scheduler; repeats inside the SAME transition add nothing to it.
-    if (txn === null || (pc.bt != null && currentTransition(pc.bt as Transition) === txn)) return;
+    if (txn === null || (pc.bt != null && currentTransition(pc.bt as Transition) === txn)) {
+      // Coalesced bubbles still record their origin (round 10.11, P2).
+      if (__DEV__ && attrHooks !== null && origin != null)
+        attrHooks.patchOrigin(pc.dn, origin as any);
+      return;
+    }
   } else if (pc.p === null && txn === null) {
     return;
   }
@@ -683,6 +715,8 @@ function bumpOneOptimistic(t: StoreNextTarget, pc: any, origin?: unknown): void 
     // adds nothing. Stamped separately from plain bumps (`bt`): a plain
     // HELD write is not lane-visible — an optimistic bump after one must
     // still write.
+    if (__DEV__ && attrHooks !== null && origin != null)
+      attrHooks.patchOrigin(pc.dn, origin as any);
     return;
   }
   // Override-armed write: in-flight visibility now, re-notify on revert —
@@ -795,7 +829,8 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
         }
         // Wide-dispatch policy lives in the ENGINE (round 10.10, P2):
         // same thresholds, memo field, and metadata as graph wide-writes.
-        if (__DEV__ && attrHooks !== null) attrHooks.patchDispatch(pc.dn, p.length);
+        if (__DEV__ && attrHooks !== null)
+          attrHooks.patchDispatch(pc.dn, p.length, "patch template", pc.dn);
         // Deferred demotion (tentative getter views): performed HERE — the
         // delivery effect is clean, lane-timed effect context, so the
         // re-driven bodies subscribe correctly (creations inside a setter's
@@ -1108,6 +1143,14 @@ export function prepareInPlaceFold(t: StoreNextTarget): void {
 }
 
 export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
+  // Demotion IS a visibility event for ancestors (round 10.11, P1): their
+  // manifests read INTO this subtree, and the seam that demoted saw a
+  // change worth emitting. Bubbled HERE — primitive-owned, like every
+  // other emission — so no fold/landing/trap seam can forget, and the
+  // already-empty channel (previously demoted, machinery persistent)
+  // still reaches its ancestors instead of freezing them. Pending-dedup
+  // makes redundant bubbles free.
+  bumpAncestors(t);
   const entries = demotePatches(t);
   if (entries === null || entries.length === 0) return;
   const proxy = t.px;
@@ -1164,14 +1207,15 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
             // Each root reads ONCE (round 10.10, P1): deep roots live in
             // BOTH mk.roots and mk.dp — descending from the already-read
             // value instead of re-reading keeps unstable getters tracking
-            // exactly the value the envelope observed.
+            // exactly the value the envelope observed. `dpr` is the
+            // root-aligned index (round 10.11, P2 — linear, not
+            // roots × deep-roots).
             const roots = mk.roots;
-            const dp = mk.dp;
+            const dpr = mk.dpr;
             for (let k = 0; k < roots.length; k++) {
               const v = (proxy as any)[roots[k]];
-              if (dp !== null)
-                for (let j = 0; j < dp.length; j++)
-                  if (dp[j].k === roots[k]) readDeepChildren(dp[j], v);
+              const node = dpr !== null ? dpr[k] : null;
+              if (node !== null) readDeepChildren(node, v);
             }
           } else fn(proxy, proxy, false);
         } catch (err) {

@@ -76,11 +76,20 @@ export interface AttributionHooks {
     origin?: Signal<any> | string | null
   ): void;
   /**
-   * A patch channel is about to dispatch to `count` template consumers.
+   * A patch-family channel is about to dispatch to `count` consumers.
    * The engine applies the SAME wide-write policy (threshold, doubling
-   * memo, metadata) it applies to graph subscriber counts.
+   * memo, metadata) it applies to graph subscriber counts. `key` is the
+   * memo identity (the delivery signal for value channels, the consumer
+   * list for structural ones — which have no signal to stamp); `dn` when
+   * present provides the record-path name.
    */
-  patchDispatch(dn: Signal<any>, count: number): void;
+  patchDispatch(key: object, count: number, channel: string, dn: Signal<any> | null): void;
+  /**
+   * A COALESCED bump (pending-dedup absorbed the signal write) with a
+   * different origin: append it to the pending stamp's causes so chains
+   * report every child that fed the delivery, not just the first.
+   */
+  patchOrigin(dn: Signal<any>, origin: Signal<any> | string): void;
 }
 
 export let attrHooks: AttributionHooks | null = null;

@@ -222,6 +222,9 @@ export interface WriteCost {
 }
 const scopeCosts = new Map<Computed<any>, ScopeCost>();
 const writeCosts = new Map<string, WriteCost>();
+/** Wide-dispatch doubling memos for patch-family channels (keyed by the
+ * delivery signal or, for structural channels, the consumer list). */
+const patchDispatchWarned = new WeakMap<object, number>();
 
 function rootsOf(causes: ChangeRecord[], out: Set<string>): void {
   for (const c of causes) {
@@ -760,29 +763,45 @@ const engineHooks: AttributionHooks = {
       if (oc !== undefined) rec.causes = [oc];
     }
   },
-  patchDispatch(dn, count) {
-    // SAME policy as graph wide-writes (round 10.10): threshold from
-    // options.wideWrites, doubling memo, subscriber metadata — the channel
-    // consumer list IS this node's fan-out, invisible to `_subCount`.
+  patchDispatch(key, count, channel, dn) {
+    // SAME policy as graph wide-writes (round 10.10; structural channels
+    // 10.11): threshold from options.wideWrites, doubling memo,
+    // subscriber metadata — a channel consumer list IS its record's
+    // fan-out, invisible to `_subCount`. Structural channels have no
+    // signal to stamp; their memo rides the consumer-list identity.
     const limit = options.wideWrites;
     if (typeof limit !== "number") return;
-    const attributed = dn as AttributedNode;
-    if (count < limit || count < (attributed._devWideWriteWarnedAt ?? 0) * 2) return;
-    attributed._devWideWriteWarnedAt = count;
+    const warned = patchDispatchWarned.get(key) ?? 0;
+    if (count < limit || count < warned * 2) return;
+    patchDispatchWarned.set(key, count);
+    const name = dn !== null ? `"${nodeName(dn)}"` : `a ${channel} channel`;
     const message =
-      `[WIDE_WRITE] write to "${nodeName(dn)}" dispatched to ${count} patch template ` +
-      `consumers — every one applies this flush. If consumers ask keyed questions of this ` +
-      `record, invert with a per-key store or projection so only the keys whose answer ` +
-      `flipped update.`;
+      `[WIDE_WRITE] write to ${name} dispatched to ${count} ${channel} consumers — every ` +
+      `one applies this flush. If consumers ask keyed questions of this record, invert ` +
+      `with a per-key store or projection so only the keys whose answer flipped update.`;
     emitDiagnostic({
       code: "WIDE_WRITE",
       kind: "perf",
       severity: "warn",
       message,
-      nodeName: nodeName(dn),
-      data: { subscribers: count, write: "patch" }
+      nodeName: dn !== null ? nodeName(dn) : undefined,
+      data: { subscribers: count, write: "patch", channel }
     });
     console.warn(message);
+  },
+  patchOrigin(dn, origin) {
+    // Coalesced bump (round 10.11, P2): the pending stamp gains every
+    // origin that fed it, not just the first child's.
+    const rec = (dn as AttributedNode)._devChange;
+    if (rec === undefined) return;
+    const oc =
+      typeof origin === "string"
+        ? ({ seq: rec.seq, kind: "write", name: origin } as ChangeRecord)
+        : (origin as AttributedNode)._devChange;
+    if (oc === undefined) return;
+    const causes = (rec.causes ??= []);
+    if (causes.indexOf(oc) === -1 && !causes.some(c => c.name === oc.name && c.seq === oc.seq))
+      causes.push(oc);
   },
   refreshed(el) {
     stampWrite(el, "refresh");

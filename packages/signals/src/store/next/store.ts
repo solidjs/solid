@@ -1191,10 +1191,7 @@ function notifyWrites(t: StoreNextTarget): void {
     if (patchHooks !== null) {
       if (t.pc !== null && (t.pc.p !== null || t.pc.dn !== null)) {
         if (targetKeysPlain(t, t.v)) patchHooks.emitPatch(t, t.v, oldBacking);
-        else {
-          patchHooks.demoteToEffects(t);
-          patchHooks.emitPatchAncestors(t);
-        }
+        else patchHooks.demoteToEffects(t); // demotion bubbles internally (10.11)
       } else patchHooks.emitPatchAncestors(t);
     }
     if (t.u && t.u.v[t.pk!] === oldBacking) {

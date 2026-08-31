@@ -801,6 +801,50 @@ describe("INVARIANT: demotion fanout is per-entry isolated (round 10)", () => {
   });
 });
 
+describe("INVARIANT: demotion never silences ancestors (round 10.11)", () => {
+  it("a fold on a previously-demoted child still bubbles to patched ancestors", async () => {
+    const [state, setState] = createStore<any>({ row: { meta: { id: 1, label: "x" } } });
+    const metaLog: string[] = [];
+    createRoot(() => {
+      registerPatch(state.row.meta, (n: any) => metaLog.push(n.label), ["label"]);
+    });
+    // Build the child's delivery machinery with a plain delivered write…
+    setState((s: any) => {
+      s.row.meta.label = "y";
+    });
+    flush();
+    expect(metaLog[metaLog.length - 1]).toBe("y");
+    // …then demote it with an accessor ON A DECLARED KEY (the manifest-
+    // -scoped probe only sees declared keys — an off-envelope getter is
+    // correctly ignored): consumers pulled, machinery persists (dn
+    // survives churn by design), and every later fold probe fails.
+    const [dep] = createRoot(() => createSignal("d1"));
+    setState((s: any) => {
+      Object.defineProperty(s.row.meta, "label", {
+        get() {
+          return dep();
+        },
+        configurable: true,
+        enumerable: true
+      });
+    });
+    flush();
+    // An ancestor registers with a deep manifest INTO the child.
+    const rowLog: string[] = [];
+    createRoot(() => {
+      registerPatch(state.row, (n: any) => rowLog.push(String(n.meta.id)), ["meta.id"]);
+    });
+    // A leaf fold on the accessor-bearing child hits the demote branch
+    // with an ALREADY-EMPTY channel — it must still bubble, or the
+    // ancestor freezes at its baseline forever.
+    setState((s: any) => {
+      s.row.meta.id = 2;
+    });
+    flush();
+    expect(rowLog[rowLog.length - 1]).toBe("2");
+  });
+});
+
 describe("INVARIANT: demotion envelopes read each step once and probe true keys (round 10.10)", () => {
   it("an unstable root getter is invoked once per tracked pass, not twice", async () => {
     const [dep, setDep] = createRoot(() => createSignal("d1"));
