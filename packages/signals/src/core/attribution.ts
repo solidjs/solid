@@ -741,6 +741,15 @@ const engineHooks: AttributionHooks = {
   write(el, prev, value) {
     stampWrite(el, "write", prev, value);
   },
+  patchEmit(dn, name, prev, next, withValues) {
+    // Patched records have no key nodes — the delivery signal is the chain
+    // anchor. Name it with the record's store path and replace the counter
+    // stamp the plain `write` hook just left, so "why did this run" for a
+    // patch delivery reads as the RECORD's transition, not `5 → 6`.
+    (dn as AttributedNode & Signal<any>)._name = name;
+    if (withValues) stampWrite(dn, "write", prev, next);
+    else stampWrite(dn, "write");
+  },
   refreshed(el) {
     stampWrite(el, "refresh");
   },

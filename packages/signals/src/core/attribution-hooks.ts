@@ -55,6 +55,17 @@ export interface AttributionHooks {
    * from the node's state against its asyncStart snapshot.
    */
   asyncEnd(el: Computed<any>, prev: unknown, value: unknown, direct: boolean): void;
+  /**
+   * A patched store record's visibility transitioned. `dn` is the record's
+   * delivery signal — the ONLY graph node its template consumers subscribe
+   * to, so this is where cause chains for patch-applied DOM updates anchor.
+   * Called AFTER the signal write (the engine's own `write` stamp carries a
+   * meaningless counter transition; this re-stamp names the record and, for
+   * self emissions (`withValues`), previews the record transition). `name`
+   * is the record's store path ("store.rows.3"); ancestor bubbles re-stamp
+   * name-only.
+   */
+  patchEmit(dn: Signal<any>, name: string, prev: unknown, next: unknown, withValues: boolean): void;
 }
 
 export let attrHooks: AttributionHooks | null = null;

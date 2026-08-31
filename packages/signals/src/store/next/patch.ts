@@ -64,6 +64,7 @@ import {
   GRAPH_SIZE_WARN_AT,
   shouldWarnGraphSize
 } from "../../core/dev.js";
+import { attrHooks } from "../../core/attribution-hooks.js";
 import { runWithOwner, untrack } from "../../core/core.js";
 import { createRenderEffect } from "../../signals.js";
 import { deliveryEffect } from "../../core/effect.js";
@@ -341,6 +342,10 @@ export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
     bumpOne(t, pc);
     pc.np = next;
     pc.npb = pc.bc;
+    // Self emission knows both sides — upgrade the chain stamp with the
+    // record transition ("store.rows.3 {label: a…} → {label: b…}").
+    if (__DEV__ && attrHooks !== null && pc.dn !== null)
+      attrHooks.patchEmit(pc.dn, targetPath(t), prev, next, true);
   }
   bumpAncestors(t);
 }
@@ -586,6 +591,23 @@ function bumpOne(t: StoreNextTarget, pc: any): void {
   pc.bc++;
   pc.bt = txn;
   setSignal(pc.dn, (v: number) => v + 1);
+  // Cause-chain anchor (attribution parity): AFTER the write, so this
+  // record-path stamp replaces the engine's counter stamp. Name-only here
+  // (bubbles have no values); self emitters re-stamp with the transition.
+  if (__DEV__ && attrHooks !== null) attrHooks.patchEmit(pc.dn, targetPath(t), null, null, false);
+}
+
+/** DEV: the record's store path ("store.rows.3") — the name cause chains
+ * and rerun events use for patch machinery (matches the "store.key" naming
+ * key nodes get under attribution). */
+function targetPath(t: StoreNextTarget): string {
+  let s = "";
+  let x: StoreNextTarget | null = t;
+  while (x !== null) {
+    if (x.pk != null) s = "." + String(x.pk) + s;
+    x = x.u;
+  }
+  return "store" + s;
 }
 
 function bumpAncestors(t: StoreNextTarget): void {
@@ -623,6 +645,7 @@ function bumpOneOptimistic(t: StoreNextTarget, pc: any): void {
   const w = GlobalQueue._optimisticWrite;
   if (w !== null && w !== undefined) w(pc.dn, (pc.dn._value ?? 0) + 1);
   else setSignal(pc.dn, (v: number) => v + 1);
+  if (__DEV__ && attrHooks !== null) attrHooks.patchEmit(pc.dn, targetPath(t), null, null, false);
 }
 
 /** Manifest-shaped prev snapshot: roots copied flat, deep paths rebuilt as
@@ -792,6 +815,9 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
         }
       }
     );
+    // Rerun events read as "patchDelivery(store.rows.3) ran ← store.rows.3
+    // write" — the machinery names itself for attribution.
+    if (__DEV__) (pc.de as any)._name = "patchDelivery(" + targetPath(t) + ")";
   });
 }
 
