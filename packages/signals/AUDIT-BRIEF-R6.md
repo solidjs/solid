@@ -1,5 +1,52 @@
 # Audit brief — rounds 6–9 + patch-mode default flip + node delivery
 
+## Round 10 FIXES (2026-08-31) — response to the 7-P1 audit
+
+All seven blockers and the three follow-ups addressed, harness-first (four
+new signals invariants + four new driver invariants, each RED pre-fix).
+The STRUCTURAL move: emission stopped being a per-seam convention.
+
+- **Bubbling is primitive-owned** (P1 landings, P1 optimistic writes, and
+  the standing class): every bump walks the ancestor chain inside
+  `bumpOne`/`bumpOneOptimistic` — no emission seam decides about
+  ancestors, so none can forget. Pending-dedup (`bc !== dv` exits in two
+  reads) keeps N-row walks from multiplying signal writes; `emitPatchLocal`
+  is now literally `emitPatch`. The channel-less landing seam bubbles
+  explicitly, as does the demotion branch.
+- **Deep-path mounts** (P1-1): fixed at the SOURCE, not the reader — eager
+  child adoptions path-copy the ancestor chain (`privatizeCommitted`),
+  exactly like the fold drain always did for queued adoptions. The
+  committed raw a mount reads is always current. (The first attempt —
+  proxy-reading deep-path initial applies — cost +8 ms dbmon mount by
+  wrapping every nested object per row; reverted, lesson recorded.)
+- **Boundary holds** (P1-4): dispatch defers a held registrant's entry
+  INTO its owner queue (probe injected by boundaries.ts — null when no
+  boundary machinery loads; entries re-apply from the queue at release,
+  reading that moment's visible view). Render-effect parity by
+  construction; regression is parity-shaped (reveal-order composition).
+- **Demotion fanout** (P1-5): per-entry isolation with the dispatch loop's
+  own error routing (`routeEntryError` shared), one deferred halt after
+  all healthy siblings are live.
+- **Swap visibility** (P1-6): subject swaps build from the OPTIMISTIC
+  visible array (initial-engagement parity). **Family retention** (P1-7):
+  `storeFamilyOf` token gates identity retention — a family change
+  rebuilds rows instead of keeping DOM bound to channels the new subject
+  never emits on.
+- **P2s**: the dmq latch dies with its consumers (cleared at last unbind,
+  consumed inert, and a registration that STARTS a list opens a fresh
+  generation); consumer-less built channels stop bumping outside
+  transitions (the held-window pin is transition-scoped); retired queue
+  fields deleted from the channel shape, all node-delivery fields declared
+  and initialized in `pcOf`.
+- Finding downgraded during repro: direct setter writes on optimistic
+  stores OUTSIDE an action revert by design (they are overrides of derived
+  truth) — two audit-adjacent "swallowed write" repros were this
+  semantic, not defects.
+
+Gates: 1,419 signals / 687 web / 352 SSR / 150 hydrate / 32 turbo tasks;
+sizes under limits (one ratchet: store-heavy hydrating tier 26.45 →
+26.55 kB, measured 26.47). dbmon unchanged: 6.5 / 2.0 / 0.6.
+
 ## Round 10 — node-delivery architecture (SUPERSEDES value-queue delivery)
 
 Branch `patch-node-delivery-proto`. Value patches no longer ride bespoke

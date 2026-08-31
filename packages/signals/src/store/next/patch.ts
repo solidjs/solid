@@ -69,6 +69,13 @@ interface PatchEntry {
   /** Keys recorded (adoption demotion probes); undefined = record at the
    * next drain apply. */
   k?: boolean;
+  /** Registrant's owner queue (round 10, P1-4): dispatch defers this entry
+   * into it while a boundary hold is active — render-effect parity. */
+  q?: unknown;
+  /** Deferred-into-held-queue dedup flag. */
+  hq?: boolean;
+  /** Per-entry prev baseline (node delivery). */
+  pv?: unknown;
 }
 
 // Per-flush apply queue. Bubbled (forced) emissions resolve `next` LAZILY at
@@ -186,6 +193,46 @@ const PER_ENTRY_PREV: unique symbol = Symbol();
  * OWNER's queue chain exactly like a render-effect error (§2b): an Errored
  * boundary above the row collects it. Unhandled errors are aggregated by the
  * caller (first one rethrows after its drain completes). */
+/** Deferred re-apply for a consumer whose owner queue is holding (round 10,
+ * P1-4): enqueued INTO that queue, so the boundary's own release timing —
+ * not the channel's — decides when the entry sees the update. Reads the
+ * visible view at RUN time (the settled state, exactly what the held render
+ * effect would compute). One queued run per entry per hold window. */
+function deferHeldEntry(entry: PatchEntry, oq: any, pc: any): void {
+  if (entry.hq === true) return;
+  entry.hq = true;
+  oq.enqueue(EFFECT_RENDER, () => {
+    entry.hq = false;
+    if (entry.u === true) return;
+    if (entry.owner !== null && isDisposed(entry.owner)) return;
+    const err = applyEntries([entry], visibleView(pc.t, pc), PER_ENTRY_PREV, false, UNSET, pc);
+    if (err !== UNSET) {
+      globalQueue.enqueue(EFFECT_USER, () => {
+        haltReactivity(err);
+        throw err;
+      });
+    }
+  });
+}
+
+/** Route a consumer's throw to its registering owner's boundary. Shared by
+ * dispatch and demotion fanout (round 10, P1-5): the nearest COMPUTED
+ * ancestor is the recompute target — <Errored>.reset() recomputes sources,
+ * and a plain owner (the list driver's listOwner) is not recomputable; the
+ * component/memo scope above it is, and recomputing it rebuilds the rows,
+ * exactly what reset means for a throwing render effect. */
+function routeEntryError(entry: PatchEntry, err: unknown): boolean {
+  const owner = entry.owner as any;
+  if (owner === null) return false;
+  let source = owner;
+  while (source !== null && source._fn === undefined) source = source._parent;
+  source ??= owner;
+  const statusErr = new StatusError(source, err);
+  ext(source)._error = statusErr;
+  source._statusFlags = (source._statusFlags ?? 0) | STATUS_ERROR;
+  return owner._queue.notify(source, STATUS_ERROR, STATUS_ERROR, statusErr) as boolean;
+}
+
 function applyEntries(
   list: PatchEntry[],
   next: any,
@@ -209,6 +256,18 @@ function applyEntries(
     if (entry === undefined || entry.u === true) continue;
     // Disposed owners drop their patches (the row unmounted mid-flush).
     if (entry.owner !== null && isDisposed(entry.owner)) continue;
+    // BOUNDARY HOLD parity (round 10, P1-4): a consumer registered under a
+    // holding queue (pending Loading / collapsed reveal) defers exactly
+    // like the render effect it replaced — the entry re-applies FROM ITS
+    // OWN QUEUE at release, reading the visible state of that moment.
+    if (prev === PER_ENTRY_PREV) {
+      const heldProbe = GlobalQueue._queueHeld;
+      const oq = entry.q as any;
+      if (heldProbe !== null && oq != null && oq !== globalQueue && heldProbe(oq)) {
+        deferHeldEntry(entry, oq, pc as any);
+        continue;
+      }
+    }
     try {
       // First-apply key recording (re-audit 6): entries registered without a
       // recorded read set (hydration skips the initial apply) record here —
@@ -243,25 +302,7 @@ function applyEntries(
         }
       }
     } catch (err) {
-      let handled = false;
-      const owner = entry.owner as any;
-      if (owner !== null) {
-        // Route through the nearest COMPUTED ancestor (re-audit 2, P1-4):
-        // <Errored>.reset() recomputes its sources, and a plain owner (the
-        // list driver's listOwner) is not recomputable — the component/memo
-        // scope above it is, and recomputing it rebuilds the rows, exactly
-        // what reset means for a throwing render effect.
-        let source = owner;
-        while (source !== null && source._fn === undefined) source = source._parent;
-        source ??= owner;
-        const statusErr = new StatusError(source, err);
-        ext(source)._error = statusErr;
-        source._statusFlags = (source._statusFlags ?? 0) | STATUS_ERROR;
-        handled = owner._queue.notify(source, STATUS_ERROR, STATUS_ERROR, statusErr);
-      }
-      if ((globalThis as any).__DBG__)
-        console.log("[route]", "handled:", handled, "hasOwner:", entry.owner !== null);
-      if (!handled && firstError === UNSET) firstError = err;
+      if (!routeEntryError(entry, err) && firstError === UNSET) firstError = err;
     }
   }
   return firstError;
@@ -323,52 +364,37 @@ function clonePrev(prev: any): any {
 export function emitPatch(t: StoreNextTarget, next: any, prev: any): void {
   const pc = t.pc as any;
   if (pc !== null) {
-    bumpDelivery(t, pc);
+    bumpOne(t, pc);
     pc.np = next;
     pc.npb = pc.bc;
   }
-  emitPatchAncestors(t);
+  bumpAncestors(t);
 }
 
-/** Ancestor bubble, standalone (re-audit 7): targeted reconciles emit
- * walk-locally for the walked subtree but ancestors' compiled bodies can
- * read INTO it through nested chains — the walk root must bubble exactly
- * like a nested setter write does. Forced entries COALESCE per container
- * (re-audit 8, P2-7): N nested writes in one batch force ONE ancestor
- * re-apply, effect parity; the drain clears the stamp. */
+/** Ancestor bubble, standalone: for seams whose OWN record cannot patch
+ * (demotions, channel-less landings) but whose ancestors' compiled bodies
+ * read into the subtree through nested chains. Delegates to the same
+ * bubbling primitive every emission uses. */
 export function emitPatchAncestors(t: StoreNextTarget): void {
-  let u = t.u;
-  while (u !== null) {
-    if (u.pc !== null) bumpDelivery(u, u.pc);
-    u = u.u;
-  }
+  bumpAncestors(t);
 }
 
 /** Tentative (optimistic) ancestor bubble (re-audit 8, P1-3): in-flight
- * visibility rides the LANE queue — and the SAME forced entries are staged
- * on the transaction for settle (revert restores committed truth to
- * ancestor expressions; landings show the landed state). Both resolve
- * live at their drains. */
+ * visibility rides the LANE queue. Standalone form for seams that handled
+ * (or demoted) the record itself. */
 export function emitPatchAncestorsOptimistic(t: StoreNextTarget, _tx: unknown): void {
   let u = t.u;
   while (u !== null) {
-    if (u.pc !== null) bumpDeliveryOptimistic(u, u.pc);
+    if (u.pc !== null) bumpOneOptimistic(u, u.pc);
     u = u.u;
   }
 }
 
-/** Emission for sites that already stand at the record with both sides in
- * hand and have already handled ancestors (the adoption walk descends —
- * parents were visited first), so no bubbling walk. */
+/** Historically the "walk handled my ancestors" emission — round 10 made
+ * bubbling primitive-owned (pending-dedup makes the redundant walk free),
+ * so this is emitPatch: no seam gets to skip ancestors. */
 export function emitPatchLocal(t: StoreNextTarget, next: any, prev: any): void {
-  const pc = t.pc as any;
-  if (pc === null) return;
-  bumpDelivery(t, pc);
-  // Payload fast path (raw-read thesis): the emission's own state rides
-  // the channel — deliveries read it RAW instead of proxy-resolving.
-  // bc-tagged: a later bump (including post-revert) invalidates it.
-  pc.np = next;
-  pc.npb = pc.bc;
+  emitPatch(t, next, prev);
 }
 
 /** Optimistic-channel emission: overrides are visible THIS flush while the
@@ -400,7 +426,15 @@ function drainOptimistic(): void {
 }
 
 export function emitPatchOptimistic(t: StoreNextTarget, next: any, prev: any): void {
-  if (t.pc !== null) bumpDeliveryOptimistic(t, t.pc);
+  // Bubbles like every emission (round 10, P1-3): a patch on an ANCESTOR
+  // must show a nested optimistic write in flight — the lane view already
+  // answers it, and ancestors ride the same lane timing.
+  if (t.pc !== null) bumpOneOptimistic(t, t.pc);
+  let u = t.u;
+  while (u !== null) {
+    if (u.pc !== null) bumpOneOptimistic(u, u.pc);
+    u = u.u;
+  }
 }
 
 /** Row-ops emission at OPTIMISTIC (lane) timing: user drafts on an
@@ -530,20 +564,37 @@ function unionKeys(
  * manifest-shaped prev snapshot. Timing — transitions, holds, lanes,
  * merges, mount order — is scheduler-owned by construction.
  *
+ * BUBBLING LIVES HERE (round 10). Every bump walks the ancestor chain —
+ * no emission seam decides whether ancestors need delivery, so no seam
+ * can forget (three of round 10's blockers were exactly that class:
+ * landings, optimistic writes, and adoptions each re-implementing the
+ * bubble and missing a case). The pending-dedup below makes the walk
+ * nearly free: an ancestor already carrying an undelivered bump exits in
+ * two reads, so an N-row reconcile bumps each ancestor once, not N times.
+ *
  * PAY-FOR-USE CREATION (mount pass): the signal + effect are built at the
  * FIRST consumer-visible emission, not at registration — a mounted list
  * that never updates allocates nothing here. Once built, the machinery
  * persists across consumer churn AND is never torn down with the last
  * consumer: a held write bumping during an unbound window must still
- * deliver to a consumer that registers before the settle (the old
- * dispose-on-empty kept only the signal and rebuilt the effect; keeping
- * both closes the same window and makes re-binding rows free). Channels
- * whose machinery was never built skip silently — a first-ever consumer's
- * registration baseline (`entry.pv`) already reflects those writes. */
-function bumpDelivery(t: StoreNextTarget, pc: any): void {
+ * deliver to a consumer that registers before the settle. Channels whose
+ * machinery was never built skip silently — a first-ever consumer's
+ * registration baseline (`entry.pv`) already reflects those writes.
+ * QUIESCENT SKIP (round 10, P2): a built channel with no consumers only
+ * keeps bumping while a transition is in flight (the held-window pin);
+ * outside one, the write is immediately visible and a future registrant's
+ * baseline covers it — no signal write, no inert effect run. */
+function bumpOne(t: StoreNextTarget, pc: any): void {
   if (pc.de === undefined) {
     if (pc.p === null) return;
     ensureDelivery(t, pc);
+  } else if (pc.bc !== pc.dv) {
+    // Already pending: the one scheduled delivery reads the LATEST visible
+    // state (and payload emitters re-stash after this call), so a second
+    // signal write adds nothing.
+    return;
+  } else if (pc.p === null && activeTransition === null) {
+    return;
   }
   // Synchronous dedup counter + pure-notification signal: the WRITE may be
   // held by a transition (its commit IS the delivery moment), but the
@@ -552,13 +603,23 @@ function bumpDelivery(t: StoreNextTarget, pc: any): void {
   setSignal(pc.dn, (v: number) => v + 1);
 }
 
-function bumpDeliveryOptimistic(t: StoreNextTarget, pc: any): void {
+function bumpAncestors(t: StoreNextTarget): void {
+  let u = t.u;
+  while (u !== null) {
+    if (u.pc !== null) bumpOne(u, u.pc);
+    u = u.u;
+  }
+}
+
+function bumpOneOptimistic(t: StoreNextTarget, pc: any): void {
   if (pc.de === undefined) {
     if (pc.p === null) return;
     ensureDelivery(t, pc);
   }
   // Override-armed write: in-flight visibility now, re-notify on revert —
-  // the engine is installed by every optimistic caller of this seam.
+  // the engine is installed by every optimistic caller of this seam. NO
+  // pending-dedup: every engine write registers with the transaction's
+  // revert bookkeeping.
   pc.bc++;
   const w = GlobalQueue._optimisticWrite;
   if (w !== null && w !== undefined) w(pc.dn, (pc.dn._value ?? 0) + 1);
@@ -611,7 +672,7 @@ function visibleView(t: StoreNextTarget, pc?: any): any {
 
 function ensureDelivery(t: StoreNextTarget, pc: any): void {
   if (pc.de !== undefined) return;
-  // The whole machinery persists once built (see bumpDelivery): a
+  // The whole machinery persists once built (see bumpOne): a
   // write-time emission held by a transition rides the signal's pending
   // commit — tearing anything down with the last consumer dropped that
   // delivery, permanently staleing a consumer registered before the settle.
@@ -649,7 +710,14 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
         if (pc.bc === pc.dv) return; // pure-registration run: baselines are per-entry
         pc.dv = pc.bc;
         const p = pc.p as PatchEntry[] | null;
-        if (p === null) return; // demoted or emptied — inert
+        if (p === null) {
+          // Inert (demoted or emptied). A deferred-demotion latch queued for
+          // consumers that have since left is CONSUMED here (round 10, P2):
+          // it described a view no one is left to demote for — a later
+          // plain consumer must not inherit it.
+          pc.dmq = false;
+          return;
+        }
         // Deferred demotion (tentative getter views): performed HERE — the
         // delivery effect is clean, lane-timed effect context, so the
         // re-driven bodies subscribe correctly (creations inside a setter's
@@ -697,10 +765,17 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
     setPatchCommitHook(releaseBatch);
     GlobalQueue._drainPatchOptimistic = drainOptimistic;
   }
-  const entry: PatchEntry = { fn, owner: getOwner() };
+  const owner = getOwner();
+  // Owner queue captured at registration (round 10, P1-4): dispatch defers
+  // into it while its boundary holds — render-effect parity.
+  const entry: PatchEntry = { fn, owner, q: (owner as any)?._queue ?? null };
   const pc = pcOf(t);
   if (__TEST__) devTrackChannel(pc);
   const list = (pc.p ??= []) as PatchEntry[];
+  // A registration that STARTS the consumer list opens a fresh generation:
+  // a deferred-demotion latch can never predate its consumers (round 10,
+  // P2 — a stale latch permanently demoted a later plain consumer).
+  if (list.length === 0) pc.dmq = false;
   list.push(entry);
   // Accessed-key union (prod-sound adoption demotion). Two sources:
   // compiler MANIFESTS (re-audit 7, P1-1 — the static read envelope,
@@ -732,7 +807,7 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
   }
   patchCount++;
   // NO delivery machinery here (mount pass): the signal + effect are built
-  // by the first consumer-visible bump (see bumpDelivery) — a list that
+  // by the first consumer-visible bump (see bumpOne) — a list that
   // mounts and never updates allocates none of it.
   // PER-ENTRY prev baseline (node delivery): the state this consumer's
   // initial apply saw — a consumer mounting mid-batch compares against the
@@ -765,8 +840,10 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
     if (list.length === 0 && pc.p === list) {
       // The delivery machinery (dn/de/bc/dv) persists — held write-time
       // emissions must survive consumer churn, and a re-binding row reuses
-      // the node (see bumpDelivery's persistence rule).
+      // the node (see bumpOne's persistence rule). The demotion latch does
+      // NOT persist (round 10, P2): it belonged to the leaving consumers.
       pc.p = null;
+      pc.dmq = false;
     }
   };
 }
@@ -895,22 +972,39 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
   // stashed by the in-flight action — deferring would postpone the
   // tentative view (and the getter's tracked evaluation) to settle.
   const redrive = () => {
+    // PER-ENTRY ISOLATION (round 10, P1-5): a throwing re-drive must not
+    // abort the loop — every healthy sibling still becomes a live effect,
+    // errors route to each entry's own boundary, and one unboundaried
+    // failure defers a single halt AFTER the fanout (the same contract the
+    // dispatch loop pins).
+    let firstError: unknown = UNSET;
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       if (entry.owner !== null && isDisposed(entry.owner)) continue;
       const fn = entry.fn;
-      runWithOwner(entry.owner, () =>
-        createRenderEffect(
-          () => {
-            fn(proxy, proxy, false);
-          },
-          () => {
-            // Block body: a compiled patch body's return value must not be
-            // mistaken for an effect cleanup.
-            untrack(() => fn(proxy, undefined, true));
-          }
-        )
-      );
+      try {
+        runWithOwner(entry.owner, () =>
+          createRenderEffect(
+            () => {
+              fn(proxy, proxy, false);
+            },
+            () => {
+              // Block body: a compiled patch body's return value must not be
+              // mistaken for an effect cleanup.
+              untrack(() => fn(proxy, undefined, true));
+            }
+          )
+        );
+      } catch (err) {
+        if (!routeEntryError(entry, err) && firstError === UNSET) firstError = err;
+      }
+    }
+    if (firstError !== UNSET) {
+      const err = firstError;
+      globalQueue.enqueue(EFFECT_USER, () => {
+        haltReactivity(err);
+        throw err;
+      });
     }
   };
   if (immediate) redrive();

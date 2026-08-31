@@ -467,9 +467,11 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
   const old = t.v;
   // Patch channel (override-application site): the draft IS the intended
   // visible state; prev is the view before these overrides apply. Bypasses
-  // the transition stash — optimism is visible in flight.
-  if (t.pc !== null && t.pc.p !== null)
-    patchHooks!.emitPatchOptimistic(t, pb, optimisticView(t, old));
+  // the transition stash — optimism is visible in flight. UNCONDITIONAL on
+  // the local consumer list (round 10, P1-3): the emitter bubbles to
+  // ancestor channels whose bodies read into this record, and the bump
+  // primitive owns all consumer/machinery gating.
+  if (patchHooks !== null) patchHooks.emitPatchOptimistic(t, pb, optimisticView(t, old));
   // Row-ops channel (family increment 2): optimistic STRUCTURE on an array
   // rides node overrides — it never enters the reconcile walk — so a driven
   // list must get its structural ops here, lane-timed. Identity diff of the

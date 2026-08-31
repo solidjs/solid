@@ -338,8 +338,11 @@ module.exports = [
     // Re-audit-8 (2026-08-28): committed-view admission, generation-stamped
     // drains, forced-bubble coalescing stamps, tentative ancestor bubbling.
     // Measured 26.35.
+    // Round-10 (2026-08-31): primitive-owned ancestor bubbling, boundary
+    // hold routing (per-entry queue defer), demotion fanout isolation,
+    // family retention token. Measured 26.47.
     path: "hydrating-store-app.js",
-    limit: "26.45 KB",
+    limit: "26.55 KB",
     modifyEsbuildConfig
   },
   {

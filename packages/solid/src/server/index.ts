@@ -46,6 +46,7 @@ export {
   storeIsShallow,
   storeHasFamily,
   storeHasOptimisticFamily,
+  storeFamilyOf,
   reconcile,
   refresh,
   repeat,

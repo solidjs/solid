@@ -577,6 +577,13 @@ export class GlobalQueue extends Queue {
    * apply at lane-effect timing — visible in flight, unlike the regular
    * effect queues an action stashes. Injected; null when unused. */
   static _drainPatchOptimistic: (() => void) | null = null;
+  /** Boundary hold probe (boundaries.ts; round 10, P1-4): is this queue —
+   * or any ancestor — currently holding its render effects (pending
+   * Loading / collapsed reveal)? Patch delivery fans out per registrant
+   * and must defer entries whose owner queue is held, exactly like the
+   * render effect the consumer replaced. Injected by boundaries; null =
+   * no boundary machinery loaded = nothing can hold. */
+  static _queueHeld: ((queue: IQueue) => boolean) | null = null;
   static _gatedRead:
     | ((el: Signal<any>, owner: OptimisticNode, c: Computed<any>) => boolean)
     | null = null;

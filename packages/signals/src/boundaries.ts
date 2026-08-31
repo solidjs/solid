@@ -25,7 +25,7 @@ import {
 } from "./core/index.js";
 import type { IQueue, Signal } from "./core/index.js";
 import { emitDiagnostic } from "./core/dev.js";
-import { haltReactivity, schedule } from "./core/scheduler.js";
+import { GlobalQueue, haltReactivity, schedule } from "./core/scheduler.js";
 import { accessor, type Accessor } from "./signals.js";
 
 export interface BoundaryComputed<T> extends Computed<T> {
@@ -376,6 +376,26 @@ export class CollectionQueue extends Queue {
     if (_revealUsed) this._revealController?._evaluate();
   }
 }
+
+// Boundary hold probe (round 10, P1-4): the patch channel's delivery fans
+// out per registrant and must defer entries whose owner queue is holding
+// its render effects — the same gate CollectionQueue.run applies, walked up
+// the queue chain. Installed here so apps without boundary machinery pay
+// nothing (null probe = nothing can hold). Raw `_value` reads: the probe
+// runs inside a dispatching effect and must not subscribe.
+GlobalQueue._queueHeld = (queue): boolean => {
+  let q: any = queue;
+  while (q != null) {
+    if (
+      q._disabled !== undefined &&
+      q._disabled._value === true &&
+      (!_revealUsed || q._collapsed._value === true)
+    )
+      return true;
+    q = q._parent;
+  }
+  return false;
+};
 
 function createCollectionBoundary<T>(
   type: number,

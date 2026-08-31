@@ -37,7 +37,12 @@ export {
   patchableRaw,
   patchProxyFor
 } from "./next/patch.js";
-export { storeIsShallow, storeHasFamily, storeHasOptimisticFamily } from "./next/store.js";
+export {
+  storeIsShallow,
+  storeHasFamily,
+  storeHasOptimisticFamily,
+  storeFamilyOf
+} from "./next/store.js";
 export { createOptimisticStoreNext as createOptimisticStore } from "./next/optimistic.js";
 
 /** Public createStore: plain form `(init, options?)` and derived writable

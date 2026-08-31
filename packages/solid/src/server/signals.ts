@@ -2858,4 +2858,7 @@ export function storeHasFamily(_proxy: any): boolean {
 export function storeHasOptimisticFamily(_proxy: any): boolean {
   return false;
 }
+export function storeFamilyOf(_proxy: any): unknown {
+  return null;
+}
 const noopUnbind = () => {};

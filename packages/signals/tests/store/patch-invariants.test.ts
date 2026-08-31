@@ -629,3 +629,180 @@ describe("INVARIANT: queued applications reach exactly the consumers registered 
     dispose();
   });
 });
+
+describe("INVARIANT: every visibility transition reaches every registered ancestor (round 10)", () => {
+  // The proxy and the patch channel are two readers of ONE visibility
+  // stream. Any seam that changes what the proxy answers for a nested path
+  // must deliver to ancestor channels whose compiled bodies read into it —
+  // regardless of whether the WRITTEN target has consumers of its own.
+
+  it("post-await projection landing on a channel-less child delivers to the patched ancestor", async () => {
+    const { createProjection } = await import("../../src/index.js");
+    const tick = (ms: number) => new Promise(r => setTimeout(r, ms));
+    let proj!: any;
+    let disposeRoot!: () => void;
+    const log: string[] = [];
+    createRoot(d => {
+      disposeRoot = d;
+      proj = createProjection<any>(
+        async function* (state: any) {
+          yield; // settle pass 1 — the projection is readable at seed
+          await tick(5);
+          // Post-await authoritative write: write-override, immediate landing.
+          state.row.meta.label = "landed";
+          yield;
+        },
+        { row: { meta: { label: "seed" } } }
+      );
+    });
+    flush();
+    const { createEffect } = await import("../../src/index.js");
+    const effectSeen: string[] = [];
+    createRoot(() => {
+      // A tracked subscriber pulls the generator (real templates always
+      // have one); the patch consumer must observe the same landings.
+      createEffect(
+        () => proj.row.meta.label,
+        (v: string) => {
+          effectSeen.push(v);
+        }
+      );
+      // The ancestor is patched; the written child (meta) never gets a channel.
+      const row = untrackRead(() => proj.row);
+      registerPatch(row, (next: any) => log.push(next.meta.label));
+    });
+    flush();
+    await tick(20);
+    flush();
+    await tick(5);
+    flush();
+    expect(effectSeen[effectSeen.length - 1]).toBe("landed");
+    // Proxy sees landed truth…
+    expect(untrackRead(() => proj.row.meta.label)).toBe("landed");
+    // …and so must the ancestor's patch consumer.
+    expect(log[log.length - 1]).toBe("landed");
+    disposeRoot();
+  });
+
+  it("ordinary nested optimistic write delivers in-flight to the patched ancestor", async () => {
+    const { createOptimisticStore, action: act } = await import("../../src/index.js");
+    const [state, setState] = (createOptimisticStore as any)({ row: { meta: { label: "saved" } } });
+    const log: string[] = [];
+    createRoot(() => {
+      registerPatch(state.row, (next: any) => log.push(next.meta.label));
+    });
+    let resolve!: () => void;
+    let save!: () => Promise<void> | void;
+    createRoot(() => {
+      save = act(function* () {
+        setState((s: any) => {
+          s.row.meta.label = "optimistic";
+        });
+        yield new Promise<void>(r => {
+          resolve = r;
+        });
+      }) as any;
+    });
+    const p = save() as Promise<void>;
+    flush();
+    // The lane view answers "optimistic" for row.meta.label — the row's
+    // patch consumer must see the same in-flight state.
+    expect(untrackRead(() => state.row.meta.label)).toBe("optimistic");
+    expect(log[log.length - 1]).toBe("optimistic");
+    resolve();
+    await p;
+    flush();
+  });
+});
+
+describe("INVARIANT: demotion fanout is per-entry isolated (round 10)", () => {
+  it("a throwing demoted body neither blocks siblings nor loses them", async () => {
+    const { resetErrorHalt } = await import("../../src/core/scheduler.js");
+    const [state, setState] = createStore<any>({ user: { id: 1, name: "a" } });
+    const log: string[] = [];
+    let phase = "mount";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      // Entry A: throws once demotion re-drives it post-accessor.
+      registerPatch(state.user, (next: any) => {
+        if (phase === "demoted") throw new Error("body A blew up");
+        log.push("A:" + next.name);
+      });
+      // Entry B: healthy sibling.
+      registerPatch(state.user, (next: any) => log.push("B:" + next.name));
+    });
+    phase = "demoted";
+    // Accessor arrives through the trap — the whole channel demotes and
+    // every entry re-drives as a tracked effect.
+    setState((s: any) => {
+      Object.defineProperty(s.user, "flair", {
+        get() {
+          return s.user.name + "!";
+        },
+        configurable: true,
+        enumerable: true
+      });
+    });
+    try {
+      flush();
+    } catch {
+      /* A's unboundaried throw surfaces at flush — expected */
+    }
+    resetErrorHalt();
+    const bCount = log.filter(l => l.startsWith("B:")).length;
+    // B was re-driven despite A's throw…
+    expect(bCount).toBeGreaterThan(0);
+    // …and stays LIVE: a later write still updates it.
+    setState((s: any) => {
+      s.user.name = "later";
+    });
+    try {
+      flush();
+    } catch {
+      /* A throws again as a live effect — isolation, not silence */
+    }
+    resetErrorHalt();
+    expect(log).toContain("B:later");
+    dispose();
+  });
+});
+
+describe("INVARIANT: the deferred-demotion latch cannot outlive its consumers (round 10)", () => {
+  it("unbinding the last consumer clears the latch; a stale latch never demotes a later plain consumer", async () => {
+    const { $TARGET } = await import("../../src/store/store.js");
+    const [state, setState] = createStore<any>({ user: { name: "a" } });
+    let unbind!: () => void;
+    createRoot(() => {
+      unbind = registerPatch(state.user, () => {}) as () => void;
+    });
+    const pc = (state.user as any)[$TARGET].pc;
+    // Simulate the tentative gate marking the channel for its CURRENT
+    // consumers (the getter-bearing optimistic view path).
+    pc.dmq = true;
+    // (1) The latch leaves WITH the consumers.
+    unbind();
+    expect(pc.dmq).toBe(false);
+    // (2) A latch re-armed during the consumer-less window (any residue
+    // path) cannot be inherited: a registration that STARTS a consumer
+    // list opens a fresh generation.
+    pc.dmq = true;
+    const log: Array<[string, boolean | undefined]> = [];
+    createRoot(() => {
+      registerPatch(state.user, (next: any, _p: any, force?: boolean) =>
+        log.push([next.name, force])
+      );
+    });
+    expect(pc.dmq).toBe(false);
+    setState((s: any) => {
+      s.user.name = "updated";
+    });
+    flush();
+    // A demoted channel would null pc.p and re-drive through effects; a
+    // live patch delivers the plain update to a populated consumer list.
+    expect(log.some(([v]) => v === "updated")).toBe(true);
+    expect(pc.p).not.toBe(null);
+    const { patchCountForTests } = await import("../../src/store/next/patch.js");
+    expect(patchCountForTests()).toBeGreaterThan(0);
+  });
+});

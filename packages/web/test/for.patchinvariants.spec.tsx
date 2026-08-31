@@ -10,15 +10,18 @@
  */
 import { describe, expect, test, beforeEach, afterEach } from "vitest";
 import {
+  createMemo,
+  createRenderEffect,
   createRoot,
   createSignal,
   createStore,
   flush,
   For,
+  Loading,
   reconcile,
   resetErrorHalt
 } from "solid-js";
-import { patchDriver, rowProof } from "@solidjs/web";
+import { patchDriver, render, rowProof } from "@solidjs/web";
 
 interface Row {
   id: number;
@@ -496,6 +499,196 @@ describe("INVARIANT: a body's declared read envelope is honored at EVERY depth a
     setDep("sig-b2");
     flush();
     expect(text.data).toBe("sig-b2");
+    dispose();
+  });
+});
+
+describe("INVARIANT: mount, delivery, and swap all answer ONE visibility question (round 10)", () => {
+  test("a deep-path template mounting after a child-subject adoption shows the adopted state", () => {
+    const [state, setState] = createStore<any>({ row: { meta: { id: 1, label: "A" } } });
+    // Child-subject reconcile: the walk swaps meta's backing (adoption) while
+    // the ancestor row has NO consumer — its committed raw slot may lag.
+    setState((s: any) => {
+      reconcile({ id: 1, label: "B" }, "id")(s.row.meta);
+    });
+    flush();
+    const text = document.createTextNode("");
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      patchDriver(
+        state.row,
+        (n: any, p: any, f?: boolean) => {
+          if (f || n.meta.label !== p.meta.label) text.data = n.meta.label;
+        },
+        ["meta.label"]
+      );
+    });
+    // The proxy answers "B" — the mount source must agree, with no pending
+    // bump left to paper over a stale initial render.
+    expect(text.data).toBe("B");
+    dispose();
+  });
+
+  test("value deliveries honor a collapsed reveal-order hold exactly like render effects", async () => {
+    const { createRevealOrder } = await import("solid-js");
+    const [state, setState] = createStore<any>({ row: { label: "v1" } });
+    const [gate, setGate] = createSignal(0);
+    const resolvers: Array<(v: string) => void> = [];
+    const classic = document.createTextNode("");
+    const patched = document.createTextNode("");
+    const div = document.createElement("div");
+    const disposer = render(() => {
+      const A = () => {
+        const data = createMemo(() => {
+          gate();
+          return new Promise<string>(r => resolvers.push(r));
+        });
+        return <span>{data()}</span>;
+      };
+      const B = () => {
+        createRenderEffect(
+          () => state.row.label,
+          (v: string) => {
+            classic.data = v;
+          }
+        );
+        patchDriver(
+          state.row,
+          (n: any, p: any, f?: boolean) => {
+            if (f || n.label !== p.label) patched.data = n.label;
+          },
+          ["label"]
+        );
+        return <span>b</span>;
+      };
+      return (createRevealOrder as any)(
+        () => (
+          <>
+            <Loading fallback={"fa"}>{<A />}</Loading>
+            <Loading fallback={"fb"}>{<B />}</Loading>
+          </>
+        ),
+        { order: () => "together" }
+      );
+    }, div);
+    resolvers.pop()!("d1");
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(classic.data).toBe("v1");
+    expect(patched.data).toBe("v1");
+    // Sibling A re-pends: "together" collapses BOTH queues while revealed
+    // content stays attached — the held window with visible DOM.
+    setGate(1);
+    flush();
+    setState((s: any) => {
+      s.row.label = "v2";
+    });
+    flush();
+    // PARITY is the invariant: whatever the held render effect shows, the
+    // patch sink shows. A patch racing ahead of a held classic binding is
+    // the round-10 finding.
+    if (process.env.DEBUG_HOLD) expect("held:" + classic.data + "|" + patched.data).toBe("PROBE");
+    expect([classic.data, patched.data]).toEqual([classic.data, classic.data]);
+    resolvers.pop()!("d2");
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(classic.data).toBe("v2");
+    expect(patched.data).toBe("v2");
+    disposer();
+  });
+
+  test("swapping to an already-optimistic list family shows in-flight rows", async () => {
+    const { createOptimisticStore, action } = await import("solid-js");
+    const [a] = (createOptimisticStore as any)({ rows: make(1, 2) });
+    const [b, setB] = (createOptimisticStore as any)({ rows: make(10, 11) });
+    let resolve!: () => void;
+    let save!: () => Promise<void> | void;
+    createRoot(() => {
+      save = (action as any)(function* () {
+        setB((s: any) => {
+          s.rows.push({ id: 12, label: "L12" });
+        });
+        yield new Promise<void>(r => {
+          resolve = r;
+        });
+      });
+    });
+    const p = save() as Promise<void>;
+    flush(); // append is in flight on family B
+    const [sel, setSel] = createRoot(() => createSignal(false));
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      const proofed = rowProof(buildRow);
+      <div ref={div}>
+        <For each={sel() ? b.rows : a.rows}>{proofed}</For>
+      </div>;
+      return d;
+    });
+    expect(labels(div)).toBe("L1,L2");
+    setSel(true); // swap to the family with an in-flight optimistic append
+    flush();
+    // The optimistic view of B is 10,11,12 — the swap must render it, not
+    // the committed backing.
+    expect(labels(div)).toBe("L10,L11,L12");
+    dispose();
+    resolve();
+    await p;
+    flush();
+  });
+
+  test("swapping between families sharing raw rows rebinds to the new family", async () => {
+    const { createOptimisticStore, untrack: ut } = await import("solid-js");
+    const raws = make(1, 2);
+    const [a] = (createOptimisticStore as any)({ rows: raws });
+    // Family B ingests A's ROW PROXIES verbatim (deep ingest stores them as
+    // given) — raw-identity retention collapses both families to the same
+    // raws, which is exactly the round-10 aliasing case.
+    const [b, setB] = (createOptimisticStore as any)({
+      rows: ut(() => (a as any).rows.map((r: any) => r))
+    });
+    const [sel, setSel] = createRoot(() => createSignal(false));
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      const proofed = rowProof(buildRow);
+      <div ref={div}>
+        <For each={sel() ? b.rows : a.rows}>{proofed}</For>
+      </div>;
+      return d;
+    });
+    expect(labels(div)).toBe("L1,L2");
+    const beforeRows = rows(div);
+    setSel(true); // same underlying rows, DIFFERENT family
+    flush();
+    // Family changed: retention by raw identity would keep family-A rows
+    // (and their A-channel registrations) under the B subject — the swap
+    // must REBUILD, binding rows to the family that will actually emit.
+    // (Direct setter writes on optimistic stores outside an action revert
+    // by design, so the emission oracle below rides an action.)
+    expect(rows(div)[0]).not.toBe(beforeRows[0]);
+    expect(labels(div)).toBe("L1,L2");
+    // Structure through family B reaches the swapped list in flight.
+    const { action } = await import("solid-js");
+    let resolveB!: () => void;
+    let push!: () => Promise<void> | void;
+    createRoot(() => {
+      push = (action as any)(function* () {
+        setB((s: any) => {
+          s.rows.push({ id: 3, label: "L3" });
+        });
+        yield new Promise<void>(r => {
+          resolveB = r;
+        });
+      });
+    });
+    const pb = push() as Promise<void>;
+    flush();
+    expect(labels(div)).toBe("L1,L2,L3");
+    resolveB();
+    await pb;
+    flush();
     dispose();
   });
 });

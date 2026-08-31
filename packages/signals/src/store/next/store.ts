@@ -155,13 +155,13 @@ export function pcOf(t: StoreNextTarget): PatchChannel {
       p: null,
       ro: null,
       wk: null,
-      qa: null,
-      qe: null,
-      qo: null,
-      qeo: null,
-      qf: null,
-      qfo: null,
       dn: null,
+      de: undefined,
+      dv: 0,
+      bc: 0,
+      np: undefined,
+      npb: 0,
+      dmq: false,
       ak: null,
       dp: null,
       ks: false,
@@ -692,9 +692,21 @@ export function adoptPB(
   target.sc = false;
   target.a = false;
   if (target.pc !== null) target.pc.wk = null; // adoption supersedes staged trap writes
+  const old = target.v;
   target.v = incoming;
   target.ch = (incoming as any)[$TARGET] !== undefined;
   (target.fam?.map ?? storeNextLookup).set(incoming, target);
+  // Eager path copying (round 10, P1-1): a child-subject adoption is
+  // immediately visible to every reader — including a LATER mount reading
+  // the ANCESTOR's committed raw. The fold drain path-copies for queued
+  // adoptions; the eager walk (which skips the queue by design) must do
+  // the same, or the ancestor's raw slot serves the outgoing backing with
+  // no pending delivery to correct it.
+  if (eager && target.u !== null && target.u.v[target.pk!] === old) {
+    privatizeCommitted(target.u);
+    devAssertNeverUserMutation(target.u.v);
+    target.u.v[target.pk!] = incoming;
+  }
   if (__TEST__ && ingestedRaw && !ownedRaw.has(incoming)) ingestedRaw.add(incoming);
 }
 
@@ -1122,10 +1134,19 @@ function notifyWrites(t: StoreNextTarget): void {
     t.v = pb;
     t.ch = false;
     // Node delivery: post-await landings commit HERE (no fold pass) — bump
-    // post-swap so the delivery reads landed truth.
-    if (t.pc !== null && patchHooks !== null && (t.pc.p !== null || t.pc.dn !== null)) {
-      if (targetKeysPlain(t, t.v)) patchHooks.emitPatch(t, t.v, oldBacking);
-      else patchHooks.demoteToEffects(t);
+    // post-swap so the delivery reads landed truth. The landed target may
+    // have NO channel of its own (round 10, P1-2) — ancestors' compiled
+    // bodies still read into it through nested chains, so the seam always
+    // reaches the bubbling primitive: emitPatch bubbles internally, and the
+    // demote/channel-less branches bubble explicitly.
+    if (patchHooks !== null) {
+      if (t.pc !== null && (t.pc.p !== null || t.pc.dn !== null)) {
+        if (targetKeysPlain(t, t.v)) patchHooks.emitPatch(t, t.v, oldBacking);
+        else {
+          patchHooks.demoteToEffects(t);
+          patchHooks.emitPatchAncestors(t);
+        }
+      } else patchHooks.emitPatchAncestors(t);
     }
     if (t.u && t.u.v[t.pk!] === oldBacking) {
       privatizeCommitted(t.u);
@@ -2152,6 +2173,16 @@ export function storeHasFamily(proxy: any): boolean {
 export function storeHasOptimisticFamily(proxy: any): boolean {
   const t: StoreNextTarget | undefined = proxy?.[$TARGET];
   return t !== undefined && t.fam?.opt === true;
+}
+
+/** Family identity token for list retention (round 10, P1-7): two families
+ * can wrap the SAME raw rows, and retention keyed on raw identity alone
+ * keeps the old family's DOM and registrations across a subject swap.
+ * `null` = the global (family-less) namespace, where one raw maps to one
+ * proxy and raw-identity retention is exact. */
+export function storeFamilyOf(proxy: any): unknown {
+  const t: StoreNextTarget | undefined = proxy?.[$TARGET];
+  return t !== undefined ? (t.fam ?? null) : null;
 }
 
 /** Tracking deep snapshot (`deep()` for next targets): subscribes to the

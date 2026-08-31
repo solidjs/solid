@@ -65,37 +65,25 @@ export interface PatchChannel {
   /** Patch-channel consumers (next/patch.ts): per-record compiled patch
    * entries, multi-consumer. null when unpatched (the common case). */
   p: object[] | null;
-  /** Same-batch coalescing stamp (re-audit 2/3): the container array this
-   * channel last pushed a non-forced SELF entry into, plus that entry. A
-   * later same-batch emission UPDATES the queued entry's `next` in place
-   * (latest state wins — adoption REPLACES the captured object, so dropping
-   * the later emission would apply stale state) while `prev` stays the
-   * batch's earliest. The drain clears both stamps so a quiet record
-   * retains nothing from its last batch. */
-  qa: unknown;
-  qe: unknown;
-  /** Optimistic-container stamp pair (re-audit 7, P2-3): the lane queue
-   * coalesces independently — sharing qa/qe let an interleaved optimistic
-   * emission destroy the normal stamp and queue a duplicate application. */
-  qo: unknown;
-  qeo: unknown;
-  /** Forced-bubble coalescing stamps (re-audit 8, P2-7): the container this
-   * channel last pushed a FORCED (ancestor) entry into — normal/held (qf)
-   * and optimistic (qfo). One forced re-apply per container per batch. */
-  qf: unknown;
-  qfo: unknown;
   /** Node delivery: bare per-record version signal — bumped at the
    * emission seams, tracked by the channel's delivery effect. */
   dn: unknown;
-  /** Delivery-effect root disposer (created with the first entry, disposed
-   * with the last). */
-  de?: (() => void) | undefined;
+  /** The detached delivery-effect NODE (round 10 shape cleanup): built by
+   * the first consumer-visible bump, never disposed — persistence rule in
+   * bumpOne. `undefined` doubles as the "never built" sentinel. */
+  de?: object | undefined;
   /** Last dispatched bump count (the pure-registration flush skips). */
   dv?: number;
   /** Synchronous bump counter (dedup; the signal is pure notification). */
   bc?: number;
-  /** Manifest-shaped prev snapshot for exact compares. */
-  pv?: unknown;
+  /** Payload fast path: a self emission's fresh raw state, valid only
+   * while `npb === bc` (any later bump or revert invalidates it). */
+  np?: unknown;
+  npb?: number;
+  /** Deferred-demotion latch: a tentative getter-bearing view marked the
+   * channel; the delivery effect consumes it in clean effect context.
+   * Cleared with the consumers it belonged to (round 10, P2). */
+  dmq?: boolean;
   /** Accessed-key set for the channel's compiled bodies (union across
    * registrations). Compiler-manifested registrations (re-audit 7, P1-1)
    * hand the STATIC read envelope — complete across branches the applies

@@ -17,6 +17,7 @@ import {
   registerSlotPatch,
   runWithOwner,
   sharedConfig,
+  storeFamilyOf,
   storeHasOptimisticFamily,
   storeIsShallow,
   untrack,
@@ -543,7 +544,21 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
           lateClassic?.();
           return;
         }
-        const swapOps = identityOps(nextRaw);
+        // The swap builds from the VISIBLE array (round 10, P1-6): an
+        // optimistic family's committed raw lags in-flight overrides — the
+        // same proxy read initial engagement uses. And retention requires
+        // FAMILY identity (round 10, P1-7): two families can wrap the same
+        // raws, but the retained rows' registrations belong to the OLD
+        // family — matching raw identity across families keeps DOM bound to
+        // channels the new subject never emits on. A family change rebuilds
+        // every row.
+        const nextVisible = storeHasOptimisticFamily(value)
+          ? (untrack(() => Array.from(value as any)) as any[])
+          : nextRaw;
+        const sameFamily = storeFamilyOf(value) === storeFamilyOf(subject);
+        const swapOps = sameFamily
+          ? identityOps(nextVisible)
+          : { prefix: 0, sources: nextVisible.map(() => -1) };
         subject = value;
         // Register the NEW subject's channels BEFORE applying (re-audit 5,
         // P2-6): a throwing row build mid-swap must leave the list
@@ -554,7 +569,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
           unbindSlots = runWithOwner(listOwner, () =>
             registerSlotPatch(subject, applySlot)
           ) as () => void;
-        applyOps(nextRaw, swapOps);
+        applyOps(nextVisible, swapOps);
       }
     )
   );
@@ -602,7 +617,10 @@ export const patchDriver = (subject, body, keys?: string[]) => {
       // optimistic-family records the committed raw lags live overrides —
       // a mount after the lane drain must match its siblings, so it reads
       // through the PROXY (untracked; the raw fast path stays for plain
-      // records).
+      // records). Deep-path staleness (round 10, P1-1) is repaired at the
+      // SOURCE: eager child adoptions path-copy the ancestor chain, so the
+      // committed raw a mount reads is always current — a proxy read here
+      // wrapped every nested object per row (+8 ms dbmon mount).
       if (!sharedConfig.hydrating) {
         const src = storeHasOptimisticFamily(subject) ? subject : raw;
         untrack(() => body(src, undefined, true));
