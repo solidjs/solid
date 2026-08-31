@@ -2305,6 +2305,41 @@ export async function handleServerFunctionRequest(request, options = {}) {
   const protectsRequest =
     csrf !== false &&
     (!declaredRead || (typeof csrf === "object" && csrf.protectDeclaredReads === true));
+  // Labelled (#3110): the address is well-formed but its id is not part of
+  // this deployment — the wire shape of version skew (a tab holding the
+  // previous build's ids) or a genuinely removed function. Without the
+  // label this 404 is indistinguishable from a CDN's or a proxy's, and the
+  // one recovery that works — reload onto the current build — cannot be
+  // targeted.
+  //
+  // Answered BEFORE the origin gate, deliberately (#3136). A removed id is
+  // not in METHODS, so it can no longer be recognised as a declared read
+  // and the gate fired on it — hiding the label behind a 403 from exactly
+  // the callers that carry no fetch metadata (a CDN revalidating a
+  // declared read, a monitor, a server-to-server client; Node's fetch
+  // sends none of the three headers the gate reads). Nothing is registered
+  // at an unknown id, so the gate has nothing there to protect, and the
+  // ids themselves are public by construction: the compiler emits them
+  // into the shipped client bundle. The lookup is a side-effect-free Map
+  // read, so nothing user-authored runs earlier than it did. The
+  // meaningless-path 404 below stays bare and stays gated: a mistyped
+  // route is not skew.
+  let serverFunction;
+  if (functionId) {
+    try {
+      serverFunction = getServerFunction(functionId);
+    } catch {
+      // no Vary: the answer does not depend on origin proof, so it must
+      // not fragment shared-cache entries on it
+      return finalizeTransportResponse(
+        new Response(DEV ? `Unknown server function: ${functionId}` : null, {
+          status: 404,
+          headers: { [UNKNOWN_HEADER]: "true" }
+        }),
+        method
+      );
+    }
+  }
   if (protectsRequest && !(await allowsServerFunctionRequest(request, csrf === true ? {} : csrf))) {
     return finalizeTransportResponse(forbiddenResponse(), method);
   }
@@ -2324,24 +2359,6 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // instance header does not shape the answer; it still identifies the
   // call (invocation context, no-JS gating).
   const scripted = address.data;
-
-  let serverFunction;
-  try {
-    serverFunction = getServerFunction(functionId);
-  } catch {
-    // Labelled (#3110): the address is well-formed but its id is not part
-    // of this deployment — the wire shape of version skew (a tab holding
-    // the previous build's ids) or a genuinely removed function. Without
-    // the label this 404 is indistinguishable from a CDN's or a proxy's,
-    // and the one recovery that works — reload onto the current build —
-    // cannot be targeted. The meaningless-path 404 above stays bare: a
-    // mistyped route is not skew.
-    const response = new Response(DEV ? `Unknown server function: ${functionId}` : null, {
-      status: 404,
-      headers: { [UNKNOWN_HEADER]: "true" }
-    });
-    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
-  }
 
   // Method allowlist: POST always dispatches (the default transport);
   // GET and HEAD dispatch only to functions that declared GET (the server

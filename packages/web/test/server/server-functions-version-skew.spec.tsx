@@ -75,6 +75,28 @@ describe("version skew on the wire (#3110)", () => {
     expect(wire.headers.get(UNKNOWN_HEADER)).toBe("true");
   });
 
+  it("labels it for a caller that sends no fetch metadata (#3136)", async () => {
+    // The label is the recovery signal, and the callers that most need it
+    // are exactly the ones outside a browser's fetch: a CDN revalidating a
+    // GET-declared read, an uptime monitor, a server-to-server client.
+    // None of them send `Sec-Fetch-Site`, and a removed id is not in
+    // METHODS, so it cannot be recognised as a declared read — the CSRF
+    // gate answered first with a 403 and the skew was invisible, reading
+    // as auth/WAF in the edge logs. Nothing can execute at an unknown id,
+    // so there is nothing there for the gate to protect, and the ids were
+    // never secret: the compiler ships them in the client bundle.
+    for (const path of ["/_server/getUser-c8cb6025", "/_server/data/getUser-c8cb6025"]) {
+      const wire = await handleServerFunctionRequest(
+        new Request(`https://app.example${path}`, { method: "GET" })
+      );
+      expect(wire.status).toBe(404);
+      expect(wire.headers.get(UNKNOWN_HEADER)).toBe("true");
+      // and it does not depend on origin proof, so it does not fragment
+      // shared-cache entries on it
+      expect(wire.headers.get("Vary")).toBeNull();
+    }
+  });
+
   it("leaves the meaningless-path 404 bare", async () => {
     for (const path of ["/_server/", "/_server/data/", "/_server/data/x/y"]) {
       const wire = await handleServerFunctionRequest(post(path));
