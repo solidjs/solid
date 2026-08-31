@@ -37,7 +37,7 @@ pub use compiler::{CompileOptions, CompileOutput, Generate, Renderer, Syntax, Wr
 pub use error::{CompileError, CompileErrorKind};
 #[cfg(feature = "tsrx")]
 pub use tsrx::{
-    TsrxEmbeddedRegion, TsrxEmbeddedRegionKind, TsrxTypecheckProjection,
+    TsrxEmbeddedRegion, TsrxEmbeddedRegionKind, TsrxTypecheckMapping, TsrxTypecheckProjection,
     TsrxTypecheckProjectionOptions, project_tsrx_for_typecheck,
 };
 

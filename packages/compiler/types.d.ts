@@ -67,11 +67,22 @@ export interface TsrxTypecheckEmbeddedRegion {
   content: string;
 }
 
+export interface TsrxTypecheckMapping {
+  /** Authored JavaScript string offset in UTF-16 code units. */
+  sourceStart: number;
+  /** Generated JavaScript string offset in UTF-16 code units. */
+  generatedStart: number;
+  sourceLength: number;
+  generatedLength: number;
+}
+
 export interface TsrxTypecheckProjectionResult {
   /** Valid post-semantic-rewrite TypeScript/TSX. */
   code: string;
   /** JSON source map from virtual TSX back to the authored `.tsrx` source. */
   map: string;
+  /** Exact equal-text ranges suitable for editor feature mappings. */
+  mappings: TsrxTypecheckMapping[];
   css: string;
   cssHash: string | null;
   embeddedRegions: TsrxTypecheckEmbeddedRegion[];

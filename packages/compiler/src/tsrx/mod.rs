@@ -22,7 +22,7 @@ mod tooling;
 
 pub use project::Projection;
 pub use tooling::{
-    TsrxEmbeddedRegion, TsrxEmbeddedRegionKind, TsrxTypecheckProjection,
+    TsrxEmbeddedRegion, TsrxEmbeddedRegionKind, TsrxTypecheckMapping, TsrxTypecheckProjection,
     TsrxTypecheckProjectionOptions, project_tsrx_for_typecheck,
 };
 

@@ -41,6 +41,7 @@ function projectTsrxForTypecheck(code, options) {
   return {
     code: result.code,
     map: result.map,
+    mappings: result.mappings,
     css: result.css,
     cssHash: result.cssHash ?? null,
     embeddedRegions: result.embeddedRegions

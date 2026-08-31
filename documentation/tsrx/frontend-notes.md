@@ -52,8 +52,11 @@ versioned paths:
    Generated control-flow and dynamic-element helpers receive collision-safe
    imports, so the projection can be checked directly under the host project's
    Solid JSX configuration.
-   It deliberately does not implement Volar's rich segment mappings; a future
-   adapter must preserve those mappings rather than approximate them.
+   It also returns exact equal-text authored/generated ranges. The
+   `@tsrx/solid` adapter attaches Volar capabilities to those fail-closed
+   ranges and retains its parser AST for document symbols; older compiler
+   releases and incomplete documents continue through the legacy projection
+   until native editor parity is complete.
 3. `@tsrx/oxc` projects authored TSRX for Oxlint/Oxfmt and maps diagnostics and
    safe fixes back to authored ranges.
 

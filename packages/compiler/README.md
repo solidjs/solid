@@ -99,7 +99,7 @@ Destructured bindings in keyed `@for` loops and `@catch` clauses stay deferred a
 
 The frontend uses the community [oxc-tsrx](https://github.com/tsrx-org/oxc) parser at a pinned revision. Statement containers can be used as function bodies, statements, expressions (`const x = @{ … }`), and JSX children or expression containers. See `documentation/tsrx/frontend-notes.md` in the repository for the full frontend notes.
 
-`projectTsrxForTypecheck(source, { filename })` is an experimental compiler-owned projection for editor and typecheck integrations. It returns independently typecheckable post-rewrite TSX without running the DOM/SSR/universal transforms, injecting collision-safe imports for generated Solid control-flow and dynamic-element helpers. The result also includes an authored `.tsrx` source map, processed `css`/`cssHash`, and parser-authored embedded CSS/raw-script regions. Embedded offsets use JavaScript UTF-16 string coordinates. This is a generic compiler API, not a Volar mapping adapter.
+`projectTsrxForTypecheck(source, { filename })` is an experimental compiler-owned projection for editor and typecheck integrations. It returns independently typecheckable post-rewrite TSX without running the DOM/SSR/universal transforms, injecting collision-safe imports for generated Solid control-flow and dynamic-element helpers. The result also includes an authored `.tsrx` source map, exact equal-text `mappings`, processed `css`/`cssHash`, and parser-authored embedded CSS/raw-script regions. Mapping and embedded offsets use JavaScript UTF-16 string coordinates. The ranges deliberately omit generated-only text; host adapters such as Volar attach feature capabilities to them.
 
 ### Source maps
 

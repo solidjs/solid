@@ -36,9 +36,21 @@ pub struct TsrxTypecheckEmbeddedRegion {
 
 #[cfg(feature = "tsrx")]
 #[napi(object)]
+pub struct TsrxTypecheckMapping {
+    /// Authored JavaScript string offset in UTF-16 code units.
+    pub source_start: u32,
+    /// Generated JavaScript string offset in UTF-16 code units.
+    pub generated_start: u32,
+    pub source_length: u32,
+    pub generated_length: u32,
+}
+
+#[cfg(feature = "tsrx")]
+#[napi(object)]
 pub struct TsrxTypecheckProjectionResult {
     pub code: String,
     pub map: String,
+    pub mappings: Vec<TsrxTypecheckMapping>,
     pub css: String,
     pub css_hash: Option<String>,
     pub embedded_regions: Vec<TsrxTypecheckEmbeddedRegion>,
@@ -59,6 +71,33 @@ pub fn project_tsrx_for_typecheck(
         },
     )
     .map_err(|error| Error::from_reason(error.to_string()))?;
+    let source_mapping_endpoints = output
+        .mappings
+        .iter()
+        .flat_map(|mapping| [mapping.source_start, mapping.source_start + mapping.length])
+        .collect::<Vec<_>>();
+    let generated_mapping_endpoints = output
+        .mappings
+        .iter()
+        .flat_map(|mapping| {
+            [
+                mapping.generated_start,
+                mapping.generated_start + mapping.length,
+            ]
+        })
+        .collect::<Vec<_>>();
+    let source_mapping_utf16 = utf16_offsets(&code, &source_mapping_endpoints)?;
+    let generated_mapping_utf16 = utf16_offsets(&output.code, &generated_mapping_endpoints)?;
+    let mappings = source_mapping_utf16
+        .chunks_exact(2)
+        .zip(generated_mapping_utf16.chunks_exact(2))
+        .map(|(source, generated)| TsrxTypecheckMapping {
+            source_start: source[0],
+            generated_start: generated[0],
+            source_length: source[1] - source[0],
+            generated_length: generated[1] - generated[0],
+        })
+        .collect();
     let endpoints = output
         .embedded_regions
         .iter()
@@ -85,6 +124,7 @@ pub fn project_tsrx_for_typecheck(
     Ok(TsrxTypecheckProjectionResult {
         code: output.code,
         map: output.source_map,
+        mappings,
         css: output.css,
         css_hash: output.css_hash,
         embedded_regions,

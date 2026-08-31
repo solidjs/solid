@@ -19,6 +19,7 @@ use super::{
     project::Projection,
     run_frontend,
     semantic::{EmbeddedKind as SemanticEmbeddedKind, EmbeddedRegion as SemanticEmbeddedRegion},
+    source_map,
 };
 use crate::{CompileError, shared::ast_builder::AstBuilder};
 
@@ -57,11 +58,23 @@ pub struct TsrxEmbeddedRegion {
     pub content: String,
 }
 
+/// Exact equal-text range between authored TSRX and generated virtual TSX.
+///
+/// Rust offsets and lengths are UTF-8 bytes. Host adapters must convert both
+/// coordinate spaces to their native string-offset domain.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TsrxTypecheckMapping {
+    pub source_start: u32,
+    pub generated_start: u32,
+    pub length: u32,
+}
+
 /// Owned post-rewrite virtual TSX and its authored sidecars.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TsrxTypecheckProjection {
     pub code: String,
     pub source_map: String,
+    pub mappings: Vec<TsrxTypecheckMapping>,
     pub css: String,
     pub css_hash: Option<String>,
     pub embedded_regions: Vec<TsrxEmbeddedRegion>,
@@ -69,8 +82,9 @@ pub struct TsrxTypecheckProjection {
 
 /// Project authored TSRX into valid post-rewrite TSX for typechecking tools.
 ///
-/// This unstable API uses the same semantic IR, text projection, projected
-/// TSX parser, and lazy/accessor rewrite helpers as [`crate::compile`].
+/// This unstable API shares the compiler-owned semantic IR with
+/// [`crate::compile`], then deliberately emits and parses an independently
+/// typecheckable TSX projection for TypeScript-based tooling.
 pub fn project_tsrx_for_typecheck(
     source: &str,
     options: &TsrxTypecheckProjectionOptions,
@@ -90,11 +104,26 @@ pub fn project_tsrx_for_typecheck(
     let intermediate = build.map.as_ref().ok_or_else(|| {
         CompileError::transform("TSRX typecheck projection did not produce a source map")
     })?;
+    let mappings = source_map::exact_mappings(
+        intermediate,
+        &projection.source_map,
+        &projection.text,
+        source,
+        &build.code,
+    )
+    .into_iter()
+    .map(|mapping| TsrxTypecheckMapping {
+        source_start: mapping.authored_start,
+        generated_start: mapping.generated_start,
+        length: mapping.length,
+    })
+    .collect();
     let source_map = compose_source_map(intermediate, &projection, source, filename);
 
     Ok(TsrxTypecheckProjection {
         code: build.code,
         source_map,
+        mappings,
         css: projection.css,
         css_hash: projection.css_hash,
         embedded_regions: collect_embedded_regions(source, &projection.embedded_regions)?,

@@ -15,6 +15,13 @@ struct ProjectionSegment {
     authored_start: u32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct ExactMapping {
+    pub authored_start: u32,
+    pub generated_start: u32,
+    pub length: u32,
+}
+
 /// Exact affine ranges copied from authored TSRX into projected TSX.
 #[derive(Debug)]
 pub(super) struct ProjectionMap {
@@ -64,6 +71,108 @@ impl ProjectionMap {
         (projected_offset < segment.projected_end)
             .then(|| segment.authored_start + projected_offset - segment.projected_start)
     }
+
+    fn authored_run(&self, projected_offset: u32) -> Option<(u32, u32)> {
+        let index = self
+            .segments
+            .partition_point(|segment| segment.projected_start <= projected_offset);
+        let segment = self.segments.get(index.checked_sub(1)?)?;
+        (projected_offset < segment.projected_end).then(|| {
+            (
+                segment.authored_start + projected_offset - segment.projected_start,
+                segment.projected_end - projected_offset,
+            )
+        })
+    }
+}
+
+/// Return exact equal-text runs between generated TSX and authored TSRX.
+///
+/// Source-map points delimit generated token runs, while [`ProjectionMap`]
+/// limits each candidate to one affine authored range. Comparing the bytes
+/// before publishing a run keeps the editor mapping fail-closed across
+/// compiler-created helpers, reordered controls, and normalized trivia.
+pub(super) fn exact_mappings(
+    intermediate: &SourceMap<'_>,
+    projection: &ProjectionMap,
+    projected_source: &str,
+    authored_source: &str,
+    generated_source: &str,
+) -> Vec<ExactMapping> {
+    #[derive(Clone, Copy)]
+    struct Point {
+        generated: u32,
+        projected: Option<u32>,
+    }
+
+    let generated_lines = LineOffsets::new(generated_source);
+    let projected_lines = LineOffsets::new(projected_source);
+    let mut points = Vec::new();
+    for token in intermediate.get_tokens() {
+        let Some(generated) =
+            generated_lines.byte_offset(token.get_dst_line(), token.get_dst_col())
+        else {
+            continue;
+        };
+        let projected = token
+            .get_source_id()
+            .and_then(|_| projected_lines.byte_offset(token.get_src_line(), token.get_src_col()));
+        points.push(Point {
+            generated,
+            projected,
+        });
+    }
+
+    let mut mappings: Vec<ExactMapping> = Vec::new();
+    for (index, point) in points.iter().enumerate() {
+        let Some(projected) = point.projected else {
+            continue;
+        };
+        let Some((authored_start, authored_run)) = projection.authored_run(projected) else {
+            continue;
+        };
+        let generated_end = points
+            .get(index + 1)
+            .map_or(generated_source.len() as u32, |next| next.generated);
+        if generated_end <= point.generated {
+            continue;
+        }
+        let maximum = authored_run
+            .min(generated_end - point.generated)
+            .min(authored_source.len() as u32 - authored_start)
+            .min(generated_source.len() as u32 - point.generated);
+        let authored = &authored_source.as_bytes()
+            [authored_start as usize..(authored_start + maximum) as usize];
+        let generated = &generated_source.as_bytes()
+            [point.generated as usize..(point.generated + maximum) as usize];
+        let mut length = authored
+            .iter()
+            .zip(generated)
+            .take_while(|(authored, generated)| authored == generated)
+            .count() as u32;
+        while length > 0
+            && (!authored_source.is_char_boundary((authored_start + length) as usize)
+                || !generated_source.is_char_boundary((point.generated + length) as usize))
+        {
+            length -= 1;
+        }
+        if length == 0 {
+            continue;
+        }
+        if let Some(previous) = mappings.last_mut()
+            && previous.authored_start + previous.length == authored_start
+            && previous.generated_start + previous.length == point.generated
+        {
+            previous.length += length;
+        } else {
+            mappings.push(ExactMapping {
+                authored_start,
+                generated_start: point.generated,
+                length,
+            });
+        }
+    }
+    mappings
 }
 
 /// Compose an Oxc JavaScript → projected-TSX map into a JavaScript → authored-
@@ -269,5 +378,38 @@ mod tests {
         assert_eq!(tokens[3].get_source_id(), None);
         assert_eq!(composed.get_names().collect::<Vec<_>>(), vec!["name"]);
         assert_eq!(composed.get_source_content(0), Some(authored));
+    }
+
+    #[test]
+    fn exact_mappings_publish_only_equal_affine_runs() {
+        let projected = "name GENERATED value";
+        let authored = "name @{ value";
+        let generated = "name;\nhelper();\nvalue";
+        let mut projection = ProjectionMap::new(true);
+        projection.record_verbatim(0, 0, 5);
+        projection.record_verbatim(15, 8, 13);
+
+        let mut intermediate = SourceMapBuilder::default();
+        let projected_id = intermediate.set_source_and_content("input.tsrx", projected);
+        intermediate.add_token(0, 0, 0, 0, Some(projected_id), None);
+        intermediate.add_token(0, 4, 0, 5, None, None);
+        intermediate.add_token(2, 0, 0, 15, Some(projected_id), None);
+        let intermediate = intermediate.into_sourcemap();
+
+        assert_eq!(
+            exact_mappings(&intermediate, &projection, projected, authored, generated),
+            vec![
+                ExactMapping {
+                    authored_start: 0,
+                    generated_start: 0,
+                    length: 4,
+                },
+                ExactMapping {
+                    authored_start: 8,
+                    generated_start: 16,
+                    length: 5,
+                },
+            ]
+        );
     }
 }
