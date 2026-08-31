@@ -801,6 +801,84 @@ describe("INVARIANT: demotion fanout is per-entry isolated (round 10)", () => {
   });
 });
 
+describe("INVARIANT: the demoted fallback effect lives and dies with its consumer (round 10.8)", () => {
+  it("unbind after demotion disposes the live fallback effect", async () => {
+    const [dep, setDep] = createRoot(() => createSignal("d1"));
+    const [state, setState] = createStore<any>({ user: { name: "a" } });
+    const log: string[] = [];
+    let unbind!: () => void;
+    createRoot(() => {
+      unbind = registerPatch(state.user, (n: any) => log.push(n.flair ?? n.name)) as () => void;
+    });
+    setState((s: any) => {
+      Object.defineProperty(s.user, "flair", {
+        get() {
+          return dep();
+        },
+        configurable: true,
+        enumerable: true
+      });
+    });
+    flush();
+    const before = log.length;
+    setDep("d2");
+    flush();
+    // The fallback is a LIVE tracked effect…
+    expect(log.length).toBeGreaterThan(before);
+    expect(log[log.length - 1]).toBe("d2");
+    unbind();
+    const after = log.length;
+    setDep("d3");
+    flush();
+    // …and unbind DISPOSES it: no application, no surviving subscription.
+    expect(log.length).toBe(after);
+  });
+
+  it("a compute-phase throw routes per-entry — sibling installation is never halted", async () => {
+    const { resetErrorHalt } = await import("../../src/core/scheduler.js");
+    const [state, setState] = createStore<any>({ user: { id: 1, name: "a" } });
+    const log: string[] = [];
+    let phase = "mount";
+    createRoot(() => {
+      // A throws ONLY in the tracked compute pass (force !== true) — the
+      // path that previously escaped per-entry capture and halted through
+      // the effect's own error machinery during creation/scheduling.
+      registerPatch(state.user, (next: any, _p: any, force?: boolean) => {
+        if (phase === "demoted" && force !== true) throw new Error("compute boom");
+        log.push("A:" + next.name);
+      });
+      registerPatch(state.user, (next: any) => log.push("B:" + next.name));
+    });
+    phase = "demoted";
+    setState((s: any) => {
+      Object.defineProperty(s.user, "extra", {
+        get() {
+          return 1;
+        },
+        configurable: true,
+        enumerable: true
+      });
+    });
+    try {
+      flush();
+    } catch {
+      /* deferred unboundaried halt — expected */
+    }
+    resetErrorHalt();
+    expect(log.filter(l => l.startsWith("B:")).length).toBeGreaterThan(0);
+    setState((s: any) => {
+      s.user.name = "later";
+    });
+    try {
+      flush();
+    } catch {
+      /* A's compute throws again — isolation, not silence */
+    }
+    resetErrorHalt();
+    expect(log).toContain("B:later");
+  });
+});
+
 describe("INVARIANT: the deferred-demotion latch cannot outlive its consumers (round 10)", () => {
   it("unbinding the last consumer clears the latch; a stale latch never demotes a later plain consumer", async () => {
     const { $TARGET } = await import("../../src/store/store.js");

@@ -29,7 +29,7 @@ import {
 import { ext, read as readSignal, setSignal, signal } from "../../core/core.js";
 import { StatusError } from "../../core/error.js";
 import { haltReactivity } from "../../core/scheduler.js";
-import { getOwner, isDisposed } from "../../core/owner.js";
+import { createRoot, getOwner, isDisposed } from "../../core/owner.js";
 import {
   activeTransition,
   currentTransition,
@@ -80,6 +80,9 @@ interface PatchEntry {
    * becoming an effect) but NOT user-unbound — the redrive installs it;
    * `u` alone means the consumer left and cancels even a queued redrive. */
   dm?: boolean;
+  /** Fallback-effect disposer (round 10.8): the re-drive's root — unbind
+   * calls it so the demoted effect dies with its consumer. */
+  dd?: () => void;
   /** Registrant's owner queue (round 10, P1-4): dispatch defers this entry
    * into it while a boundary hold is active — render-effect parity. */
   q?: unknown;
@@ -890,6 +893,10 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
     if (unbound) return;
     unbound = true;
     (entry as any).u = true; // dispatch snapshots skip severed consumers
+    // A demoted entry's fallback EFFECT dies with its consumer (round
+    // 10.8, P2): queued (held) or live, unbind disposes its root — it
+    // neither applies at release nor stays subscribed.
+    (entry as any).dd?.();
     // Decrement ONLY on actual removal: a demotion (demoteToEffects) may
     // have already pulled this entry and repaired the count — the splice
     // miss is how this closure learns that.
@@ -1069,26 +1076,35 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
       // in-flight, and deferral would postpone the tentative view).
       const oq = entry.q as any;
       const held = heldProbe !== null && oq != null && oq !== globalQueue && heldProbe(oq);
+      // COMPUTE throws are captured PER ENTRY (round 10.8, P1): a throwing
+      // getter in the tracked pass would otherwise route through the
+      // effect's own error machinery — an unboundaried one calls
+      // haltReactivity DURING creation/scheduling, poisoning the system
+      // before held healthy siblings ever release (the outer try/catch
+      // only sees the rethrow, too late). Reads before the throw stay
+      // tracked; unhandled errors defer one halt a phase later, after the
+      // fanout — the dispatch loop's exact contract.
+      const captured = (run: () => void) => {
+        try {
+          run();
+        } catch (err) {
+          if (!routeEntryError(entry, err)) {
+            const e = err;
+            globalQueue.enqueue(EFFECT_USER, () => {
+              haltReactivity(e);
+              throw e;
+            });
+          }
+        }
+      };
       // FIRST scheduled run is per-entry isolated (round 10.7, P1): the
-      // queued initial applies run back-to-back at release — an
-      // unboundaried throw from one must not abort the queue before its
-      // healthy siblings install (the same contract the immediate path's
-      // creation try/catch pins). Later runs keep classic effect error
-      // semantics.
+      // queued initial applies run back-to-back at release. Later runs
+      // keep classic effect error semantics.
       let first = held;
       const commit = () => {
         if (first) {
           first = false;
-          try {
-            untrack(() => fn(proxy, undefined, true));
-          } catch (err) {
-            if (!routeEntryError(entry, err)) {
-              globalQueue.enqueue(EFFECT_USER, () => {
-                haltReactivity(err);
-                throw err;
-              });
-            }
-          }
+          captured(() => untrack(() => fn(proxy, undefined, true)));
           return;
         }
         // Block body: a compiled patch body's return value must not be
@@ -1096,14 +1112,24 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
         untrack(() => fn(proxy, undefined, true));
       };
       try {
+        // OWN ROOT per re-driven entry (round 10.8, P2): the entry's
+        // unbind disposes it — an explicit unbind after the fallback
+        // effect exists (queued OR live) cancels the effect and its
+        // subscriptions, instead of leaving it applying until the OWNER
+        // dies (this also retires the round-8 "demoted list rows outlive
+        // removal" accepted edge for driver rows, whose per-row unbinds
+        // run on removal).
         runWithOwner(entry.owner, () =>
-          createRenderEffect(
-            () => {
-              fn(proxy, proxy, false);
-            },
-            commit,
-            held ? { schedule: true } : undefined
-          )
+          createRoot(d => {
+            (entry as any).dd = d;
+            createRenderEffect(
+              () => {
+                captured(() => fn(proxy, proxy, false));
+              },
+              commit,
+              held ? { schedule: true } : undefined
+            );
+          })
         );
       } catch (err) {
         if (!routeEntryError(entry, err) && firstError === UNSET) firstError = err;

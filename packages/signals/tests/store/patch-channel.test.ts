@@ -526,9 +526,7 @@ describe("patch channel (re-audit hardening)", () => {
       });
     });
     flush();
-    // Demotion repaired the count; the late unbind is inert (no negative).
-    expect(patchCountForTests()).toBe(base);
-    unbind();
+    // Demotion repaired the count; the late unbind stays count-neutral.
     expect(patchCountForTests()).toBe(base);
     expect(log[log.length - 1]).toBe("b:10");
     // The getter's OUTSIDE dependency now re-applies — the exact divergence
@@ -536,6 +534,14 @@ describe("patch channel (re-audit hardening)", () => {
     setDep(11);
     flush();
     expect(log[log.length - 1]).toBe("b:11");
+    // Round 10.8: unbind DISPOSES the fallback effect (it dies with its
+    // consumer — the old "late unbind is inert" edge is retired).
+    unbind();
+    expect(patchCountForTests()).toBe(base);
+    const settled = log.length;
+    setDep(12);
+    flush();
+    expect(log.length).toBe(settled);
     dispose();
   });
 

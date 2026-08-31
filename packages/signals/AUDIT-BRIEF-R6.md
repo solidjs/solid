@@ -1,5 +1,24 @@
 # Audit brief — rounds 6–9 + patch-mode default flip + node delivery
 
+## Round 10.8 FIXES (2026-08-31) — scheduled demotion-effect lifecycle (audit PASSED)
+
+- **P1 compute capture**: the re-drive's TRACKED pass is wrapped per
+  entry — a throwing getter routes to the entry's boundary (reads before
+  the throw stay tracked) instead of halting through the effect's own
+  error machinery during creation/scheduling, which poisoned the system
+  before held siblings released. Unhandled errors defer one halt after
+  the fanout, the dispatch contract.
+- **P2 unbind disposes the fallback**: each re-driven entry owns a ROOT
+  (`entry.dd`); unbind disposes it — queued or live, the demoted effect
+  neither applies at release nor stays subscribed. This RETIRES the
+  round-8 accepted edge (demoted list rows outliving removal): driver
+  per-row unbinds now sever demoted bodies too. The round-6 "late unbind
+  is inert" expectation updated to the new contract.
+- Worth-it ledger (same runtime, same fixture, patchDriver off vs on):
+  classic 15.1 / 7.9 / 1.2 (mount/tick/partial) vs patch 6.6 / 2.1 / 0.6
+  — 2.3× / 3.8× / 2× on dbmon. Size: value tier +3.4 kB brotli over the
+  no-store CSR floor, list driver +2.6 kB on top.
+
 ## Round 10.7 FIXES (2026-08-31) — stamps, held fanout, unbind-cancel + THE HOLD REPRO
 
 - **P1 stamp retention + P2 merge dedup** (one mechanism): dedup stamps
