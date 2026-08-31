@@ -312,8 +312,14 @@ module.exports = [
     // The #3108 truth-author fix (88fa9d64, optimistic module) plus the
     // refresh() quiescence promise (51ffcb9a, settle walk) — this scenario
     // retains every store family, so it pays both. Drift, not a regression.
+    //
+    // Transaction-lifecycle fixes (2026-08-31): 26.1 -> 26.15 KB, measured at
+    // 26.12. #3141 (initTransition guarantees a flush) and #3140 (commit
+    // clears _transition stamps; initTransition refuses a done transaction)
+    // — ~25 B of scheduler prod code for an ambient-capture fix and a
+    // prod-hang fix. The other nine budgets absorbed it within headroom.
     path: "hydrating-store-app.js",
-    limit: "26.1 KB",
+    limit: "26.15 KB",
     modifyEsbuildConfig
   },
   {

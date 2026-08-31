@@ -672,8 +672,17 @@ export class GlobalQueue extends Queue {
     return false;
   }
   initTransition(transition?: Transition | null): void {
-    if (transition) transition = currentTransition(transition);
-    if (transition && transition === activeTransition) return;
+    if (transition) {
+      transition = currentTransition(transition);
+      // A finished transaction cannot be re-entered: its state is committed
+      // or reverted, so "rejoining" it (A26) is meaningless and re-activating
+      // it spins the drain loop (#3140). The refusal must be a bare return —
+      // redirecting the caller to a fresh batch would re-arm the loop with a
+      // new transaction identity each pass. Stamps are cleared at commit, so
+      // this is a belt for paths that hand over a chased-dead reference
+      // (merged chains, async settles racing completion).
+      if (transition._done === true || transition === activeTransition) return;
+    }
     if (!transition && activeTransition && activeTransition._time === clock) return;
     if (!activeTransition) {
       activeTransition = transition ?? createBatch();
@@ -730,8 +739,14 @@ export class GlobalQueue extends Queue {
 }
 
 export function queuePendingNode(node: Signal<any>): void {
+  if (__DEV__) lastStagedNodeName = (node as any)._name ?? null;
   currentBatch._pendingNodes.push(node);
 }
+
+// Dev-only attribution for the flush loop guard (#3140): when the guard
+// trips, naming what the loop kept chewing on lets the app author attribute
+// the runaway without patching dist.
+let lastStagedNodeName: string | null = null;
 
 // Sticky: flips true on the first refresh() ever (the only setter of
 // REACTIVE_REASK) so the hot notification loop skips the per-subscriber flag
@@ -854,6 +869,12 @@ function commitPendingNodes() {
   for (let i = 0; i < pendingNodes.length; i++) {
     const node = pendingNodes[i];
     commitPendingNode(node);
+    // The stamp dies with the commit (#3143) — symmetric with
+    // resolveOptimisticNodes clearing optimistic stamps. A stamp outliving
+    // its transaction let any later write (even a value-equal no-op, which
+    // re-opens before the equality bail) resurrect the finished transaction;
+    // a boundary flag rewritten every finalize pass then spun the drain loop
+    // forever (#3140).
     node._transition = null;
   }
   pendingNodes.length = 0;
@@ -1029,7 +1050,22 @@ export function flush<T>(fn?: () => T): T | void {
   // `flush()` is an explicit drain point, so it must also process an active
   // transition even if no microtask was scheduled for it yet.
   while (scheduled || activeTransition) {
-    if (__DEV__ && ++count === 1e5) throw new Error("Potential Infinite Loop Detected.");
+    if (__DEV__ && ++count === 1e5) {
+      // Attribution beats a bare guard (#3140): say what kept the loop alive.
+      // A completed transition being re-activated reads `done=true` here —
+      // the corpse-revival signature — while application-driven runaways
+      // (#2843) usually show staged work naming the culprit node.
+      const t = activeTransition as any;
+      throw new Error(
+        `Potential Infinite Loop Detected. Kept alive by ${
+          scheduled ? "scheduled work" : "an active transition"
+        }${
+          t
+            ? `; transition: done=${t._done === true}, pending=${t._pendingNodes.length}, optimistic=${t._optimisticNodes.length}, asyncReporters=${t._asyncReporters.size}`
+            : ""
+        }${lastStagedNodeName ? `; last staged node: ${lastStagedNodeName}` : ""}`
+      );
+    }
     globalQueue.flush();
   }
 }
