@@ -28,7 +28,7 @@ A `Signal`/`Computed` participating in async/transitions carries:
 | `_latestValueComputed` | Lazily-created companion: shadow computed for `latest()` | `getLatestValueComputed`, written via `syncCompanions` |
 | `_parentSource` | Companion → owner backlink (also store leaf → firewall chains) | companion creation |
 | `_optimisticLane` | Lane this node currently belongs to | `assignOrMergeLane`, cleared by `resolveLane` (stale), `resolveOptimisticNodes`, `cleanupCompletedLanes` |
-| `_transition` | Transition holding this node's pending state | `initTransition`, `reassignPendingTransition`, cleared by `resolveOptimisticNodes` |
+| `_transition` | Transition holding this node's pending state | `initTransition`, `reassignPendingTransition`, cleared by `resolveOptimisticNodes` and the `commitPendingNodes` loop (#3140/#3143: a stamp never outlives its transaction — a committed value needs no affiliation, and a dangling stamp let any later write, even a value-equal no-op, resurrect the finished transaction; `initTransition` refuses `_done === true` as the belt) |
 
 Semantics of the `(_pendingValue, _overrideValue)` pair for an optimistic node
 (see §5e — revert targets were eliminated 2026-07-07):
