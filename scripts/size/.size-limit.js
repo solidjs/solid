@@ -505,10 +505,11 @@ module.exports = [
     // Verified via metafile that the bundle is still exactly the two dist
     // files (no seroval creep — the regression this scenario guards).
     //
-    // Typed preload links: 11.1 -> 11.28 KB, measured at 11.269. Frames now
-    // preserve request metadata, adopt matching document links, and retain
-    // every late root asset record for mounts that register after the
-    // stream arrives.
+    // Typed preload links: 11.06 -> 11.27 KB measured on the rc.5 base
+    // (~210 B). Frames now preserve request metadata (ensurePreload +
+    // qualifier-aware head matching), adopt matching document links, and
+    // retain every late root asset record for mounts that register after
+    // the stream arrives.
     path: "../../packages/web/frames/dist/client.js",
     limit: "11.30 KB",
     modifyEsbuildConfig: framesEsbuildConfig

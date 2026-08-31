@@ -20,7 +20,13 @@ export type PreloadLink = {
   media?: string;
 };
 
-/** Static asset manifest produced by a build (e.g. parsed Vite manifest.json). */
+/**
+ * Static asset graph consumed by the SSR pipeline. This is Solid's own
+ * contract — a parsed Vite client manifest satisfies it structurally
+ * (unknown fields pass through untyped), but any bundler integration can
+ * produce it. Only these fields are ever read: `preloads` is Solid's
+ * extension slot for explicit typed links the integration selects.
+ */
 export type AssetManifest = Record<
   string,
   {
