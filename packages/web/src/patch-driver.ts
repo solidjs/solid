@@ -642,21 +642,12 @@ export const patchDriver = (subject, body, keys?: string[]) => {
         untrack(() => body(src, undefined, true));
       }
       unbind = registerPatch(subject, body, keys);
-    } else if (!sharedConfig.hydrating) {
-      // Manifest-less callers (hand-written registrations): record the
-      // EXECUTED read set through the initial force-apply. Incomplete for
-      // branch-reading bodies by construction — compiled output always
-      // ships the manifest.
-      const rkeys = new Set();
-      const rec = new Proxy(raw, {
-        get(o, k, r) {
-          rkeys.add(k);
-          return Reflect.get(o, k, r);
-        }
-      });
-      body(rec, undefined, true);
-      unbind = registerPatch(subject, body, rkeys);
     } else {
+      // Manifest-less callers (hand-written registrations; size pass): no
+      // read-set recording — registration poisons the channel's key union
+      // (`akAll`) and adoption probes full-scan. Compiled output always
+      // ships the manifest, so only hand-written callers pay wider probes.
+      if (!sharedConfig.hydrating) body(raw, undefined, true);
       unbind = registerPatch(subject, body);
     }
     if (rowCollector !== null) rowCollector.unbinds.push(unbind);

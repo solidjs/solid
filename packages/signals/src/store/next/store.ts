@@ -167,6 +167,7 @@ export function pcOf(t: StoreNextTarget): PatchChannel {
       ak: null,
       dp: null,
       ks: false,
+      akAll: false,
       t
     })
   );
@@ -457,7 +458,10 @@ export function targetIsPlain(target: StoreNextTarget): boolean {
  * applied) get a full fresh scan of the same object. */
 export function targetKeysPlain(target: StoreNextTarget, next: Record<PropertyKey, any>): boolean {
   if (!isPlainProto(next)) return false;
-  const ak = target.pc !== null ? target.pc.ak : null;
+  // akAll (size pass): a manifest-less consumer's reads are unknowable —
+  // the union is poisoned and every probe FULL-SCANS (replaces the
+  // drain-side recording proxy; compiled output always ships manifests).
+  const ak = target.pc !== null && target.pc.akAll !== true ? target.pc.ak : null;
   if (ak === null) {
     for (const key of Reflect.ownKeys(next)) {
       if (lookupGetter.call(next, key) !== undefined || lookupSetter.call(next, key) !== undefined)
@@ -479,11 +483,16 @@ export function targetKeysPlain(target: StoreNextTarget, next: Record<PropertyKe
  * delivery to correct it. Deep paths get the same probe inside
  * deepPathsPlain; this covers the `dp === null` direct-object manifests.
  * Primitive values skip on a typeof; proxies are always current. */
-export function rootKeysCurrent(t: StoreNextTarget, view: any, keys: PropertyKey[]): boolean {
+export function rootKeysCurrent(
+  t: StoreNextTarget,
+  view: any,
+  keys: PropertyKey[] | null
+): boolean {
   if (view === null || typeof view !== "object") return true;
   const map = t.fam?.map ?? storeNextLookup;
-  for (let i = 0; i < keys.length; i++) {
-    const v = (view as any)[keys[i]];
+  const ks = keys ?? Reflect.ownKeys(view); // null = full scan (akAll channels)
+  for (let i = 0; i < ks.length; i++) {
+    const v = (view as any)[ks[i]];
     if (v !== null && typeof v === "object" && (v as any)[$TARGET] === undefined) {
       const ct = map.get(v);
       if (ct !== undefined && (ct.pb ?? ct.v) !== v) return false;

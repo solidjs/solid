@@ -405,7 +405,10 @@ module.exports = [
     // Measured 16.15.
     path: "csr-app-patch.js",
     // Round-10.7: canonical txn stamps + once-guarded held redrives. 16.22.
-    limit: "16.3 KB",
+    // Size pass (2026-08-31): recording proxy deleted (akAll full-scan),
+    // applyEntries single-mode, deferHalt/routeEntryError consolidation.
+    // Measured 16.05 — ratchet tightened.
+    limit: "16.15 KB",
     modifyEsbuildConfig
   },
   {
@@ -445,7 +448,8 @@ module.exports = [
     // Measured 18.66.
     path: "csr-app-patch-lists.js",
     // Round-10.7: same bytes as the value tier. 18.79.
-    limit: "18.85 KB",
+    // Size pass (2026-08-31): same trims. Measured 18.60 — tightened.
+    limit: "18.7 KB",
     modifyEsbuildConfig
   },
   {

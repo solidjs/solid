@@ -73,9 +73,6 @@ interface PatchEntry {
   owner: Owner | null;
   /** Unbound mark: dispatch snapshots skip severed consumers. */
   u?: boolean;
-  /** Keys recorded (adoption demotion probes); undefined = record at the
-   * next drain apply. */
-  k?: boolean;
   /** Demoted mark (round 10.7): severed from PATCH dispatch (the body is
    * becoming an effect) but NOT user-unbound — the redrive installs it;
    * `u` alone means the consumer left and cancels even a queued redrive. */
@@ -180,26 +177,13 @@ function applyStructural(item: QueuedApply, next: any, firstError: unknown): unk
       if (item.si !== undefined) entry.fn(item.si, next, item.prev);
       else entry.fn(next, item.ops);
     } catch (err) {
-      let handled = false;
-      const owner = entry.owner as any;
-      if (owner !== null) {
-        let source = owner;
-        while (source !== null && source._fn === undefined) source = source._parent;
-        source ??= owner;
-        const statusErr = new StatusError(source, err);
-        ext(source)._error = statusErr;
-        source._statusFlags = (source._statusFlags ?? 0) | STATUS_ERROR;
-        handled = owner._queue.notify(source, STATUS_ERROR, STATUS_ERROR, statusErr);
-      }
-      if (!handled && firstError === UNSET) firstError = err;
+      if (!routeEntryError(entry as any, err) && firstError === UNSET) firstError = err;
     }
   }
   return firstError;
 }
 
 const UNSET: unique symbol = Symbol();
-/** Sentinel: applyEntries resolves prev per entry (node delivery). */
-const PER_ENTRY_PREV: unique symbol = Symbol();
 
 /** ONE callback/error primitive for every drain (normal, transition-held,
  * optimistic): per-entry isolation — a throwing patch must not abort its
@@ -219,13 +203,8 @@ function deferHeldEntry(entry: PatchEntry, oq: any, pc: any): void {
     entry.hq = false;
     if (entry.u === true || entry.dm === true) return;
     if (entry.owner !== null && isDisposed(entry.owner)) return;
-    const err = applyEntries([entry], visibleView(pc.t, pc), PER_ENTRY_PREV, false, UNSET, pc);
-    if (err !== UNSET) {
-      globalQueue.enqueue(EFFECT_USER, () => {
-        haltReactivity(err);
-        throw err;
-      });
-    }
+    const err = applyEntries([entry], visibleView(pc.t, pc), UNSET, pc);
+    if (err !== UNSET) deferHalt(err);
   });
 }
 
@@ -247,24 +226,27 @@ function routeEntryError(entry: PatchEntry, err: unknown): boolean {
   return owner._queue.notify(source, STATUS_ERROR, STATUS_ERROR, statusErr) as boolean;
 }
 
-function applyEntries(
-  list: PatchEntry[],
-  next: any,
-  prev: any,
-  force: boolean,
-  firstError: unknown,
-  pc?: { ak: PropertyKey[] | null }
-): unknown {
+/** One deferred unboundaried halt, a phase after the fanout it must not
+ * abort (the round-2 channel contract, shared by every dispatch shape). */
+function deferHalt(err: unknown): void {
+  globalQueue.enqueue(EFFECT_USER, () => {
+    haltReactivity(err);
+    throw err;
+  });
+}
+
+function applyEntries(list: PatchEntry[], next: any, firstError: unknown, pc: any): unknown {
   // SNAPSHOT multi-consumer lists (re-audit 5, P1-3): a callback can dispose
   // a sibling's owner, whose unbind SPLICES this same array mid-iteration —
   // index-walking the live array skips the shifted consumer. The dominant
   // single-consumer case pays nothing; unbound entries are marked so a
   // snapshot never applies a consumer severed by an earlier callback.
-  const snap = list.length > 1 ? list.slice() : list;
   // FIXED WINDOW (re-audit 6, P2-4): the single-consumer fast path aliases
   // the live list — a callback registering ANOTHER patch mid-dispatch must
   // not run it in this same drain (it just received its initial apply).
+  const snap = list.length > 1 ? list.slice() : list;
   const len = snap.length;
+  const heldProbe = GlobalQueue._queueHeld;
   for (let j = 0; j < len; j++) {
     const entry = snap[j];
     if (entry === undefined || entry.u === true || entry.dm === true) continue;
@@ -274,47 +256,20 @@ function applyEntries(
     // holding queue (pending Loading / collapsed reveal) defers exactly
     // like the render effect it replaced — the entry re-applies FROM ITS
     // OWN QUEUE at release, reading the visible state of that moment.
-    if (prev === PER_ENTRY_PREV) {
-      const heldProbe = GlobalQueue._queueHeld;
-      const oq = entry.q as any;
-      if (heldProbe !== null && oq != null && oq !== globalQueue && heldProbe(oq)) {
-        deferHeldEntry(entry, oq, pc as any);
-        continue;
-      }
+    const oq = entry.q as any;
+    if (heldProbe !== null && oq != null && oq !== globalQueue && heldProbe(oq)) {
+      deferHeldEntry(entry, oq, pc);
+      continue;
     }
     try {
-      // First-apply key recording (re-audit 6): entries registered without a
-      // recorded read set (hydration skips the initial apply) record here —
-      // one proxied apply per entry lifetime keeps the adoption demotion
-      // gate prod-sound for them too.
-      if (pc !== undefined && entry.k !== true && next !== null && typeof next === "object") {
-        entry.k = true;
-        ensureOwnedKeys(pc as any); // interned manifests are copy-on-write
-        const ak = (pc.ak ??= []);
-        const rec = new Proxy(next as object, {
-          get(o, key, r) {
-            if (ak.indexOf(key) === -1) ak.push(key);
-            return Reflect.get(o, key, r);
-          }
-        });
-        entry.fn(rec, prev === PER_ENTRY_PREV ? (entry as any).pv : prev, force);
-        if (prev === PER_ENTRY_PREV) {
-          const px = (pc as any).t?.px;
-          (entry as any).pv = next === px ? untrack(() => manifestSnapshot(pc as any, next)) : next;
-        }
-      } else {
-        const ep = prev === PER_ENTRY_PREV ? (entry as any).pv : prev;
-        // A consumer whose baseline never materialized (projection backing
-        // absent at registration) takes its first delivery FORCED — there
-        // is nothing to compare against, and compiled bodies only tolerate
-        // an undefined prev under force.
-        if (ep == null && prev === PER_ENTRY_PREV) entry.fn(next, undefined, true);
-        else entry.fn(next, ep, force);
-        if (prev === PER_ENTRY_PREV) {
-          const px = (pc as any).t?.px;
-          (entry as any).pv = next === px ? untrack(() => manifestSnapshot(pc as any, next)) : next;
-        }
-      }
+      const ep = entry.pv;
+      // A consumer whose baseline never materialized (projection backing
+      // absent at registration) takes its first delivery FORCED — there is
+      // nothing to compare against, and compiled bodies only tolerate an
+      // undefined prev under force.
+      if (ep == null) entry.fn(next, undefined, true);
+      else entry.fn(next, ep, false);
+      entry.pv = next === pc.t?.px ? untrack(() => manifestSnapshot(pc, next)) : next;
     } catch (err) {
       if (!routeEntryError(entry, err) && firstError === UNSET) firstError = err;
     }
@@ -406,10 +361,8 @@ export function emitPatchAncestorsOptimistic(t: StoreNextTarget, _tx: unknown): 
 
 /** Historically the "walk handled my ancestors" emission — round 10 made
  * bubbling primitive-owned (pending-dedup makes the redundant walk free),
- * so this is emitPatch: no seam gets to skip ancestors. */
-export function emitPatchLocal(t: StoreNextTarget, next: any, prev: any): void {
-  emitPatch(t, next, prev);
-}
+ * so this IS emitPatch: no seam gets to skip ancestors. */
+export const emitPatchLocal = emitPatch;
 
 /** Optimistic-channel emission: overrides are visible THIS flush while the
  * transaction is in flight — that is what optimism means. These ride a
@@ -791,7 +744,12 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
         // Direct object-valued root keys (round 10.6, P1): same currency
         // rule for `dp === null` manifests — a stale alias slot serves the
         // outgoing object raw; demote so the body reads through the proxy.
-        if (!npHit && pc.ak !== null && !rootKeysCurrent(t, heldMaskView(t) ?? t.v, pc.ak)) {
+        // akAll channels (manifest-less consumers) full-scan.
+        if (
+          !npHit &&
+          (pc.ak !== null || pc.akAll === true) &&
+          !rootKeysCurrent(t, heldMaskView(t) ?? t.v, pc.akAll === true ? null : pc.ak)
+        ) {
           demoteToEffects(t, true);
           return;
         }
@@ -799,17 +757,13 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
         pc.np = undefined;
         const snap = p.length > 1 ? p.slice() : p;
         let firstError: unknown = UNSET;
-        firstError = applyEntries(snap, next, PER_ENTRY_PREV, false, firstError, pc);
+        firstError = applyEntries(snap, next, firstError, pc);
         if (firstError !== UNSET) {
           // CHANNEL CONTRACT (round-2 pin): every healthy patch applies
           // before an unboundaried error crashes the system. A raw rethrow
           // here would halt sibling channels' render-phase effects — defer
           // the halt one phase so the flush still throws, after siblings.
-          const err = firstError;
-          globalQueue.enqueue(EFFECT_USER, () => {
-            haltReactivity(err);
-            throw err;
-          });
+          deferHalt(firstError);
         }
       }
     );
@@ -867,7 +821,14 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
     } else {
       unionKeys(pc, keys);
     }
-    entry.k = true; // read envelope known — no drain-side recording
+  } else {
+    // MANIFEST-LESS consumer (hand-written registerPatch; size pass): the
+    // read set is unknowable, so adoption gates FULL-SCAN this channel
+    // (`akAll` poisons the key union — a partial ak from a manifested
+    // sibling must not narrow probes below this consumer's reads). This
+    // replaced the drain-side recording proxy: compiled output always
+    // ships manifests, so only hand-written callers pay the wider probe.
+    pc.akAll = true;
   }
   patchCount++;
   // NO delivery machinery here (mount pass): the signal + effect are built
@@ -1088,13 +1049,7 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
         try {
           run();
         } catch (err) {
-          if (!routeEntryError(entry, err)) {
-            const e = err;
-            globalQueue.enqueue(EFFECT_USER, () => {
-              haltReactivity(e);
-              throw e;
-            });
-          }
+          if (!routeEntryError(entry, err)) deferHalt(err);
         }
       };
       // FIRST scheduled run is per-entry isolated (round 10.7, P1): the
@@ -1135,13 +1090,7 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
         if (!routeEntryError(entry, err) && firstError === UNSET) firstError = err;
       }
     }
-    if (firstError !== UNSET) {
-      const err = firstError;
-      globalQueue.enqueue(EFFECT_USER, () => {
-        haltReactivity(err);
-        throw err;
-      });
-    }
+    if (firstError !== UNSET) deferHalt(firstError);
   };
   if (immediate) redrive();
   else globalQueue.enqueue(EFFECT_RENDER, redrive);
