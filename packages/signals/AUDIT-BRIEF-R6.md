@@ -1,4 +1,58 @@
-# Audit brief — rounds 6–9 + patch-mode default flip
+# Audit brief — rounds 6–9 + patch-mode default flip + node delivery
+
+## Round 10 — node-delivery architecture (SUPERSEDES value-queue delivery)
+
+Branch `patch-node-delivery-proto`. Value patches no longer ride bespoke
+queues: each channel owns one version SIGNAL (`pc.dn`) bumped at emission
+seams and ONE detached render effect that dispatches every consumer with a
+per-entry `prev` baseline. Transitions, holds, lanes, merges, and mount
+order are scheduler-owned by construction. Structural (row-ops/slot) queues
+are unchanged from rounds 6–9. The following round-9 mechanisms are
+RETIRED — findings against them are moot: generation/`cm` skip rules,
+`qa/qe/qo/qeo` value stamps and `clearStamp`, drain-side accessor probes
+(`deepProbeFails`/`optProbeFails`), `forcedNext`, value-entry transition
+merge repair (merge is now a plain structural move).
+
+### New seams (attack surface)
+
+1. **Lazy machinery creation** (`bumpDelivery`): signal + effect are built
+   at the first consumer-visible emission, skipped iff machinery was never
+   built AND `pc.p === null`. Soundness pin: once built, NEVER torn down —
+   a held write bumping during an unbound window must deliver to a
+   consumer registering before the settle. Never-built channels skip
+   silently (registration `pv` baselines reflect prior writes).
+2. **Never-dispose persistence**: last unbind only nulls `pc.p`; the node
+   takes the inert return on later bumps; re-registrations reuse it;
+   reclamation is by record death (node↔signal cycle is GC-collectable).
+   Perf-over-memory ruling: ~200 B dormant per record outliving consumers.
+3. **`deliveryEffect` primitive** (core/effect.ts): detached single-source
+   effect — no root, no owner, created under `runWithOwner(null)` (global
+   queue). Initial run is a subscribe-only no-op (`bc === dv` guard).
+   Errors route per-entry to registrant owners inside the commit; an
+   unboundaried error defers `haltReactivity` one phase (siblings apply).
+4. **Payload fast path** (`pc.np`/`pc.npb`): self emissions stash raw next
+   state bc-tagged; deliveries read it raw, else resolve `visibleView`
+   (optimistic proxy / deep-path proxy / held mask / committed). A stash
+   without a bump (no-consumer window) can never false-match: `np` is only
+   served when `npb === bc` and any later bump increments `bc`.
+5. **Per-entry `pv` baselines**: REFERENCES to raw backings (adoption swaps
+   make them immutable); the in-place overlay fold clones just-in-time
+   (`prepareInPlaceFold`); optimistic views snapshot UNTRACKED through the
+   proxy. The compare IS the delivery decision — no counters.
+6. **Deferred demotion** (`pc.dmq`): tentative getter-bearing views mark
+   the channel; the delivery effect (clean, lane-timed context) runs
+   `demoteToEffects` so re-driven bodies subscribe correctly.
+
+### Evidence
+
+- Full gates green: 1,415 signals / 683 web / 352 SSR / 150 hydrate / 32
+  turbo tasks; every size scenario UNDER its channel-era limit (net
+  smaller: core −157 B, store tier −112 B, patchDriver tier −169 B).
+- Perf A/B vs the audited channel state (36d1d385), same session:
+  dbmon ties or wins every op (mount 6.4=6.4, tick 2.1<2.2, remount
+  4.6<5.0); jfb 10 ops parity; uibench 96 scenarios parity (34.4 vs 35.2
+  summed medians). Unmount bench column shown to be a concurrent-GC
+  write-barrier artifact, identical on both builds (design doc §22).
 
 ## Round 9 (response to the 11-finding audit)
 
