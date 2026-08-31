@@ -48,6 +48,7 @@ export type FrameChunk =
       modules?: string[];
       styles?: string[];
       inlineStyles?: { id: string; content?: string; attrs?: Record<string, string> }[];
+      preloads?: { href: string; attrs: Record<string, string> }[];
     }
   | { type: "slot"; id: string; version: number; key: string; args: Record<string, unknown> }
   | { type: "complete"; id: string; version: number }
@@ -745,7 +746,7 @@ class FrameImpl {
   #slotRegions = new Map();
   #slotResolvedRefs = new Map();
   #slotNodes = new Map();
-  #processedAssets = new Set();
+  #processedAssets = new WeakSet();
   // The pending re-check for adopt-time occurrences deferred on a
   // still-arriving args record (#2968 — see #syncSlots).
   #recordRefresh = null;
@@ -923,6 +924,7 @@ class FrameImpl {
     this.#revealed.clear();
     this.#fallbackShown.clear();
     this.#appliedHoles.clear();
+    this.#processedAssets = new WeakSet();
     this.#errorNotified = false;
     clearStreamRecords(this.#store, root);
   }
@@ -1014,16 +1016,19 @@ class FrameImpl {
       }
     }
 
-    // Module assets preload as soon as their record lands (the document
-    // behavior's analogue: <link rel="modulepreload"> so lazy components
-    // inside the frame don't waterfall). Styles are handled by the reveal
-    // gate; this pass is modules only, once per record.
+    // Root asset records reuse a store key, so consume them by identity.
+    // Styles remain owned by the reveal gate.
     for (const key in this.#store) {
-      if (this.#processedAssets.has(key) || !key.endsWith(":assets")) continue;
-      this.#processedAssets.add(key);
       const record = this.#store[key];
-      if (record && record.modules) {
+      if (!key.endsWith(":assets") || !record || this.#processedAssets.has(record)) {
+        continue;
+      }
+      this.#processedAssets.add(record);
+      if (record.modules) {
         for (const href of record.modules) ensureModulePreload(href);
+      }
+      if (record.preloads) {
+        for (const entry of record.preloads) ensurePreload(entry);
       }
     }
 
@@ -2040,12 +2045,32 @@ function parseFragment(html) {
 // registry later; the gate only needs "are this segment's stylesheets loaded,
 // and call me back when they settle".
 
+// Mirrors head.ts without importing it into the standalone frame client.
+const PRELOAD_QUALIFIERS = ["as", "crossorigin", "type", "media", "imagesrcset", "imagesizes"];
+
 /** Attribute-compared head lookup so href/id values never need escaping. */
-function findHeadElement(selector, attr, value) {
-  for (const node of document.head.querySelectorAll(selector)) {
-    if (node.getAttribute(attr) === value) return node;
+function findHeadElement(selector, attr, value, qualifiers) {
+  candidate: for (const node of document.head.querySelectorAll(selector)) {
+    if (node.getAttribute(attr) !== value) continue;
+    if (!qualifiers) return node;
+    for (let i = 0; i < PRELOAD_QUALIFIERS.length; i++) {
+      const name = PRELOAD_QUALIFIERS[i];
+      if (node.getAttribute(name) !== (qualifiers[name] ?? null)) continue candidate;
+    }
+    return node;
   }
   return null;
+}
+
+/** Ensure one typed preload exists, preserving request-qualifying attributes. */
+function ensurePreload(entry) {
+  const attrs = entry.attrs;
+  if (findHeadElement('link[rel="preload"]', "href", entry.href, attrs)) return;
+  const link = document.createElement("link");
+  link.rel = "preload";
+  for (const name in attrs) link.setAttribute(name, attrs[name]);
+  link.setAttribute("href", entry.href);
+  document.head.appendChild(link);
 }
 
 /**
@@ -2062,8 +2087,6 @@ function ensureStylesheet(entry, onSettle) {
   if (!link) {
     link = document.createElement("link");
     link.rel = "stylesheet";
-    // Fetch-metadata attributes (crossorigin, integrity, …) must be in place
-    // before the href assignment starts the request.
     if (typeof entry !== "string" && entry.attrs) {
       for (const name in entry.attrs) link.setAttribute(name, entry.attrs[name]);
     }

@@ -245,6 +245,15 @@ export function lazy<T extends Component<any>>(
           if (typeof css === "string") ctx.registerAsset!("style", css);
           else ctx.registerAsset!("inline-style", css);
         }
+        if (assets.preloads) {
+          for (let i = 0; i < assets.preloads.length; i++) {
+            const preload = assets.preloads[i];
+            const as = (preload as any)?.as;
+            if (!noHydrate || typeof as !== "string" || as.toLowerCase() !== "script") {
+              ctx.registerAsset!("preload", preload);
+            }
+          }
+        }
         if (!noHydrate) {
           for (let i = 0; i < assets.js.length; i++) ctx.registerAsset!("module", assets.js[i]);
           if (hydrationKey != null) ctx.registerModule?.(hydrationKey, assets.js[0]);
@@ -350,6 +359,15 @@ export function lazy<T extends Component<any>>(
         if (typeof css === "string") ctx.registerAsset!("style", css);
         else ctx.registerAsset!("inline-style", css);
       }
+      if (assets.preloads) {
+        for (let i = 0; i < assets.preloads.length; i++) {
+          const preload = assets.preloads[i];
+          const as = (preload as any)?.as;
+          if (!noHydrate || typeof as !== "string" || as.toLowerCase() !== "script") {
+            ctx.registerAsset!("preload", preload);
+          }
+        }
+      }
       // Hint-only: registerModule files the module into the serialized
       // hydration map, whose key only the render that creates it knows.
       if (!noHydrate)
@@ -407,6 +425,11 @@ export function lazy<T extends Component<any>>(
           // registration during render, so this access is the only signal
           // that the client will fetch these chunks.
           if (ctx.registerAsset) {
+            if (resolved.preloads) {
+              for (let i = 0; i < resolved.preloads.length; i++) {
+                ctx.registerAsset("preload", resolved.preloads[i]);
+              }
+            }
             for (let i = 0; i < resolved.js.length; i++)
               ctx.registerAsset("module", resolved.js[i]);
           }

@@ -24,7 +24,7 @@
  *   registerFragment resolve (post-flush)
  *                                     -> fragment(key, html, meta) -> [assets,] fragment [, reveal when eager]
  *   revealFragments / revealFallbacks -> reveal(keys, meta)        -> reveal
- *   registerAsset (post-flush)        -> asset(type, url)          -> assets
+ *   registerAsset (post-flush)        -> asset(type, value)        -> assets
  *   envelope completion               -> end()                     -> complete
  *   error paths (not yet routed)      -> error(id, err)            -> error
  *
@@ -170,6 +170,10 @@ export {
   ServerComponentPlugin
 } from "./frame-transport.js";
 
+function wirePreload(entry) {
+  return { href: entry.href, attrs: entry.attrs };
+}
+
 /**
  * The client-side `_$SC` registry as an idempotent expression: evaluates to
  * the registry, creating it only if absent. Idempotence matters — the
@@ -302,15 +306,23 @@ export function createFrameSink(emit, frame) {
       // Pre-flush assets (entry modules, hoisted boundary styles) are head
       // splices in the document sink; a frame carries them as an assets chunk
       // ahead of the shell html.
-      if (meta.preloads && meta.preloads.size) {
-        const styles = [];
-        const modules = [];
-        for (const url of meta.preloads) {
-          (url.endsWith(".css") ? styles : modules).push(url);
-        }
+      if ((meta.preloads && meta.preloads.size) || meta.preloadLinks) {
         const chunk = { type: "assets", id, version, key: "" };
-        if (styles.length) chunk.styles = styles;
-        if (modules.length) chunk.modules = modules;
+        if (meta.preloads && meta.preloads.size) {
+          const styles = [];
+          const modules = [];
+          for (const url of meta.preloads) {
+            (url.endsWith(".css") ? styles : modules).push(url);
+          }
+          if (styles.length) chunk.styles = styles;
+          if (modules.length) chunk.modules = modules;
+        }
+        if (meta.preloadLinks) {
+          chunk.preloads = [];
+          for (const entry of meta.preloadLinks) {
+            chunk.preloads.push(wirePreload(entry));
+          }
+        }
         emit(chunk);
       }
       emit({ type: "html", id, version, html });
@@ -415,13 +427,16 @@ export function createFrameSink(emit, frame) {
         emit(chunk);
       }
     },
-    asset(type, url) {
+    asset(type, value) {
       // Post-flush styles ride their fragment's assets chunk (fragment() gets
       // them via meta.styles) — same as the document sink, which only writes
       // style links on the fragment path. Emitting them here too would
       // duplicate, mis-keyed to the root.
-      if (type !== "module") return;
-      emit({ type: "assets", id, version, key: "", modules: [url] });
+      if (type === "module") {
+        emit({ type: "assets", id, version, key: "", modules: [value] });
+      } else if (type === "preload") {
+        emit({ type: "assets", id, version, key: "", preloads: [wirePreload(value)] });
+      }
     },
     end() {
       // The end-of-response latch: one final synchronous sweep so a commit

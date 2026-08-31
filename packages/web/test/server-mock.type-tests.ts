@@ -63,9 +63,17 @@ mutual<typeof rt.resolveSSRNode>(mock.resolveSSRNode, rt.resolveSSRNode);
 mutual<typeof rt.escape>(mock.escape, rt.escape);
 
 // Manifest option forms stay in lockstep.
+mutual<runtime.PreloadLink>(
+  null as unknown as mock.PreloadLink,
+  null as unknown as runtime.PreloadLink
+);
 mutual<runtime.AssetManifest>(
   null as unknown as mock.AssetManifest,
   null as unknown as runtime.AssetManifest
+);
+mutual<runtime.ResolvedAssets>(
+  null as unknown as mock.ResolvedAssets,
+  null as unknown as runtime.ResolvedAssets
 );
 mutual<runtime.AssetResolver>(
   null as unknown as mock.AssetResolver,

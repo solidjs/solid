@@ -1066,6 +1066,7 @@ export namespace JSX {
   type HTMLFormEncType = "application/x-www-form-urlencoded" | "multipart/form-data" | "text/plain";
   type HTMLFormMethod = "post" | "get" | "dialog";
   type HTMLCrossorigin = "anonymous" | "use-credentials" | EnumeratedAcceptsEmpty;
+  type HTMLFetchPriority = "high" | "low" | "auto";
   type HTMLReferrerPolicy =
     | "no-referrer"
     | "no-referrer-when-downgrade"
@@ -1091,19 +1092,8 @@ export namespace JSX {
     | "allow-top-navigation"
     | "allow-top-navigation-by-user-activation"
     | "allow-top-navigation-to-custom-protocols";
-  type HTMLLinkAs =
-    | "audio"
-    | "document"
-    | "embed"
-    | "fetch"
-    | "font"
-    | "image"
-    | "object"
-    | "script"
-    | "style"
-    | "track"
-    | "video"
-    | "worker";
+  type HTMLPreloadAs = "fetch" | "font" | "image" | "script" | "style" | "track";
+  type HTMLLinkAs = HTMLPreloadAs | "audio" | "document" | "embed" | "object" | "video" | "worker";
 
   interface AnchorHTMLAttributes<T> extends HTMLAttributes<T> {
     download?: FunctionMaybe<string | EnumeratedAcceptsEmpty | RemoveAttribute>;
@@ -1364,7 +1354,7 @@ export namespace JSX {
     browsingtopics?: FunctionMaybe<string | RemoveAttribute>;
     crossorigin?: FunctionMaybe<HTMLCrossorigin | RemoveAttribute>;
     decoding?: FunctionMaybe<"sync" | "async" | "auto" | RemoveAttribute>;
-    fetchpriority?: FunctionMaybe<"high" | "low" | "auto" | RemoveAttribute>;
+    fetchpriority?: FunctionMaybe<HTMLFetchPriority | RemoveAttribute>;
     height?: FunctionMaybe<number | string | RemoveAttribute>;
     ismap?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     loading?: FunctionMaybe<"eager" | "lazy" | RemoveAttribute>;
@@ -1520,7 +1510,7 @@ export namespace JSX {
     color?: FunctionMaybe<string | RemoveAttribute>;
     crossorigin?: FunctionMaybe<HTMLCrossorigin | RemoveAttribute>;
     disabled?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
-    fetchpriority?: FunctionMaybe<"high" | "low" | "auto" | RemoveAttribute>;
+    fetchpriority?: FunctionMaybe<HTMLFetchPriority | RemoveAttribute>;
     href?: FunctionMaybe<string | RemoveAttribute>;
     hreflang?: FunctionMaybe<string | RemoveAttribute>;
     imagesizes?: FunctionMaybe<string | RemoveAttribute>;
@@ -1715,7 +1705,7 @@ export namespace JSX {
     blocking?: FunctionMaybe<"render" | RemoveAttribute>;
     crossorigin?: FunctionMaybe<HTMLCrossorigin | RemoveAttribute>;
     defer?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
-    fetchpriority?: FunctionMaybe<"high" | "low" | "auto" | RemoveAttribute>;
+    fetchpriority?: FunctionMaybe<HTMLFetchPriority | RemoveAttribute>;
     for?: FunctionMaybe<string | RemoveAttribute>;
     integrity?: FunctionMaybe<string | RemoveAttribute>;
     nomodule?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
