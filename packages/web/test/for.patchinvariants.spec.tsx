@@ -531,20 +531,22 @@ describe("INVARIANT: mount, delivery, and swap all answer ONE visibility questio
   });
 
   test("value deliveries honor a collapsed reveal-order hold exactly like render effects", async () => {
+    // The auditor's hold composition (round 10.7): two sibling Loading
+    // boundaries under SEQUENTIAL reveal order with collapsed reveals —
+    // the first stays pending (the frontier), so the SECOND is a
+    // genuinely pending collapsed CollectionQueue holding its effects.
     const { createRevealOrder } = await import("solid-js");
     const [state, setState] = createStore<any>({ row: { label: "v1" } });
-    const [gate, setGate] = createRoot(() => createSignal(0));
-    const [coll, setColl] = createRoot(() => createSignal(false));
     const resolvers: Array<(v: string) => void> = [];
     const classic = document.createTextNode("");
     const patched = document.createTextNode("");
     const div = document.createElement("div");
     const disposer = render(() => {
-      const Content = () => {
-        const data = createMemo(() => {
-          gate();
-          return new Promise<string>(r => resolvers.push(r));
-        });
+      const A = () => {
+        const data = createMemo(() => new Promise<string>(r => resolvers.push(r)));
+        return <span>{data()}</span>;
+      };
+      const B = () => {
         createRenderEffect(
           () => state.row.label,
           (v: string) => {
@@ -558,39 +560,34 @@ describe("INVARIANT: mount, delivery, and swap all answer ONE visibility questio
           },
           ["label"]
         );
-        return <span>{data()}</span>;
+        return <span>b</span>;
       };
-      // The collapsed ACCESSOR forces the queue-collapse state directly —
-      // combined with a pending boundary this is the "genuinely pending
-      // collapsed CollectionQueue" hold.
-      return (createRevealOrder as any)(() => <Loading fallback={"fa"}>{<Content />}</Loading>, {
-        collapsed: () => coll()
-      });
+      return (createRevealOrder as any)(
+        () => (
+          <>
+            <Loading fallback={"fa"}>{<A />}</Loading>
+            <Loading fallback={"fb"}>{<B />}</Loading>
+          </>
+        ),
+        { collapsed: () => true }
+      );
     }, div);
-    resolvers.pop()!("d1");
-    await Promise.resolve();
-    await Promise.resolve();
     flush();
+    // B sits collapsed behind the pending frontier; both sinks carry the
+    // mount-time state (initial passes run at creation).
     expect(classic.data).toBe("v1");
     expect(patched.data).toBe("v1");
-    // Collapse + re-pend: the boundary queue now HOLDS its render effects.
-    setColl(true);
-    setGate(1);
-    flush();
+    // A write DURING the hold: the classic sink stays held — the patch
+    // sink must defer into the same queue, not race ahead (round 10,
+    // P1-4).
     setState((s: any) => {
       s.row.label = "v2";
     });
     flush();
-    // PARITY is the invariant: whatever the held render effect shows, the
-    // patch sink shows. A patch racing ahead of a held classic binding is
-    // the round-10 finding. (Repro gap, documented in the brief: this
-    // composition has not been observed to actually enter the held state —
-    // both sinks apply. The dispatch/demotion hold routing mirrors
-    // CollectionQueue.run's gate; a composition that genuinely holds the
-    // classic sink should be added here when one is identified.)
-    expect(patched.data).toBe(classic.data);
-    resolvers.pop()!("d2");
-    setColl(false);
+    expect(classic.data).toBe("v1");
+    expect(patched.data).toBe("v1");
+    // Release the frontier: both sinks apply the latest state.
+    resolvers.pop()!("d1");
     await Promise.resolve();
     await Promise.resolve();
     flush();

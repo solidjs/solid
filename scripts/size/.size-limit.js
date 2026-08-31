@@ -404,7 +404,8 @@ module.exports = [
     // transaction-scoped dedup stamps, hold-aware demotion scheduling.
     // Measured 16.15.
     path: "csr-app-patch.js",
-    limit: "16.2 KB",
+    // Round-10.7: canonical txn stamps + once-guarded held redrives. 16.22.
+    limit: "16.3 KB",
     modifyEsbuildConfig
   },
   {
@@ -443,7 +444,8 @@ module.exports = [
     // Round-10.6 (2026-08-31): same value-tier bytes as csr-app-patch.
     // Measured 18.66.
     path: "csr-app-patch-lists.js",
-    limit: "18.75 KB",
+    // Round-10.7: same bytes as the value tier. 18.79.
+    limit: "18.85 KB",
     modifyEsbuildConfig
   },
   {

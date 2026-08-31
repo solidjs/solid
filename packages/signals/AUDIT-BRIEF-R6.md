@@ -1,5 +1,33 @@
 # Audit brief — rounds 6–9 + patch-mode default flip + node delivery
 
+## Round 10.7 FIXES (2026-08-31) — stamps, held fanout, unbind-cancel + THE HOLD REPRO
+
+- **P1 stamp retention + P2 merge dedup** (one mechanism): dedup stamps
+  are stored AND compared through `currentTransition` (canonical — A¹B²
+  after a merge dedups to two bumps, not three) and RELEASED at delivery
+  (`bt`/`bo` nulled once `dv` syncs) — no merged-away transition object
+  outlives its pending bump.
+- **P1 held-fanout isolation**: scheduled (held-owner) demotion re-drives
+  once-guard their FIRST run — a throw routes per-entry and defers one
+  halt, so queued healthy siblings still install at release (the same
+  contract as the immediate path's creation try/catch). Later runs keep
+  classic effect error semantics.
+- **P2 unbind-cancel**: demotion severing split from user unbind (`dm` vs
+  `u`) — dispatch and held callbacks skip both, the redrive skips only
+  `u`: an explicit unbind after demotion cancels the queued redrive
+  instead of installing an effect nothing owns.
+- **THE HOLD REPRO LANDED** (auditor's recipe — thank you): two sibling
+  Loading boundaries under sequential reveal order with collapsed
+  reveals; consumers in the collapsed SECOND boundary behind the pending
+  frontier. The classic sink genuinely holds ("v1" through a "v2" write),
+  and the test is RED without the queue-held probe (patch raced to "v2")
+  — the round-10 P1-4 fix is now end-to-end verified, replacing the
+  parity-shaped placeholder.
+
+Gates: 1,420 signals / 687 web / 352 SSR / 150 hydrate / 32 tasks; dbmon
+6.6 / 2.1 / 0.6 (unchanged); two small ratchets (16.2 → 16.3,
+18.75 → 18.85 — canonical stamps + once-guarded redrives).
+
 ## Round 10.6 FIXES (2026-08-31) — response to the 2-P1/2-P2 follow-up
 
 - **P1 flat-alias manifests**: `rootKeysCurrent` — manifest ROOT keys with

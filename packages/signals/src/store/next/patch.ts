@@ -32,6 +32,7 @@ import { haltReactivity } from "../../core/scheduler.js";
 import { getOwner, isDisposed } from "../../core/owner.js";
 import {
   activeTransition,
+  currentTransition,
   globalQueue,
   GlobalQueue,
   setPatchCommitHook,
@@ -75,6 +76,10 @@ interface PatchEntry {
   /** Keys recorded (adoption demotion probes); undefined = record at the
    * next drain apply. */
   k?: boolean;
+  /** Demoted mark (round 10.7): severed from PATCH dispatch (the body is
+   * becoming an effect) but NOT user-unbound — the redrive installs it;
+   * `u` alone means the consumer left and cancels even a queued redrive. */
+  dm?: boolean;
   /** Registrant's owner queue (round 10, P1-4): dispatch defers this entry
    * into it while a boundary hold is active — render-effect parity. */
   q?: unknown;
@@ -209,7 +214,7 @@ function deferHeldEntry(entry: PatchEntry, oq: any, pc: any): void {
   entry.hq = true;
   oq.enqueue(EFFECT_RENDER, () => {
     entry.hq = false;
-    if (entry.u === true) return;
+    if (entry.u === true || entry.dm === true) return;
     if (entry.owner !== null && isDisposed(entry.owner)) return;
     const err = applyEntries([entry], visibleView(pc.t, pc), PER_ENTRY_PREV, false, UNSET, pc);
     if (err !== UNSET) {
@@ -259,7 +264,7 @@ function applyEntries(
   const len = snap.length;
   for (let j = 0; j < len; j++) {
     const entry = snap[j];
-    if (entry === undefined || entry.u === true) continue;
+    if (entry === undefined || entry.u === true || entry.dm === true) continue;
     // Disposed owners drop their patches (the row unmounted mid-flush).
     if (entry.owner !== null && isDisposed(entry.owner)) continue;
     // BOUNDARY HOLD parity (round 10, P1-4): a consumer registered under a
@@ -591,6 +596,12 @@ function unionKeys(
  * outside one, the write is immediately visible and a future registrant's
  * baseline covers it — no signal write, no inert effect run. */
 function bumpOne(t: StoreNextTarget, pc: any): void {
+  // CANONICAL transaction identity (round 10.7, P1/P2): stamps store —
+  // and compares resolve — through currentTransition, so a merge between
+  // bumps (A absorbed into B) neither defeats the dedup (A¹B² produced
+  // three bumps instead of two) nor retains the merged-away object's
+  // generator/application state through the stamp.
+  const txn = activeTransition === null ? null : currentTransition(activeTransition);
   if (pc.de === undefined) {
     if (pc.p === null) return;
     ensureDelivery(t, pc);
@@ -604,15 +615,15 @@ function bumpOne(t: StoreNextTarget, pc: any): void {
     // transition B's involvement unrecorded, and A's resolution could
     // deliver B's still-pending value early. Dedup never outranks the
     // scheduler; repeats inside the SAME transition add nothing to it.
-    if (activeTransition === null || pc.bt === activeTransition) return;
-  } else if (pc.p === null && activeTransition === null) {
+    if (txn === null || (pc.bt != null && currentTransition(pc.bt as Transition) === txn)) return;
+  } else if (pc.p === null && txn === null) {
     return;
   }
   // Synchronous dedup counter + pure-notification signal: the WRITE may be
   // held by a transition (its commit IS the delivery moment), but the
   // dispatch decision must never read a mid-commit signal value.
   pc.bc++;
-  pc.bt = activeTransition;
+  pc.bt = txn;
   setSignal(pc.dn, (v: number) => v + 1);
 }
 
@@ -625,22 +636,29 @@ function bumpAncestors(t: StoreNextTarget): void {
 }
 
 function bumpOneOptimistic(t: StoreNextTarget, pc: any): void {
+  const txn = activeTransition === null ? null : currentTransition(activeTransition);
   if (pc.de === undefined) {
     if (pc.p === null) return;
     ensureDelivery(t, pc);
-  } else if (pc.bc !== pc.dv && activeTransition !== null && pc.bo === activeTransition) {
-    // SAME-TRANSACTION optimistic dedup (round 10.6, P2): the first bump
-    // registered the override + revert bookkeeping with this transaction;
-    // a repeat (tentative reconcile + its setter's notifyOptimisticWrites,
-    // N nested writes bubbling the same ancestors) adds nothing. Stamped
-    // separately from plain bumps (`bt`): a plain HELD write is not
-    // lane-visible — an optimistic bump after one must still write.
+  } else if (
+    pc.bc !== pc.dv &&
+    txn !== null &&
+    pc.bo != null &&
+    currentTransition(pc.bo as Transition) === txn
+  ) {
+    // SAME-TRANSACTION optimistic dedup (round 10.6, P2; canonicalized
+    // 10.7): the first bump registered the override + revert bookkeeping
+    // with this transaction; a repeat (tentative reconcile + its setter's
+    // notifyOptimisticWrites, N nested writes bubbling the same ancestors)
+    // adds nothing. Stamped separately from plain bumps (`bt`): a plain
+    // HELD write is not lane-visible — an optimistic bump after one must
+    // still write.
     return;
   }
   // Override-armed write: in-flight visibility now, re-notify on revert —
   // the engine is installed by every optimistic caller of this seam.
   pc.bc++;
-  pc.bo = activeTransition;
+  pc.bo = txn;
   const w = GlobalQueue._optimisticWrite;
   if (w !== null && w !== undefined) w(pc.dn, (pc.dn._value ?? 0) + 1);
   else setSignal(pc.dn, (v: number) => v + 1);
@@ -729,6 +747,11 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
       () => {
         if (pc.bc === pc.dv) return; // pure-registration run: baselines are per-entry
         pc.dv = pc.bc;
+        // Release the transaction stamps (round 10.7, P1): a delivered
+        // channel has no pending bump for them to dedup against, and a
+        // retained stamp would pin the transition object (generators,
+        // application state) for the record's lifetime.
+        pc.bt = pc.bo = null;
         const p = pc.p as PatchEntry[] | null;
         if (p === null) {
           // Inert (demoted or emptied). A deferred-demotion latch queued for
@@ -968,12 +991,14 @@ export function demotePatches(t: StoreNextTarget): PatchEntry[] | null {
   t.pc.p = null;
   if (p === null) return null;
   patchCount -= p.length;
-  // SEVER as patch consumers (round 10.5, F4): these entries become
-  // effects — any straggler dispatch holding a reference (a boundary-held
-  // deferred callback, a mid-flight snapshot) must skip them, or the body
-  // applies once from the effect and AGAIN from the stale callback (an
-  // untracked duplicate of a getter-bearing body).
-  for (let i = 0; i < p.length; i++) p[i].u = true;
+  // SEVER as patch consumers (round 10.5, F4; split from `u` in 10.7):
+  // these entries become effects — any straggler dispatch holding a
+  // reference (a boundary-held deferred callback, a mid-flight snapshot)
+  // must skip them, or the body applies once from the effect and AGAIN
+  // from the stale callback. `dm`, not `u`: an explicit unbind AFTER
+  // demotion must still be able to cancel the queued redrive, and the
+  // redrive distinguishes "severed for conversion" from "consumer left".
+  for (let i = 0; i < p.length; i++) p[i].dm = true;
   // Drain IN PLACE: unbind closures captured this array — a late unbind must
   // miss its indexOf and not double-decrement the repaired count.
   return p.splice(0, p.length);
@@ -1029,6 +1054,11 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
     const heldProbe = GlobalQueue._queueHeld;
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
+      // An explicit unbind AFTER demotion cancels the redrive (round 10.7,
+      // P2): the consumer left — installing its body as an effect would
+      // resurrect a subscription nothing owns. (`dm` marks conversion, `u`
+      // marks departure — only departure cancels.)
+      if (entry.u === true) continue;
       if (entry.owner !== null && isDisposed(entry.owner)) continue;
       const fn = entry.fn;
       // HELD owners schedule their initial run through their own queue
@@ -1039,17 +1069,39 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
       // in-flight, and deferral would postpone the tentative view).
       const oq = entry.q as any;
       const held = heldProbe !== null && oq != null && oq !== globalQueue && heldProbe(oq);
+      // FIRST scheduled run is per-entry isolated (round 10.7, P1): the
+      // queued initial applies run back-to-back at release — an
+      // unboundaried throw from one must not abort the queue before its
+      // healthy siblings install (the same contract the immediate path's
+      // creation try/catch pins). Later runs keep classic effect error
+      // semantics.
+      let first = held;
+      const commit = () => {
+        if (first) {
+          first = false;
+          try {
+            untrack(() => fn(proxy, undefined, true));
+          } catch (err) {
+            if (!routeEntryError(entry, err)) {
+              globalQueue.enqueue(EFFECT_USER, () => {
+                haltReactivity(err);
+                throw err;
+              });
+            }
+          }
+          return;
+        }
+        // Block body: a compiled patch body's return value must not be
+        // mistaken for an effect cleanup.
+        untrack(() => fn(proxy, undefined, true));
+      };
       try {
         runWithOwner(entry.owner, () =>
           createRenderEffect(
             () => {
               fn(proxy, proxy, false);
             },
-            () => {
-              // Block body: a compiled patch body's return value must not be
-              // mistaken for an effect cleanup.
-              untrack(() => fn(proxy, undefined, true));
-            },
+            commit,
             held ? { schedule: true } : undefined
           )
         );
