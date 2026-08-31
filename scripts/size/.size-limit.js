@@ -418,7 +418,10 @@ module.exports = [
     // demotion computes), failed-compute commit skip, akAll refcount,
     // transparent redrive roots. Measured 16.25.
     // Rebase onto next (2026-08-31): upstream drift stacks. Measured 16.36.
-    limit: "16.45 KB",
+    // Round-10.13: structural hold parity + late-registrant resync
+    // (queue capture, deferHeldStructural, live-resync sweep). Measured
+    // 16.52.
+    limit: "16.6 KB",
     modifyEsbuildConfig
   },
   {
@@ -462,7 +465,9 @@ module.exports = [
     // Round-10.9 (2026-08-31): demotion-lifecycle bytes (see value tier).
     // Measured 18.72.
     // Rebase onto next (2026-08-31): upstream drift stacks. Measured 18.82.
-    limit: "18.9 KB",
+    // Round-10.13: structural hold parity + late-registrant resync.
+    // Measured 19.03.
+    limit: "19.1 KB",
     modifyEsbuildConfig
   },
   {

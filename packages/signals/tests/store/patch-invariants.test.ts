@@ -460,6 +460,11 @@ describe("INVARIANT: queued applications reach exactly the consumers registered 
     // (a row build inside another consumer's dispatch, a boundary remount)
     // initialized from the post-write state, and replaying baseline-
     // relative ops against it corrupts retention.
+    //
+    // Round 10.13 refinement: late consumers still never see the
+    // baseline-relative OPS — but silence left held-window registrants
+    // permanently stale, so they now receive the RESYNC form (ops null,
+    // live rows): an identity-aligned rebuild for this ambient race.
     let registeredLate = false;
     registerRowOps(state.rows, (_next: any[], ops: any) => {
       early.push(ops);
@@ -473,14 +478,16 @@ describe("INVARIANT: queued applications reach exactly the consumers registered 
     });
     flush();
     expect(early.length).toBe(1);
-    expect(late.length).toBe(0);
-    // The late consumer participates in the NEXT event normally.
+    expect(late.length).toBe(1);
+    expect(late[0]).toBe(null); // resync form only — never positional ops
+    // The late consumer participates in the NEXT event normally (real ops).
     setState(s => {
       s.rows.splice(0, 1);
     });
     flush();
     expect(early.length).toBe(2);
-    expect(late.length).toBe(1);
+    expect(late.length).toBe(2);
+    expect(late[1]).not.toBe(null);
   });
 
   it("a value entry never re-applies to a consumer that initialized FROM its state (mid-flush mount)", async () => {
@@ -798,6 +805,117 @@ describe("INVARIANT: demotion fanout is per-entry isolated (round 10)", () => {
     resetErrorHalt();
     expect(log).toContain("B:later");
     dispose();
+  });
+});
+
+describe("INVARIANT: structure honors holds and reaches held-window registrants (round 10.13)", () => {
+  it("a structural consumer under a held queue defers and resyncs at release", async () => {
+    const { registerRowOps, reconcile, runWithOwner } = await import("../../src/index.js");
+    const { createOwner } = await import("../../src/core/owner.js");
+    const { GlobalQueue } = await import("../../src/core/scheduler.js");
+    // Boundary machinery installs the held probe.
+    await import("../../src/boundaries.js");
+    expect(GlobalQueue._queueHeld).not.toBe(null);
+    const heldQueue: any = {
+      _disabled: { _value: true },
+      _collapsed: { _value: true },
+      _parent: null,
+      pending: [] as Array<(type: number) => void>,
+      enqueue(type: number, fn: (type: number) => void) {
+        this.pending.push(fn);
+      },
+      run() {
+        const fns = this.pending.splice(0);
+        for (const fn of fns) fn(1);
+      },
+      addChild() {},
+      removeChild() {},
+      notify() {
+        return true;
+      }
+    };
+    const owner = createOwner() as any;
+    owner._queue = heldQueue;
+    const [state, setState] = createStore<any>({
+      rows: [
+        { id: "a", v: 1 },
+        { id: "b", v: 2 }
+      ]
+    });
+    const calls: any[] = [];
+    runWithOwner(owner, () => {
+      (registerRowOps as any)(state.rows, (rows: any[], ops: any) =>
+        calls.push([rows.map((r: any) => r.id), ops === null])
+      );
+    });
+    setState((s: any) => {
+      (reconcile as any)(
+        [
+          { id: "b", v: 2 },
+          { id: "a", v: 1 }
+        ],
+        "id"
+      )(s.rows);
+    });
+    flush();
+    // Held: nothing dispatched before the queue releases.
+    expect(calls.length).toBe(0);
+    heldQueue.run();
+    // Released: the LIVE resync form (row ops are baseline-relative — the
+    // original ops would be stale by release).
+    expect(calls.length).toBe(1);
+    expect(calls[0][1]).toBe(true);
+    expect(calls[0][0]).toEqual(["b", "a"]);
+  });
+
+  it("a consumer registered during a held structural commit receives the settle resync", async () => {
+    const { registerRowOps, reconcile, action: act } = await import("../../src/index.js");
+    const [state, setState] = createStore<any>({
+      rows: [
+        { id: "a", v: 1 },
+        { id: "b", v: 2 }
+      ]
+    });
+    const early: any[] = [];
+    createRoot(() => {
+      (registerRowOps as any)(state.rows, (_r: any[], ops: any) => early.push(ops));
+    });
+    let resolve!: () => void;
+    let save!: () => Promise<void> | void;
+    createRoot(() => {
+      save = act(function* () {
+        setState((s: any) => {
+          (reconcile as any)(
+            [
+              { id: "b", v: 2 },
+              { id: "a", v: 1 }
+            ],
+            "id"
+          )(s.rows);
+        });
+        yield new Promise<void>(r => {
+          resolve = r;
+        });
+      }) as any;
+    });
+    const p = save() as Promise<void>;
+    flush();
+    // The structural emission is HELD by the transaction; a consumer
+    // registers during the hold (a list mounting mid-transition).
+    const late: any[] = [];
+    createRoot(() => {
+      (registerRowOps as any)(state.rows, (rows: any[], ops: any) =>
+        late.push([rows.map((r: any) => r.id), ops === null])
+      );
+    });
+    resolve();
+    await p;
+    flush();
+    // At the settle drain the late consumer takes the resync form — the
+    // silent path left it permanently stale on the pre-commit view.
+    expect(late.length).toBeGreaterThan(0);
+    expect(late[late.length - 1][1]).toBe(true);
+    expect(late[late.length - 1][0]).toEqual(["b", "a"]);
   });
 });
 

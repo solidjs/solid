@@ -108,11 +108,12 @@ interface QueuedApply {
   force: boolean;
   /** When set, `next` resolves at drain as `t.pb ?? t.v` (bubbles). */
   t: StoreNextTarget | null;
-  /** Channel backref (round 10.12): STRUCTURAL items carry it as the
-   * stable identity dev diagnostics key on (emission snapshots slice the
-   * consumer list — a per-flush array would defeat warning memos) and as
-   * the naming/cause anchor (`pc.t` path, `pc.dn` stamp). Never consulted
-   * by drain semantics. */
+  /** Channel backref: STRUCTURAL items carry it as the stable dev
+   * diagnostics key + naming/cause anchor (round 10.12 — emission
+   * snapshots slice the consumer list, so list identity is per-flush),
+   * and the drain consults it for the LATE-REGISTRANT resync sweep
+   * (round 10.13: consumers registered between emission and a held
+   * drain take the live rebuild instead of permanent staleness). */
   pc?: PatchChannel;
   /** Structural row ops (re-audit 6): entries queue the LIVE consumer list
    * plus the ops payload — cloned wrappers survived unbinding, so stale
@@ -183,15 +184,56 @@ function applyStructural(item: QueuedApply, next: any, firstError: unknown): unk
     attrHooks.patchDispatch((dch as object) ?? (item.list as object), len, dchannel, null);
     dstart = performance.now();
   }
+  const heldProbe = GlobalQueue._queueHeld;
   for (let j = 0; j < len; j++) {
-    const entry = snap[j];
+    const entry = snap[j] as {
+      fn: Function;
+      owner: Owner | null;
+      u?: boolean;
+      q?: unknown;
+      hq?: boolean;
+    };
     if (entry === undefined || entry.u === true) continue;
     if (entry.owner !== null && isDisposed(entry.owner)) continue;
+    // BOUNDARY HOLD parity for STRUCTURE (round 10.13, P1): a consumer
+    // under a collapsed queue defers INTO it — and re-derives from LIVE
+    // state at release: row ops are baseline-relative (the queued ops
+    // would be stale by then) and slot values can be superseded, so the
+    // deferred form is the RESYNC, reading the release moment's truth.
+    const oq = entry.q as any;
+    if (heldProbe !== null && oq != null && oq !== globalQueue && heldProbe(oq)) {
+      deferHeldStructural(entry, oq, item);
+      continue;
+    }
     try {
       if (item.si !== undefined) entry.fn(item.si, next, item.prev);
       else entry.fn(next, item.ops);
     } catch (err) {
       if (!routeEntryError(entry as any, err) && firstError === UNSET) firstError = err;
+    }
+  }
+  // LATE REGISTRANTS (round 10.13, P1): a consumer that registered between
+  // emission and a HELD drain initialized from the PRE-COMMIT view — the
+  // emission snapshot rightly excludes it from baseline-relative ops, but
+  // silence left it permanently stale. It takes the RESYNC form against
+  // live state (for the ambient no-hold race this is an identity-aligned
+  // rebuild — full retention, no DOM change).
+  if (item.pc !== undefined) {
+    const live = (item.si !== undefined ? item.pc.sp : item.pc.ro) as
+      | (RowOpsEntry & { hq?: boolean })[]
+      | null;
+    if (live !== null && live.length !== 0) {
+      for (let j = 0; j < live.length; j++) {
+        const entry = live[j];
+        if ((snap as unknown[]).indexOf(entry) !== -1) continue;
+        if (entry.u === true || entry.hq === true) continue;
+        if (entry.owner !== null && isDisposed(entry.owner)) continue;
+        try {
+          structuralResync(entry, item);
+        } catch (err) {
+          if (!routeEntryError(entry as any, err) && firstError === UNSET) firstError = err;
+        }
+      }
     }
   }
   // Structural deliveries are attribution EVENTS (round 10.12, P2): they
@@ -206,6 +248,43 @@ function applyStructural(item: QueuedApply, next: any, firstError: unknown): unk
       performance.now() - dstart
     );
   return firstError;
+}
+
+/** The live-state RESYNC form of a structural item: row-ops consumers get
+ * `(rows, null)` (the driver rebuilds retention by identity), slot
+ * consumers get the CURRENT value at the index with the original prev (the
+ * compare fires for anything their initialization predates). */
+function structuralResync(entry: { fn: Function }, item: QueuedApply): void {
+  const t = item.pc !== undefined ? (item.pc.t as StoreNextTarget) : null;
+  if (item.si !== undefined) {
+    const v = t !== null ? ((t.pb ?? t.v) as any[])[item.si] : item.next;
+    entry.fn(item.si, v, item.prev);
+  } else {
+    const rows = t !== null ? ((t.pb ?? t.v) as any[]) : item.next;
+    entry.fn(rows, null);
+  }
+}
+
+/** Deferred structural re-apply for a held consumer (round 10.13): runs
+ * FROM its owner queue at release, one queued run per entry per hold
+ * window, always in the live resync form. */
+function deferHeldStructural(
+  entry: { fn: Function; owner: Owner | null; u?: boolean; hq?: boolean },
+  oq: any,
+  item: QueuedApply
+): void {
+  if (entry.hq === true) return;
+  entry.hq = true;
+  oq.enqueue(EFFECT_RENDER, () => {
+    entry.hq = false;
+    if (entry.u === true) return;
+    if (entry.owner !== null && isDisposed(entry.owner)) return;
+    try {
+      structuralResync(entry, item);
+    } catch (err) {
+      if (!routeEntryError(entry as any, err)) deferHalt(err);
+    }
+  });
 }
 
 const UNSET: unique symbol = Symbol();
@@ -1307,6 +1386,13 @@ export type RowOpsFn = (next: any[], ops: RowOps | null) => void;
 interface RowOpsEntry {
   fn: RowOpsFn;
   owner: Owner | null;
+  /** Unbound mark (queued structural work skips severed consumers). */
+  u?: boolean;
+  /** Registrant's owner queue (round 10.13): structural dispatch defers
+   * into it while a boundary hold is active — render-effect parity. */
+  q?: unknown;
+  /** Deferred-into-held-queue dedup flag. */
+  hq?: boolean;
 }
 
 /** Register a structural-ops consumer on a keyed store array (the list
@@ -1324,7 +1410,8 @@ export function registerRowOps(array: any, fn: RowOpsFn): () => void {
     setPatchCommitHook(releaseBatch);
     GlobalQueue._drainPatchOptimistic = drainOptimistic;
   }
-  const entry: RowOpsEntry = { fn, owner: getOwner() };
+  const rowner = getOwner();
+  const entry: RowOpsEntry = { fn, owner: rowner, q: (rowner as any)?._queue ?? null };
   const pc = pcOf(t);
   if (__TEST__) devTrackChannel(pc);
   const list = (pc.ro ??= []) as RowOpsEntry[];
@@ -1389,7 +1476,8 @@ export function registerSlotPatchNext(
   // Multi-consumer (external audit): one shallow array can drive several
   // lists — registrations are a list, unbinds splice their own entry.
   const pc = pcOf(t);
-  const entry = { fn, owner: getOwner() };
+  const sowner = getOwner();
+  const entry = { fn, owner: sowner, q: (sowner as any)?._queue ?? null };
   (pc.sp ??= []).push(entry);
   if (__DEV__ && shouldWarnGraphSize((pc.sp as any[]).length))
     warnChannelFanOut((pc.sp as any[]).length, "slot-patch (shallow list)");

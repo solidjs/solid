@@ -1,5 +1,24 @@
 # Audit brief — rounds 6–9 + patch-mode default flip + node delivery
 
+## Round 10.13 (2026-08-31) — structural holds/late registrants; #3123 items PAUSED
+
+- FIXED P1: structural row/slot dispatch defers into collapsed owner
+  queues (per-entry, same held probe as values) and re-derives LIVE state
+  at release via the RESYNC forms — row ops are baseline-relative and
+  would be stale by then; slot values read the release moment.
+- FIXED P1: consumers registered between a HELD emission and its drain
+  take the live resync at settle instead of permanent staleness (the
+  round-7 "receive nothing" pin is refined: never the baseline-relative
+  OPS, always the identity-aligned rebuild — a no-op for the ambient
+  no-hold race).
+- PAUSED (by Ryan's call, #3123 still in flux upstream): equal-landing
+  flash through value patches + contradicting-landing optimistic
+  notification. Both are the patch channel's integration with the NEW
+  landing-consumption semantics — fixing against a moving seam re-fixes
+  next week. Revisit when #3123 settles.
+- Synthetic structural events: cause/phase/identity/cost semantics noted
+  as incomplete (P3 polish).
+
 ## Round 10.8 FIXES (2026-08-31) — scheduled demotion-effect lifecycle (audit PASSED)
 
 - **P1 compute capture**: the re-drive's TRACKED pass is wrapped per
