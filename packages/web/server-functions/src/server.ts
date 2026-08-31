@@ -1571,10 +1571,112 @@ function isFormPost(request) {
 // demand, and onOpen registers an idempotent closer with the response
 // teardown. Without it (frame-sink, tests) the channels are sanitize-only,
 // as before.
+//
+// The container descent is ITERATIVE (#3160): the recursive walk overflowed
+// on a deep-but-legal result (~10k+ nesting) and the RangeError escaped into
+// dispatch's catch as a phantom function error — the exact hazard this
+// function's getter policy names and avoids, reopened by its own recursion
+// (isJSONSafe was rewritten the same way for the same reason). enterGuard
+// resolves leaves and channel wrappers immediately and answers containers
+// with a Frame; guardFailures drives the frames on an explicit stack.
+// Channel callbacks re-enter guardFailures from their own async contexts,
+// which start fresh call stacks, so only the synchronous descent carries one.
 /** @internal */
 export function guardFailures(value, state) {
-  if (value === null || typeof value !== "object") return value;
   if (!state) state = { seen: new WeakMap(), cyclic: new WeakSet() };
+  const entered = enterGuard(value, state);
+  if (!(entered instanceof Frame)) return entered;
+  const stack = [entered];
+  // A finished child's result, parked for the parent frame to record into
+  // the slot it descended from. The sentinel is unforgeable, so it can
+  // never collide with a real guarded value.
+  let delivered = NOTHING;
+  for (;;) {
+    const top = stack[stack.length - 1];
+    const items = top.items;
+    let pushed = null;
+    while (top.i < items.length) {
+      const i = top.i;
+      let original;
+      if (top.kind === OBJECT) {
+        // Data properties only — same policy as the shell build below.
+        const descriptor = top.descriptors[items[i]];
+        if (!("value" in descriptor)) {
+          top.i++;
+          continue;
+        }
+        original = descriptor.value;
+      } else {
+        original = top.kind === MAP ? items[i][1] : items[i];
+      }
+      let guarded;
+      if (delivered !== NOTHING) {
+        guarded = delivered;
+        delivered = NOTHING;
+      } else {
+        guarded = enterGuard(original, state);
+        if (guarded instanceof Frame) {
+          pushed = guarded;
+          break;
+        }
+      }
+      if (top.kind === ARRAY) {
+        if (guarded !== original) {
+          top.next[i] = guarded;
+          top.changed = true;
+        }
+      } else if (top.kind === MAP) {
+        top.next.set(items[i][0], guarded);
+        if (guarded !== original) top.changed = true;
+      } else if (top.kind === SET) {
+        top.next.add(guarded);
+        if (guarded !== original) top.changed = true;
+      } else if (guarded !== original) {
+        Object.defineProperty(top.next, items[i], {
+          ...top.descriptors[items[i]],
+          value: guarded
+        });
+        top.changed = true;
+      }
+      top.i++;
+    }
+    if (pushed !== null) {
+      stack.push(pushed);
+      continue;
+    }
+    stack.pop();
+    const out = keepGuarded(top.value, top.next, top.changed, state);
+    if (stack.length === 0) return out;
+    delivered = out;
+  }
+}
+
+const NOTHING = Symbol();
+const ARRAY = 0;
+const MAP = 1;
+const SET = 2;
+const OBJECT = 3;
+
+/** One synchronous container mid-walk. Module-private, so a user value can
+ * never satisfy the driver's `instanceof Frame` dispatch. */
+class Frame {
+  constructor(kind, value, next, items, descriptors) {
+    this.kind = kind;
+    this.value = value;
+    this.next = next;
+    this.items = items;
+    this.descriptors = descriptors;
+    this.i = 0;
+    this.changed = false;
+  }
+}
+
+/** Resolve one value: leaves, seen entries, and channel wrappers answer
+ * immediately; synchronous containers register their shell in `state.seen`
+ * (children — cycles included — must resolve to the shell being built) and
+ * answer a Frame for the driver. */
+function enterGuard(value, state) {
+  if (value === null || typeof value !== "object") return value;
   if (state.seen.has(value)) {
     state.cyclic.add(value);
     return state.seen.get(value);
@@ -1696,38 +1798,21 @@ export function guardFailures(value, state) {
   if (Array.isArray(value)) {
     const next = value.slice();
     state.seen.set(value, next);
-    let changed = false;
-    for (let index = 0; index < value.length; index++) {
-      const guarded = guardFailures(value[index], state);
-      if (guarded === value[index]) continue;
-      next[index] = guarded;
-      changed = true;
-    }
-    return keepGuarded(value, next, changed, state);
+    return new Frame(ARRAY, value, next, value, null);
   }
 
   if (value instanceof Map) {
     const next = new Map();
     state.seen.set(value, next);
-    let changed = false;
-    for (const [key, entry] of value) {
-      const guarded = guardFailures(entry, state);
-      if (guarded !== entry) changed = true;
-      next.set(key, guarded);
-    }
-    return keepGuarded(value, next, changed, state);
+    // Keys pass through unwalked (as the recursive walk had it): rebuilding
+    // a key would change map identity semantics for the caller.
+    return new Frame(MAP, value, next, [...value], null);
   }
 
   if (value instanceof Set) {
     const next = new Set();
     state.seen.set(value, next);
-    let changed = false;
-    for (const entry of value) {
-      const guarded = guardFailures(entry, state);
-      if (guarded !== entry) changed = true;
-      next.add(guarded);
-    }
-    return keepGuarded(value, next, changed, state);
+    return new Frame(SET, value, next, [...value], null);
   }
 
   const prototype = Object.getPrototypeOf(value);
@@ -1744,16 +1829,7 @@ export function guardFailures(value, state) {
   const descriptors = Object.getOwnPropertyDescriptors(value);
   const next = Object.create(prototype, descriptors);
   state.seen.set(value, next);
-  let changed = false;
-  for (const key of Object.keys(descriptors)) {
-    const descriptor = descriptors[key];
-    if (!("value" in descriptor)) continue;
-    const guarded = guardFailures(descriptor.value, state);
-    if (guarded === descriptor.value) continue;
-    Object.defineProperty(next, key, { ...descriptor, value: guarded });
-    changed = true;
-  }
-  return keepGuarded(value, next, changed, state);
+  return new Frame(OBJECT, value, next, Object.keys(descriptors), descriptors);
 }
 
 /** A rebuild stands if anything below changed, or if a cycle already took it. */
@@ -1999,8 +2075,22 @@ function encodeResult(value, headers, status, codec, signal) {
     // fall through — serializedResponse overwrites the format headers the
     // JSON attempt may have set before stringify threw
   }
-  const response = serializedResponse(value, headers, codec, signal);
-  return status === 200 ? response : new Response(response.body, { status, headers });
+  try {
+    const response = serializedResponse(value, headers, codec, signal);
+    return status === 200 ? response : new Response(response.body, { status, headers });
+  } catch (error) {
+    // The synchronous half of the codec road threw — guardFailures' walk (a
+    // user-hostile custom iterator, an engine limit on an extreme shape) or
+    // Response construction — AFTER the function ran and succeeded. Rename
+    // before rethrowing so the failure is attributed as an ENCODE error
+    // (mirroring serializeResponseStream's onError trailer policy: dev keeps
+    // the cause for DX, production sanitizes downstream), never reported as
+    // the function itself throwing — the phantom error over a call that
+    // succeeded (#3160).
+    throw DEV && error instanceof Error
+      ? new Error(`Server function result could not be encoded: ${error.message}`)
+      : error;
+  }
 }
 
 // The error header is a classification label — the structured error travels

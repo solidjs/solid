@@ -449,6 +449,67 @@ describe("a streamed result nobody is reading", () => {
   });
 });
 
+describe("a deep result (#3160)", () => {
+  // Closed (#3160): guardFailures walked the result recursively, so a
+  // deep-but-legal return value overflowed the stack and the RangeError
+  // escaped into dispatch's catch — a successful, committed call reported
+  // as a generic 500 (the #3117 phantom-failure shape, and the exact hazard
+  // the function's own getter policy names). The walk now carries an
+  // explicit stack, like isJSONSafe before it, and any residual synchronous
+  // throw on the codec road is renamed to an encode error before rethrow.
+  const deep = (n: number) => {
+    let o: any = {};
+    const root = o;
+    for (let i = 0; i < n; i++) {
+      o.n = {};
+      o = o.n;
+    }
+    return root;
+  };
+
+  test("is never reported as a failed call", async () => {
+    // 20k overflowed the recursive walk; 200k pins that the cliff is gone,
+    // not relocated.
+    for (const depth of [20_000, 200_000]) {
+      let ran = 0;
+      registerServerFunction(`gap-deep-${depth}`, async () => {
+        ran++;
+        return deep(depth);
+      });
+      const response = await handleServerFunctionRequest(scriptedPost(`gap-deep-${depth}`));
+      expect(ran, `depth ${depth}: function ran`).toBe(1);
+      // The phantom shape was status=500 + generic error header with an
+      // empty body. The honest answer commits the head and streams.
+      expect(response.status, `depth ${depth}`).toBe(200);
+      expect(response.headers.get("X-Server-Function-Error")).toBeNull();
+      const body = await response.text();
+      expect(body.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("cycle identity survives the iterative walk", async () => {
+    // The rewrite carries the recursive walk's cycle contract: a container
+    // with a failure channel below rebuilds, and the cycle resolves to the
+    // rebuilt container (a back-reference, not a second copy). The nested
+    // rejection sanitizes instead of leaking.
+    registerServerFunction("gap-cycle-guard", async () => {
+      const root: any = { late: Promise.reject(new Error("secret driver detail")) };
+      root.self = root;
+      return root;
+    });
+    const restore = connectBufferedTransport();
+    try {
+      const call = createServerReference("gap-cycle-guard") as any;
+      const result = await call();
+      expect(result.self).toBe(result);
+      await expect(result.late).rejects.toThrow("Internal Server Error");
+      await expect(result.late).rejects.not.toThrow("secret driver detail");
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe("the decode depth cap", () => {
   // Closed (#3119, with #3115's request bounds): the plain-JSON format now
   // walks the decoded payload against the same 64-level ceiling the seroval
