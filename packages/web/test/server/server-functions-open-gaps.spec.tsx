@@ -450,6 +450,57 @@ describe("a streamed result nobody is reading", () => {
   });
 });
 
+describe("composed header bounds at the transport edge (#3158)", () => {
+  // Closed (#3158): redirect() refused an over-long target but a raw
+  // Response reached the wire with a ~1 MB redirect header, to die at the
+  // proxy after the mutation committed. The bound is now a property of the
+  // transport — enforced where the composed headers leave, for every
+  // producer — with the helpers' authoring-time throws as the fast path.
+  test("a raw Response's over-long Location is refused, not shipped", async () => {
+    registerServerFunction(
+      "gap-bigloc-raw",
+      async () => new Response(null, { status: 302, headers: { Location: "/" + "x".repeat(1e6) } })
+    );
+    const response = await handleServerFunctionRequest(scriptedPost("gap-bigloc-raw"));
+    expect(response.status).toBe(500);
+    expect(response.headers.get("X-Server-Function-Redirect")).toBeNull();
+    expect(response.headers.get("X-Server-Function-Error")).not.toBeNull();
+  });
+
+  test("a raw Response's over-long X-Revalidate is refused too", async () => {
+    registerServerFunction(
+      "gap-bigreval-raw",
+      async () =>
+        new Response(null, {
+          status: 200,
+          headers: { "X-Revalidate": Array.from({ length: 2000 }, (_, i) => `key-${i}`).join(",") }
+        })
+    );
+    const response = await handleServerFunctionRequest(scriptedPost("gap-bigreval-raw"));
+    expect(response.status).toBe(500);
+    expect(response.headers.get("X-Revalidate")).toBeNull();
+  });
+
+  test("controls: a small raw redirect masks normally; the helper still refuses in-body", async () => {
+    registerServerFunction(
+      "gap-smallloc-raw",
+      async () => new Response(null, { status: 302, headers: { Location: "/next" } })
+    );
+    const small = await handleServerFunctionRequest(scriptedPost("gap-smallloc-raw"));
+    expect(small.status).toBe(200);
+    expect(small.headers.get("X-Server-Function-Redirect")).toBe("302 https://app.example/next");
+
+    // The helper's own refusal (the authoring-time TypeError) rides the
+    // ordinary error road — same terminal shape, better message, and the
+    // transport check never fires for it.
+    const { redirect } = await import("@solidjs/web");
+    registerServerFunction("gap-bigloc-helper", async () => redirect("/" + "x".repeat(1e6)));
+    const helper = await handleServerFunctionRequest(scriptedPost("gap-bigloc-helper"));
+    expect(helper.status).toBe(500);
+    expect(helper.headers.get("X-Server-Function-Redirect")).toBeNull();
+  });
+});
+
 describe("refusals after createEvent carry the response stub (#3159)", () => {
   // Closed (#3159): the post-createEvent refusals returned their response
   // directly instead of through commitEventResponse, so a Set-Cookie the

@@ -140,7 +140,11 @@ export interface ResponseHelperInit extends ResponseInit {
 // load-bearing). So the bound refuses, loudly and legibly, at the helper
 // that produces the value — which runs inside the function body, so both
 // the returned and the thrown spellings land on the ordinary error path.
-const RESPONSE_HEADER_VALUE_LIMIT = 4096;
+// The server-function transport enforces the same bound at the edge where
+// the composed headers leave (#3158: a hand-built Response has no helper in
+// the loop), making these authoring-time throws the legible fast path.
+/** @internal */
+export const RESPONSE_HEADER_VALUE_LIMIT = 4096;
 
 function initWithRevalidate(init: number | ResponseHelperInit = {}) {
   const resolved: any = typeof init === "number" ? { status: init } : init;

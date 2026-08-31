@@ -14,6 +14,7 @@
 // and how an outcome reaches the UI, stay with the integration.
 import {
   NULL_BODY_STATUSES,
+  RESPONSE_HEADER_VALUE_LIMIT,
   REVALIDATE_HEADER,
   isResponseEnvelope,
   isSafeError
@@ -1423,6 +1424,57 @@ function maskRedirect(headers, response, requestUrl) {
     headers.set(REDIRECT_HEADER, `${response.status} ${new URL(target, requestUrl)}`);
   }
   headers.delete("Location");
+}
+
+// The transport half of redirect()'s and initWithRevalidate's bound
+// (#3158): an over-long response header is not delivered — the proxy drops
+// or rejects it AFTER the handler committed its mutation, leaving the
+// caller a socket-level error naming nothing — and a hand-built Response
+// reaches this transport with no helper in the loop (a ~1 MB Location
+// became a ~1 MB redirect header on the wire). The invariant lives HERE,
+// at the edge where the composed headers leave, one check for every
+// producer — returned or thrown, raw or envelope-carried, scripted mask or
+// plain passthrough — and the helpers' own throws (inside the function
+// body, with the legible authoring-time message) become the fast path
+// rather than the only guard. Refused, never trimmed, for the helpers' own
+// reasons: a cut target is a DIFFERENT address, a dropped revalidate key is
+// a silently stale cache. Runs ahead of the stub fold so integration
+// cookies still ride the refusal (#3159).
+const BOUNDED_COMPOSED_HEADERS = [REDIRECT_HEADER, "Location", REVALIDATE_HEADER];
+function enforceComposedHeaderBounds(response) {
+  for (const name of BOUNDED_COMPOSED_HEADERS) {
+    const value = response.headers.get(name);
+    if (value === null || value.length <= RESPONSE_HEADER_VALUE_LIMIT) continue;
+    // the replaced body's producers may be demand-parked — release them
+    if (response.body) {
+      try {
+        const cancelled = response.body.cancel();
+        if (cancelled && typeof cancelled.then === "function") cancelled.then(undefined, () => {});
+      } catch {}
+    }
+    const headers = new Headers();
+    headers.set(
+      ERROR_HEADER,
+      boundedErrorHeaderValue(
+        DEV
+          ? `${name} response header refused at ${value.length} characters`
+          : GENERIC_SERVER_ERROR_MESSAGE
+      )
+    );
+    return new Response(
+      DEV
+        ? `The ${name} response header is ${value.length} characters; past ` +
+            `${RESPONSE_HEADER_VALUE_LIMIT} it would overflow receivers (an 8 KiB proxy ` +
+            `buffer holds the whole header block) and the response dies at the socket after ` +
+            `the mutation committed. Refused rather than trimmed: a cut redirect target is a ` +
+            `different address, a dropped revalidate key is a silently stale cache. The ` +
+            `redirect()/reload() helpers enforce this bound with the full reasoning at the ` +
+            `call site.`
+        : null,
+      { status: 500, headers }
+    );
+  }
+  return response;
 }
 
 // Dev-only (#3101): a 304 forwards transparently — it is not a redirect,
@@ -2937,7 +2989,10 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // mutate freely instead of auditing every write site, and covers every
   // foreign-response path at once (raw passthrough, unscripted returns and
   // throws, custom handleNoJS results, envelope-carried responses).
-  const response = commitEventResponse(ownResponse(await dispatch()), event);
+  const response = commitEventResponse(
+    enforceComposedHeaderBounds(ownResponse(await dispatch())),
+    event
+  );
   return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
 }
 
