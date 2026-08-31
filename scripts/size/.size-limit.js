@@ -400,8 +400,11 @@ module.exports = [
     // Re-audit-9 (2026-08-29): manifest-read effect fallback (write-free
     // compute), optimistic-view initial applies, committed-visible skip
     // markers, optimistic drain probes. Measured 15.99.
+    // Round-10.6 (2026-08-31): alias currency probes (root keys + deep),
+    // transaction-scoped dedup stamps, hold-aware demotion scheduling.
+    // Measured 16.15.
     path: "csr-app-patch.js",
-    limit: "16.1 KB",
+    limit: "16.2 KB",
     modifyEsbuildConfig
   },
   {
@@ -437,8 +440,10 @@ module.exports = [
     //
     // Re-audit-9 (2026-08-29): the value-tier bytes above plus isWrappable
     // row-bind guards and immediate lane demotion. Measured 18.47.
+    // Round-10.6 (2026-08-31): same value-tier bytes as csr-app-patch.
+    // Measured 18.66.
     path: "csr-app-patch-lists.js",
-    limit: "18.6 KB",
+    limit: "18.75 KB",
     modifyEsbuildConfig
   },
   {

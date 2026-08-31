@@ -1,5 +1,36 @@
 # Audit brief — rounds 6–9 + patch-mode default flip + node delivery
 
+## Round 10.6 FIXES (2026-08-31) — response to the 2-P1/2-P2 follow-up
+
+- **P1 flat-alias manifests**: `rootKeysCurrent` — manifest ROOT keys with
+  raw-object values are currency-probed against the family map at
+  admission AND on payload-less deliveries (demote), closing the
+  `dp === null` bypass (`["right"]`-style direct object reads). Primitive
+  roots skip on a typeof; dbmon ticks (payload hits) never probe.
+- **P1 demotion vs holds**: the demotion re-drive checks the entry's owner
+  queue with the same held probe as dispatch — HELD owners get
+  `schedule: true` (initial run enqueued through their own queue, released
+  with the boundary), warm owners keep the immediate run (lane-timed
+  demotions need it: the global queue is stashed in flight).
+- **P2 dedup granularity**: transaction-SCOPED — repeats within one
+  transition dedup again (`pc.bt` stamp); a different transition always
+  writes (scheduler owns merging). Optimistic bumps gained the same
+  same-transaction dedup (`pc.bo`, stamped separately: a held plain write
+  is not lane-visible), which also absorbs the tentative-reconcile +
+  notifyOptimisticWrites double emission at the primitive.
+- **Boundary-hold test**: reworked to the collapsed-accessor composition —
+  and STILL does not observably enter the held state (both sinks apply;
+  same for `together` re-pend and plain re-pend). The dispatch/demotion
+  hold routing mirrors `CollectionQueue.run`'s gate exactly, but we could
+  not produce a public-API composition where the CLASSIC sink holds.
+  REQUEST: the auditor's hold repro composition, to be added verbatim as
+  the regression test.
+
+Gates: 1,420 signals / 687 web / 352 SSR / 150 hydrate / 32 tasks; dbmon
+6.6 / 2.0 / 0.6 (unchanged); two size ratchets (value tier 16.1 → 16.2,
+list tier 18.6 → 18.75 — currency probes + dedup stamps + hold-aware
+demotion).
+
 ## Round 10.5 FIXES (2026-08-31) — response to the 6-variant follow-up
 
 - **F1 (the flagged regression): pending-dedup is now transition-aware.**

@@ -47,7 +47,13 @@ import { optHooks } from "./target.js";
 import { emitSetterRowOps } from "./reconcile.js";
 // Cycle with store.js is benign (established pattern above): both resolve at
 // call time, long after module initialization.
-import { deepPathsPlain, heldMaskView, targetIsPlain, targetKeysPlain } from "./store.js";
+import {
+  deepPathsPlain,
+  heldMaskView,
+  rootKeysCurrent,
+  targetIsPlain,
+  targetKeysPlain
+} from "./store.js";
 import type { DeepNode } from "./target.js";
 
 import { InvariantHooks } from "../../core/invariants.js";
@@ -591,13 +597,14 @@ function bumpOne(t: StoreNextTarget, pc: any): void {
   } else if (pc.bc !== pc.dv) {
     // Already pending: the one scheduled delivery reads the LATEST visible
     // state (and payload emitters re-stash after this call), so a second
-    // signal write adds nothing — OUTSIDE transitions only (round 10.5,
-    // F1). Under one, every write must reach the signal: transition
-    // entanglement and merging are SCHEDULER bookkeeping keyed on writes —
-    // a skipped write left transition B's involvement unrecorded, and A's
-    // resolution could deliver B's still-pending value early. Dedup never
-    // outranks the scheduler.
-    if (activeTransition === null) return;
+    // signal write adds nothing — WITHIN one transaction scope (round
+    // 10.5 F1, refined 10.6). A write under a DIFFERENT transition than
+    // the pending bump's must reach the signal: entanglement and merging
+    // are SCHEDULER bookkeeping keyed on writes — a skipped write left
+    // transition B's involvement unrecorded, and A's resolution could
+    // deliver B's still-pending value early. Dedup never outranks the
+    // scheduler; repeats inside the SAME transition add nothing to it.
+    if (activeTransition === null || pc.bt === activeTransition) return;
   } else if (pc.p === null && activeTransition === null) {
     return;
   }
@@ -605,6 +612,7 @@ function bumpOne(t: StoreNextTarget, pc: any): void {
   // held by a transition (its commit IS the delivery moment), but the
   // dispatch decision must never read a mid-commit signal value.
   pc.bc++;
+  pc.bt = activeTransition;
   setSignal(pc.dn, (v: number) => v + 1);
 }
 
@@ -620,12 +628,19 @@ function bumpOneOptimistic(t: StoreNextTarget, pc: any): void {
   if (pc.de === undefined) {
     if (pc.p === null) return;
     ensureDelivery(t, pc);
+  } else if (pc.bc !== pc.dv && activeTransition !== null && pc.bo === activeTransition) {
+    // SAME-TRANSACTION optimistic dedup (round 10.6, P2): the first bump
+    // registered the override + revert bookkeeping with this transaction;
+    // a repeat (tentative reconcile + its setter's notifyOptimisticWrites,
+    // N nested writes bubbling the same ancestors) adds nothing. Stamped
+    // separately from plain bumps (`bt`): a plain HELD write is not
+    // lane-visible — an optimistic bump after one must still write.
+    return;
   }
   // Override-armed write: in-flight visibility now, re-notify on revert —
-  // the engine is installed by every optimistic caller of this seam. NO
-  // pending-dedup: every engine write registers with the transaction's
-  // revert bookkeeping.
+  // the engine is installed by every optimistic caller of this seam.
   pc.bc++;
+  pc.bo = activeTransition;
   const w = GlobalQueue._optimisticWrite;
   if (w !== null && w !== undefined) w(pc.dn, (pc.dn._value ?? 0) + 1);
   else setSignal(pc.dn, (v: number) => v + 1);
@@ -744,6 +759,13 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
         // only THIS channel's bodies read. Cost rides the rare path: dbmon
         // ticks are all payload hits and never probe.
         if (!npHit && pc.dp !== null && !deepPathsPlain(pc.dp, heldMaskView(t) ?? t.v, t)) {
+          demoteToEffects(t, true);
+          return;
+        }
+        // Direct object-valued root keys (round 10.6, P1): same currency
+        // rule for `dp === null` manifests — a stale alias slot serves the
+        // outgoing object raw; demote so the body reads through the proxy.
+        if (!npHit && pc.ak !== null && !rootKeysCurrent(t, heldMaskView(t) ?? t.v, pc.ak)) {
           demoteToEffects(t, true);
           return;
         }
@@ -925,10 +947,13 @@ export function patchableRaw(record: any, keys?: string[]): Record<PropertyKey, 
   // Manifest deep-path admission (re-audit 8, P1-1): a getter ALREADY
   // nested on a declared read path rejects patch admission outright — the
   // adoption gates only see FUTURE adoptions. CURRENCY-probed with `t`
-  // (round 10.5, F2): stale alias slots decline to classic.
+  // (round 10.5, F2): stale alias slots decline to classic — including
+  // direct object-valued ROOT keys (round 10.6, P1: `dp === null`
+  // manifests like ["right"] read the object itself).
   if (keys !== undefined) {
     const m = internManifest(keys);
     if (m.dp !== null && !deepPathsPlain(m.dp, raw, t)) return undefined;
+    if (!rootKeysCurrent(t, raw, m.roots)) return undefined;
   }
   return raw;
 }
@@ -1001,10 +1026,19 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
     // failure defers a single halt AFTER the fanout (the same contract the
     // dispatch loop pins).
     let firstError: unknown = UNSET;
+    const heldProbe = GlobalQueue._queueHeld;
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       if (entry.owner !== null && isDisposed(entry.owner)) continue;
       const fn = entry.fn;
+      // HELD owners schedule their initial run through their own queue
+      // (round 10.6, P1): a synchronous force-apply here would write DOM
+      // that a collapsed boundary is holding — the same parity rule as
+      // dispatch's deferHeldEntry. Warm owners keep the immediate run
+      // (lane-timed demotions NEED it: the global render queue is stashed
+      // in-flight, and deferral would postpone the tentative view).
+      const oq = entry.q as any;
+      const held = heldProbe !== null && oq != null && oq !== globalQueue && heldProbe(oq);
       try {
         runWithOwner(entry.owner, () =>
           createRenderEffect(
@@ -1015,7 +1049,8 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
               // Block body: a compiled patch body's return value must not be
               // mistaken for an effect cleanup.
               untrack(() => fn(proxy, undefined, true));
-            }
+            },
+            held ? { schedule: true } : undefined
           )
         );
       } catch (err) {

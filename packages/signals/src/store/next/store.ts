@@ -162,6 +162,8 @@ export function pcOf(t: StoreNextTarget): PatchChannel {
       np: undefined,
       npb: 0,
       dmq: false,
+      bt: null,
+      bo: null,
       ak: null,
       dp: null,
       ks: false,
@@ -467,6 +469,27 @@ export function targetKeysPlain(target: StoreNextTarget, next: Record<PropertyKe
     if (lookupGetter.call(next, ak[i]) !== undefined) return false;
   const dp = target.pc !== null ? target.pc.dp : null;
   return dp === null || deepPathsPlain(dp, next, target);
+}
+
+/** Flat-key alias currency (round 10.6, P1): a manifest ROOT key whose
+ * value is a RAW object must still be the CURRENT backing of its target —
+ * `["right"]` reads the object itself, so a stale alias slot (the target
+ * adopted a different backing; only the canonical parent chain was
+ * path-copied) would hand the body the outgoing state with no pending
+ * delivery to correct it. Deep paths get the same probe inside
+ * deepPathsPlain; this covers the `dp === null` direct-object manifests.
+ * Primitive values skip on a typeof; proxies are always current. */
+export function rootKeysCurrent(t: StoreNextTarget, view: any, keys: PropertyKey[]): boolean {
+  if (view === null || typeof view !== "object") return true;
+  const map = t.fam?.map ?? storeNextLookup;
+  for (let i = 0; i < keys.length; i++) {
+    const v = (view as any)[keys[i]];
+    if (v !== null && typeof v === "object" && (v as any)[$TARGET] === undefined) {
+      const ct = map.get(v);
+      if (ct !== undefined && (ct.pb ?? ct.v) !== v) return false;
+    }
+  }
+  return true;
 }
 
 /** Walk the manifested deep-path PREFIX TREE through `next`, probing every

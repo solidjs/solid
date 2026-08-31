@@ -84,6 +84,13 @@ export interface PatchChannel {
    * channel; the delivery effect consumes it in clean effect context.
    * Cleared with the consumers it belonged to (round 10, P2). */
   dmq?: boolean;
+  /** Transaction-scoped dedup stamps (round 10.6): the transition that
+   * last wrote the delivery signal — plain (`bt`) and optimistic (`bo`)
+   * tracked separately (a held plain write is not lane-visible). Repeats
+   * within one transaction skip the signal write; a different transaction
+   * always writes (scheduler owns merge bookkeeping). */
+  bt?: unknown;
+  bo?: unknown;
   /** Accessed-key set for the channel's compiled bodies (union across
    * registrations). Compiler-manifested registrations (re-audit 7, P1-1)
    * hand the STATIC read envelope — complete across branches the applies
