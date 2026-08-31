@@ -694,6 +694,17 @@ export function registerServerFunction<T extends any[], R>(
 
 export function registerServerFunction(id, callback) {
   provideRPC();
+  // A `GET()` declaration is made ABOUT a function, not about an id — it
+  // grants GET dispatch and the origin-gate exemption (#3114), and both
+  // must die with the binding they were granted to. Rebinding the id to a
+  // different function (an id collision between integrations, a module
+  // re-evaluated in a live process after an edit dropped the wrapper)
+  // otherwise leaves the grant governing a function that never signed it:
+  // a mutation reachable over GET, from any origin, with ambient cookies
+  // (#3129). A function that still declares GET re-runs `GET()` right
+  // after re-registering — module order guarantees it — so the grant
+  // re-arms itself exactly when it is still meant.
+  if (REGISTRATIONS.get(id) !== callback) METHODS.delete(id);
   REGISTRATIONS.set(id, callback);
   return callback;
 } /**
@@ -908,6 +919,11 @@ export function GET<A extends readonly any[], R>(
  * #3114): the origin gate is skipped for declared reads, so the function
  * is executable from any origin with the user's ambient cookies — it must
  * be a safe read in the RFC 9110 §9.2.1 sense.
+ *
+ * The declaration is about the FUNCTION, not the id: registering a
+ * different function under the same id revokes it (#3129), and the new
+ * function's own `GET()` — which module order runs right after the
+ * re-registration — is what re-grants it.
  *
  * Wrap the reference at its declaration; the compiler round-trips the call
  * in both builds:
@@ -1756,8 +1772,7 @@ export function serializeResponseStream(value, codecOptions, signal) {
           // first would park the next pull on a resolver nobody will ever
           // call, stranding the codec's pump. `finished` is re-read after
           // the wait for the same reason from the other direction.
-          next: () =>
-            finished || wantsMore() ? Promise.resolve(step()) : awaitDemand().then(step)
+          next: () => (finished || wantsMore() ? Promise.resolve(step()) : awaitDemand().then(step))
         };
       }
     };
@@ -2409,7 +2424,17 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // advertised sources run: a client that never subscribed a source's
   // consumer never pays for its collection, and an id naming no registered
   // hook simply does not fold.
-  const flightHeader = scripted ? request.headers.get(SINGLE_FLIGHT_HEADER) : null;
+  //
+  // POST only — the server half of the client's own rule (client.ts: reads
+  // "stay plain — folding per-request flight data into them would defeat
+  // caching"). A GET is a cacheable URL, and folding on it would put two
+  // bodies at one cache key — the plain value and an envelope carrying
+  // data the hook computed from THAT caller's request — with nothing
+  // naming the variance, under whatever public Cache-Control the author
+  // wrote (#3128). The shipped client never sends the header on a read;
+  // honoring it from anyone else hands a curl one shared-cache poisoning.
+  const flightHeader =
+    scripted && method === "POST" ? request.headers.get(SINGLE_FLIGHT_HEADER) : null;
   const flightHooks = flightHeader
     ? flightHeader.split(",").flatMap(source => {
         const hook = source === "true" ? flightHook : flightSources.get(source);

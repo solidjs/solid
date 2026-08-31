@@ -116,6 +116,76 @@ describe("server-function method allowlist (#3069)", () => {
     expect(calls).toBe(2);
   });
 
+  it("a GET declaration dies with the binding it was made about (#3129)", async () => {
+    // The declaration grants two things — GET dispatch and the origin-gate
+    // exemption (#3114) — and both were granted to a FUNCTION. Rebinding
+    // the id (a collision between integrations, a module re-evaluated in a
+    // live process after an edit dropped the wrapper) must revoke them:
+    // otherwise the function now answering to the id inherits a grant it
+    // never signed, and a mutation becomes reachable over GET, from any
+    // origin, with the user's ambient cookies.
+    const read = vi.fn(async () => "READ");
+    declareGET("hygiene-rebind", read);
+    const before = await handleServerFunctionRequest(readRequest("hygiene-rebind", "GET"), {
+      provideEvent
+    });
+    expect(before.status).toBe(200);
+    expect(read).toHaveBeenCalledTimes(1);
+
+    // the id changes hands
+    const mutation = vi.fn(async () => "MUTATED");
+    registerServerFunction("hygiene-rebind", mutation);
+
+    // both grants are gone, in gate order: a bare GET — the exact request
+    // the stale grant used to answer — now meets the re-armed origin gate
+    // (403), and a same-origin GET gets past it only to find the method
+    // allowlist no longer advertising the reads (405)
+    const bare = await handleServerFunctionRequest(readRequest("hygiene-rebind", "GET"), {
+      provideEvent
+    });
+    expect(bare.status).toBe(403);
+    const sameOrigin = await handleServerFunctionRequest(
+      readRequest("hygiene-rebind", "GET", { "Sec-Fetch-Site": "same-origin" }),
+      { provideEvent }
+    );
+    expect(sameOrigin.status).toBe(405);
+    expect(sameOrigin.headers.get("Allow")).toBe("POST");
+    expect(mutation).not.toHaveBeenCalled();
+
+    // the default transport is untouched: the new function dispatches
+    // over gated POST like any undeclared function
+    const post = await handleServerFunctionRequest(postRequest("hygiene-rebind"), {
+      provideEvent
+    });
+    expect(post.status).toBe(200);
+    expect(mutation).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-registering the same function keeps its declaration; a redeclaring rebind re-grants", async () => {
+    // Same identity, same grant: registering the callback the declaration
+    // was made about is not a change of hands (integrations re-running
+    // their registration path must not silently lose GET).
+    const read = async () => "READ";
+    declareGET("hygiene-rebind-same", read);
+    registerServerFunction("hygiene-rebind-same", read);
+    const kept = await handleServerFunctionRequest(readRequest("hygiene-rebind-same", "GET"), {
+      provideEvent
+    });
+    expect(kept.status).toBe(200);
+
+    // The re-evaluated-module path: registration and declaration travel
+    // together in module order, so a function that still wraps GET()
+    // re-grants itself immediately after the rebind revokes.
+    declareGET("hygiene-rebind-redeclare", async () => "v1");
+    declareGET("hygiene-rebind-redeclare", async () => "v2");
+    const redeclared = await handleServerFunctionRequest(
+      readRequest("hygiene-rebind-redeclare", "GET"),
+      { provideEvent }
+    );
+    expect(redeclared.status).toBe(200);
+    expect(await redeclared.text()).toContain("v2");
+  });
+
   it("matches the method exactly: a lowercased `post` is not POST", async () => {
     // The comparison is `===` against the uppercase token, and the platform
     // `Request` constructor normalizes the six well-known methods, so this
