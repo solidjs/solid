@@ -843,7 +843,16 @@ export function setPatchCommitHook(fn: (batch: Transition) => void): void {
 function commitPendingNodes() {
   const pendingNodes = currentBatch._pendingNodes;
   for (let i = 0; i < pendingNodes.length; i++) {
-    commitPendingNode(pendingNodes[i]);
+    const node = pendingNodes[i];
+    commitPendingNode(node);
+    // A committed node has left the transaction, and the drain below is the only
+    // record that it was ever in it. `reassignPendingTransition` clears the stamp
+    // at completion, but only for nodes still in this list, so a node committed by
+    // an earlier drain would keep pointing at a transition that later finishes.
+    // A finished transition re-entered through that stamp cannot complete again:
+    // `setSignal` re-enters it before it discovers the write changes nothing, and a
+    // boundary rewrites the same flag on every drain pass, so the drain never ends.
+    node._transition = null;
   }
   pendingNodes.length = 0;
   storeCommitHook?.();
