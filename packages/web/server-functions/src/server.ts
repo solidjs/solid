@@ -1986,7 +1986,11 @@ export const GENERIC_SERVER_ERROR_MESSAGE = "Internal Server Error";
 // bypassed the bundled entries sanitizes and omits diagnostic bodies like a
 // production build. Deliberately NOT process.env.NODE_ENV — the runtime is
 // a web-standard package and keys dev behavior on build variants, not
-// ambient node environment.
+// ambient node environment. One documented exception sits downstream: the
+// serialization codec's error-STACK policy defaults to NODE_ENV (its build
+// has no dev variant), so a production artifact run with
+// NODE_ENV=development serializes stacks unless the deployment pins
+// `codec: { serializeErrorStacks: false }` (#3152).
 let DEV = "_SOLID_DEV_" === true; /**
  * Overrides the build-variant dev flag for this module instance — the seam
  * for test harnesses and hand-rolled bundles whose packaging cannot replace

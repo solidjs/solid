@@ -252,6 +252,50 @@ describe("what the guard must not disturb", () => {
   });
 });
 
+describe("error stacks under a misconfigured NODE_ENV (#3152)", () => {
+  // NODE_ENV=development set against a production artifact is a quiet,
+  // common misconfiguration (base images, dotenv) — and it does not change
+  // the selected export condition, so this production bundle is exactly the
+  // artifact that runs. The sharp case is markSafeError: safe errors pass
+  // the sanitizer whole, so the only thing standing between their
+  // APPLICATION-code stacks and the wire is the codec's NODE_ENV-keyed
+  // stack policy. `codec.serializeErrorStacks` pins it to the deployment.
+  it("codec.serializeErrorStacks: false keeps app stacks off the wire whatever NODE_ENV says", async () => {
+    registerServerFunction("stack-policy-safe", async function throwsInsideCheckoutCharge() {
+      throw markSafeError(new Error("Card declined"));
+    });
+    const call = (options?: Parameters<typeof handleServerFunctionRequest>[1]) =>
+      handleServerFunctionRequest(
+        new Request("https://app.example/_server/data/stack-policy-safe", {
+          method: "POST",
+          body: "[]",
+          headers: {
+            "Sec-Fetch-Site": "same-origin",
+            "X-Server-Function-Format": "8",
+            "X-Server-Function-Instance": "server-function:test"
+          }
+        }),
+        options
+      ).then(response => response.text());
+
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = "development";
+    try {
+      // the documented default: NODE_ENV=development ships the stack —
+      // frames that start in application code
+      expect(await call()).toContain("throwsInsideCheckoutCharge");
+
+      // the pinned deployment: same env, same build — message intact,
+      // stack gone
+      const pinned = await call({ codec: { serializeErrorStacks: false } });
+      expect(pinned).toContain("Card declined");
+      expect(pinned).not.toContain("throwsInsideCheckoutCharge");
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
+  });
+});
+
 describe("the frames flight sink", () => {
   // It encodes its outcome with its own serializer, so the guard has to be
   // applied there too — the same rejection that is sanitized on the plain

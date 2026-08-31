@@ -328,6 +328,27 @@ describe("error stack stripping", () => {
     expect(decoded.stack).toContain("throwsDeepInsideTheServer");
   });
 
+  it("serializeErrorStacks: false pins production disclosure over NODE_ENV (#3152)", async () => {
+    // NODE_ENV=development against a production artifact is a quiet, common
+    // misconfiguration (base images, dotenv) — and the stack it would ship
+    // for a markSafeError-branded error traverses APPLICATION code, to any
+    // caller who can trigger an ordinary error path. The option keys the
+    // policy to the deployment, not the ambient variable.
+    const nodes = await withNodeEnv("development", () =>
+      serializeNodes(createError(), { serializeErrorStacks: false })
+    );
+    const payload = JSON.stringify(nodes);
+    expect(payload).toContain("boom");
+    expect(payload).not.toContain("throwsDeepInsideTheServer");
+  });
+
+  it("serializeErrorStacks: true opts stacks in without touching NODE_ENV", async () => {
+    // the escape hatch in the other direction: a trusted internal tool
+    // that wants stacks from its production process
+    const nodes = await serializeNodes(createError(), { serializeErrorStacks: true });
+    expect(JSON.stringify(nodes)).toContain("throwsDeepInsideTheServer");
+  });
+
   it("omits the stack from hydration scripts outside development", () => {
     const { serializer, scripts } = collect(createHydrationSerializer);
     serializer.write("e", createError());
