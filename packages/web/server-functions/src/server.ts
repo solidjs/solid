@@ -664,9 +664,9 @@ const METHODS = new Map();
 // In-flight invocation state, keyed by the request event the call runs
 // under — the derived event a direct SSR call creates, or the handler's own
 // event for HTTP dispatch. Deliberately NOT `event.locals`: locals is
-// user/integration space, and derived events shallow-copy the event while
-// SHARING locals, so a locals write from a nested or concurrent call would
-// leak into (and overwrite) the outer scope's state.
+// user/integration space, not the runtime's — and its per-call copy
+// (#3156) makes writes call-local, which is the wrong lifetime for state
+// the wrapper established before the copy existed.
 const INVOCATIONS = new WeakMap();
 
 // Server mirror of the client transport's late-bound RPC registration (see
@@ -836,10 +836,20 @@ export function createServerReference({ id, fn, name }) {
     apply(target, thisArg, args) {
       const ogEvt = getRequestEvent();
       if (!ogEvt) throw new Error("Cannot call server function outside of a request");
-      const evt = { ...ogEvt };
-      // Keyed on the derived event (locals is shared with the outer event —
-      // see INVOCATIONS): the invocation is visible exactly within this
-      // call's provideEvent scope and evaporates with the derived event.
+      // `locals` is copied per call, not shared (#3156). Reads still see
+      // everything middleware put on the render's event — the only road
+      // per-request context (auth, tenant, DB handle) has into an SSR-time
+      // call — and nested objects stay shared by reference, so a
+      // request-scoped cache or client keeps working. What dies is the
+      // cross-call write channel: two concurrent direct calls assigning
+      // `locals.x` overwrote each other AND the render, silently and
+      // interleaving-dependent — exactly why the runtime itself keeps
+      // invocation state out of locals (see INVOCATIONS). `event.response`
+      // stays shared on purpose: a cookie set during SSR reaching the page
+      // head is the point of the stub.
+      const evt = { ...ogEvt, locals: { ...ogEvt.locals } };
+      // Keyed on the derived event: the invocation is visible exactly within
+      // this call's provideEvent scope and evaporates with the derived event.
       INVOCATIONS.set(evt, { id });
       evt.serverOnly = true;
       const result = provideEvent(evt, () => {
@@ -1010,8 +1020,8 @@ export function live(fn) {
  * request event — usable inside a server function body, e.g. to key caches
  * or logs by function. Returns undefined outside a server function call.
  * The state lives in a module-private WeakMap keyed by the per-call request
- * event (never in `event.locals`, which derived events share with their
- * outer event). Distinct from `getServerFunctionMetadata(fn)`, which reads
+ * event (never in `event.locals`, which is user/integration space and is
+ * copied per derived call — #3156). Distinct from `getServerFunctionMetadata(fn)`, which reads
  * a reference's static declaration metadata; this describes the call
  * currently executing.
  */
