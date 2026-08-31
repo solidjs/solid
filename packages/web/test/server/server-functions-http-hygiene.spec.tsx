@@ -20,6 +20,7 @@
  * Runs against the built bundles like the other server-function specs.
  */
 import { describe, expect, it, vi } from "vitest";
+import { respond } from "@solidjs/web";
 import {
   GET as serverGET,
   createServerReference,
@@ -377,6 +378,47 @@ describe("server-function cache hygiene (#3071)", () => {
     });
     expect(accepted.status).toBe(200);
     expect(accepted.headers.get("Vary")).toBe("Sec-Fetch-Site, Origin, Referer");
+  });
+
+  it("never defaults no-store onto a 304 — a cache update, not a stored response (#3134)", async () => {
+    // RFC 9111 §4.3.4: a cache freshens its stored entry with the header
+    // fields a 304 carries. A defaulted `no-store` on it does not decline
+    // to store THIS answer — it evicts the entry the conditional request
+    // was sent to keep alive, so the read pays a conditional round trip
+    // and then refetches in full anyway, every other read. The minimal
+    // correct 304 (just the ETag) is exactly where the dev warning's own
+    // advice leads, so it must pass through clean.
+    declareGET("hygiene-304-clean", async () =>
+      respond(undefined, { status: 304, headers: { ETag: '"v1"' } })
+    );
+    const revalidated = await handleServerFunctionRequest(readRequest("hygiene-304-clean", "GET"), {
+      provideEvent
+    });
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.headers.get("ETag")).toBe('"v1"');
+    expect(revalidated.headers.get("Cache-Control")).toBeNull();
+
+    // an author who echoes Cache-Control on the 304 (RFC 9110 §15.4.5)
+    // keeps their own value, as before
+    declareGET("hygiene-304-echo", async () =>
+      respond(undefined, {
+        status: 304,
+        headers: { ETag: '"v1"', "Cache-Control": "public, max-age=60" }
+      })
+    );
+    const echoed = await handleServerFunctionRequest(readRequest("hygiene-304-echo", "GET"), {
+      provideEvent
+    });
+    expect(echoed.headers.get("Cache-Control")).toBe("public, max-age=60");
+
+    // 204 is null-body too, but it is an ordinary answer, not a cache
+    // update: the default stays
+    declareGET("hygiene-204-default", async () => respond(undefined, { status: 204 }));
+    const noContent = await handleServerFunctionRequest(readRequest("hygiene-204-default", "GET"), {
+      provideEvent
+    });
+    expect(noContent.status).toBe(204);
+    expect(noContent.headers.get("Cache-Control")).toBe("no-store");
   });
 
   it("defaults every response to Cache-Control: no-store", async () => {

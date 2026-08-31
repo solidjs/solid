@@ -72,6 +72,7 @@ async function wireBody(id: string) {
       body: "[]",
       headers: {
         "Sec-Fetch-Site": "same-origin",
+        "X-Server-Function-Format": "8",
         "X-Server-Function-Instance": "server-function:test"
       }
     })
@@ -128,8 +129,9 @@ describe("a failure escaping through the result graph", () => {
   });
 
   it("is sanitized when the rejection sits in a Map", async () => {
-    registerServerFunction("graph-failure-map", async () =>
-      new Map([["pending", Promise.reject(databaseError())]])
+    registerServerFunction(
+      "graph-failure-map",
+      async () => new Map([["pending", Promise.reject(databaseError())]])
     );
 
     const body = await wireBody("graph-failure-map");
@@ -195,6 +197,7 @@ describe("what the guard must not disturb", () => {
         body: "[]",
         headers: {
           "Sec-Fetch-Site": "same-origin",
+          "X-Server-Function-Format": "8",
           "X-Server-Function-Instance": "server-function:test"
         }
       })
@@ -263,6 +266,7 @@ describe("the frames flight sink", () => {
         body: "[]",
         headers: {
           "Sec-Fetch-Site": "same-origin",
+          "X-Server-Function-Format": "8",
           "X-Server-Function-Instance": "server-function:test",
           "X-Single-Flight": "true"
         }

@@ -16,7 +16,7 @@
  * bundles (server-functions/dist/*, wired up in vite.config.server.mjs).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   configureServerFunctionsServer,
   handleServerFunctionRequest,
@@ -82,7 +82,9 @@ describe("the body size bound", () => {
   });
 
   it("accepts a body under the limit", async () => {
-    const response = await handleServerFunctionRequest(post(JSON.stringify(["hello"])));
+    const response = await handleServerFunctionRequest(
+      post(JSON.stringify(["hello"]), { [BODY_FORMAT_HEADER]: JSON_FORMAT })
+    );
     expect(response.status).toBe(200);
   });
 
@@ -99,21 +101,25 @@ describe("the body size bound", () => {
     ).toBe(413);
     expect(
       (
-        await handleServerFunctionRequest(post(JSON.stringify(["x".repeat(2 * 1024 * 1024)])), {
-          bodySizeLimit: Infinity
-        })
+        await handleServerFunctionRequest(
+          post(JSON.stringify(["x".repeat(2 * 1024 * 1024)]), {
+            [BODY_FORMAT_HEADER]: JSON_FORMAT
+          }),
+          { bodySizeLimit: Infinity }
+        )
       ).status
     ).toBe(200);
   });
 
   it("honors the configured default", async () => {
+    const tagged = { [BODY_FORMAT_HEADER]: JSON_FORMAT };
     configureServerFunctionsServer({ bodySizeLimit: 8 });
     try {
-      expect((await handleServerFunctionRequest(post("[1,2,3,4,5,6]"))).status).toBe(413);
+      expect((await handleServerFunctionRequest(post("[1,2,3,4,5,6]", tagged))).status).toBe(413);
     } finally {
       configureServerFunctionsServer({ bodySizeLimit: 1_048_576 });
     }
-    expect((await handleServerFunctionRequest(post("[1,2,3,4,5,6]"))).status).toBe(200);
+    expect((await handleServerFunctionRequest(post("[1,2,3,4,5,6]", tagged))).status).toBe(200);
   });
 });
 
@@ -180,6 +186,73 @@ describe("the decode depth cap on caller-chosen formats", () => {
       post(JSON.stringify({ not: "an array" }), { [BODY_FORMAT_HEADER]: JSON_FORMAT })
     );
     expect(response.status).toBe(400);
+  });
+});
+
+describe("an unusable body format (#3130)", () => {
+  // The decode switch falling through used to answer `undefined`, and
+  // dispatch spread that into the call as argument 0: the function ran,
+  // committed, and answered 200 on an argument it was never sent. The
+  // whole class is a malformed request and answers 400 before dispatch.
+  it("refuses a format tag the runtime has never heard of", async () => {
+    const fn = vi.fn(async () => "reached");
+    registerServerFunction("bounds-format-unknown", fn);
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/bounds-format-unknown", {
+        method: "POST",
+        body: "[1]",
+        headers: {
+          "Sec-Fetch-Site": "same-origin",
+          "X-Server-Function-Instance": "server-function:test",
+          [BODY_FORMAT_HEADER]: "9999"
+        }
+      })
+    );
+    expect(response.status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("a duplicated format header no longer turns a 400 into a 200", async () => {
+    // `Headers` comma-joins duplicates silently: two copies of the JSON
+    // tag arrive as `"8, 8"`, which names no format — the codec was never
+    // consulted and the body was dropped on the floor.
+    const fn = vi.fn(async () => "reached");
+    registerServerFunction("bounds-format-dup", fn);
+    const request = new Request("https://app.example/_server/data/bounds-format-dup", {
+      method: "POST",
+      body: "[1,2]",
+      headers: {
+        "Sec-Fetch-Site": "same-origin",
+        "X-Server-Function-Instance": "server-function:test"
+      }
+    });
+    request.headers.append(BODY_FORMAT_HEADER, JSON_FORMAT);
+    request.headers.append(BODY_FORMAT_HEADER, JSON_FORMAT);
+    expect(request.headers.get(BODY_FORMAT_HEADER)).toBe(`${JSON_FORMAT}, ${JSON_FORMAT}`);
+
+    const response = await handleServerFunctionRequest(request);
+    expect(response.status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("refuses an untagged body whose content-type names no decoding", async () => {
+    // text/plain from a bare fetch(url, { body: "..." }): not a form
+    // (those are content-type sniffed by design) and not a documented
+    // direct-HTTP encoding, so there is nothing to call the function WITH.
+    const fn = vi.fn(async () => "reached");
+    registerServerFunction("bounds-format-untagged", fn);
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/bounds-format-untagged", {
+        method: "POST",
+        body: "just some text",
+        headers: {
+          "Sec-Fetch-Site": "same-origin",
+          "X-Server-Function-Instance": "server-function:test"
+        }
+      })
+    );
+    expect(response.status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
   });
 });
 

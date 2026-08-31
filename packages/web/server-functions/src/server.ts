@@ -1167,6 +1167,16 @@ async function parseArguments(request, url, scripted, codec) {
       }
       return decoded;
     }
+    if (decoded === undefined) {
+      // The decode switch fell through: the format tag — or its duplicate-
+      // header comma join, which `Headers` produces silently — names no
+      // encoding this runtime has. Refusing is the point: substituting
+      // `undefined` for the body calls the function on an argument it was
+      // never sent, and the mutation commits and answers 200 (#3130). The
+      // throw lands on dispatch's malformed-arguments 400, the same answer
+      // a single unusable tag already earned from the codec.
+      throw new TypeError("Server function body carries no usable encoding");
+    }
     parsed.push(decoded);
   }
   return parsed;
@@ -2720,9 +2730,20 @@ export async function handleServerFunctionRequest(request, options = {}) {
  */
 function finalizeTransportResponse(response, method) {
   const stripBody = method === "HEAD" && response.body !== null;
-  if (stripBody || !response.headers.has("Cache-Control")) {
+  // Never onto a 304: a 304 is not a stored response, it is an UPDATE to
+  // one — RFC 9111 §4.3.4 has the cache freshen its stored entry with the
+  // header fields the 304 carries. `no-store` here would not decline to
+  // store this answer; it would instruct the cache to DROP the entry the
+  // conditional request was sent to keep alive, leaving the read worse off
+  // than uncached — a conditional round trip and then a full refetch,
+  // every other read, forever (#3134). An author who echoes Cache-Control
+  // on the 304 (RFC 9110 §15.4.5) was always untouched; this covers the
+  // minimal correct 304 the dev warning's own advice leads to. 204/205 are
+  // ordinary answers, not cache updates, and keep the default.
+  const defaultsCache = !response.headers.has("Cache-Control") && response.status !== 304;
+  if (stripBody || defaultsCache) {
     try {
-      if (!response.headers.has("Cache-Control")) {
+      if (defaultsCache) {
         response.headers.set("Cache-Control", "no-store");
       }
       if (!stripBody) return response;
@@ -2736,7 +2757,7 @@ function finalizeTransportResponse(response, method) {
     } catch {
       // immutable headers (e.g. a raw fetch() Response passed through)
       const headers = new Headers(response.headers);
-      if (!headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
+      if (defaultsCache && !headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
       if (stripBody) response.body.cancel().catch(() => {});
       return new Response(stripBody ? null : response.body, {
         status: response.status,

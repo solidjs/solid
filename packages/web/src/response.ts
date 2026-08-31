@@ -169,7 +169,17 @@ export function redirect(url: string | Href, init: number | ResponseHelperInit =
   // there — String(url) would yield the display href (eg. `#/page1` under a
   // hash router), which is an anchor value, not a location.
   const target = typeof url === "string" ? url : (url as Href)[HREF];
-  headers.set("Location", typeof target === "string" ? target : String(url));
+  const location = typeof target === "string" ? target : String(url);
+  // `Location` is a latin1 ByteString on the wire, and the non-ASCII range
+  // splits into two failure modes (#3135): above U+00FF `Headers.set`
+  // throws (dispatch masks it as a sanitized 500 — `redirect("/поиск")`
+  // answers no redirect at all), while U+0080–U+00FF fits a ByteString and
+  // rides as a raw latin1 byte that is not valid UTF-8 — a client decodes
+  // U+FFFD and follows `redirect("/café")` to `/caf%EF%BF%BD`. Percent-
+  // encode the non-ASCII code points (UTF-8, the encoding a URL means);
+  // ASCII — separators, query syntax, existing %-escapes — passes through
+  // untouched, so an already-encoded target is not double-encoded.
+  headers.set("Location", location.replace(/[^\x00-\x7f]/gu, encodeURIComponent));
   return new Response(null, { ...responseInit, headers });
 }
 
