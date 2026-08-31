@@ -199,6 +199,24 @@ function ForList() {
 }
 
 // ---------------------------------------------------------------------------
+// 8b. For followed by static siblings in a top-level fragment (#3161): the
+// rc.4 regression — server spends top-level id slots on the rows and gives
+// the siblings the next ones; the rc.4 client asked for the siblings at 0/1,
+// so everything after the list hydrated detached (dead buttons).
+let bumpAfterFor!: () => void;
+function ForThenSiblings() {
+  const [count, setCount] = createSignal(0);
+  bumpAfterFor = () => setCount(c => c + 1);
+  return (
+    <>
+      <For each={[{ id: 1 }, { id: 2 }]}>{row => <div class="row">row {row.id}</div>}</For>
+      <button id="bump">bump</button>
+      <pre id="after">count: {count()}</pre>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 9. Spread with children in the spread object
 function SpreadChildren() {
   const props = { class: "sp", children: <em>spread</em> };
@@ -1557,6 +1575,14 @@ export const scenarios: Scenario[] = [
     update: () => setItems(["a", "b", "c", "d"]),
     expectedTextAfterUpdate: "abcd",
     stableSelector: "ul"
+  },
+  {
+    name: "for-then-siblings",
+    App: ForThenSiblings,
+    expectedText: "row 1row 2bumpcount: 0",
+    update: () => bumpAfterFor(),
+    expectedTextAfterUpdate: "row 1row 2bumpcount: 1",
+    stableSelector: "button, pre"
   },
   {
     name: "spread-children",

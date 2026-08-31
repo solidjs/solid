@@ -8,7 +8,7 @@ import {
   getOwner,
   runWithOwner
 } from "@solidjs/signals";
-import { createErrorBoundary, createLoadingBoundary } from "./hydration.js";
+import { createErrorBoundary, createLoadingBoundary, sharedConfig } from "./hydration.js";
 import type { Accessor, RevealOrder } from "@solidjs/signals";
 export type { RevealOrder };
 import type { Element as SolidElement } from "../types.js";
@@ -98,13 +98,22 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
   // path, created lazily under the component's owner on first read.
   const owner = getOwner();
   let mapped: (() => any) | undefined;
-  const list = () => {
-    if (mapped === undefined)
-      mapped = runWithOwner(owner, () =>
-        mapArray(() => props.each, props.children as any, options as any)
-      ) as () => any;
-    return mapped();
-  };
+  const create = () =>
+    runWithOwner(owner, () =>
+      mapArray(() => props.each, props.children as any, options as any)
+    ) as () => any;
+  // Hydration id parity (#3161): hydration ids mint at CREATION time, and
+  // the server spends the list's id slot at For's source position — so a
+  // hydrating client must create the map HERE, not on first read. Deferred
+  // creation ran at insert's hole evaluation, AFTER later siblings had
+  // already claimed their template keys, shifting every hydration id after
+  // the list (the siblings hydrated detached: dead buttons). Outside
+  // hydration the laziness stands — it is the driver seam's point: an
+  // engaged list never builds the mapArray at all. (A driver-ENGAGED
+  // hydration does not read this accessor either; driveList claims rows
+  // positionally through their own _hk keys.)
+  if (sharedConfig.hydrating) mapped = create();
+  const list = () => (mapped ?? (mapped = create()))();
   if (props.keyed !== false && !("fallback" in props) && props.children.length < 2)
     // `keyed` rides along so the driver implements the DECLARED identity
     // semantics (reference vs key fn) — see driveList's identity ruling.
