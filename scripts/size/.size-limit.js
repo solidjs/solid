@@ -78,6 +78,10 @@ module.exports = [
     //
     // Re-audit-9 (2026-08-29): forced-entry dedup + stamp retargeting in
     // the merge path. Measured 7.92.
+    //
+    // #3122 eager iterator teardown (upstream, 2026-08-31): the
+    // _flightTeardown release sits on recompute's supersede path, which the
+    // core loop always retains. Measured 7.88 post-rebase.
     limit: "8 KB",
     modifyEsbuildConfig
   },
@@ -180,6 +184,13 @@ module.exports = [
     // intermediate probes. Measured 14.80.
     // Rebase onto next (2026-08-31): upstream rc.5 drift stacks with the
     // branch bytes. Measured 14.99.
+    //
+    // #3122/#3123 correctness batch (upstream, 2026-08-31): the #3122
+    // teardown core bytes plus the store-walk exports
+    // (arrayStructureChanged/membershipChanged) the landing-contradiction
+    // gate reads; the replay machinery itself stays in the optimistic
+    // module (see the store-family app scenario). Held at 14.99 post-rebase
+    // — the earlier replay landing was already absorbed here.
     limit: "15.05 KB",
     modifyEsbuildConfig
   },
@@ -210,6 +221,11 @@ module.exports = [
     //
     // Re-audit-6 (2026-08-28): merge coalescing (core) — this scenario had
     // ~no headroom left after the audit-5 ripple. Measured 9.93.
+    //
+    // #3104/#3122 correctness batch (upstream, 2026-08-31): the
+    // latest()/collectPending probe-suspension symmetry (#3104) lives in
+    // the verdict layer this scenario exists to measure; the rest is the
+    // #3122 teardown core bytes. Measured 9.89 post-rebase.
     limit: "10 KB",
     modifyEsbuildConfig
   },
@@ -348,6 +364,12 @@ module.exports = [
     // envelopes, commit skip, akAll refcount). Measured 26.56.
     // Rebase onto next (2026-08-31): upstream drift + lifecycle fixes
     // stack with the branch bytes. Measured 27.06.
+    // #3123 function-of-truth replay (upstream, 2026-08-31): retained
+    // setter replay, flight-gate threading, keyed echo dedupe, and settle-
+    // time re-derivation — this scenario retains every store family, so it
+    // pays the whole optimistic module. Ruled correctness-over-size in the
+    // #3123 thread. Measured 27.10 post-rebase (the earlier replay landing
+    // was already absorbed in this budget).
     limit: "27.15 KB",
     modifyEsbuildConfig
   },
@@ -369,6 +391,9 @@ module.exports = [
     //
     // Re-audit-9 (2026-08-29): the merge-path core bytes (see core floor).
     // Measured 12.90.
+    //
+    // #3122 eager iterator teardown (upstream, 2026-08-31): the core-floor
+    // teardown bytes (see that note). Measured 12.93 post-rebase.
     path: "csr-app.js",
     limit: "13 KB",
     modifyEsbuildConfig
@@ -467,6 +492,8 @@ module.exports = [
     // Rebase onto next (2026-08-31): upstream drift stacks. Measured 18.82.
     // Round-10.13: structural hold parity + late-registrant resync.
     // Measured 19.03.
+    // #3122 teardown (upstream, 2026-08-31): core-floor bytes ride this
+    // tier too. Measured 19.02 post-rebase.
     limit: "19.1 KB",
     modifyEsbuildConfig
   },
