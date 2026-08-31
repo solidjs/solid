@@ -10,12 +10,15 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  GET as serverGET,
   SINGLE_FLIGHT_HEADER,
   configureServerFunctionsServer,
+  createServerReference as createServerSideReference,
   decodeResponse,
   handleServerFunctionRequest,
   registerFlightDataSource,
   registerServerFunction,
+  registerServerReference,
   subscribeFlightData
 } from "@solidjs/web/server-functions/server";
 import type {
@@ -78,6 +81,39 @@ describe("single-flight server bridge (built server bundle)", () => {
     expect(seen.outcome.value).toBe("mutated");
     expect(seen.outcome.thrown).toBe(false);
     expect(seen.event.request).toBe(seen.outcome.request);
+  });
+
+  it("never folds on a GET: a read's body cannot be reshaped by a request header (#3128)", async () => {
+    // A GET is a cacheable url, and a shared cache stores one body per key.
+    // Folding on it would put a second body at that key — an envelope
+    // carrying data the hook computed from THAT caller's request — under
+    // whatever public Cache-Control the author wrote, with nothing naming
+    // the variance. The shipped client already refuses to send the header
+    // on a read (client.ts: reads "stay plain"); this is the server half
+    // of the same rule, so a curl carrying the header cannot poison the
+    // key for everyone behind the cache.
+    serverGET(
+      createServerSideReference(
+        registerServerReference("sf-bridge-read-0", async () => "PUBLIC MENU")
+      )
+    );
+    const collector = vi.fn(() => ({ "/account": { seenBy: "session=CALLER" } }));
+
+    const response = await handleServerFunctionRequest(
+      new Request("http://localhost/_server/data/sf-bridge-read-0", {
+        method: "GET",
+        headers: { [SINGLE_FLIGHT_HEADER]: "true" }
+      }),
+      { collectFlightData: collector }
+    );
+
+    expect(response.status).toBe(200);
+    // no fold: the plain value is the ONLY body this url ever answers,
+    // whatever headers arrive with the call — and the hook never ran, so
+    // a read costs no collection work either
+    expect(response.headers.get(SINGLE_FLIGHT_HEADER)).toBeNull();
+    expect(await decodeResponse(response)).toBe("PUBLIC MENU");
+    expect(collector).not.toHaveBeenCalled();
   });
 
   it("registers the hook through configureServerFunctionsServer", async () => {
