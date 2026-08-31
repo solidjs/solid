@@ -335,17 +335,22 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
   // from settling while the firewall is pending.
   const fw: any = t.fam?.node;
   if (fw?._transition) globalQueue.initTransition(fw._transition);
-  // Replay satisfaction rule (#3123 re-ruling): a re-executed add whose key
-  // the draft already carries earlier (the landing echoed this transaction's
-  // own row) was satisfied by that landing — keep-first per key, drop the
-  // later duplicate. A keyed store cannot hold two rows with one key; the
-  // system re-ran the setter, so the system dedupes. Replay-only: a FIRST
-  // write's shape is the user's own, and unkeyed rows (key: null, or rows
-  // without the key) stay untouched — their idempotency is the documented
-  // reducer contract.
+  // Replay echo rule (#3123 final ruling): an edit lives exactly as long as
+  // its transaction — a landing that echoes a replayed add's key does NOT
+  // satisfy it early. The echoed row keeps the landed slot (structure from
+  // the landing), and the re-executed edit's row masks its value until
+  // settle (value from the intent) — the echo converts the edit's
+  // structural optimism into plain value optimism, the lifetime every
+  // value override already has. Positionally the edit is the LATER
+  // occurrence (a replayed add appends after the landed base — the only
+  // real keyed-add shape; an insert-position setter's row precedes its echo
+  // and keeps landed values through the window, the documented edge).
+  // Replay-only: a FIRST write's shape is the user's own, and unkeyed rows
+  // (key: null, or rows without the key) stay untouched — their idempotency
+  // is the documented reducer contract.
   const keyFn = replaying ? t.fam?.key : null;
   if (keyFn != null && Array.isArray(pb)) {
-    let seen: Set<any> | null = null;
+    let seen: Map<any, number> | null = null;
     let deduped: any[] | null = null;
     for (let i = 0; i < pb.length; i++) {
       const rowKey = keyFn(unwrapValue(pb[i]));
@@ -353,12 +358,15 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
         deduped?.push(pb[i]);
         continue;
       }
-      if ((seen ??= new Set()).has(rowKey)) {
-        // first duplicate: materialize the filtered copy lazily
+      const at = (seen ??= new Map()).get(rowKey);
+      if (at !== undefined) {
+        // duplicate: materialize the filtered copy lazily, then the later
+        // statement's value wins the first occurrence's slot
         deduped ??= (pb as any[]).slice(0, i);
+        deduped[at] = pb[i];
         continue;
       }
-      seen.add(rowKey);
+      seen.set(rowKey, deduped !== null ? deduped.length : i);
       deduped?.push(pb[i]);
     }
     if (deduped !== null) pb = deduped;

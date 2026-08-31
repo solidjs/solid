@@ -3188,6 +3188,100 @@ describe("createOptimisticStore", () => {
         dispose();
       });
 
+      it("an edit's values outlive its own echo until settle (GabbeV's pending-flag repro)", async () => {
+        // #3123 final ruling: a landing that echoes an open transaction's
+        // keyed add does NOT satisfy the edit early. The echoed row keeps
+        // the landed slot, the replayed edit's VALUE masks it until settle
+        // (structure from the landing, value from the intent). Pins the
+        // updated StackBlitz shape: rows carry pending flags that differ
+        // between the optimistic push (true) and the landing's echo
+        // (false), and the action outlives its confirmation.
+        type Row = { id: number; pending: boolean };
+        let notify!: { promise: Promise<Row>; resolve: (row: Row) => void };
+        const reset = () => {
+          let resolve!: (row: Row) => void;
+          const promise = new Promise<Row>(r => (resolve = r));
+          notify = { promise, resolve };
+        };
+        reset();
+        const confirm = (row: Row) => {
+          const current = notify;
+          reset();
+          current.resolve(row);
+        };
+        let items!: Refreshable<readonly Row[]>;
+        let setItems!: (fn: (rows: Row[]) => void) => void;
+        const rendered: string[][] = [];
+        const dispose = createRoot(dispose => {
+          [items, setItems] = createOptimisticStore(async function* (store) {
+            yield [] as Row[];
+            while (true) {
+              const row = await notify.promise;
+              yield;
+              store.push({ ...row, pending: false });
+            }
+          }, [] as Row[]);
+          createRenderEffect(
+            () => items.map(row => row.id + (row.pending ? "p" : "")),
+            value => {
+              rendered.push(value);
+            }
+          );
+          return dispose;
+        });
+        flush();
+        await settle();
+        expect(rendered.at(-1)).toEqual([]);
+
+        // The action holds past its own confirmation (until + trailing gate).
+        const holds: (() => void)[] = [];
+        const add = action(function* (row: Row) {
+          setItems(store => {
+            store.push({ ...row, pending: true });
+          });
+          yield until(() => items.some(x => x.id === row.id));
+          yield new Promise<void>(resolve => {
+            holds.push(resolve);
+          });
+        });
+        const addA = add({ id: 0, pending: true });
+        flush();
+        expect(rendered.at(-1)).toEqual(["0p"]);
+        const addB = add({ id: 1, pending: true });
+        flush();
+        expect(rendered.at(-1)).toEqual(["0p", "1p"]);
+
+        // A's confirmation echoes A's row with pending:false. The edit is
+        // NOT satisfied early: A's replayed value masks the landed row
+        // while A's transaction is still open. Pre-ruling this rendered
+        // ["0", "1p"] — the pending presentation died mid-action.
+        confirm({ id: 0, pending: false });
+        await settle();
+        await settle();
+        expect(rendered.at(-1)).toEqual(["0p", "1p"]);
+
+        confirm({ id: 1, pending: false });
+        await settle();
+        await settle();
+        expect(rendered.at(-1)).toEqual(["0p", "1p"]);
+
+        // Settle is the only reckoning: edits die with their transactions
+        // and the landed truth (pending:false) stands. The two actions
+        // entangled through shared writes, so they settle together.
+        for (const release of holds) release();
+        await Promise.all([addA, addB]);
+        await settle();
+        expect(rendered.at(-1)).toEqual(["0", "1"]);
+        expect(snapshot(items)).toEqual([
+          { id: 0, pending: false },
+          { id: 1, pending: false }
+        ]);
+        // No frame ever dropped a row once both were visible.
+        const sawBoth = rendered.findIndex(frame => frame.length === 2);
+        for (const frame of rendered.slice(sawBoth)) expect(frame).toHaveLength(2);
+        dispose();
+      });
+
       it("rebases an unkeyed pending add over a foreign continuation landing; settle reverts it", async () => {
         let feed!: (value: number) => void;
         let notify!: { promise: Promise<number>; resolve: (value: number) => void };

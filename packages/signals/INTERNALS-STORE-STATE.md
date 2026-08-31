@@ -523,13 +523,33 @@ implementation, deduplicated across reports.
       dataset. The API shape encodes the intent: a refetch says "the whole
       truth again" (replaces), a continuation stream says "incremental
       updates to one living collection" (rebases).
-    - **Keyed satisfaction (replay-only): keep-first per key.** A replayed
-      add whose key the draft already carries earlier was confirmed by the
-      landing (the echo) — deduped via `fam.key` (projection resolution,
-      "id" default). Blind pushes on keyed rows are therefore echo-safe;
-      unkeyed rows carry no verdict, so their idempotency is the documented
-      reducer contract: setters re-run whenever truth changes beneath them
-      and must tolerate any plausible base.
+    - **Keyed echo (replay-only): the edit outlives its echo — RE-RULED
+      (Ryan, 2026-08-31c, #3123 follow-up).** A landing that echoes a
+      replayed add's key does NOT satisfy the edit early: an edit lives
+      exactly as long as its transaction, settle is the only reckoning
+      (superseding the keep-first "early satisfaction" verdict, which was
+      the one carve-out in that lifetime rule). Dedupe (still forced — a
+      keyed store cannot hold two rows under one key, via `fam.key`,
+      projection resolution, "id" default) resolves *structure from the
+      landing, value from the intent*: the first occurrence keeps the slot,
+      the later statement's value masks it until settle. The echo thereby
+      converts the edit's structural optimism into plain value optimism —
+      the lifetime every value override already has, so the collision case
+      obeys the general rule rather than needing its own. Positional
+      caveat, documented: a replayed add appends after the landed base, so
+      "later statement" IS the edit for append-shape adds (the only real
+      keyed-add shape); an insert-position setter's row precedes its echo
+      and shows landed values through the window. Blind pushes on keyed
+      rows remain echo-safe (no duplicates); unkeyed rows carry no verdict,
+      so their idempotency is the documented reducer contract: setters
+      re-run whenever truth changes beneath them and must tolerate any
+      plausible base. What this deliberately does NOT do: hold back the
+      landing itself (GabbeV's until()-entanglement proposal). A shared
+      live stream cannot be held hostage by one observer's action — the
+      landing reveals for the world; only the rows the open transaction
+      itself edited stay masked by its intent. Landing-reveal ownership
+      (which transaction, if any, stages a continuation landing) is #3146,
+      unresolved and orthogonal.
     - **Settle is the second reckoning point:** when a retaining
       transaction dies, survivors' materializations were computed against a
       base that included the dead transaction's rows — the settle drain
