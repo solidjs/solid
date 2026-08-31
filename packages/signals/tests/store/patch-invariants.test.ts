@@ -1367,4 +1367,110 @@ describe("INVARIANT: landings integrate with the patch channel at classic-effect
     disposeConsumers();
     h.dispose();
   });
+
+  it("a continuation echo replay keeps channel/classic parity (no flash, no duplicate, value masks until settle)", async () => {
+    // The third landing posture (d813a96f): a CONTINUATION landing that
+    // echoes an open transaction's keyed add. Wipe + replay re-derives the
+    // optimistic view — the echoed row keeps the landed slot, the replayed
+    // edit's value masks it until its transaction settles, the other open
+    // add re-bases without a flash. The channel must tell the driven list
+    // the same story classic effects see, frame for frame.
+    const mod: any = await import("../../src/index.js");
+    const { createOptimisticStore, createRenderEffect, registerRowOps, until } = mod;
+    type Row = { id: number; pending: boolean };
+    let notify!: { promise: Promise<Row>; resolve: (row: Row) => void };
+    const reset = () => {
+      let resolve!: (row: Row) => void;
+      const promise = new Promise<Row>(r => (resolve = r));
+      notify = { promise, resolve };
+    };
+    reset();
+    const confirm = (row: Row) => {
+      const current = notify;
+      reset();
+      current.resolve(row);
+    };
+    let items!: any;
+    let setItems!: (fn: (rows: Row[]) => void) => void;
+    const classic: string[][] = [];
+    const dispose = createRoot((d: () => void) => {
+      [items, setItems] = createOptimisticStore(async function* (store: Row[]) {
+        yield [] as Row[];
+        while (true) {
+          const row = await notify.promise;
+          yield;
+          store.push({ ...row, pending: false });
+        }
+      }, [] as Row[]);
+      createRenderEffect(
+        () => items.map((r: Row) => r.id + (r.pending ? "p" : "")),
+        (v: string[]) => {
+          classic.push(v);
+        }
+      );
+      return d;
+    });
+    flush();
+    await settle();
+
+    const rowFrames: string[][] = [];
+    let disposeConsumers!: () => void;
+    createRoot(d => {
+      disposeConsumers = d;
+      registerRowOps(items, (next: Row[]) => {
+        rowFrames.push(next.map((r: Row) => r.id + (r.pending ? "p" : "")));
+      });
+    });
+    flush();
+
+    // Two blind keyed adds; both actions hold past their own confirmations.
+    const holds: (() => void)[] = [];
+    const add = action(function* (row: Row) {
+      setItems(store => {
+        store.push({ ...row, pending: true });
+      });
+      yield until(() => items.some((x: Row) => x.id === row.id));
+      yield new Promise<void>(resolve => holds.push(resolve));
+    });
+    const addA = add({ id: 0, pending: true });
+    flush();
+    const addB = add({ id: 1, pending: true });
+    flush();
+    expect(classic.at(-1)).toEqual(["0p", "1p"]);
+    expect(rowFrames.at(-1)).toEqual(["0p", "1p"]);
+    const classicMark = classic.length;
+    const rowMark = rowFrames.length;
+
+    // A's confirmation: continuation landing echoing row 0 (pending:false).
+    confirm({ id: 0, pending: false });
+    await settle();
+    await settle();
+    expect(classic.at(-1)).toEqual(["0p", "1p"]);
+    expect(rowFrames.at(-1)).toEqual(["0p", "1p"]);
+
+    confirm({ id: 1, pending: false });
+    await settle();
+    await settle();
+    expect(rowFrames.at(-1)).toEqual(["0p", "1p"]);
+
+    // Settle is the only reckoning: edits die with their transactions and
+    // the landed truth (pending:false) stands, in BOTH consumers.
+    for (const release of holds) release();
+    await Promise.all([addA, addB]);
+    await settle();
+    expect(classic.at(-1)).toEqual(["0", "1"]);
+    expect(rowFrames.at(-1)).toEqual(["0", "1"]);
+
+    // After both rows were visible, no channel frame ever lost a row
+    // (flash) or carried a duplicate key (echo double-count) — and classic
+    // held the same line.
+    for (const frame of rowFrames.slice(rowMark)) {
+      expect(frame).toHaveLength(2);
+      expect(new Set(frame.map(s => s[0])).size).toBe(2);
+    }
+    for (const frame of classic.slice(classicMark)) expect(frame).toHaveLength(2);
+
+    disposeConsumers();
+    dispose();
+  });
 });
