@@ -18,6 +18,7 @@ import {
   registerServerFunction
 } from "@solidjs/web/server-functions/server";
 import { createServerReference } from "@solidjs/web/server-functions/client";
+import { createRequestEvent } from "@solidjs/web";
 
 const RequestContext = Symbol.for("solid.RequestContext");
 const BODY_FORMAT_HEADER = "X-Server-Function-Format";
@@ -446,6 +447,80 @@ describe("a streamed result nobody is reading", () => {
     expect(whileReading).toBeGreaterThanOrEqual(10);
     // ...and a departed consumer stops it, give or take the pull in flight
     expect(produced).toBeLessThanOrEqual(atCancel + 1);
+  });
+});
+
+describe("refusals after createEvent carry the response stub (#3159)", () => {
+  // Closed (#3159): the post-createEvent refusals returned their response
+  // directly instead of through commitEventResponse, so a Set-Cookie the
+  // integration wrote onto the event's stub — a rotated session, a fresh
+  // CSRF token: the shape createEvent is the documented place for — was
+  // silently dropped on exactly the requests where something already went
+  // wrong. Every exit past createEvent now folds the stub.
+  const createEvent = (request: Request) => {
+    const event = createRequestEvent(request);
+    event.response.headers.append("Set-Cookie", "sid=abc; Path=/");
+    return event;
+  };
+  const H = {
+    "Sec-Fetch-Site": "same-origin",
+    "X-Server-Function-Format": "8",
+    "X-Server-Function-Instance": "server-function:test"
+  };
+
+  test("the 200 control carries the cookie", async () => {
+    registerServerFunction("gap-refusal-control", async () => "ok");
+    const response = await handleServerFunctionRequest(scriptedPost("gap-refusal-control"), {
+      createEvent
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.getSetCookie()).toContain("sid=abc; Path=/");
+  });
+
+  test("the maxArguments 400 carries the cookie", async () => {
+    registerServerFunction("gap-refusal-args", async () => "unreached");
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/gap-refusal-args", {
+        method: "POST",
+        headers: H,
+        body: JSON.stringify(Array.from({ length: 2000 }, (_, i) => i))
+      }),
+      { createEvent }
+    );
+    expect(response.status).toBe(400);
+    expect(response.headers.getSetCookie()).toContain("sid=abc; Path=/");
+  });
+
+  test("the malformed-body 400 carries the cookie", async () => {
+    registerServerFunction("gap-refusal-malformed", async () => "unreached");
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/gap-refusal-malformed", {
+        method: "POST",
+        headers: H,
+        body: "not the encoding it claims["
+      }),
+      { createEvent }
+    );
+    expect(response.status).toBe(400);
+    expect(response.headers.getSetCookie()).toContain("sid=abc; Path=/");
+  });
+
+  test("the scripted form-post 400 carries the cookie", async () => {
+    registerServerFunction("gap-refusal-form", async () => "unreached");
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/gap-refusal-form", {
+        method: "POST",
+        headers: {
+          "Sec-Fetch-Site": "same-origin",
+          "Sec-Fetch-Mode": "cors",
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: "a=1"
+      }),
+      { createEvent }
+    );
+    expect(response.status).toBe(400);
+    expect(response.headers.getSetCookie()).toContain("sid=abc; Path=/");
   });
 });
 

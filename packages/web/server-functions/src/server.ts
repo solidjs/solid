@@ -2579,6 +2579,18 @@ export async function handleServerFunctionRequest(request, options = {}) {
   }
 
   const event = options.createEvent ? options.createEvent(request) : { request, locals: {} };
+  // Once an event exists, its response stub folds onto EVERY exit — the
+  // refusals below included (#3159). A refusal that returned directly
+  // dropped the stub silently: an integration's Set-Cookie written in
+  // createEvent (a rotated session, a fresh CSRF token) never reached the
+  // browser on exactly the requests where something already went wrong, and
+  // the next request carried stale credentials with the failure pointing at
+  // the wrong place. Committing here also arms the stub's late-write
+  // instrumentation, same as the dispatch tail.
+  const refuseCommitted = raw => {
+    const response = commitEventResponse(raw, event);
+    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+  };
   const provide = options.provideEvent || provideEvent;
   const flightHook =
     options.collectFlightData !== undefined ? options.collectFlightData : config.collectFlightData;
@@ -2626,7 +2638,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
           : null,
         { status: 400 }
       );
-      return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+      return refuseCommitted(response);
     }
   }
   // single-flight is scripted-client opt-in: the caller sends the request
@@ -2664,7 +2676,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
     const response = new Response(DEV ? "Malformed server function arguments" : null, {
       status: 400
     });
-    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+    return refuseCommitted(response);
   }
 
   // The decoded array is spread into the call, so an unbounded argument
@@ -2677,7 +2689,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
       DEV ? "Server function call exceeds the configured maxArguments" : null,
       { status: 400 }
     );
-    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+    return refuseCommitted(response);
   }
 
   // What the fold needs to build a body itself, and what a result transform
