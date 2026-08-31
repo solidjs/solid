@@ -18,6 +18,32 @@ pending propagates to `<Loading>`, failures propagate to `<Errored>`, and
 `latest`/`isPending` give stale-while-revalidate. That surface happens to line up with Effect's
 execution model almost one-to-one.
 
+## Why Solid specifically
+
+The comparison that matters isn't Solid 1.x — it's that these seams don't exist in other
+frameworks:
+
+- **A place to put interruption.** Solid consumes AsyncIterables as first-class computation
+  values, and a superseded flight's iterator gets `it.return()`. That protocol hook is the entire
+  cancellation bridge (`return()` → `Fiber.interrupt`). React's `use()` and query libraries can
+  render promise states, and Svelte's async `$derived` covers loading/error propagation — but
+  both simply _drop_ a stale promise. There is no lifecycle moment that says "this producer is
+  now unwanted," so Effect's structured interruption has nothing to attach to short of hand-wired
+  `AbortController`s. Wasted retries, open resources, and server load are invisible and
+  unrecoverable by design.
+- **A transaction to put steps in.** `action` runs a generator as a transaction with atomic
+  per-step commits, and `createOptimistic` writes revert on failure. That is the half of a saga
+  Effect cannot provide: Effect can compensate the server, but it cannot roll back your UI.
+  React's `useOptimistic` is per-hook state, not a multi-step transaction; Svelte has no
+  counterpart. Without it, "cancel mid-checkout" means hand-written undo logic no matter how good
+  the effect system is.
+- **Matching execution models.** Solid flights and Effect fibers are both structured and
+  pull-based — they start, supersede, and dispose on the same schedule, and both suspend on
+  generator yields. That's why the integration is protocol-level (async iteration on the read
+  path, `yield*` delegation on the action path) rather than a binding library: neither side wraps
+  or schedules the other. Frameworks whose unit of work is "re-render the component" need the
+  atom/registry layer precisely because their lifecycle and Effect's don't line up anywhere.
+
 ## Read path — typeahead (`runEffect`)
 
 ```tsx
