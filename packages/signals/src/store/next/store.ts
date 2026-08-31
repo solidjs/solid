@@ -566,6 +566,11 @@ export function adoptPB(
     }
   }
   target.pb = null;
+  // RUL-2 consumption gate (#3123): the reconcile channel's contradiction
+  // mark must fire HERE, inside the landing's synchronous commit — its
+  // notification (notifyFold) defers to the fold drain, which runs at flush,
+  // AFTER the projection's consumeOverridesNext has already intersected.
+  if (target.fam?.opt === true) optHooks!._markLandingContradiction(target, target.v, incoming);
   // Overlay and accessor-scan state describe the OUTGOING backing — a
   // swapped container must not inherit them: a stale `ovl` beside a nulled
   // pb crashes materializePB (unwrapValue consults ovl before the
@@ -938,7 +943,17 @@ function notifyWrites(t: StoreNextTarget): void {
           ? arrayStructureChanged(old as any[], pb as any[])
           : membershipChanged(old, pb);
     }
-    if (changed) setSignal(t.k, v => v + 1);
+    if (changed) {
+      setSignal(t.k, v => v + 1);
+      // Only landings reach this channel on an optimistic family (user
+      // writes early-returned into notifyOptimisticWrites), and setter-exit
+      // notification runs INSIDE the landing's write — before its
+      // consumeOverridesNext — so this draft-write mark lands in the right
+      // consumption window (RUL-2 gate, #3123). The reconcile channel's
+      // twin lives in adoptPB (its notify defers to the fold drain, which
+      // runs after consumption).
+      if (t.fam?.opt === true) optHooks!._markLandingContradiction(t, old, pb);
+    }
   }
   // Patch channel (setter site): a committed write transitions this record —
   // queue its patches and bubble to ancestors (targeted nested writes must
@@ -983,7 +998,7 @@ export function targetsEqual(ov: any, nv: any): boolean {
   return ot !== undefined && ot === storeNextLookup.get(nv);
 }
 
-function arrayStructureChanged(old: any[], neu: any[]): boolean {
+export function arrayStructureChanged(old: any[], neu: any[]): boolean {
   if (old.length !== neu.length) return true;
   for (let i = 0; i < neu.length; i++) {
     const ov = old[i];
@@ -993,7 +1008,10 @@ function arrayStructureChanged(old: any[], neu: any[]): boolean {
   return false;
 }
 
-function membershipChanged(old: Record<PropertyKey, any>, neu: Record<PropertyKey, any>): boolean {
+export function membershipChanged(
+  old: Record<PropertyKey, any>,
+  neu: Record<PropertyKey, any>
+): boolean {
   const nk = Reflect.ownKeys(neu);
   if (Reflect.ownKeys(old).length !== nk.length) return true;
   for (const key of nk) if (!(key in old)) return true;

@@ -41,12 +41,14 @@ import {
 } from "../store.js";
 import { runProjectionComputedNext } from "./projection.js";
 import {
+  arrayStructureChanged,
   bumpDeep,
   authoritativeRead,
   getHasNode,
   getKeySetNode,
   getNode,
   hasActiveOverride,
+  membershipChanged,
   runAuthoritative,
   storeSetterNext,
   targetsEqual,
@@ -71,7 +73,12 @@ function installNextBlockedHalf(): void {
   // Late-bind the optimistic machinery into the plain store/reconcile paths
   // (all call sites are fam?.opt-gated, so this always runs first) and the
   // affects witness's view resolver.
-  setOptHooks({ notifyOptimisticWrites, optimisticView, applyTentative });
+  setOptHooks({
+    notifyOptimisticWrites,
+    optimisticView,
+    applyTentative,
+    _markLandingContradiction
+  });
   setNextOptimisticViewResolver((t: StoreNextTarget, raw: any) => optimisticView(t, raw));
   // Scheduler flush tails call _clearOptimisticStores whenever tracked
   // stores exist; next has no layer to clear — reverts are engine-native —
@@ -286,18 +293,53 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
   GlobalQueue._trackOptimisticStore?.(t.fam!.px ?? t.px);
 }
 
+/** Targets whose CURRENT landing changed their key-set verdict (RUL-2
+ * consumption gate, #3123). Marked by the adoption notify sites (store.ts,
+ * via optHooks) inside the same authoritative commit that calls
+ * consumeOverridesNext, which intersects and clears — the set never
+ * outlives its landing window. Marks are admitted only for overlaid
+ * targets so a landing that precedes the override can never go stale. */
+const contradicted = new Set<StoreNextTarget>();
+
+function _markLandingContradiction(
+  t: StoreNextTarget,
+  old: Record<PropertyKey, any>,
+  neu: Record<PropertyKey, any>
+): void {
+  // Only overlaid targets can be contradicted (nothing to consume otherwise),
+  // so non-overlaid adoptions pay one short-circuited lookup — and a mark can
+  // never predate its overrides and go stale across landing windows.
+  if (t.fam!.overlaid?.has(t) !== true || contradicted.has(t)) return;
+  const changed =
+    Array.isArray(neu) && Array.isArray(old)
+      ? arrayStructureChanged(old, neu)
+      : membershipChanged(old, neu);
+  if (changed) contradicted.add(t);
+}
+
 /**
- * Landing consumption (RUL-2): fresh authoritative data supersedes every
- * tentative override in the family. Mirrors legacy clearProjectionOverride —
- * drop the override, clear lane/ownership, notify subscribers whose visible
- * value changes (reversion effects go to regular queues via the projection
- * write posture the caller holds).
+ * Landing consumption (RUL-2, equality-scoped per #3123): fresh authoritative
+ * data supersedes the tentative overrides it CONTRADICTS — a landing that
+ * left a target's arrangement unchanged (per-key equal poll) carries no new
+ * information about it, so its deltas stay valid and hold with their owning
+ * transaction (they still revert at owner settle). The contradiction verdict
+ * is the key-set predicate itself: any array index/length change (positional
+ * identity IS content — non-keyed deltas anchor to the exact arrangement),
+ * object membership change. Consumed targets mirror legacy
+ * clearProjectionOverride — drop the override, clear lane/ownership, notify
+ * subscribers whose visible value changes (reversion effects go to regular
+ * queues via the projection write posture the caller holds).
  */
 export function consumeOverridesNext(fam: StoreNextFamily): void {
   const overlaid = fam.overlaid;
-  if (overlaid === undefined || overlaid.size === 0) return;
+  if (overlaid === undefined || overlaid.size === 0) {
+    contradicted.clear();
+    return;
+  }
   runAuthoritative(() => {
     for (const t of overlaid as Set<StoreNextTarget>) {
+      if (!contradicted.has(t)) continue;
+      overlaid.delete(t);
       const drop = (node: Signal<any>, committed: any) => {
         if (!hasActiveOverride(node)) return;
         const prev = unwrapOverride(node._x?._overrideValue);
@@ -371,7 +413,7 @@ export function consumeOverridesNext(fam: StoreNextFamily): void {
       // view so the DOM leaves the override state.
       if (t.pc !== null && t.pc.p !== null) patchHooks!.emitPatchOptimistic(t, null, null);
     }
-    overlaid.clear();
+    contradicted.clear();
   });
 }
 

@@ -2927,6 +2927,176 @@ describe("createOptimisticStore", () => {
       expect(rendered.at(-1)).toEqual(["Issue 1 A", "Issue 1 B"]);
     });
 
+    // RUL-2 consumption gate (#3123): the equality cut gates consumption the
+    // same way it gates propagation. An interim landing that leaves a
+    // target's arrangement unchanged (an equal poll) contradicts nothing —
+    // structural optimism holds with its owning transaction instead of
+    // flash-reverting. A landing that CHANGES the arrangement still consumes
+    // (RUL-2 "visible landed truth replaces optimism" unchanged — #2719
+    // above pins that half).
+    describe("equality-scoped landing consumption (#3123)", () => {
+      const settle = async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        flush();
+      };
+
+      function harness() {
+        let serverData = [1];
+        const fetches: Array<() => void> = [];
+        let items!: Refreshable<readonly number[]>;
+        let setItems!: (fn: (items: number[]) => void) => void;
+        let setVersion!: (v: (p: number) => number) => number;
+        const rendered: number[][] = [];
+        const dispose = createRoot(dispose => {
+          const [version, setV] = createSignal(0);
+          setVersion = setV;
+          [items, setItems] = createOptimisticStore(
+            () =>
+              new Promise<number[]>(resolve => {
+                version();
+                fetches.push(() => resolve([...serverData]));
+              }),
+            [] as number[]
+          );
+          createRenderEffect(
+            () => items.map(n => n),
+            value => {
+              rendered.push(value);
+            }
+          );
+          return dispose;
+        });
+        return {
+          get items() {
+            return items;
+          },
+          setItems,
+          rendered,
+          dispose,
+          setServer(data: number[]) {
+            serverData = data;
+          },
+          poll() {
+            setVersion(v => v + 1);
+            flush();
+            fetches.shift()!();
+          },
+          resolveInitial() {
+            fetches.shift()!();
+          }
+        };
+      }
+
+      it("holds a structural add across an equal interim landing", async () => {
+        const h = harness();
+        flush();
+        h.resolveInitial();
+        await settle();
+        expect(h.rendered.at(-1)).toEqual([1]);
+
+        let confirm!: () => void;
+        const add = action(function* () {
+          h.setItems(draft => {
+            draft.push(2);
+          });
+          yield new Promise<void>(resolve => {
+            confirm = resolve;
+          });
+        })();
+        flush();
+        expect(h.rendered.at(-1)).toEqual([1, 2]);
+        const flashWatermark = h.rendered.length;
+
+        // Interim poll: server unchanged — the landing is per-key equal to
+        // the base the push was applied on. Nothing to replace; hold.
+        h.poll();
+        await settle();
+        expect(h.rendered.at(-1)).toEqual([1, 2]);
+
+        // Confirmation: the server applied the add — this landing changes
+        // the arrangement (length 1 -> 2), consumes the override, and lands
+        // the identical view. Seamless.
+        h.setServer([1, 2]);
+        h.poll();
+        await settle();
+        confirm();
+        await add;
+        await settle();
+        expect(h.rendered.at(-1)).toEqual([1, 2]);
+        expect(snapshot(h.items)).toEqual([1, 2]);
+        // The point of #3123: no [1] flash anywhere after the optimistic add.
+        expect(h.rendered.slice(flashWatermark)).not.toContainEqual([1]);
+        h.dispose();
+      });
+
+      it("still consumes on an interim landing that changes the arrangement", async () => {
+        const h = harness();
+        flush();
+        h.resolveInitial();
+        await settle();
+
+        let confirm!: () => void;
+        const add = action(function* () {
+          h.setItems(draft => {
+            draft.push(2);
+          });
+          yield new Promise<void>(resolve => {
+            confirm = resolve;
+          });
+        })();
+        flush();
+        expect(h.rendered.at(-1)).toEqual([1, 2]);
+
+        // Someone else's row landed: differing truth wins (RUL-2 unchanged).
+        h.setServer([1, 3]);
+        h.poll();
+        await settle();
+        expect(h.rendered.at(-1)).toEqual([1, 3]);
+
+        confirm();
+        await add;
+        await settle();
+        expect(h.rendered.at(-1)).toEqual([1, 3]);
+        h.dispose();
+      });
+
+      it("reverts a held add at owner settle when the server never confirms", async () => {
+        const h = harness();
+        flush();
+        h.resolveInitial();
+        await settle();
+
+        let confirm!: () => void;
+        const add = action(function* () {
+          h.setItems(draft => {
+            draft.push(2);
+          });
+          yield new Promise<void>(resolve => {
+            confirm = resolve;
+          });
+        })();
+        flush();
+        expect(h.rendered.at(-1)).toEqual([1, 2]);
+
+        // Equal interim landing: held.
+        h.poll();
+        await settle();
+        expect(h.rendered.at(-1)).toEqual([1, 2]);
+
+        // The action completes without the server applying the add: the
+        // override dies with its owning transaction — honest revert at
+        // settle, not at poll timing.
+        confirm();
+        await add;
+        await settle();
+        expect(h.rendered.at(-1)).toEqual([1]);
+        expect(snapshot(h.items)).toEqual([1]);
+        h.dispose();
+      });
+    });
+
     it("clears optimistic rows when a draft-mutating projection resolves fresh data", async () => {
       type Comment = { id: number; text: string };
       const serverComments = [

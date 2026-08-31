@@ -477,6 +477,25 @@ implementation, deduplicated across reports.
   expectations change.** The store rewrite implements zero landing logic;
   it inherits collapse from core lanes and adds only "visible landing
   replaces lane values, equality-gated."
+  - **RUL-2 clarification — RULED (Ryan, 2026-08-31, #3123): the equality
+    cut gates CONSUMPTION, not just propagation.** A landing consumes a
+    target's structural optimism only when it CONTRADICTS the base the
+    overrides were computed against — the contradiction verdict is the
+    key-set predicate itself (array index/length change per R15: positional
+    identity IS content, non-keyed deltas anchor to the exact arrangement;
+    object membership change). An equal poll landing carries no new
+    information and holds; held overrides still die with their owning
+    transaction at settle (the honest revert moment). Differing truth
+    replaces, verbatim rule 2 — #2719 unchanged. Mechanism: contradiction
+    marks fire inside the landing's synchronous commit (adoptPB + setter-
+    exit notify — the fold drain runs AFTER consumption and is too late),
+    admitted only for overlaid targets, intersected and cleared by
+    consumeOverridesNext. Underlying axis, recorded for post-RC: override
+    holdability tracks REFERENT IDENTITY STABILITY — named object keys
+    stable (value carve sound), keyed rows stable (rebase-across-changed-
+    landings possible: retain buildIdentityRowOps intent + a satisfaction
+    rule — the open design), unkeyed positions unstable (consume on
+    contradiction is the only honest behavior, forever).
 - **RUL-3 — RESOLVED (verified 2026-08-16).** Ownership already lives
   per-node in core (`_overrideOwner` in `core/types.ts`, `lanes.ts`,
   `core/optimistic.ts`); the store-side `STORE_OPTIMISTIC_OWNERS` map exists

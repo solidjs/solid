@@ -171,6 +171,18 @@ export interface OptStoreHooks {
   notifyOptimisticWrites(t: any, pb: Record<PropertyKey, any>): void;
   optimisticView(t: any, src: Record<PropertyKey, any>): Record<PropertyKey, any>;
   applyTentative(t: any, incoming: any, keyFn: ((item: any) => any) | null): void;
+  /** RUL-2 consumption gate (#3123): a landing that changes a target's
+   * key-set verdict (array index/length change, object membership change)
+   * CONTRADICTS the base its overrides were computed against — mark it so
+   * consumeOverridesNext consumes. An equal landing marks nothing and holds:
+   * the equality cut gates consumption the same way it gates propagation.
+   * Call sites must run INSIDE the landing's synchronous commit (adoptPB,
+   * setter-exit notify) — fold-drain notification is too late. */
+  _markLandingContradiction(
+    t: any,
+    old: Record<PropertyKey, any>,
+    neu: Record<PropertyKey, any>
+  ): void;
 }
 export let optHooks: OptStoreHooks | null = null;
 export function setOptHooks(h: OptStoreHooks): void {
