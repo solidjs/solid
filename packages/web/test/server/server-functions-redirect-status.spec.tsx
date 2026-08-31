@@ -279,6 +279,80 @@ describe("the no-JS form convention honors returned redirects (#3096)", () => {
   });
 });
 
+describe("the bare address reads the caller kind off Sec-Fetch-Mode (#3139)", () => {
+  // The no-JS convention — 303, outcome in a flash cookie — exists for
+  // form NAVIGATIONS. It used to engage on shape alone (form content type,
+  // no format tag), which a page script's fetch(url, { body: new
+  // URLSearchParams(...) }) also matches: the script got the 303, followed
+  // it to the referrer's HTML, read `response.ok === true`, and its answer
+  // sat in a cookie it would never look at. The browser's own word tells
+  // the callers apart: navigations send `Sec-Fetch-Mode: navigate` (or
+  // nothing, on older browsers), a script's fetch never does.
+  function formShaped(id: string, mode?: string) {
+    return new Request(`https://app.example/_server/${id}`, {
+      method: "POST",
+      headers: {
+        "Sec-Fetch-Site": "same-origin",
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://app.example/current-page",
+        ...(mode ? { "Sec-Fetch-Mode": mode } : {})
+      },
+      body: "a=1"
+    });
+  }
+
+  it("keeps the convention for navigations, with or without fetch metadata", async () => {
+    registerServerFunction("nojs-mode-nav", async () => ({ saved: true }));
+
+    // a modern browser's form navigation declares itself
+    const declared = await handleServerFunctionRequest(formShaped("nojs-mode-nav", "navigate"));
+    expect(declared.status).toBe(303);
+    expect(declared.headers.get("Set-Cookie")).toContain("flash=");
+
+    // an older browser sends no fetch metadata at all: same convention
+    const bare = await handleServerFunctionRequest(formShaped("nojs-mode-nav"));
+    expect(bare.status).toBe(303);
+  });
+
+  it("refuses a page script's form-shaped post before the function runs", async () => {
+    const fn = vi.fn(async () => ({ receipt: "SECRET" }));
+    registerServerFunction("nojs-mode-script", fn);
+
+    for (const mode of ["cors", "same-origin", "no-cors"]) {
+      const response = await handleServerFunctionRequest(formShaped("nojs-mode-script", mode));
+      // refused as malformed — not a 303 whose answer vanishes into the
+      // caller's cookie jar, and not a 200 wearing the referrer's HTML
+      expect([mode, response.status]).toEqual([mode, 400]);
+      expect(response.headers.get("Set-Cookie")).toBeNull();
+    }
+    // before dispatch: the old shape's real harm was running the mutation
+    // and then hiding the outcome
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("a tagged script call at the bare address keeps the plain response", async () => {
+    // the documented direct-HTTP spelling: the format tag takes the call
+    // out of the form shape entirely, whatever its fetch mode says
+    registerServerFunction("nojs-mode-tagged", async (params: URLSearchParams) => ({
+      got: params.get("a")
+    }));
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/nojs-mode-tagged", {
+        method: "POST",
+        headers: {
+          "Sec-Fetch-Site": "same-origin",
+          "Sec-Fetch-Mode": "cors",
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-Server-Function-Format": "3" // URLSearchParams
+        },
+        body: "a=1"
+      })
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ got: "1" });
+  });
+});
+
 /**
  * The mask is justified by ONE fact — that fetch follows these statuses —
  * so it has to cover exactly the set fetch follows. Exercising 302 alone

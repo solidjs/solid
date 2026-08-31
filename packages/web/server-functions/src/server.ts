@@ -1513,11 +1513,13 @@ export function createNoJSHandler({ base = "" } = {}) {
 let defaultNoJSHandler;
 
 /**
- * Whether a request is a browser form post — the case the redirect
- * convention exists for. A real form sets its own content type and carries
- * no `BODY_FORMAT_HEADER`, which only the client runtime sends. Direct HTTP
- * callers (curl, a fetch from a script) fall outside it and keep the plain
- * response: redirecting them would be nonsense.
+ * Whether a request is form-SHAPED: a POST with a form content type and no
+ * `BODY_FORMAT_HEADER` (which only the client runtime sends). Shape alone
+ * is not the convention's gate — a page script's fetch can be form-shaped
+ * too — so dispatch additionally reads `Sec-Fetch-Mode` to keep the
+ * redirect convention on actual form navigations (#3139). Tagged direct
+ * HTTP callers fall outside the shape test entirely and keep the plain
+ * response.
  */
 function isFormPost(request) {
   if (request.method !== "POST" || request.headers.has(BODY_FORMAT_HEADER)) return false;
@@ -2420,14 +2422,39 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // Same fallback, then the built-in convention: an unconfigured app still
   // gets working progressive enhancement for real form posts, while direct
   // HTTP calls keep the plain response.
-  const handleNoJS =
-    options.handleNoJS !== undefined
-      ? options.handleNoJS
-      : config.handleNoJS !== undefined
-        ? config.handleNoJS
-        : isFormPost(request)
-          ? defaultNoJSHandler || (defaultNoJSHandler = createNoJSHandler())
-          : undefined;
+  //
+  // The convention is for form NAVIGATIONS — the browser follows the 303
+  // and the flash cookie carries the outcome to the next render. Which
+  // caller kind this is was decided by the ABSENCE of a header (#3139,
+  // the shape-on-the-url doctrine's one leftover): a same-origin page
+  // script posting a form-encoded body — fetch(url, { body: new
+  // URLSearchParams(...) }) — is form-shaped too, and routing IT into the
+  // convention lands it on the referrer's HTML with `response.ok === true`
+  // while its answer disappears into its own cookie jar. The browser's own
+  // word tells the two apart: a real form navigation sends `Sec-Fetch-Mode:
+  // navigate` (or nothing, on older browsers), a script's fetch never does.
+  // The script's call is refused as malformed — BEFORE dispatch, because
+  // the old behavior's real harm was running the mutation and then hiding
+  // the outcome — pointing at the two spellings that work. Answering it
+  // plain instead would put a second, header-decided shape on the bare
+  // address, which is the exact thing #3094 moved onto the url.
+  let handleNoJS = options.handleNoJS !== undefined ? options.handleNoJS : config.handleNoJS;
+  if (handleNoJS === undefined && !scripted && isFormPost(request)) {
+    const fetchMode = request.headers.get("Sec-Fetch-Mode");
+    if (fetchMode === null || fetchMode === "navigate") {
+      handleNoJS = defaultNoJSHandler || (defaultNoJSHandler = createNoJSHandler());
+    } else {
+      const response = new Response(
+        DEV
+          ? "The bare server-function address answers form navigations with the " +
+              "no-JS redirect convention. Scripted callers use the data address " +
+              `(…/data/${functionId}) or send the ${BODY_FORMAT_HEADER} tag.`
+          : null,
+        { status: 400 }
+      );
+      return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+    }
+  }
   // single-flight is scripted-client opt-in: the caller sends the request
   // header naming the sources it can consume ("true" is the unnamed hook's
   // reserved id), the server must have hooks to produce the data. Only
