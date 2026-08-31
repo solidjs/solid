@@ -35,4 +35,27 @@ describe("attribution through patch deliveries", () => {
     // Self emission carried the record transition previews.
     expect(String(delivery.causes[0].value)).toContain("b");
   });
+
+  it("ancestor deliveries report the ORIGINATING child as the write source", () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    DEV!.attribution.enable({ log: false, hotRuns: false, hotTime: false });
+    const events: any[] = [];
+    DEV!.attribution.subscribe(e => events.push(e));
+    const [state, setState] = createStore<any>({ rows: [{ id: 1, label: "a" }] });
+    createRoot(() => {
+      // Ancestor consumer: its deliveries come from nested-child bubbles.
+      registerPatch(state.rows, () => {}, ["length"]);
+      registerPatch(state.rows[0], () => {}, ["label"]);
+    });
+    setState((s: any) => {
+      s.rows[0].label = "b";
+    });
+    flush();
+    const ancestor = events.find(e => e.nodeName === "patchDelivery(store.rows)");
+    expect(ancestor).toBeDefined();
+    // The bubble's stamp names the ancestor, but its CAUSE is the child.
+    expect(ancestor.causes[0].name).toBe("store.rows");
+    expect(ancestor.causes[0].causes?.[0]?.name).toBe("store.rows.0");
+  });
 });

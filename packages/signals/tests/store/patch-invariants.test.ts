@@ -801,6 +801,65 @@ describe("INVARIANT: demotion fanout is per-entry isolated (round 10)", () => {
   });
 });
 
+describe("INVARIANT: demotion envelopes read each step once and probe true keys (round 10.10)", () => {
+  it("an unstable root getter is invoked once per tracked pass, not twice", async () => {
+    const [dep, setDep] = createRoot(() => createSignal("d1"));
+    const [state, setState] = createStore<any>({ row: { meta: { id: 1, label: "x" } } });
+    const log: string[] = [];
+    createRoot(() => {
+      registerPatch(state.row, (n: any) => log.push(n.meta.label), ["meta.label"]);
+    });
+    let reads = 0;
+    setState((s: any) => {
+      Object.defineProperty(s.row, "meta", {
+        get() {
+          reads++;
+          return { id: 1, label: dep() }; // unstable: fresh object per read
+        },
+        configurable: true,
+        enumerable: true
+      });
+    });
+    flush();
+    const base = reads;
+    setDep("d2");
+    flush();
+    expect(log[log.length - 1]).toBe("d2");
+    // One envelope read (tracked pass) + one body read (commit) — the
+    // double root read made unstable getters track one value and commit
+    // another.
+    expect(reads - base).toBe(2);
+  });
+
+  it("symbol keys in iterable manifests probe the symbol property, not its string form", async () => {
+    const sym = Symbol("flag");
+    const [dep, setDep] = createRoot(() => createSignal("d1"));
+    const [state, setState] = createStore<any>({ box: { [sym]: "s1", other: 0 } });
+    const log: string[] = [];
+    createRoot(() => {
+      registerPatch(state.box, (n: any) => log.push(n[sym]), new Set<PropertyKey>([sym]));
+    });
+    // A getter arriving ON THE SYMBOL KEY demotes; the re-driven envelope
+    // must track the symbol itself — the stringified form read a
+    // nonexistent "Symbol(flag)" property, so the getter's dependency
+    // never subscribed and later changes went stale.
+    setState((s: any) => {
+      Object.defineProperty(s.box, sym, {
+        get() {
+          return dep();
+        },
+        configurable: true,
+        enumerable: true
+      });
+    });
+    flush();
+    expect(log[log.length - 1]).toBe("d1");
+    setDep("d2");
+    flush();
+    expect(log[log.length - 1]).toBe("d2");
+  });
+});
+
 describe("INVARIANT: the full-scan poison lives exactly as long as its consumers (round 10.9)", () => {
   it("akAll releases with the last manifest-less consumer", async () => {
     const { $TARGET } = await import("../../src/store/store.js");
@@ -833,12 +892,17 @@ describe("INVARIANT: channel fan-out stays diagnosable (attribution parity)", ()
     // Registration-side HUGE_FAN_OUT twin (patch consumers are invisible
     // to the graph's _subCount — the channel must witness its own shape).
     expect(warnSpy.mock.calls.some(c => String(c[0]).includes("[HUGE_FAN_OUT]"))).toBe(true);
-    // Dispatch-side WIDE_WRITE twin.
+    // Dispatch-side WIDE_WRITE twin: ENGINE policy (round 10.10) — the
+    // same threshold option, memo field, and metadata as graph
+    // wide-writes, so it only fires with attribution enabled.
+    const { DEV } = await import("../../src/index.js");
+    DEV!.attribution.enable({ log: false, hotRuns: false, hotTime: false, wideWrites: 250 });
     setState((s: any) => {
       s.cfg.theme = "b";
     });
     flush();
     expect(warnSpy.mock.calls.some(c => String(c[0]).includes("[WIDE_WRITE]"))).toBe(true);
+    DEV!.attribution.disable();
     for (const u of unbinds) u();
   });
 });

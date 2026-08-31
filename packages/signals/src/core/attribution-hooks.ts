@@ -62,10 +62,25 @@ export interface AttributionHooks {
    * Called AFTER the signal write (the engine's own `write` stamp carries a
    * meaningless counter transition; this re-stamp names the record and, for
    * self emissions (`withValues`), previews the record transition). `name`
-   * is the record's store path ("store.rows.3"); ancestor bubbles re-stamp
-   * name-only.
+   * is the record's store path ("store.rows.3"). Ancestor bubbles pass
+   * `origin` — the ORIGINATING child's delivery signal (its fresh stamp
+   * becomes the cause) or its path when the child has no channel — so
+   * chains report the true write source, not the bubbled ancestor.
    */
-  patchEmit(dn: Signal<any>, name: string, prev: unknown, next: unknown, withValues: boolean): void;
+  patchEmit(
+    dn: Signal<any>,
+    name: string,
+    prev: unknown,
+    next: unknown,
+    withValues: boolean,
+    origin?: Signal<any> | string | null
+  ): void;
+  /**
+   * A patch channel is about to dispatch to `count` template consumers.
+   * The engine applies the SAME wide-write policy (threshold, doubling
+   * memo, metadata) it applies to graph subscriber counts.
+   */
+  patchDispatch(dn: Signal<any>, count: number): void;
 }
 
 export let attrHooks: AttributionHooks | null = null;

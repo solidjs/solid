@@ -58,12 +58,7 @@ import {
 import type { DeepNode } from "./target.js";
 
 import { InvariantHooks } from "../../core/invariants.js";
-import {
-  assertInvariant,
-  emitDiagnostic,
-  GRAPH_SIZE_WARN_AT,
-  shouldWarnGraphSize
-} from "../../core/dev.js";
+import { assertInvariant, emitDiagnostic, shouldWarnGraphSize } from "../../core/dev.js";
 import { attrHooks } from "../../core/attribution-hooks.js";
 import { runWithOwner, untrack } from "../../core/core.js";
 import { createRenderEffect } from "../../signals.js";
@@ -370,9 +365,12 @@ export function emitPatchAncestors(t: StoreNextTarget): void {
  * visibility rides the LANE queue. Standalone form for seams that handled
  * (or demoted) the record itself. */
 export function emitPatchAncestorsOptimistic(t: StoreNextTarget, _tx: unknown): void {
+  let origin: unknown = undefined;
+  if (__DEV__ && attrHooks !== null)
+    origin = t.pc !== null && (t.pc as any).dn !== null ? (t.pc as any).dn : targetPath(t);
   let u = t.u;
   while (u !== null) {
-    if (u.pc !== null) bumpOneOptimistic(u, u.pc);
+    if (u.pc !== null) bumpOneOptimistic(u, u.pc, origin);
     u = u.u;
   }
 }
@@ -415,11 +413,7 @@ export function emitPatchOptimistic(t: StoreNextTarget, next: any, prev: any): v
   // must show a nested optimistic write in flight — the lane view already
   // answers it, and ancestors ride the same lane timing.
   if (t.pc !== null) bumpOneOptimistic(t, t.pc);
-  let u = t.u;
-  while (u !== null) {
-    if (u.pc !== null) bumpOneOptimistic(u, u.pc);
-    u = u.u;
-  }
+  emitPatchAncestorsOptimistic(t, null);
 }
 
 /** Row-ops emission at OPTIMISTIC (lane) timing: user drafts on an
@@ -475,7 +469,7 @@ interface ProcessedManifest {
   roots: PropertyKey[];
   dp: DeepNode[] | null;
 }
-const manifestCache = new WeakMap<string[], ProcessedManifest>();
+const manifestCache = new WeakMap<PropertyKey[], ProcessedManifest>();
 
 /** Insert a dot-split path into the prefix tree (see PatchChannel.dp). */
 function insertPath(dp: DeepNode[], segs: string[]): void {
@@ -496,7 +490,7 @@ function insertPath(dp: DeepNode[], segs: string[]): void {
   }
 }
 
-function internManifest(keys: string[]): ProcessedManifest {
+function internManifest(keys: PropertyKey[]): ProcessedManifest {
   let m = manifestCache.get(keys);
   if (m !== undefined) return m;
   const roots: PropertyKey[] = [];
@@ -569,7 +563,7 @@ function unionKeys(
  * keeps bumping while a transition is in flight (the held-window pin);
  * outside one, the write is immediately visible and a future registrant's
  * baseline covers it — no signal write, no inert effect run. */
-function bumpOne(t: StoreNextTarget, pc: any): void {
+function bumpOne(t: StoreNextTarget, pc: any, origin?: unknown): void {
   // CANONICAL transaction identity (round 10.7, P1/P2): stamps store —
   // and compares resolve — through currentTransition, so a merge between
   // bumps (A absorbed into B) neither defeats the dedup (A¹B² produced
@@ -601,19 +595,47 @@ function bumpOne(t: StoreNextTarget, pc: any): void {
   setSignal(pc.dn, (v: number) => v + 1);
   // Cause-chain anchor (attribution parity): AFTER the write, so this
   // record-path stamp replaces the engine's counter stamp. Name-only here
-  // (bubbles have no values); self emitters re-stamp with the transition.
-  if (__DEV__ && attrHooks !== null) attrHooks.patchEmit(pc.dn, targetPath(t), null, null, false);
+  // (bubbles have no values); self emitters re-stamp with the transition,
+  // and ancestor bumps carry the ORIGINATING child (round 10.10, P2).
+  if (__DEV__ && attrHooks !== null)
+    attrHooks.patchEmit(pc.dn, targetPath(t), null, null, false, origin as any);
 }
 
 /** Tracked read of a manifest deep-path subtree THROUGH the proxy — the
- * demotion fallback's compute pass (round 10.9): subscribes exactly the
- * declared envelope, runs no body code. */
-function readDeepNode(node: DeepNode, o: any): void {
-  if (o === null || typeof o !== "object") return;
-  const v = o[node.k];
+ * demotion fallback's compute pass (round 10.9; corrected 10.10): the
+ * caller read this node's value ONCE and hands it down — a second read
+ * would make an unstable getter track one value and commit another. And
+ * FUNCTIONS descend (re-audit 9, P1-8's lesson, again): they carry
+ * accessor properties whose dependencies must track. */
+function readDeepChildren(node: DeepNode, v: any): void {
   const children = node.c;
-  if (children !== null && v !== null && typeof v === "object")
-    for (let i = 0; i < children.length; i++) readDeepNode(children[i], v);
+  if (children === null || v === null || (typeof v !== "object" && typeof v !== "function")) return;
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    const cv = v[child.k]; // the ONE tracked read for this step
+    if (child.c !== null) readDeepChildren(child, cv);
+  }
+}
+
+/** DEV: channel-side HUGE_FAN_OUT twin (attribution parity, round 10.10
+ * covering VALUE, ROW-OPS, and SLOT channels): channel consumers are not
+ * graph subscribers — a record driving thousands of consumers has ONE
+ * delivery-signal edge, so the always-on link warning would never see the
+ * structure it exists to catch. Same code, same milestones. */
+function warnChannelFanOut(count: number, channel: string): void {
+  const message =
+    `[HUGE_FAN_OUT] A store record's ${channel} channel has ${count} registered ` +
+    `consumers. Every emission on this record dispatches all of them this flush. ` +
+    `If many independent consumers ask keyed questions of one record, prefer a ` +
+    `per-key store or projection so only the keys whose answer flipped update.`;
+  emitDiagnostic({
+    code: "HUGE_FAN_OUT",
+    kind: "perf",
+    severity: "warn",
+    message,
+    data: { subscribers: count, channel }
+  });
+  console.warn(message);
 }
 
 /** DEV: the record's store path ("store.rows.3") — the name cause chains
@@ -630,14 +652,20 @@ function targetPath(t: StoreNextTarget): string {
 }
 
 function bumpAncestors(t: StoreNextTarget): void {
+  // Origin for ancestor chain stamps (round 10.10, P2): the child's own
+  // delivery signal (its fresh stamp is the cause) or its path when the
+  // child has no channel.
+  let origin: unknown = undefined;
+  if (__DEV__ && attrHooks !== null)
+    origin = t.pc !== null && (t.pc as any).dn !== null ? (t.pc as any).dn : targetPath(t);
   let u = t.u;
   while (u !== null) {
-    if (u.pc !== null) bumpOne(u, u.pc);
+    if (u.pc !== null) bumpOne(u, u.pc, origin);
     u = u.u;
   }
 }
 
-function bumpOneOptimistic(t: StoreNextTarget, pc: any): void {
+function bumpOneOptimistic(t: StoreNextTarget, pc: any, origin?: unknown): void {
   const txn = activeTransition === null ? null : currentTransition(activeTransition);
   if (pc.de === undefined) {
     if (pc.p === null) return;
@@ -664,7 +692,8 @@ function bumpOneOptimistic(t: StoreNextTarget, pc: any): void {
   const w = GlobalQueue._optimisticWrite;
   if (w !== null && w !== undefined) w(pc.dn, (pc.dn._value ?? 0) + 1);
   else setSignal(pc.dn, (v: number) => v + 1);
-  if (__DEV__ && attrHooks !== null) attrHooks.patchEmit(pc.dn, targetPath(t), null, null, false);
+  if (__DEV__ && attrHooks !== null)
+    attrHooks.patchEmit(pc.dn, targetPath(t), null, null, false, origin as any);
 }
 
 /** Manifest-shaped prev snapshot: roots copied flat, deep paths rebuilt as
@@ -764,26 +793,9 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
           pc.dmq = false;
           return;
         }
-        if (__DEV__ && p.length >= GRAPH_SIZE_WARN_AT && p.length >= (pc.dw ?? 0) * 2) {
-          // WIDE_WRITE parity for the channel (see the registration-side
-          // HUGE_FAN_OUT twin): a delivery to N consumers is the same
-          // cost the graph warning polices, made invisible to `_subCount`
-          // by design. Doubling memo, matching checkWideWrite.
-          pc.dw = p.length;
-          const message =
-            `[WIDE_WRITE] a store write dispatched to ${p.length} patch template consumers ` +
-            `on one record — every one applies this flush. If consumers ask keyed questions ` +
-            `of this record, invert with a per-key store or projection so only the keys ` +
-            `whose answer flipped update.`;
-          emitDiagnostic({
-            code: "WIDE_WRITE",
-            kind: "perf",
-            severity: "warn",
-            message,
-            data: { patchConsumers: p.length }
-          });
-          console.warn(message);
-        }
+        // Wide-dispatch policy lives in the ENGINE (round 10.10, P2):
+        // same thresholds, memo field, and metadata as graph wide-writes.
+        if (__DEV__ && attrHooks !== null) attrHooks.patchDispatch(pc.dn, p.length);
         // Deferred demotion (tentative getter views): performed HERE — the
         // delivery effect is clean, lane-timed effect context, so the
         // re-driven bodies subscribe correctly (creations inside a setter's
@@ -865,27 +877,7 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
   // P2 — a stale latch permanently demoted a later plain consumer).
   if (list.length === 0) pc.dmq = false;
   list.push(entry);
-  if (__DEV__ && shouldWarnGraphSize(list.length)) {
-    // CHANNEL-SIDE fan-out witness (attribution parity): patch consumers
-    // are not graph subscribers — a record read by thousands of compiled
-    // templates has ONE delivery-signal edge, so the always-on
-    // HUGE_FAN_OUT link warning would never see the structure it exists
-    // to catch. Same code, same milestones, channel-shaped message.
-    const message =
-      `[HUGE_FAN_OUT] A store record's patch channel has ${list.length} registered ` +
-      `template consumers. Every write to this record dispatches all of them this flush. ` +
-      `If many independent templates ask keyed questions of one record (for example every ` +
-      `row reading shared state), prefer a per-key store or projection so only the keys ` +
-      `whose answer flipped update.`;
-    emitDiagnostic({
-      code: "HUGE_FAN_OUT",
-      kind: "perf",
-      severity: "warn",
-      message,
-      data: { patchConsumers: list.length }
-    });
-    console.warn(message);
-  }
+  if (__DEV__ && shouldWarnGraphSize(list.length)) warnChannelFanOut(list.length, "patch");
   // Accessed-key union (prod-sound adoption demotion). Two sources:
   // compiler MANIFESTS (re-audit 7, P1-1 — the static read envelope,
   // complete across ternary/logical branches; dot-joined strings mark
@@ -912,8 +904,10 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
       }
     } else {
       // One-shot iterables: materialize once — the union AND the entry's
-      // own envelope both need the keys.
-      const arr = Array.from(keys, k => String(k));
+      // own envelope both need the keys. Keys stay PropertyKey (round
+      // 10.10, P1): stringifying a symbol tracked "Symbol(x)" instead of
+      // the symbol-keyed property.
+      const arr = Array.from(keys as Iterable<PropertyKey>);
       entry.mk = internManifest(arr);
       unionKeys(pc, arr);
     }
@@ -1167,10 +1161,18 @@ export function demoteToEffects(t: StoreNextTarget, immediate = false): void {
         computeFailed = false;
         try {
           if (mk !== null) {
+            // Each root reads ONCE (round 10.10, P1): deep roots live in
+            // BOTH mk.roots and mk.dp — descending from the already-read
+            // value instead of re-reading keeps unstable getters tracking
+            // exactly the value the envelope observed.
             const roots = mk.roots;
-            for (let k = 0; k < roots.length; k++) (proxy as any)[roots[k]];
             const dp = mk.dp;
-            if (dp !== null) for (let k = 0; k < dp.length; k++) readDeepNode(dp[k], proxy);
+            for (let k = 0; k < roots.length; k++) {
+              const v = (proxy as any)[roots[k]];
+              if (dp !== null)
+                for (let j = 0; j < dp.length; j++)
+                  if (dp[j].k === roots[k]) readDeepChildren(dp[j], v);
+            }
           } else fn(proxy, proxy, false);
         } catch (err) {
           computeFailed = true;
@@ -1265,6 +1267,8 @@ export function registerRowOps(array: any, fn: RowOpsFn): () => void {
   if (__TEST__) devTrackChannel(pc);
   const list = (pc.ro ??= []) as RowOpsEntry[];
   list.push(entry);
+  if (__DEV__ && shouldWarnGraphSize(list.length))
+    warnChannelFanOut(list.length, "row-ops (structural list)");
   patchCount++;
   markDescendants(t);
   let unbound = false;
@@ -1324,6 +1328,8 @@ export function registerSlotPatchNext(
   const pc = pcOf(t);
   const entry = { fn, owner: getOwner() };
   (pc.sp ??= []).push(entry);
+  if (__DEV__ && shouldWarnGraphSize((pc.sp as any[]).length))
+    warnChannelFanOut((pc.sp as any[]).length, "slot-patch (shallow list)");
   markDescendants(t);
   let unbound = false;
   return () => {

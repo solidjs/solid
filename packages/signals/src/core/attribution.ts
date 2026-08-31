@@ -741,7 +741,7 @@ const engineHooks: AttributionHooks = {
   write(el, prev, value) {
     stampWrite(el, "write", prev, value);
   },
-  patchEmit(dn, name, prev, next, withValues) {
+  patchEmit(dn, name, prev, next, withValues, origin) {
     // Patched records have no key nodes — the delivery signal is the chain
     // anchor. Name it with the record's store path and replace the counter
     // stamp the plain `write` hook just left, so "why did this run" for a
@@ -749,6 +749,40 @@ const engineHooks: AttributionHooks = {
     (dn as AttributedNode & Signal<any>)._name = name;
     if (withValues) stampWrite(dn, "write", prev, next);
     else stampWrite(dn, "write");
+    // Ancestor bubbles carry their ORIGIN (round 10.10): the chain must
+    // report the child whose write bubbled, not the ancestor it reached.
+    if (origin != null) {
+      const rec = (dn as AttributedNode)._devChange!;
+      const oc =
+        typeof origin === "string"
+          ? ({ seq: rec.seq, kind: "write", name: origin } as ChangeRecord)
+          : (origin as AttributedNode)._devChange;
+      if (oc !== undefined) rec.causes = [oc];
+    }
+  },
+  patchDispatch(dn, count) {
+    // SAME policy as graph wide-writes (round 10.10): threshold from
+    // options.wideWrites, doubling memo, subscriber metadata — the channel
+    // consumer list IS this node's fan-out, invisible to `_subCount`.
+    const limit = options.wideWrites;
+    if (typeof limit !== "number") return;
+    const attributed = dn as AttributedNode;
+    if (count < limit || count < (attributed._devWideWriteWarnedAt ?? 0) * 2) return;
+    attributed._devWideWriteWarnedAt = count;
+    const message =
+      `[WIDE_WRITE] write to "${nodeName(dn)}" dispatched to ${count} patch template ` +
+      `consumers — every one applies this flush. If consumers ask keyed questions of this ` +
+      `record, invert with a per-key store or projection so only the keys whose answer ` +
+      `flipped update.`;
+    emitDiagnostic({
+      code: "WIDE_WRITE",
+      kind: "perf",
+      severity: "warn",
+      message,
+      nodeName: nodeName(dn),
+      data: { subscribers: count, write: "patch" }
+    });
+    console.warn(message);
   },
   refreshed(el) {
     stampWrite(el, "refresh");
