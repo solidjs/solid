@@ -2382,10 +2382,11 @@ export async function handleServerFunctionRequest(request, options = {}) {
 
   // The argument payload is buffered and decoded before dispatch, so its
   // cost is paid before application code can decline it — bound it before
-  // paying (#3115). A declared Content-Length is trusted (the HTTP server's
-  // framing enforces it); a body without one is buffered under the cap. The
-  // `?args=` encoding is the same payload on a different road, so it gets
-  // the same ceiling.
+  // paying (#3115). A CONFORMING declared Content-Length is trusted (the
+  // HTTP server's framing enforces it); a body without one — or with a
+  // declaration that isn't a plain digit string (#3153) — is buffered under
+  // the cap. The `?args=` encoding is the same payload on a different road,
+  // so it gets the same ceiling.
   const bodySizeLimit =
     options.bodySizeLimit !== undefined ? options.bodySizeLimit : config.bodySizeLimit;
   const argsEncoding = url.searchParams.get("args");
@@ -2397,7 +2398,16 @@ export async function handleServerFunctionRequest(request, options = {}) {
     return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
   }
   if (method === "POST" && request.body !== null && bodySizeLimit !== Infinity) {
-    const declared = Number(request.headers.get("content-length"));
+    // Trust only a CONFORMING declaration — digits, per RFC 9110 §8.6. The
+    // bare Number() parse lost that information: Number("-1") is -1, which
+    // is neither `> limit` nor falsy, so a negative declaration satisfied
+    // NEITHER guard and the body streamed into the decoder uncapped
+    // (#3153). A stock node:http parser refuses it first, but an adapter
+    // that builds the Request itself, or a rewriting proxy, delivers it
+    // here — anything non-conforming now routes through the bounded buffer
+    // alongside the undeclared bodies.
+    const raw = request.headers.get("content-length");
+    const declared = raw !== null && /^\d+$/.test(raw) ? Number(raw) : NaN;
     if (declared > bodySizeLimit) {
       const response = new Response(
         DEV ? "Server function request body exceeds the configured bodySizeLimit" : null,
@@ -2405,7 +2415,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
       );
       return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
     }
-    if (!declared) {
+    if (!(declared > 0)) {
       const bounded = await bufferBodyWithin(request, bodySizeLimit);
       if (bounded === null) {
         const response = new Response(

@@ -88,6 +88,56 @@ describe("the body size bound", () => {
     expect(response.status).toBe(200);
   });
 
+  it("routes a non-conforming Content-Length through the cap instead of trusting it (#3153)", async () => {
+    // Number("-1") is -1: neither `> limit` nor falsy, so a negative
+    // declaration satisfied neither guard and the body streamed in uncapped
+    // — 195× the configured limit in the report. A stock node:http parser
+    // refuses the header first; an adapter that builds the Request itself,
+    // or a proxy that rewrites the header (a decompressor preserving the
+    // compressed length), delivers it here.
+    const fn = vi.fn(async (s: string) => s.length);
+    registerServerFunction("bounds-negative-length", fn);
+    const oversized = JSON.stringify(["x".repeat(200_000)]);
+
+    // (" 5 " is unreachable here: the Headers layer itself trims OWS, so the
+    // guard sees a conforming "5")
+    for (const raw of ["-1", "+5", "abc,def"]) {
+      const response = await handleServerFunctionRequest(
+        new Request("https://app.example/_server/data/bounds-negative-length", {
+          method: "POST",
+          body: oversized,
+          headers: {
+            "Sec-Fetch-Site": "same-origin",
+            "X-Server-Function-Instance": "server-function:test",
+            "content-length": raw,
+            [BODY_FORMAT_HEADER]: JSON_FORMAT
+          }
+        }),
+        { bodySizeLimit: 1024 }
+      );
+      expect([raw, response.status]).toEqual([raw, 413]);
+    }
+    expect(fn).not.toHaveBeenCalled();
+
+    // control: a conforming declaration within the limit still dispatches
+    const body = JSON.stringify(["ok"]);
+    const accepted = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/bounds-negative-length", {
+        method: "POST",
+        body,
+        headers: {
+          "Sec-Fetch-Site": "same-origin",
+          "X-Server-Function-Instance": "server-function:test",
+          "content-length": String(body.length),
+          [BODY_FORMAT_HEADER]: JSON_FORMAT
+        }
+      }),
+      { bodySizeLimit: 1024 }
+    );
+    expect(accepted.status).toBe(200);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
   it("applies the same ceiling to the ?args= encoding", async () => {
     const response = await handleServerFunctionRequest(urlArgs(JSON.stringify(["y"])), {
       bodySizeLimit: 4
