@@ -40,7 +40,7 @@ import {
 } from "../../core/scheduler.js";
 import type { Owner } from "../../core/types.js";
 import { $TARGET, isWrappable } from "../store.js";
-import { markDescendants, ownedRaw, type StoreNextTarget } from "./target.js";
+import { markDescendants, ownedRaw, type PatchChannel, type StoreNextTarget } from "./target.js";
 import { installPatchHooks, installRowHooks, wrapRecordHook } from "./patch-hooks.js";
 import { optHooks } from "./target.js";
 // One-way: reconcile emits through the hooks (never imports this module),
@@ -108,18 +108,12 @@ interface QueuedApply {
   force: boolean;
   /** When set, `next` resolves at drain as `t.pb ?? t.v` (bubbles). */
   t: StoreNextTarget | null;
-  /** Coalescing + recording backref (re-audits 3/6): set for stamped SELF
-   * entries so the drain can clear the channel's stamps (retention), record
-   * first-apply read sets (ak), and resolve the VALUE consumer list LIVE
-   * (re-audit 7, P2-9/P1-5 dual: value applications are absolute, so they
-   * go to whoever is registered at drain — a list recreated while the entry
-   * was held or merged must not be missed). */
-  pc?: {
-    qa: unknown;
-    qe: unknown;
-    ak: PropertyKey[] | null;
-    p: object[] | null;
-  };
+  /** Channel backref (round 10.12): STRUCTURAL items carry it as the
+   * stable identity dev diagnostics key on (emission snapshots slice the
+   * consumer list — a per-flush array would defeat warning memos) and as
+   * the naming/cause anchor (`pc.t` path, `pc.dn` stamp). Never consulted
+   * by drain semantics. */
+  pc?: PatchChannel;
   /** Structural row ops (re-audit 6): entries queue the LIVE consumer list
    * plus the ops payload — cloned wrappers survived unbinding, so stale
    * row callbacks fired after a subject switch. */
@@ -178,15 +172,17 @@ function forcedNext(t: StoreNextTarget): any {
 function applyStructural(item: QueuedApply, next: any, firstError: unknown): unknown {
   const snap = item.list as unknown as { fn: Function; owner: Owner | null; u?: boolean }[];
   const len = snap.length;
-  // Structural dispatch width rides the same engine policy (round 10.11,
-  // P2) — no signal to stamp, so the consumer list is the memo key.
-  if (__DEV__ && attrHooks !== null)
-    attrHooks.patchDispatch(
-      item.list as object,
-      len,
-      item.si !== undefined ? "slot-patch" : "row-ops",
-      null
-    );
+  // Structural dispatch diagnostics (rounds 10.11/10.12): the CHANNEL is
+  // the memo key — emission snapshots slice the consumer list, so a
+  // per-item array key made the width warning fire every flush. Names and
+  // causes anchor on the channel too (`pc.t` path, `pc.dn` stamp).
+  const dch = __DEV__ && attrHooks !== null ? (item.pc ?? null) : null;
+  const dchannel = item.si !== undefined ? "slot-patch" : "row-ops";
+  let dstart = 0;
+  if (__DEV__ && attrHooks !== null) {
+    attrHooks.patchDispatch((dch as object) ?? (item.list as object), len, dchannel, null);
+    dstart = performance.now();
+  }
   for (let j = 0; j < len; j++) {
     const entry = snap[j];
     if (entry === undefined || entry.u === true) continue;
@@ -198,6 +194,17 @@ function applyStructural(item: QueuedApply, next: any, firstError: unknown): unk
       if (!routeEntryError(entry as any, err) && firstError === UNSET) firstError = err;
     }
   }
+  // Structural deliveries are attribution EVENTS (round 10.12, P2): they
+  // run in commit drains, not effects, so no rerun event exists for them
+  // — the engine records a synthetic one (name, causes, count, timing).
+  if (__DEV__ && attrHooks !== null && dch !== null)
+    attrHooks.patchStructural(
+      (dch as any).t !== undefined ? targetPath((dch as any).t) : null,
+      len,
+      dchannel,
+      ((dch as any).dn as any) ?? null,
+      performance.now() - dstart
+    );
   return firstError;
 }
 
@@ -376,7 +383,10 @@ export function emitPatchAncestors(t: StoreNextTarget): void {
 export function emitPatchAncestorsOptimistic(t: StoreNextTarget, _tx: unknown): void {
   let origin: unknown = undefined;
   if (__DEV__ && attrHooks !== null)
-    origin = t.pc !== null && (t.pc as any).dn !== null ? (t.pc as any).dn : targetPath(t);
+    origin =
+      t.pc !== null && (t.pc as any).dn !== null && (t.pc as any).p !== null
+        ? (t.pc as any).dn
+        : targetPath(t);
   let u = t.u;
   while (u !== null) {
     if (u.pc !== null) bumpOneOptimistic(u, u.pc, origin);
@@ -449,7 +459,8 @@ export function emitRowOpsOptimistic(
     prev: null,
     force: false,
     t: nextRows === null ? t : null,
-    ops
+    ops,
+    pc: t.pc as PatchChannel
   });
   if (!scheduled) {
     scheduled = true;
@@ -685,11 +696,15 @@ function targetPath(t: StoreNextTarget): string {
 
 function bumpAncestors(t: StoreNextTarget): void {
   // Origin for ancestor chain stamps (round 10.10, P2): the child's own
-  // delivery signal (its fresh stamp is the cause) or its path when the
-  // child has no channel.
+  // delivery signal (its fresh stamp is the cause) or its path — also
+  // when the child's channel is DEMOTED (round 10.12): a consumer-less
+  // dn's last stamp is a stale pre-demotion transition, not this write.
   let origin: unknown = undefined;
   if (__DEV__ && attrHooks !== null)
-    origin = t.pc !== null && (t.pc as any).dn !== null ? (t.pc as any).dn : targetPath(t);
+    origin =
+      t.pc !== null && (t.pc as any).dn !== null && (t.pc as any).p !== null
+        ? (t.pc as any).dn
+        : targetPath(t);
   let u = t.u;
   while (u !== null) {
     if (u.pc !== null) bumpOne(u, u.pc, origin);
@@ -818,6 +833,9 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
         // retained stamp would pin the transition object (generators,
         // application state) for the record's lifetime.
         pc.bt = pc.bo = null;
+        // The attribution stamp is CONSUMED (round 10.12, P2): a later
+        // self-emission must not inherit this delivery's child causes.
+        if (__DEV__ && attrHooks !== null) attrHooks.patchDelivered(pc.dn);
         const p = pc.p as PatchEntry[] | null;
         if (p === null) {
           // Inert (demoted or emptied). A deferred-demotion latch queued for
@@ -1343,7 +1361,8 @@ export function emitSlotPatch(t: StoreNextTarget, index: number, next: any, prev
     prev,
     force: false,
     t: null,
-    si: index
+    si: index,
+    pc: t.pc as PatchChannel
   });
 }
 
@@ -1399,7 +1418,8 @@ export function emitRowOps(t: StoreNextTarget, next: any[], ops: RowOps): void {
     prev: null,
     force: false,
     t: null,
-    ops
+    ops,
+    pc: t.pc as PatchChannel
   });
 }
 

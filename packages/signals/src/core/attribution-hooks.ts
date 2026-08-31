@@ -90,6 +90,24 @@ export interface AttributionHooks {
    * report every child that fed the delivery, not just the first.
    */
   patchOrigin(dn: Signal<any>, origin: Signal<any> | string): void;
+  /**
+   * The channel's pending stamp was consumed by a delivery — later
+   * self-emissions must not inherit its accumulated child causes.
+   */
+  patchDelivered(dn: Signal<any>): void;
+  /**
+   * A STRUCTURAL (row-ops / slot-patch) dispatch completed. Structural
+   * consumers run in commit drains, not effects — no rerun event exists,
+   * so the engine records a synthetic one. `causeDn` is the record's
+   * delivery signal when value machinery exists (its stamp is the cause).
+   */
+  patchStructural(
+    name: string | null,
+    count: number,
+    channel: string,
+    causeDn: Signal<any> | null,
+    ms: number
+  ): void;
 }
 
 export let attrHooks: AttributionHooks | null = null;

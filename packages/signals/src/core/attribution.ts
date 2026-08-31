@@ -223,8 +223,25 @@ export interface WriteCost {
 const scopeCosts = new Map<Computed<any>, ScopeCost>();
 const writeCosts = new Map<string, WriteCost>();
 /** Wide-dispatch doubling memos for patch-family channels (keyed by the
- * delivery signal or, for structural channels, the consumer list). */
+ * delivery signal or, for structural channels, the CHANNEL — emission
+ * snapshots slice consumer lists, so list identity is per-flush). */
 const patchDispatchWarned = new WeakMap<object, number>();
+/** Delivery-consumed patch stamps: re-stamps after these carry no causes
+ * forward (round 10.12). */
+const consumedPatchStamps = new WeakSet<ChangeRecord>();
+
+/** Append a bubble origin to a stamp's causes, NAME-deduped (round 10.12:
+ * one child writing twice in a batch is one cause, and synthesized
+ * path-string origins never collide with themselves). */
+function appendPatchOrigin(rec: ChangeRecord, origin: unknown): void {
+  const oc =
+    typeof origin === "string"
+      ? ({ seq: rec.seq, kind: "write", name: origin } as ChangeRecord)
+      : (origin as AttributedNode)._devChange;
+  if (oc === undefined) return;
+  const causes = (rec.causes ??= []);
+  if (!causes.some(c => c.name === oc.name)) causes.push(oc);
+}
 
 function rootsOf(causes: ChangeRecord[], out: Set<string>): void {
   for (const c of causes) {
@@ -750,18 +767,25 @@ const engineHooks: AttributionHooks = {
     // stamp the plain `write` hook just left, so "why did this run" for a
     // patch delivery reads as the RECORD's transition, not `5 → 6`.
     (dn as AttributedNode & Signal<any>)._name = name;
+    const prevStamp = (dn as AttributedNode)._devChange;
     if (withValues) stampWrite(dn, "write", prev, next);
     else stampWrite(dn, "write");
+    const rec = (dn as AttributedNode)._devChange!;
+    // A re-stamp within one PENDING window carries the accumulated child
+    // causes forward (round 10.12): a parent's self-emission must not
+    // erase the children that already fed this delivery. Consumed stamps
+    // (patchDelivered) carry nothing.
+    if (
+      prevStamp !== undefined &&
+      prevStamp.causes !== undefined &&
+      !consumedPatchStamps.has(prevStamp)
+    ) {
+      const causes = (rec.causes ??= []);
+      for (const c of prevStamp.causes) if (!causes.some(x => x.name === c.name)) causes.push(c);
+    }
     // Ancestor bubbles carry their ORIGIN (round 10.10): the chain must
     // report the child whose write bubbled, not the ancestor it reached.
-    if (origin != null) {
-      const rec = (dn as AttributedNode)._devChange!;
-      const oc =
-        typeof origin === "string"
-          ? ({ seq: rec.seq, kind: "write", name: origin } as ChangeRecord)
-          : (origin as AttributedNode)._devChange;
-      if (oc !== undefined) rec.causes = [oc];
-    }
+    if (origin != null) appendPatchOrigin(rec, origin);
   },
   patchDispatch(key, count, channel, dn) {
     // SAME policy as graph wide-writes (round 10.10; structural channels
@@ -794,14 +818,42 @@ const engineHooks: AttributionHooks = {
     // origin that fed it, not just the first child's.
     const rec = (dn as AttributedNode)._devChange;
     if (rec === undefined) return;
-    const oc =
-      typeof origin === "string"
-        ? ({ seq: rec.seq, kind: "write", name: origin } as ChangeRecord)
-        : (origin as AttributedNode)._devChange;
-    if (oc === undefined) return;
-    const causes = (rec.causes ??= []);
-    if (causes.indexOf(oc) === -1 && !causes.some(c => c.name === oc.name && c.seq === oc.seq))
-      causes.push(oc);
+    appendPatchOrigin(rec, origin);
+  },
+  patchDelivered(dn) {
+    const rec = (dn as AttributedNode)._devChange;
+    if (rec !== undefined) consumedPatchStamps.add(rec);
+  },
+  patchStructural(name, count, channel, causeDn, ms) {
+    // Synthetic rerun event (round 10.12, P2): structural consumers run in
+    // commit drains — no effect node, no recompute frames — but a delivery
+    // to N list consumers is exactly the work rerun events exist to
+    // witness. Costs/hot-scope checks are node-keyed and skipped.
+    const causes: ChangeRecord[] = [];
+    if (causeDn !== null) {
+      const rec = (causeDn as AttributedNode)._devChange;
+      if (rec !== undefined) causes.push(rec);
+    }
+    const event: RerunEvent = {
+      run: ++runSeq,
+      nodeRuns: 0,
+      nodeKind: "effect",
+      nodeName: `${channel}(${name ?? "structural"})`,
+      node: null as unknown as Computed<any>,
+      causes,
+      depCount: 0,
+      depsAdded: [],
+      depsRemoved: [],
+      selfMs: ms,
+      totalMs: ms,
+      changed: true,
+      phase: "plain",
+      held: false
+    };
+    history.push(event);
+    if (history.length > options.historyLimit) history.shift();
+    for (const listener of listeners) listener(event);
+    if (options.log) console.log(formatRerun(event));
   },
   refreshed(el) {
     stampWrite(el, "refresh");
