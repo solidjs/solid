@@ -717,6 +717,15 @@ export class GlobalQueue extends Queue {
     for (const lane of activeLanes) {
       if (!lane._transition) lane._transition = activeTransition;
     }
+    // A transaction's ambient window is one flush. Entering must therefore
+    // guarantee a flush: a transaction opened with no writes (an action whose
+    // first statements only await) otherwise leaves activeTransition and the
+    // adopted batch armed across the async gap, and the next unrelated work
+    // to arrive — an optimistic store's authoritative landing, a plain async
+    // settle — is adopted into a transaction it has nothing to do with
+    // (#3141). The scheduled flush parks the incomplete transaction through
+    // the normal machinery and detaches the ambient slots first.
+    schedule();
   }
 }
 
