@@ -656,7 +656,10 @@ function flattenArray(
         } while (typeof child === "function" && !child.length);
       }
       if (Array.isArray(child)) {
-        needsUnwrap = flattenArray(child, results, options);
+        // OR, don't overwrite: an accessor already pushed under doNotUnwrap
+        // still needs the resolving wrapper even when a later sibling
+        // fragment contains no functions (#3133).
+        needsUnwrap = flattenArray(child, results, options) || needsUnwrap;
       } else if (
         options?.skipNonRendered &&
         (child == null || child === true || child === false || child === "")
