@@ -937,19 +937,48 @@ export function createChunk(data) {
 export class ChunkReader {
   constructor(stream) {
     this.reader = stream.getReader();
-    this.buffer = new Uint8Array(0);
+    // `buffer` is the view of not-yet-consumed bytes; `store` is its backing
+    // allocation, kept separately so growth can be amortized (see readChunk).
+    this.store = new Uint8Array(0);
+    this.buffer = this.store;
     this.done = false;
   }
 
   async readChunk() {
     const chunk = await this.reader.read();
-    if (!chunk.done) {
-      const newBuffer = new Uint8Array(this.buffer.length + chunk.value.length);
-      newBuffer.set(this.buffer);
-      newBuffer.set(chunk.value, this.buffer.length);
-      this.buffer = newBuffer;
-    } else {
+    if (chunk.done) {
       this.done = true;
+      return;
+    }
+    // Amortized growth (#3154). Reallocating the whole buffer per network
+    // read made one frame O(reads²): a 1 MiB argument payload delivered at
+    // the ~66 B reads a slow client actually produces cost ~200× the CPU of
+    // the same payload at normal read sizes — all of it blocking the event
+    // loop, inside bodySizeLimit on the server and unbounded on the client
+    // leg, where the same reader decodes responses. Three tiers, cheapest
+    // first: append in place while the store has tail room; compact the
+    // consumed prefix (next() advances `buffer` past drained frames) when
+    // reclaiming it makes room; reallocate at ≥2× only when the frame
+    // genuinely outgrew the store. Same bytes, same framing, same failure
+    // behavior — only the allocation strategy changes.
+    const incoming = chunk.value;
+    const store = this.store;
+    const start = this.buffer.byteOffset;
+    const end = start + this.buffer.length;
+    const needed = this.buffer.length + incoming.length;
+    if (end + incoming.length <= store.length) {
+      store.set(incoming, end);
+      this.buffer = store.subarray(start, end + incoming.length);
+    } else if (needed <= store.length) {
+      store.copyWithin(0, start, end);
+      store.set(incoming, this.buffer.length);
+      this.buffer = store.subarray(0, needed);
+    } else {
+      const grown = new Uint8Array(Math.max(needed, store.length * 2));
+      grown.set(this.buffer);
+      grown.set(incoming, this.buffer.length);
+      this.store = grown;
+      this.buffer = grown.subarray(0, needed);
     }
   }
 
