@@ -114,12 +114,21 @@ The node-delivery prototype's remaining dbmon gap vs the channel was mount
   record's death releases the subgraph. Perf-over-memory ruling
   (records outliving consumers retain ~200 B of dormant machinery).
 
-Finding: the bench's unmount split (channel 0.3 ms vs node 1.5 ms) was a
-HARNESS ARTIFACT — a direct same-methodology probe (mount, yield for the
-async flush, gc, timed unmount) measures **1.9 ms on both builds**; the
-delta is which side of the timing window a GC lands on. Post-flush
-unmount work is dominated by GC, not teardown; pre-flush unmount is
-0.2 ms on both.
+Finding (refined after tracing): the bench's unmount split (channel
+0.3 ms vs node 1.5 ms) was a HARNESS ARTIFACT, and the mechanism is NOT
+a collection landing in the timed window — CDP tracing shows ZERO GC
+events inside 11/12 slow unmounts and `usedJSHeapSize` never moves.
+Real teardown is **0.2–0.3 ms/1000 rows on both builds** (the fast
+samples). The slow state (~1.6–2.3 ms, both builds, octane too) is a
+CONCURRENT MAJOR-GC CYCLE in progress: repeated 1000-row mounts with
+the bench's 5 ms yields leave no idle for incremental marking/sweeping
+to finish, and once a background cycle is live the teardown's
+pointer-heavy unlink walk pays the write-barrier tax on every store.
+Proof: inserting 800 ms idles between cycles snaps samples back to
+0.2–0.3 ms, then they degrade again as allocation re-accumulates. The
+bench column therefore measures "was the page inside a background GC
+cycle during the sample window" — which side a build lands on is
+threshold luck, not disposal cost.
 
 dbmon after the pass (same session, quiet machine, both builds through
 the identical Oxc default-on fixture): mount 6.4 (channel 6.4), tick 2.1
