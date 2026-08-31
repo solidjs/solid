@@ -242,6 +242,15 @@ export function isThenable<T>(value: T | PromiseLike<T>): value is PromiseLike<T
   );
 }
 
+/** Fire and clear a node's iterator-flight cancellation hook (#3122). */
+export function releaseFlightTeardown(el: Computed<any>): void {
+  const teardown = el._x?._flightTeardown;
+  if (teardown != null) {
+    el._x!._flightTeardown = null;
+    teardown();
+  }
+}
+
 export function handleAsync<T>(
   el: Computed<T>,
   result: T | PromiseLike<T> | AsyncIterable<T>,
@@ -286,6 +295,11 @@ export function handleAsync<T>(
     throw new Error(message);
   }
 
+  // Flight replacement relies on recompute's supersede release for iterator
+  // teardown (#3122): every handleAsync call — including the projection
+  // self-registration — runs during a recompute of `el`, which has already
+  // fired _flightTeardown. A future non-recompute registration path must
+  // release it here before overwriting _inFlight.
   ext(el)._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
   let syncValue: T;
 
@@ -499,6 +513,11 @@ export function handleAsync<T>(
       } catch {}
     };
     registerClose ? registerClose(close) : cleanup(close);
+    // Flight-identity cancellation (#3122): the registration above is the
+    // owner-death backstop, but its disposal list can be zombie-deferred
+    // until the SUPERSEDING flight settles. The teardown slot fires at the
+    // _inFlight release sites so supersede stops this stream immediately.
+    ext(el)._flightTeardown = close;
 
     // Release check before each next pull: an unobserved lazy node must tear
     // down (its close above runs via disposal, closing the iterator) instead

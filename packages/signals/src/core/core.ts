@@ -3,6 +3,7 @@ import {
   handleAsync,
   notifyStatus,
   parkLoadingWindow,
+  releaseFlightTeardown,
   settleErroredDependents
 } from "./async.js";
 import {
@@ -206,7 +207,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (el._transition && (!isEffect || activeTransition) && activeTransition !== el._transition)
       globalQueue.initTransition(el._transition);
     deleteFromHeap(el, queueFor(el));
-    if (el._x !== null) el._x._inFlight = null;
+    if (el._x !== null) {
+      el._x._inFlight = null;
+      // Supersede is where an iterator flight dies (#3122): close it now.
+      // Its cleanup(close) registration may sit in a zombie-deferred
+      // disposal list that a held transition only drains when the
+      // SUPERSEDING flight settles — cancellation must not wait for the
+      // work that replaced it. Idempotent with the cleanup-channel close.
+      releaseFlightTeardown(el);
+    }
     // Tracked effects run after finalizePureQueue, so dispose immediately instead of deferring
     if (el._transition || isEffect === EFFECT_TRACKED) disposeChildren(el);
     else if (el._firstChild !== null || el._disposal !== null) {
@@ -646,6 +655,7 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _parentSource: undefined,
     _affectsCount: 0,
     _inFlight: null,
+    _flightTeardown: null,
     _error: undefined,
     _blocked: undefined,
     _pendingSources: undefined,

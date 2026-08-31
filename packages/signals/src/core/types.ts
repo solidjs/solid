@@ -85,6 +85,13 @@ export interface NodeExtension {
    */
   _affectsCount: number;
   _inFlight: PromiseLike<any> | AsyncIterable<any> | null;
+  /** Cancellation for the CURRENT iterator flight (#3122): closes the
+   * iterator (`it.return()`), idempotent. Fired at the sites that release
+   * `_inFlight` so a superseded stream stops at supersede time — its owner
+   * cleanup registration may ride the zombie-disposal channel, which a held
+   * transition defers until the SUPERSEDING flight settles. Null for plain
+   * promise flights (no cancellation hook exists). */
+  _flightTeardown: (() => void) | null;
   _error: unknown;
   _blocked: boolean | undefined;
   _pendingSources: Set<Computed<any>> | undefined;

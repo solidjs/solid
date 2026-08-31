@@ -120,7 +120,13 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // settle seam; the registry itself lives in core/quiescence.ts and
     // shakes out with refresh()). Paid for by converting three
     // `slot !== null && slot(...)` gates to `slot?.(...)`.
-    expect(minifiedBytes).toBeLessThan(21_250);
+    // CONSCIOUS BUMP (2026-08-31): +~96B for flight-identity iterator
+    // cancellation (#3122) — the `_flightTeardown` ext slot, its
+    // registration in consumeIterator, and recompute's supersede release.
+    // Core-retained by necessity: supersede happens in recompute, and the
+    // async-iterable machinery is already part of the memo floor. Measured
+    // at 21,331 post-change.
+    expect(minifiedBytes).toBeLessThan(21_400);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {
