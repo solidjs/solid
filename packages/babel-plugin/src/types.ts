@@ -14,6 +14,8 @@ export interface TemplateRecord {
   isImportNode?: boolean;
   isWrapped?: boolean;
   renderer: RendererName;
+  /** First registration site, so `validate` failures point at the JSX (#3099). */
+  path?: NodePath;
 }
 
 export interface ProgramScopeData {

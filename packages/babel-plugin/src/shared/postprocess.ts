@@ -32,13 +32,22 @@ export default (path: NodePath<t.Program>, state: PluginPass) => {
         if (typeof html === "string") {
           const result = isInvalidMarkup(html);
           if (result) {
+            // A compile ERROR, not a warning (#3099): once the validator has
+            // fired, the emitted template is guaranteed not to match its own
+            // positional walk — the browser rebuilds the DOM, and the walk
+            // binds against nodes that moved (crash or silent wrong-node
+            // bindings; under SSR the restructuring desyncs hydration too).
+            // Warn-and-emit put this diagnostic in server stdout while the
+            // browser failed with an unrelated-looking runtime crash. The
+            // error throws from the template's registration site, so
+            // bundlers surface it at the right file and line. `validate:
+            // false` remains the opt-out.
             const message =
-              "\nThe HTML provided is malformed and will yield unexpected output when evaluated by a browser.\n";
-            console.warn(message);
-            console.warn("User HTML:\n", result.html);
-            console.warn("Browser HTML:\n", result.browser);
-            console.warn("Original HTML:\n", html);
-            // throw path.buildCodeFrameError();
+              "The HTML provided is malformed and will yield unexpected output when evaluated by a browser.\n" +
+              `User HTML:\n ${result.html}\n` +
+              `Browser HTML:\n ${result.browser}\n` +
+              `Original HTML:\n ${html}`;
+            throw (template.path ?? path).buildCodeFrameError(message);
           }
         }
       }
