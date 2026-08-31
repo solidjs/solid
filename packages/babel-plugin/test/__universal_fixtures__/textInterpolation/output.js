@@ -72,7 +72,7 @@ const multiLineNoTrailingSpace = _el$22;
 
 /* prettier-ignore */
 var _el$24 = _$createElement("span");
-_$insertNode(_el$24, _$createTextNode(`&nbsp;&lt;Hi&gt;&nbsp;`));
+_$insertNode(_el$24, _$createTextNode(` <Hi> `));
 const escape = _el$24;
 
 /* prettier-ignore */
@@ -83,47 +83,56 @@ const escape2 = _$createComponent(Comp, {
 /* prettier-ignore */
 const escape3 = "\xA0<Hi>\xA0";
 var _el$26 = _$createElement("span"),
-  _el$27 = _$createTextNode(`Hi&lt;script>alert();&lt;/script>`);
+  _el$27 = _$createTextNode(`Hi<script>alert();</script>`);
 _$insertNode(_el$26, _el$27);
 const injection = _el$26;
+var _el$29 = _$createElement("item");
+_$insertNode(_el$29, _$createTextNode(`<span> restyles a run`));
+const staticLessThan = _el$29;
+var _el$31 = _$createElement("item");
+_$insertNode(_el$31, _$createTextNode(`<b> & <i>`));
+const staticAmpersand = _el$31;
+var _el$33 = _$createElement("item");
+_$insertNode(_el$33, _$createTextNode(`lit < text`));
+const jsxEntity = _el$33;
 let value = "World";
-var _el$29 = _$createElement("span"),
-  _el$30 = _$createTextNode(`Hello World!`);
-_$insertNode(_el$29, _el$30);
-const evaluated = _el$29;
-let number = 4 + 5;
-var _el$32 = _$createElement("span"),
-  _el$33 = _$createTextNode(`4 + 5 = 9`);
-_$insertNode(_el$32, _el$33);
-const evaluatedNonString = _el$32;
-var _el$35 = _$createElement("div"),
-  _el$36 = _$createTextNode(`\nd`);
+var _el$35 = _$createElement("span"),
+  _el$36 = _$createTextNode(`Hello World!`);
 _$insertNode(_el$35, _el$36);
-_$insert(_el$35, s, _el$36);
-const newLineLiteral = _el$35;
-var _el$38 = _$createElement("div");
-_$insert(_el$38, expr);
-const trailingSpace = _el$38;
+const evaluated = _el$35;
+let number = 4 + 5;
+var _el$38 = _$createElement("span"),
+  _el$39 = _$createTextNode(`4 + 5 = 9`);
+_$insertNode(_el$38, _el$39);
+const evaluatedNonString = _el$38;
+var _el$41 = _$createElement("div"),
+  _el$42 = _$createTextNode(`\nd`);
+_$insertNode(_el$41, _el$42);
+_$insert(_el$41, s, _el$42);
+const newLineLiteral = _el$41;
+var _el$44 = _$createElement("div");
+_$insert(_el$44, expr);
+const trailingSpace = _el$44;
 const trailingSpaceComp = _$createComponent(Comp, {
   children: expr
 });
 const trailingSpaceFrag = expr;
-var _el$39 = _$createElement("span"),
-  _el$40 = _$createTextNode(` `);
-_$insertNode(_el$39, _el$40);
-_$insert(_el$39, expr, null);
-const leadingSpaceElement = _el$39;
+var _el$45 = _$createElement("span"),
+  _el$46 = _$createTextNode(` `);
+_$insertNode(_el$45, _el$46);
+_$insert(_el$45, expr, null);
+const leadingSpaceElement = _el$45;
 const leadingSpaceComponent = _$createComponent(Div, {
   get children() {
     return [" ", expr];
   }
 });
 const leadingSpaceFragment = [" ", expr];
-var _el$41 = _$createElement("span"),
-  _el$42 = _$createTextNode(` `);
-_$insertNode(_el$41, _el$42);
-_$insert(_el$41, expr, _el$42);
-const trailingSpaceElement = _el$41;
+var _el$47 = _$createElement("span"),
+  _el$48 = _$createTextNode(` `);
+_$insertNode(_el$47, _el$48);
+_$insert(_el$47, expr, _el$48);
+const trailingSpaceElement = _el$47;
 const trailingSpaceComponent = _$createComponent(Div, {
   get children() {
     return [expr, " "];

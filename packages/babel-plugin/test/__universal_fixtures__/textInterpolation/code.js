@@ -52,6 +52,10 @@ const escape3 = <>
 
 const injection = <span>Hi{"<script>alert();</script>"}</span>;
 
+const staticLessThan = <item>{"<span> restyles a run"}</item>;
+const staticAmpersand = <item>{"<b> & <i>"}</item>;
+const jsxEntity = <item>lit &lt; text</item>;
+
 let value = "World";
 const evaluated = <span>Hello {value + "!"}</span>;
 

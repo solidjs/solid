@@ -1,4 +1,5 @@
 import * as t from "@babel/types";
+import { decode } from "html-entities";
 import { transformElement as transformElementDOM } from "../dom/element";
 import { createTemplate as createTemplateDOM } from "../dom/template";
 import { transformElement as transformElementSSR } from "../ssr/element";
@@ -191,7 +192,9 @@ export function transformNode(
         ? info.doNotEscape
           ? String(staticValue)
           : (escapeHTML(String(staticValue)) as string)
-        : trimWhitespace((node.extra?.raw as string | undefined) ?? "");
+        : t.isJSXText(node) && info.decodeEntities
+          ? decode(trimWhitespace((node.extra?.raw as string | undefined) ?? ""))
+          : trimWhitespace((node.extra?.raw as string | undefined) ?? "");
     if (!(text as string).length) return null;
     const results: TransformResult = {
       template: text,

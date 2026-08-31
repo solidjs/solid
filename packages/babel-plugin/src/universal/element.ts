@@ -274,7 +274,7 @@ function transformChildren(path: BabelPath<t.JSXElement>, results: UniversalTran
   const filteredChildren = filterChildren(path.get("children")),
     multi = checkLength(filteredChildren),
     childNodes = filteredChildren
-      .map(path => transformNode(path))
+      .map(path => transformNode(path, { doNotEscape: true, decodeEntities: true }))
       .reduce((memo: TransformResult[], child) => {
         if (!child) return memo;
         const i = memo.length;

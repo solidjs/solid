@@ -143,6 +143,7 @@ export interface TransformInfo {
   fragmentChild?: boolean;
   componentChild?: boolean;
   doNotEscape?: boolean;
+  decodeEntities?: boolean;
   skipId?: boolean;
   toBeClosed?: Set<string>;
   parentResults?: TransformResult;
