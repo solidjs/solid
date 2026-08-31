@@ -178,7 +178,9 @@ module.exports = [
     // Re-audit-9 (2026-08-29): held-view admission, committed-visible skip
     // markers, tentative self-emission, unchanged-reconcile gate, function-
     // intermediate probes. Measured 14.80.
-    limit: "14.9 KB",
+    // Rebase onto next (2026-08-31): upstream rc.5 drift stacks with the
+    // branch bytes. Measured 14.99.
+    limit: "15.05 KB",
     modifyEsbuildConfig
   },
   {
@@ -344,7 +346,9 @@ module.exports = [
     path: "hydrating-store-app.js",
     // Round-10.9 (2026-08-31): demotion-lifecycle bytes (per-entry
     // envelopes, commit skip, akAll refcount). Measured 26.56.
-    limit: "26.65 KB",
+    // Rebase onto next (2026-08-31): upstream drift + lifecycle fixes
+    // stack with the branch bytes. Measured 27.06.
+    limit: "27.15 KB",
     modifyEsbuildConfig
   },
   {
@@ -413,7 +417,8 @@ module.exports = [
     // Round-10.9 (2026-08-31): per-entry manifest envelopes (write-free
     // demotion computes), failed-compute commit skip, akAll refcount,
     // transparent redrive roots. Measured 16.25.
-    limit: "16.3 KB",
+    // Rebase onto next (2026-08-31): upstream drift stacks. Measured 16.36.
+    limit: "16.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -456,7 +461,8 @@ module.exports = [
     // Size pass (2026-08-31): same trims. Measured 18.60 — tightened.
     // Round-10.9 (2026-08-31): demotion-lifecycle bytes (see value tier).
     // Measured 18.72.
-    limit: "18.8 KB",
+    // Rebase onto next (2026-08-31): upstream drift stacks. Measured 18.82.
+    limit: "18.9 KB",
     modifyEsbuildConfig
   },
   {
