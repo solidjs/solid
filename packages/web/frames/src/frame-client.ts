@@ -616,7 +616,20 @@ export function createFrameHost(options = {}) {
       store.version = version;
       clearStreamRecords(store.records);
     }
-    Object.assign(store.records, records);
+    // Root assets reuse one key for the shell and late chunks. Accumulate
+    // their arrays so frames registered later receive the full snapshot.
+    const assets = records["seg::assets"];
+    const previous = assets && store.records["seg::assets"];
+    if (!previous || previous === assets) {
+      Object.assign(store.records, records);
+    } else {
+      for (const name in assets) {
+        const values = assets[name];
+        if (Array.isArray(values)) {
+          previous[name] ? previous[name].push(...values) : (previous[name] = values);
+        }
+      }
+    }
     return true;
   };
   return {

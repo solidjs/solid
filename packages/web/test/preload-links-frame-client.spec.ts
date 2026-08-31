@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, describe, expect, it } from "vitest";
-import { createFrame } from "../frames/src/frame-client.js";
+import { createFrame, createFrameHost } from "../frames/src/frame-client.js";
 
 afterEach(() => {
   document.head.replaceChildren();
@@ -68,5 +68,38 @@ describe("frame preload links", () => {
     document.head.querySelector('link[href="/late.woff2"]')!.remove();
     frame.apply({ version: 2, r: { "seg::assets": lateAssets } });
     expect(document.head.querySelector('link[href="/late.woff2"]')).not.toBeNull();
+  });
+
+  it("retains every late root asset record until a frame registers", () => {
+    const host = createFrameHost();
+    host.apply({
+      type: "assets",
+      id: "warm-assets",
+      version: 1,
+      key: "",
+      modules: ["/warm-module-a.js"]
+    });
+    host.apply({
+      type: "assets",
+      id: "warm-assets",
+      version: 1,
+      key: "",
+      modules: ["/warm-module-b.js"]
+    });
+    host.apply({
+      type: "assets",
+      id: "warm-assets",
+      version: 1,
+      key: "",
+      preloads: [{ href: "/warm-font.woff2", attrs: { as: "font", crossorigin: "" } }]
+    });
+
+    expect(document.head.querySelector("link")).toBeNull();
+    const boundary = document.createElement("div");
+    document.body.appendChild(boundary);
+    createFrame(boundary, { id: "warm-assets", host });
+    expect(document.head.querySelector('link[href="/warm-module-a.js"]')).not.toBeNull();
+    expect(document.head.querySelector('link[href="/warm-module-b.js"]')).not.toBeNull();
+    expect(document.head.querySelector('link[href="/warm-font.woff2"]')).not.toBeNull();
   });
 });
