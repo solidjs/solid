@@ -406,7 +406,22 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
       !(pendingComputed._flags & (REACTIVE_DISPOSED | REACTIVE_ZOMBIE))
     ) {
       markHeap(queue);
-      prepareComputed(pendingComputed as Computed<unknown>, true);
+      // Suspend probe collection during the pull (mirrors pendingCheckRead's
+      // prepare): a probe through latest() answers for the SHADOW — the
+      // read() dispatch collects it deliberately, so the verdict reflects
+      // async still in flight for the latest view, not the parent's held
+      // write. A stale shadow recomputing HERE ran its `read(parent)` with
+      // the probe still live and collected the parent too, so the verdict
+      // depended on whether anything had pulled the shadow current earlier
+      // in the tick (#3104: reading latest(m) flipped a later
+      // latest(() => isPending(x)) from true to false).
+      const prevCheck = pendingCheckActive;
+      setPendingCheckActive(false);
+      try {
+        prepareComputed(pendingComputed as Computed<unknown>, true);
+      } finally {
+        setPendingCheckActive(prevCheck);
+      }
     }
     value = read(pendingComputed);
   } catch (e) {
@@ -537,6 +552,17 @@ export function isPending(fn: () => any): boolean {
   });
   const collectPending = () => {
     setPendingCheckActive(false);
+    // Companion reads are mode-neutral plumbing: under an outer latest()
+    // (isPending inside a latest window — #3104's memo shape) leaving latest
+    // mode active dispatched these reads through latestRead, which built a
+    // SHADOW OF THE PENDING SIGNAL itself. The next updatePendingSignal then
+    // wrote that companion-on-companion from inside a recompute
+    // (syncCompanions → setSignal on a shadow created without ownedWrite)
+    // and halted dev with the owned-scope write guard. The creation paths
+    // (getLatestValueComputed / getPendingSignal) already suspend both
+    // modes; this read site must too.
+    const prevLatest = latestReadActive;
+    setLatestReadActive(false);
     const prevStrictRead = __DEV__ ? strictRead : false;
     if (__DEV__) setStrictRead(false);
     try {
@@ -548,6 +574,7 @@ export function isPending(fn: () => any): boolean {
       });
     } finally {
       if (__DEV__) setStrictRead(prevStrictRead);
+      setLatestReadActive(prevLatest);
       setPendingCheckActive(true);
     }
     // A "not pending" verdict that exists only because this reader saw the
