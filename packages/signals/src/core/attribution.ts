@@ -322,7 +322,7 @@ function checkWideWrite(
   const message =
     `[WIDE_WRITE] ${verb} "${nodeName(node)}" reached ${subs} subscribers — every one ` +
     `re-runs this flush. If consumers ask keyed questions of this value (for example every ` +
-    `row comparing against one selected id), invert with createSelector or createProjection ` +
+    `row comparing against one selected id), invert with a per-key store or projection ` +
     `so only the keys whose answer flipped update.`;
   emitDiagnostic({
     code: "WIDE_WRITE",

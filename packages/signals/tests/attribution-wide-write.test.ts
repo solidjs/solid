@@ -50,7 +50,7 @@ describe("WIDE_WRITE", () => {
     expect(events).toHaveLength(1);
     expect(events[0].nodeName).toBe("selectedId");
     expect(events[0].data).toMatchObject({ subscribers: 30, write: "write" });
-    expect(events[0].message).toContain("createSelector or createProjection");
+    expect(events[0].message).toContain("a per-key store or projection");
   });
 
   it("re-warns only after the subscriber count doubles", () => {

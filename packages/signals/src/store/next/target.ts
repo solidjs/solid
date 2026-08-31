@@ -84,6 +84,8 @@ export interface PatchChannel {
    * channel; the delivery effect consumes it in clean effect context.
    * Cleared with the consumers it belonged to (round 10, P2). */
   dmq?: boolean;
+  /** DEV: wide-dispatch doubling memo (WIDE_WRITE channel twin). */
+  dw?: number;
   /** Manifest-less consumer present (size pass): the accessed-key union is
    * unknowable — adoption/delivery probes full-scan instead of trusting a
    * partial `ak`. Replaces the drain-side recording proxy. */

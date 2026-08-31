@@ -801,6 +801,29 @@ describe("INVARIANT: demotion fanout is per-entry isolated (round 10)", () => {
   });
 });
 
+describe("INVARIANT: channel fan-out stays diagnosable (attribution parity)", () => {
+  it("mass registration and wide dispatch fire the graph-size diagnostics", async () => {
+    const [state, setState] = createStore<any>({ cfg: { theme: "a" } });
+    warnSpy.mockClear();
+    const unbinds: (() => void)[] = [];
+    createRoot(() => {
+      for (let i = 0; i < 2000; i++) {
+        unbinds.push(registerPatch(state.cfg, () => {}) as () => void);
+      }
+    });
+    // Registration-side HUGE_FAN_OUT twin (patch consumers are invisible
+    // to the graph's _subCount — the channel must witness its own shape).
+    expect(warnSpy.mock.calls.some(c => String(c[0]).includes("[HUGE_FAN_OUT]"))).toBe(true);
+    // Dispatch-side WIDE_WRITE twin.
+    setState((s: any) => {
+      s.cfg.theme = "b";
+    });
+    flush();
+    expect(warnSpy.mock.calls.some(c => String(c[0]).includes("[WIDE_WRITE]"))).toBe(true);
+    for (const u of unbinds) u();
+  });
+});
+
 describe("INVARIANT: the demoted fallback effect lives and dies with its consumer (round 10.8)", () => {
   it("unbind after demotion disposes the live fallback effect", async () => {
     const [dep, setDep] = createRoot(() => createSignal("d1"));

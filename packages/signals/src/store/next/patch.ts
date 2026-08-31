@@ -58,7 +58,12 @@ import {
 import type { DeepNode } from "./target.js";
 
 import { InvariantHooks } from "../../core/invariants.js";
-import { assertInvariant } from "../../core/dev.js";
+import {
+  assertInvariant,
+  emitDiagnostic,
+  GRAPH_SIZE_WARN_AT,
+  shouldWarnGraphSize
+} from "../../core/dev.js";
 import { runWithOwner, untrack } from "../../core/core.js";
 import { createRenderEffect } from "../../signals.js";
 import { deliveryEffect } from "../../core/effect.js";
@@ -717,6 +722,26 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
           pc.dmq = false;
           return;
         }
+        if (__DEV__ && p.length >= GRAPH_SIZE_WARN_AT && p.length >= (pc.dw ?? 0) * 2) {
+          // WIDE_WRITE parity for the channel (see the registration-side
+          // HUGE_FAN_OUT twin): a delivery to N consumers is the same
+          // cost the graph warning polices, made invisible to `_subCount`
+          // by design. Doubling memo, matching checkWideWrite.
+          pc.dw = p.length;
+          const message =
+            `[WIDE_WRITE] a store write dispatched to ${p.length} patch template consumers ` +
+            `on one record — every one applies this flush. If consumers ask keyed questions ` +
+            `of this record, invert with a per-key store or projection so only the keys ` +
+            `whose answer flipped update.`;
+          emitDiagnostic({
+            code: "WIDE_WRITE",
+            kind: "perf",
+            severity: "warn",
+            message,
+            data: { patchConsumers: p.length }
+          });
+          console.warn(message);
+        }
         // Deferred demotion (tentative getter views): performed HERE — the
         // delivery effect is clean, lane-timed effect context, so the
         // re-driven bodies subscribe correctly (creations inside a setter's
@@ -795,6 +820,27 @@ export function registerPatch(record: any, fn: PatchFn, keys?: Iterable<Property
   // P2 — a stale latch permanently demoted a later plain consumer).
   if (list.length === 0) pc.dmq = false;
   list.push(entry);
+  if (__DEV__ && shouldWarnGraphSize(list.length)) {
+    // CHANNEL-SIDE fan-out witness (attribution parity): patch consumers
+    // are not graph subscribers — a record read by thousands of compiled
+    // templates has ONE delivery-signal edge, so the always-on
+    // HUGE_FAN_OUT link warning would never see the structure it exists
+    // to catch. Same code, same milestones, channel-shaped message.
+    const message =
+      `[HUGE_FAN_OUT] A store record's patch channel has ${list.length} registered ` +
+      `template consumers. Every write to this record dispatches all of them this flush. ` +
+      `If many independent templates ask keyed questions of one record (for example every ` +
+      `row reading shared state), prefer a per-key store or projection so only the keys ` +
+      `whose answer flipped update.`;
+    emitDiagnostic({
+      code: "HUGE_FAN_OUT",
+      kind: "perf",
+      severity: "warn",
+      message,
+      data: { patchConsumers: list.length }
+    });
+    console.warn(message);
+  }
   // Accessed-key union (prod-sound adoption demotion). Two sources:
   // compiler MANIFESTS (re-audit 7, P1-1 — the static read envelope,
   // complete across ternary/logical branches; dot-joined strings mark

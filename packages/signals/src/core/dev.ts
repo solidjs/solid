@@ -283,7 +283,7 @@ export function getObservers(node: Signal<any> | Computed<any>): Computed<any>[]
   return observers;
 }
 
-function shouldWarnGraphSize(count: number): boolean {
+export function shouldWarnGraphSize(count: number): boolean {
   return count >= GRAPH_SIZE_WARN_AT && (count - GRAPH_SIZE_WARN_AT) % GRAPH_SIZE_WARN_EVERY === 0;
 }
 
