@@ -143,6 +143,10 @@ export interface TransformInfo {
   fragmentChild?: boolean;
   componentChild?: boolean;
   doNotEscape?: boolean;
+  /** Child of a universal-rendered element: text feeds the host's
+   * createTextNode, so it is never HTML-escaped and JSX entities decode
+   * (#3127). Element-scoped because dynamic mode mixes renderers. */
+  universal?: boolean;
   skipId?: boolean;
   toBeClosed?: Set<string>;
   parentResults?: TransformResult;

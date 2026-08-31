@@ -63,7 +63,7 @@ _$insertNode(_el$19, _$createTextNode("Hello John"));
 /* prettier-ignore */
 const multiLineNoTrailingSpace = _el$19;
 var _el$20 = _$createElement("span");
-_$insertNode(_el$20, _$createTextNode("&nbsp;&lt;Hi&gt;&nbsp;"));
+_$insertNode(_el$20, _$createTextNode("\xA0<Hi>\xA0"));
 /* prettier-ignore */
 const escape = _el$20;
 /* prettier-ignore */
@@ -71,7 +71,7 @@ const escape2 = _$createComponent(Comp, { children: "\xA0<Hi>\xA0" });
 /* prettier-ignore */
 const escape3 = "\xA0<Hi>\xA0";
 var _el$21 = _$createElement("span");
-var _el$22 = _$createTextNode("Hi&lt;script>alert();&lt;/script>");
+var _el$22 = _$createTextNode("Hi<script>alert();<\/script>");
 _$insertNode(_el$21, _el$22);
 const injection = _el$21;
 let value = "World";
@@ -113,7 +113,7 @@ const trailingSpaceComponent = _$createComponent(Div, { get children() {
 } });
 const trailingSpaceFragment = [expr, " "];
 const escapeAttribute = _$createElement("div", {
-	normal: "Search&hellip;",
+	normal: "Search…",
 	title: "Search&hellip;"
 });
 const escapeCompAttribute = _$createComponent(Div, {

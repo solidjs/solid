@@ -19,7 +19,7 @@ use crate::shared::condition::{
 };
 use crate::shared::refs::{assignment_fallback, callable_test};
 use crate::shared::utils::{
-    element_name, escape_html_text_expression, get_numbered_id, is_component_name,
+    decode_html_entities, element_name, get_numbered_id, is_component_name,
     static_jsx_expression, trim_jsx_text,
 };
 
@@ -586,17 +586,20 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
                             value.span,
                             JSXExpression::from(self.ast().expression_string_literal(
                                 value.span,
-                                self.ast().str(&value.value),
+                                self.ast().str(&decode_html_entities(&value.value)),
                                 None,
                             )),
                         ));
                     }
                     return Ok(());
                 }
-                // Babel passes the raw attribute source string through.
+                // JSX entities decode (#3127): Babel's parser decodes them into
+                // the literal's cooked value, which is what the universal
+                // generator now emits — the host's setProp gets the decoded
+                // string, no HTML parser downstream. oxc keeps the raw source.
                 let value = self.ast().expression_string_literal(
                     value.span,
-                    self.ast().str(&value.value),
+                    self.ast().str(&decode_html_entities(&value.value)),
                     None,
                 );
                 self.add_static_attr(
@@ -754,9 +757,10 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
                             let value = match &attr.value {
                                 None => self.ast().expression_boolean_literal(attr.span, true),
                                 Some(JSXAttributeValue::StringLiteral(value)) => {
+                                    // JSX entities decode (#3127), as above.
                                     self.ast().expression_string_literal(
                                         value.span,
-                                        self.ast().str(&value.value),
+                                        self.ast().str(&decode_html_entities(&value.value)),
                                         None,
                                     )
                                 }
@@ -933,9 +937,11 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
         for child in &element.children {
             match child {
                 JSXChild::Text(text) => {
-                    // Babel keeps raw entity text for `createTextNode` (it
-                    // emits the trimmed source into a template literal).
-                    let value = trim_jsx_text(&text.value);
+                    // Universal text is text (#3127): it feeds the host's
+                    // `createTextNode` with no HTML parser downstream, so JSX
+                    // entities decode here (matching Babel, which decodes
+                    // after trimming) instead of riding as raw source.
+                    let value = decode_html_entities(&trim_jsx_text(&text.value));
                     if !value.is_empty() {
                         significant += 1;
                         push_text_plan(&mut plans, value);
@@ -1093,12 +1099,11 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
             return Ok(());
         }
         if let Some(value) = static_jsx_expression(&container.expression, Some(&self.bindings)) {
-            // Folded expression values are escaped like Babel's template text
-            // (raw JSXText keeps its entities as written and is not escaped).
-            push_text_plan(
-                plans,
-                escape_html_text_expression(&value.into_template_value()),
-            );
+            // Folded expression values pass through unescaped (#3127): the
+            // string goes straight to the host's `createTextNode`, so the
+            // HTML-escaping the dom/ssr template text needs would render
+            // literally here (`{"<b>"}` became `&lt;b>` on screen).
+            push_text_plan(plans, value.into_template_value());
             return Ok(());
         }
         let dynamic = container

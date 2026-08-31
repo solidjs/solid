@@ -62,11 +62,11 @@ _$insertNode(_el$19, _$createTextNode("Hello John"));
 /* prettier-ignore */
 const multiLineNoTrailingSpace = _el$19;
 var _el$20 = _$createElement("span");
-_$insertNode(_el$20, _$createTextNode("&nbsp;&lt;Hi&gt;&nbsp;"));
+_$insertNode(_el$20, _$createTextNode("\xA0<Hi>\xA0"));
 /* prettier-ignore */
 const escape = _el$20;
 var _el$21 = _$createElement("span");
-var _el$22 = _$createTextNode("Hi&lt;script>alert();&lt;/script>");
+var _el$22 = _$createTextNode("Hi<script>alert();<\/script>");
 _$insertNode(_el$21, _el$22);
 /* prettier-ignore */
 const injection = _el$21;
@@ -99,6 +99,6 @@ _$insertNode(_el$32, _el$33);
 _$insert(_el$32, expr, _el$33);
 const trailingSpaceElement = _el$32;
 const escapeAttribute = _$createElement("div", {
-	normal: "Search&hellip;",
+	normal: "Search…",
 	title: "Search&hellip;"
 });

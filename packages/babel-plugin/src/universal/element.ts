@@ -221,7 +221,15 @@ function transformAttributes(
             : t.jsxExpressionContainer((value as t.Expression) || t.booleanLiteral(true));
         }
       } else {
-        addStaticAttr(attribute, results, initProps, elem, key, value as t.Expression, hasSpread);
+        addStaticAttr(
+          attribute,
+          results,
+          initProps,
+          elem,
+          key,
+          decodedAttrValue(value) as t.Expression,
+          hasSpread
+        );
       }
     });
   if (spreadExpr) results.exprs.push(spreadExpr);
@@ -229,6 +237,18 @@ function transformAttributes(
     path.node.children.push(children);
   }
   return initProps;
+}
+
+// A JSX string attribute prints its `extra.raw` — the source text, entities
+// included — so `normal="Search&hellip;"` reached the host's setProp as the
+// six raw characters (#3127, same class as text children). The parser
+// already decoded the entities into `.value` (that decoded form is what the
+// DOM generator's template parser produces and what component props receive);
+// rebuild the literal so the host gets the decoded string. Only for the
+// attribute's own StringLiteral: an expression container's string is a JS
+// string, where `&hellip;` is six literal characters by JS semantics.
+function decodedAttrValue(value: t.JSXAttribute["value"]): t.JSXAttribute["value"] {
+  return t.isStringLiteral(value) ? t.stringLiteral(value.value) : value;
 }
 
 function addStaticAttr(
@@ -274,7 +294,10 @@ function transformChildren(path: BabelPath<t.JSXElement>, results: UniversalTran
   const filteredChildren = filterChildren(path.get("children")),
     multi = checkLength(filteredChildren),
     childNodes = filteredChildren
-      .map(path => transformNode(path))
+      // `universal: true`: this text feeds the host's createTextNode, so the
+      // shared text branch must not HTML-escape it and must decode entities
+      // (#3127) — element-scoped because dynamic mode mixes renderers.
+      .map(path => transformNode(path, { universal: true }))
       .reduce((memo: TransformResult[], child) => {
         if (!child) return memo;
         const i = memo.length;
@@ -441,7 +464,7 @@ function processSpreads(
             t.stringLiteral(key),
             (isContainer
               ? (node.value as t.JSXExpressionContainer).expression
-              : node.value || t.booleanLiteral(true)) as t.Expression
+              : decodedAttrValue(node.value) || t.booleanLiteral(true)) as t.Expression
           )
         );
       }

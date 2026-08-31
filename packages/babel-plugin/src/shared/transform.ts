@@ -1,4 +1,5 @@
 import * as t from "@babel/types";
+import { decode } from "html-entities";
 import { transformElement as transformElementDOM } from "../dom/element";
 import { createTemplate as createTemplateDOM } from "../dom/template";
 import { transformElement as transformElementSSR } from "../ssr/element";
@@ -186,12 +187,24 @@ export function transformNode(
     t.isJSXText(node) ||
     (staticValue = getStaticExpression(path as BabelPath<t.JSXExpressionContainer>)) !== false
   ) {
+    // Universal text is text (#3127): the DOM and SSR generators splice this
+    // string into an HTML template that a parser later unescapes, so static
+    // values are escaped and JSXText keeps its source entities. Universal
+    // text goes straight to the host's `createTextNode` with no parser
+    // downstream — what is written here is what renders — so static values
+    // pass through unescaped and JSX entities decode, exactly as text
+    // reaching a component child already did (component.ts, fragment.ts).
+    // `info.universal` marks children of a universal-rendered element, which
+    // in `generate: "dynamic"` is a per-element fact, not a config-wide one.
+    const universal = info.universal || config.generate === "universal";
     const text: string =
       staticValue !== undefined
-        ? info.doNotEscape
+        ? info.doNotEscape || universal
           ? String(staticValue)
           : (escapeHTML(String(staticValue)) as string)
-        : trimWhitespace((node.extra?.raw as string | undefined) ?? "");
+        : universal
+          ? decode(trimWhitespace((node.extra?.raw as string | undefined) ?? ""))
+          : trimWhitespace((node.extra?.raw as string | undefined) ?? "");
     if (!(text as string).length) return null;
     const results: TransformResult = {
       template: text,
