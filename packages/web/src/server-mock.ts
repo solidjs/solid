@@ -1,5 +1,6 @@
 //@ts-nocheck
 import type { RequestEvent, RequestEventLocals, ResponseStub } from "./client.js";
+import type { JSX } from "../jsx/jsx.js";
 
 function throwInBrowser(func: Function) {
   const err = new Error(`${func.name} is not supported in the browser, returning undefined`);
@@ -7,10 +8,28 @@ function throwInBrowser(func: Function) {
   console.error(err);
 }
 
+/** An explicit `<link rel="preload">` emitted by the SSR asset pipeline. */
+export type PreloadLink = {
+  href: string;
+  as: JSX.HTMLPreloadAs;
+  type?: string;
+  crossorigin?: JSX.HTMLCrossorigin;
+  integrity?: string;
+  referrerpolicy?: JSX.HTMLReferrerPolicy;
+  fetchpriority?: JSX.HTMLFetchPriority;
+  media?: string;
+};
+
 /** Static asset manifest produced by a build (e.g. parsed Vite manifest.json). */
 export type AssetManifest = Record<
   string,
-  { file: string; css?: string[]; isEntry?: boolean; imports?: string[] }
+  {
+    file: string;
+    css?: string[];
+    isEntry?: boolean;
+    imports?: string[];
+    preloads?: PreloadLink[];
+  }
 > & { _base?: string };
 
 /** Inline style content, e.g. dev CSS collected from a bundler's module graph. */
@@ -23,6 +42,7 @@ export type InlineStyleAsset = {
 export type ResolvedAssets = {
   js: string[];
   css: (string | InlineStyleAsset)[];
+  preloads?: PreloadLink[];
 };
 
 /**
@@ -31,8 +51,9 @@ export type ResolvedAssets = {
  * normalized into a sync resolver internally). `resolve` may return a
  * promise (async resolvers require streaming rendering); CSS entries may be
  * URL strings (emitted as load-gated `<link>` tags) or inline-style
- * descriptors (emitted as `<style>` tags). A bare `resolve`-shaped function
- * is accepted as shorthand for `{ resolve }`.
+ * descriptors (emitted as `<style>` tags), and `preloads` carries explicit
+ * preload links selected by the integration. A bare `resolve`-shaped
+ * function is accepted as shorthand for `{ resolve }`.
  */
 export type AssetResolver = {
   resolve(

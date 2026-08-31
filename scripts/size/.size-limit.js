@@ -421,8 +421,13 @@ module.exports = [
     // client plus server-function call observers (pr-570) in the transport.
     // Verified via metafile that the bundle is still exactly the two dist
     // files (no seroval creep — the regression this scenario guards).
+    //
+    // Typed preload links: 11.1 -> 11.28 KB, measured at 11.269. Frames now
+    // preserve request metadata, adopt matching document links, and retain
+    // every late root asset record for mounts that register after the
+    // stream arrives.
     path: "../../packages/web/frames/dist/client.js",
-    limit: "11.1 KB",
+    limit: "11.28 KB",
     modifyEsbuildConfig: framesEsbuildConfig
   }
 ];

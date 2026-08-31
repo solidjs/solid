@@ -1297,7 +1297,15 @@ describe("SSR Streaming — Asset Discovery", () => {
       "./Route.tsx": {
         file: "assets/Route-abc.js",
         css: ["assets/Route.css"],
-        imports: ["_dep"]
+        imports: ["_dep"],
+        preloads: [
+          {
+            href: "assets/Route.woff2",
+            as: "font" as const,
+            type: "font/woff2",
+            crossorigin: "" as const
+          }
+        ]
       },
       _dep: { file: "assets/dep-def.js" }
     };
@@ -1323,6 +1331,9 @@ describe("SSR Streaming — Asset Discovery", () => {
     expect(shell).toContain('<link rel="modulepreload" href="/assets/Route-abc.js">');
     expect(shell).toContain('<link rel="modulepreload" href="/assets/dep-def.js">');
     expect(shell).toContain('<link rel="stylesheet" href="/assets/Route.css">');
+    expect(shell).toContain(
+      '<link rel="preload" href="/assets/Route.woff2" as="font" type="font/woff2" crossorigin="">'
+    );
     // Hints only — the component itself never rendered.
     expect(shell).not.toContain("route body");
   });

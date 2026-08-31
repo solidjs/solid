@@ -33,7 +33,18 @@ const NeverRendered = (_props: any) => <i>never</i>;
 
 describe("clientOnly preload hints", () => {
   const manifest = {
-    "./Chart.tsx": { file: "assets/chart.js", css: ["assets/chart.css"] },
+    "./Chart.tsx": {
+      file: "assets/chart.js",
+      css: ["assets/chart.css"],
+      preloads: [
+        {
+          href: "assets/chart-font.woff2",
+          as: "font" as const,
+          type: "font/woff2",
+          crossorigin: "" as const
+        }
+      ]
+    },
     "./Widget.tsx": { file: "assets/widget.js" }
   };
 
@@ -65,6 +76,9 @@ describe("clientOnly preload hints", () => {
     // Plain hints in the head, fallback in the body.
     expect(html).toContain('<link rel="modulepreload" href="/assets/chart.js">');
     expect(html).toContain('<link rel="stylesheet" href="/assets/chart.css">');
+    expect(html).toContain(
+      '<link rel="preload" href="/assets/chart-font.woff2" as="font" type="font/woff2" crossorigin="">'
+    );
     expect(html).toContain("<span");
 
     // The contrast: lazy's module rides as both the preload link and the

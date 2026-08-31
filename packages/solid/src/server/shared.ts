@@ -15,6 +15,8 @@ export type InlineStyleAsset = {
 export type ResolvedAssets = {
   js: string[];
   css: (string | InlineStyleAsset)[];
+  /** Renderer-defined preload descriptors; lazy() only reads `as` for NoHydration filtering. */
+  preloads?: unknown[];
 };
 
 export type HydrationContext = {
@@ -42,11 +44,12 @@ export type HydrationContext = {
   registerAsset?: {
     (type: "module" | "style", url: string): void;
     (type: "inline-style", style: InlineStyleAsset): void;
+    (type: "preload", preload: unknown): void;
   };
   /** Register a moduleUrl-to-entryUrl mapping for the current boundary. */
   registerModule?: (moduleUrl: string, entryUrl: string) => void;
   /**
-   * Resolve a module's JS and CSS assets from the asset manifest. Set by
+   * Resolve a module's client assets from the asset manifest. Set by
    * the @solidjs/web server renderer. Resolver manifests (dev servers answering from a live
    * module graph) may return a promise and may resolve css entries to
    * inline-style descriptors instead of URLs.
