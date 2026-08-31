@@ -50,6 +50,7 @@ Semantics of the `(_pendingValue, _overrideValue)` pair for an optimistic node
 ## 3. Transitions (`scheduler.ts`)
 
 - Created by `initTransition` on the first transition-worthy write; at most one `activeTransition` per flush; concurrent ones merge (`mergeTransitionState`, `_done` forwarding pointer).
+- `initTransition` ends by scheduling a flush: the ambient window is one flush by definition, but parking is flush-driven, so a transaction opened with no writes (an action that only awaits) would otherwise leave `activeTransition` and the adopted batch armed across the async gap, capturing the next unrelated work to arrive — the A26-rejected behavior (#3141).
 - `_asyncReporters: Map<source, Set<reporter>>` — which computeds are blocked on which async sources. **Populated only from `GlobalQueue.notify` during render-effect status notification** `[ruled — async-registration-invariants rule]`.
 - `_pendingNodes` — nodes whose `_pendingValue` commits when the transition completes (`commitPendingNodes` → `commitPendingNode`).
 - `_optimisticNodes` — nodes whose override reverts at completion (`resolveOptimisticNodes`).
