@@ -1473,4 +1473,105 @@ describe("INVARIANT: landings integrate with the patch channel at classic-effect
     disposeConsumers();
     dispose();
   });
+
+  it("the settle-drain reckoning (entangled retainers die together) keeps channel/classic parity", async () => {
+    // The fourth posture: settle-time re-derivation. Actions writing one
+    // optimistic store ENTANGLE through the shared writes and settle
+    // together — one action completing early does not strip its mask
+    // (edits live exactly as long as their transaction, and the entangled
+    // transaction is still open). At the joint settle the reckoning wipes
+    // and replays (nothing survives here) — the channel must land on the
+    // committed truth without serving the wipe's half-states.
+    const mod: any = await import("../../src/index.js");
+    const { createOptimisticStore, createRenderEffect, registerRowOps, until } = mod;
+    type Row = { id: number; pending: boolean };
+    let notify!: { promise: Promise<Row>; resolve: (row: Row) => void };
+    const reset = () => {
+      let resolve!: (row: Row) => void;
+      const promise = new Promise<Row>(r => (resolve = r));
+      notify = { promise, resolve };
+    };
+    reset();
+    const confirm = (row: Row) => {
+      const current = notify;
+      reset();
+      current.resolve(row);
+    };
+    let items!: any;
+    let setItems!: (fn: (rows: Row[]) => void) => void;
+    const classic: string[][] = [];
+    const dispose = createRoot((d: () => void) => {
+      [items, setItems] = createOptimisticStore(async function* (store: Row[]) {
+        yield [] as Row[];
+        while (true) {
+          const row = await notify.promise;
+          yield;
+          store.push({ ...row, pending: false });
+        }
+      }, [] as Row[]);
+      createRenderEffect(
+        () => items.map((r: Row) => r.id + (r.pending ? "p" : "")),
+        (v: string[]) => {
+          classic.push(v);
+        }
+      );
+      return d;
+    });
+    flush();
+    await settle();
+
+    const rowFrames: string[][] = [];
+    let disposeConsumers!: () => void;
+    createRoot(d => {
+      disposeConsumers = d;
+      registerRowOps(items, (next: Row[]) => {
+        rowFrames.push(next.map((r: Row) => r.id + (r.pending ? "p" : "")));
+      });
+    });
+    flush();
+
+    // A completes at its own confirmation (dies at settle); B holds open.
+    const add = action(function* (row: Row) {
+      setItems(store => {
+        store.push({ ...row, pending: true });
+      });
+      yield until(() => items.some((x: Row) => x.id === row.id));
+    });
+    let holdB!: () => void;
+    const addHeld = action(function* (row: Row) {
+      setItems(store => {
+        store.push({ ...row, pending: true });
+      });
+      yield new Promise<void>(resolve => {
+        holdB = resolve;
+      });
+    });
+    const addA = add({ id: 0, pending: true });
+    flush();
+    const addB = addHeld({ id: 1, pending: true });
+    flush();
+    expect(classic.at(-1)).toEqual(["0p", "1p"]);
+    expect(rowFrames.at(-1)).toEqual(["0p", "1p"]);
+
+    // A's confirmation lands its row and completes A — but A's transaction
+    // entangled with B's through the shared store, so BOTH masks hold (an
+    // edit lives as long as its transaction; the joint transaction is open).
+    confirm({ id: 0, pending: false });
+    await addA;
+    await settle();
+    await settle();
+    expect(classic.at(-1)).toEqual(["0p", "1p"]);
+    expect(rowFrames.at(-1)).toEqual(["0p", "1p"]);
+
+    // Joint settle: every retainer dies, landed truth stands — row 0 as the
+    // server confirmed it, row 1 (never landed) reverted. Channel included.
+    holdB();
+    await addB;
+    await settle();
+    expect(classic.at(-1)).toEqual(["0"]);
+    expect(rowFrames.at(-1)).toEqual(["0"]);
+
+    disposeConsumers();
+    dispose();
+  });
 });
