@@ -77,9 +77,14 @@ export function reconcileNextState(
   // settle/revert re-applies resolved truth.
   if (patchHooks !== null && patchHooks.hasPatches()) {
     const t: StoreNextTarget | undefined = state?.[$TARGET];
-    if (t !== undefined && t.u !== null) {
-      if (tentative) patchHooks.emitPatchAncestorsOptimistic(t, activeTransition);
-      else patchHooks.emitPatchAncestors(t);
+    if (t !== undefined && t.u !== null && !tentative) {
+      // Tentative walks already bubbled: the tentative gate's own
+      // emitPatchOptimistic bubbles internally, and the lane path has no
+      // pending-dedup — a second walk here DUPLICATED ancestor deliveries
+      // (round 10.5, F7). The non-tentative walk keeps this bubble for
+      // changed-paths whose emissions were skipped; pending-dedup makes it
+      // free when the walk's own emissions already covered it.
+      patchHooks.emitPatchAncestors(t);
     }
   }
 }

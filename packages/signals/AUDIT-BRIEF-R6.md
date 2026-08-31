@@ -1,5 +1,41 @@
 # Audit brief — rounds 6–9 + patch-mode default flip + node delivery
 
+## Round 10.5 FIXES (2026-08-31) — response to the 6-variant follow-up
+
+- **F1 (the flagged regression): pending-dedup is now transition-aware.**
+  Under an active transition every bump reaches `setSignal` — entanglement
+  and merging are scheduler bookkeeping keyed on writes, and dedup never
+  outranks the scheduler. Outside transitions the dedup (and the dbmon
+  walk economics it exists for) is unchanged. Conservative fix; coverage
+  is the existing transition-merge invariants (a deterministic
+  A-resolves-while-B-pends repro was not reduced — flag it again if the
+  scenario survives this).
+- **F2: alias currency probe.** `deepPathsPlain` with a target now probes
+  interior RAW steps against the family map — a slot holding a backing its
+  target has since adopted away from is a stale alias path and DECLINES to
+  classic (proxy reads stay right). Eager path-copying keeps canonical
+  chains current; this closes the second-parent alias.
+- **F3 (RED-verified): payload-less deliveries re-probe the deep
+  manifest.** A child-subject adoption can carry a getter into a path only
+  the ANCESTOR's manifest reads; the bubbled (payload-less) delivery now
+  probes and demotes, so the getter evaluates tracked. dbmon ticks are all
+  payload hits — zero probe cost on the hot path.
+- **F4: demoted entries are severed** (`u`) so a boundary-held deferred
+  callback (or any straggler snapshot) skips them — no duplicate untracked
+  application after demote-then-redrive.
+- **F5: resyncs honor the bound family.** `identityOps` rebuilds when the
+  subject's family differs from the family the retained rows were built
+  under (`boundFam`, advanced only by a fully successful apply — a
+  throwing swap build leaves it old, so recovery rebuilds).
+- **F6: shallow swaps keep raw retention** (no family-bound row
+  registrations; classic parity for DOM identity/focus).
+- **F7: optimistic double-bubble removed** — revert sites emit ONCE (the
+  primitive self-gates and bubbles), and the tentative walk-level bubble
+  is gone (the tentative gate's own emission bubbles).
+
+Gates: 1,420 signals / 687 web / 352 SSR / 150 hydrate / 32 tasks; sizes
+under limits; dbmon 6.6 / 2.1 / 0.6 (unchanged).
+
 ## Round 10 FIXES (2026-08-31) — response to the 7-P1 audit
 
 All seven blockers and the three follow-ups addressed, harness-first (four

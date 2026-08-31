@@ -260,6 +260,10 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
     rowUnbinds = [];
   };
   let prevRaws: any[] = raw.slice();
+  // The family the CURRENT rows were bound under (round 10.5, F5) —
+  // updated only by a fully successful apply, so a throwing swap build
+  // leaves it on the old family and the recovery resync rebuilds.
+  let boundFam: unknown = storeFamilyOf(subject);
   // Initial construction severs on throw like update-time builds (re-audit
   // 5, P1-4): without this, rows registered before a throwing row leak
   // their registrations under the never-mounted list — keeping patchCount
@@ -314,6 +318,14 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
   // ingest stores them verbatim — matching without unwrapping rebuilds
   // every row (JFB keyed-reorder identity gate).
   const identityOps = (nextArr: any[]): { prefix: number; sources: number[] } => {
+    // FAMILY guard on resyncs (round 10.5, F5): a failed swap apply leaves
+    // retained rows bound under the OLD family while `subject` already
+    // moved — raw-identity retention here would resurrect exactly the
+    // cross-family staleness the swap path rebuilds against. Shallow rows
+    // carry no family-bound registrations (values ride the ARRAY's slot
+    // channel), so raw retention stays exact for them (F6).
+    if (!shallow && storeFamilyOf(subject) !== boundFam)
+      return { prefix: 0, sources: nextArr.map(() => -1) };
     const keyOf = (r: any) => {
       const w = r != null ? patchableRaw(r) : undefined;
       return w !== undefined ? w : r;
@@ -431,6 +443,7 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
     rowUnbinds = newUnbinds;
     prevRaws = next.slice();
     resyncNeeded = false; // a full successful apply restores the baseline
+    boundFam = storeFamilyOf(subject); // rows now bound under this family (F5)
   };
 
   let unbindOps = runWithOwner(listOwner, () => registerRowOps(subject, applyOps)) as () => void;
@@ -555,7 +568,10 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
         const nextVisible = storeHasOptimisticFamily(value)
           ? (untrack(() => Array.from(value as any)) as any[])
           : nextRaw;
-        const sameFamily = storeFamilyOf(value) === storeFamilyOf(subject);
+        // SHALLOW rows carry no family-bound registrations (round 10.5,
+        // F6): raw retention is exact across families — classic <For>
+        // retains them, and rebuilding would change DOM identity/focus.
+        const sameFamily = shallow || storeFamilyOf(value) === storeFamilyOf(subject);
         const swapOps = sameFamily
           ? identityOps(nextVisible)
           : { prefix: 0, sources: nextVisible.map(() => -1) };

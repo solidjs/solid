@@ -715,6 +715,39 @@ describe("INVARIANT: every visibility transition reaches every registered ancest
   });
 });
 
+describe("INVARIANT: an ancestor's deep manifest is honored on bubbled deliveries (round 10.5)", () => {
+  it("a child-subject adoption carrying a getter into an ancestor's read path demotes the ancestor", async () => {
+    const [dep, setDep] = createRoot(() => createSignal("d1"));
+    const [state, setState] = createStore<any>({ row: { meta: { id: 1, label: "x" } } });
+    const log: string[] = [];
+    createRoot(() => {
+      // Ancestor consumer with a DEEP manifest — its body reads INTO meta.
+      registerPatch(state.row, (next: any) => log.push(next.meta.label), ["meta.label"]);
+    });
+    // Child-subject reconcile adopts a getter-bearing object at meta. The
+    // child's own seam probes the CHILD's keys; only the ancestor's
+    // manifest knows meta.label is read — the bubbled delivery must probe
+    // it and DEMOTE, so the getter evaluates tracked.
+    setState((s: any) => {
+      reconcile(
+        {
+          id: 1,
+          get label() {
+            return dep();
+          }
+        },
+        "id"
+      )(s.row.meta);
+    });
+    flush();
+    expect(log[log.length - 1]).toBe("d1");
+    // The demoted body is a live tracked effect: dependency changes flow.
+    setDep("d2");
+    flush();
+    expect(log[log.length - 1]).toBe("d2");
+  });
+});
+
 describe("INVARIANT: demotion fanout is per-entry isolated (round 10)", () => {
   it("a throwing demoted body neither blocks siblings nor loses them", async () => {
     const { resetErrorHalt } = await import("../../src/core/scheduler.js");

@@ -466,7 +466,7 @@ export function targetKeysPlain(target: StoreNextTarget, next: Record<PropertyKe
   for (let i = 0; i < ak.length; i++)
     if (lookupGetter.call(next, ak[i]) !== undefined) return false;
   const dp = target.pc !== null ? target.pc.dp : null;
-  return dp === null || deepPathsPlain(dp, next);
+  return dp === null || deepPathsPlain(dp, next, target);
 }
 
 /** Walk the manifested deep-path PREFIX TREE through `next`, probing every
@@ -474,15 +474,27 @@ export function targetKeysPlain(target: StoreNextTarget, next: Record<PropertyKe
  * once. A branch that leaves objects stops probing (the body's own read
  * would fault/short there, not hit a getter). Steps landing on store
  * proxies probe the raw backing. Root nodes skip their own getter probe —
- * `ak` (probed by the caller against the record) covers first segments. */
-export function deepPathsPlain(dp: DeepNode[], next: any): boolean {
+ * `ak` (probed by the caller against the record) covers first segments.
+ * With `t` given, interior RAW steps are also CURRENCY-probed (round 10.5,
+ * F2): a raw child whose target has since adopted a different backing is a
+ * stale alias path — eager path-copying repairs the canonical parent
+ * chain, but a second parent sharing the same raw keeps the old slot, and
+ * a body reading through it would render the outgoing state. Diverged =
+ * not plain = decline (classic reads through the proxy and stays right). */
+export function deepPathsPlain(dp: DeepNode[], next: any, t?: StoreNextTarget): boolean {
+  const map = t !== undefined ? (t.fam?.map ?? storeNextLookup) : null;
   for (let i = 0; i < dp.length; i++) {
-    if (!deepNodePlain(dp[i], next, true)) return false;
+    if (!deepNodePlain(dp[i], next, true, map)) return false;
   }
   return true;
 }
 
-function deepNodePlain(node: DeepNode, parent: any, rootProbed: boolean): boolean {
+function deepNodePlain(
+  node: DeepNode,
+  parent: any,
+  rootProbed: boolean,
+  map: { get(k: object): StoreNextTarget | undefined } | null
+): boolean {
   if (!rootProbed && lookupGetter.call(parent, node.k) !== undefined) return false;
   const children = node.c;
   if (children === null) return true; // leaf: the key probe was the work
@@ -492,6 +504,10 @@ function deepNodePlain(node: DeepNode, parent: any, rootProbed: boolean): boolea
   if (o === null || (typeof o !== "object" && typeof o !== "function")) return true;
   const inner: StoreNextTarget | undefined = o[$TARGET];
   if (inner !== undefined) o = inner.pb ?? inner.v;
+  else if (map !== null) {
+    const ct = map.get(o);
+    if (ct !== undefined && (ct.pb ?? ct.v) !== o) return false; // stale alias slot
+  }
   if (!isPlainProto(o)) return false;
   for (let i = 0; i < children.length; i++) {
     const child = children[i];
@@ -499,7 +515,7 @@ function deepNodePlain(node: DeepNode, parent: any, rootProbed: boolean): boolea
     // 6 interior nodes; the recursion frames were ~20% of the probe).
     if (child.c === null) {
       if (lookupGetter.call(o, child.k) !== undefined) return false;
-    } else if (!deepNodePlain(child, o, false)) return false;
+    } else if (!deepNodePlain(child, o, false, map)) return false;
   }
   return true;
 }

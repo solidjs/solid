@@ -591,8 +591,13 @@ function bumpOne(t: StoreNextTarget, pc: any): void {
   } else if (pc.bc !== pc.dv) {
     // Already pending: the one scheduled delivery reads the LATEST visible
     // state (and payload emitters re-stash after this call), so a second
-    // signal write adds nothing.
-    return;
+    // signal write adds nothing — OUTSIDE transitions only (round 10.5,
+    // F1). Under one, every write must reach the signal: transition
+    // entanglement and merging are SCHEDULER bookkeeping keyed on writes —
+    // a skipped write left transition B's involvement unrecorded, and A's
+    // resolution could deliver B's still-pending value early. Dedup never
+    // outranks the scheduler.
+    if (activeTransition === null) return;
   } else if (pc.p === null && activeTransition === null) {
     return;
   }
@@ -731,7 +736,18 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
         // their fresh state (bc-tagged against later bumps/reverts) —
         // deliveries read it RAW. Proxy resolution only for payload-less
         // dispatches (ancestor bumps, optimistic views, holds).
-        const next = pc.np !== undefined && pc.npb === pc.bc ? pc.np : visibleView(t, pc);
+        const npHit = pc.np !== undefined && pc.npb === pc.bc;
+        // PAYLOAD-LESS deliveries re-probe the deep manifest (round 10.5,
+        // F3): a self emission was probed at its seam, but an ancestor
+        // BUBBLE was probed only at the CHILD's seam against the child's
+        // keys — a child-subject adoption can carry a getter into a path
+        // only THIS channel's bodies read. Cost rides the rare path: dbmon
+        // ticks are all payload hits and never probe.
+        if (!npHit && pc.dp !== null && !deepPathsPlain(pc.dp, heldMaskView(t) ?? t.v, t)) {
+          demoteToEffects(t, true);
+          return;
+        }
+        const next = npHit ? pc.np : visibleView(t, pc);
         pc.np = undefined;
         const snap = p.length > 1 ? p.slice() : p;
         let firstError: unknown = UNSET;
@@ -908,10 +924,11 @@ export function patchableRaw(record: any, keys?: string[]): Record<PropertyKey, 
   const raw = (hm ?? t.v) as Record<PropertyKey, any>;
   // Manifest deep-path admission (re-audit 8, P1-1): a getter ALREADY
   // nested on a declared read path rejects patch admission outright — the
-  // adoption gates only see FUTURE adoptions.
+  // adoption gates only see FUTURE adoptions. CURRENCY-probed with `t`
+  // (round 10.5, F2): stale alias slots decline to classic.
   if (keys !== undefined) {
     const m = internManifest(keys);
-    if (m.dp !== null && !deepPathsPlain(m.dp, raw)) return undefined;
+    if (m.dp !== null && !deepPathsPlain(m.dp, raw, t)) return undefined;
   }
   return raw;
 }
@@ -926,6 +943,12 @@ export function demotePatches(t: StoreNextTarget): PatchEntry[] | null {
   t.pc.p = null;
   if (p === null) return null;
   patchCount -= p.length;
+  // SEVER as patch consumers (round 10.5, F4): these entries become
+  // effects — any straggler dispatch holding a reference (a boundary-held
+  // deferred callback, a mid-flight snapshot) must skip them, or the body
+  // applies once from the effect and AGAIN from the stale callback (an
+  // untracked duplicate of a getter-bearing body).
+  for (let i = 0; i < p.length; i++) p[i].u = true;
   // Drain IN PLACE: unbind closures captured this array — a late unbind must
   // miss its indexOf and not double-decrement the repaired count.
   return p.splice(0, p.length);
