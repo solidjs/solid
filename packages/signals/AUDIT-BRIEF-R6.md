@@ -1,5 +1,36 @@
 # Audit brief — rounds 6–9 + patch-mode default flip + node delivery
 
+## Perf verification (2026-09-01, post fold-audit-2) — DRIVER RESTORED TO OCTANE-CLASS
+
+The octane-bar sweep, after fixing the harness (an ORPHANED months-old
+preview server on :5200 had been serving a stale build — every earlier
+"solid" column this cycle was that ghost; and the babel-preset fixture
+path never stamps `$ll`, so the driver column silently ran classic —
+`solid-compiled` with explicit `patchDriver` through the preset is the
+real driver fixture, and its rows are attribute-only BY DESIGN since
+text holes disqualify the purity proof):
+
+  op            octane   classic-next  driver-branch (a65c3ca1)
+  mount          4.40      16.40         7.10
+  tick           1.80       6.10         2.20
+  tick_partial   0.80       1.30         0.50
+  remount        4.70       9.90         5.00
+  sort           2.20       2.90         2.50
+  unmount        1.70       2.50         0.30
+
+- Driver ≈ historical ledger (6.6/2.1/0.6) THROUGH the version chain:
+  the redesign kept the wins. vs octane: tick 1.22x, partial and
+  unmount AHEAD, remount 1.06x; mount holds the known 1.6x gap.
+- Classic-vs-classic (native compile both sides): ≤5% bench delta,
+  PROFILE-PARITY on tick totals (306 vs 311 ms / 50 ticks) — the
+  earlier "+8-10%" was compile-vintage + the stale server; mount keeps
+  a real parse component (+10 KB runtime in the bundle).
+- Mount-gap attribution (30 mounts profiled): store-model cost —
+  createTarget + wrapNext + accessor scans ≈ 0.6 ms/mount + GC
+  pressure; DOM costs match octane. The remaining 1.6x is the price of
+  wrapped stores, not a regression; next lever would be lazy target
+  creation at bind time.
+
 ## Round 10.19 (2026-09-01) — STRUCTURAL VERSION CHAIN (redesign, closes the finding class)
 
 Five findings at a4c439b7 (maxRq cross-window coverage, lane-sweep-before-
