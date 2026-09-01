@@ -103,11 +103,6 @@ export interface PatchChannel {
    * `sq > item.rq`, with the drain-start `rq` as the FIXED window's far
    * edge (mid-drain registrants are excluded). */
   rq?: number;
-  /** Structural generation (structural audit): a landing consumption bumps
-   * it AFTER retained-edit replay — queued items stamped with an older
-   * generation are superseded by the consumption's own resync and skipped
-   * at drain (stale transition-held ops, the replay's interim ops). */
-  sg?: number;
   /** Accessed-key set for the channel's compiled bodies (union across
    * registrations). Compiler-manifested registrations (re-audit 7, P1-1)
    * hand the STATIC read envelope — complete across branches the applies

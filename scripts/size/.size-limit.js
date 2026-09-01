@@ -191,7 +191,11 @@ module.exports = [
     // gate reads; the replay machinery itself stays in the optimistic
     // module (see the store-family app scenario). Held at 14.99 post-rebase
     // — the earlier replay landing was already absorbed here.
-    limit: "15.05 KB",
+    //
+    // #3164 fold ruling (upstream, 2026-09-01): heldTruthNodes ledger +
+    // retainsOptimism seams ride paths createStore retains. Measured 15.12
+    // post-rebase.
+    limit: "15.15 KB",
     modifyEsbuildConfig
   },
   {
@@ -373,7 +377,11 @@ module.exports = [
     // Structural audit (2026-08-31): one-reckoning landing notification
     // (review commit 3e12ffdb) + superseded-work generation stamps and the
     // rebuilt late-registrant sweep. Measured 27.18.
-    limit: "27.2 KB",
+    // #3164 fold ruling (upstream, 2026-09-01): the fold/reveal machinery
+    // replaces replay wholesale; net near-wash here after the branch's
+    // landing hook + generation stamps were deleted with the contract they
+    // served. Measured 27.21 post-rebase.
+    limit: "27.25 KB",
     modifyEsbuildConfig
   },
   {

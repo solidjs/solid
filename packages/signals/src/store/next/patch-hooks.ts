@@ -46,9 +46,6 @@ export interface PatchRowHooks {
   emitSlotPatch(t: StoreNextTarget, index: number, next: any, prev: any): void;
   emitSetterRowOps(t: StoreNextTarget, prevRows: any[], nextRows: any[]): void;
   emitRowOpsOptimistic(t: StoreNextTarget, next: any[] | null, ops: RowOps | null): void;
-  /** Landing-consumption resync: regular queue, drain-time resolution,
-   * structural-generation bump (supersedes queued pre-consumption work). */
-  emitRowOpsLanding(t: StoreNextTarget): void;
 }
 
 /** Raw→proxy wrap for captured structural rows (re-audit 8, P1-2).

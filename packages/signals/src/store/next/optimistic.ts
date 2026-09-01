@@ -118,7 +118,14 @@ function installNextBlockedHalf(): void {
         const overlaid = t?.fam?.overlaid as Set<StoreNextTarget> | undefined;
         if (overlaid !== undefined) {
           for (const ot of overlaid) {
-            if (ot.pc !== null && ot.pc.p !== null) patchHooks!.emitPatchOptimistic(ot, null, null);
+            // ONE emission (round 10.5, F7): the primitive self-gates on
+            // consumers/machinery and bubbles ancestors internally —
+            // compiled bodies reading INTO reverted children through
+            // nested chains are reached without a duplicating ancestor
+            // call on the undeduped lane path. Gating on the LOCAL
+            // consumer list here silenced ancestor channels (round 10,
+            // P1-3).
+            if (patchHooks !== null) patchHooks.emitPatchOptimistic(ot, null, null);
             // Row-ops resync (family increment 2): reverts flip node values
             // back engine-natively; a driven list must rebuild retention by
             // row identity against the post-revert view (resolved from the

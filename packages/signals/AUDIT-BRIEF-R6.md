@@ -1,5 +1,38 @@
 # Audit brief — rounds 6–9 + patch-mode default flip + node delivery
 
+## Round 10.17 (2026-09-01) — #3164 FOLD reconciliation (rebase onto the re-ruled contract)
+
+Upstream re-ruled landing consumption (a536e29b): the three interim #3123
+mechanisms (equality-scoped consumption, retained-setter replay, echo mask)
+are REMOVED — truth landings FOLD into the retaining transaction and reveal
+atomically at its settle. Channel consequences:
+
+- **The branch's landing integration is DELETED, not ported** — by design.
+  Under fold, landing visibility rides mechanisms the channel already
+  handles: staged truth is transition-held (the channel's held-write
+  semantics apply by construction), and the atomic reveal rides the settle
+  drain's existing resync loop. `emitLandingConsumption` /
+  `emitRowOpsLanding` and the superseded-work generation (`pc.sg`, its
+  drain gate, item stamps) died with the contract they served (~90 B back).
+  The registration-sequence window (`rq`/`sq`) and every sweep/hold/slot
+  fix stays — those are contract-independent.
+- **Re-applied the round-10.5 emission-gate fix** the upstream rewrite
+  reverted: the settle loop's value emission gated on the LOCAL consumer
+  list again (silences ancestors, round-10 P1-3) — back to primitive-owned
+  gating. Two invariant tests caught it immediately.
+- **Landing tests re-pinned to fold semantics**: an interim landing under
+  retained optimism is INVISIBLE to both channels (classic keeps the
+  optimistic view, count and all — the channel must not run ahead); the
+  flip is atomic at settle, channel and classic together.
+- **The two upstream pins STILL FAIL under fold** (same-microtask second
+  landing swallowed; until()-gated action wedged on it) — the re-ruling
+  did not close them; they keep riding as it.fails.
+- Size: two ratchets for upstream fold bytes stacking on branch costs
+  (createStore tier 15.15, store-family app 27.25); the deleted landing
+  machinery clawed most of round-10.16's bytes back.
+- NOTE: based on an UNPUSHED next (a536e29b) — pushes held until it lands
+  on origin.
+
 ## Round 10.16 (2026-08-31) — structural-audit follow-up (2 P1 + 2 P2) + TWO OPEN upstream findings
 
 - **FIXED P1 (slot registrants unstamped)**: `registerSlotPatchNext` now

@@ -1720,21 +1720,28 @@ describe("INVARIANT: landings integrate with the patch channel at classic-effect
     expect(classic.at(-1)).toBe("x:1");
     const watermark = patched.length;
 
-    // EQUAL interim landing: membership unchanged (same single id), but a
-    // sibling field moved (count 1 -> 2) so adoption genuinely emits. The
-    // label override is HELD — classic keeps "x"; the patch channel must
-    // deliver the override-composed view, never raw committed "a".
+    // Interim landing under FOLD semantics (#3164 re-ruling): the family
+    // retains optimism (the action is open), so fresh truth STAGES into the
+    // retaining transaction — classic readers keep the optimistic view
+    // exactly as it was (count still 1: staged truth is invisible until the
+    // reveal). The channel must deliver NOTHING newer than classic sees —
+    // no "a:" flash, no early count.
     h.setServer([{ id: 1, label: "a", count: 2 }]);
     h.poll();
     await settle();
-    expect(classic.at(-1)).toBe("x:2");
+    expect(classic.at(-1)).toBe("x:1");
     const sinceLanding = patched.slice(watermark);
     expect(sinceLanding.some(v => v.startsWith("a:"))).toBe(false);
-    expect(patched.at(-1)).toBe("x:2");
+    expect(sinceLanding.some(v => v.endsWith(":2"))).toBe(false);
 
+    // ATOMIC REVEAL at settle: override dies, staged truth lands — both
+    // channels flip together to committed "a:2".
     confirm();
     await run;
     await settle();
+    await settle();
+    expect(classic.at(-1)).toBe("a:2");
+    expect(patched.at(-1)).toBe("a:2");
     disposeConsumers();
     h.dispose();
   });
@@ -1771,29 +1778,29 @@ describe("INVARIANT: landings integrate with the patch channel at classic-effect
     const patchMark = patched.length;
     const rowMark = rowEvents.length;
 
-    // CONTRADICTING landing: arrangement changed (id 2 never landed, id 3
-    // did) — overrides are consumed AT THE LANDING. The driven list must be
-    // told the view flipped NOW (resync against live truth — the optimistic
-    // ops it holds are baseline-relative and stale), and the value channel
-    // must deliver the authoritative view exactly once.
+    // CONTRADICTING landing under FOLD semantics (#3164 re-ruling): the
+    // family retains optimism (the action is open), so the landing STAGES —
+    // classic readers keep the optimistic arrangement [1, 2], and the
+    // channel must stay exactly there with them: no early flip, no early
+    // value.
     h.setServer([
       { id: 1, label: "a2" },
       { id: 3, label: "c" }
     ]);
     h.poll();
     await settle();
+    expect(rowEvents.slice(rowMark)).toEqual([]);
+    expect(patched.slice(patchMark)).toEqual([]);
 
-    // Structural consumers saw the flip at the landing, not at owner settle.
-    const structSince = rowEvents.slice(rowMark);
-    expect(structSince.length).toBeGreaterThan(0);
-    expect(structSince.at(-1)!.ids).toEqual([1, 3]);
-    // Value channel: authoritative view, exactly one application.
-    expect(patched.slice(patchMark)).toEqual(["a2"]);
-
+    // ATOMIC REVEAL at settle: override dies, staged truth lands — the
+    // driven list flips to [1, 3] and the value channel delivers the
+    // authoritative "a2", both on the settle drain.
     confirm();
     await run;
     await settle();
+    await settle();
     expect(rowEvents.at(-1)!.ids).toEqual([1, 3]);
+    expect(patched.at(-1)).toBe("a2");
     disposeConsumers();
     h.dispose();
   });

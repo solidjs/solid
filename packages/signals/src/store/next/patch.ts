@@ -123,8 +123,6 @@ interface QueuedApply {
   si?: number;
   /** Registration-sequence watermark at emission (see PatchChannel.rq). */
   rq?: number;
-  /** Structural generation at emission (see PatchChannel.sg). */
-  sg?: number;
 }
 let queue: QueuedApply[] | null = null;
 let scheduled = false;
@@ -176,23 +174,12 @@ function visibleStructRows(t: StoreNextTarget): any {
  * drain they were resynced in; repeats within it skip. */
 let drainGen = 0;
 
-/** Drain-side `next` resolution with the SUPERSEDED-work gate (structural
- * audit F4, refined by the follow-up P2): a landing consumption bumped the
- * channel's structural generation and queued its own resync — stale ROW
- * items describe baselines the consumption invalidated and are covered by
- * that resync, so they drop. Stale SLOT items are STANDALONE value
- * notifications the row resync does NOT cover — they re-resolve against
- * the live visible view (their captured payload is pre-landing) and keep
- * their delivery; a slot the landing deleted drops (range gate). Returns
- * UNSET to skip the item. */
+/** Drain-side `next` resolution (structural audit F2): live targets read
+ * the VISIBLE view at drain time. (The old-contract superseded-work
+ * generation gate lived here; the #3164 fold ruling removed landing-time
+ * consumption, and with it the stale-work window the gate closed — staged
+ * truth now rides the retaining transaction's own queues.) */
 function drainNext(item: QueuedApply): unknown {
-  const pc = item.pc;
-  if (pc !== undefined && ((pc.sg as number) | 0) !== ((item.sg as number) | 0)) {
-    if (item.si === undefined) return UNSET;
-    const rows = visibleStructRows(pc.t as StoreNextTarget);
-    if (!Array.isArray(rows) || (item.si as number) >= rows.length) return UNSET;
-    return rows[item.si as number];
-  }
   const { force, t } = item;
   return t !== null ? (force ? forcedNext(t) : visibleStructRows(t)) : item.next;
 }
@@ -637,8 +624,7 @@ export function emitRowOpsOptimistic(
     t: nextRows === null ? t : null,
     ops,
     pc: t.pc as PatchChannel,
-    rq: ((t.pc as any).rq as number) | 0,
-    sg: ((t.pc as any).sg as number) | 0
+    rq: ((t.pc as any).rq as number) | 0
   });
   if (!scheduled) {
     scheduled = true;
@@ -1561,8 +1547,7 @@ export function emitSlotPatch(t: StoreNextTarget, index: number, next: any, prev
     t: null,
     si: index,
     pc: t.pc as PatchChannel,
-    rq: ((t.pc as any).rq as number) | 0,
-    sg: ((t.pc as any).sg as number) | 0
+    rq: ((t.pc as any).rq as number) | 0
   });
 }
 
@@ -1598,26 +1583,6 @@ export function registerSlotPatchNext(
   return structuralUnbind(entry, list, pc, "sp", false);
 }
 
-/** Landing-consumption structural notification (audit follow-up P1,
- * back-to-back continuations): the LANE with the DRAIN-RESOLVED resync
- * form. Lane, because the ambient transaction at consumption is an
- * optimistic action's — the regular queue would stash the item there and a
- * reverting action DROPS its stash (the landing's notification must not
- * die with a transaction it doesn't belong to). Drain-resolved, because an
- * emission-time composed snapshot reads the MID-RECKONING draft — a parked
- * or superseded landing's topology reached the DOM while classic readers
- * held the previous view until its commit; visibleStructRows at drain time
- * reads exactly what classic renders at that moment. Bumps the structural
- * generation FIRST: row/slot work queued before this consumption is
- * superseded (F4) whether or not row consumers exist. */
-export function emitRowOpsLanding(t: StoreNextTarget): void {
-  const pc = t.pc as any;
-  if (pc === null) return;
-  pc.sg = ((pc.sg as number) | 0) + 1;
-  if (pc.ro === null) return;
-  emitRowOpsOptimistic(t, null, null);
-}
-
 /** Row-ops ride the SAME apply queue/timing as record patches: transition-
  * stamped, applied at effect phase, in emission order (structure before the
  * new rows' own patches can exist; retained rows' value patches commute). */
@@ -1633,8 +1598,7 @@ export function emitRowOps(t: StoreNextTarget, next: any[], ops: RowOps): void {
     t: null,
     ops,
     pc: t.pc as PatchChannel,
-    rq: ((t.pc as any).rq as number) | 0,
-    sg: ((t.pc as any).sg as number) | 0
+    rq: ((t.pc as any).rq as number) | 0
   });
 }
 
@@ -1705,7 +1669,6 @@ function armRowHooks(): void {
     emitRowOps,
     emitSlotPatch,
     emitSetterRowOps,
-    emitRowOpsOptimistic,
-    emitRowOpsLanding
+    emitRowOpsOptimistic
   });
 }
