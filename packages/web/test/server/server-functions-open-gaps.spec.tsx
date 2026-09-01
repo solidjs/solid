@@ -681,6 +681,58 @@ describe("the decode depth cap", () => {
   });
 });
 
+describe("navigation targets carry an http(s) scheme floor (#3175)", () => {
+  const REDIRECT_HEADER = "X-Server-Function-Redirect";
+
+  // The classic open-redirect shape: user data flows into redirect() and an
+  // absolute scheme wins the URL resolution — the header carried
+  // `302 javascript:alert(document.cookie)` as its "resolved absolute
+  // target" for any integration that navigates to the decoded value.
+  test("a javascript: redirect target is refused at the transport", async () => {
+    registerServerFunction("target-scheme-js", async () => {
+      const { redirect } = await import("@solidjs/web");
+      throw redirect("javascript:alert(document.cookie)" as string);
+    });
+    const response = await handleServerFunctionRequest(scriptedPost("target-scheme-js"));
+    expect(response.status).toBe(500);
+    expect(response.headers.get(REDIRECT_HEADER)).toBeNull();
+    expect(await response.text()).not.toContain("alert(document.cookie)");
+  });
+
+  test("controls: relative and cross-origin http(s) targets still flow", async () => {
+    const { redirect } = await import("@solidjs/web");
+    registerServerFunction("target-scheme-relative", async () => {
+      throw redirect("/dashboard");
+    });
+    registerServerFunction("target-scheme-oauth", async () => {
+      // cross-origin http(s) is the pending POLICY question, not the floor —
+      // OAuth hand-offs must keep working until that ruling
+      throw redirect("https://accounts.example/oauth");
+    });
+    const relative = await handleServerFunctionRequest(scriptedPost("target-scheme-relative"));
+    expect(relative.status).toBe(200);
+    expect(relative.headers.get(REDIRECT_HEADER)).toBe("302 https://app.example/dashboard");
+    const oauth = await handleServerFunctionRequest(scriptedPost("target-scheme-oauth"));
+    expect(oauth.status).toBe(200);
+    expect(oauth.headers.get(REDIRECT_HEADER)).toBe("302 https://accounts.example/oauth");
+  });
+
+  // The decoder enforces the contract it documents — a hostile peer cannot
+  // re-open the class against `location.href = decoded.url` integrations.
+  test("decodeRedirectHeaderValue refuses what the contract never promised", async () => {
+    const { decodeRedirectHeaderValue } = await import("@solidjs/web/server-functions/server");
+    // frenzzy's table from the report, plus the well-formed control
+    expect(decodeRedirectHeaderValue("302 javascript:alert(document.cookie)")).toBeUndefined();
+    expect(decodeRedirectHeaderValue("302 not-even-a-url")).toBeUndefined();
+    expect(decodeRedirectHeaderValue("999 //evil.example")).toBeUndefined();
+    expect(decodeRedirectHeaderValue("302 data:text/html,<script>1</script>")).toBeUndefined();
+    expect(decodeRedirectHeaderValue("302 https://evil.example/steal")).toEqual({
+      status: 302,
+      url: "https://evil.example/steal"
+    });
+  });
+});
+
 describe("channels behind a getter or as a Map key (#3176)", () => {
   const SECRET = "user=svc_billing password=hunter2 host=10.0.0.7";
   const mkRejection = () => {

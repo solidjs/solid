@@ -646,6 +646,14 @@ export const REDIRECT_HEADER = "X-Server-Function-Redirect";
  * resolved absolute target. Integration plumbing for readers of the header
  * (routers); the wire format is the runtime's own, not a contract to parse
  * by hand.
+ *
+ * The documented output — a resolved ABSOLUTE http(s) target and a redirect
+ * status — is enforced, not assumed (#3175): the absoluteness used to be a
+ * property of the server having resolved it, and a hostile or buggy peer
+ * could ride a `javascript:` target straight into the `location.href =
+ * decoded.url` an integration reasonably writes. A value that does not
+ * parse as an absolute http(s) url, or whose status is not one the runtime
+ * masks, decodes to `undefined` — the same answer a missing header gives.
  */
 export function decodeRedirectHeaderValue(
   value: string | null | undefined
@@ -656,6 +664,15 @@ export function decodeRedirectHeaderValue(
   const status = Number(value.slice(0, at));
   const url = value.slice(at + 1);
   if (!Number.isInteger(status) || !url) return undefined;
+  if (status !== 301 && status !== 302 && status !== 303 && status !== 307 && status !== 308)
+    return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return undefined;
   return { status, url };
 }
 

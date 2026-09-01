@@ -1441,40 +1441,94 @@ function maskRedirect(headers, response, requestUrl) {
 // a silently stale cache. Runs ahead of the stub fold so integration
 // cookies still ride the refusal (#3159).
 const BOUNDED_COMPOSED_HEADERS = [REDIRECT_HEADER, "Location", REVALIDATE_HEADER];
-function enforceComposedHeaderBounds(response) {
+
+// Scheme floor for outgoing navigation targets (#3175): only http(s) — or a
+// scheme-less relative form, which resolves against an http(s) request url —
+// may leave on a navigation header. maskRedirect resolves `Location` with
+// `new URL(target, requestUrl)`, where an absolute scheme WINS over the
+// base, so the classic open-redirect shape (`throw redirect(next)` with
+// `next` from a query param) emitted `javascript:alert(document.cookie)` as
+// the header's "resolved absolute target" — same-origin script execution in
+// any integration that navigates to the decoded value. This is the floor,
+// not the policy: cross-origin http(s) (OAuth hand-offs) still flows — the
+// same-origin-vs-allowlist ruling is a separate, pending decision — and a
+// custom app scheme (deep links) is refused by default until that ruling
+// gives it an opt-in. The decoder enforces the same floor independently
+// (decodeRedirectHeaderValue), so a hostile peer cannot re-open the class
+// against integrations either.
+function refusedTargetScheme(target) {
+  // explicit scheme present and not http(s) → refused
+  const match = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.exec(target);
+  return match !== null && !/^https?:$/i.test(match[0]);
+}
+
+// The transport half of redirect()'s and initWithRevalidate's invariants:
+// composed-header BOUNDS (#3158 — an over-long header dies at a proxy
+// AFTER the mutation committed) and the navigation-target scheme floor
+// (#3175 — see above). The invariants live HERE, at the edge where the
+// composed headers leave, one check for every producer — returned or
+// thrown, raw or envelope-carried, scripted mask or plain passthrough —
+// and the helpers' own throws (inside the function body, with the legible
+// authoring-time message) become the fast path rather than the only guard.
+// Refused, never trimmed or stripped, for the helpers' own reasons: a cut
+// or rewritten target is a DIFFERENT address, a dropped revalidate key is
+// a silently stale cache. Runs ahead of the stub fold so integration
+// cookies still ride the refusal (#3159).
+function enforceComposedHeaderInvariants(response) {
   for (const name of BOUNDED_COMPOSED_HEADERS) {
     const value = response.headers.get(name);
-    if (value === null || value.length <= RESPONSE_HEADER_VALUE_LIMIT) continue;
-    // the replaced body's producers may be demand-parked — release them
-    if (response.body) {
-      try {
-        const cancelled = response.body.cancel();
-        if (cancelled && typeof cancelled.then === "function") cancelled.then(undefined, () => {});
-      } catch {}
-    }
-    const headers = new Headers();
-    headers.set(
-      ERROR_HEADER,
-      boundedErrorHeaderValue(
+    if (value === null) continue;
+    if (value.length > RESPONSE_HEADER_VALUE_LIMIT) {
+      return refuseComposedHeader(
+        response,
+        name,
+        `${name} response header refused at ${value.length} characters`,
         DEV
-          ? `${name} response header refused at ${value.length} characters`
-          : GENERIC_SERVER_ERROR_MESSAGE
-      )
-    );
-    return new Response(
-      DEV
-        ? `The ${name} response header is ${value.length} characters; past ` +
-            `${RESPONSE_HEADER_VALUE_LIMIT} it would overflow receivers (an 8 KiB proxy ` +
-            `buffer holds the whole header block) and the response dies at the socket after ` +
-            `the mutation committed. Refused rather than trimmed: a cut redirect target is a ` +
-            `different address, a dropped revalidate key is a silently stale cache. The ` +
-            `redirect()/reload() helpers enforce this bound with the full reasoning at the ` +
-            `call site.`
-        : null,
-      { status: 500, headers }
-    );
+          ? `The ${name} response header is ${value.length} characters; past ` +
+              `${RESPONSE_HEADER_VALUE_LIMIT} it would overflow receivers (an 8 KiB proxy ` +
+              `buffer holds the whole header block) and the response dies at the socket after ` +
+              `the mutation committed. Refused rather than trimmed: a cut redirect target is a ` +
+              `different address, a dropped revalidate key is a silently stale cache. The ` +
+              `redirect()/reload() helpers enforce this bound with the full reasoning at the ` +
+              `call site.`
+          : null
+      );
+    }
+    if (name === REVALIDATE_HEADER) continue;
+    // REDIRECT_HEADER rides as "<status> <target>"; Location is the target
+    const target = name === REDIRECT_HEADER ? value.slice(value.indexOf(" ") + 1) : value;
+    if (refusedTargetScheme(target)) {
+      return refuseComposedHeader(
+        response,
+        name,
+        `${name} response header refused: non-http(s) navigation target`,
+        DEV
+          ? `The ${name} response header carries a navigation target with a non-http(s) ` +
+              `scheme ("${target.slice(0, 64)}"). A javascript: target is same-origin script ` +
+              `execution in any integration that navigates to it, so only http(s) and ` +
+              `relative targets leave this transport. If the target came from request data ` +
+              `(?next= and friends), validate it against your own origin before redirecting.`
+          : null
+      );
+    }
   }
   return response;
+}
+
+function refuseComposedHeader(response, name, headerMessage, body) {
+  // the replaced body's producers may be demand-parked — release them
+  if (response.body) {
+    try {
+      const cancelled = response.body.cancel();
+      if (cancelled && typeof cancelled.then === "function") cancelled.then(undefined, () => {});
+    } catch {}
+  }
+  const headers = new Headers();
+  headers.set(
+    ERROR_HEADER,
+    boundedErrorHeaderValue(DEV ? headerMessage : GENERIC_SERVER_ERROR_MESSAGE)
+  );
+  return new Response(body, { status: 500, headers });
 }
 
 // Dev-only (#3101): a 304 forwards transparently — it is not a redirect,
@@ -3065,7 +3119,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // foreign-response path at once (raw passthrough, unscripted returns and
   // throws, custom handleNoJS results, envelope-carried responses).
   const response = commitEventResponse(
-    enforceComposedHeaderBounds(ownResponse(await dispatch())),
+    enforceComposedHeaderInvariants(ownResponse(await dispatch())),
     event
   );
   return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
