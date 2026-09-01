@@ -981,7 +981,7 @@ describe("prepareRequest's return is validated (#3174)", () => {
       expect(await createServerReference("prepare-spread")("hi")).toBe("hi:Bearer s");
       // mutate in place, return nothing — the documented alternative
       configureServerFunctionsClient({
-        prepareRequest: (init => {
+        prepareRequest: ((init: RequestInit) => {
           (init.headers as Record<string, string>).Authorization = "Bearer m";
         }) as any
       });
