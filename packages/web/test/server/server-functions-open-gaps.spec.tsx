@@ -993,6 +993,83 @@ describe("prepareRequest's return is validated (#3174)", () => {
   });
 });
 
+describe("provideEvent's invocation contract is enforced (#3172)", () => {
+  // The hook an enterprise integration is most likely to hand-write, and
+  // every way of getting it wrong used to answer a successful-looking 200.
+  // The two data-integrity violations — never running the function, and
+  // running it twice — are refused loudly; the sanitized 500 is the
+  // production shape (this suite runs the production bundles).
+
+  test("a hook that invokes fn twice is refused, and the second run never happens", async () => {
+    let ran = 0;
+    registerServerFunction("provide-twice", async () => {
+      ran++;
+      return "committed";
+    });
+    const response = await handleServerFunctionRequest(scriptedPost("provide-twice"), {
+      provideEvent: ((event: unknown, fn: () => unknown) => {
+        fn();
+        return fn();
+      }) as any
+    });
+    expect(response.status).toBe(500);
+    // the first invocation committed — stopping the SECOND is the guard's
+    // whole point: one commit, reported as a failure, beats two under a 200
+    expect(ran).toBe(1);
+    expect(await response.text()).not.toContain("provideEvent");
+  });
+
+  test("a hook that swallows the second-call refusal still fails the request", async () => {
+    let ran = 0;
+    registerServerFunction("provide-twice-swallowed", async () => {
+      ran++;
+      return "committed";
+    });
+    const response = await handleServerFunctionRequest(scriptedPost("provide-twice-swallowed"), {
+      provideEvent: ((event: unknown, fn: () => unknown) => {
+        const first = fn();
+        try {
+          fn();
+        } catch {
+          // a retry wrapper eating the error must not turn into a 200
+        }
+        return first;
+      }) as any
+    });
+    expect(response.status).toBe(500);
+    expect(ran).toBe(1);
+  });
+
+  test("a hook that never invokes fn is refused, not answered as a void success", async () => {
+    let ran = 0;
+    registerServerFunction("provide-never", async () => {
+      ran++;
+      return "unreached";
+    });
+    const response = await handleServerFunctionRequest(scriptedPost("provide-never"), {
+      provideEvent: (() => undefined) as any
+    });
+    expect(response.status).toBe(500);
+    expect(ran).toBe(0);
+  });
+
+  test("controls: the default provider and a healthy ALS.run hook still answer 200", async () => {
+    let ran = 0;
+    registerServerFunction("provide-healthy", async () => {
+      ran++;
+      return "ok";
+    });
+    const viaDefault = await handleServerFunctionRequest(scriptedPost("provide-healthy"));
+    expect(viaDefault.status).toBe(200);
+    const als = new AsyncLocalStorage();
+    const viaCustom = await handleServerFunctionRequest(scriptedPost("provide-healthy"), {
+      provideEvent: ((event: unknown, fn: () => unknown) => als.run(event, fn)) as any
+    });
+    expect(viaCustom.status).toBe(200);
+    expect(ran).toBe(2);
+  });
+});
+
 describe("the rc.5 guard batch (#3169, #3170, #3171)", () => {
   const H = {
     "X-Server-Function-Format": "8",
