@@ -745,6 +745,45 @@ function ClientOnlyBeforeSuspending() {
 }
 
 // ---------------------------------------------------------------------------
+// #3010's FULL downstream shape: the top-level fragment's client-only sibling
+// precedes a router-like layer — a component whose `root` prop receives the
+// route children and wraps them in the boundary — and the route component
+// reads a suspending async source (the SolidStart app.tsx shape; 1.x threw
+// "Hydration Mismatch. Unable to find DOM nodes for hydration key" for the
+// route's <p> and cleared the app). The route's DOM must stay claimable
+// behind the root-prop indirection. (The real app loads the route via
+// lazy(); module-manifest hydration isn't drivable inside this jsdom
+// harness, and #3010's own controls showed the fragment + suspension is the
+// trigger, not lazy.)
+function RouteHome3010() {
+  const data = createMemo(async () => {
+    await sleep(10);
+    return "loaded";
+  });
+  return <p>{data()}</p>;
+}
+const RouterWidget3010 = clientOnly(() =>
+  Promise.resolve({ default: (_props: {}) => <b>widget </b> })
+);
+function RouterLike3010(props: { root: (p: { children?: any }) => any; children?: any }) {
+  return props.root({
+    get children() {
+      return props.children;
+    }
+  });
+}
+function ClientOnlyBeforeSuspendingRoute() {
+  return (
+    <>
+      <RouterWidget3010 />
+      <RouterLike3010 root={p => <Loading fallback={<i>wait</i>}>{p.children}</Loading>}>
+        <RouteHome3010 />
+      </RouterLike3010>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // A <Loading> whose fragment settles AFTER hydration completes (#2964). The
 // boundary renders behind an async gate with NO boundary above it — the
 // frames-slot / lazy-route shape: the root pass suspends on the gate without
@@ -2000,6 +2039,14 @@ export const scenarios: Scenario[] = [
     async: true,
     expectedText: "widget loaded",
     // The widget is client-only: the server renders only the boundary's side.
+    serverText: "loaded"
+  },
+  {
+    name: "client-only-before-suspending-route",
+    App: ClientOnlyBeforeSuspendingRoute,
+    async: true,
+    expectedText: "widget loaded",
+    // The widget is client-only: the server renders only the routed side.
     serverText: "loaded"
   },
   {
