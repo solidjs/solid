@@ -748,6 +748,36 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
     return response;
   }
 
+  // Among success answers, only what the runtime wrote may resolve the call
+  // (#3173, revisiting #3087): every response the runtime encodes carries
+  // the body format — a void one included — and a verbatim passthrough
+  // carries X-Content-Raw. A 2xx with neither is ordinary infrastructure
+  // answering in the origin's place (a captive portal, a WAF interstitial,
+  // a CDN error page served at 200, a misrouted SPA index), and resolving
+  // it as `undefined` read "no data" where the truth was "not our server" —
+  // indistinguishable from a void result, invisible to error boundaries,
+  // and a committed-looking success for a mutation. The header alone is
+  // judge, never the body: #3087's rule against content-type heuristics
+  // stands, only its scope moved. 304 is left alone — it is the answer to
+  // a conditional read, not a payload, and decodes to nothing at any peer.
+  if (
+    response.status < 300 &&
+    !response.headers.has(BODY_FORMAT_HEADER) &&
+    !response.headers.has("X-Content-Raw")
+  ) {
+    throw serverFunctionFailure(
+      response,
+      new Error(
+        `Server function response carries no recognized encoding (status ${response.status}` +
+          `${
+            response.headers.get("Content-Type")
+              ? `, content-type ${response.headers.get("Content-Type")}`
+              : ""
+          }): answered by something other than the server function runtime`
+      )
+    );
+  }
+
   const result = await decodeResponse(response.clone());
   if (failed) {
     throw serverFunctionFailure(response, result);
