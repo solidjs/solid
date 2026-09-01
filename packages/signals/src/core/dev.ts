@@ -44,7 +44,8 @@ export type DiagnosticCode =
   | "WIDE_SCOPE_DEPS"
   | "UNSTABLE_MEMO_OUTPUT"
   | "WIDE_WRITE"
-  | "ASYNC_WATERFALL";
+  | "ASYNC_WATERFALL"
+  | "HOT_SCOPE_FANOUT";
 
 export type DiagnosticKind =
   | "strict-read"

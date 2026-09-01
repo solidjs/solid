@@ -269,6 +269,37 @@ describe("why-did-this-run attribution", () => {
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
+  it("aggregates hot scopes sharing a root cause into HOT_SCOPE_FANOUT", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const [n, setN] = createSignal(0, { name: "n" });
+    createRoot(() => {
+      for (let i = 0; i < 6; i++) {
+        createEffect(
+          () => n(),
+          () => {},
+          { name: `watcher-${i}` }
+        );
+      }
+    });
+    flush();
+
+    collect({ hotRuns: { count: 3, windowMs: 60_000 }, wideDeps: false, wideWrites: false });
+    const capture = DEV!.diagnostics.capture();
+    for (let i = 1; i <= 4; i++) {
+      setN(i);
+      flush();
+    }
+
+    const events = capture.stop();
+    // First hot scope warns per-node; the other five fold into the cause key.
+    const perScope = events.filter(e => e.code === "HOT_SCOPE_RERUNS");
+    expect(perScope).toHaveLength(1);
+    const fanout = events.filter(e => e.code === "HOT_SCOPE_FANOUT");
+    expect(fanout).toHaveLength(1); // milestone at 5 scopes; 6th is silent
+    expect(fanout[0].data).toMatchObject({ cause: "n", scopes: 5 });
+    expect(warn).toHaveBeenCalledTimes(2); // one victim warning + one aggregate
+  });
+
   it("warns on wide scopes and re-warns only on 50% growth", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const signals = Array.from({ length: 5 }, (_, i) => createSignal(i, { name: `s${i}` }));

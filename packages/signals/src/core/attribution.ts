@@ -453,9 +453,29 @@ function checkDepWidth(el: Computed<any>): void {
 }
 
 /**
+ * Per-cause aggregation for hot scopes. The per-node warning blames the
+ * VICTIM; when one hot cause drives many scopes (a selection write fanning
+ * out over every row, a timer leaking into a list), one culprit produces N
+ * scope warnings — pure spam that buries the signal. So: the FIRST scope to
+ * go hot for a given root-cause key warns normally (a genuinely single hot
+ * scope keeps today's behavior exactly), subsequent scopes in the same
+ * window are counted silently, and scope-count milestones (5, then 10x)
+ * emit one escalating HOT_SCOPE_FANOUT naming the shared cause.
+ */
+interface HotCauseWindow {
+  winStart: number;
+  scopes: number;
+  runs: number;
+  nextMilestone: number;
+}
+const hotCauses = new Map<string, HotCauseWindow>();
+const HOT_FANOUT_FIRST_MILESTONE = 5;
+
+/**
  * Hot-scope warning — flags a scope that re-ran more than `count` times
  * inside one `windowMs` window. Warned once per window, with the most recent
  * cause chain named so the leaking signal is identified in the message.
+ * Fan-out spam is folded per root cause (see HotCauseWindow above).
  */
 function checkHotRuns(el: Computed<any>, event: RerunEvent): void {
   const cfg = options.hotRuns;
@@ -470,22 +490,58 @@ function checkHotRuns(el: Computed<any>, event: RerunEvent): void {
   node._devWinCount = (node._devWinCount ?? 0) + 1;
   if (node._devHotWarned || node._devWinCount < cfg.count) return;
   node._devHotWarned = true;
-  const rootCause = event.causes.map(c => `"${c.name}" (${c.kind})`).join(", ");
+
+  // Root-cause key: the set of originating writes behind this scope's latest
+  // re-run. Scopes hot from the SAME roots share one aggregation window.
+  const roots = new Set<string>();
+  rootsOf(event.causes, roots);
+  const causeKey = roots.size > 0 ? [...roots].sort().join(", ") : "(untracked)";
+  let window = hotCauses.get(causeKey);
+  if (window === undefined || now - window.winStart > cfg.windowMs) {
+    window = { winStart: now, scopes: 0, runs: 0, nextMilestone: HOT_FANOUT_FIRST_MILESTONE };
+    hotCauses.set(causeKey, window);
+  }
+  window.scopes++;
+  window.runs += node._devWinCount;
+
+  if (window.scopes === 1) {
+    const rootCause = event.causes.map(c => `"${c.name}" (${c.kind})`).join(", ");
+    const message =
+      `[HOT_SCOPE_RERUNS] ${event.nodeKind} "${event.nodeName}" re-ran ${node._devWinCount} times ` +
+      `in ${Math.max(1, now - node._devWinStart)}ms — a hot signal is likely leaking into this ` +
+      `scope. Latest cause: ${rootCause || "(untracked pull)"}`;
+    emitDiagnostic({
+      code: "HOT_SCOPE_RERUNS",
+      kind: "perf",
+      severity: "warn",
+      message,
+      nodeName: event.nodeName,
+      data: {
+        runs: node._devWinCount,
+        windowMs: cfg.windowMs,
+        causes: event.causes.map(c => c.name)
+      }
+    });
+    console.warn(message);
+    return;
+  }
+
+  // Additional scopes hot from the same cause: silent until a milestone —
+  // the culprit is the cause, and it has already been named once.
+  if (window.scopes < window.nextMilestone) return;
+  window.nextMilestone *= 10;
   const message =
-    `[HOT_SCOPE_RERUNS] ${event.nodeKind} "${event.nodeName}" re-ran ${node._devWinCount} times ` +
-    `in ${Math.max(1, now - node._devWinStart)}ms — a hot signal is likely leaking into this ` +
-    `scope. Latest cause: ${rootCause || "(untracked pull)"}`;
+    `[HOT_SCOPE_FANOUT] ${window.scopes} scopes have gone hot (${window.runs} re-runs) within ` +
+    `${cfg.windowMs}ms, all driven by ${causeKey} — one hot cause is re-running a large part ` +
+    `of the graph. Per-scope warnings are suppressed; fix the cause. If consumers ask keyed ` +
+    `questions of it, invert with createSelector or createProjection.`;
   emitDiagnostic({
-    code: "HOT_SCOPE_RERUNS",
+    code: "HOT_SCOPE_FANOUT",
     kind: "perf",
     severity: "warn",
     message,
-    nodeName: event.nodeName,
-    data: {
-      runs: node._devWinCount,
-      windowMs: cfg.windowMs,
-      causes: event.causes.map(c => c.name)
-    }
+    nodeName: causeKey,
+    data: { cause: causeKey, scopes: window.scopes, runs: window.runs, windowMs: cfg.windowMs }
   });
   console.warn(message);
 }
@@ -1014,6 +1070,7 @@ export const attribution: Attribution = {
     scopeCosts.clear();
     writeCosts.clear();
     waterfallLog = [];
+    hotCauses.clear();
     setAttributionHooks(engineHooks);
   },
   disable() {
@@ -1024,6 +1081,7 @@ export const attribution: Attribution = {
     scopeCosts.clear();
     writeCosts.clear();
     waterfallLog = [];
+    hotCauses.clear();
     setAttributionHooks(null);
   },
   subscribe(listener) {

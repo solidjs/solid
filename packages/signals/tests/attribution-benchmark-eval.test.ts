@@ -96,10 +96,11 @@ describe("JSFB select-row (naive: every row reads the selected signal)", () => {
     expect(codes(diagnostics)).not.toContain("WIDE_SCOPE_DEPS");
   });
 
-  it("rapid selection: HOT_SCOPE_RERUNS fires per ROW (victim), not per cause", () => {
-    // 50 rows, 12 selects inside one window. Every row effect re-ran 12
-    // times — the hot detector's per-node bookkeeping warns once per row.
-    // This documents the spam shape: N row warnings for 1 real culprit.
+  it("rapid selection: hot rows fold into one culprit-keyed HOT_SCOPE_FANOUT", () => {
+    // 50 rows, 12 selects inside one window: every row effect went hot from
+    // the same root cause. Instead of 50 victim warnings, the first hot row
+    // warns normally and the rest aggregate — milestones at 5 and 50 scopes
+    // name the shared culprit.
     const setSelected = naiveRows(50);
     const { diagnostics } = arm({
       hotRuns: { count: 10, windowMs: 60_000 },
@@ -112,9 +113,12 @@ describe("JSFB select-row (naive: every row reads the selected signal)", () => {
       flush();
     }
 
-    const hot = diagnostics.filter(e => e.code === "HOT_SCOPE_RERUNS");
-    // Documenting current behavior — one warning per row scope.
-    expect(hot.length).toBe(50);
+    expect(diagnostics.filter(e => e.code === "HOT_SCOPE_RERUNS")).toHaveLength(1);
+    const fanout = diagnostics.filter(e => e.code === "HOT_SCOPE_FANOUT");
+    expect(fanout).toHaveLength(2); // 5-scope and 50-scope milestones
+    expect(fanout[0].data).toMatchObject({ cause: "selectedId", scopes: 5 });
+    expect(fanout[1].data).toMatchObject({ cause: "selectedId", scopes: 50 });
+    expect(fanout[1].message).toContain("createSelector or createProjection");
     // WIDE_WRITE fired once and named the actual culprit.
     expect(diagnostics.filter(e => e.code === "WIDE_WRITE")).toHaveLength(1);
   });
