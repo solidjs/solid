@@ -56,6 +56,7 @@ import {
 } from "../store.js";
 import { runProjectionComputedNext } from "./projection.js";
 import {
+  currentFoldEpoch,
   bumpDeep,
   authoritativeRead,
   getHasNode,
@@ -133,9 +134,13 @@ function installNextBlockedHalf(): void {
             // targets with a pending STAGED fold (fold audit P1): the
             // fold's own emission carries the reveal — a second rebuild
             // here rebuilt the same rows again and lost DOM identity/focus.
-            if (ot.pc !== null && ot.pc.ro !== null && ot.sf !== true && ot.rf !== true)
+            if (
+              ot.pc !== null &&
+              ot.pc.ro !== null &&
+              ot.sf !== true &&
+              ot.rf !== currentFoldEpoch()
+            )
               rowHooks!.emitRowOpsOptimistic(ot, null, null);
-            ot.rf = false; // consumed — one reveal, one notification
             // Keyset resync (classic channel twin): the keyset node's own
             // revert can compare EQUAL (a landing's bump matched the
             // tentative bump) while the arrangement underneath changed —

@@ -545,9 +545,11 @@ export function emitSetterRowOps(
   prevRows: any[],
   nextRows: any[],
   key?: KeyFn
-): void {
+): boolean {
   const ops = buildIdentityRowOps(prevRows, nextRows, key);
-  if (ops !== null) rowHooks!.emitRowOps(t, nextRows, ops);
+  if (ops === null) return false;
+  rowHooks!.emitRowOps(t, nextRows, ops);
+  return true;
 }
 
 /** Identity-keyed structural diff, returned rather than emitted: shared by

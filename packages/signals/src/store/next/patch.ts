@@ -1637,6 +1637,10 @@ export function emitSlotPatch(t: StoreNextTarget, index: number, next: any, prev
     pc: t.pc as PatchChannel,
     svAt: ((t.pc as any).svs = ((t.pc as any).svs as number) + 1)
   });
+  // Walk/fold state is EAGERLY visible (only notifications batch — fold
+  // audit 4): every reader from this moment has the tick's state in its
+  // init read, PARKED windows included.
+  (t.pc as any).svvs = (t.pc as any).svs;
 }
 
 /** Slot patch for shallow arrays: the reconcile walk emits (index, next,
@@ -1658,8 +1662,7 @@ export function registerSlotPatchNext(
     fn,
     owner: sowner,
     q: sq,
-    av: ((queueIsHeld(sq) ? ((pc as any).svs as number) : ((pc as any).svvs as number)) ??
-      0) as number
+    av: (((pc as any).svvs as number) ?? 0) as number
   };
   const list = (pc.sp ??= []) as unknown[];
   list.push(entry);
@@ -1686,6 +1689,8 @@ export function emitRowOps(t: StoreNextTarget, next: any[], ops: RowOps): void {
     pc: t.pc as PatchChannel,
     svAt: ((t.pc as any).sv = ((t.pc as any).sv as number) + 1)
   });
+  // Adoption commits eagerly (fold audit 4): visible at emission, always.
+  (t.pc as any).svv = (t.pc as any).sv;
 }
 
 // Pay-for-use seams: the write paths (store/reconcile/optimistic) emit

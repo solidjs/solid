@@ -44,12 +44,15 @@ export interface PatchValueHooks {
 export interface PatchRowHooks {
   emitRowOps(t: StoreNextTarget, next: any[], ops: RowOps): void;
   emitSlotPatch(t: StoreNextTarget, index: number, next: any, prev: any): void;
+  /** Returns whether ops were actually emitted (identity-aligned lists
+   * emit nothing) — the fold's reveal mark must only suppress the settle
+   * loop's resync on PROVEN emission (fold audit 4). */
   emitSetterRowOps(
     t: StoreNextTarget,
     prevRows: any[],
     nextRows: any[],
     key?: (v: any) => any
-  ): void;
+  ): boolean;
   emitRowOpsOptimistic(t: StoreNextTarget, next: any[] | null, ops: RowOps | null): void;
 }
 

@@ -875,7 +875,17 @@ function privatizeCommitted(target: StoreNextTarget): void {
   }
 }
 
+/** Fold-drain epoch (fold audit 4, P1): `rf` reveal marks are stamped with
+ * it and expire with the flush — a boolean lingered on descendant-retained
+ * roots outside `overlaid` (the settle loop never visited them to consume
+ * it) and suppressed a LATER revert's resync. */
+let foldEpoch = 0;
+export function currentFoldEpoch(): number {
+  return foldEpoch;
+}
+
 function drainFolds(): void {
+  foldEpoch++;
   if (foldOlds.size === 0) return;
   const entries = [...foldOlds];
   foldOlds.clear();
@@ -1020,14 +1030,45 @@ function drainFolds(): void {
             }
           }
           if (aligned) {
-            t.rf = true; // slot ticks ARE the reveal — the settle loop must not resync
+            // PRIMITIVE REORDERS are structure too (fold audit 4): classic
+            // keys primitive rows by VALUE — a permutation must MOVE rows
+            // (identity/focus), not rewrite slot contents in place. Same
+            // multiset + any moved position = reorder, not replacement.
+            let differs = false;
+            const counts = new Map<any, number>();
             for (let si = 0; si < newArr.length; si++) {
-              if (oldArr[si] !== newArr[si]) rowHooks!.emitSlotPatch(t, si, newArr[si], oldArr[si]);
+              if (oldArr[si] !== newArr[si]) differs = true;
+              counts.set(oldArr[si], (counts.get(oldArr[si]) ?? 0) + 1);
             }
+            if (differs) {
+              let sameMultiset = true;
+              for (let si = 0; si < newArr.length; si++) {
+                const c = counts.get(newArr[si]);
+                if (c === undefined || c === 0) {
+                  sameMultiset = false;
+                  break;
+                }
+                counts.set(newArr[si], c - 1);
+              }
+              if (sameMultiset) aligned = false;
+            }
+          }
+          if (aligned) {
+            let ticked = false;
+            for (let si = 0; si < newArr.length; si++) {
+              if (oldArr[si] !== newArr[si]) {
+                ticked = true;
+                rowHooks!.emitSlotPatch(t, si, newArr[si], oldArr[si]);
+              }
+            }
+            // Slot ticks ARE the reveal — but only a PROVEN one suppresses
+            // the settle loop's resync (fold audit 4: a no-op fold marking
+            // rf suppressed the only required revert). Epoch-stamped so a
+            // mark on a root the loop never visits expires with the flush.
+            if (ticked && t.sf === true) t.rf = foldEpoch;
           } else if (t.pc.ro !== null && !t.adopted && (t.fam?.opt !== true || t.sf === true)) {
-            if (t.sf === true) t.rf = true; // reveal emitted — settle loop must not resync again
             const map = t.fam?.map ?? storeNextLookup;
-            rowHooks!.emitSetterRowOps(
+            const emitted = rowHooks!.emitSetterRowOps(
               t,
               oldArr,
               newArr,
@@ -1038,6 +1079,7 @@ function drainFolds(): void {
                   }
                 : undefined
             );
+            if (emitted === true && t.sf === true) t.rf = foldEpoch;
           }
         }
         t.sf = false;

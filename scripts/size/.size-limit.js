@@ -203,7 +203,10 @@ module.exports = [
     // Measured 15.22.
     // Fold audit 3 (2026-09-01): held-queue av init, reorder classification,
     // reveal single-notification mark. Measured 15.27.
-    limit: "15.3 KB",
+    // Fold audit 4 (2026-09-01): eager visible-version, epoch-stamped
+    // proven reveal marks, primitive-multiset reorder classification.
+    // Measured 15.38.
+    limit: "15.4 KB",
     modifyEsbuildConfig
   },
   {
@@ -396,7 +399,10 @@ module.exports = [
     // machinery replaced by per-entry applied-version chains + ONE
     // flush-end resync + registration-time ancestor repair. Flat cost —
     // the per-finding mechanism accretion this class caused stops here. Measured 27.37.
-    limit: "27.4 KB",
+    // Fold audit 4 (2026-09-01): eager visible-version, epoch-stamped
+    // proven reveal marks, primitive-multiset reorder classification.
+    // Measured 27.52.
+    limit: "27.55 KB",
     modifyEsbuildConfig
   },
   {

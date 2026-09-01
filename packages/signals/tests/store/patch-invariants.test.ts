@@ -912,14 +912,18 @@ describe("INVARIANT: structure honors holds and reaches held-window registrants 
     resolve();
     await p;
     flush();
-    // At the settle drain the late consumer is reached (the silent path
-    // left it permanently stale on the pre-commit view). Version-chain
-    // refinement: its applied version connects to the held item's — it now
-    // receives the REAL, baseline-sound ops (its registration read the
-    // pre-commit view, exactly the ops' baseline) rather than a rebuild.
-    // Either form is sound; the final view is the pin.
-    expect(late.length).toBeGreaterThan(0);
-    expect(late[late.length - 1][0]).toEqual(["b", "a"]);
+    // Fold audit 4 refinement: adoption commits EAGERLY — the held-window
+    // registrant's init read already contained the reordered view, so it
+    // is owed NOTHING at release (a delivery would replay ops over state
+    // it already rendered — the parked-window corruption). It participates
+    // in the NEXT event normally.
+    expect(late.length).toBe(0);
+    setState((s: any) => {
+      reconcile([{ id: "a", v: 1 }], "id")(s.rows);
+    });
+    flush();
+    expect(late.length).toBe(1);
+    expect(late[late.length - 1][0]).toEqual(["a"]);
   });
 });
 
@@ -1335,6 +1339,13 @@ describe("INVARIANT: structural resyncs honor holds, fix their window, and serve
     createRoot(() => {
       registerSlotPatchNext(state.list, () => {});
     });
+    // EARLY consumer: registered before the write — its chain is behind the
+    // stashed ticks and receives them at release, where the deleted-slot
+    // gate must drop index 2.
+    const ticks: Array<[number, any]> = [];
+    createRoot(() => {
+      registerSlotPatchNext(state.list, (i: number, v: any) => ticks.push([i, v]));
+    });
     let confirm!: () => void;
     const run = act(function* () {
       setState((s: any) => {
@@ -1349,21 +1360,22 @@ describe("INVARIANT: structural resyncs honor holds, fix their window, and serve
       });
     })();
     flush();
-    const ticks: Array<[number, any]> = [];
-    // Held-window registrant: swept at release for BOTH stashed items.
+    // Late-window registrant (fold audit 4): adoption is EAGER — its init
+    // read already holds ["a","y"], so it is owed nothing at release.
+    const late: Array<[number, any]> = [];
     createRoot(() => {
-      registerSlotPatchNext(state.list, (i: number, v: any) => ticks.push([i, v]));
+      registerSlotPatchNext(state.list, (i: number, v: any) => late.push([i, v]));
     });
     confirm();
     await run;
     flush();
-    // NON-VACUOUS (audit follow-up P1): the surviving slot's resync MUST
-    // arrive — an empty tick list means the sweep never saw the late
-    // registrant (the vacuous pass that hid the missing slot sq stamp).
+    // NON-VACUOUS: the early consumer's surviving-slot tick MUST arrive.
     expect(ticks.some(([i, v]) => i === 1 && v === "y")).toBe(true);
     // The deleted slot's tick is invalid against the live 2-length list —
-    // skipped, never delivered as (2, undefined).
+    // skipped, never delivered as (2, undefined). And the late registrant
+    // received nothing (its read covered the stash).
     expect(ticks.every(([i]) => i < 2)).toBe(true);
+    expect(late.length).toBe(0);
   });
 
   it("an aborted retainer's re-derivation keeps the survivor's rows in the driven list (fifth posture)", async () => {
@@ -1815,27 +1827,117 @@ describe("INVARIANT: structural channels under fold/holds — per-index slots, n
     const prevProbe = (GlobalQueue as any)._queueHeld;
     (GlobalQueue as any)._queueHeld = (q: any) => q === fakeQ || prevProbe?.(q) === true;
     try {
-      // Held-boundary registrant (reads speculative): baseline covers the
-      // stash — av must be the FULL emitted version.
+      // Fold audit 4: adoption commits EAGERLY, so EVERY parked-window
+      // mount — held boundary or ambient — has the walk's state in its
+      // init read; both initialize at the full emitted version and neither
+      // may replay the stash at release.
       createRoot(() => {
         (getOwner() as any)._queue = fakeQ;
         registerRowOps(state.rows, () => {});
       });
       const held = pc.ro[pc.ro.length - 1];
       expect(held.av).toBe(pc.sv);
-      // Ambient registrant (reads committed): receives the stash at release.
       createRoot(() => {
         registerRowOps(state.rows, () => {});
       });
       const ambient = pc.ro[pc.ro.length - 1];
-      expect(ambient.av).toBe(pc.svv);
-      if (pc.sv !== pc.svv) expect(ambient.av).not.toBe(pc.sv);
+      expect(ambient.av).toBe(pc.sv);
+      expect(pc.svv).toBe(pc.sv); // walk visibility IS emission visibility
     } finally {
       (GlobalQueue as any)._queueHeld = prevProbe;
     }
     confirm();
     await run;
     flush();
+  });
+
+  it("a NO-OP fold never suppresses the revert resync (rf only on proven emission)", async () => {
+    // Fold audit 4, P1: rf was set before proving the reveal emitted —
+    // an identity-aligned (no-op) staged fold marked the channel and the
+    // settle loop skipped the ONLY resync the revert needed.
+    const {
+      createOptimisticStore,
+      registerRowOps,
+      action: act
+    } = await import("../../src/index.js");
+    const { storeSetterNext, runAuthoritative } = await import("../../src/store/next/store.js");
+    const a = { id: 1 };
+    const [items, setItems] = (createOptimisticStore as any)([a] as any[]);
+    const frames: number[][] = [];
+    createRoot(() => {
+      registerRowOps(items, (rows: any[]) => frames.push(Array.from(rows, (r: any) => r.id)));
+    });
+    let confirm!: () => void;
+    const run = act(function* () {
+      setItems((d: any[]) => {
+        d.push({ id: 2 });
+      });
+      yield new Promise<void>(r => {
+        confirm = r;
+      });
+    })();
+    flush();
+    expect(frames.at(-1)).toEqual([1, 2]);
+    // A staged landing that restates the SAME truth: identity-aligned,
+    // emits nothing — and must not mark the reveal as delivered.
+    runAuthoritative(() => {
+      storeSetterNext(items, (d: any[]) => {
+        void d.length; // open the draft; write nothing new
+      });
+    });
+    flush();
+    confirm();
+    await run;
+    await Promise.resolve();
+    flush();
+    // The revert's resync is the only notification that removes row 2 —
+    // a lingering rf would leave the driven list on [1, 2] forever.
+    expect(frames.at(-1)).toEqual([1]);
+  });
+
+  it("an equal-length PRIMITIVE reorder is structure (classic value-identity), not slot rewrites", async () => {
+    const {
+      createOptimisticStore,
+      registerRowOps,
+      action: act
+    } = await import("../../src/index.js");
+    const { registerSlotPatchNext } = await import("../../src/store/next/patch.js");
+    const { storeSetterNext, runAuthoritative } = await import("../../src/store/next/store.js");
+    const [items, setItems] = (createOptimisticStore as any)(["a", "b", "c"] as any[]);
+    const rowEvents: any[] = [];
+    const ticks: any[] = [];
+    createRoot(() => {
+      registerRowOps(items, (_r: any[], ops: any) => rowEvents.push(ops));
+      registerSlotPatchNext(items, (i: number, v: any) => ticks.push([i, v]));
+    });
+    let confirm!: () => void;
+    const run = act(function* () {
+      setItems((d: any[]) => {
+        d.push("z");
+      });
+      yield new Promise<void>(r => {
+        confirm = r;
+      });
+    })();
+    flush();
+    const rowMark = rowEvents.length;
+    const tickMark = ticks.length;
+    // Staged PERMUTATION of primitives: classic keys primitive rows by
+    // VALUE — rows must MOVE (row ops), not have contents rewritten.
+    runAuthoritative(() => {
+      storeSetterNext(items, (d: any[]) => {
+        const t0 = d[0];
+        d[0] = d[2];
+        d[2] = t0;
+      });
+    });
+    flush();
+    confirm();
+    await run;
+    await Promise.resolve();
+    flush();
+    expect(ticks.slice(tickMark)).toEqual([]);
+    expect(rowEvents.slice(rowMark).filter(o => o !== undefined).length).toBeGreaterThan(0);
   });
 
   it("a shallow staged reveal rides ONE channel — slot ticks for aligned replacement, never row ops too", async () => {
