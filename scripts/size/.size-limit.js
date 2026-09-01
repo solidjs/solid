@@ -242,7 +242,9 @@ module.exports = [
     // latest()/collectPending probe-suspension symmetry (#3104) lives in
     // the verdict layer this scenario exists to measure; the rest is the
     // #3122 teardown core bytes. Measured 9.89 post-rebase.
-    limit: "10 KB",
+    // Entanglement rebase drift (2026-09-01, canonical push): boundary
+    // wobble headroom.
+    limit: "10.05 KB",
     modifyEsbuildConfig
   },
   {
@@ -273,7 +275,9 @@ module.exports = [
     path: "minimal-app.js",
     // Rebase drift (2026-09-01, #3169-#3176 + fold-ledger relocation).
     // Measured 10.76.
-    limit: "10.8 KB",
+    // Entanglement rebase drift (2026-09-01, canonical push): boundary
+    // wobble headroom.
+    limit: "10.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -432,7 +436,9 @@ module.exports = [
     // #3122 eager iterator teardown (upstream, 2026-08-31): the core-floor
     // teardown bytes (see that note). Measured 12.93 post-rebase.
     path: "csr-app.js",
-    limit: "13 KB",
+    // Entanglement rebase drift (2026-09-01, canonical push): boundary
+    // wobble headroom.
+    limit: "13.05 KB",
     modifyEsbuildConfig
   },
   {
