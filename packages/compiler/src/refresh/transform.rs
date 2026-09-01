@@ -5,6 +5,9 @@
 //!    block, still fixes render calls, and skips component registration).
 //!    The per-binding `@refresh component` pragma is separate: it attaches
 //!    to a declaration, not the file (see `has_component_pragma`).
+//!    Modules rendering document-shell elements (`<html>`/`<head>`/`<body>`)
+//!    take the reload path automatically (#3151; a divergence from the Babel
+//!    plugin, which registers them and lets the swap fail silently).
 //! 2. `fixRender` — top-level-ish `render()`/`hydrate()` calls (every
 //!    ancestor a statement) become `const _cleanup = ...;
 //!    if (hot) hot.dispose(_cleanup);`.
@@ -174,6 +177,18 @@ impl<'a> RefreshTransform<'a> {
                 reload = true;
                 break;
             }
+        }
+
+        // Document shells hot-swap to a blank/broken screen, never to the
+        // edit (#3151): the hydratable compile of `<html>`/`<head>`/`<body>`
+        // emits no client template — the element is only recoverable from
+        // the hydration walk, so a post-hydration re-render throws a
+        // hydration mismatch — and their static markup/attributes exist only
+        // in the server HTML, so even a successful swap could not reflect
+        // the edit. Force the reload path (identical to `@refresh reload`)
+        // so saving the file re-fetches a fresh server render.
+        if !reload && has_document_shell_jsx(program) {
+            reload = true;
         }
 
         self.scan_taken_names(program);
@@ -1395,6 +1410,29 @@ impl<'a> RefreshTransform<'a> {
 }
 
 // --- Eligibility helpers -------------------------------------------------------
+
+/// #3151: does any JSX in the module render a document-shell element? Only
+/// intrinsic (lowercase) tags count — oxc parses those as
+/// `JSXElementName::Identifier`, while component tags (`<Html>`) resolve as
+/// `IdentifierReference` and namespaced/member tags can't be intrinsics.
+fn has_document_shell_jsx(program: &Program<'_>) -> bool {
+    struct DocumentShellScan {
+        found: bool,
+    }
+    impl<'b> Visit<'b> for DocumentShellScan {
+        fn visit_jsx_element_name(&mut self, name: &JSXElementName<'b>) {
+            if let JSXElementName::Identifier(identifier) = name
+                && matches!(identifier.name.as_str(), "html" | "head" | "body")
+            {
+                self.found = true;
+            }
+            walk::walk_jsx_element_name(self, name);
+        }
+    }
+    let mut scan = DocumentShellScan { found: false };
+    scan.visit_program(program);
+    scan.found
+}
 
 fn is_componentish(name: &str) -> bool {
     name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
