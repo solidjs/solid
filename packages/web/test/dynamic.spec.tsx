@@ -4,7 +4,7 @@
  */
 import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
 import { createRoot, createSignal, Component, createStore, flush, Show, Loading } from "solid-js";
-import { Dynamic, dynamic, type IntrinsicElement, type JSX } from "../src/index.js";
+import { Dynamic, dynamic, type IntrinsicElement, type JSX } from "@solidjs/web";
 
 describe("Testing Dynamic control flow", () => {
   let div!: HTMLDivElement, disposer: () => void;
@@ -59,6 +59,64 @@ describe("Testing Dynamic control flow", () => {
     setComp("path");
     flush();
     expect(div.querySelector("path")).toBeInstanceOf(SVGElement);
+  });
+});
+
+describe("Dynamic ambiguous SVG tags (#3187)", () => {
+  let disposer!: () => void;
+
+  afterEach(() => disposer());
+
+  test("creates ambiguous SVG tags in the SVG namespace", () => {
+    let svg!: SVGSVGElement;
+
+    createRoot(dispose => {
+      disposer = dispose;
+      <svg ref={svg}>
+        <a id="static" href="#target" />
+        <Dynamic component="a" id="dynamic" href="#target" />
+      </svg>;
+    });
+    flush();
+
+    const staticAnchor = svg.querySelector("#static")!;
+    const dynamicAnchor = svg.querySelector("#dynamic")!;
+
+    expect(staticAnchor.namespaceURI).toBe("http://www.w3.org/2000/svg");
+    expect(dynamicAnchor.namespaceURI).toBe("http://www.w3.org/2000/svg");
+  });
+
+  test("creates ambiguous tags inside foreignObject in the HTML namespace", () => {
+    let svg!: SVGSVGElement;
+
+    createRoot(dispose => {
+      disposer = dispose;
+      <svg ref={svg}>
+        <foreignObject>
+          <Dynamic component="a" id="html-anchor" href="#target" />
+        </foreignObject>
+      </svg>;
+    });
+    flush();
+
+    const anchor = svg.querySelector("#html-anchor")!;
+    expect(anchor.namespaceURI).toBe("http://www.w3.org/1999/xhtml");
+  });
+
+  test("creates ambiguous tags outside SVG in the HTML namespace", () => {
+    let div!: HTMLDivElement;
+
+    createRoot(dispose => {
+      disposer = dispose;
+      <div ref={div}>
+        <Dynamic component="a" id="plain" href="#target" />
+      </div>;
+    });
+    flush();
+
+    const anchor = div.querySelector("#plain")!;
+    expect(anchor.namespaceURI).toBe("http://www.w3.org/1999/xhtml");
+    expect(anchor).toBeInstanceOf(HTMLAnchorElement);
   });
 });
 
