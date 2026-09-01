@@ -1,7 +1,7 @@
 {
   "name": "@solidjs/web",
   "description": "Solid's web runtime: client rendering, hydration, SSR, and DOM-specific control flow (Portal, Dynamic).",
-  "version": "2.0.0-rc.4",
+  "version": "2.0.0-rc.5",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://solidjs.com",
@@ -398,7 +398,7 @@
     "seroval-plugins": "~1.5.4"
   },
   "peerDependencies": {
-    "solid-js": "^2.0.0-rc.4"
+    "solid-js": "^2.0.0-rc.5"
   },
   "devDependencies": {
     "@codspeed/vitest-plugin": "^5.4.0",

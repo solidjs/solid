@@ -1,7 +1,7 @@
 {
   "name": "@solidjs/universal",
   "description": "Solid's universal runtime for creating custom renderers",
-  "version": "2.0.0-rc.4",
+  "version": "2.0.0-rc.5",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://solidjs.com",
@@ -58,7 +58,7 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "solid-js": "^2.0.0-rc.4"
+    "solid-js": "^2.0.0-rc.5"
   },
   "devDependencies": {
     "solid-js": "workspace:*"

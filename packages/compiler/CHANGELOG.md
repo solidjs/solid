@@ -1,5 +1,27 @@
 # @solidjs/compiler
 
+## 2.0.0-rc.5
+
+### Patch Changes
+
+- 320f1f5: Universal text is text (#3127). The DOM and SSR generators splice static
+  text into an HTML template that a parser later unescapes, so they escape
+  static values and keep JSX entities as written. The universal generator
+  hands strings straight to the host — `createTextNode`, `setProp` — with no
+  parser downstream, so the escaping rendered literally (`{"<b>"}` showed as
+  `&lt;b>`) and entities never decoded (`&lt;` showed as `&lt;`), leaving no
+  spelling that produced a literal `<` in static text under a custom
+  renderer. Universal-rendered element children now pass static values
+  through unescaped and decode JSX entities in text and string attributes,
+  matching what component children and fragment text always did. The flag
+  rides on the element, not the config, so `generate: "dynamic"` decides per
+  renderer. Applied to both compilers; the attribute half closed ten pinned
+  cross-mode parity divergences between them. Reported with the fix mapped
+  out by @antoinevanwel.
+- 7c551ae: Key server-function ids on identity instead of position (#3109). Production ids were `<xxhash32(path)>-<ordinal>`, so appending a server function to a file renumbered the others and every client holding the old numbering silently dispatched to different code with a 200. Ids are now `<name>-<xxhash32(root-relative path)>`, with a trailing ordinal only when the same descriptive name recurs within one file — appends, deletes, reorders, and body edits no longer move any address, and a removed or renamed function becomes a clean 404 instead of a wrong call. Development and production now share the exact same id format.
+- 5230666: Fix hydration ids drifting after a reactive lone spread (#3105). A lone spread now passes its accessor straight to `spread()` on the client — no `mergeProps`, no memo, no hydration id — matching the server's existing pass-through fast path. The runtime resolves a function props source inside its own tracking scopes.
+- e27dc29: `validate` now fails the compile instead of warning when a template's markup would be restructured by the browser's HTML parser (#3099). Once the validator fires the emitted positional walk is guaranteed not to match the browser-built DOM (crashed or silently misplaced bindings; desynced hydration under SSR), so warn-and-emit shipped certain breakage with the diagnostic buried in server logs. Errors now point at the offending JSX (code frame in Babel, line:col in the native compiler). `validate: false` remains the opt-out.
+
 ## 2.0.0-rc.4
 
 ### Minor Changes

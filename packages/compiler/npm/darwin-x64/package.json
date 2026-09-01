@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/compiler-darwin-x64",
-  "version": "2.0.0-rc.4",
+  "version": "2.0.0-rc.5",
   "cpu": [
     "x64"
   ],

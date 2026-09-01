@@ -1,7 +1,7 @@
 {
   "name": "@solidjs/babel-plugin",
   "description": "Babel compiler plugin for Solid templates",
-  "version": "2.0.0-rc.4",
+  "version": "2.0.0-rc.5",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {

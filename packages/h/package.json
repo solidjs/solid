@@ -1,7 +1,7 @@
 {
   "name": "@solidjs/h",
   "description": "Hyperscript / h() factory for Solid — write components without compiled JSX.",
-  "version": "2.0.0-rc.4",
+  "version": "2.0.0-rc.5",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://solidjs.com",
@@ -76,7 +76,7 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@solidjs/web": "^2.0.0-rc.4"
+    "@solidjs/web": "^2.0.0-rc.5"
   },
   "devDependencies": {
     "@solidjs/web": "workspace:*",
