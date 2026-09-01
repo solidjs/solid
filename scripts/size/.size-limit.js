@@ -370,7 +370,10 @@ module.exports = [
     // pays the whole optimistic module. Ruled correctness-over-size in the
     // #3123 thread. Measured 27.10 post-rebase (the earlier replay landing
     // was already absorbed in this budget).
-    limit: "27.15 KB",
+    // Structural audit (2026-08-31): one-reckoning landing notification
+    // (review commit 3e12ffdb) + superseded-work generation stamps and the
+    // rebuilt late-registrant sweep. Measured 27.18.
+    limit: "27.2 KB",
     modifyEsbuildConfig
   },
   {
@@ -494,7 +497,11 @@ module.exports = [
     // Measured 19.03.
     // #3122 teardown (upstream, 2026-08-31): core-floor bytes ride this
     // tier too. Measured 19.02 post-rebase.
-    limit: "19.1 KB",
+    // Structural audit (2026-08-31): registration-sequence window (fixed
+    // both edges, suffix scan), hold-deferred late resyncs, visible-view
+    // resolution, deleted-slot gate, superseded-work stamps. Measured
+    // 19.14.
+    limit: "19.15 KB",
     modifyEsbuildConfig
   },
   {

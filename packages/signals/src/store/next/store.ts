@@ -169,6 +169,8 @@ export function pcOf(t: StoreNextTarget): PatchChannel {
       ks: false,
       akAll: false,
       mlc: 0,
+      rq: 0,
+      sg: 0,
       t
     })
   );

@@ -97,6 +97,17 @@ export interface PatchChannel {
    * always writes (scheduler owns merge bookkeeping). */
   bt?: unknown;
   bo?: unknown;
+  /** Structural registration sequence (structural audit): entries stamp
+   * `sq = ++rq` at registration, items stamp `rq` at emission — the late-
+   * registrant sweep becomes a tail scan over the (append-ordered) suffix
+   * `sq > item.rq`, with the drain-start `rq` as the FIXED window's far
+   * edge (mid-drain registrants are excluded). */
+  rq?: number;
+  /** Structural generation (structural audit): a landing consumption bumps
+   * it AFTER retained-edit replay — queued items stamped with an older
+   * generation are superseded by the consumption's own resync and skipped
+   * at drain (stale transition-held ops, the replay's interim ops). */
+  sg?: number;
   /** Accessed-key set for the channel's compiled bodies (union across
    * registrations). Compiler-manifested registrations (re-audit 7, P1-1)
    * hand the STATIC read envelope — complete across branches the applies

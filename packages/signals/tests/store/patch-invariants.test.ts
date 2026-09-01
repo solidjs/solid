@@ -462,9 +462,11 @@ describe("INVARIANT: queued applications reach exactly the consumers registered 
     // relative ops against it corrupts retention.
     //
     // Round 10.13 refinement: late consumers still never see the
-    // baseline-relative OPS — but silence left held-window registrants
-    // permanently stale, so they now receive the RESYNC form (ops null,
-    // live rows): an identity-aligned rebuild for this ambient race.
+    // baseline-relative OPS — pre-drain registrants receive the RESYNC
+    // form (ops null, live rows). Structural-audit refinement: the window
+    // is FIXED — a consumer registered DURING the drain (from another
+    // consumer's dispatch, like a driver row build) initialized from
+    // current state and receives nothing until the next event.
     let registeredLate = false;
     registerRowOps(state.rows, (_next: any[], ops: any) => {
       early.push(ops);
@@ -478,16 +480,15 @@ describe("INVARIANT: queued applications reach exactly the consumers registered 
     });
     flush();
     expect(early.length).toBe(1);
-    expect(late.length).toBe(1);
-    expect(late[0]).toBe(null); // resync form only — never positional ops
+    expect(late.length).toBe(0); // mid-drain registrant: outside the window
     // The late consumer participates in the NEXT event normally (real ops).
     setState(s => {
       s.rows.splice(0, 1);
     });
     flush();
     expect(early.length).toBe(2);
-    expect(late.length).toBe(2);
-    expect(late[1]).not.toBe(null);
+    expect(late.length).toBe(1);
+    expect(late[0]).not.toBe(null);
   });
 
   it("a value entry never re-applies to a consumer that initialized FROM its state (mid-flush mount)", async () => {
@@ -1183,6 +1184,321 @@ describe("INVARIANT: the deferred-demotion latch cannot outlive its consumers (r
     expect(pc.p).not.toBe(null);
     const { patchCountForTests } = await import("../../src/store/next/patch.js");
     expect(patchCountForTests()).toBeGreaterThan(0);
+  });
+});
+
+describe("INVARIANT: structural resyncs honor holds, fix their window, and serve the VISIBLE view", () => {
+  // The 10.13 late-registrant rule, refined by the structural audit: a
+  // resync is owed ONLY to consumers whose initialization predates the
+  // item's visibility commit — i.e. registrants inside a TRANSITION-HELD
+  // window (ambient same-flush registrants initialized from post-commit
+  // state and are owed nothing). The resync defers into held owner queues
+  // like every other application, never admits mid-drain registrants, and
+  // always serves the view an untracked reader sees at that moment.
+
+  it("the window is FIXED at both edges: pre-flush registrants ride the fold's snapshot, mid-drain registrants get nothing", async () => {
+    const { registerRowOps } = await import("../../src/index.js");
+    const [state, setState] = createStore<any>({ rows: [{ id: 1 }, { id: 2 }] });
+    const early: any[] = [];
+    const late: any[] = [];
+    const midDrain: any[] = [];
+    createRoot(() => {
+      registerRowOps(state.rows, (_n: any[], ops: any) => early.push(ops));
+    });
+    setState((s: any) => {
+      s.rows.splice(0, 1);
+    });
+    // Between setState and flush: the plain-store emission happens at the
+    // FOLD (flush time), so this consumer is IN the snapshot — it gets the
+    // real ops, and they are baseline-correct for it (its init read
+    // pre-dates the commit exactly like the early consumer's).
+    createRoot(() => {
+      registerRowOps(state.rows, (_n: any[], ops: any) => {
+        late.push(ops);
+        if (midDrain.length === 0 && late.length === 1) {
+          // Registered FROM a dispatch callback: initialized from current
+          // state mid-drain — the fixed window excludes it entirely.
+          registerRowOps(state.rows, (_nn: any[], o: any) => midDrain.push(o));
+        }
+      });
+    });
+    flush();
+    expect(early.length).toBe(1);
+    expect(late.length).toBe(1);
+    expect(late[0]).not.toBe(null); // in the fold snapshot: real, sound ops
+    expect(midDrain.length).toBe(0); // outside the window
+    // All participate in the next event normally.
+    setState((s: any) => {
+      s.rows.splice(0, 1);
+    });
+    flush();
+    expect(early.length).toBe(2);
+    expect(late.length).toBe(2);
+    expect(midDrain.length).toBe(1);
+  });
+
+  it("a late registrant under a HELD owner queue defers into it instead of resyncing through the hold", async () => {
+    const { registerRowOps, getOwner, action: act } = await import("../../src/index.js");
+    const { GlobalQueue } = await import("../../src/core/scheduler.js");
+    const [state, setState] = createStore<any>({ rows: [{ id: 1 }, { id: 2 }] });
+    createRoot(() => {
+      registerRowOps(state.rows, () => {});
+    });
+    const releases: Array<() => void> = [];
+    const fakeQ: any = { enqueue: (_t: number, fn: () => void) => releases.push(fn) };
+    const prevProbe = (GlobalQueue as any)._queueHeld;
+    (GlobalQueue as any)._queueHeld = (q: any) => q === fakeQ || prevProbe?.(q) === true;
+    try {
+      let confirm!: () => void;
+      const run = act(function* () {
+        setState((s: any) => {
+          s.rows.splice(0, 1);
+        });
+        yield new Promise<void>(resolve => {
+          confirm = resolve;
+        });
+      })();
+      flush();
+      const held: any[] = [];
+      // Held-window registrant whose OWNER QUEUE is itself collapsed.
+      createRoot(() => {
+        (getOwner() as any)._queue = fakeQ;
+        registerRowOps(state.rows, (_n: any[], ops: any) => held.push(ops));
+      });
+      confirm();
+      await run;
+      flush();
+      // The resync deferred INTO the collapsed queue — nothing ran through
+      // the hold; the boundary's own release timing delivers it.
+      expect(held.length).toBe(0);
+      expect(releases.length).toBe(1);
+      releases[0]!();
+      expect(held).toEqual([null]);
+    } finally {
+      (GlobalQueue as any)._queueHeld = prevProbe;
+    }
+  });
+
+  it("a held-release resync serves the visible optimistic view, not committed backing", async () => {
+    const {
+      createOptimisticStore,
+      registerRowOps,
+      getOwner,
+      action: act
+    } = await import("../../src/index.js");
+    const { GlobalQueue } = await import("../../src/core/scheduler.js");
+    const [items, setItems] = (createOptimisticStore as any)([{ id: 1 }] as any[]);
+    const releases: Array<() => void> = [];
+    const fakeQ: any = { enqueue: (_t: number, fn: () => void) => releases.push(fn) };
+    const prevProbe = (GlobalQueue as any)._queueHeld;
+    (GlobalQueue as any)._queueHeld = (q: any) => q === fakeQ || prevProbe?.(q) === true;
+    try {
+      const seen: any[][] = [];
+      createRoot(() => {
+        (getOwner() as any)._queue = fakeQ;
+        registerRowOps(items, (rows: any[], _ops: any) =>
+          seen.push(Array.from(rows, (r: any) => r.id))
+        );
+      });
+      let confirm!: () => void;
+      const run = act(function* () {
+        setItems((draft: any[]) => {
+          draft.push({ id: 2 });
+        });
+        yield new Promise<void>(resolve => {
+          confirm = resolve;
+        });
+      })();
+      flush();
+      // The lane dispatch deferred into the held queue. Release it WHILE
+      // the optimistic window is still open: the rebuild must read what an
+      // untracked reader sees — the override view [1, 2] — never the
+      // committed backing [1].
+      expect(releases.length).toBe(1);
+      releases[0]!();
+      expect(seen.at(-1)).toEqual([1, 2]);
+      confirm();
+      await run;
+      flush();
+    } finally {
+      (GlobalQueue as any)._queueHeld = prevProbe;
+    }
+  });
+
+  it("a resync never emits a slot tick for a deleted slot", async () => {
+    const { registerSlotPatchNext } = await import("../../src/store/next/patch.js");
+    const { action: act } = await import("../../src/index.js");
+    const [state, setState] = createStore<any>({ list: ["a", "b", "c"] });
+    createRoot(() => {
+      registerSlotPatchNext(state.list, () => {});
+    });
+    let confirm!: () => void;
+    const run = act(function* () {
+      setState((s: any) => {
+        s.list[2] = "x"; // slot tick for index 2, stashed by the transition
+        s.list.splice(2, 1); // …then the slot is deleted in the same window
+      });
+      yield new Promise<void>(resolve => {
+        confirm = resolve;
+      });
+    })();
+    flush();
+    const ticks: Array<[number, any]> = [];
+    // Held-window registrant: swept at release for BOTH stashed items.
+    createRoot(() => {
+      registerSlotPatchNext(state.list, (i: number, v: any) => ticks.push([i, v]));
+    });
+    confirm();
+    await run;
+    flush();
+    // The deleted slot's tick is invalid against the live 2-length list —
+    // it must be skipped, not delivered as (2, undefined).
+    expect(ticks.every(([i]) => i < 2)).toBe(true);
+  });
+
+  it("an aborted retainer's re-derivation keeps the survivor's rows in the driven list (fifth posture)", async () => {
+    // Entangled retainers settle TOGETHER (fourth posture) — but an ABORTED
+    // retainer dies alone: rederiveAtSettle wipes and replays the survivor.
+    // Replay frames are suppressed (one-reckoning rule), so the settle
+    // drain's resync is the LAST word — it must read the VISIBLE view
+    // (survivor's re-armed overrides composed), never the bare committed
+    // backing, or the survivor's row vanishes from the DOM until its own
+    // settle. Classic-parity oracle rides alongside.
+    const {
+      createOptimisticStore,
+      registerRowOps,
+      createRenderEffect,
+      action: act
+    } = await import("../../src/index.js");
+    const [items, setItems] = (createOptimisticStore as any)([{ id: 1 }] as any[]);
+    const frames: number[][] = [];
+    const classic: number[][] = [];
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      registerRowOps(items, (rows: any[], _ops: any) =>
+        frames.push(Array.from(rows, (r: any) => r.id))
+      );
+      createRenderEffect(
+        () => items.map((r: any) => r.id),
+        (v: number[]) => {
+          classic.push(v);
+        }
+      );
+    });
+    flush();
+    let failA!: (e: Error) => void;
+    let confirmB!: () => void;
+    const runA = act(function* () {
+      setItems((draft: any[]) => {
+        draft.push({ id: 2 });
+      });
+      yield new Promise<void>((_r, reject) => {
+        failA = reject;
+      });
+    })().catch(() => {});
+    flush();
+    const runB = act(function* () {
+      setItems((draft: any[]) => {
+        draft.push({ id: 3 });
+      });
+      yield new Promise<void>(resolve => {
+        confirmB = resolve;
+      });
+    })();
+    flush();
+    expect(frames.at(-1)).toEqual([1, 2, 3]);
+
+    // A ABORTS: it dies alone, B's edit survives the re-derivation — the
+    // channel must land where classic lands, with B's row intact.
+    failA(new Error("aborted"));
+    await runA;
+    flush();
+    expect(frames.at(-1)).toEqual(classic.at(-1) as number[]);
+
+    confirmB();
+    await runB;
+    flush();
+    expect(frames.at(-1)).toEqual([1]);
+    expect(classic.at(-1)).toEqual([1]);
+    dispose();
+  });
+
+  it("a continuation landing delivers ONE coherent topology — never the landed base without replayed edits", async () => {
+    const {
+      createOptimisticStore,
+      registerRowOps,
+      until,
+      action: act
+    } = await import("../../src/index.js");
+    type Row = { id: number };
+    let notify!: { promise: Promise<Row>; resolve: (row: Row) => void };
+    const reset = () => {
+      let resolve!: (row: Row) => void;
+      const promise = new Promise<Row>(r => (resolve = r));
+      notify = { promise, resolve };
+    };
+    reset();
+    const confirm = (row: Row) => {
+      const current = notify;
+      reset();
+      current.resolve(row);
+    };
+    const settle = async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+    };
+    let items!: any;
+    let setItems!: any;
+    const frames: number[][] = [];
+    const dispose = createRoot(dispose => {
+      [items, setItems] = (createOptimisticStore as any)(async function* (store: Row[]) {
+        yield [] as Row[];
+        while (true) {
+          const row = await notify.promise;
+          yield;
+          store.push(row);
+        }
+      }, [] as Row[]);
+      registerRowOps(items, (rows: any[], _ops: any) =>
+        frames.push(Array.from(rows, (r: any) => r.id))
+      );
+      return dispose;
+    });
+    flush();
+    await settle();
+
+    const add = act(function* (row: Row) {
+      setItems((store: Row[]) => {
+        store.push(row);
+      });
+      yield until(() => items.some((x: any) => x.id === row.id));
+    });
+    const addA = add({ id: 0 });
+    flush();
+    const addB = add({ id: 1 });
+    flush();
+    expect(frames.at(-1)).toEqual([0, 1]);
+    const watermark = frames.length;
+
+    // A's confirmation: a CONTINUATION landing carrying A's row contradicts
+    // the base — wipe, replay of B's still-open edit, resync. The driven
+    // list must see ONE coherent [0, 1]: an intermediate [0] frame is the
+    // DOM identity/focus loss (row B rebuilt for nothing).
+    confirm({ id: 0 });
+    await settle();
+    await settle();
+    for (const f of frames.slice(watermark)) expect(f).toEqual([0, 1]);
+
+    confirm({ id: 1 });
+    await settle();
+    await Promise.all([addA, addB]);
+    await settle();
+    // …and NO stale pre-landing structural work replays at owner settle.
+    for (const f of frames.slice(watermark)) expect(f).toEqual([0, 1]);
+    dispose();
   });
 });
 

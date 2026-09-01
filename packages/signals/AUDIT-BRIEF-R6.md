@@ -1,5 +1,53 @@
 # Audit brief — rounds 6–9 + patch-mode default flip + node delivery
 
+## Round 10.15 (2026-08-31) — structural audit (6 findings) + review-commit integration
+
+The structural audit's six findings clustered into three root causes; the
+reviewer's own commit (3e12ffdb, one-reckoning landing notification) landed
+mid-round and covers the continuation-coherence finding at the source —
+audited here and composed with, not replaced. All six closed:
+
+- **F1 sweep holds + fixed window / F6 quadratic (one mechanism)**: the
+  10.13 late-registrant sweep is rebuilt on REGISTRATION SEQUENCE numbers —
+  entries stamp `sq = ++pc.rq`, items stamp the watermark at emission. Late
+  entries are a SUFFIX of the (append-ordered) live list: the sweep is a
+  tail scan, O(#late), breaking at the first in-snapshot entry (was
+  indexOf-per-entry, O(consumers²)). The window is FIXED at both edges:
+  `sq > item.rq` (in-snapshot entries excluded) and `sq <= drain-start rq`
+  (mid-drain registrants excluded — they initialized from current state).
+  Held owner queues defer via deferIntoQueue exactly like the snapshot
+  path — never through the hold. CONTRACT REFINEMENT pinned by test: plain
+  stores emit at the FOLD, so pre-flush registrants are IN the snapshot
+  and receive real (baseline-correct) ops — the sweep's genuine audience
+  is lane items and stash windows.
+- **F2 visible-view resyncs**: every drain-resolved structural `next`
+  (resync forms, late sweeps, held releases) resolves through
+  `visibleStructRows` — optimistic families read the override-composing
+  proxy, never bare committed backing (a held-release rebuild mid-window
+  dropped tentative rows). Consumers canonicalize via patchableRaw, so
+  proxy rows keep identity retention.
+- **F3 deleted-slot gate**: a slot tick coalesced with a later shrink is
+  skipped at the drain (snap AND resync paths) — never delivered as
+  `(si, undefined)` against a row that no longer exists.
+- **F4 superseded work**: `emitLandingConsumption` bumps the channel's
+  structural generation (`pc.sg`); items stamp it at emission and the
+  drains skip stale-generation items — transition-held ops from the
+  pre-landing baseline can no longer replay at settle over the
+  consumption's own resync.
+- **F5 continuation coherence**: review commit 3e12ffdb (audited): wipe +
+  replay notify as ONE reckoning — `replaying` suppresses write-site
+  frames (try/finally-safe, per-edit throw isolation verified), and the
+  landing notification carries the optimisticView-composed snapshot after
+  both halves. Composed with F4's generation bump inside
+  emitLandingConsumption.
+- **Fifth-posture pin (partial-survivor abort)**: an aborted retainer dies
+  alone while a sibling's edit survives the re-derivation — pinned at
+  classic parity with an oracle-anchored test (currently at parity through
+  entanglement + engine ordering; the pin guards the seam the one-
+  reckoning suppression leans on).
+- Size: +27 B store-family app, +41 B list tier (stamps, gates, sweep) —
+  two ratchets with notes. hydrating-store-app 27.2, patch-lists 19.15.
+
 ## Round 10.14 (2026-08-31) — #3123 landed; the two PAUSED P1s FIXED
 
 Rebased onto next with #3123's final landing-consumption semantics

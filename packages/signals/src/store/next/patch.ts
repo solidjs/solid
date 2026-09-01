@@ -121,6 +121,10 @@ interface QueuedApply {
   ops?: RowOps | null;
   /** Slot-tick payload index (same live-list rationale as `ops`). */
   si?: number;
+  /** Registration-sequence watermark at emission (see PatchChannel.rq). */
+  rq?: number;
+  /** Structural generation at emission (see PatchChannel.sg). */
+  sg?: number;
 }
 let queue: QueuedApply[] | null = null;
 let scheduled = false;
@@ -141,10 +145,17 @@ function drainApplyQueue(): void {
   // rethrow after the drain so they still surface.
   let firstError: unknown = UNSET;
   for (let i = 0; i < q.length; i++) {
-    const { prev, force, t } = q[i];
-    const next = t !== null ? (force ? forcedNext(t) : (t.pb ?? t.v)) : q[i].next;
-    if (q[i].ops !== undefined || q[i].si !== undefined)
-      firstError = applyStructural(q[i], next, firstError);
+    const item = q[i];
+    // SUPERSEDED work (structural audit, F4): a landing consumption bumped
+    // the channel's structural generation and queued its own resync —
+    // items stamped before it (stale transition-held ops, interim replay
+    // ops) describe baselines the consumption invalidated.
+    if (item.pc !== undefined && ((item.pc.sg as number) | 0) !== ((item.sg as number) | 0))
+      continue;
+    const { prev, force, t } = item;
+    const next = t !== null ? (force ? forcedNext(t) : visibleStructRows(t)) : item.next;
+    if (item.ops !== undefined || item.si !== undefined)
+      firstError = applyStructural(item, next, firstError);
   }
   if (firstError !== UNSET) {
     // Unhandled patch errors HALT like unhandled effect errors (re-audit 2,
@@ -152,6 +163,16 @@ function drainApplyQueue(): void {
     haltReactivity(firstError);
     throw firstError;
   }
+}
+
+/** Structural `next` resolution from a live target (structural audit, F2):
+ * what an UNTRACKED READER sees — optimistic families compose overrides
+ * through the proxy (a resync during an open window must not rebuild to
+ * committed backing and drop tentative rows); everyone else the pending
+ * or committed raw. Consumers canonicalize rows via patchableRaw, so
+ * proxy-composed rows keep identity retention. */
+function visibleStructRows(t: StoreNextTarget): any {
+  return t.fam?.opt === true ? t.px : (t.pb ?? t.v);
 }
 
 /** Forced-apply `next` resolution. Deep-path channels read through the
@@ -173,6 +194,18 @@ function forcedNext(t: StoreNextTarget): any {
 function applyStructural(item: QueuedApply, next: any, firstError: unknown): unknown {
   const snap = item.list as unknown as { fn: Function; owner: Owner | null; u?: boolean }[];
   const len = snap.length;
+  // FIXED WINDOW far edge (structural audit, F1): captured BEFORE any
+  // dispatch — a consumer registered from a callback below bumps `rq`
+  // past this watermark and is excluded from this item entirely.
+  const maxSq = item.pc !== undefined ? (item.pc.rq as number) | 0 : 0;
+  // DELETED-SLOT gate (structural audit, F3): a slot tick coalesced with a
+  // later shrink indexes past the live list — applying it (snap or resync)
+  // would deliver an undefined value to a row that no longer exists.
+  if (item.si !== undefined && item.pc !== undefined) {
+    const st = item.pc.t as StoreNextTarget;
+    const liveRows = visibleStructRows(st);
+    if (!Array.isArray(liveRows) || item.si >= liveRows.length) return firstError;
+  }
   // Structural dispatch diagnostics (rounds 10.11/10.12): the CHANNEL is
   // the memo key — emission snapshots slice the consumer list, so a
   // per-item array key made the width warning fire every flush. Names and
@@ -211,22 +244,35 @@ function applyStructural(item: QueuedApply, next: any, firstError: unknown): unk
       if (!routeEntryError(entry as any, err) && firstError === UNSET) firstError = err;
     }
   }
-  // LATE REGISTRANTS (round 10.13, P1): a consumer that registered between
-  // emission and a HELD drain initialized from the PRE-COMMIT view — the
-  // emission snapshot rightly excludes it from baseline-relative ops, but
-  // silence left it permanently stale. It takes the RESYNC form against
-  // live state (for the ambient no-hold race this is an identity-aligned
-  // rebuild — full retention, no DOM change).
+  // LATE REGISTRANTS (round 10.13, P1; mechanics rebuilt by the structural
+  // audit): a consumer that registered between emission and the drain is
+  // outside the emission snapshot — baseline-relative ops would corrupt
+  // it, silence left held-window registrants permanently stale. It takes
+  // the RESYNC form against live state. THE WINDOW IS FIXED (F1): only
+  // registrants with `sq` in (item.rq, drain-start rq] — a consumer
+  // registering DURING this drain initialized from current state and gets
+  // nothing. Registrations append in `sq` order, so late entries are a
+  // SUFFIX: the tail scan is O(#late), not O(consumers²) (F6). Held owner
+  // queues defer exactly like the snapshot path (F1) — never through the
+  // hold.
   if (item.pc !== undefined) {
     const live = (item.si !== undefined ? item.pc.sp : item.pc.ro) as
-      | (RowOpsEntry & { hq?: boolean })[]
+      | (RowOpsEntry & { hq?: boolean; sq?: number; q?: unknown })[]
       | null;
     if (live !== null && live.length !== 0) {
-      for (let j = 0; j < live.length; j++) {
+      const itemRq = ((item.rq as number) | 0) as number;
+      for (let j = live.length - 1; j >= 0; j--) {
         const entry = live[j];
-        if ((snap as unknown[]).indexOf(entry) !== -1) continue;
+        const sq = (entry.sq as number) | 0;
+        if (sq <= itemRq) break; // suffix exhausted — everyone else was in the snapshot
+        if (sq > maxSq) continue; // registered mid-drain: outside the window
         if (entry.u === true || entry.hq === true) continue;
         if (entry.owner !== null && isDisposed(entry.owner)) continue;
+        const oq = entry.q as any;
+        if (queueIsHeld(oq)) {
+          deferHeldStructural(entry as any, oq, item);
+          continue;
+        }
         try {
           structuralResync(entry, item);
         } catch (err) {
@@ -252,14 +298,16 @@ function applyStructural(item: QueuedApply, next: any, firstError: unknown): unk
 /** The live-state RESYNC form of a structural item: row-ops consumers get
  * `(rows, null)` (the driver rebuilds retention by identity), slot
  * consumers get the CURRENT value at the index with the original prev (the
- * compare fires for anything their initialization predates). */
+ * compare fires for anything their initialization predates). Live state is
+ * the VISIBLE view (structural audit, F2): optimistic families read
+ * through the proxy, and a slot deleted since emission is skipped (F3). */
 function structuralResync(entry: { fn: Function }, item: QueuedApply): void {
   const t = item.pc !== undefined ? (item.pc.t as StoreNextTarget) : null;
+  const rows = t !== null ? visibleStructRows(t) : item.next;
   if (item.si !== undefined) {
-    const v = t !== null ? ((t.pb ?? t.v) as any[])[item.si] : item.next;
-    entry.fn(item.si, v, item.prev);
+    if (t !== null && (!Array.isArray(rows) || item.si >= rows.length)) return;
+    entry.fn(item.si, t !== null ? rows[item.si] : item.next, item.prev);
   } else {
-    const rows = t !== null ? ((t.pb ?? t.v) as any[]) : item.next;
     entry.fn(rows, null);
   }
 }
@@ -513,10 +561,14 @@ function drainOptimistic(): void {
   // must reach the registering owner's Errored boundary.
   let firstError: unknown = UNSET;
   for (let i = 0; i < q.length; i++) {
-    const { prev, force, t } = q[i];
-    const next = t !== null ? (force ? forcedNext(t) : (t.pb ?? t.v)) : q[i].next;
-    if (q[i].ops !== undefined || q[i].si !== undefined)
-      firstError = applyStructural(q[i], next, firstError);
+    const item = q[i];
+    // Same superseded-work gate as the regular drain (structural audit, F4).
+    if (item.pc !== undefined && ((item.pc.sg as number) | 0) !== ((item.sg as number) | 0))
+      continue;
+    const { prev, force, t } = item;
+    const next = t !== null ? (force ? forcedNext(t) : visibleStructRows(t)) : item.next;
+    if (item.ops !== undefined || item.si !== undefined)
+      firstError = applyStructural(item, next, firstError);
   }
   if (firstError !== UNSET) {
     haltReactivity(firstError);
@@ -557,7 +609,9 @@ export function emitRowOpsOptimistic(
     force: false,
     t: nextRows === null ? t : null,
     ops,
-    pc: t.pc as PatchChannel
+    pc: t.pc as PatchChannel,
+    rq: ((t.pc as any).rq as number) | 0,
+    sg: ((t.pc as any).sg as number) | 0
   });
   if (!scheduled) {
     scheduled = true;
@@ -1445,8 +1499,13 @@ export function registerRowOps(array: any, fn: RowOpsFn): () => void {
   const t = channelTarget(array, "registerRowOps");
   armRowHooks();
   const rowner = getOwner();
-  const entry: RowOpsEntry = { fn, owner: rowner, q: (rowner as any)?._queue ?? null };
   const pc = pcOf(t);
+  const entry: RowOpsEntry & { sq?: number } = {
+    fn,
+    owner: rowner,
+    q: (rowner as any)?._queue ?? null,
+    sq: (pc.rq = ((pc.rq as number) | 0) + 1)
+  };
   if (__TEST__) devTrackChannel(pc);
   const list = (pc.ro ??= []) as RowOpsEntry[];
   list.push(entry);
@@ -1474,7 +1533,9 @@ export function emitSlotPatch(t: StoreNextTarget, index: number, next: any, prev
     force: false,
     t: null,
     si: index,
-    pc: t.pc as PatchChannel
+    pc: t.pc as PatchChannel,
+    rq: ((t.pc as any).rq as number) | 0,
+    sg: ((t.pc as any).sg as number) | 0
   });
 }
 
@@ -1515,7 +1576,9 @@ export function emitRowOps(t: StoreNextTarget, next: any[], ops: RowOps): void {
     force: false,
     t: null,
     ops,
-    pc: t.pc as PatchChannel
+    pc: t.pc as PatchChannel,
+    rq: ((t.pc as any).rq as number) | 0,
+    sg: ((t.pc as any).sg as number) | 0
   });
 }
 
