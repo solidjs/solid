@@ -1,5 +1,24 @@
 # Audit brief — rounds 6–9 + patch-mode default flip + node delivery
 
+## SHIP RULING (2026-09-01, Ryan) — ship as-is pending final audit; coverage expansions go to a FUTURE RC
+
+Deferred to a future RC (documented driver contract for THIS release is
+deep keyed stores via reconcile — the benched, octane-class
+configuration):
+- `keyed={fn}` For engagement: accessor-row binding + compiler grammar
+  for `param().member` bodies (the identity-ruling follow-up). Today it
+  declines to classic by defensive contract pin.
+- Shallow logical-key retention: a `keyFn` seam in the driver's
+  identityOps (shallow retention is reference-keyed; logically-keyed
+  fresh rows rebuild per replacement — correct per the shallow
+  contract, not driver-grade retention).
+- Row-value multiplexing over the list channel (mount lever, est. −1 to
+  −1.5 ms on dbmon: kills per-row channels/delivery nodes/registrations
+  at mount; the version chain makes late materialization sound), the
+  channel shape diet, and the same-shape admission-scan fast path.
+- The two upstream it.fails pins (same-microtask landing swallow,
+  wedged until()) — #3123/#3164 reckoning machinery, tracked upstream.
+
 ## Perf verification (2026-09-01, post fold-audit-2) — DRIVER RESTORED TO OCTANE-CLASS
 
 The octane-bar sweep, after fixing the harness (an ORPHANED months-old
