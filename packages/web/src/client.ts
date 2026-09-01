@@ -614,7 +614,7 @@ export function addEvent(
   name: string,
   handler: EventListener | EventListenerObject | (EventListenerObject & AddEventListenerOptions),
   delegate: boolean
-): void;
+): EventListener | EventListenerObject | void;
 
 export function addEvent(node, name, handler, delegate) {
   if (delegate) {
@@ -624,8 +624,11 @@ export function addEvent(node, name, handler, delegate) {
     } else node[`$$${name}`] = handler;
   } else if (Array.isArray(handler)) {
     const handlerFn = handler[0];
-    node.addEventListener(name, (handler[0] = e => handlerFn.call(node, handler[1], e)));
+    const listener = e => handlerFn.call(node, handler[1], e);
+    node.addEventListener(name, listener);
+    return listener;
   } else node.addEventListener(name, handler, typeof handler !== "function" && handler);
+  return delegate ? undefined : handler;
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function style(
   node: Element,
@@ -2042,8 +2045,9 @@ function assignProp(node, prop, value, prev, skipRef, nodeName) {
       node.removeEventListener(name, h);
     }
     if (delegate || value) {
-      addEvent(node, name, value, delegate);
+      const attached = addEvent(node, name, value, delegate);
       delegate && delegateEvents([name]);
+      if (!delegate) return attached;
     }
   } else if (
     (hasNamespace && prop.slice(0, 5) === "prop:") ||
