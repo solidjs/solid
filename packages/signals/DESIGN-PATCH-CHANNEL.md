@@ -123,6 +123,15 @@ Cost: +31 B store-family app, +47 B rowProof tier. Full signals suite now
 exits 0 (the INV-6 violation had been failing the run since the
 equal-landing tests landed).
 
+**6b — the driver's rebuild check (P1 follow-up).** The web driver's
+refRebuild test used strict `!==` against a source the matcher had just
+proven by Map equality — so a MOVED NaN row rebuilt, losing node/focus
+identity classic keeps (classic's `newIndices` Map has SameValueZero for
+free; nobody ever spent bytes on NaN there). One inline SameValueZero
+comparison (12 B, rowProof tier). Lesson repeated from the key spaces
+above: everywhere a Map proves a match, a strict recheck is a
+contradiction waiting for an auditor.
+
 ## 22. Node-delivery mount pass (2026-08-30) — pay-for-use machinery
 
 The node-delivery prototype's remaining dbmon gap vs the channel was mount

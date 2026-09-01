@@ -571,7 +571,10 @@ module.exports = [
     // Fold audit 6 (2026-09-01): two key spaces + undefined sentinel +
     // kind-aware prefix scan in the row matcher (mixed-identity P1,
     // undefined-move P2). Measured 19.74.
-    limit: "19.75 KB",
+    // Fold audit 6b (2026-09-01): the driver's rebuild check agrees with
+    // the matcher's SameValueZero (moved NaN row kept its node — parity
+    // with classic's Map-based diff, which has this for free). 12 B.
+    limit: "19.8 KB",
     modifyEsbuildConfig
   },
   {

@@ -382,8 +382,19 @@ export const driveList = (parent: Node, listFn: any, marker?: Node, lateClassic?
       for (; j < sources.length; j++) {
         const abs = prefix + j;
         const src = sources[j];
-        if (src === -1 || (refRebuild && src >= 0 && next[abs] !== prevRaws[src])) {
-          built[j] = bindRow(patchProxyFor(subject, next[abs], abs));
+        // SameValueZero, matching the matcher's Map (fold audit 6, P1): the
+        // ops proved this source by value — a strict `!==` here re-litigated
+        // NaN and rebuilt a MOVED row, losing node/focus identity classic
+        // rendering keeps.
+        const nraw = next[abs];
+        if (
+          src === -1 ||
+          (refRebuild &&
+            src >= 0 &&
+            nraw !== prevRaws[src] &&
+            (nraw === nraw || prevRaws[src] === prevRaws[src]))
+        ) {
+          built[j] = bindRow(patchProxyFor(subject, nraw, abs));
           if (builtBodies !== null) builtBodies[j] = lastBodies!;
           builtUnbinds[j] = lastUnbinds!;
         }

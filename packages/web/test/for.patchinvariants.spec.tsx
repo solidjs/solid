@@ -351,6 +351,38 @@ describe("INVARIANT: structural operations build rows from THEIR OWN captured st
   });
 });
 
+describe("INVARIANT: the rebuild check agrees with the matcher's equality (SameValueZero)", () => {
+  test("a moved NaN row retains its node — classic's Map-based diff keeps it, so must we", () => {
+    createRoot(dispose => {
+      let div!: HTMLDivElement;
+      const prim = rowProof((v: any) => {
+        const tr = document.createElement("tr");
+        tr.textContent = String(v);
+        return tr as unknown as any;
+      });
+      const [state, setState] = createStore<any[]>([1, NaN, 2], { shallow: true } as any);
+      <div ref={div}>
+        <For each={state}>{prim}</For>
+      </div>;
+      expect(labels(div)).toBe("1,NaN,2");
+      const [tr1, trN, tr2] = rows(div);
+      // Pure move THROUGH THE ROW-OPS PATH (reconcile): the matcher (Map,
+      // SameValueZero) proves NaN's source — the driver's strict `!==`
+      // rebuild check re-litigated it and built a fresh row, losing node
+      // identity classic keeps.
+      setState((s: any[]) => {
+        reconcile([NaN, 1, 2])(s);
+      });
+      flush();
+      expect(labels(div)).toBe("NaN,1,2");
+      expect(rows(div)[0]).toBe(trN);
+      expect(rows(div)[1]).toBe(tr1);
+      expect(rows(div)[2]).toBe(tr2);
+      dispose();
+    });
+  });
+});
+
 describe("INVARIANT: a body's declared read envelope is honored at EVERY depth and branch", () => {
   test("a nested getter PRESENT AT REGISTRATION takes the tracked fallback from the start", () => {
     const [dep, setDep] = createRoot(() => createSignal("s0"));
