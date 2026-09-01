@@ -106,6 +106,38 @@ export function Rows({ rows }: { rows: { name: string }[] }) @{
 }
 
 #[test]
+fn tooling_recovers_incomplete_editor_snapshots_without_loosening_compilation() {
+    for source in [
+        "export function View() @{",
+        "export function View() @{ const value = ",
+        "export function View() @{ @ }",
+        "export function View() @{\n  <div>",
+    ] {
+        assert!(
+            compile(
+                source,
+                &CompileOptions {
+                    filename: Some("incomplete.tsrx".into()),
+                    syntax: Syntax::Tsrx,
+                    ..CompileOptions::default()
+                },
+            )
+            .is_err(),
+            "{source}"
+        );
+
+        let output = project_tsrx_for_typecheck(
+            source,
+            &TsrxTypecheckProjectionOptions {
+                filename: Some("incomplete.tsrx".into()),
+            },
+        )
+        .unwrap_or_else(|error| panic!("{source}: {error}"));
+        assert!(!output.code.is_empty(), "{source}");
+    }
+}
+
+#[test]
 fn projects_lazy_defaults_dynamic_tags_and_scoped_styles() {
     let source = r#"export function Card({ model, Tag }: Props) @{
   const &{ title = "untitled", nested: { count = 0 } } = model;

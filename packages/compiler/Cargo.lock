@@ -482,7 +482,7 @@ dependencies = [
 [[package]]
 name = "oxc_adapter"
 version = "0.8.0"
-source = "git+https://github.com/tsrx-org/oxc?rev=7bbe2f40d3b530bd2d25bdd4cfb32beb299ece78#7bbe2f40d3b530bd2d25bdd4cfb32beb299ece78"
+source = "git+https://github.com/tsrx-org/oxc?rev=218e90ed566b4b83d4a23550cb0fc0de2d10fef0#218e90ed566b4b83d4a23550cb0fc0de2d10fef0"
 dependencies = [
  "oxc-miette 3.0.1",
  "oxc_allocator 0.140.0",
@@ -1337,7 +1337,7 @@ dependencies = [
 [[package]]
 name = "tsrx_parser_engine"
 version = "0.8.0"
-source = "git+https://github.com/tsrx-org/oxc?rev=7bbe2f40d3b530bd2d25bdd4cfb32beb299ece78#7bbe2f40d3b530bd2d25bdd4cfb32beb299ece78"
+source = "git+https://github.com/tsrx-org/oxc?rev=218e90ed566b4b83d4a23550cb0fc0de2d10fef0#218e90ed566b4b83d4a23550cb0fc0de2d10fef0"
 dependencies = [
  "oxc_adapter",
  "tsrx_syntax",
@@ -1349,7 +1349,7 @@ dependencies = [
 [[package]]
 name = "tsrx_syntax"
 version = "0.8.0"
-source = "git+https://github.com/tsrx-org/oxc?rev=7bbe2f40d3b530bd2d25bdd4cfb32beb299ece78#7bbe2f40d3b530bd2d25bdd4cfb32beb299ece78"
+source = "git+https://github.com/tsrx-org/oxc?rev=218e90ed566b4b83d4a23550cb0fc0de2d10fef0#218e90ed566b4b83d4a23550cb0fc0de2d10fef0"
 dependencies = [
  "unicode-id-start",
 ]
@@ -1357,7 +1357,7 @@ dependencies = [
 [[package]]
 name = "tsrx_tape_schema"
 version = "0.8.0"
-source = "git+https://github.com/tsrx-org/oxc?rev=7bbe2f40d3b530bd2d25bdd4cfb32beb299ece78#7bbe2f40d3b530bd2d25bdd4cfb32beb299ece78"
+source = "git+https://github.com/tsrx-org/oxc?rev=218e90ed566b4b83d4a23550cb0fc0de2d10fef0#218e90ed566b4b83d4a23550cb0fc0de2d10fef0"
 
 [[package]]
 name = "unicode-id-start"

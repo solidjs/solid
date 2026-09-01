@@ -55,8 +55,11 @@ versioned paths:
    It also returns exact equal-text authored/generated ranges. The
    `@tsrx/solid` adapter attaches Volar capabilities to those fail-closed
    ranges and retains its parser AST for document symbols; older compiler
-   releases and incomplete documents continue through the legacy projection
-   until native editor parity is complete.
+   releases and snapshots outside the native recovery contract continue
+   through the legacy projection until native editor parity is complete.
+   Common incomplete snapshots use the upstream parser's opt-in editor
+   recovery and compiler-generated placeholders; runtime compilation remains
+   strict.
 3. `@tsrx/oxc` projects authored TSRX for Oxlint/Oxfmt and maps diagnostics and
    safe fixes back to authored ranges.
 

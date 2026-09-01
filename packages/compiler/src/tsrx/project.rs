@@ -172,6 +172,18 @@ struct Special<'t> {
     position: Position,
 }
 
+fn has_synthetic_closing_element(node: Node<'_>) -> bool {
+    node.node_field("closingElement")
+        .and_then(Node::span)
+        .is_some_and(|(start, end)| start == end)
+}
+
+fn is_synthetic_undefined(node: Node<'_>) -> bool {
+    node.ty() == "Identifier"
+        && node.str_field("name") == Some("undefined")
+        && node.span().is_some_and(|(start, end)| start == end)
+}
+
 /// Find the outermost nodes within `node`'s subtree that need re-rendering,
 /// in document order. Does not descend into found specials: their renderers
 /// re-collect within themselves. `position` classifies `node` itself when it
@@ -194,7 +206,8 @@ fn collect_specials<'t>(
     } else if semantic.template_site_for(node).is_some()
         || (ty == "JSXElement"
             && (styles.element_hashes.contains_key(&start)
-                || styles.owner_setups.contains_key(&start)))
+                || styles.owner_setups.contains_key(&start)
+                || has_synthetic_closing_element(node)))
         || (ty == "JSXFragment" && styles.owner_setups.contains_key(&start))
     {
         node.span()
@@ -202,6 +215,8 @@ fn collect_specials<'t>(
         // The `&` sigil sits immediately before the pattern's bracket.
         node.span()
             .map(|(start, end)| (start.saturating_sub(1), end))
+    } else if is_synthetic_undefined(node) {
+        node.span()
     } else {
         None
     };
@@ -332,11 +347,13 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
             || self.semantic.template_site_for(node).is_some()
             || (ty == "JSXElement"
                 && (self.styles.element_hashes.contains_key(&start)
-                    || self.styles.owner_setups.contains_key(&start)))
+                    || self.styles.owner_setups.contains_key(&start)
+                    || has_synthetic_closing_element(node)))
             || (ty == "JSXFragment" && self.styles.owner_setups.contains_key(&start))
             || self.semantic.lazy_assignment_for(node).is_some()
             || self.semantic.is_authored_lazy_pattern(node)
             || self.semantic.lazy_pattern_for(node).is_some()
+            || is_synthetic_undefined(node)
         {
             return self.render_special(node, position);
         }
@@ -374,6 +391,10 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
                 self.render_lazy_pattern(node)
             }
             "ArrayPattern" | "ObjectPattern" => self.emit_eager_pattern(node),
+            "Identifier" if is_synthetic_undefined(node) => {
+                self.push("undefined");
+                Ok(())
+            }
             other => Err(ProjectError::new(
                 format!("Unsupported TSRX construct `{other}`"),
                 node,
@@ -402,13 +423,19 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
                     self.emit_ref_setup(setup)?;
                 }
                 self.push("return ");
-                self.render_entry_expression(render)?;
+                if let Some(render) = render {
+                    self.render_entry_expression(render)?;
+                } else {
+                    self.push("null");
+                }
                 self.push(";\n}");
             }
             Position::Expression | Position::JsxChild => {
                 let wrap = position == Position::JsxChild
                     && (if setup.is_empty() && style_setups.is_empty() {
-                        semantic::predict_entry_shape(render) == Shape::Expr
+                        render.is_none_or(|render| {
+                            semantic::predict_entry_shape(render) == Shape::Expr
+                        })
                     } else {
                         true
                     });
@@ -416,7 +443,11 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
                     self.push("{");
                 }
                 if setup.is_empty() && style_setups.is_empty() {
-                    self.render_entry_expression(render)?;
+                    if let Some(render) = render {
+                        self.render_entry_expression(render)?;
+                    } else {
+                        self.push("null");
+                    }
                 } else {
                     self.push("(() => {\n");
                     self.emit_statements(setup)?;
@@ -424,7 +455,11 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
                         self.emit_ref_setup(setup)?;
                     }
                     self.push("return ");
-                    self.render_entry_expression(render)?;
+                    if let Some(render) = render {
+                        self.render_entry_expression(render)?;
+                    } else {
+                        self.push("null");
+                    }
                     self.push(";\n})()");
                 }
                 if wrap {
@@ -970,6 +1005,11 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
     fn render_native_scoped_element(&mut self, node: Node<'_>, hash: &str) -> Result<()> {
         let opening_end = self.emit_native_opening(node, hash)?;
         let (_, node_end) = span_of(node)?;
+        let closing = node.node_field("closingElement");
+        let synthetic_closing = closing
+            .and_then(Node::span)
+            .is_some_and(|(start, end)| start == end);
+        let children_end = closing.and_then(Node::span).map_or(node_end, |span| span.0);
         let mut children = Vec::new();
         for child in node.list_field("children").flatten() {
             collect_specials(
@@ -980,7 +1020,23 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
                 &mut children,
             );
         }
-        self.emit_region(opening_end, node_end, &mut children)
+        self.emit_region(opening_end, children_end, &mut children)?;
+        if synthetic_closing {
+            let opening = node.node_field("openingElement").ok_or_else(|| {
+                ProjectError::new("Recovered JSX element is missing its opening tag", node)
+            })?;
+            let name = opening.node_field("name").ok_or_else(|| {
+                ProjectError::new("Recovered JSX opening tag is missing its name", opening)
+            })?;
+            let (name_start, name_end) = span_of(name)?;
+            self.push("</");
+            self.push(&self.source[name_start as usize..name_end as usize]);
+            self.push(">");
+        } else if let Some(closing) = closing {
+            let (_, closing_end) = span_of(closing)?;
+            self.push_verbatim(children_end, closing_end);
+        }
+        Ok(())
     }
 
     fn emit_native_opening(&mut self, node: Node<'_>, hash: &str) -> Result<u32> {

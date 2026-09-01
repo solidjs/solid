@@ -188,6 +188,38 @@ export function Rows({ rows }: { rows: { name: string }[] }) @{
     }
   );
 
+  test("recovers common incomplete editor snapshots into valid virtual TSX", () => {
+    for (const source of [
+      "export function View() @{",
+      "export function View() @{ const value = ",
+      "export function View() @{ @ }",
+      'const marker = "🚀"; export function View() @{\n  <div>'
+    ]) {
+      const output = projectTsrxForTypecheck(source, { filename: "incomplete.tsrx" });
+
+      expect(typecheck(output.code)).toEqual([]);
+      expect(output.code).not.toContain("@{");
+      for (const mapping of output.mappings) {
+        expect(source.slice(mapping.sourceStart, mapping.sourceStart + mapping.sourceLength)).toBe(
+          output.code.slice(
+            mapping.generatedStart,
+            mapping.generatedStart + mapping.generatedLength
+          )
+        );
+      }
+      if (source.endsWith("<div>")) {
+        const generatedClosingName = output.code.indexOf("</div>") + 2;
+        expect(
+          output.mappings.some(
+            mapping =>
+              mapping.generatedStart <= generatedClosingName &&
+              mapping.generatedStart + mapping.generatedLength >= generatedClosingName + 3
+          )
+        ).toBe(false);
+      }
+    }
+  });
+
   test("supports diagnostics, completion, navigation, and rename through exact mappings", () => {
     const source = `type Row = { name: string };
 export function Rows({ rows }: { rows: Row[] }) @{

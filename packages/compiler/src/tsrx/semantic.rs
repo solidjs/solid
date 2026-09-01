@@ -178,7 +178,7 @@ fn predict_parts_shape(setup: &[Node<'_>], renders: &[Node<'_>]) -> RenderShape 
 pub struct CodeBlock<'t> {
     pub origin: Origin<'t>,
     pub setup: Vec<Node<'t>>,
-    pub render: Node<'t>,
+    pub render: Option<Node<'t>>,
 }
 
 #[derive(Clone)]
@@ -462,6 +462,17 @@ impl SemanticError {
 
 /// Lower the parser-interchange root into compiler-owned Solid TSRX IR.
 pub fn lower<'t>(root: Node<'t>) -> Result<SolidTsrxModule<'t>, SemanticError> {
+    lower_with_recovery(root, false)
+}
+
+pub fn lower_recovered<'t>(root: Node<'t>) -> Result<SolidTsrxModule<'t>, SemanticError> {
+    lower_with_recovery(root, true)
+}
+
+fn lower_with_recovery<'t>(
+    root: Node<'t>,
+    allow_missing_render: bool,
+) -> Result<SolidTsrxModule<'t>, SemanticError> {
     AuthoredSpan::of(root)?;
     let mut controls = Vec::new();
     let mut template_sites = Vec::new();
@@ -574,7 +585,7 @@ pub fn lower<'t>(root: Node<'t>) -> Result<SolidTsrxModule<'t>, SemanticError> {
     let mut control_flow = Vec::with_capacity(controls.len());
     for node in controls {
         control_flow.push(match node.ty() {
-            "JSXCodeBlock" => lower_code_block(node)?,
+            "JSXCodeBlock" => lower_code_block(node, allow_missing_render)?,
             "JSXIfExpression" => lower_if(node)?,
             "JSXForExpression" => lower_for(node)?,
             "JSXSwitchExpression" => lower_switch(node)?,
@@ -634,12 +645,17 @@ pub fn lower<'t>(root: Node<'t>) -> Result<SolidTsrxModule<'t>, SemanticError> {
     })
 }
 
-fn lower_code_block<'t>(node: Node<'t>) -> Result<ControlFlow<'t>, SemanticError> {
-    let render = required_node(
-        node,
-        "render",
-        "A TSRX statement container is missing its rendered output node",
-    )?;
+fn lower_code_block<'t>(
+    node: Node<'t>,
+    allow_missing_render: bool,
+) -> Result<ControlFlow<'t>, SemanticError> {
+    let render = node.node_field("render");
+    if render.is_none() && !allow_missing_render {
+        return Err(SemanticError::new(
+            "A TSRX statement container is missing its rendered output node",
+            node,
+        ));
+    }
     Ok(ControlFlow::CodeBlock(CodeBlock {
         origin: Origin::new(node, false)?,
         setup: node.list_field("body").flatten().collect(),
@@ -1201,7 +1217,7 @@ mod tests {
         };
         assert_eq!(block.setup.len(), 1);
         assert_eq!(block.setup[0].ty(), "VariableDeclaration");
-        assert_eq!(block.render.ty(), "JSXElement");
+        assert_eq!(block.render.expect("code block render").ty(), "JSXElement");
         assert_eq!(block.origin.span.start, source.find("@{").unwrap() as u32);
     }
 

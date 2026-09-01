@@ -17,7 +17,7 @@ use super::{
     names::Names,
     parse_projected_tsx,
     project::Projection,
-    run_frontend,
+    run_tooling_frontend,
     semantic::{EmbeddedKind as SemanticEmbeddedKind, EmbeddedRegion as SemanticEmbeddedRegion},
     source_map,
 };
@@ -90,7 +90,7 @@ pub fn project_tsrx_for_typecheck(
     options: &TsrxTypecheckProjectionOptions,
 ) -> Result<TsrxTypecheckProjection, CompileError> {
     let filename = options.filename.as_deref().unwrap_or("input.tsrx");
-    let projection = run_frontend(source, Some(filename), true)?;
+    let projection = run_tooling_frontend(source, filename, true)?;
     let allocator = Allocator::default();
     let mut program = parse_projected_tsx(&allocator, &projection)?;
     inject_typecheck_helpers(&allocator, &mut program, &projection);

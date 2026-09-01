@@ -27,22 +27,24 @@ pub use tooling::{
 };
 
 use tsrx_parser_engine::{
-    TsrxParseOptions, TsrxParseRequest, TsrxParseResult, TsrxUtf16ParseRequest,
+    TsrxParseOptions, TsrxParseRecovery, TsrxParseRequest, TsrxParseResult, TsrxUtf16ParseRequest,
     parse_tsrx_utf16_with_options, parse_tsrx_with_options,
 };
 use tsrx_tape_schema::{CoordinateDomain, ParseCompleteness, RecordIndex, ValueRef};
 
 use crate::error::CompileError;
 
-/// Parse TSRX source and project it to plain TSX for the shared pipeline.
-pub fn run_frontend(
+pub(crate) fn run_tooling_frontend(
     source: &str,
-    filename: Option<&str>,
+    filename: &str,
     source_maps: bool,
 ) -> Result<Projection, CompileError> {
-    let filename = filename.unwrap_or("input.tsrx");
-    let tape = parse_tape(source, filename)?;
-    let semantic = lower_semantic(source, &tape)?;
+    let (tape, recovered) = parse_tooling_tape(source, filename)?;
+    let semantic = if recovered {
+        lower_recovered_semantic(source, &tape)?
+    } else {
+        lower_semantic(source, &tape)?
+    };
     project_semantic(source, filename, &semantic, source_maps)
 }
 
@@ -66,8 +68,32 @@ fn parse_tape(source: &str, filename: &str) -> Result<tsrx_tape_schema::FlatTape
         ..TsrxParseOptions::default()
     };
 
+    take_parse_tape(source, parse_source(source, options)?, false)
+}
+
+fn parse_tooling_tape(
+    source: &str,
+    filename: &str,
+) -> Result<(tsrx_tape_schema::FlatTape, bool), CompileError> {
+    let options = TsrxParseOptions {
+        filename,
+        include_ts_fields: true,
+        recovery: TsrxParseRecovery::Editor,
+        ..TsrxParseOptions::default()
+    };
     let result = parse_source(source, options)?;
-    if result.status != ParseCompleteness::Complete {
+    let recovered = result.status == ParseCompleteness::Recovered;
+    Ok((take_parse_tape(source, result, true)?, recovered))
+}
+
+fn take_parse_tape(
+    source: &str,
+    result: TsrxParseResult,
+    allow_recovered: bool,
+) -> Result<tsrx_tape_schema::FlatTape, CompileError> {
+    if result.status != ParseCompleteness::Complete
+        && (!allow_recovered || result.status != ParseCompleteness::Recovered)
+    {
         return Err(first_diagnostic_error(source, &result));
     }
     let mut tape = result
@@ -87,6 +113,18 @@ fn lower_semantic<'t>(
     let root = tape::Node::root(tape)
         .ok_or_else(|| CompileError::parse("TSRX parse produced no program"))?;
     semantic::lower(root).map_err(|error| {
+        let (line, column) = line_column(source, error.start);
+        CompileError::parse(format!("{} ({line}:{column})", error.message))
+    })
+}
+
+fn lower_recovered_semantic<'t>(
+    source: &str,
+    tape: &'t tsrx_tape_schema::FlatTape,
+) -> Result<semantic::SolidTsrxModule<'t>, CompileError> {
+    let root = tape::Node::root(tape)
+        .ok_or_else(|| CompileError::parse("TSRX parse produced no program"))?;
+    semantic::lower_recovered(root).map_err(|error| {
         let (line, column) = line_column(source, error.start);
         CompileError::parse(format!("{} ({line}:{column})", error.message))
     })

@@ -167,7 +167,12 @@ pub(super) fn lower<'a>(
         let ControlFlow::CodeBlock(block) = control else {
             continue;
         };
-        let Some((start, _)) = block.render.span() else {
+        let Some(render) = block.render else {
+            return Err(direct_invariant(
+                "a code block is missing its render expression",
+            ));
+        };
+        let Some((start, _)) = render.span() else {
             return Err(direct_invariant(
                 "a code block render expression is missing its authored span",
             ));
@@ -330,7 +335,10 @@ impl<'a> Lowerer<'a, '_, '_> {
         for setup in &block.setup {
             statements.push(self.statement(*setup)?);
         }
-        let render = self.render_expression(block.render)?;
+        let render = block
+            .render
+            .ok_or_else(|| direct_invariant("a code block is missing its render expression"))
+            .and_then(|render| self.render_expression(render))?;
         statements.push(self.ast.statement_return(span, Some(render)));
         let parameters = self.ast.formal_parameters(
             span,

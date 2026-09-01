@@ -38,9 +38,9 @@ oxc_sourcemap = { version = "8.1", optional = true }
 oxc_span = "0.144"
 oxc_str = "0.144"
 oxc_syntax = "0.144"
-tsrx_parser_engine = { git = "https://github.com/tsrx-org/oxc", rev = "7bbe2f40d3b530bd2d25bdd4cfb32beb299ece78", optional = true }
-tsrx_syntax = { git = "https://github.com/tsrx-org/oxc", rev = "7bbe2f40d3b530bd2d25bdd4cfb32beb299ece78", optional = true }
-tsrx_tape_schema = { git = "https://github.com/tsrx-org/oxc", rev = "7bbe2f40d3b530bd2d25bdd4cfb32beb299ece78", optional = true }
+tsrx_parser_engine = { git = "https://github.com/tsrx-org/oxc", rev = "218e90ed566b4b83d4a23550cb0fc0de2d10fef0", optional = true }
+tsrx_syntax = { git = "https://github.com/tsrx-org/oxc", rev = "218e90ed566b4b83d4a23550cb0fc0de2d10fef0", optional = true }
+tsrx_tape_schema = { git = "https://github.com/tsrx-org/oxc", rev = "218e90ed566b4b83d4a23550cb0fc0de2d10fef0", optional = true }
 
 [dev-dependencies]
 # `noop` stubs the Node-API symbols so `cargo test` can link the unit-test
