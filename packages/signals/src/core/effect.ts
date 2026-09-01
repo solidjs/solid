@@ -8,7 +8,15 @@ import {
   STATUS_ERROR,
   STATUS_PENDING
 } from "./constants.js";
-import { computed, createEffectNode, recompute, setStrictRead, staleValues, ext } from "./core.js";
+import {
+  computed,
+  createEffectNode,
+  recompute,
+  setStrictRead,
+  staleValues,
+  ext,
+  setEffectStatusNotify
+} from "./core.js";
 import { emitDiagnostic } from "./dev.js";
 import { StatusError, unwrapStatusError } from "./error.js";
 import {
@@ -47,7 +55,6 @@ export function effect<T>(
     effect,
     error,
     isUser ? EFFECT_USER : EFFECT_RENDER,
-    notifyEffectStatus,
     options
   ) as Effect<T>;
   recompute(node, true);
@@ -232,17 +239,9 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
   node._config = (node._config & ~CONFIG_AUTO_DISPOSE) | CONFIG_CHILDREN_FORBIDDEN;
   node._modified = true;
   node._type = EFFECT_TRACKED;
-  ext(node)._notifyStatus = (status?: number, error?: any) => {
-    const actualStatus = status !== undefined ? status : node._statusFlags;
-    if (actualStatus & STATUS_ERROR) {
-      node._queue.notify(node, STATUS_PENDING, 0);
-      const err = error !== undefined ? error : node._x?._error;
-      if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
-        haltReactivity(unwrapStatusError(err));
-        throw err;
-      }
-    }
-  };
+  // Status dispatch rides the SHARED notifier (statusNotifierOf keys off
+  // _type): its error arm is behavior-identical to the closure that used to
+  // live here, without the per-node NodeExtension allocation.
   node._run = run;
   node._queue.enqueue(EFFECT_USER, run);
 
@@ -261,3 +260,8 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
     console.warn(message);
   }
 }
+
+// Install the shared effect status notifier (statusNotifierOf serves it to
+// every effect node) — module-scope: any bundle that creates effects
+// evaluates this module.
+setEffectStatusNotify(notifyEffectStatus);

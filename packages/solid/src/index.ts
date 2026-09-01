@@ -24,12 +24,22 @@ export {
   onCleanup,
   onSettled,
   latest,
+  // Patch-channel compiler contract (undocumented as application API)
+  patchableRaw,
+  registerPatch,
+  registerRowOps,
+  registerSlotPatch,
+  storeIsShallow,
+  storeHasFamily,
+  storeHasOptimisticFamily,
   reconcile,
   refresh,
   repeat,
   resetErrorHalt,
   resolve,
+  until,
   NotReadyError,
+  TimeoutError,
   runWithOwner,
   enableExternalSource,
   enforceLoadingBoundary,
@@ -60,6 +70,8 @@ export type {
   SourceAccessor,
   Setter,
   Store,
+  Truthy,
+  UntilOptions,
   StoreReturn,
   ProjectionStoreReturn,
   StoreOptions,
@@ -149,6 +161,17 @@ if (IS_DEV && globalThis) {
     console.warn(
       "You appear to have multiple instances of Solid. This can lead to unexpected behavior."
     );
+}
+
+// Point-of-pain discovery: the first console report of each diagnostic code
+// gains a footer naming the repair skill shipped with this package, so a
+// reader (human or agent) hitting the warning learns where the prescribed
+// fix lives without any prior knowledge of the skill system.
+if (IS_DEV && _DEV) {
+  _DEV.diagnostics.setConsoleFooter(
+    event =>
+      `[${event.code}] repair guide: node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md`
+  );
 }
 
 /* Not Implemented

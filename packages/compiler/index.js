@@ -278,7 +278,10 @@ const nativeOptionKeys = new Set([
   "omitLastClosingTag",
   "serverComponents",
   "builtIns",
-  "renderers"
+  "renderers",
+  // Patch-mode dual driver (stage 2, dormant by default): accepted so an
+  // explicit opt-in reaches the native core (napi maps to patch_driver).
+  "patchDriver"
 ]);
 
 function validateOptions(code, options) {
@@ -319,6 +322,19 @@ function validateOptions(code, options) {
         throw new TypeError("@solidjs/compiler `validate` option must be boolean");
       }
       nativeOptions.validate = value;
+      continue;
+    }
+    if (key === "patchDriver") {
+      if (typeof value !== "string" && typeof value !== "boolean") {
+        throw new TypeError(
+          "@solidjs/compiler `patchDriver` option must be a string import name or boolean"
+        );
+      }
+      // The napi wrapper mapping collapses boolean `true` into
+      // Wrapper::Default, which patch_driver treats as disabled (dormant
+      // default). Normalize the boolean opt-in to the default import name so
+      // it survives the native mapping.
+      nativeOptions.patchDriver = value === true ? "patchDriver" : value;
       continue;
     }
     if (nativeOptionKeys.has(key)) {
@@ -387,12 +403,10 @@ function requireBinding() {
   let nativeError;
   const suffix = platformArchSuffix();
 
-  if (suffix) {
-    const next = tryPackage(`@solidjs/compiler-${suffix}`);
-    if (next.binding) return next.binding;
-    if (next.error) nativeError = next.error;
-  }
-
+  // Local builds first: the published package ships no local binary (see
+  // "files"), so a `compiler.node` next to this file can only be a
+  // development build — which must shadow the installed platform package,
+  // or the monorepo's own tests silently run against the last release.
   const localCandidates = [];
   if (suffix) localCandidates.push(`compiler.${suffix}.node`);
   localCandidates.push("compiler.node");
@@ -402,10 +416,18 @@ function requireBinding() {
       try {
         return require(full);
       } catch (error) {
-        nativeError = error;
-        break;
+        // A present-but-unloadable dev build is an error, not a fallback:
+        // degrading to the published binary would silently test stale code.
+        error.message += `\nA local development build (${file}) exists but could not be loaded. Rebuild with \`pnpm run build:debug\` or delete it to use the installed @solidjs/compiler-* package.`;
+        throw error;
       }
     }
+  }
+
+  if (suffix) {
+    const next = tryPackage(`@solidjs/compiler-${suffix}`);
+    if (next.binding) return next.binding;
+    if (next.error) nativeError = next.error;
   }
 
   const wasi = requireWasi();

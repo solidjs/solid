@@ -477,6 +477,89 @@ implementation, deduplicated across reports.
   expectations change.** The store rewrite implements zero landing logic;
   it inherits collapse from core lanes and adds only "visible landing
   replaces lane values, equality-gated."
+  - **RUL-2 clarification — RULED (Ryan, 2026-08-31, #3123): the equality
+    cut gates CONSUMPTION, not just propagation.** A landing consumes a
+    target's structural optimism only when it CONTRADICTS the base the
+    overrides were computed against — the contradiction verdict is the
+    key-set predicate itself (array index/length change per R15: positional
+    identity IS content, non-keyed deltas anchor to the exact arrangement;
+    object membership change). An equal poll landing carries no new
+    information and holds; held overrides still die with their owning
+    transaction at settle (the honest revert moment). Mechanism:
+    contradiction marks fire inside the landing's synchronous commit
+    (adoptPB + setter-exit notify — the fold drain runs AFTER consumption
+    and is too late), admitted only for overlaid targets, intersected and
+    cleared by consumeOverridesNext.
+  - **RUL-2 re-ruling — RULED (Ryan, 2026-08-31b, #3123 reopen):
+    function-of-truth replay, flight-gated.** The durable record of
+    tentative intent is the RETAINED SETTER CALL, not the node patches it
+    materializes into (patches are positional claims a changed base
+    invalidates; the function re-derives its own positions — no intent
+    inference, the function IS the intent). Each optimistic setter invoked
+    under a live transaction is retained `[transition, fn]` on the family,
+    in invocation order; entries die with their transaction (liveness
+    resolves through the merge chain — entangled actions share one joint
+    lifetime, matching armed-node semantics). What a contradicting landing
+    does with them is decided by the FLIGHT GATE:
+    - **Equal landing (any channel): holds.** Contradicts nothing, touches
+      nothing (2026-08-31 entry above, unchanged).
+    - **Contradicting CONTINUATION (same-flight landings: later yields,
+      post-answer draft writes of the live invocation — one living answer
+      advancing): rebases.** Wipe the family's structural materialization,
+      re-execute live retained setters in order against the landed base,
+      arming fresh overrides for their owners. Each replay runs through the
+      ordinary tentative channel under its own transaction as BOTH ambient
+      transaction and registration batch (runAsTransitionBatch — a bare
+      activeTransition swap strands registrations in the interrupted
+      window's plain batch, which reverts them at its next flush), postures
+      cleared (the draft-write channel invokes consumption inside a trap
+      holding the write override). A replay that throws forfeits its entry
+      (dev-warned); landed truth stands.
+    - **Contradicting REPLACEMENT (a new invocation's first answer —
+      navigation, refresh, poll; boundary: first commit OR the flight's own
+      resolution, so a void draft-mutator's writes are its answer):
+      consumes AND drops retained edits.** #2719 verbatim: the question was
+      re-asked from scratch and a pending add must not ghost onto the next
+      dataset. The API shape encodes the intent: a refetch says "the whole
+      truth again" (replaces), a continuation stream says "incremental
+      updates to one living collection" (rebases).
+    - **Keyed echo (replay-only): the edit outlives its echo — RE-RULED
+      (Ryan, 2026-08-31c, #3123 follow-up).** A landing that echoes a
+      replayed add's key does NOT satisfy the edit early: an edit lives
+      exactly as long as its transaction, settle is the only reckoning
+      (superseding the keep-first "early satisfaction" verdict, which was
+      the one carve-out in that lifetime rule). Dedupe (still forced — a
+      keyed store cannot hold two rows under one key, via `fam.key`,
+      projection resolution, "id" default) resolves *structure from the
+      landing, value from the intent*: the first occurrence keeps the slot,
+      the later statement's value masks it until settle. The echo thereby
+      converts the edit's structural optimism into plain value optimism —
+      the lifetime every value override already has, so the collision case
+      obeys the general rule rather than needing its own. Positional
+      caveat, documented: a replayed add appends after the landed base, so
+      "later statement" IS the edit for append-shape adds (the only real
+      keyed-add shape); an insert-position setter's row precedes its echo
+      and shows landed values through the window. Blind pushes on keyed
+      rows remain echo-safe (no duplicates); unkeyed rows carry no verdict,
+      so their idempotency is the documented reducer contract: setters
+      re-run whenever truth changes beneath them and must tolerate any
+      plausible base. What this deliberately does NOT do: hold back the
+      landing itself (GabbeV's until()-entanglement proposal). A shared
+      live stream cannot be held hostage by one observer's action — the
+      landing reveals for the world; only the rows the open transaction
+      itself edited stay masked by its intent. Landing-reveal ownership
+      (which transaction, if any, stages a continuation landing) is #3146,
+      unresolved and orthogonal.
+    - **Settle is the second reckoning point:** when a retaining
+      transaction dies, survivors' materializations were computed against a
+      base that included the dead transaction's rows — the settle drain
+      (post-revert, _clearOptimisticStores) wipes and re-executes remaining
+      live edits (rederiveAtSettle). No dead entry → no-op.
+    The 2026-08-31 entry's post-RC "keyed satisfaction rule" open design is
+    CLOSED by this ruling (the replay satisfaction rule above is it).
+    Cost: +1,228 B min / +433 B gz on the optimistic-only bundle, core
+    floor untouched (all machinery in store/next/optimistic.ts +
+    runAsTransitionBatch, tree-shaken from plain-store bundles).
 - **RUL-3 — RESOLVED (verified 2026-08-16).** Ownership already lives
   per-node in core (`_overrideOwner` in `core/types.ts`, `lanes.ts`,
   `core/optimistic.ts`); the store-side `STORE_OPTIMISTIC_OWNERS` map exists

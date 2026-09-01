@@ -6,7 +6,8 @@
 //!
 //! The runtime ABI is frozen: `registerServerReference(id, fn)` on the
 //! server, `createServerReference(id)` proxies on the client, and the
-//! `<xxhash32(relative path)>-<count>` ID format shared by both builds.
+//! `<name>-<xxhash32(relative path)>` ID format shared by both builds
+//! (identity-keyed, not positional — solidjs/solid#3109).
 
 mod dce;
 mod transform;
@@ -45,7 +46,8 @@ pub struct TransformDirectivesOptions {
     /// `"server"` keeps the module and registers extracted functions;
     /// `"client"` replaces them with reference proxies.
     pub mode: Option<String>,
-    /// `"development"` appends the function name to generated IDs.
+    /// `"development"` passes the function name to the runtime for
+    /// devtools; ids themselves are identical across envs.
     pub env: Option<String>,
     /// The directive text. Default `"use server"`.
     pub directive: Option<String>,
@@ -59,7 +61,7 @@ pub struct TransformDirectivesOptions {
 /// One extracted server function, for the bundler plugin's manifest.
 #[napi(object)]
 pub struct ServerFunctionMeta {
-    /// The wire ID (`<hash>-<count>[-<name>]`).
+    /// The wire ID (`<name>-<hash>[-<ordinal>]`).
     pub id: String,
     /// The descriptive source name (`anonymous` when none applies).
     pub name: String,
@@ -151,12 +153,6 @@ pub fn transform_directives(
         import_def(options.create.as_ref(), "createServerReference"),
     );
     pass.run(&mut program);
-
-    if let Some(error) = &pass.wrapped_export {
-        return Err(Error::from_reason(validate::format_wrapped_export_error(
-            error, &code, filename,
-        )));
-    }
 
     let valid = pass.valid;
     let functions = pass

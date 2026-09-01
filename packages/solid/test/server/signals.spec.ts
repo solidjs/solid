@@ -10,6 +10,7 @@ import {
   createReaction,
   createStore,
   createOptimistic,
+  createOptimisticStore,
   createProjection,
   reconcile,
   deep,
@@ -308,6 +309,69 @@ describe("Server createStore", () => {
       s.count = 5;
     });
     expect(state.count).toBe(5);
+  });
+
+  // Parity with the client: a setter returning a wrappable replacement is
+  // adopted into the same root as a plain data operation (#3064).
+  test("applies a returned replacement array, growing and shrinking (#3064)", () => {
+    const [state, setState] = createStore<{ id: string }[]>([{ id: "x" }]);
+    setState(draft => [...draft, { id: "y" }]);
+    expect(state.length).toBe(2);
+    expect(state[1].id).toBe("y");
+
+    setState(() => [{ id: "z" }]);
+    expect(state.length).toBe(1);
+    expect(state[0].id).toBe("z");
+  });
+
+  test("applies a returned replacement object, dropping absent keys", () => {
+    const [state, setState] = createStore<Record<string, number>>({ a: 1, b: 2 });
+    setState(() => ({ a: 10, c: 3 }));
+    expect(state.a).toBe(10);
+    expect(state.c).toBe(3);
+    expect("b" in state).toBe(false);
+  });
+
+  test("ignores non-wrappable and self returns", () => {
+    const [state, setState] = createStore({ count: 1 });
+    setState((() => 42) as any);
+    expect(state.count).toBe(1);
+    setState(s => s);
+    expect(state.count).toBe(1);
+  });
+});
+
+// === Optimistic writes are no-ops on the server ===
+// Client optimistic writes are masks that revert when their transition
+// settles; server output is settled state, so the writes must not land —
+// the old signal/store aliasing serialized optimistic masks as
+// authoritative state.
+describe("Server optimistic no-ops", () => {
+  test("createOptimistic writes do not land", () => {
+    const [value, setValue] = createOptimistic(1);
+    setValue(2 as any);
+    expect(value()).toBe(1);
+  });
+
+  test("createOptimistic never invokes updaters", () => {
+    const [value, setValue] = createOptimistic(1);
+    const updater = vi.fn(() => 2);
+    setValue(updater as any);
+    expect(updater).not.toHaveBeenCalled();
+    expect(value()).toBe(1);
+  });
+
+  test("createOptimisticStore setters do not run or land", () => {
+    const [state, setState] = createOptimisticStore<{ id: string }[]>([{ id: "x" }]);
+    const setterFn = vi.fn((draft: { id: string }[]) => {
+      draft.push({ id: "y" });
+    });
+    setState(setterFn);
+    expect(setterFn).not.toHaveBeenCalled();
+    expect(state.length).toBe(1);
+
+    setState(() => [{ id: "z" }]);
+    expect(state[0].id).toBe("x");
   });
 });
 

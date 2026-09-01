@@ -10,6 +10,7 @@
 import { flush } from "@solidjs/signals";
 import { assertBudget, captureArtifact, expectNoDiagnostics } from "../src/index.js";
 import { mountTodoApp } from "./fixtures/todo-app.js";
+import { deterministicAttribution } from "./helpers.js";
 
 describe("todo app acceptance", () => {
   it("renders correctly within budget for a scripted session", async () => {
@@ -28,7 +29,7 @@ describe("todo app acceptance", () => {
         app.dispose();
         return app.renderLog;
       },
-      { scenario: "todo-session" }
+      { scenario: "todo-session", attribution: deterministicAttribution }
     );
 
     // Behavior: every state change the user made is visible in the output.

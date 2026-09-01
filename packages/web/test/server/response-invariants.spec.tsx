@@ -88,7 +88,7 @@ describe("thrown Response passes through SSR error handling", () => {
 describe("error sanitization passes thrown Responses through (production bundle)", () => {
   function dispatch(id: string) {
     return handleServerFunctionRequest(
-      new Request(`http://localhost/_server?id=${encodeURIComponent(id)}`, {
+      new Request(`http://localhost/_server/data/${encodeURIComponent(id)}`, {
         method: "POST",
         headers: {
           "Sec-Fetch-Site": "same-origin",
@@ -109,9 +109,9 @@ describe("error sanitization passes thrown Responses through (production bundle)
     const out = await dispatch("invariant#throw-response");
     // Intentional control flow: the redirect metadata is forwarded (the
     // client integration handles the redirect, so the status stays 200 on
-    // the instance path) and the error flag is the plain thrown marker —
-    // not a sanitized message.
-    expect(out.headers.get("Location")).toBe("/next");
+    // the scripted path and the target rides the redirect carrier) and the
+    // error flag is the plain thrown marker — not a sanitized message.
+    expect(out.headers.get("X-Server-Function-Redirect")).toBe("302 http://localhost/next");
     expect(out.headers.get("X-Server-Function-Error")).toBe("true");
     // The path never brands the Response as a "safe error" — it is not an
     // error at all, and must not leave the exchange wearing error marks.

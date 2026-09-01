@@ -26,7 +26,6 @@ impl<'a> AstDomTransform<'a, '_> {
         }
         let mut prop_objects = std::vec::Vec::new();
         let mut running_props = std::vec::Vec::new();
-        let mut dynamic_spread = false;
         for attr in attributes {
             match attr {
                 JSXAttributeItem::SpreadAttribute(spread) => {
@@ -41,9 +40,8 @@ impl<'a> AstDomTransform<'a, '_> {
                     let dynamic = self.classify().is_dynamic(None, &spread.argument, false);
                     let value = spread.argument.clone_in(self.allocator);
                     let value = if dynamic {
-                        dynamic_spread = true;
                         // Babel's `inlineCallExpression`: `{...results()}`
-                        // passes `results` straight through to mergeProps.
+                        // passes `results` straight through as an accessor.
                         match zero_arg_call_thunk(&value, self.allocator) {
                             Some(callee) => callee,
                             None => arrow_return_expression(self.allocator, spread.span, value),
@@ -81,7 +79,11 @@ impl<'a> AstDomTransform<'a, '_> {
             ));
         }
 
-        let props = if prop_objects.len() == 1 && !dynamic_spread {
+        // A lone spread — reactive included — passes straight through:
+        // spread() resolves a function source inside its own tracking
+        // scopes, and merging one source would mint a memo that consumes a
+        // hydration id the SSR fast path never allocates (#3105).
+        let props = if prop_objects.len() == 1 {
             prop_objects
                 .pop()
                 .expect("single spread props object exists")

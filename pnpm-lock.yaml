@@ -9,6 +9,7 @@ overrides:
   solid-js: workspace:*
   '@solidjs/web': workspace:*
   '@solidjs/babel-plugin': workspace:*
+  '@solidjs/compiler': workspace:*
   '@solidjs/compiler-darwin-x64': link:packages/compiler/npm/darwin-x64
   '@solidjs/compiler-darwin-arm64': link:packages/compiler/npm/darwin-arm64
   '@solidjs/compiler-linux-x64-gnu': link:packages/compiler/npm/linux-x64-gnu
@@ -54,8 +55,8 @@ importers:
         specifier: workspace:*
         version: link:packages/babel-plugin
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.33
-        version: 3.0.0-next.33(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.35
+        version: 3.0.0-next.35(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:packages/web
@@ -139,11 +140,36 @@ importers:
         version: link:../../packages/solid
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.33
-        version: 3.0.0-next.33(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.35
+        version: 3.0.0-next.35(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       vite:
         specifier: ^8.0.0
         version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
+
+  examples/effect:
+    dependencies:
+      effect:
+        specifier: ^3.22.0
+        version: 3.22.1
+    devDependencies:
+      '@solidjs/vite-plugin':
+        specifier: 3.0.0-next.35
+        version: 3.0.0-next.35(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
+      '@solidjs/web':
+        specifier: workspace:*
+        version: link:../../packages/web
+      '@types/node':
+        specifier: ^25.6.0
+        version: 25.6.0
+      solid-js:
+        specifier: workspace:*
+        version: link:../../packages/solid
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.3
+      vite:
+        specifier: ^7.0.0
+        version: 7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0)
 
   examples/hackernews:
     dependencies:
@@ -158,8 +184,8 @@ importers:
         version: link:../../packages/solid
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.33
-        version: 3.0.0-next.33(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.35
+        version: 3.0.0-next.35(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       vite:
         specifier: ^8.0.0
         version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
@@ -177,8 +203,8 @@ importers:
         version: link:../../packages/solid
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.33
-        version: 3.0.0-next.33(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.35
+        version: 3.0.0-next.35(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       vite:
         specifier: ^8.0.0
         version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
@@ -186,8 +212,8 @@ importers:
   examples/migrating-element:
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.33
-        version: 3.0.0-next.33(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
+        specifier: 3.0.0-next.35
+        version: 3.0.0-next.35(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -226,8 +252,8 @@ importers:
         version: 1.17.5
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.33
-        version: 3.0.0-next.33(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.35
+        version: 3.0.0-next.35(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       vite:
         specifier: ^8.0.0
         version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
@@ -235,8 +261,8 @@ importers:
   examples/rendering:
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.33
-        version: 3.0.0-next.33(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
+        specifier: 3.0.0-next.35
+        version: 3.0.0-next.35(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -259,8 +285,8 @@ importers:
   examples/sierpinski:
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.33
-        version: 3.0.0-next.33(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
+        specifier: 3.0.0-next.35
+        version: 3.0.0-next.35(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -280,8 +306,8 @@ importers:
   examples/todos:
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.33
-        version: 3.0.0-next.33(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
+        specifier: 3.0.0-next.35
+        version: 3.0.0-next.35(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -341,17 +367,20 @@ importers:
   packages/compiler:
     devDependencies:
       '@emnapi/core':
-        specifier: ^1.11.2
-        version: 1.11.2
+        specifier: ^1.11.3
+        version: 1.11.3
       '@emnapi/runtime':
-        specifier: ^1.11.2
-        version: 1.11.2
+        specifier: ^1.11.3
+        version: 1.11.3
       '@napi-rs/cli':
         specifier: ^3.7.2
-        version: 3.8.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@25.6.0)
+        version: 3.8.6(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@25.6.0)(emnapi@1.11.3)
       '@napi-rs/wasm-runtime':
         specifier: ^1.1.6
-        version: 1.1.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
+        version: 1.1.6(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
+      emnapi:
+        specifier: ^1.11.3
+        version: 1.11.3
     optionalDependencies:
       '@solidjs/compiler-darwin-arm64':
         specifier: link:npm/darwin-arm64
@@ -1177,50 +1206,14 @@ packages:
     resolution: {integrity: sha512-Vd/9EVDiu6PPJt9yAh6roZP6El1xHrdvIVGjyBsHR0RYwNHgL7FJPyIIW4fANJNG6FtyZfvlRPpFI4ZM/lubvw==}
     engines: {node: '>=18'}
 
-  '@dom-expressions/babel-plugin-jsx@0.50.0-next.44':
-    resolution: {integrity: sha512-f1kx6TeMQgaLVkGfuxMn0BkH0+HvsycFf1qPHbYoBqmBQd6Ag/EXOxkSpfcaC+UOBMSaF4BKXegGDchRNTWKrg==}
-    peerDependencies:
-      '@babel/core': ^7.20.12
-
-  '@dom-expressions/compiler-darwin-arm64@0.50.0-next.44':
-    resolution: {integrity: sha512-7l575p7EQu16lssfbtgspSBWBSK5+car5NP4VYD/iJiK+Qd2VcMQMwaOjgA1xCs/P0S0l9EFY9BHGIJcHQTL+w==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@dom-expressions/compiler-darwin-x64@0.50.0-next.44':
-    resolution: {integrity: sha512-NRbfI3HhBPsSrSQvSUfQXvPXfEKjUQKnbBVCDvcu7ISBPMQd+0yH9M+Qmlf7kVq4Ci9qa1HL5EA2jD22d2v73A==}
-    cpu: [x64]
-    os: [darwin]
-
-  '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.44':
-    resolution: {integrity: sha512-/Gfa8j/YHBKK1i8b2VQw3ewBlA6qlEZSAn+b7g3z1g18WydPUI/TZWISKpgNxAtyl9m9MvwgbWA1HcHVkf4zyg==}
-    cpu: [arm64]
-    os: [linux]
-    libc: [glibc]
-
-  '@dom-expressions/compiler-linux-x64-gnu@0.50.0-next.44':
-    resolution: {integrity: sha512-gV4J4Sr1+6Awnkl5npREqPvxcDfgw4PGguTdFnsHVN9cxAFet3ujcCbWsAJ+QMBUQ8OT/LG6d4oJLlAkQ0D1fA==}
-    cpu: [x64]
-    os: [linux]
-    libc: [glibc]
-
-  '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.44':
-    resolution: {integrity: sha512-YrzoB/YZtrmnGXhz3sxs7VeuAXT0JRc6NguNX8iDNt5p5fQ0QX+HR75GYMsxY9FceSVTHObrm3fA/8KGYo5z6Q==}
-    engines: {node: '>=14.0.0'}
-
-  '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.44':
-    resolution: {integrity: sha512-BNQEgny4zyjceZqCaRJDCrQ2oy6z7oXruAE/du2uJB7qLz/z24ISJVUKeKHPb5mRzHuSiTlDcK7pDzE7jPPXjg==}
-    cpu: [x64]
-    os: [win32]
-
-  '@dom-expressions/compiler@0.50.0-next.44':
-    resolution: {integrity: sha512-CBj0k+LcpCk8+nJGY7uvqxLC5NLxXTx9l0fuMZBBkBAOgVf5/IlMyMSpaYE5H5AkFiajR05NYvNR07R6e0KZ3w==}
-
   '@emnapi/core@1.11.1':
     resolution: {integrity: sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ==}
 
   '@emnapi/core@1.11.2':
     resolution: {integrity: sha512-TC8MkTuZUtcTSiFeuC0ksCh9QIJ5+F21MvZ4Wn4ORfYaFJ/0dsiudv5tVkejgwZlwQ39jL9WWDe2lz8x0WglOA==}
+
+  '@emnapi/core@1.11.3':
+    resolution: {integrity: sha512-zLpS5asjEb7lq8jYLq37N6XKaE41DIexlY1rF/z4/tIl3wo13Sqm28fRyfIsKZD+NZ8mM5RoKkpW/rBcuoSZSg==}
 
   '@emnapi/core@1.9.2':
     resolution: {integrity: sha512-UC+ZhH3XtczQYfOlu3lNEkdW/p4dsJ1r/bP7H8+rhao3TTTMO1ATq/4DdIi23XuGoFY+Cz0JmCbdVl0hz9jZcA==}
@@ -1231,6 +1224,9 @@ packages:
   '@emnapi/runtime@1.11.2':
     resolution: {integrity: sha512-kyOl3X0DuTiT1h2ft8r2fYO8JYtU9a9Xis/zBSiGArNaagCOWx90N1k2wxp18czFDH+OgcWGb5ZP/XMt3dcyPA==}
 
+  '@emnapi/runtime@1.11.3':
+    resolution: {integrity: sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==}
+
   '@emnapi/runtime@1.9.2':
     resolution: {integrity: sha512-3U4+MIWHImeyu1wnmVygh5WlgfYDtyf0k8AbLhMFxOipihf6nrWC4syIm/SwEeec0mNSafiiNnMJwbza/Is6Lw==}
 
@@ -1239,6 +1235,9 @@ packages:
 
   '@emnapi/wasi-threads@1.2.2':
     resolution: {integrity: sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA==}
+
+  '@emnapi/wasi-threads@1.2.3':
+    resolution: {integrity: sha512-ELEBe8PsLvvJ6QMr0zLt8ffvOHW/dc1m3CEzNMg7aJUv3bMaoDtw2TXyDAwkYBuroxxuHEwhRTLJSe5sya547g==}
 
   '@esbuild/aix-ppc64@0.27.7':
     resolution: {integrity: sha512-EKX3Qwmhz1eMdEJokhALr0YiD0lhQNwDqkPYyPhiSwKrh7/4KRjQc04sZ8db+5DVVnZ1LmbNDI1uAMPEUBnQPg==}
@@ -1576,6 +1575,9 @@ packages:
 
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
+
+  '@jridgewell/sourcemap-codec@1.6.0':
+    resolution: {integrity: sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==}
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
@@ -2364,8 +2366,8 @@ packages:
       '@solidjs/web': workspace:*
       solid-js: workspace:*
 
-  '@solidjs/vite-plugin@3.0.0-next.33':
-    resolution: {integrity: sha512-8c6twAU/ko9TUEr3koPnWQ1CzET+muZPJFaxBSLYv0M+WRgtmbjlHl9GxTSfm5dd23JDwGhBcv3gdxr2slV/wg==}
+  '@solidjs/vite-plugin@3.0.0-next.35':
+    resolution: {integrity: sha512-8Mlftd+WfZkwOoCZRyMxA8innT8b2D/qawTu+28RW/Hj4eSmStSLx4dHjYeH9MxyOwo7DQStAyHAADk5LFQVRw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     peerDependencies:
       '@solidjs/start-devtools': ^1.0.0-next.2
@@ -2584,15 +2586,6 @@ packages:
     resolution: {integrity: sha512-hYm+XLYRMvupxiQzrvXUj7YyvFFVfv5gI0R71AJzudg1g2AI2vyCPPIFEBjk162/wFzti3inBHo7isWFuEVS/A==}
     peerDependencies:
       '@babel/core': ^7.4.0 || ^8.0.0-0 <8.0.0
-
-  babel-preset-solid@2.0.0-rc.2:
-    resolution: {integrity: sha512-Venq++Aa6+RzGIAyS5vSo3kX1fE8zRreEPCh1eTh5DTjlTft9qZGIG14RSZDv/sjVxT8x5Gs9+21PzxuLe8U+g==}
-    peerDependencies:
-      '@babel/core': ^7.0.0
-      solid-js: workspace:*
-    peerDependenciesMeta:
-      solid-js:
-        optional: true
 
   balanced-match@1.0.2:
     resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
@@ -2828,8 +2821,19 @@ packages:
   ecc-jsbn@0.1.2:
     resolution: {integrity: sha512-eh9O+hwRHNbG4BLTjEl3nw044CkGm5X6LoaCf7LPp7UU8Qrt47JYNi6nPX8xjW97TKGKm1ouctg0QSpZe9qrnw==}
 
+  effect@3.22.1:
+    resolution: {integrity: sha512-TNoXushmPOBAjJlthF5d2QwnX2xBPEtcNJr5XKNKbRLbDvBcOYkXlYDfvGfSA0zriwLFuCll5MDtNMAdZL17PQ==}
+
   electron-to-chromium@1.5.302:
     resolution: {integrity: sha512-sM6HAN2LyK82IyPBpznDRqlTQAtuSaO+ShzFiWTvoMJLHyZ+Y39r8VMfHzwbU8MVBzQ4Wdn85+wlZl2TLGIlwg==}
+
+  emnapi@1.11.3:
+    resolution: {integrity: sha512-+/ZS90YK/rYfVOHtGLHkGffVsnmD/MAKaBHio+Y4XAtg75RLr4cveV/w0jTkUdLM1CcAlaRgG76mpIemWAlk0A==}
+    peerDependencies:
+      node-addon-api: '>= 6.1.0'
+    peerDependenciesMeta:
+      node-addon-api:
+        optional: true
 
   emoji-regex@8.0.0:
     resolution: {integrity: sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A==}
@@ -2915,6 +2919,10 @@ packages:
   extsprintf@1.3.0:
     resolution: {integrity: sha512-11Ndz7Nv+mvAC1j0ktTa7fAb0vLyGGX+rMHNBYQviQDGU0Hw7lhctJANqbPhu9nV9/izT/IntTgZ7Im/9LJs9g==}
     engines: {'0': node >=0.6.0}
+
+  fast-check@3.23.2:
+    resolution: {integrity: sha512-h5+1OzzfCC3Ef7VbtKdcv7zsstUQwUDlYpUTvjeUsJAssPgLn7QzbboPtL5ro04Mq0rPOsMzl7q5hIbRs2wD1A==}
+    engines: {node: '>=8.0.0'}
 
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
@@ -3731,6 +3739,9 @@ packages:
   punycode@2.3.1:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
+
+  pure-rand@6.1.0:
+    resolution: {integrity: sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA==}
 
   qs@6.5.5:
     resolution: {integrity: sha512-mzR4sElr1bfCaPJe7m8ilJ6ZXdDaGoObcYR0ZHSsktM/Lt21MVHj5De30GQH2eiZ1qGRTO7LCAzQsUeXTNexWQ==}
@@ -5367,47 +5378,6 @@ snapshots:
 
   '@csstools/css-tokenizer@3.0.4': {}
 
-  '@dom-expressions/babel-plugin-jsx@0.50.0-next.44(@babel/core@7.29.0)':
-    dependencies:
-      '@babel/core': 7.29.0
-      '@babel/helper-module-imports': 7.18.6
-      '@babel/plugin-syntax-jsx': 7.28.6(@babel/core@7.29.0)
-      '@babel/types': 7.29.0
-      html-entities: 2.3.3
-      parse5: 7.3.0
-      validate-html-nesting: 1.2.4
-
-  '@dom-expressions/compiler-darwin-arm64@0.50.0-next.44':
-    optional: true
-
-  '@dom-expressions/compiler-darwin-x64@0.50.0-next.44':
-    optional: true
-
-  '@dom-expressions/compiler-linux-arm64-gnu@0.50.0-next.44':
-    optional: true
-
-  '@dom-expressions/compiler-linux-x64-gnu@0.50.0-next.44':
-    optional: true
-
-  '@dom-expressions/compiler-wasm32-wasi@0.50.0-next.44':
-    dependencies:
-      '@emnapi/core': 1.11.2
-      '@emnapi/runtime': 1.11.2
-      '@napi-rs/wasm-runtime': 1.1.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
-    optional: true
-
-  '@dom-expressions/compiler-win32-x64-msvc@0.50.0-next.44':
-    optional: true
-
-  '@dom-expressions/compiler@0.50.0-next.44':
-    optionalDependencies:
-      '@dom-expressions/compiler-darwin-arm64': 0.50.0-next.44
-      '@dom-expressions/compiler-darwin-x64': 0.50.0-next.44
-      '@dom-expressions/compiler-linux-arm64-gnu': 0.50.0-next.44
-      '@dom-expressions/compiler-linux-x64-gnu': 0.50.0-next.44
-      '@dom-expressions/compiler-wasm32-wasi': 0.50.0-next.44
-      '@dom-expressions/compiler-win32-x64-msvc': 0.50.0-next.44
-
   '@emnapi/core@1.11.1':
     dependencies:
       '@emnapi/wasi-threads': 1.2.2
@@ -5417,6 +5387,12 @@ snapshots:
   '@emnapi/core@1.11.2':
     dependencies:
       '@emnapi/wasi-threads': 1.2.2
+      tslib: 2.8.1
+    optional: true
+
+  '@emnapi/core@1.11.3':
+    dependencies:
+      '@emnapi/wasi-threads': 1.2.3
       tslib: 2.8.1
 
   '@emnapi/core@1.9.2':
@@ -5433,6 +5409,11 @@ snapshots:
   '@emnapi/runtime@1.11.2':
     dependencies:
       tslib: 2.8.1
+    optional: true
+
+  '@emnapi/runtime@1.11.3':
+    dependencies:
+      tslib: 2.8.1
 
   '@emnapi/runtime@1.9.2':
     dependencies:
@@ -5445,6 +5426,11 @@ snapshots:
     optional: true
 
   '@emnapi/wasi-threads@1.2.2':
+    dependencies:
+      tslib: 2.8.1
+    optional: true
+
+  '@emnapi/wasi-threads@1.2.3':
     dependencies:
       tslib: 2.8.1
 
@@ -5674,7 +5660,7 @@ snapshots:
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
-      '@jridgewell/sourcemap-codec': 1.5.5
+      '@jridgewell/sourcemap-codec': 1.6.0
       '@jridgewell/trace-mapping': 0.3.31
 
   '@jridgewell/remapping@2.3.5':
@@ -5690,6 +5676,8 @@ snapshots:
       '@jridgewell/trace-mapping': 0.3.31
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
+
+  '@jridgewell/sourcemap-codec@1.6.0': {}
 
   '@jridgewell/trace-mapping@0.3.31':
     dependencies:
@@ -5712,7 +5700,7 @@ snapshots:
       globby: 11.1.0
       read-yaml-file: 1.1.0
 
-  '@napi-rs/cli@3.8.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@25.6.0)':
+  '@napi-rs/cli@3.8.6(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@25.6.0)(emnapi@1.11.3)':
     dependencies:
       '@inquirer/prompts': 8.6.0(@types/node@25.6.0)
       '@napi-rs/cross-toolchain': 1.0.3
@@ -5727,8 +5715,9 @@ snapshots:
       typanion: 3.14.0
       typescript: 6.0.3
     optionalDependencies:
-      '@emnapi/core': 1.11.2
-      '@emnapi/runtime': 1.11.2
+      '@emnapi/core': 1.11.3
+      '@emnapi/runtime': 1.11.3
+      emnapi: 1.11.3
     transitivePeerDependencies:
       - '@napi-rs/cross-toolchain-arm64-target-aarch64'
       - '@napi-rs/cross-toolchain-arm64-target-armv7'
@@ -5908,6 +5897,13 @@ snapshots:
     dependencies:
       '@emnapi/core': 1.11.2
       '@emnapi/runtime': 1.11.2
+      '@tybys/wasm-util': 0.10.3
+    optional: true
+
+  '@napi-rs/wasm-runtime@1.1.6(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
+    dependencies:
+      '@emnapi/core': 1.11.3
+      '@emnapi/runtime': 1.11.3
       '@tybys/wasm-util': 0.10.3
 
   '@napi-rs/wasm-runtime@1.1.6(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)':
@@ -6277,14 +6273,14 @@ snapshots:
       '@solidjs/web': link:packages/web
       solid-js: link:packages/solid
 
-  '@solidjs/vite-plugin@3.0.0-next.33(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))':
+  '@solidjs/vite-plugin@3.0.0-next.35(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))':
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@babel/core': 7.29.0
-      '@dom-expressions/compiler': 0.50.0-next.44
+      '@solidjs/babel-plugin': link:packages/babel-plugin
+      '@solidjs/compiler': link:packages/compiler
       '@solidjs/web': link:packages/web
       '@types/babel__core': 7.20.5
-      babel-preset-solid: 2.0.0-rc.2(@babel/core@7.29.0)(solid-js@packages+solid)
       merge-anything: 5.1.7
       solid-js: link:packages/solid
       vite: 7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0)
@@ -6294,14 +6290,14 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@solidjs/vite-plugin@3.0.0-next.33(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))':
+  '@solidjs/vite-plugin@3.0.0-next.35(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))':
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@babel/core': 7.29.0
-      '@dom-expressions/compiler': 0.50.0-next.44
+      '@solidjs/babel-plugin': link:packages/babel-plugin
+      '@solidjs/compiler': link:packages/compiler
       '@solidjs/web': link:packages/web
       '@types/babel__core': 7.20.5
-      babel-preset-solid: 2.0.0-rc.2(@babel/core@7.29.0)(solid-js@packages+solid)
       merge-anything: 5.1.7
       solid-js: link:packages/solid
       vite: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
@@ -6566,13 +6562,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  babel-preset-solid@2.0.0-rc.2(@babel/core@7.29.0)(solid-js@packages+solid):
-    dependencies:
-      '@babel/core': 7.29.0
-      '@dom-expressions/babel-plugin-jsx': 0.50.0-next.44(@babel/core@7.29.0)
-    optionalDependencies:
-      solid-js: link:packages/solid
-
   balanced-match@1.0.2: {}
 
   balanced-match@4.0.4: {}
@@ -6776,7 +6765,14 @@ snapshots:
       jsbn: 0.1.1
       safer-buffer: 2.1.2
 
+  effect@3.22.1:
+    dependencies:
+      '@standard-schema/spec': 1.1.0
+      fast-check: 3.23.2
+
   electron-to-chromium@1.5.302: {}
+
+  emnapi@1.11.3: {}
 
   emoji-regex@8.0.0: {}
 
@@ -6862,6 +6858,10 @@ snapshots:
   extendable-error@0.1.7: {}
 
   extsprintf@1.3.0: {}
+
+  fast-check@3.23.2:
+    dependencies:
+      pure-rand: 6.1.0
 
   fast-deep-equal@3.1.3: {}
 
@@ -7624,6 +7624,8 @@ snapshots:
       punycode: 2.3.1
 
   punycode@2.3.1: {}
+
+  pure-rand@6.1.0: {}
 
   qs@6.5.5: {}
 

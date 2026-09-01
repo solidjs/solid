@@ -419,7 +419,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
         let template_id = if skip_template {
             None
         } else {
-            Some(self.template_id_with_options(template, template_flag))
+            Some(self.template_id_with_options(template, template_flag, element.span))
         };
         let has_hydratable_event = self.has_hydratable_event;
         self.has_hydratable_event = saved_hydratable_event;

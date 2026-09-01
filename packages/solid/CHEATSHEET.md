@@ -276,6 +276,8 @@ Optimistic writes revert when the transition completes. Division of labor: optim
 </For>
 
 // List, non-keyed (replaces <Index>)
+// item is an accessor: read it in JSX / a memo, not at the top of the
+// callback — the callback body is an owner, not a tracking scope.
 <For each={items()} keyed={false}>
   {(item, i) => <Row item={item()} index={i} />}
 </For>
@@ -337,6 +339,11 @@ import { Dynamic } from "@solidjs/web";
 `<For>` non-keyed: `item` is an **accessor** and `i` is a plain number.
 `<For>` default/keyed-by-identity: `item` is a **plain value** and `i` is an accessor.
 `<Repeat>`: `i` is a **plain number**.
+
+Whichever argument is the accessor, read it **in JSX, a memo, or an effect** —
+the callback body itself is an owner, **not a tracking scope**. `let x = item().x`
+at the top of the callback freezes at the initial value (dev warns
+`STRICT_READ_UNTRACKED`). The same holds for `<Show>` / `<Match>` function children.
 
 ---
 
@@ -505,7 +512,7 @@ import { renderToString, renderToStream, isServer, isDev } from "@solidjs/web";
 Common dev-mode warnings/errors you may hit:
 
 - **Top-level reactive read in component body** — read inside JSX or wrap in `untrack`/`createMemo`.
-- **Write under owned scope** — move setters into event handlers / `onSettled` / `untrack`, or opt in with `{ ownedWrite: true }`.
+- **Write under owned scope** — move setters into event handlers / `onSettled` (`untrack` does NOT exempt writes: the guard is owner-based, and untrack only stops tracking), or opt in with `{ ownedWrite: true }`.
 - **Strict read untracked** — extract values in the compute phase; don't read store proxies inside the effect callback.
 - **Multiple Solid instances** — single `solid-js` install required.
 
@@ -638,12 +645,13 @@ If your training data is 1.x, these are the corrections. **Read this before gene
 
 - **`createEffect` takes two arguments now**: `(compute, apply)`. The single-arg form is gone — using it is an error.
 - **Setters don't update reads immediately** — values become visible after the microtask flushes (or via `flush()`).
-- **No writes inside owned scope** — writing a signal/store from inside a memo, effect compute, or component body throws in dev. Move writes to event handlers, `onSettled`, or untracked blocks. Opt in narrowly with `{ ownedWrite: true }` for internal state.
+- **No writes inside owned scope** — writing a signal/store from inside a memo, effect compute, or component body throws in dev. Move writes to event handlers or `onSettled`. (`untrack` does not help: the guard fires on the ambient OWNER, which untrack never touches — component bodies already run untracked and are exactly where the guard fires.) Opt in narrowly with `{ ownedWrite: true }` for internal state.
 - **No top-level reactive reads in component body** — reading signals/props directly at the top of a component warns. Read inside JSX, a memo, or `untrack`.
 - **Props are values, not accessors** — at the call site call accessors (`<X v={count()} />`, not `<X v={count} />`). The single most common AI-generated bug.
 - **Don't destructure props** — `function Comp({ name })` warns; use `props.name` to keep reactivity. (Same root cause as above; see the Props section.)
 - **`<For>` callback shape follows keying** — default/keyed-by-identity receives a raw item and index accessor; `keyed={false}` receives an item accessor and stable numeric index; custom keys receive accessors.
 - **`<Show>` / `<Match>` function children narrow values** — non-keyed children receive accessors; keyed children receive raw values.
+- **Flow-component callback bodies are not tracking scopes** — they are owners. Reading an item/index accessor at the top of a `<For>` / `<Show>` / `<Match>` callback freezes it at the initial value; read it in JSX, a memo, or an effect.
 - **Stores: setters take a draft callback** — mutate the draft in place by default. Returning a new value is shallow (array index-replace, object top-level diff); reach for it for filter/remove. Keyed reconcile is a _projection-fn_ feature, not a setter feature.
 - **`undefined` is a real value in `merge`** — it overrides rather than "skip this key".
 - **Async lives in computations** — return a Promise/AsyncIterable from `createMemo`/`createStore(fn)`/`createProjection`. Pending reads participate in `<Loading>`.

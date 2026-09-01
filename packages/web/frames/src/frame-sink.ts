@@ -24,7 +24,7 @@
  *   registerFragment resolve (post-flush)
  *                                     -> fragment(key, html, meta) -> [assets,] fragment [, reveal when eager]
  *   revealFragments / revealFallbacks -> reveal(keys, meta)        -> reveal
- *   registerAsset (post-flush)        -> asset(type, url)          -> assets
+ *   registerAsset (post-flush)        -> asset(type, value)        -> assets
  *   envelope completion               -> end()                     -> complete
  *   error paths (not yet routed)      -> error(id, err)            -> error
  *
@@ -145,7 +145,10 @@ import {
   frameAddress,
   serializeStream
 } from "../../server-functions/src/shared.js";
-import { getEventServerFunctionInvocation } from "../../server-functions/src/server.js";
+import {
+  getEventServerFunctionInvocation,
+  guardFailures
+} from "../../server-functions/src/server.js";
 import { isResponseEnvelope } from "../../src/response.js";
 import {
   FRAME_STREAM_HEADER,
@@ -166,6 +169,10 @@ export {
   SERVER_COMPONENT_ADDRESS,
   ServerComponentPlugin
 } from "./frame-transport.js";
+
+function wirePreload(entry) {
+  return { href: entry.href, attrs: entry.attrs };
+}
 
 /**
  * The client-side `_$SC` registry as an idempotent expression: evaluates to
@@ -299,15 +306,23 @@ export function createFrameSink(emit, frame) {
       // Pre-flush assets (entry modules, hoisted boundary styles) are head
       // splices in the document sink; a frame carries them as an assets chunk
       // ahead of the shell html.
-      if (meta.preloads && meta.preloads.size) {
-        const styles = [];
-        const modules = [];
-        for (const url of meta.preloads) {
-          (url.endsWith(".css") ? styles : modules).push(url);
-        }
+      if ((meta.preloads && meta.preloads.size) || meta.preloadLinks) {
         const chunk = { type: "assets", id, version, key: "" };
-        if (styles.length) chunk.styles = styles;
-        if (modules.length) chunk.modules = modules;
+        if (meta.preloads && meta.preloads.size) {
+          const styles = [];
+          const modules = [];
+          for (const url of meta.preloads) {
+            (url.endsWith(".css") ? styles : modules).push(url);
+          }
+          if (styles.length) chunk.styles = styles;
+          if (modules.length) chunk.modules = modules;
+        }
+        if (meta.preloadLinks) {
+          chunk.preloads = [];
+          for (const entry of meta.preloadLinks) {
+            chunk.preloads.push(wirePreload(entry));
+          }
+        }
         emit(chunk);
       }
       emit({ type: "html", id, version, html });
@@ -412,13 +427,16 @@ export function createFrameSink(emit, frame) {
         emit(chunk);
       }
     },
-    asset(type, url) {
+    asset(type, value) {
       // Post-flush styles ride their fragment's assets chunk (fragment() gets
       // them via meta.styles) — same as the document sink, which only writes
       // style links on the fragment path. Emitting them here too would
       // duplicate, mis-keyed to the root.
-      if (type !== "module") return;
-      emit({ type: "assets", id, version, key: "", modules: [url] });
+      if (type === "module") {
+        emit({ type: "assets", id, version, key: "", modules: [value] });
+      } else if (type === "preload") {
+        emit({ type: "assets", id, version, key: "", preloads: [wirePreload(value)] });
+      }
     },
     end() {
       // The end-of-response latch: one final synchronous sweep so a commit
@@ -2023,7 +2041,13 @@ export function frameFlightResponse({ primary, regions = [], outcome, codec }, i
           // Component-valued entries serialize as flight references — the
           // protocol injects its own plugin (see `flightCodec`), so nothing
           // registers it.
-          const reader = new ChunkReader(serializeStream(outcome, flightCodec(codec)));
+          // Guarded like every other server-function body: this sink has its
+          // own serializer, so a rejection nested in flight data would
+          // otherwise reach the wire with its message and own-properties
+          // intact — under a 200, since the head is long committed.
+          const reader = new ChunkReader(
+            serializeStream(guardFailures(outcome), flightCodec(codec))
+          );
           for (let node = await reader.next(); !node.done; node = await reader.next()) {
             write({ type: "outcome", payload: node.value });
           }

@@ -133,8 +133,9 @@ export function Portal(props: { mount?: Element; children: JSX.Element }) {
  * Emits early preload hints for a `clientOnly` module: resolves the module's
  * client assets through the manifest seam lazy() uses and registers them as
  * plain link hints (`modulepreload` for js, stylesheet links / inline styles
- * for css) so the browser can start fetching when the HTML arrives instead
- * of when the client bundle evaluates the `clientOnly()` call.
+ * for css, plus explicit preload descriptors) so the browser can start
+ * fetching when the HTML arrives instead of when the client bundle evaluates
+ * the `clientOnly()` call.
  *
  * Deliberately NOT `registerModule`: that files the module into the
  * serialized hydration asset map, whose contract is "required before
@@ -160,6 +161,11 @@ function registerClientOnlyPreload(moduleUrl: string): void {
       const css = assets.css[i];
       if (typeof css === "string") registerAsset("style", css);
       else registerAsset("inline-style", css);
+    }
+    if (assets.preloads) {
+      for (let i = 0; i < assets.preloads.length; i++) {
+        registerAsset("preload", assets.preloads[i]);
+      }
     }
     for (let i = 0; i < assets.js.length; i++) registerAsset("module", assets.js[i]);
   };

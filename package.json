@@ -18,10 +18,10 @@
     "coverage": "turbo run coverage",
     "build": "turbo run build --filter=!@solidjs/compiler",
     "types": "turbo run types",
-    "publish": "pnpm run build && pnpm run types && pnpm run release:only",
+    "publish": "pnpm run release",
     "bump": "changeset add",
-    "release": "pnpm build && changeset publish",
-    "release:only": "changeset publish",
+    "version-packages": "changeset version && pnpm --filter @solidjs/compiler run napi:version && pnpm install --lockfile-only && pnpm install --frozen-lockfile --lockfile-only && node scripts/check-release-invariants.mjs",
+    "release": "node scripts/release.mjs",
     "format": "prettier --write --cache \"**/*.[tj]s?(x)\""
   },
   "devDependencies": {
@@ -36,7 +36,7 @@
     "@rollup/plugin-json": "^6.0.0",
     "@rollup/plugin-node-resolve": "^15.0.1",
     "@rollup/plugin-replace": "^5.0.2",
-    "@solidjs/vite-plugin": "3.0.0-next.33",
+    "@solidjs/vite-plugin": "3.0.0-next.35",
     "@solidjs/web": "workspace:*",
     "@testing-library/jest-dom": "^6.9.1",
     "@types/node": "^25.0.8",

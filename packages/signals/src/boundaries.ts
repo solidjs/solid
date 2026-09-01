@@ -503,7 +503,12 @@ export function createErrorBoundary<T, U>(
 ): Accessor<T | U> {
   return createCollectionBoundary<T | U>(STATUS_ERROR, fn, queue => {
     return fallback(accessor(queue._error), () => {
-      for (const source of queue._sources) recompute(source);
+      for (const source of queue._sources) {
+        // Non-computed sources (patch-channel registrations under plain
+        // owners) are not recomputable — their reset is the record's next
+        // transition re-applying the patch (re-audit 2, P1-4).
+        if ((source as any)._fn !== undefined) recompute(source);
+      }
       schedule();
     });
   });
@@ -651,7 +656,10 @@ function flattenArray(
         } while (typeof child === "function" && !child.length);
       }
       if (Array.isArray(child)) {
-        needsUnwrap = flattenArray(child, results, options);
+        // OR, don't overwrite: an accessor already pushed under doNotUnwrap
+        // still needs the resolving wrapper even when a later sibling
+        // fragment contains no functions (#3133).
+        needsUnwrap = flattenArray(child, results, options) || needsUnwrap;
       } else if (
         options?.skipNonRendered &&
         (child == null || child === true || child === false || child === "")

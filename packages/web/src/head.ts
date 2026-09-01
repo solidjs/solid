@@ -30,7 +30,9 @@ export const RESOURCE_LINK_RELS = new Set([
 
 // Attributes that qualify a resource identity: the same href preloaded
 // `as="image"` and `as="fetch"` are different requests, and crossorigin
-// changes cacheability. URL alone is not the identity.
+// changes cacheability. URL alone is not the identity. Integrity, referrer
+// policy, and fetch priority are deliberately first-registration metadata:
+// conflicting declarations do not create another resource identity.
 const RESOURCE_QUALIFIERS = ["as", "crossorigin", "type", "media", "imagesrcset", "imagesizes"];
 
 // Stylesheet attributes that are pure fetch metadata: they change how the
@@ -83,7 +85,8 @@ export function resourceIdentity(tag, props) {
   let id = "res:" + tag + ":" + (props.rel || "") + ":" + (props.href || props.src || "");
   for (let i = 0; i < RESOURCE_QUALIFIERS.length; i++) {
     const q = RESOURCE_QUALIFIERS[i];
-    if (props[q] != null) id += ":" + q + "=" + props[q];
+    const value = props[q];
+    if (value != null) id += ":" + q + "=" + (value === true ? "" : value);
   }
   return id;
 }

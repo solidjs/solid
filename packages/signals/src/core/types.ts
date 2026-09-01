@@ -33,6 +33,11 @@ export interface NodeOptions<T> {
   ownedWrite?: boolean;
   /** Exclude this signal from snapshot capture (internal — not part of public API) */
   _noSnapshot?: boolean;
+  /** Extra CONFIG_* bits OR'd into the node's config at creation (internal —
+   * not part of public API). Used by resolve()/until() for
+   * CONFIG_DIRECT_COMMIT / CONFIG_AUTHORITATIVE_READ, keeping the per-flag
+   * option arms out of the core creation path. */
+  _extraConfig?: number;
   unobserved?: () => void;
   lazy?: boolean;
   sync?: boolean;
@@ -80,6 +85,13 @@ export interface NodeExtension {
    */
   _affectsCount: number;
   _inFlight: PromiseLike<any> | AsyncIterable<any> | null;
+  /** Cancellation for the CURRENT iterator flight (#3122): closes the
+   * iterator (`it.return()`), idempotent. Fired at the sites that release
+   * `_inFlight` so a superseded stream stops at supersede time — its owner
+   * cleanup registration may ride the zombie-disposal channel, which a held
+   * transition defers until the SUPERSEDING flight settles. Null for plain
+   * promise flights (no cancellation hook exists). */
+  _flightTeardown: (() => void) | null;
   _error: unknown;
   _blocked: boolean | undefined;
   _pendingSources: Set<Computed<any>> | undefined;

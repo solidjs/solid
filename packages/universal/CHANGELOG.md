@@ -1,5 +1,50 @@
 # @solidjs/universal
 
+## 2.0.0-rc.5
+
+### Patch Changes
+
+- Updated dependencies [51ffcb9]
+- Updated dependencies [91e300a]
+- Updated dependencies [00d1d5d]
+- Updated dependencies [07471da]
+- Updated dependencies [0c02d42]
+  - solid-js@2.0.0-rc.5
+
+## 2.0.0-rc.4
+
+### Patch Changes
+
+- Updated dependencies [8d249c7]
+- Updated dependencies [f0c3692]
+- Updated dependencies [f3da41e]
+- Updated dependencies [a10cf1a]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+  - solid-js@2.0.0-rc.4
+
+## 2.0.0-rc.3
+
+### Minor Changes
+
+- 89a0531: Absorb the 0.50 expressions snapshot into this repo: lift compilers as `@solidjs/babel-plugin` and `@solidjs/compiler`, dump runtimes into `@solidjs/web` / `h` / `html` / `universal`. Origin: ryansolid/dom-expressions@e97e4290 (0.50.0-next.44).
+- 89a0531: Collapse the expressions dump: drop the rxcore seam, flatten runtimes into package `src/`, delete `babel-preset-solid`, and publish compiler natives as `@solidjs/compiler-*`.
+
+### Patch Changes
+
+- 4fba79d: Fold render/hydrate policy into the runtime implementations, drop the duplicate `mergeProps` re-export, keep JSX type sources in `packages/web/jsx/`, and colocate the SSR package entry at `src/index.server.ts`.
+- 7182195: Migrate the dumped DOM runtime from JavaScript plus colocated `.d.ts` files to TypeScript sources, so published types come from `tsc`.
+- Updated dependencies [a85c889]
+- Updated dependencies [28d5289]
+- Updated dependencies [bbcce0a]
+- Updated dependencies [35b30a1]
+- Updated dependencies [da59aea]
+- Updated dependencies [0205756]
+- Updated dependencies [b8c4534]
+  - solid-js@2.0.0-rc.3
+
 ## 2.0.0-rc.2
 
 ### Patch Changes

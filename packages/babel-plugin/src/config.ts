@@ -36,7 +36,7 @@ export interface PluginConfig {
    * compiled output must not import driver exports the release core only
    * stubs. Set to the driver's export name (e.g. "patchDriver") to opt a
    * build in against a channel-bearing core. */
-  patchDriver: string | false;
+  patchDriver: string | boolean;
   memoWrapper: string | false;
   validate: boolean;
   inlineStyles: boolean;

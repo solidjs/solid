@@ -38,9 +38,11 @@
 // import site of the shared wire layer keeps working.
 export {
   LIVE_SOURCE,
+  SERVER_FUNCTION_INVOKE,
   SERVER_FUNCTION_METADATA,
   getServerFunctionMetadata,
   getServerFunctionRPC,
+  invoke,
   isServerFunction,
   provideServerFunctionRPC,
   withMeta
@@ -61,20 +63,23 @@ import { JSONCodecOptions } from "../../serialization/src/serializer-decode.js";
  * HTTP handler. Integrations decoding passthrough responses themselves (no
  * registered consumer) see this shape from `decodeResponse`. The top level
  * is reserved for the protocol — integration payload lives entirely under
- * `data`, which can be any codec-serializable value.
+ * `data`, the envelope keyed by source id (the unnamed registration's
+ * slice rides under the reserved id "true"); each slice can be any
+ * codec-serializable value.
  */
 export interface SingleFlightPayload<T = unknown, D = unknown> {
   /** The server function's return (or thrown) value. */
   value: T;
-  /** The integration-produced data payload. */
+  /** The integration-produced data payload, keyed by source id. */
   data: D;
 }
 
 /**
  * Envelope context delivered alongside single-flight data: the transport
- * response, whose headers carry the integration metadata (`Location` for
- * redirect-with-data, `X-Revalidate` keys) and status. The body is already
- * consumed — read `data` and `value` from the delivery, not from here.
+ * response, whose headers carry the integration metadata (the redirect
+ * carrier for redirect-with-data, `X-Revalidate` keys) and status. The
+ * body is already consumed — read `data` and `value` from the delivery,
+ * not from here.
  */
 export interface FlightDataContext {
   /** The HTTP response the data arrived on (metadata only). */
@@ -104,6 +109,47 @@ export interface ServerFunction<A extends readonly any[] = any[], T = any> {
   /** URL invoking this function directly over HTTP (form `action`s, raw fetches). */
   readonly url: string;
 }
+
+/**
+ * Per-call, invocation-scoped options for `invoke` — things that vary
+ * between calls of the SAME function and cannot be declared (`GET`,
+ * `withMeta`) or configured (`prepareRequest`). On the server the call is
+ * in-process: `signal` still rejects the caller, the transport hints are
+ * no-ops (they describe a wire that does not exist).
+ */
+export interface InvokeOptions {
+  /**
+   * The call's lifecycle. Aborting rejects the call with the signal's
+   * reason and cancels the request (firing `request.signal` server-side);
+   * a live source's iteration ends across reconnects. When provided, the
+   * signal owns the wire — timeouts compose through it
+   * (`AbortSignal.timeout`, `AbortSignal.any`).
+   */
+  signal?: AbortSignal;
+  /**
+   * Lets the request outlive the page — fire-and-forget calls during
+   * unload (`pagehide`). Maps to fetch's `keepalive`, body-size caps
+   * included.
+   */
+  keepalive?: boolean;
+  /** Fetch priority hint — speculative prefetch vs. interaction fetch. */
+  priority?: "high" | "low" | "auto";
+}
+
+/**
+ * A reference's invocation channel, carried under `SERVER_FUNCTION_INVOKE`:
+ * applies one call with per-call options. Declaration wrappers (`GET`,
+ * `live`) forward it mechanically — they keep the call mapping 1:1. A
+ * wrapper that shares calls (a deduping cache, a multicast channel) opts
+ * in deliberately, deciding first what a caller's abort means for shared
+ * work — or declines, leaving `invoke` to answer with a directed error.
+ * Options arrive already validated — `invoke` admits only
+ * invocation-scoped keys.
+ */
+export type ServerFunctionInvoker<A extends readonly any[] = any[], R = any> = (
+  args: A,
+  options?: InvokeOptions
+) => R;
 
 /**
  * Declaration-static metadata attached to a server function reference
@@ -190,55 +236,111 @@ export function getServerFunctionsCodec() {
   return codecConfig.codec;
 }
 
-// The single-flight consumer also lives in the universal layer: routers are
+// The single-flight consumers also live in the universal layer: routers are
 // universal code, so the registration must be importable from any build
-// (the server side simply never delivers to it).
-const flightConfig = { consumer: undefined }; /**
+// (the server side simply never delivers to them). Consumers are keyed by
+// source id — the id list travels on the wire in both directions (the
+// request leg advertises what the client can consume, the response leg
+// names what was folded) — and the unnamed registration (the bare
+// consumer/hook signatures) rides under the reserved id "true".
+const UNNAMED_FLIGHT_SOURCE = "true";
+const flightConfig = { consumers: new Map() };
+
+/**
+ * Validates a flight data source id (both registration halves share the
+ * rule): ids travel the `SINGLE_FLIGHT_HEADER` as a comma-separated list,
+ * so they cannot be empty or contain commas, and "true" is reserved for
+ * the unnamed registration.
+ *
+ * Transport building block; not meant for hand-written code.
+ * @internal
+ */
+export function assertFlightSource(source: string): void;
+
+/** Validates a flight data source id. */
+export function assertFlightSource(source) {
+  if (source === UNNAMED_FLIGHT_SOURCE || source === "" || source.includes(",")) {
+    throw new TypeError(
+      `Invalid flight data source id "${source}": ids ride the ` +
+        `${SINGLE_FLIGHT_HEADER} header as a comma-separated list, and "true" is ` +
+        `reserved for the unnamed registration (the bare consumer/hook signatures).`
+    );
+  }
+} /**
  * Registers the consumer the client transport delivers single-flight data
- * to. Subscribing is the single-flight opt-in: while a consumer is
+ * to. Subscribing is the single-flight opt-in: while any consumer is
  * registered the transport sends the request-leg `SINGLE_FLIGHT_HEADER` on
  * non-GET calls (GET reads stay plain and cacheable), asking the server's
- * collection hook to fold data into the response. When a single-flight
+ * collection hooks to fold data into the response. When a single-flight
  * response arrives, the transport decodes the standardized
- * `{ value, data }` payload, delivers `data` (with the response as
+ * `{ value, data }` payload, delivers the data (with the response as
  * envelope context — redirect location, revalidation keys), and returns
  * `value` to the caller as if the call were plain. What to do with the
  * data (seed caches, navigate, ...) is entirely the consumer's business.
- * One active consumer at a time — a later registration replaces the
- * current one; returns an unsubscribe function. With no consumer
+ *
+ * The one-argument form registers the unnamed consumer — the integration
+ * that owns data production (a router), riding the keyed envelope under
+ * the reserved id "true". The two-argument form
+ * registers under a source id, pairing with the server's
+ * `registerFlightDataSource(id, hook)`: each named consumer receives only
+ * its own source's slice of the keyed envelope, so independent caches
+ * (a router's and a query library's) coexist on one round trip without
+ * displacing each other.
+ *
+ * One active consumer per source — a later registration replaces the
+ * current one; returns an unsubscribe function. With no consumers
  * registered, no header is sent and the server does no collection work;
  * responses an integration opted in manually still pass through to the
  * caller whole, exactly like other integration responses.
  */
 export function subscribeFlightData<D = unknown>(consumer: FlightDataConsumer<D>): () => void;
+export function subscribeFlightData<D = unknown>(
+  source: string,
+  consumer: FlightDataConsumer<D>
+): () => void;
 
 /**
- * Registers the consumer the client transport delivers single-flight data
- * to: `consumer(data, { response })` — the integration-produced payload
- * plus the response as envelope context (redirect location, revalidation
- * keys, status). What the data means and what to do with it (seed caches,
- * navigate, ...) is entirely the consumer's business. One active consumer
- * at a time (a later registration replaces the current one); returns an
- * unsubscribe function. With no consumer registered, single-flight
- * responses pass through to the caller whole, exactly like other
- * integration responses.
+ * Registers a consumer the client transport delivers single-flight data
+ * to: `consumer(data, { response })` — the source's own slice of the keyed
+ * envelope (the unnamed one-argument form rides under the reserved id
+ * "true") plus the response as envelope context (redirect carrier,
+ * revalidation keys, status). One active consumer per source (a later
+ * registration replaces the current one); returns an unsubscribe function.
  */
-export function subscribeFlightData(consumer) {
-  flightConfig.consumer = consumer;
+export function subscribeFlightData(sourceOrConsumer, maybeConsumer) {
+  const named = typeof sourceOrConsumer === "string";
+  if (named) assertFlightSource(sourceOrConsumer);
+  const source = named ? sourceOrConsumer : UNNAMED_FLIGHT_SOURCE;
+  const consumer = named ? maybeConsumer : sourceOrConsumer;
+  flightConfig.consumers.set(source, consumer);
   return () => {
-    if (flightConfig.consumer === consumer) flightConfig.consumer = undefined;
+    if (flightConfig.consumers.get(source) === consumer) flightConfig.consumers.delete(source);
   };
 } /**
- * The currently registered single-flight consumer.
+ * The registered single-flight consumer for a source id ("true" — or no
+ * argument — is the unnamed registration).
  *
  * Transport building block; not meant for hand-written code.
  * @internal
  */
-export function getFlightDataConsumer(): FlightDataConsumer | undefined;
+export function getFlightDataConsumer(source?: string): FlightDataConsumer | undefined;
 
-/** The currently registered single-flight consumer. */
-export function getFlightDataConsumer() {
-  return flightConfig.consumer;
+/** The registered single-flight consumer for a source id. */
+export function getFlightDataConsumer(source) {
+  return flightConfig.consumers.get(source === undefined ? UNNAMED_FLIGHT_SOURCE : source);
+} /**
+ * The source ids with a registered consumer, in registration order — the
+ * request-leg `SINGLE_FLIGHT_HEADER` value is exactly this list joined
+ * with commas (the unnamed registration rides as "true").
+ *
+ * Transport building block; not meant for hand-written code.
+ * @internal
+ */
+export function getFlightDataSourceIds(): string[];
+
+/** The source ids with a registered consumer. */
+export function getFlightDataSourceIds() {
+  return [...flightConfig.consumers.keys()];
 } /**
  * The intrinsic wire address of a server-component call: the function id,
  * suffixed with a realm-stable hash of the arguments when there are any.
@@ -325,10 +427,94 @@ function stableString(value, seen) {
     out += (i ? "," : "") + keys[i] + ":" + stableString(value[keys[i]], seen);
   }
   return out + "}";
-}
+} /**
+ * The plain-HTTP address of a function: `<endpoint>/<id>`.
+ *
+ * The id lives in the path because the path is what per-function policy keys
+ * on — edge rules, cache policies by path pattern, log aggregation, route
+ * labels in traces — and because it leaves the URL with exactly one place to
+ * carry it, so no header can disagree with what a cache stored the response
+ * under. Arguments ride the query, which is keyed by standards-compliant
+ * caches, scrubbed by ordinary log tooling, and inert under the path
+ * normalization every proxy applies.
+ *
+ * This is the address rendered into documents (`<form action>`, a
+ * reference's `.url`) and the one a scriptless or hand-driven caller hits:
+ * answers at it are plain HTTP — raw `Response` values verbatim, real
+ * redirect statuses, form-convention handling. The transport's own calls go
+ * to `serverFunctionDataAddress`, whose answers are the codec's; splitting
+ * the two shapes across two paths is what lets a shared cache store either
+ * without one caller kind poisoning the other (#3094).
+ *
+ * Transport wire detail; not meant for hand-written code.
+ * @internal
+ */
+export function serverFunctionAddress(endpoint: string, id: string): string;
 
-/** Header carrying the server function id. */
-export const FUNCTION_HEADER = "X-Server-Function-Id";
+/** Builds the plain-HTTP address of a function: `<endpoint>/<id>`. */
+export function serverFunctionAddress(endpoint, id) {
+  const mount = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
+  return `${mount}/${encodeURIComponent(id)}`;
+} /**
+ * The wire address of a scripted call: `<endpoint>/data/<id>`.
+ *
+ * Same address discipline as `serverFunctionAddress` — id in the path,
+ * arguments in the query — at a path of its own, because the two caller
+ * kinds receive differently shaped answers (codec encodings vs plain HTTP)
+ * and a shared cache keys on the URL, not on request headers nothing tells
+ * it to vary by. With each shape at its own path, a cached answer can only
+ * ever be replayed to the caller kind it was made for (#3094).
+ *
+ * The literal `data` segment cannot collide with a function id: an id
+ * occupies exactly one segment, so a two-segment path is only ever a data
+ * address — a function id spelled `data` still parses at the bare address.
+ *
+ * Transport wire detail; not meant for hand-written code.
+ * @internal
+ */
+export function serverFunctionDataAddress(endpoint: string, id: string): string;
+
+/** Builds the wire address of a scripted call: `<endpoint>/data/<id>`. */
+export function serverFunctionDataAddress(endpoint, id) {
+  const mount = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
+  return `${mount}/data/${encodeURIComponent(id)}`;
+} /**
+ * Reads an address built by `serverFunctionAddress` or
+ * `serverFunctionDataAddress` back into its id and caller kind (`data` names
+ * the shape the caller addressed, and with it the shape of the answer). A
+ * path carrying more segments than the addresses give meaning to — or an id
+ * segment whose percent-encoding does not decode — answers `null` rather
+ * than matching on its prefix: an address the runtime does not fully
+ * understand is a miss, not a call.
+ *
+ * Transport wire detail; not meant for hand-written code.
+ * @internal
+ */
+export function parseServerFunctionAddress(
+  pathname: string,
+  endpoint: string
+): { id: string; data: boolean } | null;
+
+/** Reads an address back into its id and caller kind. */
+export function parseServerFunctionAddress(pathname, endpoint) {
+  const mount = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
+  if (!pathname.startsWith(mount)) return null;
+  const rest = pathname.slice(mount.length);
+  if (!rest.startsWith("/")) return null;
+  let segment = rest.slice(1);
+  let data = false;
+  if (segment.startsWith("data/")) {
+    segment = segment.slice(5);
+    data = true;
+  }
+  if (!segment || segment.includes("/")) return null;
+  try {
+    return { id: decodeURIComponent(segment), data };
+  } catch {
+    // an id segment whose percent-encoding does not decode is not an address
+    return null;
+  }
+}
 
 /**
  * Response header marking a thrown server-function error. The value is the
@@ -427,6 +613,70 @@ export const INSTANCE_HEADER = "X-Server-Function-Instance";
 export const BODY_FORMAT_HEADER = "X-Server-Function-Format";
 
 /**
+ * Header labelling the unknown-id 404: the address was well-formed but its
+ * id is not registered in the deployment that answered (#3110). This is the
+ * ordinary shape of version skew — a tab holding the previous build's ids
+ * across a deploy — and the label is what lets an integration recover
+ * (e.g. reload the document) instead of surfacing a generic failed call.
+ * Nothing distinguishes it otherwise: a CDN 404 and a skew 404 look alike.
+ */
+export const UNKNOWN_HEADER = "X-Server-Function-Unknown";
+
+/**
+ * Header carrying a redirect to scripted callers. fetch FOLLOWS redirect
+ * statuses before the transport can read them, so a scripted answer masks
+ * the 3xx to 200 and this header carries what the mask erases: the author's
+ * status and the target RESOLVED against the request url — exactly the
+ * meaning HTTP assigns the `Location` a form post would have received.
+ * Value: `<status> <absolute-url>`, decode with `decodeRedirectHeaderValue`.
+ *
+ * Carrying the resolved absolute form is the point (#3102, #3107): the
+ * reader never guesses navigation strategy from how the author spelled the
+ * target — `redirect("/")` and `redirect(new URL("/", url).href)` arrive
+ * identical by construction, and same-origin vs cross-origin is a real URL
+ * comparison, not a `startsWith("http")` coin toss. `Location` itself never
+ * rides a masked answer: on a 200 it has no HTTP meaning, and it collided
+ * with authored Locations on statuses that forward (a 201's created-at is
+ * data, not navigation).
+ */
+export const REDIRECT_HEADER = "X-Server-Function-Redirect";
+
+/**
+ * Decodes a `REDIRECT_HEADER` value into the author's status and the
+ * resolved absolute target. Integration plumbing for readers of the header
+ * (routers); the wire format is the runtime's own, not a contract to parse
+ * by hand.
+ *
+ * The documented output — a resolved ABSOLUTE http(s) target and a redirect
+ * status — is enforced, not assumed (#3175): the absoluteness used to be a
+ * property of the server having resolved it, and a hostile or buggy peer
+ * could ride a `javascript:` target straight into the `location.href =
+ * decoded.url` an integration reasonably writes. A value that does not
+ * parse as an absolute http(s) url, or whose status is not one the runtime
+ * masks, decodes to `undefined` — the same answer a missing header gives.
+ */
+export function decodeRedirectHeaderValue(
+  value: string | null | undefined
+): { status: number; url: string } | undefined {
+  if (typeof value !== "string") return undefined;
+  const at = value.indexOf(" ");
+  if (at < 0) return undefined;
+  const status = Number(value.slice(0, at));
+  const url = value.slice(at + 1);
+  if (!Number.isInteger(status) || !url) return undefined;
+  if (status !== 301 && status !== 302 && status !== 303 && status !== 307 && status !== 308)
+    return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return undefined;
+  return { status, url };
+}
+
+/**
  * Header driving the single-flight protocol on both legs: on the request it
  * opts the call into flight-data collection (the integration sends it on
  * calls whose response should fold in data), on the response it marks a
@@ -453,7 +703,14 @@ export const BodyFormat = {
    * legs: argument lists on the request, results (single-flight envelopes
    * included) on the response.
    */
-  Json: "8"
+  Json: "8",
+  /**
+   * No body at all — a function that returned nothing. It marks the response
+   * as one the runtime encoded, which separates a void result with a status
+   * on it from a refusal answered by something else. Decoding falls through
+   * to `undefined`, which is what a peer predating the tag reads too.
+   */
+  Void: "9"
 };
 
 // Nesting deeper than this is not JSON-safe. The guard itself walks an
@@ -532,7 +789,16 @@ export function isJSONSafe(value) {
       // silently losing the stream (async generators dodge this branch only
       // by prototype). Such values must ride the codec.
       if (Symbol.asyncIterator in v || Symbol.iterator in v) return false;
-      for (const k in v) stack.push(v[k]);
+      for (const k in v) {
+        // Through the descriptor, never `v[k]`: reading a getter here MINTS
+        // a value nobody guards — a rejecting promise from a getter took
+        // the process down as an unhandled rejection before the codec ever
+        // saw the object (#3176). Any accessor answers "not safe": the
+        // codec path materializes it under guardFailures' protection.
+        const descriptor = Object.getOwnPropertyDescriptor(v, k);
+        if (descriptor === undefined || !("value" in descriptor)) return false;
+        stack.push(descriptor.value);
+      }
     }
   }
   return true;
@@ -697,19 +963,48 @@ export function createChunk(data) {
 export class ChunkReader {
   constructor(stream) {
     this.reader = stream.getReader();
-    this.buffer = new Uint8Array(0);
+    // `buffer` is the view of not-yet-consumed bytes; `store` is its backing
+    // allocation, kept separately so growth can be amortized (see readChunk).
+    this.store = new Uint8Array(0);
+    this.buffer = this.store;
     this.done = false;
   }
 
   async readChunk() {
     const chunk = await this.reader.read();
-    if (!chunk.done) {
-      const newBuffer = new Uint8Array(this.buffer.length + chunk.value.length);
-      newBuffer.set(this.buffer);
-      newBuffer.set(chunk.value, this.buffer.length);
-      this.buffer = newBuffer;
-    } else {
+    if (chunk.done) {
       this.done = true;
+      return;
+    }
+    // Amortized growth (#3154). Reallocating the whole buffer per network
+    // read made one frame O(reads²): a 1 MiB argument payload delivered at
+    // the ~66 B reads a slow client actually produces cost ~200× the CPU of
+    // the same payload at normal read sizes — all of it blocking the event
+    // loop, inside bodySizeLimit on the server and unbounded on the client
+    // leg, where the same reader decodes responses. Three tiers, cheapest
+    // first: append in place while the store has tail room; compact the
+    // consumed prefix (next() advances `buffer` past drained frames) when
+    // reclaiming it makes room; reallocate at ≥2× only when the frame
+    // genuinely outgrew the store. Same bytes, same framing, same failure
+    // behavior — only the allocation strategy changes.
+    const incoming = chunk.value;
+    const store = this.store;
+    const start = this.buffer.byteOffset;
+    const end = start + this.buffer.length;
+    const needed = this.buffer.length + incoming.length;
+    if (end + incoming.length <= store.length) {
+      store.set(incoming, end);
+      this.buffer = store.subarray(start, end + incoming.length);
+    } else if (needed <= store.length) {
+      store.copyWithin(0, start, end);
+      store.set(incoming, this.buffer.length);
+      this.buffer = store.subarray(0, needed);
+    } else {
+      const grown = new Uint8Array(Math.max(needed, store.length * 2));
+      grown.set(this.buffer);
+      grown.set(incoming, this.buffer.length);
+      this.store = grown;
+      this.buffer = grown.subarray(0, needed);
     }
   }
 
@@ -752,6 +1047,53 @@ export class ChunkReader {
       interpret(result.value);
     }
   }
+}
+
+// A codec frame's payload is `JSON.stringify` of a SerovalNode — it always
+// opens with `{` — so a payload opening with `!` is unambiguously not data.
+// The error trailer rides that seam: when encoding fails AFTER the head is
+// committed (status spent, no error tag possible), the failure travels in
+// band as a terminal `!`-frame instead of a truncated body the peer would
+// decode as `undefined` (#3117). The decoder throws it — as the response
+// value when it is the first frame, and into every still-pending async
+// value when it arrives mid-stream.
+const ERROR_TRAILER_PREFIX = "!";
+
+/**
+ * Encodes a terminal error-trailer frame payload. The value is expected to
+ * be already sanitized by the caller; only `name` and `message` travel.
+ * Transport wire detail; not meant for hand-written code.
+ * @internal
+ */
+export function encodeErrorTrailer(error: unknown): string;
+
+/** Encodes a terminal error-trailer frame payload (see the notes above). */
+export function encodeErrorTrailer(error) {
+  const shaped = error instanceof Error ? error : new Error(String(error));
+  return (
+    ERROR_TRAILER_PREFIX +
+    JSON.stringify(
+      shaped.name && shaped.name !== "Error"
+        ? { name: shaped.name, message: shaped.message }
+        : { message: shaped.message }
+    )
+  );
+}
+
+function errorFromTrailer(payload) {
+  let shape;
+  try {
+    shape = JSON.parse(payload.slice(1));
+  } catch {
+    shape = null;
+  }
+  const error = new Error(
+    shape && typeof shape.message === "string"
+      ? shape.message
+      : "Server function result could not be delivered."
+  );
+  if (shape && typeof shape.name === "string") error.name = shape.name;
+  return error;
 } /**
  * Serializes a value as a stream of length-prefixed SerovalNode chunks.
  * Async values (promises, streams) keep the stream open until they settle,
@@ -835,6 +1177,13 @@ export async function deserializeStream(source, codecOptions) {
   const reader = new ChunkReader(source.body);
   const result = await reader.next();
   if (!result.done) {
+    // An error trailer as the FIRST frame is the whole answer: encoding
+    // failed before any value was delivered, and the failure is the result
+    // (#3117). Thrown here so the caller sees a failed call, never a void
+    // success.
+    if (result.value.startsWith(ERROR_TRAILER_PREFIX)) {
+      throw errorFromTrailer(result.value);
+    }
     // The codec's decode half loads here — when a Serialized body has
     // actually arrived — so a client whose responses all ride the JSON fast
     // path never pays for it (see the loading notes at the top). The
@@ -846,6 +1195,13 @@ export async function deserializeStream(source, codecOptions) {
     const deserializeChunk = createJSONDeserializer(codecOptions);
 
     function interpretChunk(chunk) {
+      // Mid-stream, the trailer means a LATER value's encoding failed: the
+      // resolved head keeps its data, and the throw below rejects the drain,
+      // whose abort sweep fails every still-pending async value with the
+      // carried reason instead of a generic truncation error (#3117).
+      if (chunk.startsWith(ERROR_TRAILER_PREFIX)) {
+        throw errorFromTrailer(chunk);
+      }
       return deserializeChunk(JSON.parse(chunk));
     }
 

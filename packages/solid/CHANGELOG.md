@@ -1,5 +1,146 @@
 # solid-js
 
+## 2.0.0-rc.5
+
+### Patch Changes
+
+- 51ffcb9: `refresh(target)` now returns a promise for the target's next QUIESCENT state — the re-ask (and anything that supersedes it) has settled. Accessor targets resolve with the settled value; store targets resolve with the store node passed (nested targets re-ask the whole family but resolve with the node the caller was looking at). A failed re-ask rejects, so `yield refresh(x)` in an action throws back at the yield point and reverts like any failed step; an ignored promise never surfaces an unhandled rejection, keeping fire-and-forget refresh unchanged. Semantics are quiescence, not flight identity: a superseding refresh folds every waiter onto whatever finally lands. Inside actions, truth landing into the held transaction is staged; the promise settles then (matching `resolve()`/`until()` delivery) and delivers the staged value — never the caller's optimistic override. The re-ask stays verdict-quiet (`isPending` unchanged).
+
+  Implementation is pay-for-use and shares `resolve()`/`until()`'s effect machinery: the waiter is a microtask-delivered, direct-commit, authoritative-read effect over the marked node, deferred one microtask so same-tick refreshes still coalesce into a single re-ask. One new reader bit (`CONFIG_FRESH_READ`) makes the waiter's read pull a still-dirty source through recompute inline — it then parks on the re-ask's pending window (woken by the settle walk, which runs on every landing including equal-value ones) or serves the sync answer, instead of misreading the pre-re-ask value as settled. `updateIfNecessary` now also refuses disposed nodes outright (#2983's bug class), and a disposed or non-derived target resolves immediately with its last value.
+
+- 91e300a: Fix `<For>` followed by siblings desyncing hydration (#3161, rc.4 regression). The patch-mode list seam made `For`'s `mapArray` creation lazy, but hydration ids mint at creation time — deferring to first read spent the list's id scope after later siblings had already claimed their template keys, shifting every hydration key after the list and leaving the siblings detached (dead buttons). A hydrating `For` now creates its map eagerly at source position, restoring rc.3 id parity; outside hydration the lazy creation stands.
+- 00d1d5d: Stop exposing generated declaration files through `solid-js/types/*`. Public values and types remain available from `solid-js`; keeping implementation declarations private also prevents TypeScript from suggesting invalid runtime imports such as `solid-js/types/server/signals.js`.
+- 07471da: Add typed preload links to the server asset pipeline.
+
+  Static manifests can attach `preloads: PreloadLink[]`, resolver results can carry the same shape for framework integrations, and any integration can register a link with `registerAsset("preload", link)`. The runtime preserves `as`, MIME type, CORS mode, integrity, referrer policy, fetch priority, and media attributes across string, streaming, embedded-head, custom-sink, and frame renders.
+
+  `lazy()` and `clientOnly()` forward resolver-provided preload links alongside their JS and CSS.
+
+  `JSX.HTMLPreloadAs` and `JSX.HTMLFetchPriority` are now exported for reuse.
+
+  Preload links are explicit: manifest `assets` are not preloaded automatically. Existing stylesheet and modulepreload APIs are unchanged.
+
+  Development builds warn when font or fetch preloads omit `crossorigin`, because a different eventual request mode cannot reuse that preload.
+
+  Frame clients also retain and consume every late root asset record instead of dropping earlier records that reuse the same transport key.
+
+- 0c02d42: Add `until(fn, options?)` — the acknowledgment primitive for mutations confirmed on a live data channel (sockets, subscriptions, live queries) rather than by the mutation's own response. Resolves the first time the reactive predicate settles truthy (falsy and pending both mean "not yet"); `yield until(...)` from an action holds the transaction — and its optimistic state — open until the world confirms, with `{ timeout }` (`TimeoutError`) and `{ signal }` rejections throwing back at the yield point so failed holds revert like any failed action.
+
+  The predicate reads the AUTHORITATIVE view, and the carve-out is exactly one layer deep: the caller's own optimistic overrides (values and structure) are invisible, so a tentative write can never satisfy its own ack — including on the single-primitive shape where the optimistic store is the live-fed store. Everything else reads normally, including uncommitted transition-staged data: truth landing into the open transaction (e.g. a `refresh()` the action issued) stages and cannot commit until the hold releases, so refusing staged reads would deadlock the hold on its own data plane. The A17-silent "landing equals the override" paths wake authoritative readers only (`CONFIG_AUTHORITATIVE_OBSERVED`); the wakeup machinery is hook-installed at first `until()` call so unused apps tree-shake it.
+
+  Also fixes `resolve()` (and `until()`) delivering stale values when their source settles into a held transaction: promise-delivery effects apply on a microtask (#2930) but their computed value staged with the transition, so the immediate apply read stale mainline state — `resolve` could report pre-refresh data and `until` could deadlock. Such effects now commit their value directly (`CONFIG_DIRECT_COMMIT`), keeping value and delivery on the same schedule; safe because effects are private leaves (no subscriber reads an effect's value).
+
+- Updated dependencies [51ffcb9]
+- Updated dependencies [28a1eaf]
+- Updated dependencies [ca16891]
+- Updated dependencies [751f991]
+- Updated dependencies [ed2fb43]
+- Updated dependencies [893b8f9]
+- Updated dependencies [2023daa]
+- Updated dependencies [3e3676b]
+- Updated dependencies [09bbe24]
+- Updated dependencies [88fa9d6]
+- Updated dependencies [fa13761]
+- Updated dependencies [90603c5]
+- Updated dependencies [a536e29]
+- Updated dependencies [4ee9e3b]
+- Updated dependencies [1ece086]
+- Updated dependencies [0c02d42]
+  - @solidjs/signals@2.0.0-rc.5
+
+## 2.0.0-rc.4
+
+### Minor Changes
+
+- f0c3692: Point-of-pain discovery for diagnostics: `DEV.diagnostics.setConsoleFooter(fn)` registers a footer printed once per diagnostic code after that code's first console report. solid-js registers a footer in dev pointing at its shipped repair skill (`node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md`), so anyone — human or agent — hitting a diagnostic warning learns where the prescribed fix lives without prior knowledge of the skill system.
+- 8d249c7: Patch-mode list driver: keyed `<For>` over a store array is offered to the
+  runtime's row-ops driver (create/bind at op-apply, LIS moves, node removal —
+  no mapArray, no per-row owners, no DOM-side reconcile). `For` carries `$ll`
+  metadata on a lazy classic accessor so unaware renderers and declined lists
+  (non-store subject, impure rows proven by a bind-time owner probe, fallback
+  or index usage) fall through to today's mapArray path unchanged. Array
+  identity swaps keep keyed semantics by raw-identity matching. Adds
+  `ownerIsBlank` (signals) for the purity probe and `driveList` (web, rxcore
+  seam) for the runtime.
+
+### Patch Changes
+
+- 8d249c7: External-audit fixes on the patch-list driver surface: family (projection/optimistic) arrays now decline the driver — their structural changes emit no row/slot ops and the proxy identity is stable, so an engaged list would freeze on optimistic or projection structure (classic mapArray handles them correctly, including on identity-swap handoff). Shallow slot-patch registration is now multi-consumer — two driven lists over one shallow array previously overwrote each other's channel. Adds `storeHasFamily` (with server stub) and regression tests for both.
+- f3da41e: Fix mid-stream dependency changes being silently lost by hydration-latched computations. A node adopting its serialized server value re-serves it on every recompute while the stream is open (orphaning protection) — but that recompute left the node clean, so a dependency that changed during the hydration window never re-ran the compute afterwards: the change was lost, not deferred. Re-entry into the serialized-adoption path now arms the hydration-end takeover gate (the same mechanism live-branded sources use), re-running exactly the diverged nodes against their live sources once hydration completes. Applies to the default/"server" `ssrSource` paths; hybrid's sync/promise adopt-and-latch semantics are unchanged.
+- a10cf1a: Fix streaming SSR hanging permanently (0 bytes, 100% CPU) when a component body reads a property of a pending `createProjection`/`createStore(asyncFn)` store (#3068). An async projection can never be ready at creation-scope read time, so the read threw NotReadyError and the retry re-ran the scope — but `createProjection` allocated a fresh generator, deferred, and serialized promise on every pass, so the read could never succeed and the flush loop spun forever. Server projections now keep by-slot flight memory (the #3003 memo mechanism): a re-created projection at a known slot returns the same in-flight proxy — one generator run, one trace, one serialized channel — and post-settle passes read through it synchronously.
+- 8d249c7: Patch-mode lists now implement the identity semantics the view declares instead of the reconcile key's. Deep lists are unaffected (adoption preserves proxy identity, so key ops and reference semantics coincide). Shallow reference-keyed lists rebuild rows whose records were replaced — matching classic `mapArray` exactly, where the driver previously patched them in place (a default-on compiler mode must never change observable DOM identity). `For` forwards its `keyed` prop on the list metadata; explicit `keyed={fn}` lists decline the driver until the accessor-row binding contract lands.
+- 8d249c7: Projection (non-optimistic) family arrays are drivable by the patch-mode list driver: their recomputes walk reconcile, whose row/slot emissions were never family-gated and ride the transition-stamped apply queue. The blanket family decline narrows to optimistic families only (`storeHasOptimisticFamily`), whose user writes ride node overrides and emit no structural ops. Fixes chained-backing patch registration: a projection wrapper's backing is another store's proxy, so `registerPatch`/`patchableRaw` now resolve through the chain to the ultimate owner target — patches registered on wrapped projection rows previously never fired (value transitions fold on the source). Equivalence matrix extended with 13 projection scenarios including recompute-driven structure and retention topology.
+- 8d249c7: Patch-mode list admission moves entirely to compile time: driveList engages only for row functions carrying the compiler's `rowProof` stamp (exported from @solidjs/web), and the runtime purity probe is deleted — no speculative execution of user row code, no probeMark/probeGate seams, no ownerIsBlank, no tentative empty-list engagement with late decline. Unstamped rows take the classic mapArray path before any DOM work; `lateClassic` remains only for engaged lists whose subject later leaves the contract (identity swap to a derived array, shallow/deep kind switch).
+- Updated dependencies [8d249c7]
+- Updated dependencies [f0c3692]
+- Updated dependencies [8d249c7]
+- Updated dependencies [505c73d]
+- Updated dependencies [de9e3cb]
+- Updated dependencies [0e37f90]
+- Updated dependencies [8d249c7]
+- Updated dependencies [b96d7ce]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [ba6c0b6]
+  - @solidjs/signals@2.0.0-rc.4
+
+## 2.0.0-rc.3
+
+### Patch Changes
+
+- a85c889: New package `@solidjs/diagnostics`: agent-consumable diagnostics harness. `captureArtifact()` runs a scenario with the dev-mode diagnostic and attribution channels open and folds both into a serializable artifact; assertion helpers (`expectNoDiagnostics`, `expectDiagnostic`, `expectRerunBudget`, `expectNoWaste`) and scenario budgets (`assertBudget`, checked-in budget files) gate correctness, update granularity, and wasted recomputes; Vitest matchers via `@solidjs/diagnostics/vitest`; a browser bridge (`@solidjs/diagnostics/browser`) plus a structurally-typed Playwright adapter (`@solidjs/diagnostics/playwright`) capture the same artifacts from real pages, with live `whyDidRun`/`costs` queries against an open session; `@solidjs/diagnostics/protocol` publishes the wire types for the vite-plugin dev-server endpoint; `artifactToJSONL()` provides line-oriented egress for offline/agent analysis. `solid-js` now ships a `skills/reactivity-diagnostics` repair guide mapping every diagnostic code to its fix.
+- 28d5289: Deprecate setter writes on the server with a `[SERVER_WRITE]` warning (once per process per category: signal, store, optimistic). Server render is pure — change enters through async sources, never setters. Behavior is unchanged this release: signal and store writes still land as inert data (nothing re-renders) and optimistic writes remain no-ops, but server writes will become an error in a future release. If you are bridging a subscription, make it the async source itself instead of pushing writes from its callback.
+- bbcce0a: Fix async-generator projections (and memos) freezing after SSR hydration (#3060)
+
+  A `createProjection`/`createMemo` driven by an async generator that settled
+  during SSR never resumed on the client: after hydration, a dependency change
+  or `refresh()` re-ran the adoption wrapper, which orphaned a fresh generator
+  via subFetch and handed back the already-consumed serialized replay — the
+  node froze at its SSR value forever. The adoption wrappers now track the
+  serialized stream's terminal state (done/error): re-runs before the terminal
+  are NotReady retries of the same flight and keep adopting the replay; re-runs
+  after it hand over to the live user compute.
+
+  Two deeper bugs surfaced by the fix:
+  - Projection drafts are now proxies over a fake target (the store's own
+    TargetShape trick) instead of the store proxy itself. Spec invariant
+    validation runs against a proxy's target after each trap returns — outside
+    the draft's write-override bracket — so `Object.keys(state)` in a derive
+    continuation re-entered the store's ownKeys, hit the seed-invisibility
+    firewall gate, and re-threw the projection's own pending NotReadyError into
+    the derive. The draft traps (including new ownKeys / getOwnPropertyDescriptor /
+    defineProperty coverage) forward to the store inside the bracket; invariants
+    only ever see the dummy.
+  - The store replay's first-pull thenable swallowed exceptions thrown while
+    applying the SSR snapshot (the rejection landed on a derived promise nobody
+    observed), silently killing the drain and wedging boundary hydration open.
+    Failures now route to the flight's rejection and surface through the normal
+    error channel.
+
+- 35b30a1: Keep server signal overload declarations adjacent to their implementation so declaration builds succeed.
+- da59aea: Recover from `REACTIVITY_HALTED` in dev workflows. A halt is global to the runtime instance, so one uncaught error used to permanently brick HMR (hot swaps are signal writes, which a halted scheduler drops) and playground-style embedders (a fresh `render()` never mounts because its queued effects can never flush) until a full page reload. Now the refresh runtime revives scheduling before patching a hot update, and `render()` resets the halt in dev before mounting. `resetErrorHalt` is re-exported from `solid-js` (no-op on the server) so dev tooling can do the same. Production behavior is unchanged: a halt remains a hard crash.
+- 0205756: Server store setters now apply returned replacements (#3064): a setter returning a wrappable value adopts it into the same root as a plain data operation, matching the client contract — previously the return value was silently dropped while draft mutations landed. Array replacements truncate correctly (also fixes an array-shrink hole in projection sync replacement). Optimistic writes are now true no-ops on the server: `createOptimistic` setters and `createOptimisticStore` setters neither run nor land, since optimistic writes are masks that revert at settle and server output represents settled state — the old aliasing serialized optimistic masks as authoritative state. Server-side writes remain data-only: they update state for subsequent reads and serialization; nothing re-renders.
+- b8c4534: Use Solid-native names for internal development markers and experimental frame protocol identifiers.
+- Updated dependencies [6717398]
+- Updated dependencies [bbcce0a]
+  - @solidjs/signals@2.0.0-rc.3
+
 ## 2.0.0-rc.2
 
 ### Patch Changes

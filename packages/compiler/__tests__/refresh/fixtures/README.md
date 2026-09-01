@@ -38,6 +38,12 @@ when the pass's behavior is changed deliberately, by editing them by hand
 same commit that changes the transform, with the diff reviewed as part of
 that change.
 
+The `call-expr-*` fixtures are **native-first** (deliberate divergence from
+the frozen Babel reference, like the merged-function handling): call-shaped
+component registration (#3090) does not exist in the frozen solid-refresh
+plugin, so their `expected.js` was generated from the native output
+(normalized through the same harness re-print) and reviewed as the spec.
+
 ## Deliberate divergences from the Babel plugin
 
 These fixtures freeze behavior where the native pass intentionally departs

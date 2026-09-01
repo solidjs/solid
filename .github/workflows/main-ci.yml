@@ -21,8 +21,25 @@ jobs:
       registry-url: "https://registry.npmjs.org"
       cache: "pnpm"
 
+  # Cheap guard for the workspace layout the release pipeline depends on
+  # (link stubs, workspace-resolved compiler, no registry pins in the
+  # lockfile). Violations deadlock the release commit — see the script.
+  - name: Release invariants
+    run: node scripts/check-release-invariants.mjs
+
   - name: Installing deps
     run: pnpm install
+
+  # The compiler resolves to the workspace (pnpm-workspace.yaml overrides),
+  # so suites that load it through @solidjs/vite-plugin (element, web) need
+  # the local binding built — the root build script skips the Rust build.
+  - uses: dtolnay/rust-toolchain@stable
+  - uses: Swatinem/rust-cache@v2
+    with:
+      workspaces: packages/compiler
+
+  - name: Building compiler binding
+    run: pnpm --filter @solidjs/compiler run build
 
   - name: Building
     run: pnpm run build

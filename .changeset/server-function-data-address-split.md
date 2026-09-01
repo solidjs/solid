@@ -1,0 +1,5 @@
+---
+"@solidjs/web": patch
+---
+
+Scripted server-function calls now go to their own data address, `<endpoint>/data/<id>`, leaving the bare `<endpoint>/<id>` address to plain HTTP (#3094). The two caller kinds get differently shaped answers — codec encodings for the client transport, verbatim responses / form-convention handling for everyone else — and shared caches key on the URL, so a header-driven shape meant one caller kind's cached answer could be replayed to the other (a `GET`-declared function returning a raw `Response` with a public cache policy could serve its codec encoding to a browser navigation, or its raw body to the app's own transport). The answer's shape is now a function of the URL alone. A reference's `.url` and rendered action urls stay on the bare address; reconstructed callables splice the `data` segment in ahead of the id for their own calls. Transitional: the instance header still summons the scripted shape at the bare address so already-loaded tabs survive a server deploy, with those answers forced `no-store`.

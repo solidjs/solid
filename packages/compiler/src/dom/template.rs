@@ -59,6 +59,9 @@ pub(crate) struct DomTemplate {
     pub(crate) flag: Option<u8>,
     /// Generated `_tmpl$N` local (collision-checked against source names).
     pub(crate) name: String,
+    /// First registration site (templates dedupe on markup), so a `validate`
+    /// failure names the JSX element's source location (#3099).
+    pub(crate) span: Span,
 }
 
 /// A template under construction: the emitted markup (`html`, with omitted
@@ -91,6 +94,15 @@ impl TemplateHtml {
 pub(crate) struct InsertMarker<'a> {
     pub(crate) marker: Expression<'a>,
     pub(crate) initial: Option<Expression<'a>>,
+}
+
+/// 1-based line and column for a byte offset, for diagnostics.
+fn line_and_column(source: &str, offset: u32) -> (usize, usize) {
+    let offset = (offset as usize).min(source.len());
+    let prefix = &source[..offset];
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let column = prefix.rfind('\n').map_or(offset, |at| offset - at - 1) + 1;
+    (line, column)
 }
 
 impl DomTemplateState {
@@ -240,22 +252,31 @@ impl<'a> AstDomTransform<'a, '_> {
             // against the top-level module, not the renderer config.
             statements.push(self.import_wrapper_helper(built_in, &format!("_${built_in}")));
         }
-        // Babel's postprocess `validate` pass: warn (stderr, like
-        // `console.warn`) when a browser would re-parse a template's markup
-        // differently. Only DOM templates carry the closing-tags variant —
-        // Babel skips SSR templates for the same reason (theirs are AST
-        // nodes, not strings).
+        // Babel's postprocess `validate` pass: a compile ERROR (#3099) when a
+        // browser would re-parse a template's markup differently. Once the
+        // validator has fired, the emitted template is guaranteed not to
+        // match its own positional walk — the browser rebuilds the DOM and
+        // the walk binds against nodes that moved (crash or silent wrong-node
+        // bindings; under SSR the restructuring desyncs hydration too), so
+        // warn-and-emit shipped certain breakage with the explanation buried
+        // in server stderr. The message carries the registration site's
+        // line:col so bundler overlays land on the JSX. `validate: false`
+        // remains the opt-out. Only DOM templates carry the closing-tags
+        // variant — Babel skips SSR templates for the same reason (theirs
+        // are AST nodes, not strings).
         if self.validate {
             for template in &self.template_state.templates {
                 if let Some(result) =
                     crate::shared::validate::is_invalid_markup(&template.closed_html)
                 {
-                    eprintln!(
-                        "\nThe HTML provided is malformed and will yield unexpected output when evaluated by a browser.\n"
-                    );
-                    eprintln!("User HTML:\n {}", result.html);
-                    eprintln!("Browser HTML:\n {}", result.browser);
-                    eprintln!("Original HTML:\n {}", template.closed_html);
+                    let (line, column) = line_and_column(self.source, template.span.start);
+                    return Err(crate::error::CompileError::transform(format!(
+                        "The HTML provided is malformed and will yield unexpected output when evaluated by a browser. ({line}:{column})\n\
+                         User HTML:\n {}\n\
+                         Browser HTML:\n {}\n\
+                         Original HTML:\n {}",
+                        result.html, result.browser, template.closed_html
+                    )));
                 }
             }
         }
@@ -277,6 +298,7 @@ impl<'a> AstDomTransform<'a, '_> {
         &mut self,
         template: TemplateHtml,
         flag: Option<u8>,
+        span: Span,
     ) -> String {
         self.template_state.uses_template = true;
         // Templates dedupe on markup alone (the first registration's flag
@@ -298,6 +320,7 @@ impl<'a> AstDomTransform<'a, '_> {
                 closed_html: template.closed,
                 flag,
                 name: name.clone(),
+                span,
             });
             name
         }

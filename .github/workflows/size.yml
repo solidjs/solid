@@ -36,6 +36,13 @@ jobs:
           node-version-file: ".nvmrc"
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The examples' builds load the workspace @solidjs/compiler through the
+      # vite plugin; the root build skips the Rust build, so build the binding.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/compiler
+      - run: pnpm --filter @solidjs/compiler run build
       - run: pnpm build
       - run: npm ci --no-audit --no-fund
         working-directory: scripts/size

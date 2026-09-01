@@ -153,6 +153,18 @@ export interface JSONCodecOptions {
   disabledFeatures?: number;
   /** Maximum parse/deserialize depth. Defaults to 64. Must match on both peers. */
   depthLimit?: number;
+  /**
+   * Whether serialized `Error`s carry their `.stack` — server file paths,
+   * internal function names, the shape of the deployment — to the peer.
+   * Defaults to `NODE_ENV === "development"`, but that signal describes the
+   * PROCESS, not the artifact: a production build running with
+   * `NODE_ENV=development` (a base image, a stray dotenv) ships stacks to
+   * the wire — including for errors marked safe with `markSafeError`, whose
+   * stacks traverse application code (#3152). Set `false` to pin production
+   * disclosure regardless of the ambient variable. Encode-side only; the
+   * decode side is always permissive, so it need not match peers.
+   */
+  serializeErrorStacks?: boolean;
 }
 
 /**
@@ -261,13 +273,15 @@ const JSON_CODEC_DEPTH_LIMIT = 64;
 export function resolveCodecOptions({
   plugins,
   disabledFeatures,
-  depthLimit
+  depthLimit,
+  serializeErrorStacks
 }: JSONCodecOptions = {}) {
   return {
     plugins: resolveSerializerPlugins(plugins),
     disabledFeatures:
       disabledFeatures === undefined ? JSON_CODEC_DISABLED_FEATURES : disabledFeatures,
-    depthLimit: depthLimit === undefined ? JSON_CODEC_DEPTH_LIMIT : depthLimit
+    depthLimit: depthLimit === undefined ? JSON_CODEC_DEPTH_LIMIT : depthLimit,
+    serializeErrorStacks
   };
 } /**
  * Creates the decoding counterpart of `serializeJSON`. Cross-references

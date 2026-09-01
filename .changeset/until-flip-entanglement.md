@@ -1,0 +1,7 @@
+---
+"@solidjs/signals": patch
+---
+
+until() now entangles the confirming transition with the awaiting action. When a foreign write (another action's landing, a stream echo, a store fold) flips an awaited until() predicate truthy, its staged nodes are stolen into the awaiting transaction and masked from ordinary readers until the joint settle, so the confirmation and the action's own reveal paint in one frame instead of tearing. latest() and authoritative reads still see the staged truth; non-flipping updates on watched sources reveal freely; the confirming carrier keeps its own async reporters so open streams cannot deadlock the awaiting action.
+
+The store fold's held-truth mask and the entanglement mask are unified on one mechanism (CONFIG_HELD_TRUTH): staged confirming truth is bit-marked at its arming site, masked in the read paths, and revealed by a single post-revert wake at the holding transaction's settle — replacing the fold's WeakSet ledger, the GlobalQueue._heldTruthMasked hook, and the entangled-transition recompute pass. The wake running after optimistic reversion also fixes a settle-window frame that composed committed confirming truth with a not-yet-reverted override.

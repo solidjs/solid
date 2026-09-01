@@ -18,7 +18,8 @@ import {
   isComponent,
   convertJSXIdentifier,
   inlineCallExpression,
-  canChildSlotAllocateIds
+  canChildSlotAllocateIds,
+  isFunctionShapedHole
 } from "../shared/utils";
 import { transformNode, getCreateTemplate } from "../shared/transform";
 import { createTemplate } from "./template";
@@ -929,9 +930,11 @@ function transformChildren(
       // Deferred holes that can allocate hydration ids evaluate under their
       // own owner scope so retry timing can't skew sibling ids (mirrors the
       // dom generate's `scope()` wrap around the matching insert accessor).
-      // Keyed off `dynamic` so both generates decide identically.
+      // Keyed off `dynamic` so both generates decide identically. Function
+      // children never classify as dynamic but are deferred holes all the
+      // same, so they take the scope too.
       let expr = child.exprs[0] as babelTypes.Expression;
-      if (allocatesIds && child.dynamic) {
+      if (allocatesIds && (child.dynamic || isFunctionShapedHole(node))) {
         expr = t.callExpression(registerImportMethod(path, "scope"), [expr]);
       }
 
@@ -985,7 +988,7 @@ function createElement(
         // dom generate scope()s the matching insert accessor regardless of
         // spread, so skipping it here desyncs every hydration id that follows
         // the hole.
-        if (child.exprs.length && allocatesIds && child.dynamic) {
+        if (child.exprs.length && allocatesIds && (child.dynamic || isFunctionShapedHole(path))) {
           child.exprs[0] = t.callExpression(registerImportMethod(path, "scope"), [
             child.exprs[0] as babelTypes.Expression
           ]);

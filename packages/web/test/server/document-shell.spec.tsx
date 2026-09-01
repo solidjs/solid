@@ -11,7 +11,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderToStream } from "@solidjs/web";
-import { App, AsyncApp, Shell, APP_ROOT_MARKUP } from "../harness/document-shell.jsx";
+import { App, AsyncApp, Shell, HeadShellApp, APP_ROOT_MARKUP } from "../harness/document-shell.jsx";
 import { hydrationRecordKeys } from "../harness/hydration-records.js";
 
 const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
@@ -69,6 +69,29 @@ describe("document-shell pattern — server render (#3000)", () => {
     writeFileSync(
       resolve(artifactsDir, "document-shell-async.json"),
       JSON.stringify({ chunks }, null, 2)
+    );
+  });
+
+  test("useHead + shell-authored head: prelude splices ahead of authored children (#3081)", async () => {
+    const html = (await collectChunks(() => <HeadShellApp />)).join("");
+
+    // The charset prelude lands immediately after the <head> open tag —
+    // BEFORE the shell's own first child. This placement is deliberate
+    // (charset within the first 1024 bytes; base before URL-bearing tags);
+    // the client walk, not the server, is responsible for surviving it.
+    expect(html).toMatch(/<head><meta charset="utf-8" data-dh="charset"><meta name="shell-owned"/);
+    // The title winner is a byte rewrite of the shell's static <title> in
+    // its authored position: data-dh ownership plus the data-dhf stash of
+    // the fallback text. It is NOT an inserted tag.
+    expect(html).toContain(
+      `<title data-dh="title" data-dhf="shell fallback">managed title</title>`
+    );
+
+    // The client half hydrates against exactly these bytes.
+    mkdirSync(artifactsDir, { recursive: true });
+    writeFileSync(
+      resolve(artifactsDir, "document-shell-usehead.json"),
+      JSON.stringify({ html }, null, 2)
     );
   });
 });

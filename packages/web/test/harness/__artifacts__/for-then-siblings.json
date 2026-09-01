@@ -1,0 +1,5 @@
+{
+  "name": "for-then-siblings",
+  "shell": "<div _hk=000 class=\"row\">row <!--$-->1<!--/--></div><div _hk=010 class=\"row\">row <!--$-->2<!--/--></div><button _hk=2 id=\"bump\">bump</button><pre _hk=3 id=\"after\">count: <!--$-->0<!--/--></pre>",
+  "rest": ""
+}

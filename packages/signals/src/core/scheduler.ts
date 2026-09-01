@@ -1,4 +1,6 @@
 import {
+  CONFIG_AUTHORITATIVE_READ,
+  CONFIG_HELD_TRUTH,
   CONFIG_IN_SNAPSHOT_SCOPE,
   EFFECT_RENDER,
   EFFECT_TRACKED,
@@ -25,11 +27,13 @@ import {
 import { currentOptimisticLane, ext } from "./core.js";
 import { DEV, emitDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
+import { sweepDormant } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
 import {
   activeLanes,
   assignOrMergeLane,
   findLane,
+  hasActiveOverride,
   signalLanes,
   type OptimisticLane
 } from "./lanes.js";
@@ -219,6 +223,27 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
     outgoing._affectsNodes.length = 0;
   }
   for (const store of outgoing._optimisticStores) target._optimisticStores.add(store);
+  // Patch-channel stash (store/next/patch.ts): entries held for the outgoing
+  // transition must ride the merge like every other per-transition
+  // collection — releaseBatch only reads the COMMITTING transition's stash,
+  // so a stranded sidecar would silently drop its patches. Move (don't
+  // copy), same aliasing rule as the collections above. The field is an
+  // expando so this module stays free of patch imports (pay-for-use).
+  const heldPatches = (outgoing as any)._heldPatches as unknown[] | undefined;
+  if (heldPatches !== undefined) {
+    (outgoing as any)._heldPatches = undefined;
+    let dest = (target as any)._heldPatches as unknown[] | undefined;
+    if (dest !== undefined) dest.push(...heldPatches);
+    else dest = (target as any)._heldPatches = heldPatches;
+    // Retarget the entries' coalescing stamps to the surviving stash
+    // (opaque backref contract with store/next/patch.ts): without this a
+    // post-merge emission misses the stamp and pushes a SECOND entry —
+    // the record's patch applies twice at commit (re-audit 5, P1-2).
+    for (let i = 0; i < heldPatches.length; i++) {
+      const pc = (heldPatches[i] as any).pc;
+      if (pc !== undefined && pc.qe === heldPatches[i]) pc.qa = dest;
+    }
+  }
   // Legal transfer, not a new registration: entries move between transitions.
   if (__DEV__) beginAsyncReporterWrites();
   for (const [source, reporters] of outgoing._asyncReporters) {
@@ -228,6 +253,109 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
   }
   if (__DEV__) endAsyncReporterWrites();
   for (const sub of outgoing._gatedSubs) target._gatedSubs.add(sub);
+}
+
+/**
+ * Flip-entanglement (#3164 follow-up): `until()` is a declaration of
+ * relatedness — the predicate names the condition that confirms the awaiting
+ * transaction. When the predicate settles truthy, every live foreign
+ * transition whose staged write it read IS the confirming event by the
+ * user's own definition, so it merges into the awaiting transaction and
+ * reveals at the joint settle — the cross-primitive twin of the family fold
+ * (a landing on an optimism-carrying family joins the retaining
+ * transaction). Non-flipping updates never pass through here: falsy
+ * evaluations don't entangle, so unrelated traffic on the watched sources
+ * reveals freely on its own schedule.
+ *
+ * Runs inside the predicate's compute (pure phase) — the confirming
+ * transition's stamps are still live and its commit decision hasn't run, so
+ * the merge lands before any reveal. Only the tree-shaken graphs that call
+ * `until()` retain this.
+ */
+export function entangleConfirmingTransitions(obs: Computed<any>, target: Transition): void {
+  target = currentTransition(target);
+  if (target._done === true) return;
+  // The confirming evidence is a dep whose value is STAGED (pending,
+  // uncommitted) at flip evaluation — committed deps are public already and
+  // carry nothing to entangle. A staged dep lives in one of two carriers: a
+  // stamped transition, or the queue's current batch (ambient registrations
+  // don't stamp; "ambient work IS a transaction" — the batch is the
+  // carrier). The entangle STEALS the carrier's staged cargo — its pending
+  // nodes move (re-stamped) into the awaiting transaction and reveal at its
+  // settle — but never the carrier itself: its async reporters, actions,
+  // and stashes are its own future (a live stream's flight must not chain
+  // the awaiting transaction to landings that haven't happened; a merged
+  // reporter deadlocked exactly that way).
+  let stole = false;
+  for (let l = obs._deps; l !== null; l = l._nextDep) {
+    const dep = l._dep as Signal<any>;
+    if (dep._pendingValue !== NOT_PENDING) {
+      const stamp = dep._transition;
+      const t = stamp != null ? currentTransition(stamp) : null;
+      // Skip the awaiting transaction's own cargo (t === target: a
+      // fold-staged landing or a write the action itself issued — hold and
+      // reveal already correct) and dead carriers. Ambient-batch staging
+      // (t === null) must leave the batch NOW — it commits at this flush's
+      // end, which would reveal the confirmation under the live optimism
+      // it just confirmed.
+      const carrier =
+        t === null
+          ? currentBatch._pendingNodes
+          : t !== target && t._done !== true
+            ? t._pendingNodes
+            : null;
+      if (carrier !== null) stole = stealEntangledCargo(carrier, target) || stole;
+    }
+    if (l === obs._depsTail) break;
+  }
+  // The steal never activates the awaiting transaction: the predicate can
+  // flip inside another transaction's finalize heap, and adopting the queue
+  // batch there hands the stolen cargo to that finalize's commit sweep — a
+  // premature reveal at a foreign settle. Subscribers that computed against
+  // the pre-steal world were re-dirtied by the steal itself, so this
+  // flush's applies paint the masked (mid-hold) view; the cargo commits at
+  // the awaiting transaction's own settle.
+}
+
+/** Move a confirming carrier's staged nodes into the awaiting transaction:
+ * re-stamp and arm the held-truth mask (override-covered nodes skip it —
+ * the override already hides their staged value per A17, and is usually
+ * the very optimism this confirmation settles); the mask's commit
+ * registers the settle-side post-revert wake. The carrier's array is
+ * emptied so its own commit point commits none of the stolen cargo.
+ *
+ * EFFECT subs of stolen nodes re-run: any that recomputed against the
+ * staging BEFORE the steal (the carrier's landing notified them as a plain
+ * write) hold a private torn result — override composed with confirming
+ * truth — that the next paint gate (stash-point lane run, a foreign
+ * flush's completion drain) would show. Re-running them under the mask
+ * re-derives the mid-hold view in this same heap pass. PURE computeds are
+ * deliberately NOT re-run: a torn staged value of theirs is itself stolen
+ * cargo — masked at read, so ordinary readers already serve their
+ * committed value — while re-running them would re-derive the OLD world
+ * and re-stage it over the held truth. The reveal re-notifies
+ * (commitPendingNodes), which is when they re-derive for real. */
+function stealEntangledCargo(carrier: Signal<any>[], target: Transition): boolean {
+  if (carrier === target._pendingNodes || carrier.length === 0) return false;
+  for (let i = 0; i < carrier.length; i++) {
+    const node = carrier[i];
+    node._transition = target;
+    target._pendingNodes.push(node);
+    // Override-covered nodes stay silent AND unmasked: the override is the
+    // display (A17 — its staging never notified, its revert will), so their
+    // subs saw nothing and re-running one would break the silence with a
+    // duplicate fire of an unchanged view.
+    if (!hasActiveOverride(node)) {
+      node._config |= CONFIG_HELD_TRUTH;
+      for (let s = node._subs; s !== null; s = s._nextSub) {
+        const sub = s._sub;
+        if ((sub as any)._type && !(sub._config & CONFIG_AUTHORITATIVE_READ)) enqueueSub(sub);
+      }
+    }
+  }
+  carrier.length = 0;
+  transitions.add(target);
+  return true;
 }
 
 export function schedule() {
@@ -449,6 +577,10 @@ export class GlobalQueue extends Queue {
   static _transitionBlocked: ((transition: Transition) => boolean) | null = null;
   static _cleanupLanes: ((completingTransition: Transition | null) => void) | null = null;
   static _runLaneEffects: ((type: number) => void) | null = null;
+  /** Patch-channel optimistic drain (next/patch.ts): optimistic emissions
+   * apply at lane-effect timing — visible in flight, unlike the regular
+   * effect queues an action stashes. Injected; null when unused. */
+  static _drainPatchOptimistic: (() => void) | null = null;
   static _gatedRead:
     | ((el: Signal<any>, owner: OptimisticNode, c: Computed<any>) => boolean)
     | null = null;
@@ -460,6 +592,10 @@ export class GlobalQueue extends Queue {
     | ((el: Computed<any>, own: boolean) => OptimisticLane | null | false)
     | null = null;
   static _laneAsyncPending: ((el: Computed<any>) => void) | null = null;
+  /** Authoritative-view reader wakeup (until()): installed at first until() call.
+   * Call sites are gated by CONFIG_AUTHORITATIVE_OBSERVED, which only until()'s
+   * carve-out read can set, so `!` invocations are safe once the gate holds. */
+  static _notifyAuthoritativeObservers: ((el: Signal<any> | Computed<any>) => void) | null = null;
   static _laneAsyncSettled: ((el: Computed<any>) => void) | null = null;
   static _trackOptimisticStore: ((store: any) => void) | null = null;
   flush() {
@@ -480,6 +616,10 @@ export class GlobalQueue extends Queue {
     ) {
       this._running = true;
       try {
+        // Sweep first: unobserved() pulls swept nodes out of the dirty heap,
+        // so a dormant memo dirtied in the same tick is reclaimed instead of
+        // recomputed (matching the old inline dispose-on-read counts).
+        sweepDormant();
         commitPendingNodes();
       } finally {
         this._running = false;
@@ -495,6 +635,10 @@ export class GlobalQueue extends Queue {
     this._running = true;
     try {
       if (__DEV__) devCheckFlushStart();
+      // Before runHeap for the same reason as the fast drain above; late
+      // subscribers (an effect reading a swept memo this flush) revive it,
+      // which is the pay-for-use contract.
+      sweepDormant();
       runHeap(dirtyQueue, GlobalQueue._update);
       if (activeTransition) {
         const isComplete = transitionComplete(activeTransition);
@@ -634,8 +778,17 @@ export class GlobalQueue extends Queue {
     return false;
   }
   initTransition(transition?: Transition | null): void {
-    if (transition) transition = currentTransition(transition);
-    if (transition && transition === activeTransition) return;
+    if (transition) {
+      transition = currentTransition(transition);
+      // A finished transaction cannot be re-entered: its state is committed
+      // or reverted, so "rejoining" it (A26) is meaningless and re-activating
+      // it spins the drain loop (#3140). The refusal must be a bare return —
+      // redirecting the caller to a fresh batch would re-arm the loop with a
+      // new transaction identity each pass. Stamps are cleared at commit, so
+      // this is a belt for paths that hand over a chased-dead reference
+      // (merged chains, async settles racing completion).
+      if (transition._done === true || transition === activeTransition) return;
+    }
     if (!transition && activeTransition && activeTransition._time === clock) return;
     if (!activeTransition) {
       activeTransition = transition ?? createBatch();
@@ -679,12 +832,27 @@ export class GlobalQueue extends Queue {
     for (const lane of activeLanes) {
       if (!lane._transition) lane._transition = activeTransition;
     }
+    // A transaction's ambient window is one flush. Entering must therefore
+    // guarantee a flush: a transaction opened with no writes (an action whose
+    // first statements only await) otherwise leaves activeTransition and the
+    // adopted batch armed across the async gap, and the next unrelated work
+    // to arrive — an optimistic store's authoritative landing, a plain async
+    // settle — is adopted into a transaction it has nothing to do with
+    // (#3141). The scheduled flush parks the incomplete transaction through
+    // the normal machinery and detaches the ambient slots first.
+    schedule();
   }
 }
 
 export function queuePendingNode(node: Signal<any>): void {
+  if (__DEV__) lastStagedNodeName = (node as any)._name ?? null;
   currentBatch._pendingNodes.push(node);
 }
+
+// Dev-only attribution for the flush loop guard (#3140): when the guard
+// trips, naming what the loop kept chewing on lets the app author attribute
+// the runaway without patching dist.
+let lastStagedNodeName: string | null = null;
 
 // Sticky: flips true on the first refresh() ever (the only setter of
 // REACTIVE_REASK) so the hot notification loop skips the per-subscriber flag
@@ -791,13 +959,50 @@ export function setStoreCommitHook(fn: () => void): void {
   storeCommitHook = fn;
 }
 
+/** Patch-channel release hook (next/patch.ts): transition-stamped patch
+ * emissions are released when THEIR batch commits. Transitions never
+ * abort: failed actions still commit (only optimistic overrides revert),
+ * and merged-away transitions hand their stash to the survivor
+ * (mergeTransitionState) — every stash drains exactly once. Injected like
+ * storeCommitHook to stay tree-shakeable. */
+export let patchCommitHook: ((batch: Transition) => void) | null = null;
+export function setPatchCommitHook(fn: (batch: Transition) => void): void {
+  patchCommitHook = fn;
+}
+
+/** Held truth committed this finalize, awaiting its post-revert wake (see
+ * finalizePureQueue): the commit IS the reveal, but subscribers must not
+ * re-derive until the settling transaction's optimistic overrides have
+ * reverted — a commit-time wake recomputes them in the window where
+ * confirming truth is committed and the override still displays, a torn
+ * frame no timeline contains. */
+const heldRevealed: Signal<any>[] = [];
+
 function commitPendingNodes() {
   const pendingNodes = currentBatch._pendingNodes;
   for (let i = 0; i < pendingNodes.length; i++) {
-    commitPendingNode(pendingNodes[i]);
+    const node = pendingNodes[i];
+    commitPendingNode(node);
+    // The stamp dies with the commit (#3143) — symmetric with
+    // resolveOptimisticNodes clearing optimistic stamps. A stamp outliving
+    // its transaction let any later write (even a value-equal no-op, which
+    // re-opens before the equality bail) resurrect the finished transaction;
+    // a boundary flag rewritten every finalize pass then spun the drain loop
+    // forever (#3140). The held-truth mark dies the same death — the commit
+    // IS the reveal — but its wake defers to the post-revert pass: ordinary
+    // subscribers were masked to committed all hold (some re-derived against
+    // that old view and cached it), and commits are otherwise silent
+    // (staging already notified), so without a wake they'd hold the old
+    // world forever.
+    node._transition = null;
+    if (node._config & CONFIG_HELD_TRUTH) {
+      node._config &= ~CONFIG_HELD_TRUTH;
+      heldRevealed.push(node);
+    }
   }
   pendingNodes.length = 0;
   storeCommitHook?.();
+  patchCommitHook?.(currentBatch);
 }
 
 export function finalizePureQueue(
@@ -849,6 +1054,22 @@ export function finalizePureQueue(
     // completing transition scopes the clear to its own layer keys (#2899).
     if (batch._optimisticStores.size)
       GlobalQueue._clearOptimisticStores!(batch._optimisticStores, completingTransition);
+    // Held-truth reveal wake (#3164), post-revert by construction: this
+    // finalize committed confirming truth whose subscribers were masked all
+    // hold — some re-derived against the committed view (the staging, or a
+    // confirming carrier's landing, notified them as a plain write) and
+    // cached it, and stash-restored applies may carry those torn values.
+    // Waking and recomputing HERE — after _resolveOptimistic and the store
+    // clears above — means every apply paints the settled view; a wake at
+    // commit time would recompute them in the window where truth is
+    // committed but the settling transaction's overrides still display.
+    if (heldRevealed.length !== 0) {
+      while (heldRevealed.length) insertSubs(heldRevealed.pop()!);
+      if (dirtyQueue._max >= dirtyQueue._min) {
+        runHeap(dirtyQueue, GlobalQueue._update);
+        commitPendingNodes();
+      }
+    }
     sweepTransientStoreNodes();
     // Lanes only enter activeLanes through the engine's getOrCreateLane.
     if (activeLanes.size) GlobalQueue._cleanupLanes!(completingTransition);
@@ -968,7 +1189,22 @@ export function flush<T>(fn?: () => T): T | void {
   // `flush()` is an explicit drain point, so it must also process an active
   // transition even if no microtask was scheduled for it yet.
   while (scheduled || activeTransition) {
-    if (__DEV__ && ++count === 1e5) throw new Error("Potential Infinite Loop Detected.");
+    if (__DEV__ && ++count === 1e5) {
+      // Attribution beats a bare guard (#3140): say what kept the loop alive.
+      // A completed transition being re-activated reads `done=true` here —
+      // the corpse-revival signature — while application-driven runaways
+      // (#2843) usually show staged work naming the culprit node.
+      const t = activeTransition as any;
+      throw new Error(
+        `Potential Infinite Loop Detected. Kept alive by ${
+          scheduled ? "scheduled work" : "an active transition"
+        }${
+          t
+            ? `; transition: done=${t._done === true}, pending=${t._pendingNodes.length}, optimistic=${t._optimisticNodes.length}, asyncReporters=${t._asyncReporters.size}`
+            : ""
+        }${lastStagedNodeName ? `; last staged node: ${lastStagedNodeName}` : ""}`
+      );
+    }
     globalQueue.flush();
   }
 }
@@ -1040,5 +1276,29 @@ export function runInTransition<T>(transition: Transition, fn: () => T): T {
     return fn();
   } finally {
     activeTransition = prevTransition;
+  }
+}
+
+/** Run `fn` with `transition` as BOTH the ambient transaction and the
+ * registration batch, restoring both after. runInTransition alone is not
+ * enough for code that WRITES on behalf of a transaction from inside someone
+ * else's window (optimistic replay re-arming a still-open action's edits
+ * during a landing commit, #3123): registrations route through the queue's
+ * batch pointer, and a bare activeTransition swap leaves them in the ambient
+ * batch — a plain batch "completes" at the next flush and reverts optimistic
+ * registrations that were supposed to live with the transaction.
+ * initTransition is the wrong tool here: it MERGES the currently ambient
+ * transaction into the target, entangling whatever the interrupted window
+ * belonged to. */
+export function runAsTransitionBatch<T>(transition: Transition, fn: () => T): T {
+  const prevTransition = activeTransition;
+  const prevBatch = globalQueue._batch;
+  try {
+    activeTransition = currentTransition(transition);
+    currentBatch = globalQueue._batch = activeTransition;
+    return fn();
+  } finally {
+    activeTransition = prevTransition;
+    currentBatch = globalQueue._batch = prevBatch;
   }
 }

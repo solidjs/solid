@@ -406,7 +406,22 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
       !(pendingComputed._flags & (REACTIVE_DISPOSED | REACTIVE_ZOMBIE))
     ) {
       markHeap(queue);
-      prepareComputed(pendingComputed as Computed<unknown>, true);
+      // Suspend probe collection during the pull (mirrors pendingCheckRead's
+      // prepare): a probe through latest() answers for the SHADOW — the
+      // read() dispatch collects it deliberately, so the verdict reflects
+      // async still in flight for the latest view, not the parent's held
+      // write. A stale shadow recomputing HERE ran its `read(parent)` with
+      // the probe still live and collected the parent too, so the verdict
+      // depended on whether anything had pulled the shadow current earlier
+      // in the tick (#3104: reading latest(m) flipped a later
+      // latest(() => isPending(x)) from true to false).
+      const prevCheck = pendingCheckActive;
+      setPendingCheckActive(false);
+      try {
+        prepareComputed(pendingComputed as Computed<unknown>, true);
+      } finally {
+        setPendingCheckActive(prevCheck);
+      }
     }
     value = read(pendingComputed);
   } catch (e) {
@@ -440,6 +455,23 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
   return value as T;
 }
 
+/**
+ * A latest() shadow that is uninitialized only because it was CREATED during
+ * an active flight — its parent source already has a committed value, so
+ * latest() serves that as the visible value and a tracked reader has
+ * something to pair a verdict with (#3166). Same parent resolution as
+ * computePendingState. The pending signal companion also carries
+ * `_parentSource` but is a plain signal (no `_fn`) that never goes pending,
+ * so the `_fn` check is belt-and-braces for this call site.
+ */
+function latestShadowWithInitializedParent(owner: Signal<any> | Computed<any>): boolean {
+  if (typeof (owner as Partial<Computed<any>>)._fn !== "function") return false;
+  const parentNode = owner._x?._parentSource as FirewallSignal<any> | undefined;
+  if (parentNode === undefined) return false;
+  const parent = (parentNode._firewall || parentNode) as Computed<any>;
+  return !(parent._statusFlags & STATUS_UNINITIALIZED);
+}
+
 /** The isPending()-probe read path, installed as GlobalQueue._pendingCheck. */
 function pendingCheckRead(
   el: Signal<any> | Computed<any>,
@@ -451,7 +483,21 @@ function pendingCheckRead(
   if (typeof (el as Partial<Computed<unknown>>)._fn === "function")
     prepareComputed(el as Computed<unknown>, true);
   const ownerStatus = (owner as Computed<any>)._statusFlags!;
-  if (c && ownerStatus & STATUS_PENDING && ownerStatus & STATUS_UNINITIALIZED) {
+  if (
+    c &&
+    ownerStatus & STATUS_PENDING &&
+    ownerStatus & STATUS_UNINITIALIZED &&
+    // The suspend-throw is for a genuinely-first-load source: the tracked
+    // reader has nothing to pair a verdict with, so it parks on the source.
+    // A latest() SHADOW created lazily mid-flight is born uninitialized even
+    // though its parent has a committed value latest() will serve — throwing
+    // here (swallowed by latestRead's fallback) dropped the shadow from the
+    // probe, so a tracked latest(isPending()) probe created during a
+    // new-question flight cached `false` for that whole flight (#3166).
+    // Defer to the PARENT's initialization state and fall through to normal
+    // collection; the plain pending throw downstream still links the reader.
+    !latestShadowWithInitializedParent(owner)
+  ) {
     if (tracking && el !== c) link(el, c);
     setPendingCheckActive(true);
     throw (owner as Computed<any>)._x?._error;
@@ -471,8 +517,22 @@ function pendingCheckRead(
  */
 function heldAwaitingAsync(el: Signal<any> | Computed<any>): boolean {
   const et = el._transition;
-  const t = et ? currentTransition(et) : null;
+  const t = et ? currentTransition(et) : activeTransition;
   if (!t || t._done) return false;
+  // A plain staged write (a signal/store leaf — no _fn) held while an action
+  // is still running is an INPUT to a computation still in flight (#3078):
+  // the pairing rule must not suppress the verdict, or a memo recomputing
+  // mid-action reads the staged value, gets told "not pending", and
+  // disagrees with a direct isPending() probe for the whole action window.
+  // A computed's staged value is the opposite case — a LANDED answer
+  // awaiting reveal — where the pairing rule stands even inside an open
+  // action (#2831: a reader that saw the new value must not also see
+  // pending); still-computing answers are covered by the reporter scan.
+  if (t._actions.length && !(el as Partial<Computed<any>>)._fn) return true;
+  // A node not yet stamped with a transition only qualifies through the
+  // action check above; the reporter scan below is for transition-held
+  // writes whose source async is still computing.
+  if (!et) return false;
   for (const [source, reporters] of t._asyncReporters) {
     if (
       reporters.size &&
@@ -523,6 +583,17 @@ export function isPending(fn: () => any): boolean {
   });
   const collectPending = () => {
     setPendingCheckActive(false);
+    // Companion reads are mode-neutral plumbing: under an outer latest()
+    // (isPending inside a latest window — #3104's memo shape) leaving latest
+    // mode active dispatched these reads through latestRead, which built a
+    // SHADOW OF THE PENDING SIGNAL itself. The next updatePendingSignal then
+    // wrote that companion-on-companion from inside a recompute
+    // (syncCompanions → setSignal on a shadow created without ownedWrite)
+    // and halted dev with the owned-scope write guard. The creation paths
+    // (getLatestValueComputed / getPendingSignal) already suspend both
+    // modes; this read site must too.
+    const prevLatest = latestReadActive;
+    setLatestReadActive(false);
     const prevStrictRead = __DEV__ ? strictRead : false;
     if (__DEV__) setStrictRead(false);
     try {
@@ -534,6 +605,7 @@ export function isPending(fn: () => any): boolean {
       });
     } finally {
       if (__DEV__) setStrictRead(prevStrictRead);
+      setLatestReadActive(prevLatest);
       setPendingCheckActive(true);
     }
     // A "not pending" verdict that exists only because this reader saw the

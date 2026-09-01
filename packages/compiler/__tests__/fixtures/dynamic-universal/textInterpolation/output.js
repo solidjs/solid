@@ -63,7 +63,7 @@ _$insertNode(_el$19, _$createTextNode("Hello John"));
 /* prettier-ignore */
 const multiLineNoTrailingSpace = _el$19;
 var _el$20 = _$createElement("span");
-_$insertNode(_el$20, _$createTextNode("&nbsp;&lt;Hi&gt;&nbsp;"));
+_$insertNode(_el$20, _$createTextNode("\xA0<Hi>\xA0"));
 /* prettier-ignore */
 const escape = _el$20;
 /* prettier-ignore */
@@ -71,49 +71,58 @@ const escape2 = _$createComponent(Comp, { children: "\xA0<Hi>\xA0" });
 /* prettier-ignore */
 const escape3 = "\xA0<Hi>\xA0";
 var _el$21 = _$createElement("span");
-var _el$22 = _$createTextNode("Hi&lt;script>alert();&lt;/script>");
+var _el$22 = _$createTextNode("Hi<script>alert();<\/script>");
 _$insertNode(_el$21, _el$22);
 const injection = _el$21;
+var _el$23 = _$createElement("item");
+_$insertNode(_el$23, _$createTextNode("<span> restyles a run"));
+const staticLessThan = _el$23;
+var _el$24 = _$createElement("item");
+_$insertNode(_el$24, _$createTextNode("<b> & <i>"));
+const staticAmpersand = _el$24;
+var _el$25 = _$createElement("item");
+_$insertNode(_el$25, _$createTextNode("lit < text"));
+const jsxEntity = _el$25;
 let value = "World";
-var _el$23 = _$createElement("span");
-var _el$24 = _$createTextNode("Hello World!");
-_$insertNode(_el$23, _el$24);
-const evaluated = _el$23;
+var _el$26 = _$createElement("span");
+var _el$27 = _$createTextNode("Hello World!");
+_$insertNode(_el$26, _el$27);
+const evaluated = _el$26;
 let number = 4 + 5;
-var _el$25 = _$createElement("span");
-var _el$26 = _$createTextNode("4 + 5 = 9");
-_$insertNode(_el$25, _el$26);
-const evaluatedNonString = _el$25;
-var _el$27 = _$createElement("div");
-var _el$28 = _$createTextNode("\nd");
-_$insertNode(_el$27, _el$28);
-_$insert(_el$27, s, _el$28);
-const newLineLiteral = _el$27;
-var _el$29 = _$createElement("div");
-_$insert(_el$29, expr);
-const trailingSpace = _el$29;
+var _el$28 = _$createElement("span");
+var _el$29 = _$createTextNode("4 + 5 = 9");
+_$insertNode(_el$28, _el$29);
+const evaluatedNonString = _el$28;
+var _el$30 = _$createElement("div");
+var _el$31 = _$createTextNode("\nd");
+_$insertNode(_el$30, _el$31);
+_$insert(_el$30, s, _el$31);
+const newLineLiteral = _el$30;
+var _el$32 = _$createElement("div");
+_$insert(_el$32, expr);
+const trailingSpace = _el$32;
 const trailingSpaceComp = _$createComponent(Comp, { children: expr });
 const trailingSpaceFrag = expr;
-var _el$30 = _$createElement("span");
-var _el$31 = _$createTextNode(" ");
-_$insertNode(_el$30, _el$31);
-_$insert(_el$30, expr, null);
-const leadingSpaceElement = _el$30;
+var _el$33 = _$createElement("span");
+var _el$34 = _$createTextNode(" ");
+_$insertNode(_el$33, _el$34);
+_$insert(_el$33, expr, null);
+const leadingSpaceElement = _el$33;
 const leadingSpaceComponent = _$createComponent(Div, { get children() {
 	return [" ", expr];
 } });
 const leadingSpaceFragment = [" ", expr];
-var _el$32 = _$createElement("span");
-var _el$33 = _$createTextNode(" ");
-_$insertNode(_el$32, _el$33);
-_$insert(_el$32, expr, _el$33);
-const trailingSpaceElement = _el$32;
+var _el$35 = _$createElement("span");
+var _el$36 = _$createTextNode(" ");
+_$insertNode(_el$35, _el$36);
+_$insert(_el$35, expr, _el$36);
+const trailingSpaceElement = _el$35;
 const trailingSpaceComponent = _$createComponent(Div, { get children() {
 	return [expr, " "];
 } });
 const trailingSpaceFragment = [expr, " "];
 const escapeAttribute = _$createElement("div", {
-	normal: "Search&hellip;",
+	normal: "Search…",
 	title: "Search&hellip;"
 });
 const escapeCompAttribute = _$createComponent(Div, {

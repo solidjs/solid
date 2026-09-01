@@ -1080,6 +1080,7 @@ export namespace JSX {
   type HTMLFormEncType = "application/x-www-form-urlencoded" | "multipart/form-data" | "text/plain";
   type HTMLFormMethod = "post" | "get" | "dialog";
   type HTMLCrossorigin = "anonymous" | "use-credentials" | EnumeratedAcceptsEmpty;
+  type HTMLFetchPriority = "high" | "low" | "auto";
   type HTMLReferrerPolicy =
     | "no-referrer"
     | "no-referrer-when-downgrade"
@@ -1105,19 +1106,8 @@ export namespace JSX {
     | "allow-top-navigation"
     | "allow-top-navigation-by-user-activation"
     | "allow-top-navigation-to-custom-protocols";
-  type HTMLLinkAs =
-    | "audio"
-    | "document"
-    | "embed"
-    | "fetch"
-    | "font"
-    | "image"
-    | "object"
-    | "script"
-    | "style"
-    | "track"
-    | "video"
-    | "worker";
+  type HTMLPreloadAs = "fetch" | "font" | "image" | "script" | "style" | "track";
+  type HTMLLinkAs = HTMLPreloadAs | "audio" | "document" | "embed" | "object" | "video" | "worker";
 
   interface AnchorHTMLAttributes<T> extends HTMLAttributes<T> {
     download?: string | EnumeratedAcceptsEmpty | RemoveAttribute;
@@ -1367,7 +1357,7 @@ export namespace JSX {
     browsingtopics?: string | RemoveAttribute;
     crossorigin?: HTMLCrossorigin | RemoveAttribute;
     decoding?: "sync" | "async" | "auto" | RemoveAttribute;
-    fetchpriority?: "high" | "low" | "auto" | RemoveAttribute;
+    fetchpriority?: HTMLFetchPriority | RemoveAttribute;
     height?: number | string | RemoveAttribute;
     ismap?: BooleanAttribute | RemoveAttribute;
     loading?: "eager" | "lazy" | RemoveAttribute;
@@ -1522,7 +1512,7 @@ export namespace JSX {
     color?: string | RemoveAttribute;
     crossorigin?: HTMLCrossorigin | RemoveAttribute;
     disabled?: BooleanAttribute | RemoveAttribute;
-    fetchpriority?: "high" | "low" | "auto" | RemoveAttribute;
+    fetchpriority?: HTMLFetchPriority | RemoveAttribute;
     href?: string | RemoveAttribute;
     hreflang?: string | RemoveAttribute;
     imagesizes?: string | RemoveAttribute;
@@ -1713,7 +1703,7 @@ export namespace JSX {
     blocking?: "render" | RemoveAttribute;
     crossorigin?: HTMLCrossorigin | RemoveAttribute;
     defer?: BooleanAttribute | RemoveAttribute;
-    fetchpriority?: "high" | "low" | "auto" | RemoveAttribute;
+    fetchpriority?: HTMLFetchPriority | RemoveAttribute;
     for?: string | RemoveAttribute;
     integrity?: string | RemoveAttribute;
     nomodule?: BooleanAttribute | RemoveAttribute;
@@ -3500,6 +3490,11 @@ export namespace JSX {
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLSelectElement
      */
     select: SelectHTMLAttributes<HTMLSelectElement> & Properties<HTMLSelectElement>;
+    /**
+     * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/selectedcontent
+     * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLSelectedContentElement
+     */
+    selectedcontent: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/slot
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLSlotElement

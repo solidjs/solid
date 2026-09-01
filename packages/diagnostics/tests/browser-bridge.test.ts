@@ -4,6 +4,7 @@ import { installDiagnosticsBridge, BRIDGE_GLOBAL } from "../src/browser.js";
 import { captureBrowserArtifact } from "../src/playwright.js";
 import type { EvaluatingPage } from "../src/playwright.js";
 import { mountTodoApp } from "./fixtures/todo-app.js";
+import { deterministicAttribution } from "./helpers.js";
 
 /**
  * In-process stand-in for a Playwright page. Runs evaluate callbacks in the
@@ -47,7 +48,7 @@ describe("browser bridge + playwright adapter", () => {
         app.setFilter("active");
         flush();
       },
-      { scenario: "browser-toggle" }
+      { scenario: "browser-toggle", attribution: deterministicAttribution }
     );
     app.dispose();
 

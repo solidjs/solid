@@ -3,13 +3,20 @@ import {
   handleAsync,
   notifyStatus,
   parkLoadingWindow,
-  settleErroredDependents
+  releaseFlightTeardown,
+  settleErroredDependents,
+  settlePendingSource
 } from "./async.js";
 import {
   CONFIG_FW_CHILDREN,
   $REFRESH,
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_AUTHORITATIVE_OBSERVED,
+  CONFIG_AUTHORITATIVE_READ,
+  CONFIG_HELD_TRUTH,
+  CONFIG_DIRECT_COMMIT,
+  CONFIG_FRESH_READ,
   CONFIG_IN_SNAPSHOT_SCOPE,
   CONFIG_HAS_COMPANIONS,
   CONFIG_HAS_LANE,
@@ -46,7 +53,7 @@ import {
   type Refreshable
 } from "./constants.js";
 import { NotReadyError } from "./error.js";
-import { link, trimStaleDeps, unobserved } from "./graph.js";
+import { dormantNodes, link, trimStaleDeps } from "./graph.js";
 import {
   deleteFromHeap,
   enqueueSub,
@@ -202,7 +209,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (el._transition && (!isEffect || activeTransition) && activeTransition !== el._transition)
       globalQueue.initTransition(el._transition);
     deleteFromHeap(el, queueFor(el));
-    if (el._x !== null) el._x._inFlight = null;
+    if (el._x !== null) {
+      el._x._inFlight = null;
+      // Supersede is where an iterator flight dies (#3122): close it now.
+      // Its cleanup(close) registration may sit in a zombie-deferred
+      // disposal list that a held transition only drains when the
+      // SUPERSEDING flight settles — cancellation must not wait for the
+      // work that replaced it. Idempotent with the cleanup-channel close.
+      releaseFlightTeardown(el);
+    }
     // Tracked effects run after finalizePureQueue, so dispose immediately instead of deferring
     if (el._transition || isEffect === EFFECT_TRACKED) disposeChildren(el);
     else if (el._firstChild !== null || el._disposal !== null) {
@@ -227,6 +242,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // recovers to an unchanged value, dependents still holding this object must
   // be swept (settleErroredDependents, #2949).
   const outgoingError = el._statusFlags & STATUS_ERROR ? el._x?._error : undefined;
+  // Pending SOURCE-hood, captured before the compute clears status: a node
+  // whose own flight parked dependents self-registers in _pendingSources
+  // (notifyStatus, isSource). If this recompute supersedes that flight and
+  // settles synchronously, those dependents settle HERE — asyncWrite's
+  // settlePendingSource walk never runs for a landing that was preempted
+  // (#3181).
+  const wasPendingSource =
+    (el._statusFlags & STATUS_PENDING) !== 0 && el._x?._pendingSources?.has(el) === true;
   // Re-ask classification lives in the verdict module; capture the flag before
   // the recompute wipes _flags below.
   const hadReask = (el._flags & REACTIVE_REASK) !== 0;
@@ -415,7 +438,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // values directly — the pending round-trip (queuePendingNode +
         // commitPendingNodes) exists to sequence transition reveals, and
         // paying it per effect on the plain path is pure overhead.
-        (isEffect && (activeTransition !== el._transition || activeTransition === null)) ||
+        // DIRECT_COMMIT effects (resolve/until) commit directly even under
+        // their own held transition: their applies deliver on a microtask,
+        // not the stashed queues, so a staged value would hand the immediate
+        // apply stale state — see CONFIG_DIRECT_COMMIT.
+        (isEffect &&
+          (activeTransition !== el._transition ||
+            activeTransition === null ||
+            el._config & CONFIG_DIRECT_COMMIT)) ||
         isOptimisticDirty
         // NOTE (stage-3, 2026-08-21): a quiet-world MEMO direct-commit was
         // attempted here and REVERTED — memo staging is load-bearing beyond
@@ -464,6 +494,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._pendingValue = value;
       if (__DEV__) devTrackHeldPending(el);
       if (wasLoading) el._loading = true; // see the held branch above (#2990)
+      // A authoritative-view reader (until()) observed this node past its
+      // override — and "authoritative arrival equal to the override" is
+      // exactly the acknowledgment it waits for. Wake those readers only;
+      // A17 silence holds for every ordinary subscriber. (Hook installed by
+      // until(), the only setter of the gating bit.)
+      if (el._config & CONFIG_AUTHORITATIVE_OBSERVED)
+        GlobalQueue._notifyAuthoritativeObservers!(el);
     } else if (el._height != oldHeight) {
       for (let s = el._subs; s !== null; s = s._nextSub) {
         insertIntoHeapHeight(s._sub, queueFor(s._sub));
@@ -477,6 +514,18 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // (el._x?._error re-set), so this only runs on a genuinely clean recovery.
     if (outgoingError !== undefined && !valueChanged && !el._x?._error)
       settleErroredDependents(el, outgoingError);
+
+    // Pending twin of the sweep above (#3181): a flight superseded by this
+    // synchronous settle leaves every registered dependent still flagged
+    // STATUS_PENDING with a pending source that will never land — asyncWrite
+    // owns the walk only for flights that actually land. An unchanged value
+    // is the dangerous shape (a projection reconciling in place: a memo over
+    // it re-throws its cached NotReadyError forever, and every reader that
+    // suspended through that memo re-parks on the dead source), but the walk
+    // runs on the changed shape too, exactly as the landing path does —
+    // insertSubs notifies value SUBSCRIBERS, not pending REGISTRANTS, and
+    // the two sets only partially overlap.
+    if (wasPendingSource && !(el._statusFlags & STATUS_PENDING)) settlePendingSource(el);
   }
   // Attribution hook: fired before the lane restore so `currentOptimisticLane`
   // still reflects THIS run's posture. The facts distinguish an overlay
@@ -526,7 +575,9 @@ function updateIfNecessary(el: Computed<unknown>): void {
   // (_depsTail/_depGen) is live, and a nested recompute would corrupt it.
   // A mid-pass mark stays latched for recompute's own tail to reschedule
   // (#3037); readers meanwhile serve the values the pass has so far.
-  if (el._flags & REACTIVE_RECOMPUTING_DEPS) return;
+  // Never recompute a DISPOSED node either: recompute rewrites _flags and
+  // would resurrect it (#2983) — readers serve its last value.
+  if (el._flags & (REACTIVE_RECOMPUTING_DEPS | REACTIVE_DISPOSED)) return;
   if (el._flags & REACTIVE_CHECK) {
     for (let d = el._deps; d; d = d._nextDep) {
       const dep1 = d._dep;
@@ -573,7 +624,7 @@ export function computed<T>(
       (options?.sync ? CONFIG_SYNC : 0) |
       (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0) |
       (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
-    _equals: options?.equals != null ? options.equals : isEqual,
+    _equals: options?.equals ?? isEqual,
     _disposal: null,
     _queue: context?._queue ?? globalQueue,
     _context: context?._context ?? defaultContext,
@@ -626,6 +677,7 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _parentSource: undefined,
     _affectsCount: 0,
     _inFlight: null,
+    _flightTeardown: null,
     _error: undefined,
     _blocked: undefined,
     _pendingSources: undefined,
@@ -651,7 +703,6 @@ export function createEffectNode<T>(
   effectFn: (val: T, prev: T | undefined) => void | (() => void),
   errorFn: ((err: unknown, cleanup: () => void) => void | (() => void)) | undefined,
   type: number,
-  notifyStatus: ((status?: number, error?: any) => void) | undefined,
   options: NodeOptions<T> | undefined
 ): any {
   const transparent = options?.transparent ?? false;
@@ -661,6 +712,7 @@ export function createEffectNode<T>(
       (transparent ? CONFIG_TRANSPARENT : 0) |
       (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
       (options?.sync ? CONFIG_SYNC : 0) |
+      (options?._extraConfig ?? 0) |
       (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
     _equals: false as unknown as Computed<T>["_equals"],
     _disposal: null,
@@ -697,11 +749,38 @@ export function createEffectNode<T>(
     _x: null
   } as any;
   if (__DEV__) self._name = options?.name ?? "effect";
-  // Boundary effects carry a status channel; most effects never touch _x.
-  if (notifyStatus !== undefined) ext(self)._notifyStatus = notifyStatus;
+  // Effects dispatch status through the SHARED notifier (statusNotifierOf,
+  // keyed off _type) — storing it per node forced a full NodeExtension
+  // allocation on EVERY effect at creation (an alloc + 19 field stores,
+  // +23% effect creation, caught by the creation benches). Only genuinely
+  // per-node channels (boundaries) live on _x.
   if (options?.unobserved) ext(self)._unobserved = options.unobserved;
   setupComputedNode(self, lazyOptions);
   return self;
+}
+
+/**
+ * The shared status notifier for effect nodes, installed once by effect.ts
+ * at module evaluation (`this`-dispatched — one function serves every
+ * effect, so nodes never store it). Boundary computeds keep their own
+ * per-node channel on `_x._notifyStatus`, which takes precedence.
+ */
+export let effectStatusNotify: ((this: any, status?: number, error?: any) => void) | null = null;
+export function setEffectStatusNotify(fn: NonNullable<typeof effectStatusNotify>): void {
+  effectStatusNotify = fn;
+}
+
+/** Resolve a node's status notifier: an own `_x` channel (boundaries) wins;
+ * effect nodes (`_type` — EFFECT_PURE is 0, and only effect literals carry
+ * the field) fall back to the shared notifier. Presence doubles as the
+ * "display consumer" membership test in the status walks, exactly as the
+ * per-node field did when every effect carried one. */
+export function statusNotifierOf(
+  el: any
+): ((this: any, status?: number, error?: any) => void) | undefined {
+  const own = el._x?._notifyStatus;
+  if (own !== undefined) return own;
+  return el._type ? (effectStatusNotify ?? undefined) : undefined;
 }
 
 const lazyOptions = { lazy: true } as const;
@@ -757,7 +836,7 @@ export function signal<T>(
   firewall: Computed<unknown> | null = null
 ): Signal<T> {
   const s = {
-    _equals: options?.equals != null ? options.equals : isEqual,
+    _equals: options?.equals ?? isEqual,
     _config:
       (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
       (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0),
@@ -909,6 +988,37 @@ export const READ_SLOW = Symbol("read-slow");
  * snapshot / transition / lane / dev-strictRead state all take the full
  * resolution. Anything slow returns READ_SLOW; the caller then calls read().
  */
+/**
+ * Wake only authoritative-view readers (until() predicates) subscribed to `el`.
+ * The A17-silent ack paths — an authoritative arrival equal to the active
+ * override — use this so the predicate re-evaluates without re-firing
+ * ordinary subscribers whose visible (override) value did not change.
+ * Pay-for-use: reached through GlobalQueue._notifyAuthoritativeObservers,
+ * installed at first until() call — apps that never use until() shake it.
+ */
+export function notifyAuthoritativeObservers(el: Signal<any> | Computed<any>): void {
+  for (let s = el._subs; s !== null; s = s._nextSub) {
+    const sub = s._sub;
+    if (!(sub._config & CONFIG_AUTHORITATIVE_READ)) continue;
+    // Missed-wake latch (#3037), same contract as insertSubs: the reader may
+    // itself have pulled this recompute (updateIfNecessary from its own
+    // read), and the heap refuses RECOMPUTING nodes — latch so recompute's
+    // tail reschedules it with the staged value visible.
+    if (sub._flags & REACTIVE_RECOMPUTING_DEPS && s._gen === sub._depGen && s !== sub._depsTail)
+      sub._flags |= REACTIVE_MISSED_WAKE;
+    enqueueSub(sub);
+  }
+  schedule();
+}
+
+/** Installs the until() machinery hook. Idempotent; called by until() before
+ * any authoritative-view read happens (same late-binding contract as the
+ * optimistic engine). */
+export function installAuthoritativeRead(): void {
+  if (GlobalQueue._notifyAuthoritativeObservers === null)
+    GlobalQueue._notifyAuthoritativeObservers = notifyAuthoritativeObservers;
+}
+
 export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
   if (
     latestReadActive ||
@@ -999,6 +1109,13 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         markHeap(elQueue);
         updateIfNecessary(owner);
       }
+      // Fresh-pull readers (awaitable refresh's waiter) recompute a dirty
+      // source inline even when the height gate defers to the flush: the
+      // waiter must park on the re-ask's window (or serve its sync answer),
+      // never read the PRE-re-ask value as settled. Self-guarded: a clean
+      // node no-ops and updateIfNecessary refuses disposed nodes (#2983) —
+      // a dead target serves its last value, which is already quiescent.
+      else if (c._config & CONFIG_FRESH_READ) updateIfNecessary(owner);
       const height = owner._height;
       // parent check is shallow, might need to be recursive
       if (height >= (c as Computed<any>)._height && (el as Computed<any>)._parent !== c) {
@@ -1081,8 +1198,19 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     });
 
   if (el._x?._overrideValue !== undefined && el._x?._overrideValue !== NOT_PENDING) {
-    // A17: the override IS the value for every reader.
-    return unwrapOverride<T>(el._x?._overrideValue);
+    // A17: the override IS the value for every reader — except an authoritative
+    // reader (until()'s predicate carries CONFIG_AUTHORITATIVE_READ): it must
+    // observe independently-arriving truth, and serving it the caller's own
+    // tentative write would trivially satisfy the predicate. The bit is checked
+    // on the reading computation itself, so a shared computed the predicate
+    // pulls recomputes as ITSELF (context = the memo, no bit) under the normal
+    // view. Fall through to normal value selection (staged `_pendingValue` is
+    // authoritative — optimism never lives there); the sticky mark makes the
+    // A17-silent "landing equals override" paths notify this node's subs so
+    // the reader re-runs when truth arrives.
+    if (!(c && c._config & CONFIG_AUTHORITATIVE_READ))
+      return unwrapOverride<T>(el._x?._overrideValue);
+    el._config |= CONFIG_AUTHORITATIVE_OBSERVED;
   }
 
   // Entanglement gate: a reader recomputing under an optimistic lane that reads
@@ -1113,7 +1241,18 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       GlobalQueue._laneReadsCommitted!(el, owner, c as Computed<any>)) ||
     el._pendingValue === NOT_PENDING ||
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
-    (stale && el._transition && activeTransition !== el._transition)
+    (stale && el._transition && activeTransition !== el._transition) ||
+    // A17 for HELD truth (#3164, see CONFIG_HELD_TRUTH): staged confirming
+    // truth — fold-staged onto an armed family, or entangle-stolen by an
+    // awaited until() — is masked from ordinary readers until its
+    // transaction's reveal; the retaining transaction's own speculative
+    // recomputes included (partial override coverage would otherwise
+    // compose override + staged truth into a state no timeline contains).
+    // Authoritative readers (until()'s predicate) and latest() see the
+    // staged truth — the tunnel that keeps the hold deadlock-free.
+    (el._config & CONFIG_HELD_TRUTH &&
+      !latestReadActive &&
+      !((c as Computed<any>)._config & CONFIG_AUTHORITATIVE_READ))
       ? el._value
       : (el._pendingValue as T);
   // Record that this isPending() probe observed the fresh pending value, so
@@ -1127,7 +1266,14 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     !(owner._statusFlags & STATUS_PENDING) &&
     !el._subs
   ) {
-    unobserved(el as Computed<unknown>);
+    // Deferred, not inline (#3078): an inline unobserved() here made untracked
+    // reads destructive — dispose on this read, full revival recompute on the
+    // next — so consecutive reads could answer differently with no write in
+    // between (the revival samples the ambient transition/lane context).
+    // The sweep at flush finalization re-validates and reclaims; schedule()
+    // guarantees that flush happens even if nothing else is queued.
+    dormantNodes.add(el as Computed<unknown>);
+    schedule();
   }
   return value;
 }
@@ -1153,8 +1299,17 @@ export function devGuardStoreSetterWrite(): void {
       ownerName: (context as any)._name,
       data: { operation: "setStore" }
     });
-    throw new Error(REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE);
+    // the owner name reaches the THROWN message too, not just the
+    // diagnostics channel apps don't subscribe to by default (#3157)
+    throw new Error(ownedScopeWriteMessage(context));
   }
+}
+
+function ownedScopeWriteMessage(owner: Owner) {
+  const name = (owner as any)._name;
+  return name
+    ? `${REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE} (in ${name})`
+    : REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE;
 }
 
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
@@ -1175,7 +1330,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
       nodeName: (el as any)._name,
       data: { operation: "setSignal" }
     });
-    throw new Error(REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE);
+    throw new Error(ownedScopeWriteMessage(context));
   }
 
   if (el._transition && activeTransition !== el._transition)
@@ -1318,42 +1473,13 @@ export function staleValues<T>(fn: () => T, set = true): T {
 }
 
 /**
- * Invalidates one reactive source, forcing it to re-execute even if its inputs
- * haven't changed.
- *
- * Pass either a Solid-created accessor or a projected store created from
- * `createStore(fn, ...)` / `createProjection(...)`. `refresh()` is a
- * write-like invalidation operation: it does not read the target's value, and
- * refreshing a plain signal accessor is a no-op.
- *
- * Use it to invalidate cached async values (e.g. force a re-fetch) without
- * tearing the consumer down.
- *
- * @example
- * ```ts
- * const user = createMemo(async () => fetch(`/users/${id()}`).then(r => r.json()));
- *
- * // Re-fetch on demand
- * <button onClick={() => refresh(user)}>Reload</button>
- * ```
+ * Core marking half of `refresh()` (the public wrapper lives in signals.ts —
+ * it validates the target, marks through here, then builds the quiescence
+ * promise on the resolve()/until() effect machinery). Flags the node's next
+ * recompute as a quiet re-ask and schedules it; no-ops for non-derived or
+ * disposed targets and for same-tick manual writes.
  */
-export function refresh<T>(target: Refreshable<T>): void {
-  const node = (target as any)?.[$REFRESH] as Computed<any> | undefined;
-  if (!node) {
-    if (__DEV__) {
-      const message =
-        "[INVALID_REFRESH_TARGET] refresh() expects a Solid source accessor or refreshable store. " +
-        "Pass the original source target, not a wrapper function or derived property read.";
-      emitDiagnostic({
-        code: "INVALID_REFRESH_TARGET",
-        kind: "write",
-        severity: "error",
-        message
-      });
-      throw new Error(message);
-    }
-    return;
-  }
+export function markRefresh(node: Computed<any>): void {
   if (
     __DEV__ &&
     context &&

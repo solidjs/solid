@@ -7,18 +7,27 @@
  * armed presence nodes (the §6 overlay), so structural optimism reverts with
  * the same per-transaction granularity (FINDING-2's fix by construction).
  *
- * Derived form = an optimistic projection: the derive's recompute and its
- * async commits run under projectionWriteActive (authoritative landings
- * commit silently beneath any active overrides). The transitionBlocked
- * store-half (#2951) is installed here for next-shaped targets, chaining the
+ * Derived form = an optimistic projection. Landings follow the fold rule
+ * (#3164, RUL-2 as re-ruled): while a transaction retains optimistic edits
+ * on the family, truth that lands STAGES into that transaction — a keyed
+ * identity-preserving walk written through the ordinary staged setter
+ * channel — and reveals atomically at settle, exactly like a signal landing
+ * under an active override (asyncWrite's held branch). Optimistic edits are
+ * never consumed by landings; they live exactly as long as their transaction
+ * and die by engine-native revert. With no retainer, landings commit
+ * immediately under projectionWriteActive (authoritative, silently beneath
+ * any bare-write overrides — those ride the flight's own transition, #2951).
+ * Authoritative readers (until()'s predicate) tunnel into staged truth via
+ * the node read path's pending-value arm. The transitionBlocked store-half
+ * (#2951) is installed here for next-shaped targets, chaining the
  * legacy/engine checks.
  */
-import { ext } from "../../core/core.js";
 import {
+  CONFIG_HELD_TRUTH,
+  CONFIG_OPTIMISTIC,
   NOT_PENDING,
   STATUS_PENDING,
-  unwrapOverride,
-  CONFIG_OPTIMISTIC
+  unwrapOverride
 } from "../../core/constants.js";
 import {
   computed,
@@ -28,7 +37,14 @@ import {
   type Computed,
   type Signal
 } from "../../core/index.js";
-import { GlobalQueue, globalQueue, insertSubs, schedule } from "../../core/scheduler.js";
+import {
+  GlobalQueue,
+  globalQueue,
+  activeTransition,
+  currentTransition,
+  runAsTransitionBatch,
+  type Transition
+} from "../../core/scheduler.js";
 import { installOptimisticEngine } from "../../core/optimistic.js";
 import {
   $TARGET,
@@ -41,20 +57,39 @@ import {
 import { runProjectionComputedNext } from "./projection.js";
 import {
   bumpDeep,
+  authoritativeRead,
   getHasNode,
   getKeySetNode,
   getNode,
   hasActiveOverride,
   runAuthoritative,
+  stagedTruthPB,
   storeSetterNext,
   targetsEqual,
   unwrapValue,
   wrapNext
 } from "./store.js";
+// Patch-channel emission rides installed hooks (patch-hooks.ts); all
+// calls are `t.pc`-guarded. See patch-hooks.ts for the soundness argument.
+import { patchHooks, rowHooks } from "./patch-hooks.js";
+// Cycle with reconcile.js is benign: the binding resolves at call time (the
+// optimistic write), long after both modules initialize.
+import { buildIdentityRowOps, sameKey } from "./reconcile.js";
 import { setOptHooks, storeNextLookup } from "./target.js";
 type KeyFn = (item: any) => any;
 import { isRawValue, isWrappable, rawValuesUsed, setNextOptimisticViewResolver } from "../store.js";
 import type { StoreNextFamily, StoreNextTarget } from "./target.js";
+
+/** #3164 fold: a stamped truth is HELD (masked from ordinary readers until
+ * the reveal) only while its transition is live AND retaining optimism —
+ * overrides are what make partial-coverage composition a tear. A plain
+ * async transition carries no overrides, so downstream computes must see
+ * staged values to converge (normal speculation). Resolves merges first:
+ * merge unions optimistic nodes/stores into the target. */
+export function transitionHoldsOptimism(transition: Transition): boolean {
+  const t = currentTransition(transition);
+  return t._done !== true && (t._optimisticNodes.length !== 0 || t._optimisticStores.size !== 0);
+}
 
 let blockedInstalled = false;
 function installNextBlockedHalf(): void {
@@ -63,13 +98,42 @@ function installNextBlockedHalf(): void {
   // Late-bind the optimistic machinery into the plain store/reconcile paths
   // (all call sites are fam?.opt-gated, so this always runs first) and the
   // affects witness's view resolver.
-  setOptHooks({ notifyOptimisticWrites, optimisticView, applyTentative });
+  setOptHooks({
+    notifyOptimisticWrites,
+    optimisticView,
+    applyTentative,
+    retainsOptimism: transitionHoldsOptimism
+  });
   setNextOptimisticViewResolver((t: StoreNextTarget, raw: any) => optimisticView(t, raw));
   // Scheduler flush tails call _clearOptimisticStores whenever tracked
   // stores exist; next has no layer to clear — reverts are engine-native —
   // so the hook only empties the batch set.
   if (!GlobalQueue._clearOptimisticStores) {
     GlobalQueue._clearOptimisticStores = (stores: Set<any>) => {
+      // Patch channel (revert site): engine-native reverts flip node values
+      // back to committed; patched records need a forced DOM re-apply from
+      // the post-revert view. Emission only — next keeps no layer to clear.
+      for (const px of stores) {
+        const t: StoreNextTarget | undefined = px?.[$TARGET];
+        const overlaid = t?.fam?.overlaid as Set<StoreNextTarget> | undefined;
+        if (overlaid !== undefined) {
+          for (const ot of overlaid) {
+            if (ot.pc !== null && ot.pc.p !== null) patchHooks!.emitPatchOptimistic(ot, null, null);
+            // Row-ops resync (family increment 2): reverts flip node values
+            // back engine-natively; a driven list must rebuild retention by
+            // row identity against the post-revert view (resolved from the
+            // target at drain — overrides are gone by then).
+            if (ot.pc !== null && ot.pc.ro !== null) rowHooks!.emitRowOpsOptimistic(ot, null, null);
+            // Keyset resync (classic channel twin): the keyset node's own
+            // revert can compare EQUAL (a landing's bump matched the
+            // tentative bump) while the arrangement underneath changed —
+            // mapArray/ownKeys subscribers must re-read the post-revert
+            // view. Authoritative bump: never re-arm the node we are
+            // clearing.
+            if (ot.k !== null) runAuthoritative(() => setSignal(ot.k!, v => v + 1));
+          }
+        }
+      }
       stores.clear();
     };
   }
@@ -135,6 +199,15 @@ export function createOptimisticStoreNext<T extends object = {}>(
   };
   const store = wrapNext(initialValue as any, null, null, fam) as Store<T>;
   fam.px = store;
+  // Same key resolution the projection channels use ("id" default) — replay's
+  // satisfaction rule reads it off the family.
+  const keyOption = options?.key === undefined ? "id" : options.key;
+  fam.key =
+    typeof keyOption === "function"
+      ? keyOption
+      : keyOption === null
+        ? null
+        : (row: any) => (isWrappable(row) ? row[keyOption] : undefined);
   if (fam.shallow) {
     ((store as any)[$TARGET] as StoreNextTarget as any).s = true;
     markRawIngest(initialValue);
@@ -142,14 +215,26 @@ export function createOptimisticStoreNext<T extends object = {}>(
 
   if (derived) {
     const fn = first as (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>;
-    // Async commits land outside the computed's sync body — re-apply the
-    // authoritative-write posture there too. Landings consume the family's
-    // tentative overrides (RUL-2: visible landed truth replaces optimism) —
-    // both the reconcile-channel commit and per-op post-await draft writes.
-    const consume = () => consumeOverridesNext(fam);
-    const wrapCommit = (write: () => void) => {
-      runAuthoritative(write);
-      consume();
+    // Landing router (#3164 fold ruling): while a transaction retains
+    // optimistic edits on this family, truth landings stage INTO it and
+    // reveal atomically at settle; with no retainer they commit immediately
+    // under the authoritative posture (async commits land outside the
+    // computed's sync body, so the posture is re-applied here).
+    const wrapCommit = (write: () => void, value: T) => {
+      const txn = retainingTransition(fam);
+      if (txn === null) runAuthoritative(write);
+      else stageLanding(fam, txn, value);
+    };
+    // Draft writes (the derive mutating its draft, sync body and post-await
+    // continuations alike) are the same truth channel per-operation: bind
+    // each op to the retaining transaction so its node writes stage and its
+    // backing fold defers (ensurePB stamps foldBatches with the swapped-in
+    // batch; the write-override eager-commit branch in notifyWrites yields
+    // to any active transaction).
+    const aroundDraftWrite = (op: () => void) => {
+      const txn = retainingTransition(fam);
+      if (txn === null) op();
+      else runFolded(txn, op);
     };
     let nodeOptions: { name?: string; loadingValue?: void } | undefined;
     if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
@@ -161,7 +246,7 @@ export function createOptimisticStoreNext<T extends object = {}>(
           fn,
           options?.key === undefined ? "id" : options.key,
           wrapCommit,
-          consume
+          aroundDraftWrite
         )
       );
     }, nodeOptions) as Computed<void>;
@@ -169,7 +254,199 @@ export function createOptimisticStoreNext<T extends object = {}>(
     fam.node = node;
   }
 
-  return [store, ((fn: (draft: T) => void) => storeSetterNext(store, fn)) as StoreSetter<T>];
+  return [
+    store,
+    ((fn: (draft: T) => void) => {
+      // Retention ledger (#3164): record the owning transaction so landings
+      // know to fold. Captured at entry — the action machinery has the
+      // transaction ambient while user code runs; a bare write with no
+      // transaction retains nothing (it rides the flight's own transition
+      // per #2951 and dies with it).
+      const txn = activeTransition;
+      storeSetterNext(store, fn);
+      if (txn !== null) (fam.rt ??= new Set()).add(txn);
+    }) as StoreSetter<T>
+  ];
+}
+
+/** Resolve a retained transition through its merge chain (`_done` holds the
+ * merge target while merged, `true` once settled). Null = dead. */
+function liveTransition(txn: Transition): Transition | null {
+  while (typeof txn._done === "object") txn = txn._done as Transition;
+  return txn._done === true ? null : txn;
+}
+
+/** The transaction truth landings fold into: the first live member of the
+ * family's retention ledger (dead members prune here). Multiple live
+ * retainers entangle through their shared family writes and settle
+ * together, so folding into the first reaches all of them. */
+function retainingTransition(fam: StoreNextFamily): Transition | null {
+  const rt = fam.rt as Set<Transition> | undefined;
+  if (rt === undefined || rt.size === 0) return null;
+  let live: Transition | null = null;
+  for (const txn of rt) {
+    const resolved = liveTransition(txn);
+    if (resolved === null) rt.delete(txn);
+    else live ??= resolved;
+  }
+  return live;
+}
+
+/** Fold a landing into the retaining transaction (#3164): the landed value
+ * is written through the ORDINARY staged setter channel — node writes park
+ * as `_pendingValue` registered with the transaction's batch (speculation
+ * and until()'s authoritative tunnel see them; live view stays coherent),
+ * and the backing fold defers via the foldBatches stamp — under the
+ * authoritative posture, so armed nodes take the engine bypass and no
+ * override is created. The engine's own commit machinery reveals everything
+ * atomically when the transaction settles (transitions never abort: failed
+ * actions still commit — only optimistic overrides revert). */
+function stageLanding(fam: StoreNextFamily, txn: Transition, incoming: unknown): void {
+  runFolded(txn, () =>
+    runAuthoritative(() =>
+      storeSetterNext(
+        fam.px,
+        (draft: any) => {
+          stagedApply(draft, unwrapValue(incoming), fam.key ?? null);
+        },
+        false
+      )
+    )
+  );
+}
+
+/** Run a fold write inside the retaining transaction's batch, then
+ * transition-stamp its staged nodes NOW (parity with the parked-transition
+ * flush path's reassignPendingTransition): the stamp is what routes stale
+ * (render) readers to the committed value — core read's cross-transaction
+ * guard — and what makes foldHeld defer the backing for context-free
+ * readers. A microtask staging never crosses that flush path, so without
+ * the stamp a render effect's speculative recompute would compose staged
+ * truth with live overrides — the #3164 tear, one window later. Armed
+ * nodes additionally raise CONFIG_HELD_TRUTH: their staged value is
+ * confirming truth masked from ordinary readers until the reveal (plain
+ * staged nodes stay visible — normal speculation; override-covered nodes
+ * stay unarmed — the override is their display and its revert their
+ * notification, A17). */
+function runFolded(txn: Transition, op: () => void): void {
+  runAsTransitionBatch(txn, op);
+  const pending = txn._pendingNodes;
+  for (let i = 0; i < pending.length; i++) {
+    const node = pending[i];
+    node._transition = txn;
+    if (node._config & CONFIG_OPTIMISTIC && !hasActiveOverride(node))
+      node._config |= CONFIG_HELD_TRUTH;
+  }
+}
+
+/** Keyed identity-preserving deep merge through live draft proxies — the
+ * staged twin of the adoption walk. Reads see the pending backing (staged
+ * view), so consecutive landings during one hold compose; key-matched rows
+ * keep their raw (and so their proxy) in the slot with only changed leaves
+ * written; unmatched rows land wholesale. Runs inside stageLanding's
+ * authoritative bracket: drafts seed from committed truth, never overlays. */
+function stagedApply(cur: any, incoming: any, keyFn: KeyFn | null): void {
+  const curArr = Array.isArray(cur);
+  if (curArr && Array.isArray(incoming)) {
+    const len = incoming.length;
+    if (keyFn !== null) {
+      // Occurrence-aware key queues (parity with the adoption window):
+      // duplicate keys match per occurrence, each current row consumed once.
+      let byKey: Map<any, any[]> | null = null;
+      const curLen = cur.length;
+      for (let j = 0; j < curLen; j++) {
+        const raw = unwrapValue(cur[j]);
+        if (!isWrappable(raw)) continue;
+        const k = keyFn(raw);
+        if (k === undefined) continue;
+        const q = (byKey ??= new Map()).get(k);
+        if (q === undefined) byKey.set(k, [raw]);
+        else q.push(raw);
+      }
+      // Echo adoption: an optimistic structural add whose key the landing
+      // confirms must keep its raw (and so its proxy — list drivers keep the
+      // DOM row). Tentative rows never reach committed truth (they live in
+      // node overrides), so key-match the draft target's active override
+      // rows as a secondary pool. Committed rows queued first own their
+      // keys; overlay rows only extend coverage. Adopted raws enter staged
+      // truth; at settle the override reverts and the reveal re-seats the
+      // same raw.
+      const overlayNodes = ((cur as any)[$TARGET] as StoreNextTarget | undefined)?.n;
+      if (overlayNodes != null) {
+        for (const ok of Reflect.ownKeys(overlayNodes)) {
+          const node = overlayNodes[ok as any];
+          if (!hasActiveOverride(node)) continue;
+          const raw = unwrapValue(unwrapOverride(node._x!._overrideValue));
+          if (!isWrappable(raw)) continue;
+          const k = keyFn(raw);
+          if (k === undefined) continue;
+          const q = (byKey ??= new Map()).get(k);
+          if (q === undefined) byKey.set(k, [raw]);
+          else q.push(raw);
+        }
+      }
+      for (let i = 0; i < len; i++) {
+        const nv = incoming[i];
+        let matched: any;
+        if (isWrappable(nv) && byKey !== null) {
+          const nk = keyFn(nv);
+          if (nk !== undefined) {
+            for (const [k, q] of byKey) {
+              if (!sameKey(k, nk)) continue;
+              matched = q.shift();
+              if (q.length === 0) byKey.delete(k);
+              break;
+            }
+          }
+        }
+        if (matched !== undefined) {
+          if (unwrapValue(cur[i]) !== matched) cur[i] = matched;
+          stagedApply(cur[i], nv, keyFn);
+        } else {
+          const pv = unwrapValue(cur[i]);
+          if (!isEqual(pv, nv) && !targetsEqual(pv, nv)) cur[i] = nv;
+        }
+      }
+    } else {
+      for (let i = 0; i < len; i++) {
+        const nv = incoming[i];
+        const pv = unwrapValue(cur[i]);
+        if (pv === nv) continue;
+        if (isWrappable(nv) && isWrappable(pv) && Array.isArray(nv) === Array.isArray(pv))
+          stagedApply(cur[i], nv, keyFn);
+        else if (!isEqual(pv, nv) && !targetsEqual(pv, nv)) cur[i] = nv;
+      }
+    }
+    if (cur.length !== len) cur.length = len;
+    return;
+  }
+  // Object merge; also the degenerate root-kind-change shape (arrays accept
+  // keyed writes/deletes, so a wholesale restatement still lands staged).
+  for (const k of Reflect.ownKeys(incoming)) {
+    if (curArr && k === "length") continue;
+    const nv = (incoming as any)[k];
+    const pv = unwrapValue(cur[k]);
+    if (pv === nv) continue;
+    if (isWrappable(nv) && isWrappable(pv) && Array.isArray(nv) === Array.isArray(pv)) {
+      // Different-keyed entities never merge (tentative-channel parity):
+      // the incoming object replaces the slot wholesale.
+      if (keyFn !== null) {
+        const pk = keyFn(pv);
+        const nk = keyFn(nv);
+        if (pk !== undefined && nk !== undefined && !sameKey(pk, nk)) {
+          cur[k] = nv;
+          continue;
+        }
+      }
+      stagedApply(cur[k], nv, keyFn);
+    } else if (!isEqual(pv, nv) && !targetsEqual(pv, nv)) {
+      cur[k] = nv;
+    }
+  }
+  for (const k of Reflect.ownKeys(cur)) {
+    if ((curArr && k === "length") || k in incoming) continue;
+    delete cur[k];
+  }
 }
 
 // ---- optimistic-only store machinery (moved from next/store.ts /
@@ -188,6 +465,22 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
   const fw: any = t.fam?.node;
   if (fw?._transition) globalQueue.initTransition(fw._transition);
   const old = t.v;
+  // Patch channel (override-application site): the draft IS the intended
+  // visible state; prev is the view before these overrides apply. Bypasses
+  // the transition stash — optimism is visible in flight.
+  if (t.pc !== null && t.pc.p !== null)
+    patchHooks!.emitPatchOptimistic(t, pb, optimisticView(t, old));
+  // Row-ops channel (family increment 2): optimistic STRUCTURE on an array
+  // rides node overrides — it never enters the reconcile walk — so a driven
+  // list must get its structural ops here, lane-timed. Identity diff of the
+  // pre-write optimistic view against the draft; aligned writes emit nothing.
+  if (t.pc !== null && t.pc.ro !== null && Array.isArray(pb)) {
+    const prevView = optimisticView(t, old);
+    if (Array.isArray(prevView)) {
+      const ops = buildIdentityRowOps(prevView, pb);
+      if (ops !== null) rowHooks!.emitRowOpsOptimistic(t, pb, ops);
+    }
+  }
   const visible = (key: PropertyKey, fallback: any): any => {
     const node = t.n?.[key as any];
     return node !== undefined && hasActiveOverride(node)
@@ -238,100 +531,26 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
   // (structural ones already ride the key-set bump above).
   bumpDeep(t);
   // Discard the draft — committed raw is untouched (revert target by
-  // construction). Register the root store for the scheduler's settle hooks
-  // and the target for landing consumption (RUL-2).
-  t.pb = null;
+  // construction) — restoring any truth-staged backing this draft displaced
+  // (#3164 fold: ensurePB parked it so tentative writes could not pollute
+  // staged truth). Register the root store for the scheduler's settle hooks.
+  t.pb = stagedTruthPB.get(t) ?? null;
+  if (t.pb !== null) stagedTruthPB.delete(t);
   (t.fam!.overlaid ??= new Set()).add(t);
   GlobalQueue._trackOptimisticStore?.(t.fam!.px ?? t.px);
 }
 
-/**
- * Landing consumption (RUL-2): fresh authoritative data supersedes every
- * tentative override in the family. Mirrors legacy clearProjectionOverride —
- * drop the override, clear lane/ownership, notify subscribers whose visible
- * value changes (reversion effects go to regular queues via the projection
- * write posture the caller holds).
- */
-export function consumeOverridesNext(fam: StoreNextFamily): void {
-  const overlaid = fam.overlaid;
-  if (overlaid === undefined || overlaid.size === 0) return;
-  runAuthoritative(() => {
-    for (const t of overlaid as Set<StoreNextTarget>) {
-      const drop = (node: Signal<any>, committed: any) => {
-        if (!hasActiveOverride(node)) return;
-        const prev = unwrapOverride(node._x?._overrideValue);
-        // Full legacy reset (clearOptimisticOverride parity): the landing is
-        // authoritative NOW — fold committed into the node directly instead
-        // of riding a transaction's commit (whose queues may be stashed with
-        // the transaction parked; the wake would strand until it settles).
-        ext(node)._overrideValue = NOT_PENDING;
-        node._config |= CONFIG_OPTIMISTIC;
-        const nx = (node as any)._x;
-        if (nx) {
-          nx._overrideOwner = null;
-          nx._optimisticLane = undefined;
-        }
-        node._pendingValue = NOT_PENDING;
-        node._value = committed;
-        if (!node._equals || !node._equals(prev, committed)) {
-          insertSubs(node, true);
-          schedule();
-        }
-      };
-      // Landing consumes STRUCTURAL optimism only (legacy layer parity):
-      // membership edits, array length, and the value overrides written WITH
-      // them (a key carrying an active presence override is an add/delete —
-      // classified BEFORE the adoption may have made the key exist in landed
-      // data). A pure value override on a key the landing carries stays with
-      // its owning transaction (rapid-toggle contract: a live action's edit
-      // of an existing entity rides on top of landed truth).
-      const isArr = Array.isArray(t.v);
-      const has = t.h;
-      let structuralKeys: Set<PropertyKey> | null = null;
-      if (has !== null) {
-        for (const key of Reflect.ownKeys(has)) {
-          if (hasActiveOverride(has[key as any])) (structuralKeys ??= new Set()).add(key);
-        }
-      }
-      const nodes = t.n;
-      if (nodes !== null) {
-        for (const key of Reflect.ownKeys(nodes)) {
-          const structural =
-            structuralKeys?.has(key) || !(key in t.v) || (isArr && key === "length");
-          if (!structural) continue;
-          drop(
-            nodes[key as any],
-            isArr && key === "length" ? (t.v as any[]).length : t.v[key as any]
-          );
-        }
-      }
-      if (has !== null) {
-        for (const key of Reflect.ownKeys(has)) drop(has[key as any], key in t.v);
-      }
-      if (t.k !== null && hasActiveOverride(t.k)) {
-        ext(t.k)._overrideValue = NOT_PENDING;
-        t.k._config |= CONFIG_OPTIMISTIC;
-        const kx = (t.k as any)._x;
-        if (kx) {
-          kx._overrideOwner = null;
-          kx._optimisticLane = undefined;
-        }
-        insertSubs(t.k, true);
-        schedule();
-      }
-    }
-    overlaid.clear();
-  });
-}
-
 /** Optimistic-view composition for snapshot/deep (O1: snapshot is the CURRENT
  * view, lane values included; a fresh copy per call during pending windows —
- * RUL-12). Returns `src` untouched when no override is active on `t`. */
+ * RUL-12). Returns `src` untouched when no override is active on `t`.
+ * Authoritative-view reads (until()'s predicate) skip composition entirely:
+ * the predicate observes authoritative truth, never the caller's tentative
+ * overlay. (Write-side emission callers never run under such a compute.) */
 export function optimisticView(
   t: StoreNextTarget,
   src: Record<PropertyKey, any>
 ): Record<PropertyKey, any> {
-  if (t.fam?.opt !== true) return src;
+  if (t.fam?.opt !== true || authoritativeRead()) return src;
   let out: Record<PropertyKey, any> | null = null;
   const ensure = () => (out ??= Array.isArray(src) ? [...(src as any[])] : { ...src });
   const nodes = t.n;
@@ -372,7 +591,9 @@ function applyTentative(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null):
     if (keyFn) {
       const pk = keyFn(pv);
       const nk = keyFn(nv);
-      if (pk !== undefined && nk !== undefined && pk !== nk) return null;
+      // SameValueZero (re-audit 3, P1-3): parity with the plain reconcile
+      // channel — NaN keys are self-equal.
+      if (pk !== undefined && nk !== undefined && !sameKey(pk, nk)) return null;
     }
     return map.get(unwrapValue(pv)) ?? null;
   };
@@ -387,16 +608,31 @@ function applyTentative(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null):
         const nk = keyFn(nv);
         if (nk !== undefined) {
           if (viewByKey === null) {
+            // Occurrence-aware index queues (re-audit 3, P1-3): parity with
+            // the plain adoption window — duplicate keys match per
+            // occurrence, each view row consumed once.
             viewByKey = new Map();
             for (let j = 0; j < viewRows.length; j++) {
               const p = unwrapValue(viewRows[j]);
               if (isWrappable(p)) {
                 const pk = keyFn(p);
-                if (pk !== undefined && !viewByKey.has(pk)) viewByKey.set(pk, p);
+                if (pk === undefined) continue;
+                const existing = viewByKey.get(pk);
+                if (existing === undefined) viewByKey.set(pk, j);
+                else if (Array.isArray(existing)) existing.push(j);
+                else viewByKey.set(pk, [existing, j]);
               }
             }
           }
-          pv = viewByKey.get(nk);
+          const m = viewByKey.get(nk);
+          if (m === undefined) pv = undefined;
+          else if (Array.isArray(m)) {
+            pv = unwrapValue(viewRows[m.shift()!]);
+            if (m.length === 1) viewByKey.set(nk, m[0]);
+          } else {
+            pv = unwrapValue(viewRows[m]);
+            viewByKey.delete(nk);
+          }
         } else pv = unwrapValue(viewRows[i]);
       } else pv = unwrapValue(viewRows[i]);
       const ct = match(pv, nv);

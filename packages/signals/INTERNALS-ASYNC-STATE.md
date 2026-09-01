@@ -28,7 +28,7 @@ A `Signal`/`Computed` participating in async/transitions carries:
 | `_latestValueComputed` | Lazily-created companion: shadow computed for `latest()` | `getLatestValueComputed`, written via `syncCompanions` |
 | `_parentSource` | Companion → owner backlink (also store leaf → firewall chains) | companion creation |
 | `_optimisticLane` | Lane this node currently belongs to | `assignOrMergeLane`, cleared by `resolveLane` (stale), `resolveOptimisticNodes`, `cleanupCompletedLanes` |
-| `_transition` | Transition holding this node's pending state | `initTransition`, `reassignPendingTransition`, cleared by `resolveOptimisticNodes` |
+| `_transition` | Transition holding this node's pending state | `initTransition`, `reassignPendingTransition`, cleared by `resolveOptimisticNodes` and the `commitPendingNodes` loop (#3140/#3143: a stamp never outlives its transaction — a committed value needs no affiliation, and a dangling stamp let any later write, even a value-equal no-op, resurrect the finished transaction; `initTransition` refuses `_done === true` as the belt) |
 
 Semantics of the `(_pendingValue, _overrideValue)` pair for an optimistic node
 (see §5e — revert targets were eliminated 2026-07-07):
@@ -50,6 +50,7 @@ Semantics of the `(_pendingValue, _overrideValue)` pair for an optimistic node
 ## 3. Transitions (`scheduler.ts`)
 
 - Created by `initTransition` on the first transition-worthy write; at most one `activeTransition` per flush; concurrent ones merge (`mergeTransitionState`, `_done` forwarding pointer).
+- `initTransition` ends by scheduling a flush: the ambient window is one flush by definition, but parking is flush-driven, so a transaction opened with no writes (an action that only awaits) would otherwise leave `activeTransition` and the adopted batch armed across the async gap, capturing the next unrelated work to arrive — the A26-rejected behavior (#3141).
 - `_asyncReporters: Map<source, Set<reporter>>` — which computeds are blocked on which async sources. **Populated only from `GlobalQueue.notify` during render-effect status notification** `[ruled — async-registration-invariants rule]`.
 - `_pendingNodes` — nodes whose `_pendingValue` commits when the transition completes (`commitPendingNodes` → `commitPendingNode`).
 - `_optimisticNodes` — nodes whose override reverts at completion (`resolveOptimisticNodes`).

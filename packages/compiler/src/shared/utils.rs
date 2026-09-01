@@ -536,33 +536,35 @@ pub(crate) fn child_slot_allocates_ids(child: &JSXChild<'_>) -> bool {
 }
 
 fn jsx_expression_can_return_hydratable_child(expression: &JSXExpression<'_>) -> bool {
-    match expression {
-        JSXExpression::JSXElement(_)
-        | JSXExpression::JSXFragment(_)
-        | JSXExpression::CallExpression(_) => true,
-        JSXExpression::StaticMemberExpression(member) => member.property.name == "children",
-        JSXExpression::ChainExpression(chain) => match &chain.expression {
-            oxc_ast::ast::ChainElement::StaticMemberExpression(member) => {
-                member.property.name == "children"
-            }
-            _ => false,
-        },
-        JSXExpression::ConditionalExpression(conditional) => {
-            expression_can_return_hydratable_child(&conditional.consequent)
-                || expression_can_return_hydratable_child(&conditional.alternate)
-        }
-        JSXExpression::LogicalExpression(logical) => {
-            expression_can_return_hydratable_child(&logical.right)
-        }
-        _ => false,
+    match expression.as_expression() {
+        Some(expression) => expression_can_return_hydratable_child(expression),
+        None => false,
+    }
+}
+
+/// Strips TS-only wrappers (casts, non-null, satisfies) and parens before a
+/// shape check, the same way the Babel predicates recurse through
+/// `TSAsExpression`/`TSNonNullExpression`/`TSSatisfiesExpression`.
+fn unwrap_ts_wrappers<'e, 'a>(mut expression: &'e Expression<'a>) -> &'e Expression<'a> {
+    loop {
+        expression = match expression {
+            Expression::TSAsExpression(cast) => &cast.expression,
+            Expression::TSNonNullExpression(cast) => &cast.expression,
+            Expression::TSSatisfiesExpression(cast) => &cast.expression,
+            Expression::ParenthesizedExpression(paren) => &paren.expression,
+            _ => return expression,
+        };
     }
 }
 
 pub(crate) fn expression_can_return_hydratable_child(expression: &Expression<'_>) -> bool {
-    match expression {
+    match unwrap_ts_wrappers(expression) {
         Expression::JSXElement(_) | Expression::JSXFragment(_) | Expression::CallExpression(_) => {
             true
         }
+        // A function child is a deferred hole: whatever it returns renders
+        // inside the hole, so it can always mint hydratable content.
+        Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => true,
         Expression::StaticMemberExpression(member) => member.property.name == "children",
         Expression::ChainExpression(chain) => match &chain.expression {
             oxc_ast::ast::ChainElement::StaticMemberExpression(member) => {
@@ -577,6 +579,29 @@ pub(crate) fn expression_can_return_hydratable_child(expression: &Expression<'_>
         Expression::LogicalExpression(logical) => {
             expression_can_return_hydratable_child(&logical.right)
         }
+        _ => false,
+    }
+}
+
+/// A syntactic function-expression hole (`{() => ...}` / `{function () {}}`,
+/// TS casts unwrapped). Function children never classify as `dynamic` — the
+/// literal reads nothing at template time — yet at runtime they are deferred
+/// holes exactly like call-shaped values, so the scope gates treat them as
+/// scope-eligible alongside `dynamic` (solidjs/solid#3068 follow-up).
+pub(crate) fn expression_is_function_shaped(expression: &Expression<'_>) -> bool {
+    matches!(
+        unwrap_ts_wrappers(expression),
+        Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+    )
+}
+
+/// [`expression_is_function_shaped`] lifted to a JSX child slot.
+pub(crate) fn jsx_child_is_function_hole(child: &JSXChild<'_>) -> bool {
+    match child {
+        JSXChild::ExpressionContainer(container) => match container.expression.as_expression() {
+            Some(expression) => expression_is_function_shaped(expression),
+            None => false,
+        },
         _ => false,
     }
 }

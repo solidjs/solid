@@ -77,6 +77,14 @@ export interface DiagnosticCapture {
 export interface Diagnostics {
   subscribe(listener: DiagnosticListener): () => void;
   capture(): DiagnosticCapture;
+  /**
+   * Registers a console footer printed after the first console report of
+   * each diagnostic code — a discovery pointer to deeper guidance (e.g.
+   * solid-js registers its shipped repair skill). Returning undefined for
+   * an event suppresses the footer. Passing undefined unregisters and
+   * resets the once-per-code memory.
+   */
+  setConsoleFooter(footer: ((event: DiagnosticEvent) => string | undefined) | undefined): void;
 }
 
 export interface Dev {
@@ -95,11 +103,17 @@ const hooks: DevHooks = {};
 const diagnosticListeners = new Set<DiagnosticListener>();
 const diagnosticCaptures = new Set<DiagnosticEvent[]>();
 let diagnosticSequence = 0;
+let consoleFooter: ((event: DiagnosticEvent) => string | undefined) | undefined;
+const footeredCodes = new Set<DiagnosticCode>();
 
 const diagnostics: Diagnostics = {
   subscribe(listener) {
     diagnosticListeners.add(listener);
     return () => diagnosticListeners.delete(listener);
+  },
+  setConsoleFooter(footer) {
+    consoleFooter = footer;
+    footeredCodes.clear();
   },
   capture() {
     const events: DiagnosticEvent[] = [];
@@ -165,6 +179,13 @@ export function emitDiagnostic(event: Omit<DiagnosticEvent, "sequence">): Diagno
   };
   for (const listener of diagnosticListeners) listener(entry);
   for (const capture of diagnosticCaptures) capture.push(entry);
+  if (consoleFooter && !footeredCodes.has(entry.code)) {
+    footeredCodes.add(entry.code);
+    const footer = consoleFooter(entry);
+    // Call sites console.warn/error their message after emitDiagnostic
+    // returns; a microtask lands the footer right below that report.
+    if (footer) queueMicrotask(() => console.warn(footer));
+  }
   return entry;
 }
 

@@ -1,5 +1,5 @@
 import { forEachDependent } from "./core/async.js";
-import { ext } from "./core/core.js";
+import { ext, statusNotifierOf } from "./core/core.js";
 import { STATUS_PENDING } from "./core/constants.js";
 import { emitDiagnostic } from "./core/dev.js";
 import { NotReadyError } from "./core/error.js";
@@ -47,8 +47,9 @@ function notifyMarkBoundaries(node: MarkedNode): void {
     visited.add(sub);
     // Display consumers (render effects, boundary computeds) act on the
     // notification; descent stops there, exactly like the status rails.
-    if (sub._x?._notifyStatus) {
-      sub._x._notifyStatus.call(sub, STATUS_PENDING, error);
+    const notify = statusNotifierOf(sub);
+    if (notify) {
+      notify.call(sub, STATUS_PENDING, error);
       return;
     }
     forEachDependent(sub, visit);

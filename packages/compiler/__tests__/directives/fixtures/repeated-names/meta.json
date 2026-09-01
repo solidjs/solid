@@ -1,0 +1,15 @@
+{
+  "valid": true,
+  "functions": [
+    {
+      "id": "submit-f3b916ee",
+      "name": "submit",
+      "exports": []
+    },
+    {
+      "id": "submit-f3b916ee-1",
+      "name": "submit",
+      "exports": []
+    }
+  ]
+}

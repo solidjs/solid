@@ -1,0 +1,5 @@
+---
+"@solidjs/compiler": minor
+---
+
+Register call-shaped component bindings in the refresh (HMR) pass (#3090). A component produced by a factory call — `styled(...)`, an HOC, a tagged template — was never registered, and once a registered sibling made the module self-accept, `hot.accept()` disabled the very module invalidation its staleness relied on: the export went permanently stale, silently. Two compile-time admission gates fix this. A call-shaped top-level binding rendered as a JSX tag in its own module is proven a component and registers automatically (resolution is scope-aware — shadowing locals don't count). For export-only shapes with no in-module usage, the per-binding `@refresh component` pragma asserts it: `export const Badge = /* @refresh component */ styled.span\`...\``. Registered call bindings get the full treatment — location, granular signature, and dependencies, with same-module registered components excluded from the dependency set (edits propagate through the proxy chain; counting them would remount the consumer on every edit of the module). This is a deliberate native-first divergence from the frozen Babel-plugin reference.

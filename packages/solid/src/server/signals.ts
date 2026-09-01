@@ -18,6 +18,7 @@ export {
   NotReadyError,
   NoOwnerError,
   ContextNotFoundError,
+  TimeoutError,
   isEqual,
   isWrappable,
   SUPPORTS_PROXY,
@@ -612,6 +613,11 @@ type SlotRecord = { s: 0 | 1 | 2; v: any; d: DeferredPromise<any> | undefined };
 // Context clones (spread copies) share the parent's store by reference,
 // which is safe: owner ids are unique per render, so keys cannot collide.
 const SLOTS = /* @__PURE__ */ Symbol("settledSlots");
+// Projection flavor of the slot store (#3068): id → the pending-proxy store
+// returned by an async `createProjection` at that slot, so re-creations
+// across retry passes join the in-flight instance instead of allocating a
+// fresh one per pass. Same lifetime and keying rationale as SLOTS above.
+const PROJECTION_SLOTS = /* @__PURE__ */ Symbol("projectionSlots");
 
 function settleServerAsync<T, U>(
   initial: T | PromiseLike<T>,
@@ -662,6 +668,36 @@ function settleServerAsync<T, U>(
 
 // === Reactive Primitives (pull-based) ===
 
+// --- Server write deprecation -----------------------------------------------
+//
+// Server render is pure: change enters through async sources, never setters.
+// Setter calls are tolerated this release (signal/store writes land as inert
+// data, optimistic writes are no-ops) but deprecated on the way to throwing —
+// see RFC 11's server mutation policy. Warned once per process per category
+// so subscription-driven writes can't flood server logs.
+const warnedServerWrites = new Set<string>();
+function warnServerWrite(category: "signal" | "store" | "optimistic"): void {
+  if (warnedServerWrites.has(category)) return;
+  warnedServerWrites.add(category);
+  const message =
+    category === "optimistic"
+      ? "[SERVER_WRITE] Optimistic writes are inert on the server and will become an error. " +
+        "Optimistic state reverts once the async work it accompanies settles, and server " +
+        "output is settled state — optimistic updates only have meaning on the client."
+      : category === "store"
+        ? "[SERVER_WRITE] Writing a store on the server is deprecated and will become an " +
+          "error. Server render is pure: state changes flow from async sources (promises, " +
+          "async iterables), never setters — this write landed as inert data (nothing " +
+          "re-renders). Derive the store from its source (createStore(fn, seed)) instead " +
+          "of writing into it."
+        : "[SERVER_WRITE] Writing a signal on the server is deprecated and will become an " +
+          "error. Server render is pure: state changes flow from async sources (promises, " +
+          "async iterables), never setters — this write landed as inert data (nothing " +
+          "re-renders). If you are bridging a subscription, make it the async source " +
+          "itself instead of pushing writes from its callback.";
+  console.warn(message);
+}
+
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
 // Commit #0 (loadingValue) removes the uninitialized window: never undefined
@@ -690,12 +726,19 @@ export function createSignal<T>(
           }
         : undefined;
     const memo = createMemo<T>((prev?: T) => (first as (prev?: T) => T)(prev), opts as any);
-    return [memo, (() => undefined) as Setter<T | undefined>];
+    return [
+      memo,
+      (() => {
+        warnServerWrite("signal");
+        return undefined;
+      }) as Setter<T | undefined>
+    ];
   }
   // Plain value form — no ID allocation (IDs are only for owners/computations)
   return [
     () => first as T,
     v => {
+      warnServerWrite("signal");
       return ((first as any) = typeof v === "function" ? (v as (prev: T) => T)(first as T) : v);
     }
   ] as Signal<T | undefined>;
@@ -1707,8 +1750,22 @@ export function createOptimistic<T>(
   first?: T | ComputeFunction<any, any>,
   second?: SignalOptions<any>
 ): Signal<T | undefined> {
-  // On server, optimistic is the same as regular signal
-  return (createSignal as Function)(first, second);
+  // Server optimistic writes are NO-OPS. On the client an optimistic write
+  // is a mask that reverts when its transition settles; server output
+  // represents settled state, so the write's settled value is by definition
+  // the authoritative one already held. Landing the write instead (the old
+  // aliasing) would serialize the optimistic mask as authoritative state.
+  // The updater is not invoked at all — nothing could observe its result.
+  // (Broader direction, recorded: server writes may eventually throw under
+  // a dev-mode server build; that waits on having one.)
+  const [read] = (createSignal as Function)(first, second) as Signal<T | undefined>;
+  return [
+    read,
+    (() => {
+      warnServerWrite("optimistic");
+      return untrack(read);
+    }) as Setter<T | undefined>
+  ];
 }
 
 // === Store (plain objects, no proxy) ===
@@ -1742,13 +1799,50 @@ export function createStore<T extends object>(
     // client/seedLoadingValue pairing, and createProjection re-checks at
     // runtime.
     const store = createProjection(first as any, second as T, options as any);
-    return [store as Store<T>, ((fn: (state: T) => void) => fn(store as T)) as StoreSetter<T>];
+    return [store as Store<T>, storeSetter(store as T)];
   }
   const state = first as T;
-  return [state as Store<T>, ((fn: (state: T) => void) => fn(state as T)) as StoreSetter<T>];
+  return [state as Store<T>, storeSetter(state)];
 }
 
-export const createOptimisticStore = createStore;
+/**
+ * Parity with the client's `storeSetterNext` as a plain data operation: run
+ * the function against the state (draft mutations are literal mutations
+ * here), and adopt a returned wrappable replacement into the same root
+ * (#3064). No reactivity is implied — server-side writes update data for
+ * subsequent reads and serialization only; nothing re-renders.
+ */
+function storeSetter<T extends object>(state: T): StoreSetter<T> {
+  return ((fn: (state: T) => void | T) => {
+    warnServerWrite("store");
+    const result = fn(state);
+    if (result !== undefined && (result as unknown) !== state && isWrappable(result)) {
+      replaceState(state, result as T);
+    }
+  }) as StoreSetter<T>;
+}
+
+export function createOptimisticStore<T extends object>(
+  store: T | Store<T>,
+  options?: { name?: string; shallow?: boolean }
+): [get: Store<T>, set: StoreSetter<T>];
+export function createOptimisticStore<T extends object>(
+  fn: (store: T) => void | T | Promise<void | T>,
+  store: Partial<T> | Store<T>,
+  options?: ServerStoreOptions & { name?: string; shallow?: boolean }
+): [get: Store<T>, set: StoreSetter<T>];
+export function createOptimisticStore<T extends object>(
+  first: T | Store<T> | ((store: T) => void | T | Promise<void | T>),
+  second?: T | Store<T>,
+  options?: ServerSsrOptions & { name?: string; shallow?: boolean }
+): [get: Store<T>, set: StoreSetter<T>] {
+  // Same no-op rationale as createOptimistic above: optimistic writes are
+  // masks that revert at settle, and server output is settled state. The
+  // setter never invokes its function — a draft mutation here would be a
+  // literal (permanent) mutation, the opposite of optimistic.
+  const [store] = (createStore as Function)(first, second, options) as [Store<T>, StoreSetter<T>];
+  return [store, (() => warnServerWrite("optimistic")) as StoreSetter<T>];
+}
 
 /**
  * Wraps a store in a Proxy that throws NotReadyError on property reads
@@ -1840,6 +1934,13 @@ function registerSettledTrace(pending: object, ready: Promise<any>, state: objec
  * and sets both join the emitted batch.
  */
 function replaceState<T extends object>(target: T, next: T): void {
+  if (Array.isArray(target) && Array.isArray(next)) {
+    // `delete` on an index leaves a hole without shrinking `length`, so
+    // arrays need explicit truncation rather than the key-diff below.
+    for (let i = 0; i < next.length; i++) target[i] = next[i];
+    target.length = next.length;
+    return;
+  }
   for (const key of Object.keys(target)) {
     if (!(key in (next as object))) delete (target as any)[key];
   }
@@ -1853,6 +1954,31 @@ export function createProjection<T extends object>(
 ): Store<T> {
   const ctx = sharedConfig.context;
   const owner = createOwner();
+  // Slot memory (#3068), the projection flavor of the memo slots above
+  // (#3003): retry loops converge by re-running creation scopes, and an
+  // async projection can NEVER be ready at creation-scope read time (a
+  // generator's first yield / a promise's resolution is at least a microtask
+  // away). Without memory, a body-time property read of the pending proxy
+  // threw NotReady, the retry re-ran the scope, and this function allocated
+  // a fresh generator + deferred + serialized promise per pass — the read
+  // could never succeed and the flush loop pinned the process (0 bytes,
+  // 100% CPU, unbounded blockingPromises growth). Owner ids are stable
+  // across re-runs (ssrScope zeroes the hole's child counter per attempt —
+  // the hydration id contract), so a re-created projection at a known slot
+  // returns the SAME proxy: pending passes join the in-flight instance —
+  // one generator, one trace, one serialized channel — and post-settle
+  // passes read through it synchronously. Only async shapes record (the
+  // four pending-proxy returns below); sync derives re-run like any other
+  // sync code in a retried scope.
+  const slotId = ctx && owner.id;
+  const slots: Record<string, Store<T>> | undefined = slotId
+    ? ((ctx as any)[PROJECTION_SLOTS] ||= Object.create(null))
+    : undefined;
+  if (slots && slots[slotId!]) return slots[slotId!];
+  const recordSlot = (proxy: Store<T>) => {
+    if (slots) slots[slotId!] = proxy;
+    return proxy;
+  };
   const [state] = createStore(initialValue as T);
 
   if (options?.ssrSource === "client") {
@@ -1920,7 +2046,7 @@ export function createProjection<T extends object>(
     registerSettledTrace(pending, deferred.promise, state);
     if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
       ctx.serialize(owner.id, deferred.promise, options?.deferStream);
-    return pending;
+    return recordSlot(pending);
   }
 
   // Async iterable (generator)
@@ -1964,7 +2090,7 @@ export function createProjection<T extends object>(
       registerSettledTrace(pending, deferred.promise, state);
       if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
         ctx.serialize(owner.id, deferred.promise, options?.deferStream);
-      return pending;
+      return recordSlot(pending);
     } else {
       // Full streaming: eagerly start first iteration. Tapped wrapper replays
       // first value as full state snapshot, then yields patch batches.
@@ -2090,7 +2216,7 @@ export function createProjection<T extends object>(
       if (ctx?.async && !getContext(NoHydrateContext) && owner.id) {
         ctx.serialize(owner.id, subscribe(), options?.deferStream);
       }
-      return pending;
+      return recordSlot(pending);
     }
   }
 
@@ -2117,7 +2243,7 @@ export function createProjection<T extends object>(
     registerSettledTrace(pending, deferred.promise, state);
     if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
       ctx.serialize(owner.id, deferred.promise, options?.deferStream);
-    return pending;
+    return recordSlot(pending);
   }
 
   // Synchronous: fn either mutated state directly (void) or returned a new value
@@ -2641,6 +2767,13 @@ export function resolve<T>(fn: () => T): Promise<T> {
   throw new Error("resolve is not implemented on the server");
 }
 
+export function until<T>(
+  fn: () => T,
+  options?: { timeout?: number; signal?: AbortSignal }
+): Promise<T> {
+  throw new Error("until is not implemented on the server");
+}
+
 export function isPending(fn: () => any): boolean {
   try {
     fn();
@@ -2655,8 +2788,20 @@ export function latest<T>(fn: () => T): T {
   return fn();
 }
 
-export function refresh<T>(_target: Refreshable<T>): void {
-  return undefined;
+export function refresh<T>(
+  target: Refreshable<T>
+): Promise<T extends (...args: any) => infer V ? V : T> {
+  // No re-ask happens on the server — the target is already quiescent, so
+  // the promise resolves immediately with the current state (the accessor's
+  // value, or the store node itself), matching the client's early-return
+  // paths. An unready read resolves undefined rather than throwing from a
+  // write-like call.
+  if (typeof target !== "function") return Promise.resolve(target as any);
+  try {
+    return Promise.resolve((target as any)());
+  } catch {
+    return Promise.resolve(undefined as any);
+  }
 }
 
 export function affects(_target: unknown, _key?: PropertyKey): void {
@@ -2676,3 +2821,37 @@ export function onSettled(callback: () => void | (() => void)): void {
 
 // NoInfer utility type (also re-exported from signals, but define for local use)
 type NoInfer<T extends any> = [T][T extends any ? 0 : never];
+
+// Patch-channel compiler contract (client parity): the channel is inert on
+// the server — SSR renders once from current values; hydration claims and
+// registers on the client. Registration is a no-op returning a no-op unbind;
+// patchableRaw reports "not patchable" so any server-side dual-driver bind
+// takes the (equally inert) effect path.
+export function registerPatch(
+  _record: any,
+  _fn: (next: any, prev: any, force?: boolean) => void
+): () => void {
+  return noopUnbind;
+}
+export function registerRowOps(_array: any, _fn: (next: any[], ops: any) => void): () => void {
+  return noopUnbind;
+}
+export function patchableRaw(_record: any): undefined {
+  return undefined;
+}
+export function registerSlotPatch(
+  _array: any,
+  _fn: (index: number, next: any, prev: any) => void
+): () => void {
+  return noopUnbind;
+}
+export function storeIsShallow(_proxy: any): boolean {
+  return false;
+}
+export function storeHasFamily(_proxy: any): boolean {
+  return false;
+}
+export function storeHasOptimisticFamily(_proxy: any): boolean {
+  return false;
+}
+const noopUnbind = () => {};

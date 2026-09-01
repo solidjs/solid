@@ -61,7 +61,12 @@ import type { StoreNextFamily } from "./target.js";
  * driven from inside an enclosing authoritative-write scope (next-store
  * optimistic derives), and a hard `false` would clobber it mid-derive.
  */
-function wrapDraft(inner: any, isActive?: () => boolean, onDraftWrite?: () => void): any {
+function wrapDraft(
+  inner: any,
+  isActive?: () => boolean,
+  aroundWrite?: (op: () => void) => void
+): any {
+  const write = (op: () => void) => (aroundWrite ? aroundWrite(op) : op());
   const traps: ProxyHandler<any> = {
     get(_, prop) {
       let value;
@@ -76,7 +81,7 @@ function wrapDraft(inner: any, isActive?: () => boolean, onDraftWrite?: () => vo
       }
       if (prop === $TARGET) return value;
       return typeof value === "object" && value !== null
-        ? wrapDraft(value, isActive, onDraftWrite)
+        ? wrapDraft(value, isActive, aroundWrite)
         : value;
     },
     has(_, prop) {
@@ -98,8 +103,9 @@ function wrapDraft(inner: any, isActive?: () => boolean, onDraftWrite?: () => vo
       setWriteOverride(true);
       setProjectionWriteActive(true);
       try {
-        inner[prop] = value;
-        onDraftWrite?.();
+        write(() => {
+          inner[prop] = value;
+        });
       } finally {
         setWriteOverride(false);
         setProjectionWriteActive(was);
@@ -112,8 +118,9 @@ function wrapDraft(inner: any, isActive?: () => boolean, onDraftWrite?: () => vo
       setWriteOverride(true);
       setProjectionWriteActive(true);
       try {
-        delete inner[prop];
-        onDraftWrite?.();
+        write(() => {
+          delete inner[prop];
+        });
       } finally {
         setWriteOverride(false);
         setProjectionWriteActive(was);
@@ -154,8 +161,9 @@ function wrapDraft(inner: any, isActive?: () => boolean, onDraftWrite?: () => vo
       setWriteOverride(true);
       setProjectionWriteActive(true);
       try {
-        Reflect.defineProperty(inner, prop, desc);
-        onDraftWrite?.();
+        write(() => {
+          Reflect.defineProperty(inner, prop, desc);
+        });
       } finally {
         setWriteOverride(false);
         setProjectionWriteActive(was);
@@ -232,8 +240,8 @@ export function runProjectionComputedNext<T extends object>(
   wrappedStore: Store<T>,
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   key: string | ((item: NonNullable<any>) => any) | null,
-  wrapCommit?: (write: () => void) => void,
-  onDraftWrite?: () => void
+  wrapCommit?: (write: () => void, value: T) => void,
+  aroundDraftWrite?: (op: () => void) => void
 ): Computed<void | T> {
   const owner = getOwner() as Computed<void | T>;
   let settled = false;
@@ -248,7 +256,7 @@ export function runProjectionComputedNext<T extends object>(
   const draft = wrapDraft(
     wrappedStore,
     () => !settled || owner._x?._inFlight === result,
-    onDraftWrite
+    aroundDraftWrite
   );
   storeSetterNext(
     draft,
@@ -264,7 +272,7 @@ export function runProjectionComputedNext<T extends object>(
         if (v === (s as any) || v === undefined) return;
         const write = () =>
           storeSetterNext(wrappedStore, st => reconcileNextState(v, st, key, true), false);
-        wrapCommit ? wrapCommit(write) : write();
+        wrapCommit ? wrapCommit(write, v as T) : write();
       };
       const sync = handleAsync(owner, result, commit);
       if (!owner._loading) commit(sync as void | T);

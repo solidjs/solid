@@ -25,6 +25,7 @@ import { REVALIDATE_HEADER } from "./response.js";
 import {
   BODY_FORMAT_HEADER,
   ERROR_HEADER,
+  REDIRECT_HEADER,
   SINGLE_FLIGHT_HEADER
 } from "../server-functions/src/shared.js";
 // The cookie codec (the platform-gap primitives — see cookies.js for the
@@ -59,10 +60,28 @@ import { SerializerPlugin } from "../serialization/src/serializer-decode.js";
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
 
+/** An explicit `<link rel="preload">` emitted by the SSR asset pipeline. */
+export type PreloadLink = {
+  href: string;
+  as: JSX.HTMLPreloadAs;
+  type?: string;
+  crossorigin?: JSX.HTMLCrossorigin;
+  integrity?: string;
+  referrerpolicy?: JSX.HTMLReferrerPolicy;
+  fetchpriority?: JSX.HTMLFetchPriority;
+  media?: string;
+};
+
 /** Static asset manifest produced by a build (e.g. parsed Vite manifest.json). */
 export type AssetManifest = Record<
   string,
-  { file: string; css?: string[]; isEntry?: boolean; imports?: string[] }
+  {
+    file: string;
+    css?: string[];
+    isEntry?: boolean;
+    imports?: string[];
+    preloads?: PreloadLink[];
+  }
 > & { _base?: string };
 
 /** Inline style content, e.g. dev CSS collected from a bundler's module graph. */
@@ -75,6 +94,7 @@ export type InlineStyleAsset = {
 export type ResolvedAssets = {
   js: string[];
   css: (string | InlineStyleAsset)[];
+  preloads?: PreloadLink[];
 };
 
 /**
@@ -83,8 +103,9 @@ export type ResolvedAssets = {
  * normalized into a sync resolver internally). `resolve` may return a
  * promise (async resolvers require streaming rendering); CSS entries may be
  * URL strings (emitted as load-gated `<link>` tags) or inline-style
- * descriptors (emitted as `<style>` tags). A bare `resolve`-shaped function
- * is accepted as shorthand for `{ resolve }`.
+ * descriptors (emitted as `<style>` tags), and `preloads` carries explicit
+ * preload links selected by the integration. A bare `resolve`-shaped
+ * function is accepted as shorthand for `{ resolve }`.
  */
 export type AssetResolver = {
   resolve(
@@ -279,6 +300,7 @@ function resolveAssets(moduleUrl, manifest) {
   if (!entry) return null;
   const css = [];
   const js = [];
+  let preloads;
   const visited = new Set();
   const walk = key => {
     if (visited.has(key)) return;
@@ -287,10 +309,20 @@ function resolveAssets(moduleUrl, manifest) {
     if (!e) return;
     js.push(joinAssetPath(base, e.file));
     if (e.css) for (let i = 0; i < e.css.length; i++) css.push(joinAssetPath(base, e.css[i]));
+    if (e.preloads) {
+      for (let i = 0; i < e.preloads.length; i++) {
+        const link = e.preloads[i];
+        if (!link || typeof link.href !== "string" || !link.href) continue;
+        if (!preloads) preloads = [];
+        preloads.push({ ...link, href: joinAssetPath(base, link.href) });
+      }
+    }
     if (e.imports) for (let i = 0; i < e.imports.length; i++) walk(e.imports[i]);
   };
   walk(moduleUrl);
-  return { js, css };
+  const assets = { js, css };
+  if (preloads) assets.preloads = preloads;
+  return assets;
 }
 
 function registerEntryAssets(manifest) {
@@ -303,6 +335,9 @@ function registerEntryAssets(manifest) {
     if (manifest[key].isEntry) {
       const assets = resolveAssets(key, manifest);
       if (assets) {
+        if (assets.preloads)
+          for (let i = 0; i < assets.preloads.length; i++)
+            ctx.registerAsset("preload", assets.preloads[i]);
         for (let i = 0; i < assets.css.length; i++) ctx.registerAsset("style", assets.css[i]);
         // js[0] is the entry itself, which the document loads with its own <script>;
         // preload only its static import closure.
@@ -326,6 +361,7 @@ function createAssetTracking() {
     boundaryStyles,
     emittedAssets,
     inlineStyles,
+    preloadLinks: null,
     // Inline styles (dev CSS collected from the module graph, critical CSS)
     // dedupe by `id` — repeated registrations reuse the same entry object so
     // boundary Sets and the head injection never emit the same style twice.
@@ -477,6 +513,74 @@ function applyAssetTracking(context, tracking, manifest, noScripts) {
 function isCssUrl(url) {
   const q = url.search(/[?#]/);
   return (q === -1 ? url : url.slice(0, q)).endsWith(".css");
+}
+
+const PRELOAD_LINK_ATTRIBUTES = [
+  "type",
+  "crossorigin",
+  "integrity",
+  "referrerpolicy",
+  "fetchpriority",
+  "media"
+];
+
+// Normalize once for document/frame output and dedupe with useHead resources.
+function registerPreloadLink(tracking, headRegistry, link, nonce) {
+  if (!link || typeof link !== "object" || typeof link.href !== "string" || !link.href) {
+    if ("_SOLID_DEV_") console.warn('registerAsset("preload") requires a non-empty string href.');
+    return null;
+  }
+  if (typeof link.as !== "string") {
+    if ("_SOLID_DEV_") console.warn('registerAsset("preload") requires an as destination.');
+    return null;
+  }
+  const as = asciiLowerCase(link.as);
+  let destination = null;
+  switch (as) {
+    case "script":
+    case "style":
+      destination = as;
+      break;
+    case "fetch":
+    case "font":
+    case "image":
+    case "track":
+      break;
+    default:
+      if ("_SOLID_DEV_")
+        console.warn(
+          `registerAsset("preload") received an unsupported as destination "${link.as}".`
+        );
+      return null;
+  }
+  const props = { rel: "preload", href: link.href, as };
+  for (let i = 0; i < PRELOAD_LINK_ATTRIBUTES.length; i++) {
+    const name = PRELOAD_LINK_ATTRIBUTES[i];
+    const value = link[name];
+    if (value == null || value === false) continue;
+    props[name] = value === true ? "" : String(value);
+  }
+  const identity = resourceIdentity("link", props);
+  if (headRegistry.resources.has(identity)) return null;
+  // A different CORS or credentials mode has a different preload key.
+  if ("_SOLID_DEV_" && props.crossorigin == null && (as === "font" || as === "fetch"))
+    console.warn(
+      `registerAsset("preload") with as="${as}" has no crossorigin and may not match the eventual request.`
+    );
+
+  const attrs = headAttrRecord(props, true);
+  const nonceValue = destination && nonce && nonce[destination];
+  if (typeof nonceValue === "string" && nonceValue) attrs.nonce = nonceValue;
+  const entry = {
+    href: props.href,
+    attrs,
+    attrHtml: renderHeadAttrHtml(props) + nonceAttr(nonce, destination)
+  };
+  headRegistry.resources.add(identity);
+  let links = tracking.preloadLinks;
+  if (!links) tracking.preloadLinks = links = [];
+  links.push(entry);
+  return entry;
 }
 
 function createHeadRegistry() {
@@ -1225,6 +1329,10 @@ export function renderToString(code, options = {}) {
       serializer.write(id, p);
     },
     registerAsset(type, value) {
+      if (type === "preload") {
+        registerPreloadLink(tracking, headRegistry, value, nonce);
+        return;
+      }
       if (type === "inline-style") {
         tracking.registerInlineStyle(value);
         return;
@@ -1256,6 +1364,7 @@ export function renderToString(code, options = {}) {
   return assembleDocument(
     resolveSSRSelectValues(html),
     tracking.emittedAssets,
+    tracking.preloadLinks,
     tracking.inlineStyles,
     scripts.length ? scripts : "",
     nonce,
@@ -1530,6 +1639,8 @@ export function renderToStream(code, options = {}) {
     asset(type, value) {
       if (type === "module") {
         buffer.write(`<link rel="modulepreload" href="${value}"${nonceAttr(nonce, "script")}>`);
+      } else if (type === "preload") {
+        buffer.write(`<link${value.attrHtml}>`);
       } else if (type === "inline-style") {
         buffer.write(renderInlineStyle(value, nonce));
       } else if (type === "head-tag") {
@@ -1547,6 +1658,7 @@ export function renderToStream(code, options = {}) {
         assembleDocument(
           shellHtml,
           meta.preloads,
+          meta.preloadLinks,
           meta.inlineStyles,
           meta.tasks.length ? meta.tasks : "",
           nonce,
@@ -1618,6 +1730,49 @@ export function renderToStream(code, options = {}) {
     }
   };
   const registry = new Map();
+  // Abandonment ledger (#3165): every pending promise written through
+  // context.serialize, keyed by hydration id. Seroval's onDone waits for
+  // every serialized async value to settle, so a fragment that reaches its
+  // terminal error state while a sibling in its subtree is still pending
+  // would hold the response open forever — the subtree is discarded, nothing
+  // will ever settle the deferred. Serialized promises are raced against a
+  // per-id abandon hook so the errored fragment can terminally settle
+  // serialization its subtree owns. Hydration ids are a prefix code (each
+  // sibling ordinal is self-delimiting), so `startsWith` is exact ancestry.
+  const pendingSerialized = new Map();
+  const trackSerialized = (id, p) => {
+    let settle;
+    const raced = Promise.race([p, new Promise(r => (settle = r))]);
+    pendingSerialized.set(id, settle);
+    // Once the source settles the entry is dead weight; drop it. The
+    // rejection arm also keeps an abandoned-then-rejected source from
+    // surfacing as an unhandled rejection (seroval only sees the race).
+    const drop = () => pendingSerialized.delete(id);
+    p.then(drop, drop);
+    return raced;
+  };
+  // A fragment settling with an error abandons its subtree: descendant
+  // fragments still in the registry would gate flushEnd forever (their
+  // resume loops may be parked on promises that never settle), and pending
+  // serialized values under the errored key would gate seroval's onDone the
+  // same way. Settle both. Descendant `_fr` stubs resolve clean (not
+  // rejected) and abandoned data ids resolve undefined: the client re-renders
+  // the errored region fresh off the OUTER fragment's rejection, so nothing
+  // consumes these — a rejection would only raise unhandled-rejection noise.
+  const abandonSubtree = key => {
+    for (const [k, entry] of registry) {
+      if (k.length > key.length && k.startsWith(key)) {
+        registry.delete(k);
+        entry.resolve();
+      }
+    }
+    for (const [id, settle] of pendingSerialized) {
+      if (id.startsWith(key)) {
+        pendingSerialized.delete(id);
+        settle();
+      }
+    }
+  };
   const writeTasks = () => {
     if (tasks.length && !completed && firstFlushed) {
       buffer.write(`<script${nonceAttr(nonce, "script")}>${tasks}</script>`);
@@ -1710,6 +1865,11 @@ export function renderToStream(code, options = {}) {
       );
     },
     registerAsset(type, value) {
+      if (type === "preload") {
+        const entry = registerPreloadLink(tracking, headRegistry, value, nonce);
+        if (entry && firstFlushed) sink.asset("preload", entry);
+        return;
+      }
       if (type === "inline-style") {
         const entry = tracking.registerInlineStyle(value);
         // Boundary-attributed inline styles flush with their fragment; a late
@@ -1763,17 +1923,21 @@ export function renderToStream(code, options = {}) {
     },
     serialize(id, p, deferStream) {
       if (sharedConfig.context.noHydrate) return;
-      if (!firstFlushed && p && typeof p === "object" && "then" in p) {
-        if (deferStream) {
+      if (p && typeof p === "object" && typeof p.then === "function") {
+        if (!firstFlushed && deferStream) {
           blockingPromises.add(p);
           p.then(d => serializer.write(id, d)).catch(e => serializer.write(id, e));
           return;
         }
+        // Every pending promise handed to seroval joins the abandonment
+        // ledger (#3165) — pre-shell and streaming alike, since a fragment
+        // can error terminally at any point after this write.
+        p = trackSerialized(id, p);
         // `shellCompleted` (not `firstFlushed`) gates batching: doShell()
         // flushes the batch into the shell's task snapshot, and writes in the
         // microtask window between the two flags must go direct or they'd
         // strand in a batch nobody flushes.
-        if (canBatchStubs && !shellCompleted) {
+        if (!firstFlushed && canBatchStubs && !shellCompleted) {
           (stubBatch ||= new Map()).set(id, p);
           return;
         }
@@ -1823,6 +1987,9 @@ export function renderToStream(code, options = {}) {
         if (registry.has(key)) {
           const item = registry.get(key);
           registry.delete(key);
+          // Terminal error: the subtree is discarded — release everything in
+          // it that would otherwise gate response completion (#3165).
+          if (error) abandonSubtree(key);
 
           if (item.children) {
             for (const k in item.children) {
@@ -1982,6 +2149,7 @@ export function renderToStream(code, options = {}) {
     const head = renderShellHead(headRegistry, nonce, k => registry.has(k), noScripts);
     sink.shell(resolveSSRSelectValues(html), {
       preloads: tracking.emittedAssets,
+      preloadLinks: tracking.preloadLinks,
       inlineStyles: tracking.inlineStyles,
       tasks,
       head
@@ -3343,7 +3511,12 @@ function decodeSSREntities(s) {
         .replace(/&amp;/g, "&");
 }
 
-const SELECT_VALUE_ATTR = /\svalue="([^"]*)"/;
+// Matches the quoted form (`value="…"`) AND the bare form (`value` followed
+// by a space, `>`, or end-of-attrs): empty attribute values serialize as
+// bare attributes (see ssrSpread / compiled templates), and an empty-string
+// bound value is a real bound value — a `value=""` option must match it
+// (#3013 follow-up). Group 1 is undefined for the bare form → empty string.
+const SELECT_VALUE_ATTR = /\svalue(?:="([^"]*)")?(?=[\s>]|$)/;
 
 // True end (`>`) of the tag opening at `i`, skipping quoted attribute
 // values. -1 when the tag never closes in this string.
@@ -3421,7 +3594,7 @@ export function resolveSSRSelectValues(html) {
       cand = html.indexOf("<select", e0 + 1);
       continue;
     }
-    const bound = decodeSSREntities(m[1]);
+    const bound = decodeSSREntities(m[1] ?? "");
     const sel = {
       values: /\smultiple(?=[\s>=])/.test(open) ? bound.split(",") : [bound],
       strip: cand + m.index,
@@ -3468,8 +3641,9 @@ export function resolveSSRSelectValues(html) {
           else {
             const vm = SELECT_VALUE_ATTR.exec(attrs);
             // Spec: no value attribute → text content, whitespace collapsed.
+            // A bare `value` attribute (vm[1] undefined) IS a value: "".
             const value = vm
-              ? decodeSSREntities(vm[1])
+              ? decodeSSREntities(vm[1] ?? "")
               : decodeSSREntities(optionText(html, e + 1))
                   .replace(/\s+/g, " ")
                   .trim();
@@ -3692,7 +3866,16 @@ function allSettled(promises) {
 // output passes through with only the script splice. When the output does
 // contain `</head>`, splicing is automatic and `onHead` is not called: one
 // mode or the other, decided by the render output itself.
-function assembleDocument(html, emittedAssets, inlineStyles, scripts, nonce, headTags, onHead) {
+function assembleDocument(
+  html,
+  emittedAssets,
+  preloadLinks,
+  inlineStyles,
+  scripts,
+  nonce,
+  headTags,
+  onHead
+) {
   const scriptTag = scripts ? `<script${nonceAttr(nonce, "script")}>${scripts}</script>` : "";
   const title = headTags ? headTags.title : null;
   let headTagsHtml = headTags ? headTags.html : "";
@@ -3703,6 +3886,7 @@ function assembleDocument(html, emittedAssets, inlineStyles, scripts, nonce, hea
     !headTagsHtml &&
     !headPrelude &&
     !(emittedAssets && emittedAssets.size) &&
+    !preloadLinks &&
     !(inlineStyles && inlineStyles.size)
   ) {
     // Nothing head-bound: never look for `</head>`. Body-only renders (no
@@ -3747,7 +3931,7 @@ function assembleDocument(html, emittedAssets, inlineStyles, scripts, nonce, hea
         headPrelude +
           headTagsHtml +
           titleHtml +
-          renderHeadAssets(emittedAssets, inlineStyles, nonce)
+          renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce)
       );
     }
     // No head to splice into: without `onHead`, assets/preloads/styles are
@@ -3786,7 +3970,7 @@ function assembleDocument(html, emittedAssets, inlineStyles, scripts, nonce, hea
       headTagsHtml = `<title data-dh="title">${winner}</title>` + headTagsHtml;
     }
   }
-  const head = headTagsHtml + renderHeadAssets(emittedAssets, inlineStyles, nonce);
+  const head = headTagsHtml + renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce);
   if (!scriptTag) return html.slice(0, headIdx) + head + html.slice(headIdx);
   const xsIdx = html.indexOf("<!--xs-->");
   if (xsIdx === -1) return html.slice(0, headIdx) + head + html.slice(headIdx) + scriptTag;
@@ -3798,7 +3982,7 @@ function assembleDocument(html, emittedAssets, inlineStyles, scripts, nonce, hea
 // Tracked asset links (stylesheet/modulepreload by URL) and unconsumed inline
 // styles, rendered for a head splice or an `onHead` delivery. Inline-style
 // entries are consumed (marked emitted) by whichever path renders them first.
-function renderHeadAssets(emittedAssets, inlineStyles, nonce) {
+function renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce) {
   let head = "";
   const styleAttr = nonceAttr(nonce, "style");
   const scriptAttr = nonceAttr(nonce, "script");
@@ -3808,6 +3992,9 @@ function renderHeadAssets(emittedAssets, inlineStyles, nonce) {
         ? `<link rel="stylesheet" href="${url}"${styleAttr}>`
         : `<link rel="modulepreload" href="${url}"${scriptAttr}>`;
     }
+  }
+  if (preloadLinks) {
+    for (const entry of preloadLinks) head += `<link${entry.attrHtml}>`;
   }
   if (inlineStyles && inlineStyles.size) {
     for (const entry of inlineStyles.values()) {
@@ -4262,9 +4449,14 @@ function copyInitHeaders(init) {
 // outcome that declared them. Header names via the shared wire constants;
 // lowercased once because `Headers` iteration keys are lowercase.
 const STUB_GAP_FILL_EXCLUDED = /*#__PURE__*/ new Set(
-  [ERROR_HEADER, BODY_FORMAT_HEADER, SINGLE_FLIGHT_HEADER, REVALIDATE_HEADER, "Location"].map(
-    header => header.toLowerCase()
-  )
+  [
+    ERROR_HEADER,
+    BODY_FORMAT_HEADER,
+    SINGLE_FLIGHT_HEADER,
+    REVALIDATE_HEADER,
+    REDIRECT_HEADER,
+    "Location"
+  ].map(header => header.toLowerCase())
 );
 
 // Whether a stub header may gap-fill onto the outgoing response: not a
@@ -4329,24 +4521,23 @@ export function commitEventResponse(response, event = getRequestEvent()) {
     if (fillsStubGap(key, response.headers, response)) hasGaps = true;
   });
   if (!cookies.length && !hasGaps) return response;
-  try {
-    for (const cookie of cookies) response.headers.append("Set-Cookie", cookie);
-    stub.headers.forEach((value, key) => {
-      if (fillsStubGap(key, response.headers, response)) response.headers.set(key, value);
-    });
-    return response;
-  } catch {
-    const headers = copyInitHeaders(response.headers);
-    for (const cookie of cookies) headers.append("Set-Cookie", cookie);
-    stub.headers.forEach((value, key) => {
-      if (fillsStubGap(key, headers, response)) headers.set(key, value);
-    });
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers
-    });
-  }
+  // Always fold onto a rebuilt Response, never in place: the response is the
+  // application's object, and an app may return the same one again — a
+  // module-level redirect singleton, a memoized per-tenant Response. Folding
+  // in place accumulates every request's cookies onto that shared object, so
+  // one user's Set-Cookie is served to the next (#3155). Rebuilding also
+  // absorbs immutable-headers responses (Response.redirect) for free; the
+  // cost lands only on responses that were going to be modified anyway.
+  const headers = copyInitHeaders(response.headers);
+  for (const cookie of cookies) headers.append("Set-Cookie", cookie);
+  stub.headers.forEach((value, key) => {
+    if (fillsStubGap(key, headers, response)) headers.set(key, value);
+  });
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
 }
 
 function deriveHead(stub, responseInit = {}) {

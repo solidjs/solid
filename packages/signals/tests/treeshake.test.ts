@@ -95,7 +95,55 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // move into _x (computed literal 29 -> 27 fields) and the plain-commit
     // fast drain in GlobalQueue.flush — update1to1 -12% on top of §12
     // (measured at 20,610 post-change).
-    expect(minifiedBytes).toBeLessThan(20_900);
+    // CONSCIOUS BUMP (2026-08-27): +~350B for the shared effect status
+    // notifier (statusNotifierOf + install seam). Storing the SHARED
+    // notifyEffectStatus per node via ext() allocated the full 19-field
+    // NodeExtension on EVERY effect at creation — +127 B/node heap and +23%
+    // effect creation time (shipped unnoticed with stage 3; caught by the
+    // creation benches). Measured at 20,956 post-change.
+    // CONSCIOUS BUMP (stage-2, 2026-08-27): +~180B in mergeTransitionState —
+    // the held-patch stash move + coalescing-stamp retarget (re-audit 5:
+    // merged-away stashes double-applied their records' patches at commit).
+    // Core-retained by necessity: transition merging cannot be pay-for-use.
+    // Measured at 21,134 post-change.
+    // NOTE (2026-08-29, no bump): +~100B for until()/resolve()'s seams — the
+    // read() A17 carve-out (checks CONFIG_AUTHORITATIVE_READ on the reading
+    // computation directly; no ambient flag), the createEffectNode
+    // _extraConfig arm, recompute's CONFIG_DIRECT_COMMIT clause (promise
+    // effects commit values on their microtask-delivery schedule), the
+    // silent-ack notify in recompute, and the
+    // GlobalQueue._notifyAuthoritativeObservers slot. Inline in retained hot
+    // functions by necessity; the wakeup walk itself is hook-installed at
+    // first until() call and shakes with it. Measured at 21,235 post-change.
+    // NOTE (2026-08-29, no bump): awaitable refresh() adds ONE term to
+    // clearStatus's dispatch gate (CONFIG_QUIESCENCE_OBSERVED — the waiters'
+    // settle seam; the registry itself lives in core/quiescence.ts and
+    // shakes out with refresh()). Paid for by converting three
+    // `slot !== null && slot(...)` gates to `slot?.(...)`.
+    // CONSCIOUS BUMP (2026-08-31): +~96B for flight-identity iterator
+    // cancellation (#3122) — the `_flightTeardown` ext slot, its
+    // registration in consumeIterator, and recompute's supersede release.
+    // Core-retained by necessity: supersede happens in recompute, and the
+    // async-iterable machinery is already part of the memo floor. Measured
+    // at 21,331 post-change.
+    // CONSCIOUS BUMP (2026-09-01): +~92B for the pending twin of the #2949
+    // silent-recovery sweep (#3181) — recompute captures pending SOURCE-hood
+    // and runs settlePendingSource when a synchronous settle supersedes the
+    // flight that parked dependents. Core-retained by necessity: the
+    // supersede happens in recompute, and settlePendingSource is already
+    // part of the async floor. Measured at 21,423 post-change.
+    // CONSCIOUS BUMP (2026-09-01): +~155B for the held-truth reveal
+    // machinery (#3164: store fold + until() flip-entanglement, unified on
+    // CONFIG_HELD_TRUTH) — the read() mask arm, commitPendingNodes'
+    // unmask-and-collect, and finalizePureQueue's post-revert wake pass.
+    // Core-retained by necessity: read masking and settle ordering cannot
+    // be pay-for-use. Paid for by the unification itself (it deleted the
+    // GlobalQueue._heldTruthMasked hook slot, a second read() arm, and the
+    // Transition._entangled flag plumbing); the arming sites
+    // (entangleConfirmingTransitions/stealEntangledCargo, the store fold)
+    // still shake out with until()/createOptimisticStore. Measured at
+    // 21,536 post-change (with the #3181 bump above).
+    expect(minifiedBytes).toBeLessThan(21_600);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

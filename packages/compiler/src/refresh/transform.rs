@@ -3,15 +3,20 @@
 //! 1. Pragma scan — the first `@refresh skip` / `@refresh reload` comment
 //!    anywhere in the file wins (skip bails entirely; reload emits a decline
 //!    block, still fixes render calls, and skips component registration).
+//!    The per-binding `@refresh component` pragma is separate: it attaches
+//!    to a declaration, not the file (see `has_component_pragma`).
 //! 2. `fixRender` — top-level-ish `render()`/`hydrate()` calls (every
 //!    ancestor a statement) become `const _cleanup = ...;
 //!    if (hot) hot.dispose(_cleanup);`.
 //! 3. Bubbling — eligible top-level function-declaration components hoist to
 //!    the top of the module (in the reference plugin's exact, requeue-quirky
 //!    order; see `bubble`).
-//! 4. Wrapping — eligible components and `createContext` results wrap in
-//!    `$$component(...)`, creating the registry const, runtime imports, and
-//!    the trailing `if (hot) { ... $$refresh(...) }` block on first use.
+//! 4. Wrapping — eligible components, `createContext` results, and
+//!    call-shaped component bindings (#3090: JSX-tag-evidenced or
+//!    `@refresh component`-asserted; a deliberate divergence from the Babel
+//!    plugin, which registers neither) wrap in `$$component(...)`, creating
+//!    the registry const, runtime imports, and the trailing
+//!    `if (hot) { ... $$refresh(...) }` block on first use.
 
 use oxc_allocator::{Allocator, Vec as ArenaVec};
 use oxc_ast::ast::*;
@@ -88,6 +93,12 @@ struct Analysis {
     /// Foreign bindings (granular `dependencies`) per candidate root span
     /// start.
     dependencies: std::collections::HashMap<u32, Vec<String>>,
+    /// Span starts of call-shaped declarator inits (call / tagged template /
+    /// new) that register as components (#3090): either rendered as a JSX
+    /// tag somewhere in this module (compile-time proof of component-ness)
+    /// or carrying a `@refresh component` pragma (author assertion for
+    /// export-only shapes the proof can't reach).
+    registered_calls: std::collections::HashSet<u32>,
     /// Span starts of component function declarations left untouched
     /// because rewriting them into `const` bindings would collide with TS
     /// declaration merging (solid-refresh#76 / vite-plugin-solid#145) —
@@ -124,6 +135,7 @@ impl<'a> RefreshTransform<'a> {
                 context_calls: std::collections::HashSet::new(),
                 dependencies: std::collections::HashMap::new(),
                 merged_functions: std::collections::HashSet::new(),
+                registered_calls: std::collections::HashSet::new(),
             },
             taken: std::collections::HashSet::new(),
             imports: std::collections::HashMap::new(),
@@ -375,6 +387,120 @@ impl<'a> RefreshTransform<'a> {
 
         self.scan_merged_functions(program, scoping);
 
+        // Call-shaped component registration (#3090). A factory-produced
+        // component (`styled()`, an HOC call) can't be recognized from its
+        // init alone, but leaving it unregistered while a registered sibling
+        // makes the module self-accept produces total, silent staleness: the
+        // accept is exactly what disables the module-invalidation fallback
+        // the old freeze relied on. Two admission gates, both compile-time:
+        //
+        // - proof: the binding is rendered as a JSX tag in THIS module
+        //   (something rendered as a component is one; resolution is
+        //   scope-aware, so shadows don't count), or
+        // - assertion: the declaration carries a `@refresh component` pragma
+        //   (the export-only shape — rendered by importers we cannot see).
+        //
+        // Registered symbols double as a dependency exclusion set below:
+        // like same-module components in JSX position, their `$$component`
+        // proxy identity changes on every re-execution, and edits propagate
+        // through the proxy chain — counting them as dependencies would
+        // remount the consumer on every edit of the module.
+        let mut registered_symbols: std::collections::HashSet<SymbolId> =
+            std::collections::HashSet::new();
+        {
+            let mut candidates: std::collections::HashMap<SymbolId, u32> =
+                std::collections::HashMap::new();
+            for statement in &program.body {
+                let (stmt_start, declaration) = match statement {
+                    Statement::VariableDeclaration(declaration) => {
+                        (declaration.span.start, Some(&**declaration))
+                    }
+                    Statement::ExportDeclaration(export) => match &export.declaration {
+                        Declaration::VariableDeclaration(declaration) => {
+                            (export.span.start, Some(&**declaration))
+                        }
+                        Declaration::FunctionDeclaration(function) => {
+                            if self.function_is_wrappable(function)
+                                && let Some(id) = &function.id
+                                && let Some(symbol) = id.symbol_id.get()
+                            {
+                                registered_symbols.insert(symbol);
+                            }
+                            (export.span.start, None)
+                        }
+                        _ => (export.span.start, None),
+                    },
+                    Statement::FunctionDeclaration(function) => {
+                        if self.function_is_wrappable(function)
+                            && let Some(id) = &function.id
+                            && let Some(symbol) = id.symbol_id.get()
+                        {
+                            registered_symbols.insert(symbol);
+                        }
+                        continue;
+                    }
+                    _ => continue,
+                };
+                let Some(declaration) = declaration else {
+                    continue;
+                };
+                for declarator in &declaration.declarations {
+                    let BindingPattern::BindingIdentifier(id) = &declarator.id else {
+                        continue;
+                    };
+                    let Some(init) = &declarator.init else {
+                        continue;
+                    };
+                    let name = id.name.as_str();
+                    if is_componentish(name) && unwrap_component_function(init).is_some() {
+                        if let Some(symbol) = id.symbol_id.get() {
+                            registered_symbols.insert(symbol);
+                        }
+                        continue;
+                    }
+                    let unwrapped = unwrap_expression(init);
+                    let init_start = unwrapped.span().start;
+                    // Contexts already register through their own arm.
+                    if self.analysis.context_calls.contains(&init_start) {
+                        if let Some(symbol) = id.symbol_id.get() {
+                            registered_symbols.insert(symbol);
+                        }
+                        continue;
+                    }
+                    if !matches!(
+                        unwrapped,
+                        Expression::CallExpression(_)
+                            | Expression::TaggedTemplateExpression(_)
+                            | Expression::NewExpression(_)
+                    ) {
+                        continue;
+                    }
+                    if self.has_component_pragma(stmt_start, declarator.span) {
+                        self.analysis.registered_calls.insert(init_start);
+                        if let Some(symbol) = id.symbol_id.get() {
+                            registered_symbols.insert(symbol);
+                        }
+                    } else if let Some(symbol) = id.symbol_id.get() {
+                        candidates.insert(symbol, init_start);
+                    }
+                }
+            }
+            if !candidates.is_empty() {
+                let mut evidence = JsxTagEvidence {
+                    scoping,
+                    candidates: &candidates,
+                    hits: std::collections::HashSet::new(),
+                };
+                evidence.visit_program(program);
+                for (symbol, init_start) in &candidates {
+                    if evidence.hits.contains(init_start) {
+                        self.analysis.registered_calls.insert(*init_start);
+                        registered_symbols.insert(*symbol);
+                    }
+                }
+            }
+        }
+
         // Granular dependencies for component candidates.
         if self.config.granular {
             let root_scope = scoping.root_scope_id();
@@ -388,7 +514,12 @@ impl<'a> RefreshTransform<'a> {
                             self.collect_candidate_function(function, scoping, root_scope)
                         }
                         Declaration::VariableDeclaration(declaration) => {
-                            self.collect_candidate_declarators(declaration, scoping, root_scope)
+                            self.collect_candidate_declarators(
+                                declaration,
+                                scoping,
+                                root_scope,
+                                &registered_symbols,
+                            )
                         }
                         _ => {}
                     },
@@ -400,12 +531,39 @@ impl<'a> RefreshTransform<'a> {
                         }
                     }
                     Statement::VariableDeclaration(declaration) => {
-                        self.collect_candidate_declarators(declaration, scoping, root_scope)
+                        self.collect_candidate_declarators(
+                            declaration,
+                            scoping,
+                            root_scope,
+                            &registered_symbols,
+                        )
                     }
                     _ => {}
                 }
             }
         }
+    }
+
+    /// `@refresh component` attaches per-binding, unlike the file-level
+    /// skip/reload pragmas: a leading comment on the declaration statement
+    /// (applies to every declarator in it), or a comment anywhere inside the
+    /// declarator's span (the `const Badge = /* @refresh component */
+    /// styled...` position from #3090).
+    fn has_component_pragma(&self, stmt_start: u32, declarator_span: Span) -> bool {
+        self.comments.iter().any(|comment| {
+            let attached = (comment.is_leading && comment.attached_to == stmt_start)
+                || (comment.span.start >= stmt_start && comment.span.end <= declarator_span.end);
+            if !attached {
+                return false;
+            }
+            let text = &self.source[comment.span.start as usize..comment.span.end as usize];
+            let content = if comment.is_line {
+                text.trim_start_matches("//")
+            } else {
+                text.trim_start_matches("/*").trim_end_matches("*/")
+            };
+            content.trim() == "@refresh component"
+        })
     }
 
     /// solid-refresh#76 / vite-plugin-solid#145 (deliberate divergence from
@@ -502,27 +660,43 @@ impl<'a> RefreshTransform<'a> {
         declaration: &VariableDeclaration<'a>,
         scoping: &Scoping,
         root_scope: ScopeId,
+        registered_symbols: &std::collections::HashSet<SymbolId>,
     ) {
         for declarator in &declaration.declarations {
             let BindingPattern::BindingIdentifier(id) = &declarator.id else {
                 continue;
             };
-            if !is_componentish(id.name.as_str()) {
-                continue;
-            }
             let Some(init) = &declarator.init else {
                 continue;
             };
-            if unwrap_component_function(init).is_none() {
+            if is_componentish(id.name.as_str()) && unwrap_component_function(init).is_some() {
+                // Babel traverses the declarator: the binding id contributes no
+                // references, so walking the init subtree is equivalent.
+                let mut collector = ForeignBindings::new(scoping, root_scope);
+                collector.visit_expression(init);
+                self.analysis
+                    .dependencies
+                    .insert(declarator.span.start, collector.names);
                 continue;
             }
-            // Babel traverses the declarator: the binding id contributes no
-            // references, so walking the init subtree is equivalent.
-            let mut collector = ForeignBindings::new(scoping, root_scope);
-            collector.visit_expression(init);
-            self.analysis
-                .dependencies
-                .insert(declarator.span.start, collector.names);
+            // Registered call-shaped inits (#3090): same walk, but symbols
+            // that register in this module are excluded — their proxy
+            // identity changes on every re-execution while edits propagate
+            // through the proxy chain, so counting them would remount this
+            // component on every edit of the module (the JSX-position rule,
+            // applied to value position).
+            if self
+                .analysis
+                .registered_calls
+                .contains(&unwrap_expression(init).span().start)
+            {
+                let mut collector =
+                    ForeignBindings::with_exclusions(scoping, root_scope, registered_symbols);
+                collector.visit_expression(init);
+                self.analysis
+                    .dependencies
+                    .insert(declarator.span.start, collector.names);
+            }
         }
     }
 
@@ -825,6 +999,31 @@ impl<'a> RefreshTransform<'a> {
             let init = declarator.init.take().unwrap();
             let call = unwrap_expression_owned(init);
             let wrapped = self.wrap_context(index, &name, call);
+            declarator.init = Some(wrapped);
+            return;
+        }
+
+        // Call-shaped component registration (#3090): JSX-tag-evidenced or
+        // pragma-asserted factory results register exactly like function
+        // components — location, signature (the printer covers calls and
+        // tagged templates), and granular dependencies included.
+        if self
+            .analysis
+            .registered_calls
+            .contains(&unwrap_expression(init).span().start)
+        {
+            let init = declarator.init.take().unwrap();
+            let component = unwrap_expression_owned(init);
+            let location_span = component.span();
+            let deps_key = declarator.span.start;
+            let wrapped = self.wrap_component(
+                index,
+                &name,
+                component,
+                location_span,
+                Some(deps_key),
+                false,
+            );
             declarator.init = Some(wrapped);
         }
     }
@@ -1449,6 +1648,7 @@ fn collect_render_statement<'a, 'p>(
 struct ForeignBindings<'s> {
     scoping: &'s Scoping,
     root_scope: ScopeId,
+    exclude: Option<&'s std::collections::HashSet<SymbolId>>,
     seen: std::collections::HashSet<String>,
     names: Vec<String>,
 }
@@ -1458,8 +1658,20 @@ impl<'s> ForeignBindings<'s> {
         Self {
             scoping,
             root_scope,
+            exclude: None,
             seen: std::collections::HashSet::new(),
             names: Vec::new(),
+        }
+    }
+
+    fn with_exclusions(
+        scoping: &'s Scoping,
+        root_scope: ScopeId,
+        exclude: &'s std::collections::HashSet<SymbolId>,
+    ) -> Self {
+        Self {
+            exclude: Some(exclude),
+            ..Self::new(scoping, root_scope)
         }
     }
 
@@ -1474,11 +1686,42 @@ impl<'s> ForeignBindings<'s> {
             None => true,
             // Components are top-level, so "outside the subtree" is exactly
             // "bound in the module scope".
-            Some(symbol) => self.scoping.symbol_scope_id(symbol) == self.root_scope,
+            Some(symbol) => {
+                if self.exclude.is_some_and(|exclude| exclude.contains(&symbol)) {
+                    return;
+                }
+                self.scoping.symbol_scope_id(symbol) == self.root_scope
+            }
         };
         if foreign && self.seen.insert(identifier.name.to_string()) {
             self.names.push(identifier.name.to_string());
         }
+    }
+}
+
+/// The #3090 evidence scan: JSX tags that resolve to top-level call-shaped
+/// bindings. Resolution is scope-aware (a shadowing local is a different
+/// symbol) and only direct identifier tags count — a member tag
+/// (`<Foo.Item />`) renders the property, not the root, so registering the
+/// root would not route the rendered value through a proxy.
+struct JsxTagEvidence<'s> {
+    scoping: &'s Scoping,
+    candidates: &'s std::collections::HashMap<SymbolId, u32>,
+    hits: std::collections::HashSet<u32>,
+}
+
+impl<'b> Visit<'b> for JsxTagEvidence<'_> {
+    fn visit_jsx_element_name(&mut self, name: &JSXElementName<'b>) {
+        if let JSXElementName::IdentifierReference(identifier) = name
+            && let Some(symbol) = identifier
+                .reference_id
+                .get()
+                .and_then(|id| self.scoping.get_reference(id).symbol_id())
+            && let Some(init_start) = self.candidates.get(&symbol)
+        {
+            self.hits.insert(*init_start);
+        }
+        walk::walk_jsx_element_name(self, name);
     }
 }
 

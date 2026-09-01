@@ -1,0 +1,8 @@
+---
+"@solidjs/signals": patch
+"solid-js": patch
+---
+
+`refresh(target)` now returns a promise for the target's next QUIESCENT state — the re-ask (and anything that supersedes it) has settled. Accessor targets resolve with the settled value; store targets resolve with the store node passed (nested targets re-ask the whole family but resolve with the node the caller was looking at). A failed re-ask rejects, so `yield refresh(x)` in an action throws back at the yield point and reverts like any failed step; an ignored promise never surfaces an unhandled rejection, keeping fire-and-forget refresh unchanged. Semantics are quiescence, not flight identity: a superseding refresh folds every waiter onto whatever finally lands. Inside actions, truth landing into the held transaction is staged; the promise settles then (matching `resolve()`/`until()` delivery) and delivers the staged value — never the caller's optimistic override. The re-ask stays verdict-quiet (`isPending` unchanged).
+
+Implementation is pay-for-use and shares `resolve()`/`until()`'s effect machinery: the waiter is a microtask-delivered, direct-commit, authoritative-read effect over the marked node, deferred one microtask so same-tick refreshes still coalesce into a single re-ask. One new reader bit (`CONFIG_FRESH_READ`) makes the waiter's read pull a still-dirty source through recompute inline — it then parks on the re-ask's pending window (woken by the settle walk, which runs on every landing including equal-value ones) or serves the sync answer, instead of misreading the pre-re-ask value as settled. `updateIfNecessary` now also refuses disposed nodes outright (#2983's bug class), and a disposed or non-derived target resolves immediately with its last value.

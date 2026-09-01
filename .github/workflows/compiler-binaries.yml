@@ -1,22 +1,27 @@
-name: 'Compiler Binaries'
+name: "Compiler Binaries"
+run-name: Compiler binaries ${{ inputs.source-ref || github.sha }}
 
 on:
   workflow_dispatch:
     inputs:
+      source-ref:
+        description: "Commit to build and publish"
+        type: string
+        default: ""
       publish:
-        description: 'Publish platform packages to npm'
+        description: "Publish platform packages to npm"
         type: boolean
         default: false
       npm-tag:
-        description: 'npm dist-tag for published platform packages'
+        description: "npm dist-tag for published platform packages"
         type: string
-        default: 'next'
+        default: "next"
   push:
     branches:
       - next
     paths:
-      - 'packages/compiler/**'
-      - '.github/workflows/compiler-binaries.yml'
+      - "packages/compiler/**"
+      - ".github/workflows/compiler-binaries.yml"
 
 jobs:
   build:
@@ -40,6 +45,8 @@ jobs:
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source-ref || github.sha }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -89,6 +96,7 @@ jobs:
             packages/compiler/compiler.*.node
             packages/compiler/compiler.*.wasm
             packages/compiler/compiler.wasi.cjs
+            packages/compiler/compiler.wasi.d.cts
             packages/compiler/compiler.wasi-browser.js
             packages/compiler/wasi-worker*.mjs
           if-no-files-found: error
@@ -103,12 +111,14 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source-ref || github.sha }}
 
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: "https://registry.npmjs.org"
           cache: "pnpm"
 
       - name: Install dependencies
@@ -127,7 +137,7 @@ jobs:
 
       - name: Test WASI binary
         working-directory: packages/compiler
-        run: NODE_NO_WARNINGS=1 NAPI_RS_FORCE_WASI=error pnpm exec vitest run --exclude '**/binding-loader.test.js'
+        run: NODE_NO_WARNINGS=1 SOLID_COMPILER_TEST_WASI=1 pnpm exec vitest run --exclude '**/binding-loader.test.js'
 
       # Authenticates via OIDC trusted publishing (id-token: write above) —
       # no npm token. Each platform package must have this repo + workflow
@@ -141,9 +151,9 @@ jobs:
           failed=0
           for dir in npm/*/; do
             echo "Publishing $dir"
-            if output=$(npm publish "$dir" --access public --tag "${{ inputs.npm-tag }}" 2>&1); then
+            if output=$(npm publish "./$dir" --access public --tag "${{ inputs.npm-tag }}" 2>&1); then
               echo "$output"
-            elif echo "$output" | grep -q "cannot publish over"; then
+            elif echo "$output" | grep -qi "cannot publish over"; then
               echo "Already published — skipping $dir"
             else
               echo "$output"

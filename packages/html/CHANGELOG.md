@@ -1,5 +1,107 @@
 # @solidjs/html
 
+## 2.0.0-rc.5
+
+### Patch Changes
+
+- Updated dependencies [5ab6c61]
+- Updated dependencies [bacfb34]
+- Updated dependencies [51392f3]
+- Updated dependencies [02e0ebf]
+- Updated dependencies [ec52360]
+- Updated dependencies [da50a36]
+- Updated dependencies [2f18c56]
+- Updated dependencies [0932c89]
+- Updated dependencies [817b4d1]
+- Updated dependencies [929642b]
+- Updated dependencies [ecfee20]
+- Updated dependencies [30f9387]
+- Updated dependencies [af4cfc8]
+- Updated dependencies [be7bcd2]
+- Updated dependencies [08b4d1c]
+- Updated dependencies [93adc02]
+- Updated dependencies [19fa8b0]
+- Updated dependencies [1a95943]
+- Updated dependencies [5be07a8]
+- Updated dependencies [8963843]
+- Updated dependencies [8d34af1]
+- Updated dependencies [fc5d079]
+- Updated dependencies [1d2d1e5]
+- Updated dependencies [2320bc9]
+- Updated dependencies [2f6d8cc]
+- Updated dependencies [fe4bfa0]
+- Updated dependencies [02f87fe]
+- Updated dependencies [5230666]
+- Updated dependencies [653dd41]
+- Updated dependencies [8d17083]
+- Updated dependencies [006a115]
+- Updated dependencies [e637272]
+- Updated dependencies [0b9d69a]
+- Updated dependencies [f739ec3]
+- Updated dependencies [9522945]
+- Updated dependencies [45f6b5f]
+- Updated dependencies [fe4bfa0]
+- Updated dependencies [21a5122]
+- Updated dependencies [f06f7b1]
+- Updated dependencies [07471da]
+  - @solidjs/web@2.0.0-rc.5
+
+## 2.0.0-rc.4
+
+### Patch Changes
+
+- Updated dependencies [475744c]
+- Updated dependencies [8d249c7]
+- Updated dependencies [54506e0]
+- Updated dependencies [0043643]
+- Updated dependencies [c9b4f2a]
+- Updated dependencies [8c48a2e]
+- Updated dependencies [8d249c7]
+- Updated dependencies [2f01f23]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [258c76a]
+- Updated dependencies [79b96cf]
+- Updated dependencies [82b4e14]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [c07edcb]
+  - @solidjs/web@2.0.0-rc.4
+
+## 2.0.0-rc.3
+
+### Minor Changes
+
+- 89a0531: Absorb the 0.50 expressions snapshot into this repo: lift compilers as `@solidjs/babel-plugin` and `@solidjs/compiler`, dump runtimes into `@solidjs/web` / `h` / `html` / `universal`. Origin: ryansolid/dom-expressions@e97e4290 (0.50.0-next.44).
+- 89a0531: Collapse the expressions dump: drop the rxcore seam, flatten runtimes into package `src/`, delete `babel-preset-solid`, and publish compiler natives as `@solidjs/compiler-*`.
+
+### Patch Changes
+
+- 7182195: Move frames, server-functions, and serialization implementations into their subpath folders. Bind `@solidjs/h` and `@solidjs/html` directly to `@solidjs/web` instead of taking a runtime argument.
+- Updated dependencies [89a0531]
+- Updated dependencies [8710b78]
+- Updated dependencies [e9ae1d2]
+- Updated dependencies [848d25a]
+- Updated dependencies [4fba79d]
+- Updated dependencies [7182195]
+- Updated dependencies [89a0531]
+- Updated dependencies [da59aea]
+- Updated dependencies [b8c4534]
+- Updated dependencies [7182195]
+  - @solidjs/web@2.0.0-rc.3
+
 ## 2.0.0-rc.2
 
 ### Patch Changes

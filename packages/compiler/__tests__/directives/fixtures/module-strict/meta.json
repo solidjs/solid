@@ -2,7 +2,7 @@
   "valid": true,
   "functions": [
     {
-      "id": "964a320c-0",
+      "id": "ping-964a320c",
       "name": "ping",
       "exports": [
         "ping"

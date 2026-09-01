@@ -9,7 +9,7 @@ const {
   site: site,
   secret: secret
 } = loadConfig();
-const serverFunction_1 = registerServerReference_1("2bfb27d5-0-remove", async id => {
+const serverFunction_1 = registerServerReference_1("remove-2bfb27d5", async id => {
   await db.delete(id, secret);
 }, "remove");
 export const remove = createServerReference_1(serverFunction_1);

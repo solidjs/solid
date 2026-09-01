@@ -190,6 +190,72 @@ it("onSettled store write-then-read returns the settled value", () => {
   expect(effectValues).toEqual([0, 1]);
 });
 
+it("onSettled projection-store write-then-read returns the settled value (#3082)", () => {
+  // Derived (projection) stores park writes in a pending backing that is
+  // authoritative-elect for context-free readers — but CHILDREN_FORBIDDEN
+  // scopes must still get committed visibility, same as plain stores and
+  // signals: a callback never observes its own unsettled write.
+  const reads: [number, number][] = [];
+  const effectValues: number[] = [];
+
+  createRoot(() => {
+    const [store, setStore] = createStore(() => ({ count: 0 }), { count: 0 });
+    const [sig, setSig] = createSignal(0);
+
+    createEffect(
+      () => store.count,
+      v => {
+        effectValues.push(v);
+      }
+    );
+
+    onSettled(() => {
+      reads.push([store.count, sig()]);
+      setStore(s => {
+        s.count = 1;
+      });
+      setSig(1);
+      // Store and signal must agree: both committed until the next flush.
+      reads.push([store.count, sig()]);
+    });
+  });
+
+  flush();
+  expect(reads).toEqual([
+    [0, 0],
+    [0, 0]
+  ]);
+  expect(effectValues).toEqual([0, 1]);
+});
+
+it("createTrackedEffect projection-store reads are committed-visibility (#3082)", () => {
+  const reads: number[] = [];
+
+  createRoot(() => {
+    const [store, setStore] = createStore(() => ({ count: 0 }), { count: 0 });
+    const [tick, setTick] = createSignal(0);
+
+    createTrackedEffect(() => {
+      tick();
+      reads.push(store.count);
+    });
+
+    onSettled(() => {
+      if (reads.length === 1) {
+        setStore(s => {
+          s.count = 5;
+        });
+        setTick(1);
+      }
+    });
+  });
+
+  flush();
+  // First run sees 0; the onSettled write lands in the continuation, so the
+  // tick-triggered re-run sees the settled 5 — never the staged draft early.
+  expect(reads).toEqual([0, 5]);
+});
+
 it("warns in dev when flush() is called from a createEffect callback", () => {
   const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   const effectValues: number[] = [];

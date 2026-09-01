@@ -12,7 +12,7 @@
  * entry per read-through object; zero layer slots; nodes, has-nodes, and the
  * key-set node are lazy, materialized only by subscription.
  */
-import type { Computed, Signal } from "../../core/types.js";
+import type { Computed, Owner, Signal } from "../../core/types.js";
 
 /** Projection family (§7b): children wrap into the family's own map (writes
  * land in the projection, never the source family), and every node created
@@ -28,10 +28,53 @@ export interface StoreNextFamily {
   /** Targets currently carrying active node overrides (landing-consumption
    * walk, RUL-2: visible landed truth replaces optimism). */
   overlaid?: Set<any>;
+  /** Retaining transactions (#3164 fold ruling): every transaction that made
+   * an optimistic setter call on this family and may still be open. While
+   * any member is live, truth landings FOLD — they stage into the retaining
+   * transaction and reveal atomically at its settle, exactly like a signal
+   * landing under an active override. Dead members prune lazily at each
+   * landing (retainingTransition). */
+  rt?: Set<any>;
+  /** Normalized row-key fn (same resolution as the projection channels:
+   * `options.key`, "id" default, null = unkeyed). The staged-landing walk
+   * reads it: key-matched rows keep their proxy identity across a fold. */
+  key?: ((item: any) => any) | null;
   map: WeakMap<object, StoreNextTarget>;
   /** The projection computed — assigned after creation (accessor pattern). */
   node: Computed<any> | null;
   shallow?: boolean;
+}
+
+/** Write-side patch-channel state (stage 2), grouped off the target's named
+ * fields — see the shape rule on `StoreNextTarget.pc`. One literal shape,
+ * allocated by `pcOf` on first use. */
+export interface PatchChannel {
+  /** Slot-patch hooks for shallow arrays — the reconcile walk emits
+   * (i, next, prev) for key-aligned value-replaced slots through the patch
+   * apply queue (records are raw, no per-record targets exist).
+   * MULTI-CONSUMER (external audit): one array can drive several lists. */
+  sp: { fn: (index: number, next: any, prev: any) => void; owner: Owner | null }[] | null;
+  /** Patch-channel consumers (next/patch.ts): per-record compiled patch
+   * entries, multi-consumer. null when unpatched (the common case). */
+  p: object[] | null;
+  /** Same-batch coalescing stamp (re-audit 2/3): the container array this
+   * channel last pushed a non-forced SELF entry into, plus that entry. A
+   * later same-batch emission UPDATES the queued entry's `next` in place
+   * (latest state wins — adoption REPLACES the captured object, so dropping
+   * the later emission would apply stale state) while `prev` stays the
+   * batch's earliest. The drain clears both stamps so a quiet record
+   * retains nothing from its last batch. */
+  qa: unknown;
+  qe: unknown;
+  /** Row-ops consumers (next/patch.ts, PR-B): structural list ops —
+   * (nextRows, { prefix, sources, removed }) at apply timing. */
+  ro: object[] | null;
+  /** Keys written through the traps since the last fold commit. Bounds the
+   * setter notify/hold-check to O(written) instead of O(subscribed nodes) —
+   * a record with thousands of per-key subscriptions (selection maps) would
+   * otherwise pay a full node scan on every write. null = no trap writes
+   * this batch (bulk paths fall back to the full scan). */
+  wk: Set<PropertyKey> | null;
 }
 
 export interface StoreNextTarget {
@@ -49,6 +92,15 @@ export interface StoreNextTarget {
   h: Record<PropertyKey, Signal<boolean>> | null;
   /** Lazy key-set node: membership/iteration/$TRACK subscriptions (§6). */
   k: Signal<number> | null;
+  /** Patch-channel extension (lazily allocated on first use): groups the
+   * write-side stage-2 fields so they never widen the TARGET's own named
+   * field count. LOAD-BEARING SHAPE RULE: array proxy targets carry their
+   * fields as named properties on a real array, and V8 normalizes an array
+   * to dictionary properties as the named count grows (empirically at
+   * counts ≡ 0 mod 3 from 18 up on V8 13.x) — every trap field read then
+   * becomes a hash lookup (~15% uibench, tree suites worst). New
+   * patch-channel state MUST go inside this object, not on the target. */
+  pc: PatchChannel | null;
   /** Lazy deep-witness node: `deep()` subscribes ONE node per record instead
    * of one per path; write paths bump it only when it exists. Separate from
    * `k` so $TRACK/mapArray never rerun on leaf value changes (R9). */
@@ -81,17 +133,21 @@ export interface StoreNextTarget {
   /** Keys deleted in the overlay window (a prototype overlay cannot shadow
    * a delete); null when none. */
   del: Set<PropertyKey> | null;
-  /** Keys written through the traps since the last fold commit. Bounds the
-   * setter notify/hold-check to O(written) instead of O(subscribed nodes) —
-   * a record with thousands of per-key subscriptions (selection maps) would
-   * otherwise pay a full node scan on every write. null = no trap writes
-   * this batch (bulk paths fall back to the full scan); WK_ALL sentinel =
-   * bound unusable this batch (array length write implies index deletes). */
-  wk: Set<PropertyKey> | null;
   /** Projection family, null for plain stores (§7b). */
   fam: StoreNextFamily | null;
   /** Shallow store root (values served raw). */
   s: boolean;
+  /** Held committed view (#3074/#3075): the pre-hold committed backing,
+   * served to committed-visibility readers while `ht` is live. Adoption is
+   * eager by contract, but a projection recompute deriving from uncommitted
+   * inputs (a transition-held source, or a latest()-pull ahead of the flush)
+   * swaps the backing SPECULATIVELY — the old view must stay servable until
+   * the hold resolves. */
+  hv: Record<PropertyKey, any> | null;
+  /** The holder for `hv`: a live transition (cleared lazily when it is done)
+   * or the PLAIN_HOLD sentinel (a latest()-pull staging — cleared by the
+   * fold commit). null = no hold. */
+  ht: any;
 }
 
 /**
@@ -126,8 +182,22 @@ export interface OptStoreHooks {
   notifyOptimisticWrites(t: any, pb: Record<PropertyKey, any>): void;
   optimisticView(t: any, src: Record<PropertyKey, any>): Record<PropertyKey, any>;
   applyTentative(t: any, incoming: any, keyFn: ((item: any) => any) | null): void;
+  /** #3164 fold: does this live transaction still retain optimism (armed
+   * nodes or tracked stores)? Backs the held-truth masks in next/store.ts so
+   * plain-store bundles don't carry the transition-optimism probe. */
+  retainsOptimism(t: any): boolean;
 }
 export let optHooks: OptStoreHooks | null = null;
 export function setOptHooks(h: OptStoreHooks): void {
   optHooks = h;
+}
+
+/** Sticky descendants flag walk (§6d): reconcile's keyed pruning descends
+ * only where subscriptions exist at/below. Nodes AND patches count. */
+export function markDescendants(target: StoreNextTarget): void {
+  let t: StoreNextTarget | null = target;
+  while (t && !t.d) {
+    t.d = true;
+    t = t.u;
+  }
 }

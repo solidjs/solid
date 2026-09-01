@@ -199,6 +199,24 @@ function ForList() {
 }
 
 // ---------------------------------------------------------------------------
+// 8b. For followed by static siblings in a top-level fragment (#3161): the
+// rc.4 regression — server spends top-level id slots on the rows and gives
+// the siblings the next ones; the rc.4 client asked for the siblings at 0/1,
+// so everything after the list hydrated detached (dead buttons).
+let bumpAfterFor!: () => void;
+function ForThenSiblings() {
+  const [count, setCount] = createSignal(0);
+  bumpAfterFor = () => setCount(c => c + 1);
+  return (
+    <>
+      <For each={[{ id: 1 }, { id: 2 }]}>{row => <div class="row">row {row.id}</div>}</For>
+      <button id="bump">bump</button>
+      <pre id="after">count: {count()}</pre>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 9. Spread with children in the spread object
 function SpreadChildren() {
   const props = { class: "sp", children: <em>spread</em> };
@@ -1443,6 +1461,27 @@ function InnerHTMLCallSiblings() {
 }
 
 // ---------------------------------------------------------------------------
+// solidjs/solid#3105: a reactive lone spread passes its accessor straight to
+// spread() on the client — no mergeProps, no memo, no hydration id — matching
+// the server's pass-through fast path. Before the fix the client-side merge
+// minted a memo that consumed an id the server never allocated, so every
+// element after the spread (the button here) went unclaimed.
+let setLoneSpreadLabel!: (v: string) => void;
+function ReactiveLoneSpread() {
+  const attrs = () => ({ class: "example" });
+  const [label, setLabel] = createSignal("before");
+  setLoneSpreadLabel = setLabel;
+  return (
+    <>
+      <div {...attrs()}>
+        <span>spread</span>
+      </div>
+      <button>{label()}</button>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // solidjs/solid#3033: a conditional expression in a JSX prop compiles to a
 // condition memo INSIDE the prop getter, minted when the getter is first
 // read — and the two sides read it at different points in their walks (the
@@ -1536,6 +1575,14 @@ export const scenarios: Scenario[] = [
     update: () => setItems(["a", "b", "c", "d"]),
     expectedTextAfterUpdate: "abcd",
     stableSelector: "ul"
+  },
+  {
+    name: "for-then-siblings",
+    App: ForThenSiblings,
+    expectedText: "row 1row 2bumpcount: 0",
+    update: () => bumpAfterFor(),
+    expectedTextAfterUpdate: "row 1row 2bumpcount: 1",
+    stableSelector: "button, pre"
   },
   {
     name: "spread-children",
@@ -1974,6 +2021,14 @@ export const scenarios: Scenario[] = [
     update: () => setInnerHTMLToggle(true),
     expectedTextAfterUpdate: "r1r2on",
     stableSelector: "div, label"
+  },
+  {
+    name: "reactive-lone-spread-id-parity",
+    App: ReactiveLoneSpread,
+    expectedText: "spreadbefore",
+    update: () => setLoneSpreadLabel("after"),
+    expectedTextAfterUpdate: "spreadafter",
+    stableSelector: "div, span, button"
   },
   {
     name: "prop-condition-memo-id-parity",

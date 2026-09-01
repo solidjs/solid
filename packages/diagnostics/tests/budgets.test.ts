@@ -7,6 +7,7 @@ import {
   parseBudgetFile
 } from "../src/index.js";
 import type { DiagnosticsArtifact } from "../src/index.js";
+import { deterministicAttribution } from "./helpers.js";
 
 async function toggleScenario(scenario?: string): Promise<DiagnosticsArtifact> {
   const { artifact } = await captureArtifact(
@@ -22,7 +23,10 @@ async function toggleScenario(scenario?: string): Promise<DiagnosticsArtifact> {
       flush();
       dispose();
     },
-    { scenario }
+    {
+      scenario,
+      attribution: deterministicAttribution
+    }
   );
   return artifact;
 }

@@ -1,4 +1,5 @@
 import {
+  CONFIG_AUTHORITATIVE_OBSERVED,
   CONFIG_CHILD_COMPANIONS,
   CONFIG_AUTO_DISPOSE,
   CONFIG_SYNC,
@@ -14,7 +15,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { context, setSignal, untrack, ext } from "./core.js";
+import { context, setSignal, untrack, ext, statusNotifierOf } from "./core.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { emitDiagnostic } from "./dev.js";
 import { NotReadyError, StatusError } from "./error.js";
@@ -206,11 +207,11 @@ export function settlePendingSource(el: Computed<any>): void {
     const errored = node._statusFlags & STATUS_ERROR;
     if (remaining) {
       if (!errored) setPendingError(node, remaining);
-      updateCompanions !== null && updateCompanions(node);
+      updateCompanions?.(node);
     } else {
       node._statusFlags &= ~STATUS_PENDING;
       if (!errored) setPendingError(node);
-      updateCompanions !== null && updateCompanions(node);
+      updateCompanions?.(node);
       if (node._x?._blocked) {
         enqueueSub(node);
         scheduled = true;
@@ -240,6 +241,15 @@ export function isThenable<T>(value: T | PromiseLike<T>): value is PromiseLike<T
     typeof value === "object" &&
     typeof (value as { then?: unknown }).then === "function"
   );
+}
+
+/** Fire and clear a node's iterator-flight cancellation hook (#3122). */
+export function releaseFlightTeardown(el: Computed<any>): void {
+  const teardown = el._x?._flightTeardown;
+  if (teardown != null) {
+    el._x!._flightTeardown = null;
+    teardown();
+  }
 }
 
 export function handleAsync<T>(
@@ -286,6 +296,11 @@ export function handleAsync<T>(
     throw new Error(message);
   }
 
+  // Flight replacement relies on recompute's supersede release for iterator
+  // teardown (#3122): every handleAsync call — including the projection
+  // self-registration — runs during a recompute of `el`, which has already
+  // fired _flightTeardown. A future non-recompute registration path must
+  // release it here before overwriting _inFlight.
   ext(el)._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
   let syncValue: T;
 
@@ -393,10 +408,21 @@ export function handleAsync<T>(
       // only notified when the hold is visible to them: under an active
       // override every reader sees the override (A17), so waking subs would
       // re-show an unchanged view — the revert is the notification point.
-      GlobalQueue._syncCompanions !== null && GlobalQueue._syncCompanions(el, value);
+      GlobalQueue._syncCompanions?.(el, value);
       if (!hasActiveOverride(el)) {
         if (__DEV__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, true);
         insertSubs(el);
+      } else if (el._config & CONFIG_AUTHORITATIVE_OBSERVED) {
+        // A17 silence is stated over ordinary readers; an authoritative-view
+        // reader (until()'s predicate) observed this node PAST its override
+        // and is waiting for exactly this staged truth. Without the wake the
+        // hold deadlocks: the landing waits on the transaction, the
+        // transaction on the action, the action on an until() that was never
+        // re-notified (#3164). Same selective wake as the equal-landing
+        // branch in recompute(). Optional call: the bit implies the
+        // optimistic engine WAS consulted, but the hook only installs with
+        // it — a bare-core build must not crash here.
+        GlobalQueue._notifyAuthoritativeObservers?.(el);
       }
       el._time = clock;
     } else if (lane) {
@@ -411,7 +437,7 @@ export function handleAsync<T>(
           // The latest() shadow write gives latest() effects independent lanes; the
           // _pendingSignal update is a no-op repeat of the clearStatus() call above
           // (computePendingState doesn't read _value).
-          GlobalQueue._syncCompanions !== null && GlobalQueue._syncCompanions(el, value);
+          GlobalQueue._syncCompanions?.(el, value);
           insertSubs(el, true);
         }
       } catch (e) {
@@ -499,6 +525,11 @@ export function handleAsync<T>(
       } catch {}
     };
     registerClose ? registerClose(close) : cleanup(close);
+    // Flight-identity cancellation (#3122): the registration above is the
+    // owner-death backstop, but its disposal list can be zombie-deferred
+    // until the SUPERSEDING flight settles. The teardown slot fires at the
+    // _inFlight release sites so supersede stops this stream immediately.
+    ext(el)._flightTeardown = close;
 
     // Release check before each next pull: an unobserved lazy node must tear
     // down (its close above runs via disposal, closing the iterator) instead
@@ -717,7 +748,8 @@ export function clearStatus(el: Computed<any>, clearUninitialized: boolean = fal
     GlobalQueue._updateChildCompanions !== null
   )
     GlobalQueue._updateChildCompanions(el);
-  if (el._x?._notifyStatus) el._x._notifyStatus.call(el);
+  const notify = statusNotifierOf(el);
+  if (notify) notify.call(el);
 }
 
 export function notifyStatus(
@@ -755,7 +787,7 @@ export function notifyStatus(
         status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
       ext(el)._error = error;
     }
-    GlobalQueue._updatePendingSignal !== null && GlobalQueue._updatePendingSignal(el);
+    GlobalQueue._updatePendingSignal?.(el);
     if (
       el._x?._child &&
       el._config & CONFIG_CHILD_COMPANIONS &&
@@ -771,14 +803,15 @@ export function notifyStatus(
   const downstreamBlockStatus = blockStatus || startsBlocking;
   const downstreamLane = blockStatus || isOptimisticBoundary ? undefined : lane;
 
-  if (el._x?._notifyStatus) {
+  const elNotify = statusNotifierOf(el);
+  if (elNotify) {
     if (blockStatus && status === STATUS_PENDING) {
       return;
     }
     if (downstreamBlockStatus) {
-      el._x._notifyStatus!.call(el, status, error);
+      elNotify.call(el, status, error);
     } else {
-      el._x._notifyStatus!.call(el);
+      elNotify.call(el);
     }
     return;
   }

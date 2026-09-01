@@ -27,6 +27,15 @@ export interface TransformOptions {
   omitNestedClosingTags?: boolean;
   omitLastClosingTag?: boolean;
   serverComponents?: boolean;
+  /**
+   * Patch-mode dual driver (dormant by default): `true` or an import name
+   * (`"patchDriver"`) opts compiled templates whose bindings are pure member
+   * reads of one subject into the store patch channel. The loader normalizes
+   * `true` to the default import name (the napi wrapper mapping treats bare
+   * booleans as "default", which this option reads as disabled).
+   * @default false
+   */
+  patchDriver?: boolean | string;
   /** Default `["For", "Show", "Switch", "Match", "Loading", "Reveal", "Portal", "Repeat", "Dynamic", "Errored"]`. */
   builtIns?: string[];
   requireImportSource?: false | string;

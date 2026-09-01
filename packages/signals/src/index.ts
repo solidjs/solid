@@ -3,6 +3,7 @@ export {
   ContextNotFoundError,
   NoOwnerError,
   NotReadyError,
+  TimeoutError,
   action,
   createContext,
   createOwner,
@@ -20,7 +21,6 @@ export {
   untrack,
   isPending,
   latest,
-  refresh,
   SUPPORTS_PROXY,
   setSnapshotCapture,
   markSnapshotScope,
@@ -58,11 +58,15 @@ export {
   createTrackedEffect,
   createReaction,
   createOptimistic,
+  refresh,
   resolve,
+  until,
   onSettled,
   onCleanup
 } from "./signals.js";
 export type {
+  Truthy,
+  UntilOptions,
   Accessor,
   SourceAccessor,
   Setter,

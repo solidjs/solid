@@ -294,6 +294,9 @@ function canReturnHydratableChild(node: t.Node): boolean {
   if (t.isTSNonNullExpression(node) || t.isTSAsExpression(node) || t.isTSSatisfiesExpression(node))
     return canReturnHydratableChild(node.expression);
   if (t.isJSXElement(node) || t.isJSXFragment(node) || t.isCallExpression(node)) return true;
+  // A function child is a deferred hole: whatever it returns renders inside
+  // the hole, so it can always mint hydratable content.
+  if (t.isFunction(node)) return true;
   if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
     return !node.computed && t.isIdentifier(node.property, { name: "children" });
   }
@@ -307,6 +310,23 @@ export function canChildSlotAllocateIds(node: NodePath): boolean {
   if (node.isJSXElement() || node.isJSXFragment()) return true;
   if (node.isJSXSpreadChild()) return true;
   return node.isJSXExpressionContainer() && canReturnHydratableChild(node.node.expression);
+}
+
+// A syntactic function-expression hole (`{() => ...}` / `{function () {}}`,
+// TS casts unwrapped). Function children never classify as `dynamic` — the
+// literal reads nothing at template time — yet at runtime they are deferred
+// holes exactly like call-shaped values, so the scope gates treat them as
+// scope-eligible alongside `dynamic` (solidjs/solid#3068 follow-up).
+export function isFunctionShapedHole(node: NodePath): boolean {
+  if (!node.isJSXExpressionContainer()) return false;
+  let expression: t.Node = node.node.expression;
+  while (
+    t.isTSNonNullExpression(expression) ||
+    t.isTSAsExpression(expression) ||
+    t.isTSSatisfiesExpression(expression)
+  )
+    expression = expression.expression;
+  return t.isFunction(expression);
 }
 
 export function wrappedByText(list: TransformResult[], startIndex: number): boolean {

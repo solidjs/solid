@@ -47,6 +47,13 @@ export interface WebSerializerOptions {
    * any override — serialized stacks leak server paths to the client.
    */
   disabledFeatures?: number;
+  /**
+   * Whether serialized `Error`s carry their `.stack`. Defaults to
+   * `NODE_ENV === "development"`; set `false` to pin production disclosure
+   * to the deployment rather than the ambient variable (#3152 — see
+   * `JSONCodecOptions.serializeErrorStacks`).
+   */
+  serializeErrorStacks?: boolean;
   /** Extra plugins, composed ahead of `DEFAULT_WEB_PLUGINS`. */
   plugins?: SerializerPlugin[];
   /** Receives each emitted script chunk. */
@@ -111,9 +118,21 @@ const DEFAULT_DISABLED_FEATURES = Feature.AggregateError | Feature.BigIntTypedAr
 // Serialize-side only and applied on top of any `disabledFeatures` override
 // (compat tuning shouldn't silently reopen the leak); the decode side stays
 // permissive so a payload that does carry a stack (e.g. from a development
-// peer) still deserializes. Read at call time so the policy tracks NODE_ENV.
-const serializeOnlyDisabledFeatures = () =>
-  process.env.NODE_ENV === "development" ? 0 : Feature.ErrorPrototypeStack;
+// peer) still deserializes. NODE_ENV is read at call time so the default
+// tracks the environment — but it describes the PROCESS, not the artifact:
+// a production build run with NODE_ENV=development (a base image, a stray
+// dotenv) would ship stacks — application-code stacks, for errors marked
+// safe with markSafeError — to ordinary callers (#3152). The explicit
+// `serializeErrorStacks` option exists to pin the policy to the deployment
+// instead of the ambient variable.
+const serializeOnlyDisabledFeatures = (serializeErrorStacks?: boolean) =>
+  (
+    serializeErrorStacks === undefined
+      ? process.env.NODE_ENV === "development"
+      : serializeErrorStacks
+  )
+    ? 0
+    : Feature.ErrorPrototypeStack;
 
 // Part of the hydration wire protocol since the streaming serializer landed
 // (#275): the bootstrap from `generateHydrationScript` creates it and the
@@ -163,7 +182,7 @@ export function createSerializer(options) {
     disabledFeatures:
       (options.disabledFeatures === undefined
         ? DEFAULT_DISABLED_FEATURES
-        : options.disabledFeatures) | serializeOnlyDisabledFeatures()
+        : options.disabledFeatures) | serializeOnlyDisabledFeatures(options.serializeErrorStacks)
   });
 } /**
  * Renderer primitive — the serializer SSR uses for hydration output. Pins
@@ -232,7 +251,8 @@ export function serializeJSON(value, { onParse, onDone, onError, ...codecOptions
     onDone,
     onError,
     ...resolved,
-    disabledFeatures: resolved.disabledFeatures | serializeOnlyDisabledFeatures()
+    disabledFeatures:
+      resolved.disabledFeatures | serializeOnlyDisabledFeatures(resolved.serializeErrorStacks)
   });
 } /**
  * The keyed, streaming encoder of the eval-free JSON codec — the render
@@ -266,9 +286,15 @@ export function createJSONSerializer({
   onError,
   plugins,
   disabledFeatures,
-  depthLimit
+  depthLimit,
+  serializeErrorStacks
 }) {
-  const resolved = resolveCodecOptions({ plugins, disabledFeatures, depthLimit });
+  const resolved = resolveCodecOptions({
+    plugins,
+    disabledFeatures,
+    depthLimit,
+    serializeErrorStacks
+  });
   const refs = new Map();
   const cancels = new Set();
   let pendingWrites = 0;
@@ -291,7 +317,8 @@ export function createJSONSerializer({
       const stream = toCrossJSONStream(value, {
         refs,
         plugins: resolved.plugins,
-        disabledFeatures: resolved.disabledFeatures | serializeOnlyDisabledFeatures(),
+        disabledFeatures:
+          resolved.disabledFeatures | serializeOnlyDisabledFeatures(resolved.serializeErrorStacks),
         onParse(node, initial) {
           onData({ key, node, initial });
         },

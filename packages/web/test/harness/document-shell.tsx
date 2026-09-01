@@ -15,8 +15,8 @@
  * the dom generate by test/hydration/document-shell.spec.tsx (which hydrates
  * against that same markup) — so the constant can't drift from either side.
  */
-import { createSignal, createMemo, Loading, NoHydration, Hydration } from "solid-js";
-import type { JSX } from "@solidjs/web";
+import { createSignal, createMemo, Loading, NoHydration, Hydration, Show } from "solid-js";
+import { useHead, type JSX } from "@solidjs/web";
 
 export function App() {
   const [count, setCount] = createSignal(0);
@@ -79,3 +79,42 @@ export function Shell(props: { children: JSX.Element }) {
 
 /** What the server renders inside #app-root for <Shell><App /></Shell>. */
 export const APP_ROOT_MARKUP = `<button _hk=0 id="counter" type="button">count: <!--$-->0<!--/--></button>`;
+
+/**
+ * Whole-document hydration where the shell authors its own <head> children
+ * AND useHead registers tags (#3081). The charset registration is a
+ * PRELUDE: the server splices it immediately after the <head> open tag —
+ * ahead of everything the shell authored — so the compiled positional head
+ * walk must not see it. The title registration rewrites the shell's static
+ * <title> IN PLACE (data-dh + data-dhf stash): that node keeps its authored
+ * position and must still be claimed.
+ */
+export const [headShellStarted, setHeadShellStarted] = createSignal(false);
+
+function HeadRegistrar() {
+  useHead([
+    { tag: "meta", props: { charset: "utf-8" }, key: "charset" },
+    { tag: "title", props: { children: "managed title" } }
+  ]);
+  return null;
+}
+
+export function HeadShellApp() {
+  return (
+    <html lang="en">
+      <head>
+        <meta name="shell-owned" content="first" />
+        <HeadRegistrar />
+        <Show when={true}>
+          <meta name="shell-owned-dynamic" content="marker-range" />
+        </Show>
+        <title>shell fallback</title>
+      </head>
+      <body>
+        <main>
+          <p id="status">{headShellStarted() ? "started" : "waiting"}</p>
+        </main>
+      </body>
+    </html>
+  );
+}

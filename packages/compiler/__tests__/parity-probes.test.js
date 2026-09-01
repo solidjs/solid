@@ -63,6 +63,22 @@ const z = <p>P</p>;
 const a = <div a={(() => <span>{x()}</span>)()} />;
 const z = <p>P</p>;
 `,
+  "bare function child": `
+const a = <main>{() => <App />}</main>;
+const z = <p>P</p>;
+`,
+  "named function expression child": `
+const a = <main>{function tail() { return <App />; }}</main>;
+const z = <p>P</p>;
+`,
+  "function child via children attribute": `
+const a = <main children={() => <App />} />;
+const z = <p>P</p>;
+`,
+  "function child among siblings": `
+const a = <main><span>pre</span>{() => <App />}<span>post</span></main>;
+const z = <p>P</p>;
+`,
   "block IIFE in attribute": `
 const a = <div a={(() => { return <span>{x()}</span>; })()} />;
 const z = <p>P</p>;

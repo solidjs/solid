@@ -1,0 +1,33 @@
+{
+  "valid": true,
+  "functions": [
+    {
+      "id": "getUser-64795c56",
+      "name": "getUser",
+      "exports": [
+        "getUser"
+      ]
+    },
+    {
+      "id": "impl-64795c56",
+      "name": "impl",
+      "exports": [
+        "saveUser"
+      ]
+    },
+    {
+      "id": "plain-64795c56",
+      "name": "plain",
+      "exports": [
+        "plain"
+      ]
+    },
+    {
+      "id": "defaultExport_1-64795c56",
+      "name": "defaultExport_1",
+      "exports": [
+        "default"
+      ]
+    }
+  ]
+}

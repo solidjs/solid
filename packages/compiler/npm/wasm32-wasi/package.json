@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/compiler-wasm32-wasi",
-  "version": "2.0.0-rc.2",
+  "version": "2.0.0-rc.5",
   "main": "compiler.wasi.cjs",
   "files": [
     "compiler.wasm32-wasi.wasm",
@@ -23,7 +23,7 @@
   "browser": "compiler.wasi-browser.js",
   "dependencies": {
     "@napi-rs/wasm-runtime": "^1.1.6",
-    "@emnapi/core": "1.11.2",
-    "@emnapi/runtime": "1.11.2"
+    "@emnapi/core": "1.11.3",
+    "@emnapi/runtime": "1.11.3"
   }
 }

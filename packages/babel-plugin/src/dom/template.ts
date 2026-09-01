@@ -129,7 +129,11 @@ function registerTemplate(path: NodePath, results: TransformResult) {
           templateWithClosingTags: results.templateWithClosingTags as string,
           isImportNode: results.isImportNode,
           isWrapped: results.isWrapped,
-          renderer: "dom"
+          renderer: "dom",
+          // templates dedupe on markup, so the FIRST site carries the blame
+          // for a validate failure (#3099) — good enough: every site with
+          // this markup has the same problem
+          path
         });
       }
     }

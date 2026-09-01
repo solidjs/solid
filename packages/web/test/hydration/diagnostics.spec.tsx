@@ -392,18 +392,25 @@ describe("Phase 2: Walk validation", () => {
     }
   });
 
-  test("getFirstChild warns on browser-corrected structure (tbody insertion)", () => {
+  // The historical poster child for this warn — JSX `<table><tr>` whose
+  // missing tbody the browser inserts during parse — is a compile error
+  // since #3099, so the walk mismatch is staged with valid JSX against
+  // server DOM whose table section differs. The runtime diagnostic still
+  // matters for `validate: false` users and handwritten server markup.
+  test("getFirstChild warns on mismatched table structure", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const [text] = createSignal("Cell");
 
-    container.innerHTML = '<table _hk="0"><tbody><tr><td>Cell</td></tr></tbody></table>';
+    container.innerHTML = '<table _hk="0"><thead><tr><td>Cell</td></tr></thead></table>';
 
     dispose = hydrate(
       () => (
         <table>
-          <tr>
-            <td>{text()}</td>
-          </tr>
+          <tbody>
+            <tr>
+              <td>{text()}</td>
+            </tr>
+          </tbody>
         </table>
       ),
       container
@@ -413,7 +420,7 @@ describe("Phase 2: Walk validation", () => {
       c => typeof c[0] === "string" && c[0].includes("Hydration structure mismatch")
     );
     expect(structureWarns.length).toBeGreaterThanOrEqual(1);
-    expect(structureWarns[0][0]).toContain("expected <tr>");
+    expect(structureWarns[0][0]).toContain("expected <tbody>");
     warn.mockRestore();
   });
 
@@ -496,14 +503,16 @@ describe("Phase 2: Walk validation", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const [text] = createSignal("Cell");
 
-    container.innerHTML = '<table _hk="0"><tbody><tr><td>Cell</td></tr></tbody></table>';
+    container.innerHTML = '<table _hk="0"><thead><tr><td>Cell</td></tr></thead></table>';
 
     dispose = hydrate(
       () => (
         <table>
-          <tr>
-            <td>{text()}</td>
-          </tr>
+          <tbody>
+            <tr>
+              <td>{text()}</td>
+            </tr>
+          </tbody>
         </table>
       ),
       container

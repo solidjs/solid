@@ -3857,16 +3857,20 @@ describe("Asset Manifest + lazy()", () => {
   test("lazy() with moduleUrl registers assets and module mapping", async () => {
     const { lazy } = await import("../../src/server/component.js");
 
-    const registered: Array<{ type: string; url: string }> = [];
+    const registered: Array<{ type: string; value: any }> = [];
     const modules: Record<string, string> = {};
     const { context } = createMockSSRContext();
-    context.registerAsset = (type: string, url: string) => registered.push({ type, url });
+    context.registerAsset = (type: string, value: any) => registered.push({ type, value });
     context.registerModule = (moduleUrl: string, entryUrl: string) => {
       modules[moduleUrl] = entryUrl;
     };
     context.resolveAssets = (id: string) => {
       if (id === "./MyComp.tsx")
-        return { js: ["/assets/MyComp-abc123.js", "/assets/shared-def456.js"], css: [] };
+        return {
+          js: ["/assets/MyComp-abc123.js", "/assets/shared-def456.js"],
+          css: [],
+          preloads: [{ href: "/assets/hero.avif", as: "image", fetchpriority: "high" }]
+        };
       return null;
     };
     sharedConfig.context = context;
@@ -3885,8 +3889,12 @@ describe("Asset Manifest + lazy()", () => {
     );
 
     expect(registered).toEqual([
-      { type: "module", url: "/assets/MyComp-abc123.js" },
-      { type: "module", url: "/assets/shared-def456.js" }
+      {
+        type: "preload",
+        value: { href: "/assets/hero.avif", as: "image", fetchpriority: "high" }
+      },
+      { type: "module", value: "/assets/MyComp-abc123.js" },
+      { type: "module", value: "/assets/shared-def456.js" }
     ]);
     // The mapping is keyed by the hydration id of lazy's render memo (the
     // next child id of the root owner "t"), not by moduleUrl — the client
@@ -3897,16 +3905,20 @@ describe("Asset Manifest + lazy()", () => {
   test("preload() hints the module's assets without rendering it", async () => {
     const { lazy } = await import("../../src/server/component.js");
 
-    const registered: Array<{ type: string; url: string }> = [];
+    const registered: Array<{ type: string; value: any }> = [];
     const modules: Record<string, string> = {};
     const { context } = createMockSSRContext();
-    context.registerAsset = (type: string, url: string) => registered.push({ type, url });
+    context.registerAsset = (type: string, value: any) => registered.push({ type, value });
     context.registerModule = (moduleUrl: string, entryUrl: string) => {
       modules[moduleUrl] = entryUrl;
     };
     context.resolveAssets = (id: string) =>
       id === "./Route.tsx"
-        ? { js: ["/assets/Route.js", "/assets/shared.js"], css: ["/assets/Route.css"] }
+        ? {
+            js: ["/assets/Route.js", "/assets/shared.js"],
+            css: ["/assets/Route.css"],
+            preloads: [{ href: "/assets/route-font.woff2", as: "font", crossorigin: "" }]
+          }
         : null;
     sharedConfig.context = context;
 
@@ -3918,9 +3930,13 @@ describe("Asset Manifest + lazy()", () => {
     await LazyRoute.preload!();
 
     expect(registered).toEqual([
-      { type: "style", url: "/assets/Route.css" },
-      { type: "module", url: "/assets/Route.js" },
-      { type: "module", url: "/assets/shared.js" }
+      { type: "style", value: "/assets/Route.css" },
+      {
+        type: "preload",
+        value: { href: "/assets/route-font.woff2", as: "font", crossorigin: "" }
+      },
+      { type: "module", value: "/assets/Route.js" },
+      { type: "module", value: "/assets/shared.js" }
     ]);
     // Hint-only: the hydration mapping belongs to the render that creates the
     // component, which knows the hydration key.

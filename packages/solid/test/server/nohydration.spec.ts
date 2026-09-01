@@ -7,7 +7,7 @@ import { NoHydrateContext, getContext, createErrorBoundary } from "../../src/ser
 
 function createMockSSRContext(options: { async?: boolean } = {}) {
   const serialized = new Map<string, any>();
-  const modules: Array<{ type: string; href: string }> = [];
+  const modules: Array<{ type: string; href: any }> = [];
   const registeredModules: Array<{ url: string; js: string }> = [];
 
   const context: any = {
@@ -25,7 +25,7 @@ function createMockSSRContext(options: { async?: boolean } = {}) {
     },
     replace() {},
     block() {},
-    registerAsset(type: string, href: string) {
+    registerAsset(type: string, href: any) {
       modules.push({ type, href });
     },
     resolveAssets(moduleUrl: string) {
@@ -439,6 +439,14 @@ describe("NoHydration / Hydration (server)", () => {
 
   test("lazy() inside NoHydration registers CSS but not JS modules", () => {
     const { context, modules, registeredModules } = createMockSSRContext({ async: true });
+    context.resolveAssets = () => ({
+      css: ["style.css"],
+      js: ["module.js"],
+      preloads: [
+        { href: "hero.avif", as: "image" },
+        { href: "dependency.js", as: "SCRIPT" }
+      ]
+    });
     sharedConfig.context = context;
 
     createRoot(
@@ -460,9 +468,11 @@ describe("NoHydration / Hydration (server)", () => {
 
     const cssAssets = modules.filter(m => m.type === "style");
     const jsAssets = modules.filter(m => m.type === "module");
+    const preloadAssets = modules.filter(m => m.type === "preload");
     expect(cssAssets.length).toBe(1);
     expect(cssAssets[0].href).toBe("style.css");
     expect(jsAssets.length).toBe(0);
+    expect(preloadAssets.map(asset => asset.href)).toEqual([{ href: "hero.avif", as: "image" }]);
     expect(registeredModules.length).toBe(0);
   });
 
@@ -670,6 +680,12 @@ describe("NoHydration / Hydration (server)", () => {
 
   test("lazy() moduleUrl access registers modulepreload hints (island signal)", () => {
     const { context, modules } = createMockSSRContext({ async: true });
+    context.resolveAssets = () => ({
+      css: ["style.css"],
+      js: ["module.js"],
+      preloads: [{ href: "dependency.js", as: "script" }]
+    });
+    context.resolveAssetsSync = context.resolveAssets;
     sharedConfig.context = context;
 
     const LazyComp = lazy(
@@ -682,7 +698,9 @@ describe("NoHydration / Hydration (server)", () => {
     void LazyComp.moduleUrl;
 
     const jsAssets = modules.filter(m => m.type === "module");
+    const preloadAssets = modules.filter(m => m.type === "preload");
     expect(jsAssets.map(a => a.href)).toEqual(["module.js"]);
+    expect(preloadAssets.map(a => a.href)).toEqual([{ href: "dependency.js", as: "script" }]);
   });
 
   test("lazy() moduleUrl falls back to the raw specifier when the manifest misses", () => {

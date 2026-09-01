@@ -21,7 +21,7 @@ use oxc_ast::ast::{
     ImportOrExportKind, Program, Statement, VariableDeclarationKind,
 };
 use oxc_ast_visit::{VisitMut, walk_mut};
-use oxc_span::{GetSpan, Span};
+use oxc_span::Span;
 
 use crate::shared::ast::{expression_to_argument, variable_statement};
 use crate::shared::ast_builder::AstBuilder;
@@ -65,6 +65,9 @@ pub(crate) struct DirectivesTransform<'a> {
     directive: String,
     hash: String,
     count: u32,
+    /// Occurrences of each descriptive name, for the duplicate ordinal in
+    /// `create_id`.
+    id_name_counts: std::collections::HashMap<String, u32>,
     register: ImportDef,
     create: ImportDef,
     /// Babel's `generateUniqueName` collision set: every binding identifier,
@@ -85,18 +88,6 @@ pub(crate) struct DirectivesTransform<'a> {
     /// Babel implementation's `StateContext.orphans`.
     pub(crate) orphans: std::collections::HashSet<String>,
     module_level_applied: bool,
-    /// Set when a module-level directive file exports a call-wrapped server
-    /// function (`export const x = wrap(async () => ...)`), which the strict
-    /// module-level contract rejects; the caller surfaces it as a compile
-    /// error.
-    pub(crate) wrapped_export: Option<WrappedExportError>,
-}
-
-/// A module-level export whose initializer wraps a server function in a call
-/// expression. `name` is the exported binding, `span` the initializer.
-pub(crate) struct WrappedExportError {
-    pub(crate) name: String,
-    pub(crate) span: Span,
 }
 
 enum RuntimeImport {
@@ -122,6 +113,7 @@ impl<'a> DirectivesTransform<'a> {
             directive,
             hash,
             count: 0,
+            id_name_counts: std::collections::HashMap::new(),
             register,
             create,
             taken: std::collections::HashSet::new(),
@@ -131,7 +123,6 @@ impl<'a> DirectivesTransform<'a> {
             valid: false,
             orphans: std::collections::HashSet::new(),
             module_level_applied: false,
-            wrapped_export: None,
         }
     }
 
@@ -235,14 +226,26 @@ impl<'a> DirectivesTransform<'a> {
         }
     }
 
-    /// Babel's `createID`: `<hash>-<count>` with the descriptive name
-    /// appended in development for readable IDs.
+    /// The wire id: `<name>-<hash>`, with a trailing ordinal only when the
+    /// same descriptive name recurs in one file (several `anonymous`
+    /// closures, shadowed bindings). Keyed on identity — file plus name —
+    /// rather than position, so appending, deleting, or reordering functions
+    /// never re-points an address another build already handed out
+    /// (solidjs/solid#3109); a removed or renamed function becomes a clean
+    /// 404 instead of a wrong dispatch. Identical in development and
+    /// production so both exercise the same addresses. The name is a JS
+    /// identifier (never contains `-`), so the hash is always
+    /// `split('-')[1]` for consumers mapping ids back to files.
     fn create_id(&mut self, name: &str) -> String {
-        let base = format!("{}-{}", self.hash, self.count);
         self.count += 1;
-        match self.env {
-            Env::Development => format!("{base}-{name}"),
-            Env::Production => base,
+        let seen = self
+            .id_name_counts
+            .entry(name.to_string())
+            .and_modify(|count| *count += 1)
+            .or_insert(0);
+        match *seen {
+            0 => format!("{}-{}", name, self.hash),
+            ordinal => format!("{}-{}-{}", name, self.hash, ordinal),
         }
     }
 
@@ -374,27 +377,17 @@ impl<'a> DirectivesTransform<'a> {
         self.bubble_top_level_functions(program);
 
         let bindings = collect_top_level_bindings(program);
-
-        // Strict module-level contract: what a module-level directive file
-        // exports is precisely the server function — the client build
-        // replaces each export with a direct network reference. A call
-        // wrapper around the function breaks that identity: this module's
-        // code (the wrapper included) is server code that never runs on the
-        // client, and HTTP dispatch invokes the *registered* function, so
-        // wrapper behavior would silently not apply to real calls either.
-        // Rejected at compile time; the fix is the function-level directive,
-        // where wrappers compose in shared code around each side's
-        // reference. (This also avoids pattern-matching "which argument is
-        // the function" — the directive names the function by position,
-        // which is why `"use server"` won over `server$()` in the first
-        // place.)
-        if let Some(error) = detect_wrapped_export(program, &bindings) {
-            self.wrapped_export = Some(error);
-            return;
-        }
-
         let exports = collect_exported_bindings(program, &bindings);
 
+        // Module-level contract: each export's *evaluated value* is the
+        // server function. The server build registers the binding's terminal
+        // initializer whole — `export const x = withValidation(schema, fn)`
+        // registers the wrapper's return, so composition applies to HTTP
+        // dispatch and in-process SSR calls alike — and the client build
+        // emits bare references. The compiler never inspects what the
+        // initializer is (no "which argument is the function" guessing — the
+        // `server$()` lesson); registration's boot check owns rejecting
+        // non-function exports at module eval.
         match self.mode {
             Mode::Server => self.module_level_server(program, &exports),
             Mode::Client => self.module_level_client(program, &exports),
@@ -450,6 +443,40 @@ impl<'a> DirectivesTransform<'a> {
                     export.declaration = ExportDefaultDeclarationKind::from(self.identifier(&name));
                     rest.push(Statement::ExportDefaultDeclaration(export));
                 }
+                // Anonymous default values — `export default async () => 1`,
+                // `export default withDelay(fn, 400)` — get a synthesized
+                // binding (`const defaultExport_1 = ...; export default
+                // defaultExport_1;`) so the binding-keyed registration
+                // machinery sees them like every other export. Without this
+                // they fell through everything: unregistered on the server
+                // and absent from the client build entirely.
+                Statement::ExportDefaultDeclaration(export)
+                    if matches!(
+                        &export.declaration,
+                        ExportDefaultDeclarationKind::FunctionDeclaration(function)
+                            if function.id.is_none()
+                    ) || export.declaration.as_expression().is_some_and(|expression| {
+                        !matches!(unwrap_expression(expression), Expression::Identifier(_))
+                    }) =>
+                {
+                    let mut export = export;
+                    let placeholder =
+                        ExportDefaultDeclarationKind::from(ast.expression_null_literal(SPAN));
+                    let init = match std::mem::replace(&mut export.declaration, placeholder) {
+                        ExportDefaultDeclarationKind::FunctionDeclaration(mut function) => {
+                            function.r#type = FunctionType::FunctionExpression;
+                            function.declare = false;
+                            function.type_parameters = None;
+                            function.return_type = None;
+                            Expression::FunctionExpression(function)
+                        }
+                        expression => expression.into_expression(),
+                    };
+                    let name = self.generate_unique_name("defaultExport");
+                    rest.push(self.const_statement(&name, init));
+                    export.declaration = ExportDefaultDeclarationKind::from(self.identifier(&name));
+                    rest.push(Statement::ExportDefaultDeclaration(export));
+                }
                 other => rest.push(other),
             }
         }
@@ -474,7 +501,7 @@ impl<'a> DirectivesTransform<'a> {
             let source_local = self.generate_unique_name("serverFunction");
             let create_local = self.import_local(RuntimeImport::Create);
 
-            let Some(slot) = binding_init_function_slot(program, key) else {
+            let Some(slot) = binding_init_slot(program, key) else {
                 continue;
             };
             let function_expression = std::mem::replace(
@@ -943,15 +970,11 @@ fn unwrap_expression_mut<'e, 'a>(expression: &'e mut Expression<'a>) -> &'e mut 
     }
 }
 
-fn is_valid_function(expression: &Expression<'_>) -> bool {
-    matches!(
-        expression,
-        Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
-    )
-}
-
-/// Babel's `traceBinding`: follow identifier-initialized declarators to a
-/// declarator whose init is a function/arrow expression.
+/// Babel's `traceBinding`, widened for export-value registration: follow
+/// identifier-initialized declarators to the declarator holding the terminal
+/// initializer, whatever expression that is. The export's evaluated value is
+/// the server function; the compiler never inspects the initializer's shape
+/// (the runtime's registration boot check owns "is it actually a function").
 fn trace_binding(
     program: &Program<'_>,
     bindings: &std::collections::HashMap<String, BindingKey>,
@@ -971,141 +994,8 @@ fn trace_binding(
             current = identifier.name.to_string();
             continue;
         }
-        if is_valid_function(init) {
-            return Some(key);
-        }
-        return None;
+        return Some(key);
     }
-}
-
-/// Follows identifier aliases (like `trace_binding`) to the terminal
-/// initializer of a top-level binding, whatever expression that turns out to
-/// be.
-fn trace_terminal_init<'p, 'a>(
-    program: &'p Program<'a>,
-    bindings: &std::collections::HashMap<String, BindingKey>,
-    name: &str,
-) -> Option<&'p Expression<'a>> {
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut current = name.to_string();
-    loop {
-        if !seen.insert(current.clone()) {
-            return None;
-        }
-        let key = *bindings.get(&current)?;
-        let declarator = binding_declarator(program, key)?;
-        let init = unwrap_expression(declarator.init.as_ref()?);
-        if let Expression::Identifier(identifier) = init {
-            current = identifier.name.to_string();
-            continue;
-        }
-        return Some(init);
-    }
-}
-
-/// Whether a call expression carries a server function through its
-/// arguments: a function expression directly, an identifier tracing to one,
-/// or a nested call that does.
-fn call_carries_function(
-    program: &Program<'_>,
-    bindings: &std::collections::HashMap<String, BindingKey>,
-    expression: &Expression<'_>,
-) -> bool {
-    let Expression::CallExpression(call) = unwrap_expression(expression) else {
-        return false;
-    };
-    call.arguments
-        .iter()
-        .filter_map(|argument| argument.as_expression())
-        .any(|argument| {
-            let argument = unwrap_expression(argument);
-            if is_valid_function(argument) {
-                return true;
-            }
-            if let Expression::Identifier(identifier) = argument {
-                return trace_binding(program, bindings, &identifier.name).is_some();
-            }
-            call_carries_function(program, bindings, argument)
-        })
-}
-
-/// Finds the first export of a module-level directive file whose value is a
-/// call expression wrapping a function — the export is then the wrapper's
-/// return value, not the server function, which the module-level contract
-/// forbids. Runs post-bubbling so function declarations participate in alias
-/// tracing. Calls that carry no function (`export const limit = clamp(5)`)
-/// are plain non-function exports and stay silently dropped as before.
-fn detect_wrapped_export(
-    program: &Program<'_>,
-    bindings: &std::collections::HashMap<String, BindingKey>,
-) -> Option<WrappedExportError> {
-    let check = |name: &str, init: &Expression<'_>| -> Option<WrappedExportError> {
-        call_carries_function(program, bindings, init).then(|| WrappedExportError {
-            name: name.to_string(),
-            span: init.span(),
-        })
-    };
-
-    for statement in &program.body {
-        match statement {
-            Statement::ExportDefaultDeclaration(export) => {
-                let Some(expression) = export.declaration.as_expression() else {
-                    continue;
-                };
-                let expression = unwrap_expression(expression);
-                let init = if let Expression::Identifier(identifier) = expression {
-                    trace_terminal_init(program, bindings, &identifier.name)
-                } else {
-                    Some(expression)
-                };
-                if let Some(init) = init
-                    && let Some(error) = check("default", init)
-                {
-                    return Some(error);
-                }
-            }
-            Statement::ExportNamedDeclaration(export) => {
-                if export.export_kind == ImportOrExportKind::Type {
-                    continue;
-                }
-                for specifier in &export.specifiers {
-                    let Some(local) = specifier.local.identifier_name() else {
-                        continue;
-                    };
-                    let exported_name = match &specifier.exported {
-                        oxc_ast::ast::ModuleExportName::StringLiteral(literal) => {
-                            literal.value.to_string()
-                        }
-                        other => other
-                            .identifier_name()
-                            .map(|name| name.to_string())
-                            .unwrap_or_default(),
-                    };
-                    if let Some(init) = trace_terminal_init(program, bindings, local.as_str())
-                        && let Some(error) = check(&exported_name, init)
-                    {
-                        return Some(error);
-                    }
-                }
-            }
-            Statement::ExportDeclaration(export) => {
-                if let Declaration::VariableDeclaration(declaration) = &export.declaration {
-                    for declarator in &declaration.declarations {
-                        let BindingPattern::BindingIdentifier(id) = &declarator.id else {
-                            continue;
-                        };
-                        if let Some(init) = trace_terminal_init(program, bindings, &id.name)
-                            && let Some(error) = check(&id.name, init)
-                        {
-                            return Some(error);
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    None
 }
 
 fn collect_exported_bindings(
@@ -1172,8 +1062,9 @@ fn collect_exported_bindings(
     ExportedBindings { unique, exported }
 }
 
-/// Babel's `getDescriptiveName` from a traced binding's init function: a
-/// named function expression wins, otherwise the declarator name.
+/// Babel's `getDescriptiveName`, widened for export-value registration: a
+/// named function expression wins, otherwise the declarator name — for any
+/// initializer shape (a wrapped export names after its binding).
 fn binding_descriptive_name(program: &Program<'_>, key: BindingKey) -> Option<String> {
     let declarator = binding_declarator(program, key)?;
     let init = unwrap_expression(declarator.init.as_ref()?);
@@ -1181,9 +1072,6 @@ fn binding_descriptive_name(program: &Program<'_>, key: BindingKey) -> Option<St
         && let Some(id) = &function.id
     {
         return Some(id.name.to_string());
-    }
-    if !is_valid_function(init) {
-        return None;
     }
     if let BindingPattern::BindingIdentifier(id) = &declarator.id {
         return Some(id.name.to_string());
@@ -1193,7 +1081,11 @@ fn binding_descriptive_name(program: &Program<'_>, key: BindingKey) -> Option<St
 
 /// Mutable access to the function expression stored in a traced binding's
 /// init (through TS wrappers, like Babel replacing the inner function path).
-fn binding_init_function_slot<'p, 'a>(
+/// The mutable slot of a binding's initializer expression, whatever shape it
+/// is. Module-level registration captures the export's *evaluated value* —
+/// `export const x = withValidation(schema, fn)` registers the wrapper's
+/// return — so the slot is not restricted to function expressions.
+fn binding_init_slot<'p, 'a>(
     program: &'p mut Program<'a>,
     key: BindingKey,
 ) -> Option<&'p mut Expression<'a>> {
@@ -1206,8 +1098,7 @@ fn binding_init_function_slot<'p, 'a>(
         _ => return None,
     };
     let declarator = declaration.declarations.get_mut(key.declarator)?;
-    let slot = unwrap_expression_mut(declarator.init.as_mut()?);
-    is_valid_function(slot).then_some(slot)
+    Some(unwrap_expression_mut(declarator.init.as_mut()?))
 }
 
 /// Applies `(index, statement)` insertions before the indexed statements,

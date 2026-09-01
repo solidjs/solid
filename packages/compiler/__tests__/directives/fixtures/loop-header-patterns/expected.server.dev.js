@@ -11,7 +11,7 @@ for (const {
 for (let index = 0, cursor = seed(); index < names.length; index++) {
   names.push(index);
 }
-const serverFunction_1 = registerServerReference_1("a02335a-0-summarize", async () => {
+const serverFunction_1 = registerServerReference_1("summarize-a02335a", async () => {
   return meta.version + cursor.id;
 }, "summarize");
 export const summarize = createServerReference_1(serverFunction_1);

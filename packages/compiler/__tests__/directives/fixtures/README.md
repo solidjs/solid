@@ -21,3 +21,19 @@ The `expected.*` files have no update script on purpose: they change only
 when the pass's behavior is changed deliberately, by editing them by hand (or
 regenerating with a one-off script) in the same commit that changes the
 transform, with the diff reviewed as part of that change.
+
+## Function IDs are a wire contract
+
+The `<name>-<xxhash32(root-relative path)>[-<ordinal>]` ids baked into these
+fixtures are not cosmetic output: they are baked into client bundles, server
+manifests, rendered form-action urls and shared-cache keys, and a deployed
+tab holds the previous build's ids across a deploy (solidjs/solid#3109,
+#3120). A regeneration that changes any id is a **protocol change** — it
+re-points or orphans addresses another build already handed out — and must
+be reviewed as one, never waved through as fixture churn. The ordinal
+suffix is assigned in the order the transform visits functions (post-bubble
+program order, pinned by the `repeated-names` fixture), so a traversal
+change re-points same-name ids even when nothing about the scheme changed.
+`directives-id-scheme.test.js` guards the derivation differentially, with
+an independent hash implementation; it must never be updated in the same
+breath as a fixture regeneration without understanding why both moved.

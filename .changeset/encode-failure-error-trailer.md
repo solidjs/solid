@@ -1,0 +1,5 @@
+---
+"@solidjs/web": patch
+---
+
+Deliver a server-function encode failure as a failure, not an empty success (#3117). When the codec could not encode a result, the head was already committed — status spent, no error tag possible — and the body simply stopped; a truncated body decodes to `undefined`, the same answer a void function gives, so a mutation that ran and committed its side effects was indistinguishable from one that returned nothing, and a data layer might retry it. The failure now travels in band: a terminal error-trailer frame (a `!`-prefixed payload on the existing chunk framing, unambiguous because codec frames always open with `{`) that the decoder throws — as the call's failure when it is the first frame, and into every still-pending async value when a later value's encoding fails mid-stream, with the delivered head keeping its data. The trailer is sanitized like any thrown error (generic in production, cause preserved in dev via `Server function result could not be encoded: …`). Version skew degrades safely: an old client reading a trailer fails the call with a decode error rather than resolving `undefined`.

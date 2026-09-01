@@ -1,4 +1,4 @@
-export { ContextNotFoundError, NoOwnerError, NotReadyError } from "./error.js";
+export { ContextNotFoundError, NoOwnerError, NotReadyError, TimeoutError } from "./error.js";
 export {
   isEqual,
   untrack,
@@ -11,7 +11,8 @@ export {
   suppressComputedRecompute,
   optimisticSignal,
   optimisticComputed,
-  refresh,
+  installAuthoritativeRead,
+  markRefresh,
   staleValues,
   setSnapshotCapture,
   markSnapshotScope,

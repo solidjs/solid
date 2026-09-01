@@ -65,6 +65,13 @@ function connectTransport() {
   };
 }
 
+/** Delivers a transport request to the built handler, as `connectTransport` does. */
+function deliver(address: string, init?: RequestInit) {
+  const request = new Request(new URL(address, "http://localhost"), init);
+  request.headers.set("Sec-Fetch-Site", "same-origin");
+  return handleServerFunctionRequest(request);
+}
+
 describe("server-function extension surface (built bundles)", () => {
   it("GET round-trips through both bundles and the handler enforces it", async () => {
     serverGET(
@@ -83,11 +90,10 @@ describe("server-function extension surface (built bundles)", () => {
     // POST stays allowed on a GET declaration — declaring GET grants the
     // method, it does not revoke the default POST transport
     const granted = await handleServerFunctionRequest(
-      new Request("http://localhost/_server", {
+      new Request("http://localhost/_server/ext-get-0", {
         method: "POST",
         headers: {
           "Sec-Fetch-Site": "same-origin",
-          "X-Server-Function-Id": "ext-get-0",
           "X-Server-Function-Instance": "server-function:test"
         }
       })
@@ -97,13 +103,27 @@ describe("server-function extension surface (built bundles)", () => {
     // and GET without a declaration answers 405 too
     registerServerFunction("ext-post-0", async () => "x");
     const undeclared = await handleServerFunctionRequest(
-      new Request("http://localhost/_server?id=ext-post-0", {
+      new Request("http://localhost/_server/ext-post-0", {
         method: "GET",
         headers: { "Sec-Fetch-Site": "same-origin" }
       })
     );
     expect(undeclared.status).toBe(405);
     expect(undeclared.headers.get("Allow")).toBe("POST");
+  });
+
+  it("rejects non-function registrations at module eval (export-value boot check)", () => {
+    // Module-level "use server" registers each export's *evaluated value* —
+    // wrappers compose, and the compiler never inspects initializer shapes.
+    // "Is it actually a function" is owned here: a non-function export fails
+    // the server boot loudly instead of shipping a dead reference the client
+    // discovers per-call.
+    expect(() => registerServerReference("ext-boot-0", 5 as any)).toThrow(
+      /\(ext-boot-0\) is not a function: a module-level "use server" export must evaluate to a server function \(got number\)/
+    );
+    expect(() => registerServerReference("ext-boot-1", null as any, "limit")).toThrow(
+      /`limit`.*\(got null\)/
+    );
   });
 
   it("exposes the in-flight invocation through the bridge (getServerFunctionInvocation)", async () => {
@@ -176,6 +196,143 @@ describe("server-function extension surface (built bundles)", () => {
     }
   });
 
+  it("sends through a configured fetch, which can address a call however it likes", async () => {
+    serverGET(
+      createServerSideReference(
+        registerServerReference("ext-fetch-0", async (word: string) => word.toUpperCase())
+      )
+    );
+    const seen: string[] = [];
+    // An app that wants a url of its own: the transport hands over the
+    // canonical address, the wrapper sends an app-shaped one, and the app's
+    // route rewrites it back before the handler sees it.
+    configureServerFunctionsClient({
+      fetch(address, init) {
+        const app = new URL(address, "http://localhost");
+        app.pathname = "/api/upper";
+        seen.push(app.pathname + app.search);
+        return deliver(
+          app.pathname.replace("/api/upper", "/_server/ext-fetch-0") + app.search,
+          init
+        );
+      }
+    });
+    try {
+      expect(await GET(createServerReference("ext-fetch-0"))("solid")).toBe("SOLID");
+      expect(seen).toEqual(["/api/upper?args=%5B%22solid%22%5D"]);
+    } finally {
+      configureServerFunctionsClient({ fetch: null });
+    }
+  });
+
+  it("hands the fetch one shape whether or not observers are attached", async () => {
+    registerServerFunction("ext-fetch-1", async () => "ok");
+    const shapes: string[] = [];
+    configureServerFunctionsClient({
+      fetch(address, init) {
+        shapes.push(`${typeof address}:${init?.method}`);
+        return deliver(address, init);
+      }
+    });
+    try {
+      expect(await createServerReference("ext-fetch-1")()).toBe("ok");
+      const stop = observeServerFunctionCalls(() => {});
+      try {
+        expect(await createServerReference("ext-fetch-1")()).toBe("ok");
+      } finally {
+        stop();
+      }
+      expect(shapes).toEqual(["string:POST", "string:POST"]);
+    } finally {
+      configureServerFunctionsClient({ fetch: null });
+    }
+  });
+
+  it("hands the fetch the init prepareRequest produced", async () => {
+    registerServerFunction("ext-fetch-2", async () => {
+      const store = (globalThis as any)[RequestContext].getStore();
+      return store.request.headers.get("X-Prepared");
+    });
+    configureServerFunctionsClient({
+      prepareRequest: init => ({
+        ...init,
+        headers: { ...(init.headers as Record<string, string>), "X-Prepared": "yes" }
+      }),
+      fetch: (address, init) => deliver(address, init)
+    });
+    try {
+      expect(await createServerReference("ext-fetch-2")()).toBe("yes");
+    } finally {
+      configureServerFunctionsClient({ prepareRequest: null as any, fetch: null });
+    }
+  });
+
+  it("sends a GET-declared read through the configured fetch too", async () => {
+    serverGET(
+      createServerSideReference(registerServerReference("ext-fetch-5", async (n: number) => n * 2))
+    );
+    const seen: string[] = [];
+    const restore = connectTransport();
+    const send = globalThis.fetch;
+    configureServerFunctionsClient({
+      fetch: (address, init) => {
+        seen.push(`${init?.method ?? "POST"} ${address}`);
+        return send(address, init);
+      }
+    });
+    try {
+      expect(await GET(createServerReference("ext-fetch-5"))(21)).toBe(42);
+      expect(seen).toEqual(["GET /_server/data/ext-fetch-5?args=%5B21%5D"]);
+    } finally {
+      configureServerFunctionsClient({ fetch: null });
+      restore();
+    }
+  });
+
+  it("does not consume a streaming body to show it to observers", async () => {
+    registerServerFunction("ext-fetch-7", async (value: unknown) => String(value));
+    const restore = connectTransport();
+    const send = globalThis.fetch;
+    configureServerFunctionsClient({
+      prepareRequest: init => ({
+        ...init,
+        // a stream body needs `duplex`, which the DOM lib's RequestInit omits
+        body: new Blob(["streamed"]).stream(),
+        duplex: "half"
+      }),
+      fetch: (address, init) => send(address, init)
+    });
+    const stop = observeServerFunctionCalls(() => {});
+    try {
+      expect(await createServerReference("ext-fetch-7")("ignored")).toBe("streamed");
+    } finally {
+      stop();
+      configureServerFunctionsClient({ prepareRequest: null as any, fetch: null });
+      restore();
+    }
+  });
+
+  it("restores the global fetch when the option is set to null", async () => {
+    registerServerFunction("ext-fetch-3", async () => "ok");
+    let sends = 0;
+    configureServerFunctionsClient({
+      fetch: (address, init) => {
+        sends++;
+        return deliver(address, init);
+      }
+    });
+    const restore = connectTransport();
+    try {
+      await createServerReference("ext-fetch-3")();
+      configureServerFunctionsClient({ fetch: null });
+      await createServerReference("ext-fetch-3")();
+      expect(sends).toBe(1);
+    } finally {
+      configureServerFunctionsClient({ fetch: null });
+      restore();
+    }
+  });
+
   it("observes calls through the client bridge", async () => {
     registerServerFunction("ext-observe-0", async (value: number) => value * 2);
     const calls: ServerFunctionCall[] = [];
@@ -201,7 +358,7 @@ describe("server-function extension surface (built bundles)", () => {
   it("references expose id and drop the legacy escape hatches", () => {
     const ref = createServerReference("ext-contract-0");
     expect(ref.id).toBe("ext-contract-0");
-    expect(ref.url).toContain("id=ext-contract-0");
+    expect(ref.url).toBe("/_server/ext-contract-0");
     expect((ref as any).GET).toBeUndefined();
     expect((ref as any).withOptions).toBeUndefined();
   });

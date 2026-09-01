@@ -31,7 +31,8 @@ import {
   trimWhitespace,
   inlineCallExpression,
   hasStaticMarker,
-  canChildSlotAllocateIds
+  canChildSlotAllocateIds,
+  isFunctionShapedHole
 } from "../shared/utils";
 import { transformNode } from "../shared/transform";
 import { InlineElements, BlockElements } from "./constants";
@@ -1314,6 +1315,8 @@ function transformChildren(
         if (!transformed) return memo;
         (transformed as TransformResult & { allocatesIds?: boolean }).allocatesIds =
           config.hydratable && canChildSlotAllocateIds(child);
+        (transformed as TransformResult & { functionHole?: boolean }).functionHole =
+          isFunctionShapedHole(child);
         const i = memo.length;
         if (transformed.text && i && memo[i - 1].text) {
           memo[i - 1].template =
@@ -1399,7 +1402,12 @@ function transformChildren(
       // allocate hydration ids get their own owner scope (insert makes the
       // outer render effect non-transparent for tagged accessors). Keyed off
       // `dynamic` so both generates decide identically for the same source.
-      if ((child as TransformResult & { allocatesIds?: boolean }).allocatesIds && child.dynamic) {
+      // Function children never classify as dynamic but are deferred holes
+      // all the same, so they take the scope too.
+      if (
+        (child as TransformResult & { allocatesIds?: boolean }).allocatesIds &&
+        (child.dynamic || (child as TransformResult & { functionHole?: boolean }).functionHole)
+      ) {
         let expr = child.exprs[0] as babelTypes.Expression;
         // The shared transform simplifies `{sig()}` to the bare getter `sig`;
         // rewrap so tagging the scope doesn't mutate the user's function.
@@ -1604,7 +1612,6 @@ function processSpreads(
   const filteredAttributes: JSXAttributePath[] = [];
   const spreadArgs: babelTypes.Expression[] = [];
   let runningObject: Array<babelTypes.ObjectProperty | babelTypes.ObjectMethod> = [];
-  let dynamicSpread = false;
   attributes.forEach(attribute => {
     const node = attribute.node;
     const key =
@@ -1623,12 +1630,11 @@ function processSpreads(
         runningObject = [];
       }
 
-      const s =
-        isDynamic(attribute.get("argument"), {
-          checkMember: true
-        }) && (dynamicSpread = true)
-          ? inlineCallExpression(node.argument)
-          : node.argument;
+      const s = isDynamic(attribute.get("argument"), {
+        checkMember: true
+      })
+        ? inlineCallExpression(node.argument)
+        : node.argument;
 
       spreadArgs.push(isStatic ? t.objectExpression([t.spreadElement(s)]) : s);
     } else if (key && key !== "ref") {
@@ -1675,8 +1681,12 @@ function processSpreads(
     spreadArgs.push(t.objectExpression(runningObject));
   }
 
+  // A lone spread — reactive included — passes straight through: spread()
+  // resolves a function source inside its own tracking scopes, and merging
+  // one source would mint a memo that consumes a hydration id the SSR fast
+  // path never allocates (#3105).
   const props =
-    spreadArgs.length === 1 && !dynamicSpread
+    spreadArgs.length === 1
       ? spreadArgs[0]
       : t.callExpression(registerImportMethod(path, "mergeProps"), spreadArgs);
 

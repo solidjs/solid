@@ -66,7 +66,15 @@ export function isResponseEnvelope(value: unknown): value is ResponseEnvelope {
 export const HREF: unique symbol = Symbol.for("solid.Href") as any;
 
 export interface Href {
-  [HREF]: true;
+  /**
+   * The brand doubles as a channel: when the slot holds a string it is the
+   * value's *logical* path — the routable pathname before an integration's
+   * display rendering (eg. a hash router's `#` prefix). `redirect()` prefers
+   * it over coercion so Location headers carry routable paths; `toString()`
+   * remains the display href for the DOM. `true` brands a value whose
+   * string form is already logical.
+   */
+  [HREF]: true | string;
   toString(): string;
 }
 
@@ -120,6 +128,24 @@ export interface ResponseHelperInit extends ResponseInit {
   revalidate?: string | string[];
 }
 
+// A response header the runtime composes cannot be allowed to cost the
+// response (#3131, the #3093 class): a value past a receiver's limit makes
+// the WHOLE response unreadable — undici's default header budget is 16 KiB,
+// and nginx's proxy_buffer_size is one 4-8 KiB page for the entire upstream
+// header block — so the caller gets a socket-level parse error on a
+// mutation that committed. Truncation is not an option for these two
+// values: a trimmed redirect target is a DIFFERENT address the client
+// navigates to, and a trimmed key list is a stale cache, silently (the
+// error header could be trimmed in #3093 because it is a label; these are
+// load-bearing). So the bound refuses, loudly and legibly, at the helper
+// that produces the value — which runs inside the function body, so both
+// the returned and the thrown spellings land on the ordinary error path.
+// The server-function transport enforces the same bound at the edge where
+// the composed headers leave (#3158: a hand-built Response has no helper in
+// the loop), making these authoring-time throws the legible fast path.
+/** @internal */
+export const RESPONSE_HEADER_VALUE_LIMIT = 4096;
+
 function initWithRevalidate(init: number | ResponseHelperInit = {}) {
   const resolved: any = typeof init === "number" ? { status: init } : init;
   const { revalidate, ...responseInit } = resolved;
@@ -139,7 +165,20 @@ function initWithRevalidate(init: number | ResponseHelperInit = {}) {
   } else {
     headers = new Headers(responseInit.headers);
   }
-  revalidate !== undefined && headers.set(REVALIDATE_HEADER, revalidate.toString());
+  if (revalidate !== undefined) {
+    const keys = revalidate.toString();
+    if (keys.length > RESPONSE_HEADER_VALUE_LIMIT) {
+      throw new TypeError(
+        `revalidate names ${keys.length} characters of cache keys; past ` +
+          `${RESPONSE_HEADER_VALUE_LIMIT} the ${REVALIDATE_HEADER} header would overflow ` +
+          `receivers (an 8 KiB proxy buffer holds the whole header block) and the response ` +
+          `dies at the socket after the mutation committed. Split the invalidation across ` +
+          `calls or use coarser keys — a dropped key would be a silently stale cache, so ` +
+          `the runtime refuses rather than trims.`
+      );
+    }
+    headers.set(REVALIDATE_HEADER, keys);
+  }
   return { responseInit, headers };
 }
 
@@ -157,7 +196,38 @@ export function redirect(url: string | Href, init: number | ResponseHelperInit =
   if (responseInit.status === undefined) {
     responseInit.status = 302;
   }
-  headers.set("Location", String(url));
+  // An Href whose brand slot carries its logical path (see `Href`) redirects
+  // there — String(url) would yield the display href (eg. `#/page1` under a
+  // hash router), which is an anchor value, not a location.
+  const target = typeof url === "string" ? url : (url as Href)[HREF];
+  const location = typeof target === "string" ? target : String(url);
+  // `Location` is a latin1 ByteString on the wire, and the non-ASCII range
+  // splits into two failure modes (#3135): above U+00FF `Headers.set`
+  // throws (dispatch masks it as a sanitized 500 — `redirect("/поиск")`
+  // answers no redirect at all), while U+0080–U+00FF fits a ByteString and
+  // rides as a raw latin1 byte that is not valid UTF-8 — a client decodes
+  // U+FFFD and follows `redirect("/café")` to `/caf%EF%BF%BD`. Percent-
+  // encode the non-ASCII code points (UTF-8, the encoding a URL means);
+  // ASCII — separators, query syntax, existing %-escapes — passes through
+  // untouched, so an already-encoded target is not double-encoded.
+  const encoded = location.replace(/[^\x00-\x7f]/gu, encodeURIComponent);
+  if (encoded.length > RESPONSE_HEADER_VALUE_LIMIT) {
+    // A legitimate destination is tens to hundreds of bytes (nginx's own
+    // request-line buffer is 8 KiB, so a longer url could not even be
+    // requested back); what reaches this size is unbounded input echoed
+    // into the target — a `?returnTo=`, a search string, a nested callback
+    // chain. The runtime's answer must not be a socket error pointing at
+    // nothing, and must not be a trimmed target (a different address).
+    throw new TypeError(
+      `redirect() target is ${encoded.length} characters; past ` +
+        `${RESPONSE_HEADER_VALUE_LIMIT} the Location header (and the scripted transport's ` +
+        `redirect header) would overflow receivers and the response dies at the socket. ` +
+        `A target this size is usually unbounded input echoed into the url — carry the ` +
+        `state server-side instead. Refused rather than trimmed: a cut target is a ` +
+        `different address.`
+    );
+  }
+  headers.set("Location", encoded);
   return new Response(null, { ...responseInit, headers });
 }
 
@@ -171,6 +241,16 @@ export function reload(init: ResponseHelperInit = {}) {
 }
 
 /**
+ * Statuses HTTP forbids a body on — the `Response` constructor enforces it
+ * by throwing on ANY body, `JSON.stringify(undefined)`'s `"undefined"`
+ * included. Shared with the server-function encoder, which answers void
+ * results on these statuses with a real null-body response and reports
+ * value-carrying ones as authoring errors (#3095).
+ * @internal
+ */
+export const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 304]);
+
+/**
  * A value paired with response metadata (status, headers, `revalidate`) —
  * for the things a naked return can't express. Progressive enhancement
  * stays invisible: the carried response holds a plain JSON body so
@@ -179,6 +259,14 @@ export function reload(init: ResponseHelperInit = {}) {
  */
 export function respond<T>(value: T, init: ResponseHelperInit = {}) {
   const { responseInit, headers } = initWithRevalidate(init);
+  // A null-body status cannot carry the passthrough JSON body — building it
+  // would throw right here, at 200, masking the author's intent (#3095).
+  // Carry the metadata bodiless; the server-function encoder answers the
+  // void shapes with a real null-body response and reports value-carrying
+  // ones legibly.
+  if (NULL_BODY_STATUSES.has(responseInit.status)) {
+    return new ResponseEnvelope(new Response(null, { ...responseInit, headers }), value);
+  }
   headers.set("Content-Type", "application/json");
   return new ResponseEnvelope(
     new Response(JSON.stringify(value), { ...responseInit, headers }),

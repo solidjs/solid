@@ -575,6 +575,45 @@ describe("@solidjs/compiler transform", () => {
     expect(result.code).toContain("_$escape(OrderedSibling({}));");
   });
 
+  it("scope-wraps bare function children in hydratable mode (both generates)", () => {
+    // A function child never classifies as `dynamic` (the literal reads
+    // nothing at template time), but at runtime it is a deferred hole exactly
+    // like a call-shaped value — without a scope its owner ids drift across
+    // async retry passes (#3068 follow-up).
+    const source = `
+      const a = <main>{() => <App />}</main>;
+      const b = <main>{(() => <App />) as any}</main>;
+      const c = <main children={() => <App />} />;
+      `;
+
+    const ssr = transform(source, {
+      filename: "fn-children.tsx",
+      moduleName: "r-server",
+      generate: "ssr",
+      hydratable: true
+    });
+    expect(ssr.code).toContain("_$scope(() => _$escape(App({})))");
+    expect(ssr.code).toContain("_$scope(_$escape((() => App({})) as any))");
+    expect(ssr.code.match(/_\$scope\(/g)).toHaveLength(3);
+
+    const dom = transform(source, {
+      filename: "fn-children.tsx",
+      moduleName: "r-dom",
+      generate: "dom",
+      hydratable: true
+    });
+    expect(dom.code).toContain("_$insert(_el$, _$scope(() => _$createComponent(App, {})));");
+    expect(dom.code.match(/_\$scope\(/g)).toHaveLength(3);
+
+    // Non-hydratable output stays scope-free.
+    const csr = transform(source, {
+      filename: "fn-children.tsx",
+      moduleName: "r-dom",
+      generate: "dom"
+    });
+    expect(csr.code).not.toContain("_$scope(");
+  });
+
   it("lowers dynamic children in SSR mode through escape", () => {
     const result = transform("const view = <div>Hello {name}</div>;", {
       filename: "input.jsx",

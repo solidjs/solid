@@ -34,6 +34,15 @@ export interface FlashSubmission {
   result?: any;
   /** The thrown value, when the call threw. */
   error?: any;
+  /**
+   * Set when the outcome was too large for the cookie's 4 KB ceiling and
+   * was degraded to fit (#3137): the input echo is dropped, and `result` /
+   * `error` may carry a bounded prefix — or the bare outcome flag `true` —
+   * rather than the full value. The submission still says what happened
+   * and where; integrations should render it as "succeeded (result too
+   * large to display)" rather than replaying the value.
+   */
+  truncated?: boolean;
 }
 
 // Form payloads have no JSON encoding, so entries are captured as pair
@@ -65,9 +74,10 @@ function decodeInputValue(value) {
  *
  * The payload is JSON inside the cookie: `FormData` and `URLSearchParams`
  * arguments are captured as entry pairs and revived on decode, and `File`
- * entries are dropped (they cannot ride a cookie). Keep in mind the 4 KB
- * cookie budget — outcomes larger than that will not survive the round
- * trip.
+ * entries are dropped (they cannot ride a cookie). Outcomes larger than
+ * the 4 KB cookie ceiling are degraded to fit rather than silently lost —
+ * the input echo goes first, then the value is bounded — and arrive with
+ * `truncated` set (#3137).
  */
 export function encodeFlashCookie(url: string, result: any, input: any[], thrown?: boolean): string;
 
@@ -87,7 +97,50 @@ export function encodeFlashCookie(url, result, input, thrown) {
     thrown: !!thrown,
     input: input.map(encodeInputValue)
   };
+  if (fitsCookie(payload)) return flashCookie(payload);
+  // A cookie has a hard ceiling and no failure signal: past it the browser
+  // discards the whole Set-Cookie — nothing in the response, nothing in the
+  // console, nothing server-side — and the page after the redirect is
+  // indistinguishable from one where nothing was submitted. The mutation
+  // has already COMMITTED by the time this encodes, so the outcome must
+  // degrade rather than vanish (#3137): the natural response to a missing
+  // confirmation is to retry, and for a non-idempotent handler that is the
+  // second write. Ladder: drop the input echo (usually the bulk), then
+  // bound the value itself — a string keeps the longest prefix that fits
+  // (halving, because percent-encoding inflates unevenly), anything
+  // structured has no partial JSON and reduces to the outcome flag `true`.
+  // `url` and the error/thrown flags always survive: what happened, and to
+  // which submission, is the part that must not be lost.
+  payload.truncated = true;
+  payload.input = [];
+  if (!fitsCookie(payload)) {
+    if (typeof payload.result === "string") {
+      let prefix = payload.result;
+      while (prefix.length > 0 && !fitsCookie({ ...payload, result: prefix })) {
+        prefix = prefix.slice(0, prefix.length >> 1);
+      }
+      payload.result = prefix.length > 0 ? prefix : true;
+    } else {
+      payload.result = true;
+    }
+  }
+  return flashCookie(payload);
+}
+
+function flashCookie(payload) {
   return serializeCookie(FLASH_COOKIE, JSON.stringify(payload), { secure: true, httpOnly: true });
+}
+
+// The browser ceiling is 4096 bytes of `name=value` (RFC 6265bis §5.6);
+// RFC 6265 §6.1 states the same number but counts attributes too. 4000 for
+// the pair leaves headroom for the attributes under either reading.
+const COOKIE_PAIR_BUDGET = 4000;
+
+function fitsCookie(payload) {
+  return (
+    FLASH_COOKIE.length + 1 + encodeURIComponent(JSON.stringify(payload)).length <=
+    COOKIE_PAIR_BUDGET
+  );
 } /**
  * Decodes the flash cookie out of a request's `Cookie` header, for the
  * render that follows the redirect. Returns undefined when the cookie is
@@ -108,12 +161,14 @@ export function decodeFlashCookie(cookieHeader) {
     const payload = JSON.parse(match);
     if (!payload || !payload.result) return;
     const result = payload.error ? new Error(payload.result) : payload.result;
-    return {
+    const submission = {
       input: Array.isArray(payload.input) ? payload.input.map(decodeInputValue) : [],
       url: payload.url,
       result: payload.thrown ? undefined : result,
       error: payload.thrown ? result : undefined
     };
+    if (payload.truncated) submission.truncated = true;
+    return submission;
   } catch (error) {
     console.error(error);
   }

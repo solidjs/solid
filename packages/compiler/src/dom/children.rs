@@ -6,7 +6,7 @@ use crate::error::{Error, Result};
 use crate::shared::classify::check_length;
 use crate::shared::utils::{
     child_slot_allocates_ids, element_name, escape_html_text, escape_html_text_expression,
-    is_component_name, static_jsx_expression, trim_jsx_text,
+    is_component_name, jsx_child_is_function_hole, static_jsx_expression, trim_jsx_text,
 };
 use oxc_allocator::CloneIn;
 use oxc_ast::ast::Expression;
@@ -322,8 +322,10 @@ impl<'a> AstDomTransform<'a, '_> {
                         // Mirror of the ssr generate's `scope()` wrap: deferred
                         // holes that can allocate hydration ids get their own
                         // owner scope. Both flags come from shared predicates
-                        // so the generates can't desync.
-                        let value = if dynamic
+                        // so the generates can't desync. Function children
+                        // never classify as dynamic but are deferred holes all
+                        // the same, so they take the scope too.
+                        let value = if (dynamic || jsx_child_is_function_hole(dynamic_child))
                             && self.hydratable
                             && child_slot_allocates_ids(dynamic_child)
                         {
