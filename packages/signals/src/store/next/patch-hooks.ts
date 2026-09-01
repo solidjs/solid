@@ -44,7 +44,12 @@ export interface PatchValueHooks {
 export interface PatchRowHooks {
   emitRowOps(t: StoreNextTarget, next: any[], ops: RowOps): void;
   emitSlotPatch(t: StoreNextTarget, index: number, next: any, prev: any): void;
-  emitSetterRowOps(t: StoreNextTarget, prevRows: any[], nextRows: any[]): void;
+  emitSetterRowOps(
+    t: StoreNextTarget,
+    prevRows: any[],
+    nextRows: any[],
+    key?: (v: any) => any
+  ): void;
   emitRowOpsOptimistic(t: StoreNextTarget, next: any[] | null, ops: RowOps | null): void;
 }
 

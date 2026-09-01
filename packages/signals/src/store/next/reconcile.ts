@@ -540,8 +540,13 @@ const identityKey = (r: any) => unwrapValue(r);
 export function sameKey(a: any, b: any): boolean {
   return a === b || (a !== a && b !== b);
 }
-export function emitSetterRowOps(t: StoreNextTarget, prevRows: any[], nextRows: any[]): void {
-  const ops = buildIdentityRowOps(prevRows, nextRows);
+export function emitSetterRowOps(
+  t: StoreNextTarget,
+  prevRows: any[],
+  nextRows: any[],
+  key?: KeyFn
+): void {
+  const ops = buildIdentityRowOps(prevRows, nextRows, key);
   if (ops !== null) rowHooks!.emitRowOps(t, nextRows, ops);
 }
 
@@ -549,12 +554,16 @@ export function emitSetterRowOps(t: StoreNextTarget, prevRows: any[], nextRows: 
  * the setter channel (regular queue) and the OPTIMISTIC write channel (lane
  * queue) — same retention semantics, different dispatch timing. Returns
  * null when the lists are identity-aligned (no structure changed). */
-export function buildIdentityRowOps(prevRows: any[], nextRows: any[]): RowOps | null {
+export function buildIdentityRowOps(prevRows: any[], nextRows: any[], key?: KeyFn): RowOps | null {
+  // Staged-reveal callers resolve identity through the FAMILY MAP (fold
+  // audit 2, P1): the fold re-seats retained rows' raws, and raw-keyed
+  // matching rebuilt rows whose proxies never changed.
+  const k = key ?? identityKey;
   let p = 0;
   const min = prevRows.length < nextRows.length ? prevRows.length : nextRows.length;
-  while (p < min && unwrapValue(prevRows[p]) === unwrapValue(nextRows[p])) p++;
+  while (p < min && k(prevRows[p]) === k(nextRows[p])) p++;
   if (p === prevRows.length && p === nextRows.length) return null;
-  return buildRowOps(prevRows, nextRows, p, identityKey);
+  return buildRowOps(prevRows, nextRows, p, k);
 }
 
 /** Shared row-ops builder (keyed deep branch + shallow/positional branch):

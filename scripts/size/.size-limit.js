@@ -198,7 +198,10 @@ module.exports = [
     // Fold-audit round (2026-09-01): staged-truth fold marker + fold-site
     // row/slot emissions (reveal coverage), per-index held-slot defers, and
     // the drain-end late sweep (no resync-then-ops double-builds). Measured 15.19.
-    limit: "15.2 KB",
+    // Fold audit 2 (2026-09-01): transition-aware version init, reveal
+    // channel split, target-keyed staged identity, release fast-forward.
+    // Measured 15.22.
+    limit: "15.25 KB",
     modifyEsbuildConfig
   },
   {
@@ -538,7 +541,10 @@ module.exports = [
     // machinery replaced by per-entry applied-version chains + ONE
     // flush-end resync + registration-time ancestor repair. Flat cost —
     // the per-finding mechanism accretion this class caused stops here. Measured 19.56.
-    limit: "19.6 KB",
+    // Fold audit 2 (2026-09-01): transition-aware version init, reveal
+    // channel split, target-keyed staged identity, release fast-forward.
+    // Measured 19.62.
+    limit: "19.65 KB",
     modifyEsbuildConfig
   },
   {

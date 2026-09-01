@@ -991,30 +991,34 @@ function drainFolds(): void {
         // reveal — and the driven list must hear it (the settle loop's
         // resync only covers OVERLAID targets; a root array whose retention
         // came from a descendant override is not one).
-        if (
-          t.pc !== null &&
-          t.pc.ro !== null &&
-          !t.adopted &&
-          (t.fam?.opt !== true || t.sf === true) &&
-          Array.isArray(pb) &&
-          Array.isArray(t.v)
-        )
-          rowHooks!.emitSetterRowOps(t, t.v as any[], pb as any[]);
-        // Slot channel twin (fold audit P1): staged truth commits slot
-        // VALUES without any walk — diff the aligned window and tick every
-        // changed slot (the walk's emission shape).
-        if (
-          t.pc !== null &&
-          t.pc.sp !== null &&
-          t.sf === true &&
-          Array.isArray(pb) &&
-          Array.isArray(t.v)
-        ) {
+        // ONE channel per replacement (fold audit 2, P1): the walk's split —
+        // ALIGNED windows (same length) are value replacements and ride slot
+        // ticks ONLY; length changes are structure and ride row ops ONLY.
+        // Emitting both rebuilt the same shallow row twice (lifecycle/focus
+        // divergence). Staged DEEP reveals key rows by TARGET identity, not
+        // raw identity — the fold re-seats retained rows' raws, and raw-keyed
+        // ops rebuilt rows whose proxies never changed.
+        if (t.pc !== null && Array.isArray(pb) && Array.isArray(t.v)) {
           const oldArr = t.v as any[];
           const newArr = pb as any[];
-          const n = Math.min(oldArr.length, newArr.length);
-          for (let si = 0; si < n; si++) {
-            if (oldArr[si] !== newArr[si]) rowHooks!.emitSlotPatch(t, si, newArr[si], oldArr[si]);
+          const aligned = t.sf === true && t.pc.sp !== null && oldArr.length === newArr.length;
+          if (aligned) {
+            for (let si = 0; si < newArr.length; si++) {
+              if (oldArr[si] !== newArr[si]) rowHooks!.emitSlotPatch(t, si, newArr[si], oldArr[si]);
+            }
+          } else if (t.pc.ro !== null && !t.adopted && (t.fam?.opt !== true || t.sf === true)) {
+            const map = t.fam?.map ?? storeNextLookup;
+            rowHooks!.emitSetterRowOps(
+              t,
+              oldArr,
+              newArr,
+              t.sf === true
+                ? (v: any) => {
+                    const raw = unwrapValue(v);
+                    return (raw !== null && typeof raw === "object" && map.get(raw)) || raw;
+                  }
+                : undefined
+            );
           }
         }
         t.sf = false;

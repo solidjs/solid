@@ -217,7 +217,7 @@ function applyStructural(item: QueuedApply, next: any, firstError: unknown): unk
   // for ONE flush-end resync (after every queue drains).
   const pc = item.pc;
   if (pc === undefined) return firstError;
-  const svAt = (item.svAt as number) | 0;
+  const svAt = item.svAt as number;
   const live = (item.si !== undefined ? pc.sp : pc.ro) as
     | (RowOpsEntry & { hqs?: Set<number>; av?: number; rs?: boolean })[]
     | null;
@@ -243,7 +243,7 @@ function applyStructural(item: QueuedApply, next: any, firstError: unknown): unk
     const entry = snap[j];
     if (entry === undefined || entry.u === true) continue;
     if (entry.owner !== null && isDisposed(entry.owner)) continue;
-    const av = (entry.av as number) | 0;
+    const av = entry.av as number;
     if (av >= svAt) continue; // covered by its registration read or a resync
     // BOUNDARY HOLD parity (round 10.13): defer INTO the collapsed queue;
     // the deferred run resyncs from live truth and fast-forwards the chain.
@@ -301,7 +301,7 @@ function runResyncs(firstError: unknown): unknown {
     const isSlot = pc.sp !== null && (pc.sp as unknown[]).indexOf(entry) !== -1;
     // Fast-forward the chain BEFORE delivering: the resync reads live
     // truth, covering every version up to the channel's current one.
-    entry.av = ((isSlot ? (pc as any).svs : pc.sv) as number) | 0;
+    entry.av = (isSlot ? (pc as any).svs : pc.sv) as number;
     const oq = entry.q as any;
     if (queueIsHeld(oq)) {
       deferHeldStructural(entry as any, oq, {
@@ -372,6 +372,10 @@ function deferHeldStructural(
       set.delete(si);
       if (entry.u === true) return;
       if (entry.owner !== null && isDisposed(entry.owner)) return;
+      // Release fast-forwards the chain (fold audit 2, P2): the resync
+      // reads live truth — without this the next update saw a gap and
+      // forced a second, redundant full resync.
+      (entry as any).av = ((item.pc as any)?.svs as number) ?? (entry as any).av;
       try {
         structuralResync(entry, item);
       } catch (err) {
@@ -381,6 +385,7 @@ function deferHeldStructural(
     return;
   }
   deferIntoQueue(entry, oq, () => {
+    (entry as any).av = ((item.pc as any)?.sv as number) ?? (entry as any).av;
     try {
       structuralResync(entry, item);
     } catch (err) {
@@ -525,7 +530,7 @@ function pushLive(item: QueuedApply): void {
   const pc = item.pc as any;
   if (pc !== undefined && item.svAt !== undefined) {
     const k = item.si !== undefined ? "svvs" : "svv";
-    if (item.svAt > ((pc[k] as number) | 0)) pc[k] = item.svAt;
+    if (item.svAt > (pc[k] as number)) pc[k] = item.svAt;
   }
   (queue ??= []).push(item);
   if (!scheduled) {
@@ -682,7 +687,7 @@ export function emitRowOpsOptimistic(
     cm: nextRows === null && ops === null,
     ops,
     pc: t.pc as PatchChannel,
-    svAt: ((t.pc as any).sv = (((t.pc as any).sv as number) | 0) + 1)
+    svAt: ((t.pc as any).sv = ((t.pc as any).sv as number) + 1)
   });
   // Lane emissions are visible AT EMISSION (optimism is in-flight
   // visibility) — bump the visible version immediately.
@@ -1592,7 +1597,11 @@ export function registerRowOps(array: any, fn: RowOpsFn): () => void {
     fn,
     owner: rowner,
     q: (rowner as any)?._queue ?? null,
-    av: ((pc as any).svv as number) | 0
+    // Transition-aware init (fold audit 2, P1): a consumer mounting INSIDE
+    // the writing transition reads the SPECULATIVE view — its baseline
+    // covers the stashed emissions too (sv). Ambient mounts read committed
+    // truth (svv) and receive the stashed ops at release.
+    av: (activeTransition !== null ? ((pc as any).sv as number) : ((pc as any).svv as number)) ?? 0
   };
   if (__TEST__) devTrackChannel(pc);
   const list = (pc.ro ??= []) as RowOpsEntry[];
@@ -1622,7 +1631,7 @@ export function emitSlotPatch(t: StoreNextTarget, index: number, next: any, prev
     t: null,
     si: index,
     pc: t.pc as PatchChannel,
-    svAt: ((t.pc as any).svs = (((t.pc as any).svs as number) | 0) + 1)
+    svAt: ((t.pc as any).svs = ((t.pc as any).svs as number) + 1)
   });
 }
 
@@ -1644,7 +1653,8 @@ export function registerSlotPatchNext(
     fn,
     owner: sowner,
     q: (sowner as any)?._queue ?? null,
-    av: ((pc as any).svvs as number) | 0
+    av:
+      (activeTransition !== null ? ((pc as any).svs as number) : ((pc as any).svvs as number)) ?? 0
   };
   const list = (pc.sp ??= []) as unknown[];
   list.push(entry);
@@ -1669,7 +1679,7 @@ export function emitRowOps(t: StoreNextTarget, next: any[], ops: RowOps): void {
     t: null,
     ops,
     pc: t.pc as PatchChannel,
-    svAt: ((t.pc as any).sv = (((t.pc as any).sv as number) | 0) + 1)
+    svAt: ((t.pc as any).sv = ((t.pc as any).sv as number) + 1)
   });
 }
 

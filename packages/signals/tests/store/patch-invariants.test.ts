@@ -1745,6 +1745,92 @@ describe("INVARIANT: structural channels under fold/holds — per-index slots, n
     void rowsSeen;
   });
 
+  it("a consumer mounted INSIDE a writing transition never replays its stashed ops (bac stays bac)", async () => {
+    // Fold audit 2, P1: the mid-transition mount reads the SPECULATIVE view
+    // (boundary content renders from it) — its version baseline must cover
+    // the stashed emissions, or the release replays ops it already saw:
+    // store/classic end "bac", driven DOM ends "abc".
+    const { registerRowOps, action: act } = await import("../../src/index.js");
+    const [state, setState] = createStore<any>({
+      rows: [{ id: "a" }, { id: "b" }, { id: "c" }]
+    });
+    createRoot(() => {
+      registerRowOps(state.rows, () => {});
+    });
+    let confirm!: () => void;
+    const run = act(function* () {
+      setState((s: any) => {
+        reconcile([{ id: "b" }, { id: "a" }, { id: "c" }], "id")(s.rows);
+      });
+      yield new Promise<void>(resolve => {
+        confirm = resolve;
+      });
+    })();
+    flush();
+    // Mount DURING the transition window, reading the speculative view.
+    const frames: string[][] = [];
+    let lastOps: any = "none";
+    createRoot(() => {
+      registerRowOps(state.rows, (rows: any[], ops: any) => {
+        frames.push(Array.from(rows, (r: any) => r.id));
+        lastOps = ops;
+      });
+    });
+    flush();
+    confirm();
+    await run;
+    flush();
+    // The release must NOT deliver the stashed reorder ops to this entry —
+    // its baseline already contained "bac". Applying them re-reorders a
+    // list that is already reordered.
+    for (const f of frames) expect(f).toEqual(["b", "a", "c"]);
+    void lastOps;
+  });
+
+  it("a shallow staged reveal rides ONE channel — slot ticks for aligned replacement, never row ops too", async () => {
+    const {
+      createOptimisticStore,
+      registerRowOps,
+      action: act
+    } = await import("../../src/index.js");
+    const { registerSlotPatchNext } = await import("../../src/store/next/patch.js");
+    const { storeSetterNext, runAuthoritative } = await import("../../src/store/next/store.js");
+    const [items, setItems] = (createOptimisticStore as any)(["a", "b"] as any[]);
+    const rowEvents: any[] = [];
+    const ticks: Array<[number, any]> = [];
+    createRoot(() => {
+      registerRowOps(items, (_r: any[], ops: any) => rowEvents.push(ops));
+      registerSlotPatchNext(items, (i: number, v: any) => ticks.push([i, v]));
+    });
+    let confirm!: () => void;
+    const run = act(function* () {
+      setItems((d: any[]) => {
+        d.push("c");
+      });
+      yield new Promise<void>(r => {
+        confirm = r;
+      });
+    })();
+    flush();
+    const rowMark = rowEvents.length;
+    // ALIGNED staged replacement (same length): slot territory.
+    runAuthoritative(() => {
+      storeSetterNext(items, (d: any[]) => {
+        d[0] = "A2";
+      });
+    });
+    flush();
+    confirm();
+    await run;
+    await Promise.resolve();
+    flush();
+    // The reveal delivers the replacement ONCE: a slot tick — row ops for
+    // the same slot would rebuild the row a second time (lifecycle/focus).
+    expect(ticks.some(([i, v]) => i === 0 && v === "A2")).toBe(true);
+    const revealRowOps = rowEvents.slice(rowMark).filter(o => o !== null);
+    expect(revealRowOps.length).toBe(0);
+  });
+
   it("a staged ROOT structural change reveals WITH row ops when only a descendant holds the override", async () => {
     const {
       createOptimisticStore,
