@@ -82,7 +82,13 @@ module.exports = [
     // GlobalQueue._heldTruthMasked hook slot. The mask's ledger and the
     // transition-optimism probe live in the optimistic module behind the
     // hook — the floor pays only the guarded call site.
-    limit: "7.95 KB",
+    //
+    // Fold relocation pass (2026-09-01): 7.95 -> 7.94 KB, measured at 7.93.
+    // heldTruthNodes + transitionHoldsOptimism moved from scheduler.ts into
+    // the optimistic module, and read()'s latest()/authoritative-read
+    // exemptions moved inside the hook (which now takes the observer) —
+    // the floor keeps only `config-gate && hook?.(el, c)`.
+    limit: "7.94 KB",
     modifyEsbuildConfig
   },
   {
@@ -181,7 +187,10 @@ module.exports = [
     // tentativePBs draft-session guard in ensurePB. The mask bodies
     // themselves ride the optimistic module (see the store-family app
     // scenario).
-    limit: "14.56 KB",
+    //
+    // Fold relocation pass (2026-09-01): 14.56 -> 14.55 KB, measured at
+    // 14.54 — the core-floor relocation (see that note).
+    limit: "14.55 KB",
     modifyEsbuildConfig
   },
   {
@@ -226,7 +235,10 @@ module.exports = [
     // override must wake until()'s predicate or it deadlocks), and the
     // mid-flight latest(isPending()) probe fix (#3166) in the verdict
     // layer this scenario retains.
-    limit: "9.99 KB",
+    //
+    // Fold relocation pass (2026-09-01): 9.99 -> 9.98 KB, measured at 9.97
+    // — the core-floor relocation (see that note).
+    limit: "9.98 KB",
     modifyEsbuildConfig
   },
   {
@@ -259,8 +271,11 @@ module.exports = [
     //
     // #3164 fold ruling (2026-08-31): 10.7 -> 10.73 KB, measured at 10.72
     // — the signals core-floor arm + asyncWrite wake (see those notes).
+    //
+    // Fold relocation pass (2026-09-01): 10.73 -> 10.72 KB, measured at
+    // 10.71 — the core-floor relocation (see that note).
     path: "minimal-app.js",
-    limit: "10.73 KB",
+    limit: "10.72 KB",
     modifyEsbuildConfig
   },
   {
@@ -306,7 +321,11 @@ module.exports = [
     //
     // #3164 fold ruling (2026-08-31): 17.55 -> 17.6 KB, measured at 17.59
     // — the signals core-floor arm + asyncWrite wake (see those notes).
-    limit: "17.6 KB",
+    //
+    // Fold relocation pass (2026-09-01): 17.6 -> 17.56 KB, measured at
+    // 17.54 — this bundle's import graph retained the scheduler-resident
+    // ledger; the relocation lets it shake.
+    limit: "17.56 KB",
     modifyEsbuildConfig
   },
   {
@@ -401,8 +420,13 @@ module.exports = [
     //
     // #3164 fold ruling (2026-08-31): 12.92 -> 12.94 KB, measured at 12.93
     // — the signals core-floor arm + asyncWrite wake (see those notes).
+    //
+    // Fold relocation pass (2026-09-01): 12.94 -> 12.95 KB, measured at
+    // 12.948. The one counter-mover: this bundle never retained the
+    // scheduler-resident ledger (nothing to shake), so it pays only the
+    // hook call site's second argument plus brotli layout drift.
     path: "csr-app.js",
-    limit: "12.94 KB",
+    limit: "12.95 KB",
     modifyEsbuildConfig
   },
   {
@@ -423,8 +447,11 @@ module.exports = [
     // — the core-floor arm + asyncWrite wake plus the store-seam bytes
     // (see the createStore note; the value-tier machinery this scenario
     // retains carries the nodeValue mask seam).
+    //
+    // Fold relocation pass (2026-09-01): 14.69 -> 14.68 KB, measured at
+    // 14.67 — the core-floor relocation (see that note).
     path: "csr-app-patch.js",
-    limit: "14.69 KB",
+    limit: "14.68 KB",
     modifyEsbuildConfig
   },
   {
@@ -445,8 +472,11 @@ module.exports = [
     //
     // #3164 fold ruling (2026-08-31): 16.92 -> 16.94 KB, measured at 16.93
     // — the same bytes as the patchDriver scenario (see that note).
+    //
+    // Fold relocation pass (2026-09-01): 16.94 -> 16.91 KB, measured at
+    // 16.90 — retained-ledger shake, same as the hydrating no-store note.
     path: "csr-app-patch-lists.js",
-    limit: "16.94 KB",
+    limit: "16.91 KB",
     modifyEsbuildConfig
   },
   {

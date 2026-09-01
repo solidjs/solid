@@ -1229,10 +1229,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // (GabbeV's union tear). The revert at settle is their notification
     // point. Authoritative readers (until()'s predicate) and latest() see
     // the staged truth — the tunnel that keeps the hold deadlock-free.
-    (el._config & CONFIG_OPTIMISTIC &&
-      !latestReadActive &&
-      !(c._config & CONFIG_AUTHORITATIVE_READ) &&
-      GlobalQueue._heldTruthMasked?.(el))
+    (el._config & CONFIG_OPTIMISTIC && GlobalQueue._heldTruthMasked?.(el, c as Computed<any>))
       ? el._value
       : (el._pendingValue as T);
   // Record that this isPending() probe observed the fresh pending value, so

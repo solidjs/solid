@@ -35,11 +35,12 @@ import {
   GlobalQueue,
   globalQueue,
   activeTransition,
-  heldTruthNodes,
+  currentTransition,
   runAsTransitionBatch,
-  transitionHoldsOptimism,
   type Transition
 } from "../../core/scheduler.js";
+import { latestReadActive } from "../../core/core.js";
+import { CONFIG_AUTHORITATIVE_READ } from "../../core/constants.js";
 import { installOptimisticEngine } from "../../core/optimistic.js";
 import {
   $TARGET,
@@ -74,6 +75,27 @@ import { setOptHooks, storeNextLookup } from "./target.js";
 type KeyFn = (item: any) => any;
 import { isRawValue, isWrappable, rawValuesUsed, setNextOptimisticViewResolver } from "../store.js";
 import type { StoreNextFamily, StoreNextTarget } from "./target.js";
+
+/** #3164 fold: a stamped truth is HELD (masked from ordinary readers until
+ * the reveal) only while its transition is live AND retaining optimism —
+ * overrides are what make partial-coverage composition a tear. A plain
+ * async transition carries no overrides, so downstream computes must see
+ * staged values to converge (normal speculation). Resolves merges first:
+ * merge unions optimistic nodes/stores into the target. */
+export function transitionHoldsOptimism(transition: Transition): boolean {
+  const t = currentTransition(transition);
+  return t._done !== true && (t._optimisticNodes.length !== 0 || t._optimisticStores.size !== 0);
+}
+
+/** Nodes whose current `_pendingValue` is fold-staged TRUTH (#3164): marked
+ * by the staging sites below (the only writers of truth onto armed nodes
+ * mid-hold). The read paths mask these from ordinary readers — a staged
+ * override is indistinguishable from staged truth by node state alone, and
+ * overrides must stay visible (they ARE the optimism), so membership here
+ * is the discriminator. Entries go inert once the pending value commits
+ * (the read arms gate on a live pending + a live retaining transition); no
+ * removal pass is needed. */
+export const heldTruthNodes = new WeakSet<object>();
 
 let blockedInstalled = false;
 function installNextBlockedHalf(): void {
@@ -121,11 +143,19 @@ function installNextBlockedHalf(): void {
       stores.clear();
     };
   }
-  // Held-truth mask (#3164 fold): core read()'s A17-for-held-truth arm calls
-  // through this hook so the ledger and the transition-optimism probe stay
-  // out of the core floor (pay-for-use).
-  GlobalQueue._heldTruthMasked = el =>
-    heldTruthNodes.has(el) && el._transition !== null && transitionHoldsOptimism(el._transition);
+  // Held-truth mask (#3164 fold): core read()'s A17-for-held-truth arm and
+  // the store's nodeValue twin call through this hook so the ledger, the
+  // transition-optimism probe, AND the reader-posture exemptions stay out
+  // of the core floor (pay-for-use). Exempt readers see staged truth: a
+  // latest() window, and an authoritative-read observer `c` (until()'s
+  // predicate — core passes its observer; the store site's authoritative
+  // posture is authoritativeServe(), checked at its call site).
+  GlobalQueue._heldTruthMasked = (el, c) =>
+    !latestReadActive &&
+    (c === undefined || !(c._config & CONFIG_AUTHORITATIVE_READ)) &&
+    heldTruthNodes.has(el) &&
+    el._transition !== null &&
+    transitionHoldsOptimism(el._transition);
   const chained = GlobalQueue._transitionBlocked!;
   GlobalQueue._transitionBlocked = transition => {
     for (const store of transition._optimisticStores) {
