@@ -877,12 +877,14 @@ describe("the rc.5 guard batch (#3169, #3170, #3171)", () => {
   test("an async createEvent's cookies reach the wire", async () => {
     registerServerFunction("guard-async-event", async () => "ok");
     const response = await handleServerFunctionRequest(scriptedPost("guard-async-event"), {
-      createEvent: async (request: Request) => {
+      // the async shape is the point: the TYPE stays synchronous on purpose
+      // (the contract), and the runtime tolerates the violation by awaiting
+      createEvent: (async (request: Request) => {
         await Promise.resolve();
         const event = createRequestEvent(request);
         event.response.headers.append("Set-Cookie", "sid=fresh; Path=/");
         return event;
-      }
+      }) as unknown as (request: Request) => ReturnType<typeof createRequestEvent>
     });
     expect(response.status).toBe(200);
     expect(response.headers.getSetCookie()).toContain("sid=fresh; Path=/");
