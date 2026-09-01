@@ -24,6 +24,7 @@ function createFixtureTests(fixturesDir, options) {
     const codePath = ["code.js", "code.ts", "code.jsx", "code.tsx", "code.tsrx"]
       .map(name => path.join(fixtureDir, name))
       .find(candidate => fs.existsSync(candidate));
+    const errorPath = path.join(fixtureDir, "error.txt");
     const pluginOptions = {
       ...rootFixtureOptions,
       ...options.pluginOptions,
@@ -43,13 +44,20 @@ function createFixtureTests(fixturesDir, options) {
       const hasBabelrc = [".babelrc", ".babelrc.js", ".babelrc.cjs"].some(file =>
         fs.existsSync(path.join(fixtureDir, file))
       );
-      const transformed = await babel.transformAsync(fs.readFileSync(codePath, "utf8"), {
-        babelrc: hasBabelrc,
-        configFile: false,
-        ...options.babelOptions,
-        plugins: [[options.plugin, pluginOptions], ...extraPlugins],
-        filename: codePath
-      });
+      const transform = () =>
+        babel.transformAsync(fs.readFileSync(codePath, "utf8"), {
+          babelrc: hasBabelrc,
+          configFile: false,
+          ...options.babelOptions,
+          plugins: [[options.plugin, pluginOptions], ...extraPlugins],
+          filename: codePath
+        });
+      if (fs.existsSync(errorPath)) {
+        const expected = fs.readFileSync(errorPath, "utf8").trim();
+        await expect(transform()).rejects.toThrow(expected);
+        return;
+      }
+      const transformed = await transform();
       const sourceExt = codePath.split(".").pop();
       // TSRX sources compile to plain JS output (the frontend desugars the
       // template syntax before the shared JSX lowering runs).

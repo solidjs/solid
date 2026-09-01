@@ -4,8 +4,9 @@
  * Routes `.tsrx` sources (or any source when `syntax: "tsrx"`) through
  * `@tsrx/core`'s parser + semantic analysis, processes scoped styles with
  * core's CSS helpers, desugars every TSRX construct to Solid builtIn JSX,
- * applies Solid's local lazy-destructuring transform, and converts the result
- * to a Babel `File` for the unchanged JSX pipeline.
+ * applies Solid's local deferred-pattern transform for generated control-flow
+ * callbacks, and converts the result to a Babel `File` for the unchanged JSX
+ * pipeline. Authored lazy destructuring is rejected for the Solid target.
  *
  * `@tsrx/core` is an optional peer dependency loaded lazily on first TSRX
  * routing, so plain JSX users never pay for it.
@@ -13,7 +14,7 @@
 
 import { desugarProgram, restoreIntrinsicJsxNames, type EsNode } from "./desugar";
 import { toBabelFile } from "./estree-to-babel";
-import { applyLazyTransforms } from "./lazy";
+import { applyLazyTransforms, rejectAuthoredLazyDestructuring } from "./lazy";
 import { processTsrxStyles, type TsrxStyleCore } from "./style";
 import type { TsrxBabelAst, TsrxStyleResult } from "../types";
 
@@ -74,6 +75,7 @@ export function isTsrxSource(syntax: SyntaxOption | undefined, filename: unknown
 export function parseTsrx(code: string, filename?: string): TsrxBabelFile {
   const tsrx = loadTsrxCore();
   const program = tsrx.parseModule(code, filename ?? "module.tsrx");
+  rejectAuthoredLazyDestructuring(program);
   // Throws structured diagnostics (invalid returns, misplaced directives, …).
   tsrx.analyzeTsrx(program, filename ?? null);
   const styleResult = processTsrxStyles(program, tsrx);

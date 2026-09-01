@@ -8,11 +8,10 @@ var _tmpl$ = /*#__PURE__*/ _$template(`<strong>你好 🌍`),
 const celebration = "🎉";
 export function 国際化({ user, visible }) {
   const marker = "🚀";
-  const __lazy0 = user;
   var _el$ = _tmpl$2(),
     _el$2 = _el$.firstChild,
     _el$3 = _el$2.firstChild;
-  _$insert(_el$2, () => __lazy0.名前, null);
+  _$insert(_el$2, () => user.名前, null);
   _$insert(
     _el$,
     _$createComponent(_$Show, {

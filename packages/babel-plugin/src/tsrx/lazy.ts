@@ -161,6 +161,31 @@ function fail(message: string, node?: EsNode | null): never {
   throw new SyntaxError(start ? `${message} (${start.line}:${start.column})` : message);
 }
 
+const AUTHORED_LAZY_UNSUPPORTED =
+  "Solid's TSRX frontend does not support authored lazy destructuring; keep property and accessor reads explicit";
+
+/**
+ * Reject parser-authored `&{}` / `&[]` before TSRX controls synthesize the
+ * deferred patterns Solid needs for accessor-backed `@for` and `@catch`
+ * callbacks.
+ */
+export function rejectAuthoredLazyDestructuring(root: EsNode): void {
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child);
+      return;
+    }
+    if (!isNode(value)) return;
+    if ((value.type === "ObjectPattern" || value.type === "ArrayPattern") && value.lazy === true) {
+      fail(AUTHORED_LAZY_UNSUPPORTED, value);
+    }
+    for (const key of Object.keys(value)) {
+      if (!SKIP_KEYS.has(key)) visit(value[key]);
+    }
+  };
+  visit(root);
+}
+
 class LazyState {
   private readonly names = new Set<string>();
   private readonly next = new Map<string, number>();

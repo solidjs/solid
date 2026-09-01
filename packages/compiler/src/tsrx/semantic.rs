@@ -462,16 +462,24 @@ impl SemanticError {
 
 /// Lower the parser-interchange root into compiler-owned Solid TSRX IR.
 pub fn lower<'t>(root: Node<'t>) -> Result<SolidTsrxModule<'t>, SemanticError> {
-    lower_with_recovery(root, false)
+    lower_with_options(root, false, AuthoredLazyPolicy::Reject)
 }
 
 pub fn lower_recovered<'t>(root: Node<'t>) -> Result<SolidTsrxModule<'t>, SemanticError> {
-    lower_with_recovery(root, true)
+    lower_with_options(root, true, AuthoredLazyPolicy::Reject)
 }
 
-fn lower_with_recovery<'t>(
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AuthoredLazyPolicy {
+    Reject,
+    #[cfg(test)]
+    Allow,
+}
+
+fn lower_with_options<'t>(
     root: Node<'t>,
     allow_missing_render: bool,
+    authored_lazy: AuthoredLazyPolicy,
 ) -> Result<SolidTsrxModule<'t>, SemanticError> {
     AuthoredSpan::of(root)?;
     let mut controls = Vec::new();
@@ -482,6 +490,13 @@ fn lower_with_recovery<'t>(
     let mut lowering_error = None;
     tape::walk(root, &mut |node| {
         if lowering_error.is_some() {
+            return false;
+        }
+        if authored_lazy == AuthoredLazyPolicy::Reject && is_authored_lazy_pattern(node) {
+            lowering_error = Some(SemanticError::new(
+                "Solid's TSRX frontend does not support authored lazy destructuring; keep property and accessor reads explicit",
+                node,
+            ));
             return false;
         }
         if is_exported_lazy_declaration(node) {
@@ -1269,7 +1284,9 @@ mod tests {
             </>\n\
         }";
         let tape = parse(source);
-        let module = lower(Node::root(&tape).unwrap()).expect("semantic IR");
+        let module =
+            lower_with_options(Node::root(&tape).unwrap(), false, AuthoredLazyPolicy::Allow)
+                .expect("semantic IR");
 
         assert_eq!(
             module

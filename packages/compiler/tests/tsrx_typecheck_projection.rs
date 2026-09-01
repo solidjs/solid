@@ -138,19 +138,35 @@ fn tooling_recovers_incomplete_editor_snapshots_without_loosening_compilation() 
 }
 
 #[test]
-fn projects_lazy_defaults_dynamic_tags_and_scoped_styles() {
+fn tooling_rejects_authored_lazy_destructuring() {
+    let error = project_tsrx_for_typecheck(
+        "export function Card(model) @{ const &{ title } = model; <p>{title}</p> }",
+        &TsrxTypecheckProjectionOptions {
+            filename: Some("authored-lazy.tsrx".into()),
+        },
+    )
+    .expect_err("authored lazy destructuring must be rejected");
+    assert!(
+        error
+            .message()
+            .contains("Solid's TSRX frontend does not support authored lazy destructuring"),
+        "{error}"
+    );
+}
+
+#[test]
+fn projects_dynamic_tags_and_scoped_styles() {
     let source = r#"export function Card({ model, Tag }: Props) @{
-  const &{ title = "untitled", nested: { count = 0 } } = model;
   <>
     <style>.card { color: red }.unused { color: blue }</style>
-    <div>{title}:{count}</div>
+    <div>{model.title ?? "untitled"}:{model.nested.count ?? 0}</div>
     <{Tag} class="card" />
   </>
 }"#;
     let output = project(source);
 
-    assert!(output.code.contains("const __lazy0 = model"));
-    assert!(output.code.contains("=== void 0"));
+    assert!(output.code.contains("model.title"));
+    assert!(output.code.contains("model.nested.count"));
     assert!(
         output.code.contains("<__tsrx_Dynamic0 component={Tag}"),
         "{}",

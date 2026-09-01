@@ -104,7 +104,7 @@ afterAll(() => {
 });
 
 describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
-  test("supports lazy bindings across lexical loops and var scopes", async () => {
+  test.skip("supports dormant authored lazy bindings across lexical loops and var scopes", async () => {
     const source = `
       export function lazyLoops() @{
         const seen = [];
@@ -153,7 +153,7 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
     expect(() => runtime.lexicalRhsTdz()).toThrow(ReferenceError);
   });
 
-  test("keeps lazy arrow parameters deferred", async () => {
+  test.skip("keeps dormant authored lazy arrow parameters deferred", async () => {
     const source = `
       export const inspect = (
         prefix,
@@ -175,7 +175,7 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
     expect(input.nested.count).toBe(3);
   });
 
-  test("preserves advanced lazy destructuring semantics", async () => {
+  test.skip("preserves dormant authored lazy destructuring semantics", async () => {
     const source = `
       export function defaults() @{
         let backing;
@@ -372,7 +372,7 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
           </ul>
           @try {
             <Broken />
-          } @catch (&{ message = "fallback", ...details }) {
+          } @catch ({ message = "fallback", ...details }) {
             <p class="error">{message}:{details.code}</p>
           }
         </section>

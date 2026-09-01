@@ -1,11 +1,36 @@
 const babel = require("@babel/core");
 const plugin = require("../index");
 
+let analyzeTsrx;
+let applyLazyTransforms;
+let desugarProgram;
+let parseModule;
+let restoreIntrinsicJsxNames;
+let toBabelFile;
+
+beforeAll(async () => {
+  const [core, desugar, lazy, converter] = await Promise.all([
+    import("@tsrx/core"),
+    import("../src/tsrx/desugar.ts"),
+    import("../src/tsrx/lazy.ts"),
+    import("../src/tsrx/estree-to-babel.ts")
+  ]);
+  ({ analyzeTsrx, parseModule } = core);
+  ({ desugarProgram, restoreIntrinsicJsxNames } = desugar);
+  ({ applyLazyTransforms } = lazy);
+  ({ toBabelFile } = converter);
+});
+
 function compile(code) {
-  return babel.transformSync(code, {
+  const program = parseModule(code, "lazy.tsrx");
+  analyzeTsrx(program, "lazy.tsrx");
+  desugarProgram(program);
+  const transformed = applyLazyTransforms(program);
+  restoreIntrinsicJsxNames(transformed);
+  return babel.transformFromAstSync(toBabelFile(transformed), code, {
     babelrc: false,
     configFile: false,
-    filename: "lazy.tsrx",
+    filename: "lazy.jsx",
     plugins: [[plugin, { generate: "dom" }]]
   }).code;
 }
@@ -14,7 +39,7 @@ function execute(code) {
   return Function(`${compile(code)}\nreturn result;`)();
 }
 
-describe("TSRX lazy destructuring", () => {
+describe("dormant TSRX authored lazy-destructuring lowering", () => {
   test("defaults use undefined semantics and updates write the defaulted value", () => {
     const result = execute(`
       let backing;

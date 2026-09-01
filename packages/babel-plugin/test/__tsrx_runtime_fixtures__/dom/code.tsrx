@@ -5,9 +5,8 @@ const [rows, setRows] = createSignal([
   { id: 1, label: "one" },
   { id: 2, label: "two" }
 ]);
-let &[count, setCount] = createSignal(0);
+const [count, setCount] = createSignal(0);
 const model = { version: 0 };
-let &{ version } = model;
 
 export function App() @{
   <section>
@@ -41,9 +40,9 @@ export function settle() {
 }
 
 export function bumpVersion() {
-  return ++version;
+  return ++model.version;
 }
 
 export function modelVersion() {
-  return version;
+  return model.version;
 }

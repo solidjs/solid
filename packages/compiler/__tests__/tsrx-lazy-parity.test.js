@@ -15,7 +15,33 @@ function compare(source) {
   expect(normalize(oxc)).toBe(normalize(babel));
 }
 
-describe("native TSRX advanced lazy parity", () => {
+describe("native TSRX compiler-generated deferred binding parity", () => {
+  test("matches keyed loops with destructured deferred bindings", () => {
+    compare(`
+      export function View({ rows }) @{
+        <ul>
+          @for (const { id, label = id, ...rest } of rows; index index; key id) {
+            <li data-id={id}>{index}: {label} / {rest.extra}</li>
+          }
+        </ul>
+      }
+    `);
+  });
+
+  test("matches destructured catch bindings with defaults and rest", () => {
+    compare(`
+      export function View() @{
+        @try {
+          <Broken />
+        } @catch ({ message = "fallback", ...details }, reset) {
+          <button onClick={reset}>{message}: {details.name}</button>
+        }
+      }
+    `);
+  });
+});
+
+describe.skip("dormant native TSRX authored lazy-destructuring parity", () => {
   test("matches defaults, compound assignments, and updates", () => {
     compare(`
       export function run() @{

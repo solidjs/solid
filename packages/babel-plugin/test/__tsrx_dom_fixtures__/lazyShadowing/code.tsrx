@@ -1,4 +1,4 @@
-export function Shadowed(&{ name, items }) @{
+export function Shadowed({ name, items }) @{
   const format = (name) => `[${name}]`;
   const mapper = items.map((entry) => {
     const name = entry.key;

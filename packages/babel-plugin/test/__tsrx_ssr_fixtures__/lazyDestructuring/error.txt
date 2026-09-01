@@ -1,0 +1,1 @@
+Solid's TSRX frontend does not support authored lazy destructuring

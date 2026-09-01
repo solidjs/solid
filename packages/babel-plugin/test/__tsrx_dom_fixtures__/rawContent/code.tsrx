@@ -13,7 +13,7 @@ export function Raw({ html, text }) @{
   </article>
 }
 
-export function LazyRaw(&{ html, text }) @{
+export function NestedRaw({ html, text }) @{
   <div>
     <div innerHTML={html} />
     <p textContent={text} />

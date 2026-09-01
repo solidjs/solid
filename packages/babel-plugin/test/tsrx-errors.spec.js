@@ -118,6 +118,35 @@ describe("TSRX diagnostics", () => {
     ).rejects.toThrow();
   });
 
+  test.each([
+    "export function C(source) @{ const &{ value } = source; <p>{value}</p> }",
+    "export function C(source) @{ let &[value] = source; <p>{value}</p> }",
+    "export function C(&{ value }) @{ <p>{value}</p> }",
+    "export function C(source) @{ &{ value } = source; <p>{value}</p> }",
+    "export function C() @{ @try { <Broken /> } @catch (&{ message }) { <p>{message}</p> } }"
+  ])("authored lazy destructuring is unsupported by the Solid target", async source => {
+    await expect(compile(source)).rejects.toThrow(
+      /Solid's TSRX frontend does not support authored lazy destructuring/
+    );
+  });
+
+  test("compiler-generated deferred patterns remain available to control flow", async () => {
+    const code = await compile(`export function C({ rows }) @{
+  <>
+    @for (const { id, label = id } of rows; key id) {
+      <p>{label}</p>
+    }
+    @try {
+      <Broken />
+    } @catch ({ message }) {
+      <p>{message}</p>
+    }
+  </>
+}`);
+    expect(code).toContain("For");
+    expect(code).toContain("Errored");
+  });
+
   test("syntax: 'jsx' disables TSRX routing even for .tsrx filenames", async () => {
     await expect(
       compile(

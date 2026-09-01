@@ -210,6 +210,7 @@ function fixtureNames(mode) {
     .readdirSync(dir, { withFileTypes: true })
     .filter(entry => entry.isDirectory())
     .filter(entry => fs.existsSync(path.join(dir, entry.name, sourceFile)))
+    .filter(entry => !fs.existsSync(path.join(dir, entry.name, "error.txt")))
     .map(entry => entry.name)
     .filter(name => !babelOnly.includes(name))
     .sort();

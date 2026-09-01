@@ -80,7 +80,7 @@ const result = transform(source, {
 
 ### TSRX (experimental)
 
-TSRX (TypeScript Render Extensions) is a syntax for declarative UI whose constructs (`@if`/`@else`, `@for … @empty`, `@switch`/`@case`, `@try`/`@catch`/`@pending`, `@{}` statement containers, lazy destructuring `&{ }` / `&[ ]`) desugar to the Solid control-flow components. `.tsrx` filenames route through the TSRX frontend automatically and compile to the same output as `@solidjs/babel-plugin`'s TSRX support, byte for byte.
+TSRX (TypeScript Render Extensions) is a syntax for declarative UI whose constructs (`@if`/`@else`, `@for … @empty`, `@switch`/`@case`, `@try`/`@catch`/`@pending`, and `@{}` statement containers) desugar to the Solid control-flow components. `.tsrx` filenames route through the TSRX frontend automatically and compile to the same output as `@solidjs/babel-plugin`'s TSRX support, byte for byte.
 
 ```js
 const result = transform(tsrxSource, { filename: "App.tsrx" });
@@ -93,7 +93,7 @@ Routing follows the filename by default (`syntax: "auto"`); pass `syntax: "tsrx"
 
 Scoped `<style>` blocks are compile-time only. The compiler removes the style element, adds its `tsrx-<hash>` class to matching native and dynamic elements, scopes and prunes the CSS, and returns the stylesheet in `css` with its scope identifier in `cssHash`. Style expressions produce class-map objects, `<style ref={styles}>` initializes the requested class map, and `:global(...)` opts individual selectors out of scoping. A bundler integration must emit the returned CSS; the core compiler does not inject a runtime style helper.
 
-Lazy patterns support synchronous and asynchronous arrow parameters, nested, renamed, and computed bindings, JavaScript-style defaults, object/array rest, and standalone `&{ … } = value;` / `&[ … ] = value;` statements. Defaults apply only when the deferred value is `undefined`; rest bindings are fresh read-only views. Matching the JavaScript TSRX parser, defaults are not yet accepted in standalone assignment patterns.
+Solid rejects authored TSRX lazy destructuring (`&{ … }` / `&[ … ]`). Keep accessor calls and reactive property reads explicit in Solid source.
 
 Destructured bindings in keyed `@for` loops and `@catch` clauses stay deferred against Solid's item and error accessors, including nested patterns, defaults, computed keys, and rest.
 

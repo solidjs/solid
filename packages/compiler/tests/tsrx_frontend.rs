@@ -75,7 +75,12 @@ fn compile_corpus(dir: &str, generate: Generate) -> Vec<(String, String)> {
             source_map: true,
             ..fixture_options(generate)
         };
+        let expected_error = std::fs::read_to_string(fixture.join("error.txt")).ok();
         match compile(&source, &options) {
+            Ok(output) if expected_error.is_some() => {
+                failures.push(format!("{dir}/{name}: expected compilation to fail"));
+                drop(output);
+            }
             Ok(output) => {
                 assert!(
                     output.source_map.is_some(),
@@ -83,6 +88,13 @@ fn compile_corpus(dir: &str, generate: Generate) -> Vec<(String, String)> {
                 );
                 outputs.push((name, output.code));
             }
+            Err(error)
+                if expected_error.as_ref().is_some_and(|expected| {
+                    error
+                        .message()
+                        .to_ascii_lowercase()
+                        .contains(&expected.trim().to_ascii_lowercase())
+                }) => {}
             Err(error) => failures.push(format!("{dir}/{name}: {error}")),
         }
     }
@@ -174,15 +186,6 @@ fn compiles_the_dom_fixture_corpus() {
     assert!(simple.contains("_$template"), "template call: {simple}");
     assert!(simple.contains("_$insert"), "dynamic insert: {simple}");
 
-    let lazy = by_name("lazyDestructuring");
-    assert!(lazy.contains("__lazy"), "lazy rename: {lazy}");
-
-    let lazy_scopes = by_name("lazyScopes");
-    assert!(
-        lazy_scopes.contains("__lazy0.count++") && lazy_scopes.contains("++__lazy0.count"),
-        "lazy update target rewrite: {lazy_scopes}"
-    );
-
     let keyed = by_name("forKeyed");
     assert!(keyed.contains("_$For"), "For auto-import: {keyed}");
 
@@ -194,8 +197,8 @@ fn compiles_the_dom_fixture_corpus() {
 
     let lazy_shadowing = by_name("lazyShadowing");
     assert!(
-        lazy_shadowing.contains("__lazy") && lazy_shadowing.contains("inner"),
-        "lazy binding around expression-position container: {lazy_shadowing}"
+        lazy_shadowing.contains("Shadowed({") && lazy_shadowing.contains("let name = \"inner\""),
+        "lexical shadowing around expression-position container: {lazy_shadowing}"
     );
 }
 
@@ -218,30 +221,30 @@ fn compiles_the_universal_fixture_corpus() {
 }
 
 #[test]
-fn compiles_standalone_lazy_assignment_statements() {
-    let source = "export function run(source) @{\n\
-        &{ value, ...rest } = source;\n\
-        &[first, ...tail] = source.items;\n\
-        value++;\n\
-        return [value, rest, first, tail];\n\
-        <p />\n\
-    }";
-    let options = CompileOptions {
-        filename: Some("standalone-lazy.tsrx".into()),
-        ..fixture_options(Generate::Dom)
-    };
-    let output = compile(source, &options).expect("standalone lazy assignments compile");
-    assert!(
-        output.code.contains("const __lazy0 = source;"),
-        "{}",
-        output.code
-    );
-    assert!(
-        output.code.contains("const __lazy1 = source.items;"),
-        "{}",
-        output.code
-    );
-    assert!(output.code.contains("__lazy0.value++"), "{}", output.code);
+fn rejects_authored_lazy_destructuring_for_the_solid_target() {
+    for source in [
+        "export function C(source) @{ const &{ value } = source; <p>{value}</p> }",
+        "export function C(source) @{ let &[value] = source; <p>{value}</p> }",
+        "export function C(&{ value }) @{ <p>{value}</p> }",
+        "export function C(source) @{ &{ value } = source; <p>{value}</p> }",
+        "export function C() @{ @try { <Broken /> } @catch (&{ message }) { <p>{message}</p> } }",
+    ] {
+        let error = compile(
+            source,
+            &CompileOptions {
+                filename: Some("authored-lazy.tsrx".into()),
+                ..fixture_options(Generate::Dom)
+            },
+        )
+        .expect_err("authored lazy destructuring must be rejected");
+        assert_eq!(error.kind(), CompileErrorKind::Parse);
+        assert!(
+            error
+                .message()
+                .contains("Solid's TSRX frontend does not support authored lazy destructuring"),
+            "{source}: {error}"
+        );
+    }
 }
 
 #[test]
@@ -270,31 +273,6 @@ export function Card(props: { visible: boolean; name: string }) @{
     assert_maps_to(&output, "marker", 0, source, "marker");
     assert_maps_to(&output, "props.visible", 0, source, "props.visible");
     assert_maps_to(&output, "props.name", 0, source, "props.name");
-}
-
-#[test]
-fn source_maps_follow_lazy_reads_back_to_their_authored_use() {
-    let source = r#"export function User(props: { name: string }) @{
-  const &{ name } = props;
-  <p>{name}</p>
-}"#;
-    let output = compile(
-        source,
-        &CompileOptions {
-            filename: Some("lazy-user.tsrx".into()),
-            source_map: true,
-            ..fixture_options(Generate::Dom)
-        },
-    )
-    .expect("lazy TSRX source maps compile");
-
-    assert_maps_to(
-        &output,
-        "__lazy0.name",
-        "__lazy0.".len(),
-        source,
-        "name}</p>",
-    );
 }
 
 #[test]
@@ -334,41 +312,6 @@ fn source_maps_cover_reordered_switches_and_accessor_rewrites() {
     .expect("keyed for source maps compile");
     assert_maps_to(&for_output, "item().name", 0, for_source, "item.name");
     assert_maps_to(&for_output, "index()", 0, for_source, "index +");
-}
-
-#[test]
-fn source_maps_reset_to_each_defaulted_lazy_use_after_fallbacks() {
-    let source = r#"export function Counter(source) @{
-  const &{ value = 1 } = source;
-  const read = value;
-  ++value;
-  <p>{read}</p>
-}"#;
-    let output = compile(
-        source,
-        &CompileOptions {
-            filename: Some("counter.tsrx".into()),
-            source_map: true,
-            ..fixture_options(Generate::Dom)
-        },
-    )
-    .expect("defaulted lazy source maps compile");
-
-    assert_maps_to(
-        &output,
-        "? 1 : __lazyValue0",
-        "? 1 : ".len(),
-        source,
-        "value;\n  ++",
-    );
-    assert_maps_to(
-        &output,
-        "__lazyValue1[__lazyValue2] = ++",
-        0,
-        source,
-        "value;\n  <p>",
-    );
-    assert_maps_to(&output, "++__lazyValue3", 0, source, "value;\n  <p>");
 }
 
 // -- syntax routing ----------------------------------------------------------
@@ -539,7 +482,7 @@ fn rejects_control_flow_and_structural_early_errors() {
         (
             "spaced lazy-pattern sigil",
             "export function C({ x }) @{ const & { value } = x; <p>{value}</p> }",
-            "Unexpected token",
+            "does not support authored lazy destructuring",
         ),
     ];
 

@@ -220,6 +220,15 @@ export function Rows({ rows }: { rows: { name: string }[] }) @{
     }
   });
 
+  test("rejects authored lazy destructuring", () => {
+    expect(() =>
+      projectTsrxForTypecheck(
+        "export function Card(model) @{ const &{ title } = model; <p>{title}</p> }",
+        { filename: "authored-lazy.tsrx" }
+      )
+    ).toThrow(/Solid's TSRX frontend does not support authored lazy destructuring/);
+  });
+
   test("supports diagnostics, completion, navigation, and rename through exact mappings", () => {
     const source = `type Row = { name: string };
 export function Rows({ rows }: { rows: Row[] }) @{
