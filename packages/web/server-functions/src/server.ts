@@ -2928,7 +2928,21 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // `event.response.headers` during a server function reach the wire.
   const dispatch = async () => {
     try {
-      let result = await provide(event, async () => {
+      // provideEvent's contract — run the callback, once, with `event`
+      // visible to getRequestEvent() — is enforced rather than assumed
+      // (#3172): every way a hand-written hook gets it wrong used to answer
+      // a successful-looking 200. The two data-integrity violations are
+      // counted here at the seam: a second invocation is refused BEFORE the
+      // function body runs again (a retry wrapper or a misplaced await
+      // double-committed a mutation under a 200, silently), and a hook that
+      // never invoked the callback must not resolve as a void success a
+      // caller cannot distinguish from a function that returned nothing.
+      // Both land on dispatch's catch — a sanitized 500 in production, the
+      // hook named in development — and the count is re-checked after the
+      // hook returns, so swallowing the in-flight refusal does not turn it
+      // back into a 200.
+      let invocations = 0;
+      const invokeOnce = async () => {
         // Identity is established BEFORE the wrapper runs, so
         // getServerFunctionInvocation() answers throughout the wrap — code
         // ahead of run() (auth, logging) included.
@@ -2937,7 +2951,31 @@ export async function handleServerFunctionRequest(request, options = {}) {
         return wrapInvocation
           ? wrapInvocation(run, { id: functionId, args: parsed, event, request, direct: false })
           : run();
+      };
+      let result = await provide(event, () => {
+        if (++invocations > 1) {
+          // thrown synchronously, never as a rejected promise: the second
+          // execution must not START, and a hook that ignores the return
+          // must not mint an unobserved rejection
+          throw new Error(
+            "provideEvent invoked the server function callback more than once: a second " +
+              "invocation would commit the call's side effects twice. The hook must call " +
+              "fn exactly once and return its result."
+          );
+        }
+        return invokeOnce();
       });
+      if (invocations !== 1) {
+        throw new Error(
+          invocations === 0
+            ? "provideEvent returned without invoking the server function callback: the call " +
+                "would have answered as a void success without running the function. The hook " +
+                "must call fn exactly once and return its result."
+            : "provideEvent invoked the server function callback more than once: a second " +
+                "invocation would commit the call's side effects twice. The hook must call " +
+                "fn exactly once and return its result."
+        );
+      }
 
       if (transformResult) {
         result = await transformResult(event, result, flightContext);
