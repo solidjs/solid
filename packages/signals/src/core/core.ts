@@ -525,7 +525,16 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // runs on the changed shape too, exactly as the landing path does —
     // insertSubs notifies value SUBSCRIBERS, not pending REGISTRANTS, and
     // the two sets only partially overlap.
-    if (wasPendingSource && !(el._statusFlags & STATUS_PENDING)) settlePendingSource(el);
+    //
+    // STATUS_UNINITIALIZED excluded: the walk compensates for a preempted
+    // LANDING, and a landing means truth exists. A node that leaves pending
+    // while still uninitialized (a projection driver whose first flight got
+    // superseded before any commit reached the observable store — TanStack
+    // Query's cache announces in the same step its promise chain rebuilds)
+    // has nothing to reveal; waking parked readers there serves them the
+    // initial face — undefined data a read layer promised was settled.
+    if (wasPendingSource && !(el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)))
+      settlePendingSource(el);
   }
   // Attribution hook: fired before the lane restore so `currentOptimisticLane`
   // still reflects THIS run's posture. The facts distinguish an overlay
