@@ -111,10 +111,19 @@ Gutting + regions, measured against next's budgets:
 4. **Deep paths.** The prototype bumps per adopted record; regions
    subscribe per record at any depth via the manifest. No ancestor
    bubbling — confirm against nested-template shapes.
-5. **Compiler partitioning.** rowProof's purity analysis generalizes to:
-   every template section between decision points is a region; proven-text
-   holes join it; unproven inserts stay isolated effects. The manifest
-   analysis feeds regionBind associations. This is the rc.6-scale work.
+5. **Compiler hole classification + subscription emission.** The
+   PARTITION already exists — template segmentation is decision-point
+   partitioning by construction, and the grouped effect already spans all
+   attributes across all elements. What remains is two extensions of that
+   emitter, not a new template model: (a) proven-text holes join the
+   existing group (`text.data` writes in the group body instead of
+   `insert()`; rowProof's purity analysis generalized from rows to
+   arbitrary holes, plus hydration claiming for absorbed text nodes), and
+   (b) store-backed groups emit `regionBind` + version-node subscriptions
+   with raw reads, falling back to tracked reads for unproven expressions
+   WITHIN the same effect. The manifest analysis already computes the read
+   sets. Materially smaller than "partitioner design" — the rc.6 compiler
+   work is an emitter evolution.
 
 ## 6. Status
 
