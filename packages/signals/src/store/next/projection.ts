@@ -61,7 +61,12 @@ import type { StoreNextFamily } from "./target.js";
  * driven from inside an enclosing authoritative-write scope (next-store
  * optimistic derives), and a hard `false` would clobber it mid-derive.
  */
-function wrapDraft(inner: any, isActive?: () => boolean, onDraftWrite?: () => void): any {
+function wrapDraft(
+  inner: any,
+  isActive?: () => boolean,
+  aroundWrite?: (op: () => void) => void
+): any {
+  const write = (op: () => void) => (aroundWrite ? aroundWrite(op) : op());
   const traps: ProxyHandler<any> = {
     get(_, prop) {
       let value;
@@ -76,7 +81,7 @@ function wrapDraft(inner: any, isActive?: () => boolean, onDraftWrite?: () => vo
       }
       if (prop === $TARGET) return value;
       return typeof value === "object" && value !== null
-        ? wrapDraft(value, isActive, onDraftWrite)
+        ? wrapDraft(value, isActive, aroundWrite)
         : value;
     },
     has(_, prop) {
@@ -98,8 +103,9 @@ function wrapDraft(inner: any, isActive?: () => boolean, onDraftWrite?: () => vo
       setWriteOverride(true);
       setProjectionWriteActive(true);
       try {
-        inner[prop] = value;
-        onDraftWrite?.();
+        write(() => {
+          inner[prop] = value;
+        });
       } finally {
         setWriteOverride(false);
         setProjectionWriteActive(was);
@@ -112,8 +118,9 @@ function wrapDraft(inner: any, isActive?: () => boolean, onDraftWrite?: () => vo
       setWriteOverride(true);
       setProjectionWriteActive(true);
       try {
-        delete inner[prop];
-        onDraftWrite?.();
+        write(() => {
+          delete inner[prop];
+        });
       } finally {
         setWriteOverride(false);
         setProjectionWriteActive(was);
@@ -154,8 +161,9 @@ function wrapDraft(inner: any, isActive?: () => boolean, onDraftWrite?: () => vo
       setWriteOverride(true);
       setProjectionWriteActive(true);
       try {
-        Reflect.defineProperty(inner, prop, desc);
-        onDraftWrite?.();
+        write(() => {
+          Reflect.defineProperty(inner, prop, desc);
+        });
       } finally {
         setWriteOverride(false);
         setProjectionWriteActive(was);
@@ -232,21 +240,11 @@ export function runProjectionComputedNext<T extends object>(
   wrappedStore: Store<T>,
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   key: string | ((item: NonNullable<any>) => any) | null,
-  wrapCommit?: (write: () => void, replacing?: boolean) => void,
-  onDraftWrite?: (replacing?: boolean) => void
+  wrapCommit?: (write: () => void, value: T) => void,
+  aroundDraftWrite?: (op: () => void) => void
 ): Computed<void | T> {
   const owner = getOwner() as Computed<void | T>;
   let settled = false;
-  // Flight gate (#3123 re-ruling): landings are REPLACING — the derive
-  // re-answering its question from scratch (navigation, refresh, poll) —
-  // until the invocation completes its FIRST answer: the first commit, or
-  // the flight's own resolution (a void draft-mutator's answer is the
-  // writes themselves; its resolution closes them). Landings after that —
-  // later yields, post-answer draft writes on a live iterable flight — are
-  // CONTINUATIONS of one living answer. The optimistic layer treats them
-  // differently: replacement drops retained edits (#2719: a pending add
-  // must not ghost onto the next dataset), continuation re-executes them.
-  let landed = false;
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
   // Open loading window (seedLoadingValue): the observable store IS commit #0
   // for the whole first flight — the derive works a detached shadow of the
@@ -258,7 +256,7 @@ export function runProjectionComputedNext<T extends object>(
   const draft = wrapDraft(
     wrappedStore,
     () => !settled || owner._x?._inFlight === result,
-    onDraftWrite && (() => onDraftWrite(!landed))
+    aroundDraftWrite
   );
   storeSetterNext(
     draft,
@@ -271,15 +269,10 @@ export function runProjectionComputedNext<T extends object>(
         // would fuse the draft to the observable store).
         if (shadow && (v === undefined || v === (shadow as any)))
           v = JSON.parse(JSON.stringify(shadow)) as T;
-        const replacing = !landed;
-        // The answer is complete on ANY arrival here — a void/self return
-        // included: it commits nothing, but it closes the flight's first
-        // answer, so later draft writes on a live flight are continuations.
-        landed = true;
         if (v === (s as any) || v === undefined) return;
         const write = () =>
           storeSetterNext(wrappedStore, st => reconcileNextState(v, st, key, true), false);
-        wrapCommit ? wrapCommit(write, replacing) : write();
+        wrapCommit ? wrapCommit(write, v as T) : write();
       };
       const sync = handleAsync(owner, result, commit);
       if (!owner._loading) commit(sync as void | T);

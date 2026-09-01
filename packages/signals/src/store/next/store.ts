@@ -463,8 +463,29 @@ export function materializePB(target: StoreNextTarget): void {
 }
 
 function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
-  if (activeTransition !== null) foldBatches.set(target, activeTransition);
   let pb = target.pb;
+  // Truth-staged backing hand-off (#3164 fold): a TENTATIVE draft opening on
+  // a target whose pending backing is truth-staged (a landing folded into a
+  // retaining transaction — it carries a foldBatches stamp) must not share
+  // the container. Tentative writes would pollute staged truth, and the
+  // tentative discard (notifyOptimisticWrites nulls pb) would destroy the
+  // landing. Park the staged backing and open a fresh draft seeded from the
+  // optimistic view below; the tentative discard restores it. The
+  // tentativePBs guard scopes this to draft OPEN: the draft's own backing
+  // (foldBatches-stamped by its first write when an action's transition is
+  // ambient) must not be parked by its own later writes.
+  if (
+    pb !== null &&
+    !tentativePBs.has(pb) &&
+    target.fam?.opt === true &&
+    !projectionWriteActive &&
+    !getWriteOverride() &&
+    foldBatches.has(target)
+  ) {
+    stagedTruthPB.set(target, pb);
+    pb = target.pb = null;
+  }
+  if (activeTransition !== null) foldBatches.set(target, activeTransition);
   if (pb === null) {
     // Prototype-chain overlay (#3044): plain-data non-array containers
     // outside projection/optimistic families open drafts in O(1) — own keys
@@ -486,6 +507,7 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
     // seed from committed truth — seeding overrides there would fold a lane
     // value into the committed home ("authority wins at reveal" would break).
     if (target.fam?.opt && !projectionWriteActive && !getWriteOverride()) {
+      tentativePBs.add(pb);
       const nodes = target.n;
       if (nodes !== null) {
         for (const key of Reflect.ownKeys(nodes)) {
@@ -566,11 +588,6 @@ export function adoptPB(
     }
   }
   target.pb = null;
-  // RUL-2 consumption gate (#3123): the reconcile channel's contradiction
-  // mark must fire HERE, inside the landing's synchronous commit — its
-  // notification (notifyFold) defers to the fold drain, which runs at flush,
-  // AFTER the projection's consumeOverridesNext has already intersected.
-  if (target.fam?.opt === true) optHooks!._markLandingContradiction(target, target.v, incoming);
   // Overlay and accessor-scan state describe the OUTGOING backing — a
   // swapped container must not inherit them: a stale `ovl` beside a nulled
   // pb crashes materializePB (unwrapValue consults ovl before the
@@ -622,6 +639,19 @@ function queueFold(target: StoreNextTarget): void {
  * Refreshed on every write; resolved through currentTransition at drain
  * (transitions merge — same rule as heldMaskView). */
 const foldBatches = new WeakMap<StoreNextTarget, Transition>();
+
+/** Parked truth-staged pending backings (#3164 fold): a tentative draft that
+ * opens while a folded landing's backing is live moves the staged container
+ * here (see ensurePB); the tentative discard in notifyOptimisticWrites
+ * restores it in place of the usual null. */
+export const stagedTruthPB = new WeakMap<StoreNextTarget, Record<PropertyKey, any>>();
+
+/** Backings opened by TENTATIVE drafts (optimistic user setters): ensurePB's
+ * truth-park must not fire against the draft's own container on its second
+ * and later writes (the first write stamps foldBatches whenever an action's
+ * transition is ambient). Entries die with their draft — tentative backings
+ * are consumed at setter exit. */
+const tentativePBs = new WeakSet<object>();
 
 /** Committed-time privatization for parent-chain slot updates (path copying). */
 function privatizeCommitted(target: StoreNextTarget): void {
@@ -943,17 +973,7 @@ function notifyWrites(t: StoreNextTarget): void {
           ? arrayStructureChanged(old as any[], pb as any[])
           : membershipChanged(old, pb);
     }
-    if (changed) {
-      setSignal(t.k, v => v + 1);
-      // Only landings reach this channel on an optimistic family (user
-      // writes early-returned into notifyOptimisticWrites), and setter-exit
-      // notification runs INSIDE the landing's write — before its
-      // consumeOverridesNext — so this draft-write mark lands in the right
-      // consumption window (RUL-2 gate, #3123). The reconcile channel's
-      // twin lives in adoptPB (its notify defers to the fold drain, which
-      // runs after consumption).
-      if (t.fam?.opt === true) optHooks!._markLandingContradiction(t, old, pb);
-    }
+    if (changed) setSignal(t.k, v => v + 1);
   }
   // Patch channel (setter site): a committed write transitions this record —
   // queue its patches and bubble to ancestors (targeted nested writes must
@@ -972,7 +992,13 @@ function notifyWrites(t: StoreNextTarget): void {
   //   IMMEDIATE — landed truth shows to untracked readers even while a
   //   downstream consumer's own async still holds the effect-level reveal
   //   (spec-async "verdicts never inherit consumers' in-flight state").
-  if (t.fam !== null && t.pb !== null && getWriteOverride()) {
+  //   EXCEPT under an active transaction (#3164 fold): a landing riding a
+  //   retaining transaction (the optimistic module's aroundWrite binds it)
+  //   stages instead — ensurePB stamped foldBatches, so the backing commits
+  //   with the transaction and the reveal is atomic at settle. The pinned
+  //   immediate-commit contract is stated over the no-transaction microtask
+  //   posture, which `activeTransition === null` is exactly.
+  if (t.fam !== null && t.pb !== null && getWriteOverride() && activeTransition === null) {
     // Landed truth (post-await write-override): immediately visible to every
     // reader — any staged held view is superseded.
     if (t.ht !== null) t.ht = t.hv = null;
@@ -1275,16 +1301,37 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
     target.pb !== null &&
     (inDraft(target) ||
       getWriteOverride() ||
-      inOwnerContext() ||
+      // Owner-context readers see the pending backing — EXCEPT held truth
+      // on an optimistic family (#3164 fold): a live pb on an opt family
+      // outside the draft/write-override windows is a staged landing
+      // (tentative drafts never outlive their setter), and only the
+      // authoritative postures and latest() see it (the backing-level twin
+      // of core read()'s A17-for-held-truth arm; ordinary readers keep
+      // committed until the transaction's reveal).
+      (inOwnerContext() && !heldTruthMasked(target)) ||
       // A projection's pending backing is authoritative-elect: serve it to
       // context-free readers too UNLESS a transition is holding the node
       // commits (downstream async hold — stale committed is the contract)
       // or the reader is a CHILDREN_FORBIDDEN scope, which never observes
       // its own unsettled write (#3082, signal parity per #3006).
-      (target.fam !== null && !foldHeld(target) && !inForbiddenScope()))
+      (target.fam !== null && !heldTruthMasked(target) && !foldHeld(target) && !inForbiddenScope()))
   )
     return target.pb;
   return target.v;
+}
+
+/** #3164 fold: HELD truth on an optimistic family — a pending backing
+ * stamped by a live transition that retains optimism — is masked from
+ * ordinary readers (they keep committed until the transaction's reveal);
+ * the authoritative postures and latest() tunnel through. Un-stamped
+ * backings and optimism-free transitions keep ordinary mid-batch/
+ * speculation visibility. */
+function heldTruthMasked(target: StoreNextTarget): boolean {
+  if (target.fam?.opt !== true || latestReadActive || authoritativeServe()) return false;
+  const fb = foldBatches.get(target);
+  // opt families are only created by createOptimisticStore, whose module
+  // install populates optHooks — the assertion holds by construction.
+  return fb !== undefined && optHooks!.retainsOptimism(fb);
 }
 
 const hasOwn = Object.prototype.hasOwnProperty;
@@ -1359,7 +1406,20 @@ function nodeValue(node: Signal<any>, backing: any): any {
   const v =
     !authoritativeServe() && hasActiveOverride(node)
       ? unwrapOverride(node._x?._overrideValue)
-      : node._pendingValue !== NOT_PENDING && (latestReadActive || inOwnerContext())
+      : node._pendingValue !== NOT_PENDING &&
+          (latestReadActive ||
+            // Owner-context pending visibility — except HELD truth on an
+            // armed node (#3164 fold: fold-staged under a live optimism-
+            // retaining transition, per the shared _heldTruthMasked hook),
+            // which only authoritative/latest readers see (core read()'s
+            // A17-for-held-truth twin; ordinary readers keep committed until
+            // the transaction's reveal).
+            ((inOwnerContext() || authoritativeServe()) &&
+              !(
+                node._config & CONFIG_OPTIMISTIC &&
+                !authoritativeServe() &&
+                GlobalQueue._heldTruthMasked?.(node)
+              )))
         ? node._pendingValue
         : backing;
   return v === (FORCE as any) ? backing : v;
@@ -1622,7 +1682,15 @@ const traps: ProxyHandler<StoreNextTarget> = {
           if (target.s) return serveShallow(target, key, nv);
           return isWrappable(nv) ? draftServe(target, wrapNext(nv, target, key)) : nv;
         }
-      } else if (v === undefined && inDraft(target) && target.fam?.opt && target.pb === null) {
+      } else if (
+        v === undefined &&
+        inDraft(target) &&
+        target.fam?.opt &&
+        target.pb === null &&
+        // AUTHORITATIVE drafts (landing folds) never seed from overrides —
+        // the caller's optimism is not truth (has-trap twin below).
+        !authoritativeServe()
+      ) {
         const node = target.n?.[key];
         if (node !== undefined && hasActiveOverride(node))
           v = unwrapOverride(node._x?._overrideValue);

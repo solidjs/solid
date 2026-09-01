@@ -1,5 +1,0 @@
----
-"@solidjs/signals": patch
----
-
-Optimistic stores now retain setter calls and re-execute them across contradicting continuation landings (#3123 reopen). An optimistic edit is recorded as the user's setter with its owning transaction; when a same-flight landing (a later yield or draft write of the live derive invocation) changes the base underneath live optimism, the store wipes the armed overrides and replays the still-open transactions' setters against the landed truth instead of consuming them — overlapping actions no longer flash each other's pending rows out. Replayed keyed adds whose key the landing already carries are recognized as confirmed and deduped (blind pushes are echo-safe on keyed rows); unkeyed setters follow the reducer contract and re-run over whatever base stands. A replacing landing — a re-invocation's first answer (navigation, refresh, poll) — still consumes optimism and drops retained edits (#2719 unchanged: a pending add never ghosts onto the next dataset). Settling a transaction re-derives survivors so entangled edits don't float over reverted rows.

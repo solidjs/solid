@@ -1219,7 +1219,20 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       GlobalQueue._laneReadsCommitted!(el, owner, c as Computed<any>)) ||
     el._pendingValue === NOT_PENDING ||
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
-    (stale && el._transition && activeTransition !== el._transition)
+    (stale && el._transition && activeTransition !== el._transition) ||
+    // A17 for HELD truth on ARMED nodes (#3164 fold): fold-staged truth
+    // riding a live optimism-retaining transition (the hook's verdict —
+    // staged overrides stay visible, they ARE the optimism) is masked from
+    // ordinary readers — the retaining transaction's own speculative
+    // recomputes included: partial override coverage would otherwise
+    // compose override + staged truth into a state no timeline contains
+    // (GabbeV's union tear). The revert at settle is their notification
+    // point. Authoritative readers (until()'s predicate) and latest() see
+    // the staged truth — the tunnel that keeps the hold deadlock-free.
+    (el._config & CONFIG_OPTIMISTIC &&
+      !latestReadActive &&
+      !(c._config & CONFIG_AUTHORITATIVE_READ) &&
+      GlobalQueue._heldTruthMasked?.(el))
       ? el._value
       : (el._pendingValue as T);
   // Record that this isPending() probe observed the fresh pending value, so

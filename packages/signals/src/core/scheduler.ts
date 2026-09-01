@@ -492,6 +492,13 @@ export class GlobalQueue extends Queue {
   static _notifyAuthoritativeObservers: ((el: Signal<any> | Computed<any>) => void) | null = null;
   static _laneAsyncSettled: ((el: Computed<any>) => void) | null = null;
   static _trackOptimisticStore: ((store: any) => void) | null = null;
+  /** Held-truth mask (#3164 fold, installed by the optimistic store module):
+   * true when a node's staged `_pendingValue` is fold-staged TRUTH riding a
+   * live optimism-retaining transition — masked from ordinary readers (they
+   * keep committed until the reveal). Core read()'s call site is gated by
+   * CONFIG_OPTIMISTIC, which only optimistic modules set; the hook stays out
+   * of the core floor (pay-for-use). */
+  static _heldTruthMasked: ((el: Signal<any>) => boolean) | null = null;
   flush() {
     if (this._running) return;
     // Fast drain: nothing in flight but plain pending commits — no dirty
@@ -1124,6 +1131,27 @@ export function currentTransition(transition: Transition) {
   while (transition._done && typeof transition._done === "object") transition = transition._done;
   return transition;
 }
+
+/** #3164 fold: a stamped truth is HELD (masked from ordinary readers until
+ * the reveal) only while its transition is live AND retaining optimism —
+ * overrides are what make partial-coverage composition a tear. A plain
+ * async transition carries no overrides, so downstream computes must see
+ * staged values to converge (normal speculation). Resolves merges first:
+ * merge unions optimistic nodes/stores into the target. */
+export function transitionHoldsOptimism(transition: Transition): boolean {
+  const t = currentTransition(transition);
+  return t._done !== true && (t._optimisticNodes.length !== 0 || t._optimisticStores.size !== 0);
+}
+
+/** Nodes whose current `_pendingValue` is fold-staged TRUTH (#3164): marked
+ * by the optimistic module's staging sites (the only writers of truth onto
+ * armed nodes mid-hold). The read paths mask these from ordinary readers —
+ * a staged override is indistinguishable from staged truth by node state
+ * alone, and overrides must stay visible (they ARE the optimism), so
+ * membership here is the discriminator. Entries go inert once the pending
+ * value commits (the read arms gate on a live pending + a live retaining
+ * transition); no removal pass is needed. */
+export const heldTruthNodes = new WeakSet<object>();
 
 export function setActiveTransition(transition: Transition | null) {
   activeTransition = transition;

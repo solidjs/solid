@@ -1,4 +1,5 @@
 import {
+  CONFIG_AUTHORITATIVE_OBSERVED,
   CONFIG_CHILD_COMPANIONS,
   CONFIG_AUTO_DISPOSE,
   CONFIG_SYNC,
@@ -411,6 +412,17 @@ export function handleAsync<T>(
       if (!hasActiveOverride(el)) {
         if (__DEV__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, true);
         insertSubs(el);
+      } else if (el._config & CONFIG_AUTHORITATIVE_OBSERVED) {
+        // A17 silence is stated over ordinary readers; an authoritative-view
+        // reader (until()'s predicate) observed this node PAST its override
+        // and is waiting for exactly this staged truth. Without the wake the
+        // hold deadlocks: the landing waits on the transaction, the
+        // transaction on the action, the action on an until() that was never
+        // re-notified (#3164). Same selective wake as the equal-landing
+        // branch in recompute(). Optional call: the bit implies the
+        // optimistic engine WAS consulted, but the hook only installs with
+        // it — a bare-core build must not crash here.
+        GlobalQueue._notifyAuthoritativeObservers?.(el);
       }
       el._time = clock;
     } else if (lane) {

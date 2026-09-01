@@ -28,19 +28,16 @@ export interface StoreNextFamily {
   /** Targets currently carrying active node overrides (landing-consumption
    * walk, RUL-2: visible landed truth replaces optimism). */
   overlaid?: Set<any>;
-  /** Retained optimistic edits (RUL-2 as re-ruled for #3123 reopen): each
-   * transaction-owned setter call, in invocation order — the durable record
-   * of tentative intent. Armed nodes are only its MATERIALIZATION: a landing
-   * that contradicts the family wipes them and replays the live entries
-   * against the new base (the setter re-derives its own positions — no
-   * intent inference). Entries drop when their transition resolves dead
-   * (pruned at replay) or on replay failure. */
-  re?: Array<[any, (draft: any) => any]>;
+  /** Retaining transactions (#3164 fold ruling): every transaction that made
+   * an optimistic setter call on this family and may still be open. While
+   * any member is live, truth landings FOLD — they stage into the retaining
+   * transaction and reveal atomically at its settle, exactly like a signal
+   * landing under an active override. Dead members prune lazily at each
+   * landing (retainingTransition). */
+  rt?: Set<any>;
   /** Normalized row-key fn (same resolution as the projection channels:
-   * `options.key`, "id" default, null = unkeyed). Replay's satisfaction rule
-   * reads it: a re-executed add whose key the base already carries was
-   * satisfied by the landing — kept, it would be a duplicate key in a keyed
-   * store, an invalid state no user wrote. */
+   * `options.key`, "id" default, null = unkeyed). The staged-landing walk
+   * reads it: key-matched rows keep their proxy identity across a fold. */
   key?: ((item: any) => any) | null;
   map: WeakMap<object, StoreNextTarget>;
   /** The projection computed — assigned after creation (accessor pattern). */
@@ -185,18 +182,10 @@ export interface OptStoreHooks {
   notifyOptimisticWrites(t: any, pb: Record<PropertyKey, any>): void;
   optimisticView(t: any, src: Record<PropertyKey, any>): Record<PropertyKey, any>;
   applyTentative(t: any, incoming: any, keyFn: ((item: any) => any) | null): void;
-  /** RUL-2 consumption gate (#3123): a landing that changes a target's
-   * key-set verdict (array index/length change, object membership change)
-   * CONTRADICTS the base its overrides were computed against — mark it so
-   * consumeOverridesNext consumes. An equal landing marks nothing and holds:
-   * the equality cut gates consumption the same way it gates propagation.
-   * Call sites must run INSIDE the landing's synchronous commit (adoptPB,
-   * setter-exit notify) — fold-drain notification is too late. */
-  _markLandingContradiction(
-    t: any,
-    old: Record<PropertyKey, any>,
-    neu: Record<PropertyKey, any>
-  ): void;
+  /** #3164 fold: does this live transaction still retain optimism (armed
+   * nodes or tracked stores)? Backs the held-truth masks in next/store.ts so
+   * plain-store bundles don't carry the transition-optimism probe. */
+  retainsOptimism(t: any): boolean;
 }
 export let optHooks: OptStoreHooks | null = null;
 export function setOptHooks(h: OptStoreHooks): void {
