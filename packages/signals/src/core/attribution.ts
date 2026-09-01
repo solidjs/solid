@@ -70,11 +70,16 @@ export interface RerunEvent {
   /** Wall time of this run including nested recomputes (ms). */
   totalMs: number;
   /**
-   * Whether the run committed a changed value. A PLAIN memo run with
+   * Whether the run produced a changed value. A PLAIN memo run with
    * `changed: false` was pure waste — the equality cutoff stopped it from
-   * notifying anyone; an effect run with `changed: false` computed without
-   * firing its effect phase. Summed as `wastedMs` in costs() (plain,
-   * non-held runs only — see `phase`).
+   * notifying anyone. Effects run with `_equals: false` in core (their
+   * effect phase re-fires on every recompute), so the engine derives this
+   * fact itself: an effect run whose compute output is identical to the
+   * previous run's reports `changed: false` — the phase re-fired with the
+   * same input, pure waste. Side-effect-only computes (`undefined` output)
+   * are exempt: identity of `undefined` proves nothing about their work.
+   * Summed as `wastedMs` in costs() (plain, non-held runs only — see
+   * `phase`).
    */
   changed: boolean;
   /**
@@ -706,6 +711,18 @@ const engineHooks: AttributionHooks = {
     const totalMs = now() - frame.start;
     if (frames.length > 0) frames[frames.length - 1].childMs += totalMs;
     const selfMs = Math.max(0, totalMs - frame.childMs);
+    // Effect-output honesty: effects run with `_equals: false`, so core
+    // reports EVERY effect recompute as changed — which made effect waste
+    // invisible to costs() (and compiled JSX bindings are effects: the
+    // fan-out waste a naive selected-row produces is all effects). The
+    // engine re-derives the fact from its own snapshot: an identical
+    // committed compute output is an unchanged run. `undefined` outputs are
+    // exempt — a side-effect-only compute's work IS its effect phase, and
+    // identity of `undefined` proves nothing.
+    if (changed && frame.causes !== null && (el as { _type?: number })._type) {
+      const committed = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
+      if (committed !== undefined && committed === frame.prevValue) changed = false;
+    }
     // Unstable-output check: memos only, non-create, plain runs with a
     // committed change. The fresh value sits in `_pendingValue` for held
     // plain-flush memo commits and in `_value` for direct ones. Overlay runs

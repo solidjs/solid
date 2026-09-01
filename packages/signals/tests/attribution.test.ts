@@ -418,6 +418,62 @@ describe("why-did-this-run attribution", () => {
     expect(wasteful.wastedMs).toBe(wasteful.selfMs);
   });
 
+  it("derives honest changed for effects: identical compute output is waste", () => {
+    // Core runs effects with `_equals: false` (the effect phase re-fires on
+    // every recompute), so its changed flag is unconditionally true for
+    // effects — the engine must re-derive the fact or effect waste (the
+    // compiled-JSX fan-out signature, e.g. every row recomputing an
+    // identical class string on selection) is invisible to costs().
+    const [selected, setSelected] = createSignal(-1, { name: "selected" });
+    createRoot(() =>
+      createEffect(
+        () => (selected() === 99 ? "danger" : ""),
+        () => {},
+        { name: "row-class" }
+      )
+    );
+    flush();
+
+    const events = collect();
+    setSelected(1); // output stays "" — pure waste
+    flush();
+    setSelected(99); // output flips to "danger" — a real change
+    flush();
+
+    const [wasted, real] = events.filter(e => e.nodeName === "row-class");
+    expect(wasted.changed).toBe(false);
+    expect(real.changed).toBe(true);
+    const { scopes } = DEV!.attribution.costs();
+    const scope = scopes.find(s => s.name === "row-class")!;
+    expect(scope.wastedMs).toBeGreaterThanOrEqual(0);
+    expect(scope.wastedMs).toBe(wasted.selfMs);
+  });
+
+  it("exempts undefined-output effects from the waste derivation", () => {
+    // A side-effect-only compute returns undefined every run; identity of
+    // undefined proves nothing about the work, so these stay changed: true.
+    const [n, setN] = createSignal(0, { name: "n" });
+    createRoot(() =>
+      createEffect(
+        () => {
+          n();
+        },
+        () => {},
+        { name: "void-effect" }
+      )
+    );
+    flush();
+
+    const events = collect();
+    setN(1);
+    flush();
+
+    const run = events.find(e => e.nodeName === "void-effect")!;
+    expect(run.changed).toBe(true);
+    const { scopes } = DEV!.attribution.costs();
+    expect(scopes.find(s => s.name === "void-effect")!.wastedMs).toBe(0);
+  });
+
   it("warns when a scope exceeds its time budget in one window", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const spin = (ms: number) => {
