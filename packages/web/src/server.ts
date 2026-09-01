@@ -3272,6 +3272,9 @@ export function ssr(t) {
 export function ssrClassName(value: string | { [k: string]: boolean } | Array<any>): string;
 
 export function ssrClassName(value) {
+  // Numbers stringify like the compiler's static output (`class={1}`
+  // inlines as `class="1"`), matching the client runtime (#3189).
+  if (typeof value === "number") return "" + value;
   if (!value) return "";
   if (typeof value === "string") return escape(value, true);
   value = classListToObject(value);
@@ -4122,7 +4125,9 @@ function flattenClassList(list, result) {
     const item = list[i];
     if (Array.isArray(item)) flattenClassList(item, result);
     else if (typeof item === "object" && item != null) Object.assign(result, item);
-    else if (item || item === 0) result[item] = true;
+    // clsx-style composition: standalone booleans are ignored so guard
+    // expressions like `cond && "active"` never emit a "true" class (#3189).
+    else if (typeof item !== "boolean" && (item || item === 0)) result[item] = true;
   }
 }
 
