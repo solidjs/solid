@@ -5,7 +5,7 @@ const { transform, transformDirectives } = require(compilerDir);
 
 const ROOT = "/project";
 const FILENAME = `${ROOT}/src/routes/App.tsrx`;
-const EXPECTED_ID = "d353d140-0";
+const EXPECTED_ID = "save-d353d140";
 
 function transformServerFunctions(code, mode) {
   return transformDirectives(code, {

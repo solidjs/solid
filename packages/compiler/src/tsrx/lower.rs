@@ -368,15 +368,12 @@ impl<'a> Lowerer<'a, '_, '_> {
                         .jsx_attribute_item_expression(span, "fallback", fallback),
                 );
             }
-            let children = self.ast.vec1(self.ast.jsx_child_expression(span, inner));
+            let children = self.ast.vec1(self.jsx_child(span, inner));
             inner = self
                 .ast
                 .expression_jsx_element(span, "Loading", attributes, children);
         }
         if let Some(catch) = try_.catch.as_ref() {
-            let fallback = self.block_expression(&catch.body)?.ok_or_else(|| {
-                CompileError::transform("A TSRX @catch block must end with rendered output")
-            })?;
             let mut patterns = Vec::new();
             let mut accessor_names = Vec::new();
             match &catch.binding {
@@ -400,7 +397,7 @@ impl<'a> Lowerer<'a, '_, '_> {
                 patterns.push(self.binding_pattern(reset)?);
             }
             let callback_span = ast_span(catch.origin.span);
-            let callback = self.arrow(callback_span, patterns, fallback);
+            let callback = self.arrow_with_block(callback_span, patterns, &catch.body)?;
             if !accessor_names.is_empty() {
                 self.artifacts
                     .accessor_arrows
@@ -410,7 +407,7 @@ impl<'a> Lowerer<'a, '_, '_> {
                 self.ast
                     .jsx_attribute_item_expression(span, "fallback", callback),
             );
-            let children = self.ast.vec1(self.ast.jsx_child_expression(span, inner));
+            let children = self.ast.vec1(self.jsx_child(span, inner));
             inner = self
                 .ast
                 .expression_jsx_element(span, "Errored", attributes, children);
@@ -426,14 +423,12 @@ impl<'a> Lowerer<'a, '_, '_> {
             "each",
             self.expression(loop_.iterable)?,
         ));
-        if let Some(empty) = loop_.empty.as_ref()
-            && let Some(expression) = self.block_expression(empty)?
-        {
-            attributes.push(
-                self.ast
-                    .jsx_attribute_item_expression(span, "fallback", expression),
-            );
-        }
+        let fallback = loop_
+            .empty
+            .as_ref()
+            .map(|empty| self.block_expression(empty))
+            .transpose()?
+            .flatten();
 
         if let Some(key) = loop_.key {
             let key_expression = self.expression(key)?;
@@ -455,14 +450,21 @@ impl<'a> Lowerer<'a, '_, '_> {
                 self.ast.expression_boolean_literal(span, false),
             ));
         }
-        let body = self.block_expression(&loop_.body)?.ok_or_else(|| {
-            CompileError::transform("A TSRX @for body must end with rendered output")
-        })?;
+        if let Some(fallback) = fallback {
+            attributes.push(
+                self.ast
+                    .jsx_attribute_item_expression(span, "fallback", fallback),
+            );
+        }
         let mut patterns = vec![loop_.pattern];
         if let Some(index) = loop_.index {
             patterns.push(index);
         }
-        let callback = self.arrow_from_patterns(span, &patterns, body)?;
+        let callback_patterns = patterns
+            .iter()
+            .map(|pattern| self.binding_pattern(*pattern))
+            .collect::<Result<Vec<_>, _>>()?;
+        let callback = self.arrow_with_block(span, callback_patterns, &loop_.body)?;
         let mut accessor_names = Vec::new();
         if loop_.callback_mode.item_is_accessor()
             && let Some(name) = identifier_name(loop_.pattern)
@@ -524,7 +526,7 @@ impl<'a> Lowerer<'a, '_, '_> {
                 match_attributes,
                 match_children,
             );
-            children.push(self.ast.jsx_child_expression(arm_span, match_));
+            children.push(self.jsx_child(arm_span, match_));
         }
         Ok(self
             .ast
@@ -579,7 +581,7 @@ impl<'a> Lowerer<'a, '_, '_> {
                 match_attributes,
                 match_children,
             );
-            children.push(self.ast.jsx_child_expression(branch_span, match_));
+            children.push(self.jsx_child(branch_span, match_));
         }
         Ok(self
             .ast
@@ -590,19 +592,7 @@ impl<'a> Lowerer<'a, '_, '_> {
         &mut self,
         block: &TemplateBlock<'_>,
     ) -> Result<Option<Expression<'a>>, CompileError> {
-        let render = match block.renders.as_slice() {
-            [] => Ok(None),
-            [only] => self.render_expression(*only).map(Some),
-            many => {
-                let span = Span::default();
-                let mut children = self.ast.vec_with_capacity(many.len());
-                for render in many {
-                    let expression = self.render_expression(*render)?;
-                    children.push(self.ast.jsx_child_expression(Span::default(), expression));
-                }
-                Ok(Some(self.ast.expression_jsx_fragment(span, children)))
-            }
-        }?;
+        let render = self.block_render_expression(block)?;
         if block.setup.is_empty() {
             return Ok(render);
         }
@@ -634,6 +624,26 @@ impl<'a> Lowerer<'a, '_, '_> {
         )))
     }
 
+    fn block_render_expression(
+        &mut self,
+        block: &TemplateBlock<'_>,
+    ) -> Result<Option<Expression<'a>>, CompileError> {
+        let render = match block.renders.as_slice() {
+            [] => Ok(None),
+            [only] => self.render_expression(*only).map(Some),
+            many => {
+                let span = Span::default();
+                let mut children = self.ast.vec_with_capacity(many.len());
+                for render in many {
+                    let expression = self.render_expression(*render)?;
+                    children.push(self.jsx_child(Span::default(), expression));
+                }
+                Ok(Some(self.ast.expression_jsx_fragment(span, children)))
+            }
+        }?;
+        Ok(render)
+    }
+
     fn block_children(
         &mut self,
         block: &TemplateBlock<'_>,
@@ -644,16 +654,22 @@ impl<'a> Lowerer<'a, '_, '_> {
                     "A TSRX control-flow block with setup statements must end with rendered output",
                 )
             })?;
-            return Ok(self
-                .ast
-                .vec1(self.ast.jsx_child_expression(Span::default(), expression)));
+            return Ok(self.ast.vec1(self.jsx_child(Span::default(), expression)));
         }
         let mut children = self.ast.vec_with_capacity(block.renders.len());
         for render in &block.renders {
             let expression = self.render_expression(*render)?;
-            children.push(self.ast.jsx_child_expression(Span::default(), expression));
+            children.push(self.jsx_child(Span::default(), expression));
         }
         Ok(children)
+    }
+
+    fn jsx_child(&self, span: Span, expression: Expression<'a>) -> JSXChild<'a> {
+        match expression {
+            Expression::JSXElement(element) => JSXChild::Element(element),
+            Expression::JSXFragment(fragment) => JSXChild::Fragment(fragment),
+            expression => self.ast.jsx_child_expression(span, expression),
+        }
     }
 
     fn entry(&mut self, node: Node<'_>) -> Result<Expression<'a>, CompileError> {
@@ -778,6 +794,47 @@ impl<'a> Lowerer<'a, '_, '_> {
         );
         self.ast
             .expression_arrow_function(span, true, false, None, parameters, None, body)
+    }
+
+    fn arrow_with_block(
+        &mut self,
+        span: Span,
+        patterns: Vec<oxc_ast::ast::BindingPattern<'a>>,
+        block: &TemplateBlock<'_>,
+    ) -> Result<Expression<'a>, CompileError> {
+        let render = self.block_render_expression(block)?.ok_or_else(|| {
+            CompileError::transform("A TSRX callback block must end with rendered output")
+        })?;
+        if block.setup.is_empty() {
+            return Ok(self.arrow(span, patterns, render));
+        }
+        let parameters = self.ast.formal_parameters(
+            span,
+            FormalParameterKind::ArrowFormalParameters,
+            self.ast.vec_from_iter(patterns.into_iter().map(|pattern| {
+                self.ast.formal_parameter(
+                    span,
+                    self.ast.vec(),
+                    pattern,
+                    None,
+                    None,
+                    false,
+                    None,
+                    false,
+                    false,
+                )
+            })),
+            None,
+        );
+        let mut statements = self.ast.vec_with_capacity(block.setup.len() + 1);
+        for setup in &block.setup {
+            statements.push(self.statement(*setup)?);
+        }
+        statements.push(self.ast.statement_return(span, Some(render)));
+        let body = self.ast.function_body(span, self.ast.vec(), statements);
+        Ok(self
+            .ast
+            .expression_arrow_function(span, false, false, None, parameters, None, body))
     }
 }
 
@@ -1658,6 +1715,26 @@ struct ScaffoldReplacer<'a> {
     code_block_replacements: HashMap<u32, Expression<'a>>,
 }
 
+impl<'a> ScaffoldReplacer<'a> {
+    fn take_expression_replacement(
+        &mut self,
+        expression: &Expression<'a>,
+    ) -> Option<Expression<'a>> {
+        code_block_anchor(expression)
+            .and_then(|anchor| self.code_block_replacements.remove(&anchor))
+            .or_else(|| match expression {
+                Expression::CallExpression(call) => try_scaffold_anchor(call)
+                    .and_then(|anchor| remove_near(&mut self.statement_replacements, anchor))
+                    .or_else(|| {
+                        call.callee.get_identifier_reference().and_then(|callee| {
+                            self.expression_replacements.remove(callee.name.as_str())
+                        })
+                    }),
+                _ => None,
+            })
+    }
+}
+
 impl<'a> VisitMut<'a> for ScaffoldReplacer<'a> {
     fn visit_statement(&mut self, statement: &mut Statement<'a>) {
         let anchor = match statement {
@@ -1690,24 +1767,33 @@ impl<'a> VisitMut<'a> for ScaffoldReplacer<'a> {
     }
 
     fn visit_expression(&mut self, expression: &mut Expression<'a>) {
-        let replacement = code_block_anchor(expression)
-            .and_then(|anchor| self.code_block_replacements.remove(&anchor))
-            .or_else(|| match expression {
-                Expression::CallExpression(call) => try_scaffold_anchor(call)
-                    .and_then(|anchor| remove_near(&mut self.statement_replacements, anchor))
-                    .or_else(|| {
-                        call.callee.get_identifier_reference().and_then(|callee| {
-                            self.expression_replacements.remove(callee.name.as_str())
-                        })
-                    }),
-                _ => None,
-            });
-        if let Some(replacement) = replacement {
+        if let Some(replacement) = self.take_expression_replacement(expression) {
             *expression = replacement;
             walk_mut::walk_expression(self, expression);
             return;
         }
         walk_mut::walk_expression(self, expression);
+    }
+
+    fn visit_jsx_children(&mut self, children: &mut oxc_allocator::Vec<'a, JSXChild<'a>>) {
+        for child in children.iter_mut() {
+            let span = child.span();
+            let replacement = match child {
+                JSXChild::ExpressionContainer(container) => container
+                    .expression
+                    .as_expression()
+                    .and_then(|expression| self.take_expression_replacement(expression)),
+                _ => None,
+            };
+            if let Some(replacement) = replacement {
+                *child = match replacement {
+                    Expression::JSXElement(element) => JSXChild::Element(element),
+                    Expression::JSXFragment(fragment) => JSXChild::Fragment(fragment),
+                    replacement => self.ast.jsx_child_expression(span, replacement),
+                };
+            }
+        }
+        walk_mut::walk_jsx_children(self, children);
     }
 }
 
