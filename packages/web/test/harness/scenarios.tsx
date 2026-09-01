@@ -216,6 +216,49 @@ function ForThenSiblings() {
   );
 }
 
+// Driven twin (structural-audit review ask, #3161 follow-through): a STORE-
+// backed stamped-row list ENGAGES the patch-mode list driver under hydration
+// — driveList claims rows positionally by _hk and mints its own listOwner
+// child scope, a different road than the classic seam the static scenario
+// above takes (post-flip, non-store rows decline at runtime). Siblings AFTER
+// the driven list must keep their server ids on BOTH roads. The row is
+// attribute-only ON PURPOSE: text holes disqualify the purity proof
+// (rowProof verified emitted for this exact shape) — static text keeps rows
+// visible to the textContent assertion. The update exercises both halves:
+// a driven STRUCTURAL change (label write + row push through the engaged
+// driver) and the sibling count (id alignment past the list; siblings'
+// node identity pinned by stableSelector).
+let bumpAfterDrivenFor!: () => void;
+function ForThenSiblingsDriven() {
+  const [state, setState] = createStore<{ rows: { id: number; label: string }[] }>({
+    rows: [
+      { id: 1, label: "one" },
+      { id: 2, label: "two" }
+    ]
+  });
+  const [count, setCount] = createSignal(0);
+  bumpAfterDrivenFor = () => {
+    setCount(c => c + 1);
+    setState(s => {
+      s.rows[0].label = "one!";
+      s.rows.push({ id: 3, label: "three" });
+    });
+  };
+  return (
+    <>
+      <For each={state.rows}>
+        {row => (
+          <div class="row" data-label={row.label}>
+            r
+          </div>
+        )}
+      </For>
+      <button id="bump-driven">bump</button>
+      <pre id="after-driven">count: {count()}</pre>
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 9. Spread with children in the spread object
 function SpreadChildren() {
@@ -1582,6 +1625,16 @@ export const scenarios: Scenario[] = [
     expectedText: "row 1row 2bumpcount: 0",
     update: () => bumpAfterFor(),
     expectedTextAfterUpdate: "row 1row 2bumpcount: 1",
+    stableSelector: "button, pre"
+  },
+  {
+    name: "for-then-siblings-driven",
+    App: ForThenSiblingsDriven,
+    expectedText: "rrbumpcount: 0",
+    update: () => bumpAfterDrivenFor(),
+    // The push adds a third "r" — a driven structural update; the siblings
+    // (button/pre) must keep node identity across it (stableSelector).
+    expectedTextAfterUpdate: "rrrbumpcount: 1",
     stableSelector: "button, pre"
   },
   {

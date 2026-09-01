@@ -1,0 +1,5 @@
+{
+  "name": "for-then-siblings-driven",
+  "shell": "<div _hk=000 class=\"row\" data-label=\"one\">r</div><div _hk=010 class=\"row\" data-label=\"two\">r</div><button _hk=2 id=\"bump-driven\">bump</button><pre _hk=3 id=\"after-driven\">count: <!--$-->0<!--/--></pre>",
+  "rest": ""
+}
