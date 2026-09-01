@@ -365,6 +365,30 @@ export function trackRecordVersion(record: any): void {
   readNode(vn as any);
 }
 
+/** PROTOTYPE — one-time region binding: resolves the target and creates
+ * the version node ONCE, returning lean closures for the region effect's
+ * compute (tracked version read) and commit (raw view). Golfs the per-
+ * rerun symbol-trap resolution and the per-node options allocation out of
+ * the mount path. Version nodes live as long as the record (release
+ * strategy is a product-phase question, noted in the design doc). */
+export function regionBind(record: any): { track: () => void; raw: () => any } | null {
+  const t: StoreNextTarget | undefined = record?.[$TARGET];
+  if (t === undefined) return null;
+  let vn = (t as any).vn as Signal<number> | undefined;
+  if (vn === undefined) {
+    (t as any).vn = vn = signal(0);
+    (vn as any)._config |= CONFIG_OWNED_WRITE;
+    markDescendants(t);
+  }
+  const v = vn;
+  return {
+    track: () => {
+      readNode(v as any);
+    },
+    raw: () => t.v
+  };
+}
+
 export function bumpRecordVersion(t: StoreNextTarget): void {
   const vn = (t as any).vn as Signal<number> | undefined;
   if (vn !== undefined) setSignal(vn, v => (v as number) + 1);
