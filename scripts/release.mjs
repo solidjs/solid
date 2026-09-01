@@ -97,6 +97,12 @@ run("pnpm", ["run", "build"]);
 run("pnpm", ["run", "types"]);
 run("node", ["scripts/check-release-invariants.mjs"]);
 run("node", ["scripts/verify-release-artifacts.mjs"]);
+// Integration gate: the TanStack Solid Query suite against the packed
+// workspace core. Core-side suites cannot represent the adapter's composed
+// shapes (rc.5 shipped a settle-walk regression that only the adapter's
+// suite could see) — a release candidate that breaks the flagship adapter
+// must fail here, not on npm.
+run("pnpm", ["--filter", "test-integration", "run", "test:solid-query"]);
 
 const compiler = JSON.parse(
   fs.readFileSync(new URL("../packages/compiler/package.json", import.meta.url), "utf8")
