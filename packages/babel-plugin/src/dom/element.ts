@@ -1217,7 +1217,10 @@ function transformAttributes(
         }
 
         // properties
-        if (staticValue && ChildProperties.has(key)) {
+        if (
+          staticValue &&
+          (ChildProperties.has(key) || (tagName === "select" && key === "value"))
+        ) {
           results.exprs.push(
             t.expressionStatement(
               setAttr(attribute, elem, key, staticValue as babelTypes.Expression, { tagName })

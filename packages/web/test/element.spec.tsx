@@ -37,6 +37,41 @@ describe("Basic element attributes", () => {
     expect(d.innerHTML).toBe("<p>Hi</p>");
   });
 
+  test("static select value selects the matching option (#3167)", () => {
+    const select = (
+      <select value="2">
+        <option value="">None</option>
+        <option value="1">One</option>
+        <option value="2">Two</option>
+      </select>
+    ) as unknown as HTMLSelectElement;
+
+    expect(select.value).toBe("2");
+    expect(select.selectedIndex).toBe(2);
+  });
+
+  test("static select value is reapplied after dynamic children (#3167)", async () => {
+    const options = () => [<option value="1">One</option>, <option value="2">Two</option>];
+    const select = (<select value="2">{options()}</select>) as unknown as HTMLSelectElement;
+
+    await Promise.resolve();
+
+    expect(select.value).toBe("2");
+    expect(select.selectedIndex).toBe(1);
+  });
+
+  test("static select value selects one option in a multiple select (#3167)", () => {
+    const select = (
+      <select multiple value="2">
+        <option value="1">One</option>
+        <option value="2">Two</option>
+      </select>
+    ) as unknown as HTMLSelectElement;
+
+    expect(select.multiple).toBe(true);
+    expect(Array.from(select.options, option => option.selected)).toEqual([false, true]);
+  });
+
   test("class", () => {
     const classes = { first: true, second: false, "third fourth": true },
       d = (<div class={classes} />) as unknown as HTMLDivElement;
