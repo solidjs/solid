@@ -302,6 +302,12 @@ export function handleAsync<T>(
   // fired _flightTeardown. A future non-recompute registration path must
   // release it here before overwriting _inFlight.
   ext(el)._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
+  // Attribution hook: a new flight is registered. Fired here (not in the
+  // branches below) so every flight shape — plain thenable, iterator, the
+  // flattened combinations — is announced exactly once, while the recompute
+  // frame that caused it is still on the engine's stack. Not inside a try
+  // (#2883 — see attribution-hooks.ts).
+  if (__DEV__ && attrHooks !== null) attrHooks.flightStart(el, result as object);
   let syncValue: T;
 
   // Settle-time transition re-entry. The loading rail is invisible to

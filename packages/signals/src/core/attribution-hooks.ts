@@ -44,6 +44,17 @@ export interface AttributionHooks {
   write(el: Signal<any> | Computed<any>, prev: unknown, value: unknown): void;
   /** refresh() invalidated this node (self-invalidation, no dep changed). */
   refreshed(el: Computed<any>): void;
+  /**
+   * A new async flight entered the system (`_inFlight` was just assigned
+   * during a recompute of `el`). Always fired inside the owning recompute —
+   * both call paths (core's recompute and the projection self-registration)
+   * run within one — so the engine can read the current frame stack to link
+   * the flight to the change that caused it (waterfall chaining). `flight`
+   * is the registered thenable/iterable itself: the engine keys a first-seen
+   * origin registry on its identity, so shared and preloader-marked promises
+   * carry their true start time instead of the moment the graph saw them.
+   */
+  flightStart(el: Computed<any>, flight: object): void;
   /** An async landing is about to apply its value (before any branch). */
   asyncStart(el: Computed<any>): void;
   /**

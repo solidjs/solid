@@ -1,0 +1,5 @@
+---
+"@solidjs/signals": patch
+---
+
+Attribution: async waterfall detection. A new `flightStart` dev hook announces every async flight as it registers; the engine chains flights whose recompute was caused by an upstream flight's landing AND whose origin post-dates that landing — origin being the earliest provable start (cooperative `DEV.attribution.markFlight(promise, startedAt)` stamps from preloaders/caches, first-seen object identity, else registration time), so preloaded work in the air alongside its upstream is parallel, never a waterfall link. Chains are recorded as queryable facts (`DEV.attribution.waterfalls()`); the `ASYNC_WATERFALL` diagnostic is the duration-gated verdict (each link ≥ `waterfalls.minFlightMs`, default 50ms): depth-2 chains emit at the new `info` severity on the structured channel only, depth-3+ escalate to a console `warn`, once per node with re-warn on growth. `DiagnosticSeverity` gains the `"info"` advisory tier. Zero production bytes (dev-hook site folds out; tree-shake guard covers it).
