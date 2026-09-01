@@ -206,7 +206,8 @@ module.exports = [
     // Fold audit 4 (2026-09-01): eager visible-version, epoch-stamped
     // proven reveal marks, primitive-multiset reorder classification.
     // Measured 15.38.
-    limit: "15.4 KB",
+    // Entanglement rebase drift (2026-09-01, until-flip + CONFIG_HELD_TRUTH).
+    limit: "15.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -492,7 +493,8 @@ module.exports = [
     // machinery replaced by per-entry applied-version chains + ONE
     // flush-end resync + registration-time ancestor repair. Flat cost —
     // the per-finding mechanism accretion this class caused stops here. Measured 17.11.
-    limit: "17.15 KB",
+    // Entanglement rebase drift (2026-09-01, until-flip + CONFIG_HELD_TRUTH).
+    limit: "17.2 KB",
     modifyEsbuildConfig
   },
   {
@@ -556,7 +558,8 @@ module.exports = [
     // Fold audit 2 (2026-09-01): transition-aware version init, reveal
     // channel split, target-keyed staged identity, release fast-forward.
     // Measured 19.62.
-    limit: "19.65 KB",
+    // Entanglement rebase drift (2026-09-01, until-flip + CONFIG_HELD_TRUTH).
+    limit: "19.7 KB",
     modifyEsbuildConfig
   },
   {
