@@ -1,6 +1,6 @@
 import {
   CONFIG_AUTHORITATIVE_READ,
-  CONFIG_ENTANGLED,
+  CONFIG_HELD_TRUTH,
   CONFIG_IN_SNAPSHOT_SCOPE,
   EFFECT_RENDER,
   EFFECT_TRACKED,
@@ -178,13 +178,6 @@ export interface Transition {
   // signal's committed value through the entanglement gate. At commit they
   // get rescheduled so they re-run with the new committed view.
   _gatedSubs: Set<Computed<any>>;
-  // True once a confirming carrier merged in via flip-entanglement
-  // (entangleConfirmingTransitions): subscribers may have computed against
-  // the adopted staged values BEFORE the merge retro-held them, so this
-  // transaction's settle recomputes post-revert before draining effect
-  // queues (see finalizePureQueue) — a stale apply would otherwise paint a
-  // frame no timeline contained.
-  _entangled: boolean;
 }
 
 /**
@@ -207,8 +200,7 @@ function createBatch(): Transition {
     _actions: [],
     _queueStash: { _queues: [[], []], _children: [] },
     _done: false,
-    _gatedSubs: new Set(),
-    _entangled: false
+    _gatedSubs: new Set()
   };
 }
 
@@ -261,7 +253,6 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
   }
   if (__DEV__) endAsyncReporterWrites();
   for (const sub of outgoing._gatedSubs) target._gatedSubs.add(sub);
-  if (outgoing._entangled) target._entangled = true;
 }
 
 /**
@@ -301,36 +292,36 @@ export function entangleConfirmingTransitions(obs: Computed<any>, target: Transi
     if (dep._pendingValue !== NOT_PENDING) {
       const stamp = dep._transition;
       const t = stamp != null ? currentTransition(stamp) : null;
-      if (t === target) {
-        // Already the awaiting transaction's own cargo (a fold-staged
-        // landing, or a write the action itself issued) — its hold and
-        // reveal are already correct.
-      } else if (t !== null && t._done !== true) {
-        stole = stealEntangledCargo(t._pendingNodes, target) || stole;
-      } else if (t === null) {
-        // Ambient-batch staged: the batch commits at THIS flush's end, so
-        // the cargo must leave it now or the confirmation reveals
-        // immediately, under the live optimism it just confirmed.
-        stole = stealEntangledCargo(currentBatch._pendingNodes, target) || stole;
-      }
+      // Skip the awaiting transaction's own cargo (t === target: a
+      // fold-staged landing or a write the action itself issued — hold and
+      // reveal already correct) and dead carriers. Ambient-batch staging
+      // (t === null) must leave the batch NOW — it commits at this flush's
+      // end, which would reveal the confirmation under the live optimism
+      // it just confirmed.
+      const carrier =
+        t === null
+          ? currentBatch._pendingNodes
+          : t !== target && t._done !== true
+            ? t._pendingNodes
+            : null;
+      if (carrier !== null) stole = stealEntangledCargo(carrier, target) || stole;
     }
     if (l === obs._depsTail) break;
   }
-  // With no live flush of its own, the awaiting transaction must become the
-  // active one so the current flush stashes its effect applies instead of
-  // painting values computed against the pre-steal world. A live FOREIGN
-  // transition keeps the flush (its own stash/completion handles the
-  // applies; the re-dirty above corrected the values) — merging it would
-  // chain the target to the carrier's future, which is exactly what the
-  // steal exists to avoid.
-  if (stole && activeTransition === null) globalQueue.initTransition(target);
+  // The steal never activates the awaiting transaction: the predicate can
+  // flip inside another transaction's finalize heap, and adopting the queue
+  // batch there hands the stolen cargo to that finalize's commit sweep — a
+  // premature reveal at a foreign settle. Subscribers that computed against
+  // the pre-steal world were re-dirtied by the steal itself, so this
+  // flush's applies paint the masked (mid-hold) view; the cargo commits at
+  // the awaiting transaction's own settle.
 }
 
 /** Move a confirming carrier's staged nodes into the awaiting transaction:
- * re-stamp, arm the entangled held-truth mask (override-covered nodes skip
- * it — the override already hides their staged value per A17, and is
- * usually the very optimism this confirmation settles), and register the
- * settle-side recompute pass via `_entangled`. The carrier's array is
+ * re-stamp and arm the held-truth mask (override-covered nodes skip it —
+ * the override already hides their staged value per A17, and is usually
+ * the very optimism this confirmation settles); the mask's commit
+ * registers the settle-side post-revert wake. The carrier's array is
  * emptied so its own commit point commits none of the stolen cargo.
  *
  * EFFECT subs of stolen nodes re-run: any that recomputed against the
@@ -355,7 +346,7 @@ function stealEntangledCargo(carrier: Signal<any>[], target: Transition): boolea
     // subs saw nothing and re-running one would break the silence with a
     // duplicate fire of an unchanged view.
     if (!hasActiveOverride(node)) {
-      node._config |= CONFIG_ENTANGLED;
+      node._config |= CONFIG_HELD_TRUTH;
       for (let s = node._subs; s !== null; s = s._nextSub) {
         const sub = s._sub;
         if ((sub as any)._type && !(sub._config & CONFIG_AUTHORITATIVE_READ)) enqueueSub(sub);
@@ -363,7 +354,6 @@ function stealEntangledCargo(carrier: Signal<any>[], target: Transition): boolea
     }
   }
   carrier.length = 0;
-  target._entangled = true;
   transitions.add(target);
   return true;
 }
@@ -608,15 +598,6 @@ export class GlobalQueue extends Queue {
   static _notifyAuthoritativeObservers: ((el: Signal<any> | Computed<any>) => void) | null = null;
   static _laneAsyncSettled: ((el: Computed<any>) => void) | null = null;
   static _trackOptimisticStore: ((store: any) => void) | null = null;
-  /** Held-truth mask (#3164 fold, installed by the optimistic store module):
-   * true when a node's staged `_pendingValue` is fold-staged TRUTH riding a
-   * live optimism-retaining transition AND the reader is ordinary (not a
-   * latest() window, not an authoritative-read observer `c`) — such readers
-   * keep committed until the reveal. Call sites are gated by
-   * CONFIG_OPTIMISTIC, which only optimistic modules set; the ledger, the
-   * transition probe, and the reader-posture checks all live behind the
-   * hook, out of the core floor (pay-for-use). */
-  static _heldTruthMasked: ((el: Signal<any>, c?: Computed<any>) => boolean) | null = null;
   flush() {
     if (this._running) return;
     // Fast drain: nothing in flight but plain pending commits — no dirty
@@ -989,6 +970,14 @@ export function setPatchCommitHook(fn: (batch: Transition) => void): void {
   patchCommitHook = fn;
 }
 
+/** Held truth committed this finalize, awaiting its post-revert wake (see
+ * finalizePureQueue): the commit IS the reveal, but subscribers must not
+ * re-derive until the settling transaction's optimistic overrides have
+ * reverted — a commit-time wake recomputes them in the window where
+ * confirming truth is committed and the override still displays, a torn
+ * frame no timeline contains. */
+const heldRevealed: Signal<any>[] = [];
+
 function commitPendingNodes() {
   const pendingNodes = currentBatch._pendingNodes;
   for (let i = 0; i < pendingNodes.length; i++) {
@@ -999,16 +988,16 @@ function commitPendingNodes() {
     // its transaction let any later write (even a value-equal no-op, which
     // re-opens before the equality bail) resurrect the finished transaction;
     // a boundary flag rewritten every finalize pass then spun the drain loop
-    // forever (#3140). The entangled held-truth mark dies the same death —
-    // the commit IS the reveal — and the reveal re-notifies: ordinary
-    // subscribers were masked to committed all hold (some re-derived
-    // against that old view), and commits are otherwise silent (staging
-    // already notified). Without the wake, a derived reader that
-    // recomputed mid-hold would cache the old world forever.
+    // forever (#3140). The held-truth mark dies the same death — the commit
+    // IS the reveal — but its wake defers to the post-revert pass: ordinary
+    // subscribers were masked to committed all hold (some re-derived against
+    // that old view and cached it), and commits are otherwise silent
+    // (staging already notified), so without a wake they'd hold the old
+    // world forever.
     node._transition = null;
-    if (node._config & CONFIG_ENTANGLED) {
-      node._config &= ~CONFIG_ENTANGLED;
-      insertSubs(node);
+    if (node._config & CONFIG_HELD_TRUTH) {
+      node._config &= ~CONFIG_HELD_TRUTH;
+      heldRevealed.push(node);
     }
   }
   pendingNodes.length = 0;
@@ -1065,18 +1054,21 @@ export function finalizePureQueue(
     // completing transition scopes the clear to its own layer keys (#2899).
     if (batch._optimisticStores.size)
       GlobalQueue._clearOptimisticStores!(batch._optimisticStores, completingTransition);
-    // Entangled settles only (#3164 follow-up): subscribers may have
-    // computed against the confirming carrier's staged values BEFORE the
-    // flip-entanglement merge retro-held them — those torn values sit in
-    // applies restored from the stash above, about to drain. Recomputing
-    // post-revert means every apply paints the settled view; without it
-    // the stale apply paints a frame no timeline contained, with the
-    // fresh recompute trailing a flush behind. Scoped to entangled
-    // transactions: an ordinary settle intentionally lets pre-revert
-    // (optimistic) applies paint before the reverted view follows.
-    if (completingTransition?._entangled && dirtyQueue._max >= dirtyQueue._min) {
-      runHeap(dirtyQueue, GlobalQueue._update);
-      commitPendingNodes();
+    // Held-truth reveal wake (#3164), post-revert by construction: this
+    // finalize committed confirming truth whose subscribers were masked all
+    // hold — some re-derived against the committed view (the staging, or a
+    // confirming carrier's landing, notified them as a plain write) and
+    // cached it, and stash-restored applies may carry those torn values.
+    // Waking and recomputing HERE — after _resolveOptimistic and the store
+    // clears above — means every apply paints the settled view; a wake at
+    // commit time would recompute them in the window where truth is
+    // committed but the settling transaction's overrides still display.
+    if (heldRevealed.length !== 0) {
+      while (heldRevealed.length) insertSubs(heldRevealed.pop()!);
+      if (dirtyQueue._max >= dirtyQueue._min) {
+        runHeap(dirtyQueue, GlobalQueue._update);
+        commitPendingNodes();
+      }
     }
     sweepTransientStoreNodes();
     // Lanes only enter activeLanes through the engine's getOrCreateLane.

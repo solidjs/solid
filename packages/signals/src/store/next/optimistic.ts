@@ -22,7 +22,13 @@
  * (#2951) is installed here for next-shaped targets, chaining the
  * legacy/engine checks.
  */
-import { NOT_PENDING, STATUS_PENDING, unwrapOverride } from "../../core/constants.js";
+import {
+  CONFIG_HELD_TRUTH,
+  CONFIG_OPTIMISTIC,
+  NOT_PENDING,
+  STATUS_PENDING,
+  unwrapOverride
+} from "../../core/constants.js";
 import {
   computed,
   CONFIG_AUTO_DISPOSE,
@@ -39,8 +45,6 @@ import {
   runAsTransitionBatch,
   type Transition
 } from "../../core/scheduler.js";
-import { latestReadActive } from "../../core/core.js";
-import { CONFIG_AUTHORITATIVE_READ } from "../../core/constants.js";
 import { installOptimisticEngine } from "../../core/optimistic.js";
 import {
   $TARGET,
@@ -86,16 +90,6 @@ export function transitionHoldsOptimism(transition: Transition): boolean {
   const t = currentTransition(transition);
   return t._done !== true && (t._optimisticNodes.length !== 0 || t._optimisticStores.size !== 0);
 }
-
-/** Nodes whose current `_pendingValue` is fold-staged TRUTH (#3164): marked
- * by the staging sites below (the only writers of truth onto armed nodes
- * mid-hold). The read paths mask these from ordinary readers — a staged
- * override is indistinguishable from staged truth by node state alone, and
- * overrides must stay visible (they ARE the optimism), so membership here
- * is the discriminator. Entries go inert once the pending value commits
- * (the read arms gate on a live pending + a live retaining transition); no
- * removal pass is needed. */
-export const heldTruthNodes = new WeakSet<object>();
 
 let blockedInstalled = false;
 function installNextBlockedHalf(): void {
@@ -143,19 +137,6 @@ function installNextBlockedHalf(): void {
       stores.clear();
     };
   }
-  // Held-truth mask (#3164 fold): core read()'s A17-for-held-truth arm and
-  // the store's nodeValue twin call through this hook so the ledger, the
-  // transition-optimism probe, AND the reader-posture exemptions stay out
-  // of the core floor (pay-for-use). Exempt readers see staged truth: a
-  // latest() window, and an authoritative-read observer `c` (until()'s
-  // predicate — core passes its observer; the store site's authoritative
-  // posture is authoritativeServe(), checked at its call site).
-  GlobalQueue._heldTruthMasked = (el, c) =>
-    !latestReadActive &&
-    (c === undefined || !(c._config & CONFIG_AUTHORITATIVE_READ)) &&
-    heldTruthNodes.has(el) &&
-    el._transition !== null &&
-    transitionHoldsOptimism(el._transition);
   const chained = GlobalQueue._transitionBlocked!;
   GlobalQueue._transitionBlocked = transition => {
     for (const store of transition._optimisticStores) {
@@ -252,9 +233,8 @@ export function createOptimisticStoreNext<T extends object = {}>(
     // to any active transaction).
     const aroundDraftWrite = (op: () => void) => {
       const txn = retainingTransition(fam);
-      if (txn === null) return op();
-      runAsTransitionBatch(txn, op);
-      stampPendingNodes(txn);
+      if (txn === null) op();
+      else runFolded(txn, op);
     };
     let nodeOptions: { name?: string; loadingValue?: void } | undefined;
     if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
@@ -322,7 +302,7 @@ function retainingTransition(fam: StoreNextFamily): Transition | null {
  * atomically when the transaction settles (transitions never abort: failed
  * actions still commit — only optimistic overrides revert). */
 function stageLanding(fam: StoreNextFamily, txn: Transition, incoming: unknown): void {
-  runAsTransitionBatch(txn, () =>
+  runFolded(txn, () =>
     runAuthoritative(() =>
       storeSetterNext(
         fam.px,
@@ -333,24 +313,29 @@ function stageLanding(fam: StoreNextFamily, txn: Transition, incoming: unknown):
       )
     )
   );
-  stampPendingNodes(txn);
 }
 
-/** Transition-stamp the batch's staged nodes NOW (parity with the parked-
- * transition flush path's reassignPendingTransition): the stamp is what
- * routes stale (render) readers to the committed value — core read's
- * cross-transaction guard — and what makes foldHeld defer the backing for
- * context-free readers. A microtask staging never crosses that flush path,
- * so without the stamp a render effect's speculative recompute would compose
- * staged truth with live overrides — the #3164 tear, one window later. */
-function stampPendingNodes(txn: Transition): void {
+/** Run a fold write inside the retaining transaction's batch, then
+ * transition-stamp its staged nodes NOW (parity with the parked-transition
+ * flush path's reassignPendingTransition): the stamp is what routes stale
+ * (render) readers to the committed value — core read's cross-transaction
+ * guard — and what makes foldHeld defer the backing for context-free
+ * readers. A microtask staging never crosses that flush path, so without
+ * the stamp a render effect's speculative recompute would compose staged
+ * truth with live overrides — the #3164 tear, one window later. Armed
+ * nodes additionally raise CONFIG_HELD_TRUTH: their staged value is
+ * confirming truth masked from ordinary readers until the reveal (plain
+ * staged nodes stay visible — normal speculation; override-covered nodes
+ * stay unarmed — the override is their display and its revert their
+ * notification, A17). */
+function runFolded(txn: Transition, op: () => void): void {
+  runAsTransitionBatch(txn, op);
   const pending = txn._pendingNodes;
   for (let i = 0; i < pending.length; i++) {
-    pending[i]._transition = txn;
-    // Held-truth discriminator (see heldTruthNodes): these staged values are
-    // truth riding the retention window, not overrides — the read-path mask
-    // applies to exactly this set.
-    heldTruthNodes.add(pending[i]);
+    const node = pending[i];
+    node._transition = txn;
+    if (node._config & CONFIG_OPTIMISTIC && !hasActiveOverride(node))
+      node._config |= CONFIG_HELD_TRUTH;
   }
 }
 

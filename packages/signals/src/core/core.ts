@@ -14,7 +14,7 @@ import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_AUTHORITATIVE_OBSERVED,
   CONFIG_AUTHORITATIVE_READ,
-  CONFIG_ENTANGLED,
+  CONFIG_HELD_TRUTH,
   CONFIG_DIRECT_COMMIT,
   CONFIG_FRESH_READ,
   CONFIG_IN_SNAPSHOT_SCOPE,
@@ -1242,23 +1242,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     el._pendingValue === NOT_PENDING ||
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
     (stale && el._transition && activeTransition !== el._transition) ||
-    // A17 for HELD truth on ARMED nodes (#3164 fold): fold-staged truth
-    // riding a live optimism-retaining transition (the hook's verdict —
-    // staged overrides stay visible, they ARE the optimism) is masked from
-    // ordinary readers — the retaining transaction's own speculative
-    // recomputes included: partial override coverage would otherwise
-    // compose override + staged truth into a state no timeline contains
-    // (GabbeV's union tear). The revert at settle is their notification
-    // point. Authoritative readers (until()'s predicate) and latest() see
-    // the staged truth — the tunnel that keeps the hold deadlock-free.
-    (el._config & CONFIG_OPTIMISTIC && GlobalQueue._heldTruthMasked?.(el, c as Computed<any>)) ||
-    // Same A17-for-held-truth rule for ENTANGLED confirming truth (#3164
-    // follow-up): a foreign carrier's staged landing adopted by an awaited
-    // until()'s transaction is masked from ordinary readers until the
-    // joint settle — the flip retro-held a write that already notified
-    // subscribers as a plain one. Same tunnel exemptions; the bit only
-    // ever arms via until(), so the arm is dead weight nowhere else.
-    (el._config & CONFIG_ENTANGLED &&
+    // A17 for HELD truth (#3164, see CONFIG_HELD_TRUTH): staged confirming
+    // truth — fold-staged onto an armed family, or entangle-stolen by an
+    // awaited until() — is masked from ordinary readers until its
+    // transaction's reveal; the retaining transaction's own speculative
+    // recomputes included (partial override coverage would otherwise
+    // compose override + staged truth into a state no timeline contains).
+    // Authoritative readers (until()'s predicate) and latest() see the
+    // staged truth — the tunnel that keeps the hold deadlock-free.
+    (el._config & CONFIG_HELD_TRUTH &&
       !latestReadActive &&
       !((c as Computed<any>)._config & CONFIG_AUTHORITATIVE_READ))
       ? el._value

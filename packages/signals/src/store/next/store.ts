@@ -27,7 +27,7 @@ import {
   STATUS_UNINITIALIZED,
   unwrapOverride,
   CONFIG_AUTHORITATIVE_READ,
-  CONFIG_ENTANGLED,
+  CONFIG_HELD_TRUTH,
   CONFIG_OPTIMISTIC
 } from "../../core/constants.js";
 import {
@@ -54,7 +54,6 @@ import {
 } from "../../core/scheduler.js";
 import { getObserver, getOwner } from "../../core/owner.js";
 import {
-  GlobalQueue,
   projectionWriteActive,
   schedule,
   setProjectionWriteActive,
@@ -1409,24 +1408,14 @@ function nodeValue(node: Signal<any>, backing: any): any {
       ? unwrapOverride(node._x?._overrideValue)
       : node._pendingValue !== NOT_PENDING &&
           (latestReadActive ||
-            // Owner-context pending visibility — except HELD truth on an
-            // armed node (#3164 fold: fold-staged under a live optimism-
-            // retaining transition, per the shared _heldTruthMasked hook),
-            // which only authoritative/latest readers see (core read()'s
-            // A17-for-held-truth twin; ordinary readers keep committed until
-            // the transaction's reveal).
+            // Owner-context pending visibility — except HELD truth (#3164,
+            // see CONFIG_HELD_TRUTH: fold-staged or entangle-stolen
+            // confirming truth), which only authoritative/latest readers
+            // see (core read()'s A17-for-held-truth twin; ordinary readers
+            // keep committed until the transaction's reveal — latest() is
+            // exempted by the leading arm above).
             ((inOwnerContext() || authoritativeServe()) &&
-              !(
-                (node._config & CONFIG_OPTIMISTIC &&
-                  !authoritativeServe() &&
-                  GlobalQueue._heldTruthMasked?.(node)) ||
-                // ENTANGLED confirming truth (#3164 follow-up): a foreign
-                // carrier's staged landing adopted by an awaited until()'s
-                // transaction — masked from ordinary readers until the
-                // joint settle, same tunnel exemptions as held truth
-                // (latest() is exempted by the leading arm above).
-                (node._config & CONFIG_ENTANGLED && !authoritativeServe())
-              )))
+              !(node._config & CONFIG_HELD_TRUTH && !authoritativeServe())))
         ? node._pendingValue
         : backing;
   return v === (FORCE as any) ? backing : v;

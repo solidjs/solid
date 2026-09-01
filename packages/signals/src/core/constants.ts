@@ -99,18 +99,22 @@ export const CONFIG_DIRECT_COMMIT = 1 << 15;
  * deliberately keeps that race — its contract is "first settled value"
  * (#2930), not "next quiescent state". */
 export const CONFIG_FRESH_READ = 1 << 16;
-/** Entangled confirming truth (#3164 follow-up, until() flip-entanglement):
- * this node's staged `_pendingValue` was adopted from the carrier whose
- * write flipped an awaited until() predicate truthy — it now reveals with
- * the awaiting transaction's settle. Until then ordinary readers (lane and
- * speculative recomputes included) keep committed: the carrier's landing
- * already notified subscribers as a plain write, so without the mask a
- * mid-hold recompute composes live optimism with the confirming truth — a
- * frame no timeline contains (the cross-primitive twin of the family
- * fold's held-truth mask). Authoritative readers and latest() tunnel.
- * Cleared when the staged value commits (the stamp dies with the commit,
- * #3143). */
-export const CONFIG_ENTANGLED = 1 << 17;
+/** HELD truth (#3164): this node's staged `_pendingValue` is confirming
+ * truth riding a transaction that retains optimism, revealed only at that
+ * transaction's settle. Two arming sites, one meaning: the store fold
+ * (a landing staged into the retaining transaction) and until()'s
+ * flip-entanglement (a foreign carrier's staged write, stolen when it
+ * flipped the awaited predicate truthy). Until the reveal, ordinary
+ * readers — lane and speculative recomputes included — keep committed:
+ * the staging notified subscribers as a plain write, so without the mask
+ * a mid-hold recompute composes live optimism with the confirming truth,
+ * a frame no timeline contains (GabbeV's union tear). Authoritative
+ * readers (until()'s predicate) and latest() tunnel through — the
+ * exemption that keeps holds deadlock-free. Override-covered nodes never
+ * arm: the override is their display and its revert their notification
+ * (A17). Cleared at commit (the commit IS the reveal); subscribers masked
+ * during the hold are woken by finalizePureQueue's post-revert pass. */
+export const CONFIG_HELD_TRUTH = 1 << 17;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;

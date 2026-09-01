@@ -132,16 +132,17 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // flight that parked dependents. Core-retained by necessity: the
     // supersede happens in recompute, and settlePendingSource is already
     // part of the async floor. Measured at 21,423 post-change.
-    // CONSCIOUS BUMP (2026-09-01): +~98B for until() flip-entanglement
-    // (#3164 follow-up) — the Transition._entangled flag (createBatch init
-    // for batch-shape monomorphism, mergeTransitionState propagation) and
-    // finalizePureQueue's post-revert recompute pass on entangled settles,
-    // plus the CONFIG_ENTANGLED held-truth arm in read() and the
-    // commit-time unmask/re-notify in commitPendingNodes. Core-retained by
-    // necessity: transition merging, read masking, and settle ordering
-    // cannot be pay-for-use. The entangle walk itself
-    // (entangleConfirmingTransitions/stealEntangledCargo) shakes out with
-    // until().
+    // CONSCIOUS BUMP (2026-09-01): +~155B for the held-truth reveal
+    // machinery (#3164: store fold + until() flip-entanglement, unified on
+    // CONFIG_HELD_TRUTH) — the read() mask arm, commitPendingNodes'
+    // unmask-and-collect, and finalizePureQueue's post-revert wake pass.
+    // Core-retained by necessity: read masking and settle ordering cannot
+    // be pay-for-use. Paid for by the unification itself (it deleted the
+    // GlobalQueue._heldTruthMasked hook slot, a second read() arm, and the
+    // Transition._entangled flag plumbing); the arming sites
+    // (entangleConfirmingTransitions/stealEntangledCargo, the store fold)
+    // still shake out with until()/createOptimisticStore. Measured at
+    // 21,536 post-change (with the #3181 bump above).
     expect(minifiedBytes).toBeLessThan(21_600);
   });
 
