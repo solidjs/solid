@@ -822,6 +822,100 @@ describe("channels behind a getter or as a Map key (#3176)", () => {
   });
 });
 
+describe("decoded arguments carry no own __proto__ key (#3168)", () => {
+  const H = {
+    "Sec-Fetch-Site": "same-origin",
+    "X-Server-Function-Instance": "server-function:test"
+  };
+  // JSON.parse is the only honest way to build the hostile shape: a literal
+  // `{ __proto__: ... }` in source SETS the prototype instead of creating
+  // the own key.
+  const hostile = () =>
+    JSON.parse(
+      '{"__proto__": {"polluted": "yes"}, "a": 1, ' +
+        '"nested": {"__proto__": {"deep": "yes"}, "b": 2}}'
+    );
+
+  const assertStripped = (seen: any) => {
+    // control first: core itself never polluted Object.prototype
+    expect(({} as any).polluted).toBeUndefined();
+    // the own key is gone at every level, the data keys survive
+    expect(Object.prototype.hasOwnProperty.call(seen, "__proto__")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(seen.nested, "__proto__")).toBe(false);
+    expect(seen.a).toBe(1);
+    expect(seen.nested.b).toBe(2);
+    // the ordinary downstream merge the key existed to subvert: Object.assign
+    // merges by [[Set]], so an own __proto__ key re-prototyped the copy
+    const merged = Object.assign({}, seen);
+    expect(Object.getPrototypeOf(merged)).toBe(Object.prototype);
+    expect((merged as any).polluted).toBeUndefined();
+  };
+
+  test("the plain-JSON road strips the key, nested levels included", async () => {
+    let seen: any;
+    registerServerFunction("proto-json", async (arg: unknown) => {
+      seen = arg;
+      return "ok";
+    });
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/proto-json", {
+        method: "POST",
+        body: JSON.stringify([hostile()]),
+        headers: { ...H, [BODY_FORMAT_HEADER]: "8" }
+      })
+    );
+    expect(response.status).toBe(200);
+    assertStripped(seen);
+  });
+
+  test("the codec road strips the key too", async () => {
+    let seen: any;
+    registerServerFunction("proto-codec", async (arg: unknown) => {
+      seen = arg;
+      return "ok";
+    });
+    const { serializeString, deserializeStream } =
+      await import("@solidjs/web/server-functions/client");
+    const body = await serializeString([hostile()]);
+    // the codec must have round-tripped the own key for this test to mean
+    // anything — pin that the vehicle still carries the payload
+    const roundTripped: any[] = await deserializeStream(new Response(body));
+    expect(Object.prototype.hasOwnProperty.call(roundTripped[0], "__proto__")).toBe(true);
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/proto-codec", {
+        method: "POST",
+        body,
+        headers: { ...H, "Content-Type": "text/plain", [BODY_FORMAT_HEADER]: "0" }
+      })
+    );
+    expect(response.status).toBe(200);
+    assertStripped(seen);
+  });
+
+  test("the url-args road strips the key", async () => {
+    let seen: any;
+    registerServerFunction("proto-url", async (arg: unknown, _form: URLSearchParams) => {
+      seen = arg;
+      return "ok";
+    });
+    // bound-argument convention: JSON-safe leading arguments ride the url's
+    // `?args`, the natural-encoding body is the trailing argument
+    const response = await handleServerFunctionRequest(
+      new Request(
+        "https://app.example/_server/data/proto-url?args=" +
+          encodeURIComponent(JSON.stringify([hostile()])),
+        {
+          method: "POST",
+          body: new URLSearchParams({ f: "1" }),
+          headers: { ...H, [BODY_FORMAT_HEADER]: "3" }
+        }
+      )
+    );
+    expect(response.status).toBe(200);
+    assertStripped(seen);
+  });
+});
+
 describe("the rc.5 guard batch (#3169, #3170, #3171)", () => {
   const H = {
     "X-Server-Function-Format": "8",

@@ -1095,6 +1095,50 @@ function assertDecodeDepth(value) {
 }
 
 /**
+ * Strips own `__proto__` keys from a decoded argument graph, in place.
+ *
+ * Both decode roads preserve the key faithfully — `JSON.parse` creates it
+ * as an ordinary own property and the codec round-trips it the same way —
+ * and core itself is unharmed: `Object.prototype` is never touched. What
+ * the key subverts is the handler's most ordinary downstream move:
+ * `Object.assign` merges by [[Set]], so merging a decoded argument into a
+ * fresh object re-prototypes the copy with attacker-supplied data (#3168).
+ * This boundary already makes decisions of exactly this class — the decode
+ * depth cap, the RegExp exclusion, the argument-count bound — so the key
+ * is stripped here at the seam rather than documented away.
+ *
+ * The walk is iterative (the codec revives cyclic graphs, and depth is the
+ * attack input on the JSON road) with a visited set for cycles. It reaches
+ * plain objects and arrays, plus the values and keys of revived Maps and
+ * Sets; a value nested inside a revived class instance keeps its shape —
+ * the codec owns that value's construction, not this guard.
+ */
+function stripOwnProtoKeys(value) {
+  const stack = [value];
+  const seen = new Set();
+  while (stack.length) {
+    const v = stack.pop();
+    if (v === null || typeof v !== "object" || seen.has(v)) continue;
+    seen.add(v);
+    if (Array.isArray(v)) {
+      for (let i = 0; i < v.length; i++) stack.push(v[i]);
+    } else if (v instanceof Map) {
+      for (const [k, entry] of v) stack.push(k, entry);
+    } else if (v instanceof Set) {
+      for (const member of v) stack.push(member);
+    } else {
+      const proto = Object.getPrototypeOf(v);
+      if (proto !== Object.prototype && proto !== null) continue;
+      if (Object.prototype.hasOwnProperty.call(v, "__proto__")) {
+        delete v["__proto__"];
+      }
+      for (const key of Object.keys(v)) stack.push(v[key]);
+    }
+  }
+  return value;
+}
+
+/**
  * Buffers a POST body that declared no length (chunked transfer), refusing
  * once it runs past the limit — a declared length is enforced by the HTTP
  * server's own framing and is checked against the limit before this runs.
@@ -1151,6 +1195,7 @@ async function parseArguments(request, url, scripted, codec) {
     if (!Array.isArray(result)) {
       throw new TypeError("Server function arguments must encode an array");
     }
+    stripOwnProtoKeys(result);
     for (const arg of result) {
       parsed.push(arg);
     }
@@ -1176,7 +1221,7 @@ async function parseArguments(request, url, scripted, codec) {
       if (!Array.isArray(decoded)) {
         throw new TypeError("Server function arguments must encode an array");
       }
-      return decoded;
+      return stripOwnProtoKeys(decoded);
     }
     if (decoded === undefined) {
       // The decode switch fell through: the format tag — or its duplicate-
