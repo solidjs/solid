@@ -34,8 +34,10 @@ import { YieldWrap, yieldWrapGet } from "effect/Utils";
 import { action, createContext, onCleanup, useContext } from "solid-js";
 
 /** Solid context carrying the Effect runtime. Provide with
- * `<RuntimeContext value={createRuntime(layer)}>`. */
-export const RuntimeContext = createContext<ManagedRuntime.ManagedRuntime<any, never>>();
+ * `<RuntimeContext value={createRuntime(layer)}>`. The explicit `null`
+ * default matters: `useContext` throws on a provider-less read unless the
+ * context has a default, and we want that read to mean "default runtime". */
+export const RuntimeContext = createContext<ManagedRuntime.ManagedRuntime<any, never> | null>(null);
 
 /** Build a `ManagedRuntime` from a Layer, scoped to the current owner: the
  * runtime (and every service's finalizer in the Layer) is disposed when the
