@@ -19,6 +19,7 @@
 import { attrHooks } from "../../core/attribution-hooks.js";
 import {
   $REFRESH,
+  EFFECT_RENDER,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_OWNED_WRITE,
   NOT_PENDING,
@@ -43,7 +44,9 @@ import {
   setSignal,
   signal,
   untrack,
-  ext
+  ext,
+  createEffectNode,
+  recompute as recomputeNode
 } from "../../core/core.js";
 import {
   activeTransition,
@@ -387,6 +390,37 @@ export function regionBind(record: any): { track: () => void; raw: () => any } |
     },
     raw: () => t.v
   };
+}
+
+/** PROTOTYPE — fused region creation (cold-mount pass): one call resolves
+ * the target, ensures the version node, creates the region effect, and
+ * SUBSCRIBES without running the commit (the caller just built the DOM —
+ * the channel's delivery skipped its initial pass the same way). One
+ * public function to JIT-warm instead of four, no {track,raw} carrier
+ * allocation; the commit receives the raw backing directly. */
+export function createRegion(record: any, commit: (raw: any) => void): any {
+  const t: StoreNextTarget | undefined = record?.[$TARGET];
+  if (t === undefined) return null;
+  let vn = (t as any).vn as Signal<number> | undefined;
+  if (vn === undefined) {
+    (t as any).vn = vn = signal(0);
+    (vn as any)._config |= CONFIG_OWNED_WRITE;
+    markDescendants(t);
+  }
+  const v = vn;
+  const node = createEffectNode(
+    () => {
+      readNode(v as any);
+    },
+    () => {
+      commit(t.v);
+    },
+    undefined,
+    EFFECT_RENDER,
+    undefined
+  );
+  recomputeNode(node, true); // subscribe-only: compute runs, commit does not
+  return node;
 }
 
 export function bumpRecordVersion(t: StoreNextTarget): void {
