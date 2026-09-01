@@ -270,7 +270,9 @@ module.exports = [
     //
     // Re-audit-6 (2026-08-28): merge coalescing (core). Measured 10.70.
     path: "minimal-app.js",
-    limit: "10.75 KB",
+    // Rebase drift (2026-09-01, #3169-#3176 + fold-ledger relocation).
+    // Measured 10.76.
+    limit: "10.8 KB",
     modifyEsbuildConfig
   },
   {
@@ -402,7 +404,9 @@ module.exports = [
     // Fold audit 4 (2026-09-01): eager visible-version, epoch-stamped
     // proven reveal marks, primitive-multiset reorder classification.
     // Measured 27.52.
-    limit: "27.55 KB",
+    // Rebase drift (2026-09-01, #3169-#3176 + fold-ledger relocation).
+    // Measured 27.56.
+    limit: "27.6 KB",
     modifyEsbuildConfig
   },
   {
