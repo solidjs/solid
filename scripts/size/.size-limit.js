@@ -207,7 +207,10 @@ module.exports = [
     // proven reveal marks, primitive-multiset reorder classification.
     // Measured 15.38.
     // Entanglement rebase drift (2026-09-01, until-flip + CONFIG_HELD_TRUTH).
-    limit: "15.45 KB",
+    // Entangle-tear consolidation (2026-09-01, rc.6 pass 1): nodeValue's
+    // held-truth committed arm (untracked readers hold like tracked ones)
+    // + the channel's hh field. +36 B.
+    limit: "15.5 KB",
     modifyEsbuildConfig
   },
   {
@@ -503,7 +506,11 @@ module.exports = [
     // flush-end resync + registration-time ancestor repair. Flat cost —
     // the per-finding mechanism accretion this class caused stops here. Measured 17.11.
     // Entanglement rebase drift (2026-09-01, until-flip + CONFIG_HELD_TRUTH).
-    limit: "17.2 KB",
+    // Entangle-tear consolidation (2026-09-01, rc.6 pass 1): parked-truth
+    // deferral — deliveries and structural applies re-stash on the holder
+    // named by the nodes' own `_transition` (follows merges AND the steal
+    // with zero carrier-specific code; the scheduler diff is zero). +294 B.
+    limit: "17.5 KB",
     modifyEsbuildConfig
   },
   {
@@ -574,7 +581,9 @@ module.exports = [
     // Fold audit 6b (2026-09-01): the driver's rebuild check agrees with
     // the matcher's SameValueZero (moved NaN row kept its node — parity
     // with classic's Map-based diff, which has this for free). 12 B.
-    limit: "19.8 KB",
+    // Entangle-tear consolidation (2026-09-01, rc.6 pass 1): the list
+    // tier's share of parked-truth deferral (see patchDriver note). +221 B.
+    limit: "20.05 KB",
     modifyEsbuildConfig
   },
   {

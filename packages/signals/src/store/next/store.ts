@@ -164,6 +164,7 @@ export function pcOf(t: StoreNextTarget): PatchChannel {
       dmq: false,
       bt: null,
       bo: null,
+      hh: null,
       ak: null,
       dp: null,
       ks: false,
@@ -1751,7 +1752,17 @@ function nodeValue(node: Signal<any>, backing: any): any {
             ((inOwnerContext() || authoritativeServe()) &&
               !(node._config & CONFIG_HELD_TRUTH && !authoritativeServe())))
         ? node._pendingValue
-        : backing;
+        : node._pendingValue !== NOT_PENDING && node._config & CONFIG_HELD_TRUTH
+          ? // HELD truth is the O6 exception (entangle-steal tear, 2026-09-01):
+            // the steal extends node parking PAST the flush while the backing
+            // committed eagerly — for the hold's duration committed truth
+            // lives ONLY in `_value`. Serving the backing here handed
+            // untracked readers (userland untrack(), the patch channel's
+            // visible view) the confirming world while every tracked reader
+            // correctly held — same seam, two worlds. Authoritative/latest
+            // readers never reach this arm (served pending above).
+            node._value
+          : backing;
   return v === (FORCE as any) ? backing : v;
 }
 

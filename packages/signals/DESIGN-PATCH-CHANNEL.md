@@ -86,6 +86,51 @@ Deferred from the audit's secondary list: staged exception-safe applyOps
 @ts-nocheck on patch-driver.ts, and a versioned internal compiler entry
 for the runtime primitives.
 
+## 24. Entangle-tear consolidation, pass 1 (2026-09-01) — visibility moves to the seam
+
+Held #3091 out of rc.5 over an external probe: a `registerPatch` consumer
+on a confirming foreign store observed the new world mid-`until()`-hold
+(patch DOM showing the confirmation beside value bindings correctly
+holding). A second structural review named the root pattern: the channel
+re-decides visibility with private bookkeeping, so every new scheduler
+behavior needs a hand-written mirror. This pass moves the decisions to
+the seam. THREE mechanisms, ZERO core-scheduler changes:
+
+- **`nodeValue` held-truth committed arm** (store.ts): the O6 single-home
+  rule ("committed truth lives in the backing; `_value` is never served")
+  assumed backing and nodes converge at flush. The steal extends node
+  parking PAST the flush while the backing committed eagerly — for the
+  hold's duration, committed truth exists ONLY in `_value`. Untracked
+  readers (userland `untrack()`, the channel's visible view) fell through
+  to the backing and saw the future while every tracked reader held.
+  The held-truth refusal arm now serves `_value`: one seam, both reader
+  kinds agree. This was a USER-VISIBLE bug beyond the channel.
+- **Parked-truth deferral, value channel** (patch.ts): an optimistic-
+  family delivery whose record's truth is parked under a not-done
+  transaction defers WITHOUT consuming (`dv` stays behind `bc`) unless a
+  live override justifies a lane frame (classic shows the draft; so do
+  we). The holder is named by the nodes' own `_transition` — the steal
+  re-stamps it, merges canonicalize it, so the deferral follows the hold
+  wherever the scheduler moves it with no steal-specific code. A redrive
+  stashes on the holder's `_heldPatches` and re-bumps at its commit.
+  Transaction stamps could NOT gate this: landings emit at microtask time
+  with no ambient transaction. Only `t.fam?.opt` gates the probe — plain
+  bumps park the delivery signal itself, so their wakes are commit-timed
+  by construction (the dbmon path never probes).
+- **Parked-truth re-stash, structural channel** (patch.ts drain): landing
+  row ops rode a DIFFERENT carrier than the landing's node staging (the
+  fold's transition committed early; the nodes parked ambient and were
+  stolen later) — carrier-side mirrors (a steal stash-move, a forwarding
+  pointer) were built, WORKED, and were then DELETED: probing parked
+  truth at APPLY time subsumes them, ordering-free. Items re-stash on the
+  holder and release at the reveal; version chains absorb the replay.
+
+Cost: +36 B createStore (the seam arm), +294 B patchDriver tier, +221 B
+list tier. The probes (value + structural) are pinned as REGULAR tests.
+Remaining for pass 2 (before default-on re-proposes): visible-view
+snapshot compare to retire the bt/bo dedup stamps, and the auditor's
+node-attached structural stash evaluation.
+
 ## 23. Fold audit 6 (2026-09-01) — dn override lifecycle + matcher key spaces
 
 Three findings at `c48aed8b`; the first one also indicted the gate

@@ -97,6 +97,10 @@ export interface PatchChannel {
    * always writes (scheduler owns merge bookkeeping). */
   bt?: unknown;
   bo?: unknown;
+  /** Steal-deferral holder (2026-09-01 tear): the transition whose commit
+   * carries this channel's redrive while its record sits under a
+   * held-truth node mask — one redrive per holder. */
+  hh?: unknown;
   /** Structural VERSION (version-chain redesign): bumped at every
    * structural emission; items stamp `svAt`. Entries apply an item only on
    * an unbroken chain from their own applied version (`av === svAt - 1`) —

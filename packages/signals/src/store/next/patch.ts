@@ -40,7 +40,13 @@ import {
 } from "../../core/scheduler.js";
 import type { Owner } from "../../core/types.js";
 import { $TARGET, isWrappable } from "../store.js";
-import { markDescendants, ownedRaw, type PatchChannel, type StoreNextTarget } from "./target.js";
+import {
+  markDescendants,
+  ownedRaw,
+  storeNextLookup,
+  type PatchChannel,
+  type StoreNextTarget
+} from "./target.js";
 import { installPatchHooks, installRowHooks, wrapRecordHook } from "./patch-hooks.js";
 import { optHooks } from "./target.js";
 // One-way: reconcile emits through the hooks (never imports this module),
@@ -151,6 +157,23 @@ function drainApplyQueue(): void {
   let firstError: unknown = UNSET;
   for (let i = 0; i < q.length; i++) {
     const item = q[i];
+    // PARKED-TRUTH re-stash (2026-09-01 tear, structural half): whichever
+    // carrier the ops rode (the fold's transition, the ambient batch, an
+    // early-committing landing), at APPLY time a record whose truth is
+    // still parked names its holder through the nodes' `_transition` — the
+    // steal re-stamped them, so this follows the hold wherever the
+    // scheduler moved it, ordering-free. Overrides exempt (a draft's lane
+    // ops are live display). Optimistic families only: plain stores'
+    // structural emissions are commit-timed by their stash.
+    const t0 = (item.pc as any)?.t as StoreNextTarget | undefined;
+    if (t0 !== undefined && t0.fam?.opt === true) {
+      scanHadOverride = false;
+      const holder = nodesParkedHolder(t0);
+      if (holder !== null && !scanHadOverride) {
+        (((holder as any)._heldPatches ??= []) as QueuedApply[]).push(item);
+        continue;
+      }
+    }
     const next = drainNext(item);
     if (next === UNSET) continue;
     if (item.ops !== undefined || item.si !== undefined)
@@ -514,11 +537,100 @@ function applyEntries(list: PatchEntry[], next: any, firstError: unknown, pc: an
 // the ambient batch never stashes.
 let commitHookInstalled = false;
 
+/** PARKED-TRUTH probe (2026-09-01 tear): a record whose node values are
+ * parked under a NOT-DONE transaction has truth the visible world hasn't
+ * revealed — a landing's fold mid-flight, fold-staged reveals, or the
+ * until()-flip steal's held mask (which re-stamps `_transition` to the
+ * awaiting transaction, so the SAME probe follows the hold wherever the
+ * scheduler moves it — no steal-specific code). The scan also notes
+ * active overrides (`scanHadOverride`): an override is a live lane
+ * display classic readers see NOW, so its delivery must not defer.
+ * Cold by construction: the caller gates on `bt`/`bo`, so
+ * transaction-free ticks (the dbmon shape) never reach this. */
+let scanHadOverride = false;
+
+function nodesParkedHolder(t: StoreNextTarget): Transition | null {
+  const n = t.n as Record<PropertyKey, any> | null | undefined;
+  let holder: Transition | null = null;
+  if (n != null) {
+    for (const k in n) {
+      const nd = n[k];
+      if (hasActiveOverrideNode(nd)) scanHadOverride = true;
+      else if (nd._pendingValue !== NOT_PENDING && nd._transition != null) {
+        const tx = currentTransition(nd._transition as Transition);
+        if (tx != null && tx._done !== true) holder = tx;
+      }
+    }
+  }
+  return holder;
+}
+
+function hasActiveOverrideNode(nd: any): boolean {
+  const ov = nd._x?._overrideValue;
+  return ov !== undefined && ov !== NOT_PENDING;
+}
+
+function deepHeldHolder(node: DeepNode, raw: any, fam: any): Transition | null {
+  if (raw === null || (typeof raw !== "object" && typeof raw !== "function")) return null;
+  const ct = (fam?.map ?? storeNextLookup).get(raw) as StoreNextTarget | undefined;
+  if (ct !== undefined) {
+    const h = nodesParkedHolder(ct);
+    if (h !== null) return h;
+  }
+  const children = node.c;
+  if (children !== null) {
+    for (let i = 0; i < children.length; i++) {
+      const f = deepHeldHolder(children[i], raw[children[i].k as any], fam);
+      if (f !== null) return f;
+    }
+  }
+  return null;
+}
+
+function parkedTruthHolder(t: StoreNextTarget, pc: any): Transition | null {
+  const h = nodesParkedHolder(t);
+  if (h !== null) return h;
+  const dp = pc.dp as DeepNode[] | null;
+  if (dp !== null && t.v != null) {
+    for (let i = 0; i < dp.length; i++) {
+      const f = deepHeldHolder(dp[i], (t.v as any)[dp[i].k as any], t.fam);
+      if (f !== null) return f;
+    }
+  }
+  return null;
+}
+
+/** Defer the delivery WITHOUT consuming the bump (`dv` stays behind `bc`):
+ * the holder's commit releases a redrive that wakes the effect, and content
+ * then resolves through the read seam post-reveal. One redrive per holder
+ * (`pc.hh`); a REVERTED holder drops its stash by design — the revert
+ * restores the world the unconsumed bump would have re-applied, so the
+ * missed wake is content-free and the next genuine bump supersedes it. */
+function deferRedrive(pc: any, holder: Transition): void {
+  if (pc.hh != null && currentTransition(pc.hh as Transition) === holder) return;
+  pc.hh = holder;
+  (((holder as any)._heldPatches ??= []) as any[]).push({ rd: pc });
+}
+
 function releaseBatch(batch: Transition): void {
   const held = (batch as any)._heldPatches as QueuedApply[] | undefined;
   if (held === undefined) return;
   (batch as any)._heldPatches = undefined;
-  for (let i = 0; i < held.length; i++) pushLive(held[i]);
+  for (let i = 0; i < held.length; i++) {
+    const item = held[i] as any;
+    if (item.rd !== undefined) {
+      // Parked-truth redrive: the holder committed — bump and wake (the
+      // bump makes redelivery unconditional even when the deferring
+      // delivery fell through and consumed); the seam serves the revealed
+      // world. A REVERTED holder drops this with its stash by design: the
+      // revert restored the world, the wake would be content-free.
+      item.rd.hh = null;
+      item.rd.bc++;
+      setSignal(item.rd.dn, (v: number) => v + 1);
+      continue;
+    }
+    pushLive(item);
+  }
 }
 
 /** The VISIBLE-version bump (version-chain redesign): an emission's effect
@@ -637,6 +749,23 @@ function drainOptimistic(): void {
   let firstError: unknown = UNSET;
   for (let i = 0; i < q.length; i++) {
     const item = q[i];
+    // PARKED-TRUTH re-stash (2026-09-01 tear, structural half): whichever
+    // carrier the ops rode (the fold's transition, the ambient batch, an
+    // early-committing landing), at APPLY time a record whose truth is
+    // still parked names its holder through the nodes' `_transition` — the
+    // steal re-stamped them, so this follows the hold wherever the
+    // scheduler moved it, ordering-free. Overrides exempt (a draft's lane
+    // ops are live display). Optimistic families only: plain stores'
+    // structural emissions are commit-timed by their stash.
+    const t0 = (item.pc as any)?.t as StoreNextTarget | undefined;
+    if (t0 !== undefined && t0.fam?.opt === true) {
+      scanHadOverride = false;
+      const holder = nodesParkedHolder(t0);
+      if (holder !== null && !scanHadOverride) {
+        (((holder as any)._heldPatches ??= []) as QueuedApply[]).push(item);
+        continue;
+      }
+    }
     const next = drainNext(item);
     if (next === UNSET) continue;
     if (item.ops !== undefined || item.si !== undefined)
@@ -1057,7 +1186,29 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
       () => void readSignal(dn),
       () => {
         if (pc.bc === pc.dv) return; // pure-registration run: baselines are per-entry
+        // PARKED-TRUTH DEFERRAL (2026-09-01 tear): an OPTIMISTIC-family
+        // record whose truth is parked under a not-done transaction — a
+        // landing mid-flight (landings emit at microtask time with NO
+        // ambient transaction, so transaction stamps can't gate this), a
+        // fold stage, or the until()-flip steal (the wake outruns the
+        // steal; the probe follows `_transition` wherever the scheduler
+        // re-stamps it). With no live override to display, classic emits
+        // NO frame now — defer without consuming (`dv` stays behind `bc`)
+        // and ride the holder's commit. With one (a draft mid-flight),
+        // deliver the lane view now AND redeliver at the reveal. Only
+        // optimistic families own the lane-timed early-wake rail: plain
+        // bumps park the delivery signal itself, so their wakes are
+        // commit-timed by construction — no probe on the dbmon path.
+        if (t.fam?.opt === true) {
+          scanHadOverride = false;
+          const holder = parkedTruthHolder(t, pc);
+          if (holder !== null) {
+            deferRedrive(pc, holder);
+            if (!scanHadOverride) return;
+          }
+        }
         pc.dv = pc.bc;
+        if (pc.hh == null) pc.hh = null;
         // The delivery CONSUMES any override on the notification signal
         // (INV-6, fold audit 6): optimistic bumps arm dn so in-flight
         // visibility rides the lane — but dn is PURE NOTIFICATION, and a
