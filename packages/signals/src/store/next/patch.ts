@@ -1593,15 +1593,19 @@ export function registerRowOps(array: any, fn: RowOpsFn): () => void {
   armRowHooks();
   const rowner = getOwner();
   const pc = pcOf(t);
+  const rq = (rowner as any)?._queue ?? null;
   const entry: RowOpsEntry = {
     fn,
     owner: rowner,
-    q: (rowner as any)?._queue ?? null,
-    // Transition-aware init (fold audit 2, P1): a consumer mounting INSIDE
-    // the writing transition reads the SPECULATIVE view — its baseline
-    // covers the stashed emissions too (sv). Ambient mounts read committed
-    // truth (svv) and receive the stashed ops at release.
-    av: (activeTransition !== null ? ((pc as any).sv as number) : ((pc as any).svv as number)) ?? 0
+    q: rq,
+    // Speculative-scope init (fold audit 3, P1): a consumer rendering under
+    // a HOLDING boundary queue reads the speculative view — its baseline
+    // covers the stashed emissions too (sv). The old `activeTransition`
+    // probe missed PARKED windows (the flag is execution-scoped; the hold
+    // persists). Ambient mounts read committed truth (svv) and receive the
+    // stashed ops at release.
+    av: ((queueIsHeld(rq) ? ((pc as any).sv as number) : ((pc as any).svv as number)) ??
+      0) as number
   };
   if (__TEST__) devTrackChannel(pc);
   const list = (pc.ro ??= []) as RowOpsEntry[];
@@ -1649,12 +1653,13 @@ export function registerSlotPatchNext(
   // lists — registrations are a list, unbinds splice their own entry.
   const pc = pcOf(t);
   const sowner = getOwner();
+  const sq = (sowner as any)?._queue ?? null;
   const entry = {
     fn,
     owner: sowner,
-    q: (sowner as any)?._queue ?? null,
-    av:
-      (activeTransition !== null ? ((pc as any).svs as number) : ((pc as any).svvs as number)) ?? 0
+    q: sq,
+    av: ((queueIsHeld(sq) ? ((pc as any).svs as number) : ((pc as any).svvs as number)) ??
+      0) as number
   };
   const list = (pc.sp ??= []) as unknown[];
   list.push(entry);

@@ -991,22 +991,41 @@ function drainFolds(): void {
         // reveal — and the driven list must hear it (the settle loop's
         // resync only covers OVERLAID targets; a root array whose retention
         // came from a descendant override is not one).
-        // ONE channel per replacement (fold audit 2, P1): the walk's split —
-        // ALIGNED windows (same length) are value replacements and ride slot
-        // ticks ONLY; length changes are structure and ride row ops ONLY.
-        // Emitting both rebuilt the same shallow row twice (lifecycle/focus
-        // divergence). Staged DEEP reveals key rows by TARGET identity, not
-        // raw identity — the fold re-seats retained rows' raws, and raw-keyed
+        // ONE channel per replacement (fold audits 2+3, P1): the walk's
+        // split — VALUE-ALIGNED windows ride slot ticks ONLY; anything
+        // structural (length change OR a moved/removed wrappable reference —
+        // an equal-length REORDER is structure, classifying it by length
+        // alone rebuilt moved rows and lost identity/focus) rides row ops
+        // ONLY. Staged DEEP reveals key rows by TARGET identity, not raw
+        // identity — the fold re-seats retained rows' raws, and raw-keyed
         // ops rebuilt rows whose proxies never changed.
         if (t.pc !== null && Array.isArray(pb) && Array.isArray(t.v)) {
           const oldArr = t.v as any[];
           const newArr = pb as any[];
-          const aligned = t.sf === true && t.pc.sp !== null && oldArr.length === newArr.length;
+          let aligned = t.sf === true && t.pc.sp !== null && oldArr.length === newArr.length;
           if (aligned) {
+            // Value-aligned means every differing slot is a NON-wrappable
+            // replacement; a wrappable ref that changed slots is structure.
+            for (let si = 0; si < newArr.length; si++) {
+              const ov = oldArr[si];
+              const nv = newArr[si];
+              if (ov === nv) continue;
+              if (
+                (ov !== null && typeof ov === "object") ||
+                (nv !== null && typeof nv === "object")
+              ) {
+                aligned = false;
+                break;
+              }
+            }
+          }
+          if (aligned) {
+            t.rf = true; // slot ticks ARE the reveal — the settle loop must not resync
             for (let si = 0; si < newArr.length; si++) {
               if (oldArr[si] !== newArr[si]) rowHooks!.emitSlotPatch(t, si, newArr[si], oldArr[si]);
             }
           } else if (t.pc.ro !== null && !t.adopted && (t.fam?.opt !== true || t.sf === true)) {
+            if (t.sf === true) t.rf = true; // reveal emitted — settle loop must not resync again
             const map = t.fam?.map ?? storeNextLookup;
             rowHooks!.emitSetterRowOps(
               t,

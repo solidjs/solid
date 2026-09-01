@@ -201,6 +201,10 @@ export interface StoreNextTarget {
    * gates at the fold sites exist for OVERRIDE materializations, which
    * ride the lane). Cleared at the fold. */
   sf?: boolean;
+  /** Reveal row-ops emitted by the fold THIS flush (fold audit 3, P1): the
+   * settle drain's resync loop skips (and consumes) it — a second rebuild
+   * for the same reveal lost DOM identity/focus. */
+  rf?: boolean;
   /** Pending backing is a prototype-chain OVERLAY of the committed backing
    * (`Object.create(v)` — own keys are this batch's writes, everything else
    * reads through). O(written) per flush instead of O(container) clones

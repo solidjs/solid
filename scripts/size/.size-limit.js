@@ -201,7 +201,9 @@ module.exports = [
     // Fold audit 2 (2026-09-01): transition-aware version init, reveal
     // channel split, target-keyed staged identity, release fast-forward.
     // Measured 15.22.
-    limit: "15.25 KB",
+    // Fold audit 3 (2026-09-01): held-queue av init, reorder classification,
+    // reveal single-notification mark. Measured 15.27.
+    limit: "15.3 KB",
     modifyEsbuildConfig
   },
   {

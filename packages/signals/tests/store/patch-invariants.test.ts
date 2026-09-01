@@ -1787,6 +1787,57 @@ describe("INVARIANT: structural channels under fold/holds — per-index slots, n
     void lastOps;
   });
 
+  it("av init keys off the HOLDING QUEUE, not the execution-time transition flag (parked windows)", async () => {
+    // Fold audit 3, P1: `activeTransition` is null in a PARKED action's
+    // window while speculative state is still what held-boundary content
+    // reads — the flag-based init handed those registrants a committed
+    // baseline and replayed stashed ops over speculative DOM. The
+    // discriminator is the registrant's owner queue HOLDING.
+    const { registerRowOps, getOwner, action: act } = await import("../../src/index.js");
+    const { $TARGET } = await import("../../src/store/store.js");
+    const { GlobalQueue } = await import("../../src/core/scheduler.js");
+    const [state, setState] = createStore<any>({ rows: [{ id: "a" }, { id: "b" }] });
+    createRoot(() => {
+      registerRowOps(state.rows, () => {});
+    });
+    let confirm!: () => void;
+    const run = act(function* () {
+      setState((s: any) => {
+        reconcile([{ id: "b" }, { id: "a" }], "id")(s.rows);
+      });
+      yield new Promise<void>(resolve => {
+        confirm = resolve;
+      });
+    })();
+    flush(); // action is now PARKED: activeTransition is null here
+    const pc = (state.rows as any)[$TARGET].pc;
+    const fakeQ: any = { enqueue: () => {} };
+    const prevProbe = (GlobalQueue as any)._queueHeld;
+    (GlobalQueue as any)._queueHeld = (q: any) => q === fakeQ || prevProbe?.(q) === true;
+    try {
+      // Held-boundary registrant (reads speculative): baseline covers the
+      // stash — av must be the FULL emitted version.
+      createRoot(() => {
+        (getOwner() as any)._queue = fakeQ;
+        registerRowOps(state.rows, () => {});
+      });
+      const held = pc.ro[pc.ro.length - 1];
+      expect(held.av).toBe(pc.sv);
+      // Ambient registrant (reads committed): receives the stash at release.
+      createRoot(() => {
+        registerRowOps(state.rows, () => {});
+      });
+      const ambient = pc.ro[pc.ro.length - 1];
+      expect(ambient.av).toBe(pc.svv);
+      if (pc.sv !== pc.svv) expect(ambient.av).not.toBe(pc.sv);
+    } finally {
+      (GlobalQueue as any)._queueHeld = prevProbe;
+    }
+    confirm();
+    await run;
+    flush();
+  });
+
   it("a shallow staged reveal rides ONE channel — slot ticks for aligned replacement, never row ops too", async () => {
     const {
       createOptimisticStore,
@@ -1824,11 +1875,62 @@ describe("INVARIANT: structural channels under fold/holds — per-index slots, n
     await run;
     await Promise.resolve();
     flush();
-    // The reveal delivers the replacement ONCE: a slot tick — row ops for
-    // the same slot would rebuild the row a second time (lifecycle/focus).
+    // The reveal delivers the replacement ONCE: a slot tick — ANY row
+    // event (ops OR the null resync the old filtered assertion hid) would
+    // rebuild the row a second time (lifecycle/focus).
     expect(ticks.some(([i, v]) => i === 0 && v === "A2")).toBe(true);
-    const revealRowOps = rowEvents.slice(rowMark).filter(o => o !== null);
-    expect(revealRowOps.length).toBe(0);
+    expect(rowEvents.slice(rowMark)).toEqual([]);
+  });
+
+  it("an equal-length staged REORDER is structure: one row-ops event, zero slot ticks", async () => {
+    // Fold audit 3, P1: classifying aligned windows by LENGTH alone called
+    // reorders value replacements — moved rows rebuilt via slot ticks and
+    // lost identity/focus. Moved wrappable references are STRUCTURE.
+    const {
+      createOptimisticStore,
+      registerRowOps,
+      action: act
+    } = await import("../../src/index.js");
+    const { registerSlotPatchNext } = await import("../../src/store/next/patch.js");
+    const { storeSetterNext, runAuthoritative } = await import("../../src/store/next/store.js");
+    const a = { id: "a" };
+    const b = { id: "b" };
+    const [items, setItems] = (createOptimisticStore as any)([a, b] as any[]);
+    const rowEvents: any[] = [];
+    const ticks: any[] = [];
+    createRoot(() => {
+      registerRowOps(items, (_r: any[], ops: any) => rowEvents.push(ops));
+      registerSlotPatchNext(items, (i: number, v: any) => ticks.push([i, v]));
+    });
+    let confirm!: () => void;
+    const run = act(function* () {
+      setItems((d: any[]) => {
+        d.push({ id: "c" }); // retain optimism
+      });
+      yield new Promise<void>(r => {
+        confirm = r;
+      });
+    })();
+    flush();
+    const rowMark = rowEvents.length;
+    const tickMark = ticks.length;
+    // Staged equal-length REORDER: same refs, swapped slots.
+    runAuthoritative(() => {
+      storeSetterNext(items, (d: any[]) => {
+        const t0 = d[0];
+        d[0] = d[1];
+        d[1] = t0;
+      });
+    });
+    flush();
+    confirm();
+    await run;
+    await Promise.resolve();
+    flush();
+    // Structure rode row ops; the slot channel stayed silent.
+    expect(ticks.slice(tickMark)).toEqual([]);
+    const revealOps = rowEvents.slice(rowMark).filter(o => o !== null && o !== undefined);
+    expect(revealOps.length).toBeGreaterThan(0);
   });
 
   it("a staged ROOT structural change reveals WITH row ops when only a descendant holds the override", async () => {
