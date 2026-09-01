@@ -678,3 +678,92 @@ describe("the decode depth cap", () => {
     expect(response.status).toBe(400);
   });
 });
+
+describe("the rc.5 guard batch (#3169, #3170, #3171)", () => {
+  const H = {
+    "X-Server-Function-Format": "8",
+    "X-Server-Function-Instance": "server-function:test"
+  };
+
+  // #3169: the CSRF origin matcher's verdict is a security gate, so only a
+  // literal `true` may open it. Coercion read a truthy non-boolean — the
+  // natural return of a matcher that names or explains its decision — as
+  // "allow", failing open cross-origin. No Sec-Fetch-Site on these
+  // requests: with it present the gate short-circuits before the matcher.
+  test("a truthy non-boolean from the origin matcher fails closed", async () => {
+    let ran = 0;
+    registerServerFunction("guard-csrf-string", async () => {
+      ran++;
+      return "should not run";
+    });
+    for (const verdict of ["no", { allowed: false }, 1] as any[]) {
+      const response = await handleServerFunctionRequest(
+        new Request("https://app.example/_server/data/guard-csrf-string", {
+          method: "POST",
+          body: "[]",
+          headers: { ...H, Origin: "https://evil.example" }
+        }),
+        { csrf: { origin: () => verdict } }
+      );
+      expect(response.status).toBe(403);
+    }
+    expect(ran).toBe(0);
+  });
+
+  test("a literal true from the origin matcher still allows", async () => {
+    let ran = 0;
+    registerServerFunction("guard-csrf-true", async () => {
+      ran++;
+      return "ok";
+    });
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/guard-csrf-true", {
+        method: "POST",
+        body: "[]",
+        headers: { ...H, Origin: "https://partner.example" }
+      }),
+      { csrf: { origin: async () => true } }
+    );
+    expect(response.status).toBe(200);
+    expect(ran).toBe(1);
+  });
+
+  // #3170: an async createEvent is out of contract, but handing its pending
+  // Promise downstream as the event dropped every header the integration
+  // wrote while still answering 200. The runtime now awaits it.
+  test("an async createEvent's cookies reach the wire", async () => {
+    registerServerFunction("guard-async-event", async () => "ok");
+    const response = await handleServerFunctionRequest(scriptedPost("guard-async-event"), {
+      createEvent: async (request: Request) => {
+        await Promise.resolve();
+        const event = createRequestEvent(request);
+        event.response.headers.append("Set-Cookie", "sid=fresh; Path=/");
+        return event;
+      }
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.getSetCookie()).toContain("sid=fresh; Path=/");
+  });
+
+  // #3171: the thrown-path transformResult sat inside the catch with no try
+  // of its own — the same throwing hook that answered a contained 500 on
+  // the return path escaped the handler entirely on the thrown path.
+  test("a throwing transformResult on the thrown path answers a contained 500", async () => {
+    registerServerFunction("guard-hook-thrown", async () => {
+      throw new Response(null, { status: 418 });
+    });
+    const response = await handleServerFunctionRequest(scriptedPost("guard-hook-thrown"), {
+      createEvent: (request: Request) => {
+        const event = createRequestEvent(request);
+        event.response.headers.append("Set-Cookie", "sid=kept; Path=/");
+        return event;
+      },
+      transformResult: () => {
+        throw new Error("HOOK-BOOM");
+      }
+    });
+    expect(response.status).toBe(500);
+    // the event's stub still folds onto the contained failure (#3159)
+    expect(response.headers.getSetCookie()).toContain("sid=kept; Path=/");
+  });
+});

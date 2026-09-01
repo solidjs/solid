@@ -2296,7 +2296,11 @@ export function parseServerFunctionUrl(url) {
 
 async function matchesOrigin(origin, request, matcher) {
   if (matcher === undefined) return origin === new URL(request.url).origin;
-  if (typeof matcher === "function") return !!(await matcher(origin, request));
+  // Strict `=== true`: this is a security gate, so anything else fails
+  // CLOSED. A truthy non-boolean (`"no"`, a verdict object) is the shape a
+  // matcher that explains its decision most naturally returns — coercion
+  // read those as "allow" (#3169).
+  if (typeof matcher === "function") return (await matcher(origin, request)) === true;
   return Array.isArray(matcher) ? matcher.includes(origin) : origin === matcher;
 }
 
@@ -2630,7 +2634,14 @@ export async function handleServerFunctionRequest(request, options = {}) {
     }
   }
 
-  const event = options.createEvent ? options.createEvent(request) : { request, locals: {} };
+  let event = options.createEvent ? options.createEvent(request) : { request, locals: {} };
+  // An async createEvent is out of contract (the type is synchronous), but
+  // handing a pending Promise downstream as the event is the worst failure
+  // available: the function runs, the caller sees 200, and every header the
+  // integration wrote on the real event's stub silently vanishes (#3170).
+  // Awaiting is strictly better than refusing — the resolved value IS the
+  // event the integration meant.
+  if (typeof (event as any)?.then === "function") event = await event;
   // Once an event exists, its response stub folds onto EVERY exit — the
   // refusals below included (#3159). A refusal that returned directly
   // dropped the stub silently: an integration's Set-Cookie written in
@@ -2873,9 +2884,48 @@ export async function handleServerFunctionRequest(request, options = {}) {
       if (status === 304) warnScripted304(functionId);
       return encodeResult(result, headers, status, codec, request.signal);
     } catch (x) {
+      // Plain-thrown tail, hoisted so the thrown-path transformResult can
+      // divert to it: the security-sensitive path. Sanitized to a generic
+      // Error outside development unless branded safe, so a driver/ORM
+      // error's message and own-properties never reach the client (see
+      // sanitizeServerError). Both the wire body and the ERROR_HEADER
+      // message derive from the sanitized value.
+      const respondThrown = value => {
+        const safe = sanitizeServerError(value);
+        if (!scripted) {
+          if (handleNoJS) return handleNoJS(safe, request, parsed, true);
+          const message = safe instanceof Error ? safe.message : String(safe);
+          return new Response(DEV ? message : null, { status: 500 });
+        }
+        const error =
+          safe instanceof Error ? safe.message : typeof safe === "string" ? safe : "true";
+        // header values are latin1 ByteStrings — Headers.set throws on anything
+        // above U+00FF, so non-latin1 messages ride percent-encoded (the client
+        // decodes symmetrically; the structured error still travels in the
+        // body) — and bounded, so a long message cannot blow the response past
+        // a receiver's header limits (see boundedErrorHeaderValue)
+        headers.set(ERROR_HEADER, boundedErrorHeaderValue(error));
+        // A real 500, not a 200 wearing the tag: the failure is known before a
+        // byte of body exists, so the status line is still free to tell
+        // intermediaries — CDN metrics, load-balancer health, log alerts —
+        // what the tag tells the client (#3097). The tag stays the client's
+        // authoritative signal (a failure discovered MID-STREAM still rides a
+        // 200, in-band in the codec, because by then the status is spent);
+        // thrown envelopes keep the author's status above.
+        return encodeResult(safe, headers, 500, codec, request.signal);
+      };
       if (x instanceof Response || isResponseEnvelope(x)) {
         if (transformResult) {
-          x = await transformResult(event, x, { ...flightContext, thrown: true });
+          try {
+            x = await transformResult(event, x, { ...flightContext, thrown: true });
+          } catch (hookError) {
+            // Same hook, same failure, same containment as the return path
+            // (#3171): there a throwing transformResult lands in this catch
+            // as a plain error and answers a sanitized 500. Uncontained here,
+            // it escaped the handler entirely — no status, no event stub,
+            // the host adapter left to improvise.
+            return respondThrown(hookError);
+          }
         }
         let status = 200;
         let metadata;
@@ -2950,34 +3000,8 @@ export async function handleServerFunctionRequest(request, options = {}) {
         return encodeResult(x, headers, status, codec, request.signal);
       }
 
-      // Plain thrown value (not a Response/envelope): the security-sensitive
-      // path. Sanitized to a generic Error outside development unless branded
-      // safe, so a driver/ORM error's message and own-properties never reach
-      // the client (see sanitizeServerError). Both the wire body and the
-      // ERROR_HEADER message derive from the sanitized value.
-      const safe = sanitizeServerError(x);
-
-      if (!scripted) {
-        if (handleNoJS) return handleNoJS(safe, request, parsed, true);
-        const message = safe instanceof Error ? safe.message : String(safe);
-        return new Response(DEV ? message : null, { status: 500 });
-      }
-
-      const error = safe instanceof Error ? safe.message : typeof safe === "string" ? safe : "true";
-      // header values are latin1 ByteStrings — Headers.set throws on anything
-      // above U+00FF, so non-latin1 messages ride percent-encoded (the client
-      // decodes symmetrically; the structured error still travels in the
-      // body) — and bounded, so a long message cannot blow the response past
-      // a receiver's header limits (see boundedErrorHeaderValue)
-      headers.set(ERROR_HEADER, boundedErrorHeaderValue(error));
-      // A real 500, not a 200 wearing the tag: the failure is known before a
-      // byte of body exists, so the status line is still free to tell
-      // intermediaries — CDN metrics, load-balancer health, log alerts —
-      // what the tag tells the client (#3097). The tag stays the client's
-      // authoritative signal (a failure discovered MID-STREAM still rides a
-      // 200, in-band in the codec, because by then the status is spent);
-      // thrown envelopes keep the author's status above.
-      return encodeResult(safe, headers, 500, codec, request.signal);
+      // Plain thrown value (not a Response/envelope) — see respondThrown above.
+      return respondThrown(x);
     }
   };
   // Ownership seam (#3155): the dispatched value may be a Response the
