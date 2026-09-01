@@ -1265,6 +1265,14 @@ function transitionComplete(transition: Transition): boolean {
   done && (transition._done = true);
   return done;
 }
+/** A fresh, unentered transaction (#3146): the optimistic store's truth
+ * flight DECLARES an owned transaction instead of relying on whatever the
+ * ambient adoption machinery stamped on its firewall. Activate it with
+ * initTransition; it is a plain batch until then. */
+export function createTransition(): Transition {
+  return createBatch();
+}
+
 export function currentTransition(transition: Transition) {
   while (transition._done && typeof transition._done === "object") transition = transition._done;
   return transition;
