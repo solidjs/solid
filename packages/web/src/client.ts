@@ -526,8 +526,25 @@ export function setAttribute(node: Element, name: string, value: string): void;
 
 export function setAttribute(node, name, value) {
   if (isHydrating(node)) return;
+  const selectMultiple = name === "multiple" && node.localName === "select";
   if (value == null || value === false) node.removeAttribute(name);
-  else node.setAttribute(name, value === true ? "" : value);
+  else {
+    node.setAttribute(name, value === true ? "" : value);
+    // A dynamic `multiple` reaches the select only after its options were
+    // parsed under single-select rules, which keep just the last `selected`
+    // option. On the first truthy write restore the parser's multi-select
+    // selectedness from the options' defaults so an initially-true
+    // expression matches the static attribute (#3179). Later toggles keep
+    // the live selection state, exactly like toggling the attribute on
+    // static markup.
+    if (selectMultiple && !node._$multiple) {
+      const options = node.options;
+      for (let i = 0; i < options.length; i++) {
+        if (options[i].defaultSelected) options[i].selected = true;
+      }
+    }
+  }
+  if (selectMultiple) node._$multiple = true;
   // Frozen contract with compiled output: `href`/`action` can only change
   // through compiler-owned write paths, which all land here — so one recheck
   // at this site keeps claim consumers fresh with no observers.
