@@ -343,4 +343,56 @@ describe("typed preload links", () => {
       }
     ]);
   });
+
+  it("treats equivalent CORS spellings as one request", () => {
+    // The CORS settings attribute is three states, not a string range: absent,
+    // Use Credentials, and Anonymous (every other present value, including an
+    // invalid one). Forking on spelling shipped the same font five times.
+    const html = r.renderToString(() => {
+      const ctx = sharedConfig.context;
+      for (const crossorigin of ["", true, "anonymous", "ANONYMOUS", "bogus"])
+        ctx.registerAsset("preload", { href: "/f.woff2", as: "font", crossorigin });
+      for (const crossorigin of ["use-credentials", "USE-CREDENTIALS"])
+        ctx.registerAsset("preload", { href: "/f.woff2", as: "font", crossorigin });
+      ctx.registerAsset("preload", { href: "/f.woff2", as: "font" });
+      return r.ssr`<html><head></head><body></body></html>`;
+    });
+
+    // Anonymous, Use Credentials, No CORS — three requests, three links.
+    expect(html.match(/rel="preload"/g)).toHaveLength(3);
+    expect(html).toContain('<link rel="preload" href="/f.woff2" as="font" crossorigin="">');
+    expect(html).toContain(
+      '<link rel="preload" href="/f.woff2" as="font" crossorigin="use-credentials">'
+    );
+    expect(html).toContain('<link rel="preload" href="/f.woff2" as="font">');
+  });
+
+  it("treats a falsy conditional qualifier as an absent one", () => {
+    // `crossorigin={cond && "anonymous"}` is an everyday JSX idiom; both
+    // attribute writers drop `false`, so the identity must too or the same
+    // link ships twice with byte-identical markup.
+    const html = r.renderToString(() => {
+      sharedConfig.context.registerAsset("preload", { href: "/y.avif", as: "image" });
+      r.useHead({
+        tag: "link",
+        props: { rel: "preload", href: "/y.avif", as: "image", crossorigin: false, media: false }
+      });
+      return r.ssr`<html><head></head><body></body></html>`;
+    });
+
+    expect(html.match(/rel="preload"/g)).toHaveLength(1);
+  });
+
+  it("keeps qualifier values from forging one another", () => {
+    // `:q=value` concatenation let a value carrying the delimiters look like a
+    // different qualifier set, which silently dropped the second resource.
+    const html = r.renderToString(() => {
+      const ctx = sharedConfig.context;
+      ctx.registerAsset("preload", { href: "/x.avif", as: "image", type: "a:media=b" });
+      ctx.registerAsset("preload", { href: "/x.avif", as: "image", type: "a", media: "b" });
+      return r.ssr`<html><head></head><body></body></html>`;
+    });
+
+    expect(html.match(/rel="preload"/g)).toHaveLength(2);
+  });
 });

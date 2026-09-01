@@ -33,7 +33,14 @@ export const RESOURCE_LINK_RELS = new Set([
 // changes cacheability. URL alone is not the identity. Integrity, referrer
 // policy, and fetch priority are deliberately first-registration metadata:
 // conflicting declarations do not create another resource identity.
-const RESOURCE_QUALIFIERS = ["as", "crossorigin", "type", "media", "imagesrcset", "imagesizes"];
+export const RESOURCE_QUALIFIERS = [
+  "as",
+  "crossorigin",
+  "type",
+  "media",
+  "imagesrcset",
+  "imagesizes"
+];
 
 // Stylesheet attributes that are pure fetch metadata: they change how the
 // sheet is fetched, not whether it applies. A stylesheet whose extra
@@ -80,13 +87,37 @@ export function classifyHeadTag(desc) {
   return { resource: false };
 }
 
-// Identity for a resource-class tag (evaluated props).
+// Canonical comparison value for one qualifier, or `null` when the attribute
+// is not part of the request. Two rules the raw prop value does not express:
+//
+//   - `false` is ABSENCE, not a value. Both attribute writers drop it, so
+//     `crossorigin={cond && "anonymous"}` must not fork an identity whose
+//     markup is byte-identical to the unqualified one.
+//   - `crossorigin` is a CORS settings attribute: three states, not a string
+//     range. Absent is No CORS; `use-credentials` (ASCII case-insensitive) is
+//     Use Credentials; every OTHER present value — `""`, a bare attribute, an
+//     invalid value — is Anonymous. `crossorigin=""` and `crossorigin="anonymous"`
+//     are one request and must be one identity, or the same font ships twice
+//     and the client mounts a second link instead of adopting the server's.
+export function qualifierValue(name, value) {
+  if (value == null || value === false) return null;
+  const v = value === true ? "" : String(value);
+  if (name !== "crossorigin") return v;
+  return v.length === 15 && v.toLowerCase() === "use-credentials" ? v.toLowerCase() : "anonymous";
+}
+
+// Identity for a resource-class tag (evaluated props). Qualifier values are
+// length-prefixed: plain `:q=value` concatenation let a value containing the
+// delimiters forge another qualifier (`type: "a:media=b"` collided with
+// `type: "a", media: "b"`), which silently dropped the second resource. The
+// responsive attributes made that reachable — a source set is a long free-form
+// string that routinely carries `:` and `=`.
 export function resourceIdentity(tag, props) {
   let id = "res:" + tag + ":" + (props.rel || "") + ":" + (props.href || props.src || "");
   for (let i = 0; i < RESOURCE_QUALIFIERS.length; i++) {
     const q = RESOURCE_QUALIFIERS[i];
-    const value = props[q];
-    if (value != null) id += ":" + q + "=" + (value === true ? "" : value);
+    const value = qualifierValue(q, props[q]);
+    if (value !== null) id += ":" + q + "=" + value.length + ":" + value;
   }
   return id;
 }

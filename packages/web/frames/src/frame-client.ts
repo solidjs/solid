@@ -2061,6 +2061,17 @@ function parseFragment(html) {
 // Mirrors head.ts without importing it into the standalone frame client.
 const PRELOAD_QUALIFIERS = ["as", "crossorigin", "type", "media", "imagesrcset", "imagesizes"];
 
+// Mirrors head.ts's qualifierValue: `crossorigin` is three states, not a
+// string range, so `""`, a bare attribute and `anonymous` are one request.
+// Frame `attrs` are already strings, but the document may carry any spelling.
+function qualifierValue(name, value) {
+  if (value == null) return null;
+  if (name !== "crossorigin") return value;
+  return value.length === 15 && value.toLowerCase() === "use-credentials"
+    ? "use-credentials"
+    : "anonymous";
+}
+
 /** Attribute-compared head lookup so href/id values never need escaping. */
 function findHeadElement(selector, attr, value, qualifiers) {
   candidate: for (const node of document.head.querySelectorAll(selector)) {
@@ -2068,7 +2079,11 @@ function findHeadElement(selector, attr, value, qualifiers) {
     if (!qualifiers) return node;
     for (let i = 0; i < PRELOAD_QUALIFIERS.length; i++) {
       const name = PRELOAD_QUALIFIERS[i];
-      if (node.getAttribute(name) !== (qualifiers[name] ?? null)) continue candidate;
+      if (
+        qualifierValue(name, node.getAttribute(name)) !==
+        qualifierValue(name, qualifiers[name] ?? null)
+      )
+        continue candidate;
     }
     return node;
   }

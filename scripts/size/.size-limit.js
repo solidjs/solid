@@ -510,6 +510,17 @@ module.exports = [
     // qualifier-aware head matching), adopt matching document links, and
     // retain every late root asset record for mounts that register after
     // the stream arrives.
+    //
+    // Identity qualifier canonicalization (2026-09-01): 11.28 -> 11.34 KB,
+    // measured at 11.320 (+51 B). The only scenario that pays: the frame
+    // client mirrors head.ts rather than importing it, so it carries its own
+    // copy of the canonical rules, while all five document bundles came out
+    // byte-identical — the shared helper is no larger than the inline
+    // comparison it replaced. Correctness-over-size: `crossorigin=""` and
+    // `crossorigin="anonymous"` are one request, so a frame chunk carrying
+    // either spelling has to adopt the document link carrying the other, or
+    // the same font ships twice and the two runtimes disagree about what a
+    // resource IS.
     path: "../../packages/web/frames/dist/client.js",
     limit: "11.30 KB",
     modifyEsbuildConfig: framesEsbuildConfig
