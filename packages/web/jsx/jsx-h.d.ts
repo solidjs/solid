@@ -3503,6 +3503,11 @@ export namespace JSX {
      */
     select: SelectHTMLAttributes<HTMLSelectElement> & Properties<HTMLSelectElement>;
     /**
+     * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/selectedcontent
+     * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLSelectedContentElement
+     */
+    selectedcontent: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
+    /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/slot
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLSlotElement
      */
