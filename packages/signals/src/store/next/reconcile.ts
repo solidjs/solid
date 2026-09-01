@@ -599,22 +599,25 @@ function buildRowOps(
     oldIndexByKey = new Map();
     for (let j = structStart; j < plen; j++) {
       const p = unwrapValue(prevRows[j]);
-      if (p !== null && typeof p === "object") {
-        const pk = keyFn(p);
-        if (pk === undefined) continue;
-        const existing = oldIndexByKey.get(pk);
-        if (existing === undefined) oldIndexByKey.set(pk, j);
-        else if (Array.isArray(existing)) existing.push(j);
-        else oldIndexByKey.set(pk, [existing, j]);
-      }
+      // PRIMITIVES key by VALUE (fold audit 5): classic identity for a
+      // non-wrappable row IS its value — excluding them emitted
+      // sources:[-1,…] for pure permutations, rebuilding every moved row
+      // instead of retaining nodes. Occurrence queues already make
+      // duplicates sound.
+      const pk = p !== null && typeof p === "object" ? keyFn(p) : p;
+      if (pk === undefined) continue;
+      const existing = oldIndexByKey.get(pk);
+      if (existing === undefined) oldIndexByKey.set(pk, j);
+      else if (Array.isArray(existing)) existing.push(j);
+      else oldIndexByKey.set(pk, [existing, j]);
     }
   }
   const consumed = oldIndexByKey !== null ? new Set<number>() : null;
   for (let k = structStart; k < nlen; k++) {
     const nv = nextRows[k];
     let oldIdx = -1;
-    if (nv !== null && typeof nv === "object" && oldIndexByKey !== null) {
-      const nk = keyFn!(nv);
+    if (nv !== undefined && oldIndexByKey !== null) {
+      const nk = nv !== null && typeof nv === "object" ? keyFn!(nv) : nv;
       if (nk !== undefined) {
         const m = oldIndexByKey.get(nk);
         if (m !== undefined) {

@@ -1937,7 +1937,14 @@ describe("INVARIANT: structural channels under fold/holds — per-index slots, n
     await Promise.resolve();
     flush();
     expect(ticks.slice(tickMark)).toEqual([]);
-    expect(rowEvents.slice(rowMark).filter(o => o !== undefined).length).toBeGreaterThan(0);
+    const permOps = rowEvents.slice(rowMark).filter(o => o !== undefined && o !== null) as Array<{
+      sources: number[];
+    }>;
+    expect(permOps.length).toBeGreaterThan(0);
+    // RETENTION (fold audit 5): a pure permutation must MATCH every moved
+    // value to its old index — sources:[-1,…] rebuilt every row and lost
+    // the retained DOM nodes primitives key by value.
+    for (const o of permOps) expect(o.sources.every(sc => sc >= 0)).toBe(true);
   });
 
   it("a shallow staged reveal rides ONE channel — slot ticks for aligned replacement, never row ops too", async () => {
