@@ -546,6 +546,11 @@ export function className(node: Element, value: JSX.ClassValue, prev?: JSX.Class
 
 export function className(node, value, prev) {
   if (isHydrating(node)) return;
+  // Numbers stringify like the compiler's static output (`class={1}`
+  // inlines as `class="1"` in the template) so static and dynamic forms of
+  // the same ClassValue behave identically (#3189).
+  if (typeof value === "number") value = "" + value;
+  if (typeof prev === "number") prev = "" + prev;
   if (value == null || value === false) {
     prev && node.removeAttribute("class");
     return;
@@ -1954,7 +1959,9 @@ function flattenClassList(list, result) {
     const item = list[i];
     if (Array.isArray(item)) flattenClassList(item, result);
     else if (typeof item === "object" && item != null) Object.assign(result, item);
-    else if (item || item === 0) result[item] = true;
+    // clsx-style composition: standalone booleans are ignored so guard
+    // expressions like `cond && "active"` never emit a "true" class (#3189).
+    else if (typeof item !== "boolean" && (item || item === 0)) result[item] = true;
   }
 }
 
