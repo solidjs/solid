@@ -416,8 +416,16 @@ export function handleAsync<T>(
     if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY)) return;
     settleTransition();
     const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
+    // Captured before clearStatus wipes it: a quiet re-ask's landing may be
+    // transition-held below, and the displayed value keeps answering the same
+    // question until the hold commits — the classification must survive to
+    // that reveal or companion synchronization briefly classifies the held
+    // old value as pending, a one-frame pulse to direct observers (#3178).
+    // A truthy capture implies `_x` exists, so the restore writes it directly.
+    const wasReask = el._x?._reask;
     trimStaleDeps(el);
     clearStatus(el);
+    if (wasReask) el._x!._reask = true;
     const lane = resolveLane(el as any);
     if (lane) lane._pendingAsync.delete(el);
     // Attribution hook: lets the engine snapshot state before the landing
@@ -512,8 +520,12 @@ export function handleAsync<T>(
     // (`_pendingValue` set above or inside setSignal) is not — the verdict's
     // held-value branch is window-gated, and commitPendingNode closes the
     // window when the hold commits, so no one-frame isPending pulse can leak
-    // to live observers between the landing and its commit (#2990).
-    if (el._pendingValue === NOT_PENDING) el._loading = false;
+    // to live observers between the landing and its commit (#2990). The
+    // quiet re-ask classification follows the same schedule (#3178).
+    if (el._pendingValue === NOT_PENDING) {
+      el._loading = false;
+      if (wasReask) el._x!._reask = false;
+    }
     settlePendingSource(el);
     schedule();
     flush();

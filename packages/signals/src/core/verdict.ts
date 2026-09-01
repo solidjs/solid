@@ -232,7 +232,11 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
       return (
         !el._equals || !el._equals(el._pendingValue as any, unwrapOverride(el._x?._overrideValue))
       );
-    return true;
+    // A quiet re-ask's held landing still answers the same question: the
+    // classification survives the landing (asyncWrite) and dies with the
+    // commit (commitPendingNode) — verdict-quiet through the reveal, like
+    // the loading window above (#3178).
+    if (!comp._x?._reask) return true;
   }
   return newQuestionInFlight(comp);
 }
