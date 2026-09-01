@@ -599,6 +599,12 @@ export function style(
 ): void;
 
 export function style(node, value, prev) {
+  // Hydration is a claim pass: the server-rendered inline style stays
+  // authoritative, consistent with class/attribute bindings (#3180). The
+  // first post-hydration update diffs against the hydration-time value
+  // (threaded through `prev` by the compiled effect / spread bookkeeping),
+  // so properties that actually change apply and dropped ones are removed.
+  if (isHydrating(node)) return;
   if (!value) {
     if (prev || node._$styles) {
       setAttribute(node, "style");
@@ -643,6 +649,10 @@ export function style(node, value, prev) {
 export function setStyleProperty(node: Element, name: string, value: any): void;
 
 export function setStyleProperty(node, name, value) {
+  // Same hydration adoption contract as style() (#3180): the compiled
+  // per-property effect dedupes against the previous compute value, so the
+  // first actual change after hydration writes through.
+  if (isHydrating(node)) return;
   value != null ? node.style.setProperty(name, value) : node.style.removeProperty(name);
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function spread<T>(node: Element, accessor: T, skipChildren?: Boolean): void;
