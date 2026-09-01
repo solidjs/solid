@@ -19,12 +19,11 @@
  *   members (R11). Kind changes replace wholesale (R10).
  */
 import { isEqual } from "../../core/index.js";
-import type { RowOps } from "./patch.js";
 // Patch-channel emission rides installed hooks (patch-hooks.ts) — this
 // module must never import patch.js at runtime (patch.js imports
 // emitSetterRowOps from here, and the hooks are what keep the channel
 // tree-shakeable for non-patch apps). All calls are `t.pc`-guarded.
-import { patchHooks, rowHooks } from "./patch-hooks.js";
+import { patchHooks, rowHooks, type RowOps } from "./patch-hooks.js";
 import {
   $PROXY,
   $TARGET,

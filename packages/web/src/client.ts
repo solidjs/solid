@@ -123,17 +123,6 @@ export const waitAsset = (promise: Promise<unknown>): void => {
   gate();
 };
 
-// Patch-mode list driver seam (pay-for-use): the driver lives in
-// ./patch-driver.ts, which is retained ONLY by compiled patch-mode output
-// (its `patchDriver`/`rowProof` imports) and installs itself here at module
-// evaluation. Classic apps retain nothing but this undefined check.
-export let listDriver:
-  | ((parent: Node, listFn: any, marker?: Node, lateClassic?: () => void) => boolean)
-  | undefined;
-export function installListDriver(driver: typeof listDriver): void {
-  listDriver = driver;
-}
-
 import reconcileArrays from "./reconcile.js";
 import { DOMWithState } from "./constants.js";
 import {
@@ -892,35 +881,6 @@ export function insert(parent, accessor, marker, initial, options) {
   const host = options && options.host;
   if (multi && !initial) initial = [];
   if (hydrationRt !== null) initial = hydrationRt.claimInitial(parent, multi, initial);
-  // Patch-mode list seam: a list accessor carrying `$ll` metadata is offered
-  // to the core's row-ops driver first. Admission is decided entirely up
-  // front — the row function must carry the compiler's `rowProof` stamp and
-  // the subject must be a patchable store array — so a false return means it
-  // declined (unproven rows, non-store subject, marker-bounded hydration
-  // region, key/count mismatch) and the accessor runs classically. The
-  // late-classic thunk is NOT an admission mechanism: it serves engaged
-  // lists whose subject later LEAVES the contract (an identity swap to a
-  // derived array, a shallow<->deep kind switch) — the driver clears the
-  // region and re-enters this insert with a bare accessor (no `$ll` marker)
-  // under the ORIGINAL owner.
-  if (listDriver !== undefined && typeof accessor === "function" && accessor.$ll !== undefined) {
-    const listAccessor = accessor;
-    const owner = getOwner();
-    if (
-      listDriver(parent, accessor, marker, () =>
-        runWithOwner(owner, () =>
-          insert(
-            parent,
-            () => listAccessor(),
-            marker,
-            marker !== undefined ? [] : undefined,
-            options
-          )
-        )
-      )
-    )
-      return;
-  }
   if (typeof accessor !== "function") {
     accessor = withInsertionParent(parent, () => normalize(accessor, initial, multi, true));
     if (typeof accessor !== "function") {

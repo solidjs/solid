@@ -97,7 +97,12 @@ module.exports = [
     // the optimistic module, and read()'s latest()/authoritative-read
     // exemptions moved inside the hook (which now takes the observer) —
     // the floor keeps only `config-gate && hook?.(el, c)`.
+<<<<<<< HEAD
     limit: "8.02 KB",
+=======
+    // Region prototype (2026-09-01, region-delivery branch): deliveryEffect + dispose exports share core chunks (+45 B; gate before product).
+    limit: "8 KB",
+>>>>>>> affa39d3 (refactor(signals,web,solid): gut the patch channel — regions are the delivery mechanism)
     modifyEsbuildConfig
   },
   {
@@ -247,7 +252,12 @@ module.exports = [
     //
     // Fold relocation pass (2026-09-01): 9.99 -> 9.98 KB, measured at 9.97
     // — the core-floor relocation (see that note).
+<<<<<<< HEAD
     limit: "10.08 KB",
+=======
+    // Region prototype (2026-09-01, region-delivery branch): prototype export chunk sharing (+90 B; gate before product).
+    limit: "10.1 KB",
+>>>>>>> affa39d3 (refactor(signals,web,solid): gut the patch channel — regions are the delivery mechanism)
     modifyEsbuildConfig
   },
   {
@@ -334,7 +344,12 @@ module.exports = [
     // Fold relocation pass (2026-09-01): 17.6 -> 17.56 KB, measured at
     // 17.54 — this bundle's import graph retained the scheduler-resident
     // ledger; the relocation lets it shake.
+<<<<<<< HEAD
     limit: "17.67 KB",
+=======
+    // Region prototype (2026-09-01, region-delivery branch): prototype export chunk sharing (+12 B; gate before product).
+    limit: "17.6 KB",
+>>>>>>> affa39d3 (refactor(signals,web,solid): gut the patch channel — regions are the delivery mechanism)
     modifyEsbuildConfig
   },
   {
@@ -439,6 +454,7 @@ module.exports = [
     modifyEsbuildConfig
   },
   {
+<<<<<<< HEAD
     name: "app: CSR flip preview — + patchDriver (non-list patch templates)",
     // What patch-mode DEFAULT-ON adds to ~every app: nearly any real
     // template has one eligible pure member-read binding, so the compiler
@@ -489,6 +505,8 @@ module.exports = [
     modifyEsbuildConfig
   },
   {
+=======
+>>>>>>> affa39d3 (refactor(signals,web,solid): gut the patch channel — regions are the delivery mechanism)
     name: "frames: eager client consumer (frames client + transport, lazy codec)",
     // 10.37 KB measured after Stage 5 (container tier): the eager halves
     // are deliberately tiny — the trace materializer install + the
