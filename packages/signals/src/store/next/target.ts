@@ -185,6 +185,13 @@ export interface StoreNextTarget {
   sc: boolean;
   /** Backing was swapped by adoption this batch (fold diff-notifies it). */
   adopted: boolean;
+  /** Pending backing carries STAGED TRUTH (#3164 fold audit): an
+   * optimistic-family draft written under the authoritative posture — a
+   * landing staging into a retaining transaction. Its fold commits real
+   * truth, so the structural channels emit for it (the optimistic-family
+   * gates at the fold sites exist for OVERRIDE materializations, which
+   * ride the lane). Cleared at the fold. */
+  sf?: boolean;
   /** Pending backing is a prototype-chain OVERLAY of the committed backing
    * (`Object.create(v)` — own keys are this batch's writes, everything else
    * reads through). O(written) per flush instead of O(container) clones

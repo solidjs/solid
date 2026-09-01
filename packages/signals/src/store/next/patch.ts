@@ -150,6 +150,7 @@ function drainApplyQueue(): void {
     if (item.ops !== undefined || item.si !== undefined)
       firstError = applyStructural(item, next, firstError);
   }
+  firstError = runLateSweeps(firstError);
   if (firstError !== UNSET) {
     // Unhandled patch errors HALT like unhandled effect errors (re-audit 2,
     // P1-4): app state is undefined past an unboundaried throw.
@@ -168,11 +169,98 @@ function visibleStructRows(t: StoreNextTarget): any {
   return t.fam?.opt === true ? t.px : (t.pb ?? t.v);
 }
 
-/** Per-drain generation for late-resync dedup (audit follow-up P2): several
- * held items on ONE channel each ran the late sweep — same entries, same
- * live rebuild, item-count × consumer-count applications. Entries stamp the
- * drain they were resynced in; repeats within it skip. */
+/** Per-drain generation for late-resync dedup (audit follow-up P2): entries
+ * stamp the drain they were resynced in; repeats within one flush's drains
+ * (lane + regular) skip. Incremented once per top-level drain. */
 let drainGen = 0;
+
+/** Late-registrant bookkeeping, swept once at DRAIN END (fold audit P1):
+ * sweeping per item resynced a late entry to the LIVE view and then a
+ * LATER queued item — whose emission snapshot legitimately included that
+ * entry — re-applied its baseline-relative ops on top, rebuilding the same
+ * DOM row twice. The drain records, per channel, the HIGHEST emission
+ * watermark (`maxRq`: anyone at or below was in some snapshot and received
+ * real, baseline-sound ops), the FIXED window's far edge (`winEnd`,
+ * captured at the channel's first item so mid-drain registrants are
+ * excluded), one row item and the slot items as resync vehicles. The sweep
+ * then covers exactly the entries NO snapshot reached: `sq` in
+ * (maxRq, winEnd]. Registrations append in `sq` order, so those are a
+ * SUFFIX — the tail scan stays O(#late). */
+interface PcSweep {
+  maxRq: number;
+  winEnd: number;
+  row: QueuedApply | null;
+  slots: QueuedApply[] | null;
+}
+let sweeps: Map<PatchChannel, PcSweep> | null = null;
+
+function noteSweep(item: QueuedApply, winEnd: number): void {
+  if (item.pc === undefined) return;
+  let s = (sweeps ??= new Map()).get(item.pc);
+  if (s === undefined) sweeps.set(item.pc, (s = { maxRq: 0, winEnd, row: null, slots: null }));
+  const rq = (item.rq as number) | 0;
+  if (rq > s.maxRq) s.maxRq = rq;
+  if (item.si !== undefined) (s.slots ??= []).push(item);
+  else s.row = item;
+}
+
+function sweepList(
+  live: (RowOpsEntry & {
+    hq?: boolean;
+    hqs?: Set<number>;
+    sq?: number;
+    dg?: number;
+    q?: unknown;
+  })[],
+  s: PcSweep,
+  item: QueuedApply,
+  firstError: unknown
+): unknown {
+  for (let j = live.length - 1; j >= 0; j--) {
+    const entry = live[j];
+    const sq = (entry.sq as number) | 0;
+    if (sq <= s.maxRq) break; // suffix exhausted — everyone else rode a snapshot
+    if (sq > s.winEnd) continue; // registered mid-drain: outside the window
+    if (entry.u === true || entry.hq === true) continue;
+    if (item.si !== undefined && entry.hqs?.has(item.si) === true) continue;
+    if (item.si === undefined && entry.dg === drainGen) continue;
+    if (entry.owner !== null && isDisposed(entry.owner)) continue;
+    const oq = entry.q as any;
+    if (queueIsHeld(oq)) {
+      deferHeldStructural(entry as any, oq, item);
+      continue;
+    }
+    if (item.si === undefined) entry.dg = drainGen;
+    try {
+      structuralResync(entry, item);
+    } catch (err) {
+      if (!routeEntryError(entry as any, err) && firstError === UNSET) firstError = err;
+    }
+  }
+  return firstError;
+}
+
+function runLateSweeps(firstError: unknown): unknown {
+  const m = sweeps;
+  sweeps = null;
+  if (m === null) return firstError;
+  for (const [pc, s] of m) {
+    if (s.row !== null) {
+      const live = pc.ro as (RowOpsEntry & { sq?: number })[] | null;
+      if (live !== null && live.length !== 0)
+        firstError = sweepList(live as any, s, s.row, firstError);
+    }
+    if (s.slots !== null) {
+      const live = pc.sp as (RowOpsEntry & { sq?: number })[] | null;
+      if (live !== null && live.length !== 0) {
+        for (let i = 0; i < s.slots.length; i++) {
+          firstError = sweepList(live as any, s, s.slots[i], firstError);
+        }
+      }
+    }
+  }
+  return firstError;
+}
 
 /** Drain-side `next` resolution (structural audit F2): live targets read
  * the VISIBLE view at drain time. (The old-contract superseded-work
@@ -253,49 +341,11 @@ function applyStructural(item: QueuedApply, next: any, firstError: unknown): unk
       if (!routeEntryError(entry as any, err) && firstError === UNSET) firstError = err;
     }
   }
-  // LATE REGISTRANTS (round 10.13, P1; mechanics rebuilt by the structural
-  // audit): a consumer that registered between emission and the drain is
-  // outside the emission snapshot — baseline-relative ops would corrupt
-  // it, silence left held-window registrants permanently stale. It takes
-  // the RESYNC form against live state. THE WINDOW IS FIXED (F1): only
-  // registrants with `sq` in (item.rq, drain-start rq] — a consumer
-  // registering DURING this drain initialized from current state and gets
-  // nothing. Registrations append in `sq` order, so late entries are a
-  // SUFFIX: the tail scan is O(#late), not O(consumers²) (F6). Held owner
-  // queues defer exactly like the snapshot path (F1) — never through the
-  // hold.
-  if (item.pc !== undefined) {
-    const live = (item.si !== undefined ? item.pc.sp : item.pc.ro) as
-      | (RowOpsEntry & { hq?: boolean; sq?: number; dg?: number; q?: unknown })[]
-      | null;
-    if (live !== null && live.length !== 0) {
-      const itemRq = ((item.rq as number) | 0) as number;
-      for (let j = live.length - 1; j >= 0; j--) {
-        const entry = live[j];
-        const sq = (entry.sq as number) | 0;
-        if (sq <= itemRq) break; // suffix exhausted — everyone else was in the snapshot
-        if (sq > maxSq) continue; // registered mid-drain: outside the window
-        if (entry.u === true || entry.hq === true) continue;
-        // ONE live rebuild per entry per drain (audit follow-up P2): every
-        // held item on this channel runs this sweep — the resync reads the
-        // same live truth each time, so repeats are pure waste. Slot items
-        // stay per-item (distinct indices are distinct deliveries).
-        if (item.si === undefined && entry.dg === drainGen) continue;
-        if (entry.owner !== null && isDisposed(entry.owner)) continue;
-        const oq = entry.q as any;
-        if (queueIsHeld(oq)) {
-          deferHeldStructural(entry as any, oq, item);
-          continue;
-        }
-        if (item.si === undefined) entry.dg = drainGen;
-        try {
-          structuralResync(entry, item);
-        } catch (err) {
-          if (!routeEntryError(entry as any, err) && firstError === UNSET) firstError = err;
-        }
-      }
-    }
-  }
+  // LATE REGISTRANTS: recorded here, swept ONCE at DRAIN END (fold audit
+  // P1 — the per-item sweep resynced an entry to the LIVE view and then a
+  // LATER item's real ops re-applied on top, double-building rows). See
+  // noteSweep/runLateSweeps.
+  noteSweep(item, maxSq);
   // Structural deliveries are attribution EVENTS (round 10.12, P2): they
   // run in commit drains, not effects, so no rerun event exists for them
   // — the engine records a synthetic one (name, causes, count, timing).
@@ -328,13 +378,34 @@ function structuralResync(entry: { fn: Function }, item: QueuedApply): void {
 }
 
 /** Deferred structural re-apply for a held consumer (round 10.13): runs
- * FROM its owner queue at release, one queued run per entry per hold
- * window, always in the live resync form. */
+ * FROM its owner queue at release, always in the live resync form. Row
+ * consumers dedup to one queued run per hold window (the resync reads
+ * live truth — repeats are pure waste); SLOT consumers dedup PER INDEX
+ * (fold audit P1): distinct indexes are distinct deliveries — a shared
+ * flag collapsed multi-slot batches to the first index, leaving the rest
+ * permanently stale. */
 function deferHeldStructural(
-  entry: { fn: Function; owner: Owner | null; u?: boolean; hq?: boolean },
+  entry: { fn: Function; owner: Owner | null; u?: boolean; hq?: boolean; hqs?: Set<number> },
   oq: any,
   item: QueuedApply
 ): void {
+  if (item.si !== undefined) {
+    const si = item.si;
+    const set = (entry.hqs ??= new Set<number>());
+    if (set.has(si)) return;
+    set.add(si);
+    oq.enqueue(EFFECT_RENDER, () => {
+      set.delete(si);
+      if (entry.u === true) return;
+      if (entry.owner !== null && isDisposed(entry.owner)) return;
+      try {
+        structuralResync(entry, item);
+      } catch (err) {
+        if (!routeEntryError(entry as any, err)) deferHalt(err);
+      }
+    });
+    return;
+  }
   deferIntoQueue(entry, oq, () => {
     try {
       structuralResync(entry, item);
@@ -578,12 +649,12 @@ function drainOptimistic(): void {
   drainGen++;
   for (let i = 0; i < q.length; i++) {
     const item = q[i];
-    // Same superseded-work gate as the regular drain (structural audit, F4).
     const next = drainNext(item);
     if (next === UNSET) continue;
     if (item.ops !== undefined || item.si !== undefined)
       firstError = applyStructural(item, next, firstError);
   }
+  firstError = runLateSweeps(firstError);
   if (firstError !== UNSET) {
     haltReactivity(firstError);
     throw firstError;

@@ -346,6 +346,19 @@ function runFolded(txn: Transition, op: () => void): void {
   }
 }
 
+/** Staged descent guard (fold audit P1): recursion may only continue
+ * through a live draft PROXY — a raw child (a SHALLOW store's row) has no
+ * staging trap under it, and merging into it would mutate committed truth
+ * in place: visible to every reader BEFORE the reveal, with no value/slot
+ * notification ever. Raw children replace their slot wholesale instead —
+ * the staged slot write parks and reveals like any other. */
+function stagedChild(cur: any, key: PropertyKey): any | undefined {
+  const child = cur[key];
+  return child !== null && typeof child === "object" && (child as any)[$TARGET] !== undefined
+    ? child
+    : undefined;
+}
+
 /** Keyed identity-preserving deep merge through live draft proxies — the
  * staged twin of the adoption walk. Reads see the pending backing (staged
  * view), so consecutive landings during one hold compose; key-matched rows
@@ -408,7 +421,12 @@ function stagedApply(cur: any, incoming: any, keyFn: KeyFn | null): void {
         }
         if (matched !== undefined) {
           if (unwrapValue(cur[i]) !== matched) cur[i] = matched;
-          stagedApply(cur[i], nv, keyFn);
+          const child = stagedChild(cur, i);
+          if (child !== undefined) stagedApply(child, nv, keyFn);
+          else {
+            const pv = unwrapValue(cur[i]);
+            if (!isEqual(pv, nv) && !targetsEqual(pv, nv)) cur[i] = nv;
+          }
         } else {
           const pv = unwrapValue(cur[i]);
           if (!isEqual(pv, nv) && !targetsEqual(pv, nv)) cur[i] = nv;
@@ -419,9 +437,11 @@ function stagedApply(cur: any, incoming: any, keyFn: KeyFn | null): void {
         const nv = incoming[i];
         const pv = unwrapValue(cur[i]);
         if (pv === nv) continue;
-        if (isWrappable(nv) && isWrappable(pv) && Array.isArray(nv) === Array.isArray(pv))
-          stagedApply(cur[i], nv, keyFn);
-        else if (!isEqual(pv, nv) && !targetsEqual(pv, nv)) cur[i] = nv;
+        if (isWrappable(nv) && isWrappable(pv) && Array.isArray(nv) === Array.isArray(pv)) {
+          const child = stagedChild(cur, i);
+          if (child !== undefined) stagedApply(child, nv, keyFn);
+          else if (!isEqual(pv, nv) && !targetsEqual(pv, nv)) cur[i] = nv;
+        } else if (!isEqual(pv, nv) && !targetsEqual(pv, nv)) cur[i] = nv;
       }
     }
     if (cur.length !== len) cur.length = len;
@@ -445,7 +465,9 @@ function stagedApply(cur: any, incoming: any, keyFn: KeyFn | null): void {
           continue;
         }
       }
-      stagedApply(cur[k], nv, keyFn);
+      const child = stagedChild(cur, k);
+      if (child !== undefined) stagedApply(child, nv, keyFn);
+      else if (!isEqual(pv, nv) && !targetsEqual(pv, nv)) cur[k] = nv;
     } else if (!isEqual(pv, nv) && !targetsEqual(pv, nv)) {
       cur[k] = nv;
     }

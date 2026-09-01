@@ -195,7 +195,10 @@ module.exports = [
     // #3164 fold ruling (upstream, 2026-09-01): heldTruthNodes ledger +
     // retainsOptimism seams ride paths createStore retains. Measured 15.12
     // post-rebase.
-    limit: "15.15 KB",
+    // Fold-audit round (2026-09-01): staged-truth fold marker + fold-site
+    // row/slot emissions (reveal coverage), per-index held-slot defers, and
+    // the drain-end late sweep (no resync-then-ops double-builds). Measured 15.19.
+    limit: "15.2 KB",
     modifyEsbuildConfig
   },
   {
@@ -381,7 +384,10 @@ module.exports = [
     // replaces replay wholesale; net near-wash here after the branch's
     // landing hook + generation stamps were deleted with the contract they
     // served. Measured 27.21 post-rebase.
-    limit: "27.25 KB",
+    // Fold-audit round (2026-09-01): staged-truth fold marker + fold-site
+    // row/slot emissions (reveal coverage), per-index held-slot defers, and
+    // the drain-end late sweep (no resync-then-ops double-builds). Measured 27.30.
+    limit: "27.35 KB",
     modifyEsbuildConfig
   },
   {
@@ -460,7 +466,10 @@ module.exports = [
     // Structural-audit follow-up (2026-08-31): slot registration stamps,
     // drain-side generation gate with live slot re-resolution, per-drain
     // resync dedup, landing resync hook. Measured 16.66.
-    limit: "16.7 KB",
+    // Fold-audit round (2026-09-01): staged-truth fold marker + fold-site
+    // row/slot emissions (reveal coverage), per-index held-slot defers, and
+    // the drain-end late sweep (no resync-then-ops double-builds). Measured 16.88.
+    limit: "16.9 KB",
     modifyEsbuildConfig
   },
   {
@@ -514,7 +523,10 @@ module.exports = [
     // 19.14.
     // Follow-up (2026-08-31): the value-tier bytes above plus the slot sq
     // stamp and landing resync hook. Measured 19.26.
-    limit: "19.3 KB",
+    // Fold-audit round (2026-09-01): staged-truth fold marker + fold-site
+    // row/slot emissions (reveal coverage), per-index held-slot defers, and
+    // the drain-end late sweep (no resync-then-ops double-builds). Measured 19.41.
+    limit: "19.45 KB",
     modifyEsbuildConfig
   },
   {

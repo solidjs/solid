@@ -1,5 +1,41 @@
 # Audit brief — rounds 6–9 + patch-mode default flip + node delivery
 
+## Round 10.18 (2026-09-01) — fold audit (4 P1s: slots under holds, sweep ordering, reveal coverage)
+
+Audit at b31e9929 confirmed the consecutive-landing divergence resolved by
+the fold integration and found four P1s — two channel-side, two in the
+fold reveal seam. All fixed, harness-first:
+
+- **P1 per-index held-slot defers**: deferIntoQueue's shared `hq` flag
+  collapsed a multi-slot batch to its first index — later indexes stayed
+  permanently stale behind a hold. Slot items now dedup per (entry,
+  index) via `entry.hqs`; row items keep the single-run dedup (their
+  resync reads live truth — repeats are waste).
+- **P1 drain-END late sweep**: the per-item sweep resynced a late
+  registrant to the LIVE view and then a LATER item — whose emission
+  snapshot legitimately included that entry — re-applied baseline-
+  relative ops on top, double-building the row. The sweep now runs once
+  per drain per channel against the HIGHEST emission watermark: entries
+  at/below `maxRq` rode a snapshot (real, baseline-sound ops); the sweep
+  covers exactly (maxRq, winEnd] — still a suffix tail scan.
+- **P1 staged descent never mutates raws**: stagedApply recursed into
+  children READ THROUGH the draft — for SHALLOW stores that read returns
+  the raw row, and the merge mutated committed truth in place: visible
+  to every reader BEFORE the reveal, notified to no one. `stagedChild`
+  gates descent on the child being a live draft proxy; raw children
+  replace their slot wholesale (parks and reveals like any slot write).
+- **P1 reveal coverage for structural channels**: both fold-site row-ops
+  emissions gated on `t.fam?.opt !== true` — right for OVERRIDE
+  materializations (lane channel), wrong for STAGED TRUTH folding at the
+  reveal: a root array whose retention came from a DESCENDANT override
+  is not overlaid, so the settle loop's resync never reached it and the
+  gate silenced the fold's own ops. `t.sf` (set in ensurePB when an
+  optimistic-family draft is written under the authoritative posture —
+  exactly the staging bracket) exempts staged folds, and a slot-diff
+  twin ticks changed slots (staged reveals bypass every walk).
+- Size: +40/+52/+180/+110 B across the four affected tiers (sweep
+  bookkeeping is most of it) — four ratchets with notes.
+
 ## Round 10.17 (2026-09-01) — #3164 FOLD reconciliation (rebase onto the re-ruled contract)
 
 Upstream re-ruled landing consumption (a536e29b): the three interim #3123

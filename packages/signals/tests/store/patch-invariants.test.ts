@@ -1616,6 +1616,194 @@ describe("INVARIANT: structural resyncs honor holds, fix their window, and serve
   });
 });
 
+describe("INVARIANT: structural channels under fold/holds — per-index slots, no double-applies, reveal coverage", () => {
+  const settle = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+  };
+
+  it("held slot deliveries defer PER INDEX — later indexes are not collapsed away", async () => {
+    const { getOwner } = await import("../../src/index.js");
+    const { registerSlotPatchNext } = await import("../../src/store/next/patch.js");
+    const { GlobalQueue } = await import("../../src/core/scheduler.js");
+    const [state, setState] = createStore<any>({ list: ["a", "b", "c"] });
+    const releases: Array<() => void> = [];
+    const fakeQ: any = { enqueue: (_t: number, fn: () => void) => releases.push(fn) };
+    const prevProbe = (GlobalQueue as any)._queueHeld;
+    (GlobalQueue as any)._queueHeld = (q: any) => q === fakeQ || prevProbe?.(q) === true;
+    try {
+      const ticks: Array<[number, any]> = [];
+      createRoot(() => {
+        (getOwner() as any)._queue = fakeQ;
+        registerSlotPatchNext(state.list, (i: number, v: any) => ticks.push([i, v]));
+      });
+      // Two aligned value-replaced slots in one batch: two slot items.
+      setState((s: any) => {
+        reconcile(["x", "y", "c"], null)(s.list);
+      });
+      flush();
+      expect(ticks.length).toBe(0); // held
+      // BOTH indexes must have deferred into the queue — a shared dedup
+      // flag collapsing them leaves index 1 permanently stale.
+      for (const r of releases.splice(0)) r();
+      expect(ticks.some(([i, v]) => i === 0 && v === "x")).toBe(true);
+      expect(ticks.some(([i, v]) => i === 1 && v === "y")).toBe(true);
+    } finally {
+      (GlobalQueue as any)._queueHeld = prevProbe;
+    }
+  });
+
+  it("a late row consumer never receives a resync FOLLOWED by stale ops (no double-build)", async () => {
+    const { registerRowOps } = await import("../../src/index.js");
+    const [state, setState] = createStore<any>({ rows: [{ id: 1 }, { id: 2 }, { id: 3 }] });
+    createRoot(() => {
+      registerRowOps(state.rows, () => {});
+    });
+    // Emission 1: reconcile walk emits its ops DURING the setter.
+    setState((s: any) => {
+      reconcile([{ id: 2 }, { id: 3 }], "id")(s.rows);
+    });
+    // Late consumer registers BETWEEN the two emissions.
+    const events: Array<"resync" | "ops"> = [];
+    createRoot(() => {
+      registerRowOps(state.rows, (_n: any[], ops: any) =>
+        events.push(ops === null ? "resync" : "ops")
+      );
+    });
+    // Emission 2: setter fold emits at flush — the late consumer IS in this
+    // snapshot (registered before the fold), with baseline-correct ops.
+    setState((s: any) => {
+      s.rows.splice(0, 1);
+    });
+    flush();
+    // The consumer may get the resync (live view, includes emission 2's
+    // effect) OR emission 2's ops — never resync THEN ops: the ops would
+    // re-apply against the already-final rebuild, duplicating the row.
+    const resyncAt = events.indexOf("resync");
+    const opsAt = events.indexOf("ops");
+    if (resyncAt !== -1 && opsAt !== -1) expect(opsAt).toBeLessThan(resyncAt);
+    // And it participates normally afterwards.
+    const mark = events.length;
+    setState((s: any) => {
+      s.rows.splice(0, 1);
+    });
+    flush();
+    expect(events.length).toBe(mark + 1);
+  });
+
+  it("staged truth never mutates raw shallow rows before the reveal, and slots notify at it", async () => {
+    const {
+      createOptimisticStore,
+      registerRowOps,
+      action: act
+    } = await import("../../src/index.js");
+    const { registerSlotPatchNext } = await import("../../src/store/next/patch.js");
+    // Shallow list: primitive rows — slot channel territory.
+    const [items, setItems] = (createOptimisticStore as any)(["a", "b"] as any[]);
+    const ticks: Array<[number, any]> = [];
+    const rowsSeen: string[][] = [];
+    createRoot(() => {
+      registerSlotPatchNext(items, (i: number, v: any) => ticks.push([i, v]));
+      registerRowOps(items, (rows: any[]) => rowsSeen.push(Array.from(rows, String)));
+    });
+    let confirm!: () => void;
+    const run = act(function* () {
+      setItems((draft: any[]) => {
+        draft.push("c"); // retain optimism on the family
+      });
+      yield new Promise<void>(resolve => {
+        confirm = resolve;
+      });
+    })();
+    flush();
+    // Landing while retained: STAGES. Slot 0's committed value must stay
+    // "a" for every ordinary reader until the reveal.
+    // Simulate the projection landing channel: authoritative write of fresh
+    // truth (what a poll/refresh continuation does).
+    const { storeSetterNext, runAuthoritative } = await import("../../src/store/next/store.js");
+    runAuthoritative(() => {
+      storeSetterNext(items, (draft: any[]) => {
+        draft[0] = "A2";
+      });
+    });
+    flush();
+    const { snapshot } = await import("../../src/index.js");
+    // Ordinary readers: still the optimistic view over OLD committed truth.
+    expect((items as any)[0]).toBe("a");
+    confirm();
+    await run;
+    await settle();
+    // Reveal: slot 0 flips to A2 — the slot channel must be told.
+    expect((items as any)[0]).toBe("A2");
+    expect(ticks.some(([i, v]) => i === 0 && v === "A2")).toBe(true);
+    void snapshot;
+    void rowsSeen;
+  });
+
+  it("a staged ROOT structural change reveals WITH row ops when only a descendant holds the override", async () => {
+    const {
+      createOptimisticStore,
+      registerRowOps,
+      action: act
+    } = await import("../../src/index.js");
+    const harnessFetches: Array<() => void> = [];
+    let serverData: any[] = [{ id: 1, label: "a" }];
+    let items!: any;
+    let setItems!: any;
+    let setVersion!: (v: (p: number) => number) => number;
+    createRoot(() => {
+      const [version, setV] = createSignal(0);
+      setVersion = setV;
+      [items, setItems] = (createOptimisticStore as any)(
+        () =>
+          new Promise<any[]>(resolve => {
+            version();
+            harnessFetches.push(() => resolve(serverData.map(r => ({ ...r }))));
+          }),
+        [] as any[]
+      );
+    });
+    flush();
+    harnessFetches.shift()!();
+    await settle();
+    const frames: number[][] = [];
+    createRoot(() => {
+      registerRowOps(items, (rows: any[]) => frames.push(Array.from(rows, (r: any) => r.id)));
+    });
+    // DESCENDANT-only override: a value edit on row 0 — the ROOT ARRAY
+    // itself carries no override.
+    let confirm!: () => void;
+    const run = act(function* () {
+      setItems((draft: any[]) => {
+        draft[0].label = "opt";
+      });
+      yield new Promise<void>(resolve => {
+        confirm = resolve;
+      });
+    })();
+    flush();
+    // STRUCTURAL landing while retained: stages into the transaction.
+    serverData = [
+      { id: 1, label: "a" },
+      { id: 2, label: "b" }
+    ];
+    setVersion(v => v + 1);
+    flush();
+    harnessFetches.shift()!();
+    await settle();
+    // Reveal at settle: the root array's staged structural change commits —
+    // the driven list MUST receive ops/resync for the new row.
+    confirm();
+    await run;
+    await settle();
+    await settle();
+    expect((items as any[]).length).toBe(2);
+    expect(frames.at(-1)).toEqual([1, 2]);
+  });
+});
+
 describe("INVARIANT: landings integrate with the patch channel at classic-effect parity (#3123)", () => {
   // RUL-2 as re-ruled: an EQUAL landing (membership/arrangement unchanged)
   // holds live overrides — classic effects keep showing the optimistic view.

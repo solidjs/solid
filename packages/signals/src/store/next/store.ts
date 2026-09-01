@@ -628,6 +628,13 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
     pb = target.pb = null;
   }
   if (activeTransition !== null) foldBatches.set(target, activeTransition);
+  // STAGED-TRUTH fold marker (fold audit P1): an optimistic-family draft
+  // written under the AUTHORITATIVE posture is a truth landing staging into
+  // a retaining transaction (stageLanding / the projection channel) — its
+  // eventual fold commits REAL truth, and the structural channels must hear
+  // it (the `opt !== true` gates below exist for OVERRIDE materializations,
+  // which ride the lane; staged truth is not one).
+  if (projectionWriteActive && target.fam?.opt === true) target.sf = true;
   if (pb === null) {
     // Prototype-chain overlay (#3044): plain-data non-array containers
     // outside projection/optimistic families open drafts in O(1) — own keys
@@ -946,15 +953,39 @@ function drainFolds(): void {
         // channel: adoption folds (reconcile walk emitted ops) and
         // optimistic families (lane-timed override channel). Re-audit
         // blocker 4.
+        // STAGED TRUTH overrides the optimistic-family gate (fold audit
+        // P1): the gate exists for override materializations (lane
+        // channel); a staged landing's fold is REAL truth committing — the
+        // reveal — and the driven list must hear it (the settle loop's
+        // resync only covers OVERLAID targets; a root array whose retention
+        // came from a descendant override is not one).
         if (
           t.pc !== null &&
           t.pc.ro !== null &&
           !t.adopted &&
-          t.fam?.opt !== true &&
+          (t.fam?.opt !== true || t.sf === true) &&
           Array.isArray(pb) &&
           Array.isArray(t.v)
         )
           rowHooks!.emitSetterRowOps(t, t.v as any[], pb as any[]);
+        // Slot channel twin (fold audit P1): staged truth commits slot
+        // VALUES without any walk — diff the aligned window and tick every
+        // changed slot (the walk's emission shape).
+        if (
+          t.pc !== null &&
+          t.pc.sp !== null &&
+          t.sf === true &&
+          Array.isArray(pb) &&
+          Array.isArray(t.v)
+        ) {
+          const oldArr = t.v as any[];
+          const newArr = pb as any[];
+          const n = Math.min(oldArr.length, newArr.length);
+          for (let si = 0; si < n; si++) {
+            if (oldArr[si] !== newArr[si]) rowHooks!.emitSlotPatch(t, si, newArr[si], oldArr[si]);
+          }
+        }
+        t.sf = false;
         t.v = pb;
         t.ch = false; // pb is always a plain clone
         t.pb = null;
@@ -981,14 +1012,17 @@ function drainFolds(): void {
       // folds re-emitting would double the walk's ops) and PLAIN fold
       // adoptions (no walk at all). Optimistic families ride the override
       // channel (lane-timed ops + revert RESYNC) — never re-emit here.
+      // Same staged-truth exemption as the clone-branch gate above (fold
+      // audit P1).
       if (
         t.pc.ro !== null &&
-        t.fam?.opt !== true &&
+        (t.fam?.opt !== true || t.sf === true) &&
         (t.fam !== null ? foldedEager && !t.adopted : t.adopted) &&
         Array.isArray(t.v) &&
         Array.isArray(old)
       )
         rowHooks!.emitSetterRowOps(t, old as any[], t.v as any[]);
+      t.sf = false;
       if (t.pc.p !== null || t.pc.dn !== null) {
         // Accessor demotion at the fold-commit seam: prod-sound accessed-key
         // probes against the JUST-COMMITTED backing (see targetKeysPlain —
