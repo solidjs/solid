@@ -411,7 +411,10 @@ module.exports = [
     // Measured 27.52.
     // Rebase drift (2026-09-01, #3169-#3176 + fold-ledger relocation).
     // Measured 27.56.
-    limit: "27.6 KB",
+    // Fold audit 6 (2026-09-01): delivery-consumed dn overrides (INV-6) +
+    // two-key-space matcher (mixed identities, undefined moves). Measured
+    // 27.63.
+    limit: "27.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -565,7 +568,10 @@ module.exports = [
     // channel split, target-keyed staged identity, release fast-forward.
     // Measured 19.62.
     // Entanglement rebase drift (2026-09-01, until-flip + CONFIG_HELD_TRUTH).
-    limit: "19.7 KB",
+    // Fold audit 6 (2026-09-01): two key spaces + undefined sentinel +
+    // kind-aware prefix scan in the row matcher (mixed-identity P1,
+    // undefined-move P2). Measured 19.74.
+    limit: "19.75 KB",
     modifyEsbuildConfig
   },
   {

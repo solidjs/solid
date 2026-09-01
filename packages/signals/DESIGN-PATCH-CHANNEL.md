@@ -86,6 +86,43 @@ Deferred from the audit's secondary list: staged exception-safe applyOps
 @ts-nocheck on patch-driver.ts, and a versioned internal compiler entry
 for the runtime primitives.
 
+## 23. Fold audit 6 (2026-09-01) — dn override lifecycle + matcher key spaces
+
+Three findings at `c48aed8b`; the first one also indicted the gate
+discipline (the suite had been EXITING NONZERO while piped summaries
+showed green — exit codes are now part of every gate).
+
+- **INV-6: dn overrides outliving their lane (P1).** Optimistic bumps arm
+  an override on the delivery signal so in-flight visibility rides the
+  lane — but the settle-drain's revert resync (`_clearOptimisticStores` →
+  `emitPatchOptimistic`) arms a FRESH override after that lane already
+  resolved. With another flight still open (the equal-landing tests keep
+  the projection's fetch lane alive), the arm lands there and never
+  reverts in the window: an override at quiescence. Fix at the delivery
+  commit: dn is PURE NOTIFICATION, so a delivery CONSUMES any override on
+  it (drop like `resolveOptimisticNodes` — `_overrideValue`, lane, owner —
+  but `_transition` is left alone: a parked plain write's commit
+  bookkeeping keys off it). No dn override outlives its delivery,
+  independent of any lane's lifecycle.
+- **Mixed primitive/object key collision (P1).** Fold-audit-5's primitive
+  lane keyed primitive rows BY VALUE into the SAME map where object rows
+  key through `keyFn` — whose result is typically a primitive id. `5` and
+  `{ id: 5 }` collided; a moved primitive could be handed an object row's
+  source. `buildRowOps` now holds TWO key spaces (object-keyed /
+  value-keyed); a row only ever matches its own kind. The
+  `buildIdentityRowOps` prefix scan had the same disease worse: `keyFn`
+  probing a primitive yields `undefined` on BOTH sides, so two DIFFERENT
+  primitives falsely aligned and real changes escaped the ops window. The
+  scan is now kind-aware: objects compare by key, primitives by value,
+  kind mismatch breaks.
+- **`undefined` moves rebuild (P2).** `undefined` rows (and sparse holes)
+  were skipped by both map build and lookup. A sentinel (`UNDEF_ROW`)
+  makes them first-class match participants in the value space.
+
+Cost: +31 B store-family app, +47 B rowProof tier. Full signals suite now
+exits 0 (the INV-6 violation had been failing the run since the
+equal-landing tests landed).
+
 ## 22. Node-delivery mount pass (2026-08-30) — pay-for-use machinery
 
 The node-delivery prototype's remaining dbmon gap vs the channel was mount

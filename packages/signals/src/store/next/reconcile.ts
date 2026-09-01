@@ -563,7 +563,18 @@ export function buildIdentityRowOps(prevRows: any[], nextRows: any[], key?: KeyF
   const k = key ?? identityKey;
   let p = 0;
   const min = prevRows.length < nextRows.length ? prevRows.length : nextRows.length;
-  while (p < min && k(prevRows[p]) === k(nextRows[p])) p++;
+  // KIND-AWARE alignment (fold audit 6): primitive rows compare by VALUE —
+  // `keyFn` probing a primitive yields undefined on BOTH sides, falsely
+  // aligning different values — and an object keyed to a primitive id must
+  // never align with a primitive row OF that value.
+  while (p < min) {
+    const pu = unwrapValue(prevRows[p]);
+    const nu = unwrapValue(nextRows[p]);
+    const po = pu !== null && typeof pu === "object";
+    if (po !== (nu !== null && typeof nu === "object")) break;
+    if (po ? k(prevRows[p]) !== k(nextRows[p]) : pu !== nu) break;
+    p++;
+  }
   if (p === prevRows.length && p === nextRows.length) return null;
   return buildRowOps(prevRows, nextRows, p, k);
 }
@@ -581,6 +592,9 @@ function buildAndEmitRowOps(
   rowHooks!.emitRowOps(t, nextRows, buildRowOps(prevRows, nextRows, structStart, keyFn));
 }
 
+/** Sentinel: `undefined` rows (and sparse holes) as a matchable value. */
+const UNDEF_ROW = Symbol();
+
 function buildRowOps(
   prevRows: any[],
   nextRows: any[],
@@ -594,39 +608,52 @@ function buildRowOps(
   // indices and each is consumed ONCE — first-wins reuse would hand the same
   // source (and its one DOM row) to multiple next positions. The no-dup fast
   // shape stays a bare number; collisions upgrade to a queue.
+  // TWO KEY SPACES (fold audit 6, P1): object rows key through `keyFn`,
+  // whose result is often a primitive id — sharing one map with
+  // value-keyed primitive rows collided `5` with `{ id: 5 }` and handed a
+  // moved primitive an object row's source (fold audit 5 introduced the
+  // primitive lane). `undefined` rows and sparse holes participate via a
+  // sentinel: a plain move of `undefined` retains its node like any value.
   let oldIndexByKey: Map<any, number | number[]> | null = null;
+  let oldIndexByVal: Map<any, number | number[]> | null = null;
   if (keyFn !== null && structStart < plen) {
     oldIndexByKey = new Map();
+    oldIndexByVal = new Map();
     for (let j = structStart; j < plen; j++) {
       const p = unwrapValue(prevRows[j]);
-      // PRIMITIVES key by VALUE (fold audit 5): classic identity for a
-      // non-wrappable row IS its value — excluding them emitted
-      // sources:[-1,…] for pure permutations, rebuilding every moved row
-      // instead of retaining nodes. Occurrence queues already make
-      // duplicates sound.
-      const pk = p !== null && typeof p === "object" ? keyFn(p) : p;
-      if (pk === undefined) continue;
-      const existing = oldIndexByKey.get(pk);
-      if (existing === undefined) oldIndexByKey.set(pk, j);
+      let m: Map<any, number | number[]>;
+      let pk: any;
+      if (p !== null && typeof p === "object") {
+        pk = keyFn(p);
+        if (pk === undefined) continue;
+        m = oldIndexByKey;
+      } else {
+        pk = p === undefined ? UNDEF_ROW : p;
+        m = oldIndexByVal;
+      }
+      const existing = m.get(pk);
+      if (existing === undefined) m.set(pk, j);
       else if (Array.isArray(existing)) existing.push(j);
-      else oldIndexByKey.set(pk, [existing, j]);
+      else m.set(pk, [existing, j]);
     }
   }
   const consumed = oldIndexByKey !== null ? new Set<number>() : null;
   for (let k = structStart; k < nlen; k++) {
-    const nv = nextRows[k];
+    const nv = unwrapValue(nextRows[k]);
     let oldIdx = -1;
-    if (nv !== undefined && oldIndexByKey !== null) {
-      const nk = nv !== null && typeof nv === "object" ? keyFn!(nv) : nv;
+    if (oldIndexByKey !== null) {
+      const isObj = nv !== null && typeof nv === "object";
+      const m0 = isObj ? oldIndexByKey : oldIndexByVal!;
+      const nk = isObj ? keyFn!(nextRows[k]) : nv === undefined ? UNDEF_ROW : nv;
       if (nk !== undefined) {
-        const m = oldIndexByKey.get(nk);
+        const m = m0.get(nk);
         if (m !== undefined) {
           if (Array.isArray(m)) {
             oldIdx = m.shift()!;
-            if (m.length === 1) oldIndexByKey.set(nk, m[0]);
+            if (m.length === 1) m0.set(nk, m[0]);
           } else {
             oldIdx = m;
-            oldIndexByKey.delete(nk);
+            m0.delete(nk);
           }
           consumed!.add(oldIdx);
         }

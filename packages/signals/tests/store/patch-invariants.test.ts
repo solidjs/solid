@@ -1947,6 +1947,45 @@ describe("INVARIANT: structural channels under fold/holds — per-index slots, n
     for (const o of permOps) expect(o.sources.every(sc => sc >= 0)).toBe(true);
   });
 
+  it("mixed primitive/object identities never collide across key spaces", async () => {
+    const { buildIdentityRowOps } = await import("../../src/store/next/reconcile.js");
+    const byId = (r: any) => r?.id;
+    // ONE key map collided `{ id: 1 }` (keyed to 1) with the primitive row
+    // `1` (valued 1) — a moved primitive was handed the OBJECT row's source
+    // (fold audit 6, P1): stale DOM wearing the wrong identity.
+    const obj = { id: 1 };
+    const ops = buildIdentityRowOps([obj, 1, 2], [2, obj, 1], byId)!;
+    expect(ops.prefix).toBe(0);
+    expect(ops.sources).toEqual([2, 0, 1]);
+    expect(ops.removed).toEqual([]);
+    // PREFIX SCAN, same disease: `keyFn` probing a primitive yields
+    // undefined on both sides — two DIFFERENT primitives falsely aligned
+    // and the real change at index 0 escaped the ops window entirely.
+    const rep = buildIdentityRowOps([5, 6], [7, 6], byId)!;
+    expect(rep.prefix).toBe(0);
+    expect(rep.sources).toEqual([-1, 1]);
+    // An object keyed to a primitive id never aligns with that primitive.
+    const cross = buildIdentityRowOps([{ id: 5 }, "x"], [5, "x"], byId)!;
+    expect(cross.prefix).toBe(0);
+    expect(cross.sources[0]).toBe(-1);
+  });
+
+  it("a plain move of `undefined` (and a sparse hole) retains its row", async () => {
+    const { buildIdentityRowOps } = await import("../../src/store/next/reconcile.js");
+    // `undefined` rows were skipped by both map build and lookup — a pure
+    // move rebuilt the row (fold audit 6, P2). The sentinel makes them
+    // first-class match participants; sparse holes read as the same value.
+    const ops = buildIdentityRowOps(["a", undefined, "b"], [undefined, "a", "b"])!;
+    expect(ops.prefix).toBe(0);
+    expect(ops.sources).toEqual([1, 0, 2]);
+    expect(ops.removed).toEqual([]);
+    const sparse = new Array(3);
+    sparse[0] = "a";
+    sparse[2] = "b";
+    const holes = buildIdentityRowOps(sparse, [undefined, "a", "b"])!;
+    expect(holes.sources).toEqual([1, 0, 2]);
+  });
+
   it("a shallow staged reveal rides ONE channel — slot ticks for aligned replacement, never row ops too", async () => {
     const {
       createOptimisticStore,

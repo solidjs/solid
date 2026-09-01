@@ -1058,6 +1058,22 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
       () => {
         if (pc.bc === pc.dv) return; // pure-registration run: baselines are per-entry
         pc.dv = pc.bc;
+        // The delivery CONSUMES any override on the notification signal
+        // (INV-6, fold audit 6): optimistic bumps arm dn so in-flight
+        // visibility rides the lane — but dn is PURE NOTIFICATION, and a
+        // revert-resync bump at another lane's settle can arm it on a
+        // still-open flight (the projection's) that never resolves in this
+        // window. Once delivered, the override has no residual meaning —
+        // drop it like resolveOptimisticNodes would. `_transition` is left
+        // alone on purpose: a plain bump PARKED under a real transaction
+        // may still be pending on this node, and its commit bookkeeping
+        // keys off that stamp.
+        const dnx = (dn as any)._x;
+        if (dnx != null && dnx._overrideValue !== undefined && dnx._overrideValue !== NOT_PENDING) {
+          dnx._overrideValue = NOT_PENDING;
+          dnx._optimisticLane = undefined;
+          dnx._overrideOwner = null;
+        }
         // Release the transaction stamps (round 10.7, P1): a delivered
         // channel has no pending bump for them to dedup against, and a
         // retained stamp would pin the transition object (generators,
