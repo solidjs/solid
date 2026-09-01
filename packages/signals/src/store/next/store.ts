@@ -752,7 +752,21 @@ export function adoptPB(
   // adoptions; the eager walk (which skips the queue by design) must do
   // the same, or the ancestor's raw slot serves the outgoing backing with
   // no pending delivery to correct it.
-  if (eager && target.u !== null && target.u.v[target.pk!] === old) {
+  //
+  // GATED ON PATCHES EXISTING (perf audit): ancestor committed raws are
+  // only ever handed out to PATCH consumers (patchableRaw / delivery
+  // payloads) — classic readers resolve through proxies and nodes. In a
+  // patch-less app the repair's privatization cascade re-cloned every
+  // freshly adopted interior backing per reconcile (an extra tree copy),
+  // and the identity swap turned downstream equality gates into keyset/
+  // deep bump storms (−11% on the listened-paths bench, zero channels).
+  if (
+    eager &&
+    target.u !== null &&
+    patchHooks !== null &&
+    patchHooks.hasPatches() &&
+    target.u.v[target.pk!] === old
+  ) {
     privatizeCommitted(target.u);
     devAssertNeverUserMutation(target.u.v);
     target.u.v[target.pk!] = incoming;
