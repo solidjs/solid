@@ -254,7 +254,10 @@ describe("why-did-this-run attribution", () => {
     );
     flush();
 
-    collect({ hotRuns: { count: 3, windowMs: 60_000 }, wideDeps: false });
+    // hotTime disabled: its default 8ms budget is real wall-clock time, and
+    // instrumented CI runs (coverage) can exceed it, adding a HOT_SCOPE_TIME
+    // warn that breaks the exact console counts below.
+    collect({ hotRuns: { count: 3, windowMs: 60_000 }, wideDeps: false, hotTime: false });
     const capture = DEV!.diagnostics.capture();
     for (let i = 1; i <= 5; i++) {
       setN(i);
@@ -283,7 +286,13 @@ describe("why-did-this-run attribution", () => {
     });
     flush();
 
-    collect({ hotRuns: { count: 3, windowMs: 60_000 }, wideDeps: false, wideWrites: false });
+    // hotTime disabled — see the hot-scopes test above.
+    collect({
+      hotRuns: { count: 3, windowMs: 60_000 },
+      wideDeps: false,
+      wideWrites: false,
+      hotTime: false
+    });
     const capture = DEV!.diagnostics.capture();
     for (let i = 1; i <= 4; i++) {
       setN(i);
@@ -316,7 +325,8 @@ describe("why-did-this-run attribution", () => {
     );
     flush();
 
-    collect({ wideDeps: 4, hotRuns: false });
+    // hotTime disabled — see the hot-scopes test above.
+    collect({ wideDeps: 4, hotRuns: false, hotTime: false });
     const capture = DEV!.diagnostics.capture();
     setBump(1);
     flush();
@@ -335,7 +345,8 @@ describe("why-did-this-run attribution", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const signals = Array.from({ length: 5 }, (_, i) => createSignal(i, { name: `c${i}` }));
 
-    collect({ wideDeps: 4, hotRuns: false });
+    // hotTime disabled — see the hot-scopes test above.
+    collect({ wideDeps: 4, hotRuns: false, hotTime: false });
     const capture = DEV!.diagnostics.capture();
     const wide = createMemo(() => signals.reduce((sum, [get]) => sum + get(), 0), {
       name: "born-wide"
