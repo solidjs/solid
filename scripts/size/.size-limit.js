@@ -449,7 +449,10 @@ module.exports = [
     // Round-10.13: structural hold parity + late-registrant resync
     // (queue capture, deferHeldStructural, live-resync sweep). Measured
     // 16.52.
-    limit: "16.6 KB",
+    // Structural-audit follow-up (2026-08-31): slot registration stamps,
+    // drain-side generation gate with live slot re-resolution, per-drain
+    // resync dedup, landing resync hook. Measured 16.66.
+    limit: "16.7 KB",
     modifyEsbuildConfig
   },
   {
@@ -501,7 +504,9 @@ module.exports = [
     // both edges, suffix scan), hold-deferred late resyncs, visible-view
     // resolution, deleted-slot gate, superseded-work stamps. Measured
     // 19.14.
-    limit: "19.15 KB",
+    // Follow-up (2026-08-31): the value-tier bytes above plus the slot sq
+    // stamp and landing resync hook. Measured 19.26.
+    limit: "19.3 KB",
     modifyEsbuildConfig
   },
   {

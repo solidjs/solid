@@ -1335,8 +1335,11 @@ describe("INVARIANT: structural resyncs honor holds, fix their window, and serve
     let confirm!: () => void;
     const run = act(function* () {
       setState((s: any) => {
-        s.list[2] = "x"; // slot tick for index 2, stashed by the transition
-        s.list.splice(2, 1); // …then the slot is deleted in the same window
+        // Slot ticks emit from the RECONCILE walk (aligned value-replaced
+        // slots): tick index 1 (survives) and index 2 (deleted right after
+        // by the shrinking reconcile) — both stashed by the transition.
+        reconcile(["a", "y", "x"], null)(s.list);
+        reconcile(["a", "y"], null)(s.list);
       });
       yield new Promise<void>(resolve => {
         confirm = resolve;
@@ -1351,8 +1354,12 @@ describe("INVARIANT: structural resyncs honor holds, fix their window, and serve
     confirm();
     await run;
     flush();
+    // NON-VACUOUS (audit follow-up P1): the surviving slot's resync MUST
+    // arrive — an empty tick list means the sweep never saw the late
+    // registrant (the vacuous pass that hid the missing slot sq stamp).
+    expect(ticks.some(([i, v]) => i === 1 && v === "y")).toBe(true);
     // The deleted slot's tick is invalid against the live 2-length list —
-    // it must be skipped, not delivered as (2, undefined).
+    // skipped, never delivered as (2, undefined).
     expect(ticks.every(([i]) => i < 2)).toBe(true);
   });
 
@@ -1421,6 +1428,113 @@ describe("INVARIANT: structural resyncs honor holds, fix their window, and serve
     flush();
     expect(frames.at(-1)).toEqual([1]);
     expect(classic.at(-1)).toEqual([1]);
+    dispose();
+  });
+
+  it("back-to-back continuation landings keep the channel AT classic parity — never ahead of it", async () => {
+    // Audit follow-up P1: with two landings arriving while the actions stay
+    // open, the channel exposed the newest topology while classic effects
+    // held the previous one until action settlement. Whatever the correct
+    // visibility ruling is, the channel's contract is CLASSIC PARITY —
+    // delivery for delivery, at every step.
+    const {
+      createOptimisticStore,
+      registerRowOps,
+      createRenderEffect,
+      action: act
+    } = await import("../../src/index.js");
+    type Row = { id: number };
+    let notify!: { promise: Promise<Row>; resolve: (row: Row) => void };
+    const reset = () => {
+      let resolve!: (row: Row) => void;
+      const promise = new Promise<Row>(r => (resolve = r));
+      notify = { promise, resolve };
+    };
+    reset();
+    const confirm = (row: Row) => {
+      const current = notify;
+      reset();
+      current.resolve(row);
+    };
+    const settle = async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+    };
+    let items!: any;
+    let setItems!: any;
+    // Full-fidelity frames (id:pending pairs): the echo-mask ruling is about
+    // VALUES (the replayed edit's value masks the landed echo until settle),
+    // so topology-only frames hide the divergence.
+    const view = (rows: any[]) => Array.from(rows, (r: any) => r.id + ":" + r.pending);
+    const channel: string[][] = [];
+    const classic: string[][] = [];
+    const dispose = createRoot(dispose => {
+      [items, setItems] = (createOptimisticStore as any)(async function* (store: Row[]) {
+        yield [] as Row[];
+        while (true) {
+          const row = await notify.promise;
+          yield;
+          store.push(row);
+        }
+      }, [] as Row[]);
+      registerRowOps(items, (rows: any[], _ops: any) => channel.push(view(rows)));
+      createRenderEffect(
+        () => view(items as any[]),
+        (v: string[]) => {
+          classic.push(v);
+        }
+      );
+      return dispose;
+    });
+    flush();
+    await settle();
+
+    // Two retained adds on OPEN actions (blind — they outlive both landings).
+    let doneA!: () => void;
+    let doneB!: () => void;
+    act(function* () {
+      setItems((s: any[]) => {
+        s.push({ id: 10, pending: true });
+      });
+      yield new Promise<void>(r => {
+        doneA = r;
+      });
+    })();
+    flush();
+    act(function* () {
+      setItems((s: any[]) => {
+        s.push({ id: 11, pending: true });
+      });
+      yield new Promise<void>(r => {
+        doneB = r;
+      });
+    })();
+    flush();
+    expect(classic.at(-1)).toEqual(["10:true", "11:true"]);
+    expect(channel.at(-1)).toEqual(["10:true", "11:true"]);
+
+    // TWO continuation landings BACK-TO-BACK, each ECHOING one retained add
+    // (the d813a96f ruling: the echoed row takes the landed slot, the
+    // replayed edit's VALUE masks it until settle). Actions stay open. The
+    // channel must land WHERE CLASSIC LANDS at every observation point.
+    confirm({ id: 10, pending: false } as any);
+    await settle();
+    await settle();
+    expect(channel.at(-1)).toEqual(classic.at(-1) as string[]);
+
+    confirm({ id: 11, pending: false } as any);
+    await settle();
+    await settle();
+    expect(channel.at(-1)).toEqual(classic.at(-1) as string[]);
+
+    doneA();
+    doneB();
+    await settle();
+    await settle();
+    expect(channel.at(-1)).toEqual(classic.at(-1) as string[]);
+    expect(classic.at(-1)).toEqual(["10:false", "11:false"]);
     dispose();
   });
 

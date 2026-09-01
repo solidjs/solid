@@ -144,16 +144,11 @@ function drainApplyQueue(): void {
   // it (source = the owner, error read via owner._x?._error). Unhandled errors
   // rethrow after the drain so they still surface.
   let firstError: unknown = UNSET;
+  drainGen++;
   for (let i = 0; i < q.length; i++) {
     const item = q[i];
-    // SUPERSEDED work (structural audit, F4): a landing consumption bumped
-    // the channel's structural generation and queued its own resync —
-    // items stamped before it (stale transition-held ops, interim replay
-    // ops) describe baselines the consumption invalidated.
-    if (item.pc !== undefined && ((item.pc.sg as number) | 0) !== ((item.sg as number) | 0))
-      continue;
-    const { prev, force, t } = item;
-    const next = t !== null ? (force ? forcedNext(t) : visibleStructRows(t)) : item.next;
+    const next = drainNext(item);
+    if (next === UNSET) continue;
     if (item.ops !== undefined || item.si !== undefined)
       firstError = applyStructural(item, next, firstError);
   }
@@ -173,6 +168,33 @@ function drainApplyQueue(): void {
  * proxy-composed rows keep identity retention. */
 function visibleStructRows(t: StoreNextTarget): any {
   return t.fam?.opt === true ? t.px : (t.pb ?? t.v);
+}
+
+/** Per-drain generation for late-resync dedup (audit follow-up P2): several
+ * held items on ONE channel each ran the late sweep — same entries, same
+ * live rebuild, item-count × consumer-count applications. Entries stamp the
+ * drain they were resynced in; repeats within it skip. */
+let drainGen = 0;
+
+/** Drain-side `next` resolution with the SUPERSEDED-work gate (structural
+ * audit F4, refined by the follow-up P2): a landing consumption bumped the
+ * channel's structural generation and queued its own resync — stale ROW
+ * items describe baselines the consumption invalidated and are covered by
+ * that resync, so they drop. Stale SLOT items are STANDALONE value
+ * notifications the row resync does NOT cover — they re-resolve against
+ * the live visible view (their captured payload is pre-landing) and keep
+ * their delivery; a slot the landing deleted drops (range gate). Returns
+ * UNSET to skip the item. */
+function drainNext(item: QueuedApply): unknown {
+  const pc = item.pc;
+  if (pc !== undefined && ((pc.sg as number) | 0) !== ((item.sg as number) | 0)) {
+    if (item.si === undefined) return UNSET;
+    const rows = visibleStructRows(pc.t as StoreNextTarget);
+    if (!Array.isArray(rows) || (item.si as number) >= rows.length) return UNSET;
+    return rows[item.si as number];
+  }
+  const { force, t } = item;
+  return t !== null ? (force ? forcedNext(t) : visibleStructRows(t)) : item.next;
 }
 
 /** Forced-apply `next` resolution. Deep-path channels read through the
@@ -257,7 +279,7 @@ function applyStructural(item: QueuedApply, next: any, firstError: unknown): unk
   // hold.
   if (item.pc !== undefined) {
     const live = (item.si !== undefined ? item.pc.sp : item.pc.ro) as
-      | (RowOpsEntry & { hq?: boolean; sq?: number; q?: unknown })[]
+      | (RowOpsEntry & { hq?: boolean; sq?: number; dg?: number; q?: unknown })[]
       | null;
     if (live !== null && live.length !== 0) {
       const itemRq = ((item.rq as number) | 0) as number;
@@ -267,12 +289,18 @@ function applyStructural(item: QueuedApply, next: any, firstError: unknown): unk
         if (sq <= itemRq) break; // suffix exhausted — everyone else was in the snapshot
         if (sq > maxSq) continue; // registered mid-drain: outside the window
         if (entry.u === true || entry.hq === true) continue;
+        // ONE live rebuild per entry per drain (audit follow-up P2): every
+        // held item on this channel runs this sweep — the resync reads the
+        // same live truth each time, so repeats are pure waste. Slot items
+        // stay per-item (distinct indices are distinct deliveries).
+        if (item.si === undefined && entry.dg === drainGen) continue;
         if (entry.owner !== null && isDisposed(entry.owner)) continue;
         const oq = entry.q as any;
         if (queueIsHeld(oq)) {
           deferHeldStructural(entry as any, oq, item);
           continue;
         }
+        if (item.si === undefined) entry.dg = drainGen;
         try {
           structuralResync(entry, item);
         } catch (err) {
@@ -560,13 +588,12 @@ function drainOptimistic(): void {
   // 5): one throwing optimistic patch must not abort its siblings, and it
   // must reach the registering owner's Errored boundary.
   let firstError: unknown = UNSET;
+  drainGen++;
   for (let i = 0; i < q.length; i++) {
     const item = q[i];
     // Same superseded-work gate as the regular drain (structural audit, F4).
-    if (item.pc !== undefined && ((item.pc.sg as number) | 0) !== ((item.sg as number) | 0))
-      continue;
-    const { prev, force, t } = item;
-    const next = t !== null ? (force ? forcedNext(t) : visibleStructRows(t)) : item.next;
+    const next = drainNext(item);
+    if (next === UNSET) continue;
     if (item.ops !== undefined || item.si !== undefined)
       firstError = applyStructural(item, next, firstError);
   }
@@ -1553,13 +1580,42 @@ export function registerSlotPatchNext(
   // lists — registrations are a list, unbinds splice their own entry.
   const pc = pcOf(t);
   const sowner = getOwner();
-  const entry = { fn, owner: sowner, q: (sowner as any)?._queue ?? null };
+  // Same registration-sequence stamp as row-ops entries (structural audit
+  // follow-up P1): without it the late sweep's suffix scan reads sq 0 and
+  // breaks immediately — shallow lists mounted during held windows stayed
+  // permanently stale.
+  const entry = {
+    fn,
+    owner: sowner,
+    q: (sowner as any)?._queue ?? null,
+    sq: (pc.rq = ((pc.rq as number) | 0) + 1)
+  };
   const list = (pc.sp ??= []) as unknown[];
   list.push(entry);
   if (__DEV__ && shouldWarnGraphSize(list.length))
     warnChannelFanOut(list.length, "slot-patch (shallow list)");
   markDescendants(t);
   return structuralUnbind(entry, list, pc, "sp", false);
+}
+
+/** Landing-consumption structural notification (audit follow-up P1,
+ * back-to-back continuations): the LANE with the DRAIN-RESOLVED resync
+ * form. Lane, because the ambient transaction at consumption is an
+ * optimistic action's — the regular queue would stash the item there and a
+ * reverting action DROPS its stash (the landing's notification must not
+ * die with a transaction it doesn't belong to). Drain-resolved, because an
+ * emission-time composed snapshot reads the MID-RECKONING draft — a parked
+ * or superseded landing's topology reached the DOM while classic readers
+ * held the previous view until its commit; visibleStructRows at drain time
+ * reads exactly what classic renders at that moment. Bumps the structural
+ * generation FIRST: row/slot work queued before this consumption is
+ * superseded (F4) whether or not row consumers exist. */
+export function emitRowOpsLanding(t: StoreNextTarget): void {
+  const pc = t.pc as any;
+  if (pc === null) return;
+  pc.sg = ((pc.sg as number) | 0) + 1;
+  if (pc.ro === null) return;
+  emitRowOpsOptimistic(t, null, null);
 }
 
 /** Row-ops ride the SAME apply queue/timing as record patches: transition-
@@ -1649,6 +1705,7 @@ function armRowHooks(): void {
     emitRowOps,
     emitSlotPatch,
     emitSetterRowOps,
-    emitRowOpsOptimistic
+    emitRowOpsOptimistic,
+    emitRowOpsLanding
   });
 }

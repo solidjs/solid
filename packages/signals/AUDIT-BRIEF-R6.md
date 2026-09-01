@@ -1,5 +1,45 @@
 # Audit brief — rounds 6–9 + patch-mode default flip + node delivery
 
+## Round 10.16 (2026-08-31) — structural-audit follow-up (2 P1 + 2 P2) + TWO OPEN upstream findings
+
+- **FIXED P1 (slot registrants unstamped)**: `registerSlotPatchNext` now
+  stamps `sq` like row-ops registrations — without it the suffix scan read
+  0 and broke immediately; shallow lists mounted during held windows
+  stayed permanently stale. The regression test is NON-VACUOUS now: the
+  surviving slot's resync MUST arrive (an empty tick list was how the
+  vacuous `every()` hid the miss), and slot emissions in the test go
+  through the reconcile walk (the only slot-tick emitter).
+- **FIXED P1 (landing emission ahead of classic)**: `emitRowOpsLanding`
+  hook — LANE-timed (the ambient transaction at consumption is an
+  optimistic action's; the regular queue would stash the item there and a
+  reverting action drops its stash) but DRAIN-RESOLVED (the emission-time
+  composed snapshot read the mid-reckoning draft: a parked or superseded
+  landing's topology reached the DOM while classic held the previous view
+  until its commit). visibleStructRows at drain reads exactly what
+  classic renders at that moment. Probed across five interleavings
+  (spaced/same-microtask × echo/non-echo × blind/until-gated), frames at
+  classic parity throughout.
+- **FIXED P2 (item-local resync repeats)**: per-drain generation stamp —
+  several held items on one channel each ran the sweep; entries now
+  resync once per drain (row form; slot items stay per-item — distinct
+  indices are distinct deliveries).
+- **FIXED P2 (generation gate dropped standalone slot ticks)**: sg-stale
+  ROW items drop (the landing's resync covers them); sg-stale SLOT items
+  are standalone value notifications the row resync does NOT cover — they
+  re-resolve against the live visible view and keep their delivery
+  (range-gated for slots the landing deleted).
+- **OPEN upstream ×2 (pinned `it.fails` in createOptimisticStore.test.ts)**:
+  (1) a second continuation landing arriving in the same microtask chain
+  is SWALLOWED — committed truth loses the landed row. Channel-independent:
+  reproduces with a bare async-generator projection, no actions, no
+  consumers, classic effects only. (2) downstream of it, an action whose
+  until() waits on the swallowed echo wedges forever (authoritative truth
+  never carries the row). Both sit in the #3123 continuation-reckoning
+  machinery — flagged, not unilaterally fixed (active upstream seam).
+- Size: hydrating-store-app DOWN 27.18 → 27.13 (emission-time composition
+  deleted); patch tiers +61/+111 B (stamps, drain gate, hook) — two
+  ratchets (16.7 / 19.3).
+
 ## Round 10.15 (2026-08-31) — structural audit (6 findings) + review-commit integration
 
 The structural audit's six findings clustered into three root causes; the

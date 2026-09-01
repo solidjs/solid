@@ -3807,3 +3807,109 @@ describe("truth-author drafts read the authoritative view (#3108)", () => {
     dispose();
   });
 });
+
+// ---------------------------------------------------------------------------
+// OPEN upstream findings (structural-audit follow-up, 2026-08-31): the
+// continuation reckoning drops a second landing that arrives in the same
+// microtask chain. Channel-independent — reproduces with a bare projection,
+// no actions, no consumers. Pinned as `it.fails` so the flip is visible
+// when the reckoning fix lands; flip to `it` and keep.
+describe("#3123 continuation reckoning — OPEN findings (it.fails pins)", () => {
+  const settle = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+  };
+
+  function continuationHarness() {
+    type Row = { id: number };
+    let notify!: { promise: Promise<Row>; resolve: (r: Row) => void };
+    const reset = () => {
+      let rs!: (r: Row) => void;
+      const p = new Promise<Row>(r => (rs = r));
+      notify = { promise: p, resolve: rs };
+    };
+    reset();
+    const confirm = (r: Row) => {
+      const current = notify;
+      reset();
+      current.resolve(r);
+    };
+    let items!: any;
+    let setItems!: any;
+    const classic: string[] = [];
+    const dispose = createRoot(dispose => {
+      [items, setItems] = createOptimisticStore(async function* (store: Row[]) {
+        yield [] as Row[];
+        while (true) {
+          const row = await notify.promise;
+          yield;
+          store.push(row);
+        }
+      }, [] as Row[]);
+      createRenderEffect(
+        () => Array.from(items as any[], (r: any) => String(r.id)).join(","),
+        (v: string) => {
+          classic.push(v);
+        }
+      );
+      return dispose;
+    });
+    return {
+      confirm,
+      classic,
+      dispose,
+      get items() {
+        return items;
+      },
+      get setItems() {
+        return setItems;
+      }
+    };
+  }
+
+  it.fails("a second same-microtask continuation landing is not swallowed", async () => {
+    const h = continuationHarness();
+    flush();
+    await settle();
+    h.confirm({ id: 0 });
+    h.confirm({ id: 2 });
+    for (let i = 0; i < 5; i++) await settle();
+    const final = h.classic.at(-1);
+    h.dispose();
+    // TODAY: "0" — the second landing's push never commits (data loss).
+    expect(final).toBe("0,2");
+  });
+
+  it.fails(
+    "an action satisfied by a landed row settles even when its landing raced another",
+    async () => {
+      const h = continuationHarness();
+      flush();
+      await settle();
+      let bDone = false;
+      action(function* () {
+        h.setItems((s: any[]) => {
+          s.push({ id: 1 });
+        });
+        yield until(() => (h.items as any[]).some((x: any) => x.id === 1));
+      })().then(
+        () => {
+          bDone = true;
+        },
+        () => {
+          bDone = true;
+        }
+      );
+      flush();
+      h.confirm({ id: 0 });
+      h.confirm({ id: 1 }); // the echo that should satisfy the action
+      for (let i = 0; i < 6; i++) await settle();
+      h.dispose();
+      // TODAY: the swallowed echo never reaches authoritative truth, the
+      // until() predicate never satisfies, the action wedges forever.
+      expect(bDone).toBe(true);
+    }
+  );
+});
