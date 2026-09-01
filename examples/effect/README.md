@@ -1,8 +1,9 @@
 # Solid 2.0 × Effect
 
 Two demos showing that Solid 2.0 and [Effect](https://effect.website) compose without a binding
-library. The entire integration is [`src/solid-effect.ts`](src/solid-effect.ts) (~60 lines, two
-exports) — no `Result` wrappers, no hooks, no atom layer.
+library. The entire integration is [`src/solid-effect.ts`](src/solid-effect.ts) (~90 lines:
+`runEffect`, `effectAction`, and a runtime context) — no `Result` wrappers, no hooks, no atom
+layer.
 
 ```bash
 pnpm install
@@ -43,6 +44,16 @@ frameworks:
   path, `yield*` delegation on the action path) rather than a binding library: neither side wraps
   or schedules the other. Frameworks whose unit of work is "re-render the component" need the
   atom/registry layer precisely because their lifecycle and Effect's don't line up anywhere.
+- **A tree to put services in.** Effect's requirement channel (`R`) needs someone to provide
+  `Layer`s and scope their lifetimes. Solid context _is_ that structure: `createRuntime(layer)`
+  builds a `ManagedRuntime` disposed by `onCleanup` (service lifetime = subtree lifetime), and
+  `runEffect`/`effectAction` resolve it from the nearest `RuntimeContext` — so providing a
+  different runtime lower in the tree overrides services for that subtree only, hierarchically,
+  the same way any Solid context works. Cross-subtree sharing is Effect's own machinery, not
+  ours: nested providers pass the parent runtime's `MemoMap` to `ManagedRuntime.make`, so a layer
+  used by several subtrees is built once and finalized by Effect's refcounting when the last
+  subtree unmounts. A flat global registry has to reintroduce scoping; Solid's ownership tree
+  already is one.
 
 ## Read path — typeahead (`runEffect`)
 
@@ -110,9 +121,14 @@ double-submit cancels (with compensation) rather than silently racing.
   difference from running one big `Effect.gen` program.
 - Effect's typed error channel degrades to a thrown value at `<Errored>` on the read path.
   Inside `effectAction` generators it survives (`instanceof` narrows `Data.TaggedError` classes).
-- Services/`Layer` are not wired up here; a real integration would provide a `ManagedRuntime` via
-  Solid context and use `Effect.runFork` from it. `runEffect`/`effectAction` as written use the
-  default runtime, so steps are typed `Effect<A, E, never>`.
+- Services/`Layer` ride Solid context: the app provides
+  `<RuntimeContext value={createRuntime(SearchConfigLive)}>`, and `searchPackages` requires
+  `SearchConfig` through the typed `R` channel. `runEffect` resolves the runtime at the reading
+  computation, `effectAction` at component setup; both fall back to the default runtime, which is
+  only sound for `R = never` steps (the checkout saga runs that way). One composition note:
+  `ManagedRuntime.make` wants a self-contained layer (`RIn = never`), so a child provider whose
+  layer depends on parent services composes with `Layer.provideMerge` — the shared `MemoMap`
+  makes the overlapping construction free.
 - `repro-close-timing.mjs` documents a core finding from building this example
   ([#3122](https://github.com/solidjs/solid/issues/3122)): an `isPending` read over the source
   defers the superseded flight's iterator close until the superseding flight settles, so the
