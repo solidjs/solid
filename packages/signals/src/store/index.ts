@@ -25,17 +25,6 @@ import { reconcileNextState } from "./next/reconcile.js";
 import { createStoreDerivedNext } from "./next/projection.js";
 
 export { createProjectionNext as createProjection } from "./next/projection.js";
-// Compiler-contract surface (see src/compiler.ts — the sanctioned import is
-// the `@solidjs/signals/compiler` subpath; root presence is a single-file
-// dev-build artifact and is undocumented).
-// Compiler-contract surface (DESIGN-PATCH-CHANNEL.md): what patch-mode
-// compiled output links against. Undocumented as an application API.
-export {
-  registerPatch,
-  registerRowOps,
-  registerSlotPatchNext as registerSlotPatch,
-  patchableRaw
-} from "./next/patch.js";
 export { storeIsShallow, storeHasFamily, storeHasOptimisticFamily } from "./next/store.js";
 export { createOptimisticStoreNext as createOptimisticStore } from "./next/optimistic.js";
 

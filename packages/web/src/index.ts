@@ -33,9 +33,6 @@ import type { JSX } from "../jsx/jsx.js";
 
 export * from "./client.js";
 // Pay-for-use: retained only when compiled patch-mode output imports
-// `patchDriver`/`rowProof`; importing installs the list driver (sideEffects
-// is false, so unused re-exports shake the whole module away).
-export { patchDriver, rowProof, driveList } from "./patch-driver.js";
 export * from "./server-mock.js";
 export * from "./response.js";
 export type { JSX } from "../jsx/jsx.js";
