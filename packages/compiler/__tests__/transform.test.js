@@ -182,6 +182,29 @@ describe("@solidjs/compiler transform", () => {
     expect(result.code).not.toContain("</input>");
   });
 
+  it("assigns static select values through the DOM property", () => {
+    const result = transform(
+      `
+        const stringAttribute = <select value="2"><option value="2">Two</option></select>;
+        const stringExpression = <select value={"2"}><option value="2">Two</option></select>;
+        const numberExpression = <select value={2}><option value="2">Two</option></select>;
+        const multipleString = <select multiple value="2"><option value="2">Two</option></select>;
+        const multipleArray = <select multiple value={["1", "2"]}><option value="2">Two</option></select>;
+        const dynamicChildren = <select value="2">{options()}</select>;
+      `,
+      {
+        filename: "static-select-value.jsx",
+        moduleName: "r-dom"
+      }
+    );
+
+    expect(result.code).not.toMatch(/_\$template\(`<select value=/);
+    expect(result.code.match(/queueMicrotask/g)).toHaveLength(6);
+    expect(result.code.match(/\.value = (?:"2"|2)/g)).toHaveLength(10);
+    expect(result.code.match(/\.value = \["1", "2"\]/g)).toHaveLength(2);
+    expect(result.code.indexOf("queueMicrotask")).toBeLessThan(result.code.indexOf("_$insert("));
+  });
+
   it("compiles the supported simpleElements fixture subset from Babel sources", () => {
     const source = readFixture("simpleElements");
     const subset = source.slice(

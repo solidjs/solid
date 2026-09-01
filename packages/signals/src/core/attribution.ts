@@ -148,6 +148,22 @@ export interface AttributionOptions {
    * disables.
    */
   wideWrites?: number | false;
+  /**
+   * Async-waterfall warning: emit a diagnostic when an async flight that
+   * could only start after an upstream flight resolved (its recompute's
+   * cause chain reaches the upstream's async landing, and its origin
+   * post-dates that landing) forms a sequential chain of 2+ flights, each
+   * of which took at least `minFlightMs` (default 50ms). The duration gate
+   * is one safety valve for what the graph cannot see: a settled
+   * preload/cache hit resolves fast and never warns. In-flight preloads are
+   * absolved by origin: `markFlight()` stamps (and first-seen identity)
+   * prove work predated the upstream landing — parallel, not sequential.
+   * Chains of 2 emit at `info` severity, structured channel only (a
+   * dependent fetch is sometimes intrinsic, and unmarked external preloads
+   * are invisible); 3+ escalate to `warn` with console output. `false`
+   * disables.
+   */
+  waterfalls?: { minFlightMs: number } | false;
 }
 
 interface AttributedNode {
@@ -164,6 +180,8 @@ interface AttributedNode {
   _devUnstableRuns?: number;
   _devUnstableWarned?: boolean;
   _devWideWriteWarnedAt?: number;
+  /** Longest sequential-flight chain already warned for this node. */
+  _devWaterfallWarnedAt?: number;
 }
 
 let attributionActive = false;
@@ -178,7 +196,8 @@ const defaultOptions = {
   wideDeps: 30 as number | false,
   hotTime: { budgetMs: 8, windowMs: 1000 } as { budgetMs: number; windowMs: number } | false,
   unstableMemos: 4 as number | false,
-  wideWrites: 250 as number | false
+  wideWrites: 250 as number | false,
+  waterfalls: { minFlightMs: 50 } as { minFlightMs: number } | false
 };
 let options: typeof defaultOptions = { ...defaultOptions };
 const listeners = new Set<(event: RerunEvent) => void>();
@@ -434,9 +453,29 @@ function checkDepWidth(el: Computed<any>): void {
 }
 
 /**
+ * Per-cause aggregation for hot scopes. The per-node warning blames the
+ * VICTIM; when one hot cause drives many scopes (a selection write fanning
+ * out over every row, a timer leaking into a list), one culprit produces N
+ * scope warnings — pure spam that buries the signal. So: the FIRST scope to
+ * go hot for a given root-cause key warns normally (a genuinely single hot
+ * scope keeps today's behavior exactly), subsequent scopes in the same
+ * window are counted silently, and scope-count milestones (5, then 10x)
+ * emit one escalating HOT_SCOPE_FANOUT naming the shared cause.
+ */
+interface HotCauseWindow {
+  winStart: number;
+  scopes: number;
+  runs: number;
+  nextMilestone: number;
+}
+const hotCauses = new Map<string, HotCauseWindow>();
+const HOT_FANOUT_FIRST_MILESTONE = 5;
+
+/**
  * Hot-scope warning — flags a scope that re-ran more than `count` times
  * inside one `windowMs` window. Warned once per window, with the most recent
  * cause chain named so the leaking signal is identified in the message.
+ * Fan-out spam is folded per root cause (see HotCauseWindow above).
  */
 function checkHotRuns(el: Computed<any>, event: RerunEvent): void {
   const cfg = options.hotRuns;
@@ -451,22 +490,58 @@ function checkHotRuns(el: Computed<any>, event: RerunEvent): void {
   node._devWinCount = (node._devWinCount ?? 0) + 1;
   if (node._devHotWarned || node._devWinCount < cfg.count) return;
   node._devHotWarned = true;
-  const rootCause = event.causes.map(c => `"${c.name}" (${c.kind})`).join(", ");
+
+  // Root-cause key: the set of originating writes behind this scope's latest
+  // re-run. Scopes hot from the SAME roots share one aggregation window.
+  const roots = new Set<string>();
+  rootsOf(event.causes, roots);
+  const causeKey = roots.size > 0 ? [...roots].sort().join(", ") : "(untracked)";
+  let window = hotCauses.get(causeKey);
+  if (window === undefined || now - window.winStart > cfg.windowMs) {
+    window = { winStart: now, scopes: 0, runs: 0, nextMilestone: HOT_FANOUT_FIRST_MILESTONE };
+    hotCauses.set(causeKey, window);
+  }
+  window.scopes++;
+  window.runs += node._devWinCount;
+
+  if (window.scopes === 1) {
+    const rootCause = event.causes.map(c => `"${c.name}" (${c.kind})`).join(", ");
+    const message =
+      `[HOT_SCOPE_RERUNS] ${event.nodeKind} "${event.nodeName}" re-ran ${node._devWinCount} times ` +
+      `in ${Math.max(1, now - node._devWinStart)}ms — a hot signal is likely leaking into this ` +
+      `scope. Latest cause: ${rootCause || "(untracked pull)"}`;
+    emitDiagnostic({
+      code: "HOT_SCOPE_RERUNS",
+      kind: "perf",
+      severity: "warn",
+      message,
+      nodeName: event.nodeName,
+      data: {
+        runs: node._devWinCount,
+        windowMs: cfg.windowMs,
+        causes: event.causes.map(c => c.name)
+      }
+    });
+    console.warn(message);
+    return;
+  }
+
+  // Additional scopes hot from the same cause: silent until a milestone —
+  // the culprit is the cause, and it has already been named once.
+  if (window.scopes < window.nextMilestone) return;
+  window.nextMilestone *= 10;
   const message =
-    `[HOT_SCOPE_RERUNS] ${event.nodeKind} "${event.nodeName}" re-ran ${node._devWinCount} times ` +
-    `in ${Math.max(1, now - node._devWinStart)}ms — a hot signal is likely leaking into this ` +
-    `scope. Latest cause: ${rootCause || "(untracked pull)"}`;
+    `[HOT_SCOPE_FANOUT] ${window.scopes} scopes have gone hot (${window.runs} re-runs) within ` +
+    `${cfg.windowMs}ms, all driven by ${causeKey} — one hot cause is re-running a large part ` +
+    `of the graph. Per-scope warnings are suppressed; fix the cause. If consumers ask keyed ` +
+    `questions of it, invert with createSelector or createProjection.`;
   emitDiagnostic({
-    code: "HOT_SCOPE_RERUNS",
+    code: "HOT_SCOPE_FANOUT",
     kind: "perf",
     severity: "warn",
     message,
-    nodeName: event.nodeName,
-    data: {
-      runs: node._devWinCount,
-      windowMs: cfg.windowMs,
-      causes: event.causes.map(c => c.name)
-    }
+    nodeName: causeKey,
+    data: { cause: causeKey, scopes: window.scopes, runs: window.runs, windowMs: cfg.windowMs }
   });
   console.warn(message);
 }
@@ -602,6 +677,25 @@ export interface Attribution {
    * by total downstream re-run time each root write caused.
    */
   costs(): { scopes: ScopeCost[]; writes: WriteCost[] };
+  /**
+   * Every graph-provable sequential flight chain observed since enable()
+   * (ring-buffered like history()). Facts, not verdicts: chains are recorded
+   * regardless of the duration gate — the ASYNC_WATERFALL diagnostic is the
+   * thresholded view of the same data.
+   */
+  waterfalls(): readonly WaterfallRecord[];
+  /**
+   * Cooperative preload declaration: stamp a flight object (promise or async
+   * iterable) with its true kickoff time BEFORE the reactive graph sees it.
+   * A route preloader or query cache calls this on the promise it hands out
+   * (on the WRAPPER it mints, with the original kickoff time — wrapping
+   * defeats identity tracking otherwise); any dependent that later awaits it
+   * is then judged against the real start — work already in the air when its
+   * upstream landed is parallel, never a waterfall link. Callable while
+   * attribution is disabled (marks made at navigation time must survive a
+   * later enable()). Dev-only, like the whole DEV surface.
+   */
+  markFlight(flight: object, startedAt?: number): void;
   format: typeof formatRerun;
 }
 
@@ -680,6 +774,177 @@ function checkUnstableOutput(el: Computed<any>, prevValue: unknown, newValue: un
     data: { runs: node._devUnstableRuns, shape }
   });
   console.warn(message);
+}
+
+// --- Async waterfall tracking -----------------------------------------------
+//
+// A "flight" is one registered async operation (`_inFlight` assignment) on one
+// node. The engine can prove a sequential dependency when flight B's owning
+// recompute was CAUSED by flight A's landing: the recompute frame's cause
+// chain reaches A's "async" ChangeRecord, and that record carries A's own
+// flight measurement. Chains are facts recorded unconditionally (queryable via
+// `waterfalls()`); the ASYNC_WATERFALL diagnostic is the derived verdict.
+//
+// The sequentiality claim is made over flight ORIGINS, not sightings. The
+// graph sees a flight when `_inFlight` is assigned, but the underlying work
+// may be older: a route preloader kicked the fetch off at navigation and the
+// dependent memo merely picked up the cached promise. Flagging that as a
+// waterfall would blame a flattened chain. So each flight's origin is the
+// EARLIEST provable start: a cooperative `markFlight(promise, startedAt)`
+// stamp (preloaders/caches declaring their kickoff), else the first time the
+// reactive system saw this same object (shared-promise dedupe), else this
+// registration. A chain link exists only when `child.origin >= parent.landedAt`
+// — work that provably existed before the upstream resolved is parallel, not
+// sequential, and breaks the chain.
+//
+// What this deliberately does NOT claim: flights linked through untracked
+// indirection (an effect that imperatively writes a signal a fetch depends
+// on) are not chained — only graph-provable causality counts. And a cache
+// handing out FRESH wrapper promises over old work defeats identity tracking
+// unless it marks them (Solid Router's query() wraps exactly this way — its
+// preloads must mark) — the residual blind spot is why the depth-2 verdict
+// stays at `info` severity with no console output.
+
+/** One landed flight: its node name, wall duration, and upstream chain. */
+export interface FlightLink {
+  name: string;
+  ms: number;
+}
+export interface WaterfallRecord {
+  /** Sequential flights, oldest first, ending at the flight that landed. */
+  chain: FlightLink[];
+  /** Summed wall time of the chain — the serialized cost. */
+  sequentialMs: number;
+}
+
+interface LandedFlight extends FlightLink {
+  chain: FlightLink[];
+  /** Absolute timestamp of the landing — the bar a dependent's origin must clear. */
+  landedAt: number;
+}
+interface LiveFlight {
+  origin: number;
+  /** changeSeq at flight start — associates the eventual landing stamp. */
+  startSeq: number;
+  chain: FlightLink[];
+}
+// WeakMaps: an errored/abandoned flight must not leak its node or block GC.
+const liveFlights = new WeakMap<Computed<any>, LiveFlight>();
+const landedFlights = new WeakMap<ChangeRecord, LandedFlight>();
+/**
+ * Flight-object identity → earliest known start. Fed by markFlight() (the
+ * cooperative preload/cache declaration — populated even while attribution
+ * is disabled, so navigation-time marks survive a later enable()) and by
+ * first sightings at registration.
+ */
+const flightOrigins = new WeakMap<object, number>();
+let waterfallLog: WaterfallRecord[] = [];
+
+/** Deepest landed-flight cause reachable through a cause list (derived links included). */
+function flightCauseIn(causes: ChangeRecord[]): LandedFlight | null {
+  let best: LandedFlight | null = null;
+  for (const c of causes) {
+    let found: LandedFlight | null = null;
+    if (c.kind === "async") found = landedFlights.get(c) ?? null;
+    else if (c.kind === "derived" && c.causes) found = flightCauseIn(c.causes);
+    if (found !== null && (best === null || found.chain.length > best.chain.length)) best = found;
+  }
+  return best;
+}
+
+function trackFlightStart(el: Computed<any>, flight: object): void {
+  if (options.waterfalls === false) return;
+  const at = now();
+  const origin = flightOrigins.get(flight) ?? at;
+  if (origin === at) flightOrigins.set(flight, at);
+  // Nearest enclosing frame with causes: create runs carry null (a node born
+  // inside a parent's recompute inherits the parent's causality — the
+  // boundary-reveal case, and the lazy sibling whose first pull is gated
+  // behind an earlier not-ready read), so walk down to the first re-run frame.
+  let parent: LandedFlight | null = null;
+  for (let i = frames.length - 1; i >= 0; i--) {
+    const causes = frames[i].causes;
+    if (causes !== null) {
+      parent = flightCauseIn(causes);
+      break;
+    }
+  }
+  // The sequentiality test. A marked/previously-seen flight whose origin
+  // predates the upstream landing was in the air alongside it: parallel.
+  if (parent !== null && origin < parent.landedAt) parent = null;
+  liveFlights.set(el, {
+    origin,
+    startSeq: changeSeq,
+    chain: parent === null ? [] : [...parent.chain, { name: parent.name, ms: parent.ms }]
+  });
+}
+
+/**
+ * Flight landed (whether or not the value committed — the wall time was
+ * spent either way). Attach the measurement to the landing's fresh "async"
+ * stamp so downstream flights can chain through it, then judge the chain.
+ */
+function finalizeFlight(el: Computed<any>): void {
+  const flight = liveFlights.get(el);
+  if (flight === undefined) return;
+  liveFlights.delete(el);
+  const landedAt = now();
+  const ms = landedAt - flight.origin;
+  const record = (el as AttributedNode)._devChange;
+  // Only a stamp this landing produced may carry the measurement — a stale
+  // async record from a previous landing must not be re-labeled.
+  if (record !== undefined && record.kind === "async" && record.seq > flight.startSeq)
+    landedFlights.set(record, { name: nodeName(el), ms, chain: flight.chain, landedAt });
+  checkWaterfall(el, flight.chain, ms);
+}
+
+function checkWaterfall(el: Computed<any>, chain: FlightLink[], ms: number): void {
+  const cfg = options.waterfalls;
+  if (cfg === false) return;
+  if (chain.length > 0) {
+    waterfallLog.push({
+      chain: [...chain, { name: nodeName(el), ms }],
+      sequentialMs: chain.reduce((sum, l) => sum + l.ms, ms)
+    });
+    if (waterfallLog.length > options.historyLimit) waterfallLog.shift();
+  }
+  // The verdict: trailing run of links that were each a real wait. A fast
+  // tail (settled preload/cache hit) or a fast upstream breaks the sequence.
+  if (ms < cfg.minFlightMs) return;
+  let seq = 1;
+  let totalMs = ms;
+  for (let i = chain.length - 1; i >= 0 && chain[i].ms >= cfg.minFlightMs; i--) {
+    seq++;
+    totalMs += chain[i].ms;
+  }
+  if (seq < 2) return;
+  const node = el as AttributedNode;
+  if ((node._devWaterfallWarnedAt ?? 0) >= seq) return;
+  node._devWaterfallWarnedAt = seq;
+  const links = [...chain.slice(chain.length - (seq - 1)), { name: nodeName(el), ms }];
+  const path = links.map(l => `"${l.name}" (${l.ms.toFixed(0)}ms)`).join(" → ");
+  const message =
+    `[ASYNC_WATERFALL] ${seq} sequential async flights — ${path} — ` +
+    `${totalMs.toFixed(0)}ms serialized: each began only after the previous resolved ` +
+    `(as far as this graph can see). If a later request doesn't need the earlier ` +
+    `response, derive both from the same inputs so they start together; if the ` +
+    `dependency is intrinsic, preload the dependent data or join the requests ` +
+    `server-side. If this work WAS already started elsewhere (a preloader or request ` +
+    `cache), have that layer stamp its promises with DEV.attribution.markFlight().`;
+  // Depth 2 is advisory-only (structured consumers see it; the console does
+  // not): a 2-chain can be an intrinsic data dependency or an unmarked
+  // preload. A 3+ chain that survived the origin test is near-certainly
+  // structural — that one earns the console.
+  const severity = seq > 2 ? "warn" : "info";
+  emitDiagnostic({
+    code: "ASYNC_WATERFALL",
+    kind: "perf",
+    severity,
+    message,
+    nodeName: nodeName(el),
+    data: { chain: links.map(l => ({ name: l.name, ms: l.ms })), sequentialMs: totalMs }
+  });
+  if (severity === "warn") console.warn(message);
 }
 
 // The engine's implementation of the core's dev hook points. Installed by
@@ -761,6 +1026,9 @@ const engineHooks: AttributionHooks = {
   refreshed(el) {
     stampWrite(el, "refresh");
   },
+  flightStart(el, flight) {
+    trackFlightStart(el, flight);
+  },
   asyncStart(el) {
     asyncStartSeq = (el as AttributedNode)._devChange?.seq ?? 0;
     asyncStartTime = el._time;
@@ -779,6 +1047,9 @@ const engineHooks: AttributionHooks = {
         el._time !== asyncStartTime ||
         (el as Computed<any>)._pendingValue === value;
       if (committed) stampWrite(el, "async", prev === undefined ? NO_VALUES : prev, value);
+      // Flight over either way — an equality-swallowed landing still spent
+      // the wall time (finalizeFlight only chains through a fresh stamp).
+      finalizeFlight(el);
       return;
     }
     // Landed through setSignal: reclassify its "write" stamp as an async
@@ -787,6 +1058,7 @@ const engineHooks: AttributionHooks = {
     const change = (el as AttributedNode)._devChange;
     if (change !== undefined && change.seq > asyncStartSeq && change.kind === "write")
       stampWrite(el, "async", NO_VALUES, value);
+    finalizeFlight(el);
   }
 };
 
@@ -797,6 +1069,8 @@ export const attribution: Attribution = {
     frames.length = 0;
     scopeCosts.clear();
     writeCosts.clear();
+    waterfallLog = [];
+    hotCauses.clear();
     setAttributionHooks(engineHooks);
   },
   disable() {
@@ -806,6 +1080,8 @@ export const attribution: Attribution = {
     frames.length = 0;
     scopeCosts.clear();
     writeCosts.clear();
+    waterfallLog = [];
+    hotCauses.clear();
     setAttributionHooks(null);
   },
   subscribe(listener) {
@@ -830,6 +1106,15 @@ export const attribution: Attribution = {
       scopes: [...scopeCosts.values()].sort((a, b) => b.selfMs - a.selfMs),
       writes: [...writeCosts.values()].sort((a, b) => b.downstreamMs - a.downstreamMs)
     };
+  },
+  waterfalls() {
+    return waterfallLog;
+  },
+  markFlight(flight: object, startedAt: number = now()) {
+    // Earliest wins: re-marking (a cache re-serving the same promise) must
+    // not move the origin later.
+    const existing = flightOrigins.get(flight);
+    if (existing === undefined || startedAt < existing) flightOrigins.set(flight, startedAt);
   },
   format: formatRerun
 };

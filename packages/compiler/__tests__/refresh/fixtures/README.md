@@ -80,6 +80,17 @@ pass's intended output, not the plugin's):
   an imported binding (any import form; scope-aware, so a component-local
   variable shadowing an import doesn't count, and type-only imports are
   ignored). Member-expression roots still count unconditionally.
+- **Document-shell modules decline** (#3151; `document-shell`): the plugin
+  registers components rendering `<html>`/`<head>`/`<body>` like any other,
+  but a document shell can never hot-swap: the hydratable compile emits no
+  client template for those elements (they are only recoverable from the
+  hydration walk, so a post-hydration re-render throws a hydration
+  mismatch), and their static markup/attributes exist only in the server
+  HTML, so even a successful swap could not reflect the edit. The native
+  pass detects intrinsic `html`/`head`/`body` JSX tags anywhere in the
+  module and takes the `@refresh reload` path (decline block, render fix
+  still applied, no registration) so saving the file fetches a fresh
+  server render instead of silently doing nothing.
 - **Member-expression refs** (solid-refresh#77; `ref-member-passthrough`):
   not a divergence but a documented non-bug — the crash lives in the
   plugin's `jsx: true` extraction (`extractJSXExpressionFromRef`

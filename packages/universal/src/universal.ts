@@ -26,16 +26,44 @@ export interface RendererOptions<NodeType> {
   getNextSibling(node: NodeType): NodeType | undefined;
 }
 
+/**
+ * Options for renderer-owned reactive effects (#3063). Custom renderers and
+ * their compiled output can label the render effects created for dynamic
+ * inserts and spreads, so dev diagnostics (`DEV.attribution`) can correlate
+ * a signal write → application computation → renderer effect → output
+ * mutation chain end-to-end. Only meaningful to development diagnostics;
+ * production ignores the name.
+ */
+export interface RendererEffectOptions {
+  /** Debug name for the renderer-owned reactive effect (dev mode only). */
+  name?: string;
+}
+
 export interface Renderer<NodeType> {
   render(code: () => NodeType, node: NodeType): () => void;
-  effect<T>(fn: (prev?: T) => T, effect: (value: T, prev?: T) => void): void;
+  effect<T>(
+    fn: (prev?: T) => T,
+    effect: (value: T, prev?: T) => void,
+    options?: RendererEffectOptions
+  ): void;
   memo<T>(fn: () => T, equal: boolean): () => T;
   createComponent<T>(Comp: (props: T) => NodeType, props: T): NodeType;
   createElement(tag: string, staticProps?: Record<string, unknown>): NodeType;
   createTextNode(value: string): NodeType;
   insertNode(parent: NodeType, node: NodeType, anchor?: NodeType): void;
-  insert<T>(parent: any, accessor: (() => T) | T, marker?: any | null, initial?: any): NodeType;
-  spread<T extends object>(node: any, props: T, skipChildren?: boolean): void;
+  insert<T>(
+    parent: any,
+    accessor: (() => T) | T,
+    marker?: any | null,
+    initial?: any,
+    options?: RendererEffectOptions
+  ): NodeType;
+  spread<T extends object>(
+    node: any,
+    props: T,
+    skipChildren?: boolean,
+    options?: RendererEffectOptions
+  ): void;
   setProp<T>(node: NodeType, name: string, value: T, prev?: T): T;
   mergeProps(...sources: unknown[]): unknown;
   applyRef(
@@ -62,6 +90,13 @@ const effect = (fn, effectFn, options) =>
   );
 const memo = fn => createMemo(() => fn(), syncOptions);
 
+// Renderer-owned effects get stable fallback names so dev diagnostics can
+// attribute updates flowing through renderer output (#3063); callers override
+// them via the trailing RendererEffectOptions argument. `"_SOLID_DEV_"` is
+// replaced at build time, so production folds this back to `options`.
+const named = (options, fallback) =>
+  "_SOLID_DEV_" && (!options || options.name == null) ? { ...options, name: fallback } : options;
+
 const INNER_OWNED = {};
 export function createRenderer<NodeType>(options: RendererOptions<NodeType>): Renderer<NodeType>;
 
@@ -86,6 +121,7 @@ export function createRenderer({
       const { onUpdate, ...rest } = options;
       effectOptions = rest;
     }
+    effectOptions = named(effectOptions, "renderer insert");
     const multi = marker !== undefined;
     if (multi && !initial) initial = [];
     if (typeof accessor !== "function") {
@@ -317,16 +353,27 @@ export function createRenderer({
   }
 
   // TODO: make this better
-  function spread(node, props, skipChildren) {
+  function spread(node, props, skipChildren, options) {
     const prevProps = {};
     props || (props = {});
-    if (!skipChildren) insert(node, () => props.children);
+    // A caller-supplied name is shared by the child insertion and both
+    // internal effects (#3063); without one, each gets its own stable
+    // dev fallback.
+    if (!skipChildren)
+      insert(
+        node,
+        () => props.children,
+        undefined,
+        undefined,
+        named(options, "renderer spread children")
+      );
     effect(
       () => {
         const r = props.ref;
         (typeof r === "function" || Array.isArray(r)) && ref(() => r, node);
       },
-      () => {}
+      () => {},
+      named(options, "renderer spread ref")
     );
     effect(
       () => {
@@ -350,7 +397,8 @@ export function createRenderer({
           setProperty(node, prop, value, prevProps[prop]);
           prevProps[prop] = value;
         }
-      }
+      },
+      named(options, "renderer spread props")
     );
     return prevProps;
   }
@@ -376,12 +424,14 @@ export function createRenderer({
           // Accessor wrap: a concrete node would short-circuit insert and
           // skip `schedule`. Evaluate `code()` once; the accessor is stable.
           const tree = code();
-          insert(element, () => tree, undefined, undefined, {
+          const renderOptions = {
             schedule: true,
             onUpdate(value) {
               mounted = collectMounted(element, value);
             }
-          });
+          };
+          if ("_SOLID_DEV_") renderOptions.name = "renderer render";
+          insert(element, () => tree, undefined, undefined, renderOptions);
         });
         // Drain the queued mount so the no-async path is attached by return.
         // Uncaught top-level async holds the initial commit on the active
@@ -422,7 +472,8 @@ export function createRenderer({
     patchDriver(subject, body) {
       effect(
         () => body(subject, subject, false),
-        () => body(subject, undefined, true)
+        () => body(subject, undefined, true),
+        "_SOLID_DEV_" ? { name: "renderer patch" } : undefined
       );
     }
   };

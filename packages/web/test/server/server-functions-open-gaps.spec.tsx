@@ -822,6 +822,254 @@ describe("channels behind a getter or as a Map key (#3176)", () => {
   });
 });
 
+describe("decoded arguments carry no own __proto__ key (#3168)", () => {
+  const H = {
+    "Sec-Fetch-Site": "same-origin",
+    "X-Server-Function-Instance": "server-function:test"
+  };
+  // JSON.parse is the only honest way to build the hostile shape: a literal
+  // `{ __proto__: ... }` in source SETS the prototype instead of creating
+  // the own key.
+  const hostile = () =>
+    JSON.parse(
+      '{"__proto__": {"polluted": "yes"}, "a": 1, ' +
+        '"nested": {"__proto__": {"deep": "yes"}, "b": 2}}'
+    );
+
+  const assertStripped = (seen: any) => {
+    // control first: core itself never polluted Object.prototype
+    expect(({} as any).polluted).toBeUndefined();
+    // the own key is gone at every level, the data keys survive
+    expect(Object.prototype.hasOwnProperty.call(seen, "__proto__")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(seen.nested, "__proto__")).toBe(false);
+    expect(seen.a).toBe(1);
+    expect(seen.nested.b).toBe(2);
+    // the ordinary downstream merge the key existed to subvert: Object.assign
+    // merges by [[Set]], so an own __proto__ key re-prototyped the copy
+    const merged = Object.assign({}, seen);
+    expect(Object.getPrototypeOf(merged)).toBe(Object.prototype);
+    expect((merged as any).polluted).toBeUndefined();
+  };
+
+  test("the plain-JSON road strips the key, nested levels included", async () => {
+    let seen: any;
+    registerServerFunction("proto-json", async (arg: unknown) => {
+      seen = arg;
+      return "ok";
+    });
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/proto-json", {
+        method: "POST",
+        body: JSON.stringify([hostile()]),
+        headers: { ...H, [BODY_FORMAT_HEADER]: "8" }
+      })
+    );
+    expect(response.status).toBe(200);
+    assertStripped(seen);
+  });
+
+  test("the codec road strips the key too", async () => {
+    let seen: any;
+    registerServerFunction("proto-codec", async (arg: unknown) => {
+      seen = arg;
+      return "ok";
+    });
+    const { serializeString, deserializeStream } =
+      await import("@solidjs/web/server-functions/client");
+    const body = await serializeString([hostile()]);
+    // the codec must have round-tripped the own key for this test to mean
+    // anything — pin that the vehicle still carries the payload
+    const roundTripped: any[] = await deserializeStream(new Response(body));
+    expect(Object.prototype.hasOwnProperty.call(roundTripped[0], "__proto__")).toBe(true);
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/proto-codec", {
+        method: "POST",
+        body,
+        headers: { ...H, "Content-Type": "text/plain", [BODY_FORMAT_HEADER]: "0" }
+      })
+    );
+    expect(response.status).toBe(200);
+    assertStripped(seen);
+  });
+
+  test("the url-args road strips the key", async () => {
+    let seen: any;
+    registerServerFunction("proto-url", async (arg: unknown, _form: URLSearchParams) => {
+      seen = arg;
+      return "ok";
+    });
+    // bound-argument convention: JSON-safe leading arguments ride the url's
+    // `?args`, the natural-encoding body is the trailing argument
+    const response = await handleServerFunctionRequest(
+      new Request(
+        "https://app.example/_server/data/proto-url?args=" +
+          encodeURIComponent(JSON.stringify([hostile()])),
+        {
+          method: "POST",
+          body: new URLSearchParams({ f: "1" }),
+          headers: { ...H, [BODY_FORMAT_HEADER]: "3" }
+        }
+      )
+    );
+    expect(response.status).toBe(200);
+    assertStripped(seen);
+  });
+});
+
+describe("prepareRequest's return is validated (#3174)", () => {
+  const clientModule = () => import("@solidjs/web/server-functions/client");
+
+  test("a hook returning a fresh object drops the protocol headers and is refused at the call site", async () => {
+    let ran = 0;
+    registerServerFunction("prepare-fresh", async (word: string) => {
+      ran++;
+      return word;
+    });
+    const { configureServerFunctionsClient } = await clientModule();
+    // the natural way to write "add an auth header" — and the shape that
+    // silently discarded the payload, the signal and the protocol headers
+    configureServerFunctionsClient({
+      prepareRequest: () => ({ headers: { Authorization: "Bearer token" } }) as RequestInit
+    });
+    const restore = connectBufferedTransport();
+    try {
+      await expect(createServerReference("prepare-fresh")("payload")).rejects.toThrow(
+        /prepareRequest/
+      );
+    } finally {
+      configureServerFunctionsClient({ prepareRequest: null as any });
+      restore();
+    }
+    // refused on the client, before dispatch: the mangled request never ran
+    expect(ran).toBe(0);
+  });
+
+  test("a hook returning a non-object is refused naming the hook, not an opaque fetch error", async () => {
+    let ran = 0;
+    registerServerFunction("prepare-string", async () => {
+      ran++;
+      return "ok";
+    });
+    const { configureServerFunctionsClient } = await clientModule();
+    configureServerFunctionsClient({
+      prepareRequest: (() => "not an init") as any
+    });
+    const restore = connectBufferedTransport();
+    try {
+      await expect(createServerReference("prepare-string")()).rejects.toThrow(/prepareRequest/);
+    } finally {
+      configureServerFunctionsClient({ prepareRequest: null as any });
+      restore();
+    }
+    expect(ran).toBe(0);
+  });
+
+  test("controls: spreading and mutate-in-place hooks are untouched", async () => {
+    registerServerFunction("prepare-spread", async (word: string) => {
+      const store = (globalThis as any)[RequestContext].getStore();
+      return `${word}:${store.request.headers.get("Authorization")}`;
+    });
+    const { configureServerFunctionsClient } = await clientModule();
+    const restore = connectBufferedTransport();
+    try {
+      configureServerFunctionsClient({
+        prepareRequest: init => ({
+          ...init,
+          headers: { ...(init.headers as Record<string, string>), Authorization: "Bearer s" }
+        })
+      });
+      expect(await createServerReference("prepare-spread")("hi")).toBe("hi:Bearer s");
+      // mutate in place, return nothing — the documented alternative
+      configureServerFunctionsClient({
+        prepareRequest: ((init: RequestInit) => {
+          (init.headers as Record<string, string>).Authorization = "Bearer m";
+        }) as any
+      });
+      expect(await createServerReference("prepare-spread")("yo")).toBe("yo:Bearer m");
+    } finally {
+      configureServerFunctionsClient({ prepareRequest: null as any });
+      restore();
+    }
+  });
+});
+
+describe("provideEvent's invocation contract is enforced (#3172)", () => {
+  // The hook an enterprise integration is most likely to hand-write, and
+  // every way of getting it wrong used to answer a successful-looking 200.
+  // The two data-integrity violations — never running the function, and
+  // running it twice — are refused loudly; the sanitized 500 is the
+  // production shape (this suite runs the production bundles).
+
+  test("a hook that invokes fn twice is refused, and the second run never happens", async () => {
+    let ran = 0;
+    registerServerFunction("provide-twice", async () => {
+      ran++;
+      return "committed";
+    });
+    const response = await handleServerFunctionRequest(scriptedPost("provide-twice"), {
+      provideEvent: ((event: unknown, fn: () => unknown) => {
+        fn();
+        return fn();
+      }) as any
+    });
+    expect(response.status).toBe(500);
+    // the first invocation committed — stopping the SECOND is the guard's
+    // whole point: one commit, reported as a failure, beats two under a 200
+    expect(ran).toBe(1);
+    expect(await response.text()).not.toContain("provideEvent");
+  });
+
+  test("a hook that swallows the second-call refusal still fails the request", async () => {
+    let ran = 0;
+    registerServerFunction("provide-twice-swallowed", async () => {
+      ran++;
+      return "committed";
+    });
+    const response = await handleServerFunctionRequest(scriptedPost("provide-twice-swallowed"), {
+      provideEvent: ((event: unknown, fn: () => unknown) => {
+        const first = fn();
+        try {
+          fn();
+        } catch {
+          // a retry wrapper eating the error must not turn into a 200
+        }
+        return first;
+      }) as any
+    });
+    expect(response.status).toBe(500);
+    expect(ran).toBe(1);
+  });
+
+  test("a hook that never invokes fn is refused, not answered as a void success", async () => {
+    let ran = 0;
+    registerServerFunction("provide-never", async () => {
+      ran++;
+      return "unreached";
+    });
+    const response = await handleServerFunctionRequest(scriptedPost("provide-never"), {
+      provideEvent: (() => undefined) as any
+    });
+    expect(response.status).toBe(500);
+    expect(ran).toBe(0);
+  });
+
+  test("controls: the default provider and a healthy ALS.run hook still answer 200", async () => {
+    let ran = 0;
+    registerServerFunction("provide-healthy", async () => {
+      ran++;
+      return "ok";
+    });
+    const viaDefault = await handleServerFunctionRequest(scriptedPost("provide-healthy"));
+    expect(viaDefault.status).toBe(200);
+    const als = new AsyncLocalStorage();
+    const viaCustom = await handleServerFunctionRequest(scriptedPost("provide-healthy"), {
+      provideEvent: ((event: unknown, fn: () => unknown) => als.run(event, fn)) as any
+    });
+    expect(viaCustom.status).toBe(200);
+    expect(ran).toBe(2);
+  });
+});
+
 describe("the rc.5 guard batch (#3169, #3170, #3171)", () => {
   const H = {
     "X-Server-Function-Format": "8",

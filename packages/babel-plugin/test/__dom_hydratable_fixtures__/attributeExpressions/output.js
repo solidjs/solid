@@ -224,7 +224,7 @@ var _el$17 = _$getNextElement(_tmpl$9);
 _$effect(
   () => state.visible,
   _v$ => {
-    _el$17.checked = _v$;
+    _$setProperty(_el$17, "checked", _v$);
   }
 );
 const template14 = _el$17;
@@ -270,10 +270,10 @@ _$effect(
     n: max()
   }),
   ({ e, t, a, o, i, n }, _p$) => {
-    _el$24.value = e ?? "";
+    _$setProperty(_el$24, "value", e);
     t !== _p$?.t && _$setAttribute(_el$24, "min", t);
     a !== _p$?.a && _$setAttribute(_el$24, "max", a);
-    _el$25.checked = o;
+    _$setProperty(_el$25, "checked", o);
     i !== _p$?.i && _$setAttribute(_el$25, "min", i);
     n !== _p$?.n && _$setAttribute(_el$25, "max", n);
   }
@@ -469,9 +469,9 @@ _$effect(
     a: Color.Blue
   }),
   ({ e, t, a }, _p$) => {
-    queueMicrotask(() => (_el$57.value = e)) || (_el$57.value = e);
-    _el$58.value = t;
-    _el$59.value = a;
+    _$setProperty(_el$57, "value", e);
+    _$setProperty(_el$58, "value", t);
+    _$setProperty(_el$59, "value", a);
   }
 );
 const template41 = _el$57;

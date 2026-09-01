@@ -189,6 +189,39 @@ export function settleErroredDependents(el: Computed<any>, error: any): void {
 }
 
 export function settlePendingSource(el: Computed<any>): void {
+  // Invariant: walking a settle implies truth exists. A caller reaching this
+  // with an uninitialized source is announcing a settle that has not
+  // happened — parked readers would wake into a value that was never
+  // produced (the rc.5 regression: the recompute-side walk fired on a
+  // projection driver whose first flight was superseded before any commit
+  // reached the observable store). "Uninitialized" alone is not the tell,
+  // though: a first landing whose commit is transition-held (streamed
+  // hydration rides this) parks its value in `_pendingValue` with the flag
+  // still set, and a comparator throw on that landing leaves the node
+  // uninitialized but errored — both have real truth to reveal. Only an
+  // uninitialized node with neither a held value nor an error is a settle
+  // that never happened. Silent in production; loud in dev so a future
+  // call site that violates the contract fails in its author's test run
+  // instead of wedging a downstream app.
+  if (
+    __DEV__ &&
+    el._statusFlags & STATUS_UNINITIALIZED &&
+    el._pendingValue === NOT_PENDING &&
+    !el._x?._error
+  ) {
+    emitDiagnostic({
+      code: "SETTLE_WALK_UNINITIALIZED_SOURCE",
+      kind: "lifecycle",
+      severity: "error",
+      message:
+        "[SETTLE_WALK_UNINITIALIZED_SOURCE] settlePendingSource was called on a source that " +
+        "never produced a value. Settling parked readers requires truth to reveal — an " +
+        "uninitialized source waking its dependents serves them its initial face instead of " +
+        "settled data.",
+      ownerId: el.id,
+      ownerName: (el as any)._name
+    });
+  }
   let scheduled = false;
   let released: Computed<any>[] | undefined;
   const visited = new Set<Computed<any>>();
@@ -302,6 +335,12 @@ export function handleAsync<T>(
   // fired _flightTeardown. A future non-recompute registration path must
   // release it here before overwriting _inFlight.
   ext(el)._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
+  // Attribution hook: a new flight is registered. Fired here (not in the
+  // branches below) so every flight shape — plain thenable, iterator, the
+  // flattened combinations — is announced exactly once, while the recompute
+  // frame that caused it is still on the engine's stack. Not inside a try
+  // (#2883 — see attribution-hooks.ts).
+  if (__DEV__ && attrHooks !== null) attrHooks.flightStart(el, result as object);
   let syncValue: T;
 
   // Settle-time transition re-entry. The loading rail is invisible to
@@ -377,8 +416,16 @@ export function handleAsync<T>(
     if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY)) return;
     settleTransition();
     const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
+    // Captured before clearStatus wipes it: a quiet re-ask's landing may be
+    // transition-held below, and the displayed value keeps answering the same
+    // question until the hold commits — the classification must survive to
+    // that reveal or companion synchronization briefly classifies the held
+    // old value as pending, a one-frame pulse to direct observers (#3178).
+    // A truthy capture implies `_x` exists, so the restore writes it directly.
+    const wasReask = el._x?._reask;
     trimStaleDeps(el);
     clearStatus(el);
+    if (wasReask) el._x!._reask = true;
     const lane = resolveLane(el as any);
     if (lane) lane._pendingAsync.delete(el);
     // Attribution hook: lets the engine snapshot state before the landing
@@ -473,8 +520,12 @@ export function handleAsync<T>(
     // (`_pendingValue` set above or inside setSignal) is not — the verdict's
     // held-value branch is window-gated, and commitPendingNode closes the
     // window when the hold commits, so no one-frame isPending pulse can leak
-    // to live observers between the landing and its commit (#2990).
-    if (el._pendingValue === NOT_PENDING) el._loading = false;
+    // to live observers between the landing and its commit (#2990). The
+    // quiet re-ask classification follows the same schedule (#3178).
+    if (el._pendingValue === NOT_PENDING) {
+      el._loading = false;
+      if (wasReask) el._x!._reask = false;
+    }
     settlePendingSource(el);
     schedule();
     flush();

@@ -183,6 +183,57 @@ describe("same-question motion is silent", () => {
     t.dispose();
   });
 
+  it("#3178: a quiet refresh landing leaks no one-frame pending pulse to direct render effects", async () => {
+    const resolvers: Array<(value: number) => void> = [];
+    const verdicts: boolean[] = [];
+    let source!: SourceAccessor<number>;
+    let dispose!: () => void;
+
+    createRoot(d => {
+      dispose = d;
+      source = createMemo(async () => {
+        return new Promise<number>(resolve => resolvers.push(resolve));
+      });
+      // Keep the async source observed.
+      createRenderEffect(
+        () => {
+          try {
+            return source();
+          } catch {
+            return undefined;
+          }
+        },
+        () => {}
+      );
+      // DIRECT render effect on the verdict — no memo coalescing in between.
+      createRenderEffect(
+        () => isPending(() => source()),
+        pending => {
+          verdicts.push(pending);
+        }
+      );
+    });
+
+    flush();
+    resolvers.splice(0).forEach(resolve => resolve(1));
+    await tick();
+    expect(source()).toBe(1);
+
+    const completed = refresh(source);
+    flush();
+    // Quiet while the same-question request flies…
+    expect(verdicts.every(value => value === false)).toBe(true);
+
+    resolvers.splice(0).forEach(resolve => resolve(2));
+    await tick();
+    await completed;
+
+    // …and quiet through the landing: the fresh answer reveals silently.
+    expect(source()).toBe(2);
+    expect(verdicts.every(value => value === false)).toBe(true);
+    dispose();
+  });
+
   it("a quiet refetch does not poison an isPending memo with NotReady", async () => {
     const t = createThing();
     await settleInitial(t);

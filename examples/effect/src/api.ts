@@ -3,7 +3,7 @@
 // and interruption finalizers (onInterrupt) — all declared on the program,
 // none of it visible to the Solid components that consume them.
 
-import { Data, Effect, Schedule } from "effect";
+import { Context, Data, Effect, Layer, Schedule } from "effect";
 import { log } from "./log";
 
 // ---------------------------------------------------------------------------
@@ -59,13 +59,25 @@ const REGISTRY: Package[] = [
   { name: "pnpm", description: "Fast, disk-efficient package manager", downloads: 8_900_000 }
 ];
 
-/** Chance a single search attempt fails with a transient error (retried). */
-export const SEARCH_FLAKINESS = 0.35;
+/** A service the search program *requires* (the `R` channel): latency and
+ * failure characteristics come from the environment, not the call site. The
+ * demo provides it via `createRuntime(SearchConfigLive)` on Solid context —
+ * Effect's context propagation riding Solid's ownership tree. */
+export class SearchConfig extends Context.Tag("SearchConfig")<
+  SearchConfig,
+  { readonly flakiness: number; readonly baseLatencyMs: number }
+>() {}
+
+export const SearchConfigLive = Layer.succeed(SearchConfig, {
+  flakiness: 0.35,
+  baseLatencyMs: 250
+});
 
 /**
  * Search the fake registry. The program:
+ *  - requires `SearchConfig` from the environment (typed `R` channel),
  *  - carries realistic latency,
- *  - fails transiently ~35% of the time, retried up to 3 times with
+ *  - fails transiently (per config), retried up to 3 times with
  *    exponential backoff (typed `while` — only TransientNetwork retries),
  *  - times out at 4s,
  *  - logs interruption via a finalizer, which is what fires when Solid
@@ -73,8 +85,9 @@ export const SEARCH_FLAKINESS = 0.35;
  */
 export function searchPackages(query: string) {
   const attempt = Effect.gen(function* () {
-    yield* Effect.sleep(250 + Math.random() * 550);
-    if (Math.random() < SEARCH_FLAKINESS) {
+    const { flakiness, baseLatencyMs } = yield* SearchConfig;
+    yield* Effect.sleep(baseLatencyMs + Math.random() * 550);
+    if (Math.random() < flakiness) {
       yield* Effect.sync(() =>
         log("retry", `search "${query}" hit a transient error — retrying with backoff`)
       );

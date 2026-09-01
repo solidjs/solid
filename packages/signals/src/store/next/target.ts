@@ -35,6 +35,16 @@ export interface StoreNextFamily {
    * landing under an active override. Dead members prune lazily at each
    * landing (retainingTransition). */
   rt?: Set<any>;
+  /** Flight-owned transaction (#3146): declared when a truth-flight
+   * registers (the ask's transaction — created by the flight's own pending
+   * throw when none was ambient, the causing write's when one was), renewed
+   * per settle event once the previous reveal committed. Bare optimistic
+   * writes and landings route into it BY DECLARATION; the transitionBlocked
+   * store-half checks it for ownership instead of reconstructing it from
+   * `_optimisticStores` membership. null = no flight declared one (sync
+   * derive, or a loading-window flight — the loading rail is
+   * transaction-invisible, #2933). */
+  ft?: any;
   /** Normalized row-key fn (same resolution as the projection channels:
    * `options.key`, "id" default, null = unkeyed). The staged-landing walk
    * reads it: key-matched rows keep their proxy identity across a fold. */

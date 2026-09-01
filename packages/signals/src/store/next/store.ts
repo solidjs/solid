@@ -1291,33 +1291,44 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
     const hv = heldMaskView(target);
     if (hv !== null) return hv;
   }
-  // Signal-parity visibility (core read(): owner-context reads serve
-  // _pendingValue, context-free reads serve committed — effects recompute
-  // BEFORE commitPendingNodes in the flush, so the pending view must be
-  // servable). Drafts (setter window OR projection write-override) and
-  // owner-context reads see the pending backing; context-free reads see
-  // committed. Node reads apply the same rule, so both homes agree.
-  if (
+  return pendingBackingVisible(target, false) ? target.pb! : target.v;
+}
+
+/** The single pb-vs-committed visibility decision (#3147), shared by per-key
+ * backing reads (readSource) and deep()/snapshot composition (snapshotWalk)
+ * so the two reader families can never disagree about a HELD landing.
+ *
+ * Signal-parity visibility (core read(): owner-context reads serve
+ * _pendingValue, context-free reads serve committed — effects recompute
+ * BEFORE commitPendingNodes in the flush, so the pending view must be
+ * servable). Drafts (setter window OR projection write-override) and
+ * owner-context reads see the pending backing; context-free reads see
+ * committed. Node reads apply the same rule, so all homes agree.
+ *
+ * `speculative` is deep()/snapshot's posture: an untrack/deep PEEK that sees
+ * ordinary pending staging regardless of owner context (the documented
+ * divergence from context-free per-key reads) — but never through a hold:
+ * held truth stays masked exactly as it is for per-key readers. */
+function pendingBackingVisible(target: StoreNextTarget, speculative: boolean): boolean {
+  return (
     target.pb !== null &&
     (inDraft(target) ||
       getWriteOverride() ||
-      // Owner-context readers see the pending backing — EXCEPT held truth
-      // on an optimistic family (#3164 fold): a live pb on an opt family
-      // outside the draft/write-override windows is a staged landing
-      // (tentative drafts never outlive their setter), and only the
-      // authoritative postures and latest() see it (the backing-level twin
-      // of core read()'s A17-for-held-truth arm; ordinary readers keep
-      // committed until the transaction's reveal).
-      (inOwnerContext() && !heldTruthMasked(target)) ||
+      // Owner-context (and speculative-peek) readers see the pending
+      // backing — EXCEPT held truth on an optimistic family (#3164 fold):
+      // a live pb on an opt family outside the draft/write-override windows
+      // is a staged landing (tentative drafts never outlive their setter),
+      // and only the authoritative postures and latest() see it (the
+      // backing-level twin of core read()'s A17-for-held-truth arm;
+      // ordinary readers keep committed until the transaction's reveal).
+      ((speculative || inOwnerContext()) && !heldTruthMasked(target)) ||
       // A projection's pending backing is authoritative-elect: serve it to
       // context-free readers too UNLESS a transition is holding the node
       // commits (downstream async hold — stale committed is the contract)
       // or the reader is a CHILDREN_FORBIDDEN scope, which never observes
       // its own unsettled write (#3082, signal parity per #3006).
       (target.fam !== null && !heldTruthMasked(target) && !foldHeld(target) && !inForbiddenScope()))
-  )
-    return target.pb;
-  return target.v;
+  );
 }
 
 /** #3164 fold: HELD truth on an optimistic family — a pending backing
@@ -2108,10 +2119,15 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreNextFamily |
     if (t === undefined) break;
     if (t.fam !== null) fam = t.fam;
     if (t.fam?.opt === true) (optOwners ??= []).push(t);
+    // The shared visibility decision (#3147): the speculative peek serves
+    // pending staging, but a HELD landing is masked to committed exactly as
+    // it is for per-key readers — the two families must answer alike while
+    // a transaction holds store landings.
+    const usePB = pendingBackingVisible(t, true);
     // Snapshot runs mid-flush (tracked memos execute before commit), so a
     // pending prototype overlay must present as a REAL merged container.
-    if (t.ovl) materializePB(t);
-    const backing = t.pb ?? t.v;
+    if (usePB && t.ovl) materializePB(t);
+    const backing = usePB ? t.pb! : t.v;
     if (backing === src) break;
     src = backing;
   }

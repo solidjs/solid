@@ -1,5 +1,6 @@
 import {
   getNextElement,
+  getInsertionParent,
   insert,
   spread,
   SVGElements,
@@ -351,15 +352,34 @@ export function dynamic<T extends ValidComponent>(
           return untrack(() => (component as Function)(props));
         }
 
-        case "string":
-          const el = sharedConfig.hydrating
-            ? getNextElement()
-            : createElement(
-                component as string,
-                untrack(() => (props as any).is)
-              );
-          spread(el, props);
-          return el;
+        case "string": {
+          if (sharedConfig.hydrating) {
+            const el = getNextElement();
+            spread(el, props);
+            return el;
+          }
+          // Defer creation to first pull: the element materializes inside
+          // the insert() that renders it, where the live insertion parent
+          // resolves the namespace for tags that exist in both HTML and SVG
+          // (#3187). This memo is eager (it runs during createComponent,
+          // before any insert), so creating here would always default the
+          // ambiguous tags to the HTML namespace. Ownership is captured so
+          // spread's effects still belong to this memo's scope.
+          const owner = getOwner();
+          let el: Element | undefined;
+          return (() => {
+            if (!el) {
+              runWithOwner(owner, () => {
+                el = createElement(
+                  component as string,
+                  untrack(() => (props as any).is)
+                );
+                spread(el, props);
+              });
+            }
+            return el;
+          }) as unknown as JSX.Element;
+        }
 
         default:
           break;
@@ -388,14 +408,29 @@ export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.E
   return createComponent(Comp, omit(props, "component") as ComponentProps<T>);
 }
 
+// Tag names that exist in both HTML and SVG, deliberately excluded from
+// SVGElements (see constants.ts). The parser resolves their namespace from
+// the surrounding markup in static templates; dynamic creation resolves it
+// from the live insertion parent instead (#3187).
+const AmbiguousSVGElements = /*#__PURE__*/ new Set(["a", "script", "style", "title"]);
+
 function createElement(tagName: string, is = undefined): HTMLElement | SVGElement | MathMLElement {
-  return (
-    SVGElements.has(tagName)
-      ? document.createElementNS(Namespaces.svg, tagName)
-      : MathMLElements.has(tagName)
-        ? document.createElementNS(Namespaces.mathml, tagName)
-        : document.createElement(tagName, { is })
-  ) as HTMLElement | SVGElement | MathMLElement;
+  if (SVGElements.has(tagName)) return document.createElementNS(Namespaces.svg, tagName) as any;
+  if (MathMLElements.has(tagName))
+    return document.createElementNS(Namespaces.mathml, tagName) as any;
+  if (AmbiguousSVGElements.has(tagName)) {
+    // An ambiguous tag created while inserting into SVG content belongs to
+    // the SVG namespace — except inside <foreignObject>, whose children are
+    // HTML content, mirroring how the parser reads server-rendered markup.
+    const parent = getInsertionParent() as Element | undefined;
+    if (
+      parent &&
+      parent.namespaceURI === Namespaces.svg &&
+      (parent as Element).localName !== "foreignObject"
+    )
+      return document.createElementNS(Namespaces.svg, tagName) as any;
+  }
+  return document.createElement(tagName, { is });
 }
 
 function loadClientOnly<T>(

@@ -38,8 +38,10 @@ afterEach(() => {
 /**
  * A source that connects once and dies, with every RECONNECT answered by
  * `reconnect()` until `recoverAt` fetches have gone out — then a bodiless
- * 204, which the client resolves as a one-value stream, completing the
- * iteration.
+ * 204 carrying the runtime's Void format tag (what the real handler stamps
+ * on a bodiless answer — an untagged 2xx is refused as not the runtime's
+ * since #3173), which the client resolves as a one-value stream,
+ * completing the iteration.
  */
 function connectDyingSource(id: string, reconnect: () => Response, recoverAt = 3) {
   registerServerFunction(id, async function* () {
@@ -58,7 +60,10 @@ function connectDyingSource(id: string, reconnect: () => Response, recoverAt = 3
       request.headers.set("Sec-Fetch-Site", "same-origin");
       return handleServerFunctionRequest(request);
     }
-    if (calls >= recoverAt) return Promise.resolve(new Response(null, { status: 204 }));
+    if (calls >= recoverAt)
+      return Promise.resolve(
+        new Response(null, { status: 204, headers: { "X-Server-Function-Format": "9" } })
+      );
     return Promise.resolve(reconnect());
   }) as typeof fetch;
   restores.push(() => {

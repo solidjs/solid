@@ -32,6 +32,7 @@ import {
 import {
   computed,
   CONFIG_AUTO_DISPOSE,
+  getOwner,
   isEqual,
   setSignal,
   type Computed,
@@ -41,10 +42,12 @@ import {
   GlobalQueue,
   globalQueue,
   activeTransition,
+  createTransition,
   currentTransition,
   runAsTransitionBatch,
   type Transition
 } from "../../core/scheduler.js";
+import { beginAsyncReporterWrites, endAsyncReporterWrites } from "../../core/invariants.js";
 import { installOptimisticEngine } from "../../core/optimistic.js";
 import {
   $TARGET,
@@ -141,14 +144,21 @@ function installNextBlockedHalf(): void {
   GlobalQueue._transitionBlocked = transition => {
     for (const store of transition._optimisticStores) {
       const t = (store as any)?.[$TARGET] as StoreNextTarget | undefined;
-      const fw: any = t?.fam?.node;
+      const fam = t?.fam;
+      const fw: any = fam?.node;
       // The hold exists to keep optimistic state alive until the store's own
       // truth lands (#2951). Once the family carries NO live overrides (a
       // landing consumed them, or they never existed), a pending firewall is
       // no reason to park the transaction — blocking then leaks it forever
       // when the in-flight question is never answered (undisposed fixtures).
-      if (fw != null && fw._statusFlags & STATUS_PENDING && familyHasLiveOverrides(t!.fam!))
-        return true;
+      if (fw == null || !(fw._statusFlags & STATUS_PENDING)) continue;
+      // Ownership is declared (#3146): only the flight's OWN transaction
+      // parks on the flight (the #2951 anchor routed the bare write there).
+      // A transaction that merely brushed the store never waits for truth
+      // it does not carry.
+      const ft = fam!.ft != null ? liveTransition(fam!.ft) : null;
+      if (ft !== null && ft !== currentTransition(transition)) continue;
+      if (familyHasLiveOverrides(fam!)) return true;
     }
     return chained(transition);
   };
@@ -215,15 +225,35 @@ export function createOptimisticStoreNext<T extends object = {}>(
 
   if (derived) {
     const fn = first as (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>;
+    // #3146: an async settle event belongs to the flight's OWN transaction.
+    // A live declared one re-enters (a merge if the generic settle path
+    // already entered a graph-stamped stranger — the landing supersedes any
+    // recompute deriving from that stranger's world); a dead one renews (per
+    // A18(1) each arrival reveals on its own schedule, so per-yield
+    // transactions die with their commit and the next settle event opens the
+    // flight's next one — still declared, never anonymous). An UNDECLARED
+    // flight (loading window) keeps the ambient reveal (#2933: the loading
+    // rail is transaction-invisible).
+    const enterFlightTransition = (): void => {
+      const declared = fam.ft;
+      if (declared == null) return;
+      let ft = liveTransition(declared);
+      if (ft === null) fam.ft = ft = createTransition();
+      (fam.node as Computed<void>)._transition = ft;
+      globalQueue.initTransition(ft);
+    };
     // Landing router (#3164 fold ruling): while a transaction retains
     // optimistic edits on this family, truth landings stage INTO it and
     // reveal atomically at settle; with no retainer they commit immediately
     // under the authoritative posture (async commits land outside the
-    // computed's sync body, so the posture is re-applied here).
+    // computed's sync body, so the posture is re-applied here) — inside the
+    // flight-owned transaction (#3146). Sync commits (the derive's body,
+    // owner is the firewall itself) reveal with their own recompute's flush.
     const wrapCommit = (write: () => void, value: T) => {
       const txn = retainingTransition(fam);
-      if (txn === null) runAuthoritative(write);
-      else stageLanding(fam, txn, value);
+      if (txn !== null) return void stageLanding(fam, txn, value);
+      if (getOwner() !== fam.node) enterFlightTransition();
+      runAuthoritative(write);
     };
     // Draft writes (the derive mutating its draft, sync body and post-await
     // continuations alike) are the same truth channel per-operation: bind
@@ -236,19 +266,58 @@ export function createOptimisticStoreNext<T extends object = {}>(
       if (txn === null) op();
       else runFolded(txn, op);
     };
+    // Flight declaration (#3146): a recompute that registered a truth-flight
+    // OWNS its transaction. The ask's transaction is recorded on the family
+    // (created by the flight's own pending throw when none was ambient, the
+    // causing write's/refresh's when one was — graph-driven causality) and
+    // the firewall is stamped so every settle path resolves the flight's
+    // transaction by construction, not by whatever last brushed the node.
+    // When the ask took none (a dead stale stamp — the previous flight's,
+    // cleared nowhere — bare-returns the pre-throw entry), the flight opens
+    // its own here, same activation point as the pre-throw's creation: the
+    // ambient batch (the causing write, same-tick bare optimism) adopts into
+    // it exactly as it would have there, and the pending notification that
+    // follows this unwind registers observers against it. The flight
+    // also registers as its own async reporter: the transaction lives
+    // exactly as long as the question is unanswered, observed or not — the
+    // #2951 refetch-hold no longer depends on a tracked observer having
+    // happened to register one. Loading-window flights declare nothing
+    // (#2933: the loading rail is transaction-invisible); a sync run clears
+    // the declaration.
+    const declareFlight = (self: Computed<void>): void => {
+      if (self._x?._inFlight == null) {
+        if (!self._loading) fam.ft = null;
+        return;
+      }
+      if (self._loading) return;
+      let txn = activeTransition;
+      if (txn === null) globalQueue.initTransition((txn = createTransition()));
+      fam.ft = txn;
+      self._transition = txn;
+      if (__DEV__) beginAsyncReporterWrites();
+      let reporters = txn._asyncReporters.get(self);
+      if (reporters === undefined) txn._asyncReporters.set(self, (reporters = new Set()));
+      reporters.add(self);
+      if (__DEV__) endAsyncReporterWrites();
+    };
     let nodeOptions: { name?: string; loadingValue?: void } | undefined;
     if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
     if (__DEV__ && options?.name) nodeOptions = { ...nodeOptions, name: options.name };
     const node = computed(() => {
-      runAuthoritative(() =>
-        runProjectionComputedNext(
-          store,
-          fn,
-          options?.key === undefined ? "id" : options.key,
-          wrapCommit,
-          aroundDraftWrite
-        )
-      );
+      const self = getOwner() as Computed<void>;
+      try {
+        runAuthoritative(() =>
+          runProjectionComputedNext(
+            store,
+            fn,
+            options?.key === undefined ? "id" : options.key,
+            wrapCommit,
+            aroundDraftWrite
+          )
+        );
+      } finally {
+        declareFlight(self);
+      }
     }, nodeOptions) as Computed<void>;
     node._config &= ~CONFIG_AUTO_DISPOSE;
     fam.node = node;
@@ -457,13 +526,18 @@ function stagedApply(cur: any, incoming: any, keyFn: KeyFn | null): void {
  * for exactly the changed keys. Visible-view diffing keeps no-op writes from
  * entangling lanes (RUL-10 / opt R38). */
 export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKey, any>): void {
-  // A bare write while the store's own truth is in flight rides THAT
-  // transaction (#2951, legacy parity): entangle the firewall's transition so
-  // the override survives until the refetch settles instead of flash-reverting
+  // A bare write while the store's own truth is in flight rides the FLIGHT'S
+  // OWN transaction (#2951 via the #3146 declaration): entangle it so the
+  // override survives until the refetch settles instead of flash-reverting
   // at plain flush end. The blocked-check store-half keeps that transaction
-  // from settling while the firewall is pending.
-  const fw: any = t.fam?.node;
-  if (fw?._transition) globalQueue.initTransition(fw._transition);
+  // from settling while the firewall is pending. Declared ownership replaces
+  // the old circumstantial route through the firewall's `_transition` stamp,
+  // which was whatever last brushed the node.
+  const declared = t.fam?.ft;
+  if (declared != null) {
+    const ft = liveTransition(declared);
+    if (ft !== null) globalQueue.initTransition(ft);
+  }
   const old = t.v;
   // Patch channel (override-application site): the draft IS the intended
   // visible state; prev is the view before these overrides apply. Bypasses

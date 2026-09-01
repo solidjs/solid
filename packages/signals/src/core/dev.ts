@@ -8,7 +8,13 @@ export interface DevHooks {
   onStoreNodeUpdate?: (state: any, property: PropertyKey, value: any, prev: any) => void;
 }
 
-export type DiagnosticSeverity = "warn" | "error";
+/**
+ * `info` is the advisory tier: a structural fact worth surfacing that is not
+ * presumptively a bug (e.g. a 2-deep sequential fetch chain, which may be an
+ * intrinsic data dependency). Budget/assertion consumers should treat only
+ * `warn`/`error` as failures unless they opt in to `info`.
+ */
+export type DiagnosticSeverity = "info" | "warn" | "error";
 
 export type DiagnosticCode =
   | "STRICT_READ_UNTRACKED"
@@ -20,6 +26,7 @@ export type DiagnosticCode =
   | "NO_OWNER_CLEANUP"
   | "CLEANUP_IN_FORBIDDEN_SCOPE"
   | "SETTLED_CLEANUP_UNOWNED"
+  | "SETTLE_WALK_UNINITIALIZED_SOURCE"
   | "FLUSH_IN_EFFECT_CALLBACK"
   | "PRIMITIVE_IN_FORBIDDEN_SCOPE"
   | "NO_OWNER_EFFECT"
@@ -37,7 +44,9 @@ export type DiagnosticCode =
   | "HOT_SCOPE_TIME"
   | "WIDE_SCOPE_DEPS"
   | "UNSTABLE_MEMO_OUTPUT"
-  | "WIDE_WRITE";
+  | "WIDE_WRITE"
+  | "ASYNC_WATERFALL"
+  | "HOT_SCOPE_FANOUT";
 
 export type DiagnosticKind =
   | "strict-read"

@@ -5,7 +5,8 @@
     "test": "npm run test:imports && npm run test:packaged-types",
     "test:integrations": "vitest run",
     "test:imports": "node test-imports.mjs",
-    "test:packaged-types": "vitest run tests/packaged-types.spec.ts"
+    "test:packaged-types": "vitest run tests/packaged-types.spec.ts",
+    "test:solid-query": "vitest run tests/tanstack-solid-query.spec.ts"
   },
   "dependencies": {
     "@solidjs/babel-plugin": "workspace:*",

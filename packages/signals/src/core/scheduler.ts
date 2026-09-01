@@ -937,6 +937,12 @@ function commitPendingNode(n: Signal<any>): void {
     n._pendingValue = NOT_PENDING;
     // Set _modified for effects, but not for tracked effects (they handle their own scheduling)
     if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) (n as any)._modified = true;
+    // A quiet re-ask classification preserved through a held landing dies
+    // with the value commit — the commit IS the reveal (#3178). Gated on the
+    // staged value: status propagation queues pending nodes whose windows
+    // are still OPEN (no staged value), and their live classification must
+    // survive this sweep.
+    if (n._x) n._x._reask = false;
   }
   // The committed hold is the first observable answer for a loading-window
   // node — the window closes here, not at compute time (#2990). Unconditional
@@ -1259,6 +1265,14 @@ function transitionComplete(transition: Transition): boolean {
   done && (transition._done = true);
   return done;
 }
+/** A fresh, unentered transaction (#3146): the optimistic store's truth
+ * flight DECLARES an owned transaction instead of relying on whatever the
+ * ambient adoption machinery stamped on its firewall. Activate it with
+ * initTransition; it is a plain batch until then. */
+export function createTransition(): Transition {
+  return createBatch();
+}
+
 export function currentTransition(transition: Transition) {
   while (transition._done && typeof transition._done === "object") transition = transition._done;
   return transition;

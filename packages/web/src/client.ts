@@ -399,7 +399,21 @@ export function setProperty(node: Element, name: string, value: any): void;
 
 export function setProperty(node, name, value) {
   if (isHydrating(node)) return;
-  node[name] = value;
+  // Stateful DOM properties (DOMWithState) route through here in hydratable
+  // builds so the claim pass adopts pre-hydration user state instead of
+  // clobbering it (#3182). Mirror the special cases the compiler emits for
+  // the direct-assignment path: <select value> defers a microtask so options
+  // rendered later in the same pass are selectable, and input/textarea
+  // value/defaultValue clear on nullish instead of stringifying (#2957).
+  const nodeName = node.nodeName;
+  if (name === "value" && nodeName === "SELECT")
+    queueMicrotask(() => (node.value = value)) || (node.value = value);
+  else if (
+    (name === "value" || name === "defaultValue") &&
+    (nodeName === "INPUT" || nodeName === "TEXTAREA")
+  )
+    node[name] = value ?? "";
+  else node[name] = value;
 }
 
 // === Element claims ===
@@ -512,8 +526,25 @@ export function setAttribute(node: Element, name: string, value: string): void;
 
 export function setAttribute(node, name, value) {
   if (isHydrating(node)) return;
+  const selectMultiple = name === "multiple" && node.localName === "select";
   if (value == null || value === false) node.removeAttribute(name);
-  else node.setAttribute(name, value === true ? "" : value);
+  else {
+    node.setAttribute(name, value === true ? "" : value);
+    // A dynamic `multiple` reaches the select only after its options were
+    // parsed under single-select rules, which keep just the last `selected`
+    // option. On the first truthy write restore the parser's multi-select
+    // selectedness from the options' defaults so an initially-true
+    // expression matches the static attribute (#3179). Later toggles keep
+    // the live selection state, exactly like toggling the attribute on
+    // static markup.
+    if (selectMultiple && !node._$multiple) {
+      const options = node.options;
+      for (let i = 0; i < options.length; i++) {
+        if (options[i].defaultSelected) options[i].selected = true;
+      }
+    }
+  }
+  if (selectMultiple) node._$multiple = true;
   // Frozen contract with compiled output: `href`/`action` can only change
   // through compiler-owned write paths, which all land here — so one recheck
   // at this site keeps claim consumers fresh with no observers.
@@ -532,6 +563,11 @@ export function className(node: Element, value: JSX.ClassValue, prev?: JSX.Class
 
 export function className(node, value, prev) {
   if (isHydrating(node)) return;
+  // Numbers stringify like the compiler's static output (`class={1}`
+  // inlines as `class="1"` in the template) so static and dynamic forms of
+  // the same ClassValue behave identically (#3189).
+  if (typeof value === "number") value = "" + value;
+  if (typeof prev === "number") prev = "" + prev;
   if (value == null || value === false) {
     prev && node.removeAttribute("class");
     return;
@@ -585,6 +621,12 @@ export function style(
 ): void;
 
 export function style(node, value, prev) {
+  // Hydration is a claim pass: the server-rendered inline style stays
+  // authoritative, consistent with class/attribute bindings (#3180). The
+  // first post-hydration update diffs against the hydration-time value
+  // (threaded through `prev` by the compiled effect / spread bookkeeping),
+  // so properties that actually change apply and dropped ones are removed.
+  if (isHydrating(node)) return;
   if (!value) {
     if (prev || node._$styles) {
       setAttribute(node, "style");
@@ -629,6 +671,10 @@ export function style(node, value, prev) {
 export function setStyleProperty(node: Element, name: string, value: any): void;
 
 export function setStyleProperty(node, name, value) {
+  // Same hydration adoption contract as style() (#3180): the compiled
+  // per-property effect dedupes against the previous compute value, so the
+  // first actual change after hydration writes through.
+  if (isHydrating(node)) return;
   value != null ? node.style.setProperty(name, value) : node.style.removeProperty(name);
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function spread<T>(node: Element, accessor: T, skipChildren?: Boolean): void;
@@ -705,6 +751,32 @@ export function scope(fn) {
 }
 
 const SCOPE_OPTIONS = { scope: true };
+
+// The element an insert() is currently evaluating content for. Dynamic
+// intrinsic elements are created lazily inside the memo that insert() pulls
+// during its compute, so this is live exactly when createElement (index.ts)
+// needs a namespace hint for tags that exist in both HTML and SVG/MathML
+// (`a`, `script`, `style`, `title`) — the parser resolves those from the
+// surrounding markup for static templates, and this is the runtime
+// equivalent (#3187). Best-effort: content evaluated outside an insert
+// (e.g. an eager `children()` helper) falls back to the HTML namespace.
+let insertionParent =
+  null; /** Namespace hint for dynamically created intrinsic elements. @internal */
+export function getInsertionParent(): Node | undefined;
+
+export function getInsertionParent() {
+  return insertionParent;
+}
+
+function withInsertionParent(parent, fn) {
+  const prev = insertionParent;
+  insertionParent = parent;
+  try {
+    return fn();
+  } finally {
+    insertionParent = prev;
+  }
+}
 
 // Hydration-time behaviors reached from the hot insert/event paths, installed
 // by hydrate() so client-only bundles shake the implementations. Call sites
@@ -850,7 +922,7 @@ export function insert(parent, accessor, marker, initial, options) {
       return;
   }
   if (typeof accessor !== "function") {
-    accessor = normalize(accessor, initial, multi, true);
+    accessor = withInsertionParent(parent, () => normalize(accessor, initial, multi, true));
     if (typeof accessor !== "function") {
       insertExpression(parent, accessor, initial, marker);
       host && tagHost(accessor, host);
@@ -866,12 +938,12 @@ export function insert(parent, accessor, marker, initial, options) {
   effect(
     prev => {
       if (hydrationRt !== null) current = hydrationRt.reclaimRegion(current, parent, marker);
-      const value = normalize(accessor(), current, multi, true);
+      const value = withInsertionParent(parent, () => normalize(accessor(), current, multi, true));
       if (typeof value !== "function") return value;
       effect(
         () => (
           hydrationRt !== null && (current = hydrationRt.reclaimRegion(current, parent, marker)),
-          normalize(value, current, multi)
+          withInsertionParent(parent, () => normalize(value, current, multi))
         ),
         inner => {
           current = insertExpression(parent, inner, current, marker);
@@ -1930,7 +2002,9 @@ function flattenClassList(list, result) {
     const item = list[i];
     if (Array.isArray(item)) flattenClassList(item, result);
     else if (typeof item === "object" && item != null) Object.assign(result, item);
-    else if (item || item === 0) result[item] = true;
+    // clsx-style composition: standalone booleans are ignored so guard
+    // expressions like `cond && "active"` never emit a "true" class (#3189).
+    else if (typeof item !== "boolean" && (item || item === 0)) result[item] = true;
   }
 }
 
@@ -2198,12 +2272,19 @@ function normalize(value, current, multi, doNotUnwrap) {
   // hydration claiming: adopting the already-live server text node here is
   // position bookkeeping, not a mutation, and insertExpression's claim pass
   // needs the node (a raw primitive there means the claim FAILED).
+  // Only ACTUAL hydrating nodes (connected or under a declared claim root)
+  // adopt: a detached subtree rendering while hydration is globally active —
+  // eager JSX whose template claim missed because a falsy server conditional
+  // never rendered it (#3163) — is a client render, and adopting its empty
+  // placeholder here would swallow the primitive so the initial fill never
+  // lands.
   if (sharedConfig.hydrating && Array.isArray(value)) {
     for (let i = 0, len = value.length; i < len; i++) {
       const item = value[i],
         prev = current && current[i],
         t = typeof item;
-      if ((t === "string" || t === "number") && prev && prev.nodeType === 3) value[i] = prev;
+      if ((t === "string" || t === "number") && prev && prev.nodeType === 3 && isHydrating(prev))
+        value[i] = prev;
     }
   }
   return value;

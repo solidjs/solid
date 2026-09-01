@@ -2,6 +2,8 @@ import { createSignal, Errored, For, Show } from "solid-js";
 import { Typeahead } from "./typeahead";
 import { Checkout } from "./checkout";
 import { clearLog, logEntries } from "./log";
+import { createRuntime, RuntimeContext } from "./solid-effect";
+import { SearchConfigLive } from "./api";
 
 type Tab = "typeahead" | "checkout";
 
@@ -43,32 +45,40 @@ export function App() {
         </div>
       )}
     >
-      <div class="app">
-        <header class="app-header">
-          <h1>
-            Solid 2.0 <span class="times">×</span> Effect
-          </h1>
-          <p>
-            Two demos, one 60-line integration (<code>src/solid-effect.ts</code>): Effects as
-            interruptible async sources on the read path, Effect sagas as transaction steps on the
-            action path.
-          </p>
-          <nav class="tabs">
-            <button class={{ selected: tab() === "typeahead" }} onClick={() => setTab("typeahead")}>
-              Typeahead <small>read path</small>
-            </button>
-            <button class={{ selected: tab() === "checkout" }} onClick={() => setTab("checkout")}>
-              Checkout <small>action path</small>
-            </button>
-          </nav>
-        </header>
-        <main>
-          <Show when={tab() === "typeahead"} fallback={<Checkout />}>
-            <Typeahead />
-          </Show>
-          <LogPanel />
-        </main>
-      </div>
+      {/* Effect's R channel rides Solid context: this ManagedRuntime provides
+          SearchConfig to every Effect forked below it, and its Layer scope is
+          disposed when this subtree unmounts. */}
+      <RuntimeContext value={createRuntime(SearchConfigLive)}>
+        <div class="app">
+          <header class="app-header">
+            <h1>
+              Solid 2.0 <span class="times">×</span> Effect
+            </h1>
+            <p>
+              Two demos, one tiny integration (<code>src/solid-effect.ts</code>): Effects as
+              interruptible async sources on the read path, Effect sagas as transaction steps on the
+              action path, services provided through Solid context.
+            </p>
+            <nav class="tabs">
+              <button
+                class={{ selected: tab() === "typeahead" }}
+                onClick={() => setTab("typeahead")}
+              >
+                Typeahead <small>read path</small>
+              </button>
+              <button class={{ selected: tab() === "checkout" }} onClick={() => setTab("checkout")}>
+                Checkout <small>action path</small>
+              </button>
+            </nav>
+          </header>
+          <main>
+            <Show when={tab() === "typeahead"} fallback={<Checkout />}>
+              <Typeahead />
+            </Show>
+            <LogPanel />
+          </main>
+        </div>
+      </RuntimeContext>
     </Errored>
   );
 }

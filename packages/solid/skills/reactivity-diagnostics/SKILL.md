@@ -158,6 +158,15 @@ A scope re-ran far more often than any UI cadence justifies — a hot signal
 latest cause; either move that read out of the scope or derive a slower
 value (e.g. a memo with an equality gate) between them.
 
+### HOT_SCOPE_FANOUT
+
+Many scopes went hot from ONE root cause (named in the message) — the
+aggregate form of HOT_SCOPE_RERUNS, emitted so a single culprit doesn't
+produce one warning per victim. Fix the cause, not the scopes: if consumers
+ask keyed questions of it (every row vs. one selected id), invert with
+`createSelector`/`createProjection`; if it's a per-frame value, gate it
+behind a slower derivation.
+
 ### HOT_SCOPE_TIME
 
 A scope's summed compute time blew its per-window budget — a
@@ -171,6 +180,27 @@ A memo keeps producing referentially-new but shallowly-equivalent
 objects/arrays, so its equality gate never closes and every subscriber
 re-runs on every upstream change. Return stable references or pass an
 `equals` option.
+
+### ASYNC_WATERFALL
+
+Async flights ran in sequence when they might have run in parallel: each
+named flight provably could not start until the previous one resolved, and
+each took real time (the per-link durations are in the message/data). Read
+the chain from `DEV.attribution.waterfalls()` if you need more than the
+warning shows. Repairs, in order of preference:
+
+1. If a later request does not need the earlier response, derive both from
+   the same inputs so they start together (in one scope, read ALL async
+   sources before using any — a not-ready throw at the first read stops the
+   later ones from even starting).
+2. If the dependency is intrinsic, preload the dependent data (route
+   preloaders, hover preloads) or join the requests server-side.
+3. False positive only if the work was ALREADY started by a layer the graph
+   cannot see (a preloader or request cache handing out wrapper promises):
+   that layer should call `DEV.attribution.markFlight(promise, startedAt)`
+   on what it hands out; the chain then breaks on origin proof. Depth-2
+   chains are `info` severity for exactly this reason — treat them as leads,
+   not verdicts.
 
 ## Verifying a fix
 

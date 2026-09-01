@@ -254,7 +254,10 @@ describe("why-did-this-run attribution", () => {
     );
     flush();
 
-    collect({ hotRuns: { count: 3, windowMs: 60_000 }, wideDeps: false });
+    // hotTime disabled: its default 8ms budget is real wall-clock time, and
+    // instrumented CI runs (coverage) can exceed it, adding a HOT_SCOPE_TIME
+    // warn that breaks the exact console counts below.
+    collect({ hotRuns: { count: 3, windowMs: 60_000 }, wideDeps: false, hotTime: false });
     const capture = DEV!.diagnostics.capture();
     for (let i = 1; i <= 5; i++) {
       setN(i);
@@ -267,6 +270,43 @@ describe("why-did-this-run attribution", () => {
     expect(hot[0].data).toMatchObject({ runs: 3, windowMs: 60_000 });
     expect(hot[0].message).toContain('"n" (write)');
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("aggregates hot scopes sharing a root cause into HOT_SCOPE_FANOUT", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const [n, setN] = createSignal(0, { name: "n" });
+    createRoot(() => {
+      for (let i = 0; i < 6; i++) {
+        createEffect(
+          () => n(),
+          () => {},
+          { name: `watcher-${i}` }
+        );
+      }
+    });
+    flush();
+
+    // hotTime disabled — see the hot-scopes test above.
+    collect({
+      hotRuns: { count: 3, windowMs: 60_000 },
+      wideDeps: false,
+      wideWrites: false,
+      hotTime: false
+    });
+    const capture = DEV!.diagnostics.capture();
+    for (let i = 1; i <= 4; i++) {
+      setN(i);
+      flush();
+    }
+
+    const events = capture.stop();
+    // First hot scope warns per-node; the other five fold into the cause key.
+    const perScope = events.filter(e => e.code === "HOT_SCOPE_RERUNS");
+    expect(perScope).toHaveLength(1);
+    const fanout = events.filter(e => e.code === "HOT_SCOPE_FANOUT");
+    expect(fanout).toHaveLength(1); // milestone at 5 scopes; 6th is silent
+    expect(fanout[0].data).toMatchObject({ cause: "n", scopes: 5 });
+    expect(warn).toHaveBeenCalledTimes(2); // one victim warning + one aggregate
   });
 
   it("warns on wide scopes and re-warns only on 50% growth", () => {
@@ -285,7 +325,8 @@ describe("why-did-this-run attribution", () => {
     );
     flush();
 
-    collect({ wideDeps: 4, hotRuns: false });
+    // hotTime disabled — see the hot-scopes test above.
+    collect({ wideDeps: 4, hotRuns: false, hotTime: false });
     const capture = DEV!.diagnostics.capture();
     setBump(1);
     flush();
@@ -304,7 +345,8 @@ describe("why-did-this-run attribution", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const signals = Array.from({ length: 5 }, (_, i) => createSignal(i, { name: `c${i}` }));
 
-    collect({ wideDeps: 4, hotRuns: false });
+    // hotTime disabled — see the hot-scopes test above.
+    collect({ wideDeps: 4, hotRuns: false, hotTime: false });
     const capture = DEV!.diagnostics.capture();
     const wide = createMemo(() => signals.reduce((sum, [get]) => sum + get(), 0), {
       name: "born-wide"

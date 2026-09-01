@@ -277,7 +277,7 @@ Related: `WIDE_SCOPE_DEPS` (below) fires at a much lower threshold, but only whi
 
 Perf-kind warnings emitted by the **attribution engine** — they only fire while `DEV.attribution.enable()` is active (see the next section). Defaults:
 
-- `HOT_SCOPE_RERUNS`: one scope re-ran 120+ times within 1000ms (above animation-frame cadence, so a legitimate rAF-driven scope doesn't cry wolf). The message names the most recent cause chain.
+- `HOT_SCOPE_RERUNS`: one scope re-ran 120+ times within 1000ms (above animation-frame cadence, so a legitimate rAF-driven scope doesn't cry wolf). The message names the most recent cause chain. When many scopes go hot from the *same* root cause (a selection write re-running every row), only the first warns per-node; the rest fold into `HOT_SCOPE_FANOUT` (below) so one culprit can't bury the console in victim warnings.
 - `HOT_SCOPE_TIME`: one scope's summed self-time exceeded 8ms within 1000ms — half a frame in one scope. Catches the few-but-expensive runs that counts miss.
 - `WIDE_SCOPE_DEPS`: a scope's dependency count reached 30 (re-warns after another 50% growth), with the source names listed.
 
@@ -292,6 +292,22 @@ A committed root invalidation — a signal or store write, a `refresh()`, or an 
 Attribution-engine only, like the trio above. Specced together with `HUGE_FAN_OUT` so the two never double-fire on one node: `HUGE_FAN_OUT` is always-on and fires at *link* time from 2000 subscribers up — structure so large it warns even if never written — while `WIDE_WRITE` fires at *write* time from a much lower bar, once per node, re-warning only after the subscriber count doubles. Unchanged writes never fire it (the source equality gate commits nothing and notifies no one). The check reads the same live `_subCount` the graph-size warnings maintain, so disposed subscribers don't count.
 
 Threshold configurable (or disable-able) via `enable({ wideWrites })`.
+
+#### `HOT_SCOPE_FANOUT`
+
+**Message:** "N scopes have gone hot (M re-runs) within [window]ms, all driven by [cause] — one hot cause is re-running a large part of the graph. …"
+
+The per-cause aggregate of `HOT_SCOPE_RERUNS`. Hot-scope warnings blame the victim scope; when one hot cause drives many scopes, the first scope to go hot for that root-cause key warns normally and subsequent ones are counted silently, with scope-count milestones (5, then 10×) emitting one escalating fan-out warning that names the shared cause. A genuinely single hot scope behaves exactly as before.
+
+#### `ASYNC_WATERFALL`
+
+**Message:** "N sequential async flights — 'story' (120ms) → 'author' (80ms) — 200ms serialized: each began only after the previous resolved. …"
+
+Attribution-engine only. An async flight (a promise or async iterable entering the system) formed a sequential chain behind an upstream flight. A chain link is asserted only on double proof: the flight's recompute was **caused** by the upstream's landing (graph causality — create runs inherit the enclosing recompute's causes, which covers boundary reveals and lazy first pulls), and the flight's **origin** post-dates the upstream's landing. Origin is the earliest provable start of the work: a `DEV.attribution.markFlight(promise, startedAt)` stamp (preloaders and request caches declaring their kickoff), first-seen object identity, else registration time — so preloaded work already in the air alongside its upstream is parallel and never chains.
+
+The verdict is duration-gated (each link ≥ `waterfalls.minFlightMs`, default 50ms — a settled cache hit resolves fast and never warns). Depth-2 chains emit at `info` severity on the structured channel only: a dependent fetch is sometimes intrinsic, and an *unmarked* external preload is indistinguishable from a real waterfall, so the console stays quiet. Depth-3+ escalates to a console `warn`. Once per node, re-warning only when the chain grows. Every graph-provable chain — warned or not — is queryable via `DEV.attribution.waterfalls()`.
+
+If a preloading layer hands out wrapper promises (e.g. `.then()` chains over a cached flight), it must call `markFlight` on the wrapper it returns, with the original kickoff time — wrapping defeats identity tracking otherwise.
 
 ## Programmatic diagnostics API
 
@@ -330,7 +346,7 @@ Each `DiagnosticEvent` has:
 | `sequence` | `number` | Monotonically increasing counter |
 | `code` | `DiagnosticCode` | Machine-readable code (e.g. `"STRICT_READ_UNTRACKED"`) |
 | `kind` | `DiagnosticKind` | Category: `"strict-read"`, `"async"`, `"write"`, `"lifecycle"`, `"owner"`, `"perf"`, `"graph"` |
-| `severity` | `"warn" \| "error"` | Whether this throws or just logs |
+| `severity` | `"info" \| "warn" \| "error"` | `error` throws, `warn` logs; `info` is advisory (structured channel only — budget/assertion consumers should not fail on it) |
 | `message` | `string` | Human-readable message |
 | `ownerId` | `string?` | ID of the reactive owner where the diagnostic occurred |
 | `ownerName` | `string?` | Debug name of the owner |
@@ -355,8 +371,11 @@ Each `DiagnosticEvent` has:
 | `HUGE_FAN_OUT` | warn | graph | One source reached 2000 live subscribers (always on) |
 | `HUGE_FAN_IN` | warn | graph | One computation reached 2000 live sources (always on) |
 | `HOT_SCOPE_RERUNS` | warn | perf | 120+ re-runs of one scope in 1s (attribution enabled) |
+| `HOT_SCOPE_FANOUT` | warn | perf | 5+/50+/500+ scopes hot from one root cause (attribution enabled) |
 | `HOT_SCOPE_TIME` | warn | perf | 8ms+ self-time in one scope in 1s (attribution enabled) |
 | `WIDE_SCOPE_DEPS` | warn | perf | Scope subscribed to 30+ sources (attribution enabled) |
+| `WIDE_WRITE` | warn | perf | Committed write reached 250+ subscribers (attribution enabled) |
+| `ASYNC_WATERFALL` | info/warn | perf | 2+/3+ origin-proven sequential async flights (attribution enabled) |
 
 ## Run attribution — "why did this run"
 
@@ -380,15 +399,22 @@ DEV.attribution.enable({
   hotRuns: { count: 120, windowMs: 1000 },   // or false
   hotTime: { budgetMs: 8, windowMs: 1000 },  // or false
   wideDeps: 30,                               // or false
-  wideWrites: 250                             // or false
+  wideWrites: 250,                            // or false
+  waterfalls: { minFlightMs: 50 }             // or false
 });
 
 DEV.attribution.history();          // ring buffer of RerunEvents
 DEV.attribution.why(someMemo);      // re-run history for one node
 DEV.attribution.subscriptions(fn);  // current dep names of one scope
 DEV.attribution.costs();            // { scopes, writes } ranked cost tables
+DEV.attribution.waterfalls();       // graph-provable sequential flight chains
 DEV.attribution.subscribe(fn);      // live RerunEvent feed
 DEV.attribution.disable();
+
+// Callable anytime (even while disabled): preloaders/caches declare the true
+// kickoff of promises they hand out, so dependents that pick them up later
+// are never misread as waterfalls.
+DEV.attribution.markFlight(promise, startedAt?);
 ```
 
 `costs()` aggregates since `enable()`: `scopes` ranked by self-time with `wastedMs` (time in runs whose value didn't change — the equality cutoff absorbed them), and `writes` ranked by the total downstream re-run time each root write caused. Overlay work (optimistic-lane and transition-replay runs) is accounted separately as `overlayMs` and never blamed as waste.
