@@ -916,6 +916,83 @@ describe("decoded arguments carry no own __proto__ key (#3168)", () => {
   });
 });
 
+describe("prepareRequest's return is validated (#3174)", () => {
+  const clientModule = () => import("@solidjs/web/server-functions/client");
+
+  test("a hook returning a fresh object drops the protocol headers and is refused at the call site", async () => {
+    let ran = 0;
+    registerServerFunction("prepare-fresh", async (word: string) => {
+      ran++;
+      return word;
+    });
+    const { configureServerFunctionsClient } = await clientModule();
+    // the natural way to write "add an auth header" — and the shape that
+    // silently discarded the payload, the signal and the protocol headers
+    configureServerFunctionsClient({
+      prepareRequest: () => ({ headers: { Authorization: "Bearer token" } }) as RequestInit
+    });
+    const restore = connectBufferedTransport();
+    try {
+      await expect(createServerReference("prepare-fresh")("payload")).rejects.toThrow(
+        /prepareRequest/
+      );
+    } finally {
+      configureServerFunctionsClient({ prepareRequest: null as any });
+      restore();
+    }
+    // refused on the client, before dispatch: the mangled request never ran
+    expect(ran).toBe(0);
+  });
+
+  test("a hook returning a non-object is refused naming the hook, not an opaque fetch error", async () => {
+    let ran = 0;
+    registerServerFunction("prepare-string", async () => {
+      ran++;
+      return "ok";
+    });
+    const { configureServerFunctionsClient } = await clientModule();
+    configureServerFunctionsClient({
+      prepareRequest: (() => "not an init") as any
+    });
+    const restore = connectBufferedTransport();
+    try {
+      await expect(createServerReference("prepare-string")()).rejects.toThrow(/prepareRequest/);
+    } finally {
+      configureServerFunctionsClient({ prepareRequest: null as any });
+      restore();
+    }
+    expect(ran).toBe(0);
+  });
+
+  test("controls: spreading and mutate-in-place hooks are untouched", async () => {
+    registerServerFunction("prepare-spread", async (word: string) => {
+      const store = (globalThis as any)[RequestContext].getStore();
+      return `${word}:${store.request.headers.get("Authorization")}`;
+    });
+    const { configureServerFunctionsClient } = await clientModule();
+    const restore = connectBufferedTransport();
+    try {
+      configureServerFunctionsClient({
+        prepareRequest: init => ({
+          ...init,
+          headers: { ...(init.headers as Record<string, string>), Authorization: "Bearer s" }
+        })
+      });
+      expect(await createServerReference("prepare-spread")("hi")).toBe("hi:Bearer s");
+      // mutate in place, return nothing — the documented alternative
+      configureServerFunctionsClient({
+        prepareRequest: (init => {
+          (init.headers as Record<string, string>).Authorization = "Bearer m";
+        }) as any
+      });
+      expect(await createServerReference("prepare-spread")("yo")).toBe("yo:Bearer m");
+    } finally {
+      configureServerFunctionsClient({ prepareRequest: null as any });
+      restore();
+    }
+  });
+});
+
 describe("the rc.5 guard batch (#3169, #3170, #3171)", () => {
   const H = {
     "X-Server-Function-Format": "8",
