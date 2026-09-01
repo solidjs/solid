@@ -1613,9 +1613,15 @@ function isFormPost(request) {
 // for the codec, though the rebuilt shell is allocated either way: it has to
 // exist before the walk that decides whether it was needed.
 //
-// Left alone deliberately, so a channel behind either is unguarded: class
+// Left alone deliberately, so a channel behind one is unguarded: class
 // instances, whose own properties are not ours to rebuild (private fields,
-// getters, invariants), and accessors, which are not ours to invoke.
+// getters, invariants). Plain-object accessors and Map keys used to sit in
+// that list too — but the codec pumps both, so "not ours to invoke" was not
+// protection, it was a bypass: a rejecting promise behind a getter or used
+// as a Map key rode the wire unsanitized, was never torn down, and on the
+// promise path took the process down with an unhandled rejection (#3176).
+// Getters are now invoked once and materialized as data properties; Map
+// keys are walked like values.
 //
 // `state.gate` (optional — serializeResponseStream threads it, #3125) hooks
 // the two STREAMING channels into the response lifetime as they are walked:
@@ -1651,15 +1657,43 @@ export function guardFailures(value, state) {
       const i = top.i;
       let original;
       if (top.kind === OBJECT) {
-        // Data properties only — same policy as the shell build below.
         const descriptor = top.descriptors[items[i]];
-        if (!("value" in descriptor)) {
+        if ("value" in descriptor) {
+          original = descriptor.value;
+        } else if (typeof descriptor.get === "function") {
+          // Getter-backed accessor: the codec invokes it anyway, so refusing
+          // to was never protection — it let a channel behind a getter ride
+          // the wire unsanitized and untorn (#3176). Invoke ONCE (cached
+          // across a frame suspension — the loop re-enters this slot after a
+          // child container resolves) and materialize the result as a data
+          // property below, so the codec reads the guarded value instead of
+          // re-invoking. A throwing getter propagates to dispatch's catch —
+          // the codec's own read would have failed the call anyway, and this
+          // way it fails with a status instead of mid-stream.
+          if (top.accessorRead !== i) {
+            try {
+              top.accessorValue = descriptor.get.call(top.value);
+            } catch (error) {
+              // Sanitized AT the throw: on the synchronous walk dispatch's
+              // catch would sanitize anyway, but a re-entrant walk (inside a
+              // wrapped promise's continuation) turns this throw into that
+              // channel's rejection, which rides the wire as-is.
+              throw sanitizeServerError(error);
+            }
+            top.accessorRead = i;
+          }
+          original = top.accessorValue;
+        } else {
+          // setter-only: reads as undefined for us and for the codec alike
           top.i++;
           continue;
         }
-        original = descriptor.value;
       } else {
-        original = top.kind === MAP ? items[i][1] : items[i];
+        // MAP items are flattened [k0, v0, k1, v1, …] — keys are guarded
+        // like any other slot (#3176: a promise AS a Map key is pumped by
+        // the codec too; wrapping changes key identity exactly the way it
+        // changes any wrapped value's).
+        original = items[i];
       }
       let guarded;
       if (delivered !== NOTHING) {
@@ -1678,16 +1712,24 @@ export function guardFailures(value, state) {
           top.changed = true;
         }
       } else if (top.kind === MAP) {
-        top.next.set(items[i][0], guarded);
+        if ((i & 1) === 0) top.pendingKey = guarded;
+        else top.next.set(top.pendingKey, guarded);
         if (guarded !== original) top.changed = true;
       } else if (top.kind === SET) {
         top.next.add(guarded);
         if (guarded !== original) top.changed = true;
-      } else if (guarded !== original) {
-        Object.defineProperty(top.next, items[i], {
-          ...top.descriptors[items[i]],
-          value: guarded
-        });
+      } else if (guarded !== original || top.accessorRead === i) {
+        // A materialized accessor always rewrites its slot (even when the
+        // value needed no wrapping): only the rebuilt shell carries the
+        // data property — pass the original through and the codec would
+        // invoke the getter afresh, minting a new unguarded channel.
+        Object.defineProperty(
+          top.next,
+          items[i],
+          top.accessorRead === i
+            ? { enumerable: true, configurable: true, writable: true, value: guarded }
+            : { ...top.descriptors[items[i]], value: guarded }
+        );
         top.changed = true;
       }
       top.i++;
@@ -1720,6 +1762,13 @@ class Frame {
     this.descriptors = descriptors;
     this.i = 0;
     this.changed = false;
+    // Materialized-accessor slot cache: which slot index was read through
+    // its getter (so a frame suspension never re-invokes it) and the value
+    // that read produced (#3176).
+    this.accessorRead = -1;
+    this.accessorValue = undefined;
+    // MAP frames: the guarded key parked while its value's slot resolves.
+    this.pendingKey = undefined;
   }
 }
 
@@ -1856,9 +1905,13 @@ function enterGuard(value, state) {
   if (value instanceof Map) {
     const next = new Map();
     state.seen.set(value, next);
-    // Keys pass through unwalked (as the recursive walk had it): rebuilding
-    // a key would change map identity semantics for the caller.
-    return new Frame(MAP, value, next, [...value], null);
+    // Keys are guarded too (#3176): the codec pumps a promise-as-key the
+    // same as any value, so an unguarded key was an unsanitized, untorn
+    // channel. Entries flatten to [k0, v0, k1, v1, …] so the driver walks
+    // keys and values with one cursor; the frame recorder pairs them back.
+    const items = [];
+    for (const entry of value) items.push(entry[0], entry[1]);
+    return new Frame(MAP, value, next, items, null);
   }
 
   if (value instanceof Set) {
@@ -1873,11 +1926,9 @@ function enterGuard(value, state) {
     return value;
   }
 
-  // Data properties only: reading through a getter would invoke it here as
-  // well as when the codec encodes, and a throwing one would escape into
-  // dispatch's catch to be reported as the function itself failing — the
-  // phantom error over a call that succeeded. Descriptors carry across, so
-  // a frozen or non-writable shape survives the rebuild.
+  // Descriptors carry across so a frozen or non-writable shape survives the
+  // rebuild. Getter-backed accessors are materialized by the driver (#3176):
+  // invoked once there, rewritten as data properties on this shell.
   const descriptors = Object.getOwnPropertyDescriptors(value);
   const next = Object.create(prototype, descriptors);
   state.seen.set(value, next);

@@ -772,7 +772,16 @@ export function isJSONSafe(value) {
       // silently losing the stream (async generators dodge this branch only
       // by prototype). Such values must ride the codec.
       if (Symbol.asyncIterator in v || Symbol.iterator in v) return false;
-      for (const k in v) stack.push(v[k]);
+      for (const k in v) {
+        // Through the descriptor, never `v[k]`: reading a getter here MINTS
+        // a value nobody guards — a rejecting promise from a getter took
+        // the process down as an unhandled rejection before the codec ever
+        // saw the object (#3176). Any accessor answers "not safe": the
+        // codec path materializes it under guardFailures' protection.
+        const descriptor = Object.getOwnPropertyDescriptor(v, k);
+        if (descriptor === undefined || !("value" in descriptor)) return false;
+        stack.push(descriptor.value);
+      }
     }
   }
   return true;

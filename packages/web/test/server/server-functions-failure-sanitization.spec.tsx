@@ -178,16 +178,20 @@ describe("what the guard must not disturb", () => {
     expect((outcome as { value: any }).value.failure.message).toBe("returned, not thrown");
   });
 
-  // The walk reads data properties only. Reading through a getter would
-  // invoke it here as well as when the codec encodes, and a throwing one
-  // would escape into dispatch's catch to be reported as the function
-  // itself failing — the phantom error over a call that succeeded that
-  // `encodeResult` goes out of its way to avoid.
-  it("does not invoke an accessor while walking", async () => {
+  // RE-PINNED for #3176: the walk now invokes getters — once — and
+  // materializes the result, because the codec invoked them anyway and the
+  // old "not ours to invoke" policy just meant whatever the getter minted
+  // rode the wire unguarded (unsanitized rejections, untorn streams, an
+  // unhandled rejection killing the process). A THROWING getter therefore
+  // fails the call — but sanitized, and with a real 500: the failure is
+  // known before a byte of head exists, so the status line is still free
+  // to say so (#3097), where the old shape delivered the same failure as
+  // an encode-time in-band trailer on a 200.
+  it("invokes an accessor once while walking; a throwing one fails sanitized", async () => {
     registerServerFunction("graph-accessor", async () => ({
       ok: 1,
       get lazy() {
-        throw new Error("an accessor the runtime must not call");
+        throw new Error("an accessor whose invocation must not leak");
       }
     }));
 
@@ -203,7 +207,9 @@ describe("what the guard must not disturb", () => {
       })
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(500);
+    const body = await response.text();
+    expect(body).not.toContain("must not leak");
   });
 
   // The walk records each container before descending, so a self-reference

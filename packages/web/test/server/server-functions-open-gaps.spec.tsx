@@ -247,11 +247,13 @@ describe("a streamed result nobody is reading", () => {
     registerServerFunction("gap-backpressure-teardown", async function* () {
       try {
         produced++;
+        // A bare function is the codec-failure vehicle: it has no wire form
+        // and no plugin claims it. (A throwing getter no longer works here —
+        // the guard walk materializes getters (#3176) and contains their
+        // throw to the carrying channel, so it never reaches the codec.)
         yield {
           late: Promise.resolve().then(() => ({
-            get boom(): never {
-              throw new Error("unencodable, discovered after the gate parked");
-            }
+            boom: () => "unencodable, discovered after the gate parked"
           }))
         };
         for (let n = 0; n < 20; n++) {
@@ -676,6 +678,95 @@ describe("the decode depth cap", () => {
 
     // the capped path answers 400 for a payload past the limit
     expect(response.status).toBe(400);
+  });
+});
+
+describe("channels behind a getter or as a Map key (#3176)", () => {
+  const SECRET = "user=svc_billing password=hunter2 host=10.0.0.7";
+  const mkRejection = () => {
+    const p = Promise.reject(new Error(SECRET));
+    p.catch(() => {});
+    return p;
+  };
+  const drain = async (response: Response) => {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of response.body ?? []) chunks.push(chunk as Uint8Array);
+    return Buffer.concat(chunks).toString();
+  };
+
+  // Control: the data-property shape was always guarded.
+  test("a rejecting promise behind a data property stays sanitized", async () => {
+    registerServerFunction("guard-walk-plain", async () => ({ p: mkRejection() }));
+    const response = await handleServerFunctionRequest(scriptedPost("guard-walk-plain"));
+    expect(response.status).toBe(200);
+    expect(await drain(response)).not.toContain("hunter2");
+  });
+
+  test("a rejecting promise behind a getter is sanitized, and the getter runs once", async () => {
+    let reads = 0;
+    registerServerFunction("guard-walk-getter", async () => ({
+      get p() {
+        reads++;
+        return mkRejection();
+      }
+    }));
+    const response = await handleServerFunctionRequest(scriptedPost("guard-walk-getter"));
+    expect(response.status).toBe(200);
+    const body = await drain(response);
+    expect(body).not.toContain("hunter2");
+    // materialized: one read by the guard walk, none by the codec — the
+    // pre-fix shape had the codec minting a SECOND, unguarded promise
+    expect(reads).toBe(1);
+  });
+
+  test("a rejecting promise as a Map key is sanitized", async () => {
+    registerServerFunction("guard-walk-mapkey", async () => new Map([[mkRejection(), "v"]]));
+    const response = await handleServerFunctionRequest(scriptedPost("guard-walk-mapkey"));
+    expect(response.status).toBe(200);
+    expect(await drain(response)).not.toContain("hunter2");
+  });
+
+  test("Map values, entry pairing, and unchanged maps survive the flattened walk", async () => {
+    const shared = { deep: mkRejection() };
+    registerServerFunction(
+      "guard-walk-map-pairing",
+      async () =>
+        new Map<any, any>([
+          ["a", 1],
+          [{ k: 2 }, shared],
+          ["c", "three"]
+        ])
+    );
+    const response = await handleServerFunctionRequest(scriptedPost("guard-walk-map-pairing"));
+    expect(response.status).toBe(200);
+    const body = await drain(response);
+    expect(body).not.toContain("hunter2");
+    expect(body).toContain("three");
+  });
+
+  test("an endless generator behind a getter is torn down at disconnect", async () => {
+    let finallyRan = false;
+    registerServerFunction("guard-walk-getter-teardown", async () => ({
+      get feed() {
+        return (async function* () {
+          try {
+            for (let i = 0; ; i++) {
+              yield i;
+              await new Promise(r => setTimeout(r, 5));
+            }
+          } finally {
+            finallyRan = true;
+          }
+        })();
+      }
+    }));
+    const response = await handleServerFunctionRequest(scriptedPost("guard-walk-getter-teardown"));
+    expect(response.status).toBe(200);
+    const reader = response.body!.getReader();
+    await reader.read();
+    await reader.cancel();
+    await new Promise(r => setTimeout(r, 50));
+    expect(finallyRan).toBe(true);
   });
 });
 
