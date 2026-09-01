@@ -281,6 +281,122 @@ describe("SSR Streaming — Basic Rendering", () => {
     expect(html).not.toContain("tracking scope");
   });
 
+  test("stream closes when a rejected fragment abandons a pending serialized sibling (#3165)", async () => {
+    // The fragment reaches its terminal error state while an async sibling
+    // in the SAME fragment is still pending. Rejection removes the fragment
+    // from the renderer registry, but the abandoned sibling's serialized
+    // deferred must be terminally settled too — otherwise serializer.flush()
+    // waits forever and the response never calls end().
+    const never = new Promise<string>(() => {});
+    function Child() {
+      const bad = createMemo(async () => {
+        await delay(5);
+        throw new Error("late-boom");
+      });
+      const stuck = createMemo(async () => never);
+      return (
+        <div>
+          {bad()}
+          {stuck()}
+        </div>
+      );
+    }
+    const completed = renderComplete(() => (
+      <html>
+        <body>
+          <Errored fallback={<p>caught</p>}>
+            <Loading fallback={<i>loading</i>}>
+              <Child />
+            </Loading>
+          </Errored>
+          <span>tail</span>
+        </body>
+      </html>
+    ));
+    const ended = await Promise.race([completed.then(() => true), delay(1500).then(() => false)]);
+    expect(ended).toBe(true);
+  });
+
+  test("stream closes when a rejected fragment abandons a nested pending boundary (#3165)", async () => {
+    // Same lifecycle gap, fragment-shaped: the discarded subtree contains a
+    // registered nested <Loading> whose resume loop is parked forever. Its
+    // registry entry must be released or flushEnd never fires.
+    const never = new Promise<string>(() => {});
+    function Inner() {
+      const stuck = createMemo(async () => never);
+      return <p>{stuck()}</p>;
+    }
+    function Child() {
+      const bad = createMemo(async () => {
+        await delay(5);
+        throw new Error("late-boom");
+      });
+      return (
+        <div>
+          {bad()}
+          <Loading fallback={<i>inner</i>}>
+            <Inner />
+          </Loading>
+        </div>
+      );
+    }
+    const completed = renderComplete(() => (
+      <html>
+        <body>
+          <Errored fallback={<p>caught</p>}>
+            <Loading fallback={<i>loading</i>}>
+              <Child />
+            </Loading>
+          </Errored>
+        </body>
+      </html>
+    ));
+    const ended = await Promise.race([completed.then(() => true), delay(1500).then(() => false)]);
+    expect(ended).toBe(true);
+  });
+
+  test("an independent live boundary still gates the response after a sibling fragment rejects (#3165 control)", async () => {
+    // Abandonment must be scoped to the errored subtree: pending work in a
+    // separate, still-live boundary keeps the stream open until it settles.
+    const slow = deferred<string>();
+    function Bad() {
+      const bad = createMemo(async () => {
+        await delay(5);
+        throw new Error("boom");
+      });
+      return <div>{bad()}</div>;
+    }
+    function Alive() {
+      const data = createMemo(() => slow.promise);
+      return <p>{data()}</p>;
+    }
+    let html: string | undefined;
+    const completed = renderComplete(() => (
+      <html>
+        <body>
+          <Errored fallback={<p>caught</p>}>
+            <Loading fallback={<i>loading bad</i>}>
+              <Bad />
+            </Loading>
+          </Errored>
+          <Loading fallback={<i>loading alive</i>}>
+            <Alive />
+          </Loading>
+        </body>
+      </html>
+    )).then(v => {
+      html = v;
+      return true;
+    });
+    // Give the rejection time to land; the live boundary must still hold.
+    const endedEarly = await Promise.race([completed, delay(300).then(() => false)]);
+    expect(endedEarly).toBe(false);
+    slow.resolve("alive-data");
+    const ended = await Promise.race([completed, delay(1500).then(() => false)]);
+    expect(ended).toBe(true);
+    expect(html).toContain("alive-data");
+  });
+
   test("rejected lazy() under Errored serializes the error instead of hanging (#2780)", async () => {
     const manifest = { "./Boom.tsx": { file: "assets/boom.js" } };
     const LazyBoom = lazy(

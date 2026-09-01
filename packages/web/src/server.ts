@@ -1730,6 +1730,49 @@ export function renderToStream(code, options = {}) {
     }
   };
   const registry = new Map();
+  // Abandonment ledger (#3165): every pending promise written through
+  // context.serialize, keyed by hydration id. Seroval's onDone waits for
+  // every serialized async value to settle, so a fragment that reaches its
+  // terminal error state while a sibling in its subtree is still pending
+  // would hold the response open forever — the subtree is discarded, nothing
+  // will ever settle the deferred. Serialized promises are raced against a
+  // per-id abandon hook so the errored fragment can terminally settle
+  // serialization its subtree owns. Hydration ids are a prefix code (each
+  // sibling ordinal is self-delimiting), so `startsWith` is exact ancestry.
+  const pendingSerialized = new Map();
+  const trackSerialized = (id, p) => {
+    let settle;
+    const raced = Promise.race([p, new Promise(r => (settle = r))]);
+    pendingSerialized.set(id, settle);
+    // Once the source settles the entry is dead weight; drop it. The
+    // rejection arm also keeps an abandoned-then-rejected source from
+    // surfacing as an unhandled rejection (seroval only sees the race).
+    const drop = () => pendingSerialized.delete(id);
+    p.then(drop, drop);
+    return raced;
+  };
+  // A fragment settling with an error abandons its subtree: descendant
+  // fragments still in the registry would gate flushEnd forever (their
+  // resume loops may be parked on promises that never settle), and pending
+  // serialized values under the errored key would gate seroval's onDone the
+  // same way. Settle both. Descendant `_fr` stubs resolve clean (not
+  // rejected) and abandoned data ids resolve undefined: the client re-renders
+  // the errored region fresh off the OUTER fragment's rejection, so nothing
+  // consumes these — a rejection would only raise unhandled-rejection noise.
+  const abandonSubtree = key => {
+    for (const [k, entry] of registry) {
+      if (k.length > key.length && k.startsWith(key)) {
+        registry.delete(k);
+        entry.resolve();
+      }
+    }
+    for (const [id, settle] of pendingSerialized) {
+      if (id.startsWith(key)) {
+        pendingSerialized.delete(id);
+        settle();
+      }
+    }
+  };
   const writeTasks = () => {
     if (tasks.length && !completed && firstFlushed) {
       buffer.write(`<script${nonceAttr(nonce, "script")}>${tasks}</script>`);
@@ -1880,17 +1923,21 @@ export function renderToStream(code, options = {}) {
     },
     serialize(id, p, deferStream) {
       if (sharedConfig.context.noHydrate) return;
-      if (!firstFlushed && p && typeof p === "object" && "then" in p) {
-        if (deferStream) {
+      if (p && typeof p === "object" && typeof p.then === "function") {
+        if (!firstFlushed && deferStream) {
           blockingPromises.add(p);
           p.then(d => serializer.write(id, d)).catch(e => serializer.write(id, e));
           return;
         }
+        // Every pending promise handed to seroval joins the abandonment
+        // ledger (#3165) — pre-shell and streaming alike, since a fragment
+        // can error terminally at any point after this write.
+        p = trackSerialized(id, p);
         // `shellCompleted` (not `firstFlushed`) gates batching: doShell()
         // flushes the batch into the shell's task snapshot, and writes in the
         // microtask window between the two flags must go direct or they'd
         // strand in a batch nobody flushes.
-        if (canBatchStubs && !shellCompleted) {
+        if (!firstFlushed && canBatchStubs && !shellCompleted) {
           (stubBatch ||= new Map()).set(id, p);
           return;
         }
@@ -1940,6 +1987,9 @@ export function renderToStream(code, options = {}) {
         if (registry.has(key)) {
           const item = registry.get(key);
           registry.delete(key);
+          // Terminal error: the subtree is discarded — release everything in
+          // it that would otherwise gate response completion (#3165).
+          if (error) abandonSubtree(key);
 
           if (item.children) {
             for (const k in item.children) {
