@@ -491,7 +491,35 @@ async function createRequest(base, id, instance, options, meta) {
   // RequestInit (transport headers included), so session policy can adjust
   // anything the transport is about to send.
   if (config.prepareRequest) {
-    init = (await config.prepareRequest(init, { id, meta })) || init;
+    const prepared = await config.prepareRequest(init, { id, meta });
+    // The hook's return is validated, not adopted wholesale (#3174): the
+    // natural mistake — returning a fresh `{ headers }` instead of
+    // spreading — used to silently drop the argument payload, the abort
+    // signal and every protocol header, and the call still dispatched (as
+    // a bare GET the handler answers 405, with nothing naming the cause).
+    // The transport headers are the sentinel: the instance header rides
+    // every call, so a returned init that lost it did not carry the
+    // original forward. Everything else stays the hook's to change — a
+    // deliberate body/signal replacement is in contract (streaming
+    // uploads), dropping the protocol is not.
+    if (prepared && prepared !== init) {
+      if (typeof prepared !== "object") {
+        throw new Error(
+          "prepareRequest must return (or mutate and return) the RequestInit it received; " +
+            `it returned a ${typeof prepared}. Spread the init: ` +
+            "init => ({ ...init, headers: { ...init.headers, ... } })"
+        );
+      }
+      if (!new Headers(prepared.headers).has(INSTANCE_HEADER)) {
+        throw new Error(
+          "prepareRequest returned an init without the transport headers " +
+            `(${INSTANCE_HEADER}), which would send the call without its payload or ` +
+            "protocol. Spread the init it received: " +
+            "init => ({ ...init, headers: { ...init.headers, ... } })"
+        );
+      }
+    }
+    init = prepared || init;
   }
   const send = config.fetch || fetch;
   if (CALL_OBSERVERS.size === 0) return send(base, init);
