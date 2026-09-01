@@ -189,6 +189,28 @@ export function settleErroredDependents(el: Computed<any>, error: any): void {
 }
 
 export function settlePendingSource(el: Computed<any>): void {
+  // Invariant: walking a settle implies truth exists. A caller reaching this
+  // with an uninitialized source is announcing a settle that has not
+  // happened — parked readers would wake into a value that was never
+  // produced (the rc.5 regression: the recompute-side walk fired on a
+  // projection driver whose first flight was superseded before any commit
+  // reached the observable store). Silent in production; loud in dev so a
+  // future call site that violates the contract fails in its author's test
+  // run instead of wedging a downstream app.
+  if (__DEV__ && el._statusFlags & STATUS_UNINITIALIZED) {
+    emitDiagnostic({
+      code: "SETTLE_WALK_UNINITIALIZED_SOURCE",
+      kind: "lifecycle",
+      severity: "error",
+      message:
+        "[SETTLE_WALK_UNINITIALIZED_SOURCE] settlePendingSource was called on a source that " +
+        "never produced a value. Settling parked readers requires truth to reveal — an " +
+        "uninitialized source waking its dependents serves them its initial face instead of " +
+        "settled data.",
+      ownerId: el.id,
+      ownerName: (el as any)._name
+    });
+  }
   let scheduled = false;
   let released: Computed<any>[] | undefined;
   const visited = new Set<Computed<any>>();
