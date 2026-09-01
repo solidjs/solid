@@ -78,6 +78,27 @@ export function effect<T>(
   }
 }
 
+/**
+ * PROTOTYPE (graph-native regions exploration) — detached single-source
+ * render effect. Owner-less BY DESIGN: a region is shared rendering
+ * infrastructure, errors surface through its commit, and the caller owns
+ * disposal via the returned node (`dispose(node)`). Skips the generic
+ * path's root/owner allocation and the NO_OWNER_EFFECT diagnostic, which
+ * is a true positive everywhere else.
+ */
+export function deliveryEffect(compute: () => void, commit: () => void): Computed<unknown> {
+  const node = createEffectNode(
+    compute as (prev?: unknown) => unknown,
+    commit as (val: unknown, prev: unknown) => void,
+    undefined,
+    EFFECT_RENDER,
+    undefined
+  ) as Effect<unknown>;
+  recompute(node, true);
+  runEffect(node); // initial run performs the region's initial commit
+  return node;
+}
+
 function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): void {
   // Use passed values if provided, otherwise read from node
   const actualStatus = status !== undefined ? status : this._statusFlags;

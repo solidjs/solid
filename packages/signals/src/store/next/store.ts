@@ -331,6 +331,45 @@ export function getHasNode(
   return node;
 }
 
+/** PROTOTYPE — graph-native region tracking (2026-09-01 exploration, see
+ * DESIGN-PATCH-CHANNEL.md §25): a LAZY per-record version signal written
+ * through the normal write path at the same sites the walk notifies.
+ * Regions subscribe to ONE node per record instead of one per key, and
+ * every scheduler behavior (transitions, lanes, merges, steals) applies
+ * natively because the bump is an ordinary signal write. Records nobody
+ * region-tracks pay one undefined-check per adoption. */
+export function trackRecordVersion(record: any): void {
+  const t: StoreNextTarget | undefined = record?.[$TARGET];
+  if (t === undefined) return;
+  let vn = (t as any).vn as Signal<number> | undefined;
+  if (vn === undefined) {
+    // Keyed pruning (§6d) descends only where subscriptions exist at/below —
+    // a version subscription counts exactly like nodes and patches do, or
+    // the walk prunes the record before ever adopting (and bumping) it.
+    markDescendants(t);
+    const created: Signal<number> =
+      ((t as any).vn =
+      vn =
+        signal(
+          0,
+          {
+            equals: false,
+            unobserved() {
+              if ((t as any).vn === created) (t as any).vn = undefined;
+            }
+          },
+          (t.fam?.node as any) ?? undefined
+        ));
+    created._config |= CONFIG_OWNED_WRITE;
+  }
+  readNode(vn as any);
+}
+
+export function bumpRecordVersion(t: StoreNextTarget): void {
+  const vn = (t as any).vn as Signal<number> | undefined;
+  if (vn !== undefined) setSignal(vn, v => (v as number) + 1);
+}
+
 export function getKeySetNode(target: StoreNextTarget): Signal<number> {
   let k = target.k;
   if (k === null) {

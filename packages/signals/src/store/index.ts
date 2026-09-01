@@ -36,6 +36,8 @@ export {
   registerSlotPatchNext as registerSlotPatch,
   patchableRaw
 } from "./next/patch.js";
+// PROTOTYPE surface (graph-native regions exploration) — NOT product API.
+export { trackRecordVersion } from "./next/store.js";
 export { storeIsShallow, storeHasFamily, storeHasOptimisticFamily } from "./next/store.js";
 export { createOptimisticStoreNext as createOptimisticStore } from "./next/optimistic.js";
 
