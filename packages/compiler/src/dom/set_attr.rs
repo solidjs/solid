@@ -137,7 +137,12 @@ impl<'a> AstDomTransform<'a, '_> {
         let is_locked = dom_with_state(&options.tag_name, &name).is_some();
 
         if is_child_prop || namespace == Some("prop") || is_locked {
-            if self.hydratable && namespace != Some("prop") && !is_locked {
+            // Locked/stateful DOM properties (value/checked/...) must go
+            // through the runtime in hydratable builds so the hydration claim
+            // pass can adopt pre-hydration user state instead of overwriting
+            // it (#3182). setProperty carries the select-microtask and
+            // input/textarea nullish special cases.
+            if self.hydratable && (is_locked || namespace != Some("prop")) {
                 self.template_state.uses_set_property = true;
                 return self.call_identifier(
                     span,

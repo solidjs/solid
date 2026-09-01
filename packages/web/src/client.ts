@@ -399,7 +399,21 @@ export function setProperty(node: Element, name: string, value: any): void;
 
 export function setProperty(node, name, value) {
   if (isHydrating(node)) return;
-  node[name] = value;
+  // Stateful DOM properties (DOMWithState) route through here in hydratable
+  // builds so the claim pass adopts pre-hydration user state instead of
+  // clobbering it (#3182). Mirror the special cases the compiler emits for
+  // the direct-assignment path: <select value> defers a microtask so options
+  // rendered later in the same pass are selectable, and input/textarea
+  // value/defaultValue clear on nullish instead of stringifying (#2957).
+  const nodeName = node.nodeName;
+  if (name === "value" && nodeName === "SELECT")
+    queueMicrotask(() => (node.value = value)) || (node.value = value);
+  else if (
+    (name === "value" || name === "defaultValue") &&
+    (nodeName === "INPUT" || nodeName === "TEXTAREA")
+  )
+    node[name] = value ?? "";
+  else node[name] = value;
 }
 
 // === Element claims ===

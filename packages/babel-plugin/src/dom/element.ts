@@ -407,7 +407,11 @@ export function setAttr(
   const isLocked = isLockedDOMProperty(tagName, name);
 
   if (isChildProp || namespace === "prop" || isLocked) {
-    if (config.hydratable && namespace !== "prop" && !isLocked) {
+    // Locked/stateful DOM properties (value/checked/...) must go through the
+    // runtime in hydratable builds so the hydration claim pass can adopt
+    // pre-hydration user state instead of overwriting it (#3182). setProperty
+    // carries the select-microtask and input/textarea nullish special cases.
+    if (config.hydratable && (isLocked || namespace !== "prop")) {
       return t.callExpression(registerImportMethod(path, "setProperty"), [
         elem,
         t.stringLiteral(name),
