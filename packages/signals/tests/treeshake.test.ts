@@ -126,7 +126,13 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // Core-retained by necessity: supersede happens in recompute, and the
     // async-iterable machinery is already part of the memo floor. Measured
     // at 21,331 post-change.
-    expect(minifiedBytes).toBeLessThan(21_400);
+    // CONSCIOUS BUMP (2026-09-01): +~92B for the pending twin of the #2949
+    // silent-recovery sweep (#3181) — recompute captures pending SOURCE-hood
+    // and runs settlePendingSource when a synchronous settle supersedes the
+    // flight that parked dependents. Core-retained by necessity: the
+    // supersede happens in recompute, and settlePendingSource is already
+    // part of the async floor. Measured at 21,423 post-change.
+    expect(minifiedBytes).toBeLessThan(21_500);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

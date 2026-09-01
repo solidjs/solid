@@ -1167,3 +1167,89 @@ describe("errored derive follows memo rules", () => {
     dispose();
   });
 });
+
+describe("a flight superseded by a synchronous settle wakes pending dependents (#3181)", () => {
+  // The cache-backed fetch shape (TanStack Query's adapter): the "cache"
+  // commits and announces via a signal write in the SAME synchronous step in
+  // which the flight's promise resolves. The write recomputes the derive
+  // first, so the flight lands pre-superseded — asyncWrite's
+  // settlePendingSource walk never runs, and before the recompute-side twin
+  // every dependent that registered the flight stayed STATUS_PENDING
+  // forever. The projection reconciles in place, so a memo over it recovers
+  // to an UNCHANGED value: nothing else ever re-notifies, and a reader that
+  // suspended through the memo re-parked on the dead source permanently.
+  it("notifies a leaf reader behind a memo over the projection", async () => {
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const throughMemo: Array<boolean> = [];
+    const direct: Array<boolean> = [];
+
+    let committed: { a: boolean };
+    let inFlight: Promise<{ value: { a: boolean } }> | null = null;
+    let land!: () => void;
+
+    const [version, setVersion] = createSignal(0);
+    const fetchNow = (next: { a: boolean }) => {
+      const gate = deferred<void>();
+      land = () => {
+        committed = next;
+        inFlight = null;
+        // announce first (sync recompute supersedes the flight)…
+        setVersion(v => v + 1);
+        // …then the flight's own promise resolves, already stale
+        gate.resolve();
+      };
+      inFlight = gate.promise.then(() => ({ value: next }));
+    };
+
+    let memo!: () => { a: boolean };
+    const dispose = createRoot(d => {
+      const store = createProjection(
+        () => {
+          version();
+          if (inFlight) return inFlight;
+          return { value: committed };
+        },
+        { value: { a: undefined as unknown as boolean } }
+      );
+      const data = () => store.value;
+      memo = createMemo(() => data());
+      createEffect(
+        () => memo().a,
+        v => {
+          throughMemo.push(v);
+        }
+      );
+      createEffect(
+        () => data().a,
+        v => {
+          direct.push(v);
+        }
+      );
+      return d;
+    });
+
+    fetchNow({ a: false });
+    flush();
+    land();
+    await sleep(5);
+    flush();
+    expect(throughMemo).toEqual([false]);
+    expect(direct).toEqual([false]);
+
+    // refetch: an extra announce while in flight, like the reporter's shape
+    fetchNow({ a: true });
+    setVersion(v => v + 1);
+    flush();
+    land();
+    await sleep(5);
+    flush();
+
+    // the commit is visible everywhere: directly, through the memo's own
+    // read, and — the regression — to the reader that suspended THROUGH the
+    // memo while the flight was pending
+    expect(direct).toEqual([false, true]);
+    expect(untrack(() => memo()).a).toBe(true);
+    expect(throughMemo).toEqual([false, true]);
+    dispose();
+  });
+});

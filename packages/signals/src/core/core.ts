@@ -4,7 +4,8 @@ import {
   notifyStatus,
   parkLoadingWindow,
   releaseFlightTeardown,
-  settleErroredDependents
+  settleErroredDependents,
+  settlePendingSource
 } from "./async.js";
 import {
   CONFIG_FW_CHILDREN,
@@ -240,6 +241,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // recovers to an unchanged value, dependents still holding this object must
   // be swept (settleErroredDependents, #2949).
   const outgoingError = el._statusFlags & STATUS_ERROR ? el._x?._error : undefined;
+  // Pending SOURCE-hood, captured before the compute clears status: a node
+  // whose own flight parked dependents self-registers in _pendingSources
+  // (notifyStatus, isSource). If this recompute supersedes that flight and
+  // settles synchronously, those dependents settle HERE — asyncWrite's
+  // settlePendingSource walk never runs for a landing that was preempted
+  // (#3181).
+  const wasPendingSource =
+    (el._statusFlags & STATUS_PENDING) !== 0 && el._x?._pendingSources?.has(el) === true;
   // Re-ask classification lives in the verdict module; capture the flag before
   // the recompute wipes _flags below.
   const hadReask = (el._flags & REACTIVE_REASK) !== 0;
@@ -504,6 +513,18 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // (el._x?._error re-set), so this only runs on a genuinely clean recovery.
     if (outgoingError !== undefined && !valueChanged && !el._x?._error)
       settleErroredDependents(el, outgoingError);
+
+    // Pending twin of the sweep above (#3181): a flight superseded by this
+    // synchronous settle leaves every registered dependent still flagged
+    // STATUS_PENDING with a pending source that will never land — asyncWrite
+    // owns the walk only for flights that actually land. An unchanged value
+    // is the dangerous shape (a projection reconciling in place: a memo over
+    // it re-throws its cached NotReadyError forever, and every reader that
+    // suspended through that memo re-parks on the dead source), but the walk
+    // runs on the changed shape too, exactly as the landing path does —
+    // insertSubs notifies value SUBSCRIBERS, not pending REGISTRANTS, and
+    // the two sets only partially overlap.
+    if (wasPendingSource && !(el._statusFlags & STATUS_PENDING)) settlePendingSource(el);
   }
   // Attribution hook: fired before the lane restore so `currentOptimisticLane`
   // still reflects THIS run's posture. The facts distinguish an overlay
