@@ -1,5 +1,66 @@
 # @solidjs/h
 
+## 2.0.0-rc.5
+
+### Patch Changes
+
+- 5ab6c61: Add the `selectedcontent` HTML element to the JSX intrinsic element types.
+- 07471da: Add typed preload links to the server asset pipeline.
+
+  Static manifests can attach `preloads: PreloadLink[]`, resolver results can carry the same shape for framework integrations, and any integration can register a link with `registerAsset("preload", link)`. The runtime preserves `as`, MIME type, CORS mode, integrity, referrer policy, fetch priority, and media attributes across string, streaming, embedded-head, custom-sink, and frame renders.
+
+  `lazy()` and `clientOnly()` forward resolver-provided preload links alongside their JS and CSS.
+
+  `JSX.HTMLPreloadAs` and `JSX.HTMLFetchPriority` are now exported for reuse.
+
+  Preload links are explicit: manifest `assets` are not preloaded automatically. Existing stylesheet and modulepreload APIs are unchanged.
+
+  Development builds warn when font or fetch preloads omit `crossorigin`, because a different eventual request mode cannot reuse that preload.
+
+  Frame clients also retain and consume every late root asset record instead of dropping earlier records that reuse the same transport key.
+
+- Updated dependencies [5ab6c61]
+- Updated dependencies [bacfb34]
+- Updated dependencies [51392f3]
+- Updated dependencies [02e0ebf]
+- Updated dependencies [ec52360]
+- Updated dependencies [da50a36]
+- Updated dependencies [2f18c56]
+- Updated dependencies [0932c89]
+- Updated dependencies [817b4d1]
+- Updated dependencies [929642b]
+- Updated dependencies [ecfee20]
+- Updated dependencies [30f9387]
+- Updated dependencies [af4cfc8]
+- Updated dependencies [be7bcd2]
+- Updated dependencies [08b4d1c]
+- Updated dependencies [93adc02]
+- Updated dependencies [19fa8b0]
+- Updated dependencies [1a95943]
+- Updated dependencies [5be07a8]
+- Updated dependencies [8963843]
+- Updated dependencies [8d34af1]
+- Updated dependencies [fc5d079]
+- Updated dependencies [1d2d1e5]
+- Updated dependencies [2320bc9]
+- Updated dependencies [2f6d8cc]
+- Updated dependencies [fe4bfa0]
+- Updated dependencies [02f87fe]
+- Updated dependencies [5230666]
+- Updated dependencies [653dd41]
+- Updated dependencies [8d17083]
+- Updated dependencies [006a115]
+- Updated dependencies [e637272]
+- Updated dependencies [0b9d69a]
+- Updated dependencies [f739ec3]
+- Updated dependencies [9522945]
+- Updated dependencies [45f6b5f]
+- Updated dependencies [fe4bfa0]
+- Updated dependencies [21a5122]
+- Updated dependencies [f06f7b1]
+- Updated dependencies [07471da]
+  - @solidjs/web@2.0.0-rc.5
+
 ## 2.0.0-rc.4
 
 ### Patch Changes

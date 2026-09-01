@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/diagnostics",
-  "version": "2.0.0-rc.4",
+  "version": "2.0.0-rc.5",
   "description": "Agent-consumable diagnostics harness for Solid: capture the dev-mode diagnostic and attribution channels as structured artifacts, with assertion helpers for tests and agent loops.",
   "author": "Ryan Carniato",
   "license": "MIT",
@@ -52,7 +52,7 @@
     "test:watch": "vitest watch tests"
   },
   "dependencies": {
-    "@solidjs/signals": "^2.0.0-rc.4"
+    "@solidjs/signals": "^2.0.0-rc.5"
   },
   "peerDependencies": {
     "vitest": ">=2.0.0"

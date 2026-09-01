@@ -3,7 +3,7 @@
   "description": "Webcomponents wrapper for Solid",
   "author": "Ryan Carniato",
   "license": "MIT",
-  "version": "2.0.0-rc.4",
+  "version": "2.0.0-rc.5",
   "homepage": "https://github.com/solidjs/solid/blob/main/packages/element#readme",
   "repository": {
     "type": "git",
@@ -30,8 +30,8 @@
     "component-register": "^0.8.7"
   },
   "peerDependencies": {
-    "solid-js": "^2.0.0-rc.4",
-    "@solidjs/web": "^2.0.0-rc.4"
+    "solid-js": "^2.0.0-rc.5",
+    "@solidjs/web": "^2.0.0-rc.5"
   },
   "devDependencies": {
     "solid-js": "workspace:*",

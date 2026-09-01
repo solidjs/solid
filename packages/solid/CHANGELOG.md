@@ -1,5 +1,53 @@
 # solid-js
 
+## 2.0.0-rc.5
+
+### Patch Changes
+
+- 51ffcb9: `refresh(target)` now returns a promise for the target's next QUIESCENT state — the re-ask (and anything that supersedes it) has settled. Accessor targets resolve with the settled value; store targets resolve with the store node passed (nested targets re-ask the whole family but resolve with the node the caller was looking at). A failed re-ask rejects, so `yield refresh(x)` in an action throws back at the yield point and reverts like any failed step; an ignored promise never surfaces an unhandled rejection, keeping fire-and-forget refresh unchanged. Semantics are quiescence, not flight identity: a superseding refresh folds every waiter onto whatever finally lands. Inside actions, truth landing into the held transaction is staged; the promise settles then (matching `resolve()`/`until()` delivery) and delivers the staged value — never the caller's optimistic override. The re-ask stays verdict-quiet (`isPending` unchanged).
+
+  Implementation is pay-for-use and shares `resolve()`/`until()`'s effect machinery: the waiter is a microtask-delivered, direct-commit, authoritative-read effect over the marked node, deferred one microtask so same-tick refreshes still coalesce into a single re-ask. One new reader bit (`CONFIG_FRESH_READ`) makes the waiter's read pull a still-dirty source through recompute inline — it then parks on the re-ask's pending window (woken by the settle walk, which runs on every landing including equal-value ones) or serves the sync answer, instead of misreading the pre-re-ask value as settled. `updateIfNecessary` now also refuses disposed nodes outright (#2983's bug class), and a disposed or non-derived target resolves immediately with its last value.
+
+- 91e300a: Fix `<For>` followed by siblings desyncing hydration (#3161, rc.4 regression). The patch-mode list seam made `For`'s `mapArray` creation lazy, but hydration ids mint at creation time — deferring to first read spent the list's id scope after later siblings had already claimed their template keys, shifting every hydration key after the list and leaving the siblings detached (dead buttons). A hydrating `For` now creates its map eagerly at source position, restoring rc.3 id parity; outside hydration the lazy creation stands.
+- 00d1d5d: Stop exposing generated declaration files through `solid-js/types/*`. Public values and types remain available from `solid-js`; keeping implementation declarations private also prevents TypeScript from suggesting invalid runtime imports such as `solid-js/types/server/signals.js`.
+- 07471da: Add typed preload links to the server asset pipeline.
+
+  Static manifests can attach `preloads: PreloadLink[]`, resolver results can carry the same shape for framework integrations, and any integration can register a link with `registerAsset("preload", link)`. The runtime preserves `as`, MIME type, CORS mode, integrity, referrer policy, fetch priority, and media attributes across string, streaming, embedded-head, custom-sink, and frame renders.
+
+  `lazy()` and `clientOnly()` forward resolver-provided preload links alongside their JS and CSS.
+
+  `JSX.HTMLPreloadAs` and `JSX.HTMLFetchPriority` are now exported for reuse.
+
+  Preload links are explicit: manifest `assets` are not preloaded automatically. Existing stylesheet and modulepreload APIs are unchanged.
+
+  Development builds warn when font or fetch preloads omit `crossorigin`, because a different eventual request mode cannot reuse that preload.
+
+  Frame clients also retain and consume every late root asset record instead of dropping earlier records that reuse the same transport key.
+
+- 0c02d42: Add `until(fn, options?)` — the acknowledgment primitive for mutations confirmed on a live data channel (sockets, subscriptions, live queries) rather than by the mutation's own response. Resolves the first time the reactive predicate settles truthy (falsy and pending both mean "not yet"); `yield until(...)` from an action holds the transaction — and its optimistic state — open until the world confirms, with `{ timeout }` (`TimeoutError`) and `{ signal }` rejections throwing back at the yield point so failed holds revert like any failed action.
+
+  The predicate reads the AUTHORITATIVE view, and the carve-out is exactly one layer deep: the caller's own optimistic overrides (values and structure) are invisible, so a tentative write can never satisfy its own ack — including on the single-primitive shape where the optimistic store is the live-fed store. Everything else reads normally, including uncommitted transition-staged data: truth landing into the open transaction (e.g. a `refresh()` the action issued) stages and cannot commit until the hold releases, so refusing staged reads would deadlock the hold on its own data plane. The A17-silent "landing equals the override" paths wake authoritative readers only (`CONFIG_AUTHORITATIVE_OBSERVED`); the wakeup machinery is hook-installed at first `until()` call so unused apps tree-shake it.
+
+  Also fixes `resolve()` (and `until()`) delivering stale values when their source settles into a held transaction: promise-delivery effects apply on a microtask (#2930) but their computed value staged with the transition, so the immediate apply read stale mainline state — `resolve` could report pre-refresh data and `until` could deadlock. Such effects now commit their value directly (`CONFIG_DIRECT_COMMIT`), keeping value and delivery on the same schedule; safe because effects are private leaves (no subscriber reads an effect's value).
+
+- Updated dependencies [51ffcb9]
+- Updated dependencies [28a1eaf]
+- Updated dependencies [ca16891]
+- Updated dependencies [751f991]
+- Updated dependencies [ed2fb43]
+- Updated dependencies [893b8f9]
+- Updated dependencies [2023daa]
+- Updated dependencies [3e3676b]
+- Updated dependencies [09bbe24]
+- Updated dependencies [88fa9d6]
+- Updated dependencies [fa13761]
+- Updated dependencies [90603c5]
+- Updated dependencies [a536e29]
+- Updated dependencies [4ee9e3b]
+- Updated dependencies [1ece086]
+- Updated dependencies [0c02d42]
+  - @solidjs/signals@2.0.0-rc.5
+
 ## 2.0.0-rc.4
 
 ### Minor Changes

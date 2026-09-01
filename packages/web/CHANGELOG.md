@@ -1,5 +1,212 @@
 # @solidjs/web
 
+## 2.0.0-rc.5
+
+### Patch Changes
+
+- 5ab6c61: Add the `selectedcontent` HTML element to the JSX intrinsic element types.
+- bacfb34: Add `serializeErrorStacks` to the serialization codec options (and `createSerializer`): error-stack disclosure defaulted to `NODE_ENV === "development"`, which describes the process rather than the artifact — a production build run with `NODE_ENV=development` shipped stacks to the wire, including application-code stacks for errors marked with `markSafeError`. Deployments can now pin `codec: { serializeErrorStacks: false }` regardless of the ambient variable (#3152)
+- 51392f3: Bound what a server-function call may send (#3115). The argument payload is buffered and decoded before dispatch, so its cost was paid before application code could decline it: a 32 MB body was accepted and decoded, and a modest argument list forced a range error out of any function when spread into the call. `bodySizeLimit` (default 1 MiB, matching the neighbours' server-action ceilings) now refuses an oversized POST body or `?args=` encoding with 413 before any decoding — a declared Content-Length is checked up front, a chunked body is buffered under the cap — and `maxArguments` (default 1000) refuses an oversized argument list with 400. Both are configurable through `configureServerFunctionsServer` and per-handler options; `Infinity` removes a bound. The decode depth cap also now holds whichever body format the caller selects (#3119): the plain-JSON format walked into a bare `JSON.parse` with no ceiling, where the framed codec enforced 64 levels — the same ceiling now applies to both, and a non-array argument encoding in either body format answers 400 instead of surfacing as the function's own failure.
+- 02e0ebf: Enforce the `Location`/`X-Revalidate` bounds at the transport edge (#3158). `redirect()` and the revalidate helpers refuse over-long values, but a hand-built `Response` reached the wire unchecked — a ~1 MB `Location` became a ~1 MB redirect header, to die at the proxy after the mutation committed. The bound is now a property of the transport, one check where the composed headers leave for every producer; the helpers' authoring-time throws remain the legible fast path. Refused, never trimmed: a cut target is a different address, a dropped revalidate key is a silently stale cache.
+- ec52360: Contain flight-data collector errors per source: a throwing collector no longer fails the mutation response (the client received an error for a mutation that succeeded) or drop the other sources' slices — the failing source is simply omitted and logged.
+- da50a36: Warn in dev when a scripted server function call is answered with 304 Not Modified (#3101). The scripted transport sends no conditional headers, so a hand-rolled 304 resolves the call to `undefined` rather than "unchanged" — the warning points at GET-declared reads with ETag/Cache-Control, where the browser owns the conditional exchange and replays its cached answer.
+- 2f18c56: Deliver a server-function encode failure as a failure, not an empty success (#3117). When the codec could not encode a result, the head was already committed — status spent, no error tag possible — and the body simply stopped; a truncated body decodes to `undefined`, the same answer a void function gives, so a mutation that ran and committed its side effects was indistinguishable from one that returned nothing, and a data layer might retry it. The failure now travels in band: a terminal error-trailer frame (a `!`-prefixed payload on the existing chunk framing, unambiguous because codec frames always open with `{`) that the decoder throws — as the call's failure when it is the first frame, and into every still-pending async value when a later value's encoding fails mid-stream, with the delivered head keeping its data. The trailer is sanitized like any thrown error (generic in production, cause preserved in dev via `Server function result could not be encoded: …`). Version skew degrades safely: an old client reading a trailer fails the call with a decode error rather than resolving `undefined`.
+- 0932c89: Amortize ChunkReader buffer growth: the framed-stream reader reallocated and copied everything received so far on every network read, making one frame O(reads²) — ~200× the CPU for a payload delivered at slow-client read sizes, on both the server (argument decode) and client (response decode) legs. Growth now appends in place, compacts drained frames, and reallocates at ≥2× only when outgrown (#3154)
+- 817b4d1: Bound the composed redirect and revalidate response headers (#3131, the
+  #3093 class). A 20K-character redirect target or a few hundred
+  revalidation keys produced a header past receivers' limits — undici's
+  16 KiB default, nginx's one-page proxy buffer for the whole header block —
+  so the response died at the socket (HPE_HEADER_OVERFLOW) after the
+  mutation committed. Truncation is not an option for these values the way
+  it was for #3093's error label: a trimmed target is a different address
+  and a trimmed key list is a silently stale cache. So `redirect()` and the
+  `revalidate` option now refuse past 4096 characters with a legible error
+  naming the remedy (carry the state server-side; split the invalidation or
+  use coarser keys). The bound sits in the producing helpers, which run
+  inside the function body, so both the returned and thrown spellings land
+  on the ordinary error path — what leaves dispatch is the error shape,
+  attributable and parseable. A raw `Response` built by hand with an
+  oversized `Location` remains the author's own; only the helpers are
+  bounded.
+- 929642b: Trust only a conforming (digit-string) Content-Length in the bodySizeLimit guard: a negative declaration (`-1`) satisfied neither the over-limit check nor the undeclared-body buffer path and streamed the body into the decoder uncapped; non-conforming declarations now route through the bounded buffer (#3153)
+- ecfee20: Two cookie fixes. The no-JS flash cookie now degrades instead of vanishing
+  when an outcome exceeds the browser's 4 KB cookie ceiling (#3137): past it
+  the whole Set-Cookie was silently discarded — no error anywhere, and the
+  page after the redirect looked like nothing was submitted, inviting the
+  retry that writes twice. The encoder drops the input echo first, then
+  bounds the value itself (a string keeps the longest prefix that fits,
+  structured results reduce to the outcome flag), and the submission arrives
+  with `truncated` set so integrations can say "succeeded, result too large
+  to display". And `serializeCookie` now refuses in dev the shapes every
+  browser silently rejects on arrival (#3138): `__Host-`/`__Secure-` prefix
+  requirements and `SameSite=None`/`Partitioned` without `Secure` — each one
+  attribute away from a cookie that never comes back, with login-shaped
+  consequences. The validation compiles out of production builds. CHIPS
+  `partitioned` is also supported now, so partitioned third-party cookies no
+  longer require hand-building the header string.
+- 30f9387: Direct (SSR-time) server-function calls now run under a per-call shallow copy of the render's `locals` instead of sharing the object: concurrent calls no longer overwrite each other's (and the render's) per-request context. Reads still inherit everything middleware set, and nested objects stay shared by reference; `event.response` remains deliberately shared (#3156)
+- af4cfc8: Two server-function grant fixes (#3129, #3128). A `GET()` declaration now
+  dies with the binding it was made about: `registerServerFunction` revokes
+  the id's declared method when it rebinds the id to a different function,
+  so a mutation registered onto a once-declared id (an id collision, a
+  module re-evaluated in a live process after an edit dropped the wrapper)
+  no longer inherits GET dispatch and the origin-gate exemption — a function
+  that still declares GET re-runs `GET()` right after re-registering, which
+  re-arms the grant exactly when it is still meant. And the single-flight
+  request header is now honored on POST only, the server half of the
+  client's own rule: folding on a GET would put a second body — an envelope
+  carrying data computed from that caller's request — at a cacheable url
+  under whatever public Cache-Control the author wrote, with nothing naming
+  the variance, one curl away from a shared-cache poisoning.
+- be7bcd2: The bare server-function address no longer decides its answer shape by the
+  absence of a header (#3139). The no-JS redirect convention (303, outcome
+  in the flash cookie) engaged on shape alone — form content type, no format
+  tag — which a page script's `fetch(url, { body: new URLSearchParams(...) })`
+  also matches: the script followed the 303 to the referrer's HTML, read
+  `response.ok === true`, and its answer disappeared into a cookie it would
+  never look at. Dispatch now reads the browser's own word for the caller
+  kind: `Sec-Fetch-Mode: navigate` (or no fetch metadata, for older
+  browsers) keeps the convention, while a script's form-shaped post is
+  refused 400 before dispatch — before the mutation runs — pointing at the
+  data address and the format tag, the two spellings that work. Tagged
+  direct-HTTP callers keep the plain response as documented.
+- 08b4d1c: Never mutate an application-held Response: the server-function handler takes ownership of the dispatched Response with a copy before any transport stamp lands, and `commitEventResponse` folds cookies/gap-fill headers onto a rebuilt Response instead of writing in place — a module-level cached Response no longer accumulates every caller's Set-Cookie (one user's session cookie served to the next) (#3155)
+- 93adc02: Three transport-correctness fixes on the server-function HTTP surface. A
+  POST whose body-format tag names no decoding this runtime has — an unknown
+  tag, a duplicated format header comma-joined by `Headers`, an untagged
+  non-form body — is refused 400 before dispatch instead of calling the
+  function with a substituted `undefined` argument that let the mutation
+  commit and answer 200 (#3130). The transport's defaulted
+  `Cache-Control: no-store` is no longer written onto a 304, which is a
+  cache UPDATE rather than a stored response — the default was instructing
+  caches to evict the very entry the conditional request had just confirmed
+  (#3134). And `redirect()` percent-encodes non-ASCII code points in its
+  target before the value touches the latin1 `Location` header: targets
+  above U+00FF used to throw (masked as a sanitized 500) and latin1-range
+  characters rode as raw bytes a client decoded to U+FFFD, redirecting
+  `/café` to `/caf%EF%BF%BD` (#3135). ASCII passes through untouched, so
+  already-encoded targets are not double-encoded.
+- 19fa8b0: Fix two server-function transport encoding issues:
+  - Bound the error response header value (#3093). The header is a classification label — the structured error travels in the body — so long thrown messages (nine-fold inflated by percent-encoding for non-latin1 text) no longer blow past receiver header limits and turn the application error into an unreadable response.
+  - Support null-body statuses (204, 205, 304) (#3095). `respond(undefined, { status: 204 })` and raw null-body `Response`s now answer with a real bodiless response at the declared status instead of a `TypeError` from the `Response` constructor that dispatch sanitized into a phantom generic error at 200. A value-carrying result on a null-body status is reported as a legible authoring error naming the status, in every build.
+
+- 1a95943: Server-function failure is now signaled by the protocol's error tag alone, and thrown errors answer a real 500 (#3097). The client no longer treats `status >= 500` as failure on responses the runtime encoded — `respond(value, { status: 500 })` resolves with its value like any other returned value, and only a thrown outcome rejects. A peer's own 5xx (proxy, load balancer) carries no body-format header and is still refused before decoding. On the server, a plain thrown error now answers 500 instead of 200-with-tag, so intermediaries — CDN metrics, load-balancer health, log alerts — see what the tag tells the client; thrown envelopes keep the author's status as before.
+- 5be07a8: Forward an author's 3xx status consistently (#3096). The scripted redirect mask now covers exactly the statuses fetch follows (301, 302, 303, 307, 308) — a 304, the natural answer for a conditional read, forwards untouched for every caller. Returned envelopes keep their status for unscripted callers (the returned path used to hardcode 200 where the thrown path forwarded it), and the no-JS form convention honors a returned redirect envelope's Location the way it already honored a thrown one.
+- 8963843: Fix SSR stream never closing when a fragment rejects terminally while async work in its subtree is still pending (#3165). Pending promises written to the hydration serializer now join an abandonment ledger keyed by hydration id; a fragment settling with an error releases everything under its key — descendant registry fragments settle so `flushEnd` can drain, and abandoned serialized deferreds resolve so seroval's completion fires. Independent live boundaries keep gating the response as before.
+- 8d34af1: Answer the labelled version-skew 404 before the CSRF origin gate (#3136).
+  A removed id is no longer in METHODS, so it could not be recognised as a
+  declared read and the gate fired on it: every caller without origin proof
+  — a CDN revalidating a GET-declared read, an uptime monitor, a
+  server-to-server client (Node's fetch sends none of the headers the gate
+  reads) — got a bare 403 instead of the `X-Server-Function-Unknown` 404,
+  so a deploy that removed a function read as an auth/WAF failure in the
+  edge logs and the #3110 recovery signal was invisible. Nothing is
+  registered at an unknown id, so the gate had nothing there to protect,
+  and the ids were never secret — the compiler ships them in the client
+  bundle. The hoisted lookup is a side-effect-free Map read, the labelled
+  404 no longer carries the CSRF `Vary` (its answer does not depend on
+  origin proof, so it must not fragment shared-cache entries on it), and
+  the meaningless-path 404 stays bare and stays gated. Diagnosed, measured,
+  and drafted by @frenzzy.
+- fc5d079: Name the contract a `GET()` declaration signs, and add the opt-out of its trade (#3114). The origin gate is skipped for GET-declared reads by design — same-origin policy already keeps a cross-site caller from reading the response, and the gate's `Vary` fragments the shared-cache entries the helper exists to enable — which makes declaring GET a safety assertion, not only a transport choice: the function becomes executable from any origin, with caller-chosen arguments, carrying the user's ambient cookies. That contract is now stated on `GET()`'s documentation on both entries (declare GET only for reads that are safe in the RFC 9110 §9.2.1 sense), and `csrf: { protectDeclaredReads: true }` lets a deployment that does not rely on shared caches apply the origin gate to its reads as well. Both halves are pinned by tests: the default skip, and the opt-in gate.
+- 1d2d1e5: Fix a deep-but-legal server function result being reported as a failed call (#3160). `guardFailures` walked the result recursively, so ~10k+ nesting overflowed the stack and the `RangeError` escaped into dispatch's catch as a phantom function error — a successful, committed call answered with a generic 500. The container walk now carries an explicit stack (the `isJSONSafe` precedent), and any residual synchronous throw on the codec road is renamed to an encode error before rethrow so misattribution cannot recur from another cause.
+- 2320bc9: Channels behind a plain-object getter or used as a Map key are now guarded (#3176). The failure-guard walk previously skipped both while the codec pumped them anyway, so a rejecting promise behind either rode the wire with its raw message, streams reached that way were never torn down at disconnect, and the getter shape could take the whole process down as an unhandled rejection (the fast-JSON probe minted an extra, unobserved promise per read). Getters are now invoked exactly once and materialized as data properties, Map keys are walked like values, the JSON-safe probe reads through descriptors so it never invokes an accessor, and a throwing getter fails the call as a sanitized 500 instead of an encode-time in-band failure.
+- 2f6d8cc: Label the unknown-id 404 so version skew is recoverable (#3110). A call whose well-formed address is not registered in the answering deployment — a tab holding the previous build's ids across a deploy, or a genuinely removed function — now answers with an `X-Server-Function-Unknown` header, and the client stamps `unknownFunction: true` (plus a directed message) on the rejection. Integrations can act on it — typically by reloading the document onto the current build — instead of surfacing a generic failed call. A 404 for a path the address scheme gives no meaning to stays unlabelled.
+- fe4bfa0: Type the client `live()` reference truthfully: calling it returns the reconnecting iterable itself, synchronously — not a `Promise` of one. The declaration previously routed through `ServerFunction`, whose call signature promises `Promise<T>`; the mismatch was masked by the dangling declaration references this release also fixes. Isomorphic consumers are unaffected: they `await` the call, and awaiting the client's plain iterable is identity.
+- 02f87fe: live() reconnects through the 4xx statuses that say "retry" and honors Retry-After (#3100). The reconnect loop treated the whole 4xx band as a definite rejection, so a rate limiter's 429 — or a gateway's 408 — permanently closed a healthy stream. 408 (RFC 9110 §15.5.9), 425 (RFC 8470) and 429 (RFC 6585 §4) now reconnect like a 5xx, as does any failure whose response carries Retry-After — the peer inviting the retry in as many words. A named Retry-After wait (seconds or HTTP-date, stamped on the error as `retryAfter` in seconds for policy layers) replaces the exponential backoff guess for that attempt, capped at 60s so a misconfigured header cannot end the stream in all but name.
+- 5230666: Fix hydration ids drifting after a reactive lone spread (#3105). A lone spread now passes its accessor straight to `spread()` on the client — no `mergeProps`, no memo, no hydration id — matching the server's existing pass-through fast path. The runtime resolves a function props source inside its own tracking scopes.
+- 653dd41: Multi-source single-flight: named flight-data sources alongside the unnamed hook
+
+  The single-flight channel assumed exactly one data-owning integration — one
+  `collectFlightData` hook on the server, one `subscribeFlightData` consumer on
+  the client, later registrations displacing earlier ones. An app running two
+  caches (a router's route data and a query library's client) had no way to
+  refresh both from one mutation response: whichever library registered last
+  silently won.
+
+  The channel now multiplexes named sources over the same round trip:
+  - `registerFlightDataSource(id, hook)` (server) registers a collector
+    additively next to the unnamed `collectFlightData` slot, which remains the
+    data-owning integration's (a router's).
+  - `subscribeFlightData(id, consumer)` (client) subscribes a consumer to its
+    source's slice; the bare legacy signature keeps meaning the unnamed source.
+  - The request-leg `X-Single-Flight` header now carries the subscribed source
+    ids, so the server only runs collectors the client can consume; the
+    response leg echoes the ids actually folded, making the payload shape
+    self-describing. With named sources in play, `data` is the keyed envelope
+    `{ [source]: slice, ... }` and each slice is delivered to its consumer,
+    awaited, before the mutation's promise resolves.
+
+  Fully wire-compatible in every cross-version pairing: a lone unnamed
+  registration still sends and echoes the literal `true` with the raw payload
+  shape, byte-identical to the previous protocol, and unrecognized opt-in
+  values from hand-tagged requests still reach the unnamed hook. Existing
+  integrations (Solid Router, TanStack Solid Start) keep working unchanged; the
+  keyed envelope only materializes when a named source registers on both ends.
+
+- 8d17083: Server function response streaming now demand-gates and tears down every async-iterable or ReadableStream source in the result graph, not just a top-level one (#3125). A stream nested inside the result (`{ items: rows(), total }`) no longer produces unbounded ahead of a slow consumer, and a cancelled or aborted request closes it — `iterator.return()` runs, so generator `finally` blocks release their resources instead of leaking per abandoned request. The demand gate is shared across concurrently pumped sources (a consumer read wakes all parked pulls; each steps once and re-parks).
+- 006a115: Carry masked redirects in a dedicated header and retire the RC transition shims. Scripted callers now receive redirects as `X-Server-Function-Redirect: <status> <url>` with the target resolved server-side against the request URL (#3102) — `Location` never rides a masked 200, so an authored `Location` on a forwarding status (a 201's created-at) stays data, and integrations compare origins on a real URL instead of guessing navigation strategy from the author's spelling (#3107). `decodeRedirectHeaderValue` is exported for readers. Removed the transitional instance-header scripted fallback at the bare address and its forced no-store (#3094): the answer shape is now a function of the URL alone, with the data address as the only scripted path.
+- e637272: Navigation targets now carry an http(s) scheme floor on both legs of the redirect header (#3175). `maskRedirect` resolves targets with `new URL(target, requestUrl)` where an absolute scheme wins over the base, so `throw redirect(next)` with user data emitted `javascript:alert(document.cookie)` as the header's "resolved absolute target" — same-origin script execution in any integration that navigates to the decoded value. The transport now refuses non-http(s) schemes on `X-Server-Function-Redirect` and `Location` with a sanitized 500 (relative targets and cross-origin http(s) still flow — the same-origin-vs-allowlist policy is a separate, pending decision), and `decodeRedirectHeaderValue` enforces the resolved-absolute-http(s) contract it documents, so a hostile peer cannot re-open the class against `location.href = decoded.url` integrations.
+- 0b9d69a: Fix post-`createEvent` refusals silently dropping the event's response stub (#3159). The scripted-form 400, malformed-arguments 400, and maxArguments 400 returned directly instead of through `commitEventResponse`, so a `Set-Cookie` an integration wrote in `createEvent` (a rotated session, a fresh CSRF token) never reached the browser on exactly the requests where something already went wrong. Every exit past `createEvent` now folds and commits the stub, which also arms the stub's late-write instrumentation on refusals.
+- f739ec3: Sanitize a failure that escapes through a server function's result graph.
+  `sanitizeServerError` guarded the one road a thrown error takes out of
+  dispatch; a rejected promise, an async iterable that throws, or a stream
+  that errors reaches the codec as a value to encode instead, and shipped
+  its `message` and every own-property to the client verbatim — a driver
+  error's failing query, connection string and bound params included —
+  under a 200 carrying no error tag, because the head was already
+  committed. Those channels are now wrapped before either serializer sees
+  them: the response encoder and the frames flight sink, which encodes its
+  outcome with a serializer of its own.
+
+  The walk covers plain objects, arrays, `Map` and `Set`. A channel held by
+  a class instance or behind an accessor is left alone — rebuilding one and
+  invoking the other are not the runtime's to do. `markSafeError` remains
+  the escape hatch, an `Error` that is a returned value is untouched, and
+  the wire format is unchanged, cycles and shared references included.
+
+- 9522945: Scripted server-function calls now go to their own data address, `<endpoint>/data/<id>`, leaving the bare `<endpoint>/<id>` address to plain HTTP (#3094). The two caller kinds get differently shaped answers — codec encodings for the client transport, verbatim responses / form-convention handling for everyone else — and shared caches key on the URL, so a header-driven shape meant one caller kind's cached answer could be replayed to the other (a `GET`-declared function returning a raw `Response` with a public cache policy could serve its codec encoding to a browser navigation, or its raw body to the app's own transport). The answer's shape is now a function of the URL alone. A reference's `.url` and rendered action urls stay on the bare address; reconstructed callables splice the `data` segment in ahead of the id for their own calls. Transitional: the instance header still summons the scripted shape at the bare address so already-loaded tabs survive a server deploy, with those answers forced `no-store`.
+- 45f6b5f: Three server-function transport guards: the CSRF origin matcher's verdict is now checked strictly (`=== true`) so truthy non-booleans fail closed instead of open (#3169); an async `createEvent` is awaited instead of flowing downstream as a pending Promise that dropped every header the integration wrote while answering 200 (#3170); and a throwing `transformResult` on the thrown path is contained to the same sanitized 500 it produces on the return path instead of escaping the handler (#3171).
+- fe4bfa0: Fix server function references typing as `any`: the emitted `server-functions` declarations referenced `ServerFunction`/`ServerFunctionMetadata` without importing them (the `export type` blocks only re-export the names), so under `skipLibCheck` every `GET`/`live`/`createServerReference` return type silently collapsed to `any` for consumers.
+- 21a5122: Single-flight always folds the keyed envelope — the raw legacy payload shape is gone with the other RC shims. The unnamed registration's slice rides under its reserved id "true" like any named source, so `{ value, data }` has one shape, not two; the client always delivers `data[source]` to each consumer. The unrecognized-opt-in courtesy (arbitrary truthy header values reaching the unnamed hook) is also removed: only exact source ids run collection.
+- f06f7b1: Pull a streamed server-function result behind a demand gate (#3118). The
+  response stream was built with no `pull` and no queuing strategy, and
+  every codec node is enqueued the moment it is parsed, so the producer ran
+  as fast as it could resolve whether or not anyone was reading: one slow
+  consumer buffered the whole result in server memory, unbounded and
+  invisible to application code. The consumer's reads now drive `pull`,
+  which releases one source pull at a time, so an unread stream stays near
+  the queue size instead of running away.
+
+  Scope: the gate sits on the source the runtime wraps, which is the
+  result itself. An async iterable nested inside the result — `{ items:
+rows() }` — is pumped by the codec directly and is not yet gated. Ending
+  the stream releases a parked pull, so an aborted, cancelled or failed
+  stream still closes its source; a consumer that abandons a stream without
+  cancelling it now leaves the producer parked rather than running it to
+  completion.
+
+- 07471da: Add typed preload links to the server asset pipeline.
+
+  Static manifests can attach `preloads: PreloadLink[]`, resolver results can carry the same shape for framework integrations, and any integration can register a link with `registerAsset("preload", link)`. The runtime preserves `as`, MIME type, CORS mode, integrity, referrer policy, fetch priority, and media attributes across string, streaming, embedded-head, custom-sink, and frame renders.
+
+  `lazy()` and `clientOnly()` forward resolver-provided preload links alongside their JS and CSS.
+
+  `JSX.HTMLPreloadAs` and `JSX.HTMLFetchPriority` are now exported for reuse.
+
+  Preload links are explicit: manifest `assets` are not preloaded automatically. Existing stylesheet and modulepreload APIs are unchanged.
+
+  Development builds warn when font or fetch preloads omit `crossorigin`, because a different eventual request mode cannot reuse that preload.
+
+  Frame clients also retain and consume every late root asset record instead of dropping earlier records that reuse the same transport key.
+
+- Updated dependencies [51ffcb9]
+- Updated dependencies [91e300a]
+- Updated dependencies [00d1d5d]
+- Updated dependencies [07471da]
+- Updated dependencies [0c02d42]
+  - solid-js@2.0.0-rc.5
+
 ## 2.0.0-rc.4
 
 ### Minor Changes

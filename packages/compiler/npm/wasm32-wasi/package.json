@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/compiler-wasm32-wasi",
-  "version": "2.0.0-rc.4",
+  "version": "2.0.0-rc.5",
   "main": "compiler.wasi.cjs",
   "files": [
     "compiler.wasm32-wasi.wasm",
