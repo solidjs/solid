@@ -455,6 +455,23 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
   return value as T;
 }
 
+/**
+ * A latest() shadow that is uninitialized only because it was CREATED during
+ * an active flight — its parent source already has a committed value, so
+ * latest() serves that as the visible value and a tracked reader has
+ * something to pair a verdict with (#3166). Same parent resolution as
+ * computePendingState. The pending signal companion also carries
+ * `_parentSource` but is a plain signal (no `_fn`) that never goes pending,
+ * so the `_fn` check is belt-and-braces for this call site.
+ */
+function latestShadowWithInitializedParent(owner: Signal<any> | Computed<any>): boolean {
+  if (typeof (owner as Partial<Computed<any>>)._fn !== "function") return false;
+  const parentNode = owner._x?._parentSource as FirewallSignal<any> | undefined;
+  if (parentNode === undefined) return false;
+  const parent = (parentNode._firewall || parentNode) as Computed<any>;
+  return !(parent._statusFlags & STATUS_UNINITIALIZED);
+}
+
 /** The isPending()-probe read path, installed as GlobalQueue._pendingCheck. */
 function pendingCheckRead(
   el: Signal<any> | Computed<any>,
@@ -466,7 +483,21 @@ function pendingCheckRead(
   if (typeof (el as Partial<Computed<unknown>>)._fn === "function")
     prepareComputed(el as Computed<unknown>, true);
   const ownerStatus = (owner as Computed<any>)._statusFlags!;
-  if (c && ownerStatus & STATUS_PENDING && ownerStatus & STATUS_UNINITIALIZED) {
+  if (
+    c &&
+    ownerStatus & STATUS_PENDING &&
+    ownerStatus & STATUS_UNINITIALIZED &&
+    // The suspend-throw is for a genuinely-first-load source: the tracked
+    // reader has nothing to pair a verdict with, so it parks on the source.
+    // A latest() SHADOW created lazily mid-flight is born uninitialized even
+    // though its parent has a committed value latest() will serve — throwing
+    // here (swallowed by latestRead's fallback) dropped the shadow from the
+    // probe, so a tracked latest(isPending()) probe created during a
+    // new-question flight cached `false` for that whole flight (#3166).
+    // Defer to the PARENT's initialization state and fall through to normal
+    // collection; the plain pending throw downstream still links the reader.
+    !latestShadowWithInitializedParent(owner)
+  ) {
     if (tracking && el !== c) link(el, c);
     setPendingCheckActive(true);
     throw (owner as Computed<any>)._x?._error;
