@@ -194,10 +194,21 @@ export function settlePendingSource(el: Computed<any>): void {
   // happened — parked readers would wake into a value that was never
   // produced (the rc.5 regression: the recompute-side walk fired on a
   // projection driver whose first flight was superseded before any commit
-  // reached the observable store). Silent in production; loud in dev so a
-  // future call site that violates the contract fails in its author's test
-  // run instead of wedging a downstream app.
-  if (__DEV__ && el._statusFlags & STATUS_UNINITIALIZED) {
+  // reached the observable store). "Uninitialized" alone is not the tell,
+  // though: a first landing whose commit is transition-held (streamed
+  // hydration rides this) parks its value in `_pendingValue` with the flag
+  // still set, and a comparator throw on that landing leaves the node
+  // uninitialized but errored — both have real truth to reveal. Only an
+  // uninitialized node with neither a held value nor an error is a settle
+  // that never happened. Silent in production; loud in dev so a future
+  // call site that violates the contract fails in its author's test run
+  // instead of wedging a downstream app.
+  if (
+    __DEV__ &&
+    el._statusFlags & STATUS_UNINITIALIZED &&
+    el._pendingValue === NOT_PENDING &&
+    !el._x?._error
+  ) {
     emitDiagnostic({
       code: "SETTLE_WALK_UNINITIALIZED_SOURCE",
       kind: "lifecycle",
