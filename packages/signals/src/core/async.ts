@@ -197,7 +197,14 @@ export function settlePendingSource(el: Computed<any>): void {
   // reached the observable store). Silent in production; loud in dev so a
   // future call site that violates the contract fails in its author's test
   // run instead of wedging a downstream app.
-  if (__DEV__ && el._statusFlags & STATUS_UNINITIALIZED) {
+  //
+  // A transition-held landing is exempt: the value HAS been produced — it is
+  // staged in `_pendingValue`, uncommitted because an override still masks it
+  // (A17), so the node reads STATUS_UNINITIALIZED until the commit that
+  // reveals it (#2806). The asyncWrite settle below runs for that held truth
+  // exactly as it did before this invariant existed; only a source with no
+  // staged value has genuinely produced nothing.
+  if (__DEV__ && el._statusFlags & STATUS_UNINITIALIZED && el._pendingValue === NOT_PENDING) {
     emitDiagnostic({
       code: "SETTLE_WALK_UNINITIALIZED_SOURCE",
       kind: "lifecycle",
