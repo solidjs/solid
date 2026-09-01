@@ -397,6 +397,49 @@ describe("SSR Streaming — Basic Rendering", () => {
     expect(html).toContain("alive-data");
   });
 
+  test("a source created above a rejected fragment is preserved, not abandoned (#3165 control)", async () => {
+    // Abandonment follows CREATION ownership, not read location: the shared
+    // memo lives at App scope, so its serialized id sits outside the errored
+    // fragment's key prefix. The client adopts that id at the shell level —
+    // settling it with undefined would corrupt live state — so it must keep
+    // gating the response and ship its real value when it lands.
+    const slow = deferred<string>();
+    function App() {
+      const shared = createMemo(() => slow.promise);
+      const bad = createMemo(async () => {
+        await delay(5);
+        throw new Error("boom");
+      });
+      return (
+        <html>
+          <body>
+            <Errored fallback={<p>caught</p>}>
+              <Loading fallback={<i>loading</i>}>
+                <div>
+                  {bad()}
+                  {shared()}
+                </div>
+              </Loading>
+            </Errored>
+          </body>
+        </html>
+      );
+    }
+    let html: string | undefined;
+    const completed = renderComplete(() => <App />).then(v => {
+      html = v;
+      return true;
+    });
+    // The fragment rejects at ~5ms, but the shell-scoped source must still
+    // hold the response open.
+    const endedEarly = await Promise.race([completed, delay(300).then(() => false)]);
+    expect(endedEarly).toBe(false);
+    slow.resolve("shared-data");
+    const ended = await Promise.race([completed, delay(1500).then(() => false)]);
+    expect(ended).toBe(true);
+    expect(html).toContain("shared-data");
+  });
+
   test("rejected lazy() under Errored serializes the error instead of hanging (#2780)", async () => {
     const manifest = { "./Boom.tsx": { file: "assets/boom.js" } };
     const LazyBoom = lazy(
