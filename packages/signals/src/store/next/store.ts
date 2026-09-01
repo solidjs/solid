@@ -169,7 +169,10 @@ export function pcOf(t: StoreNextTarget): PatchChannel {
       ks: false,
       akAll: false,
       mlc: 0,
-      rq: 0,
+      sv: 0,
+      svv: 0,
+      svs: 0,
+      svvs: 0,
       t
     })
   );
@@ -829,6 +832,35 @@ export const stagedTruthPB = new WeakMap<StoreNextTarget, Record<PropertyKey, an
 const tentativePBs = new WeakSet<object>();
 
 /** Committed-time privatization for parent-chain slot updates (path copying). */
+/** Registration-time ancestor-slot repair (fold audit P1): the per-adoption
+ * eager repair is gated on patches EXISTING — sound for apps that never
+ * register one, but a LATE-mounted binding (first registration after
+ * adoptions already ran) would find stale ancestor raw slots, fail its
+ * currency probes, and fall PERMANENTLY onto the effect fallback. Repair
+ * the registered target's own ancestor chain once, at registration cost. */
+export function repairAncestorSlots(t: StoreNextTarget): void {
+  let c: StoreNextTarget = t;
+  while (c.u !== null && c.pk !== null) {
+    const parent = c.u;
+    const slot = parent.v[c.pk];
+    // ONLY a stale alias of THIS SAME child (its outgoing backing left in
+    // the parent's raw by a pre-registration eager adoption). Never write
+    // when the slot holds something else — a TENTATIVE row registering
+    // mid-flight has no committed slot at all, and writing its backing
+    // here would leak optimism into committed truth (the equivalence
+    // matrix caught exactly that).
+    if (slot !== c.v && slot !== null && typeof slot === "object") {
+      const owner = (parent.fam?.map ?? storeNextLookup).get(slot as object);
+      if (owner === c) {
+        privatizeCommitted(parent);
+        devAssertNeverUserMutation(parent.v);
+        parent.v[c.pk] = c.v;
+      }
+    }
+    c = parent;
+  }
+}
+
 function privatizeCommitted(target: StoreNextTarget): void {
   if (ownedRaw.has(target.v)) return;
   const clone = cloneRaw(target.v, target);

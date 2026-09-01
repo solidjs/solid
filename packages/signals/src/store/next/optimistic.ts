@@ -129,8 +129,12 @@ function installNextBlockedHalf(): void {
             // Row-ops resync (family increment 2): reverts flip node values
             // back engine-natively; a driven list must rebuild retention by
             // row identity against the post-revert view (resolved from the
-            // target at drain — overrides are gone by then).
-            if (ot.pc !== null && ot.pc.ro !== null) rowHooks!.emitRowOpsOptimistic(ot, null, null);
+            // target at drain — overrides are gone by then). NOT for
+            // targets with a pending STAGED fold (fold audit P1): the
+            // fold's own emission carries the reveal — a second rebuild
+            // here rebuilt the same rows again and lost DOM identity/focus.
+            if (ot.pc !== null && ot.pc.ro !== null && ot.sf !== true)
+              rowHooks!.emitRowOpsOptimistic(ot, null, null);
             // Keyset resync (classic channel twin): the keyset node's own
             // revert can compare EQUAL (a landing's bump matched the
             // tentative bump) while the arrangement underneath changed —

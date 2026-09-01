@@ -1,5 +1,45 @@
 # Audit brief — rounds 6–9 + patch-mode default flip + node delivery
 
+## Round 10.19 (2026-09-01) — STRUCTURAL VERSION CHAIN (redesign, closes the finding class)
+
+Five findings at a4c439b7 (maxRq cross-window coverage, lane-sweep-before-
+regular-ops, reveal emission overlap, duplicate slot sweeps, eager-repair
+late-mount cliff) — four of them in the sweep/watermark machinery the last
+three rounds accreted. Per the standing decision: the class is closed by
+REDESIGN, not a fifth round of point fixes.
+
+- **The chain**: every structural emission stamps `svAt = ++pc.sv` (rows)
+  or `++pc.svs` (slots — separate consumer lists, separate chains). The
+  channel tracks the VISIBLE version (`svv`/`svvs`): bumped when items
+  enter the live queue (commit-coincident emissions immediately, stashed
+  ones at releaseBatch, lane emissions at emission). Entries initialize
+  `av` to the visible version — exactly what their registration read
+  covered — and apply an item's payload only on an unbroken chain
+  (`av === svAt-1`, the item's baseline IS the entry's last-seen state).
+  At-or-below `av` skips; any gap marks the entry for ONE resync at the
+  END of the flush, after every queue. Deleted: emission snapshots as the
+  membership authority, PcSweep/noteSweep/sweepList/runLateSweeps, the
+  maxRq/winEnd watermarks, drainGen/dg dedup, rq/sq stamps.
+- Findings 1/2/4 become unaskable: no watermark to be wrong, no per-queue
+  sweep to order, no per-item repetition to dedup. Held-window
+  registrants IMPROVE: their chain connects, so they receive real
+  baseline-sound ops at release instead of a rebuild (pin updated).
+- **Reveal overlap (finding 3)**: the settle loop skips staged-fold
+  targets (`t.sf`) — the fold's own emission carries the reveal; pinned
+  by a single-rebuild assertion on the reveal test.
+- **Late-mount cliff (finding 5)**: `repairAncestorSlots` at registration
+  (channelTarget) fixes the registered target's ancestor chain — gated to
+  STALE ALIASES OF THE SAME CHILD only (map-resolved): the first cut
+  wrote tentative rows' backings into committed truth (all four
+  optimistic equivalence failures, one root cause) — a tentative row
+  registering mid-flight has no committed slot, and absent/different
+  slots must never be written.
+- Revert-form resyncs (settle loop, cm-stamped items) resolve COMMITTED
+  raw only — never `pb` (a draft lingering at the drain via row escape is
+  exactly the state that died), never the composing proxy.
+- Size: +230/+110/+20 B (three ratchets: 17.15/19.6/27.4) — flat cost;
+  the ~150 B/round accretion this class caused stops here.
+
 ## Round 10.18 (2026-09-01) — fold audit (4 P1s: slots under holds, sweep ordering, reveal coverage)
 
 Audit at b31e9929 confirmed the consecutive-landing divergence resolved by

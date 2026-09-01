@@ -97,12 +97,21 @@ export interface PatchChannel {
    * always writes (scheduler owns merge bookkeeping). */
   bt?: unknown;
   bo?: unknown;
-  /** Structural registration sequence (structural audit): entries stamp
-   * `sq = ++rq` at registration, items stamp `rq` at emission — the late-
-   * registrant sweep becomes a tail scan over the (append-ordered) suffix
-   * `sq > item.rq`, with the drain-start `rq` as the FIXED window's far
-   * edge (mid-drain registrants are excluded). */
-  rq?: number;
+  /** Structural VERSION (version-chain redesign): bumped at every
+   * structural emission; items stamp `svAt`. Entries apply an item only on
+   * an unbroken chain from their own applied version (`av === svAt - 1`) —
+   * membership, holds, and ordering all reduce to version arithmetic. */
+  sv?: number;
+  /** VISIBLE structural version: the last emission whose effect an
+   * untracked reader can see (bumped when items enter the LIVE queue —
+   * commit-coincident emissions immediately, stashed ones at their
+   * releaseBatch; lane emissions at emission). New entries initialize
+   * `av` here: exactly what their first read covered. */
+  svv?: number;
+  /** Slot-channel twin of sv/svv (rows and slots are separate consumer
+   * lists — one shared counter would gap every slot chain on row traffic). */
+  svs?: number;
+  svvs?: number;
   /** Accessed-key set for the channel's compiled bodies (union across
    * registrations). Compiler-manifested registrations (re-audit 7, P1-1)
    * hand the STATIC read envelope — complete across branches the applies

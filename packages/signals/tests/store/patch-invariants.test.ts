@@ -912,10 +912,13 @@ describe("INVARIANT: structure honors holds and reaches held-window registrants 
     resolve();
     await p;
     flush();
-    // At the settle drain the late consumer takes the resync form — the
-    // silent path left it permanently stale on the pre-commit view.
+    // At the settle drain the late consumer is reached (the silent path
+    // left it permanently stale on the pre-commit view). Version-chain
+    // refinement: its applied version connects to the held item's — it now
+    // receives the REAL, baseline-sound ops (its registration read the
+    // pre-commit view, exactly the ops' baseline) rather than a rebuild.
+    // Either form is sound; the final view is the pin.
     expect(late.length).toBeGreaterThan(0);
-    expect(late[late.length - 1][1]).toBe(true);
     expect(late[late.length - 1][0]).toEqual(["b", "a"]);
   });
 });
@@ -1795,12 +1798,20 @@ describe("INVARIANT: structural channels under fold/holds — per-index slots, n
     await settle();
     // Reveal at settle: the root array's staged structural change commits —
     // the driven list MUST receive ops/resync for the new row.
+    const revealMark = frames.length;
     confirm();
     await run;
     await settle();
     await settle();
     expect((items as any[]).length).toBe(2);
     expect(frames.at(-1)).toEqual([1, 2]);
+    // ONE coherent notification per reveal (fold audit P1): overlapping
+    // resync + row-op + slot work rebuilt the same rows repeatedly and
+    // lost DOM identity/focus. At most one [1] frame may precede the
+    // final [1,2] (the revert half), never repeated [1,2] rebuilds.
+    const since = frames.slice(revealMark);
+    const finals = since.filter(f => f.length === 2 && f[0] === 1 && f[1] === 2);
+    expect(finals.length).toBe(1);
   });
 });
 

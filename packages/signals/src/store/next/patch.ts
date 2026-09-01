@@ -65,7 +65,7 @@ import { createRenderEffect } from "../../signals.js";
 import { deliveryEffect } from "../../core/effect.js";
 // Cycle with store.js is benign: pcOf is only called at registration time,
 // long after both modules initialize.
-import { pcOf } from "./store.js";
+import { pcOf, repairAncestorSlots } from "./store.js";
 
 export type PatchFn = (next: any, prev: any, force?: boolean) => void;
 
@@ -121,8 +121,15 @@ interface QueuedApply {
   ops?: RowOps | null;
   /** Slot-tick payload index (same live-list rationale as `ops`). */
   si?: number;
-  /** Registration-sequence watermark at emission (see PatchChannel.rq). */
-  rq?: number;
+  /** Structural version at emission (see PatchChannel.sv): entries apply
+   * an item's ops only when their applied-version chain connects
+   * (`av === svAt - 1`); gaps take ONE flush-end resync. */
+  svAt?: number;
+  /** COMMITTED resolution (revert-form resyncs): the settle loop's revert
+   * emission conceptually follows the override teardown — the proxy would
+   * still compose the dying override at drain time; committed raw is the
+   * post-revert truth. Every other resync reads the VISIBLE view. */
+  cm?: boolean;
 }
 let queue: QueuedApply[] | null = null;
 let scheduled = false;
@@ -142,7 +149,6 @@ function drainApplyQueue(): void {
   // it (source = the owner, error read via owner._x?._error). Unhandled errors
   // rethrow after the drain so they still surface.
   let firstError: unknown = UNSET;
-  drainGen++;
   for (let i = 0; i < q.length; i++) {
     const item = q[i];
     const next = drainNext(item);
@@ -150,7 +156,7 @@ function drainApplyQueue(): void {
     if (item.ops !== undefined || item.si !== undefined)
       firstError = applyStructural(item, next, firstError);
   }
-  firstError = runLateSweeps(firstError);
+  firstError = runResyncs(firstError);
   if (firstError !== UNSET) {
     // Unhandled patch errors HALT like unhandled effect errors (re-audit 2,
     // P1-4): app state is undefined past an unboundaried throw.
@@ -169,99 +175,6 @@ function visibleStructRows(t: StoreNextTarget): any {
   return t.fam?.opt === true ? t.px : (t.pb ?? t.v);
 }
 
-/** Per-drain generation for late-resync dedup (audit follow-up P2): entries
- * stamp the drain they were resynced in; repeats within one flush's drains
- * (lane + regular) skip. Incremented once per top-level drain. */
-let drainGen = 0;
-
-/** Late-registrant bookkeeping, swept once at DRAIN END (fold audit P1):
- * sweeping per item resynced a late entry to the LIVE view and then a
- * LATER queued item — whose emission snapshot legitimately included that
- * entry — re-applied its baseline-relative ops on top, rebuilding the same
- * DOM row twice. The drain records, per channel, the HIGHEST emission
- * watermark (`maxRq`: anyone at or below was in some snapshot and received
- * real, baseline-sound ops), the FIXED window's far edge (`winEnd`,
- * captured at the channel's first item so mid-drain registrants are
- * excluded), one row item and the slot items as resync vehicles. The sweep
- * then covers exactly the entries NO snapshot reached: `sq` in
- * (maxRq, winEnd]. Registrations append in `sq` order, so those are a
- * SUFFIX — the tail scan stays O(#late). */
-interface PcSweep {
-  maxRq: number;
-  winEnd: number;
-  row: QueuedApply | null;
-  slots: QueuedApply[] | null;
-}
-let sweeps: Map<PatchChannel, PcSweep> | null = null;
-
-function noteSweep(item: QueuedApply, winEnd: number): void {
-  if (item.pc === undefined) return;
-  let s = (sweeps ??= new Map()).get(item.pc);
-  if (s === undefined) sweeps.set(item.pc, (s = { maxRq: 0, winEnd, row: null, slots: null }));
-  const rq = (item.rq as number) | 0;
-  if (rq > s.maxRq) s.maxRq = rq;
-  if (item.si !== undefined) (s.slots ??= []).push(item);
-  else s.row = item;
-}
-
-function sweepList(
-  live: (RowOpsEntry & {
-    hq?: boolean;
-    hqs?: Set<number>;
-    sq?: number;
-    dg?: number;
-    q?: unknown;
-  })[],
-  s: PcSweep,
-  item: QueuedApply,
-  firstError: unknown
-): unknown {
-  for (let j = live.length - 1; j >= 0; j--) {
-    const entry = live[j];
-    const sq = (entry.sq as number) | 0;
-    if (sq <= s.maxRq) break; // suffix exhausted — everyone else rode a snapshot
-    if (sq > s.winEnd) continue; // registered mid-drain: outside the window
-    if (entry.u === true || entry.hq === true) continue;
-    if (item.si !== undefined && entry.hqs?.has(item.si) === true) continue;
-    if (item.si === undefined && entry.dg === drainGen) continue;
-    if (entry.owner !== null && isDisposed(entry.owner)) continue;
-    const oq = entry.q as any;
-    if (queueIsHeld(oq)) {
-      deferHeldStructural(entry as any, oq, item);
-      continue;
-    }
-    if (item.si === undefined) entry.dg = drainGen;
-    try {
-      structuralResync(entry, item);
-    } catch (err) {
-      if (!routeEntryError(entry as any, err) && firstError === UNSET) firstError = err;
-    }
-  }
-  return firstError;
-}
-
-function runLateSweeps(firstError: unknown): unknown {
-  const m = sweeps;
-  sweeps = null;
-  if (m === null) return firstError;
-  for (const [pc, s] of m) {
-    if (s.row !== null) {
-      const live = pc.ro as (RowOpsEntry & { sq?: number })[] | null;
-      if (live !== null && live.length !== 0)
-        firstError = sweepList(live as any, s, s.row, firstError);
-    }
-    if (s.slots !== null) {
-      const live = pc.sp as (RowOpsEntry & { sq?: number })[] | null;
-      if (live !== null && live.length !== 0) {
-        for (let i = 0; i < s.slots.length; i++) {
-          firstError = sweepList(live as any, s, s.slots[i], firstError);
-        }
-      }
-    }
-  }
-  return firstError;
-}
-
 /** Drain-side `next` resolution (structural audit F2): live targets read
  * the VISIBLE view at drain time. (The old-contract superseded-work
  * generation gate lived here; the #3164 fold ruling removed landing-time
@@ -269,7 +182,12 @@ function runLateSweeps(firstError: unknown): unknown {
  * truth now rides the retaining transaction's own queues.) */
 function drainNext(item: QueuedApply): unknown {
   const { force, t } = item;
-  return t !== null ? (force ? forcedNext(t) : visibleStructRows(t)) : item.next;
+  if (t === null) return item.next;
+  if (force) return forcedNext(t);
+  // COMMITTED only — never `pb`: a revert-form resync follows the override
+  // teardown, and a draft backing lingering at the drain (rows escaped
+  // into DOM bindings materialize one) is exactly the state that died.
+  return item.cm === true ? t.v : visibleStructRows(t);
 }
 
 /** Forced-apply `next` resolution. Deep-path channels read through the
@@ -289,74 +207,130 @@ function forcedNext(t: StoreNextTarget): any {
  * shared entries' `u` marks (re-audit 6). Same per-entry isolation and
  * error routing as value patches. */
 function applyStructural(item: QueuedApply, next: any, firstError: unknown): unknown {
-  const snap = item.list as unknown as { fn: Function; owner: Owner | null; u?: boolean }[];
-  const len = snap.length;
-  // FIXED WINDOW far edge (structural audit, F1): captured BEFORE any
-  // dispatch — a consumer registered from a callback below bumps `rq`
-  // past this watermark and is excluded from this item entirely.
-  const maxSq = item.pc !== undefined ? (item.pc.rq as number) | 0 : 0;
-  // DELETED-SLOT gate (structural audit, F3): a slot tick coalesced with a
-  // later shrink indexes past the live list — applying it (snap or resync)
-  // would deliver an undefined value to a row that no longer exists.
-  if (item.si !== undefined && item.pc !== undefined) {
-    const st = item.pc.t as StoreNextTarget;
-    const liveRows = visibleStructRows(st);
-    if (!Array.isArray(liveRows) || item.si >= liveRows.length) return firstError;
-  }
-  // Structural dispatch diagnostics (rounds 10.11/10.12): the CHANNEL is
-  // the memo key — emission snapshots slice the consumer list, so a
-  // per-item array key made the width warning fire every flush. Names and
-  // causes anchor on the channel too (`pc.t` path, `pc.dn` stamp).
-  const dch = __DEV__ && attrHooks !== null ? (item.pc ?? null) : null;
+  // VERSION CHAIN (structural redesign): iterate the LIVE consumer list —
+  // membership questions (late registrants, held windows, cross-queue
+  // ordering) are answered by version arithmetic, not snapshots. An entry
+  // applies an item's payload only when its applied-version chain connects
+  // (`av === svAt - 1`): the item's baseline is then EXACTLY the state the
+  // entry last saw (its registration read or its previous application).
+  // Anything at or below `av` is already covered; any gap marks the entry
+  // for ONE flush-end resync (after every queue drains).
+  const pc = item.pc;
+  if (pc === undefined) return firstError;
+  const svAt = (item.svAt as number) | 0;
+  const live = (item.si !== undefined ? pc.sp : pc.ro) as
+    | (RowOpsEntry & { hqs?: Set<number>; av?: number; rs?: boolean })[]
+    | null;
+  if (live === null || live.length === 0) return firstError;
+  const dch = __DEV__ && attrHooks !== null ? (pc ?? null) : null;
   const dchannel = item.si !== undefined ? "slot-patch" : "row-ops";
   let dstart = 0;
   if (__DEV__ && attrHooks !== null) {
-    attrHooks.patchDispatch((dch as object) ?? (item.list as object), len, dchannel, null);
+    attrHooks.patchDispatch((dch as object) ?? (item.list as object), live.length, dchannel, null);
     dstart = performance.now();
   }
-  for (let j = 0; j < len; j++) {
-    const entry = snap[j] as {
-      fn: Function;
-      owner: Owner | null;
-      u?: boolean;
-      q?: unknown;
-      hq?: boolean;
-    };
+  // DELETED-SLOT gate (structural audit F3): a slot tick coalesced with a
+  // later shrink indexes past the live list — advance every connected
+  // entry's chain WITHOUT delivery (a gap here would force spurious
+  // resyncs; the tick is a no-op by rule, not a missed update).
+  let gated = false;
+  if (item.si !== undefined) {
+    const liveRows = visibleStructRows(pc.t as StoreNextTarget);
+    if (!Array.isArray(liveRows) || item.si >= liveRows.length) gated = true;
+  }
+  const snap = live.length > 1 ? live.slice() : live;
+  for (let j = 0; j < snap.length; j++) {
+    const entry = snap[j];
     if (entry === undefined || entry.u === true) continue;
     if (entry.owner !== null && isDisposed(entry.owner)) continue;
-    // BOUNDARY HOLD parity for STRUCTURE (round 10.13, P1): a consumer
-    // under a collapsed queue defers INTO it — and re-derives from LIVE
-    // state at release: row ops are baseline-relative (the queued ops
-    // would be stale by then) and slot values can be superseded, so the
-    // deferred form is the RESYNC, reading the release moment's truth.
+    const av = (entry.av as number) | 0;
+    if (av >= svAt) continue; // covered by its registration read or a resync
+    // BOUNDARY HOLD parity (round 10.13): defer INTO the collapsed queue;
+    // the deferred run resyncs from live truth and fast-forwards the chain.
     const oq = entry.q as any;
     if (queueIsHeld(oq)) {
-      deferHeldStructural(entry, oq, item);
+      deferHeldStructural(entry as any, oq, item);
       continue;
     }
+    if (av !== svAt - 1) {
+      // Chain gap: some emission this entry needed was missed (skipped
+      // item, cross-queue ordering) — ONE resync at flush end covers it.
+      if (entry.rs !== true) {
+        entry.rs = true;
+        (rsPending ??= []).push([entry as any, pc]);
+      }
+      continue;
+    }
+    entry.av = svAt;
+    if (gated) continue;
     try {
-      if (item.si !== undefined) entry.fn(item.si, next, item.prev);
-      else entry.fn(next, item.ops);
+      if (item.si !== undefined) (entry.fn as any)(item.si, next, item.prev);
+      else (entry.fn as any)(next, item.ops ?? null);
     } catch (err) {
       if (!routeEntryError(entry as any, err) && firstError === UNSET) firstError = err;
     }
   }
-  // LATE REGISTRANTS: recorded here, swept ONCE at DRAIN END (fold audit
-  // P1 — the per-item sweep resynced an entry to the LIVE view and then a
-  // LATER item's real ops re-applied on top, double-building rows). See
-  // noteSweep/runLateSweeps.
-  noteSweep(item, maxSq);
-  // Structural deliveries are attribution EVENTS (round 10.12, P2): they
-  // run in commit drains, not effects, so no rerun event exists for them
-  // — the engine records a synthetic one (name, causes, count, timing).
+  // Structural deliveries are attribution EVENTS (round 10.12, P2).
   if (__DEV__ && attrHooks !== null && dch !== null)
     attrHooks.patchStructural(
       (dch as any).t !== undefined ? targetPath((dch as any).t) : null,
-      len,
+      live.length,
       dchannel,
       ((dch as any).dn as any) ?? null,
       performance.now() - dstart
     );
+  return firstError;
+}
+
+/** Entries that observed a version gap this flush — resynced ONCE, after
+ * EVERY queue drains (lane first, then regular: the old per-queue sweep let
+ * a live resync be chased by the other queue's stale ops). */
+let rsPending: Array<
+  [RowOpsEntry & { av?: number; rs?: boolean; hqs?: Set<number> }, PatchChannel]
+> | null = null;
+
+function runResyncs(firstError: unknown): unknown {
+  const list = rsPending;
+  rsPending = null;
+  if (list === null) return firstError;
+  for (let i = 0; i < list.length; i++) {
+    const [entry, pc] = list[i];
+    entry.rs = false;
+    if (entry.u === true) continue;
+    if (entry.owner !== null && isDisposed(entry.owner)) continue;
+    const isSlot = pc.sp !== null && (pc.sp as unknown[]).indexOf(entry) !== -1;
+    // Fast-forward the chain BEFORE delivering: the resync reads live
+    // truth, covering every version up to the channel's current one.
+    entry.av = ((isSlot ? (pc as any).svs : pc.sv) as number) | 0;
+    const oq = entry.q as any;
+    if (queueIsHeld(oq)) {
+      deferHeldStructural(entry as any, oq, {
+        pc,
+        si: undefined,
+        next: null,
+        prev: null,
+        force: false,
+        t: pc.t as StoreNextTarget,
+        ops: null,
+        list: [] as unknown as PatchEntry[]
+      });
+      continue;
+    }
+    try {
+      const rows = visibleStructRows(pc.t as StoreNextTarget);
+      if (isSlot) {
+        // Slot consumers have no whole-list form: tick every live index
+        // with the current value (undefined prev fires the compare).
+        if (Array.isArray(rows)) {
+          for (let si = 0; si < rows.length; si++) (entry.fn as any)(si, rows[si], undefined);
+        }
+      } else {
+        (entry.fn as any)(rows, null);
+      }
+    } catch (err) {
+      if (!routeEntryError(entry as any, err) && firstError === UNSET) firstError = err;
+    }
+  }
   return firstError;
 }
 
@@ -368,7 +342,7 @@ function applyStructural(item: QueuedApply, next: any, firstError: unknown): unk
  * through the proxy, and a slot deleted since emission is skipped (F3). */
 function structuralResync(entry: { fn: Function }, item: QueuedApply): void {
   const t = item.pc !== undefined ? (item.pc.t as StoreNextTarget) : null;
-  const rows = t !== null ? visibleStructRows(t) : item.next;
+  const rows = t !== null ? (item.cm === true ? t.v : visibleStructRows(t)) : item.next;
   if (item.si !== undefined) {
     if (t !== null && (!Array.isArray(rows) || item.si >= rows.length)) return;
     entry.fn(item.si, t !== null ? rows[item.si] : item.next, item.prev);
@@ -542,7 +516,17 @@ function releaseBatch(batch: Transition): void {
   for (let i = 0; i < held.length; i++) pushLive(held[i]);
 }
 
+/** The VISIBLE-version bump (version-chain redesign): an emission's effect
+ * becomes readable exactly when its item enters the LIVE queue — commit-
+ * coincident emissions immediately, transition-stashed ones at their
+ * releaseBatch. Entries born after this point have the emission's state in
+ * their first read, so their `av` starts at or past it. */
 function pushLive(item: QueuedApply): void {
+  const pc = item.pc as any;
+  if (pc !== undefined && item.svAt !== undefined) {
+    const k = item.si !== undefined ? "svvs" : "svv";
+    if (item.svAt > ((pc[k] as number) | 0)) pc[k] = item.svAt;
+  }
   (queue ??= []).push(item);
   if (!scheduled) {
     scheduled = true;
@@ -646,7 +630,6 @@ function drainOptimistic(): void {
   // 5): one throwing optimistic patch must not abort its siblings, and it
   // must reach the registering owner's Errored boundary.
   let firstError: unknown = UNSET;
-  drainGen++;
   for (let i = 0; i < q.length; i++) {
     const item = q[i];
     const next = drainNext(item);
@@ -654,7 +637,10 @@ function drainOptimistic(): void {
     if (item.ops !== undefined || item.si !== undefined)
       firstError = applyStructural(item, next, firstError);
   }
-  firstError = runLateSweeps(firstError);
+  // Standalone lane drains resync at their own tail; when this drain runs
+  // INSIDE drainApplyQueue the pending marks survive to ITS tail — after
+  // the regular queue — so a resync can never be chased by stale ops.
+  if (queue === null || queue.length === 0) firstError = runResyncs(firstError);
   if (firstError !== UNSET) {
     haltReactivity(firstError);
     throw firstError;
@@ -693,10 +679,14 @@ export function emitRowOpsOptimistic(
     prev: null,
     force: false,
     t: nextRows === null ? t : null,
+    cm: nextRows === null && ops === null,
     ops,
     pc: t.pc as PatchChannel,
-    rq: ((t.pc as any).rq as number) | 0
+    svAt: ((t.pc as any).sv = (((t.pc as any).sv as number) | 0) + 1)
   });
+  // Lane emissions are visible AT EMISSION (optimism is in-flight
+  // visibility) — bump the visible version immediately.
+  (t.pc as any).svv = (t.pc as any).sv;
   if (!scheduled) {
     scheduled = true;
     globalQueue.enqueue(EFFECT_RENDER, drainApplyQueue);
@@ -1148,6 +1138,12 @@ function ensureDelivery(t: StoreNextTarget, pc: any): void {
 function channelTarget(record: any, api: string): StoreNextTarget {
   const t: StoreNextTarget | undefined = record?.[$TARGET];
   if (t === undefined) throw new Error(api + ": not a store record");
+  // LATE-MOUNT repair (fold audit P1): adoptions before the FIRST patch
+  // registration skip the eager parent-slot repair (hasPatches gate) — fix
+  // this target's own ancestor chain now, or its currency probes read
+  // stale alias slots and demote the binding to the effect fallback
+  // forever.
+  repairAncestorSlots(t);
   if (!commitHookInstalled) {
     commitHookInstalled = true;
     armPatchHooks();
@@ -1575,6 +1571,14 @@ interface RowOpsEntry {
   q?: unknown;
   /** Deferred-into-held-queue dedup flag. */
   hq?: boolean;
+  /** Per-index deferred-slot dedup (fold audit P1). */
+  hqs?: Set<number>;
+  /** APPLIED structural version (version-chain redesign): initialized to
+   * the channel's VISIBLE version at registration — exactly what the
+   * entry's first read covered. Ops apply only on an unbroken chain. */
+  av?: number;
+  /** Marked for the flush-end resync (a version gap was observed). */
+  rs?: boolean;
 }
 
 /** Register a structural-ops consumer on a keyed store array (the list
@@ -1584,11 +1588,11 @@ export function registerRowOps(array: any, fn: RowOpsFn): () => void {
   armRowHooks();
   const rowner = getOwner();
   const pc = pcOf(t);
-  const entry: RowOpsEntry & { sq?: number } = {
+  const entry: RowOpsEntry = {
     fn,
     owner: rowner,
     q: (rowner as any)?._queue ?? null,
-    sq: (pc.rq = ((pc.rq as number) | 0) + 1)
+    av: ((pc as any).svv as number) | 0
   };
   if (__TEST__) devTrackChannel(pc);
   const list = (pc.ro ??= []) as RowOpsEntry[];
@@ -1618,7 +1622,7 @@ export function emitSlotPatch(t: StoreNextTarget, index: number, next: any, prev
     t: null,
     si: index,
     pc: t.pc as PatchChannel,
-    rq: ((t.pc as any).rq as number) | 0
+    svAt: ((t.pc as any).svs = (((t.pc as any).svs as number) | 0) + 1)
   });
 }
 
@@ -1636,15 +1640,11 @@ export function registerSlotPatchNext(
   // lists — registrations are a list, unbinds splice their own entry.
   const pc = pcOf(t);
   const sowner = getOwner();
-  // Same registration-sequence stamp as row-ops entries (structural audit
-  // follow-up P1): without it the late sweep's suffix scan reads sq 0 and
-  // breaks immediately — shallow lists mounted during held windows stayed
-  // permanently stale.
   const entry = {
     fn,
     owner: sowner,
     q: (sowner as any)?._queue ?? null,
-    sq: (pc.rq = ((pc.rq as number) | 0) + 1)
+    av: ((pc as any).svvs as number) | 0
   };
   const list = (pc.sp ??= []) as unknown[];
   list.push(entry);
@@ -1669,7 +1669,7 @@ export function emitRowOps(t: StoreNextTarget, next: any[], ops: RowOps): void {
     t: null,
     ops,
     pc: t.pc as PatchChannel,
-    rq: ((t.pc as any).rq as number) | 0
+    svAt: ((t.pc as any).sv = (((t.pc as any).sv as number) | 0) + 1)
   });
 }
 

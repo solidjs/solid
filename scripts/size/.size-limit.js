@@ -387,7 +387,11 @@ module.exports = [
     // Fold-audit round (2026-09-01): staged-truth fold marker + fold-site
     // row/slot emissions (reveal coverage), per-index held-slot defers, and
     // the drain-end late sweep (no resync-then-ops double-builds). Measured 27.30.
-    limit: "27.35 KB",
+    // Version-chain redesign (2026-09-01): snapshot/watermark/sweep
+    // machinery replaced by per-entry applied-version chains + ONE
+    // flush-end resync + registration-time ancestor repair. Flat cost —
+    // the per-finding mechanism accretion this class caused stops here. Measured 27.37.
+    limit: "27.4 KB",
     modifyEsbuildConfig
   },
   {
@@ -469,7 +473,11 @@ module.exports = [
     // Fold-audit round (2026-09-01): staged-truth fold marker + fold-site
     // row/slot emissions (reveal coverage), per-index held-slot defers, and
     // the drain-end late sweep (no resync-then-ops double-builds). Measured 16.88.
-    limit: "16.9 KB",
+    // Version-chain redesign (2026-09-01): snapshot/watermark/sweep
+    // machinery replaced by per-entry applied-version chains + ONE
+    // flush-end resync + registration-time ancestor repair. Flat cost —
+    // the per-finding mechanism accretion this class caused stops here. Measured 17.11.
+    limit: "17.15 KB",
     modifyEsbuildConfig
   },
   {
@@ -526,7 +534,11 @@ module.exports = [
     // Fold-audit round (2026-09-01): staged-truth fold marker + fold-site
     // row/slot emissions (reveal coverage), per-index held-slot defers, and
     // the drain-end late sweep (no resync-then-ops double-builds). Measured 19.41.
-    limit: "19.45 KB",
+    // Version-chain redesign (2026-09-01): snapshot/watermark/sweep
+    // machinery replaced by per-entry applied-version chains + ONE
+    // flush-end resync + registration-time ancestor repair. Flat cost —
+    // the per-finding mechanism accretion this class caused stops here. Measured 19.56.
+    limit: "19.6 KB",
     modifyEsbuildConfig
   },
   {
