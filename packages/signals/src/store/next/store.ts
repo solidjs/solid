@@ -398,23 +398,23 @@ export function regionBind(record: any): { track: () => void; raw: () => any } |
  * the channel's delivery skipped its initial pass the same way). One
  * public function to JIT-warm instead of four, no {track,raw} carrier
  * allocation; the commit receives the raw backing directly. */
-export function createRegion(record: any, commit: (raw: any) => void): any {
+export function createRegion(record: any, commit: (raw: any, prevRaw: any) => void): any {
   const t: StoreNextTarget | undefined = record?.[$TARGET];
   if (t === undefined) return null;
-  let vn = (t as any).vn as Signal<number> | undefined;
-  if (vn === undefined) {
-    (t as any).vn = vn = signal(0);
+  if ((t as any).vn === undefined) {
+    const vn = ((t as any).vn = signal(0));
     (vn as any)._config |= CONFIG_OWNED_WRITE;
     markDescendants(t);
   }
-  const v = vn;
+  // ONE closure per region: the compute subscribes to the version node and
+  // RETURNS the raw backing — the effect contract then hands the commit
+  // (raw, prevRaw) natively, so no commit wrapper exists.
   const node = createEffectNode(
     () => {
-      readNode(v as any);
+      readNode((t as any).vn);
+      return t.v;
     },
-    () => {
-      commit(t.v);
-    },
+    commit as any,
     undefined,
     EFFECT_RENDER,
     undefined
