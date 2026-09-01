@@ -14,3 +14,5 @@ function Parent(props: ParentProps) {
 
 <Parent>{text}</Parent>;
 <Parent>{[text, span]}</Parent>;
+
+<selectedcontent />;
