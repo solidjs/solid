@@ -4,10 +4,9 @@
  */
 
 // Mount-once head resources adopt the element the server already emitted
-// instead of appending a second one. The href alone does not identify the
-// request: two preloads sharing one can still differ in destination or CORS
-// mode, and two spellings of the same CORS state cannot. Adoption compares
-// the canonical qualifiers, the same rule the server identity applies.
+// instead of appending a second one. A responsive image preload has no href
+// — the source set is the request — so adoption has to match on a null href
+// plus the identity qualifiers, the same rule the frame client applies.
 import { describe, expect, test, afterEach } from "vitest";
 import { render, useHead } from "../src/index.js";
 
@@ -39,6 +38,38 @@ describe("preload link adoption on the client", () => {
 
     expect(preloads()).toHaveLength(1);
     expect(preloads()[0]).toBe(server);
+  });
+
+  test("adopts a source-set link that has no href", () => {
+    const server = serverEmitted({
+      as: "image",
+      imagesrcset: "/card-400.avif 400w, /card-800.avif 800w",
+      imagesizes: "100vw"
+    });
+    mount({
+      as: "image",
+      imagesrcset: "/card-400.avif 400w, /card-800.avif 800w",
+      imagesizes: "100vw"
+    });
+
+    expect(preloads()).toHaveLength(1);
+    expect(preloads()[0]).toBe(server);
+  });
+
+  test("does not adopt across a different source set", () => {
+    serverEmitted({ as: "image", imagesrcset: "/a.avif 1x" });
+    mount({ as: "image", imagesrcset: "/b.avif 2x" });
+
+    expect(preloads()).toHaveLength(2);
+  });
+
+  test("does not adopt an href-bearing link for a source-set request", () => {
+    // The fallback href makes these different declarations, and the server
+    // identity already treats them as two resources.
+    serverEmitted({ href: "/card.avif", as: "image", imagesrcset: "/card-2x.avif 2x" });
+    mount({ as: "image", imagesrcset: "/card-2x.avif 2x" });
+
+    expect(preloads()).toHaveLength(2);
   });
 
   test("does not adopt across a different destination", () => {

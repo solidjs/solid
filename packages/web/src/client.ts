@@ -1448,9 +1448,14 @@ function mountHeadResource(tag, props) {
   headMountedResources.add(identity);
   const url = props.href || props.src;
   let el = null;
-  if (url != null) {
-    // Adopt a server-emitted element for the same resource. `rel` values are
-    // constrained to the resource set, so embedding in a selector is safe.
+  // Adopt a server-emitted element for the same resource. `rel` values are
+  // constrained to the resource set, so embedding in a selector is safe.
+  // A responsive image preload legitimately has no href — the source set is
+  // the request — so it matches on a null href plus the identity qualifiers,
+  // the same rule the frame client applies.
+  if (tag === "link" && url == null && typeof props.imagesrcset === "string")
+    el = findAssetElement(`link[rel="${props.rel}"]`, "href", null, props);
+  else if (url != null) {
     if (tag === "link") el = findAssetElement(`link[rel="${props.rel}"]`, "href", url, props);
     else if (tag === "script") el = findAssetElement("script[src]", "src", url);
     else el = findAssetElement("style[href]", "href", url);

@@ -8,10 +8,7 @@ function throwInBrowser(func: Function) {
   console.error(err);
 }
 
-/** An explicit `<link rel="preload">` emitted by the SSR asset pipeline. */
-export type PreloadLink = {
-  href: string;
-  as: JSX.HTMLPreloadAs;
+type PreloadLinkAttributes = {
   type?: string;
   crossorigin?: JSX.HTMLCrossorigin;
   integrity?: string;
@@ -19,6 +16,43 @@ export type PreloadLink = {
   fetchpriority?: JSX.HTMLFetchPriority;
   media?: string;
 };
+
+/**
+ * An explicit `<link rel="preload">` emitted by the SSR asset pipeline.
+ *
+ * `as` is the HTML Standard's set of preload destinations exactly — anything
+ * else translates to null and the browser does nothing with the link.
+ *
+ * `imagesrcset` candidates must already be resolved by the integration: they
+ * are carried verbatim (a relative candidate resolves against the DOCUMENT
+ * URL, not the manifest base). Pair it with `imagesizes` whenever a candidate
+ * uses a width descriptor, which the spec requires — without it the source
+ * size falls back to `100vw` and the preload can miss the image the `<img>`
+ * selects. Omitting `href` is the spec's own recommendation for the source-set
+ * form: it would only serve browsers without `imagesrcset` support, and there
+ * it would likely preload the wrong candidate.
+ */
+export type PreloadLink = PreloadLinkAttributes &
+  (
+    | {
+        href: string;
+        as: Exclude<JSX.HTMLPreloadAs, "image">;
+        imagesrcset?: never;
+        imagesizes?: never;
+      }
+    | {
+        href: string;
+        as: "image";
+        imagesrcset?: string;
+        imagesizes?: string;
+      }
+    | {
+        href?: never;
+        as: "image";
+        imagesrcset: string;
+        imagesizes?: string;
+      }
+  );
 
 /**
  * Static asset graph consumed by the SSR pipeline. This is Solid's own

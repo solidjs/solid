@@ -171,7 +171,7 @@ export {
 } from "./frame-transport.js";
 
 function wirePreload(entry) {
-  return { href: entry.href, attrs: entry.attrs };
+  return entry.href ? { href: entry.href, attrs: entry.attrs } : { attrs: entry.attrs };
 }
 
 /**

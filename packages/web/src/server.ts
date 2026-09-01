@@ -60,10 +60,7 @@ import { SerializerPlugin } from "../serialization/src/serializer-decode.js";
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
 
-/** An explicit `<link rel="preload">` emitted by the SSR asset pipeline. */
-export type PreloadLink = {
-  href: string;
-  as: JSX.HTMLPreloadAs;
+type PreloadLinkAttributes = {
   type?: string;
   crossorigin?: JSX.HTMLCrossorigin;
   integrity?: string;
@@ -71,6 +68,43 @@ export type PreloadLink = {
   fetchpriority?: JSX.HTMLFetchPriority;
   media?: string;
 };
+
+/**
+ * An explicit `<link rel="preload">` emitted by the SSR asset pipeline.
+ *
+ * `as` is the HTML Standard's set of preload destinations exactly — anything
+ * else translates to null and the browser does nothing with the link.
+ *
+ * `imagesrcset` candidates must already be resolved by the integration: they
+ * are carried verbatim (a relative candidate resolves against the DOCUMENT
+ * URL, not the manifest base). Pair it with `imagesizes` whenever a candidate
+ * uses a width descriptor, which the spec requires — without it the source
+ * size falls back to `100vw` and the preload can miss the image the `<img>`
+ * selects. Omitting `href` is the spec's own recommendation for the source-set
+ * form: it would only serve browsers without `imagesrcset` support, and there
+ * it would likely preload the wrong candidate.
+ */
+export type PreloadLink = PreloadLinkAttributes &
+  (
+    | {
+        href: string;
+        as: Exclude<JSX.HTMLPreloadAs, "image">;
+        imagesrcset?: never;
+        imagesizes?: never;
+      }
+    | {
+        href: string;
+        as: "image";
+        imagesrcset?: string;
+        imagesizes?: string;
+      }
+    | {
+        href?: never;
+        as: "image";
+        imagesrcset: string;
+        imagesizes?: string;
+      }
+  );
 
 /**
  * Static asset graph consumed by the SSR pipeline. This is Solid's own
@@ -299,6 +333,49 @@ function joinAssetPath(base, file) {
   return base + (file[0] === "/" ? file.slice(1) : file);
 }
 
+// Dev-only walks over a source set. Candidates are carried verbatim — rewriting
+// them would put a srcset parser on the render path — so these only report.
+//
+// The scan follows the shape of the spec's srcset parser rather than splitting
+// on commas: a candidate's URL is a maximal run of non-whitespace, and only the
+// commas TRAILING that run separate it from the next candidate. Commas INSIDE a
+// URL (`/w,400/hero.avif`, the shape image CDNs emit) are part of it, so they no
+// longer read as two relative candidates.
+function eachCandidateUrl(srcset, visit) {
+  let i = 0;
+  const n = srcset.length;
+  while (i < n) {
+    while (i < n && /[\s,]/.test(srcset[i])) i++;
+    const start = i;
+    while (i < n && !/\s/.test(srcset[i])) i++;
+    if (i === start) return false;
+    const raw = srcset.slice(start, i);
+    const url = raw.replace(/,+$/, "");
+    if (url && visit(url)) return true;
+    // A URL that did not end in commas is followed by its descriptor; the
+    // comma that closes this candidate comes after it.
+    if (url === raw) {
+      while (i < n && srcset[i] !== ",") i++;
+    }
+  }
+  return false;
+}
+
+// `href` is joined with `_base`; candidates are not. A relative candidate
+// resolves against the DOCUMENT url instead, so the two point at different
+// places on any route below the root — which is true whether or not `_base` is
+// set, hence no base guard here.
+function hasRelativeCandidate(srcset) {
+  return eachCandidateUrl(srcset, url => !/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|\/)/.test(url));
+}
+
+// Whether any candidate carries a width descriptor (`400w`), which the spec
+// makes `imagesizes` mandatory for. Descriptors sit between a candidate's URL
+// and the comma that closes it, so a separator always precedes them.
+function hasWidthDescriptor(srcset) {
+  return /[\s,]\d+(?:\.\d+)?w(?=[\s,]|$)/.test(srcset);
+}
+
 function resolveAssets(moduleUrl, manifest) {
   if (!manifest) return null;
   const base = manifest._base;
@@ -318,9 +395,26 @@ function resolveAssets(moduleUrl, manifest) {
     if (e.preloads) {
       for (let i = 0; i < e.preloads.length; i++) {
         const link = e.preloads[i];
-        if (!link || typeof link.href !== "string" || !link.href) continue;
+        const href = link && typeof link.href === "string" && link.href;
+        const srcset = link && typeof link.imagesrcset === "string" && link.imagesrcset;
+        if (!href && !srcset) continue;
         if (!preloads) preloads = [];
-        preloads.push({ ...link, href: joinAssetPath(base, link.href) });
+        if (href) preloads.push({ ...link, href: joinAssetPath(base, href) });
+        else {
+          // A source-set link needs no href, but an unusable one must not
+          // reach `ResolvedAssets.preloads`, whose href is typed as a string.
+          const { href: bad, ...rest } = link;
+          if ("_SOLID_DEV_" && bad !== undefined)
+            console.warn("Preload href must be a non-empty string; dropping it.", bad);
+          preloads.push(rest);
+        }
+        if ("_SOLID_DEV_" && srcset && hasRelativeCandidate(srcset))
+          console.warn(
+            "imagesrcset candidates are not joined with the manifest base — they resolve " +
+              "against the document URL, so a relative candidate points somewhere else " +
+              "than the joined href; the integration should emit resolved URLs.",
+            srcset
+          );
       }
     }
     if (e.imports) for (let i = 0; i < e.imports.length; i++) walk(e.imports[i]);
@@ -521,19 +615,36 @@ function isCssUrl(url) {
   return (q === -1 ? url : url.slice(0, q)).endsWith(".css");
 }
 
+const RESPONSIVE_ATTRIBUTES = ["imagesrcset", "imagesizes"];
+
+// "Was this attribute supplied?" — `""` and `false` both mean no. Only the
+// responsive pair uses it: `crossorigin: ""` is a real value (anonymous),
+// so the emission loop cannot apply this test globally.
+function isSetAttr(value) {
+  return value != null && value !== false && value !== "";
+}
+
 const PRELOAD_LINK_ATTRIBUTES = [
   "type",
   "crossorigin",
   "integrity",
   "referrerpolicy",
   "fetchpriority",
-  "media"
+  "media",
+  "imagesrcset",
+  "imagesizes"
 ];
 
 // Normalize once for document/frame output and dedupe with useHead resources.
+//
+// Order matters: the destination decides whether the source set counts as a
+// source at all, so `as` is resolved and the responsive pair normalized BEFORE
+// the "has a source" check. Doing it the other way round accepted an
+// `imagesrcset` on a non-image destination as the source, then filtered that
+// same attribute off, and emitted a sourceless `<link rel="preload" as="script">`.
 function registerPreloadLink(tracking, headRegistry, link, nonce) {
-  if (!link || typeof link !== "object" || typeof link.href !== "string" || !link.href) {
-    if ("_SOLID_DEV_") console.warn('registerAsset("preload") requires a non-empty string href.');
+  if (!link || typeof link !== "object") {
+    if ("_SOLID_DEV_") console.warn('registerAsset("preload") requires a descriptor object.', link);
     return null;
   }
   if (typeof link.as !== "string") {
@@ -542,6 +653,10 @@ function registerPreloadLink(tracking, headRegistry, link, nonce) {
   }
   const as = asciiLowerCase(link.as);
   let destination = null;
+  // The HTML Standard's preload destinations, exactly: "A preload destination
+  // is 'fetch', 'font', 'image', 'script', 'style', or 'track'." Anything else
+  // translates to null and the preload does nothing, so it is rejected here
+  // rather than emitted as a link no browser will act on.
   switch (as) {
     case "script":
     case "style":
@@ -559,9 +674,65 @@ function registerPreloadLink(tracking, headRegistry, link, nonce) {
         );
       return null;
   }
-  const props = { rel: "preload", href: link.href, as };
+  // Responsive attributes are image-only. A non-image link carrying one is
+  // an authoring mistake, not a reason to drop a render-critical preload:
+  // the attribute is filtered out and the link still ships. `""` counts as
+  // absent, so an integration emitting `imagesrcset: srcsetFor(file)` for
+  // every asset keeps its script and style links. A non-string value is
+  // filtered too — `String(42)` would ship `imagesrcset="42"`, a source set
+  // no browser can parse, and forge a resource identity out of garbage.
+  const responsive = as === "image";
+  if ("_SOLID_DEV_" && !responsive && (isSetAttr(link.imagesrcset) || isSetAttr(link.imagesizes)))
+    console.warn(
+      'registerAsset("preload") only supports imagesrcset and imagesizes with as="image".'
+    );
+  let srcset = null;
+  let sizes = null;
+  if (responsive) {
+    for (const name of RESPONSIVE_ATTRIBUTES) {
+      const value = link[name];
+      if (!isSetAttr(value)) continue;
+      if (typeof value !== "string") {
+        if ("_SOLID_DEV_") console.warn(`registerAsset("preload") expects a string ${name}.`);
+        continue;
+      }
+      if (name === "imagesrcset") srcset = value;
+      else sizes = value;
+    }
+  }
+  const href = typeof link.href === "string" && link.href ? link.href : null;
+  if ("_SOLID_DEV_" && !href && link.href != null && link.href !== false)
+    console.warn("Preload href must be a non-empty string; dropping it.", link.href);
+  // Spec: "One or both of the href or imagesrcset attributes must be present."
+  // A source set only counts once it survived the image-only filter above.
+  if (!href && !srcset) {
+    if ("_SOLID_DEV_")
+      console.warn('registerAsset("preload") requires a non-empty string href or imagesrcset.');
+    return null;
+  }
+  // Spec: "If the imagesrcset attribute is present and has any image candidate
+  // strings using a width descriptor, the imagesizes attribute must also be
+  // present." Without it the source size defaults to 100vw, so a preload meant
+  // for a narrower slot silently fetches the wrong candidate and the <img>
+  // downloads a second one.
+  if ("_SOLID_DEV_" && srcset && !sizes && hasWidthDescriptor(srcset))
+    console.warn(
+      "imagesrcset uses a width descriptor, so imagesizes is required; without it the " +
+        "source size defaults to 100vw and the preload may not match the image.",
+      srcset
+    );
+  const props = { rel: "preload" };
+  if (href) props.href = href;
+  props.as = as;
   for (let i = 0; i < PRELOAD_LINK_ATTRIBUTES.length; i++) {
     const name = PRELOAD_LINK_ATTRIBUTES[i];
+    if (RESPONSIVE_ATTRIBUTES.indexOf(name) !== -1) {
+      // Normalized above: an empty or non-string source set is not a source
+      // set, and emitting one would fork the resource identity.
+      const value = name === "imagesrcset" ? srcset : sizes;
+      if (value !== null) props[name] = value;
+      continue;
+    }
     const value = link[name];
     if (value == null || value === false) continue;
     props[name] = value === true ? "" : String(value);
@@ -2153,6 +2324,11 @@ export function renderToStream(code, options = {}) {
     // Shell head flush: commits every registration not owned by a
     // still-pending fragment (those flush with their fragment later).
     const head = renderShellHead(headRegistry, nonce, k => registry.has(k), noScripts);
+    // `preloads`, `preloadLinks` and `inlineStyles` are the LIVE tracking
+    // containers, not snapshots: a post-shell registration pushes into them
+    // AND arrives separately through `sink.asset`. Consume them inside this
+    // call (the document sink splices the head synchronously) — a sink that
+    // stores the meta and re-reads it later sees late entries twice.
     sink.shell(resolveSSRSelectValues(html), {
       preloads: tracking.emittedAssets,
       preloadLinks: tracking.preloadLinks,

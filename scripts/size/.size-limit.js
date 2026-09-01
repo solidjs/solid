@@ -377,6 +377,12 @@ module.exports = [
     // Patch-channel removal (2026-09-02): 17.72 -> 17.61 KB, measured at
     // 17.58. The channel is deleted from next — regions own value delivery,
     // the unified-For design owns structure — reclaiming the insert $ll seam and core emission bytes.
+    // Responsive image preloads (2026-09-01): 17.56 -> 17.59 KB, measured at
+    // 17.570 (+29 B). The one document scenario that pays: it retains
+    // `lazy`, so the whole asset-registration path is reachable and it picks
+    // up the source-set branch in mountHeadResource. csr-app moved the other
+    // way on brotli layout (see its note); the identity commit before this
+    // one was byte-neutral in every document bundle.
     limit: "17.61 KB",
     modifyEsbuildConfig
   },
@@ -447,6 +453,11 @@ module.exports = [
     // revert path resyncs overlaid keysets for mapArray. This scenario
     // retains every store family, so it pays the whole module. Ruled
     // correctness-over-size in the #3164 thread; conscious bump.
+    //
+    // Typed responsive preloads (2026-09-01): byte-neutral, measured at
+    // 26.701 across the whole branch — the identity canonicalization shares
+    // one helper with the code it replaced, and this bundle does not retain
+    // the source-set adoption branch.
     path: "hydrating-store-app.js",
     //
     // Patch-channel removal (2026-09-02): 26.99 -> 26.15 KB, measured at
@@ -481,6 +492,11 @@ module.exports = [
     // 12.948. The one counter-mover: this bundle never retained the
     // scheduler-resident ledger (nothing to shake), so it pays only the
     // hook call site's second argument plus brotli layout drift.
+    //
+    // Responsive image preloads (2026-09-01): 23 B SMALLER, measured at
+    // 12.925 against 12.948. Brotli layout drift, not a real shrink — the
+    // preceding identity commit measured byte-identical here. Ceiling left
+    // where it is; ratchet it in a drift pass, not in a feature PR.
     path: "csr-app.js",
     //
     // Patch-channel removal (2026-09-02): 13.11 -> 12.97 KB, measured at
@@ -511,16 +527,10 @@ module.exports = [
     // retain every late root asset record for mounts that register after
     // the stream arrives.
     //
-    // Identity qualifier canonicalization (2026-09-01): 11.28 -> 11.34 KB,
-    // measured at 11.320 (+51 B). The only scenario that pays: the frame
-    // client mirrors head.ts rather than importing it, so it carries its own
-    // copy of the canonical rules, while all five document bundles came out
-    // byte-identical — the shared helper is no larger than the inline
-    // comparison it replaced. Correctness-over-size: `crossorigin=""` and
-    // `crossorigin="anonymous"` are one request, so a frame chunk carrying
-    // either spelling has to adopt the document link carrying the other, or
-    // the same font ships twice and the two runtimes disagree about what a
-    // resource IS.
+    // Responsive image preloads (2026-09-01): 11.34 -> 11.37 KB, measured at
+    // 11.360 (+40 B on top of the identity commit). Frame consumers locate
+    // and create a source-set link with no href — adoption matches on a null
+    // href — and the wire entry drops the key when there is none.
     path: "../../packages/web/frames/dist/client.js",
     limit: "11.30 KB",
     modifyEsbuildConfig: framesEsbuildConfig

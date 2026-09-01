@@ -48,7 +48,7 @@ export type FrameChunk =
       modules?: string[];
       styles?: string[];
       inlineStyles?: { id: string; content?: string; attrs?: Record<string, string> }[];
-      preloads?: { href: string; attrs: Record<string, string> }[];
+      preloads?: { href?: string; attrs: Record<string, string> }[];
     }
   | { type: "slot"; id: string; version: number; key: string; args: Record<string, unknown> }
   | { type: "complete"; id: string; version: number }
@@ -2093,11 +2093,12 @@ function findHeadElement(selector, attr, value, qualifiers) {
 /** Ensure one typed preload exists, preserving request-qualifying attributes. */
 function ensurePreload(entry) {
   const attrs = entry.attrs;
-  if (findHeadElement('link[rel="preload"]', "href", entry.href, attrs)) return;
+  const href = entry.href;
+  if (findHeadElement('link[rel="preload"]', "href", href || null, attrs)) return;
   const link = document.createElement("link");
   link.rel = "preload";
   for (const name in attrs) link.setAttribute(name, attrs[name]);
-  link.setAttribute("href", entry.href);
+  if (href) link.setAttribute("href", href);
   document.head.appendChild(link);
 }
 
