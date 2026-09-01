@@ -2222,12 +2222,19 @@ function normalize(value, current, multi, doNotUnwrap) {
   // hydration claiming: adopting the already-live server text node here is
   // position bookkeeping, not a mutation, and insertExpression's claim pass
   // needs the node (a raw primitive there means the claim FAILED).
+  // Only ACTUAL hydrating nodes (connected or under a declared claim root)
+  // adopt: a detached subtree rendering while hydration is globally active —
+  // eager JSX whose template claim missed because a falsy server conditional
+  // never rendered it (#3163) — is a client render, and adopting its empty
+  // placeholder here would swallow the primitive so the initial fill never
+  // lands.
   if (sharedConfig.hydrating && Array.isArray(value)) {
     for (let i = 0, len = value.length; i < len; i++) {
       const item = value[i],
         prev = current && current[i],
         t = typeof item;
-      if ((t === "string" || t === "number") && prev && prev.nodeType === 3) value[i] = prev;
+      if ((t === "string" || t === "number") && prev && prev.nodeType === 3 && isHydrating(prev))
+        value[i] = prev;
     }
   }
   return value;
