@@ -12,7 +12,9 @@ use oxc_span::Span;
 use oxc_str::{Ident, Str};
 use oxc_syntax::{
     number::NumberBase,
-    operator::{AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator},
+    operator::{
+        AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator, UpdateOperator,
+    },
 };
 
 #[derive(Clone, Copy)]
@@ -213,6 +215,16 @@ impl<'a> AstBuilder<'a> {
         argument: Expression<'a>,
     ) -> Expression<'a> {
         Expression::new_unary_expression(span, operator, argument, &self.inner())
+    }
+
+    pub(crate) fn expression_update(
+        &self,
+        span: Span,
+        operator: UpdateOperator,
+        prefix: bool,
+        argument: SimpleAssignmentTarget<'a>,
+    ) -> Expression<'a> {
+        Expression::new_update_expression(span, operator, prefix, argument, &self.inner())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -684,6 +696,99 @@ impl<'a> AstBuilder<'a> {
         expression: JSXExpression<'a>,
     ) -> JSXExpressionContainer<'a> {
         JSXExpressionContainer::new(span, expression, &self.inner())
+    }
+
+    pub(crate) fn jsx_attribute_item_expression(
+        &self,
+        span: Span,
+        name: &str,
+        expression: Expression<'a>,
+    ) -> JSXAttributeItem<'a> {
+        JSXAttributeItem::Attribute(JSXAttribute::boxed(
+            span,
+            JSXAttributeName::Identifier(JSXIdentifier::boxed(span, self.str(name), &self.inner())),
+            Some(JSXAttributeValue::ExpressionContainer(
+                JSXExpressionContainer::boxed(span, expression.into(), &self.inner()),
+            )),
+            &self.inner(),
+        ))
+    }
+
+    pub(crate) fn jsx_attribute_item_string(
+        &self,
+        span: Span,
+        name: &str,
+        value: impl Into<Str<'a>>,
+    ) -> JSXAttributeItem<'a> {
+        JSXAttributeItem::Attribute(JSXAttribute::boxed(
+            span,
+            JSXAttributeName::Identifier(JSXIdentifier::boxed(span, self.str(name), &self.inner())),
+            Some(JSXAttributeValue::StringLiteral(
+                self.alloc_string_literal(span, value, None),
+            )),
+            &self.inner(),
+        ))
+    }
+
+    pub(crate) fn jsx_identifier(&self, span: Span, name: impl Into<Str<'a>>) -> JSXIdentifier<'a> {
+        JSXIdentifier::new(span, name, &self.inner())
+    }
+
+    pub(crate) fn expression_jsx_element(
+        &self,
+        span: Span,
+        name: &str,
+        attributes: ArenaVec<'a, JSXAttributeItem<'a>>,
+        children: ArenaVec<'a, JSXChild<'a>>,
+    ) -> Expression<'a> {
+        let opening_name = JSXElementName::IdentifierReference(
+            self.alloc_identifier_reference(span, self.ident(name)),
+        );
+        let closing_name = JSXElementName::IdentifierReference(
+            self.alloc_identifier_reference(span, self.ident(name)),
+        );
+        Expression::JSXElement(JSXElement::boxed(
+            span,
+            JSXOpeningElement::boxed(span, opening_name, None, attributes, &self.inner()),
+            children,
+            Some(JSXClosingElement::boxed(span, closing_name, &self.inner())),
+            &self.inner(),
+        ))
+    }
+
+    pub(crate) fn jsx_child_expression(
+        &self,
+        span: Span,
+        expression: Expression<'a>,
+    ) -> JSXChild<'a> {
+        match expression {
+            Expression::JSXElement(element) => JSXChild::Element(element),
+            Expression::JSXFragment(fragment) => JSXChild::Fragment(fragment),
+            expression => self.jsx_child_expression_container(span, expression.into()),
+        }
+    }
+
+    pub(crate) fn expression_jsx_fragment(
+        &self,
+        span: Span,
+        children: ArenaVec<'a, JSXChild<'a>>,
+    ) -> Expression<'a> {
+        Expression::JSXFragment(JSXFragment::boxed(
+            span,
+            JSXOpeningFragment::new(span, &self.inner()),
+            children,
+            JSXClosingFragment::new(span, &self.inner()),
+            &self.inner(),
+        ))
+    }
+
+    pub(crate) fn alloc_jsx_member_expression(
+        &self,
+        span: Span,
+        object: JSXMemberExpressionObject<'a>,
+        property: JSXIdentifier<'a>,
+    ) -> ArenaBox<'a, JSXMemberExpression<'a>> {
+        JSXMemberExpression::boxed(span, object, property, &self.inner())
     }
 
     pub(crate) fn template_element_with_lone_surrogates(

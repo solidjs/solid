@@ -2,6 +2,13 @@ export interface TransformOptions {
   filename?: string;
   /** Default `"@solidjs/web"`. */
   moduleName?: string;
+  /**
+   * Source syntax frontend, matching `@solidjs/babel-plugin`: `"auto"`
+   * (default) routes `.tsrx` filenames through the TSRX frontend and
+   * everything else through standard JSX; `"tsrx"` and `"jsx"` force a
+   * frontend regardless of filename. TSRX support is experimental.
+   */
+  syntax?: "auto" | "jsx" | "tsrx";
   generate?: "dom" | "ssr" | "universal" | "dynamic";
   hydratable?: boolean;
   dev?: boolean;
@@ -44,6 +51,10 @@ export interface RendererOption {
 export interface TransformResult {
   code: string;
   map?: string | null;
+  /** Extracted scoped CSS for TSRX sources. */
+  css?: string | null;
+  /** Space-separated TSRX scope hashes. */
+  cssHash?: string | null;
 }
 
 export function transform(code: string, options?: TransformOptions | null): TransformResult;
@@ -51,6 +62,49 @@ export function transformAsync(
   code: string,
   options?: TransformOptions | null
 ): Promise<TransformResult>;
+
+export interface ProjectTsrxForTypecheckOptions {
+  filename?: string;
+}
+
+export interface TsrxTypecheckEmbeddedRegion {
+  kind: "css" | "script";
+  /** Authored JavaScript string offset in UTF-16 code units. */
+  start: number;
+  /** Authored JavaScript string offset in UTF-16 code units. */
+  end: number;
+  content: string;
+}
+
+export interface TsrxTypecheckMapping {
+  /** Authored JavaScript string offset in UTF-16 code units. */
+  sourceStart: number;
+  /** Generated JavaScript string offset in UTF-16 code units. */
+  generatedStart: number;
+  sourceLength: number;
+  generatedLength: number;
+}
+
+export interface TsrxTypecheckProjectionResult {
+  /** Valid post-semantic-rewrite TypeScript/TSX. */
+  code: string;
+  /** JSON source map from virtual TSX back to the authored `.tsrx` source. */
+  map: string;
+  /** Exact equal-text ranges suitable for editor feature mappings. */
+  mappings: TsrxTypecheckMapping[];
+  css: string;
+  cssHash: string | null;
+  embeddedRegions: TsrxTypecheckEmbeddedRegion[];
+}
+
+/**
+ * Experimental compiler-owned TSRX projection for typechecking and editor
+ * tooling. This API is host-independent and does not run a runtime renderer.
+ */
+export function projectTsrxForTypecheck(
+  code: string,
+  options?: ProjectTsrxForTypecheckOptions | null
+): TsrxTypecheckProjectionResult;
 
 export interface DirectiveImportDefinition {
   kind?: "named" | "default";

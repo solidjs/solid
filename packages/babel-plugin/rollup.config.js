@@ -25,7 +25,8 @@ export default {
     "@babel/plugin-syntax-jsx",
     "@babel/helper-module-imports",
     "@babel/types",
-    "html-entities"
+    "html-entities",
+    "@tsrx/core"
   ],
   output: {
     file: "index.js",

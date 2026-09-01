@@ -86,7 +86,7 @@ Omitted options are the Solid 2.0 defaults that used to live in `babel-preset-so
         hydratable: true
       }
     ]
-  ]
+  ];
 }
 ```
 
@@ -98,6 +98,13 @@ Omitted options are the Solid 2.0 defaults that used to live in `babel-preset-so
 - Default: `"@solidjs/web"`
 
 Runtime module the compiled output imports helpers from. Use the same module for SSR; switch `generate` instead.
+
+### syntax
+
+- Type: `'auto' | 'jsx' | 'tsrx'`
+- Default: `'auto'`
+
+Source syntax frontend. `"auto"` routes `.tsrx` files through the TSRX frontend and everything else through standard JSX; `"tsrx"` forces TSRX for every file; `"jsx"` disables TSRX routing entirely. See [TSRX](#tsrx-experimental).
 
 ### generate
 
@@ -206,12 +213,7 @@ Restrict JSX transformation to files whose `@jsxImportSource` pragma matches.
 
 ```js
 {
-  plugins: [
-    [
-      "@solidjs/babel-plugin",
-      { requireImportSource: "@solidjs/web" }
-    ]
-  ]
+  plugins: [["@solidjs/babel-plugin", { requireImportSource: "@solidjs/web" }]];
 }
 ```
 
@@ -233,6 +235,35 @@ Inline style attributes in templates when the value is a string or `Record<strin
 - Default: `false`
 
 SSR-only: emit behavior-claim (`_bnd`) markers for `ref` / `on*` on intrinsic elements.
+
+## TSRX (experimental)
+
+TSRX (TypeScript Render Extensions) is a syntax for declarative UI. `.tsrx` sources desugar to the same Solid JSX this plugin already compiles: `@if`/`@else`, `@for … @empty`, `@switch`/`@case`, and `@try`/`@catch`/`@pending` lower to the corresponding control-flow components (`Show`, `For`, `Switch`/`Match`, `Errored`, `Loading`), and `@{}` statement containers mix setup statements with rendered elements.
+
+```tsrx
+export function TodoList({ items }) @{
+  <ul>
+    <style>
+      li { padding-block: 0.25rem; }
+    </style>
+    @for (const item of items; index i; key item.id) {
+      <li>{i + 1}. {item.text}</li>
+    } @empty {
+      <li>No todos</li>
+    }
+  </ul>
+}
+```
+
+Requirements and behavior:
+
+- Compiling `.tsrx` sources requires the optional peer dependency `@tsrx/core` and Node.js >= 22.12. It loads lazily on first TSRX routing, so plain JSX users never pay for it.
+- Routing is filename-based by default (`syntax: "auto"`), so Babel must receive a `filename`.
+- Desugared constructs rely on the `builtIns` auto-imports, so those components must exist in `moduleName`.
+- Scoped `<style>` blocks are removed at compile time, matching native and dynamic elements receive a `tsrx-<hash>` class, and the scoped/pruned stylesheet is returned as `result.metadata.css` with `result.metadata.cssHash`. Style expressions produce class-map objects, `<style ref={styles}>` initializes a class map, and `:global(...)` opts selectors out of scoping. The plugin emits no runtime style helper; a bundler integration must emit the CSS metadata.
+- Solid rejects authored TSRX lazy destructuring (`&{ … }` / `&[ … ]`). Keep accessor calls and reactive property reads explicit in Solid source.
+- Destructured bindings in keyed `@for` loops and `@catch` clauses stay deferred against Solid's item and error accessors, including nested patterns, defaults, computed keys, and rest.
+- The native compiler ([`@solidjs/compiler`](../compiler)) compiles the same sources to byte-identical output.
 
 ## Special Binding
 

@@ -78,14 +78,38 @@ const result = transform(source, {
 });
 ```
 
+### TSRX (experimental)
+
+TSRX (TypeScript Render Extensions) is a syntax for declarative UI whose constructs (`@if`/`@else`, `@for … @empty`, `@switch`/`@case`, `@try`/`@catch`/`@pending`, and `@{}` statement containers) desugar to the Solid control-flow components. `.tsrx` filenames route through the TSRX frontend automatically and compile to the same output as `@solidjs/babel-plugin`'s TSRX support, byte for byte.
+
+```js
+const result = transform(tsrxSource, { filename: "App.tsrx" });
+// TSRX <style> blocks are extracted alongside the JavaScript:
+result.css;
+result.cssHash;
+```
+
+Routing follows the filename by default (`syntax: "auto"`); pass `syntax: "tsrx"` or `syntax: "jsx"` to force a frontend regardless of filename. No extra install is needed — the shipped binaries include the frontend (Rust embedders can disable the default `tsrx` cargo feature).
+
+Scoped `<style>` blocks are compile-time only. The compiler removes the style element, adds its `tsrx-<hash>` class to matching native and dynamic elements, scopes and prunes the CSS, and returns the stylesheet in `css` with its scope identifier in `cssHash`. Style expressions produce class-map objects, `<style ref={styles}>` initializes the requested class map, and `:global(...)` opts individual selectors out of scoping. A bundler integration must emit the returned CSS; the core compiler does not inject a runtime style helper.
+
+Solid rejects authored TSRX lazy destructuring (`&{ … }` / `&[ … ]`). Keep accessor calls and reactive property reads explicit in Solid source.
+
+Destructured bindings in keyed `@for` loops and `@catch` clauses stay deferred against Solid's item and error accessors, including nested patterns, defaults, computed keys, and rest.
+
+The frontend uses the community [oxc-tsrx](https://github.com/tsrx-org/oxc) parser at a pinned revision. Statement containers can be used as function bodies, statements, expressions (`const x = @{ … }`), and JSX children or expression containers. See `documentation/tsrx/frontend-notes.md` in the repository for the full frontend notes.
+
+`projectTsrxForTypecheck(source, { filename })` is an experimental compiler-owned projection for editor and typecheck integrations. It returns independently typecheckable post-rewrite TSX without running the DOM/SSR/universal transforms, injecting collision-safe imports for generated Solid control-flow and dynamic-element helpers. The tooling-only path recovers common incomplete editor snapshots while normal compilation remains strict. The result also includes an authored `.tsrx` source map, exact equal-text `mappings`, processed `css`/`cssHash`, and parser-authored embedded CSS/raw-script regions. Mapping and embedded offsets use JavaScript UTF-16 string coordinates. The ranges deliberately omit generated-only text; host adapters such as Volar attach feature capabilities to them.
+
 ### Source maps
 
-Pass `sourceMap: true` to receive a JSON source map string in `result.map`.
+Pass `sourceMap: true` to receive a JSON source map string in `result.map`. For TSRX, the compiler composes Oxc's generated-JavaScript map through the internal TSX text projection, returning the original `.tsrx` filename and source in `sources` and `sourcesContent`. Authored expressions and lazy/accessor rewrites map back to their TSRX locations; projection-only scaffolding remains explicitly unmapped rather than being attributed to nearby syntax.
 
 ### Options
 
 - `filename`
 - `moduleName` (default `"@solidjs/web"`)
+- `syntax`: `"auto"`, `"jsx"`, or `"tsrx"` (default `"auto"` — routes `.tsrx` filenames through the TSRX frontend)
 - `generate`: `"dom"`, `"ssr"`, `"universal"`, or `"dynamic"` (default `"dom"`)
 - `hydratable`
 - `dev`
@@ -110,7 +134,7 @@ Pass `sourceMap: true` to receive a JSON source map string in `result.map`.
 
 ### Server function directives (experimental)
 
-`transformDirectives(code, options)` is a second pass for `"use server"`. It applies to plain `.js`/`.ts` as well as JSX/TSX.
+`transformDirectives(code, options)` is a second pass for `"use server"`. It accepts ordinary JavaScript/TypeScript, including JSX/TSX. For a `.tsrx` module, run `transform()` first, then pass its generated code to `transformDirectives()` with the same original `.tsrx` filename so function IDs use the manifest path. `transformDirectives()` does not parse raw TSRX syntax itself.
 
 ```js
 const { transformDirectives } = require("@solidjs/compiler");
@@ -133,15 +157,24 @@ The runtime module defaults to `@solidjs/web/server-functions`. Function IDs use
 The crate also exposes a host-independent Rust API. The crate name is `solidjs-compiler`; the Node `transform()` delegates to the same core.
 
 ```rust
-use solidjs_compiler::{compile, CompileOptions};
+use solidjs_compiler::{
+    compile, project_tsrx_for_typecheck, CompileOptions,
+    TsrxTypecheckProjectionOptions,
+};
 
 let output = compile(
     "const view = <div>{name()}</div>;",
     &CompileOptions::default(),
 )?;
+
+let tsrx_source = "export function View() @{ <div /> }";
+let virtual_tsx =
+    project_tsrx_for_typecheck(tsrx_source, &TsrxTypecheckProjectionOptions::default())?;
 ```
 
 `CompileOptions::default()` uses `module_name: "@solidjs/web"` and the same control-flow `built_ins` as the Babel plugin. Build with `--no-default-features` when embedding without the Node-API adapter.
+
+The unstable Rust typecheck projection reports embedded ranges in authored UTF-8 bytes. The N-API adapter converts those ranges to UTF-16 code units for JavaScript tooling.
 
 > **Stability:** the Rust API is unstable while the compiler is pre-1.0. Options, output, and error types may change in any release — pin an exact revision when embedding it.
 
@@ -151,9 +184,9 @@ Compared against `@solidjs/babel-plugin` compiling identical sources under ident
 
 | Workload                                        | babel-plugin | compiler | Speedup |
 | ----------------------------------------------- | -----------: | -------: | ------: |
-| Fixture corpus (88 files, 175 KB, all 10 modes) |           440 ms |    19 ms |     23x |
-| 129 KB single module                            |           545 ms |   9.4 ms |     58x |
-| 1 MB single module                              |        24,975 ms |    70 ms |    355x |
+| Fixture corpus (88 files, 175 KB, all 10 modes) |       440 ms |    19 ms |     23x |
+| 129 KB single module                            |       545 ms |   9.4 ms |     58x |
+| 1 MB single module                              |    24,975 ms |    70 ms |    355x |
 
 Native throughput stays roughly flat as input grows, while Babel's per-file cost grows super-linearly.
 

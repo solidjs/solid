@@ -240,7 +240,7 @@ var _el$32 = _tmpl$17();
 var _el$33 = _el$32.firstChild;
 _$insert(_el$32, () => {
 	return props.children;
-}, _el$32.firstChild);
+}, _el$33);
 _$claimElement(_el$33);
 _$spread(_el$33, _$mergeProps(props, { something: true }), false);
 const template25 = _el$32;

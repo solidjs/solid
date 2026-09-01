@@ -30,10 +30,21 @@ export interface ProgramScopeData {
   pureRows?: Set<t.ArrowFunctionExpression | t.FunctionExpression>;
 }
 
+export interface TsrxStyleResult {
+  css: string;
+  cssHash: string | null;
+}
+
+export type TsrxBabelAst = t.File & {
+  tsrxStyle?: TsrxStyleResult;
+};
+
 export type BabelFileWithMetadata = {
-  ast: t.File;
+  ast: TsrxBabelAst;
   metadata: {
     config?: PluginConfig;
+    css?: string;
+    cssHash?: string | null;
   };
 };
 

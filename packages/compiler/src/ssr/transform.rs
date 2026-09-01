@@ -92,6 +92,9 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     /// Spans of JSX elements sitting in statement position (`return <jsx/>`,
     /// `const x = <jsx/>`) for the statement currently being processed.
     statement_jsx_spans: std::vec::Vec<Span>,
+    /// Direct component children are deferred values even when the generated
+    /// getter eventually places them in a return statement.
+    component_child_depth: usize,
     /// Scope stack for bare `var` hoisting, mirroring Babel's `Scope.push`
     /// targeting rules: the nearest block parent normally, the function
     /// parent from switch statements, and the scope *outside* the enclosing
@@ -232,6 +235,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             hoisted_var_names: std::vec::Vec::new(),
             pending_statements: std::vec::Vec::new(),
             statement_jsx_spans: std::vec::Vec::new(),
+            component_child_depth: 0,
             var_scope_stack: std::vec::Vec::new(),
             wont_escape_spans: std::vec::Vec::new(),
             jsx_root_span: None,
@@ -684,7 +688,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             return Ok(ssr_call);
         }
 
-        if self.statement_jsx_spans.contains(&element.span) {
+        if self.component_child_depth == 0 && self.statement_jsx_spans.contains(&element.span) {
             // Statement position: one combined `var _v$ = init1, _v$2 = …;`
             // declaration before the parent statement (Babel's
             // `insertBefore` in `ssr/template.ts`).
@@ -1096,16 +1100,26 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                         });
                     }
                 }
-                JSXChild::Element(element) => values.push(ChildValue {
-                    value: self.lower_element(element)?,
-                    dynamic: false,
-                    expression_source: false,
-                }),
-                JSXChild::Fragment(fragment) => values.push(ChildValue {
-                    value: self.lower_fragment(fragment)?,
-                    dynamic: false,
-                    expression_source: false,
-                }),
+                JSXChild::Element(element) => {
+                    self.component_child_depth += 1;
+                    let value = self.lower_element(element);
+                    self.component_child_depth -= 1;
+                    values.push(ChildValue {
+                        value: value?,
+                        dynamic: false,
+                        expression_source: false,
+                    });
+                }
+                JSXChild::Fragment(fragment) => {
+                    self.component_child_depth += 1;
+                    let value = self.lower_fragment(fragment);
+                    self.component_child_depth -= 1;
+                    values.push(ChildValue {
+                        value: value?,
+                        dynamic: false,
+                        expression_source: false,
+                    });
+                }
                 JSXChild::ExpressionContainer(container) => {
                     let dynamic = container.expression.as_expression().is_some_and(|raw| {
                         self.classify()

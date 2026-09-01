@@ -50,7 +50,12 @@ pub fn transform_lazy(
 ) -> Result<TransformResult> {
     let options = options.unwrap_or_default();
     let Some(filename) = options.filename.as_deref() else {
-        return Ok(TransformResult { code, map: None });
+        return Ok(TransformResult {
+            code,
+            map: None,
+            css: None,
+            css_hash: None,
+        });
     };
 
     let source_type = source_type_for_filename(Some(filename))?;
@@ -71,7 +76,12 @@ pub fn transform_lazy(
         // Nothing matched: hand back the input untouched instead of a
         // reprint (the Babel support pass reprints regardless, but callers
         // only care about the placeholder injection).
-        return Ok(TransformResult { code, map: None });
+        return Ok(TransformResult {
+            code,
+            map: None,
+            css: None,
+            css_hash: None,
+        });
     }
 
     let mut rewriter = Rewriter {
@@ -93,6 +103,8 @@ pub fn transform_lazy(
     Ok(TransformResult {
         code: build.code,
         map: build.map.map(|map| map.to_json_string()),
+        css: None,
+        css_hash: None,
     })
 }
 

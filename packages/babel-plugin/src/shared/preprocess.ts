@@ -5,6 +5,12 @@ import type { BabelHubWithMetadata, PluginPass } from "../types";
 
 export default (path: NodePath<t.Program>, state: PluginPass) => {
   const file = (path.hub as unknown as BabelHubWithMetadata).file;
+  const parsedMetadata = file.ast.tsrxStyle;
+  if (parsedMetadata) {
+    file.metadata.css = parsedMetadata.css;
+    file.metadata.cssHash = parsedMetadata.cssHash;
+    delete file.ast.tsrxStyle;
+  }
   const merged = (file.metadata.config = Object.assign({}, config, state.opts));
   // Boolean opt-in parity with the native loader: `patchDriver: true` means
   // the default import name (downstream code uses the value AS the name).

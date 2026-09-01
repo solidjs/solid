@@ -29,10 +29,17 @@ mod node_adapter;
 mod refresh;
 mod shared;
 mod ssr;
+#[cfg(feature = "tsrx")]
+mod tsrx;
 mod universal;
 
-pub use compiler::{CompileOptions, CompileOutput, Generate, Renderer, Wrapper, compile};
+pub use compiler::{CompileOptions, CompileOutput, Generate, Renderer, Syntax, Wrapper, compile};
 pub use error::{CompileError, CompileErrorKind};
+#[cfg(feature = "tsrx")]
+pub use tsrx::{
+    TsrxEmbeddedRegion, TsrxEmbeddedRegionKind, TsrxTypecheckMapping, TsrxTypecheckProjection,
+    TsrxTypecheckProjectionOptions, project_tsrx_for_typecheck,
+};
 
 #[cfg(feature = "node")]
 pub use node_adapter::*;

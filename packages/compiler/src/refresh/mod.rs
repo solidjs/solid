@@ -112,7 +112,12 @@ pub fn transform_refresh(
     if !changed {
         // Skipped modules (`@refresh skip`) and modules with nothing to
         // register come back untouched.
-        return Ok(TransformResult { code, map: None });
+        return Ok(TransformResult {
+            code,
+            map: None,
+            css: None,
+            css_hash: None,
+        });
     }
 
     let build = Codegen::new()
@@ -127,5 +132,7 @@ pub fn transform_refresh(
     Ok(TransformResult {
         code: build.code,
         map: build.map.map(|map| map.to_json_string()),
+        css: None,
+        css_hash: None,
     })
 }

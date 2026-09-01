@@ -34,7 +34,7 @@ var _el$14 = _tmpl$3();
 var _el$15 = _el$14.firstChild;
 var _el$16 = _el$15.nextSibling;
 _$insert(_el$14, a, _el$15);
-_$insert(_el$14, b, _el$15.nextSibling);
+_$insert(_el$14, b, _el$16);
 // Safe omissions that must be preserved:
 const slotsBeforeElement = _el$14;
 var _el$17 = _tmpl$4();

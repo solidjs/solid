@@ -14,6 +14,10 @@ pub struct RendererOption {
 #[derive(Default)]
 pub struct TransformOptions {
     pub filename: Option<String>,
+    /// Source syntax routing, matching `@solidjs/babel-plugin`'s `syntax`:
+    /// `"auto"` (default) compiles `.tsrx` filenames with the TSRX frontend,
+    /// `"jsx"` never does, `"tsrx"` forces TSRX for every file.
+    pub syntax: Option<String>,
     /// Runtime module compiled output imports helpers from.
     /// Default `"@solidjs/web"`.
     pub module_name: Option<String>,
@@ -64,9 +68,18 @@ pub struct TransformOptions {
 pub struct TransformResult {
     pub code: String,
     pub map: Option<String>,
+    /// Extracted TSRX stylesheet output. Absent for ordinary JSX transforms.
+    pub css: Option<String>,
+    /// Space-separated TSRX scope hashes. Absent when no stylesheet was emitted.
+    pub css_hash: Option<String>,
 }
 
 pub(crate) fn source_type_for_filename(filename: Option<&str>) -> Result<SourceType> {
+    if filename.is_some_and(|filename| filename.ends_with(".tsrx")) {
+        // Secondary passes receive already-projected ordinary code but retain
+        // the authored filename for stable path-derived metadata.
+        return Ok(SourceType::tsx());
+    }
     filename
         .map(SourceType::from_path)
         .transpose()

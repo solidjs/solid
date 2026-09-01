@@ -11,10 +11,159 @@ pub use crate::directives::{
 };
 pub use crate::lazy::TransformLazyOptions;
 pub use crate::refresh::TransformRefreshOptions;
-use crate::{CompileOptions, Generate, Renderer, Wrapper};
+use crate::{CompileOptions, Generate, Renderer, Syntax, Wrapper};
 
 const UNSUPPORTED_GENERATE: &str =
     "The @solidjs/compiler backend implements DOM, SSR, universal, and dynamic modes only";
+
+#[cfg(feature = "tsrx")]
+#[napi(object)]
+#[derive(Default)]
+pub struct ProjectTsrxForTypecheckOptions {
+    pub filename: Option<String>,
+}
+
+#[cfg(feature = "tsrx")]
+#[napi(object)]
+pub struct TsrxTypecheckEmbeddedRegion {
+    pub kind: String,
+    /// Authored JavaScript string offset in UTF-16 code units.
+    pub start: u32,
+    /// Authored JavaScript string offset in UTF-16 code units.
+    pub end: u32,
+    pub content: String,
+}
+
+#[cfg(feature = "tsrx")]
+#[napi(object)]
+pub struct TsrxTypecheckMapping {
+    /// Authored JavaScript string offset in UTF-16 code units.
+    pub source_start: u32,
+    /// Generated JavaScript string offset in UTF-16 code units.
+    pub generated_start: u32,
+    pub source_length: u32,
+    pub generated_length: u32,
+}
+
+#[cfg(feature = "tsrx")]
+#[napi(object)]
+pub struct TsrxTypecheckProjectionResult {
+    pub code: String,
+    pub map: String,
+    pub mappings: Vec<TsrxTypecheckMapping>,
+    pub css: String,
+    pub css_hash: Option<String>,
+    pub embedded_regions: Vec<TsrxTypecheckEmbeddedRegion>,
+}
+
+/// Experimental host-independent TSRX projection for typechecking tools.
+#[cfg(feature = "tsrx")]
+#[napi]
+pub fn project_tsrx_for_typecheck(
+    code: String,
+    options: Option<ProjectTsrxForTypecheckOptions>,
+) -> Result<TsrxTypecheckProjectionResult> {
+    let options = options.unwrap_or_default();
+    let output = crate::tsrx::project_tsrx_for_typecheck(
+        &code,
+        &crate::tsrx::TsrxTypecheckProjectionOptions {
+            filename: options.filename,
+        },
+    )
+    .map_err(|error| Error::from_reason(error.to_string()))?;
+    let source_mapping_endpoints = output
+        .mappings
+        .iter()
+        .flat_map(|mapping| [mapping.source_start, mapping.source_start + mapping.length])
+        .collect::<Vec<_>>();
+    let generated_mapping_endpoints = output
+        .mappings
+        .iter()
+        .flat_map(|mapping| {
+            [
+                mapping.generated_start,
+                mapping.generated_start + mapping.length,
+            ]
+        })
+        .collect::<Vec<_>>();
+    let source_mapping_utf16 = utf16_offsets(&code, &source_mapping_endpoints)?;
+    let generated_mapping_utf16 = utf16_offsets(&output.code, &generated_mapping_endpoints)?;
+    let mappings = source_mapping_utf16
+        .chunks_exact(2)
+        .zip(generated_mapping_utf16.chunks_exact(2))
+        .map(|(source, generated)| TsrxTypecheckMapping {
+            source_start: source[0],
+            generated_start: generated[0],
+            source_length: source[1] - source[0],
+            generated_length: generated[1] - generated[0],
+        })
+        .collect();
+    let endpoints = output
+        .embedded_regions
+        .iter()
+        .flat_map(|region| [region.start, region.end])
+        .collect::<Vec<_>>();
+    let utf16_endpoints = utf16_offsets(&code, &endpoints)?;
+    let embedded_regions = output
+        .embedded_regions
+        .into_iter()
+        .zip(utf16_endpoints.chunks_exact(2))
+        .map(|(region, offsets)| {
+            let kind = match region.kind {
+                crate::tsrx::TsrxEmbeddedRegionKind::Css => "css",
+                crate::tsrx::TsrxEmbeddedRegionKind::Script => "script",
+            };
+            TsrxTypecheckEmbeddedRegion {
+                kind: kind.into(),
+                start: offsets[0],
+                end: offsets[1],
+                content: region.content,
+            }
+        })
+        .collect();
+    Ok(TsrxTypecheckProjectionResult {
+        code: output.code,
+        map: output.source_map,
+        mappings,
+        css: output.css,
+        css_hash: output.css_hash,
+        embedded_regions,
+    })
+}
+
+#[cfg(feature = "tsrx")]
+fn utf16_offsets(source: &str, byte_offsets: &[u32]) -> Result<Vec<u32>> {
+    let mut indexed = byte_offsets.iter().copied().enumerate().collect::<Vec<_>>();
+    indexed.sort_unstable_by_key(|(_, offset)| *offset);
+    let mut converted = vec![0; byte_offsets.len()];
+    let mut byte = 0usize;
+    let mut utf16 = 0usize;
+    for (index, target) in indexed {
+        let target = target as usize;
+        if target > source.len() {
+            return Err(Error::from_reason(
+                "TSRX embedded region exceeds the source length",
+            ));
+        }
+        while byte < target {
+            let character = source[byte..]
+                .chars()
+                .next()
+                .ok_or_else(|| Error::from_reason("TSRX embedded region exceeds the source"))?;
+            byte += character.len_utf8();
+            utf16 += character.len_utf16();
+        }
+        if byte != target {
+            return Err(Error::from_reason(
+                "TSRX embedded region is not on a UTF-8 boundary",
+            ));
+        }
+        converted[index] = u32::try_from(utf16).map_err(|_| {
+            Error::from_reason("TSRX embedded region exceeds the N-API offset range")
+        })?;
+    }
+    Ok(converted)
+}
 
 /// The `"use server"` directive pass — a second, independent transform over
 /// the same parse infrastructure as the JSX pass. Applies to plain
@@ -66,6 +215,8 @@ pub fn transform(code: String, options: Option<TransformOptions>) -> Result<Tran
     Ok(TransformResult {
         code: output.code,
         map: output.source_map,
+        css: output.css,
+        css_hash: output.css_hash,
     })
 }
 
@@ -80,8 +231,16 @@ fn core_options(options: TransformOptions) -> Result<CompileOptions> {
         "dynamic" => Generate::Dynamic,
         _ => return Err(Error::from_reason(UNSUPPORTED_GENERATE)),
     };
+    // Same fallthrough as the Babel plugin's `isTsrxSource`: any value other
+    // than "tsrx"/"jsx" behaves as "auto".
+    let syntax = match options.syntax.as_deref() {
+        Some("tsrx") => Syntax::Tsrx,
+        Some("jsx") => Syntax::Jsx,
+        _ => Syntax::Auto,
+    };
     Ok(CompileOptions {
         filename: options.filename,
+        syntax,
         module_name,
         generate,
         hydratable: options.hydratable.unwrap_or(false),
@@ -149,6 +308,8 @@ fn legacy_preflight(
         return Ok(TransformResult {
             code: code.to_owned(),
             map: None,
+            css: None,
+            css_hash: None,
         });
     }
     Err(Error::from_reason(validation_error))
@@ -267,5 +428,28 @@ mod tests {
             }),
         )
         .expect("next accepts an explicitly empty moduleName");
+    }
+
+    #[cfg(feature = "tsrx")]
+    #[test]
+    fn typecheck_projection_converts_all_embedded_offsets_in_one_utf16_pass() {
+        let source = "const marker = \"🚀\"; export const C = () => <><style>.a{}</style><script>ok</script></>;";
+        let output = project_tsrx_for_typecheck(
+            source.into(),
+            Some(ProjectTsrxForTypecheckOptions {
+                filename: Some("offsets.tsrx".into()),
+            }),
+        )
+        .expect("TSRX typecheck projection");
+        assert_eq!(output.embedded_regions.len(), 2);
+        for region in output.embedded_regions {
+            let byte_start = source.find(&region.content).expect("embedded content");
+            let byte_end = byte_start + region.content.len();
+            assert_eq!(
+                region.start,
+                source[..byte_start].encode_utf16().count() as u32
+            );
+            assert_eq!(region.end, source[..byte_end].encode_utf16().count() as u32);
+        }
     }
 }
