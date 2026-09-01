@@ -27,6 +27,7 @@ import {
   STATUS_UNINITIALIZED,
   unwrapOverride,
   CONFIG_AUTHORITATIVE_READ,
+  CONFIG_ENTANGLED,
   CONFIG_OPTIMISTIC
 } from "../../core/constants.js";
 import {
@@ -1416,9 +1417,15 @@ function nodeValue(node: Signal<any>, backing: any): any {
             // the transaction's reveal).
             ((inOwnerContext() || authoritativeServe()) &&
               !(
-                node._config & CONFIG_OPTIMISTIC &&
-                !authoritativeServe() &&
-                GlobalQueue._heldTruthMasked?.(node)
+                (node._config & CONFIG_OPTIMISTIC &&
+                  !authoritativeServe() &&
+                  GlobalQueue._heldTruthMasked?.(node)) ||
+                // ENTANGLED confirming truth (#3164 follow-up): a foreign
+                // carrier's staged landing adopted by an awaited until()'s
+                // transaction — masked from ordinary readers until the
+                // joint settle, same tunnel exemptions as held truth
+                // (latest() is exempted by the leading arm above).
+                (node._config & CONFIG_ENTANGLED && !authoritativeServe())
               )))
         ? node._pendingValue
         : backing;

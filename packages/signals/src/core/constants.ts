@@ -99,6 +99,18 @@ export const CONFIG_DIRECT_COMMIT = 1 << 15;
  * deliberately keeps that race — its contract is "first settled value"
  * (#2930), not "next quiescent state". */
 export const CONFIG_FRESH_READ = 1 << 16;
+/** Entangled confirming truth (#3164 follow-up, until() flip-entanglement):
+ * this node's staged `_pendingValue` was adopted from the carrier whose
+ * write flipped an awaited until() predicate truthy — it now reveals with
+ * the awaiting transaction's settle. Until then ordinary readers (lane and
+ * speculative recomputes included) keep committed: the carrier's landing
+ * already notified subscribers as a plain write, so without the mask a
+ * mid-hold recompute composes live optimism with the confirming truth — a
+ * frame no timeline contains (the cross-primitive twin of the family
+ * fold's held-truth mask). Authoritative readers and latest() tunnel.
+ * Cleared when the staged value commits (the stamp dies with the commit,
+ * #3143). */
+export const CONFIG_ENTANGLED = 1 << 17;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;

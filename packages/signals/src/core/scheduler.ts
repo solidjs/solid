@@ -1,4 +1,6 @@
 import {
+  CONFIG_AUTHORITATIVE_READ,
+  CONFIG_ENTANGLED,
   CONFIG_IN_SNAPSHOT_SCOPE,
   EFFECT_RENDER,
   EFFECT_TRACKED,
@@ -31,6 +33,7 @@ import {
   activeLanes,
   assignOrMergeLane,
   findLane,
+  hasActiveOverride,
   signalLanes,
   type OptimisticLane
 } from "./lanes.js";
@@ -175,6 +178,13 @@ export interface Transition {
   // signal's committed value through the entanglement gate. At commit they
   // get rescheduled so they re-run with the new committed view.
   _gatedSubs: Set<Computed<any>>;
+  // True once a confirming carrier merged in via flip-entanglement
+  // (entangleConfirmingTransitions): subscribers may have computed against
+  // the adopted staged values BEFORE the merge retro-held them, so this
+  // transaction's settle recomputes post-revert before draining effect
+  // queues (see finalizePureQueue) — a stale apply would otherwise paint a
+  // frame no timeline contained.
+  _entangled: boolean;
 }
 
 /**
@@ -197,7 +207,8 @@ function createBatch(): Transition {
     _actions: [],
     _queueStash: { _queues: [[], []], _children: [] },
     _done: false,
-    _gatedSubs: new Set()
+    _gatedSubs: new Set(),
+    _entangled: false
   };
 }
 
@@ -250,6 +261,111 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
   }
   if (__DEV__) endAsyncReporterWrites();
   for (const sub of outgoing._gatedSubs) target._gatedSubs.add(sub);
+  if (outgoing._entangled) target._entangled = true;
+}
+
+/**
+ * Flip-entanglement (#3164 follow-up): `until()` is a declaration of
+ * relatedness — the predicate names the condition that confirms the awaiting
+ * transaction. When the predicate settles truthy, every live foreign
+ * transition whose staged write it read IS the confirming event by the
+ * user's own definition, so it merges into the awaiting transaction and
+ * reveals at the joint settle — the cross-primitive twin of the family fold
+ * (a landing on an optimism-carrying family joins the retaining
+ * transaction). Non-flipping updates never pass through here: falsy
+ * evaluations don't entangle, so unrelated traffic on the watched sources
+ * reveals freely on its own schedule.
+ *
+ * Runs inside the predicate's compute (pure phase) — the confirming
+ * transition's stamps are still live and its commit decision hasn't run, so
+ * the merge lands before any reveal. Only the tree-shaken graphs that call
+ * `until()` retain this.
+ */
+export function entangleConfirmingTransitions(obs: Computed<any>, target: Transition): void {
+  target = currentTransition(target);
+  if (target._done === true) return;
+  // The confirming evidence is a dep whose value is STAGED (pending,
+  // uncommitted) at flip evaluation — committed deps are public already and
+  // carry nothing to entangle. A staged dep lives in one of two carriers: a
+  // stamped transition, or the queue's current batch (ambient registrations
+  // don't stamp; "ambient work IS a transaction" — the batch is the
+  // carrier). The entangle STEALS the carrier's staged cargo — its pending
+  // nodes move (re-stamped) into the awaiting transaction and reveal at its
+  // settle — but never the carrier itself: its async reporters, actions,
+  // and stashes are its own future (a live stream's flight must not chain
+  // the awaiting transaction to landings that haven't happened; a merged
+  // reporter deadlocked exactly that way).
+  let stole = false;
+  for (let l = obs._deps; l !== null; l = l._nextDep) {
+    const dep = l._dep as Signal<any>;
+    if (dep._pendingValue !== NOT_PENDING) {
+      const stamp = dep._transition;
+      const t = stamp != null ? currentTransition(stamp) : null;
+      if (t === target) {
+        // Already the awaiting transaction's own cargo (a fold-staged
+        // landing, or a write the action itself issued) — its hold and
+        // reveal are already correct.
+      } else if (t !== null && t._done !== true) {
+        stole = stealEntangledCargo(t._pendingNodes, target) || stole;
+      } else if (t === null) {
+        // Ambient-batch staged: the batch commits at THIS flush's end, so
+        // the cargo must leave it now or the confirmation reveals
+        // immediately, under the live optimism it just confirmed.
+        stole = stealEntangledCargo(currentBatch._pendingNodes, target) || stole;
+      }
+    }
+    if (l === obs._depsTail) break;
+  }
+  // With no live flush of its own, the awaiting transaction must become the
+  // active one so the current flush stashes its effect applies instead of
+  // painting values computed against the pre-steal world. A live FOREIGN
+  // transition keeps the flush (its own stash/completion handles the
+  // applies; the re-dirty above corrected the values) — merging it would
+  // chain the target to the carrier's future, which is exactly what the
+  // steal exists to avoid.
+  if (stole && activeTransition === null) globalQueue.initTransition(target);
+}
+
+/** Move a confirming carrier's staged nodes into the awaiting transaction:
+ * re-stamp, arm the entangled held-truth mask (override-covered nodes skip
+ * it — the override already hides their staged value per A17, and is
+ * usually the very optimism this confirmation settles), and register the
+ * settle-side recompute pass via `_entangled`. The carrier's array is
+ * emptied so its own commit point commits none of the stolen cargo.
+ *
+ * EFFECT subs of stolen nodes re-run: any that recomputed against the
+ * staging BEFORE the steal (the carrier's landing notified them as a plain
+ * write) hold a private torn result — override composed with confirming
+ * truth — that the next paint gate (stash-point lane run, a foreign
+ * flush's completion drain) would show. Re-running them under the mask
+ * re-derives the mid-hold view in this same heap pass. PURE computeds are
+ * deliberately NOT re-run: a torn staged value of theirs is itself stolen
+ * cargo — masked at read, so ordinary readers already serve their
+ * committed value — while re-running them would re-derive the OLD world
+ * and re-stage it over the held truth. The reveal re-notifies
+ * (commitPendingNodes), which is when they re-derive for real. */
+function stealEntangledCargo(carrier: Signal<any>[], target: Transition): boolean {
+  if (carrier === target._pendingNodes || carrier.length === 0) return false;
+  for (let i = 0; i < carrier.length; i++) {
+    const node = carrier[i];
+    node._transition = target;
+    target._pendingNodes.push(node);
+    // Override-covered nodes stay silent AND unmasked: the override is the
+    // display (A17 — its staging never notified, its revert will), so their
+    // subs saw nothing and re-running one would break the silence with a
+    // duplicate fire of an unchanged view.
+    if (!hasActiveOverride(node)) {
+      node._config |= CONFIG_ENTANGLED;
+      for (let s = node._subs; s !== null; s = s._nextSub) {
+        const sub = s._sub;
+        if ((sub as any)._type && !(sub._config & CONFIG_AUTHORITATIVE_READ)) enqueueSub(sub);
+      }
+    }
+  }
+  carrier.length = 0;
+  target._entangled = true;
+  transitions.add(target);
+  return true;
 }
 
 export function schedule() {
@@ -883,8 +999,17 @@ function commitPendingNodes() {
     // its transaction let any later write (even a value-equal no-op, which
     // re-opens before the equality bail) resurrect the finished transaction;
     // a boundary flag rewritten every finalize pass then spun the drain loop
-    // forever (#3140).
+    // forever (#3140). The entangled held-truth mark dies the same death —
+    // the commit IS the reveal — and the reveal re-notifies: ordinary
+    // subscribers were masked to committed all hold (some re-derived
+    // against that old view), and commits are otherwise silent (staging
+    // already notified). Without the wake, a derived reader that
+    // recomputed mid-hold would cache the old world forever.
     node._transition = null;
+    if (node._config & CONFIG_ENTANGLED) {
+      node._config &= ~CONFIG_ENTANGLED;
+      insertSubs(node);
+    }
   }
   pendingNodes.length = 0;
   storeCommitHook?.();
@@ -940,6 +1065,19 @@ export function finalizePureQueue(
     // completing transition scopes the clear to its own layer keys (#2899).
     if (batch._optimisticStores.size)
       GlobalQueue._clearOptimisticStores!(batch._optimisticStores, completingTransition);
+    // Entangled settles only (#3164 follow-up): subscribers may have
+    // computed against the confirming carrier's staged values BEFORE the
+    // flip-entanglement merge retro-held them — those torn values sit in
+    // applies restored from the stash above, about to drain. Recomputing
+    // post-revert means every apply paints the settled view; without it
+    // the stale apply paints a frame no timeline contained, with the
+    // fresh recompute trailing a flush behind. Scoped to entangled
+    // transactions: an ordinary settle intentionally lets pre-revert
+    // (optimistic) applies paint before the reverted view follows.
+    if (completingTransition?._entangled && dirtyQueue._max >= dirtyQueue._min) {
+      runHeap(dirtyQueue, GlobalQueue._update);
+      commitPendingNodes();
+    }
     sweepTransientStoreNodes();
     // Lanes only enter activeLanes through the engine's getOrCreateLane.
     if (activeLanes.size) GlobalQueue._cleanupLanes!(completingTransition);

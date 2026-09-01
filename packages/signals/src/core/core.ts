@@ -14,6 +14,7 @@ import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_AUTHORITATIVE_OBSERVED,
   CONFIG_AUTHORITATIVE_READ,
+  CONFIG_ENTANGLED,
   CONFIG_DIRECT_COMMIT,
   CONFIG_FRESH_READ,
   CONFIG_IN_SNAPSHOT_SCOPE,
@@ -1250,7 +1251,16 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // (GabbeV's union tear). The revert at settle is their notification
     // point. Authoritative readers (until()'s predicate) and latest() see
     // the staged truth — the tunnel that keeps the hold deadlock-free.
-    (el._config & CONFIG_OPTIMISTIC && GlobalQueue._heldTruthMasked?.(el, c as Computed<any>))
+    (el._config & CONFIG_OPTIMISTIC && GlobalQueue._heldTruthMasked?.(el, c as Computed<any>)) ||
+    // Same A17-for-held-truth rule for ENTANGLED confirming truth (#3164
+    // follow-up): a foreign carrier's staged landing adopted by an awaited
+    // until()'s transaction is masked from ordinary readers until the
+    // joint settle — the flip retro-held a write that already notified
+    // subscribers as a plain one. Same tunnel exemptions; the bit only
+    // ever arms via until(), so the arm is dead weight nowhere else.
+    (el._config & CONFIG_ENTANGLED &&
+      !latestReadActive &&
+      !((c as Computed<any>)._config & CONFIG_AUTHORITATIVE_READ))
       ? el._value
       : (el._pendingValue as T);
   // Record that this isPending() probe observed the fresh pending value, so

@@ -132,7 +132,17 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // flight that parked dependents. Core-retained by necessity: the
     // supersede happens in recompute, and settlePendingSource is already
     // part of the async floor. Measured at 21,423 post-change.
-    expect(minifiedBytes).toBeLessThan(21_500);
+    // CONSCIOUS BUMP (2026-09-01): +~98B for until() flip-entanglement
+    // (#3164 follow-up) — the Transition._entangled flag (createBatch init
+    // for batch-shape monomorphism, mergeTransitionState propagation) and
+    // finalizePureQueue's post-revert recompute pass on entangled settles,
+    // plus the CONFIG_ENTANGLED held-truth arm in read() and the
+    // commit-time unmask/re-notify in commitPendingNodes. Core-retained by
+    // necessity: transition merging, read masking, and settle ordering
+    // cannot be pay-for-use. The entangle walk itself
+    // (entangleConfirmingTransitions/stealEntangledCargo) shakes out with
+    // until().
+    expect(minifiedBytes).toBeLessThan(21_600);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

@@ -30,7 +30,12 @@ import {
 } from "./core/index.js";
 import { emitDiagnostic, registerGraph } from "./core/dev.js";
 import { installOptimisticEngine } from "./core/optimistic.js";
-import { globalQueue, Queue } from "./core/scheduler.js";
+import {
+  activeTransition,
+  entangleConfirmingTransitions,
+  globalQueue,
+  Queue
+} from "./core/scheduler.js";
 
 /**
  * Low-level reactive-cleanup primitive. Registers a callback that runs when
@@ -956,6 +961,12 @@ export function until<T>(fn: () => T, options?: UntilOptions): Promise<Truthy<T>
   // Late-bind the wakeup hook for the A17-silent ack paths (pay-for-use:
   // apps that never call until() never retain it).
   installAuthoritativeRead();
+  // Flip-entanglement (#3164 follow-up): the transaction this until() holds
+  // open (the action's, when yielded from one). The predicate is the user's
+  // declaration of what confirms it — when a foreign transition's staged
+  // write flips it truthy, that transition merges here and reveals at the
+  // joint settle instead of painting the confirmation under live optimism.
+  const awaiting = activeTransition;
   return new Promise((res, rej) => {
     const signal = options?.signal;
     if (signal?.aborted) return rej(signal.reason);
@@ -977,7 +988,17 @@ export function until<T>(fn: () => T, options?: UntilOptions): Promise<Truthy<T>
         dispose();
       };
       effect(
-        fn,
+        awaiting === null
+          ? fn
+          : () => {
+              const value = fn();
+              // Runs inside the compute (pure phase): the confirming
+              // transition's stamps are live and its commit hasn't run, so
+              // the merge lands before any reveal. Falsy evaluations skip —
+              // non-flipping updates were never named as the confirmation.
+              if (value) entangleConfirmingTransitions(getObserver() as Computed<any>, awaiting);
+              return value;
+            },
         value => {
           // Falsy is "not yet": keep the subscription live and wait for the
           // next evaluation. Only a truthy settled value resolves.
