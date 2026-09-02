@@ -8,8 +8,10 @@ import {
   createStore,
   disposeReactiveNode,
   flush,
-  reconcile
+  reconcile,
+  region
 } from "../../src/index.js";
+import { $TARGET } from "../../src/store/store.js";
 
 const settle = async (n = 3) => {
   for (let i = 0; i < n; i++) {
@@ -332,6 +334,78 @@ describe("regions: lifecycle (audit correction — owner-bound)", () => {
       flush();
       expect(r.commits).toEqual([]);
     });
+  });
+
+  it("region() remount churn keeps the registry bounded (amortized sweep)", () => {
+    const [state, setState] = createRoot(() => createStore({ row: { id: 1, label: "a" } }));
+    const row = state.row;
+    // 50 mount/dispose cycles on the SAME record — dead entries must be
+    // swept on each subsequent push, not accumulate retaining closures.
+    for (let i = 0; i < 50; i++) {
+      createRoot(d => {
+        region(row, null, () => {});
+        d();
+      });
+    }
+    const commits: string[] = [];
+    createRoot(() => {
+      region(row, null, (raw: any) => {
+        commits.push(raw.label);
+      });
+    });
+    const rg = (row as any)[$TARGET].rg;
+    expect(rg.length).toBeLessThanOrEqual(2); // live + at most one dead
+    setState(s => {
+      s.row.label = "b";
+    });
+    flush();
+    expect(commits).toEqual(["a", "b"]);
+  });
+
+  it("demotion skips DEAD entries — no resurrected classic fallback for unmounted views", () => {
+    const [state, setState] = createRoot(() => createStore({ row: { id: 1, label: "a" } }));
+    const row = state.row;
+    const deadCommits: string[] = [];
+    const liveCommits: string[] = [];
+    // Mount and dispose a region (dead entry lingers until next sweep).
+    createRoot(d => {
+      region(row, null, (raw: any) => {
+        deadCommits.push(raw.label);
+      });
+      d();
+    });
+    // A live one beside it. Its push sweeps the dead entry too, so re-add
+    // a dead one AFTER to exercise the demotion-time guard.
+    createRoot(() => {
+      region(row, null, (raw: any) => {
+        liveCommits.push(raw.label);
+      });
+    });
+    createRoot(d => {
+      region(row, null, (raw: any) => {
+        deadCommits.push(raw.label);
+      });
+      d();
+    });
+    deadCommits.length = 0;
+    liveCommits.length = 0;
+    // Accessor acquisition demotes: live regions rebind classic; the dead
+    // entry must stay dead.
+    setState(s => {
+      Object.defineProperty(s.row, "computed", {
+        get() {
+          return this.label + "!";
+        },
+        configurable: true
+      });
+    });
+    flush();
+    setState(s => {
+      s.row.label = "c";
+    });
+    flush();
+    expect(liveCommits).toContain("c"); // classic fallback delivering
+    expect(deadCommits).toEqual([]); // unmounted view stayed unmounted
   });
 
   it("OWNER disposal stops delivery (regions are owner-bound)", () => {

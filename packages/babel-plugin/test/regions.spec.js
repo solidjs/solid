@@ -26,8 +26,11 @@ function Row(row, selection) {
     // Eligible bindings substitute the subject with the commit-time raw.
     expect(out).toContain("_n$.selected");
     expect(out).toContain("_n$.label");
-    // The dynamic-key read is a TRACKED residual in the compute.
-    expect(out).toMatch(/_t\$\.r0 = selection\[row\.id\]/);
+    // The dynamic-key read is a TRACKED residual in the compute; DIRECT
+    // depth-1 subject reads inside it ride the raw parameter (_u$) — the
+    // deep witness already wakes the compute on any subject change.
+    expect(out).toMatch(/_t\$\.r0 = selection\[_u\$\.id\]/);
+    expect(out).toContain("(_t$, _u$) =>");
     // No classic grouped effect emitted for this scope.
     expect(out).not.toContain("_$effect(");
   });

@@ -145,6 +145,45 @@ export function analyzeRegionScope(path: NodePath, dynamics: DynamicBinding[]): 
   return { subject, eligible };
 }
 
+/** Clone a RESIDUAL expression substituting DIRECT depth-1 subject reads
+ * (`subject.key` not further membered) with reads off the tracked callback's
+ * raw parameter. Sound because the region compute subscribes the deep
+ * witness — any subject change reruns it — so a tracked per-key read would
+ * only duplicate the wake (measured ~40% of keyed-row mount). Deeper chains
+ * (`subject.a.b`) keep the proxy read: the witness only covers the record's
+ * own keys. The classic fallback passes the PROXY as this parameter, so the
+ * same emitted code stays per-key tracked there. */
+export function substituteResidualSubject(
+  expr: t.Expression,
+  subject: string,
+  replacement: t.Identifier
+): t.Expression {
+  const clone = t.cloneNode(expr, true);
+  const rewrite = (node: t.Node, isMemberObject: boolean): void => {
+    if (
+      t.isMemberExpression(node) &&
+      t.isIdentifier(node.object) &&
+      node.object.name === subject &&
+      !isMemberObject
+    ) {
+      node.object = t.cloneNode(replacement);
+    }
+    for (const key of Object.keys(node)) {
+      const value: any = (node as any)[key];
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (item && typeof item.type === "string") rewrite(item, false);
+        }
+      } else if (value && typeof value.type === "string") {
+        if (t.isMemberExpression(node) && key === "property" && !node.computed) continue;
+        rewrite(value, t.isMemberExpression(node) && key === "object");
+      }
+    }
+  };
+  rewrite(clone, false);
+  return clone as t.Expression;
+}
+
 /** Clone `expr` substituting depth-1 subject reads' OBJECT position with
  * `replacement` (safe: eligibility rejected shadowing constructs). */
 export function substituteSubject(

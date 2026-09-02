@@ -58,6 +58,7 @@ import {
   GlobalQueue
 } from "../../core/scheduler.js";
 import { getObserver, getOwner, dispose as disposeNode } from "../../core/owner.js";
+import { REACTIVE_DISPOSED } from "../../core/constants.js";
 import {
   projectionWriteActive,
   schedule,
@@ -421,7 +422,7 @@ export function regionBind(
  * Owner-bound like every render effect; disposal rides the owner. */
 export function region(
   subject: any,
-  tracked: ((t: Record<string, any>) => void) | null,
+  tracked: ((t: Record<string, any>, raw: any) => void) | null,
   body: (raw: any, t: Record<string, any>, p: Record<string, any>) => void
 ): void {
   const t: StoreNextTarget | undefined = subject?.[$TARGET];
@@ -430,7 +431,9 @@ export function region(
   const classic = () => {
     const node = createEffectNode(
       () => {
-        if (tracked !== null) tracked(tvals);
+        // Classic hands the PROXY as `raw`: residual subject reads become
+        // tracked per-key subscriptions — no deep witness here to wake them.
+        if (tracked !== null) tracked(tvals, subject);
         void body(subject, tvals, prev);
       },
       () => {},
@@ -448,7 +451,11 @@ export function region(
   const node = createEffectNode(
     () => {
       readNode(dk);
-      if (tracked !== null) tracked(tvals);
+      // Residuals get the COMPUTE-TIME raw for subject reads (lookup keys
+      // etc.): the deep witness already wakes this compute on any subject
+      // change, so a tracked per-key read would only buy a duplicate
+      // subscription — measured at ~40% of keyed-row mount cost.
+      if (tracked !== null) tracked(tvals, t.v);
     },
     () => {
       void body(t.v, tvals, prev);
@@ -462,10 +469,18 @@ export function region(
   // Durable admission: demotion disposes the region node and rebinds the
   // classic shape — the body carries its own baselines, so the fallback
   // resumes from current values seamlessly.
-  (((t as any).rg ??= []) as Array<{ n: any; d?: () => void }>).push({
-    n: node,
-    d: classic
-  });
+  // AMORTIZED registry hygiene: sweep entries whose nodes the owner tree
+  // already disposed before pushing the new one. Long-lived records under
+  // remount churn (Show toggles, keyed reuse) stay bounded at live+1 dead
+  // entry without paying a per-mount cleanup registration (~1ms/10k rows).
+  const rg = ((t as any).rg ??= []) as Array<{ n: any; d?: () => void }>;
+  for (let i = rg.length - 1; i >= 0; i--) {
+    if (rg[i].n._flags & REACTIVE_DISPOSED) {
+      rg[i] = rg[rg.length - 1];
+      rg.pop();
+    }
+  }
+  rg.push({ n: node, d: classic });
 }
 
 export function createRegion(record: any, commit: (raw: any) => void, onDemote?: () => void): any {
@@ -528,6 +543,10 @@ export function demoteRegions(t: StoreNextTarget): void {
   if (rg === undefined) return;
   (t as any).rg = undefined;
   for (let i = 0; i < rg.length; i++) {
+    // Dead entries (owner already disposed the node; amortized sweep hasn't
+    // reached them) must NOT get their classic fallback resurrected — that
+    // would rebind an unmounted view.
+    if (rg[i].n._flags & REACTIVE_DISPOSED) continue;
     disposeNode(rg[i].n);
     rg[i].d?.();
   }
@@ -622,13 +641,15 @@ export function targetIsPlain(target: StoreNextTarget): boolean {
   return target.sc ? !target.a : scanAccessorsOnce(target);
 }
 
-/** One-time own-accessor scan (Annex-B probes, no descriptor allocation);
- * returns true when the container is plain data (overlay-safe). */
+/** One-time own-accessor scan; returns true when the container is plain
+ * data (overlay-safe). Own-descriptor probes measured ~30% cheaper than the
+ * Annex-B __lookupGetter__/__lookupSetter__ pair, which walks the prototype
+ * chain per key — this is region-mount hot path (once per record). */
 function scanAccessorsOnce(target: StoreNextTarget): boolean {
   const src = target.v;
   for (const key of Reflect.ownKeys(src)) {
-    // Own keys shadow prototype accessors, so the lookups are exact here.
-    if (lookupGetter.call(src, key) !== undefined || lookupSetter.call(src, key) !== undefined) {
+    const d = Object.getOwnPropertyDescriptor(src, key)!;
+    if (d.get !== undefined || d.set !== undefined) {
       target.a = true;
       break;
     }
@@ -1040,6 +1061,11 @@ function drainFolds(): void {
 function notifyWrites(t: StoreNextTarget): void {
   let pb = t.pb;
   if (pb === null) return;
+  // Deferred region demotion (accessor landed in this write batch).
+  if ((t as any).dmr === true) {
+    (t as any).dmr = undefined;
+    demoteRegions(t);
+  }
   // Optimistic channel: user writes on an optimistic family become node-level
   // engine writes (armed nodes route setSignal through optimisticWrite) — the
   // committed backing is NEVER touched; the draft clone is discarded. Reverts,
@@ -2096,8 +2122,12 @@ const traps: ProxyHandler<StoreNextTarget> = {
       // installed whenever pc.p exists (registration installs them).
       if (target.pc !== null && target.pc.p !== null) patchHooks!.demoteToEffects(target);
       // Region demotion (audit round 2, P1-2): admission is DURABLE — the
-      // moment a getter lands, bound regions dispose and hand back.
-      demoteRegions(target);
+      // moment a getter lands, bound regions dispose and hand back. DEFERRED
+      // to notifyWrites: a classic fallback rebound MID-WRITE subscribes in
+      // the draft context and never tracks — the post-write choke point
+      // rebinds it in a live graph (and before the deep-witness bump, so no
+      // delivery ever runs against a getter-bearing raw).
+      if ((target as any).rg !== undefined) (target as any).dmr = true;
     }
     // Unwrap before ensurePB (see the set trap: self-reference materializes).
     if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };

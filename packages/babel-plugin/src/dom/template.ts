@@ -10,7 +10,7 @@ import {
   wrapForEffect
 } from "../shared/utils";
 import { setAttr } from "./element";
-import { analyzeRegionScope, substituteSubject } from "../shared/region";
+import { analyzeRegionScope, substituteResidualSubject, substituteSubject } from "../shared/region";
 import type { NodePath } from "@babel/traverse";
 import type { DynamicBinding, ProgramScopeData, TemplateRecord, TransformResult } from "../types";
 
@@ -159,6 +159,7 @@ function wrapRegion(path: NodePath, dynamics: DynamicBinding[]): t.ExpressionSta
   const regionId = registerImportMethod(path, "region", undefined);
   const rawId = t.identifier("_n$");
   const trackedId = t.identifier("_t$");
+  const trackedRawId = t.identifier("_u$");
   const prevId = t.identifier("_p$");
   const trackedAssigns: t.Statement[] = [];
   const bodyStatements: t.Statement[] = [];
@@ -177,7 +178,11 @@ function wrapRegion(path: NodePath, dynamics: DynamicBinding[]): t.ExpressionSta
       const slot = t.identifier("r" + residuals++);
       trackedAssigns.push(
         t.expressionStatement(
-          t.assignmentExpression("=", t.memberExpression(trackedId, slot), value)
+          t.assignmentExpression(
+            "=",
+            t.memberExpression(trackedId, slot),
+            substituteResidualSubject(value, scope.subject, trackedRawId)
+          )
         )
       );
       valueExpr = t.memberExpression(trackedId, slot);
@@ -225,7 +230,7 @@ function wrapRegion(path: NodePath, dynamics: DynamicBinding[]): t.ExpressionSta
     t.callExpression(regionId, [
       t.identifier(scope.subject),
       trackedAssigns.length
-        ? t.arrowFunctionExpression([trackedId], t.blockStatement(trackedAssigns))
+        ? t.arrowFunctionExpression([trackedId, trackedRawId], t.blockStatement(trackedAssigns))
         : t.nullLiteral(),
       t.arrowFunctionExpression([rawId, trackedId, prevId], t.blockStatement(bodyStatements))
     ])
