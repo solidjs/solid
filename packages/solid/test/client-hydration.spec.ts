@@ -1242,6 +1242,57 @@ describe("bare ssrSource 'client' — unasked through the gate, computes after",
     flush();
     expect(store.name).toBe("computed");
   });
+
+  test("createStore(fn) keeps Loading fallback through the first client flight", async () => {
+    startHydration({});
+    const read = (value: any): any => {
+      while (typeof value === "function") value = value();
+      return value;
+    };
+
+    let store: any;
+    let result: any;
+    let deriveRan = 0;
+    let resolveDerive!: (value: { name: string }) => void;
+    createRoot(
+      () => {
+        [store] = createStore<{ name: string }>(
+          () => {
+            deriveRan++;
+            return new Promise(resolve => (resolveDerive = resolve));
+          },
+          { name: "seed" },
+          { ssrSource: "client" }
+        );
+        result = Loading({
+          fallback: "loading" as any,
+          get children() {
+            return store.name;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(deriveRan).toBe(0);
+    expect(() => store.name).toThrow(NotReadyError);
+    expect(read(result)).toBe("loading");
+
+    stopHydration();
+    flush();
+
+    expect(deriveRan).toBe(1);
+    expect(() => store.name).toThrow(NotReadyError);
+    expect(read(result)).toBe("loading");
+
+    resolveDerive({ name: "landed" });
+    await new Promise<void>(resolve => setTimeout(resolve));
+    flush();
+
+    expect(store.name).toBe("landed");
+    expect(read(result)).toBe("landed");
+  });
 });
 
 // The hydration gate must not close the loading window: a sync prev-return
