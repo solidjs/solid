@@ -13,6 +13,7 @@
 // mutation — and never what they carry. Which data a mutation invalidates,
 // and how an outcome reaches the UI, stay with the integration.
 import {
+  COMPOSED_BODY_FRAMING,
   NULL_BODY_STATUSES,
   RESPONSE_HEADER_VALUE_LIMIT,
   REVALIDATE_HEADER,
@@ -1135,7 +1136,7 @@ function stripOwnProtoKeys(value) {
       // own properties (#3200). `constructor` rides alongside `__proto__`
       // because a recursive merge reaches Object.prototype through it (#3202).
       for (const key of UNSAFE_ARGUMENT_KEYS) {
-        if (Object.hasOwn(v, key)) delete v[key];
+        delete v[key];
       }
       for (const key of Object.keys(v)) stack.push(v[key]);
     }
@@ -1432,10 +1433,7 @@ export function foldSetCookies(headers, setCookies) {
 // way response headers may merge here: never `get`/`set` folding.
 function mergeResponseHeaders(target, source) {
   source.forEach((value, key) => {
-    // `content-length` describes the source's body and the caller is about to
-    // send a different one; forwarding a length known to be wrong truncates
-    // the answer at the socket (#3197, RFC 9110 §8.6).
-    if (key !== "set-cookie" && key !== "content-length") target.append(key, value);
+    if (key !== "set-cookie" && !COMPOSED_BODY_FRAMING.has(key)) target.append(key, value);
   });
   if (source.getSetCookie) {
     for (const cookie of source.getSetCookie()) target.append("Set-Cookie", cookie);
@@ -1509,7 +1507,7 @@ const BOUNDED_COMPOSED_HEADERS = [REDIRECT_HEADER, "Location", REVALIDATE_HEADER
 // gives it an opt-in. The decoder enforces the same floor independently
 // (decodeRedirectHeaderValue), so a hostile peer cannot re-open the class
 // against integrations either.
-function refusedTargetScheme(target, base) {
+function refusedTargetScheme(target) {
   // Judge the target the way a consumer will READ it, not the way its bytes
   // are spelled: a URL parser strips ASCII tab and newline from anywhere and
   // trims leading C0/space before it begins, so a scheme grammar over the raw
@@ -1518,7 +1516,9 @@ function refusedTargetScheme(target, base) {
   // fooled; the base keeps relative targets — the ordinary case — http(s).
   let protocol;
   try {
-    protocol = new URL(target, base).protocol;
+    // any http(s) base gives the same verdict: an absolute scheme wins over
+    // it, and a relative target inherits it
+    protocol = new URL(target, "http://base.invalid").protocol;
   } catch {
     return true;
   }
@@ -1537,7 +1537,7 @@ function refusedTargetScheme(target, base) {
 // or rewritten target is a DIFFERENT address, a dropped revalidate key is
 // a silently stale cache. Runs ahead of the stub fold so integration
 // cookies still ride the refusal (#3159).
-function enforceComposedHeaderInvariants(response, base) {
+function enforceComposedHeaderInvariants(response) {
   for (const name of BOUNDED_COMPOSED_HEADERS) {
     const value = response.headers.get(name);
     if (value === null) continue;
@@ -1560,7 +1560,7 @@ function enforceComposedHeaderInvariants(response, base) {
     if (name === REVALIDATE_HEADER) continue;
     // REDIRECT_HEADER rides as "<status> <target>"; Location is the target
     const target = name === REDIRECT_HEADER ? value.slice(value.indexOf(" ") + 1) : value;
-    if (refusedTargetScheme(target, base)) {
+    if (refusedTargetScheme(target)) {
       return refuseComposedHeader(
         response,
         name,
@@ -3247,7 +3247,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // foreign-response path at once (raw passthrough, unscripted returns and
   // throws, custom handleNoJS results, envelope-carried responses).
   const response = commitEventResponse(
-    enforceComposedHeaderInvariants(ownResponse(await dispatch()), request.url),
+    enforceComposedHeaderInvariants(ownResponse(await dispatch())),
     event
   );
   return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);

@@ -21,7 +21,7 @@ import {
 // Wire-protocol header names for the commit fold's gap-fill denylist
 // (`commitEventResponse`): shared constants, not copies, so the fold can
 // never drift from what the server-function handler actually sends.
-import { REVALIDATE_HEADER } from "./response.js";
+import { COMPOSED_BODY_FRAMING, REVALIDATE_HEADER } from "./response.js";
 import {
   BODY_FORMAT_HEADER,
   ERROR_HEADER,
@@ -4461,9 +4461,9 @@ const STUB_GAP_FILL_EXCLUDED = /*#__PURE__*/ new Set(
     REVALIDATE_HEADER,
     REDIRECT_HEADER,
     "Location",
-    // written before the body exists, so it can only describe a different
+    // written before the body exists, so they can only describe a different
     // one (#3197)
-    "Content-Length"
+    ...COMPOSED_BODY_FRAMING
   ].map(header => header.toLowerCase())
 );
 
