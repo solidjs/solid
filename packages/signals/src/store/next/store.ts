@@ -349,68 +349,8 @@ export function getHasNode(
  * every scheduler behavior (transitions, lanes, merges, steals) applies
  * natively because the bump is an ordinary signal write. Records nobody
  * region-tracks pay one undefined-check per adoption. */
-export function trackRecordVersion(record: any): void {
-  const t: StoreNextTarget | undefined = record?.[$TARGET];
-  if (t === undefined) return;
-  // Regions ride the DEEP WITNESS: lazy, unobserved-reclaimed, bumped
-  // change-gated by every notification path (walk loop, setter tail,
-  // fold commits) through code that predates regions.
-  readNode(getDeepNode(t));
-}
+const EMPTY_TVALS: Record<string, any> = {};
 
-/** PROTOTYPE — one-time region binding: resolves the target and creates
- * the version node ONCE, returning lean closures for the region effect's
- * compute (tracked version read) and commit (raw view). Golfs the per-
- * rerun symbol-trap resolution and the per-node options allocation out of
- * the mount path. Version nodes live as long as the record (release
- * strategy is a product-phase question, noted in the design doc). */
-export function regionBind(
-  record: any,
-  trusted = false
-): { track: () => void; raw: () => any } | null {
-  const t: StoreNextTarget | undefined = record?.[$TARGET];
-  if (t === undefined) return null;
-  // Same admission as createRegion (audit round 2, P1-3); TRUSTED callers
-  // are compiled bindings whose admission the emitter proved statically.
-  if (!trusted) {
-    if (t.fam?.opt === true) return null;
-    if (t.a === true || !targetIsPlain(t)) return null;
-  }
-  const dk = getDeepNode(t);
-  return {
-    track: () => {
-      readNode(dk);
-    },
-    raw: () => t.v
-  };
-}
-
-/** PROTOTYPE — fused region creation (cold-mount pass): one call resolves
- * the target, ensures the version node, creates the region effect, and
- * SUBSCRIBES without running the commit (the caller just built the DOM —
- * the channel's delivery skipped its initial pass the same way). One
- * public function to JIT-warm instead of four, no {track,raw} carrier
- * allocation; the commit receives the raw backing directly. */
-/** Create a region effect on a record, or DECLINE (null → the caller takes
- * the classic tracked path). The commit contract is `commit(raw)` ONLY:
- * compiled bodies own SCALAR BASELINES per hole (initialized at mount/
- * hydration, advanced only after a successful write) — the effect
- * pipeline's `prev` slot is deliberately NOT part of the contract, because
- * raw backings alias under in-place folds and advance regardless of commit
- * outcome (audit P1-3).
- *
- * DECLINES (audit P1-2): raw reads can only represent COMMITTED PLAIN
- * state, so records whose visibility composes above the backing decline —
- * optimistic families (overrides live on nodes; `t.v` never shows drafts
- * or in-flight landings) and accessor-bearing records (a raw read would
- * execute getters untracked). Plain records under transitions are sound:
- * the version bump parks as a signal write, so the wake IS the commit
- * moment and `t.v` equals committed state when the commit runs.
- *
- * OWNER-BOUND on purpose (audit correction): the node parents under the
- * active owner at creation, so error boundaries, holds, and disposal
- * compose exactly like any render effect. The returned node supports
- * explicit disposal for row-granular teardown. */
 /** COMPILED-OUTPUT combinator (the emitter's one call): a template scope
  * whose bindings are depth-1 member reads of `subject` compiles to
  *
@@ -433,7 +373,9 @@ export function region(
 ): void {
   const t: StoreNextTarget | undefined = subject?.[$TARGET];
   const prev: Record<string, any> = {};
-  const tvals: Record<string, any> = {};
+  // Bodies without residuals never touch `_t$` — share one frozen carrier
+  // instead of allocating per region (dbmon: 1000 rows, zero residuals).
+  const tvals: Record<string, any> = tracked === null ? EMPTY_TVALS : {};
   const classic = () => {
     const node = createEffectNode(
       () => {
@@ -504,36 +446,6 @@ export function region(
     }
   }
   rg.push({ n: node, d: classic });
-}
-
-export function createRegion(record: any, commit: (raw: any) => void, onDemote?: () => void): any {
-  const t: StoreNextTarget | undefined = record?.[$TARGET];
-  if (t === undefined) return null;
-  if (t.fam?.opt === true) return null;
-  if (t.a === true || !targetIsPlain(t)) return null;
-  const dk = getDeepNode(t);
-  // The commit reads `t.v` AT COMMIT TIME — never the compute's captured
-  // return (audit P1-3, proven by the setter path: the compute runs in the
-  // pure phase, but drainFolds swaps the backing at commitPendingNodes,
-  // AFTER it — a captured raw is one fold stale by construction). Return
-  // swallowed (P1-3): commit's value must never read as an effect cleanup.
-  const node = createEffectNode(
-    () => {
-      readNode(dk);
-    },
-    () => {
-      void commit(t.v);
-    },
-    undefined,
-    EFFECT_RENDER,
-    undefined
-  );
-  recomputeNode(node, true); // subscribe-only: compute runs, commit does not
-  // DURABLE ADMISSION registry (audit round 2, P1-2): the record can stop
-  // being region-safe later (defineProperty getter, getter-bearing
-  // adoption) — registration is what lets the store demote this node.
-  (((t as any).rg ??= []) as Array<{ n: any; d?: () => void }>).push({ n: node, d: onDemote });
-  return node;
 }
 
 /** Region ADOPTION PROBE (audit round 2, P1-2 durable admission): an

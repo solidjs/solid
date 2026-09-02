@@ -3,10 +3,9 @@ import {
   action,
   createOptimisticStore,
   createProjection,
-  createRegion,
+  createRenderEffect,
   createRoot,
   createStore,
-  disposeReactiveNode,
   flush,
   reconcile,
   region
@@ -20,25 +19,36 @@ const settle = async (n = 3) => {
   }
 };
 
-/** Region test harness: bind a region with scalar baselines (the compiled-
- * body contract — commit(raw) ONLY; bodies own their baselines and advance
- * them after successful writes). */
+/** Region test harness on the COMPILED-OUTPUT combinator: scalar baselines
+ * seeded from the record BEFORE bind, so region()'s initial commit diffs
+ * nothing and `commits` records deltas only (the compiled-body contract —
+ * bodies own their baselines and advance them after successful writes). */
 function bindRegion(record: any, keys: string[]) {
   const commits: Record<string, any>[] = [];
   const baseline: Record<string, any> = {};
-  for (const k of keys) baseline[k] = (record as any)[k];
-  const node = createRegion(record, (raw: any) => {
-    const frame: Record<string, any> = {};
-    let changed = false;
-    for (const k of keys) {
-      if (raw[k] !== baseline[k]) {
-        frame[k] = baseline[k] = raw[k];
-        changed = true;
+  let primed = false;
+  const dispose = createRoot(d => {
+    region(record, null, (raw: any) => {
+      if (!primed) {
+        // The INITIAL commit is the seeding pass (compiled bodies write the
+        // DOM here and initialize their baselines from raw identities).
+        for (const k of keys) baseline[k] = raw[k];
+        primed = true;
+        return;
       }
-    }
-    if (changed) commits.push(frame);
+      const frame: Record<string, any> = {};
+      let changed = false;
+      for (const k of keys) {
+        if (raw[k] !== baseline[k]) {
+          frame[k] = baseline[k] = raw[k];
+          changed = true;
+        }
+      }
+      if (changed) commits.push(frame);
+    });
+    return d;
   });
-  return { node, commits, baseline };
+  return { dispose, commits, baseline };
 }
 
 describe("regions: delivery coverage (audit P1-1)", () => {
@@ -140,29 +150,59 @@ describe("regions: scheduler-owned timing (audit thesis)", () => {
   });
 });
 
-describe("regions: declines (audit P1-2)", () => {
-  it("optimistic-family records decline (raw cannot represent overrides)", () => {
+describe("regions: declines take the CLASSIC FALLBACK and still deliver (audit P1-2)", () => {
+  it("optimistic-family records decline the raw path but deliver through the proxy", async () => {
+    const [items, setItems] = createRoot(() =>
+      (createOptimisticStore as any)([{ id: 1, label: "a" }] as any[])
+    );
+    const seen: string[] = [];
     createRoot(() => {
-      const [items] = (createOptimisticStore as any)([{ id: 1 }] as any[]);
-      expect(createRegion(items[0], () => {})).toBe(null);
+      // No region node may bind an optimistic record (raw cannot represent
+      // overrides) — the SAME body must run as a classic tracked effect.
+      region(items[0], null, (raw: any) => {
+        seen.push(raw.label);
+      });
     });
+    flush();
+    expect((items[0] as any)[$TARGET].rg ?? []).toEqual([]); // declined
+    expect(seen).toEqual(["a"]);
+    setItems((d: any) => {
+      d[0].label = "b";
+    });
+    await settle();
+    expect(seen).toContain("b"); // classic fallback delivering
   });
 
-  it("accessor-bearing records decline (raw reads would run getters untracked)", () => {
+  it("accessor-bearing records decline but getters still deliver tracked", () => {
     createRoot(() => {
-      const [state] = createStore({
+      const [state, setState] = createStore({
         get label() {
-          return "computed";
+          return (this as any).base + "!";
         },
-        plain: 1
+        base: "a"
       } as any);
-      expect(createRegion(state, () => {})).toBe(null);
+      const seen: string[] = [];
+      region(state, null, (raw: any) => {
+        seen.push(raw.label);
+      });
+      flush();
+      expect((state as any)[$TARGET].rg ?? []).toEqual([]); // declined
+      expect(seen).toEqual(["a!"]);
+      setState(s => {
+        s.base = "b";
+      });
+      flush();
+      expect(seen).toEqual(["a!", "b!"]);
     });
   });
 
-  it("non-store values decline", () => {
-    expect(createRegion({ plain: true }, () => {})).toBe(null);
-    expect(createRegion(null, () => {})).toBe(null);
+  it("non-store values run the body once and never throw", () => {
+    const seen: any[] = [];
+    createRoot(() => {
+      region({ plain: true }, null, (raw: any) => seen.push(raw.plain));
+      region(null, null, () => seen.push("null-body"));
+    });
+    expect(seen).toEqual([true, "null-body"]);
   });
 });
 
@@ -171,9 +211,11 @@ describe("regions: round-2 audit — timing neutrality (P1-1)", () => {
     createRoot(() => {
       const [state, setState] = createStore({ rows: [{ id: 1, v: "x" }] });
       let wakes = 0;
-      createRegion(state.rows[0], () => {
+      region(state.rows[0], null, () => {
         wakes++;
       });
+      flush();
+      wakes = 0; // discount the initial commit
       // Equal values, fresh object — the adoption swaps the backing but no
       // value changed: the version node must not be written at all.
       setState(s => {
@@ -188,9 +230,11 @@ describe("regions: round-2 audit — timing neutrality (P1-1)", () => {
     createRoot(() => {
       const [state, setState] = createStore({ label: "a" });
       let wakes = 0;
-      createRegion(state, () => {
+      region(state, null, () => {
         wakes++;
       });
+      flush();
+      wakes = 0;
       setState(s => {
         s.label = "a";
       });
@@ -201,20 +245,15 @@ describe("regions: round-2 audit — timing neutrality (P1-1)", () => {
 });
 
 describe("regions: round-2 audit — durable admission (P1-2)", () => {
-  it("defineProperty getter DEMOTES bound regions (disposed + onDemote fires)", () => {
+  it("defineProperty getter DEMOTES: the region dies and the classic fallback takes over", () => {
     createRoot(() => {
       const [state, setState] = createStore<any>({ label: "a" });
-      const commits: any[] = [];
-      let demoted = 0;
-      createRegion(
-        state,
-        (raw: any) => {
-          commits.push(raw.label);
-        },
-        () => {
-          demoted++;
-        }
-      );
+      const seen: string[] = [];
+      region(state, null, (raw: any) => {
+        seen.push(raw.label);
+      });
+      flush();
+      expect((state as any)[$TARGET].rg.length).toBe(1); // admitted
       setState(s => {
         Object.defineProperty(s, "computed", {
           get() {
@@ -224,30 +263,26 @@ describe("regions: round-2 audit — durable admission (P1-2)", () => {
         });
       });
       flush();
-      expect(demoted).toBe(1);
-      // Disposed: later writes never deliver.
+      expect((state as any)[$TARGET].rg).toBe(undefined); // demoted
+      seen.length = 0;
+      // The fallback delivers subsequent writes with correct values.
       setState(s => {
         s.label = "b";
       });
       flush();
-      expect(commits).toEqual([]);
+      expect(seen).toContain("b");
     });
   });
 
-  it("a getter-bearing ADOPTION demotes instead of delivering a lying raw view", () => {
+  it("a getter-bearing ADOPTION demotes; the fallback reads THROUGH the getter", () => {
     createRoot(() => {
       const [state, setState] = createStore<any>({ row: { v: 1 } });
-      const commits: any[] = [];
-      let demoted = 0;
-      createRegion(
-        state.row,
-        (raw: any) => {
-          commits.push(raw.v);
-        },
-        () => {
-          demoted++;
-        }
-      );
+      const seen: number[] = [];
+      region(state.row, null, (raw: any) => {
+        seen.push(raw.v);
+      });
+      flush();
+      seen.length = 0;
       setState(s => {
         reconcile({
           row: {
@@ -258,35 +293,23 @@ describe("regions: round-2 audit — durable admission (P1-2)", () => {
         } as any)(s);
       });
       flush();
-      expect(demoted).toBe(1);
-      expect(commits).toEqual([]);
-    });
-  });
-
-  it("helpers share the admission rules (regionBind declines; trusted skips for compiled callers)", async () => {
-    const { regionBind } = await import("../../src/index.js");
-    createRoot(() => {
-      const [state] = createStore({
-        get g() {
-          return 1;
-        }
-      } as any);
-      expect(regionBind(state)).toBe(null);
-      const [plain] = createStore({ v: 1 });
-      expect(regionBind(plain)).not.toBe(null);
+      // Never a lying raw frame: whatever delivered post-demotion came
+      // through the tracked path and saw the getter's value.
+      expect(seen.every(v => v === 2)).toBe(true);
+      expect(seen).toContain(2);
     });
   });
 });
 
 describe("regions: round-2 audit — owned rows (P1-4)", () => {
   it("rows created under a GENERATION OWNER inside a list commit dispose in one owner walk", async () => {
-    const { createOwner, runWithOwner, disposeChildren, deliveryEffect, $TRACK } =
+    const { createOwner, runWithOwner, disposeChildren, $TRACK } =
       await import("../../src/index.js");
     const [state, setState] = createRoot(() => createStore({ rows: [{ id: 1 }, { id: 2 }] }));
     const gen = createRoot(() => createOwner());
     const commits: number[] = [];
     createRoot(() => {
-      deliveryEffect(
+      createRenderEffect(
         () => {
           (state.rows as any)[$TRACK];
         },
@@ -296,7 +319,7 @@ describe("regions: round-2 audit — owned rows (P1-4)", () => {
           for (let i = 0; i < state.rows.length; i++) {
             const rec = state.rows[i];
             runWithOwner(gen, () => {
-              createRegion(rec, (raw: any) => {
+              region(rec, null, (raw: any) => {
                 commits.push(raw.id);
               });
             });
@@ -327,7 +350,7 @@ describe("regions: lifecycle (audit correction — owner-bound)", () => {
     createRoot(() => {
       const [state, setState] = createStore({ label: "a" });
       const r = bindRegion(state, ["label"]);
-      disposeReactiveNode(r.node);
+      r.dispose();
       setState(s => {
         s.label = "b";
       });

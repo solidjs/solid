@@ -78,35 +78,6 @@ export function effect<T>(
   }
 }
 
-/**
- * PROTOTYPE (graph-native regions exploration) — single-source render
- * effect. OWNER-BOUND (audit correction, 2026-09-01): `createEffectNode`
- * parents under the active owner, so error boundaries, holds, and
- * disposal compose exactly like any render effect — that is desirable and
- * intentional. What this skips versus `effect()` is only the option
- * plumbing and the NO_OWNER_EFFECT diagnostic (regions created inside
- * another region's commit legitimately run ownerless; the caller owns
- * their disposal via the returned node).
- */
-export function deliveryEffect(compute: () => void, commit: () => void): Computed<unknown> {
-  const node = createEffectNode(
-    compute as (prev?: unknown) => unknown,
-    // The commit's return is SWALLOWED (audit round 2, P1-3): the effect
-    // pipeline treats a returned function as a cleanup and non-functions
-    // halt in dev — a concise-arrow region body (`() => el.data = v`)
-    // must never trip either.
-    () => {
-      commit();
-    },
-    undefined,
-    EFFECT_RENDER,
-    undefined
-  ) as Effect<unknown>;
-  recompute(node, true);
-  runEffect(node); // initial run performs the region's initial commit
-  return node;
-}
-
 function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): void {
   // Use passed values if provided, otherwise read from node
   const actualStatus = status !== undefined ? status : this._statusFlags;

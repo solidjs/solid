@@ -281,7 +281,26 @@ Numbers (2026-09-02):
   7.8→4.7ms. Sort at 0.95x of Octane; tick gap to Octane narrowed from
   5x to 2.5x. All semantic gates green.
 
-## 10. Status
+## 10. Consolidation (2026-09-02, late)
+
+- **Deep regions bubble on write** (replacing §9's witness preamble, which
+  measured 2.3x hand-fixture tick on dbmon): the emitter passes a deep
+  flag; `bumpDeep` walks `t.u` and bumps refcounted deep-region roots,
+  live-gated by a module counter. ONE dk subscription per region at any
+  read depth. Compiled dbmon tick reached hand/driver parity and Octane's
+  noise band (2.9 vs 3.1 same-run); mount profiling shows region machinery
+  at ~6% of the cycle — the residual gap to Octane is platform floor
+  (cloneNode, initial attribute writes, For/proxy, GC).
+- **API surface consolidated**: `trackRecordVersion`, `regionBind`,
+  `createRegion`, and `deliveryEffect` (prototype-era) are DELETED.
+  `region()` is the one public entry — admission, tracked residuals, deep
+  flag, durable demotion with classic-fallback rebind (deferred to
+  notifyWrites), amortized registry hygiene. Tests rewritten on region():
+  declines are BEHAVIORAL now (the fallback must still deliver).
+- Size: app scenarios unchanged (prototypes were treeshaken); budgets sit
+  within 0.03-0.21 kB of actuals across all eight scenarios.
+
+## 11. Status
 
 - `region-delivery` pushed: prototype (ef42d094), regionBind golf
   (e043e830), channel gut (5d243eef). Signals 1433 / web 637 / treeshake /
