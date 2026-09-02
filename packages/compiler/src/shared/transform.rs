@@ -63,21 +63,8 @@ pub(crate) trait JsxTransform<'a>: VisitMut<'a> {
     fn enter_function_bindings(&mut self);
     fn exit_function_bindings(&mut self);
     /// Declares a function's parameters into the binding table after its
-    /// scope opens (patch-mode subject resolution; dom only).
+    /// scope opens (dom only).
     fn declare_function_params(&mut self, _params: &oxc_ast::ast::FormalParameters<'a>) {}
-    /// Row-proof stamping hook (DESIGN-PATCH-CHANNEL §3c, dom only): called
-    /// with every expression slot after its subtree has lowered, so a
-    /// single-param function whose body became a proven-pure template can be
-    /// wrapped with the runtime's `rowProof` marker in place.
-    fn wrap_pure_row(&mut self, _expression: &mut Expression<'a>) {}
-    /// Pre-walk row-shape capture (dom only): return-position JSX inlines
-    /// its setup statements FLAT into the enclosing block, so whether a
-    /// block body was ORIGINALLY a lone `return <jsx/>` (stampable — every
-    /// other statement is user code at build time, which must deny) is only
-    /// knowable before the walk. Pushed at function-scope entry, popped at
-    /// exit into a "last function shape" slot that `wrap_pure_row` reads.
-    fn enter_function_shape(&mut self, _single_return_block: bool) {}
-    fn exit_function_shape(&mut self) {}
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -179,11 +166,7 @@ pub(crate) fn visit_function_scope<'a, T: JsxTransform<'a>>(
     target.function_parents().push(kind);
     target.enter_function_bindings();
     target.declare_function_params(&function.params);
-    target.enter_function_shape(function.body.as_ref().is_some_and(|body| {
-        body.statements.len() == 1 && matches!(body.statements[0], Statement::ReturnStatement(_))
-    }));
     walk_mut::walk_function(target, function, flags);
-    target.exit_function_shape();
     target.exit_function_bindings();
     if let Some(capture) = exit_function_scope(target, kind, function.span, pending_at_entry)
         && let Some(body) = function.body.as_mut()
@@ -202,18 +185,10 @@ pub(crate) fn visit_arrow_function_scope<'a, T: JsxTransform<'a>>(
     target.function_parents().push(FunctionParentKind::Arrow);
     target.enter_function_bindings();
     target.declare_function_params(&arrow.params);
-    target.enter_function_shape(
-        !expression_body
-            && arrow.get_function_body().is_some_and(|body| {
-                body.statements.len() == 1
-                    && matches!(body.statements[0], Statement::ReturnStatement(_))
-            }),
-    );
     walk_mut::walk_arrow_function_expression(target, arrow);
     if expression_body && let Some(expression) = arrow.get_expression_mut() {
         lower_deferred_jsx_expression(target, expression);
     }
-    target.exit_function_shape();
     target.exit_function_bindings();
     if let Some(capture) = exit_function_scope(
         target,
@@ -425,13 +400,6 @@ pub(crate) fn visit_expression<'a, T: JsxTransform<'a>>(
 
     walk_mut::walk_expression(target, expression);
     // Row-proof stamping (§3c): the walk above lowered any JSX body this
-    // function expression carries; if it proved pure, wrap in place.
-    if matches!(
-        expression,
-        Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
-    ) {
-        target.wrap_pure_row(expression);
-    }
 }
 
 /// Node address of a function/arrow expression, matching the key
@@ -677,20 +645,8 @@ impl<'a> JsxTransform<'a> for AstDomTransform<'a, '_> {
         AstDomTransform::lower_class_field_value(self, span, value)
     }
 
-    fn wrap_pure_row(&mut self, expression: &mut Expression<'a>) {
-        AstDomTransform::wrap_pure_row_expression(self, expression);
-    }
-
     fn declare_function_params(&mut self, params: &oxc_ast::ast::FormalParameters<'a>) {
         self.bindings.declare_function_params(params);
-    }
-
-    fn enter_function_shape(&mut self, single_return_block: bool) {
-        self.function_shape_stack.push(single_return_block);
-    }
-
-    fn exit_function_shape(&mut self) {
-        self.last_function_single_return = self.function_shape_stack.pop().unwrap_or(false);
     }
 
     fn arena(&self) -> &'a oxc_allocator::Allocator {
@@ -891,25 +847,6 @@ impl<'a> JsxTransform<'a> for AstUniversalTransform<'a, '_> {
         // resolves against ITS binding table (scopes already forward).
         if let Some(dom) = &mut self.dynamic_dom {
             dom.bindings.declare_function_params(params);
-        }
-    }
-
-    fn wrap_pure_row(&mut self, expression: &mut Expression<'a>) {
-        // Dynamic mode: row proofs live on the embedded DOM renderer.
-        if let Some(dom) = &mut self.dynamic_dom {
-            dom.wrap_pure_row_expression(expression);
-        }
-    }
-
-    fn enter_function_shape(&mut self, single_return_block: bool) {
-        if let Some(dom) = &mut self.dynamic_dom {
-            dom.function_shape_stack.push(single_return_block);
-        }
-    }
-
-    fn exit_function_shape(&mut self) {
-        if let Some(dom) = &mut self.dynamic_dom {
-            dom.last_function_single_return = dom.function_shape_stack.pop().unwrap_or(false);
         }
     }
 

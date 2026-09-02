@@ -256,7 +256,6 @@ fn core_options(options: TransformOptions) -> Result<CompileOptions> {
         effect_wrapper: wrapper(options.effect_wrapper),
         wrap_conditionals: options.wrap_conditionals.unwrap_or(true),
         memo_wrapper: wrapper(options.memo_wrapper),
-        patch_driver: wrapper(options.patch_driver),
         static_marker: options.static_marker.unwrap_or_else(|| "@static".into()),
         require_import_source: options.require_import_source,
         validate: options.validate.unwrap_or(true),
