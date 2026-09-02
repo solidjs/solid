@@ -1308,9 +1308,14 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         attributes: &[JSXAttributeItem<'a>],
         has_children: bool,
     ) -> Result<Expression<'a>> {
-        // A lone spread attribute passes its argument straight through.
-        if attributes.len() == 1
-            && let JSXAttributeItem::SpreadAttribute(spread) = &attributes[0]
+        // The DOM transform handles `ref` outside its spread prop sources.
+        let mut prop_attributes = attributes.iter().filter(|attr| {
+            !matches!(attr, JSXAttributeItem::Attribute(attr)
+                if matches!(&attr.name, oxc_ast::ast::JSXAttributeName::Identifier(name)
+                    if name.name == "ref"))
+        });
+        if let (Some(JSXAttributeItem::SpreadAttribute(spread)), None) =
+            (prop_attributes.next(), prop_attributes.next())
         {
             return Ok(spread.argument.clone_in(self.allocator));
         }
