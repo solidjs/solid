@@ -1857,8 +1857,8 @@ function createPendingProxy<T extends object>(
   let error: any;
   let readTarget: T = state;
   const gate = () => {
-    if (status === 1) return;
-    if (status === 2) throw error;
+    if (status > 1) throw error;
+    if (status) return;
     // Bare client store: same loud-outside-a-boundary rule as the memo
     // read path (see clientHoleRead).
     if (source === CLIENT_HOLE) clientHoleRead();
@@ -2030,9 +2030,6 @@ export function createProjection<T extends object>(
   // the same line, and hydration claims against the plain seed).
   const seedLoading = !!options?.seedLoadingValue;
   const frozenSeed = seedLoading ? (JSON.parse(JSON.stringify(state)) as T) : undefined;
-  const seedLock = (markReady: (frozen?: T) => void) => {
-    if (seedLoading) markReady(frozenSeed);
-  };
 
   const runProjection = () => {
     resetOwnerForRerun(owner);
@@ -2046,7 +2043,7 @@ export function createProjection<T extends object>(
 
     const deferred = createDeferredPromise<T>();
     const [pending, markReady, markError] = createPendingProxy(state, deferred.promise);
-    seedLock(markReady);
+    if (seedLoading) markReady(frozenSeed);
     settleServerAsync<void | T, T>(
       Promise.reject(error),
       () => runProjection() as void | T | PromiseLike<void | T>,
@@ -2058,9 +2055,7 @@ export function createProjection<T extends object>(
         markReady();
         return state as T;
       },
-      (error: any) => {
-        markError(error);
-      },
+      markError,
       () => disposed
     );
     registerSettledTrace(pending, deferred.promise, state);
@@ -2077,7 +2072,7 @@ export function createProjection<T extends object>(
       let iter: AsyncIterator<void | T>;
       const deferred = createDeferredPromise<T>();
       const [pending, markReady, markError] = createPendingProxy(state, deferred.promise);
-      seedLock(markReady);
+      if (seedLoading) markReady(frozenSeed);
       const runFirst = () => {
         const source = currentResult ?? runProjection();
         currentResult = undefined;
@@ -2102,9 +2097,7 @@ export function createProjection<T extends object>(
           markReady();
           return state as T;
         },
-        (error: any) => {
-          markError(error);
-        },
+        markError,
         () => disposed
       );
       registerSettledTrace(pending, deferred.promise, state);
@@ -2119,7 +2112,7 @@ export function createProjection<T extends object>(
       let firstResult: IteratorResult<void | T> | undefined;
       const deferred = createDeferredPromise<void>();
       const [pending, markReady, markError] = createPendingProxy(state, deferred.promise);
-      seedLock(markReady);
+      if (seedLoading) markReady(frozenSeed);
       const runFirst = () => {
         const source = currentResult ?? runProjection();
         currentResult = undefined;
@@ -2156,9 +2149,7 @@ export function createProjection<T extends object>(
           markReady(seedLoading ? undefined : (JSON.parse(JSON.stringify(state)) as T));
           return undefined;
         },
-        (error: any) => {
-          markError(error);
-        },
+        markError,
         () => disposed
       );
 
@@ -2243,7 +2234,7 @@ export function createProjection<T extends object>(
   if (isThenable<T>(result)) {
     const deferred = createDeferredPromise<T>();
     const [pending, markReady, markError] = createPendingProxy(state, deferred.promise);
-    seedLock(markReady);
+    if (seedLoading) markReady(frozenSeed);
     settleServerAsync(
       result,
       () => runProjection() as void | T | PromiseLike<void | T>,
@@ -2255,9 +2246,7 @@ export function createProjection<T extends object>(
         markReady();
         return state as T;
       },
-      (error: any) => {
-        markError(error);
-      },
+      markError,
       () => disposed
     );
     registerSettledTrace(pending, deferred.promise, state);
