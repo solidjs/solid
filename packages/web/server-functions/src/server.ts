@@ -1958,6 +1958,14 @@ function enterGuard(value, state) {
         throw sanitizeServerError(error);
       }
     );
+    // The guard consumes the source rejection and moves its sanitized form
+    // onto this derived promise. Usually the codec owns that promise, but an
+    // unrelated encode failure can abandon it before the codec attaches its
+    // handlers (#3216). Keep a fallback owner on the promise WE minted: this
+    // does not change its rejection for codec consumers, and it deliberately
+    // does not claim promises the walk cannot reach (for example, one hidden
+    // behind a class instance).
+    guardedPromise.catch(() => {});
     state.seen.set(value, guardedPromise);
     return guardedPromise;
   }

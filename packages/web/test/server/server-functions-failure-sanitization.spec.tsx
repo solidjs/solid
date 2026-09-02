@@ -113,6 +113,28 @@ describe("a failure escaping through the result graph", () => {
     expect(body).toContain("Internal Server Error");
   });
 
+  it("does not abandon a guarded rejection when a sibling cannot encode (#3216)", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (error: unknown) => unhandled.push(error);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      class UserRow {
+        id = 1;
+      }
+      registerServerFunction("graph-failure-abandoned-promise", () => ({
+        rows: [new UserRow()],
+        deferred: Promise.reject(databaseError())
+      }));
+
+      const body = await wireBody("graph-failure-abandoned-promise");
+      expect(body).toContain("Internal Server Error");
+      await new Promise(resolve => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   it("is sanitized when a stream in the graph errors", async () => {
     registerServerFunction("graph-failure-stream", async () => ({
       rows: new ReadableStream({
