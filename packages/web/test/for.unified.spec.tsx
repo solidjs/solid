@@ -274,3 +274,23 @@ describe("unified For: H1 — holds and optimism", () => {
     expect(container.innerHTML).toBe("<span>c</span><span>d</span><span>e</span>");
   });
 });
+
+describe("unified For: batch clear engagement", () => {
+  test("whole-parent N→0 rides textContent, not per-row removes", () => {
+    const items = Array.from({ length: 100 }, (_, i) => ({ id: i }));
+    const [list, setList] = createSignal<any[]>(items);
+    let div!: HTMLDivElement;
+    createRoot(() => {
+      <div ref={div}>
+        <For each={list()}>{(item: any) => <span>{item.id}</span>}</For>
+      </div>;
+    });
+    flush();
+    expect(div.childNodes.length).toBe(100);
+    const before = __unifiedForStats.batchCleared;
+    setList([]);
+    flush();
+    expect(div.innerHTML).toBe("");
+    expect(__unifiedForStats.batchCleared).toBe(before + 1);
+  });
+});
