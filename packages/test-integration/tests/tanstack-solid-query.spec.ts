@@ -82,7 +82,9 @@ describe("TanStack Solid Query against workspace-built core", () => {
       appendFileSync(workspaceYamlPath, `\noverrides:\n${overrideLines}\n`);
     }
 
-    exec("pnpm install", { cwd: queryRepoDir, fatal: true });
+    // The file: overrides above deliberately differ from the downloaded
+    // repository's lockfile, so this fixture cannot use CI's frozen default.
+    exec("pnpm install --no-frozen-lockfile", { cwd: queryRepoDir, fatal: true });
 
     // Belt and braces: assert the override actually resolved this tree's
     // build — a silent fallback to the registry would make a green run
