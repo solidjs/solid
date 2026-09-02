@@ -300,6 +300,21 @@ function driveKeyedFor(
       if (plan !== slot.pending) return; // superseded mid-flight
       slot.pending = null;
       const { order, place, removes, before, after } = plan;
+      // Batch clear (design §5.2): N→0 on a whole-parent slot is one
+      // `textContent = ''` instead of N removeChild calls — the rows' nodes
+      // are already detached wholesale, so dispose skips per-node removal.
+      if (plan.len === 0 && slot.end === null && before === null && after === null) {
+        __unifiedForStats.batchCleared++;
+        (slot.parent as Element).textContent = "";
+        for (let j = 0; j < removes.length; j++) {
+          removes[j].live = false;
+          removes[j].d();
+        }
+        slot.map.clear();
+        slot.head = slot.tail = null;
+        slot.size = 0;
+        return;
+      }
       // 1. Removes: detach + dispose + unmap.
       for (let j = 0; j < removes.length; j++) {
         removeRow(removes[j]);
@@ -338,4 +353,4 @@ export function enableUnifiedFor(): void {
 }
 
 /** Spike test probes: engagement / late-classic-demotion counters. */
-export const __unifiedForStats = { engaged: 0, demoted: 0 };
+export const __unifiedForStats = { engaged: 0, demoted: 0, batchCleared: 0 };
