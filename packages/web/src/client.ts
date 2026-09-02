@@ -666,7 +666,7 @@ export function style(node, value, prev) {
   }
   let v, s;
   for (s in applied) {
-    if (value[s] == null) {
+    if (!Object.prototype.hasOwnProperty.call(value, s) || value[s] == null) {
       nodeStyle.removeProperty(s);
       delete applied[s];
     }
@@ -674,6 +674,7 @@ export function style(node, value, prev) {
   // Diff against applied state so in-place mutations are detected without
   // rewriting unchanged DOM styles.
   for (s in value) {
+    if (!Object.prototype.hasOwnProperty.call(value, s)) continue;
     v = value[s];
     if (v != null && v !== applied[s]) {
       nodeStyle.setProperty(s, v);
@@ -713,6 +714,7 @@ export function spread(node, props = {}, skipChildren) {
       const source = get();
       const newProps = {};
       for (const prop in source) {
+        if (!Object.prototype.hasOwnProperty.call(source, prop)) continue;
         if (prop === "children" || prop === "ref") continue;
         newProps[prop] = source[prop];
       }
