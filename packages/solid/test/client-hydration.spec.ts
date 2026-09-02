@@ -1222,7 +1222,7 @@ describe("bare ssrSource 'client' — unasked through the gate, computes after",
     ).not.toThrow();
   });
 
-  test("bare client store: seed visible during hydration, derive runs after the gate", () => {
+  test("bare client store hides its seed until the client derive completes", () => {
     startHydration({});
     let store: any;
     createRoot(
@@ -1234,8 +1234,7 @@ describe("bare ssrSource 'client' — unasked through the gate, computes after",
           { name: "seed" },
           { ssrSource: "client" }
         );
-        // Gate closed: the derive has not run — the seed is what's there.
-        expect(store.name).toBe("seed");
+        expect(() => store.name).toThrow(NotReadyError);
       },
       { id: "t" }
     );
