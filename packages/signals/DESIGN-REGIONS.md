@@ -175,7 +175,38 @@ frontier independent of delivery. uibench (classic compilation on this
 branch): 37.00ms/96 scenarios — anchor only; needs a next-runtime
 baseline for regression claims.
 
-## 7. Open rulings (needed before this is a proposal)
+## 7. The deep-witness migration + measurement methodology (2026-09-01, late)
+
+A paired uibench run (classic compilation, no regions) exposed the round-2
+fused latches regressing CLASSIC store walks ~18% — the change-gate code
+had grown the walk's hottest per-key loop, which is inlined-on-purpose per
+its own comment. The fix was recognizing that the walk ALREADY maintains a
+change-gated per-record version signal: the DEEP WITNESS (`dk`, deep()'s
+node) — lazy, unobserved-reclaimed (closing §5's version-node leak note),
+bumped by pre-existing compares in the walk loop, the setter tail, and
+fold commits. Regions now subscribe `dk` directly; the parallel version-
+node machinery (vn, bumpRecordVersion*, regionValuesChanged, the fused
+latches) is DELETED. The hot loop is byte-identical to next; regions'
+entire classic-path footprint is a registry-gated durable-admission probe
+at the adoption tails (one property miss per record).
+
+Verdict after migration: uibench 36.1 vs next 35.5 THROUGH THE SAME BUILD
+PATH — parity. The initially alarming "30.1 baseline" came from a separate
+checkout whose builds run ~15% faster on this machine (environment, not
+code): CROSS-CHECKOUT COMPARISONS ARE INVALID; every number in this doc is
+same-path paired.
+
+Fixture/economics findings the same night: teardown, not creation, was the
+"region loses runlots/clear" cause — GENERATION OWNERS (rows parent under
+an owner created at list mount; bulk replacement/clear/unmount disposes
+one subtree; individual removes dispose one node) flipped clear to a
+region win and closed dbmon unmount to ceiling parity. Selection rides a
+SAME-STORE sibling branch read as a per-key classic subscription fused
+into the row region's COMPUTE — one node per row (a second per-row effect
+node loses creation to classic's grouped effect; mixed SUBSCRIPTIONS, not
+mixed nodes).
+
+## 8. Open rulings (needed before this is a proposal)
 
 1. **Region = consistency/hold unit.** A pending source defers the whole
    region's commit, not one binding (a row goes stale-or-fresh as a unit —
@@ -207,7 +238,7 @@ baseline for regression claims.
    sets. Materially smaller than "partitioner design" — the rc.6 compiler
    work is an emitter evolution.
 
-## 8. Status
+## 9. Status
 
 - `region-delivery` pushed: prototype (ef42d094), regionBind golf
   (e043e830), channel gut (5d243eef). Signals 1433 / web 637 / treeshake /
