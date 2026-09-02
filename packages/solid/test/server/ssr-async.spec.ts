@@ -3216,6 +3216,34 @@ describe("Async Iterable — createProjection", () => {
     expect(store.name).toBe("resolved");
   });
 
+  test("Promise projection preserves its error after rejection", async () => {
+    const { context } = createStreamTrackingContext();
+    sharedConfig.context = context;
+
+    const d = deferred<{ name: string }>();
+    const error = new Error("projection failed");
+    let store: any;
+    let source!: Promise<unknown>;
+
+    createRoot(
+      () => {
+        store = createProjection(() => d.promise, { name: "init" });
+      },
+      { id: "t" }
+    );
+
+    try {
+      store.name;
+    } catch (error) {
+      expect(error).toBeInstanceOf(NotReadyError);
+      source = (error as NotReadyError).source;
+    }
+
+    d.reject(error);
+    await expect(source).rejects.toBe(error);
+    expect(() => store.name).toThrow(error);
+  });
+
   test("sync projection does NOT throw NotReadyError", () => {
     const { context } = createStreamTrackingContext();
     sharedConfig.context = context;
