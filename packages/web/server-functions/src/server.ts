@@ -1224,6 +1224,14 @@ async function parseArguments(request, url, scripted, codec) {
       return stripUnsafeArgumentKeys(decoded);
     }
     if (decoded === undefined) {
+      // Node hosts commonly construct a web Request from the incoming socket
+      // stream even when the POST had no payload. The Fetch body is then
+      // non-null, but there is still no argument to decode (#3214). Inspect
+      // the bytes rather than trusting Content-Length: an adapter or proxy
+      // can preserve a stale zero while supplying a non-empty stream.
+      if (bodyFormat === null && (await request.clone().arrayBuffer()).byteLength === 0) {
+        return parsed;
+      }
       // The decode switch fell through: the format tag — or its duplicate-
       // header comma join, which `Headers` produces silently — names no
       // encoding this runtime has. Refusing is the point: substituting

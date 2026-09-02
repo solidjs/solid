@@ -306,6 +306,73 @@ describe("an unusable body format (#3130)", () => {
   });
 });
 
+describe("an adapter-provided empty POST body (#3214)", () => {
+  function emptyStream() {
+    return new ReadableStream({
+      start(controller) {
+        controller.close();
+      }
+    });
+  }
+
+  it("treats an untagged empty stream as a zero-argument call", async () => {
+    const fn = vi.fn(async (...args: unknown[]) => args.length);
+    registerServerFunction("bounds-empty-stream", fn);
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/bounds-empty-stream", {
+        method: "POST",
+        body: emptyStream(),
+        headers: {
+          "Sec-Fetch-Site": "same-origin",
+          "X-Server-Function-Instance": "server-function:test",
+          "content-length": "0"
+        },
+        duplex: "half"
+      } as RequestInit)
+    );
+    expect(response.status).toBe(200);
+    expect(fn).toHaveBeenCalledWith();
+  });
+
+  it("does not trust a zero Content-Length when the stream has bytes", async () => {
+    const fn = vi.fn(async () => "reached");
+    registerServerFunction("bounds-false-empty-stream", fn);
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/bounds-false-empty-stream", {
+        method: "POST",
+        body: "not empty",
+        headers: {
+          "Sec-Fetch-Site": "same-origin",
+          "X-Server-Function-Instance": "server-function:test",
+          "content-length": "0"
+        }
+      })
+    );
+    expect(response.status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("still refuses an empty body carrying an unknown format tag", async () => {
+    const fn = vi.fn(async () => "reached");
+    registerServerFunction("bounds-empty-unknown", fn);
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/bounds-empty-unknown", {
+        method: "POST",
+        body: emptyStream(),
+        headers: {
+          "Sec-Fetch-Site": "same-origin",
+          "X-Server-Function-Instance": "server-function:test",
+          "content-length": "0",
+          [BODY_FORMAT_HEADER]: "9999"
+        },
+        duplex: "half"
+      } as RequestInit)
+    );
+    expect(response.status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+});
+
 describe("what the bounds must not disturb", () => {
   it("leaves a form post under the limit alone", async () => {
     const form = new FormData();
