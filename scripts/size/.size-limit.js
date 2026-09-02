@@ -51,6 +51,11 @@ const framesEsbuildConfig = config => ({
 // Own-property parity (#3204): style and spread now match SSR for inherited
 // attributes, children, and refs. The affected client scenarios are likewise
 // rounded up to the next 0.01 kB.
+//
+// Post-RC.6 audit (2026-09-02): #3226's pending-source ownership fix is
+// core-retained, adding 12 B to isPending/latest and up to 16 B to hydrating
+// builds on Linux. The remaining caps are ratcheted to the larger of the
+// measured Linux CI and macOS artifacts, rounded up to the next 0.01 kB.
 module.exports = [
   {
     name: "signals: core floor (createSignal/Memo/Effect/Root/flush)",
@@ -208,7 +213,7 @@ module.exports = [
     //
     // Fold relocation pass (2026-09-01): 14.56 -> 14.55 KB, measured at
     // 14.54 — the core-floor relocation (see that note).
-    limit: "14.69 KB",
+    limit: "14.66 KB",
     modifyEsbuildConfig
   },
   {
@@ -256,7 +261,7 @@ module.exports = [
     //
     // Fold relocation pass (2026-09-01): 9.99 -> 9.98 KB, measured at 9.97
     // — the core-floor relocation (see that note).
-    limit: "10.08 KB",
+    limit: "10.10 KB",
     modifyEsbuildConfig
   },
   {
@@ -298,7 +303,7 @@ module.exports = [
     // shared-reference reruns can diff mutations without deleting external
     // classes.
     path: "minimal-app.js",
-    limit: "10.87 KB",
+    limit: "10.86 KB",
     modifyEsbuildConfig
   },
   {
@@ -352,7 +357,7 @@ module.exports = [
     // In-place class mutation fix (#3188): 17.67 -> 17.68 KB, measured at
     // 17.673. Hydration seeds the applied-class snapshot without mutating
     // the claimed DOM so the first live in-place change still diffs.
-    limit: "17.70 KB",
+    limit: "17.72 KB",
     modifyEsbuildConfig
   },
   {
@@ -423,7 +428,7 @@ module.exports = [
     // retains every store family, so it pays the whole module. Ruled
     // correctness-over-size in the #3164 thread; conscious bump.
     path: "hydrating-store-app.js",
-    limit: "27.00 KB",
+    limit: "26.99 KB",
     modifyEsbuildConfig
   },
   {
@@ -478,7 +483,7 @@ module.exports = [
     // Fold relocation pass (2026-09-01): 14.69 -> 14.68 KB, measured at
     // 14.67 — the core-floor relocation (see that note).
     path: "csr-app-patch.js",
-    limit: "14.82 KB",
+    limit: "14.81 KB",
     modifyEsbuildConfig
   },
   {
@@ -503,7 +508,7 @@ module.exports = [
     // Fold relocation pass (2026-09-01): 16.94 -> 16.91 KB, measured at
     // 16.90 — retained-ledger shake, same as the hydrating no-store note.
     path: "csr-app-patch-lists.js",
-    limit: "17.10 KB",
+    limit: "17.06 KB",
     modifyEsbuildConfig
   },
   {
