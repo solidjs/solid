@@ -1,0 +1,5 @@
+---
+"@solidjs/signals": patch
+---
+
+mapArray SMALL-MOVE fast path: rotates, swaps, small displacements, and removals leave a keyed window that is the old window shifted with a bounded number of genuinely displaced identities — but the general diff paid O(newLen) regardless (window key-map, four full-length staged arrays, element-copied prefix/suffix), measured at ~50-140µs/op on 1000 rows against ~20µs of actual DOM work (the jfb-reorder suite's stable 1.8-4x deficits). The fast path scans first (two-pointer aligned-run detection with bounded realignment lookahead and a compare budget, so hopeless shapes like reverse bail almost immediately with nothing allocated), then commits by slicing the live arrays (native memcpy preserves the fresh-identity contract downstream change propagation relies on), copying only shifted runs, patching the displaced few, and disposing leftover sources. Gated to large trimmed windows (the trims already make small windows cheap) and kept out of updateKeyedMap's function body (inlining deoptimized the general path). Rotate 140→13µs, swap 94→8µs, displace3 54→9µs; removefirst and reverse at parity.
