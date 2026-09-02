@@ -33,6 +33,15 @@ const framesEsbuildConfig = config => ({
   ]
 });
 
+// RC.6 correctness reconciliation (2026-09-01): these caps were last
+// reconciled before #3181's synchronous superseded-flight settle walk, the
+// held-truth/optimistic-store follow-ups (#3146, #3147, #3178), and the
+// hydration/DOM correctness batch (#3163, #3180, #3182, #3187, #3189).
+// #3181 explicitly accepted its core-retained cost and updated the
+// in-package treeshake budget, but this scenario gate was missed. The frames
+// delta is the separately reviewed server-function transport hardening.
+// Limits below are the measured Linux CI/local artifacts rounded up to the
+// next 0.01 kB; this is a ratchet reconciliation, not additional headroom.
 module.exports = [
   {
     name: "signals: core floor (createSignal/Memo/Effect/Root/flush)",
@@ -88,7 +97,7 @@ module.exports = [
     // the optimistic module, and read()'s latest()/authoritative-read
     // exemptions moved inside the hook (which now takes the observer) —
     // the floor keeps only `config-gate && hook?.(el, c)`.
-    limit: "7.94 KB",
+    limit: "8.02 KB",
     modifyEsbuildConfig
   },
   {
@@ -190,7 +199,7 @@ module.exports = [
     //
     // Fold relocation pass (2026-09-01): 14.56 -> 14.55 KB, measured at
     // 14.54 — the core-floor relocation (see that note).
-    limit: "14.55 KB",
+    limit: "14.69 KB",
     modifyEsbuildConfig
   },
   {
@@ -238,7 +247,7 @@ module.exports = [
     //
     // Fold relocation pass (2026-09-01): 9.99 -> 9.98 KB, measured at 9.97
     // — the core-floor relocation (see that note).
-    limit: "9.98 KB",
+    limit: "10.08 KB",
     modifyEsbuildConfig
   },
   {
@@ -275,7 +284,7 @@ module.exports = [
     // Fold relocation pass (2026-09-01): 10.73 -> 10.72 KB, measured at
     // 10.71 — the core-floor relocation (see that note).
     path: "minimal-app.js",
-    limit: "10.72 KB",
+    limit: "10.80 KB",
     modifyEsbuildConfig
   },
   {
@@ -325,7 +334,7 @@ module.exports = [
     // Fold relocation pass (2026-09-01): 17.6 -> 17.56 KB, measured at
     // 17.54 — this bundle's import graph retained the scheduler-resident
     // ledger; the relocation lets it shake.
-    limit: "17.56 KB",
+    limit: "17.67 KB",
     modifyEsbuildConfig
   },
   {
@@ -396,7 +405,7 @@ module.exports = [
     // retains every store family, so it pays the whole module. Ruled
     // correctness-over-size in the #3164 thread; conscious bump.
     path: "hydrating-store-app.js",
-    limit: "26.71 KB",
+    limit: "26.94 KB",
     modifyEsbuildConfig
   },
   {
@@ -426,7 +435,7 @@ module.exports = [
     // scheduler-resident ledger (nothing to shake), so it pays only the
     // hook call site's second argument plus brotli layout drift.
     path: "csr-app.js",
-    limit: "12.95 KB",
+    limit: "13.09 KB",
     modifyEsbuildConfig
   },
   {
@@ -451,7 +460,7 @@ module.exports = [
     // Fold relocation pass (2026-09-01): 14.69 -> 14.68 KB, measured at
     // 14.67 — the core-floor relocation (see that note).
     path: "csr-app-patch.js",
-    limit: "14.68 KB",
+    limit: "14.80 KB",
     modifyEsbuildConfig
   },
   {
@@ -476,7 +485,7 @@ module.exports = [
     // Fold relocation pass (2026-09-01): 16.94 -> 16.91 KB, measured at
     // 16.90 — retained-ledger shake, same as the hydrating no-store note.
     path: "csr-app-patch-lists.js",
-    limit: "16.91 KB",
+    limit: "17.04 KB",
     modifyEsbuildConfig
   },
   {
@@ -500,7 +509,7 @@ module.exports = [
     // every late root asset record for mounts that register after the
     // stream arrives.
     path: "../../packages/web/frames/dist/client.js",
-    limit: "11.28 KB",
+    limit: "11.30 KB",
     modifyEsbuildConfig: framesEsbuildConfig
   }
 ];

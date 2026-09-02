@@ -227,7 +227,10 @@ describe("healthy fine-grained benchmark implementation (false-positive control)
     });
     flush();
 
-    const { diagnostics, reruns } = arm();
+    // This is a structural false-positive control. Wall-clock attribution is
+    // deliberately outside its claim: coverage/contended CI can push an
+    // otherwise fine-grained row effect over the default 8ms budget.
+    const { diagnostics, reruns } = arm({ hotTime: false });
     setState(s => {
       for (let i = 0; i < n; i += 10) s.rows[i].label += " !!!";
     });
