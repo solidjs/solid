@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { ChildProperties } from "./constants.js";
+import { COMPOSED_BODY_FRAMING, ChildProperties, isHttpNavigationTarget } from "./constants.js";
 import {
   sharedConfig,
   createRoot as root,
@@ -4460,7 +4460,10 @@ const STUB_GAP_FILL_EXCLUDED = /*#__PURE__*/ new Set(
     SINGLE_FLIGHT_HEADER,
     REVALIDATE_HEADER,
     REDIRECT_HEADER,
-    "Location"
+    "Location",
+    // written before the body exists, so they can only describe a different
+    // one (#3197)
+    ...COMPOSED_BODY_FRAMING
   ].map(header => header.toLowerCase())
 );
 
@@ -4547,6 +4550,9 @@ export function commitEventResponse(response, event = getRequestEvent()) {
 
 function deriveHead(stub, responseInit = {}) {
   const headers = mergeStubHeaders(copyInitHeaders(responseInit.headers), stub);
+  // This runtime supplies the HTML body, so framing written before render
+  // cannot describe the bytes that will leave.
+  for (const header of COMPOSED_BODY_FRAMING) headers.delete(header);
   const status = (stub && stub.status) || responseInit.status || 200;
   const statusText = (stub && stub.statusText) || responseInit.statusText || undefined;
   return { status, statusText, headers };
@@ -4554,7 +4560,8 @@ function deriveHead(stub, responseInit = {}) {
  * Derives the outgoing `Response` for an SSR render result, running the
  * response-head lifecycle against `event.response`: commit at shell flush,
  * pre-flush `Location` becomes a real redirect, post-flush `Location`
- * appends a client-side script redirect before the stream closes.
+ * appends a client-side script redirect before the stream closes when its
+ * target resolves to HTTP(S).
  * Synchronous for string results; resolves at shell flush for stream
  * results.
  */
@@ -4583,8 +4590,8 @@ export function createSSRResponse(
  *   `Location` short-circuits to a redirect with no body (the render is
  *   abandoned). A `Location` set after the flush
  *   can only be honored client-side, so stream completion appends
- *   `<script>window.location=...</script>` (carrying `options.nonce` for
- *   strict `script-src` CSPs) before closing.
+ *   `<script>window.location=...</script>` for relative or HTTP(S) targets
+ *   (carrying `options.nonce` for strict `script-src` CSPs) before closing.
  *
  * `options.transformChunk(chunk)` rewrites each outgoing HTML chunk (entry
  * script injection, doctype prefixes, ...). The default `content-type` is
@@ -4667,7 +4674,7 @@ export function createSSRResponse(result, event, options = {}) {
         // (a pre-flush one short-circuited above) — client-side is the only
         // side that can still honor it.
         const location = stub && stub.headers.get("Location");
-        if (location) {
+        if (location && isHttpNavigationTarget(location)) {
           const attr = nonceAttr(nonce, "script");
           enqueue(
             `<script${attr}>window.location=${JSON.stringify(location).replace(

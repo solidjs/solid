@@ -9,6 +9,8 @@
 // The revalidation keys are opaque strings here — whatever keyed cache the
 // integration brings assigns them meaning.
 
+import { COMPOSED_BODY_FRAMING } from "./constants.js";
+
 // Identity must survive duplicated module instances (e.g. the core entry
 // and the server-functions entry bundled separately both carrying a copy),
 // so the envelope is detected by a registered-symbol brand, not instanceof.
@@ -264,6 +266,9 @@ export function respond<T>(value: T, init: ResponseHelperInit = {}) {
   // Carry the metadata bodiless; the server-function encoder answers the
   // void shapes with a real null-body response and reports value-carrying
   // ones legibly.
+  // The body below is ours, so an author's framing headers describe something
+  // else — and on a null-body status there is no body at all (#3197).
+  for (const header of COMPOSED_BODY_FRAMING) headers.delete(header);
   if (NULL_BODY_STATUSES.has(responseInit.status)) {
     return new ResponseEnvelope(new Response(null, { ...responseInit, headers }), value);
   }
