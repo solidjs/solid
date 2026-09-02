@@ -1,5 +1,51 @@
 # @solidjs/web
 
+## 2.0.0-rc.6
+
+### Patch Changes
+
+- ee73e05: Treat adapter-provided empty POST streams as zero-argument server function calls while continuing to refuse non-empty or invalidly tagged bodies.
+- c7c0ffb: `provideEvent`'s invocation contract is enforced at HTTP dispatch (#3172). A hook that invoked the callback twice double-committed a mutation under a 200, and one that never invoked it answered a void success without running the function. A second invocation is now refused before the function body runs again, and both violations fail the request with a sanitized 500 (the hook is named in development), re-checked after the hook returns so a swallowed refusal cannot answer 200.
+- a964f03: A 2xx the client transport cannot recognize now fails the call instead of resolving as `undefined` (#3173, revisiting #3087). A captive portal, WAF interstitial, or misrouted SPA index answering 200 with HTML was indistinguishable from a void result; the transport now requires a success response to carry the runtime's body-format tag (stamped on every encoded response, void included) or the verbatim-passthrough marker, and rejects anything else with the status and content-type named. Genuine void results and raw passthroughs are unaffected; the header alone is judge, never the body.
+- 67bf03d: Handle primitive class values consistently between static, dynamic, and array forms (#3189). Dynamic numeric class values now stringify like the compiler's static template output on both client and server, and standalone booleans inside class arrays are ignored per clsx-style composition instead of emitting a literal "true" class.
+- 7d559bf: Eager JSX evaluated during hydration whose template claim misses (e.g. stored in a variable behind an initially false `<Show>` — the server allocated its hydration ids but never rendered it) now materializes its dynamic inserts like a client render, so revealing the detached subtree later produces fully initialized DOM (#3163). Text-node adoption during hydration is restricted to nodes actually being claimed (connected or under a claim root).
+- 8f26066: Preserve statically selected options when a dynamic `multiple` expression on `<select>` is initially truthy (#3179). The template parses under single-select rules before the binding effect runs, so the first truthy `multiple` write now restores selectedness from the options' defaults, matching the static attribute. Later toggles keep the live selection state, exactly like toggling the attribute on static markup.
+- 3c357fb: Create ambiguous SVG tags (`a`, `script`, `style`, `title`) in the SVG namespace when Dynamic renders them inside SVG content during client rendering (#3187). Dynamic intrinsic elements now materialize lazily inside the insert() that renders them, where the live insertion parent provides the namespace hint — matching how the parser resolves these tags in static templates and server-rendered markup (children of `foreignObject` stay HTML).
+- e220cfa: Stop buffering aborted or refused server-function uploads and answer broken request bodies cleanly.
+- a1a68a7: Default server-function error-stack serialization from the compiled development variant
+- bbff5e0: Direct `value`/`checked` (and other stateful DOM property) bindings no longer overwrite pre-hydration user input during the hydration claim pass (#3182). Hydratable compiled output now routes locked DOM properties through `setProperty`, which skips writes on hydrating nodes and carries the `<select value>` microtask and input/textarea nullish special cases.
+- c21b0a4: Reactive style bindings (`style()` and `setStyleProperty()`) no longer overwrite server-rendered inline styles during the initial hydration pass, consistent with class and attribute bindings (#3180). The first subsequent reactive update applies the client value.
+- d5fbfa3: Ignore inherited properties in client-side style objects and JSX spreads, including special children and ref positions, to match SSR output.
+- 57e3178: Prevent an abandoned sanitized promise in a server-function result from causing an unhandled rejection when another value fails to encode.
+- b73635b: Keep bound handler tuples reusable across non-delegated events by leaving the user-provided tuple unchanged when installing a listener.
+- 74a11e3: Reduce collision-safe client event listener bookkeeping while preserving handler identity and removal options
+- f22d6e7: Remove replaced non-delegated event listener objects with their original capture option.
+- 0a2fcf0: Keep generator bodies, stream pulls, and encoded result getters inside their server-function request event for HTTP dispatch and direct SSR calls.
+- f4e490b: Judge decoded arguments, guarded results and navigation targets by what they
+  are rather than by how they are spelled, and never forward a `Content-Length`
+  that describes a body the transport replaced.
+
+  Seven defects, five of them introduced by the guards added in #3168, #3170,
+  #3175 and #3176. Each fix removes a special case rather than adding one: the
+  argument walk stops for no prototype, the guard shell keeps only the flag that
+  reaches the wire, the scheme floor asks the URL parser instead of a regex, and
+  the event is awaited only when it is genuinely a promise.
+
+  Runtime-composed SSR responses now discard stale body-framing headers, and
+  late streaming redirects emit a client script only for relative or HTTP(S)
+  targets.
+
+- c42fc3f: Decoded server-function arguments no longer carry `__proto__` as an own key (#3168). Both decode roads (plain JSON and the codec) preserved the key faithfully, so an ordinary `Object.assign` merge in a handler re-prototyped its result with attacker-supplied data. The key is now stripped recursively at the argument-decode seam, covering plain objects, arrays, and revived Map/Set entries, with cycle protection.
+- ca13ed1: Dispatch delegated events to EventListenerObject handlers through their handleEvent method, including after replacing a bound tuple.
+- 2a6567d: Update object-valued class bindings after in-place mutations by tracking a separate snapshot of the classes applied to each element.
+- 70a6180: `prepareRequest`'s return is validated instead of replacing the request init wholesale (#3174). A hook returning a fresh object — the natural way to write "add an auth header" — silently dropped the argument payload, the abort signal, and every protocol header, and the call still dispatched. A returned init that lost the transport headers (or is not an object) now fails the call at the call site naming the hook; deliberate body/signal replacement over a spread init remains in contract.
+- Updated dependencies [a7c6b8e]
+- Updated dependencies [8d1ba82]
+- Updated dependencies [3e48a75]
+- Updated dependencies [04b5b7f]
+- Updated dependencies [da1f7bf]
+  - solid-js@2.0.0-rc.6
+
 ## 2.0.0-rc.5
 
 ### Patch Changes

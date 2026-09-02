@@ -1,5 +1,30 @@
 # @solidjs/compiler
 
+## 2.0.0-rc.6
+
+### Patch Changes
+
+- 5a1abb3: Add a typed semantic IR stage and a compiler-owned TSRX typecheck projection with authored source maps, style metadata, and embedded CSS/script regions.
+- bb9dacb: Expose exact authored-to-generated TSRX ranges for editor tooling.
+- 38cab7a: Lower TSRX compiler output directly to Oxc AST without reparsing a generated text projection.
+- 1e7fa73: Reject authored TSRX lazy destructuring in Solid while retaining deferred patterns generated for keyed loops and catch clauses.
+- c9c16cb: Fix DOM insert markers to reference the following sibling's declared walk variable (`_$insert(_el$, expr, _el$2)`) instead of re-deriving the walk inline (`_el$.firstChild`), matching babel-plugin output. Affects dynamic slots followed by static content in both single-slot and per-slot parents.
+- bbff5e0: Direct `value`/`checked` (and other stateful DOM property) bindings no longer overwrite pre-hydration user input during the hydration claim pass (#3182). Hydratable compiled output now routes locked DOM properties through `setProperty`, which skips writes on hydrating nodes and carries the `<select value>` microtask and input/textarea nullish special cases.
+- cdbd584: Assign static `<select value>` values through the live DOM property so the matching option is selected consistently with reactive values.
+- 59da78e: Preserve direct JSX child shape and deferred callback evaluation when lowering TSRX control flow.
+- ed9993f: Preserve scoped selectors when a TSRX element contains dynamic children.
+- 5a1abb3: Compile TSRX loops with an index but no explicit key using Solid's non-keyed callback shape.
+- a836015: Rewrite prefix and postfix updates of TSRX lazy bindings to their deferred member targets, matching the Babel frontend.
+- f02ce64: Preserve nested TSRX deferred-binding rewrites in optimized native compiler builds.
+- 82868c6: Support recursive lazy destructuring, lazy arrow parameters, per-read defaults, computed keys, rest views, standalone assignments, accessor-backed keyed-loop and catch patterns, and JavaScript-correct writes and updates across the Babel and native TSRX frontends.
+- 005d938: Recover common incomplete TSRX editor snapshots in the typecheck projection while keeping compilation strict.
+- 4da3fb4: Refresh pass: modules rendering document-shell elements (`<html>`/`<head>`/`<body>`) now take the `@refresh reload` path (decline + full reload) instead of registering hot-swappable components (#3151). A document shell can never hot-swap: the hydratable compile emits no client template for those elements — they are only recoverable from the hydration walk, so a post-hydration re-render throws a hydration mismatch — and their static markup/attributes exist only in the server-rendered HTML, so even a successful swap could not reflect the edit. Editing a Document/Shell component now triggers a full page reload that fetches a fresh server render.
+- 82868c6: Support TSRX statement containers in expression positions in the native compiler.
+- 774aad5: Add compile-time scoped styles, CSS sidecar output, style class maps, and style refs to both TSRX frontends.
+- d9a10b8: Support composing lowered `.tsrx` modules with the server-function directive transform while preserving path-stable function IDs.
+- 66cce98: Emit native TSRX source maps against authored `.tsrx` locations while leaving compiler-generated projection ranges unmapped.
+- c9c16cb: Add an experimental TSRX syntax frontend to both compilers. `.tsrx` sources (routed by filename with the new `syntax: "auto" | "jsx" | "tsrx"` option) desugar `@if`/`@else`, `@for … @empty`, `@switch`/`@case`, `@try`/`@catch`/`@pending`, `@{}` statement containers, and lazy destructuring (`&{}`/`&[]`) into the shared Solid JSX lowering, producing byte-identical output from both compilers. The Babel plugin loads the optional `@tsrx/core` peer dependency lazily; the native compiler ships the frontend behind the default-on `tsrx` cargo feature (statement containers in expression position are rejected with a structured diagnostic pending upstream oxc-tsrx support).
+
 ## 2.0.0-rc.5
 
 ### Patch Changes
