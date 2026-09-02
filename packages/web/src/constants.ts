@@ -215,6 +215,23 @@ const DOMElements = /*#__PURE__*/ new Set(
   )
 );
 
+// Headers that describe a body the runtime replaces or composes itself.
+const COMPOSED_BODY_FRAMING: ReadonlySet<string> = /*#__PURE__*/ new Set([
+  "content-length",
+  "content-encoding",
+  "transfer-encoding"
+]);
+
+// Scheme floor shared by server-function redirects and late streaming SSR.
+function isHttpNavigationTarget(target: string): boolean {
+  try {
+    const protocol = new URL(target, "http://base.invalid").protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export {
   DOMWithState,
   ChildProperties,
@@ -226,5 +243,7 @@ export {
   Namespaces,
   DOMElements,
   $$SLOT,
-  $$HOST
+  $$HOST,
+  COMPOSED_BODY_FRAMING,
+  isHttpNavigationTarget
 };

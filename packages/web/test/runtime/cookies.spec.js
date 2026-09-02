@@ -230,6 +230,20 @@ describe("createSSRResponse carries multiple Set-Cookie values", () => {
     expect(event.response.committed).toBe(true);
   });
 
+  it("runtime-composed HTML drops framing headers written before render", async () => {
+    const event = eventWithCookies();
+    event.response.headers.set("Content-Length", "1");
+    event.response.headers.set("Content-Encoding", "gzip");
+    event.response.headers.set("Transfer-Encoding", "chunked");
+
+    const response = r.createSSRResponse("hello", event);
+
+    expect(response.headers.get("Content-Length")).toBeNull();
+    expect(response.headers.get("Content-Encoding")).toBeNull();
+    expect(response.headers.get("Transfer-Encoding")).toBeNull();
+    expect(await response.text()).toBe("hello");
+  });
+
   it("redirect result: cookies ride the redirect head", () => {
     const event = eventWithCookies();
     appendCookie(event, "session", "fresh");
@@ -271,6 +285,28 @@ describe("createSSRResponse carries multiple Set-Cookie values", () => {
     event.response.headers.set("Location", "/next");
     expect(event.response.headers.get("Location")).toBe("/next");
     expect(response.headers.getSetCookie()).toEqual([]);
+  });
+
+  it("late stream redirects emit script only for HTTP(S) targets", async () => {
+    async function finish(location) {
+      const event = eventWithCookies();
+      let sink;
+      const response = await r.createSSRResponse(
+        {
+          pipe(writable) {
+            sink = writable;
+            writable.write("<p>shell</p>");
+          }
+        },
+        event
+      );
+      event.response.headers.set("Location", location);
+      sink.end();
+      return response.text();
+    }
+
+    await expect(finish("/next")).resolves.toContain('window.location="/next"');
+    await expect(finish("java\tscript:alert(1)")).resolves.not.toContain("window.location=");
   });
 });
 

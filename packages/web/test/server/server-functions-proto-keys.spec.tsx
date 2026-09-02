@@ -185,6 +185,27 @@ describe("decoded arguments cannot reach Object.prototype (#3202)", () => {
     );
   });
 
+  it("removes each dangerous own key rather than only neutralizing this merge", async () => {
+    for (const [name, jsonPayload, codecPayload] of PAYLOADS.slice(0, 3)) {
+      for (const road of ROADS) {
+        const { status, seen } = await decodeArgument(
+          road,
+          road.startsWith("codec") ? codecPayload : jsonPayload
+        );
+        expect(status, `${name} / ${road}`).toBe(200);
+        expect(Object.prototype.hasOwnProperty.call(seen, name), `${name} / ${road}`).toBe(false);
+      }
+    }
+  });
+
+  it("refuses a non-configurable dangerous key rather than passing it through", async () => {
+    const payload = Object.freeze({ prototypeKey: { polluted: true }, n: 1 });
+    const { status, seen } = await decodeArgument("codec-body", payload);
+
+    expect(status).toBe(400);
+    expect(seen).toBeUndefined();
+  });
+
   it("a non-plain carrier does not shelter the payload underneath it (#3200)", async () => {
     // The reachable shape is not an unsafe key ON a carrier — seroval drops
     // that at encode — but a plain object one level UNDER one. The walk used

@@ -20,8 +20,10 @@
  * bundles (server-functions/dist/*, wired up in vite.config.server.mjs).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
+import { runInNewContext } from "node:vm";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
+  decodeResponse,
   handleServerFunctionRequest,
   registerServerFunction
 } from "@solidjs/web/server-functions/server";
@@ -55,6 +57,7 @@ const stamp = (event: any) => {
   event.response.headers.append("Set-Cookie", "sid=abc; Path=/");
   return event;
 };
+const ForeignPromise = runInNewContext("Promise");
 
 /** Answers within `ms` or reports the hang as a value, never as a timeout. */
 async function within<T>(work: Promise<T>, ms = 1000): Promise<T | "HUNG"> {
@@ -149,6 +152,10 @@ describe("a failing createEvent is answered, not escaped (#3199)", () => {
       }
     ],
     [
+      "a rejecting cross-realm createEvent",
+      () => ForeignPromise.reject(new Error("session store unreachable"))
+    ],
+    [
       "a synchronously throwing createEvent",
       () => {
         throw new Error("session store unreachable");
@@ -174,6 +181,10 @@ describe("a failing createEvent is answered, not escaped (#3199)", () => {
     expect((response as Response).headers.get("X-Server-Function-Error")).toBe(
       "Internal Server Error"
     );
+    expect((response as Response).headers.get("X-Server-Function-Format")).toBe("0");
+    const decoded = await decodeResponse(response as Response);
+    expect(decoded).toBeInstanceOf(Error);
+    expect((decoded as Error).message).toBe("Internal Server Error");
     expect(ran).toBe(0);
   });
 });
@@ -186,6 +197,10 @@ describe("the awaited shapes #3170 added keep working (#3199 baseline)", () => {
         await Promise.resolve();
         return stamp(createRequestEvent(request));
       }
+    ],
+    [
+      "a cross-realm Promise",
+      request => ForeignPromise.resolve(stamp(createRequestEvent(request)))
     ],
     ["a plain synchronous createEvent", request => stamp(createRequestEvent(request))]
   ];

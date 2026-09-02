@@ -191,6 +191,26 @@ describe("a frozen result is not a failed call (#3196)", () => {
       await expect(decode(response)).resolves.toBeDefined();
     }
   );
+
+  test("a guarded rebuild preserves an authored own __proto__ property", async () => {
+    registerServerFunction("descriptors-own-proto", async () => {
+      const result: any = { receipt: Promise.resolve("R") };
+      Object.defineProperty(result, "__proto__", {
+        value: "kept",
+        writable: false,
+        enumerable: true,
+        configurable: false
+      });
+      return Object.freeze(result);
+    });
+
+    const response = await handleServerFunctionRequest(scriptedPost("descriptors-own-proto"));
+    const result = await decode(response);
+
+    expect(response.status).toBe(200);
+    expect(Object.prototype.hasOwnProperty.call(result, "__proto__")).toBe(true);
+    expect(result["__proto__"]).toBe("kept");
+  });
 });
 
 describe("a non-enumerable accessor is not serialized (#3198)", () => {
@@ -259,5 +279,26 @@ describe("a non-enumerable accessor is not serialized (#3198)", () => {
 
     expect(response.status).toBe(200);
     expect(body.includes(SECRET)).toBe(onWire);
+  });
+
+  test("a non-enumerable getter is not invoked while another slot is guarded", async () => {
+    let reads = 0;
+    registerServerFunction("nonenum-getter-not-read", async () => {
+      const result: any = { receipt: Promise.resolve("R") };
+      Object.defineProperty(result, "hidden", {
+        get() {
+          reads++;
+          throw new Error("hidden getter must stay unread");
+        },
+        enumerable: false,
+        configurable: true
+      });
+      return result;
+    });
+
+    const response = await handleServerFunctionRequest(scriptedPost("nonenum-getter-not-read"));
+
+    expect(response.status).toBe(200);
+    expect(reads).toBe(0);
   });
 });
