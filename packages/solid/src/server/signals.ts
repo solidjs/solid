@@ -1852,16 +1852,20 @@ export function createOptimisticStore<T extends object>(
 function createPendingProxy<T extends object>(
   state: T,
   source: Promise<any>
-): [proxy: Store<T>, markReady: (frozenState?: T) => void] {
-  let pending = true;
+): [proxy: Store<T>, markReady: (frozenState?: T) => void, markError: (error: any) => void] {
+  let status: 0 | 1 | 2 = 0;
+  let error: any;
   let readTarget: T = state;
   const proxy = new Proxy(state, {
     get(obj, key, receiver) {
-      if (pending && typeof key !== "symbol") {
-        // Bare client store: same loud-outside-a-boundary rule as the memo
-        // read path (see clientHoleRead).
-        if (source === CLIENT_HOLE) clientHoleRead();
-        throw new NotReadyError(source);
+      if (typeof key !== "symbol") {
+        if (status === 2) throw error;
+        if (status === 0) {
+          // Bare client store: same loud-outside-a-boundary rule as the memo
+          // read path (see clientHoleRead).
+          if (source === CLIENT_HOLE) clientHoleRead();
+          throw new NotReadyError(source);
+        }
       }
       return Reflect.get(readTarget, key);
     }
@@ -1870,7 +1874,11 @@ function createPendingProxy<T extends object>(
     proxy as Store<T>,
     (frozen?: T) => {
       if (frozen) readTarget = frozen;
-      pending = false;
+      status = 1;
+    },
+    (reason: any) => {
+      error = reason;
+      status = 2;
     }
   ];
 }
@@ -2025,7 +2033,7 @@ export function createProjection<T extends object>(
     if (!(error instanceof NotReadyError)) throw error;
 
     const deferred = createDeferredPromise<T>();
-    const [pending, markReady] = createPendingProxy(state, deferred.promise);
+    const [pending, markReady, markError] = createPendingProxy(state, deferred.promise);
     seedLock(markReady);
     settleServerAsync<void | T, T>(
       Promise.reject(error),
@@ -2038,8 +2046,8 @@ export function createProjection<T extends object>(
         markReady();
         return state as T;
       },
-      (_error: any) => {
-        markReady();
+      (error: any) => {
+        markError(error);
       },
       () => disposed
     );
@@ -2056,7 +2064,7 @@ export function createProjection<T extends object>(
       let currentResult = result;
       let iter: AsyncIterator<void | T>;
       const deferred = createDeferredPromise<T>();
-      const [pending, markReady] = createPendingProxy(state, deferred.promise);
+      const [pending, markReady, markError] = createPendingProxy(state, deferred.promise);
       seedLock(markReady);
       const runFirst = () => {
         const source = currentResult ?? runProjection();
@@ -2083,7 +2091,7 @@ export function createProjection<T extends object>(
           return state as T;
         },
         (error: any) => {
-          markReady();
+          markError(error);
         },
         () => disposed
       );
@@ -2098,7 +2106,7 @@ export function createProjection<T extends object>(
       let iter: AsyncIterator<void | T>;
       let firstResult: IteratorResult<void | T> | undefined;
       const deferred = createDeferredPromise<void>();
-      const [pending, markReady] = createPendingProxy(state, deferred.promise);
+      const [pending, markReady, markError] = createPendingProxy(state, deferred.promise);
       seedLock(markReady);
       const runFirst = () => {
         const source = currentResult ?? runProjection();
@@ -2137,7 +2145,7 @@ export function createProjection<T extends object>(
           return undefined;
         },
         (error: any) => {
-          markReady();
+          markError(error);
         },
         () => disposed
       );
@@ -2222,7 +2230,7 @@ export function createProjection<T extends object>(
 
   if (isThenable<T>(result)) {
     const deferred = createDeferredPromise<T>();
-    const [pending, markReady] = createPendingProxy(state, deferred.promise);
+    const [pending, markReady, markError] = createPendingProxy(state, deferred.promise);
     seedLock(markReady);
     settleServerAsync(
       result,
@@ -2236,7 +2244,7 @@ export function createProjection<T extends object>(
         return state as T;
       },
       (error: any) => {
-        markReady();
+        markError(error);
       },
       () => disposed
     );

@@ -3216,6 +3216,118 @@ describe("Async Iterable — createProjection", () => {
     expect(store.name).toBe("resolved");
   });
 
+  test("Promise projection preserves its error after rejection", async () => {
+    const { context } = createStreamTrackingContext();
+    sharedConfig.context = context;
+
+    const d = deferred<{ name: string }>();
+    const error = new Error("projection failed");
+    let store: any;
+    let source!: Promise<unknown>;
+
+    createRoot(
+      () => {
+        store = createProjection(() => d.promise, { name: "init" });
+      },
+      { id: "t" }
+    );
+
+    try {
+      store.name;
+    } catch (error) {
+      expect(error).toBeInstanceOf(NotReadyError);
+      source = (error as NotReadyError).source;
+    }
+
+    d.reject(error);
+    await expect(source).rejects.toBe(error);
+    expect(() => store.name).toThrow(error);
+  });
+
+  test("async iterable projection preserves a rejection before its first yield", async () => {
+    const { context } = createStreamTrackingContext();
+    sharedConfig.context = context;
+
+    const d = deferred<void>();
+    const error = new Error("projection failed");
+    let store: any;
+    let source!: Promise<unknown>;
+
+    createRoot(
+      () => {
+        store = createProjection(
+          async function* () {
+            await d.promise;
+            yield { name: "resolved", count: 1 };
+          },
+          { name: "init", count: 0 }
+        );
+      },
+      { id: "t" }
+    );
+
+    try {
+      store.name;
+    } catch (error) {
+      expect(error).toBeInstanceOf(NotReadyError);
+      source = (error as NotReadyError).source;
+    }
+
+    d.reject(error);
+    await expect(source).rejects.toBe(error);
+
+    for (const read of [() => store.name, () => store.count, () => store.name]) {
+      let thrown: unknown;
+      try {
+        read();
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBe(error);
+    }
+  });
+
+  test("seedLoadingValue projection preserves a rejected first result", async () => {
+    const { context, serializeLog } = createStreamTrackingContext();
+    sharedConfig.context = context;
+
+    const d = deferred<void>();
+    const error = new Error("seeded projection failed");
+    let store: any;
+
+    createRoot(
+      () => {
+        store = createProjection(
+          async function* () {
+            await d.promise;
+            yield { name: "resolved", count: 1 };
+          },
+          { name: "seed", count: 0 },
+          { seedLoadingValue: true }
+        );
+      },
+      { id: "t" }
+    );
+
+    expect(store.name).toBe("seed");
+    expect(store.count).toBe(0);
+
+    const iter = serializeLog[0].value[Symbol.asyncIterator]();
+    const first = iter.next();
+    d.reject(error);
+    await expect(first).rejects.toBe(error);
+
+    for (const read of [() => store.name, () => store.count, () => store.name]) {
+      let thrown: unknown;
+      try {
+        read();
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBe(error);
+    }
+  });
+
   test("sync projection does NOT throw NotReadyError", () => {
     const { context } = createStreamTrackingContext();
     sharedConfig.context = context;
