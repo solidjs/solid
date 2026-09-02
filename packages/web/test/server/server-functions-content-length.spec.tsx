@@ -82,11 +82,13 @@ async function call(id: string, { road = "scripted" as Road, stub = null as stri
  * sent. Rendered as a row so a failure names every producer at once rather
  * than only the first.
  */
-function row(label: string, r: { declared: string | null; bytes: number }) {
-  return `${label}: Content-Length=${r.declared ?? "absent"} body=${r.bytes} bytes`;
+function row(label: string, r: { status: number; declared: string | null; bytes: number }) {
+  return `${label}: status=${r.status} Content-Length=${r.declared ?? "absent"} body=${r.bytes} bytes`;
 }
-function expected(label: string, r: { declared: string | null; bytes: number }) {
-  return `${label}: Content-Length=${r.declared === null ? "absent" : r.bytes} body=${r.bytes} bytes`;
+// The status is part of the contract: without it a handler that answers
+// nothing at all renders as `absent / 0 bytes` and passes.
+function expected(label: string, status: number, r: { declared: string | null; bytes: number }) {
+  return `${label}: status=${status} Content-Length=${r.declared === null ? "absent" : r.bytes} body=${r.bytes} bytes`;
 }
 
 describe("Content-Length never describes a body the transport composed (#3197)", () => {
@@ -122,32 +124,37 @@ describe("Content-Length never describes a body the transport composed (#3197)",
       );
     }
 
-    const cases: [string, () => Promise<any>][] = [
-      ["returned Response + Content-Length (codec road)", () => call("cl-returned-response")],
-      ["thrown Response + Content-Length", () => call("cl-thrown-response")],
-      ["returned respond() envelope (JSON road)", () => call("cl-returned-envelope")],
-      ["thrown respond() envelope", () => call("cl-thrown-envelope")],
-      ["thrown 302 carrying a Content-Length", () => call("cl-redirect")],
-      ["stub gap-fill: middleware sets 0", () => call("cl-string", { stub: "0" })],
-      ["stub gap-fill: middleware sets 999", () => call("cl-string", { stub: "999" })],
-      ["204 + Content-Length", () => call("cl-null-204")],
-      ["205 + Content-Length", () => call("cl-null-205")],
-      ["304 + Content-Length", () => call("cl-null-304")],
+    const cases: [string, () => Promise<any>, number][] = [
+      ["returned Response + Content-Length (codec road)", () => call("cl-returned-response"), 200],
+      ["thrown Response + Content-Length", () => call("cl-thrown-response"), 200],
+      ["returned respond() envelope (JSON road)", () => call("cl-returned-envelope"), 200],
+      ["thrown respond() envelope", () => call("cl-thrown-envelope"), 200],
+      ["thrown 302 carrying a Content-Length", () => call("cl-redirect"), 200],
+      ["stub gap-fill: middleware sets 0", () => call("cl-string", { stub: "0" }), 200],
+      ["stub gap-fill: middleware sets 999", () => call("cl-string", { stub: "999" }), 200],
+      ["204 + Content-Length", () => call("cl-null-204"), 204],
+      ["205 + Content-Length", () => call("cl-null-205"), 205],
+      ["304 + Content-Length", () => call("cl-null-304"), 304],
       // unscripted: the same producers, plain-HTTP road
       [
         "unscripted respond() envelope + Content-Length",
-        () => call("cl-returned-envelope", { road: "plain" })
+        () => call("cl-returned-envelope", { road: "plain" }),
+        200
       ],
-      ["unscripted stub gap-fill", () => call("cl-string", { road: "plain", stub: "999" })],
-      ["no-JS form post + Content-Length", () => call("cl-returned-response", { road: "form" })]
+      ["unscripted stub gap-fill", () => call("cl-string", { road: "plain", stub: "999" }), 200],
+      [
+        "no-JS form post + Content-Length",
+        () => call("cl-returned-response", { road: "form" }),
+        303
+      ]
     ];
 
     const actual: string[] = [];
     const want: string[] = [];
-    for (const [label, run] of cases) {
+    for (const [label, run, status] of cases) {
       const r = await run();
       actual.push(row(label, r));
-      want.push(expected(label, r));
+      want.push(expected(label, status, r));
     }
     expect(actual).toEqual(want);
   });
