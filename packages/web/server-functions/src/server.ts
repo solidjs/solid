@@ -355,7 +355,9 @@ export interface ServerFunctionsServerConfig {
   /**
    * Codec options (extra plugins etc.) for decoding arguments and encoding
    * results — must match the client's. Stored in the shared layer, so
-   * `decodeResponse` sees them too.
+   * `decodeResponse` sees them too. When `serializeErrorStacks` is omitted,
+   * the server-function boundary defaults it from this module's compiled
+   * development variant.
    */
   codec?: JSONCodecOptions;
   /**
@@ -2488,11 +2490,10 @@ export const GENERIC_SERVER_ERROR_MESSAGE = "Internal Server Error";
 // bypassed the bundled entries sanitizes and omits diagnostic bodies like a
 // production build. Deliberately NOT process.env.NODE_ENV — the runtime is
 // a web-standard package and keys dev behavior on build variants, not
-// ambient node environment. One documented exception sits downstream: the
-// serialization codec's error-STACK policy defaults to NODE_ENV (its build
-// has no dev variant), so a production artifact run with
-// NODE_ENV=development serializes stacks unless the deployment pins
-// `codec: { serializeErrorStacks: false }` (#3152).
+// ambient node environment. The general serialization entry has no build
+// variants and keeps its NODE_ENV-based stack default; the server-function
+// boundary below supplies this compiled flag when its codec option leaves
+// `serializeErrorStacks` unspecified (#3221).
 let DEV = "_SOLID_DEV_" === true; /**
  * Overrides the build-variant dev flag for this module instance — the seam
  * for test harnesses and hand-rolled bundles whose packaging cannot replace
@@ -2802,10 +2803,19 @@ export function handleServerFunctionRequest(
  *   HTTP requests, get the normal serialized response.
  * - `csrf`: configures same-origin request validation, or disables it with
  *   `false`. Enabled by default.
- * - `codec`: overrides the configured codec options for this handler.
+ * - `codec`: overrides the configured codec options for this handler. When
+ *   `serializeErrorStacks` is omitted, it defaults from this module's
+ *   compiled development variant.
  */
 export async function handleServerFunctionRequest(request, options = {}) {
-  const codec = options.codec !== undefined ? options.codec : getServerFunctionsCodec();
+  const codec = {
+    ...(options.codec !== undefined ? options.codec : getServerFunctionsCodec())
+  };
+  // This is the server-function boundary's policy, not the standalone
+  // serialization package's: the selected server.dev/server artifact owns
+  // the default. Copy before filling it so per-handler and configured codec
+  // objects remain exactly as their callers supplied them.
+  codec.serializeErrorStacks ??= DEV;
   const url = new URL(request.url);
   const method = request.method;
   const address = resolveAddress(url);

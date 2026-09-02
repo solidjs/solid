@@ -280,44 +280,139 @@ describe("what the guard must not disturb", () => {
   });
 });
 
-describe("error stacks under a misconfigured NODE_ENV (#3152)", () => {
-  // NODE_ENV=development set against a production artifact is a quiet,
-  // common misconfiguration (base images, dotenv) — and it does not change
-  // the selected export condition, so this production bundle is exactly the
-  // artifact that runs. The sharp case is markSafeError: safe errors pass
-  // the sanitizer whole, so the only thing standing between their
-  // APPLICATION-code stacks and the wire is the codec's NODE_ENV-keyed
-  // stack policy. `codec.serializeErrorStacks` pins it to the deployment.
-  it("codec.serializeErrorStacks: false keeps app stacks off the wire whatever NODE_ENV says", async () => {
-    registerServerFunction("stack-policy-safe", async function throwsInsideCheckoutCharge() {
-      throw markSafeError(new Error("Card declined"));
-    });
-    const call = (options?: Parameters<typeof handleServerFunctionRequest>[1]) =>
-      handleServerFunctionRequest(
-        new Request("https://app.example/_server/data/stack-policy-safe", {
+describe("server-function error-stack defaults (#3221)", () => {
+  type Artifact = {
+    handle: typeof handleServerFunctionRequest;
+    register: typeof registerServerFunction;
+  };
+  const production: Artifact = {
+    handle: handleServerFunctionRequest,
+    register: registerServerFunction
+  };
+  let developmentArtifact: Promise<Artifact> | undefined;
+  function loadDevelopmentArtifact() {
+    const entry = new URL("./server-functions/dist/server.dev.js", `file://${process.cwd()}/`).href;
+    return (developmentArtifact ??= import(/* @vite-ignore */ entry).then(module => ({
+      handle: module.handleServerFunctionRequest,
+      register: module.registerServerFunction
+    })));
+  }
+  let callId = 0;
+
+  function applicationErrorFrame() {
+    return new Error("Card declined");
+  }
+
+  async function call(
+    artifact: Artifact,
+    fn: () => unknown,
+    options?: Parameters<typeof handleServerFunctionRequest>[1],
+    flight = false
+  ) {
+    const id = `stack-policy-${++callId}`;
+    artifact.register(id, fn);
+    const headers: Record<string, string> = {
+      "Sec-Fetch-Site": "same-origin",
+      "X-Server-Function-Format": "8",
+      "X-Server-Function-Instance": "server-function:test"
+    };
+    if (flight) headers["X-Single-Flight"] = "true";
+    return artifact
+      .handle(
+        new Request(`https://app.example/_server/data/${id}`, {
           method: "POST",
           body: "[]",
-          headers: {
-            "Sec-Fetch-Site": "same-origin",
-            "X-Server-Function-Format": "8",
-            "X-Server-Function-Instance": "server-function:test"
-          }
+          headers
         }),
         options
-      ).then(response => response.text());
+      )
+      .then(response => response.text());
+  }
 
+  it("the production artifact omits stacks on every request-codec road under NODE_ENV=development", async () => {
+    const codec = Object.freeze({ depthLimit: 64 });
+    const options = Object.freeze({ codec });
     const previous = process.env.NODE_ENV;
     process.env.NODE_ENV = "development";
     try {
-      // the documented default: NODE_ENV=development ships the stack —
-      // frames that start in application code
-      expect(await call()).toContain("throwsInsideCheckoutCharge");
+      const bodies = [
+        await call(production, () => applicationErrorFrame(), options),
+        await call(
+          production,
+          () => {
+            throw applicationErrorFrame();
+          },
+          options
+        ),
+        await call(
+          production,
+          () => ({ deferred: Promise.reject(applicationErrorFrame()) }),
+          options
+        ),
+        await call(
+          production,
+          () => () => "ok",
+          {
+            codec,
+            collectFlightData: () => ({ "/notes": { error: applicationErrorFrame() } }),
+            transformFlightResult: frameTransformFlightResult
+          },
+          true
+        )
+      ];
 
-      // the pinned deployment: same env, same build — message intact,
-      // stack gone
-      const pinned = await call({ codec: { serializeErrorStacks: false } });
-      expect(pinned).toContain("Card declined");
-      expect(pinned).not.toContain("throwsInsideCheckoutCharge");
+      for (const body of bodies) {
+        expect(body).not.toContain("applicationErrorFrame");
+        expect(body).not.toContain("file:///");
+        expect(body).not.toContain(process.cwd());
+        expect(body).not.toContain('"stack"');
+      }
+      expect(bodies[1]).toContain("Internal Server Error");
+      expect(bodies[2]).toContain("Internal Server Error");
+      expect(Object.hasOwn(codec, "serializeErrorStacks")).toBe(false);
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
+  });
+
+  it("the development artifact retains its stack default under NODE_ENV=production", async () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const body = await call(await loadDevelopmentArtifact(), () => {
+        throw applicationErrorFrame();
+      });
+      expect(body).toContain("applicationErrorFrame");
+      expect(body).toContain(process.cwd());
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
+  });
+
+  it("explicit stack-policy overrides win in both artifact directions", async () => {
+    const previous = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = "production";
+      const optedIn = await call(
+        production,
+        () => {
+          throw markSafeError(applicationErrorFrame());
+        },
+        { codec: { serializeErrorStacks: true } }
+      );
+      expect(optedIn).toContain("applicationErrorFrame");
+
+      process.env.NODE_ENV = "development";
+      const optedOut = await call(
+        await loadDevelopmentArtifact(),
+        () => {
+          throw applicationErrorFrame();
+        },
+        { codec: { serializeErrorStacks: false } }
+      );
+      expect(optedOut).toContain("Card declined");
+      expect(optedOut).not.toContain("applicationErrorFrame");
+      expect(optedOut).not.toContain("file:///");
     } finally {
       process.env.NODE_ENV = previous;
     }
