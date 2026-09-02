@@ -1845,9 +1845,9 @@ export function createOptimisticStore<T extends object>(
 }
 
 /**
- * Wraps a store in a Proxy that throws NotReadyError on property reads
- * while the async data is pending. Once markReady() is called, reads
- * pass through to the underlying state.
+ * Wraps a store in a Proxy that throws NotReadyError on property and
+ * structural reads while the async data is pending. Once markReady() is
+ * called, reads pass through to the underlying state.
  */
 function createPendingProxy<T extends object>(
   state: T,
@@ -1856,18 +1856,30 @@ function createPendingProxy<T extends object>(
   let status: 0 | 1 | 2 = 0;
   let error: any;
   let readTarget: T = state;
+  const gate = () => {
+    if (status === 1) return;
+    if (status === 2) throw error;
+    // Bare client store: same loud-outside-a-boundary rule as the memo
+    // read path (see clientHoleRead).
+    if (source === CLIENT_HOLE) clientHoleRead();
+    throw new NotReadyError(source);
+  };
   const proxy = new Proxy(state, {
     get(obj, key, receiver) {
-      if (typeof key !== "symbol") {
-        if (status === 2) throw error;
-        if (status === 0) {
-          // Bare client store: same loud-outside-a-boundary rule as the memo
-          // read path (see clientHoleRead).
-          if (source === CLIENT_HOLE) clientHoleRead();
-          throw new NotReadyError(source);
-        }
-      }
+      gate();
       return Reflect.get(readTarget, key);
+    },
+    has(obj, key) {
+      gate();
+      return Reflect.has(obj, key);
+    },
+    ownKeys(obj) {
+      gate();
+      return Reflect.ownKeys(obj);
+    },
+    getOwnPropertyDescriptor(obj, key) {
+      gate();
+      return Reflect.getOwnPropertyDescriptor(obj, key);
     }
   });
   return [
