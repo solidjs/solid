@@ -128,7 +128,54 @@ observed — region nodes parent under the active owner (boundaries, holds,
 disposal compose); rows created inside a list region's commit run
 ownerless and are disposed by the list's bookkeeping.
 
-## 6. Open rulings (needed before this is a proposal)
+## 6. Audit round 2 + the wider comparison (2026-09-01 night)
+
+Round-2 P1s, all addressed (regions.test.ts: 17):
+
+- **Timing neutrality:** bumps are change-gated — no-op reconciles and
+  value-equal rewrites never park version writes under transitions. The
+  detection is FUSED into the walk's per-key loop (the dk deep-witness
+  compares + a per-key accessor probe behind a vn-existence gate), so
+  region-bound adoptions pay no second scan: dbmon tick returned to
+  driver parity (2.1) after the naive scan cost 0.4ms.
+- **Durable admission:** defineProperty getters demote bound regions
+  immediately; getter-bearing adoptions demote at the fused probe.
+  Regions carry `onDemote` for the compiled fallback rebind.
+- **Helper parity:** regionBind shares createRegion's declines with a
+  `trusted` flag for compiler-proven callers (the emitter is the prover;
+  the runtime scan is redundant for compiled binds).
+- **Owned rows (generation owners):** rows bind under an owner created by
+  the list region's mount; boundaries/holds compose, and BULK teardown
+  (full replacement, clear, unmount) is ONE owner walk + one DOM clear —
+  per-node dispose remains for individual removes. This closed the last
+  bench gap: teardown, not creation, was the "region loses runlots/clear"
+  cause (cold single clicks always tied; the warm loop paid per-node
+  unlink surgery on every replacement's previous generation).
+
+Design rulings from the session:
+
+- **Selection (and view state generally) lives beside the data in the
+  SAME STORE — a sibling keyed branch — never ON row records.** Rows read
+  it as a dynamic key; dynamic keys are inexpressible in manifests, so
+  the read joins the region's COMPUTE as a classic per-key tracked read
+  (mixed SUBSCRIPTIONS, one node per row — never a second effect node;
+  the two-node shape lost creation benches to classic's grouped effect).
+- **The grouping unit is the RECORD, not the store**: a high-fanout
+  sibling record (the selection map) must not join row regions' read sets
+  (one bump would wake every row). Per-key subscriptions are the precise
+  tool exactly there — and the emitter needs no heuristic: dynamic-key
+  reads fall out of manifests by construction.
+
+Wider comparison (jfb main + reorder, uibench, dbmon rerun; same-store
+selection everywhere): region ties or beats the classic STORE column on
+every op (clear flipped to a win with generation owners; runlots within
+noise); both store columns trail octane/classic-signals on creation-heavy
+ops by the STORE TAX (proxy wrap + walk), which is a pre-existing
+frontier independent of delivery. uibench (classic compilation on this
+branch): 37.00ms/96 scenarios — anchor only; needs a next-runtime
+baseline for regression claims.
+
+## 7. Open rulings (needed before this is a proposal)
 
 1. **Region = consistency/hold unit.** A pending source defers the whole
    region's commit, not one binding (a row goes stale-or-fresh as a unit —
@@ -160,7 +207,7 @@ ownerless and are disposed by the list's bookkeeping.
    sets. Materially smaller than "partitioner design" — the rc.6 compiler
    work is an emitter evolution.
 
-## 7. Status
+## 8. Status
 
 - `region-delivery` pushed: prototype (ef42d094), regionBind golf
   (e043e830), channel gut (5d243eef). Signals 1433 / web 637 / treeshake /
