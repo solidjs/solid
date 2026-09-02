@@ -97,12 +97,10 @@ module.exports = [
     // the optimistic module, and read()'s latest()/authoritative-read
     // exemptions moved inside the hook (which now takes the observer) —
     // the floor keeps only `config-gate && hook?.(el, c)`.
-<<<<<<< HEAD
-    limit: "8.02 KB",
-=======
-    // Region prototype (2026-09-01, region-delivery branch): deliveryEffect + dispose exports share core chunks (+45 B; gate before product).
-    limit: "8 KB",
->>>>>>> affa39d3 (refactor(signals,web,solid): gut the patch channel — regions are the delivery mechanism)
+    // Region prototype (2026-09-01, region-delivery branch): deliveryEffect +
+    // dispose exports share core chunks (+45 B; gate before product) — on top
+    // of upstream's stabilized 8.02 base.
+    limit: "8.07 KB",
     modifyEsbuildConfig
   },
   {
@@ -252,12 +250,10 @@ module.exports = [
     //
     // Fold relocation pass (2026-09-01): 9.99 -> 9.98 KB, measured at 9.97
     // — the core-floor relocation (see that note).
-<<<<<<< HEAD
-    limit: "10.08 KB",
-=======
-    // Region prototype (2026-09-01, region-delivery branch): prototype export chunk sharing (+90 B; gate before product).
-    limit: "10.1 KB",
->>>>>>> affa39d3 (refactor(signals,web,solid): gut the patch channel — regions are the delivery mechanism)
+    // Region prototype (2026-09-01, region-delivery branch): prototype export
+    // chunk sharing (+90 B; gate before product) — on top of upstream's
+    // stabilized 10.08 base.
+    limit: "10.17 KB",
     modifyEsbuildConfig
   },
   {
@@ -344,12 +340,10 @@ module.exports = [
     // Fold relocation pass (2026-09-01): 17.6 -> 17.56 KB, measured at
     // 17.54 — this bundle's import graph retained the scheduler-resident
     // ledger; the relocation lets it shake.
-<<<<<<< HEAD
-    limit: "17.67 KB",
-=======
-    // Region prototype (2026-09-01, region-delivery branch): prototype export chunk sharing (+12 B; gate before product).
-    limit: "17.6 KB",
->>>>>>> affa39d3 (refactor(signals,web,solid): gut the patch channel — regions are the delivery mechanism)
+    // Region prototype (2026-09-01, region-delivery branch): prototype export
+    // chunk sharing (+12 B; gate before product) — on top of upstream's
+    // stabilized 17.67 base.
+    limit: "17.7 KB",
     modifyEsbuildConfig
   },
   {
@@ -454,59 +448,6 @@ module.exports = [
     modifyEsbuildConfig
   },
   {
-<<<<<<< HEAD
-    name: "app: CSR flip preview — + patchDriver (non-list patch templates)",
-    // What patch-mode DEFAULT-ON adds to ~every app: nearly any real
-    // template has one eligible pure member-read binding, so the compiler
-    // emits at least one patchDriver call — retaining the dual driver and
-    // the store channel's value-tier machinery: registration, the apply
-    // queue/drains, error routing, and the demotion path (~1.5 KB brotli
-    // over the classic app). NOT here: the list driver (only rowProof arms
-    // the insert seam) and the row-ops emitters + reconcile diff builders
-    // (row hooks arm only from list registrations).
-    //
-    // rc.5 signals drift (2026-08-30): 14.6 -> 14.65 KB, measured at 14.61
-    // — the same core-retained quiescence bytes as the simple-app floor.
-    //
-    // #3164 fold ruling (2026-08-31): 14.65 -> 14.69 KB, measured at 14.68
-    // — the core-floor arm + asyncWrite wake plus the store-seam bytes
-    // (see the createStore note; the value-tier machinery this scenario
-    // retains carries the nodeValue mask seam).
-    //
-    // Fold relocation pass (2026-09-01): 14.69 -> 14.68 KB, measured at
-    // 14.67 — the core-floor relocation (see that note).
-    path: "csr-app-patch.js",
-    limit: "14.80 KB",
-    modifyEsbuildConfig
-  },
-  {
-    name: "app: CSR flip preview — + rowProof (patch-mode list driver)",
-    // The full flip cost: a compiled patch-mode list row (rowProof) arms
-    // the insert seam and retains the list driver plus the row-hooks tier
-    // (row-ops/slot emitters + reconcile's keyed/identity diff builders) —
-    // ~2.1 KB over the patchDriver floor, ~3.6 KB over classic. Paid
-    // exactly by apps with driver-eligible store lists — the tier the
-    // dbmon-class wins accrue to.
-    //
-    // Re-audit-3 hardening: 16.65 -> 16.75 KB (measured 16.69) — the
-    // driver's failed-apply resync flag + partial-registration severing and
-    // the coalescing entry updates ride this tier.
-    //
-    // #3122 eager iterator teardown (2026-08-31): 16.9 -> 16.92 KB,
-    // measured at 16.901 — the core-floor teardown bytes (see that note).
-    //
-    // #3164 fold ruling (2026-08-31): 16.92 -> 16.94 KB, measured at 16.93
-    // — the same bytes as the patchDriver scenario (see that note).
-    //
-    // Fold relocation pass (2026-09-01): 16.94 -> 16.91 KB, measured at
-    // 16.90 — retained-ledger shake, same as the hydrating no-store note.
-    path: "csr-app-patch-lists.js",
-    limit: "17.04 KB",
-    modifyEsbuildConfig
-  },
-  {
-=======
->>>>>>> affa39d3 (refactor(signals,web,solid): gut the patch channel — regions are the delivery mechanism)
     name: "frames: eager client consumer (frames client + transport, lazy codec)",
     // 10.37 KB measured after Stage 5 (container tier): the eager halves
     // are deliberately tiny — the trace materializer install + the
