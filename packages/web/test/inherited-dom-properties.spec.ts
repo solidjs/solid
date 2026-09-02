@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { createRoot, flush } from "solid-js";
 import { spread, style } from "../src/client.js";
 import { ssrElement, ssrStyle } from "../src/server.js";
@@ -21,7 +21,8 @@ describe("inherited DOM properties", () => {
   });
 
   test("spread props ignore inherited enumerable attributes consistently with SSR", () => {
-    const props = Object.assign(Object.create({ title: "inherited" }), {
+    const ref = vi.fn();
+    const props = Object.assign(Object.create({ title: "inherited", children: "inherited", ref }), {
       "data-own": "present"
     });
     const element = document.createElement("div");
@@ -29,13 +30,15 @@ describe("inherited DOM properties", () => {
     expect(ssrElement("div", props, undefined, false).t).not.toContain("title");
 
     const dispose = createRoot(dispose => {
-      spread(element, props, true);
+      spread(element, props);
       return dispose;
     });
     flush();
 
     expect(element.getAttribute("data-own")).toBe("present");
     expect(element.hasAttribute("title")).toBe(false);
+    expect(element.textContent).toBe("");
+    expect(ref).not.toHaveBeenCalled();
     dispose();
   });
 });

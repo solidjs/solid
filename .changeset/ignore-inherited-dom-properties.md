@@ -2,4 +2,4 @@
 "@solidjs/web": patch
 ---
 
-Ignore inherited enumerable properties in client-side style objects and JSX spreads to match SSR output.
+Ignore inherited properties in client-side style objects and JSX spreads, including special children and ref positions, to match SSR output.

@@ -160,6 +160,7 @@ export {
 } from "./constants.js";
 
 const $$EVENT_OWNER = "_$SOLID_EVENT_OWNER";
+const hasOwn = Object.prototype.hasOwnProperty;
 const INNER_OWNED = {};
 const delegatedEvents = new Set();
 const delegatedContainers = new Map();
@@ -673,7 +674,7 @@ export function style(node, value, prev) {
   }
   let v, s;
   for (s in applied) {
-    if (!Object.prototype.hasOwnProperty.call(value, s) || value[s] == null) {
+    if (!hasOwn.call(value, s) || value[s] == null) {
       nodeStyle.removeProperty(s);
       delete applied[s];
     }
@@ -681,7 +682,7 @@ export function style(node, value, prev) {
   // Diff against applied state so in-place mutations are detected without
   // rewriting unchanged DOM styles.
   for (s in value) {
-    if (!Object.prototype.hasOwnProperty.call(value, s)) continue;
+    if (!hasOwn.call(value, s)) continue;
     v = value[s];
     if (v != null && v !== applied[s]) {
       nodeStyle.setProperty(s, v);
@@ -708,10 +709,15 @@ export function spread(node, props = {}, skipChildren) {
   // hydration id the server-side fast path never allocates (#3105). The
   // accessor resolves inside each tracking scope instead.
   const get = typeof props === "function" ? props : () => props;
-  if (!skipChildren) insert(node, () => get().children);
+  if (!skipChildren)
+    insert(node, () => {
+      const source = get();
+      return hasOwn.call(source, "children") ? source.children : undefined;
+    });
   effect(
     () => {
-      const r = get().ref;
+      const source = get();
+      const r = hasOwn.call(source, "ref") && source.ref;
       (typeof r === "function" || Array.isArray(r)) && ref(() => r, node);
     },
     () => {}
@@ -721,7 +727,7 @@ export function spread(node, props = {}, skipChildren) {
       const source = get();
       const newProps = {};
       for (const prop in source) {
-        if (!Object.prototype.hasOwnProperty.call(source, prop)) continue;
+        if (!hasOwn.call(source, prop)) continue;
         if (prop === "children" || prop === "ref") continue;
         newProps[prop] = source[prop];
       }
