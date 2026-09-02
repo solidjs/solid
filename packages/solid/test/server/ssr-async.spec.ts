@@ -3194,26 +3194,37 @@ describe("Async Iterable — createProjection", () => {
     expect([...fragmentResults.values()][0]).toBe("<div>Alice</div>");
   });
 
-  test("Promise projection throws NotReadyError until resolved", async () => {
+  test("Promise projection reads throw NotReadyError until resolved", async () => {
     const { context } = createStreamTrackingContext();
     sharedConfig.context = context;
 
-    const d = deferred<{ name: string }>();
+    const key = Symbol("status");
+    const d = deferred<{ name: string; [key]: string }>();
     let store: any;
 
     createRoot(
       () => {
-        store = createProjection(() => d.promise, { name: "init" });
+        store = createProjection(() => d.promise, { name: "init", [key]: "init" });
       },
       { id: "t" }
     );
 
     expect(() => store.name).toThrow(NotReadyError);
+    expect(() => store[key]).toThrow(NotReadyError);
+    expect(() => "name" in store).toThrow(NotReadyError);
+    expect(() => Object.keys(store)).toThrow(NotReadyError);
+    expect(() => Object.getOwnPropertyDescriptor(store, "name")).toThrow(NotReadyError);
+    expect(() => Object.hasOwn(store, "name")).toThrow(NotReadyError);
 
-    d.resolve({ name: "resolved" });
+    d.resolve({ name: "resolved", [key]: "ready" });
     await tick();
 
     expect(store.name).toBe("resolved");
+    expect(store[key]).toBe("ready");
+    expect("name" in store).toBe(true);
+    expect(Object.keys(store)).toEqual(["name"]);
+    expect(Object.getOwnPropertyDescriptor(store, "name")?.value).toBe("resolved");
+    expect(Object.hasOwn(store, "name")).toBe(true);
   });
 
   test("Promise projection preserves its error after rejection", async () => {
