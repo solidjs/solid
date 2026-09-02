@@ -584,4 +584,4 @@ export function httpStatus(_code: number, _text?: string): void {}
 export function httpHeader(_name: string, _value: string, _options?: { append?: boolean }): void {}
 
 // COMPILED-OUTPUT region combinator (graph-native regions prototype).
-export { region } from "@solidjs/signals";
+export { region } from "solid-js";

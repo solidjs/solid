@@ -30,6 +30,7 @@ export {
   storeHasOptimisticFamily,
   reconcile,
   refresh,
+  region,
   repeat,
   resetErrorHalt,
   resolve,

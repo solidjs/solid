@@ -1711,6 +1711,19 @@ export function createRenderEffect<T>(
   serverEffect(compute, effectFn, options);
 }
 
+/** Server stub for the compiled-output region combinator: SSR renders once,
+ * so the body runs immediately against the subject (the "raw" argument is
+ * the store proxy — same reads, no subscriptions, no baselines kept). */
+export function region(
+  subject: any,
+  tracked: ((t: Record<string, any>) => void) | null,
+  body: (raw: any, t: Record<string, any>, p: Record<string, any>) => void
+): void {
+  const tvals: Record<string, any> = {};
+  if (tracked !== null) tracked(tvals);
+  body(subject, tvals, {});
+}
+
 export function createTrackedEffect(
   compute: () => void | (() => void),
   options?: { name?: string }

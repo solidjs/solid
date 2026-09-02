@@ -15,6 +15,7 @@ export {
   createProjection,
   createReaction,
   createRenderEffect,
+  region,
   createRevealOrder,
   createRoot,
   createSignal,
