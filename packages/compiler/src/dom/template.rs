@@ -34,8 +34,6 @@ pub(crate) struct DomTemplateState {
     pub(crate) uses_set_style_property: bool,
     pub(crate) uses_class_name: bool,
     pub(crate) uses_effect: bool,
-    pub(crate) uses_patch_driver: bool,
-    pub(crate) uses_row_proof: bool,
     pub(crate) uses_set_attribute: bool,
     pub(crate) uses_set_attribute_ns: bool,
     pub(crate) uses_claim_element: bool,
@@ -128,8 +126,6 @@ impl DomTemplateState {
             uses_set_style_property: false,
             uses_class_name: false,
             uses_effect: false,
-            uses_patch_driver: false,
-            uses_row_proof: false,
             uses_set_attribute: false,
             uses_set_attribute_ns: false,
             uses_claim_element: false,
@@ -177,20 +173,6 @@ impl<'a> AstDomTransform<'a, '_> {
         if self.template_state.uses_memo {
             let name = self.memo_wrapper.as_deref().unwrap_or("memo").to_string();
             statements.push(self.import_wrapper_helper(&name, &format!("_${name}")));
-        }
-        if self.template_state.uses_patch_driver {
-            let name = self
-                .patch_driver
-                .as_deref()
-                .unwrap_or("patchDriver")
-                .to_string();
-            // Wrapper-class import (Babel's `registerImportMethod(path, name,
-            // undefined)`): resolves against the top-level module — in
-            // dynamic mode the base universal module, not the dom renderer's.
-            statements.push(self.import_wrapper_helper(&name, &format!("_${name}")));
-        }
-        if self.template_state.uses_row_proof {
-            statements.push(self.import_named("rowProof", "_$rowProof"));
         }
         if self.template_state.uses_create_component {
             statements.push(self.import_wrapper_helper("createComponent", "_$createComponent"));
