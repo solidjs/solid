@@ -2045,7 +2045,7 @@ function assignProp(node, prop, value, prev, skipRef, nodeName) {
       // record so an unrelated spread rerun can preserve listener identity.
       if (Array.isArray(prev) && prev[1] === value) return prev;
       const h = Array.isArray(prev) ? prev[0] : prev;
-      node.removeEventListener(name, h);
+      node.removeEventListener(name, h, typeof h !== "function" && h);
     }
     if (delegate || value) {
       const attached = addEvent(node, name, value, delegate);
