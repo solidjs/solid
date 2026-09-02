@@ -10,7 +10,6 @@ import {
   wrapForEffect
 } from "../shared/utils";
 import { setAttr } from "./element";
-import { analyzePatchEligibility, substituteSubject } from "../shared/patch";
 import type { NodePath } from "@babel/traverse";
 import type { DynamicBinding, ProgramScopeData, TemplateRecord, TransformResult } from "../types";
 
@@ -27,16 +26,9 @@ export function createTemplate(
       !(result.exprs.length || result.dynamics.length || result.postExprs?.length) &&
       decl.declarations.length === 1
     ) {
-      // Static single-root template: a candidate row function returning it is
-      // trivially pure (no reactive work at all).
-      if (config.patchDriver) recordPureRow(path, result, null);
       return decl.declarations[0].init as t.Expression;
     } else {
-      const patched = config.patchDriver ? wrapPatchMode(path, result.dynamics) : undefined;
-      const dynamicsStmt = patched ? patched.stmt : wrapDynamics(path, result.dynamics);
-      if (config.patchDriver && (result.dynamics.length === 0 || patched)) {
-        recordPureRow(path, result, patched ? patched.subject : null);
-      }
+      const dynamicsStmt = wrapDynamics(path, result.dynamics);
       const stmts = [
         decl,
         ...result.exprs,
@@ -150,179 +142,6 @@ function registerTemplate(path: NodePath, results: TransformResult) {
   }
   if (decl) results.declarations.unshift(decl);
   results.decl = t.variableDeclaration("var", results.declarations as t.VariableDeclarator[]);
-}
-
-/**
- * Row-proof analysis (DESIGN-PATCH-CHANNEL §3c). A function qualifies as a
- * PURE ROW — buildable with no per-row owner, so the patch-mode list driver
- * may engage — when ALL of:
- *
- *  - it is a single-parameter function (plain Identifier param, not
- *    destructured; not async/generator) whose body is exactly this compiled
- *    template: an expression body, or a block whose ONLY statement returns
- *    it (checked before the flat-statement emission inserts our own);
- *  - the template has a single root element (`result.id` — fragments never
- *    reach here) and emitted NO reactive or owned work: dynamics either
- *    absent or all landed in ONE patchDriver body, and `result.exprs` holds
- *    only inert DOM wiring (member-target assignments like `_el$.$$click =
- *    fn` / `_el$.style.cssText = v`, and `_el$.addEventListener(...)`) —
- *    any `insert`/`createComponent`/`memo`/`use`/ref/spread emission is a
- *    call or conditional shape and fails the walk (default-deny);
- *  - the patch subject IS the row parameter. A pure template patching an
- *    OUTER subject would register once per created row on a long-lived
- *    record with no per-row disposal — the foreign-subject leak the runtime
- *    probe never caught.
- *
- * Handler/attribute VALUE expressions may be arbitrary user code: stamped
- * rows are only ever built for real mounts (never speculatively), so their
- * evaluation timing is identical to the classic path. Event handlers are
- * not reactive bindings — values evaluate exactly once at build — so the
- * only ownership divergence is a factory creating owned work in value
- * position (`onClick={makeHandler(row)}` calling onCleanup), which is not
- * a supported pattern (owned work belongs in effects/refs; ruled
- * non-responsibility). Denying evaluation-position calls would cost
- * legitimate currying to guard it; instead the runtime dev-asserts that a
- * stamped row's build attaches nothing to the list owner.
- *
- * Qualifying functions are recorded and wrapped with `rowProof` at program
- * exit (postprocess) — the stamp travels with the function object, so
- * extracted row functions prove at their DEFINITION site and work across
- * modules, which the runtime probe could never see.
- */
-function recordPureRow(path: NodePath, result: TransformResult, subject: string | null) {
-  const parent = path.parentPath;
-  if (!parent) return;
-  let fn: t.ArrowFunctionExpression | t.FunctionExpression | undefined;
-  if (
-    (t.isArrowFunctionExpression(parent.node) || t.isFunctionExpression(parent.node)) &&
-    (parent.node as t.ArrowFunctionExpression).body === path.node
-  ) {
-    fn = parent.node as t.ArrowFunctionExpression;
-  } else if (
-    t.isReturnStatement(parent.node) &&
-    parent.node.argument === path.node &&
-    parent.parentPath &&
-    t.isBlockStatement(parent.parentPath.node) &&
-    parent.parentPath.node.body.length === 1 &&
-    parent.parentPath.parentPath &&
-    (t.isArrowFunctionExpression(parent.parentPath.parentPath.node) ||
-      t.isFunctionExpression(parent.parentPath.parentPath.node)) &&
-    (parent.parentPath.parentPath.node as t.ArrowFunctionExpression).body === parent.parentPath.node
-  ) {
-    fn = parent.parentPath.parentPath.node as t.ArrowFunctionExpression;
-  }
-  if (!fn || fn.async || (fn as t.FunctionExpression).generator) return;
-  if (fn.params.length !== 1 || !t.isIdentifier(fn.params[0])) return;
-  const param = (fn.params[0] as t.Identifier).name;
-  if (subject !== null && subject !== param) return;
-
-  const isLocalMemberTarget = (n: t.Node): boolean => {
-    if (!t.isMemberExpression(n) || n.computed) return false;
-    let obj: t.Node = n.object;
-    while (t.isMemberExpression(obj) && !obj.computed) obj = obj.object;
-    return t.isIdentifier(obj);
-  };
-  for (const stmt of result.exprs) {
-    if (!t.isExpressionStatement(stmt)) return;
-    const e = stmt.expression;
-    if (t.isAssignmentExpression(e) && e.operator === "=" && isLocalMemberTarget(e.left)) continue;
-    if (
-      t.isCallExpression(e) &&
-      t.isMemberExpression(e.callee) &&
-      !e.callee.computed &&
-      t.isIdentifier(e.callee.property) &&
-      e.callee.property.name === "addEventListener"
-    )
-      continue;
-    return;
-  }
-  if (result.postExprs?.length) {
-    const data = path.scope.getProgramParent().data as ProgramScopeData;
-    const moduleName = getRendererConfig(path, "dom").moduleName;
-    const rheUid = data.imports?.get(`${moduleName}:runHydrationEvents`);
-    for (const stmt of result.postExprs) {
-      if (
-        !t.isExpressionStatement(stmt) ||
-        !t.isCallExpression(stmt.expression) ||
-        !t.isIdentifier(stmt.expression.callee) ||
-        !rheUid ||
-        stmt.expression.callee.name !== rheUid.name
-      )
-        return;
-    }
-  }
-
-  const data = path.scope.getProgramParent().data as ProgramScopeData;
-  (data.pureRows || (data.pureRows = new Set())).add(fn);
-}
-
-/** Patch-mode emission (shared/patch.ts): one compiled body doing inline
- * compares + setAttr writes, handed to the runtime driver which registers
- * on the store patch channel (patchable subject) or falls back to a
- * tracked force-mode effect running the SAME body. Returns undefined when
- * the scope is ineligible — caller falls through to the effect shapes.
- * The subject rides along for row-proof analysis (recordPureRow). */
-function wrapPatchMode(
-  path: NodePath,
-  dynamics: DynamicBinding[]
-): { stmt: t.Statement; subject: string } | undefined {
-  const config = getConfig(path);
-  if (dynamics.length === 0) return;
-  const eligibility = analyzePatchEligibility(dynamics.map(d => d.value as t.Expression));
-  if (!eligibility) return;
-  const subject = eligibility.subject;
-  // The subject must be a stable local binding (not reassigned): row params
-  // and const destructures qualify; anything else falls back to effects.
-  const binding = path.scope.getBinding(subject);
-  if (!binding || !binding.constant) return;
-  // Fixed `$`-suffixed locals, matching wrapDynamics' `_v$`/`_p$` convention
-  // (and byte-parity with the Oxc compiler's emission): substitution only
-  // rewrites subject references, so nothing else in an eligible expression
-  // can collide with these.
-  const nId = t.identifier("_n$");
-  const pId = t.identifier("_p$");
-  const fId = t.identifier("_f$");
-  const stmts: t.Statement[] = [];
-  let vIndex = 0;
-  for (const d of dynamics) {
-    let value = d.value as t.Expression;
-    if (d.classProperty && !t.isBooleanLiteral(value) && !t.isUnaryExpression(value)) {
-      value = t.unaryExpression("!", t.unaryExpression("!", value));
-    }
-    const vId = t.identifier(++vIndex === 1 ? "_v$" : `_v$${vIndex}`);
-    stmts.push(
-      t.variableDeclaration("const", [
-        t.variableDeclarator(vId, substituteSubject(value, subject, nId))
-      ])
-    );
-    stmts.push(
-      t.ifStatement(
-        t.logicalExpression(
-          "||",
-          t.cloneNode(fId),
-          t.binaryExpression("!==", t.cloneNode(vId), substituteSubject(value, subject, pId))
-        ),
-        t.expressionStatement(
-          setAttr(path, d.elem, d.key, t.cloneNode(vId), {
-            tagName: d.tagName,
-            dynamic: true,
-            styleProperty: d.styleProperty,
-            classProperty: d.classProperty
-          })
-        )
-      )
-    );
-  }
-  const driverId = registerImportMethod(path, config.patchDriver as string, undefined);
-  return {
-    stmt: t.expressionStatement(
-      t.callExpression(driverId, [
-        t.identifier(subject),
-        t.arrowFunctionExpression([nId, pId, fId], t.blockStatement(stmts))
-      ])
-    ),
-    subject
-  };
 }
 
 function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {

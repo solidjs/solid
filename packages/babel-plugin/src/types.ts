@@ -22,12 +22,6 @@ export interface ProgramScopeData {
   imports?: Map<string, t.Identifier>;
   templates?: TemplateRecord[];
   events?: Set<string>;
-  /** Row functions proven pure at compile time (DESIGN-PATCH-CHANNEL §3c):
-   * single-param functions whose body is exactly one compiled template with
-   * no reactive or owned work — every dynamic landed in one patchDriver on
-   * the param itself. Wrapped with `rowProof` at program exit so the list
-   * driver can engage without the (removed) runtime purity probe. */
-  pureRows?: Set<t.ArrowFunctionExpression | t.FunctionExpression>;
 }
 
 export interface TsrxStyleResult {
