@@ -2119,7 +2119,11 @@ function eventHandler(e, container, state) {
     }
     if (handler && !node.disabled) {
       const data = node[`${key}Data`];
-      data !== undefined ? handler.call(node, data, e) : handler.call(node, e);
+      data !== undefined
+        ? handler.call(node, data, e)
+        : typeof handler === "function"
+          ? handler.call(node, e)
+          : handler.handleEvent(e);
       if (e.cancelBubble) return;
     }
     node.host &&
