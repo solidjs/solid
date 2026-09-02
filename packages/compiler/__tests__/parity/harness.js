@@ -73,6 +73,21 @@ const modes = {
       requireImportSource: false
     }
   },
+  "dom-regions": {
+    // Region emission parity (DESIGN-REGIONS §9-10): pinned against the
+    // Babel SNAPSHOT fixtures (the absolute emission anchor) — and the
+    // cross-mode union still recompiles the whole dom corpus under this
+    // mode, so non-region scopes stay byte-identical to classic too.
+    fixtureDir: "__dom_regions_fixtures__",
+    options: {
+      moduleName: "r-dom",
+      builtIns: ["For", "Show"],
+      wrapConditionals: true,
+      contextToCustomElements: true,
+      requireImportSource: false,
+      regions: true
+    }
+  },
   "dom-hydratable": {
     fixtureDir: "__dom_hydratable_fixtures__",
     options: {

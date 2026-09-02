@@ -254,6 +254,7 @@ fn core_options(options: TransformOptions) -> Result<CompileOptions> {
         omit_attribute_spacing: options.omit_attribute_spacing.unwrap_or(true),
         inline_styles: options.inline_styles.unwrap_or(true),
         effect_wrapper: wrapper(options.effect_wrapper),
+        regions: options.regions.unwrap_or(false),
         wrap_conditionals: options.wrap_conditionals.unwrap_or(true),
         memo_wrapper: wrapper(options.memo_wrapper),
         static_marker: options.static_marker.unwrap_or_else(|| "@static".into()),

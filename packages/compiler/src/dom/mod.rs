@@ -5,6 +5,7 @@ pub(crate) mod dynamics;
 pub(crate) mod element;
 pub(crate) mod events;
 pub(crate) mod ids;
+pub(crate) mod regions;
 pub(crate) mod set_attr;
 pub(crate) mod spread;
 pub(crate) mod static_template;

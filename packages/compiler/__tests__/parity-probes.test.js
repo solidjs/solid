@@ -964,6 +964,35 @@ describe("second", () => {
   const Component = () => <div ref={div}>a</div>;
 });
 `,
+  "region: jfb row with tracked residual": `
+function Row(row, selection) {
+  return <tr class={row.selected ? "danger" : ""}>
+    <td textContent={row.label} />
+    <td data-sel={selection[row.id] ? "y" : "n"} />
+  </tr>;
+}
+`,
+  "region: dbmon row with deep chains": `
+function Row(db) {
+  return <tr>
+    <td class="dbname" textContent={db.name} />
+    <td class={db.countClass} textContent={db.count} />
+    <td class={db.queries[0].className} textContent={db.queries[0].elapsed} />
+  </tr>;
+}
+`,
+  "region: reassigned subject declines": `
+function f() {
+  let row = a();
+  row = b();
+  return <td textContent={row.label} />;
+}
+`,
+  "region: dynamic-key step declines": `
+function Row(row, i) {
+  return <td textContent={row.queries[i].elapsed} />;
+}
+`,
   "ref stale literal in closed sibling scope": `
 describe("first", () => {
   const div = 1;

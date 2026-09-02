@@ -34,6 +34,7 @@ pub(crate) struct DomTemplateState {
     pub(crate) uses_set_style_property: bool,
     pub(crate) uses_class_name: bool,
     pub(crate) uses_effect: bool,
+    pub(crate) uses_region: bool,
     pub(crate) uses_set_attribute: bool,
     pub(crate) uses_set_attribute_ns: bool,
     pub(crate) uses_claim_element: bool,
@@ -126,6 +127,7 @@ impl DomTemplateState {
             uses_set_style_property: false,
             uses_class_name: false,
             uses_effect: false,
+            uses_region: false,
             uses_set_attribute: false,
             uses_set_attribute_ns: false,
             uses_claim_element: false,
@@ -205,6 +207,9 @@ impl<'a> AstDomTransform<'a, '_> {
                 .unwrap_or("effect")
                 .to_string();
             statements.push(self.import_wrapper_helper(&name, &format!("_${name}")));
+        }
+        if self.template_state.uses_region {
+            statements.push(self.import_wrapper_helper("region", "_$region"));
         }
         if self.template_state.uses_set_attribute {
             statements.push(self.import_named("setAttribute", "_$setAttribute"));

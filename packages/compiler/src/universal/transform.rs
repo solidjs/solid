@@ -201,6 +201,7 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
                 omit_attribute_spacing: dom.omit_attribute_spacing,
                 inline_styles: dom.inline_styles,
                 effect_wrapper: dom.effect_wrapper,
+                regions: false,
                 wrap_conditionals: dom.wrap_conditionals,
                 memo_wrapper: dom.memo_wrapper,
                 static_marker: dom.static_marker,

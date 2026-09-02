@@ -177,6 +177,41 @@ function collectChains(node: t.Node, subject: string, out: string[][]): void {
   }
 }
 
+/** PROGRAM-WIDE assigned-name set (cached per Program node): the Oxc
+ * compiler's binding table records assignment targets scope-insensitively
+ * ("conservative in the safe direction"), so the Babel side must apply the
+ * SAME contract for parity — a subject name assigned anywhere in the module
+ * declines, even if the assignment targets a different binding. Revisit
+ * with scope-aware Rust bindings alongside the envelope redesign. */
+const assignedNamesCache = new WeakMap<object, Set<string>>();
+
+function programAssignedNames(path: NodePath): Set<string> {
+  const program = path.scope.getProgramParent().path.node as object;
+  let names = assignedNamesCache.get(program);
+  if (names === undefined) {
+    names = new Set<string>();
+    const collect = (node: any): void => {
+      if (node == null || typeof node.type !== "string") return;
+      if (node.type === "AssignmentExpression" && t.isIdentifier(node.left)) {
+        names!.add(node.left.name);
+      } else if (node.type === "UpdateExpression" && t.isIdentifier(node.argument)) {
+        names!.add(node.argument.name);
+      }
+      for (const key of Object.keys(node)) {
+        const value = node[key];
+        if (Array.isArray(value)) {
+          for (const item of value) collect(item);
+        } else if (value && typeof value.type === "string") {
+          collect(value);
+        }
+      }
+    };
+    collect(program);
+    assignedNamesCache.set(program, names);
+  }
+  return names;
+}
+
 /** Analyze a scope's dynamics: pick the first depth-1 subject candidate and
  * classify every binding against it. Region-worthy when the subject binding
  * is CONSTANT and at least one binding is eligible. */
@@ -195,6 +230,7 @@ export function analyzeRegionScope(path: NodePath, dynamics: DynamicBinding[]): 
   // The classic fallback re-reads the subject reference per run, but a
   // region captures it once — reassignable subjects keep classic semantics.
   if (!binding || !binding.constant) return null;
+  if (programAssignedNames(path).has(subject)) return null;
   const eligible = dynamics.map(d => isEligibleExpr(d.value, subject!));
   if (!eligible.some(Boolean)) return null;
   const chains: string[][] = [];

@@ -35,6 +35,12 @@ pub struct TransformOptions {
     /// `false` or `""` disables wrapping; `true`/unset means the default
     /// `"effect"`.
     pub effect_wrapper: Option<Either<bool, String>>,
+    /// Graph-native REGION emission (DESIGN-REGIONS): template scopes whose
+    /// dynamic bindings are static-key member chains of one constant store
+    /// subject compile to one `region()` effect (raw commit reads + tracked
+    /// residuals + deep flag) with a runtime classic fallback. Prototype —
+    /// off by default.
+    pub regions: Option<bool>,
     pub wrap_conditionals: Option<bool>,
     /// The memo wrapper import name (Babel's `memoWrapper: string`), with the
     /// same boolean shorthand as `effect_wrapper`. Default `"memo"`.

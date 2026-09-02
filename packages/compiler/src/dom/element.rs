@@ -28,6 +28,10 @@ pub(crate) struct AstDomTransform<'a, 'source> {
     /// The reactive wrapper import name (`effect` by default); `None`
     /// disables effect wrapping (Babel's falsy `effectWrapper`).
     pub(crate) effect_wrapper: Option<String>,
+    /// Graph-native REGION emission (DESIGN-REGIONS): scopes whose bindings
+    /// are static-key member chains of one constant store subject compile to
+    /// one region effect. Prototype — off by default.
+    pub(crate) regions: bool,
     pub(crate) wrap_conditionals: bool,
     /// The memo wrapper import name (`memo` by default); `None` disables
     /// memo wrapping (Babel's falsy `memoWrapper`).
@@ -100,6 +104,7 @@ pub(crate) struct DomTransformConfig {
     pub(crate) omit_attribute_spacing: bool,
     pub(crate) inline_styles: bool,
     pub(crate) effect_wrapper: Option<String>,
+    pub(crate) regions: bool,
     pub(crate) wrap_conditionals: bool,
     pub(crate) memo_wrapper: Option<String>,
     pub(crate) static_marker: String,
@@ -141,6 +146,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
             omit_attribute_spacing: config.omit_attribute_spacing,
             inline_styles: config.inline_styles,
             effect_wrapper: config.effect_wrapper,
+            regions: config.regions,
             wrap_conditionals: config.wrap_conditionals,
             memo_wrapper: config.memo_wrapper,
             static_marker: config.static_marker,
@@ -328,7 +334,14 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
         }
         // All dynamic attribute bindings collected across this template root
         // batch into one effect, appended after the other expressions.
-        if let Some(statement) = self.wrap_dynamics_statement(dynamics) {
+        let region_statement = if self.regions {
+            self.wrap_region_statement(&dynamics)
+        } else {
+            None
+        };
+        if let Some(statement) = region_statement {
+            operations.push(statement);
+        } else if let Some(statement) = self.wrap_dynamics_statement(dynamics) {
             operations.push(statement);
         }
         if self.should_close_tag(&tag_name, CloseTagContext::root()) {

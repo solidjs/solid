@@ -92,6 +92,8 @@ pub struct CompileOptions {
     pub omit_attribute_spacing: bool,
     pub inline_styles: bool,
     pub effect_wrapper: Wrapper,
+    /// Region emission (DESIGN-REGIONS) — off by default.
+    pub regions: bool,
     pub wrap_conditionals: bool,
     pub memo_wrapper: Wrapper,
     pub static_marker: String,
@@ -121,6 +123,7 @@ impl Default for CompileOptions {
             omit_attribute_spacing: true,
             inline_styles: true,
             effect_wrapper: Wrapper::Default,
+            regions: false,
             wrap_conditionals: true,
             memo_wrapper: Wrapper::Default,
             static_marker: "@static".into(),
@@ -420,6 +423,8 @@ fn dom_transform_config(options: &CompileOptions, built_ins: Vec<String>) -> Dom
         omit_attribute_spacing: options.omit_attribute_spacing,
         inline_styles: options.inline_styles,
         effect_wrapper: wrapper_name(&options.effect_wrapper, "effect"),
+        regions: options.regions,
+
         wrap_conditionals: options.wrap_conditionals,
         memo_wrapper: wrapper_name(&options.memo_wrapper, "memo"),
         static_marker: options.static_marker.clone(),

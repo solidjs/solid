@@ -14,6 +14,7 @@ pub(crate) mod fragment;
 pub(crate) mod mode_lower;
 pub(crate) mod parser;
 pub(crate) mod refs;
+pub(crate) mod region;
 pub(crate) mod statements;
 pub(crate) mod this;
 pub(crate) mod transform;

@@ -21,6 +21,11 @@ export interface TransformOptions {
   inlineStyles?: boolean;
   effectWrapper?: "effect" | false;
   wrapConditionals?: boolean;
+  /** Graph-native REGION emission (DESIGN-REGIONS): template scopes whose
+   * dynamic bindings are static-key member chains of one constant store
+   * subject compile to one region effect with a runtime classic fallback.
+   * Prototype — off by default. */
+  regions?: boolean;
   memoWrapper?: "memo" | false;
   staticMarker?: string;
   validate?: boolean;

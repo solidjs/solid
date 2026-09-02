@@ -269,6 +269,7 @@ const nativeOptionKeys = new Set([
   "omitAttributeSpacing",
   "inlineStyles",
   "effectWrapper",
+  "regions",
   "wrapConditionals",
   "memoWrapper",
   "requireImportSource",
@@ -312,6 +313,13 @@ function validateOptions(code, options) {
         throw new TypeError("@solidjs/compiler `wrapConditionals` option must be boolean");
       }
       nativeOptions.wrapConditionals = value;
+      continue;
+    }
+    if (key === "regions") {
+      if (typeof value !== "boolean") {
+        throw new TypeError("@solidjs/compiler `regions` option must be boolean");
+      }
+      nativeOptions.regions = value;
       continue;
     }
     if (key === "validate") {
