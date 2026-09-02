@@ -33,27 +33,58 @@ fn step_object<'e, 'a>(expr: &'e Expression<'a>) -> Option<&'e Expression<'a>> {
     }
 }
 
-/// Chain depth when `expr` is a static-key member chain rooted at the
-/// subject (`subject.a` → 1, `subject.a[0].b` → 3), else None.
-pub(crate) fn chain_depth(expr: &Expression<'_>, subject: &str) -> Option<usize> {
-    let mut depth = 0usize;
+/// Static key text of one member step (the key side of `step_object`).
+fn step_key_text(expr: &Expression<'_>) -> Option<String> {
+    match expr {
+        Expression::StaticMemberExpression(member) if !member.optional => {
+            Some(member.property.name.to_string())
+        }
+        Expression::ComputedMemberExpression(member) if !member.optional => {
+            match &member.expression {
+                Expression::StringLiteral(lit) if !lit.value.contains('.') => {
+                    Some(lit.value.to_string())
+                }
+                Expression::NumericLiteral(lit)
+                    if lit.value.fract() == 0.0 && lit.value.abs() <= 9_007_199_254_740_991.0 =>
+                {
+                    #[allow(clippy::cast_possible_truncation)]
+                    Some((lit.value as i64).to_string())
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Chain key segments when `expr` is a static-key member chain rooted at
+/// the subject (["a"], ["a","0","b"]), else None.
+pub(crate) fn chain_segments(expr: &Expression<'_>, subject: &str) -> Option<Vec<String>> {
+    let mut segs: Vec<String> = Vec::new();
     let mut cur = expr;
     loop {
         match step_object(cur) {
             Some(object) => {
-                depth += 1;
+                segs.push(step_key_text(cur)?);
                 cur = object;
             }
             None => {
                 return match cur {
-                    Expression::Identifier(ident) if ident.name == subject && depth > 0 => {
-                        Some(depth)
+                    Expression::Identifier(ident) if ident.name == subject && !segs.is_empty() => {
+                        segs.reverse();
+                        Some(segs)
                     }
                     _ => None,
                 };
             }
         }
     }
+}
+
+/// Chain depth when `expr` is a static-key member chain rooted at the
+/// subject (`subject.a` → 1, `subject.a[0].b` → 3), else None.
+pub(crate) fn chain_depth(expr: &Expression<'_>, subject: &str) -> Option<usize> {
+    chain_segments(expr, subject).map(|segs| segs.len())
 }
 
 /// Eligible expression: literals, and compositions of static-key member
@@ -138,35 +169,53 @@ pub(crate) struct RegionScope {
     pub(crate) subject: String,
     /// Parallel to the dynamics array: true = rides raw, false = residual.
     pub(crate) eligible: Vec<bool>,
-    /// Any eligible chain runs below the subject's own keys → the emitted
-    /// region call carries the DEEP flag (writes bubble; see the runtime).
-    pub(crate) deep: bool,
+    /// Unique INTERMEDIATE prefixes of every eligible chain, shortest first
+    /// — each becomes a `_w$n = _d$(parent, key)` local in the envelope
+    /// (pending-aware step resolution; the deep flag rides their presence).
+    pub(crate) deep_prefixes: Vec<Vec<String>>,
 }
 
-/// True when the expression contains any subject-rooted chain of depth ≥ 2.
-fn has_deep_chain(expr: &Expression<'_>, subject: &str) -> bool {
-    if let Some(depth) = chain_depth(expr, subject) {
-        return depth >= 2;
+/// Collect every subject-rooted static chain in an eligible expression
+/// (whole chains consumed — no descent into their members).
+fn collect_chains(expr: &Expression<'_>, subject: &str, out: &mut Vec<Vec<String>>) {
+    if matches!(
+        expr,
+        Expression::StaticMemberExpression(_) | Expression::ComputedMemberExpression(_)
+    ) {
+        if let Some(chain) = chain_segments(expr, subject) {
+            out.push(chain);
+            return;
+        }
     }
     match expr {
+        Expression::StaticMemberExpression(member) => collect_chains(&member.object, subject, out),
+        Expression::ComputedMemberExpression(member) => {
+            collect_chains(&member.object, subject, out);
+            collect_chains(&member.expression, subject, out);
+        }
         Expression::ConditionalExpression(cond) => {
-            has_deep_chain(&cond.test, subject)
-                || has_deep_chain(&cond.consequent, subject)
-                || has_deep_chain(&cond.alternate, subject)
+            collect_chains(&cond.test, subject, out);
+            collect_chains(&cond.consequent, subject, out);
+            collect_chains(&cond.alternate, subject, out);
         }
         Expression::BinaryExpression(binary) => {
-            has_deep_chain(&binary.left, subject) || has_deep_chain(&binary.right, subject)
+            collect_chains(&binary.left, subject, out);
+            collect_chains(&binary.right, subject, out);
         }
         Expression::LogicalExpression(logical) => {
-            has_deep_chain(&logical.left, subject) || has_deep_chain(&logical.right, subject)
+            collect_chains(&logical.left, subject, out);
+            collect_chains(&logical.right, subject, out);
         }
-        Expression::UnaryExpression(unary) => has_deep_chain(&unary.argument, subject),
-        Expression::TemplateLiteral(template) => template
-            .expressions
-            .iter()
-            .any(|expression| has_deep_chain(expression, subject)),
-        Expression::ParenthesizedExpression(paren) => has_deep_chain(&paren.expression, subject),
-        _ => false,
+        Expression::UnaryExpression(unary) => collect_chains(&unary.argument, subject, out),
+        Expression::TemplateLiteral(template) => {
+            for expression in &template.expressions {
+                collect_chains(expression, subject, out);
+            }
+        }
+        Expression::ParenthesizedExpression(paren) => {
+            collect_chains(&paren.expression, subject, out);
+        }
+        _ => {}
     }
 }
 
@@ -205,14 +254,30 @@ pub(crate) fn analyze_region_scope(
     if !eligible.iter().any(|e| *e) {
         return None;
     }
-    let deep = values
-        .iter()
-        .zip(eligible.iter())
-        .any(|(value, ok)| *ok && has_deep_chain(value, &subject));
+    // Unique intermediate prefixes of eligible chains (shortest first) —
+    // mirrors the Babel plugin's ordering byte-for-byte.
+    let mut chains: Vec<Vec<String>> = Vec::new();
+    for (value, ok) in values.iter().zip(eligible.iter()) {
+        if *ok {
+            collect_chains(value, &subject, &mut chains);
+        }
+    }
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut deep_prefixes: Vec<Vec<String>> = Vec::new();
+    for chain in &chains {
+        for len in 1..chain.len() {
+            let prefix = chain[..len].to_vec();
+            let key = prefix.join("\u{0}");
+            if seen.insert(key) {
+                deep_prefixes.push(prefix);
+            }
+        }
+    }
+    deep_prefixes.sort_by_key(Vec::len);
     Some(RegionScope {
         subject,
         eligible,
-        deep,
+        deep_prefixes,
     })
 }
 
@@ -273,6 +338,168 @@ fn rewrite_all<'a>(
         }
         Expression::ParenthesizedExpression(paren) => {
             rewrite_all(allocator, &mut paren.expression, subject, replacement);
+        }
+        _ => {}
+    }
+}
+
+/// SAFE-RESIDUAL grammar: a residual may have its direct depth-1 subject
+/// reads rewritten onto the raw parameter ONLY when the expression cannot
+/// introduce scope (no functions/classes), cannot mutate (no assignments/
+/// updates), and cannot change receivers (no calls). Mirrors the Babel
+/// plugin's isSafeResidual.
+pub(crate) fn is_safe_residual(expr: &Expression<'_>) -> bool {
+    use oxc_ast_visit::{Visit, walk};
+
+    struct Safety {
+        safe: bool,
+    }
+    impl<'a> Visit<'a> for Safety {
+        fn visit_expression(&mut self, expr: &Expression<'a>) {
+            if !self.safe {
+                return;
+            }
+            match expr {
+                Expression::CallExpression(_)
+                | Expression::NewExpression(_)
+                | Expression::TaggedTemplateExpression(_)
+                | Expression::AssignmentExpression(_)
+                | Expression::UpdateExpression(_)
+                | Expression::FunctionExpression(_)
+                | Expression::ArrowFunctionExpression(_)
+                | Expression::ClassExpression(_)
+                | Expression::YieldExpression(_)
+                | Expression::AwaitExpression(_) => {
+                    self.safe = false;
+                }
+                _ => walk::walk_expression(self, expr),
+            }
+        }
+    }
+    let mut safety = Safety { safe: true };
+    safety.visit_expression(expr);
+    safety.safe
+}
+
+fn is_valid_ident(key: &str) -> bool {
+    let mut chars = key.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' || c == '$' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+}
+
+/// Clone an ELIGIBLE expression rewriting every subject-rooted chain onto
+/// the envelope's raw views: depth-1 chains read the raw parameter; deeper
+/// chains read their final key off the PREFIX LOCAL (`_w$n`). Mirrors the
+/// Babel plugin's substituteChains — eligible grammar is CLOSED, so the
+/// walk covers exactly the composition set.
+pub(crate) fn substitute_chains<'a>(
+    allocator: &'a Allocator,
+    ast: &crate::shared::ast_builder::AstBuilder<'a>,
+    expr: &Expression<'a>,
+    subject: &str,
+    raw: &str,
+    prefix_var: &dyn Fn(&str) -> String,
+) -> Expression<'a> {
+    let mut clone = expr.clone_in(allocator);
+    rewrite_chains(allocator, ast, &mut clone, subject, raw, prefix_var);
+    clone
+}
+
+fn chain_replacement<'a>(
+    ast: &crate::shared::ast_builder::AstBuilder<'a>,
+    span: oxc_span::Span,
+    chain: &[String],
+    raw: &str,
+    prefix_var: &dyn Fn(&str) -> String,
+) -> Expression<'a> {
+    let base_name = if chain.len() == 1 {
+        raw.to_string()
+    } else {
+        prefix_var(&chain[..chain.len() - 1].join("\u{0}"))
+    };
+    let base = ast.expression_identifier(span, ast.ident(&base_name));
+    let last = &chain[chain.len() - 1];
+    if is_valid_ident(last) {
+        Expression::StaticMemberExpression(ast.alloc_static_member_expression(
+            span,
+            base,
+            ast.identifier_name(span, ast.ident(last)),
+            false,
+        ))
+    } else if last.chars().all(|c| c.is_ascii_digit()) {
+        Expression::ComputedMemberExpression(ast.alloc_computed_member_expression(
+            span,
+            base,
+            ast.expression_numeric_literal(
+                span,
+                last.parse::<f64>().unwrap_or(0.0),
+                None,
+                oxc_ast::ast::NumberBase::Decimal,
+            ),
+            false,
+        ))
+    } else {
+        Expression::ComputedMemberExpression(ast.alloc_computed_member_expression(
+            span,
+            base,
+            ast.expression_string_literal(span, ast.str(last), None),
+            false,
+        ))
+    }
+}
+
+fn rewrite_chains<'a>(
+    allocator: &'a Allocator,
+    ast: &crate::shared::ast_builder::AstBuilder<'a>,
+    expr: &mut Expression<'a>,
+    subject: &str,
+    raw: &str,
+    prefix_var: &dyn Fn(&str) -> String,
+) {
+    if matches!(
+        expr,
+        Expression::StaticMemberExpression(_) | Expression::ComputedMemberExpression(_)
+    ) {
+        if let Some(chain) = chain_segments(expr, subject) {
+            let span = oxc_span::GetSpan::span(&*expr);
+            *expr = chain_replacement(ast, span, &chain, raw, prefix_var);
+            return;
+        }
+    }
+    match expr {
+        Expression::StaticMemberExpression(member) => {
+            rewrite_chains(allocator, ast, &mut member.object, subject, raw, prefix_var);
+        }
+        Expression::ComputedMemberExpression(member) => {
+            rewrite_chains(allocator, ast, &mut member.object, subject, raw, prefix_var);
+            rewrite_chains(allocator, ast, &mut member.expression, subject, raw, prefix_var);
+        }
+        Expression::ConditionalExpression(cond) => {
+            rewrite_chains(allocator, ast, &mut cond.test, subject, raw, prefix_var);
+            rewrite_chains(allocator, ast, &mut cond.consequent, subject, raw, prefix_var);
+            rewrite_chains(allocator, ast, &mut cond.alternate, subject, raw, prefix_var);
+        }
+        Expression::BinaryExpression(binary) => {
+            rewrite_chains(allocator, ast, &mut binary.left, subject, raw, prefix_var);
+            rewrite_chains(allocator, ast, &mut binary.right, subject, raw, prefix_var);
+        }
+        Expression::LogicalExpression(logical) => {
+            rewrite_chains(allocator, ast, &mut logical.left, subject, raw, prefix_var);
+            rewrite_chains(allocator, ast, &mut logical.right, subject, raw, prefix_var);
+        }
+        Expression::UnaryExpression(unary) => {
+            rewrite_chains(allocator, ast, &mut unary.argument, subject, raw, prefix_var);
+        }
+        Expression::TemplateLiteral(template) => {
+            for expression in template.expressions.iter_mut() {
+                rewrite_chains(allocator, ast, expression, subject, raw, prefix_var);
+            }
+        }
+        Expression::ParenthesizedExpression(paren) => {
+            rewrite_chains(allocator, ast, &mut paren.expression, subject, raw, prefix_var);
         }
         _ => {}
     }

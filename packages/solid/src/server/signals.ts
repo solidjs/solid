@@ -1716,13 +1716,15 @@ export function createRenderEffect<T>(
  * the store proxy — same reads, no subscriptions, no baselines kept). */
 export function region(
   subject: any,
-  tracked: ((t: Record<string, any>, raw: any) => void) | null,
-  body: (raw: any, t: Record<string, any>, p: Record<string, any>) => void,
+  compute: (t: Record<string, any>, u: any) => void,
+  commit: (t: Record<string, any>, p: Record<string, any>, f: boolean) => void,
   _deep?: boolean | 1
 ): void {
+  // SSR renders once: evaluate the envelope against the subject, then run
+  // the commit with the FORCE flag (every write fires on the first run).
   const tvals: Record<string, any> = {};
-  if (tracked !== null) tracked(tvals, subject);
-  body(subject, tvals, {});
+  compute(tvals, subject);
+  commit(tvals, {}, true);
 }
 
 export function createTrackedEffect(

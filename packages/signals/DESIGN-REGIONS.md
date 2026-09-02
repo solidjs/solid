@@ -300,7 +300,47 @@ Numbers (2026-09-02):
 - Size: app scenarios unchanged (prototypes were treeshaken); budgets sit
   within 0.03-0.21 kB of actuals across all eight scenarios.
 
-## 11. Status
+## 11. The ENVELOPE CONTRACT (2026-09-02, audit response)
+
+The compiler audit's structural verdict — "one interleaved body, two
+dispatchers" is unsound — is addressed by splitting the emitted scope:
+
+    _$region(subject,
+      (_t$, _u$, _d$) => { ...every user expression, SOURCE ORDER... },
+      (_t$, _p$, _f$) => { ...compares + DOM writes ONLY... },
+      deep?)
+
+- **Compute (pure phase, both dispatchers):** eligible chains ride `_u$`
+  (pending-aware raw) with deeper steps resolved through `_d$` (readSource
+  per intermediate record — raw child slots are one fold stale in the pure
+  phase); SAFE residuals (no calls/assignments/functions — no shadowing,
+  no receiver changes, no raw mutation) get depth-1 subject reads
+  rewritten; everything else (and every `prop:` sink) stays unsubstituted
+  and tracks through the proxy. No DOM writes can run here.
+- **Commit (effect phase, both dispatchers):** compares + writes; `_f$`
+  forces the first run (initial `undefined` writes); baselines advance
+  AFTER each write (throwing setters can't poison them).
+- **Demotion** rebinds under the MOUNTING owner (captured at bind; skipped
+  when disposed) and defers its first commit into the flush's effect phase
+  via queue enqueue — never synchronously inside the demoting write.
+- **Deletions demote**: overlay backings retain deleted keys in raw
+  (`t.del` is proxy-only), so no raw envelope can represent them — same
+  graceful-downgrade philosophy as accessor acquisition.
+- **Admission** also requires a plain prototype (proto accessors would
+  execute on raw reads); `@solidjs/web` exports `region` under the server
+  condition; the solid server stub renders once with the force flag.
+- Audit items NOT closed here: shared-alias deep delivery (single-parent
+  `u` chain; deep() handles aliases by walking — bubble cannot reach a
+  second parent; DOCUMENTED limitation), and scope-precise constancy
+  (program-wide name conservatism stands on both compilers).
+
+dbmon after the redesign (same-run): tick 2.3 vs octane 1.8 (hand-fixture
+parity retained), tick_partial 0.7 vs 1.0 (faster), remount 5.7 vs 5.3,
+unmount 0.3 vs 1.7; mount 9.5 vs 4.6 remains platform floor. All semantic
+gates green; snapshots regenerated; babel/oxc byte-parity across the
+corpus, probes, and option matrix.
+
+## 12. Status
 
 - `region-delivery` pushed: prototype (ef42d094), regionBind golf
   (e043e830), channel gut (5d243eef). Signals 1433 / web 637 / treeshake /

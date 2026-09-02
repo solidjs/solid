@@ -19,33 +19,35 @@ const settle = async (n = 3) => {
   }
 };
 
-/** Region test harness on the COMPILED-OUTPUT combinator: scalar baselines
- * seeded from the record BEFORE bind, so region()'s initial commit diffs
- * nothing and `commits` records deltas only (the compiled-body contract —
- * bodies own their baselines and advance them after successful writes). */
+/** Region test harness on the ENVELOPE CONTRACT: the compute copies the
+ * declared keys into the envelope (source order); the commit compares
+ * against baselines and records delta frames. The FORCED first commit is
+ * the seeding pass (compiled bodies write the DOM there). */
 function bindRegion(record: any, keys: string[]) {
   const commits: Record<string, any>[] = [];
   const baseline: Record<string, any> = {};
-  let primed = false;
   const dispose = createRoot(d => {
-    region(record, null, (raw: any) => {
-      if (!primed) {
-        // The INITIAL commit is the seeding pass (compiled bodies write the
-        // DOM here and initialize their baselines from raw identities).
-        for (const k of keys) baseline[k] = raw[k];
-        primed = true;
-        return;
-      }
-      const frame: Record<string, any> = {};
-      let changed = false;
-      for (const k of keys) {
-        if (raw[k] !== baseline[k]) {
-          frame[k] = baseline[k] = raw[k];
-          changed = true;
+    region(
+      record,
+      (t: any, u: any) => {
+        for (const k of keys) t[k] = u[k];
+      },
+      (t: any, _p: any, f: boolean) => {
+        if (f) {
+          for (const k of keys) baseline[k] = t[k];
+          return;
         }
+        const frame: Record<string, any> = {};
+        let changed = false;
+        for (const k of keys) {
+          if (t[k] !== baseline[k]) {
+            frame[k] = baseline[k] = t[k];
+            changed = true;
+          }
+        }
+        if (changed) commits.push(frame);
       }
-      if (changed) commits.push(frame);
-    });
+    );
     return d;
   });
   return { dispose, commits, baseline };
@@ -88,7 +90,6 @@ describe("regions: delivery coverage (audit P1-1)", () => {
       const proj = createProjection((draft: any) => {
         draft.doubled = source.n * 2;
       }, {} as any);
-      // Materialize before binding (regions read committed raw).
       void (proj as any).doubled;
       flush();
       const r = bindRegion(proj, ["doubled"]);
@@ -125,6 +126,23 @@ describe("regions: delivery coverage (audit P1-1)", () => {
       expect(r.commits).toEqual([]);
     });
   });
+
+  it("the FIRST commit is forced (initial undefined values still write)", () => {
+    createRoot(() => {
+      const [state] = createStore<any>({ label: undefined });
+      let forced: boolean | null = null;
+      region(
+        state,
+        (t: any, u: any) => {
+          t.v = u.label;
+        },
+        (_t: any, _p: any, f: boolean) => {
+          if (forced === null) forced = f;
+        }
+      );
+      expect(forced).toBe(true);
+    });
+  });
 });
 
 describe("regions: scheduler-owned timing (audit thesis)", () => {
@@ -141,7 +159,6 @@ describe("regions: scheduler-owned timing (audit thesis)", () => {
     })() as Promise<void>;
     flush();
     await settle();
-    // Mid-flight: the version bump is parked with the key writes.
     expect(r.commits).toEqual([]);
     release();
     await run;
@@ -157,11 +174,15 @@ describe("regions: declines take the CLASSIC FALLBACK and still deliver (audit P
     );
     const seen: string[] = [];
     createRoot(() => {
-      // No region node may bind an optimistic record (raw cannot represent
-      // overrides) — the SAME body must run as a classic tracked effect.
-      region(items[0], null, (raw: any) => {
-        seen.push(raw.label);
-      });
+      region(
+        items[0],
+        (t: any, u: any) => {
+          t.v = u.label;
+        },
+        (t: any) => {
+          seen.push(t.v);
+        }
+      );
     });
     flush();
     expect((items[0] as any)[$TARGET].rg ?? []).toEqual([]); // declined
@@ -182,9 +203,15 @@ describe("regions: declines take the CLASSIC FALLBACK and still deliver (audit P
         base: "a"
       } as any);
       const seen: string[] = [];
-      region(state, null, (raw: any) => {
-        seen.push(raw.label);
-      });
+      region(
+        state,
+        (t: any, u: any) => {
+          t.v = u.label;
+        },
+        (t: any) => {
+          seen.push(t.v);
+        }
+      );
       flush();
       expect((state as any)[$TARGET].rg ?? []).toEqual([]); // declined
       expect(seen).toEqual(["a!"]);
@@ -196,13 +223,117 @@ describe("regions: declines take the CLASSIC FALLBACK and still deliver (audit P
     });
   });
 
-  it("non-store values run the body once and never throw", () => {
+  it("PROTOTYPE accessors decline (raw reads would execute them untracked)", () => {
+    createRoot(() => {
+      class Model {
+        base = "a";
+        get label() {
+          return this.base + "!";
+        }
+      }
+      const [state] = createStore({ row: new Model() } as any);
+      const seen: string[] = [];
+      region(
+        state.row,
+        (t: any, u: any) => {
+          t.v = u.label;
+        },
+        (t: any) => {
+          seen.push(t.v);
+        }
+      );
+      flush();
+      expect((state.row as any)[$TARGET].rg ?? []).toEqual([]); // declined
+      expect(seen).toEqual(["a!"]); // classic fallback ran the getter tracked
+    });
+  });
+
+  it("non-store values run the envelope once and never throw", () => {
     const seen: any[] = [];
     createRoot(() => {
-      region({ plain: true }, null, (raw: any) => seen.push(raw.plain));
-      region(null, null, () => seen.push("null-body"));
+      region(
+        { plain: true },
+        (t: any, u: any) => {
+          t.v = u.plain;
+        },
+        (t: any) => seen.push(t.v)
+      );
+      region(
+        null,
+        () => {},
+        () => seen.push("null-commit")
+      );
     });
-    expect(seen).toEqual([true, "null-body"]);
+    expect(seen).toEqual([true, "null-commit"]);
+  });
+});
+
+describe("regions: envelope phases (compiler audit)", () => {
+  it("the classic fallback's COMMIT never runs inside the write that woke it", () => {
+    createRoot(() => {
+      const [state, setState] = createStore({
+        get label() {
+          return (this as any).base;
+        },
+        base: "a"
+      } as any); // accessor → classic fallback
+      const commits: string[] = [];
+      region(
+        state,
+        (t: any, u: any) => {
+          t.v = u.label;
+        },
+        (t: any) => {
+          commits.push(t.v);
+        }
+      );
+      flush();
+      commits.length = 0;
+      setState(s => {
+        s.base = "b";
+        // Mid-write: the commit must NOT have run synchronously.
+        expect(commits).toEqual([]);
+      });
+      expect(commits).toEqual([]); // pre-flush: still parked
+      flush();
+      expect(commits).toEqual(["b"]); // effect phase delivered
+    });
+  });
+
+  it("a held transition masks the classic fallback's commits until release", async () => {
+    const [items, setItems] = createRoot(() =>
+      (createOptimisticStore as any)([{ id: 1, label: "old" }] as any[])
+    );
+    const commits: string[] = [];
+    createRoot(() => {
+      region(
+        items[0],
+        (t: any, u: any) => {
+          t.v = u.label;
+        },
+        (t: any) => {
+          commits.push(t.v);
+        }
+      );
+    });
+    flush();
+    commits.length = 0;
+    let release!: () => void;
+    const gate = new Promise<void>(res => (release = res));
+    const run = action(function* () {
+      setItems((d: any) => {
+        d[0].label = "pending";
+      });
+      yield gate;
+    })() as Promise<void>;
+    flush();
+    await settle();
+    // Optimistic lane: the draft IS visible (in-flight visibility) — but
+    // only through the effect phase, never synchronously in the write.
+    release();
+    await run;
+    await settle();
+    expect(commits.at(-1)).toBe("old"); // reverted optimistic write settles back
   });
 });
 
@@ -211,13 +342,14 @@ describe("regions: round-2 audit — timing neutrality (P1-1)", () => {
     createRoot(() => {
       const [state, setState] = createStore({ rows: [{ id: 1, v: "x" }] });
       let wakes = 0;
-      region(state.rows[0], null, () => {
-        wakes++;
-      });
+      region(
+        state.rows[0],
+        () => {},
+        (_t: any, _p: any, f: boolean) => {
+          if (!f) wakes++;
+        }
+      );
       flush();
-      wakes = 0; // discount the initial commit
-      // Equal values, fresh object — the adoption swaps the backing but no
-      // value changed: the version node must not be written at all.
       setState(s => {
         reconcile({ rows: [{ id: 1, v: "x" }] })(s);
       });
@@ -230,11 +362,14 @@ describe("regions: round-2 audit — timing neutrality (P1-1)", () => {
     createRoot(() => {
       const [state, setState] = createStore({ label: "a" });
       let wakes = 0;
-      region(state, null, () => {
-        wakes++;
-      });
+      region(
+        state,
+        () => {},
+        (_t: any, _p: any, f: boolean) => {
+          if (!f) wakes++;
+        }
+      );
       flush();
-      wakes = 0;
       setState(s => {
         s.label = "a";
       });
@@ -249,9 +384,15 @@ describe("regions: round-2 audit — durable admission (P1-2)", () => {
     createRoot(() => {
       const [state, setState] = createStore<any>({ label: "a" });
       const seen: string[] = [];
-      region(state, null, (raw: any) => {
-        seen.push(raw.label);
-      });
+      region(
+        state,
+        (t: any, u: any) => {
+          t.v = u.label;
+        },
+        (t: any) => {
+          seen.push(t.v);
+        }
+      );
       flush();
       expect((state as any)[$TARGET].rg.length).toBe(1); // admitted
       setState(s => {
@@ -265,22 +406,96 @@ describe("regions: round-2 audit — durable admission (P1-2)", () => {
       flush();
       expect((state as any)[$TARGET].rg).toBe(undefined); // demoted
       seen.length = 0;
-      // The fallback delivers subsequent writes with correct values.
       setState(s => {
         s.label = "b";
       });
       flush();
-      expect(seen).toContain("b");
+      expect(seen).toContain("b"); // fallback delivering
     });
+  });
+
+  it("the demotion REBIND commits in the effect phase, not inside the demoting write", () => {
+    createRoot(() => {
+      const [state, setState] = createStore<any>({ label: "a" });
+      const commits: string[] = [];
+      region(
+        state,
+        (t: any, u: any) => {
+          t.v = u.label;
+        },
+        (t: any) => {
+          commits.push(t.v);
+        }
+      );
+      flush();
+      commits.length = 0;
+      setState(s => {
+        Object.defineProperty(s, "computed", {
+          get() {
+            return "g";
+          },
+          configurable: true
+        });
+        s.label = "b";
+        // Mid-write: the rebind must not have committed synchronously.
+        expect(commits).toEqual([]);
+      });
+      flush();
+      // Post-flush the fallback is live and delivered the new value.
+      expect(commits).toContain("b");
+    });
+  });
+
+  it("demotion rebinds under the MOUNTING owner — disposal still stops the fallback", () => {
+    const [state, setState] = createRoot(() => createStore<any>({ label: "a" }));
+    const commits: string[] = [];
+    const dispose = createRoot(d => {
+      region(
+        state,
+        (t: any, u: any) => {
+          t.v = u.label;
+        },
+        (t: any) => {
+          commits.push(t.v);
+        }
+      );
+      return d;
+    });
+    flush();
+    // Demote from OUTSIDE the mounting owner (a plain top-level write).
+    setState((s: any) => {
+      Object.defineProperty(s, "computed", {
+        get() {
+          return "g";
+        },
+        configurable: true
+      });
+    });
+    flush();
+    commits.length = 0;
+    // The fallback must be owned by the MOUNTING root: disposing it kills
+    // delivery even though the rebind happened during an outside write.
+    dispose();
+    setState((s: any) => {
+      s.label = "b";
+    });
+    flush();
+    expect(commits).toEqual([]);
   });
 
   it("a getter-bearing ADOPTION demotes; the fallback reads THROUGH the getter", () => {
     createRoot(() => {
       const [state, setState] = createStore<any>({ row: { v: 1 } });
       const seen: number[] = [];
-      region(state.row, null, (raw: any) => {
-        seen.push(raw.v);
-      });
+      region(
+        state.row,
+        (t: any, u: any) => {
+          t.v = u.v;
+        },
+        (t: any) => {
+          seen.push(t.v);
+        }
+      );
       flush();
       seen.length = 0;
       setState(s => {
@@ -293,8 +508,6 @@ describe("regions: round-2 audit — durable admission (P1-2)", () => {
         } as any)(s);
       });
       flush();
-      // Never a lying raw frame: whatever delivered post-demotion came
-      // through the tracked path and saw the getter's value.
       expect(seen.every(v => v === 2)).toBe(true);
       expect(seen).toContain(2);
     });
@@ -314,14 +527,18 @@ describe("regions: round-2 audit — owned rows (P1-4)", () => {
           (state.rows as any)[$TRACK];
         },
         () => {
-          // Rows bind INSIDE the list commit, under the generation owner —
-          // the audit's blocked shape, unblocked.
           for (let i = 0; i < state.rows.length; i++) {
             const rec = state.rows[i];
             runWithOwner(gen, () => {
-              region(rec, null, (raw: any) => {
-                commits.push(raw.id);
-              });
+              region(
+                rec,
+                (t: any, u: any) => {
+                  t.id = u.id;
+                },
+                (t: any) => {
+                  commits.push(t.id);
+                }
+              );
             });
           }
         }
@@ -334,7 +551,6 @@ describe("regions: round-2 audit — owned rows (P1-4)", () => {
     flush();
     expect(commits).toContain(10);
     const before = commits.length;
-    // BULK teardown: one owner walk kills every row region.
     disposeChildren(gen as any);
     setState(s => {
       s.rows[0].id = 99;
@@ -362,19 +578,27 @@ describe("regions: lifecycle (audit correction — owner-bound)", () => {
   it("region() remount churn keeps the registry bounded (amortized sweep)", () => {
     const [state, setState] = createRoot(() => createStore({ row: { id: 1, label: "a" } }));
     const row = state.row;
-    // 50 mount/dispose cycles on the SAME record — dead entries must be
-    // swept on each subsequent push, not accumulate retaining closures.
     for (let i = 0; i < 50; i++) {
       createRoot(d => {
-        region(row, null, () => {});
+        region(
+          row,
+          () => {},
+          () => {}
+        );
         d();
       });
     }
     const commits: string[] = [];
     createRoot(() => {
-      region(row, null, (raw: any) => {
-        commits.push(raw.label);
-      });
+      region(
+        row,
+        (t: any, u: any) => {
+          t.v = u.label;
+        },
+        (t: any) => {
+          commits.push(t.v);
+        }
+      );
     });
     const rg = (row as any)[$TARGET].rg;
     expect(rg.length).toBeLessThanOrEqual(2); // live + at most one dead
@@ -390,30 +614,43 @@ describe("regions: lifecycle (audit correction — owner-bound)", () => {
     const row = state.row;
     const deadCommits: string[] = [];
     const liveCommits: string[] = [];
-    // Mount and dispose a region (dead entry lingers until next sweep).
     createRoot(d => {
-      region(row, null, (raw: any) => {
-        deadCommits.push(raw.label);
-      });
+      region(
+        row,
+        (t: any, u: any) => {
+          t.v = u.label;
+        },
+        (t: any) => {
+          deadCommits.push(t.v);
+        }
+      );
       d();
     });
-    // A live one beside it. Its push sweeps the dead entry too, so re-add
-    // a dead one AFTER to exercise the demotion-time guard.
     createRoot(() => {
-      region(row, null, (raw: any) => {
-        liveCommits.push(raw.label);
-      });
+      region(
+        row,
+        (t: any, u: any) => {
+          t.v = u.label;
+        },
+        (t: any) => {
+          liveCommits.push(t.v);
+        }
+      );
     });
     createRoot(d => {
-      region(row, null, (raw: any) => {
-        deadCommits.push(raw.label);
-      });
+      region(
+        row,
+        (t: any, u: any) => {
+          t.v = u.label;
+        },
+        (t: any) => {
+          deadCommits.push(t.v);
+        }
+      );
       d();
     });
     deadCommits.length = 0;
     liveCommits.length = 0;
-    // Accessor acquisition demotes: live regions rebind classic; the dead
-    // entry must stay dead.
     setState(s => {
       Object.defineProperty(s.row, "computed", {
         get() {
@@ -427,8 +664,8 @@ describe("regions: lifecycle (audit correction — owner-bound)", () => {
       s.row.label = "c";
     });
     flush();
-    expect(liveCommits).toContain("c"); // classic fallback delivering
-    expect(deadCommits).toEqual([]); // unmounted view stayed unmounted
+    expect(liveCommits).toContain("c");
+    expect(deadCommits).toEqual([]);
   });
 
   it("OWNER disposal stops delivery (regions are owner-bound)", () => {

@@ -261,6 +261,10 @@ export type FetchMiddleware = (
 // core, and a local copy here drifts from them (it resolved function sources
 // for key enumeration only, dropping their values in SSR output).
 export { createComponent, effect, memo, untrack, mergeProps, scope, getOwner };
+// Compiled-output region combinator: SERVER-CONDITION parity with the
+// client entry (audit: isomorphic builds resolved via the server condition
+// must find the same export surface).
+export { region } from "solid-js";
 // Read by compiled SSR output under the `serverComponents` compiler option:
 // the claims-gate guard (`sharedConfig.context.claims ? ssrClaim(...) : ""`)
 // needs the shared render context at template-evaluation time.

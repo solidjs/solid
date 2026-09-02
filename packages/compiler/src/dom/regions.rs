@@ -1,12 +1,18 @@
-//! Region emission (Babel's `wrapRegion` in dom/template.ts, DESIGN-REGIONS
-//! §9-10): one `_$region(subject, tracked, body, deep?)` call per template
-//! scope — eligible bindings read the commit-time RAW (`_n$`) against scalar
-//! baselines (`_p$`), tracked residuals evaluate in the compute (`_t$`,
-//! direct depth-1 subject reads rewritten onto `_u$`), and deep chains set
-//! the flag argument (writes bubble; no witness subscriptions). The runtime
-//! combinator owns admission, demotion, and the classic fallback, which
-//! reruns the SAME body with the proxy as `_n$`.
+//! Region emission — the ENVELOPE CONTRACT (Babel's `wrapRegion`, compiler
+//! audit 2026-09-02): one `_$region(subject, compute, commit, deep?)` call
+//! per template scope.
+//!
+//! COMPUTE `(_t$, _u$, _d$)` — every binding's expression evaluates here,
+//! in SOURCE ORDER, into the envelope `_t$`: eligible chains ride the raw
+//! views (`_u$` depth-1; `_w$n` prefix locals resolved through the pending-
+//! aware step helper `_d$` for deeper steps); SAFE residuals get direct
+//! depth-1 subject reads rewritten; everything else stays UNSUBSTITUTED
+//! (per-key tracked through the closed-over proxy), including `prop:` sinks.
+//!
+//! COMMIT `(_t$, _p$, _f$)` — compares + writes only; `_f$` forces the
+//! first run; baselines advance AFTER each write.
 
+use oxc_allocator::CloneIn;
 use oxc_ast::ast::{BinaryOperator, Expression, LogicalOperator, Statement};
 use oxc_span::Span;
 
@@ -15,7 +21,7 @@ use crate::dom::element::AstDomTransform;
 use crate::dom::set_attr::SetAttrOptions;
 use crate::shared::constants::{DomPropertyState, dom_with_state};
 use crate::shared::region::{
-    analyze_region_scope, substitute_residual_subject, substitute_subject,
+    analyze_region_scope, is_safe_residual, substitute_chains, substitute_residual_subject,
 };
 use crate::shared::utils::get_numbered_id;
 
@@ -42,36 +48,62 @@ impl<'a> AstDomTransform<'a, '_> {
             .first()
             .map_or_else(Span::default, |slot| slot.span);
 
-        let mut tracked_assigns = self.ast().vec();
-        let mut body_statements = self.ast().vec();
-        let mut residuals = 0usize;
+        let mut compute_statements = self.ast().vec();
+        let mut commit_statements = self.ast().vec();
+
+        // Shared prefix locals for deep chains (shortest first, parents
+        // resolve before children): const _w$n = _d$(<parent>, "<key>").
+        let mut prefix_names: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for (i, prefix) in scope.deep_prefixes.iter().enumerate() {
+            let parent_name = if prefix.len() == 1 {
+                "_u$".to_string()
+            } else {
+                prefix_names[&prefix[..prefix.len() - 1].join("\u{0}")].clone()
+            };
+            let var_name = format!("_w${i}");
+            prefix_names.insert(prefix.join("\u{0}"), var_name.clone());
+            let call = self.call_identifier(
+                span,
+                "_d$",
+                vec![
+                    self.identifier_expression(span, &parent_name),
+                    self.ast().expression_string_literal(
+                        span,
+                        self.ast().str(&prefix[prefix.len() - 1]),
+                        None,
+                    ),
+                ],
+            );
+            compute_statements.push(crate::shared::ast::variable_statement(
+                self.allocator,
+                span,
+                oxc_ast::ast::VariableDeclarationKind::Const,
+                &var_name,
+                call,
+            ));
+        }
+        let prefix_lookup = |key: &str| prefix_names[key].clone();
 
         for (index, slot) in dynamics.iter().enumerate() {
             let slot_span = slot.span;
             let prop_name = get_numbered_id(index);
-            let value_name = format!("_v${index}");
 
-            let mut value = if scope.eligible[index] {
-                substitute_subject(self.allocator, &slot.value, &scope.subject, "_n$")
-            } else {
-                let residual = substitute_residual_subject(
+            let mut value = if scope.eligible[index] && !slot.key.starts_with("prop:") {
+                substitute_chains(
                     self.allocator,
+                    &self.ast(),
                     &slot.value,
                     &scope.subject,
                     "_u$",
-                );
-                let slot_name = format!("r{residuals}");
-                residuals += 1;
-                tracked_assigns.push(self.ast().statement_expression(
-                    slot_span,
-                    self.ast().expression_assignment(
-                        slot_span,
-                        oxc_ast::ast::AssignmentOperator::Assign,
-                        self.tracked_member_target(slot_span, &slot_name),
-                        residual,
-                    ),
-                ));
-                self.static_member(slot_span, "_t$", &slot_name)
+                    &prefix_lookup,
+                )
+            } else if !slot.key.starts_with("prop:") && is_safe_residual(&slot.value) {
+                substitute_residual_subject(self.allocator, &slot.value, &scope.subject, "_u$")
+            } else {
+                // Opaque (or prop: sink): tracked through the closed-over
+                // proxy — raw backing identity must never leak.
+                slot.value.clone_in(self.allocator)
             };
 
             if slot.class_property
@@ -83,29 +115,44 @@ impl<'a> AstDomTransform<'a, '_> {
                 value = self.double_negation(slot_span, value);
             }
 
-            body_statements.push(crate::shared::ast::variable_statement(
+            compute_statements.push(self.ast().statement_expression(
+                slot_span,
+                self.ast().expression_assignment(
+                    slot_span,
+                    oxc_ast::ast::AssignmentOperator::Assign,
+                    self.member_assignment_target(slot_span, "_t$", &prop_name),
+                    value,
+                ),
+            ));
+
+            let value_name = format!("_v${index}");
+            commit_statements.push(crate::shared::ast::variable_statement(
                 self.allocator,
                 slot_span,
                 oxc_ast::ast::VariableDeclarationKind::Let,
                 &value_name,
-                value,
+                self.static_member(slot_span, "_t$", &prop_name),
             ));
 
-            let value_ident = self.identifier_expression(slot_span, &value_name);
-            let prev_member = self.static_member(slot_span, "_p$", &prop_name);
+            let changed = self.ast().expression_logical(
+                slot_span,
+                self.identifier_expression(slot_span, "_f$"),
+                LogicalOperator::Or,
+                self.ast().expression_binary(
+                    slot_span,
+                    self.identifier_expression(slot_span, &value_name),
+                    BinaryOperator::StrictInequality,
+                    self.static_member(slot_span, "_p$", &prop_name),
+                ),
+            );
             let elem = self.identifier_expression(slot_span, &slot.elem);
             let stateful = dom_with_state(&slot.tag_name, slot.key.trim_start_matches("prop:"))
                 == Some(DomPropertyState::Stateful);
-            let changed = self.ast().expression_binary(
-                slot_span,
-                value_ident,
-                BinaryOperator::StrictInequality,
-                prev_member,
-            );
 
             if slot.key == "class" || slot.key == "style" || stateful {
-                // Stateful writes consume the previous VALUE — advance the
-                // baseline in a block after the write.
+                // Stateful writes consume the previous VALUE — write first,
+                // advance the baseline after (a throwing setter must not
+                // poison it).
                 let set_attr = self.set_attr_expression(
                     slot_span,
                     elem,
@@ -126,24 +173,18 @@ impl<'a> AstDomTransform<'a, '_> {
                     self.ast().expression_assignment(
                         slot_span,
                         oxc_ast::ast::AssignmentOperator::Assign,
-                        self.prev_member_target(slot_span, &prop_name),
+                        self.member_assignment_target(slot_span, "_p$", &prop_name),
                         self.identifier_expression(slot_span, &value_name),
                     ),
                 ));
                 let block = self.ast().statement_block(slot_span, block_statements);
-                body_statements.push(self.ast().statement_if(slot_span, changed, block, None));
+                commit_statements.push(self.ast().statement_if(slot_span, changed, block, None));
             } else {
-                let advancing_value = self.ast().expression_assignment(
-                    slot_span,
-                    oxc_ast::ast::AssignmentOperator::Assign,
-                    self.prev_member_target(slot_span, &prop_name),
-                    self.identifier_expression(slot_span, &value_name),
-                );
                 let set_attr = self.set_attr_expression(
                     slot_span,
                     elem,
                     &slot.key,
-                    advancing_value,
+                    self.identifier_expression(slot_span, &value_name),
                     SetAttrOptions {
                         dynamic: true,
                         prev_id: None,
@@ -152,33 +193,40 @@ impl<'a> AstDomTransform<'a, '_> {
                         class_property: slot.class_property,
                     },
                 );
-                body_statements.push(self.ast().statement_expression(
+                let advance = self.ast().expression_assignment(
+                    slot_span,
+                    oxc_ast::ast::AssignmentOperator::Assign,
+                    self.member_assignment_target(slot_span, "_p$", &prop_name),
+                    self.identifier_expression(slot_span, &value_name),
+                );
+                let mut seq = self.ast().vec();
+                seq.push(set_attr);
+                seq.push(advance);
+                commit_statements.push(self.ast().statement_expression(
                     slot_span,
                     self.ast().expression_logical(
                         slot_span,
                         changed,
                         LogicalOperator::And,
-                        set_attr,
+                        self.ast().expression_sequence(slot_span, seq),
                     ),
                 ));
             }
         }
 
-        let tracked_arg = if tracked_assigns.is_empty() {
-            self.ast().expression_null_literal(span)
-        } else {
-            self.arrow_with_statements(span, vec!["_t$", "_u$"], tracked_assigns)
-        };
-        let body_arg = self.arrow_with_statements(span, vec!["_n$", "_t$", "_p$"], body_statements);
+        let compute_arg =
+            self.arrow_with_statements(span, vec!["_t$", "_u$", "_d$"], compute_statements);
+        let commit_arg =
+            self.arrow_with_statements(span, vec!["_t$", "_p$", "_f$"], commit_statements);
 
         let mut args = vec![
             self.identifier_expression(span, &scope.subject),
-            tracked_arg,
-            body_arg,
+            compute_arg,
+            commit_arg,
         ];
-        if scope.deep {
-            // DEEP flag: eligible chains below the subject's own keys — the
-            // runtime flags the record as a deep-region root; writes bubble.
+        if !scope.deep_prefixes.is_empty() {
+            // DEEP flag: eligible chains below the subject's own keys —
+            // writes bubble to the region root (see region()/bumpDeep).
             args.push(self.ast().expression_numeric_literal(
                 span,
                 1.0,
@@ -193,7 +241,7 @@ impl<'a> AstDomTransform<'a, '_> {
         )
     }
 
-    /// `_p$.<name>` as an expression.
+    /// `<object>.<name>` as an expression.
     fn static_member(&self, span: Span, object: &str, name: &str) -> Expression<'a> {
         Expression::StaticMemberExpression(self.ast().alloc_static_member_expression(
             span,
@@ -203,24 +251,7 @@ impl<'a> AstDomTransform<'a, '_> {
         ))
     }
 
-    /// `_p$.<name>` as an assignment target.
-    fn prev_member_target(
-        &self,
-        span: Span,
-        name: &str,
-    ) -> oxc_ast::ast::AssignmentTarget<'a> {
-        self.member_assignment_target(span, "_p$", name)
-    }
-
-    /// `_t$.<name>` as an assignment target.
-    fn tracked_member_target(
-        &self,
-        span: Span,
-        name: &str,
-    ) -> oxc_ast::ast::AssignmentTarget<'a> {
-        self.member_assignment_target(span, "_t$", name)
-    }
-
+    /// `<object>.<name>` as an assignment target.
     fn member_assignment_target(
         &self,
         span: Span,

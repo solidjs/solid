@@ -14,19 +14,21 @@ function Row(row, selection) {
     _el$5 = _el$4.firstChild;
   _$region(
     row,
-    (_t$, _u$) => {
-      _t$.r0 = selection[_u$.id] ? "danger" : "";
+    (_t$, _u$, _d$) => {
+      _t$.e = selection[_u$.id] ? "danger" : "";
+      _t$.t = _u$.id;
+      _t$.a = _u$.label;
     },
-    (_n$, _t$, _p$) => {
-      let _v$0 = _t$.r0;
-      if (_v$0 !== _p$.e) {
+    (_t$, _p$, _f$) => {
+      let _v$0 = _t$.e;
+      if (_f$ || _v$0 !== _p$.e) {
         _$className(_el$, _v$0, _p$.e);
         _p$.e = _v$0;
       }
-      let _v$1 = _n$.id;
-      _v$1 !== _p$.t && (_el$3.data = _p$.t = _v$1);
-      let _v$2 = _n$.label;
-      _v$2 !== _p$.a && (_el$5.data = _p$.a = _v$2);
+      let _v$1 = _t$.t;
+      (_f$ || _v$1 !== _p$.t) && ((_el$3.data = _v$1), (_p$.t = _v$1));
+      let _v$2 = _t$.a;
+      (_f$ || _v$2 !== _p$.a) && ((_el$5.data = _v$2), (_p$.a = _v$2));
     }
   );
   return _el$;

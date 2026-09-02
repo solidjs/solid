@@ -253,6 +253,109 @@ export function analyzeRegionScope(path: NodePath, dynamics: DynamicBinding[]): 
   return { subject, eligible, deepPrefixes };
 }
 
+/** SAFE-RESIDUAL grammar: a residual may have its direct depth-1 subject
+ * reads rewritten onto the raw parameter ONLY when the expression cannot
+ * introduce scope (no functions/classes — shadowed bindings would rewrite
+ * incorrectly), cannot mutate (no assignments/updates — writes must never
+ * hit raw backing), and cannot change receivers (no calls — `subject.m()`
+ * on raw would rebind `this`). Everything else stays UNSUBSTITUTED: it
+ * closes over the proxy and tracks per-key in both dispatchers. */
+export function isSafeResidual(node: t.Node): boolean {
+  switch (node.type) {
+    case "CallExpression":
+    case "NewExpression":
+    case "OptionalCallExpression":
+    case "AssignmentExpression":
+    case "UpdateExpression":
+    case "FunctionExpression":
+    case "ArrowFunctionExpression":
+    case "ClassExpression":
+    case "TaggedTemplateExpression":
+    case "YieldExpression":
+    case "AwaitExpression":
+      return false;
+    default: {
+      for (const key of Object.keys(node)) {
+        const value: any = (node as any)[key];
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            if (item && typeof item.type === "string" && !isSafeResidual(item)) return false;
+          }
+        } else if (value && typeof value.type === "string" && !isSafeResidual(value)) {
+          return false;
+        }
+      }
+      return true;
+    }
+  }
+}
+
+/** Clone an ELIGIBLE expression rewriting every subject-rooted chain onto
+ * the envelope's raw views: depth-1 chains read `_u$` directly; deeper
+ * chains read their final key off the PREFIX LOCAL the emitter declared
+ * (`_w$n`, resolved through the pending-aware step helper `_d$`) — raw
+ * child slots go stale in the pure phase, child pending values live on
+ * child targets (runtime `step`). */
+/** Member key emission for a static chain segment: valid identifiers stay
+ * static; integers go computed-numeric; everything else (e.g. CSS-module
+ * keys like "foo--bar") goes computed-string. */
+function keyMember(key: string): [t.Expression, boolean] {
+  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) return [t.identifier(key), false];
+  if (/^\d+$/.test(key)) return [t.numericLiteral(Number(key)), true];
+  return [t.stringLiteral(key), true];
+}
+
+export function substituteChains(
+  expr: t.Expression,
+  subject: string,
+  rawId: t.Identifier,
+  prefixVar: (prefixKey: string) => t.Identifier
+): t.Expression {
+  const clone = t.cloneNode(expr, true);
+  const rewriteChain = (node: t.MemberExpression): t.Expression | null => {
+    const chain = chainOf(node, subject);
+    if (chain === null) return null;
+    const base = chain.length === 1 ? rawId : prefixVar(chain.slice(0, -1).join("\u0000"));
+    return t.memberExpression(t.cloneNode(base), ...keyMember(chain[chain.length - 1]));
+  };
+  const walk = (node: t.Node): void => {
+    for (const key of Object.keys(node)) {
+      const value: any = (node as any)[key];
+      if (Array.isArray(value)) {
+        for (let i = 0; i < value.length; i++) {
+          const item = value[i];
+          if (item && typeof item.type === "string") {
+            if (t.isMemberExpression(item)) {
+              const rewritten = rewriteChain(item);
+              if (rewritten !== null) {
+                value[i] = rewritten;
+                continue;
+              }
+            }
+            walk(item);
+          }
+        }
+      } else if (value && typeof value.type === "string") {
+        if (t.isMemberExpression(node) && key === "property" && !node.computed) continue;
+        if (t.isMemberExpression(value)) {
+          const rewritten = rewriteChain(value);
+          if (rewritten !== null) {
+            (node as any)[key] = rewritten;
+            continue;
+          }
+        }
+        walk(value);
+      }
+    }
+  };
+  if (t.isMemberExpression(clone)) {
+    const rewritten = rewriteChain(clone);
+    if (rewritten !== null) return rewritten;
+  }
+  walk(clone);
+  return clone;
+}
+
 /** Clone a RESIDUAL expression substituting DIRECT depth-1 subject reads
  * (`subject.key` not further membered) with reads off the tracked callback's
  * raw parameter. Sound because the region compute subscribes the deep

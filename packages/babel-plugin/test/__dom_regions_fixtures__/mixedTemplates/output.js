@@ -6,10 +6,16 @@ var _tmpl$ = /*#__PURE__*/ _$template(`<td> `);
 function RegionRow(row) {
   var _el$ = _tmpl$(),
     _el$2 = _el$.firstChild;
-  _$region(row, null, (_n$, _t$, _p$) => {
-    let _v$0 = _n$.label;
-    _v$0 !== _p$.e && (_el$2.data = _p$.e = _v$0);
-  });
+  _$region(
+    row,
+    (_t$, _u$, _d$) => {
+      _t$.e = _u$.label;
+    },
+    (_t$, _p$, _f$) => {
+      let _v$0 = _t$.e;
+      (_f$ || _v$0 !== _p$.e) && ((_el$2.data = _v$0), (_p$.e = _v$0));
+    }
+  );
   return _el$;
 }
 function ClassicRow(get) {

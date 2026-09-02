@@ -6,6 +6,7 @@ function Row(row) {
       <td textContent={row.id} />
       <td textContent={row.label} />
       <td data-status={row.done ? "done" : "pending"} />
+      <td data-css={row["foo--bar"]} />
     </tr>
   );
 }

@@ -46,7 +46,8 @@ import {
   untrack,
   ext,
   createEffectNode,
-  recompute as recomputeNode
+  recompute as recomputeNode,
+  runWithOwner
 } from "../../core/core.js";
 
 import {
@@ -349,62 +350,100 @@ export function getHasNode(
  * every scheduler behavior (transitions, lanes, merges, steals) applies
  * natively because the bump is an ordinary signal write. Records nobody
  * region-tracks pay one undefined-check per adoption. */
-const EMPTY_TVALS: Record<string, any> = {};
-
-/** COMPILED-OUTPUT combinator (the emitter's one call): a template scope
- * whose bindings are depth-1 member reads of `subject` compiles to
+/** COMPILED-OUTPUT combinator (the emitter's one call) — the ENVELOPE
+ * CONTRACT (compiler audit, 2026-09-02): a template scope compiles to
  *
- *   _$region(subject, trackedOrNull, (raw, t, p) => { ...compares/writes })
+ *   _$region(subject, (_t$, _u$) => { ...envelope }, (_t$, _p$, _f$) => { ...writes }, deep?)
  *
- * - ADMITTED: one deliveryEffect — compute reads the deep witness plus the
- *   TRACKED RESIDUALS (dynamic keys, foreign reads — classic per-key
- *   subscriptions fused into the same node); commit runs the body with the
- *   COMMIT-TIME raw, the residual values, and a prev container the body
- *   owns (scalar baselines — grouped-effect parity).
- * - DECLINED or DEMOTED (accessor acquisition): the SAME body runs as a
- *   classic tracked effect with the PROXY as `raw` — member reads track
- *   per-key, so semantics are identical; only who dispatches changes.
+ * - COMPUTE (pure phase): EVERY user expression evaluates here, in source
+ *   order, into the envelope `_t$`. Substituted reads ride `_u$` — the
+ *   pending-aware raw when admitted, the PROXY in the classic fallback (so
+ *   the same emitted code is per-key tracked there). Unsubstituted
+ *   expressions close over the proxy and track normally in BOTH modes.
+ *   No DOM writes can ever run in this phase, in either dispatcher.
+ * - COMMIT (effect phase): compares + writes ONLY — no user code, no
+ *   coercions, no reordering. `_f$` forces every write on the first run
+ *   (mount parity: initial `undefined` values must still write), and
+ *   baselines advance AFTER each write so a throwing setter can't poison
+ *   them.
+ * - DECLINED / DEMOTED: the same two functions run as a classic tracked
+ *   effect. Demotion rebinds under the MOUNTING owner (captured at bind)
+ *   and defers its first commit into the flush's effect phase — never
+ *   synchronously inside the write that demoted it.
  * Owner-bound like every render effect; disposal rides the owner. */
 export function region(
   subject: any,
-  tracked: ((t: Record<string, any>, raw: any) => void) | null,
-  body: (raw: any, t: Record<string, any>, p: Record<string, any>) => void,
+  compute: (t: Record<string, any>, u: any, d: (parent: any, key: PropertyKey) => any) => void,
+  commit: (t: Record<string, any>, p: Record<string, any>, f: boolean) => void,
   deep?: boolean | 1
 ): void {
   const t: StoreNextTarget | undefined = subject?.[$TARGET];
   const prev: Record<string, any> = {};
-  // Bodies without residuals never touch `_t$` — share one frozen carrier
-  // instead of allocating per region (dbmon: 1000 rows, zero residuals).
-  const tvals: Record<string, any> = tracked === null ? EMPTY_TVALS : {};
-  const classic = () => {
+  const tvals: Record<string, any> = {};
+  const owner = getOwner();
+  let first = true;
+  // PENDING-AWARE STEP RESOLVER (the emitter's `_d$`): the envelope runs in
+  // the PURE phase, before commitPendingNodes swaps backings — a raw child
+  // slot read would see the OUTGOING child while its pending values live on
+  // the child TARGET. Each deep step resolves the child's readSource view.
+  // No subscriptions here: the write-side bubble provides the wake. In the
+  // classic fallback the parent is the PROXY, so the same call is a plain
+  // tracked per-key read.
+  const map = t === undefined ? storeNextLookup : (t.fam?.map ?? storeNextLookup);
+  const step = (parent: any, key: PropertyKey): any => {
+    if (parent === null || typeof parent !== "object") return undefined;
+    const px: StoreNextTarget | undefined = (parent as any)[$TARGET];
+    if (px !== undefined && px.px === parent) return parent[key]; // proxy: tracked read
+    const child = (parent as any)[key];
+    if (child === null || typeof child !== "object") return child;
+    const ct: StoreNextTarget | undefined = (child as any)[$TARGET] ?? map.get(child);
+    return ct === undefined ? child : readSource(ct);
+  };
+  const runCommit = () => {
+    const f = first;
+    first = false;
+    void commit(tvals, prev, f);
+  };
+  const classic = (deferred: boolean) => {
     const node = createEffectNode(
       () => {
-        // Classic hands the PROXY as `raw`: residual subject reads become
-        // tracked per-key subscriptions — no deep witness here to wake them
-        // (deep chains in the body read through the proxy too: per-key
-        // tracked at every level, so the flag is irrelevant here).
-        if (tracked !== null) tracked(tvals, subject);
-        void body(subject, tvals, prev);
+        compute(tvals, subject, step);
       },
-      () => {},
+      runCommit,
       undefined,
       EFFECT_RENDER,
       undefined
     );
     recomputeNode(node, true);
+    if (deferred) {
+      // Demotion rebind: subscriptions and the envelope are live NOW, but
+      // the commit joins the flush's EFFECT phase — a rebind triggered by
+      // a write must never run DOM writes inside that write.
+      (node as any)._queue.enqueue((node as any)._type, () => GlobalQueue._runEffect!(node));
+      schedule();
+    } else {
+      GlobalQueue._runEffect!(node); // mount: render effects commit at creation
+    }
+    return node;
   };
-  if (t === undefined || t.fam?.opt === true || (t.a as any) === true || !targetIsPlain(t)) {
-    classic();
+  if (
+    t === undefined ||
+    t.fam?.opt === true ||
+    (t.a as any) === true ||
+    !targetIsPlain(t) ||
+    // Prototype accessors bypass the own-descriptor scan but WOULD execute
+    // on raw reads (audit: admission accepted unsafe backing shapes) —
+    // records are plain data; class instances take the tracked path.
+    !plainProto(t.v)
+  ) {
+    classic(false);
     return;
   }
   const dk = getDeepNode(t);
-  // DEEP region (body reads below the subject's own keys): dk has no
+  // DEEP region (envelope reads below the subject's own keys): dk has no
   // ancestor bubbling, so flag this record as a deep-region root — bumpDeep
-  // on any DESCENDANT walks the parent chain and bumps flagged ancestors
-  // (see bumpDeep). ONE subscription regardless of read depth: the witness-
-  // per-intermediate-record design measured 2.3x hand-fixture tick cost on
-  // dbmon (6 subscriptions re-tracked per rerun, per-rerun map resolution).
-  // Refcounted: multiple regions can share a root; owner disposal releases.
+  // on any DESCENDANT walks the parent chain and bumps flagged ancestors.
+  // ONE subscription regardless of read depth. Refcounted; owner releases.
   if (deep) {
     (t as any).rdp = ((t as any).rdp ?? 0) + 1;
     deepRegions++;
@@ -416,15 +455,13 @@ export function region(
   const node = createEffectNode(
     () => {
       readNode(dk);
-      // Residuals get the PENDING-AWARE raw (readSource) for subject reads:
-      // the deep witness already wakes this compute on any subject change,
-      // so a tracked per-key read would only buy a duplicate subscription —
-      // and pure-phase computes must see the incoming backing.
-      if (tracked !== null) tracked(tvals, readSource(t));
+      // The envelope sees the PENDING-AWARE raw: pure-phase computes run
+      // before commitPendingNodes swaps backings, so `t.v` here would
+      // evaluate the outgoing world one fold stale (deep steps resolve
+      // through `step` for the same reason).
+      compute(tvals, readSource(t), step);
     },
-    () => {
-      void body(t.v, tvals, prev);
-    },
+    runCommit,
     undefined,
     EFFECT_RENDER,
     undefined
@@ -432,12 +469,11 @@ export function region(
   recomputeNode(node, true);
   GlobalQueue._runEffect!(node); // initial commit: compiled templates bind DOM here
   // Durable admission: demotion disposes the region node and rebinds the
-  // classic shape — the body carries its own baselines, so the fallback
-  // resumes from current values seamlessly.
+  // classic shape under the MOUNTING owner (skipped when that owner is
+  // already disposed — a dead view must stay dead).
   // AMORTIZED registry hygiene: sweep entries whose nodes the owner tree
-  // already disposed before pushing the new one. Long-lived records under
-  // remount churn (Show toggles, keyed reuse) stay bounded at live+1 dead
-  // entry without paying a per-mount cleanup registration (~1ms/10k rows).
+  // already disposed before pushing the new one — remount churn stays
+  // bounded at live+1 dead entry with no per-mount cleanup registration.
   const rg = ((t as any).rg ??= []) as Array<{ n: any; d?: () => void }>;
   for (let i = rg.length - 1; i >= 0; i--) {
     if (rg[i].n._flags & REACTIVE_DISPOSED) {
@@ -445,7 +481,13 @@ export function region(
       rg.pop();
     }
   }
-  rg.push({ n: node, d: classic });
+  rg.push({
+    n: node,
+    d: () => {
+      if (owner !== null && ((owner as any)._flags & REACTIVE_DISPOSED) !== 0) return;
+      runWithOwner(owner, () => classic(true));
+    }
+  });
 }
 
 /** Region ADOPTION PROBE (audit round 2, P1-2 durable admission): an
@@ -1131,8 +1173,24 @@ function notifyWrites(t: StoreNextTarget): void {
   // Deep-witness (dk): setter writes must notify a deep() subscriber even on
   // keys with no node. O(written/pb keys) equality only when a witness exists.
   if (t.dk !== null || deepRegions > 0) {
-    if (t.del !== null && t.del.size !== 0) bumpDeep(t);
-    else
+    if (t.del !== null && t.del.size !== 0) {
+      // DELETION = shape change: overlay backings RETAIN deleted keys in
+      // raw (t.del is consulted by proxy reads only), so a region's raw
+      // envelope can never represent it — demote to the classic fallback,
+      // whose proxy reads are deletion-aware. Same philosophy as accessor
+      // acquisition; deletions are rare, downgrade is graceful. Ancestors
+      // flagged as deep-region roots demote too (their envelopes read this
+      // record's raw view through the step resolver).
+      if ((t as any).rg !== undefined) demoteRegions(t);
+      if (deepRegions > 0) {
+        let u = t.u;
+        while (u !== null) {
+          if ((u as any).rdp > 0 && (u as any).rg !== undefined) demoteRegions(u);
+          u = u.u;
+        }
+      }
+      bumpDeep(t);
+    } else
       for (const key of writtenKeys ?? Reflect.ownKeys(pb)) {
         const nv = pb[key as any];
         const ov = old[key as any];

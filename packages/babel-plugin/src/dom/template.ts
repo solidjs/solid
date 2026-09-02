@@ -10,7 +10,12 @@ import {
   wrapForEffect
 } from "../shared/utils";
 import { setAttr } from "./element";
-import { analyzeRegionScope, substituteResidualSubject, substituteSubject } from "../shared/region";
+import {
+  analyzeRegionScope,
+  isSafeResidual,
+  substituteChains,
+  substituteResidualSubject
+} from "../shared/region";
 import type { NodePath } from "@babel/traverse";
 import type { DynamicBinding, ProgramScopeData, TemplateRecord, TransformResult } from "../types";
 
@@ -146,24 +151,62 @@ function registerTemplate(path: NodePath, results: TransformResult) {
   results.decl = t.variableDeclaration("var", results.declarations as t.VariableDeclarator[]);
 }
 
-/** Region emission (DESIGN-REGIONS.md, the emitter): one `_$region` call
- * per template scope — eligible bindings read the commit-time RAW, tracked
- * residuals evaluate in the compute, and the runtime combinator owns
- * admission/demotion/the classic fallback (which reruns the SAME body with
- * the proxy as the raw argument). Returns undefined when the scope has no
- * depth-1 subject — caller falls through to the classic grouped effect. */
+/** Region emission — the ENVELOPE CONTRACT (compiler audit, 2026-09-02):
+ * one `_$region(subject, compute, commit, deep?)` per template scope.
+ *
+ * COMPUTE `(_t$, _u$, _d$)` — every binding's expression evaluates here, in
+ * SOURCE ORDER, into the envelope `_t$`:
+ * - eligible chains ride the raw views (`_u$` for depth-1; `_w$n` prefix
+ *   locals resolved through the pending-aware step helper `_d$` for deeper
+ *   steps — raw child slots go stale in the pure phase);
+ * - SAFE residuals (no calls/assignments/functions — see isSafeResidual)
+ *   get direct depth-1 subject reads rewritten onto `_u$`;
+ * - everything else stays UNSUBSTITUTED (closes over the proxy: per-key
+ *   tracked in both dispatchers), including `prop:`-sinks regardless of
+ *   grammar — raw backing identity must never leak into DOM properties.
+ *
+ * COMMIT `(_t$, _p$, _f$)` — compares + writes ONLY. `_f$` forces every
+ * write on the first run (initial `undefined` values still write), and
+ * baselines advance AFTER each write (a throwing setter can't poison them).
+ *
+ * The runtime combinator runs the same two functions under either
+ * dispatcher; declines/demotions differ only in what `_u$`/`_d$` resolve.
+ * Returns undefined when the scope has no eligible subject. */
 function wrapRegion(path: NodePath, dynamics: DynamicBinding[]): t.ExpressionStatement | undefined {
   if (!dynamics.length) return undefined;
   const scope = analyzeRegionScope(path, dynamics);
   if (!scope) return undefined;
   const regionId = registerImportMethod(path, "region", undefined);
-  const rawId = t.identifier("_n$");
-  const trackedId = t.identifier("_t$");
-  const trackedRawId = t.identifier("_u$");
+  const envId = t.identifier("_t$");
+  const rawId = t.identifier("_u$");
+  const stepId = t.identifier("_d$");
   const prevId = t.identifier("_p$");
-  const trackedAssigns: t.Statement[] = [];
-  const bodyStatements: t.Statement[] = [];
-  let residuals = 0;
+  const forceId = t.identifier("_f$");
+  const computeStatements: t.Statement[] = [];
+  const commitStatements: t.Statement[] = [];
+
+  // Shared prefix locals for deep chains (shortest first, parents resolve
+  // before children): const _w$n = _d$(<parent>, "<key>").
+  const prefixVars = new Map<string, t.Identifier>();
+  for (let i = 0; i < scope.deepPrefixes.length; i++) {
+    const prefix = scope.deepPrefixes[i];
+    const parentVar =
+      prefix.length === 1 ? rawId : prefixVars.get(prefix.slice(0, -1).join("\u0000"))!;
+    const v = t.identifier("_w$" + i);
+    prefixVars.set(prefix.join("\u0000"), v);
+    computeStatements.push(
+      t.variableDeclaration("const", [
+        t.variableDeclarator(
+          v,
+          t.callExpression(t.cloneNode(stepId), [
+            t.cloneNode(parentVar),
+            t.stringLiteral(prefix[prefix.length - 1])
+          ])
+        )
+      ])
+    );
+  }
+  const prefixVar = (key: string) => prefixVars.get(key)!;
 
   dynamics.forEach((d, index) => {
     let { value } = d;
@@ -171,55 +214,66 @@ function wrapRegion(path: NodePath, dynamics: DynamicBinding[]): t.ExpressionSta
     if (classProperty && !t.isBooleanLiteral(value) && !t.isUnaryExpression(value)) {
       value = t.unaryExpression("!", t.unaryExpression("!", value));
     }
-    let valueExpr: t.Expression;
-    if (scope.eligible[index]) {
-      valueExpr = substituteSubject(value, scope.subject, rawId);
+    // prop: sinks receive live identities — raw backing must never leak
+    // through them, so they always evaluate UNSUBSTITUTED (proxy values).
+    const propSink = key.startsWith("prop:");
+    let envelopeExpr: t.Expression;
+    if (scope.eligible[index] && !propSink) {
+      envelopeExpr = substituteChains(value, scope.subject, rawId, prefixVar);
+    } else if (!propSink && isSafeResidual(value)) {
+      envelopeExpr = substituteResidualSubject(value, scope.subject, rawId);
     } else {
-      const slot = t.identifier("r" + residuals++);
-      trackedAssigns.push(
-        t.expressionStatement(
-          t.assignmentExpression(
-            "=",
-            t.memberExpression(trackedId, slot),
-            substituteResidualSubject(value, scope.subject, trackedRawId)
-          )
-        )
-      );
-      valueExpr = t.memberExpression(trackedId, slot);
+      envelopeExpr = value; // opaque: tracked through the closed-over proxy
     }
+    const slot = t.identifier(getNumberedId(index));
+    computeStatements.push(
+      t.expressionStatement(
+        t.assignmentExpression("=", t.memberExpression(t.cloneNode(envId), slot), envelopeExpr)
+      )
+    );
+
     const v = t.identifier("_v$" + index);
-    const prevMember = t.memberExpression(prevId, t.identifier(getNumberedId(index)));
-    bodyStatements.push(t.variableDeclaration("let", [t.variableDeclarator(v, valueExpr)]));
+    const envMember = t.memberExpression(t.cloneNode(envId), t.cloneNode(slot));
+    const prevMember = () => t.memberExpression(t.cloneNode(prevId), t.cloneNode(slot));
+    commitStatements.push(t.variableDeclaration("let", [t.variableDeclarator(v, envMember)]));
+    const changed = t.logicalExpression(
+      "||",
+      t.cloneNode(forceId),
+      t.binaryExpression("!==", t.cloneNode(v), prevMember())
+    );
     if (key === "class" || key === "style" || isStatefulDOMProperty(tagName, key)) {
-      // Stateful writes consume the previous VALUE — advance the baseline
-      // in a block after the write.
-      bodyStatements.push(
+      // Stateful writes consume the previous VALUE — write first, advance
+      // the baseline after (a throwing setter must not poison it).
+      commitStatements.push(
         t.ifStatement(
-          t.binaryExpression("!==", v, prevMember),
+          changed,
           t.blockStatement([
             t.expressionStatement(
-              setAttr(path, elem, key, v, {
+              setAttr(path, elem, key, t.cloneNode(v), {
                 tagName,
                 dynamic: true,
-                prevId: t.memberExpression(prevId, t.identifier(getNumberedId(index)))
+                prevId: prevMember()
               })
             ),
-            t.expressionStatement(t.assignmentExpression("=", t.cloneNode(prevMember), v))
+            t.expressionStatement(t.assignmentExpression("=", prevMember(), t.cloneNode(v)))
           ])
         )
       );
     } else {
-      bodyStatements.push(
+      commitStatements.push(
         t.expressionStatement(
           t.logicalExpression(
             "&&",
-            t.binaryExpression("!==", v, prevMember),
-            setAttr(path, elem, key, t.assignmentExpression("=", t.cloneNode(prevMember), v), {
-              tagName,
-              dynamic: true,
-              styleProperty,
-              classProperty
-            })
+            changed,
+            t.sequenceExpression([
+              setAttr(path, elem, key, t.cloneNode(v), {
+                tagName,
+                dynamic: true,
+                styleProperty,
+                classProperty
+              }),
+              t.assignmentExpression("=", prevMember(), t.cloneNode(v))
+            ])
           )
         )
       );
@@ -229,13 +283,10 @@ function wrapRegion(path: NodePath, dynamics: DynamicBinding[]): t.ExpressionSta
   return t.expressionStatement(
     t.callExpression(regionId, [
       t.identifier(scope.subject),
-      trackedAssigns.length
-        ? t.arrowFunctionExpression([trackedId, trackedRawId], t.blockStatement(trackedAssigns))
-        : t.nullLiteral(),
-      t.arrowFunctionExpression([rawId, trackedId, prevId], t.blockStatement(bodyStatements)),
-      // DEEP flag: any eligible chain below the subject's own keys — the
-      // runtime flags the record as a deep-region root and writes bubble
-      // (see region()/bumpDeep). No witness subscriptions, one dk read.
+      t.arrowFunctionExpression([envId, rawId, stepId], t.blockStatement(computeStatements)),
+      t.arrowFunctionExpression([envId, prevId, forceId], t.blockStatement(commitStatements)),
+      // DEEP flag: eligible chains below the subject's own keys — writes
+      // bubble to the region root (see region()/bumpDeep).
       ...(scope.deepPrefixes.length ? [t.numericLiteral(1)] : [])
     ])
   );

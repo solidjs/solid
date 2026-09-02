@@ -19,18 +19,19 @@ function Row(row, selection) {
   </tr>;
 }`;
 
-  it("emits one _$region with raw reads, a tracked residual, and scalar baselines", () => {
+  it("emits the ENVELOPE contract: source-ordered compute, compare-and-write commit", () => {
     const out = compile(ROW, { regions: true });
     expect(out).toContain('import { region as _$region } from "@solidjs/web"');
     expect(out).toContain("_$region(row,");
-    // Eligible bindings substitute the subject with the commit-time raw.
-    expect(out).toContain("_n$.selected");
-    expect(out).toContain("_n$.label");
-    // The dynamic-key read is a TRACKED residual in the compute; DIRECT
-    // depth-1 subject reads inside it ride the raw parameter (_u$) — the
-    // deep witness already wakes the compute on any subject change.
-    expect(out).toMatch(/_t\$\.r0 = selection\[_u\$\.id\]/);
-    expect(out).toContain("(_t$, _u$) =>");
+    // COMPUTE: every expression evaluates into the envelope, source order —
+    // eligible reads on `_u$`, the safe residual's depth-1 read rewritten.
+    expect(out).toContain("(_t$, _u$, _d$) =>");
+    expect(out).toContain("_t$.e = _u$.selected");
+    expect(out).toContain("_t$.t = _u$.label");
+    expect(out).toMatch(/_t\$\.a = selection\[_u\$\.id\]/);
+    // COMMIT: compares + writes only, force flag, write-then-advance.
+    expect(out).toContain("(_t$, _p$, _f$) =>");
+    expect(out).toMatch(/_f\$ \|\| _v\$0 !== _p\$\.e/);
     // No classic grouped effect emitted for this scope.
     expect(out).not.toContain("_$effect(");
   });
@@ -51,10 +52,13 @@ function Row(row, selection) {
     );
     expect(out).toContain("_$region(row,");
     // Deep-region root: the runtime flags the record and deep writes walk
-    // the parent chain to bump it (region()/bumpDeep). One dk read.
-    expect(out).toMatch(/\}, 1\);/);
-    // Body reads ride the commit-time raw all the way down.
-    expect(out).toContain("_n$.lastSample.topFiveQueries[0].elapsed");
+    // the parent chain to bump it (region()/bumpDeep).
+    expect(out).toMatch(/,\s*1\s*\);/);
+    // Deep steps resolve through the pending-aware helper; the leaf reads
+    // off the prefix local.
+    expect(out).toContain('const _w$0 = _d$(_u$, "lastSample")');
+    expect(out).toContain('const _w$1 = _d$(_w$0, "topFiveQueries")');
+    expect(out).toMatch(/_w\$2\.elapsed/);
     expect(out).not.toContain("_$effect(");
   });
 
