@@ -89,6 +89,12 @@ stored past its lifetime — re-capture the owner at call time or guard with
 
 ## API misuse
 
+### MISSING_EFFECT_FN
+
+`createEffect(compute)` with a single argument is not supported. Split the
+work: `createEffect(() => signal(), value => doWork(value))`. For a derived
+value use `createMemo`; for a one-shot side effect just call the function.
+
 ### PRIMITIVE_IN_FORBIDDEN_SCOPE
 
 Reactive primitives cannot be created inside `createTrackedEffect` or
