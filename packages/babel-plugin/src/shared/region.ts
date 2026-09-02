@@ -30,21 +30,43 @@ import * as t from "@babel/types";
 import type { NodePath } from "@babel/traverse";
 import type { DynamicBinding } from "../types";
 
-/** Depth-1 eligible expression: literals, and compositions of ONE-LEVEL
- * member reads of the subject (ternary/binary/logical/template/unary). */
+/** Static key of a member step: identifier / string / safe-integer numeric
+ * literal, or null when the step is dynamic. */
+function stepKey(m: t.MemberExpression): string | null {
+  if (m.computed) {
+    if (t.isStringLiteral(m.property)) return m.property.value;
+    if (t.isNumericLiteral(m.property) && Number.isSafeInteger(m.property.value))
+      return String(m.property.value);
+    return null;
+  }
+  return t.isIdentifier(m.property) ? m.property.name : null;
+}
+
+/** Full chain rooted at the subject with static keys throughout
+ * (["lastSample","topFiveQueries","0"]), else null. */
+export function chainOf(node: t.Node, subject: string): string[] | null {
+  const segs: string[] = [];
+  let cur: t.Node = node;
+  while (t.isMemberExpression(cur)) {
+    const k = stepKey(cur);
+    if (k === null) return null;
+    segs.push(k);
+    cur = cur.object;
+  }
+  if (!t.isIdentifier(cur) || cur.name !== subject) return null;
+  return segs.reverse();
+}
+
+/** Eligible expression: literals, and compositions of STATIC-KEY member
+ * chains of the subject (ternary/binary/logical/template/unary). Chains of
+ * any depth qualify — the emitter subscribes a path witness per intermediate
+ * record (dk has no ancestor bubbling; see the runtime's `path` helper). */
 function isEligibleExpr(node: t.Node, subject: string): boolean {
   switch (node.type) {
     case "Identifier":
       return (node as t.Identifier).name === "undefined";
-    case "MemberExpression": {
-      const m = node as t.MemberExpression;
-      if (!t.isIdentifier(m.object) || m.object.name !== subject) return false;
-      if (m.computed) {
-        if (t.isStringLiteral(m.property)) return m.property.value.indexOf(".") === -1;
-        return t.isNumericLiteral(m.property) && Number.isSafeInteger(m.property.value);
-      }
-      return t.isIdentifier(m.property);
-    }
+    case "MemberExpression":
+      return chainOf(node, subject) !== null;
     case "StringLiteral":
     case "NumericLiteral":
     case "BooleanLiteral":
@@ -84,9 +106,14 @@ function isEligibleExpr(node: t.Node, subject: string): boolean {
   }
 }
 
-/** Root identifier of the first depth-1 member read found. */
+/** Root identifier of the first static-key member chain found. */
 function findSubjectCandidate(node: t.Node): string | null {
-  if (t.isMemberExpression(node) && t.isIdentifier(node.object)) return node.object.name;
+  if (t.isMemberExpression(node)) {
+    let cur: t.Node = node;
+    while (t.isMemberExpression(cur)) cur = cur.object;
+    if (t.isIdentifier(cur) && cur.name !== "undefined") return cur.name;
+    return null;
+  }
   switch (node.type) {
     case "ConditionalExpression":
       return (
@@ -120,6 +147,34 @@ export interface RegionScope {
   subject: string;
   /** Parallel to the dynamics array: true = rides raw, false = residual. */
   eligible: boolean[];
+  /** Unique INTERMEDIATE prefixes of every eligible chain, shortest first
+   * (["lastSample"], ["lastSample","topFiveQueries"], ...): each gets one
+   * path-witness subscription in the compute. Depth-1 chains contribute
+   * none — the region's own deep witness covers the subject's keys. */
+  deepPrefixes: string[][];
+}
+
+/** Collect every subject-rooted static chain in an eligible expression
+ * (whole chains are consumed — no descent into their members). */
+function collectChains(node: t.Node, subject: string, out: string[][]): void {
+  if (t.isMemberExpression(node)) {
+    const chain = chainOf(node, subject);
+    if (chain !== null) {
+      out.push(chain);
+      return;
+    }
+  }
+  for (const key of Object.keys(node)) {
+    const value: any = (node as any)[key];
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item && typeof item.type === "string") collectChains(item, subject, out);
+      }
+    } else if (value && typeof value.type === "string") {
+      if (t.isMemberExpression(node) && key === "property" && !node.computed) continue;
+      collectChains(value, subject, out);
+    }
+  }
 }
 
 /** Analyze a scope's dynamics: pick the first depth-1 subject candidate and
@@ -142,7 +197,24 @@ export function analyzeRegionScope(path: NodePath, dynamics: DynamicBinding[]): 
   if (!binding || !binding.constant) return null;
   const eligible = dynamics.map(d => isEligibleExpr(d.value, subject!));
   if (!eligible.some(Boolean)) return null;
-  return { subject, eligible };
+  const chains: string[][] = [];
+  for (let i = 0; i < dynamics.length; i++) {
+    if (eligible[i]) collectChains(dynamics[i].value, subject, chains);
+  }
+  const seen = new Set<string>();
+  const deepPrefixes: string[][] = [];
+  for (const chain of chains) {
+    for (let len = 1; len < chain.length; len++) {
+      const prefix = chain.slice(0, len);
+      const key = prefix.join("\u0000");
+      if (!seen.has(key)) {
+        seen.add(key);
+        deepPrefixes.push(prefix);
+      }
+    }
+  }
+  deepPrefixes.sort((a, b) => a.length - b.length);
+  return { subject, eligible, deepPrefixes };
 }
 
 /** Clone a RESIDUAL expression substituting DIRECT depth-1 subject reads

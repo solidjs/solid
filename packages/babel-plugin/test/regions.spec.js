@@ -30,7 +30,7 @@ function Row(row, selection) {
     // depth-1 subject reads inside it ride the raw parameter (_u$) — the
     // deep witness already wakes the compute on any subject change.
     expect(out).toMatch(/_t\$\.r0 = selection\[_u\$\.id\]/);
-    expect(out).toContain("(_t$, _u$) =>");
+    expect(out).toContain("(_t$, _u$, _d$) =>");
     // No classic grouped effect emitted for this scope.
     expect(out).not.toContain("_$effect(");
   });
@@ -41,10 +41,30 @@ function Row(row, selection) {
     expect(out).toContain("_$effect(");
   });
 
-  it("declines scopes without a depth-1 subject (deep chains keep classic)", () => {
-    const out = compile(`function Row(row) { return <td textContent={row.stats.count} />; }`, {
-      regions: true
-    });
+  it("deep chains emit path witnesses per intermediate record (dbmon shape)", () => {
+    const out = compile(
+      `function Row(row) { return <tr>
+        <td textContent={row.lastSample.nbQueries} />
+        <td textContent={row.lastSample.topFiveQueries[0].elapsed} />
+      </tr>; }`,
+      { regions: true }
+    );
+    expect(out).toContain("_$region(row,");
+    // Witnesses: lastSample, lastSample.topFiveQueries, ...[0] — shortest
+    // first, shared prefixes deduped, chained through _w$ locals.
+    expect(out).toContain('const _w$0 = _d$(_u$, "lastSample")');
+    expect(out).toContain('const _w$1 = _d$(_w$0, "topFiveQueries")');
+    expect(out).toContain('const _w$2 = _d$(_w$1, "0")');
+    // Body reads ride the commit-time raw all the way down.
+    expect(out).toContain("_n$.lastSample.topFiveQueries[0].elapsed");
+    expect(out).not.toContain("_$effect(");
+  });
+
+  it("dynamic-key steps disqualify the chain — scope stays classic", () => {
+    const out = compile(
+      `function Row(row, i) { return <td textContent={row.queries[i].elapsed} />; }`,
+      { regions: true }
+    );
     expect(out).not.toContain("_$region");
     expect(out).toContain("_$effect(");
   });

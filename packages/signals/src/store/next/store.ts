@@ -422,18 +422,51 @@ export function regionBind(
  * Owner-bound like every render effect; disposal rides the owner. */
 export function region(
   subject: any,
-  tracked: ((t: Record<string, any>, raw: any) => void) | null,
+  tracked:
+    | ((t: Record<string, any>, raw: any, path: (parent: any, key: PropertyKey) => any) => void)
+    | null,
   body: (raw: any, t: Record<string, any>, p: Record<string, any>) => void
 ): void {
   const t: StoreNextTarget | undefined = subject?.[$TARGET];
   const prev: Record<string, any> = {};
   const tvals: Record<string, any> = {};
+  // DEEP-CHAIN WITNESS (the emitter's `_d$`): dk bumps are per-record with
+  // no ancestor bubbling, so a body reading `raw.a.b` is only woken for
+  // writes at the subject's own keys. The compute therefore subscribes the
+  // witness of every INTERMEDIATE record on the declared chains — compiled
+  // manifests, graph-native: replacement re-resolves on redelivery (effects
+  // re-track), and unwrapped children materialize their target here exactly
+  // like deepNext's walk does. In the CLASSIC fallback the parent is the
+  // proxy, so the same call is a plain tracked per-key read.
+  const map = t === undefined ? storeNextLookup : (t.fam?.map ?? storeNextLookup);
+  // Resolution rides readSource (pending-backing aware): computes run in the
+  // PURE phase, before commitPendingNodes swaps backings — resolving through
+  // `t.v` would subscribe the OUTGOING children on every replacement
+  // delivery, leaving the wiring pointed at dead records while the commit
+  // reads the new tree (probe: deep-region.probe.test.ts).
+  const path = (parent: any, key: PropertyKey): any => {
+    if (parent === null || typeof parent !== "object") return undefined;
+    const px: StoreNextTarget | undefined = (parent as any)[$TARGET];
+    if (px !== undefined && px.px === parent) return parent[key]; // proxy: tracked read
+    const pt = map.get(parent);
+    let child = (parent as any)[key];
+    if (child === null || typeof child !== "object" || pt === undefined) return child;
+    let ct: StoreNextTarget | undefined = (child as any)[$TARGET] ?? map.get(child);
+    if (ct === undefined) {
+      if (!isWrappable(child)) return child;
+      wrapNext(child, pt, key);
+      ct = map.get(child);
+      if (ct === undefined) return child;
+    }
+    readNode(getDeepNode(ct));
+    return readSource(ct);
+  };
   const classic = () => {
     const node = createEffectNode(
       () => {
         // Classic hands the PROXY as `raw`: residual subject reads become
         // tracked per-key subscriptions — no deep witness here to wake them.
-        if (tracked !== null) tracked(tvals, subject);
+        if (tracked !== null) tracked(tvals, subject, path);
         void body(subject, tvals, prev);
       },
       () => {},
@@ -451,11 +484,11 @@ export function region(
   const node = createEffectNode(
     () => {
       readNode(dk);
-      // Residuals get the COMPUTE-TIME raw for subject reads (lookup keys
-      // etc.): the deep witness already wakes this compute on any subject
-      // change, so a tracked per-key read would only buy a duplicate
-      // subscription — measured at ~40% of keyed-row mount cost.
-      if (tracked !== null) tracked(tvals, t.v);
+      // Residuals get the PENDING-AWARE raw (readSource) for subject reads:
+      // the deep witness already wakes this compute on any subject change, so
+      // a tracked per-key read would only buy a duplicate subscription — and
+      // pure-phase computes must see the incoming backing (see `path`).
+      if (tracked !== null) tracked(tvals, readSource(t), path);
     },
     () => {
       void body(t.v, tvals, prev);
