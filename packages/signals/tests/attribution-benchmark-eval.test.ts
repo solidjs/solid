@@ -30,7 +30,10 @@ afterEach(() => {
 function arm(opts: Parameters<typeof DEV.attribution.enable>[0] = {}) {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "log").mockImplementation(() => {});
-  DEV!.attribution.enable({ log: false, ...opts });
+  // These benchmark-shaped scenarios evaluate structural attribution. Keep
+  // the independent wall-clock detector out: coverage and runner contention
+  // can legitimately push a fine-grained scope over its default 8ms budget.
+  DEV!.attribution.enable({ log: false, hotTime: false, ...opts });
   const diagnostics: DiagnosticEvent[] = [];
   DEV!.diagnostics.subscribe(e => diagnostics.push(e));
   const reruns: RerunEvent[] = [];
@@ -227,10 +230,7 @@ describe("healthy fine-grained benchmark implementation (false-positive control)
     });
     flush();
 
-    // This is a structural false-positive control. Wall-clock attribution is
-    // deliberately outside its claim: coverage/contended CI can push an
-    // otherwise fine-grained row effect over the default 8ms budget.
-    const { diagnostics, reruns } = arm({ hotTime: false });
+    const { diagnostics, reruns } = arm();
     setState(s => {
       for (let i = 0; i < n; i += 10) s.rows[i].label += " !!!";
     });
