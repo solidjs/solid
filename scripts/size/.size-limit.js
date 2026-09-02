@@ -414,7 +414,9 @@ module.exports = [
     // retains every store family, so it pays the whole module. Ruled
     // correctness-over-size in the #3164 thread; conscious bump.
     path: "hydrating-store-app.js",
-    limit: "26.94 KB",
+    // Region audit round 2 (2026-09-01): demotion registry + fused walk
+    // latches + gated bumps (+22 B).
+    limit: "27 KB",
     modifyEsbuildConfig
   },
   {
