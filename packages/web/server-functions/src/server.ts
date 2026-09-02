@@ -1113,6 +1113,8 @@ function assertDecodeDepth(value) {
  * Sets; a value nested inside a revived class instance keeps its shape —
  * the codec owns that value's construction, not this guard.
  */
+const UNSAFE_ARGUMENT_KEYS = ["__proto__", "constructor", "prototype"];
+
 function stripOwnProtoKeys(value) {
   const stack = [value];
   const seen = new Set();
@@ -1127,10 +1129,13 @@ function stripOwnProtoKeys(value) {
     } else if (v instanceof Set) {
       for (const member of v) stack.push(member);
     } else {
-      const proto = Object.getPrototypeOf(v);
-      if (proto !== Object.prototype && proto !== null) continue;
-      if (Object.prototype.hasOwnProperty.call(v, "__proto__")) {
-        delete v["__proto__"];
+      // Every object is walked, whatever its prototype: this mutates in place
+      // and rebuilds nothing, so a non-plain prototype was never a reason to
+      // stop — it only hid a payload under a carrier the codec revives with
+      // own properties (#3200). `constructor` rides alongside `__proto__`
+      // because a recursive merge reaches Object.prototype through it (#3202).
+      for (const key of UNSAFE_ARGUMENT_KEYS) {
+        if (Object.prototype.hasOwnProperty.call(v, key)) delete v[key];
       }
       for (const key of Object.keys(v)) stack.push(v[key]);
     }
@@ -1427,7 +1432,10 @@ export function foldSetCookies(headers, setCookies) {
 // way response headers may merge here: never `get`/`set` folding.
 function mergeResponseHeaders(target, source) {
   source.forEach((value, key) => {
-    if (key !== "set-cookie") target.append(key, value);
+    // `content-length` describes the source's body and the caller is about to
+    // send a different one; forwarding a length known to be wrong truncates
+    // the answer at the socket (#3197, RFC 9110 §8.6).
+    if (key !== "set-cookie" && key !== "content-length") target.append(key, value);
   });
   if (source.getSetCookie) {
     for (const cookie of source.getSetCookie()) target.append("Set-Cookie", cookie);
@@ -1501,10 +1509,20 @@ const BOUNDED_COMPOSED_HEADERS = [REDIRECT_HEADER, "Location", REVALIDATE_HEADER
 // gives it an opt-in. The decoder enforces the same floor independently
 // (decodeRedirectHeaderValue), so a hostile peer cannot re-open the class
 // against integrations either.
-function refusedTargetScheme(target) {
-  // explicit scheme present and not http(s) → refused
-  const match = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.exec(target);
-  return match !== null && !/^https?:$/i.test(match[0]);
+function refusedTargetScheme(target, base) {
+  // Judge the target the way a consumer will READ it, not the way its bytes
+  // are spelled: a URL parser strips ASCII tab and newline from anywhere and
+  // trims leading C0/space before it begins, so a scheme grammar over the raw
+  // value saw nothing where the parser sees `javascript:` (#3201). Resolving
+  // is what the masked and no-JS roads already did, which is why neither was
+  // fooled; the base keeps relative targets — the ordinary case — http(s).
+  let protocol;
+  try {
+    protocol = new URL(target, base).protocol;
+  } catch {
+    return true;
+  }
+  return protocol !== "http:" && protocol !== "https:";
 }
 
 // The transport half of redirect()'s and initWithRevalidate's invariants:
@@ -1519,7 +1537,7 @@ function refusedTargetScheme(target) {
 // or rewritten target is a DIFFERENT address, a dropped revalidate key is
 // a silently stale cache. Runs ahead of the stub fold so integration
 // cookies still ride the refusal (#3159).
-function enforceComposedHeaderInvariants(response) {
+function enforceComposedHeaderInvariants(response, base) {
   for (const name of BOUNDED_COMPOSED_HEADERS) {
     const value = response.headers.get(name);
     if (value === null) continue;
@@ -1542,7 +1560,7 @@ function enforceComposedHeaderInvariants(response) {
     if (name === REVALIDATE_HEADER) continue;
     // REDIRECT_HEADER rides as "<status> <target>"; Location is the target
     const target = name === REDIRECT_HEADER ? value.slice(value.indexOf(" ") + 1) : value;
-    if (refusedTargetScheme(target)) {
+    if (refusedTargetScheme(target, base)) {
       return refuseComposedHeader(
         response,
         name,
@@ -1822,13 +1840,12 @@ export function guardFailures(value, state) {
         // value needed no wrapping): only the rebuilt shell carries the
         // data property — pass the original through and the codec would
         // invoke the getter afresh, minting a new unguarded channel.
-        Object.defineProperty(
-          top.next,
-          items[i],
-          top.accessorRead === i
-            ? { enumerable: true, configurable: true, writable: true, value: guarded }
-            : { ...top.descriptors[items[i]], value: guarded }
-        );
+        Object.defineProperty(top.next, items[i], {
+          value: guarded,
+          writable: true,
+          configurable: true,
+          enumerable: top.descriptors[items[i]].enumerable
+        });
         top.changed = true;
       }
       top.i++;
@@ -2029,7 +2046,17 @@ function enterGuard(value, state) {
   // rebuild. Getter-backed accessors are materialized by the driver (#3176):
   // invoked once there, rewritten as data properties on this shell.
   const descriptors = Object.getOwnPropertyDescriptors(value);
-  const next = Object.create(prototype, descriptors);
+  // The shell is scratch the codec reads once and the author never holds, so
+  // only `enumerable` has to survive — it is what the codec serializes.
+  // Replicating a frozen source's `writable`/`configurable` made the
+  // write-back below illegal (#3196) and pinning them true lost
+  // `enumerable: false` (#3198).
+  const rewritable = {};
+  for (const key of Object.keys(descriptors)) {
+    rewritable[key] = { ...descriptors[key], writable: true, configurable: true };
+    if ("get" in rewritable[key]) delete rewritable[key].writable;
+  }
+  const next = Object.create(prototype, rewritable);
   state.seen.set(value, next);
   return new Frame(OBJECT, value, next, Object.keys(descriptors), descriptors);
 }
@@ -2784,14 +2811,32 @@ export async function handleServerFunctionRequest(request, options = {}) {
     }
   }
 
-  let event = options.createEvent ? options.createEvent(request) : { request, locals: {} };
   // An async createEvent is out of contract (the type is synchronous), but
-  // handing a pending Promise downstream as the event is the worst failure
-  // available: the function runs, the caller sees 200, and every header the
-  // integration wrote on the real event's stub silently vanishes (#3170).
-  // Awaiting is strictly better than refusing — the resolved value IS the
-  // event the integration meant.
-  if (typeof (event as any)?.then === "function") event = await event;
+  // handing a pending Promise downstream is the worst failure available: the
+  // function runs, the caller sees 200, and every header the integration
+  // wrote on the stub vanishes (#3170). So it is awaited — but only when it
+  // is genuinely a Promise. The event is a datum an integration handed back,
+  // not something the runtime asked to be async, and awaiting anything
+  // wearing a `then` parked the request forever on a lazy-locals proxy and
+  // starved the event loop on a self-resolving one (#3199). A failure here
+  // is answered rather than thrown: no event exists yet, so there is no stub
+  // to fold and nothing downstream can report it.
+  let event;
+  try {
+    event = options.createEvent ? options.createEvent(request) : { request, locals: {} };
+    if (event instanceof Promise) event = await event;
+  } catch (error) {
+    // tagged like every other error answer, so the transport reads it as ours
+    const headers = new Headers();
+    headers.set(
+      ERROR_HEADER,
+      boundedErrorHeaderValue(
+        DEV ? String((error as any)?.message ?? error) : GENERIC_SERVER_ERROR_MESSAGE
+      )
+    );
+    const response = new Response(null, { status: 500, headers });
+    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+  }
   // Once an event exists, its response stub folds onto EVERY exit — the
   // refusals below included (#3159). A refusal that returned directly
   // dropped the stub silently: an integration's Set-Cookie written in
@@ -3202,7 +3247,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // foreign-response path at once (raw passthrough, unscripted returns and
   // throws, custom handleNoJS results, envelope-carried responses).
   const response = commitEventResponse(
-    enforceComposedHeaderInvariants(ownResponse(await dispatch())),
+    enforceComposedHeaderInvariants(ownResponse(await dispatch()), request.url),
     event
   );
   return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);

@@ -4460,7 +4460,10 @@ const STUB_GAP_FILL_EXCLUDED = /*#__PURE__*/ new Set(
     SINGLE_FLIGHT_HEADER,
     REVALIDATE_HEADER,
     REDIRECT_HEADER,
-    "Location"
+    "Location",
+    // written before the body exists, so it can only describe a different
+    // one (#3197)
+    "Content-Length"
   ].map(header => header.toLowerCase())
 );
 

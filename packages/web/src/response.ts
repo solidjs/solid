@@ -264,6 +264,9 @@ export function respond<T>(value: T, init: ResponseHelperInit = {}) {
   // Carry the metadata bodiless; the server-function encoder answers the
   // void shapes with a real null-body response and reports value-carrying
   // ones legibly.
+  // The body below is ours, so an author-supplied length describes something
+  // else — and on a null-body status there is no body at all (#3197).
+  headers.delete("Content-Length");
   if (NULL_BODY_STATUSES.has(responseInit.status)) {
     return new ResponseEnvelope(new Response(null, { ...responseInit, headers }), value);
   }
