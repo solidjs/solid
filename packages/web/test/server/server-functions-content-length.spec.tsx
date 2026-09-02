@@ -73,8 +73,9 @@ async function call(id: string, { road = "scripted" as Road, stub = null as stri
     }
   );
   const declared = response.headers.get("Content-Length");
+  const encoding = response.headers.get("Content-Encoding");
   const bytes = response.body ? (await response.arrayBuffer()).byteLength : 0;
-  return { status: response.status, declared, bytes };
+  return { status: response.status, declared, encoding, bytes };
 }
 
 /**
@@ -82,13 +83,23 @@ async function call(id: string, { road = "scripted" as Road, stub = null as stri
  * sent. Rendered as a row so a failure names every producer at once rather
  * than only the first.
  */
-function row(label: string, r: { status: number; declared: string | null; bytes: number }) {
-  return `${label}: status=${r.status} Content-Length=${r.declared ?? "absent"} body=${r.bytes} bytes`;
+function row(
+  label: string,
+  r: { status: number; declared: string | null; encoding: string | null; bytes: number }
+) {
+  return `${label}: status=${r.status} Content-Length=${r.declared ?? "absent"} Content-Encoding=${
+    r.encoding ?? "absent"
+  } body=${r.bytes} bytes`;
 }
 // The status is part of the contract: without it a handler that answers
 // nothing at all renders as `absent / 0 bytes` and passes.
 function expected(label: string, status: number, r: { declared: string | null; bytes: number }) {
-  return `${label}: status=${status} Content-Length=${r.declared === null ? "absent" : r.bytes} body=${r.bytes} bytes`;
+  // A framing header the runtime did not compute must simply be absent: a
+  // stale length truncates the answer, a stale encoding tells the peer to
+  // decompress bytes nobody compressed.
+  return `${label}: status=${status} Content-Length=${
+    r.declared === null ? "absent" : r.bytes
+  } Content-Encoding=absent body=${r.bytes} bytes`;
 }
 
 describe("Content-Length never describes a body the transport composed (#3197)", () => {
@@ -118,6 +129,15 @@ describe("Content-Length never describes a body the transport composed (#3197)",
       });
     });
     registerServerFunction("cl-string", async () => "seven!!");
+    // a Content-Encoding is the same defect wearing a different name: it
+    // describes a compression the transport never applied
+    registerServerFunction("cl-encoding-envelope", async () =>
+      respond({ ok: true, n: 42 }, { headers: { "Content-Encoding": "gzip" } })
+    );
+    registerServerFunction(
+      "cl-encoding-response",
+      async () => new Response("upstream body", { headers: { "Content-Encoding": "gzip" } })
+    );
     for (const status of [204, 205, 304]) {
       registerServerFunction(`cl-null-${status}`, async () =>
         respond(undefined, { status, headers: { "Content-Length": "5" } })
@@ -132,6 +152,8 @@ describe("Content-Length never describes a body the transport composed (#3197)",
       ["thrown 302 carrying a Content-Length", () => call("cl-redirect"), 200],
       ["stub gap-fill: middleware sets 0", () => call("cl-string", { stub: "0" }), 200],
       ["stub gap-fill: middleware sets 999", () => call("cl-string", { stub: "999" }), 200],
+      ["envelope + Content-Encoding", () => call("cl-encoding-envelope"), 200],
+      ["Response + Content-Encoding", () => call("cl-encoding-response"), 200],
       ["204 + Content-Length", () => call("cl-null-204"), 204],
       ["205 + Content-Length", () => call("cl-null-205"), 205],
       ["304 + Content-Length", () => call("cl-null-304"), 304],

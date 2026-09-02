@@ -257,6 +257,19 @@ export const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 304]);
  * consumers without the client runtime (no-JS form posts, direct HTTP)
  * get real JSON, while integrations read `value` — no reparse.
  */
+/**
+ * Headers that describe how a body is framed on the wire. Whenever the
+ * transport composes a body of its own, an author-supplied value describes
+ * the body it replaced — a stale `Content-Length` truncates the answer at the
+ * socket, and a stale `Content-Encoding` tells the peer to decompress bytes
+ * nobody compressed (#3197, RFC 9110 §8.6).
+ */
+export const COMPOSED_BODY_FRAMING: ReadonlySet<string> = /*#__PURE__*/ new Set([
+  "content-length",
+  "content-encoding",
+  "transfer-encoding"
+]);
+
 export function respond<T>(value: T, init: ResponseHelperInit = {}) {
   const { responseInit, headers } = initWithRevalidate(init);
   // A null-body status cannot carry the passthrough JSON body — building it
@@ -264,9 +277,9 @@ export function respond<T>(value: T, init: ResponseHelperInit = {}) {
   // Carry the metadata bodiless; the server-function encoder answers the
   // void shapes with a real null-body response and reports value-carrying
   // ones legibly.
-  // The body below is ours, so an author-supplied length describes something
+  // The body below is ours, so an author's framing headers describe something
   // else — and on a null-body status there is no body at all (#3197).
-  headers.delete("Content-Length");
+  for (const header of COMPOSED_BODY_FRAMING) headers.delete(header);
   if (NULL_BODY_STATUSES.has(responseInit.status)) {
     return new ResponseEnvelope(new Response(null, { ...responseInit, headers }), value);
   }
