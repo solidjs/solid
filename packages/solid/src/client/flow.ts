@@ -89,13 +89,6 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
       ? { keyed: props.keyed, fallback: () => props.fallback }
       : { keyed: props.keyed };
   if (IS_DEV) options.name = "<For>";
-  // Patch-mode list seam (DESIGN-PATCH-CHANNEL §3b): the returned accessor
-  // carries `$ll` metadata so a row-ops-aware renderer can drive a keyed
-  // store array structurally (registerRowOps → moves/creates/removals),
-  // bypassing mapArray entirely. Renderers that don't recognize the marker —
-  // and any list the driver declines (non-store each, impure rows, fallback/
-  // index usage) — simply call the accessor and get the classic mapArray
-  // path, created lazily under the component's owner on first read.
   const owner = getOwner();
   let mapped: (() => any) | undefined;
   const create = () =>
@@ -108,16 +101,10 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
   // creation ran at insert's hole evaluation, AFTER later siblings had
   // already claimed their template keys, shifting every hydration id after
   // the list (the siblings hydrated detached: dead buttons). Outside
-  // hydration the laziness stands — it is the driver seam's point: an
-  // engaged list never builds the mapArray at all. (A driver-ENGAGED
-  // hydration does not read this accessor either; driveList claims rows
-  // positionally through their own _hk keys.)
+  // hydration the laziness stands: an unread list never builds its
+  // mapArray at all.
   if (sharedConfig.hydrating) mapped = create();
   const list = () => (mapped ?? (mapped = create()))();
-  if (props.keyed !== false && !("fallback" in props) && props.children.length < 2)
-    // `keyed` rides along so the driver implements the DECLARED identity
-    // semantics (reference vs key fn) — see driveList's identity ruling.
-    (list as any).$ll = { each: () => props.each, row: props.children, keyed: props.keyed };
   return list as unknown as SolidElement;
 }
 

@@ -94,7 +94,6 @@ pub struct CompileOptions {
     pub effect_wrapper: Wrapper,
     pub wrap_conditionals: bool,
     pub memo_wrapper: Wrapper,
-    pub patch_driver: Wrapper,
     pub static_marker: String,
     pub require_import_source: Option<String>,
     pub validate: bool,
@@ -124,7 +123,6 @@ impl Default for CompileOptions {
             effect_wrapper: Wrapper::Default,
             wrap_conditionals: true,
             memo_wrapper: Wrapper::Default,
-            patch_driver: Wrapper::Default,
             static_marker: "@static".into(),
             require_import_source: None,
             validate: true,
@@ -424,14 +422,6 @@ fn dom_transform_config(options: &CompileOptions, built_ins: Vec<String>) -> Dom
         effect_wrapper: wrapper_name(&options.effect_wrapper, "effect"),
         wrap_conditionals: options.wrap_conditionals,
         memo_wrapper: wrapper_name(&options.memo_wrapper, "memo"),
-        // DORMANT by default (extraction ruling, solid DESIGN §16): compiled
-        // output must not import driver exports the release core only stubs.
-        // Wrapper::Default resolves to DISABLED for the patch driver; opt in
-        // with an explicit name against a channel-bearing core.
-        patch_driver: match &options.patch_driver {
-            Wrapper::Default => None,
-            other => wrapper_name(other, "patchDriver"),
-        },
         static_marker: options.static_marker.clone(),
         omit_nested_closing_tags: options.omit_nested_closing_tags,
         omit_last_closing_tag: options.omit_last_closing_tag,
@@ -465,7 +455,6 @@ fn dynamic_dom_config<'source>(
         effect_wrapper: dom.effect_wrapper,
         wrap_conditionals: dom.wrap_conditionals,
         memo_wrapper: dom.memo_wrapper,
-        patch_driver: dom.patch_driver,
         static_marker: dom.static_marker,
         omit_nested_closing_tags: dom.omit_nested_closing_tags,
         omit_last_closing_tag: dom.omit_last_closing_tag,

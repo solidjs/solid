@@ -24,11 +24,7 @@ export {
   onCleanup,
   onSettled,
   latest,
-  // Patch-channel compiler contract (undocumented as application API)
-  patchableRaw,
-  registerPatch,
-  registerRowOps,
-  registerSlotPatch,
+  // REGION-DELIVERY BRANCH: patch-channel contract gutted (regions replace it)
   storeIsShallow,
   storeHasFamily,
   storeHasOptimisticFamily,

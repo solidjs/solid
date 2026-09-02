@@ -278,10 +278,7 @@ const nativeOptionKeys = new Set([
   "omitLastClosingTag",
   "serverComponents",
   "builtIns",
-  "renderers",
-  // Patch-mode dual driver (stage 2, dormant by default): accepted so an
-  // explicit opt-in reaches the native core (napi maps to patch_driver).
-  "patchDriver"
+  "renderers"
 ]);
 
 function validateOptions(code, options) {
@@ -322,19 +319,6 @@ function validateOptions(code, options) {
         throw new TypeError("@solidjs/compiler `validate` option must be boolean");
       }
       nativeOptions.validate = value;
-      continue;
-    }
-    if (key === "patchDriver") {
-      if (typeof value !== "string" && typeof value !== "boolean") {
-        throw new TypeError(
-          "@solidjs/compiler `patchDriver` option must be a string import name or boolean"
-        );
-      }
-      // The napi wrapper mapping collapses boolean `true` into
-      // Wrapper::Default, which patch_driver treats as disabled (dormant
-      // default). Normalize the boolean opt-in to the default import name so
-      // it survives the native mapping.
-      nativeOptions.patchDriver = value === true ? "patchDriver" : value;
       continue;
     }
     if (nativeOptionKeys.has(key)) {
