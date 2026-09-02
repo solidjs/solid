@@ -173,6 +173,117 @@ describe("the body size bound", () => {
   });
 });
 
+describe("the request body lifecycle", () => {
+  it("answers a broken undeclared-length upload as malformed (#3217)", async () => {
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array([91]));
+      },
+      pull(controller) {
+        controller.error(new Error("client disconnected"));
+      }
+    });
+    const request = new Request("https://app.example/_server/data/bounds-sink", {
+      method: "POST",
+      body,
+      duplex: "half",
+      headers: {
+        "Sec-Fetch-Site": "same-origin",
+        "X-Server-Function-Instance": "server-function:test",
+        [BODY_FORMAT_HEADER]: JSON_FORMAT
+      }
+    } as RequestInit);
+
+    await expect(handleServerFunctionRequest(request)).resolves.toHaveProperty("status", 400);
+  });
+
+  it("stops buffering and cancels the upload source when the request aborts (#3218)", async () => {
+    const abort = new AbortController();
+    let sourceController!: ReadableStreamDefaultController<Uint8Array>;
+    let signalPullStarted!: () => void;
+    const pullStarted = new Promise<void>(resolve => (signalPullStarted = resolve));
+    let cancelled = false;
+    const body = new ReadableStream({
+      start(controller) {
+        sourceController = controller;
+        controller.enqueue(new Uint8Array([91]));
+      },
+      pull() {
+        signalPullStarted();
+        return new Promise<void>(() => {});
+      },
+      cancel() {
+        cancelled = true;
+        throw new Error("cancel failed");
+      }
+    });
+    const request = new Request("https://app.example/_server/data/bounds-sink", {
+      method: "POST",
+      body,
+      duplex: "half",
+      signal: abort.signal,
+      headers: {
+        "Sec-Fetch-Site": "same-origin",
+        "X-Server-Function-Instance": "server-function:test",
+        [BODY_FORMAT_HEADER]: JSON_FORMAT
+      }
+    } as RequestInit);
+    const pending = handleServerFunctionRequest(request);
+    await pullStarted;
+    abort.abort(new Error("client gone"));
+
+    const timedOut = Symbol("timed out");
+    let timer!: ReturnType<typeof setTimeout>;
+    const outcome = await Promise.race([
+      pending,
+      new Promise<typeof timedOut>(resolve => {
+        timer = setTimeout(() => resolve(timedOut), 500);
+      })
+    ]);
+    clearTimeout(timer);
+    // Let the baseline implementation's pending tee branch go; otherwise
+    // the deliberately stalled pull would survive a failing regression.
+    if (outcome === timedOut) sourceController.error(new Error("test cleanup"));
+
+    expect(outcome).not.toBe(timedOut);
+    expect((outcome as Response).status).toBe(400);
+    expect(cancelled).toBe(true);
+  });
+
+  it("cancels the upload source when refusing an oversized body (#3219)", async () => {
+    let sourceController!: ReadableStreamDefaultController<Uint8Array>;
+    let cancelled = false;
+    const body = new ReadableStream({
+      start(controller) {
+        sourceController = controller;
+      },
+      pull(controller) {
+        controller.enqueue(new Uint8Array(768));
+      },
+      cancel() {
+        cancelled = true;
+      }
+    });
+    const request = new Request("https://app.example/_server/data/bounds-sink", {
+      method: "POST",
+      body,
+      duplex: "half",
+      headers: {
+        "Sec-Fetch-Site": "same-origin",
+        "X-Server-Function-Instance": "server-function:test",
+        [BODY_FORMAT_HEADER]: JSON_FORMAT
+      }
+    } as RequestInit);
+
+    const response = await handleServerFunctionRequest(request, { bodySizeLimit: 1024 });
+    // Release the baseline tee source before asserting the regression.
+    if (!cancelled) sourceController.error(new Error("test cleanup"));
+
+    expect(response.status).toBe(413);
+    expect(cancelled).toBe(true);
+  });
+});
+
 describe("the argument count bound", () => {
   it("refuses an argument list past the default limit as malformed", async () => {
     const response = await handleServerFunctionRequest(

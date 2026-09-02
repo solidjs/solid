@@ -1142,22 +1142,43 @@ function stripUnsafeArgumentKeys(value) {
  * Buffers a POST body that declared no length (chunked transfer), refusing
  * once it runs past the limit — a declared length is enforced by the HTTP
  * server's own framing and is checked against the limit before this runs.
- * Returns a replacement Request carrying the buffered body (everything
- * else, signal included, is inherited), or `null` past the limit.
+ * The original body is read, not a clone: cancellation must tear down the
+ * upload source rather than one branch of a tee (#3219). On success the
+ * consumed body is replaced so the ordinary decoder can still read it.
+ * Returns that replacement Request, or `null` past the limit.
  */
 async function bufferBodyWithin(request, limit) {
-  const reader = request.clone().body.getReader();
+  const reader = request.body.getReader();
+  const signal = request.signal;
   const chunks = [];
   let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > limit) {
-      reader.cancel().catch(() => {});
-      return null;
+  // Fetch does not couple a Request's signal to an arbitrary body stream.
+  // Wake a pending read by cancelling its real reader when the host tells us
+  // the request is gone (#3218); every cancel promise is observed so a
+  // rejecting source cannot become an unhandled rejection.
+  const onAbort = () => {
+    reader.cancel(signal.reason).catch(() => {});
+  };
+  if (signal.aborted) onAbort();
+  else signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (signal.aborted) throw signal.reason;
+      if (done) break;
+      total += value.byteLength;
+      if (total > limit) {
+        reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } catch (error) {
+    reader.cancel(error).catch(() => {});
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+    reader.releaseLock();
   }
   const body = new Uint8Array(total);
   let offset = 0;
@@ -2795,7 +2816,21 @@ export async function handleServerFunctionRequest(request, options = {}) {
       return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
     }
     if (!(declared > 0)) {
-      const bounded = await bufferBodyWithin(request, bodySizeLimit);
+      let bounded;
+      try {
+        bounded = await bufferBodyWithin(request, bodySizeLimit);
+      } catch {
+        // A failed or aborted upload is an incomplete argument encoding,
+        // not a handler failure. Match the decoder's malformed-body answer
+        // instead of rejecting out of dispatch (#3217).
+        const response = new Response(DEV ? "Malformed server function arguments" : null, {
+          status: 400
+        });
+        return finalizeTransportResponse(
+          protectsRequest ? withCSRFVary(response) : response,
+          method
+        );
+      }
       if (bounded === null) {
         const response = new Response(
           DEV ? "Server function request body exceeds the configured bodySizeLimit" : null,
