@@ -357,7 +357,17 @@ module.exports = [
     // In-place class mutation fix (#3188): 17.67 -> 17.68 KB, measured at
     // 17.673. Hydration seeds the applied-class snapshot without mutating
     // the claimed DOM so the first live in-place change still diffs.
-    limit: "17.72 KB",
+    //
+    // mapArray small-move fast path (#3227, 2026-09-02): 17.72 -> 18.26 KB,
+    // measured at 18.20 — trySmallMove in mapArray's keyed path, retained by
+    // every For (A/B against the branch base: the five For-bearing scenarios
+    // pay 430-490 B; non-For bundles pay zero). Buys delta-cost keyed
+    // reorders (rotate/swap/displace/removal, ≤32 displaced rows): jfb
+    // swap1k −6.5% validated with the main suite clean; hopeless shapes
+    // (reverse/shuffle) bail within a bounded compare budget and keep the
+    // general path byte-for-byte. Scoped to plain identity-keyed mode; row-
+    // signal and index modes never enter it.
+    limit: "18.26 KB",
     modifyEsbuildConfig
   },
   {
@@ -428,7 +438,10 @@ module.exports = [
     // retains every store family, so it pays the whole module. Ruled
     // correctness-over-size in the #3164 thread; conscious bump.
     path: "hydrating-store-app.js",
-    limit: "26.99 KB",
+    // mapArray small-move fast path (#3227, 2026-09-02): 26.99 -> 27.49 KB,
+    // measured at 27.43 — see the hydrating no-store note; this scenario
+    // retains mapArray through the store families.
+    limit: "27.49 KB",
     modifyEsbuildConfig
   },
   {
@@ -458,7 +471,9 @@ module.exports = [
     // scheduler-resident ledger (nothing to shake), so it pays only the
     // hook call site's second argument plus brotli layout drift.
     path: "csr-app.js",
-    limit: "13.11 KB",
+    // mapArray small-move fast path (#3227, 2026-09-02): 13.11 -> 13.60 KB,
+    // measured at 13.54 — see the hydrating no-store note.
+    limit: "13.60 KB",
     modifyEsbuildConfig
   },
   {
@@ -483,7 +498,9 @@ module.exports = [
     // Fold relocation pass (2026-09-01): 14.69 -> 14.68 KB, measured at
     // 14.67 — the core-floor relocation (see that note).
     path: "csr-app-patch.js",
-    limit: "14.81 KB",
+    // mapArray small-move fast path (#3227, 2026-09-02): 14.81 -> 15.36 KB,
+    // measured at 15.30 — see the hydrating no-store note.
+    limit: "15.36 KB",
     modifyEsbuildConfig
   },
   {
@@ -508,7 +525,9 @@ module.exports = [
     // Fold relocation pass (2026-09-01): 16.94 -> 16.91 KB, measured at
     // 16.90 — retained-ledger shake, same as the hydrating no-store note.
     path: "csr-app-patch-lists.js",
-    limit: "17.06 KB",
+    // mapArray small-move fast path (#3227, 2026-09-02): 17.06 -> 17.60 KB,
+    // measured at 17.54 — see the hydrating no-store note.
+    limit: "17.60 KB",
     modifyEsbuildConfig
   },
   {
