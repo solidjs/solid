@@ -37,8 +37,7 @@ import {
   notifyKeyDiff,
   targetsEqual,
   notifyKeyValue,
-  unwrapValue,
-  targetIsPlain
+  unwrapValue
 } from "./store.js";
 import {
   ownedRaw,

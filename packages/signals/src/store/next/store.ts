@@ -402,13 +402,6 @@ function cloneRaw(source: Record<PropertyKey, any>, t?: StoreNextTarget): Record
     : Object.create(Object.getPrototypeOf(source), descs);
 }
 
-/** Scanned plainness for patch admission (patchableRaw): runs the one-time
- * accessor scan if it hasn't happened yet — the sticky `a` flag alone is not
- * trustworthy before a scan (it starts false and is discovered lazily). */
-export function targetIsPlain(target: StoreNextTarget): boolean {
-  return target.sc ? !target.a : scanAccessorsOnce(target);
-}
-
 /** One-time own-accessor scan (Annex-B probes, no descriptor allocation);
  * returns true when the container is plain data (overlay-safe). */
 function scanAccessorsOnce(target: StoreNextTarget): boolean {
