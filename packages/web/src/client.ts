@@ -2039,7 +2039,7 @@ function assignProp(node, prop, value, prev, skipRef, nodeName) {
     const delegate = DelegatedEvents.has(name);
     if (!delegate && prev) {
       const h = Array.isArray(prev) ? prev[0] : prev;
-      node.removeEventListener(name, h);
+      node.removeEventListener(name, h, typeof h !== "function" && h);
     }
     if (delegate || value) {
       addEvent(node, name, value, delegate);
