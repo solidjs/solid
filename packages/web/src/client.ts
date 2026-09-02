@@ -160,6 +160,7 @@ export {
 } from "./constants.js";
 
 const $$EVENT_OWNER = "_$SOLID_EVENT_OWNER";
+const $$EVENT_TUPLE = Symbol();
 const hasOwn = Object.prototype.hasOwnProperty;
 const INNER_OWNED = {};
 const delegatedEvents = new Set();
@@ -594,7 +595,7 @@ export function className(node, value, prev) {
     node.removeAttribute("class");
   } else applied = node._$classes || classListToObject(prev || {});
   value = classListToObject(value);
-  const classKeys = Object.keys(value || {});
+  const classKeys = Object.keys(value);
   const prevKeys = Object.keys(applied);
   let i, len;
   for (i = 0, len = prevKeys.length; i < len; i++) {
@@ -620,20 +621,25 @@ export function addEvent(
 export function addEvent(node, name, handler, delegate) {
   if (delegate) {
     const key = `$$${name}`;
+    let data;
     if (Array.isArray(handler)) {
+      data = handler[1];
       node[key] = handler[0];
-      node[`${key}Data`] = handler[1];
-    } else {
-      node[key] = handler;
-      node[`${key}Data`] = undefined;
-    }
-  } else if (Array.isArray(handler)) {
+    } else node[key] = handler;
+    node[`${key}Data`] = data;
+    return;
+  }
+  if (Array.isArray(handler)) {
     const handlerFn = handler[0];
     const listener = e => handlerFn.call(node, handler[1], e);
+    // Keep authored identity on this attachment's wrapper, never on the
+    // shared element where another spread/root/direct listener could replace it.
+    listener[$$EVENT_TUPLE] = handler;
     node.addEventListener(name, listener);
     return listener;
-  } else node.addEventListener(name, handler, typeof handler !== "function" && handler);
-  return delegate ? undefined : handler;
+  }
+  node.addEventListener(name, handler, typeof handler !== "function" && handler);
+  return handler;
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function style(
   node: Element,
@@ -2053,16 +2059,16 @@ function assignProp(node, prop, value, prev, skipRef, nodeName) {
     const name = prop.slice(2).toLowerCase();
     const delegate = DelegatedEvents.has(name);
     if (!delegate && prev) {
-      // Bound tuples keep an internal [attached listener, authored tuple]
-      // record so an unrelated spread rerun can preserve listener identity.
-      if (Array.isArray(prev) && prev[1] === value) return prev;
-      const h = Array.isArray(prev) ? prev[0] : prev;
-      node.removeEventListener(name, h, typeof h !== "function" && h);
+      // prev is the exact attached listener. Tuple wrappers carry their
+      // authored tuple so unrelated spread reruns retain that same listener.
+      if (Array.isArray(value) && typeof prev === "function" && prev[$$EVENT_TUPLE] === value)
+        return prev;
+      node.removeEventListener(name, prev, typeof prev !== "function" && prev);
     }
     if (delegate || value) {
       const attached = addEvent(node, name, value, delegate);
       delegate && delegateEvents([name]);
-      if (!delegate) return Array.isArray(value) ? [attached, value] : attached;
+      if (!delegate) return attached;
     }
   } else if (
     (hasNamespace && prop.slice(0, 5) === "prop:") ||
