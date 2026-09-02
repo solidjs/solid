@@ -42,6 +42,21 @@ describe("settlePendingSource uninitialized-source invariant", () => {
     expect(codes).toContain("SETTLE_WALK_UNINITIALIZED_SOURCE");
   });
 
+  it("fires when self is the only pending source", () => {
+    const source = fakeNode({ _x: { _error: null, _pendingSources: new Set() } });
+    source._x!._pendingSources = new Set([source]);
+    const codes = captureCodes(() => settlePendingSource(source));
+    expect(codes).toContain("SETTLE_WALK_UNINITIALIZED_SOURCE");
+  });
+
+  it("stays silent when self ownership transfers to a replacement source", () => {
+    const source = fakeNode({ _x: { _error: null, _pendingSources: new Set() } });
+    const replacement = fakeNode({ _statusFlags: 0 });
+    source._x!._pendingSources = new Set([source, replacement]);
+    const codes = captureCodes(() => settlePendingSource(source));
+    expect(codes).not.toContain("SETTLE_WALK_UNINITIALIZED_SOURCE");
+  });
+
   it("stays silent for a transition-held first landing (truth parked in _pendingValue)", () => {
     // Streamed hydration's shape: the first landing committed into a held
     // pending value, so the flag is still set but truth exists.

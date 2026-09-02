@@ -205,24 +205,30 @@ export function settlePendingSource(el: Computed<any>): void {
   // that never happened. Silent in production; loud in dev so a future
   // call site that violates the contract fails in its author's test run
   // instead of wedging a downstream app.
-  if (
-    __DEV__ &&
-    el._statusFlags & STATUS_UNINITIALIZED &&
-    el._pendingValue === NOT_PENDING &&
-    !el._x?._error
-  ) {
-    emitDiagnostic({
-      code: "SETTLE_WALK_UNINITIALIZED_SOURCE",
-      kind: "lifecycle",
-      severity: "error",
-      message:
-        "[SETTLE_WALK_UNINITIALIZED_SOURCE] settlePendingSource was called on a source that " +
-        "never produced a value. Settling parked readers requires truth to reveal — an " +
-        "uninitialized source waking its dependents serves them its initial face instead of " +
-        "settled data.",
-      ownerId: el.id,
-      ownerName: (el as any)._name
-    });
+  if (__DEV__) {
+    const sources = el._x?._pendingSources;
+    if (
+      el._statusFlags & STATUS_UNINITIALIZED &&
+      el._pendingValue === NOT_PENDING &&
+      !el._x?._error &&
+      // A replacement source makes this a cleanup-only transfer: removing
+      // self leaves the source and every propagated dependent parked. No
+      // sources (or self alone) would release readers without truth.
+      !(sources?.size && (sources.size > 1 || !sources.has(el)))
+    ) {
+      emitDiagnostic({
+        code: "SETTLE_WALK_UNINITIALIZED_SOURCE",
+        kind: "lifecycle",
+        severity: "error",
+        message:
+          "[SETTLE_WALK_UNINITIALIZED_SOURCE] settlePendingSource was called on a source that " +
+          "never produced a value. Settling parked readers requires truth to reveal — an " +
+          "uninitialized source waking its dependents serves them its initial face instead of " +
+          "settled data.",
+        ownerId: el.id,
+        ownerName: (el as any)._name
+      });
+    }
   }
   // The normal landing path already cleared the source's own set. Superseded
   // re-parks arrive here with an abandoned self entry, which must retire in

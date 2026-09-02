@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createMemo,
   createRoot,
   createSignal,
+  DEV,
   flush,
   getOwner,
   type SourceAccessor
@@ -18,6 +19,16 @@ async function settle() {
   await Promise.resolve();
   await Promise.resolve();
   flush();
+}
+
+function captureDiagnosticCodes(): () => string[] {
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const capture = DEV!.diagnostics.capture();
+  return () => {
+    const codes = capture.stop().map(event => event.code);
+    error.mockRestore();
+    return codes;
+  };
 }
 
 describe("superseded flight pending-source ownership (#3226)", () => {
@@ -61,8 +72,10 @@ describe("superseded flight pending-source ownership (#3226)", () => {
     expect(dependentNode._x._pendingSources.has(sourceNode)).toBe(true);
     expect(leafNode._x._pendingSources.has(sourceNode)).toBe(true);
 
+    const stopCapture = captureDiagnosticCodes();
     setRepark(true);
     flush();
+    expect(stopCapture()).not.toContain("SETTLE_WALK_UNINITIALIZED_SOURCE");
 
     // The replacement run is now owned by blockingSource. The abandoned
     // flight's self key must be gone from both the source and every propagated
@@ -169,10 +182,12 @@ describe("superseded flight pending-source ownership (#3226)", () => {
       return dispose;
     });
 
+    const stopCapture = captureDiagnosticCodes();
     setRepark(true);
     flush();
     await Promise.resolve();
     await Promise.resolve();
+    expect(stopCapture()).not.toContain("SETTLE_WALK_UNINITIALIZED_SOURCE");
 
     expect(sourceNode._x._pendingSources.has(sourceNode)).toBe(false);
     expect(sourceNode._x._pendingSources.has(blockerNode)).toBe(true);
