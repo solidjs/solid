@@ -2,6 +2,14 @@ const path = require("path");
 const ts = require("typescript");
 const { projectTsrxForTypecheck } = require("..");
 
+function sameFileName(left, right) {
+  const canonical = name => {
+    const resolved = ts.sys.resolvePath(name).replaceAll("\\", "/");
+    return ts.sys.useCaseSensitiveFileNames ? resolved : resolved.toLowerCase();
+  };
+  return canonical(left) === canonical(right);
+}
+
 function typecheck(code) {
   const filename = path.join(__dirname, "__virtual-tsrx-projection.tsx");
   const repository = path.resolve(__dirname, "../../..");
@@ -23,10 +31,10 @@ function typecheck(code) {
   };
   const host = ts.createCompilerHost(options);
   const getSourceFile = host.getSourceFile.bind(host);
-  host.fileExists = name => name === filename || ts.sys.fileExists(name);
-  host.readFile = name => (name === filename ? code : ts.sys.readFile(name));
+  host.fileExists = name => sameFileName(name, filename) || ts.sys.fileExists(name);
+  host.readFile = name => (sameFileName(name, filename) ? code : ts.sys.readFile(name));
   host.getSourceFile = (name, languageVersion, onError, shouldCreateNewSourceFile) =>
-    name === filename
+    sameFileName(name, filename)
       ? ts.createSourceFile(name, code, languageVersion, true, ts.ScriptKind.TSX)
       : getSourceFile(name, languageVersion, onError, shouldCreateNewSourceFile);
   const program = ts.createProgram([filename], options, host);
@@ -61,14 +69,15 @@ function createLanguageService(code) {
     getDefaultLibFileName: compilerOptions => ts.getDefaultLibFilePath(compilerOptions),
     getScriptFileNames: () => [filename],
     getScriptSnapshot: name => {
-      if (name === filename) return ts.ScriptSnapshot.fromString(code);
+      if (sameFileName(name, filename)) return ts.ScriptSnapshot.fromString(code);
       const text = ts.sys.readFile(name);
       return text === undefined ? undefined : ts.ScriptSnapshot.fromString(text);
     },
     getScriptVersion: () => "0",
-    fileExists: ts.sys.fileExists,
+    fileExists: name => sameFileName(name, filename) || ts.sys.fileExists(name),
     readDirectory: ts.sys.readDirectory,
-    readFile: ts.sys.readFile
+    readFile: name => (sameFileName(name, filename) ? code : ts.sys.readFile(name)),
+    useCaseSensitiveFileNames: () => ts.sys.useCaseSensitiveFileNames
   };
   return { filename, service: ts.createLanguageService(host) };
 }
