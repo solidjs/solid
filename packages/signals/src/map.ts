@@ -114,6 +114,146 @@ const pureOptions = { ownedWrite: true };
 // were, so the retry diffs against uncorrupted state. Consequence of the
 // strong-abort ordering: removed rows now dispose AFTER the pass's new rows
 // are created (you cannot destroy state before knowing the pass will land).
+
+/** SMALL-MOVE fast path (jfb-reorder profile, 2026-09-02): rotates, swaps,
+ * small displacements, and removals leave a keyed window that is the old
+ * window SHIFTED, with 32-or-fewer genuinely displaced identities — but the
+ * general diff pays O(newLen) regardless (window key-map, four full-length
+ * staged arrays, element-copied prefix/suffix): ~50-140µs/op on 1000 rows
+ * against ~20µs of actual DOM work.
+ *
+ * Scoped to the PLAIN identity-keyed mode (no row signals, no index
+ * accessors — the hot For shape); other modes keep the general path, which
+ * halves this function's size for the same benchmark wins.
+ *
+ * PHASE 1 (scan, zero allocation beyond two small ledgers): a two-pointer
+ * walk records ALIGNED RUNS — at most ledger+1 — realigning at boundaries
+ * with bounded lookahead (interleaved splices stack shift offsets past
+ * single-step). A compare BUDGET bails hopeless shapes (reverse, shuffle)
+ * almost immediately. PHASE 2 (commit, success only): slice() the live
+ * arrays (native memcpy keeps the fresh-identity contract downstream change
+ * propagation relies on), copy only shifted runs, patch displaced pairs,
+ * dispose leftover sources (dif < 0). Unmatched destinations (replacements,
+ * insertions) bail with nothing staged. Kept OUT of updateKeyedMap:
+ * inlining deoptimized the general path (JIT function-size budget). */
+function trySmallMove<Item, MappedItem>(
+  data: MapData<Item, MappedItem>,
+  newItems: Item[],
+  newLen: number,
+  start: number
+): boolean {
+  const oldItems = data._items;
+  const oldEnd = data._len - 1;
+  const srcPos: number[] = [];
+  const dstPos: number[] = [];
+  const runs: number[] = []; // flat triples: oldStart, newStart, length
+  let budget = 256;
+  let i = start;
+  let j = start;
+  let inRun = false;
+  while (i <= oldEnd && j <= newLen - 1) {
+    const oldItem = oldItems[i];
+    const newItem = newItems[j];
+    if (oldItem === newItem) {
+      if (!inRun) {
+        runs.push(i, j, 0);
+        inRun = true;
+      }
+      runs[runs.length - 1]++;
+      i++;
+      j++;
+      continue;
+    }
+    inRun = false;
+    // Bounded realignment lookahead, shorter distance wins.
+    let del = -1;
+    let lim = Math.min(32 - srcPos.length, oldEnd - i, budget);
+    for (let a = 1; a <= lim; a++) {
+      if (oldItems[i + a] === newItem) {
+        del = a;
+        break;
+      }
+    }
+    budget -= del === -1 ? lim : del;
+    let ins = -1;
+    lim = Math.min(32 - dstPos.length, newLen - 1 - j, budget);
+    for (let a = 1; a <= lim; a++) {
+      if (newItems[j + a] === oldItem) {
+        ins = a;
+        break;
+      }
+    }
+    budget -= ins === -1 ? lim : ins;
+    if (del !== -1 && (ins === -1 || del <= ins)) {
+      while (del-- > 0) srcPos.push(i++);
+      continue;
+    }
+    if (ins !== -1) {
+      while (ins-- > 0) dstPos.push(j++);
+      continue;
+    }
+    if (budget <= 0 || srcPos.length === 32 || dstPos.length === 32) return false;
+    srcPos.push(i++);
+    dstPos.push(j++);
+  }
+  for (; i <= oldEnd; i++) {
+    if (srcPos.length === 32) return false;
+    srcPos.push(i);
+  }
+  for (; j <= newLen - 1; j++) {
+    if (dstPos.length === 32) return false;
+    dstPos.push(j);
+  }
+  // Pair destinations with displaced sources (unmatched = replacement or
+  // insertion → general path); leftovers dispose (dif < 0).
+  let consumed: boolean[] | undefined;
+  if (dstPos.length !== 0) {
+    consumed = new Array(srcPos.length);
+    for (j = 0; j < dstPos.length; j++) {
+      let found = -1;
+      for (i = 0; i < srcPos.length; i++) {
+        if (!consumed[i] && oldItems[srcPos[i]] === newItems[dstPos[j]]) {
+          found = i;
+          break;
+        }
+      }
+      if (found === -1) return false;
+      consumed[found] = true;
+      dstPos[j] = (dstPos[j] << 6) | found; // pack pairing (found < 32)
+    }
+  }
+  // PHASE 2: commit.
+  const oldMappings = data._mappings;
+  const oldNodes = data._nodes;
+  const mappings = oldMappings.slice(0, newLen);
+  const nodes = oldNodes.slice(0, newLen);
+  for (let r = 0; r < runs.length; r += 3) {
+    const ro = runs[r];
+    const rn = runs[r + 1];
+    if (ro !== rn) {
+      for (let a = 0; a < runs[r + 2]; a++) {
+        mappings[rn + a] = oldMappings[ro + a];
+        nodes[rn + a] = oldNodes[ro + a];
+      }
+    }
+  }
+  for (j = 0; j < dstPos.length; j++) {
+    const p = dstPos[j] >> 6;
+    const q = srcPos[dstPos[j] & 63];
+    mappings[p] = oldMappings[q];
+    nodes[p] = oldNodes[q];
+  }
+  data._mappings = mappings;
+  data._nodes = nodes;
+  data._len = newLen;
+  data._items = newItems.slice(0);
+  // Dispose unmatched sources LAST (general-path ordering).
+  for (i = 0; i < srcPos.length; i++) {
+    if (consumed === undefined || !consumed[i]) oldNodes[srcPos[i]].dispose();
+  }
+  return true;
+}
+
 function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[] {
   const newItems = this._list() || [],
     newLen = newItems.length;
@@ -235,6 +375,22 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
         this._items = newItems.slice(0);
         return;
       }
+
+      // SMALL-MOVE FAST PATH: extracted to its own function — inlining it
+      // here bloats updateKeyedMap past the JIT's optimization budget and
+      // deoptimizes the GENERAL path (measured 2x on reverse). Gated to
+      // LARGE trimmed windows: when the trims already shrank the window
+      // (plain removals, tail edits), the general path is window-
+      // proportional and cheap — the fast path would only re-walk what the
+      // trims proved.
+      if (
+        newLen <= this._len &&
+        end - start > 64 &&
+        this._rows === undefined &&
+        this._indexes === undefined &&
+        trySmallMove(this, newItems as Item[], newLen, start)
+      )
+        return;
 
       const dif = newLen - this._len;
       const temp: MappedItem[] = new Array(newLen);
