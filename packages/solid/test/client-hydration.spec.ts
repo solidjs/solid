@@ -1222,7 +1222,7 @@ describe("bare ssrSource 'client' — unasked through the gate, computes after",
     ).not.toThrow();
   });
 
-  test("bare client store: seed visible during hydration, derive runs after the gate", () => {
+  test("bare client store hides its seed until the client derive completes", () => {
     startHydration({});
     let store: any;
     createRoot(
@@ -1234,14 +1234,64 @@ describe("bare ssrSource 'client' — unasked through the gate, computes after",
           { name: "seed" },
           { ssrSource: "client" }
         );
-        // Gate closed: the derive has not run — the seed is what's there.
-        expect(store.name).toBe("seed");
+        expect(() => store.name).toThrow(NotReadyError);
       },
       { id: "t" }
     );
     stopHydration();
     flush();
     expect(store.name).toBe("computed");
+  });
+
+  test("createStore(fn) keeps Loading fallback through the first client flight", async () => {
+    startHydration({});
+    const read = (value: any): any => {
+      while (typeof value === "function") value = value();
+      return value;
+    };
+
+    let store: any;
+    let result: any;
+    let deriveRan = 0;
+    let resolveDerive!: (value: { name: string }) => void;
+    createRoot(
+      () => {
+        [store] = createStore<{ name: string }>(
+          () => {
+            deriveRan++;
+            return new Promise(resolve => (resolveDerive = resolve));
+          },
+          { name: "seed" },
+          { ssrSource: "client" }
+        );
+        result = Loading({
+          fallback: "loading" as any,
+          get children() {
+            return store.name;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(deriveRan).toBe(0);
+    expect(() => store.name).toThrow(NotReadyError);
+    expect(read(result)).toBe("loading");
+
+    stopHydration();
+    flush();
+
+    expect(deriveRan).toBe(1);
+    expect(() => store.name).toThrow(NotReadyError);
+    expect(read(result)).toBe("loading");
+
+    resolveDerive({ name: "landed" });
+    await new Promise<void>(resolve => setTimeout(resolve));
+    flush();
+
+    expect(store.name).toBe("landed");
+    expect(read(result)).toBe("landed");
   });
 });
 

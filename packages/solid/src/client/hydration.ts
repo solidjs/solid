@@ -1129,14 +1129,10 @@ function hydrateStoreLikeFn(
     return withHydrationGate(hydrated =>
       coreFn(
         (draft: any) => {
-          // Windowed (seedLoadingValue): UNASKED — a sync no-op derive would
-          // close the seed window before the real derive ever runs (see the
-          // signal gate above). Bare: a no-op derive — stores have no
-          // uninitialized state (reads always serve state), and without a
-          // window an UNASKED return would be treated as an async result and
-          // suspend the projection at creation; the seed shows until the gate
-          // flips and the real derive runs as a fresh first mount.
-          if (!hydrated()) return hasLoadingWindow(options) ? UNASKED : undefined;
+          // Keep client-only stores unasked through hydration. With
+          // seedLoadingValue the seed is commit #0 and remains readable;
+          // otherwise the store suspends until its first client result.
+          if (!hydrated()) return UNASKED;
           return fn(draft);
         },
         initialValue,
