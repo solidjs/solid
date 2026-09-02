@@ -1135,7 +1135,7 @@ function stripOwnProtoKeys(value) {
       // own properties (#3200). `constructor` rides alongside `__proto__`
       // because a recursive merge reaches Object.prototype through it (#3202).
       for (const key of UNSAFE_ARGUMENT_KEYS) {
-        if (Object.prototype.hasOwnProperty.call(v, key)) delete v[key];
+        if (Object.hasOwn(v, key)) delete v[key];
       }
       for (const key of Object.keys(v)) stack.push(v[key]);
     }

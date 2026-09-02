@@ -185,6 +185,37 @@ describe("decoded arguments cannot reach Object.prototype (#3202)", () => {
     );
   });
 
+  it("a non-plain carrier does not shelter the payload underneath it (#3200)", async () => {
+    // The reachable shape is not an unsafe key ON a carrier — seroval drops
+    // that at encode — but a plain object one level UNDER one. The walk used
+    // to stop at any non-plain prototype, so an `Error`, or any class the
+    // codec revives with own properties, hid everything beneath it. Codec
+    // road only: the JSON road cannot express a carrier.
+    const rows: string[] = [];
+    for (const road of ["codec-query", "codec-body"] as Road[]) {
+      const carrier = Object.assign(new Error("validation failed"), {
+        payload: { ctorKey: { prototypeKey: { polluted: "viaCarrier" } }, n: 1 }
+      });
+      const { status, seen } = await decodeArgument(road, carrier);
+      const payload = (seen as any)?.payload;
+      deepMerge({}, payload ?? {});
+      const leaked = (Object.prototype as any).polluted;
+      delete (Object.prototype as any).polluted;
+      rows.push(
+        `${road}: status=${status} payloadKeys=${JSON.stringify(
+          Object.keys(payload ?? {})
+        )} Object.prototype.polluted=${JSON.stringify(leaked)}`
+      );
+    }
+    expect(rows).toEqual(
+      rows.map(
+        r =>
+          `${r.slice(0, r.indexOf(": ") + 2)}status=200 payloadKeys=["n"] ` +
+          `Object.prototype.polluted=undefined`
+      )
+    );
+  });
+
   it("control: ordinary data with a similar name is not eaten", async () => {
     const rows: string[] = [];
     for (const road of ROADS) {

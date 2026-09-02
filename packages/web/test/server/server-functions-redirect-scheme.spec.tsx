@@ -53,16 +53,24 @@ let seq = 0;
 
 async function ship(road: Road, target: string) {
   const id = `scheme-${seq++}`;
+  let ran = 0;
   registerServerFunction(id, async () => {
+    ran++;
     // `Headers` refuses CR/LF in a value outright, so those variants never
-    // reach the floor at all — report that rather than hiding it as a pass
+    // reach the floor — that protection comes from the platform, not from the
+    // code under test, so it is reported as its own outcome rather than
+    // counted as a refusal the floor made.
     const headers = new Headers();
-    if (road === "redirect-header") {
-      headers.set(REDIRECT_HEADER, `302 ${target}`);
-      return new Response(null, { status: 200, headers });
+    try {
+      if (road === "redirect-header") {
+        headers.set(REDIRECT_HEADER, `302 ${target}`);
+        return new Response(null, { status: 200, headers });
+      }
+      headers.set("Location", target);
+      return new Response(null, { status: 302, headers });
+    } catch {
+      return new Response("HEADERS-REFUSED", { status: 200 });
     }
-    headers.set("Location", target);
-    return new Response(null, { status: 302, headers });
   });
   const scripted = road === "masked";
   const form = road === "nojs";
@@ -86,21 +94,21 @@ async function ship(road: Road, target: string) {
       { provideEvent }
     );
   } catch {
-    return { shipped: null as string | null, refused: true, protocol: "n/a" };
+    return { ran, shipped: null as string | null, refused: true, protocol: "n/a" };
   }
-  if (response.status === 500) return { shipped: null, refused: true, protocol: "n/a" };
+  if (response.status === 500) return { ran, shipped: null, refused: true, protocol: "n/a" };
   const carried = response.headers.get(REDIRECT_HEADER);
   const shipped = carried
     ? carried.slice(carried.indexOf(" ") + 1)
     : response.headers.get("Location");
-  if (shipped === null) return { shipped: null, refused: true, protocol: "n/a" };
+  if (shipped === null) return { ran, shipped: null, refused: true, protocol: "n/a" };
   let protocol: string;
   try {
     protocol = new URL(shipped, "https://app.example/here").protocol;
   } catch {
     protocol = "unparseable";
   }
-  return { shipped, refused: false, protocol };
+  return { ran, shipped, refused: false, protocol };
 }
 
 /** Every scheme the floor refuses. */
@@ -138,7 +146,7 @@ describe("non-http(s) navigation targets are refused however they are spelled (#
           const r = await ship(road, target);
           const safe = r.refused || r.protocol === "http:" || r.protocol === "https:";
           rows.push(
-            `${scheme}/${name}/${road}: ${
+            `${scheme}/${name}/${road}: ran=${r.ran} ${
               safe
                 ? "http(s)-or-refused"
                 : `SHIPPED ${JSON.stringify(r.shipped)} reads as ${r.protocol}`
@@ -147,7 +155,7 @@ describe("non-http(s) navigation targets are refused however they are spelled (#
         }
         // the client-side decoder enforces the same floor independently
         rows.push(
-          `${scheme}/${name}/decoder: ${
+          `${scheme}/${name}/decoder: ran=1 ${
             decodeRedirectHeaderValue(`302 ${target}`) === undefined
               ? "http(s)-or-refused"
               : "DECODED a non-http(s) target"
@@ -155,7 +163,11 @@ describe("non-http(s) navigation targets are refused however they are spelled (#
         );
       }
     }
-    expect(rows).toEqual(rows.map(r => `${r.slice(0, r.indexOf(":") + 1)} http(s)-or-refused`));
+    // `ran=1` is part of the contract: a handler that dispatches nothing
+    // renders every row as "refused" and would otherwise pass.
+    expect(rows).toEqual(
+      rows.map(r => `${r.slice(0, r.indexOf(":") + 1)} ran=1 http(s)-or-refused`)
+    );
   });
 
   it("keeps every allowance the floor deliberately grants", async () => {
