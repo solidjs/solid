@@ -3231,14 +3231,15 @@ describe("Async Iterable — createProjection", () => {
     const { context } = createStreamTrackingContext();
     sharedConfig.context = context;
 
-    const d = deferred<{ name: string }>();
+    const key = Symbol("status");
+    const d = deferred<{ name: string; [key]: string }>();
     const error = new Error("projection failed");
     let store: any;
     let source!: Promise<unknown>;
 
     createRoot(
       () => {
-        store = createProjection(() => d.promise, { name: "init" });
+        store = createProjection(() => d.promise, { name: "init", [key]: "init" });
       },
       { id: "t" }
     );
@@ -3252,7 +3253,22 @@ describe("Async Iterable — createProjection", () => {
 
     d.reject(error);
     await expect(source).rejects.toBe(error);
-    expect(() => store.name).toThrow(error);
+    for (const read of [
+      () => store.name,
+      () => store[key],
+      () => "name" in store,
+      () => Object.keys(store),
+      () => Object.getOwnPropertyDescriptor(store, "name"),
+      () => Object.hasOwn(store, "name")
+    ]) {
+      let thrown: unknown;
+      try {
+        read();
+      } catch (reason) {
+        thrown = reason;
+      }
+      expect(thrown).toBe(error);
+    }
   });
 
   test("async iterable projection preserves a rejection before its first yield", async () => {
