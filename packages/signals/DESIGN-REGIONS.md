@@ -238,7 +238,50 @@ mixed nodes).
    sets. Materially smaller than "partitioner design" — the rc.6 compiler
    work is an emitter evolution.
 
-## 9. Status
+## 9. The emitter (2026-09-02, v1 shipped)
+
+Compiled output is live behind `regions: true` in the babel plugin. One
+call per template scope:
+
+    _$region(subject, (_t$, _u$, _d$) => { ...preamble }, (_n$, _t$, _p$) => { ...body })
+
+- **Classification** (`shared/region.ts`): one CONSTANT subject per scope;
+  bindings whose values are static-key member chains of it are ELIGIBLE
+  (raw reads in the commit body, scalar baselines in `_p$`); everything
+  else is a TRACKED RESIDUAL evaluated in the compute (`_t$` slots), with
+  direct depth-1 subject reads inside residuals rewritten onto `_u$` (the
+  pending-aware raw — the deep witness already wakes the compute).
+- **Deep chains** (`row.queries[0].elapsed`): dk has NO ancestor bubbling,
+  so the preamble subscribes one `_d$` path witness per unique intermediate
+  prefix (shortest first, `_w$` locals share prefixes). The runtime helper
+  resolves through readSource — pure-phase computes run BEFORE
+  commitPendingNodes, so `t.v` resolution re-subscribed OUTGOING children
+  on every replacement delivery (probe: deep-region.probe.test.ts) — and
+  materializes unwrapped children via wrapNext like deepNext's walk.
+- **One body, two dispatchers**: the runtime combinator `region()` owns
+  admission (own-descriptor scan, ~30% cheaper than the Annex-B lookups),
+  durable demotion (deferred to notifyWrites — a fallback rebound MID-WRITE
+  subscribes in the draft context and never tracks), registry hygiene
+  (amortized dead-entry sweep on push), and the classic fallback, which
+  reruns the SAME emitted body with the proxy as `_n$`/`_u$`/`_d$` parent —
+  per-key tracked, identical semantics.
+- **Packaging**: region routes signals → solid-js → web. Web's rollup only
+  externalizes solid-js; a direct signals re-export INLINED a second
+  reactive core (two schedulers, two $TARGET symbols — paint worked, no
+  update ever delivered; caught by the jfb semantic gate).
+
+Numbers (2026-09-02):
+
+- jfb (keyed, 12 iter): runlots 0.98x vs classic, run mins within 4%,
+  update 0.82x, select_lots 0.67x. Mount microbench: keyed 9.1ms/10k vs
+  classic 9.0; rowflag 6.1ms (−30%); graph weight 2643 B/row keyed /
+  1872 B/row rowflag vs classic 3073.
+- dbmon from the UNCHANGED classic App.jsx: mount 32.7→18.9ms, tick
+  12.7→6.3ms, tick_partial 2.8→1.2ms, remount 21.2→11.3ms, sort
+  7.8→4.7ms. Sort at 0.95x of Octane; tick gap to Octane narrowed from
+  5x to 2.5x. All semantic gates green.
+
+## 10. Status
 
 - `region-delivery` pushed: prototype (ef42d094), regionBind golf
   (e043e830), channel gut (5d243eef). Signals 1433 / web 637 / treeshake /
