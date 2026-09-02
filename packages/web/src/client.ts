@@ -562,27 +562,39 @@ export function setAttributeNS(node, namespace, name, value) {
 export function className(node: Element, value: JSX.ClassValue, prev?: JSX.ClassValue): void;
 
 export function className(node, value, prev) {
-  if (isHydrating(node)) return;
   // Numbers stringify like the compiler's static output (`class={1}`
   // inlines as `class="1"` in the template) so static and dynamic forms of
   // the same ClassValue behave identically (#3189).
   if (typeof value === "number") value = "" + value;
   if (typeof prev === "number") prev = "" + prev;
+  if (isHydrating(node)) {
+    // Seed applied state without touching the claimed DOM so later in-place
+    // mutations can still be diffed after hydration completes.
+    node._$classes = value && typeof value === "object" ? classListToObject(value) : undefined;
+    return;
+  }
   if (value == null || value === false) {
-    prev && node.removeAttribute("class");
+    if (prev || node._$classes) {
+      node.removeAttribute("class");
+      node._$classes = undefined;
+    }
     return;
   }
   if (typeof value === "string") {
+    node._$classes = undefined;
     value !== prev && node.setAttribute("class", value);
     return;
   }
+  // Track classes applied by className() itself. value/prev are user-owned
+  // and may be the same object on shared-effect reruns.
+  let applied;
   if (typeof prev === "string") {
-    prev = {};
+    applied = {};
     node.removeAttribute("class");
-  } else prev = classListToObject(prev || {});
+  } else applied = node._$classes || classListToObject(prev || {});
   value = classListToObject(value);
   const classKeys = Object.keys(value || {});
-  const prevKeys = Object.keys(prev);
+  const prevKeys = Object.keys(applied);
   let i, len;
   for (i = 0, len = prevKeys.length; i < len; i++) {
     const key = prevKeys[i];
@@ -592,9 +604,10 @@ export function className(node, value, prev) {
   for (i = 0, len = classKeys.length; i < len; i++) {
     const key = classKeys[i],
       classValue = !!value[key];
-    if (!key || key === "undefined" || prev[key] === classValue || !classValue) continue;
+    if (!key || key === "undefined" || applied[key] === classValue || !classValue) continue;
     node.classList.add(key);
   }
+  node._$classes = value;
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function addEvent(
   node: Element,

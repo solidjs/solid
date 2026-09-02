@@ -283,8 +283,13 @@ module.exports = [
     //
     // Fold relocation pass (2026-09-01): 10.73 -> 10.72 KB, measured at
     // 10.71 — the core-floor relocation (see that note).
+    //
+    // In-place class mutation fix (#3188): 10.80 -> 10.84 KB, measured at
+    // 10.834. className() retains the last applied object/array snapshot so
+    // shared-reference reruns can diff mutations without deleting external
+    // classes.
     path: "minimal-app.js",
-    limit: "10.80 KB",
+    limit: "10.84 KB",
     modifyEsbuildConfig
   },
   {
@@ -334,7 +339,11 @@ module.exports = [
     // Fold relocation pass (2026-09-01): 17.6 -> 17.56 KB, measured at
     // 17.54 — this bundle's import graph retained the scheduler-resident
     // ledger; the relocation lets it shake.
-    limit: "17.67 KB",
+    //
+    // In-place class mutation fix (#3188): 17.67 -> 17.68 KB, measured at
+    // 17.673. Hydration seeds the applied-class snapshot without mutating
+    // the claimed DOM so the first live in-place change still diffs.
+    limit: "17.68 KB",
     modifyEsbuildConfig
   },
   {
