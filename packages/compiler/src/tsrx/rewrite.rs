@@ -785,7 +785,8 @@ impl<'a> Rewriter<'a, '_> {
         let identity = binding
             .identity
             .expect("planned lazy replacement has a symbol identity");
-        debug_assert_eq!(self.active_expansions.pop(), Some(identity));
+        let completed = self.active_expansions.pop();
+        debug_assert_eq!(completed, Some(identity));
     }
 
     fn expansion_active(&self, binding: &LazyBinding<'a>) -> bool {
