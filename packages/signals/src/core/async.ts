@@ -50,13 +50,15 @@ export function addPendingSource(el: Computed<any>, source: Computed<any>): bool
 }
 
 function removePendingSource(el: Computed<any>, source: Computed<any>): boolean {
-  if (!el._x?._pendingSources?.delete(source)) return false;
-  if (el._x?._pendingSources.size === 0) if (el._x !== null) el._x._pendingSources = undefined;
+  const sources = el._x?._pendingSources;
+  if (!sources?.delete(source)) return false;
+  if (!sources.size) el._x!._pendingSources = undefined;
   return true;
 }
 
 function clearPendingSources(el: Computed<any>): void {
-  el._x?._pendingSources?.clear();
+  // This set is node-owned and never shared; dropping the sole reference
+  // releases the set and every entry without a redundant clear() walk.
   if (el._x !== null) el._x._pendingSources = undefined;
 }
 
@@ -222,6 +224,10 @@ export function settlePendingSource(el: Computed<any>): void {
       ownerName: (el as any)._name
     });
   }
+  // The normal landing path already cleared the source's own set. Superseded
+  // re-parks arrive here with an abandoned self entry, which must retire in
+  // the same walk as its propagated copies.
+  removePendingSource(el, el);
   let scheduled = false;
   let released: Computed<any>[] | undefined;
   const visited = new Set<Computed<any>>();
@@ -401,6 +407,10 @@ export function handleAsync<T>(
     }
     settleTransition();
     notifyStatus(el, stillPending ? STATUS_PENDING : STATUS_ERROR, error);
+    // A NotReady rejection is a landing into another pending source. The
+    // rejected flight will never settle its self entry, so transfer ownership
+    // after notifyStatus has propagated the replacement source.
+    if (stillPending) settlePendingSource(el);
     el._time = clock;
     // A real error settles derivatively-pending dependents (notifyStatus
     // cleared their pending sources), so stranded lazy ones release here —

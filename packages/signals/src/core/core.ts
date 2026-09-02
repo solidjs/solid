@@ -248,8 +248,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // settles synchronously, those dependents settle HERE — asyncWrite's
   // settlePendingSource walk never runs for a landing that was preempted
   // (#3181).
-  const wasPendingSource =
-    (el._statusFlags & STATUS_PENDING) !== 0 && el._x?._pendingSources?.has(el) === true;
+  const wasPendingSource = el._x?._pendingSources?.has(el);
   // Re-ask classification lives in the verdict module; capture the flag before
   // the recompute wipes _flags below.
   const hadReask = (el._flags & REACTIVE_REASK) !== 0;
@@ -367,6 +366,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         undefined,
         notReady ? el._x?._optimisticLane : undefined
       );
+      // The replacement source is fully propagated now. If no new flight
+      // re-owned self, retire the superseded flight and its dependent copies.
+      if (notReady && wasPendingSource && !el._x?._inFlight) settlePendingSource(el);
       if (reaskChanged) GlobalQueue._repollVerdicts!(el);
     }
   } finally {
@@ -515,24 +517,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (outgoingError !== undefined && !valueChanged && !el._x?._error)
       settleErroredDependents(el, outgoingError);
 
-    // Pending twin of the sweep above (#3181): a flight superseded by this
-    // synchronous settle leaves every registered dependent still flagged
-    // STATUS_PENDING with a pending source that will never land — asyncWrite
-    // owns the walk only for flights that actually land. An unchanged value
-    // is the dangerous shape (a projection reconciling in place: a memo over
-    // it re-throws its cached NotReadyError forever, and every reader that
-    // suspended through that memo re-parks on the dead source), but the walk
-    // runs on the changed shape too, exactly as the landing path does —
-    // insertSubs notifies value SUBSCRIBERS, not pending REGISTRANTS, and
-    // the two sets only partially overlap.
-    //
-    // STATUS_UNINITIALIZED excluded: the walk compensates for a preempted
-    // LANDING, and a landing means truth exists. A node that leaves pending
-    // while still uninitialized (a projection driver whose first flight got
-    // superseded before any commit reached the observable store — TanStack
-    // Query's cache announces in the same step its promise chain rebuilds)
-    // has nothing to reveal; waking parked readers there serves them the
-    // initial face — undefined data a read layer promised was settled.
+    // #3181: a synchronous settle supersedes the old landing callback, so
+    // recompute owns its pending-source sweep. An uninitialized node without
+    // a replacement source still has no truth to reveal and must stay parked.
     if (wasPendingSource && !(el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)))
       settlePendingSource(el);
   }
