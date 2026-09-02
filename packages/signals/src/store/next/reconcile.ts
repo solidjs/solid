@@ -480,7 +480,7 @@ const hasOwnP = Object.prototype.hasOwnProperty;
 /** Setter-channel row ops (the fold site calls this for array targets with
  * ops consumers): structural mutation through the setter — push/splice/index
  * assignment/permutation — is a visibility transition for the list container
- * just like a reconcile walk, and drivers consuming registerRowOps must see
+ * just like a reconcile walk, and structural consumers must see
  * it. Setter mutations move the SAME row objects around, so RAW IDENTITY is
  * the key. Aligned arrays (value-only folds) emit nothing. */
 const identityKey = (r: any) => unwrapValue(r);

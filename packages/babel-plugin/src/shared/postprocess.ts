@@ -57,29 +57,4 @@ export default (path: NodePath<t.Program>, state: PluginPass) => {
     domTemplates.length > 0 && appendTemplatesDOM(path, domTemplates);
     ssrTemplates.length > 0 && appendTemplatesSSR(path, ssrTemplates);
   }
-
-  // Compile-time row proofs (DESIGN-PATCH-CHANNEL §3c): wrap each function
-  // recorded by recordPureRow with the runtime's `rowProof` marker so the
-  // patch-mode list driver can engage on proven-pure rows — admission is
-  // decided here, statically; there is no runtime purity probe. The stamp
-  // travels with the function object, so extracted row functions qualify at
-  // their definition site.
-  if (data.pureRows?.size) {
-    const rowProofId = registerImportMethod(
-      path,
-      "rowProof",
-      getRendererConfig(path, "dom").moduleName
-    );
-    const pureRows = data.pureRows;
-    path.traverse({
-      "ArrowFunctionExpression|FunctionExpression"(fnPath) {
-        if (!pureRows.has(fnPath.node as any)) return;
-        pureRows.delete(fnPath.node as any);
-        fnPath.replaceWith(
-          t.callExpression(t.cloneNode(rowProofId), [fnPath.node as t.Expression])
-        );
-        fnPath.skip();
-      }
-    });
-  }
 };
