@@ -344,28 +344,10 @@ export function getHasNode(
 export function trackRecordVersion(record: any): void {
   const t: StoreNextTarget | undefined = record?.[$TARGET];
   if (t === undefined) return;
-  let vn = (t as any).vn as Signal<number> | undefined;
-  if (vn === undefined) {
-    // Keyed pruning (§6d) descends only where subscriptions exist at/below —
-    // a version subscription counts exactly like nodes and patches do, or
-    // the walk prunes the record before ever adopting (and bumping) it.
-    markDescendants(t);
-    const created: Signal<number> =
-      ((t as any).vn =
-      vn =
-        signal(
-          0,
-          {
-            equals: false,
-            unobserved() {
-              if ((t as any).vn === created) (t as any).vn = undefined;
-            }
-          },
-          (t.fam?.node as any) ?? undefined
-        ));
-    created._config |= CONFIG_OWNED_WRITE;
-  }
-  readNode(vn as any);
+  // Regions ride the DEEP WITNESS: lazy, unobserved-reclaimed, bumped
+  // change-gated by every notification path (walk loop, setter tail,
+  // fold commits) through code that predates regions.
+  readNode(getDeepNode(t));
 }
 
 /** PROTOTYPE — one-time region binding: resolves the target and creates
@@ -380,26 +362,16 @@ export function regionBind(
 ): { track: () => void; raw: () => any } | null {
   const t: StoreNextTarget | undefined = record?.[$TARGET];
   if (t === undefined) return null;
-  // Same admission as createRegion (audit round 2, P1-3): helpers must not
-  // bypass the safety rules — raw reads cannot represent optimistic
-  // visibility or run getters untracked. TRUSTED callers are COMPILED
-  // bindings whose admission the emitter proved statically (the rowProof
-  // analysis) — the runtime scan (~0.35µs/record) is redundant for them;
-  // dynamic/userland callers must never pass it.
+  // Same admission as createRegion (audit round 2, P1-3); TRUSTED callers
+  // are compiled bindings whose admission the emitter proved statically.
   if (!trusted) {
     if (t.fam?.opt === true) return null;
     if (t.a === true || !targetIsPlain(t)) return null;
   }
-  let vn = (t as any).vn as Signal<number> | undefined;
-  if (vn === undefined) {
-    (t as any).vn = vn = signal(0);
-    (vn as any)._config |= CONFIG_OWNED_WRITE;
-    markDescendants(t);
-  }
-  const v = vn;
+  const dk = getDeepNode(t);
   return {
     track: () => {
-      readNode(v as any);
+      readNode(dk);
     },
     raw: () => t.v
   };
@@ -436,21 +408,16 @@ export function createRegion(record: any, commit: (raw: any) => void, onDemote?:
   if (t === undefined) return null;
   if (t.fam?.opt === true) return null;
   if (t.a === true || !targetIsPlain(t)) return null;
-  if ((t as any).vn === undefined) {
-    const vn = ((t as any).vn = signal(0));
-    (vn as any)._config |= CONFIG_OWNED_WRITE;
-    markDescendants(t);
-  }
+  const dk = getDeepNode(t);
   // The commit reads `t.v` AT COMMIT TIME — never the compute's captured
   // return (audit P1-3, proven by the setter path: the compute runs in the
   // pure phase, but drainFolds swaps the backing at commitPendingNodes,
-  // AFTER it — a captured raw is one fold stale by construction).
+  // AFTER it — a captured raw is one fold stale by construction). Return
+  // swallowed (P1-3): commit's value must never read as an effect cleanup.
   const node = createEffectNode(
     () => {
-      readNode((t as any).vn);
+      readNode(dk);
     },
-    // Return swallowed (audit round 2, P1-3): commit's value must never be
-    // interpreted as an effect cleanup.
     () => {
       void commit(t.v);
     },
@@ -466,76 +433,14 @@ export function createRegion(record: any, commit: (raw: any) => void, onDemote?:
   return node;
 }
 
-export function bumpRecordVersion(t: StoreNextTarget): void {
-  const vn = (t as any).vn as Signal<number> | undefined;
-  if (vn !== undefined) setSignal(vn, v => (v as number) + 1);
-}
-
-/** Change-gated region bump (audit round 2, P1-1): a NO-OP notification —
- * a reconcile adopting equal values, a setter rewriting the same value —
- * must not write the version node: under an active transition that write
- * PARKS, entangling later unrelated writes with a transition the app never
- * meaningfully joined (region presence must not change classic timing).
- * The scan is pay-per-region (vn existence gates it) and admission
- * guarantees plain data (no getters run). SameValueZero per key. */
-function regionValuesChanged(old: any, neu: any): boolean {
-  if (old === neu) return false;
-  if (old == null || neu == null) return true;
-  if (Array.isArray(neu)) {
-    if (!Array.isArray(old) || (old as any[]).length !== (neu as any[]).length) return true;
-    for (let i = 0; i < (neu as any[]).length; i++) {
-      const a = (old as any[])[i];
-      const b = (neu as any[])[i];
-      if (a !== b && (a === a || b === b)) return true;
-    }
-    return false;
-  }
-  const keys = Reflect.ownKeys(neu);
-  if (Reflect.ownKeys(old).length !== keys.length) return true;
-  for (const k of keys) {
-    const a = (old as any)[k];
-    const b = (neu as any)[k];
-    if (a !== b && (a === a || b === b)) return true;
-  }
-  return false;
-}
-
-/** Setter-path gated bump: no accessor probe needed — a getter can only
- * land on THIS record through the trapped defineProperty (immediate
- * demotion there) or through adoption (the adopted twin below probes). */
-export function bumpRecordVersionChanged(t: StoreNextTarget, old: any, neu: any): void {
-  const vn = (t as any).vn as Signal<number> | undefined;
-  if (vn === undefined) return;
-  if (regionValuesChanged(old, neu)) setSignal(vn, v => (v as number) + 1);
-}
-
-/** Adoption-path gated bump (audit round 2, P1-2 durable admission): an
- * adoption can carry getters into an admitted record — probe plainness
- * BEFORE the value scan (the scan reads keys; a getter must never run
- * untracked) and demote the bound regions instead of delivering a raw
- * view that lies. Probe cost rides only region-bound adoptions. */
-export function bumpRecordVersionAdopted(t: StoreNextTarget, old: any, neu: any): void {
-  const vn = (t as any).vn as Signal<number> | undefined;
-  if (vn === undefined) return;
-  if ((t.a as any) === true || !ownKeysPlain(neu)) {
-    demoteRegions(t);
-    return;
-  }
-  if (regionValuesChanged(old, neu)) setSignal(vn, v => (v as number) + 1);
-}
-
-/** Fused tail for the walk's in-loop latches (tick claw-back): the walk
- * already compared every key and probed accessors — this just acts on the
- * verdict. */
-export function regionAdoptedFused(t: StoreNextTarget, changed: boolean, accessor: boolean): void {
-  if (accessor || (t.a as any) === true) {
-    demoteRegions(t);
-    return;
-  }
-  if (changed) {
-    const vn = (t as any).vn as Signal<number> | undefined;
-    if (vn !== undefined) setSignal(vn, v => (v as number) + 1);
-  }
+/** Region ADOPTION PROBE (audit round 2, P1-2 durable admission): an
+ * adoption can carry getters into an admitted record — demote its bound
+ * regions instead of letting raw reads re-run getters untracked per
+ * commit. Called ONLY when the region registry exists (`t.rg`), from the
+ * walk tails and notifyFold — delivery itself rides the DEEP WITNESS
+ * (`dk`), which every notification path already bumps change-gated. */
+export function regionAdoptionProbe(t: StoreNextTarget, neu: any): void {
+  if ((t.a as any) === true || !ownKeysPlain(neu)) demoteRegions(t);
 }
 
 function ownKeysPlain(neu: any): boolean {
@@ -1097,12 +1002,8 @@ function notifyWrites(t: StoreNextTarget): void {
     }
   }
   const old = t.v;
-  // Region delivery (audit P1-1): the setter channel. CHANGE-GATED (audit
-  // round 2, P1-1): a value-equal rewrite must not park a version write
-  // under an active transition — region presence must not change classic
-  // timing. The pending backing carries the written view; the scan is
-  // pay-per-region.
-  bumpRecordVersionChanged(t, old, pb);
+  // Regions ride the deep witness: the setter tail's dk sweep (below) is
+  // the change-gated notification — no region-specific work here.
   // Devtools mutation hook: full-key diff (dev-only cost) so unobserved
   // writes report too, matching the legacy set-trap hook. Overlay backings
   // materialize first so the diff walks a real container.
@@ -1388,13 +1289,9 @@ export function notifyFold(
   old: Record<PropertyKey, any>,
   neu: Record<PropertyKey, any>
 ): void {
-  // Region delivery (audit P1-1): notifyFold is THE shared committed-values
-  // notification — eager reconcile folds, projection/landing fold commits,
-  // adoption marks, and entity replacement all pass through here. One
-  // ordinary signal write per changed record; transitions park it, so the
-  // region's wake is the commit moment. CHANGE-GATED (audit round 2,
-  // P1-1) and admission-probed (P1-2): folds are adoptions.
-  bumpRecordVersionAdopted(t, old, neu);
+  // Regions ride the deep witness (the dk line below) — the only region-
+  // specific work is the durable-admission probe, registry-gated.
+  if ((t as any).rg !== undefined) regionAdoptionProbe(t, neu);
   if (t.dk !== null && old !== neu) bumpDeep(t);
   // Optimistic targets: adoption notifications are authoritative landings —
   // bypass the engine (commit into _value; active overrides keep shadowing

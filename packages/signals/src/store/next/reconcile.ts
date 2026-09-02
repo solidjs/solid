@@ -42,9 +42,7 @@ import {
   notifyKeyDiff,
   targetsEqual,
   notifyKeyValue,
-  bumpRecordVersionAdopted,
-  regionAdoptedFused,
-  isOwnAccessor,
+  regionAdoptionProbe,
   unwrapValue,
   targetIsPlain
 } from "./store.js";
@@ -385,9 +383,8 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
             notifyKeyDiff(nodes[key as any], key, old, incoming, false);
         }
       }
-      // Region delivery (audit P1-1; change-gated + admission-probed
-      // round 2): array-branch twin of the tail below.
-      bumpRecordVersionAdopted(t, old, incoming);
+      // Region durability (round 2): array-branch twin of the tail below.
+      if ((t as any).rg !== undefined) regionAdoptionProbe(t, incoming);
       notifyFoldTail(t, old, incoming);
     }
     return;
@@ -417,13 +414,6 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
     const nodes = eager ? t.n : null;
     let nodesHit = 0;
     let dkBumped = false;
-    // FUSED region change/admission detection (audit round 2 tick claw-back):
-    // region-bound records latch change + accessor presence INSIDE the walk's
-    // own per-key loop — no second full scan per adoption. Non-region records
-    // pay one undefined check.
-    const vnLive = eager && (t as any).vn !== undefined;
-    let vnChanged = false;
-    let vnAccessor = false;
     // The per-key body is inlined on purpose (legacy applyStateFast parity:
     // an extracted helper costs a call per key on the hottest object-diff
     // site). Reference-identical values early-continue BEFORE any other
@@ -449,10 +439,6 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       if (t.dk !== null && !dkBumped && !(isObj ? targetsEqual(ov, nv) : isEqual(ov, nv))) {
         bumpDeep(t);
         dkBumped = true;
-      }
-      if (vnLive) {
-        if (!vnChanged && !(isObj ? targetsEqual(ov, nv) : isEqual(ov, nv))) vnChanged = true;
-        if (!vnAccessor && isOwnAccessor(incoming, k)) vnAccessor = true;
       }
       if (nodes !== null) {
         const node = nodes[k];
@@ -485,20 +471,12 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
             notifyKeyDiff(nodes[key as any], key, old, incoming, false);
         }
       }
-      // Region delivery (audit P1-1; round-2 change gate + admission probe
-      // FUSED into the loop above): deletions count as changes; a fused
-      // accessor sighting demotes.
-      if (vnLive) {
-        if (!vnChanged) {
-          for (const key of Reflect.ownKeys(old)) {
-            if (!hasOwnP.call(incoming, key)) {
-              vnChanged = true;
-              break;
-            }
-          }
-        }
-        regionAdoptedFused(t, vnChanged, vnAccessor);
-      }
+      // Region durability (audit round 2, P1-2): regions ride the deep
+      // witness (dk) for delivery — already bumped change-gated by the
+      // loop above — so the only region-specific tail work is the
+      // admission probe, gated on the registry (one property miss for
+      // records without regions).
+      if ((t as any).rg !== undefined) regionAdoptionProbe(t, incoming);
       notifyFoldTail(t, old, incoming);
     }
     return;
