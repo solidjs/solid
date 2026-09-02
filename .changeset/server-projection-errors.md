@@ -2,4 +2,5 @@
 "solid-js": patch
 ---
 
-Keep rejected server projections errored instead of exposing their seed values.
+Keep ordinary property reads on rejected server projections throwing the original error instead
+of exposing seed values, while preserving existing reflection and symbol behavior.
