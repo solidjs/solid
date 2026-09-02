@@ -42,6 +42,11 @@ const framesEsbuildConfig = config => ({
 // delta is the separately reviewed server-function transport hardening.
 // Limits below are the measured Linux CI/local artifacts rounded up to the
 // next 0.01 kB; this is a ratchet reconciliation, not additional headroom.
+//
+// Delegated EventListenerObject parity (#3206): scenarios retaining the
+// delegated dispatcher pay for object-form invocation and for clearing a
+// replaced bound tuple's data slot. Linux CI/local measurements are rounded
+// to the next 0.01 kB at the affected limits below.
 module.exports = [
   {
     name: "signals: core floor (createSignal/Memo/Effect/Root/flush)",
@@ -343,7 +348,7 @@ module.exports = [
     // In-place class mutation fix (#3188): 17.67 -> 17.68 KB, measured at
     // 17.673. Hydration seeds the applied-class snapshot without mutating
     // the claimed DOM so the first live in-place change still diffs.
-    limit: "17.68 KB",
+    limit: "17.70 KB",
     modifyEsbuildConfig
   },
   {
@@ -414,7 +419,7 @@ module.exports = [
     // retains every store family, so it pays the whole module. Ruled
     // correctness-over-size in the #3164 thread; conscious bump.
     path: "hydrating-store-app.js",
-    limit: "26.94 KB",
+    limit: "27.00 KB",
     modifyEsbuildConfig
   },
   {
@@ -444,7 +449,7 @@ module.exports = [
     // scheduler-resident ledger (nothing to shake), so it pays only the
     // hook call site's second argument plus brotli layout drift.
     path: "csr-app.js",
-    limit: "13.09 KB",
+    limit: "13.11 KB",
     modifyEsbuildConfig
   },
   {
@@ -494,7 +499,7 @@ module.exports = [
     // Fold relocation pass (2026-09-01): 16.94 -> 16.91 KB, measured at
     // 16.90 — retained-ledger shake, same as the hydrating no-store note.
     path: "csr-app-patch-lists.js",
-    limit: "17.04 KB",
+    limit: "17.07 KB",
     modifyEsbuildConfig
   },
   {
