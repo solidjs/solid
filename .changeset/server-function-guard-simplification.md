@@ -13,5 +13,5 @@ reaches the wire, the scheme floor asks the URL parser instead of a regex, and
 the event is awaited only when it is genuinely a promise.
 
 Runtime-composed SSR responses now discard stale body-framing headers, and
-late streaming redirects emit client script only for relative or HTTP(S)
+late streaming redirects emit a client script only for relative or HTTP(S)
 targets.

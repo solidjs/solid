@@ -21,7 +21,7 @@ import {
 // Wire-protocol header names for the commit fold's gap-fill denylist
 // (`commitEventResponse`): shared constants, not copies, so the fold can
 // never drift from what the server-function handler actually sends.
-import { COMPOSED_BODY_FRAMING, REVALIDATE_HEADER } from "./response.js";
+import { REVALIDATE_HEADER } from "./response.js";
 import {
   BODY_FORMAT_HEADER,
   ERROR_HEADER,
