@@ -29,6 +29,11 @@ export interface PluginConfig {
   staticMarker: string;
   effectWrapper: string | false;
   memoWrapper: string | false;
+  /** Graph-native REGION emission (DESIGN-REGIONS.md): template scopes
+   * whose bindings are depth-1 member reads of one stable store subject
+   * compile to one region effect (raw commit reads + tracked residuals)
+   * with a classic fallback. Prototype — off by default. */
+  regions: boolean;
   validate: boolean;
   inlineStyles: boolean;
   serverComponents: boolean;
@@ -65,6 +70,7 @@ const config: PluginConfig = {
   staticMarker: "@static",
   effectWrapper: "effect",
   memoWrapper: "memo",
+  regions: false,
   validate: true,
   inlineStyles: true,
   serverComponents: false

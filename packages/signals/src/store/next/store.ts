@@ -48,12 +48,14 @@ import {
   createEffectNode,
   recompute as recomputeNode
 } from "../../core/core.js";
+
 import {
   activeTransition,
   currentTransition,
   globalQueue,
   insertSubs,
-  type Transition
+  type Transition,
+  GlobalQueue
 } from "../../core/scheduler.js";
 import { getObserver, getOwner, dispose as disposeNode } from "../../core/owner.js";
 import {
@@ -403,6 +405,69 @@ export function regionBind(
  * active owner at creation, so error boundaries, holds, and disposal
  * compose exactly like any render effect. The returned node supports
  * explicit disposal for row-granular teardown. */
+/** COMPILED-OUTPUT combinator (the emitter's one call): a template scope
+ * whose bindings are depth-1 member reads of `subject` compiles to
+ *
+ *   _$region(subject, trackedOrNull, (raw, t, p) => { ...compares/writes })
+ *
+ * - ADMITTED: one deliveryEffect — compute reads the deep witness plus the
+ *   TRACKED RESIDUALS (dynamic keys, foreign reads — classic per-key
+ *   subscriptions fused into the same node); commit runs the body with the
+ *   COMMIT-TIME raw, the residual values, and a prev container the body
+ *   owns (scalar baselines — grouped-effect parity).
+ * - DECLINED or DEMOTED (accessor acquisition): the SAME body runs as a
+ *   classic tracked effect with the PROXY as `raw` — member reads track
+ *   per-key, so semantics are identical; only who dispatches changes.
+ * Owner-bound like every render effect; disposal rides the owner. */
+export function region(
+  subject: any,
+  tracked: ((t: Record<string, any>) => void) | null,
+  body: (raw: any, t: Record<string, any>, p: Record<string, any>) => void
+): void {
+  const t: StoreNextTarget | undefined = subject?.[$TARGET];
+  const prev: Record<string, any> = {};
+  const tvals: Record<string, any> = {};
+  const classic = () => {
+    const node = createEffectNode(
+      () => {
+        if (tracked !== null) tracked(tvals);
+        void body(subject, tvals, prev);
+      },
+      () => {},
+      undefined,
+      EFFECT_RENDER,
+      undefined
+    );
+    recomputeNode(node, true);
+  };
+  if (t === undefined || t.fam?.opt === true || (t.a as any) === true || !targetIsPlain(t)) {
+    classic();
+    return;
+  }
+  const dk = getDeepNode(t);
+  const node = createEffectNode(
+    () => {
+      readNode(dk);
+      if (tracked !== null) tracked(tvals);
+    },
+    () => {
+      void body(t.v, tvals, prev);
+    },
+    undefined,
+    EFFECT_RENDER,
+    undefined
+  );
+  recomputeNode(node, true);
+  GlobalQueue._runEffect!(node); // initial commit: compiled templates bind DOM here
+  // Durable admission: demotion disposes the region node and rebinds the
+  // classic shape — the body carries its own baselines, so the fallback
+  // resumes from current values seamlessly.
+  (((t as any).rg ??= []) as Array<{ n: any; d?: () => void }>).push({
+    n: node,
+    d: classic
+  });
+}
+
 export function createRegion(record: any, commit: (raw: any) => void, onDemote?: () => void): any {
   const t: StoreNextTarget | undefined = record?.[$TARGET];
   if (t === undefined) return null;

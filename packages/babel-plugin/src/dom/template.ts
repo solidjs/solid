@@ -10,6 +10,7 @@ import {
   wrapForEffect
 } from "../shared/utils";
 import { setAttr } from "./element";
+import { analyzeRegionScope, substituteSubject } from "../shared/region";
 import type { NodePath } from "@babel/traverse";
 import type { DynamicBinding, ProgramScopeData, TemplateRecord, TransformResult } from "../types";
 
@@ -28,7 +29,8 @@ export function createTemplate(
     ) {
       return decl.declarations[0].init as t.Expression;
     } else {
-      const dynamicsStmt = wrapDynamics(path, result.dynamics);
+      const regionStmt = config.regions ? wrapRegion(path, result.dynamics) : undefined;
+      const dynamicsStmt = regionStmt ?? wrapDynamics(path, result.dynamics);
       const stmts = [
         decl,
         ...result.exprs,
@@ -142,6 +144,92 @@ function registerTemplate(path: NodePath, results: TransformResult) {
   }
   if (decl) results.declarations.unshift(decl);
   results.decl = t.variableDeclaration("var", results.declarations as t.VariableDeclarator[]);
+}
+
+/** Region emission (DESIGN-REGIONS.md, the emitter): one `_$region` call
+ * per template scope — eligible bindings read the commit-time RAW, tracked
+ * residuals evaluate in the compute, and the runtime combinator owns
+ * admission/demotion/the classic fallback (which reruns the SAME body with
+ * the proxy as the raw argument). Returns undefined when the scope has no
+ * depth-1 subject — caller falls through to the classic grouped effect. */
+function wrapRegion(path: NodePath, dynamics: DynamicBinding[]): t.ExpressionStatement | undefined {
+  if (!dynamics.length) return undefined;
+  const scope = analyzeRegionScope(path, dynamics);
+  if (!scope) return undefined;
+  const regionId = registerImportMethod(path, "region", undefined);
+  const rawId = t.identifier("_n$");
+  const trackedId = t.identifier("_t$");
+  const prevId = t.identifier("_p$");
+  const trackedAssigns: t.Statement[] = [];
+  const bodyStatements: t.Statement[] = [];
+  let residuals = 0;
+
+  dynamics.forEach((d, index) => {
+    let { value } = d;
+    const { elem, key, tagName, styleProperty, classProperty } = d;
+    if (classProperty && !t.isBooleanLiteral(value) && !t.isUnaryExpression(value)) {
+      value = t.unaryExpression("!", t.unaryExpression("!", value));
+    }
+    let valueExpr: t.Expression;
+    if (scope.eligible[index]) {
+      valueExpr = substituteSubject(value, scope.subject, rawId);
+    } else {
+      const slot = t.identifier("r" + residuals++);
+      trackedAssigns.push(
+        t.expressionStatement(
+          t.assignmentExpression("=", t.memberExpression(trackedId, slot), value)
+        )
+      );
+      valueExpr = t.memberExpression(trackedId, slot);
+    }
+    const v = t.identifier("_v$" + index);
+    const prevMember = t.memberExpression(prevId, t.identifier(getNumberedId(index)));
+    bodyStatements.push(t.variableDeclaration("let", [t.variableDeclarator(v, valueExpr)]));
+    if (key === "class" || key === "style" || isStatefulDOMProperty(tagName, key)) {
+      // Stateful writes consume the previous VALUE — advance the baseline
+      // in a block after the write.
+      bodyStatements.push(
+        t.ifStatement(
+          t.binaryExpression("!==", v, prevMember),
+          t.blockStatement([
+            t.expressionStatement(
+              setAttr(path, elem, key, v, {
+                tagName,
+                dynamic: true,
+                prevId: t.memberExpression(prevId, t.identifier(getNumberedId(index)))
+              })
+            ),
+            t.expressionStatement(t.assignmentExpression("=", t.cloneNode(prevMember), v))
+          ])
+        )
+      );
+    } else {
+      bodyStatements.push(
+        t.expressionStatement(
+          t.logicalExpression(
+            "&&",
+            t.binaryExpression("!==", v, prevMember),
+            setAttr(path, elem, key, t.assignmentExpression("=", t.cloneNode(prevMember), v), {
+              tagName,
+              dynamic: true,
+              styleProperty,
+              classProperty
+            })
+          )
+        )
+      );
+    }
+  });
+
+  return t.expressionStatement(
+    t.callExpression(regionId, [
+      t.identifier(scope.subject),
+      trackedAssigns.length
+        ? t.arrowFunctionExpression([trackedId], t.blockStatement(trackedAssigns))
+        : t.nullLiteral(),
+      t.arrowFunctionExpression([rawId, trackedId, prevId], t.blockStatement(bodyStatements))
+    ])
+  );
 }
 
 function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {

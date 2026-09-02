@@ -33,7 +33,7 @@ export { createProjectionNext as createProjection } from "./next/projection.js";
 // graph-native regions replace the channel; the driver branch remains the
 // independent comparison.
 // PROTOTYPE surface (graph-native regions exploration) — NOT product API.
-export { trackRecordVersion, regionBind, createRegion } from "./next/store.js";
+export { trackRecordVersion, regionBind, createRegion, region } from "./next/store.js";
 export { storeIsShallow, storeHasFamily, storeHasOptimisticFamily } from "./next/store.js";
 export { createOptimisticStoreNext as createOptimisticStore } from "./next/optimistic.js";
 
