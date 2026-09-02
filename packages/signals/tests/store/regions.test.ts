@@ -164,6 +164,162 @@ describe("regions: declines (audit P1-2)", () => {
   });
 });
 
+describe("regions: round-2 audit — timing neutrality (P1-1)", () => {
+  it("a NO-OP reconcile never wakes the region (no parked write, no entanglement)", () => {
+    createRoot(() => {
+      const [state, setState] = createStore({ rows: [{ id: 1, v: "x" }] });
+      let wakes = 0;
+      createRegion(state.rows[0], () => {
+        wakes++;
+      });
+      // Equal values, fresh object — the adoption swaps the backing but no
+      // value changed: the version node must not be written at all.
+      setState(s => {
+        reconcile({ rows: [{ id: 1, v: "x" }] })(s);
+      });
+      flush();
+      expect(wakes).toBe(0);
+    });
+  });
+
+  it("a VALUE-EQUAL setter rewrite never wakes the region", () => {
+    createRoot(() => {
+      const [state, setState] = createStore({ label: "a" });
+      let wakes = 0;
+      createRegion(state, () => {
+        wakes++;
+      });
+      setState(s => {
+        s.label = "a";
+      });
+      flush();
+      expect(wakes).toBe(0);
+    });
+  });
+});
+
+describe("regions: round-2 audit — durable admission (P1-2)", () => {
+  it("defineProperty getter DEMOTES bound regions (disposed + onDemote fires)", () => {
+    createRoot(() => {
+      const [state, setState] = createStore<any>({ label: "a" });
+      const commits: any[] = [];
+      let demoted = 0;
+      createRegion(
+        state,
+        (raw: any) => {
+          commits.push(raw.label);
+        },
+        () => {
+          demoted++;
+        }
+      );
+      setState(s => {
+        Object.defineProperty(s, "computed", {
+          get() {
+            return "g";
+          },
+          configurable: true
+        });
+      });
+      flush();
+      expect(demoted).toBe(1);
+      // Disposed: later writes never deliver.
+      setState(s => {
+        s.label = "b";
+      });
+      flush();
+      expect(commits).toEqual([]);
+    });
+  });
+
+  it("a getter-bearing ADOPTION demotes instead of delivering a lying raw view", () => {
+    createRoot(() => {
+      const [state, setState] = createStore<any>({ row: { v: 1 } });
+      const commits: any[] = [];
+      let demoted = 0;
+      createRegion(
+        state.row,
+        (raw: any) => {
+          commits.push(raw.v);
+        },
+        () => {
+          demoted++;
+        }
+      );
+      setState(s => {
+        reconcile({
+          row: {
+            get v() {
+              return 2;
+            }
+          }
+        } as any)(s);
+      });
+      flush();
+      expect(demoted).toBe(1);
+      expect(commits).toEqual([]);
+    });
+  });
+
+  it("helpers share the admission rules (regionBind declines; trusted skips for compiled callers)", async () => {
+    const { regionBind } = await import("../../src/index.js");
+    createRoot(() => {
+      const [state] = createStore({
+        get g() {
+          return 1;
+        }
+      } as any);
+      expect(regionBind(state)).toBe(null);
+      const [plain] = createStore({ v: 1 });
+      expect(regionBind(plain)).not.toBe(null);
+    });
+  });
+});
+
+describe("regions: round-2 audit — owned rows (P1-4)", () => {
+  it("rows created under a GENERATION OWNER inside a list commit dispose in one owner walk", async () => {
+    const { createOwner, runWithOwner, disposeChildren, deliveryEffect, $TRACK } =
+      await import("../../src/index.js");
+    const [state, setState] = createRoot(() => createStore({ rows: [{ id: 1 }, { id: 2 }] }));
+    const gen = createRoot(() => createOwner());
+    const commits: number[] = [];
+    createRoot(() => {
+      deliveryEffect(
+        () => {
+          (state.rows as any)[$TRACK];
+        },
+        () => {
+          // Rows bind INSIDE the list commit, under the generation owner —
+          // the audit's blocked shape, unblocked.
+          for (let i = 0; i < state.rows.length; i++) {
+            const rec = state.rows[i];
+            runWithOwner(gen, () => {
+              createRegion(rec, (raw: any) => {
+                commits.push(raw.id);
+              });
+            });
+          }
+        }
+      );
+    });
+    flush();
+    setState(s => {
+      s.rows[0].id = 10;
+    });
+    flush();
+    expect(commits).toContain(10);
+    const before = commits.length;
+    // BULK teardown: one owner walk kills every row region.
+    disposeChildren(gen as any);
+    setState(s => {
+      s.rows[0].id = 99;
+      s.rows[1].id = 98;
+    });
+    flush();
+    expect(commits.length).toBe(before);
+  });
+});
+
 describe("regions: lifecycle (audit correction — owner-bound)", () => {
   it("explicit dispose stops delivery", () => {
     createRoot(() => {

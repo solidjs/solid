@@ -82,6 +82,7 @@ export type {
 export { affects } from "./affects.js";
 // PROTOTYPE surface (graph-native regions exploration) — NOT product API.
 export { deliveryEffect } from "./core/effect.js";
+export { disposeChildren } from "./core/owner.js";
 export { dispose as disposeReactiveNode } from "./core/owner.js";
 export { mapArray, repeat, type Maybe } from "./map.js";
 export * from "./store/index.js";

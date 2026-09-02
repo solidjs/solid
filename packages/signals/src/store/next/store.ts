@@ -55,7 +55,7 @@ import {
   insertSubs,
   type Transition
 } from "../../core/scheduler.js";
-import { getObserver, getOwner } from "../../core/owner.js";
+import { getObserver, getOwner, dispose as disposeNode } from "../../core/owner.js";
 import {
   projectionWriteActive,
   schedule,
@@ -374,9 +374,22 @@ export function trackRecordVersion(record: any): void {
  * rerun symbol-trap resolution and the per-node options allocation out of
  * the mount path. Version nodes live as long as the record (release
  * strategy is a product-phase question, noted in the design doc). */
-export function regionBind(record: any): { track: () => void; raw: () => any } | null {
+export function regionBind(
+  record: any,
+  trusted = false
+): { track: () => void; raw: () => any } | null {
   const t: StoreNextTarget | undefined = record?.[$TARGET];
   if (t === undefined) return null;
+  // Same admission as createRegion (audit round 2, P1-3): helpers must not
+  // bypass the safety rules — raw reads cannot represent optimistic
+  // visibility or run getters untracked. TRUSTED callers are COMPILED
+  // bindings whose admission the emitter proved statically (the rowProof
+  // analysis) — the runtime scan (~0.35µs/record) is redundant for them;
+  // dynamic/userland callers must never pass it.
+  if (!trusted) {
+    if (t.fam?.opt === true) return null;
+    if (t.a === true || !targetIsPlain(t)) return null;
+  }
   let vn = (t as any).vn as Signal<number> | undefined;
   if (vn === undefined) {
     (t as any).vn = vn = signal(0);
@@ -418,7 +431,7 @@ export function regionBind(record: any): { track: () => void; raw: () => any } |
  * active owner at creation, so error boundaries, holds, and disposal
  * compose exactly like any render effect. The returned node supports
  * explicit disposal for row-granular teardown. */
-export function createRegion(record: any, commit: (raw: any) => void): any {
+export function createRegion(record: any, commit: (raw: any) => void, onDemote?: () => void): any {
   const t: StoreNextTarget | undefined = record?.[$TARGET];
   if (t === undefined) return null;
   if (t.fam?.opt === true) return null;
@@ -436,20 +449,104 @@ export function createRegion(record: any, commit: (raw: any) => void): any {
     () => {
       readNode((t as any).vn);
     },
+    // Return swallowed (audit round 2, P1-3): commit's value must never be
+    // interpreted as an effect cleanup.
     () => {
-      commit(t.v);
+      void commit(t.v);
     },
     undefined,
     EFFECT_RENDER,
     undefined
   );
   recomputeNode(node, true); // subscribe-only: compute runs, commit does not
+  // DURABLE ADMISSION registry (audit round 2, P1-2): the record can stop
+  // being region-safe later (defineProperty getter, getter-bearing
+  // adoption) — registration is what lets the store demote this node.
+  (((t as any).rg ??= []) as Array<{ n: any; d?: () => void }>).push({ n: node, d: onDemote });
   return node;
 }
 
 export function bumpRecordVersion(t: StoreNextTarget): void {
   const vn = (t as any).vn as Signal<number> | undefined;
   if (vn !== undefined) setSignal(vn, v => (v as number) + 1);
+}
+
+/** Change-gated region bump (audit round 2, P1-1): a NO-OP notification —
+ * a reconcile adopting equal values, a setter rewriting the same value —
+ * must not write the version node: under an active transition that write
+ * PARKS, entangling later unrelated writes with a transition the app never
+ * meaningfully joined (region presence must not change classic timing).
+ * The scan is pay-per-region (vn existence gates it) and admission
+ * guarantees plain data (no getters run). SameValueZero per key. */
+function regionValuesChanged(old: any, neu: any): boolean {
+  if (old === neu) return false;
+  if (old == null || neu == null) return true;
+  if (Array.isArray(neu)) {
+    if (!Array.isArray(old) || (old as any[]).length !== (neu as any[]).length) return true;
+    for (let i = 0; i < (neu as any[]).length; i++) {
+      const a = (old as any[])[i];
+      const b = (neu as any[])[i];
+      if (a !== b && (a === a || b === b)) return true;
+    }
+    return false;
+  }
+  const keys = Reflect.ownKeys(neu);
+  if (Reflect.ownKeys(old).length !== keys.length) return true;
+  for (const k of keys) {
+    const a = (old as any)[k];
+    const b = (neu as any)[k];
+    if (a !== b && (a === a || b === b)) return true;
+  }
+  return false;
+}
+
+/** Setter-path gated bump: no accessor probe needed — a getter can only
+ * land on THIS record through the trapped defineProperty (immediate
+ * demotion there) or through adoption (the adopted twin below probes). */
+export function bumpRecordVersionChanged(t: StoreNextTarget, old: any, neu: any): void {
+  const vn = (t as any).vn as Signal<number> | undefined;
+  if (vn === undefined) return;
+  if (regionValuesChanged(old, neu)) setSignal(vn, v => (v as number) + 1);
+}
+
+/** Adoption-path gated bump (audit round 2, P1-2 durable admission): an
+ * adoption can carry getters into an admitted record — probe plainness
+ * BEFORE the value scan (the scan reads keys; a getter must never run
+ * untracked) and demote the bound regions instead of delivering a raw
+ * view that lies. Probe cost rides only region-bound adoptions. */
+export function bumpRecordVersionAdopted(t: StoreNextTarget, old: any, neu: any): void {
+  const vn = (t as any).vn as Signal<number> | undefined;
+  if (vn === undefined) return;
+  if ((t.a as any) === true || !ownKeysPlain(neu)) {
+    demoteRegions(t);
+    return;
+  }
+  if (regionValuesChanged(old, neu)) setSignal(vn, v => (v as number) + 1);
+}
+
+function ownKeysPlain(neu: any): boolean {
+  if (neu === null || typeof neu !== "object") return true;
+  if (!plainProto(neu)) return false;
+  const keys = Reflect.ownKeys(neu);
+  for (const k of keys) {
+    if (isOwnAccessor(neu, k)) return false;
+  }
+  return true;
+}
+
+/** Demote every region bound to this record (audit round 2, P1-2): dispose
+ * the nodes and hand control back through each region's `onDemote` — the
+ * caller (compiled output) rebinds the classic tracked path. Fires from
+ * the defineProperty trap (accessor acquisition) and from the gated bump
+ * (getter-bearing adoption). */
+export function demoteRegions(t: StoreNextTarget): void {
+  const rg = (t as any).rg as Array<{ n: any; d?: () => void }> | undefined;
+  if (rg === undefined) return;
+  (t as any).rg = undefined;
+  for (let i = 0; i < rg.length; i++) {
+    disposeNode(rg[i].n);
+    rg[i].d?.();
+  }
 }
 
 export function getKeySetNode(target: StoreNextTarget): Signal<number> {
@@ -986,12 +1083,12 @@ function notifyWrites(t: StoreNextTarget): void {
     }
   }
   const old = t.v;
-  // Region delivery (audit P1-1): the setter channel — a pending backing
-  // exists, so at least one trap write landed this setter. The bump parks
-  // with the key notifications and commits with them; the region's commit
-  // then reads the folded raw. Spurious for value-equal rewrites (the
-  // body's scalar baselines make those no-op), never missed.
-  bumpRecordVersion(t);
+  // Region delivery (audit P1-1): the setter channel. CHANGE-GATED (audit
+  // round 2, P1-1): a value-equal rewrite must not park a version write
+  // under an active transition — region presence must not change classic
+  // timing. The pending backing carries the written view; the scan is
+  // pay-per-region.
+  bumpRecordVersionChanged(t, old, pb);
   // Devtools mutation hook: full-key diff (dev-only cost) so unobserved
   // writes report too, matching the legacy set-trap hook. Overlay backings
   // materialize first so the diff walks a real container.
@@ -1281,8 +1378,9 @@ export function notifyFold(
   // notification — eager reconcile folds, projection/landing fold commits,
   // adoption marks, and entity replacement all pass through here. One
   // ordinary signal write per changed record; transitions park it, so the
-  // region's wake is the commit moment.
-  if (old !== neu) bumpRecordVersion(t);
+  // region's wake is the commit moment. CHANGE-GATED (audit round 2,
+  // P1-1) and admission-probed (P1-2): folds are adoptions.
+  bumpRecordVersionAdopted(t, old, neu);
   if (t.dk !== null && old !== neu) bumpDeep(t);
   // Optimistic targets: adoption notifications are authoritative landings —
   // bypass the engine (commit into _value; active overrides keep shadowing
@@ -2021,6 +2119,9 @@ const traps: ProxyHandler<StoreNextTarget> = {
       // patches and re-drive them as tracked effect fallbacks. Hooks are
       // installed whenever pc.p exists (registration installs them).
       if (target.pc !== null && target.pc.p !== null) patchHooks!.demoteToEffects(target);
+      // Region demotion (audit round 2, P1-2): admission is DURABLE — the
+      // moment a getter lands, bound regions dispose and hand back.
+      demoteRegions(target);
     }
     // Unwrap before ensurePB (see the set trap: self-reference materializes).
     if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };

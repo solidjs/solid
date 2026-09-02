@@ -91,7 +91,13 @@ export function effect<T>(
 export function deliveryEffect(compute: () => void, commit: () => void): Computed<unknown> {
   const node = createEffectNode(
     compute as (prev?: unknown) => unknown,
-    commit as (val: unknown, prev: unknown) => void,
+    // The commit's return is SWALLOWED (audit round 2, P1-3): the effect
+    // pipeline treats a returned function as a cleanup and non-functions
+    // halt in dev — a concise-arrow region body (`() => el.data = v`)
+    // must never trip either.
+    () => {
+      commit();
+    },
     undefined,
     EFFECT_RENDER,
     undefined

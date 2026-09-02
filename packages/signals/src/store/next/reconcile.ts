@@ -42,7 +42,7 @@ import {
   notifyKeyDiff,
   targetsEqual,
   notifyKeyValue,
-  bumpRecordVersion,
+  bumpRecordVersionAdopted,
   unwrapValue,
   targetIsPlain
 } from "./store.js";
@@ -383,8 +383,9 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
             notifyKeyDiff(nodes[key as any], key, old, incoming, false);
         }
       }
-      // Region delivery (audit P1-1): array-branch twin of the tail below.
-      bumpRecordVersion(t);
+      // Region delivery (audit P1-1; change-gated + admission-probed
+      // round 2): array-branch twin of the tail below.
+      bumpRecordVersionAdopted(t, old, incoming);
       notifyFoldTail(t, old, incoming);
     }
     return;
@@ -471,10 +472,11 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
             notifyKeyDiff(nodes[key as any], key, old, incoming, false);
         }
       }
-      // Region delivery (audit P1-1): the eager object branch notifies
-      // per-key inline and never reaches notifyFold — this tail is its
-      // per-record "values transitioned" moment.
-      bumpRecordVersion(t);
+      // Region delivery (audit P1-1; change-gated + admission-probed
+      // round 2): the eager object branch notifies per-key inline and
+      // never reaches notifyFold — this tail is its per-record "values
+      // transitioned" moment.
+      bumpRecordVersionAdopted(t, old, incoming);
       notifyFoldTail(t, old, incoming);
     }
     return;
