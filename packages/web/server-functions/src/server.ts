@@ -657,6 +657,77 @@ function provideEvent(event, fn) {
   );
 }
 
+// Calling a generator only allocates it; calling a stream's reader is what
+// runs its pull. A request scope around the function CALL therefore does not
+// own either body. Bind each deferred operation to the event explicitly so
+// direct SSR calls keep their per-call event after the proxy has returned.
+// Non-deferred values pass through by identity and synchronously.
+function scopeDeferredResult(value, scope) {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return value;
+
+  const promised = scope(() => nativePromise(value));
+  if (promised) {
+    return promised.then(result => scope(() => scopeDeferredResult(result, scope)));
+  }
+
+  if (typeof ReadableStream !== "undefined" && value instanceof ReadableStream) {
+    let reader;
+    return new ReadableStream(
+      {
+        async pull(controller) {
+          try {
+            const step = await scope(() => {
+              if (!reader) reader = value.getReader();
+              return reader.read();
+            });
+            if (step.done) controller.close();
+            else controller.enqueue(step.value);
+          } catch (error) {
+            controller.error(error);
+          }
+        },
+        cancel(reason) {
+          return scope(() => (reader ? reader.cancel(reason) : value.cancel(reason)));
+        }
+      },
+      { highWaterMark: 0 }
+    );
+  }
+
+  const scopedIterator = symbol => ({
+    [symbol]() {
+      const iterator = scope(() => value[symbol]());
+      return new Proxy(iterator, {
+        get(target, property) {
+          const member = Reflect.get(target, property, target);
+          return typeof member === "function" &&
+            (property === "next" || property === "return" || property === "throw")
+            ? (...args) => scope(() => member.apply(target, args))
+            : member;
+        }
+      });
+    }
+  });
+  if (typeof value[Symbol.asyncIterator] === "function") {
+    return scopedIterator(Symbol.asyncIterator);
+  }
+
+  // Collections are synchronously materialized results, not deferred
+  // executions. Keep their type and identity; the branch is for generator
+  // and custom-iterator bodies whose next() runs authored code.
+  if (
+    typeof value[Symbol.iterator] === "function" &&
+    !Array.isArray(value) &&
+    !(value instanceof Map) &&
+    !(value instanceof Set) &&
+    !ArrayBuffer.isView(value)
+  ) {
+    return scopedIterator(Symbol.iterator);
+  }
+
+  return value;
+}
+
 const REGISTRATIONS = new Map();
 // Declared-method bookkeeping keyed by function id (internal, not public
 // API): the server half of `GET` records entries here so the HTTP handler
@@ -854,7 +925,8 @@ export function createServerReference({ id, fn, name }) {
       // this call's provideEvent scope and evaporates with the derived event.
       INVOCATIONS.set(evt, { id });
       evt.serverOnly = true;
-      const result = provideEvent(evt, () => {
+      const scope = run => provideEvent(evt, run);
+      let result = provideEvent(evt, () => {
         const run = () => fn.apply(thisArg, args);
         // Per-invocation wrap (see configureServerFunctionsServer): direct
         // SSR calls run through the same policy as HTTP dispatch, so
@@ -865,6 +937,10 @@ export function createServerReference({ id, fn, name }) {
           ? config.wrapInvocation(run, { id, args, event: evt, direct: true })
           : run();
       });
+      // A generator or stream body runs when the caller pulls it, after the
+      // call-time scope above has gone. Bind the WRAPPER'S result (not merely
+      // fn's) so a deferred wrapInvocation keeps the same semantics.
+      result = scopeDeferredResult(result, scope);
       // In-process mirror of the handler's transformResult: direct SSR calls
       // pass their settled value through the configured policy (e.g. frames
       // wrapping a function result as an inline-renderable server component).
@@ -872,9 +948,13 @@ export function createServerReference({ id, fn, name }) {
       // (`frameAddress`) — the same one the client derives for the same call.
       const transform = config.transformDirectResult;
       if (transform && result && typeof result.then === "function") {
-        return result.then(value => transform(value, { id, args, event: evt }));
+        return result.then(value =>
+          scopeDeferredResult(transform(value, { id, args, event: evt }), scope)
+        );
       }
-      return transform ? transform(result, { id, args, event: evt }) : result;
+      return transform
+        ? scopeDeferredResult(transform(result, { id, args, event: evt }), scope)
+        : result;
     }
   });
   return proxy;
@@ -1754,6 +1834,12 @@ function isFormPost(request) {
 // teardown. Without it (frame-sink, tests) the channels are sanitize-only,
 // as before.
 //
+// `state.scope` binds authored deferred operations — iterator steps, stream
+// reads, and re-entrant walks of yielded/resolved values — to the dispatch
+// event (#3222). It is explicit at each operation because merely creating an
+// iterator or stream inside provideEvent does not scope the body a later
+// consumer drives.
+//
 // The container descent is ITERATIVE (#3160): the recursive walk overflowed
 // on a deep-but-legal result (~10k+ nesting) and the RangeError escaped into
 // dispatch's catch as a phantom function error — the exact hazard this
@@ -1899,6 +1985,10 @@ class Frame {
  * immediately; synchronous containers register their shell in `state.seen`
  * (children — cycles included — must resolve to the shell being built) and
  * answer a Frame for the driver. */
+function guardOperation(state, run) {
+  return state.scope ? state.scope(run) : run();
+}
+
 function enterGuard(value, state) {
   if (value === null || typeof value !== "object") return value;
   if (state.seen.has(value)) {
@@ -1917,7 +2007,7 @@ function enterGuard(value, state) {
       if (finished) return;
       finished = true;
       try {
-        const cancelled = reader ? reader.cancel() : value.cancel();
+        const cancelled = guardOperation(state, () => (reader ? reader.cancel() : value.cancel()));
         if (cancelled && typeof cancelled.then === "function") cancelled.then(undefined, () => {});
       } catch {}
     };
@@ -1932,18 +2022,20 @@ function enterGuard(value, state) {
             controller.close();
             return;
           }
-          if (!reader) reader = value.getReader();
-          const { done, value: chunk } = await reader.read();
+          if (!reader) reader = guardOperation(state, () => value.getReader());
+          const { done, value: chunk } = await guardOperation(state, () => reader.read());
           // the chunk is walked like a step value: a channel nested in one
           // would otherwise reach the codec unguarded
-          done ? controller.close() : controller.enqueue(guardFailures(chunk, state));
+          done
+            ? controller.close()
+            : controller.enqueue(guardOperation(state, () => guardFailures(chunk, state)));
         } catch (error) {
-          controller.error(sanitizeServerError(error));
+          controller.error(guardOperation(state, () => sanitizeServerError(error)));
         }
       },
       cancel(reason) {
         finished = true;
-        return reader ? reader.cancel(reason) : value.cancel(reason);
+        return guardOperation(state, () => (reader ? reader.cancel(reason) : value.cancel(reason)));
       }
     });
     if (gate) gate.onOpen(close);
@@ -1953,9 +2045,9 @@ function enterGuard(value, state) {
 
   if (typeof value.then === "function") {
     const guardedPromise = Promise.resolve(value).then(
-      resolved => guardFailures(resolved, state),
+      resolved => guardOperation(state, () => guardFailures(resolved, state)),
       error => {
-        throw sanitizeServerError(error);
+        throw guardOperation(state, () => sanitizeServerError(error));
       }
     );
     // The guard consumes the source rejection and moves its sanitized form
@@ -1975,13 +2067,13 @@ function enterGuard(value, state) {
     const gate = state.gate;
     const guardedIterable = {
       [Symbol.asyncIterator]() {
-        const iterator = source[Symbol.asyncIterator]();
+        const iterator = guardOperation(state, () => source[Symbol.asyncIterator]());
         let finished = false;
         const close = () => {
           if (finished) return;
           finished = true;
           try {
-            const returned = iterator.return && iterator.return();
+            const returned = iterator.return && guardOperation(state, () => iterator.return());
             if (returned && typeof returned.then === "function") returned.then(undefined, () => {});
           } catch {}
         };
@@ -1993,16 +2085,19 @@ function enterGuard(value, state) {
         const step = () =>
           finished
             ? Promise.resolve({ done: true, value: undefined })
-            : iterator.next().then(
+            : guardOperation(state, () => iterator.next()).then(
                 step => {
                   if (step.done) {
                     finished = true;
                     return step;
                   }
-                  return { done: false, value: guardFailures(step.value, state) };
+                  return {
+                    done: false,
+                    value: guardOperation(state, () => guardFailures(step.value, state))
+                  };
                 },
                 error => {
-                  throw sanitizeServerError(error);
+                  throw guardOperation(state, () => sanitizeServerError(error));
                 }
               );
         return {
@@ -2025,6 +2120,22 @@ function enterGuard(value, state) {
     };
     state.seen.set(value, guardedIterable);
     return guardedIterable;
+  }
+
+  // Seroval can also defer authored work through a synchronous generator.
+  // It is not a failure channel, so it needs no sanitizer wrapper, but its
+  // iterator methods need the same explicit request scope (#3222).
+  if (
+    state.scope &&
+    typeof value[Symbol.iterator] === "function" &&
+    !Array.isArray(value) &&
+    !(value instanceof Map) &&
+    !(value instanceof Set) &&
+    !ArrayBuffer.isView(value)
+  ) {
+    const scopedIterable = scopeDeferredResult(value, state.scope);
+    state.seen.set(value, scopedIterable);
+    return scopedIterable;
   }
 
   if (Array.isArray(value)) {
@@ -2101,7 +2212,7 @@ function keepGuarded(value, next, changed, state) {
  * teardown registry are threaded through its state (`{ items: rows() }` —
  * a cursor beside a total — gets the same two guarantees as `return rows()`).
  */
-export function serializeResponseStream(value, codecOptions, signal) {
+export function serializeResponseStream(value, codecOptions, signal, scope) {
   let closed = false;
   // Demand gate. seroval's pump pulls each source as fast as it resolves and
   // enqueues every node the moment it is parsed, so without this a slow
@@ -2144,7 +2255,8 @@ export function serializeResponseStream(value, codecOptions, signal) {
       else sourceClosers.add(close);
     }
   };
-  value = guardFailures(value, { seen: new WeakMap(), cyclic: new WeakSet(), gate });
+  const guardState = { seen: new WeakMap(), cyclic: new WeakSet(), gate, scope };
+  value = guardOperation(guardState, () => guardFailures(value, guardState));
   let cancelSerialize = null;
   let onAbort = null;
   // Ends the sources and releases pulls parked on the demand gate. Every
@@ -2251,13 +2363,13 @@ export function serializeResponseStream(value, codecOptions, signal) {
   });
 }
 
-function serializedResponse(value, headers, codec, signal) {
+function serializedResponse(value, headers, codec, signal, scope) {
   headers.set(BODY_FORMAT_HEADER, BodyFormat.Serialized);
   headers.set("Content-Type", "text/plain");
-  return new Response(serializeResponseStream(value, codec, signal), { headers });
+  return new Response(serializeResponseStream(value, codec, signal, scope), { headers });
 }
 
-function encodeResult(value, headers, status, codec, signal) {
+function encodeResult(value, headers, status, codec, signal, scope) {
   // A null-body status can answer void results only. Encoding a value would
   // throw a TypeError from the Response constructor AFTER the function ran,
   // escaping into dispatch's catch where it used to be sanitized into a
@@ -2278,7 +2390,7 @@ function encodeResult(value, headers, status, codec, signal) {
         `status to send the value.`
     );
     headers.set(ERROR_HEADER, encodeErrorHeaderValue(error.message));
-    return encodeResult(error, headers, 500, codec, signal);
+    return encodeResult(error, headers, 500, codec, signal, scope);
   }
   const direct = getHeadersAndBody(value);
   if (direct) {
@@ -2311,17 +2423,19 @@ function encodeResult(value, headers, status, codec, signal) {
   // a throwing getter, an engine limit on an extreme shape — and it falls
   // through to the codec, which owns structured encoding errors.
   try {
-    if (isJSONSafe(value)) {
+    const jsonSafe = scope ? scope(() => isJSONSafe(value)) : isJSONSafe(value);
+    if (jsonSafe) {
       headers.set(BODY_FORMAT_HEADER, BodyFormat.Json);
       headers.set("Content-Type", "application/json");
-      return new Response(JSON.stringify(value), { status, headers });
+      const body = scope ? scope(() => JSON.stringify(value)) : JSON.stringify(value);
+      return new Response(body, { status, headers });
     }
   } catch {
     // fall through — serializedResponse overwrites the format headers the
     // JSON attempt may have set before stringify threw
   }
   try {
-    const response = serializedResponse(value, headers, codec, signal);
+    const response = serializedResponse(value, headers, codec, signal, scope);
     return status === 200 ? response : new Response(response.body, { status, headers });
   } catch (error) {
     // The synchronous half of the codec road threw — guardFailures' walk (a
@@ -2895,6 +3009,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
     return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
   };
   const provide = options.provideEvent || provideEvent;
+  const scope = run => provide(event, run);
   const flightHook =
     options.collectFlightData !== undefined ? options.collectFlightData : config.collectFlightData;
   // Same fallback pattern: a generic dispatcher calling
@@ -3156,11 +3271,11 @@ export async function handleServerFunctionRequest(request, options = {}) {
         if (result instanceof Response) return result;
         // the envelope's status forwards for unscripted callers too — this
         // used to hardcode 200 where the thrown path forwarded it (#3096)
-        return encodeResult(result, headers, status, codec, request.signal);
+        return encodeResult(result, headers, status, codec, request.signal, scope);
       }
 
       if (status === 304) warnScripted304(functionId);
-      return encodeResult(result, headers, status, codec, request.signal);
+      return encodeResult(result, headers, status, codec, request.signal, scope);
     } catch (x) {
       // Plain-thrown tail, hoisted so the thrown-path transformResult can
       // divert to it: the security-sensitive path. Sanitized to a generic
@@ -3190,7 +3305,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
         // authoritative signal (a failure discovered MID-STREAM still rides a
         // 200, in-band in the codec, because by then the status is spent);
         // thrown envelopes keep the author's status above.
-        return encodeResult(safe, headers, 500, codec, request.signal);
+        return encodeResult(safe, headers, 500, codec, request.signal, scope);
       };
       if (x instanceof Response || isResponseEnvelope(x)) {
         if (transformResult) {
@@ -3275,7 +3390,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
           if (x instanceof Response) return x;
         }
         if (scripted && status === 304) warnScripted304(functionId);
-        return encodeResult(x, headers, status, codec, request.signal);
+        return encodeResult(x, headers, status, codec, request.signal, scope);
       }
 
       // Plain thrown value (not a Response/envelope) — see respondThrown above.
