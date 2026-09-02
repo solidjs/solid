@@ -92,14 +92,8 @@ import {
   storeNextLookup,
   type StoreNextFamily,
   type StoreNextTarget,
-  type PatchChannel,
   optHooks
 } from "./target.js";
-// Patch-channel emission rides installed hooks (patch-hooks.ts) so the
-// channel tree-shakes out of apps that never register a patch consumer.
-// Every call is `t.pc`-guarded — a target only acquires `pc` through
-// patch.js registration, which installs the hooks first.
-import { patchHooks, rowHooks } from "./patch-hooks.js";
 
 // ---------------------------------------------------------------------------
 // wrap / dedupe
@@ -116,9 +110,9 @@ import { patchHooks, rowHooks } from "./patch-hooks.js";
  *
  * ARRAY SHAPE RULE: arrays normalize their named properties to dictionary
  * mode as the count grows (V8 13.x: counts ≡ 0 mod 3 from 18 up), so the
- * target's named field count is capped at 20 — write-side patch-channel
- * state lives inside the single `pc` extension (see target.ts), never as
- * new named fields here. */
+ * target's named field count is capped at 20 — any future write-side state
+ * beyond `wk` must ride an extension object (see target.ts), never new
+ * named fields here. */
 function TargetShape(this: any) {
   this.v = undefined;
   this.ch = undefined;
@@ -139,16 +133,11 @@ function TargetShape(this: any) {
   this.s = undefined;
   this.ovl = undefined;
   this.del = undefined;
-  this.pc = undefined;
+  this.wk = undefined;
   this.hv = undefined;
   this.ht = undefined;
 }
 TargetShape.prototype = Object.prototype;
-
-/** Lazily allocate the patch-channel extension (one literal shape). */
-export function pcOf(t: StoreNextTarget): PatchChannel {
-  return t.pc ?? (t.pc = { sp: null, p: null, ro: null, wk: null, qa: null, qe: null });
-}
 
 function createTarget(
   value: Record<PropertyKey, any>,
@@ -171,7 +160,7 @@ function createTarget(
   t.h = null;
   t.k = null;
   t.dk = null;
-  t.pc = null;
+  t.wk = null;
   t.u = parent;
   t.pk = parentKey;
   t.px = null;
@@ -599,7 +588,7 @@ export function adoptPB(
   target.del = null;
   target.sc = false;
   target.a = false;
-  if (target.pc !== null) target.pc.wk = null; // adoption supersedes staged trap writes
+  target.wk = null; // adoption supersedes staged trap writes
   target.v = incoming;
   target.ch = (incoming as any)[$TARGET] !== undefined;
   (target.fam?.map ?? storeNextLookup).set(incoming, target);
@@ -677,11 +666,6 @@ function drainFolds(): void {
     // is committing the batch the pull ran ahead of. Transition holds stay —
     // they clear when their transition is done (heldMaskView).
     if (t.ht === PLAIN_HOLD) t.ht = t.hv = null;
-    // Eager (write-override) family folds swap pb -> v at notifyWrites'
-    // tail: by the time this drain runs they carry no pb, and their
-    // structural ops must emit at the fold-commit site below (the clone
-    // branch never sees them). Re-audit blocker 4.
-    const foldedEager = t.pb === null;
     if (t.pb !== null) {
       // #3089: a fold written under a still-running transition defers to
       // that transition's settle (the write-time stamp covers unobserved
@@ -705,7 +689,7 @@ function drainFolds(): void {
         // Only written keys can hold (their nodes took the setSignal); the
         // wk bound keeps this O(written) — see notifyWrites. Same fallback
         // rules as the notify (WK_ALL / accessors / non-plain prototypes).
-        const wkh = t.pc !== null ? t.pc.wk : null;
+        const wkh = t.wk;
         const keys: Iterable<PropertyKey> =
           wkh === null ||
           wkh === WK_ALL ||
@@ -750,69 +734,20 @@ function drainFolds(): void {
         (t.fam?.map ?? storeNextLookup).delete(pb);
         t.pb = null;
         t.ovl = false;
-        if (t.pc !== null) t.pc.wk = null; // written-keys window closes with the fold commit
+        t.wk = null; // written-keys window closes with the fold commit
       } else {
-        // Setter-channel structural ops: a fold that changes an array's shape
-        // (push/splice/permutation through the setter — the reconcile walk
-        // never queues here) is a structural visibility transition for any
-        // registered list driver. Identity-keyed; aligned folds emit nothing.
-        // Family targets defer to their own adoption emission (fam reconcile).
-        // Arrays always fold on this clone branch (overlay is non-array only).
-        // Family setter drafts (writable projection push/splice through the
-        // masked setter) fold on this branch too and the fold IS their
-        // visibility moment — emit unless the structure already rode another
-        // channel: adoption folds (reconcile walk emitted ops) and
-        // optimistic families (lane-timed override channel). Re-audit
-        // blocker 4.
-        if (
-          t.pc !== null &&
-          t.pc.ro !== null &&
-          !t.adopted &&
-          t.fam?.opt !== true &&
-          Array.isArray(pb) &&
-          Array.isArray(t.v)
-        )
-          rowHooks!.emitSetterRowOps(t, t.v as any[], pb as any[]);
         t.v = pb;
         t.ch = false; // pb is always a plain clone
         t.pb = null;
-        if (t.pc !== null) t.pc.wk = null; // written-keys window closes with the fold commit
+        t.wk = null; // written-keys window closes with the fold commit
       }
     }
     if (t.v === old) {
       // A no-op adoption (A -> B -> A before flush) still consumed its walk:
-      // clear the flag or every later setter row-op gate (!t.adopted) stays
-      // failed and a driven family list freezes (re-audit 5, P1-1).
+      // clear the flag (adoption bookkeeping below assumes it reflects THIS
+      // fold's walk).
       t.adopted = false;
       continue;
-    }
-    // Patch channel (fold-commit site): family targets emit HERE — the fold
-    // IS their visibility moment (held folds re-queued above emit when they
-    // actually commit) — and so do PLAIN fold-adopted targets (setter-
-    // returned root replacements, chained-store swaps: adoptions WITHOUT a
-    // reconcile walk, so no walk-site emission ever happened — re-audit 2,
-    // P1-2). Plain eager targets emitted at their walk/setter sites already.
-    if (t.pc !== null && (t.fam !== null || t.adopted)) {
-      // Structural ops for folds whose structure rode no other channel:
-      // eager-folded family SETTER drafts (write-override swaps pb -> v at
-      // notifyWrites' tail — the clone branch never sees them; adoption
-      // folds re-emitting would double the walk's ops) and PLAIN fold
-      // adoptions (no walk at all). Optimistic families ride the override
-      // channel (lane-timed ops + revert RESYNC) — never re-emit here.
-      if (
-        t.pc.ro !== null &&
-        t.fam?.opt !== true &&
-        (t.fam !== null ? foldedEager && !t.adopted : t.adopted) &&
-        Array.isArray(t.v) &&
-        Array.isArray(old)
-      )
-        rowHooks!.emitSetterRowOps(t, old as any[], t.v as any[]);
-      if (t.pc.p !== null) {
-        // Accessor demotion at the fold-commit seam is DEV-ONLY (see the
-        // reconcile seam note: prod never pays per-adoption scans).
-        if (__DEV__ && !targetIsPlain(t)) patchHooks!.demoteToEffects(t);
-        else patchHooks!.emitPatchLocal(t, t.v, old);
-      }
     }
     // Path copying (CAS: see the eager-fold twin above).
     if (t.u && t.u.v[t.pk!] === old) {
@@ -891,7 +826,7 @@ function notifyWrites(t: StoreNextTarget): void {
   // implicit index deletes), accessors on the record (t.a — a getter node's
   // value can change when ANY key is written), or a non-plain prototype
   // (class instances: prototype getters derive from arbitrary fields).
-  const wk0 = t.pc !== null ? t.pc.wk : null;
+  const wk0 = t.wk;
   // Overlay pbs chain to the COMMITTED object (#3044): a prototype-overlay
   // draft is plain data on its own layer, but its getPrototypeOf is the
   // committed container — judge plainness by the COMMITTED prototype or the
@@ -975,13 +910,6 @@ function notifyWrites(t: StoreNextTarget): void {
     }
     if (changed) setSignal(t.k, v => v + 1);
   }
-  // Patch channel (setter site): a committed write transitions this record —
-  // queue its patches and bubble to ancestors (targeted nested writes must
-  // reach the row patch, §4b). One number compare when no patches exist.
-  // Family targets skip this site: their visibility moment is the FOLD
-  // commit (drainFolds emits), not the recompute/draft write.
-  if (t.fam === null && patchHooks !== null && patchHooks.hasPatches())
-    patchHooks.emitPatch(t, pb, old);
   // Projection backing folds split by channel (two pinned contracts):
   // - sync-derive drafts (recompute body): NEVER eager — a downstream async
   //   hold can form LATER in the same flush and the leaf must stay at stale
@@ -1834,15 +1762,14 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // Array length writes implicitly delete indices — the written-keys bound
     // can't see them, so poison to the full scan for this batch. Index
     // writes implicitly GROW length, so arrays always record it alongside.
-    const pcs = pcOf(target);
     if (Array.isArray(pb)) {
-      if (key === "length") pcs.wk = WK_ALL;
-      else if (pcs.wk !== WK_ALL) {
-        const wk = (pcs.wk ??= new Set());
+      if (key === "length") target.wk = WK_ALL;
+      else if (target.wk !== WK_ALL) {
+        const wk = (target.wk ??= new Set());
         wk.add(key);
         wk.add("length");
       }
-    } else if (pcs.wk !== WK_ALL) (pcs.wk ??= new Set()).add(key);
+    } else if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
     // Own data keys literally named "prototype"/"constructor" land as data —
     // defineProperty sidesteps a proto-chain setter named the same.
     if (UNSAFE_KEYS.has(key)) {
@@ -1881,20 +1808,12 @@ const traps: ProxyHandler<StoreNextTarget> = {
     const override = !draft && getWriteOverride();
     if (!draft && !override) return true;
     if (key === "__proto__") return true;
-    if (desc.get || desc.set) {
-      target.a = true;
-      // Accessor demotion (re-audit blocker 3): a record that acquires an
-      // accessor after patch registration stops being patchable — pull its
-      // patches and re-drive them as tracked effect fallbacks. Hooks are
-      // installed whenever pc.p exists (registration installs them).
-      if (target.pc !== null && target.pc.p !== null) patchHooks!.demoteToEffects(target);
-    }
+    if (desc.get || desc.set) target.a = true;
     // Unwrap before ensurePB (see the set trap: self-reference materializes).
     if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };
     const pb = ensurePB(target);
     pendingNotify.add(target);
-    const pcd = pcOf(target);
-    if (pcd.wk !== WK_ALL) (pcd.wk ??= new Set()).add(key);
+    if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
     Object.defineProperty(pb, key, desc);
     if (target.del !== null) target.del.delete(key);
     if (override) notifyWrites(target);
@@ -1907,8 +1826,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (!draft && !override) return true;
     const pb = ensurePB(target);
     pendingNotify.add(target);
-    const pcx = pcOf(target);
-    if (pcx.wk !== WK_ALL) (pcx.wk ??= new Set()).add(key);
+    if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
     delete pb[key as any];
     // A prototype overlay cannot shadow a delete of a committed key —
     // record it aside (#3044); reads/has/ownKeys/commit consult the set.

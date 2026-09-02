@@ -111,7 +111,11 @@ module.exports = [
     // the optimistic module, and read()'s latest()/authoritative-read
     // exemptions moved inside the hook (which now takes the observer) —
     // the floor keeps only `config-gate && hook?.(el, c)`.
-    limit: "8.02 KB",
+    //
+    // Patch-channel removal (2026-09-02): 8.02 -> 7.98 KB, measured at
+    // 7.95. The channel is deleted from next — regions own value delivery,
+    // the unified-For design owns structure — reclaiming the store write-path emission seams retained by the core floor.
+    limit: "7.98 KB",
     modifyEsbuildConfig
   },
   {
@@ -213,7 +217,11 @@ module.exports = [
     //
     // Fold relocation pass (2026-09-01): 14.56 -> 14.55 KB, measured at
     // 14.54 — the core-floor relocation (see that note).
-    limit: "14.66 KB",
+    //
+    // Patch-channel removal (2026-09-02): 14.66 -> 14.05 KB, measured at
+    // 14.00. The channel is deleted from next — regions own value delivery,
+    // the unified-For design owns structure — reclaiming the write-path seams, wk struct indirection, and reconcile row-ops builders.
+    limit: "14.05 KB",
     modifyEsbuildConfig
   },
   {
@@ -261,7 +269,11 @@ module.exports = [
     //
     // Fold relocation pass (2026-09-01): 9.99 -> 9.98 KB, measured at 9.97
     // — the core-floor relocation (see that note).
-    limit: "10.10 KB",
+    //
+    // Patch-channel removal (2026-09-02): 10.10 -> 10.04 KB, measured at
+    // 10.01. The channel is deleted from next — regions own value delivery,
+    // the unified-For design owns structure — reclaiming the optimistic emission seams retained via latest().
+    limit: "10.04 KB",
     modifyEsbuildConfig
   },
   {
@@ -303,7 +315,11 @@ module.exports = [
     // shared-reference reruns can diff mutations without deleting external
     // classes.
     path: "minimal-app.js",
-    limit: "10.86 KB",
+    //
+    // Patch-channel removal (2026-09-02): 10.86 -> 10.73 KB, measured at
+    // 10.70. The channel is deleted from next — regions own value delivery,
+    // the unified-For design owns structure — reclaiming the core-retained emission seams.
+    limit: "10.73 KB",
     modifyEsbuildConfig
   },
   {
@@ -357,7 +373,11 @@ module.exports = [
     // In-place class mutation fix (#3188): 17.67 -> 17.68 KB, measured at
     // 17.673. Hydration seeds the applied-class snapshot without mutating
     // the claimed DOM so the first live in-place change still diffs.
-    limit: "17.72 KB",
+    //
+    // Patch-channel removal (2026-09-02): 17.72 -> 17.61 KB, measured at
+    // 17.58. The channel is deleted from next — regions own value delivery,
+    // the unified-For design owns structure — reclaiming the insert $ll seam and core emission bytes.
+    limit: "17.61 KB",
     modifyEsbuildConfig
   },
   {
@@ -428,7 +448,11 @@ module.exports = [
     // retains every store family, so it pays the whole module. Ruled
     // correctness-over-size in the #3164 thread; conscious bump.
     path: "hydrating-store-app.js",
-    limit: "26.99 KB",
+    //
+    // Patch-channel removal (2026-09-02): 26.99 -> 26.15 KB, measured at
+    // 26.09. The channel is deleted from next — regions own value delivery,
+    // the unified-For design owns structure — reclaiming the full store-family emission surface (value + row tiers).
+    limit: "26.15 KB",
     modifyEsbuildConfig
   },
   {
@@ -458,57 +482,11 @@ module.exports = [
     // scheduler-resident ledger (nothing to shake), so it pays only the
     // hook call site's second argument plus brotli layout drift.
     path: "csr-app.js",
-    limit: "13.11 KB",
-    modifyEsbuildConfig
-  },
-  {
-    name: "app: CSR flip preview — + patchDriver (non-list patch templates)",
-    // What patch-mode DEFAULT-ON adds to ~every app: nearly any real
-    // template has one eligible pure member-read binding, so the compiler
-    // emits at least one patchDriver call — retaining the dual driver and
-    // the store channel's value-tier machinery: registration, the apply
-    // queue/drains, error routing, and the demotion path (~1.5 KB brotli
-    // over the classic app). NOT here: the list driver (only rowProof arms
-    // the insert seam) and the row-ops emitters + reconcile diff builders
-    // (row hooks arm only from list registrations).
     //
-    // rc.5 signals drift (2026-08-30): 14.6 -> 14.65 KB, measured at 14.61
-    // — the same core-retained quiescence bytes as the simple-app floor.
-    //
-    // #3164 fold ruling (2026-08-31): 14.65 -> 14.69 KB, measured at 14.68
-    // — the core-floor arm + asyncWrite wake plus the store-seam bytes
-    // (see the createStore note; the value-tier machinery this scenario
-    // retains carries the nodeValue mask seam).
-    //
-    // Fold relocation pass (2026-09-01): 14.69 -> 14.68 KB, measured at
-    // 14.67 — the core-floor relocation (see that note).
-    path: "csr-app-patch.js",
-    limit: "14.81 KB",
-    modifyEsbuildConfig
-  },
-  {
-    name: "app: CSR flip preview — + rowProof (patch-mode list driver)",
-    // The full flip cost: a compiled patch-mode list row (rowProof) arms
-    // the insert seam and retains the list driver plus the row-hooks tier
-    // (row-ops/slot emitters + reconcile's keyed/identity diff builders) —
-    // ~2.1 KB over the patchDriver floor, ~3.6 KB over classic. Paid
-    // exactly by apps with driver-eligible store lists — the tier the
-    // dbmon-class wins accrue to.
-    //
-    // Re-audit-3 hardening: 16.65 -> 16.75 KB (measured 16.69) — the
-    // driver's failed-apply resync flag + partial-registration severing and
-    // the coalescing entry updates ride this tier.
-    //
-    // #3122 eager iterator teardown (2026-08-31): 16.9 -> 16.92 KB,
-    // measured at 16.901 — the core-floor teardown bytes (see that note).
-    //
-    // #3164 fold ruling (2026-08-31): 16.92 -> 16.94 KB, measured at 16.93
-    // — the same bytes as the patchDriver scenario (see that note).
-    //
-    // Fold relocation pass (2026-09-01): 16.94 -> 16.91 KB, measured at
-    // 16.90 — retained-ledger shake, same as the hydrating no-store note.
-    path: "csr-app-patch-lists.js",
-    limit: "17.06 KB",
+    // Patch-channel removal (2026-09-02): 13.11 -> 12.97 KB, measured at
+    // 12.93. The channel is deleted from next — regions own value delivery,
+    // the unified-For design owns structure — reclaiming the insert $ll seam and core emission bytes.
+    limit: "12.97 KB",
     modifyEsbuildConfig
   },
   {

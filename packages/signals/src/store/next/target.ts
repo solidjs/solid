@@ -55,38 +55,6 @@ export interface StoreNextFamily {
   shallow?: boolean;
 }
 
-/** Write-side patch-channel state (stage 2), grouped off the target's named
- * fields — see the shape rule on `StoreNextTarget.pc`. One literal shape,
- * allocated by `pcOf` on first use. */
-export interface PatchChannel {
-  /** Slot-patch hooks for shallow arrays — the reconcile walk emits
-   * (i, next, prev) for key-aligned value-replaced slots through the patch
-   * apply queue (records are raw, no per-record targets exist).
-   * MULTI-CONSUMER (external audit): one array can drive several lists. */
-  sp: { fn: (index: number, next: any, prev: any) => void; owner: Owner | null }[] | null;
-  /** Patch-channel consumers (next/patch.ts): per-record compiled patch
-   * entries, multi-consumer. null when unpatched (the common case). */
-  p: object[] | null;
-  /** Same-batch coalescing stamp (re-audit 2/3): the container array this
-   * channel last pushed a non-forced SELF entry into, plus that entry. A
-   * later same-batch emission UPDATES the queued entry's `next` in place
-   * (latest state wins — adoption REPLACES the captured object, so dropping
-   * the later emission would apply stale state) while `prev` stays the
-   * batch's earliest. The drain clears both stamps so a quiet record
-   * retains nothing from its last batch. */
-  qa: unknown;
-  qe: unknown;
-  /** Row-ops consumers (next/patch.ts, PR-B): structural list ops —
-   * (nextRows, { prefix, sources, removed }) at apply timing. */
-  ro: object[] | null;
-  /** Keys written through the traps since the last fold commit. Bounds the
-   * setter notify/hold-check to O(written) instead of O(subscribed nodes) —
-   * a record with thousands of per-key subscriptions (selection maps) would
-   * otherwise pay a full node scan on every write. null = no trap writes
-   * this batch (bulk paths fall back to the full scan). */
-  wk: Set<PropertyKey> | null;
-}
-
 export interface StoreNextTarget {
   /** Committed backing: source object (shared) or owned clone. */
   v: Record<PropertyKey, any>;
@@ -102,15 +70,19 @@ export interface StoreNextTarget {
   h: Record<PropertyKey, Signal<boolean>> | null;
   /** Lazy key-set node: membership/iteration/$TRACK subscriptions (§6). */
   k: Signal<number> | null;
-  /** Patch-channel extension (lazily allocated on first use): groups the
-   * write-side stage-2 fields so they never widen the TARGET's own named
-   * field count. LOAD-BEARING SHAPE RULE: array proxy targets carry their
-   * fields as named properties on a real array, and V8 normalizes an array
-   * to dictionary properties as the named count grows (empirically at
-   * counts ≡ 0 mod 3 from 18 up on V8 13.x) — every trap field read then
-   * becomes a hash lookup (~15% uibench, tree suites worst). New
-   * patch-channel state MUST go inside this object, not on the target. */
-  pc: PatchChannel | null;
+  /** Keys written through the traps since the last fold commit. Bounds the
+   * setter notify/hold-check to O(written) instead of O(subscribed nodes) —
+   * a record with thousands of per-key subscriptions (selection maps) would
+   * otherwise pay a full node scan on every write. null = no trap writes
+   * this batch (bulk paths fall back to the full scan); WK_ALL = bound
+   * unusable (array length write). LOAD-BEARING SHAPE RULE: array proxy
+   * targets carry their fields as named properties on a real array, and V8
+   * normalizes an array to dictionary properties as the named count grows
+   * (empirically at counts ≡ 0 mod 3 from 18 up on V8 13.x) — every trap
+   * field read then becomes a hash lookup (~15% uibench, tree suites
+   * worst). Future write-side state MUST ride an extension object, not new
+   * named fields. */
+  wk: Set<PropertyKey> | null;
   /** Lazy deep-witness node: `deep()` subscribes ONE node per record instead
    * of one per path; write paths bump it only when it exists. Separate from
    * `k` so $TRACK/mapArray never rerun on leaf value changes (R9). */

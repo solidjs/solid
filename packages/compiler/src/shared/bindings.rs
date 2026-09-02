@@ -173,15 +173,9 @@ impl BindingTable {
         });
     }
 
-    /// Whether `name` resolves to ANY live declaration (Babel's
-    /// `scope.getBinding` presence check for the patch-mode subject guard).
-    pub(crate) fn has_binding(&self, name: &str) -> bool {
-        self.resolve(name).is_some()
-    }
-
     /// Declares a function's parameters in the current frame. The statement
-    /// walk only covers declarations; patch-mode subject resolution needs
-    /// params (row functions' subjects ARE their params).
+    /// walk only covers declarations; subject resolution needs params (row
+    /// functions' subjects ARE their params).
     pub(crate) fn declare_function_params(&mut self, params: &oxc_ast::ast::FormalParameters<'_>) {
         let mut names = std::vec::Vec::new();
         for param in &params.items {
