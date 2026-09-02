@@ -114,6 +114,188 @@ const pureOptions = { ownedWrite: true };
 // were, so the retry diffs against uncorrupted state. Consequence of the
 // strong-abort ordering: removed rows now dispose AFTER the pass's new rows
 // are created (you cannot destroy state before knowing the pass will land).
+
+/** SMALL-MOVE fast path (jfb-reorder profile, 2026-09-02): rotates, swaps,
+ * small displacements, and removals leave a window that is the old window
+ * SHIFTED, with 32-or-fewer genuinely displaced identities. The general
+ * path pays O(newLen) regardless — a window key-map plus four full-length
+ * staged arrays and element-copied prefix/suffix — measured ~50µs/op on
+ * 1000 rows against ~20µs of actual DOM work.
+ *
+ * PHASE 1 (scan, zero allocation beyond two small ledgers): a two-pointer
+ * walk records ALIGNED RUNS [oldStart, newStart, length] — at most
+ * ledger+1 of them — realigning at boundaries with bounded lookahead
+ * (interleaved splices stack shift offsets, so a boundary's distance can
+ * exceed one). A compare BUDGET caps total scan work so hopeless shapes
+ * (reverse, shuffle) bail almost immediately.
+ * PHASE 2 (commit, success only): slice() the live arrays (native memcpy
+ * keeps the fresh-identity contract downstream change propagation relies
+ * on), copy only the runs whose offset moved, patch the displaced few,
+ * dispose leftover sources (dif < 0). Insertions or any unmatched
+ * destination (replacements) return false with nothing staged.
+ * Kept OUT of updateKeyedMap on purpose: inlining deoptimized the general
+ * path (JIT function-size budget). */
+function trySmallMove<Item, MappedItem>(
+  data: MapData<Item, MappedItem>,
+  newItems: Item[],
+  newLen: number,
+  start: number
+): boolean {
+  const oldItems = data._items;
+  const oldRows = data._rows;
+  const keyFn = data._key;
+  const oldEnd = data._len - 1;
+  const srcPos: number[] = [];
+  const dstPos: number[] = [];
+  const runs: number[] = []; // flat triples: oldStart, newStart, length
+  let budget = 256;
+  let i = start;
+  let j = start;
+  let runOld = -1;
+  let runNew = -1;
+  let runLen = 0;
+  while (i <= oldEnd && j <= newLen - 1) {
+    const oldItem = oldItems[i];
+    const newItem = newItems[j];
+    if (oldItem === newItem || (oldRows !== undefined && compare(keyFn, oldItem, newItem))) {
+      if (runLen === 0) {
+        runOld = i;
+        runNew = j;
+      }
+      runLen++;
+      i++;
+      j++;
+      continue;
+    }
+    if (runLen !== 0) {
+      runs.push(runOld, runNew, runLen);
+      runLen = 0;
+    }
+    // Bounded realignment lookahead, shorter distance wins.
+    let del = -1;
+    let ins = -1;
+    const delLimit = Math.min(32 - srcPos.length, oldEnd - i, budget);
+    for (let a = 1; a <= delLimit; a++) {
+      const cand = oldItems[i + a];
+      if (cand === newItem || (oldRows !== undefined && compare(keyFn, cand, newItem))) {
+        del = a;
+        break;
+      }
+    }
+    const insLimit = Math.min(32 - dstPos.length, newLen - 1 - j, budget);
+    for (let a = 1; a <= insLimit; a++) {
+      const cand = newItems[j + a];
+      if (oldItem === cand || (oldRows !== undefined && compare(keyFn, oldItem, cand))) {
+        ins = a;
+        break;
+      }
+    }
+    budget -= (del === -1 ? delLimit : del) + (ins === -1 ? insLimit : ins);
+    if (budget <= 0 && del === -1 && ins === -1) return false;
+    if (del !== -1 && (ins === -1 || del <= ins)) {
+      for (let a = 0; a < del; a++) srcPos.push(i + a);
+      i += del;
+      continue;
+    }
+    if (ins !== -1) {
+      for (let a = 0; a < ins; a++) dstPos.push(j + a);
+      j += ins;
+      continue;
+    }
+    if (srcPos.length === 32 || dstPos.length === 32) return false;
+    srcPos.push(i);
+    dstPos.push(j);
+    i++;
+    j++;
+  }
+  if (runLen !== 0) runs.push(runOld, runNew, runLen);
+  for (; i <= oldEnd; i++) {
+    if (srcPos.length === 32) return false;
+    srcPos.push(i);
+  }
+  for (; j <= newLen - 1; j++) {
+    if (dstPos.length === 32) return false;
+    dstPos.push(j);
+  }
+  // Pair every destination with a displaced source (unmatched destination =
+  // replacement/insertion → general path). Leftover sources dispose.
+  let consumed: boolean[] | undefined;
+  if (dstPos.length !== 0) {
+    consumed = new Array(srcPos.length);
+    for (j = 0; j < dstPos.length; j++) {
+      const newItem = newItems[dstPos[j]];
+      let found = -1;
+      for (i = 0; i < srcPos.length; i++) {
+        if (
+          !consumed[i] &&
+          (oldItems[srcPos[i]] === newItem ||
+            (oldRows !== undefined && compare(keyFn, oldItems[srcPos[i]], newItem)))
+        ) {
+          found = i;
+          break;
+        }
+      }
+      if (found === -1) return false;
+      consumed[found] = true;
+      dstPos[j] = (dstPos[j] << 6) | found; // pack pairing (found < 32)
+    }
+  }
+  // PHASE 2: commit.
+  const oldMappings = data._mappings;
+  const oldNodes = data._nodes;
+  const oldIndexes = data._indexes;
+  const mappings = oldMappings.slice(0, newLen);
+  const nodes = oldNodes.slice(0, newLen);
+  const nextRows = oldRows ? oldRows.slice(0, newLen) : undefined;
+  const nextIndexes = oldIndexes ? oldIndexes.slice(0, newLen) : undefined;
+  for (let r = 0; r < runs.length; r += 3) {
+    const ro = runs[r];
+    const rn = runs[r + 1];
+    const rl = runs[r + 2];
+    if (ro !== rn) {
+      for (let a = 0; a < rl; a++) {
+        mappings[rn + a] = oldMappings[ro + a];
+        nodes[rn + a] = oldNodes[ro + a];
+        if (nextRows) nextRows[rn + a] = oldRows![ro + a];
+        if (nextIndexes) {
+          nextIndexes[rn + a] = oldIndexes![ro + a];
+          setSignal(nextIndexes[rn + a], rn + a);
+        }
+      }
+    }
+    if (nextRows) {
+      // Row-signal modes adopt the new objects across the run even in
+      // place (key-matched fresh objects; equality-gated).
+      for (let a = 0; a < rl; a++) setSignal(nextRows[rn + a], newItems[rn + a]);
+    }
+  }
+  for (j = 0; j < dstPos.length; j++) {
+    const p = dstPos[j] >> 6;
+    const q = srcPos[dstPos[j] & 63];
+    mappings[p] = oldMappings[q];
+    nodes[p] = oldNodes[q];
+    if (nextRows) {
+      nextRows[p] = oldRows![q];
+      setSignal(nextRows[p], newItems[p]);
+    }
+    if (nextIndexes) {
+      nextIndexes[p] = oldIndexes![q];
+      setSignal(nextIndexes[p], p);
+    }
+  }
+  data._mappings = mappings;
+  data._nodes = nodes;
+  nextRows && (data._rows = nextRows);
+  nextIndexes && (data._indexes = nextIndexes);
+  data._len = newLen;
+  data._items = newItems.slice(0);
+  // Dispose unmatched sources LAST (general-path ordering).
+  for (i = 0; i < srcPos.length; i++) {
+    if (consumed === undefined || !consumed[i]) oldNodes[srcPos[i]].dispose();
+  }
+  return true;
+}
+
 function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[] {
   const newItems = this._list() || [],
     newLen = newItems.length;
@@ -235,6 +417,20 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
         this._items = newItems.slice(0);
         return;
       }
+
+      // SMALL-MOVE FAST PATH: extracted to its own function — inlining it
+      // here bloats updateKeyedMap past the JIT's optimization budget and
+      // deoptimizes the GENERAL path (measured 2x on reverse). Gated to
+      // LARGE trimmed windows: when the trims already shrank the window
+      // (plain removals, tail edits), the general path is window-
+      // proportional and cheap — the fast path would only re-walk what the
+      // trims proved.
+      if (
+        newLen <= this._len &&
+        end - start > 64 &&
+        trySmallMove(this, newItems as Item[], newLen, start)
+      )
+        return;
 
       const dif = newLen - this._len;
       const temp: MappedItem[] = new Array(newLen);
