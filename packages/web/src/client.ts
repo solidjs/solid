@@ -19,6 +19,15 @@ import {
 } from "solid-js";
 import { effect, memo } from "./render.js";
 
+// Unified-For driver registration (pay-for-use: `insert` rides every bundle,
+// the driver only rides apps that arm it — see for-driver.ts).
+let listDriver:
+  | ((parent: Node, listFn: any, marker: Node | undefined, lateClassic: () => void) => boolean)
+  | undefined;
+export function setListDriver(driver: typeof listDriver): void {
+  listDriver = driver;
+}
+
 import { JSX } from "../jsx/jsx.js";
 
 import type { RequestEventLocals } from "./server.js";
@@ -915,6 +924,30 @@ export function insert(parent, accessor, marker, initial, options) {
   const host = options && options.host;
   if (multi && !initial) initial = [];
   if (hydrationRt !== null) initial = hydrationRt.claimInitial(parent, multi, initial);
+  // Unified-For seam (DESIGN-UNIFIED-FOR §4): a list value carrying the
+  // `$for` descriptor is offered to the registered keyed-list driver first.
+  // `false` declines to classic (the descriptor is also a callable — calling
+  // it IS the classic mapArray path). The lateClassic thunk serves ENGAGED
+  // lists that later leave the driver's contract: it re-enters this insert
+  // under the ORIGINAL owner with a bare accessor (no `$for` marker).
+  if (listDriver !== undefined && typeof accessor === "function" && accessor.$for !== undefined) {
+    const listAccessor = accessor;
+    const owner = getOwner();
+    if (
+      listDriver(parent, accessor, marker ?? undefined, () =>
+        runWithOwner(owner, () =>
+          insert(
+            parent,
+            () => listAccessor(),
+            marker,
+            marker !== undefined ? [] : undefined,
+            options
+          )
+        )
+      )
+    )
+      return;
+  }
   if (typeof accessor !== "function") {
     accessor = withInsertionParent(parent, () => normalize(accessor, initial, multi, true));
     if (typeof accessor !== "function") {

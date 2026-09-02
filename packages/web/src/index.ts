@@ -32,6 +32,7 @@ import {
 import type { JSX } from "../jsx/jsx.js";
 
 export * from "./client.js";
+export { enableUnifiedFor, __unifiedForStats } from "./for-driver.js";
 // Pay-for-use: retained only when compiled patch-mode output imports
 export * from "./server-mock.js";
 export * from "./response.js";

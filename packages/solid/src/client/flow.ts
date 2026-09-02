@@ -105,6 +105,16 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
   // mapArray at all.
   if (sharedConfig.hydrating) mapped = create();
   const list = () => (mapped ?? (mapped = create()))();
+  // Unified-For seam (DESIGN-UNIFIED-FOR §4): the returned value IS a data
+  // structure — a callable carrying the list descriptor. A renderer that
+  // understands `$for` may own rows and placement in one persistent
+  // structure (no mapArray, no value diff); everything else (children(),
+  // universal renderers, introspection) calls it and gets classic mapArray
+  // rows. Eligibility mirrors the classic contract the driver can honor:
+  // reference identity or key-fn rows (`keyed !== false`), no fallback, and
+  // no index parameter (row arity < 2).
+  if (props.keyed !== false && !("fallback" in props) && props.children.length < 2)
+    (list as any).$for = { each: () => props.each, row: props.children, keyed: props.keyed };
   return list as unknown as SolidElement;
 }
 
