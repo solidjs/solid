@@ -2041,13 +2041,16 @@ function assignProp(node, prop, value, prev, skipRef, nodeName) {
     const name = prop.slice(2).toLowerCase();
     const delegate = DelegatedEvents.has(name);
     if (!delegate && prev) {
+      // Bound tuples keep an internal [attached listener, authored tuple]
+      // record so an unrelated spread rerun can preserve listener identity.
+      if (Array.isArray(prev) && prev[1] === value) return prev;
       const h = Array.isArray(prev) ? prev[0] : prev;
       node.removeEventListener(name, h);
     }
     if (delegate || value) {
       const attached = addEvent(node, name, value, delegate);
       delegate && delegateEvents([name]);
-      if (!delegate) return attached;
+      if (!delegate) return Array.isArray(value) ? [attached, value] : attached;
     }
   } else if (
     (hasNamespace && prop.slice(0, 5) === "prop:") ||

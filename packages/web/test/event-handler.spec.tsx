@@ -2,9 +2,9 @@
  * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  */
-import { describe, expect, test } from "vitest";
-import { render } from "@solidjs/web";
-import { createSignal, flush } from "solid-js";
+import { describe, expect, test, vi } from "vitest";
+import { render, spread } from "@solidjs/web";
+import { createRoot, createSignal, flush } from "solid-js";
 import type { JSX } from "../src/index.js";
 
 describe("Event handlers", () => {
@@ -69,6 +69,28 @@ describe("Event handlers", () => {
 
     expect(calls).toEqual(["first", "second", "third"]);
     expect(handlers.map(handler => handler[1])).toEqual(["first", "second", "third"]);
+    dispose();
+  });
+
+  test("does not rebind an unchanged tuple when another spread property updates", () => {
+    const handler: JSX.BoundEventHandler<HTMLDivElement, Event> = [() => {}, "shared"];
+    const [props, setProps] = createSignal({ onScroll: handler, title: "first" });
+    const element = document.createElement("div");
+    const add = vi.spyOn(element, "addEventListener");
+    const remove = vi.spyOn(element, "removeEventListener");
+    const dispose = createRoot(dispose => {
+      spread(element, props, true);
+      return dispose;
+    });
+
+    flush();
+    expect(add).toHaveBeenCalledTimes(1);
+
+    setProps({ onScroll: handler, title: "second" });
+    flush();
+
+    expect(add).toHaveBeenCalledTimes(1);
+    expect(remove).not.toHaveBeenCalled();
     dispose();
   });
 });
