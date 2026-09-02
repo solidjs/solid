@@ -44,7 +44,8 @@ import {
   notifyKeyValue,
   regionAdoptionProbe,
   unwrapValue,
-  targetIsPlain
+  targetIsPlain,
+  deepRegionsLive
 } from "./store.js";
 import {
   ownedRaw,
@@ -216,7 +217,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
         )
           descend(unwrapValue(pvRaw), nv, keyFn, fam, proj);
         if (
-          t.dk !== null &&
+          (t.dk !== null || deepRegionsLive()) &&
           !dkBumpedA &&
           !(nv !== null && typeof nv === "object" ? targetsEqual(pvRaw, nv) : isEqual(pvRaw, nv))
         ) {
@@ -231,7 +232,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
           }
         }
       }
-      if (t.dk !== null && !dkBumpedA && i < nextRows.length) bumpDeep(t);
+      if ((t.dk !== null || deepRegionsLive()) && !dkBumpedA && i < nextRows.length) bumpDeep(t);
       const structStart = i; // misalignment point (== nlen on aligned ticks)
       let prevByKey: Map<any, any> | null = null;
       for (; i < nextRows.length; i++) {
@@ -347,7 +348,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
         if (!shallow && i < dlen && nvP !== null && typeof nvP === "object")
           descend(unwrapValue(prevRows[i]), nvP, keyFn, fam, proj);
         if (
-          t.dk !== null &&
+          (t.dk !== null || deepRegionsLive()) &&
           !dkBumpedP &&
           !(nvP !== null && typeof nvP === "object"
             ? targetsEqual(prevRows[i], nvP)
@@ -406,6 +407,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       t.h === null &&
       t.k === null &&
       t.dk === null &&
+      !deepRegionsLive() &&
       fam === null
     ) {
       // Adoption already ran at applyAdopt entry; emission was queued there.
@@ -436,7 +438,11 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       // node — deep() subscribes one node per record. Checked after descend
       // so in-place adoptions (same logical slot) don't bump; child records
       // carry their own witness. One flag + null check when unused.
-      if (t.dk !== null && !dkBumped && !(isObj ? targetsEqual(ov, nv) : isEqual(ov, nv))) {
+      if (
+        (t.dk !== null || deepRegionsLive()) &&
+        !dkBumped &&
+        !(isObj ? targetsEqual(ov, nv) : isEqual(ov, nv))
+      ) {
         bumpDeep(t);
         dkBumped = true;
       }

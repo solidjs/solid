@@ -1716,13 +1716,12 @@ export function createRenderEffect<T>(
  * the store proxy — same reads, no subscriptions, no baselines kept). */
 export function region(
   subject: any,
-  tracked:
-    | ((t: Record<string, any>, raw: any, path: (parent: any, key: PropertyKey) => any) => void)
-    | null,
-  body: (raw: any, t: Record<string, any>, p: Record<string, any>) => void
+  tracked: ((t: Record<string, any>, raw: any) => void) | null,
+  body: (raw: any, t: Record<string, any>, p: Record<string, any>) => void,
+  _deep?: boolean | 1
 ): void {
   const tvals: Record<string, any> = {};
-  if (tracked !== null) tracked(tvals, subject, (parent, key) => parent?.[key]);
+  if (tracked !== null) tracked(tvals, subject);
   body(subject, tvals, {});
 }
 

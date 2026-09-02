@@ -30,7 +30,7 @@ function Row(row, selection) {
     // depth-1 subject reads inside it ride the raw parameter (_u$) — the
     // deep witness already wakes the compute on any subject change.
     expect(out).toMatch(/_t\$\.r0 = selection\[_u\$\.id\]/);
-    expect(out).toContain("(_t$, _u$, _d$) =>");
+    expect(out).toContain("(_t$, _u$) =>");
     // No classic grouped effect emitted for this scope.
     expect(out).not.toContain("_$effect(");
   });
@@ -41,7 +41,7 @@ function Row(row, selection) {
     expect(out).toContain("_$effect(");
   });
 
-  it("deep chains emit path witnesses per intermediate record (dbmon shape)", () => {
+  it("deep chains pass the DEEP flag — writes bubble, no witness subscriptions (dbmon shape)", () => {
     const out = compile(
       `function Row(row) { return <tr>
         <td textContent={row.lastSample.nbQueries} />
@@ -50,14 +50,20 @@ function Row(row, selection) {
       { regions: true }
     );
     expect(out).toContain("_$region(row,");
-    // Witnesses: lastSample, lastSample.topFiveQueries, ...[0] — shortest
-    // first, shared prefixes deduped, chained through _w$ locals.
-    expect(out).toContain('const _w$0 = _d$(_u$, "lastSample")');
-    expect(out).toContain('const _w$1 = _d$(_w$0, "topFiveQueries")');
-    expect(out).toContain('const _w$2 = _d$(_w$1, "0")');
+    // Deep-region root: the runtime flags the record and deep writes walk
+    // the parent chain to bump it (region()/bumpDeep). One dk read.
+    expect(out).toMatch(/\}, 1\);/);
     // Body reads ride the commit-time raw all the way down.
     expect(out).toContain("_n$.lastSample.topFiveQueries[0].elapsed");
     expect(out).not.toContain("_$effect(");
+  });
+
+  it("depth-1 scopes omit the deep flag", () => {
+    const out = compile(`function Row(row) { return <td textContent={row.label} />; }`, {
+      regions: true
+    });
+    expect(out).toContain("_$region(row,");
+    expect(out).not.toMatch(/\}, 1\);/);
   });
 
   it("dynamic-key steps disqualify the chain — scope stays classic", () => {

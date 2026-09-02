@@ -160,36 +160,10 @@ function wrapRegion(path: NodePath, dynamics: DynamicBinding[]): t.ExpressionSta
   const rawId = t.identifier("_n$");
   const trackedId = t.identifier("_t$");
   const trackedRawId = t.identifier("_u$");
-  const pathId = t.identifier("_d$");
   const prevId = t.identifier("_p$");
   const trackedAssigns: t.Statement[] = [];
   const bodyStatements: t.Statement[] = [];
   let residuals = 0;
-
-  // DEEP-CHAIN WITNESSES: one `_d$` subscription per unique intermediate
-  // prefix (shortest first, so parents resolve before children). The region's
-  // own deep witness covers the subject's keys; each prefix's witness covers
-  // the NEXT step's key. In the classic fallback `_d$` degrades to a tracked
-  // per-key proxy read, so the same preamble is correct there too.
-  const prefixVars = new Map<string, t.Identifier>();
-  for (let i = 0; i < scope.deepPrefixes.length; i++) {
-    const prefix = scope.deepPrefixes[i];
-    const parentVar =
-      prefix.length === 1 ? trackedRawId : prefixVars.get(prefix.slice(0, -1).join("\u0000"))!;
-    const v = t.identifier("_w$" + i);
-    prefixVars.set(prefix.join("\u0000"), v);
-    trackedAssigns.push(
-      t.variableDeclaration("const", [
-        t.variableDeclarator(
-          v,
-          t.callExpression(pathId, [
-            t.cloneNode(parentVar),
-            t.stringLiteral(prefix[prefix.length - 1])
-          ])
-        )
-      ])
-    );
-  }
 
   dynamics.forEach((d, index) => {
     let { value } = d;
@@ -256,12 +230,13 @@ function wrapRegion(path: NodePath, dynamics: DynamicBinding[]): t.ExpressionSta
     t.callExpression(regionId, [
       t.identifier(scope.subject),
       trackedAssigns.length
-        ? t.arrowFunctionExpression(
-            [trackedId, trackedRawId, pathId],
-            t.blockStatement(trackedAssigns)
-          )
+        ? t.arrowFunctionExpression([trackedId, trackedRawId], t.blockStatement(trackedAssigns))
         : t.nullLiteral(),
-      t.arrowFunctionExpression([rawId, trackedId, prevId], t.blockStatement(bodyStatements))
+      t.arrowFunctionExpression([rawId, trackedId, prevId], t.blockStatement(bodyStatements)),
+      // DEEP flag: any eligible chain below the subject's own keys — the
+      // runtime flags the record as a deep-region root and writes bubble
+      // (see region()/bumpDeep). No witness subscriptions, one dk read.
+      ...(scope.deepPrefixes.length ? [t.numericLiteral(1)] : [])
     ])
   );
 }

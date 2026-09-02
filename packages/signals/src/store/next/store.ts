@@ -57,7 +57,12 @@ import {
   type Transition,
   GlobalQueue
 } from "../../core/scheduler.js";
-import { getObserver, getOwner, dispose as disposeNode } from "../../core/owner.js";
+import {
+  getObserver,
+  getOwner,
+  cleanup as ownerCleanup,
+  dispose as disposeNode
+} from "../../core/owner.js";
 import { REACTIVE_DISPOSED } from "../../core/constants.js";
 import {
   projectionWriteActive,
@@ -422,51 +427,21 @@ export function regionBind(
  * Owner-bound like every render effect; disposal rides the owner. */
 export function region(
   subject: any,
-  tracked:
-    | ((t: Record<string, any>, raw: any, path: (parent: any, key: PropertyKey) => any) => void)
-    | null,
-  body: (raw: any, t: Record<string, any>, p: Record<string, any>) => void
+  tracked: ((t: Record<string, any>, raw: any) => void) | null,
+  body: (raw: any, t: Record<string, any>, p: Record<string, any>) => void,
+  deep?: boolean | 1
 ): void {
   const t: StoreNextTarget | undefined = subject?.[$TARGET];
   const prev: Record<string, any> = {};
   const tvals: Record<string, any> = {};
-  // DEEP-CHAIN WITNESS (the emitter's `_d$`): dk bumps are per-record with
-  // no ancestor bubbling, so a body reading `raw.a.b` is only woken for
-  // writes at the subject's own keys. The compute therefore subscribes the
-  // witness of every INTERMEDIATE record on the declared chains — compiled
-  // manifests, graph-native: replacement re-resolves on redelivery (effects
-  // re-track), and unwrapped children materialize their target here exactly
-  // like deepNext's walk does. In the CLASSIC fallback the parent is the
-  // proxy, so the same call is a plain tracked per-key read.
-  const map = t === undefined ? storeNextLookup : (t.fam?.map ?? storeNextLookup);
-  // Resolution rides readSource (pending-backing aware): computes run in the
-  // PURE phase, before commitPendingNodes swaps backings — resolving through
-  // `t.v` would subscribe the OUTGOING children on every replacement
-  // delivery, leaving the wiring pointed at dead records while the commit
-  // reads the new tree (probe: deep-region.probe.test.ts).
-  const path = (parent: any, key: PropertyKey): any => {
-    if (parent === null || typeof parent !== "object") return undefined;
-    const px: StoreNextTarget | undefined = (parent as any)[$TARGET];
-    if (px !== undefined && px.px === parent) return parent[key]; // proxy: tracked read
-    const pt = map.get(parent);
-    let child = (parent as any)[key];
-    if (child === null || typeof child !== "object" || pt === undefined) return child;
-    let ct: StoreNextTarget | undefined = (child as any)[$TARGET] ?? map.get(child);
-    if (ct === undefined) {
-      if (!isWrappable(child)) return child;
-      wrapNext(child, pt, key);
-      ct = map.get(child);
-      if (ct === undefined) return child;
-    }
-    readNode(getDeepNode(ct));
-    return readSource(ct);
-  };
   const classic = () => {
     const node = createEffectNode(
       () => {
         // Classic hands the PROXY as `raw`: residual subject reads become
-        // tracked per-key subscriptions — no deep witness here to wake them.
-        if (tracked !== null) tracked(tvals, subject, path);
+        // tracked per-key subscriptions — no deep witness here to wake them
+        // (deep chains in the body read through the proxy too: per-key
+        // tracked at every level, so the flag is irrelevant here).
+        if (tracked !== null) tracked(tvals, subject);
         void body(subject, tvals, prev);
       },
       () => {},
@@ -481,14 +456,29 @@ export function region(
     return;
   }
   const dk = getDeepNode(t);
+  // DEEP region (body reads below the subject's own keys): dk has no
+  // ancestor bubbling, so flag this record as a deep-region root — bumpDeep
+  // on any DESCENDANT walks the parent chain and bumps flagged ancestors
+  // (see bumpDeep). ONE subscription regardless of read depth: the witness-
+  // per-intermediate-record design measured 2.3x hand-fixture tick cost on
+  // dbmon (6 subscriptions re-tracked per rerun, per-rerun map resolution).
+  // Refcounted: multiple regions can share a root; owner disposal releases.
+  if (deep) {
+    (t as any).rdp = ((t as any).rdp ?? 0) + 1;
+    deepRegions++;
+    ownerCleanup(() => {
+      (t as any).rdp--;
+      deepRegions--;
+    });
+  }
   const node = createEffectNode(
     () => {
       readNode(dk);
       // Residuals get the PENDING-AWARE raw (readSource) for subject reads:
-      // the deep witness already wakes this compute on any subject change, so
-      // a tracked per-key read would only buy a duplicate subscription — and
-      // pure-phase computes must see the incoming backing (see `path`).
-      if (tracked !== null) tracked(tvals, readSource(t), path);
+      // the deep witness already wakes this compute on any subject change,
+      // so a tracked per-key read would only buy a duplicate subscription —
+      // and pure-phase computes must see the incoming backing.
+      if (tracked !== null) tracked(tvals, readSource(t));
     },
     () => {
       void body(t.v, tvals, prev);
@@ -636,8 +626,31 @@ function getDeepNode(target: StoreNextTarget): Signal<number> {
 
 /** Deep-witness bump: any value/shape change on a record with a live deep()
  * subscriber notifies it. One null check when unused. */
+/** Count of live DEEP regions (regions whose bodies read below the
+ * subject's own keys). Gates the ancestor-bubble walk so stores without
+ * deep regions never pay it. */
+let deepRegions = 0;
+export function deepRegionsLive(): boolean {
+  return deepRegions > 0;
+}
+
 export function bumpDeep(t: StoreNextTarget): void {
   if (t.dk !== null) setSignal(t.dk, 1 as any);
+  // ANCESTOR BUBBLE (deep regions): dk is per-record — a region whose body
+  // reads `raw.a.b` would never wake for a write two levels down. Instead
+  // of the region subscribing a witness per intermediate record (measured
+  // at ~2.3x hand-fixture tick cost on dbmon: 6 subscriptions re-tracked
+  // per rerun), the WRITE walks the parent chain and bumps any ancestor
+  // flagged as a deep-region root. O(depth) pointer hops per changed
+  // record, only while deep regions exist. Over-delivery on unrelated deep
+  // writes is a no-op at the commit's baseline compares.
+  if (deepRegions > 0) {
+    let u = t.u;
+    while (u !== null) {
+      if ((u as any).rdp > 0 && u.dk !== null) setSignal(u.dk, 1 as any);
+      u = u.u;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1205,7 +1218,7 @@ function notifyWrites(t: StoreNextTarget): void {
   }
   // Deep-witness (dk): setter writes must notify a deep() subscriber even on
   // keys with no node. O(written/pb keys) equality only when a witness exists.
-  if (t.dk !== null) {
+  if (t.dk !== null || deepRegions > 0) {
     if (t.del !== null && t.del.size !== 0) bumpDeep(t);
     else
       for (const key of writtenKeys ?? Reflect.ownKeys(pb)) {
@@ -1416,7 +1429,7 @@ export function notifyFold(
   // Regions ride the deep witness (the dk line below) — the only region-
   // specific work is the durable-admission probe, registry-gated.
   if ((t as any).rg !== undefined) regionAdoptionProbe(t, neu);
-  if (t.dk !== null && old !== neu) bumpDeep(t);
+  if ((t.dk !== null || deepRegions > 0) && old !== neu) bumpDeep(t);
   // Optimistic targets: adoption notifications are authoritative landings —
   // bypass the engine (commit into _value; active overrides keep shadowing
   // until their transaction settles, per the no-revert-stash contract).

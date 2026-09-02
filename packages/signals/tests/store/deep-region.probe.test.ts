@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createRoot, createStore, flush, region } from "../../src/index.js";
 
-/** DEEP-CHAIN regions (the emitter's `_d$` path witness): dk bumps are
- * per-record with no ancestor bubbling, so a region whose body reads
- * `raw.a.b` subscribes the witness of every intermediate record on the
- * declared chains from the compute. Resolution rides readSource — computes
- * run in the pure phase, before commitPendingNodes swaps backings, so
- * resolving through `t.v` would re-subscribe the OUTGOING children on every
- * replacement delivery (the original probe failure). */
-describe("deep-chain region delivery (dbmon shape)", () => {
+/** DEEP regions (the emitter's `, 1` flag): dk bumps are per-record with no
+ * subscription-side deep coverage — instead the WRITE bubbles: bumpDeep
+ * walks the parent chain and bumps any ancestor flagged as a deep-region
+ * root (refcounted `rdp`, live-gated by a module counter). One dk
+ * subscription per region regardless of read depth; over-delivery on
+ * unrelated deep writes is a no-op at the body's baseline compares. */
+describe("deep region delivery (dbmon shape)", () => {
   function mount() {
     const [s, set] = createRoot(() =>
       createStore({
@@ -22,17 +21,13 @@ describe("deep-chain region delivery (dbmon shape)", () => {
     createRoot(() => {
       region(
         row,
-        (_t, _u, _d) => {
-          const w1 = _d(_u, "lastSample");
-          const w2 = _d(w1, "topFiveQueries");
-          _d(w2, "0");
-          _d(w2, "1");
-        },
+        null,
         (raw: any) => {
           seen.push(
             `${raw.lastSample.nbQueries}:${raw.lastSample.topFiveQueries[0].elapsed}:${raw.lastSample.topFiveQueries[1].elapsed}`
           );
-        }
+        },
+        1
       );
     });
     flush();
@@ -64,6 +59,33 @@ describe("deep-chain region delivery (dbmon shape)", () => {
     });
     flush();
     expect(seen.at(-1)).toBe("9:10:20");
+  });
+
+  it("owner disposal releases the deep-region live gate", () => {
+    const [s, set] = createRoot(() =>
+      createStore({ row: { a: { b: 1 } }, other: { c: { d: 1 } } })
+    );
+    const seen: number[] = [];
+    const dispose = createRoot(d => {
+      region(
+        s.row,
+        null,
+        (raw: any) => {
+          seen.push(raw.a.b);
+        },
+        1
+      );
+      return d;
+    });
+    flush();
+    dispose();
+    // With the deep region gone, deep writes elsewhere must not pay or
+    // deliver anything (counter released; rdp refcount back to zero).
+    set(d => {
+      d.row.a.b = 2;
+    });
+    flush();
+    expect(seen).toEqual([1]);
   });
 
   it("deep write into a REPLACED child delivers (pure-phase re-subscription)", () => {
