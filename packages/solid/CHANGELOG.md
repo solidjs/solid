@@ -1,5 +1,30 @@
 # solid-js
 
+## 2.0.0-rc.6
+
+### Patch Changes
+
+- a7c6b8e: Keep client-sourced stores pending during hydration until their first client result unless `seedLoadingValue` exposes the seed as commit zero.
+- 8d1ba82: Suspend property, symbol, membership, enumeration, and descriptor reads on pending server projections.
+- 3e48a75: Dev console footer: perf/graph diagnostic codes now also point at the attribution surface (`DEV.attribution.enable()` — why-chains, `costs()`, `waterfalls()`) and the agent-loops skill. Breaks a discovery circularity: the sensitive perf detectors only fire while attribution is enabled, so the always-on graph warnings are the moment to teach that the deeper evidence channel exists.
+- 04b5b7f: Reduce server projection gating code while preserving pending, ready, and rejected reads
+- da1f7bf: Keep ordinary property reads on rejected server projections throwing the original error instead
+  of exposing seed values, while preserving existing reflection and symbol behavior.
+- Updated dependencies [e13ca05]
+- Updated dependencies [432b089]
+- Updated dependencies [aa03f76]
+- Updated dependencies [fb5061c]
+- Updated dependencies [6b743c6]
+- Updated dependencies [989579e]
+- Updated dependencies [1012859]
+- Updated dependencies [bf97b8a]
+- Updated dependencies [71acf62]
+- Updated dependencies [32bc013]
+- Updated dependencies [3e36d6d]
+- Updated dependencies [202ee53]
+- Updated dependencies [e767ebd]
+  - @solidjs/signals@2.0.0-rc.6
+
 ## 2.0.0-rc.5
 
 ### Patch Changes
