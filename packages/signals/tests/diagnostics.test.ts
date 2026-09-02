@@ -187,22 +187,6 @@ describe("diagnostics", () => {
     expect(events[0].kind).toBe("lifecycle");
   });
 
-  it("emits a diagnostic and throws when createEffect is called without an effect function", () => {
-    const capture = DEV!.diagnostics.capture();
-
-    createRoot(() => {
-      expect(() => createEffect(() => 1)).toThrow(
-        /createEffect requires both a compute function and an effect function/
-      );
-    });
-
-    const events = capture.stop();
-    expect(events).toHaveLength(1);
-    expect(events[0].code).toBe("MISSING_EFFECT_FN");
-    expect(events[0].severity).toBe("error");
-    expect(events[0].kind).toBe("lifecycle");
-  });
-
   it("emits a diagnostic before throwing on reactive primitive creation in a forbidden scope", () => {
     const capture = DEV!.diagnostics.capture();
 

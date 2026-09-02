@@ -76,7 +76,8 @@ createEffect(
   () => {}
 );
 
-const _effectDeprecatedReturn: never = createEffect(() => 1);
+// @ts-expect-error createEffect requires a separate effect function
+createEffect(() => 1);
 const _effectCanonicalReturn: void = createEffect(
   () => 1,
   () => {}
