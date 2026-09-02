@@ -524,6 +524,20 @@ export function bumpRecordVersionAdopted(t: StoreNextTarget, old: any, neu: any)
   if (regionValuesChanged(old, neu)) setSignal(vn, v => (v as number) + 1);
 }
 
+/** Fused tail for the walk's in-loop latches (tick claw-back): the walk
+ * already compared every key and probed accessors — this just acts on the
+ * verdict. */
+export function regionAdoptedFused(t: StoreNextTarget, changed: boolean, accessor: boolean): void {
+  if (accessor || (t.a as any) === true) {
+    demoteRegions(t);
+    return;
+  }
+  if (changed) {
+    const vn = (t as any).vn as Signal<number> | undefined;
+    if (vn !== undefined) setSignal(vn, v => (v as number) + 1);
+  }
+}
+
 function ownKeysPlain(neu: any): boolean {
   if (neu === null || typeof neu !== "object") return true;
   if (!plainProto(neu)) return false;
@@ -1583,7 +1597,7 @@ const hasOwn = Object.prototype.hasOwnProperty;
 // shadow prototype accessors, so hasOwn + lookup is an exact own-check.
 const lookupGetter = (Object.prototype as any).__lookupGetter__;
 const lookupSetter = (Object.prototype as any).__lookupSetter__;
-function isOwnAccessor(src: Record<PropertyKey, any>, key: PropertyKey): boolean {
+export function isOwnAccessor(src: Record<PropertyKey, any>, key: PropertyKey): boolean {
   return (
     hasOwn.call(src, key) &&
     (lookupGetter.call(src, key) !== undefined || lookupSetter.call(src, key) !== undefined)
