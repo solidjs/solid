@@ -138,10 +138,6 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
   const shallow = t.s === true;
   const old = t.v;
   adoptPB(t, incoming, eager);
-  // Region version bump (graph-native prototype): the record transitioned —
-  // one ordinary signal write; parked/held/stolen by the scheduler like any
-  // node. EAGER only (family folds' visibility moment is their fold commit).
-  if (eager) bumpRecordVersion(t);
   // Patch channel (adoption site): this record transitioned — queue its
   // patches with the pre-adopt prev. No bubbling walk: the adoption walk
   // visits parents before children, so ancestors emitted already. EAGER
@@ -387,6 +383,8 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
             notifyKeyDiff(nodes[key as any], key, old, incoming, false);
         }
       }
+      // Region delivery (audit P1-1): array-branch twin of the tail below.
+      bumpRecordVersion(t);
       notifyFoldTail(t, old, incoming);
     }
     return;
@@ -473,6 +471,10 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
             notifyKeyDiff(nodes[key as any], key, old, incoming, false);
         }
       }
+      // Region delivery (audit P1-1): the eager object branch notifies
+      // per-key inline and never reaches notifyFold — this tail is its
+      // per-record "values transitioned" moment.
+      bumpRecordVersion(t);
       notifyFoldTail(t, old, incoming);
     }
     return;

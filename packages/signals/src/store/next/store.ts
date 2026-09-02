@@ -398,23 +398,47 @@ export function regionBind(record: any): { track: () => void; raw: () => any } |
  * the channel's delivery skipped its initial pass the same way). One
  * public function to JIT-warm instead of four, no {track,raw} carrier
  * allocation; the commit receives the raw backing directly. */
-export function createRegion(record: any, commit: (raw: any, prevRaw: any) => void): any {
+/** Create a region effect on a record, or DECLINE (null → the caller takes
+ * the classic tracked path). The commit contract is `commit(raw)` ONLY:
+ * compiled bodies own SCALAR BASELINES per hole (initialized at mount/
+ * hydration, advanced only after a successful write) — the effect
+ * pipeline's `prev` slot is deliberately NOT part of the contract, because
+ * raw backings alias under in-place folds and advance regardless of commit
+ * outcome (audit P1-3).
+ *
+ * DECLINES (audit P1-2): raw reads can only represent COMMITTED PLAIN
+ * state, so records whose visibility composes above the backing decline —
+ * optimistic families (overrides live on nodes; `t.v` never shows drafts
+ * or in-flight landings) and accessor-bearing records (a raw read would
+ * execute getters untracked). Plain records under transitions are sound:
+ * the version bump parks as a signal write, so the wake IS the commit
+ * moment and `t.v` equals committed state when the commit runs.
+ *
+ * OWNER-BOUND on purpose (audit correction): the node parents under the
+ * active owner at creation, so error boundaries, holds, and disposal
+ * compose exactly like any render effect. The returned node supports
+ * explicit disposal for row-granular teardown. */
+export function createRegion(record: any, commit: (raw: any) => void): any {
   const t: StoreNextTarget | undefined = record?.[$TARGET];
   if (t === undefined) return null;
+  if (t.fam?.opt === true) return null;
+  if (t.a === true || !targetIsPlain(t)) return null;
   if ((t as any).vn === undefined) {
     const vn = ((t as any).vn = signal(0));
     (vn as any)._config |= CONFIG_OWNED_WRITE;
     markDescendants(t);
   }
-  // ONE closure per region: the compute subscribes to the version node and
-  // RETURNS the raw backing — the effect contract then hands the commit
-  // (raw, prevRaw) natively, so no commit wrapper exists.
+  // The commit reads `t.v` AT COMMIT TIME — never the compute's captured
+  // return (audit P1-3, proven by the setter path: the compute runs in the
+  // pure phase, but drainFolds swaps the backing at commitPendingNodes,
+  // AFTER it — a captured raw is one fold stale by construction).
   const node = createEffectNode(
     () => {
       readNode((t as any).vn);
-      return t.v;
     },
-    commit as any,
+    () => {
+      commit(t.v);
+    },
     undefined,
     EFFECT_RENDER,
     undefined
@@ -962,6 +986,12 @@ function notifyWrites(t: StoreNextTarget): void {
     }
   }
   const old = t.v;
+  // Region delivery (audit P1-1): the setter channel — a pending backing
+  // exists, so at least one trap write landed this setter. The bump parks
+  // with the key notifications and commits with them; the region's commit
+  // then reads the folded raw. Spurious for value-equal rewrites (the
+  // body's scalar baselines make those no-op), never missed.
+  bumpRecordVersion(t);
   // Devtools mutation hook: full-key diff (dev-only cost) so unobserved
   // writes report too, matching the legacy set-trap hook. Overlay backings
   // materialize first so the diff walks a real container.
@@ -1247,6 +1277,12 @@ export function notifyFold(
   old: Record<PropertyKey, any>,
   neu: Record<PropertyKey, any>
 ): void {
+  // Region delivery (audit P1-1): notifyFold is THE shared committed-values
+  // notification — eager reconcile folds, projection/landing fold commits,
+  // adoption marks, and entity replacement all pass through here. One
+  // ordinary signal write per changed record; transitions park it, so the
+  // region's wake is the commit moment.
+  if (old !== neu) bumpRecordVersion(t);
   if (t.dk !== null && old !== neu) bumpDeep(t);
   // Optimistic targets: adoption notifications are authoritative landings —
   // bypass the engine (commit into _value; active overrides keep shadowing

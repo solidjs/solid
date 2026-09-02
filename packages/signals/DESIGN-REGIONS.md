@@ -93,7 +93,42 @@ Gutting + regions, measured against next's budgets:
   scenarios. On the driver branch the same machinery is ~2400 lines of
   patch.ts and ten hardening rounds of audit surface.
 
-## 5. Open rulings (needed before this is a proposal)
+## 5. Audit response (2026-09-01, external audit of 1c0edc21)
+
+Verdict: "genuinely graph-native; removes the parallel-scheduler problem;
+keep exploring." Four P1s, all addressed on this branch:
+
+- **P1-1 delivery coverage:** bumps moved off the reconcile special case
+  onto the real choke points — `notifyFold` entry (fold commits, landings,
+  adoption marks, entity swaps), both eager walk tails (object + array
+  branches notify per-key inline and never reach notifyFold), and
+  `notifyWrites` (setter channel; unconditional — a pending backing means
+  trap writes happened; value-equal rewrites are no-ops against the body's
+  baselines). Covered by the regions.test.ts delivery matrix.
+- **P1-2 optimistic visibility:** `createRegion` DECLINES what raw reads
+  cannot represent — optimistic families (overrides live on nodes) and
+  accessor-bearing records (getters must not run untracked). Declined
+  records take the classic tracked path; plain records under transitions
+  are sound because the version bump parks as a signal write (the wake IS
+  the commit moment). Regression-tested.
+- **P1-3 prevRaw:** backed out, twice over. The contract is `commit(raw)`
+  ONLY; compiled bodies own scalar baselines per hole. The audit's aliasing
+  concern was then CONFIRMED empirically in a second form: the effect
+  pipeline's value slot is captured by the PURE-phase compute, but setter
+  folds swap the backing at commitPendingNodes — a captured raw is one fold
+  stale by construction. The commit closure reads `t.v` at commit time.
+- **P1-4 integration:** the runtime half now has its test matrix
+  (regions.test.ts: setter/reconcile/projection/replacement delivery,
+  transition parking, declines, dispose + owner disposal). The compiler
+  half (emitter, hydration claiming, list regions in compiled output)
+  remains the rc.6 work, unchanged.
+
+Owner-bound correction adopted: the comments now state what the auditor
+observed — region nodes parent under the active owner (boundaries, holds,
+disposal compose); rows created inside a list region's commit run
+ownerless and are disposed by the list's bookkeeping.
+
+## 6. Open rulings (needed before this is a proposal)
 
 1. **Region = consistency/hold unit.** A pending source defers the whole
    region's commit, not one binding (a row goes stale-or-fresh as a unit —
@@ -125,7 +160,7 @@ Gutting + regions, measured against next's budgets:
    sets. Materially smaller than "partitioner design" — the rc.6 compiler
    work is an emitter evolution.
 
-## 6. Status
+## 7. Status
 
 - `region-delivery` pushed: prototype (ef42d094), regionBind golf
   (e043e830), channel gut (5d243eef). Signals 1433 / web 637 / treeshake /
