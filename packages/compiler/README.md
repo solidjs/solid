@@ -127,10 +127,36 @@ Pass `sourceMap: true` to receive a JSON source map string in `result.map`. For 
 - `validate`
 - `omitNestedClosingTags`
 - `omitLastClosingTag`
+- `optimize` (default `false` — see [Optimize](#optimize))
 - `builtIns` (default `["For", "Show", "Switch", "Match", "Loading", "Reveal", "Portal", "Repeat", "Dynamic", "Errored"]`)
 - `requireImportSource`
 - `serverComponents`
 - `renderers`
+
+### Optimize
+
+`optimize: true` adds a constant-folding and dead-code-elimination pass that runs before JSX is lowered, so whatever it resolves never reaches the generate at all.
+
+It folds constant expressions, substitutes module-level `const` bindings the program declares exactly once and never writes to, and removes branches a constant condition makes unreachable (`if`/`else`, `while (false)`, and statements after a `return`, `throw`, `break`, or `continue`).
+
+It also resolves Solid's control-flow components when their props decide the outcome:
+
+- `<Show when>` becomes its children or its `fallback`.
+- `<For each>` becomes its `fallback` when `each` is an empty array literal or statically falsy.
+- `<Repeat count>` becomes its `fallback` when `count` is zero or less.
+- `<Switch>` drops every statically false `<Match when>`, and collapses to a match that is statically true (or to its `fallback` when every match is false).
+- `<Dynamic component>` with a static intrinsic tag name becomes that element, so it can be templated.
+
+A folded element pays for no component call, memo, or insert hole, and its markup joins the surrounding template.
+
+Four rules keep a fold from changing behavior:
+
+- A built-in tag folds only when it resolves to Solid's own component: either nothing declares the name (the compiler auto-imports it) or it is imported from `moduleName` or `"solid-js"`. The exported name decides the identity, so an alias folds as what it renamed and `<Cond>` from `import { Show as Cond } from "solid-js"` folds as `<Show>`. A local `Show`, or one imported from another module, is a different component and is left alone.
+- A control-flow element with a spread attribute never folds, since the spread can supply or override the prop the fold reads.
+- Function children never fold, since the runtime decides from their arity whether to call them.
+- `<Portal>`, `<Loading>`, `<Errored>`, and `<Reveal>` never fold: each exists for a runtime condition no static analysis can decide.
+
+Folding changes the shape of the rendered tree, and with it hydration ids. Compile a server build and its client build with the same `optimize` value.
 
 ### Server function directives (experimental)
 

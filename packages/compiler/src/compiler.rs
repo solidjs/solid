@@ -99,6 +99,11 @@ pub struct CompileOptions {
     pub validate: bool,
     pub omit_nested_closing_tags: bool,
     pub omit_last_closing_tag: bool,
+    /// Constant-fold the program and eliminate the code and control-flow
+    /// components that folding proves unreachable. A server build and its
+    /// client build must agree on this: folding changes the rendered tree
+    /// shape, and with it hydration ids.
+    pub optimize: bool,
     pub built_ins: Vec<String>,
     pub renderers: Vec<Renderer>,
 }
@@ -128,6 +133,7 @@ impl Default for CompileOptions {
             validate: true,
             omit_nested_closing_tags: false,
             omit_last_closing_tag: true,
+            optimize: false,
             built_ins: default_built_ins(),
             renderers: Vec::new(),
         }
@@ -246,6 +252,15 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
             artifacts,
             options.source_map,
         )?;
+    }
+
+    if options.optimize {
+        crate::optimize::optimize_program(
+            &allocator,
+            &mut program,
+            &options.built_ins,
+            &options.module_name,
+        );
     }
 
     match options.generate {
