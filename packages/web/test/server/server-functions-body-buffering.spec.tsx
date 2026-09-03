@@ -88,7 +88,7 @@ async function tees<T>(
   kind: typeof Request | typeof Response,
   run: () => Promise<T>
 ): Promise<{ value: T; clones: (Request | Response)[] }> {
-  const original = kind.prototype.clone;
+  const original = kind.prototype.clone as (this: Request | Response) => Request | Response;
   const clones: (Request | Response)[] = [];
   kind.prototype.clone = function clone(this: Request | Response) {
     const teed = original.call(this);
@@ -99,7 +99,7 @@ async function tees<T>(
     const value = await run();
     return { value, clones };
   } finally {
-    kind.prototype.clone = original;
+    kind.prototype.clone = original as any;
   }
 }
 
