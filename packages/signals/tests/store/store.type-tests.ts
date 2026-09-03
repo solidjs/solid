@@ -2,6 +2,7 @@ import {
   createStore,
   createProjection,
   createOptimisticStore,
+  refresh,
   type Store
 } from "../../src/index.js";
 
@@ -122,4 +123,15 @@ createOptimisticStore(() => ({ user: { name: "Ada" }, ready: true }), { ready: f
     { value: 0 }
   );
   store.value satisfies number;
+  void refresh(store);
 }
+
+// ── createOptimisticStore (plain) — options preserve inference ───────
+
+{
+  const [store] = createOptimisticStore([{ id: 1, value: "one" }], { shallow: true });
+  store[0].value satisfies string;
+}
+
+// @ts-expect-error Plain optimistic stores do not reconcile snapshots by key.
+createOptimisticStore({ id: 1 }, { key: "id" });

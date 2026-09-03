@@ -1908,22 +1908,22 @@ setNextAffectsNodeResolver((t: StoreNextTarget, key: PropertyKey) =>
 );
 
 export function createStoreNext<T extends Record<PropertyKey, any>>(
-  init: T,
+  initialValue: T,
   shallow = false
 ): [T, SetStoreNextFunction<T>] {
   if (shallow && __DEV__) {
     // Never both deep-wrapped and raw (R41/R44): a value already tracked as
     // a DEEP store cannot be ingested shallow.
-    const existing = storeNextLookup.get(init);
+    const existing = storeNextLookup.get(initialValue);
     if (existing !== undefined && !(existing as any).s)
       throw new Error("createStore({ shallow }): value is already tracked as a deep store");
-    if ((init as any)[$TARGET])
+    if ((initialValue as any)[$TARGET])
       throw new Error("createStore({ shallow }): value is already a store proxy");
   }
-  const proxy = wrapNext(init);
+  const proxy = wrapNext(initialValue);
   if (shallow) {
     ((proxy as any)[$TARGET] as StoreNextTarget).s = true;
-    markRawIngest(init);
+    markRawIngest(initialValue);
   }
   if (__DEV__) registerGraph(proxy, getOwner());
   const setter: SetStoreNextFunction<T> = fn => storeSetterNext(proxy, fn);
