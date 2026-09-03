@@ -77,16 +77,26 @@ function decodeInputValue(value) {
  * entries are dropped (they cannot ride a cookie). Outcomes larger than
  * the 4 KB cookie ceiling are degraded to fit rather than silently lost —
  * the input echo goes first, then the value is bounded — and arrive with
- * `truncated` set (#3137).
+ * `truncated` set (#3137). When even the fully-degraded payload cannot
+ * fit (a caller-chosen `url` alone past the ceiling), the flash is
+ * REFUSED — `null`, no cookie — rather than truncated to a prefix that
+ * would attach the outcome to a submission it does not identify (#3249);
+ * the handler falls back to the plain redirect.
  */
-export function encodeFlashCookie(url: string, result: any, input: any[], thrown?: boolean): string;
+export function encodeFlashCookie(
+  url: string,
+  result: any,
+  input: any[],
+  thrown?: boolean
+): string | null;
 
 /**
- * Encodes the outcome of a no-JS call as a Set-Cookie value. `url` is the
- * call's url (pathname + search of the server function request) so the
- * integration can tell which submission the outcome belongs to; `thrown`
- * errors land on `error`, returned values on `result`, mirroring the split
- * a scripted call sees.
+ * Encodes the outcome of a no-JS call as a Set-Cookie value, or `null`
+ * when no storable cookie exists for it. `url` is the call's url
+ * (pathname + search of the server function request) so the integration
+ * can tell which submission the outcome belongs to; `thrown` errors land
+ * on `error`, returned values on `result`, mirroring the split a scripted
+ * call sees.
  */
 export function encodeFlashCookie(url, result, input, thrown) {
   const isError = result instanceof Error;
@@ -124,6 +134,17 @@ export function encodeFlashCookie(url, result, input, thrown) {
       payload.result = true;
     }
   }
+  // The ladder has spent everything it may spend and the payload still does
+  // not fit: `url` — pathname + search of a request the CALLER chose — is
+  // past the ceiling on its own. It is the identifier of last resort, and a
+  // prefix of an identifier is a WRONG identifier: the outcome would attach
+  // to a submission it does not name, silently. Emitting the oversized
+  // cookie is no better — the browser discards it whole, with `truncated:
+  // true` inside asserting a degradation that never stored. So the flash is
+  // refused (#3249): no cookie, and the no-JS handler falls back to the
+  // plain redirect — the navigation still lands, only the outcome echo is
+  // withheld.
+  if (!fitsCookie(payload)) return null;
   return flashCookie(payload);
 }
 

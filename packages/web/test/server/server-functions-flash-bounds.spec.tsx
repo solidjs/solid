@@ -15,11 +15,14 @@ import { describe, expect, it } from "vitest";
 import { decodeFlashCookie, encodeFlashCookie } from "@solidjs/web/server-functions/server";
 
 // what the browser stores: the name=value pair, before the attributes
-function pairOf(setCookie: string) {
-  return setCookie.slice(0, setCookie.indexOf("; "));
+// (null means the encoder refused to flash, #3249 — never expected here,
+// since every payload in this spec degrades down to a fitting size)
+function pairOf(setCookie: string | null) {
+  expect(setCookie).not.toBeNull();
+  return setCookie!.slice(0, setCookie!.indexOf("; "));
 }
 
-function roundTrip(setCookie: string) {
+function roundTrip(setCookie: string | null) {
   return decodeFlashCookie(pairOf(setCookie));
 }
 

@@ -48,13 +48,18 @@ afterAll(() => {
   delete (globalThis as any)[RequestContext];
 });
 
-/** What the browser stores: the name=value pair, before the attributes. */
-function pairOf(setCookie: string) {
-  const end = setCookie.indexOf("; ");
-  return end < 0 ? setCookie : setCookie.slice(0, end);
+/**
+ * What the browser stores: the name=value pair, before the attributes.
+ * (null means the encoder refused to flash, #3249 — never expected here,
+ * since falsy outcomes are tiny and always fit.)
+ */
+function pairOf(setCookie: string | null) {
+  expect(setCookie).not.toBeNull();
+  const end = setCookie!.indexOf("; ");
+  return end < 0 ? setCookie! : setCookie!.slice(0, end);
 }
 
-function roundTrip(setCookie: string) {
+function roundTrip(setCookie: string | null) {
   return decodeFlashCookie(pairOf(setCookie));
 }
 

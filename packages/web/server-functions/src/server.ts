@@ -2135,11 +2135,13 @@ export function createNoJSHandler({ base = "" } = {}) {
     // the value's truthiness: `0`, `false`, `""` and `null` are ordinary
     // outcomes a committed mutation must report (#3248). `undefined` writes
     // no cookie, unchanged pending a product ruling on the bare-return case.
+    // The encoder answers null when no storable cookie exists for the
+    // outcome (a caller-chosen url alone past the cookie ceiling, #3249):
+    // the redirect then goes out plain — never an oversized cookie the
+    // browser discards whole, never a truncated identifier.
     if (result !== undefined && !(result instanceof Response)) {
-      headers.append(
-        "Set-Cookie",
-        encodeFlashCookie(url.pathname + url.search, result, args, thrown)
-      );
+      const flash = encodeFlashCookie(url.pathname + url.search, result, args, thrown);
+      if (flash !== null) headers.append("Set-Cookie", flash);
     }
     return new Response(null, { status, headers });
   };
