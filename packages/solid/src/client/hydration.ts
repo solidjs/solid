@@ -417,7 +417,16 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options
   if (latchedOnce.has(o)) {
     if (options?.ssrSource !== "hybrid") armLiveTakeover();
   } else latchedOnce.add(o);
-  return readHydratedValue(sharedConfig.load!(o.id!), () => subFetch(compute, prev), options);
+  return readHydratedValue(
+    sharedConfig.load!(o.id!),
+    () => {
+      const traced = subFetch(compute, prev);
+      if (options?.ssrSource !== "hybrid" && traced != null && traced[LIVE_SOURCE])
+        armLiveTakeover();
+      return traced;
+    },
+    options
+  );
 }
 
 /**
@@ -1054,28 +1063,7 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
   const aiResult = hydrateSignalFromAsyncIterable(coreFn, fn, options);
   if (aiResult !== null) return aiResult;
 
-  // readSerializedOrCompute inlined with live detection: the adoption path
-  // already trace-runs the compute (dependency tracking); if that run
-  // returns a live-branded iterable, the serialized value is only the t=0
-  // face — arm the takeover so hydration end re-runs the compute for real
-  // (reconnect). Non-live computes keep exactly the old semantics.
-  return coreFn((prev: any) => {
-    const o = getOwner()!;
-    if (sharedConfig.done || !sharedConfig.has!(o.id!)) return fn(prev);
-    // Same divergence guard as readSerializedOrCompute: a re-entry while
-    // latched means a dependency changed mid-stream — arm the takeover so
-    // the change commits at hydration end instead of being lost.
-    if (latchedOnce.has(o)) armLiveTakeover();
-    else latchedOnce.add(o);
-    let traced: any;
-    const value = readHydratedValue(
-      sharedConfig.load!(o.id!),
-      () => (traced = subFetch(fn, prev)),
-      options
-    );
-    if (traced != null && traced[LIVE_SOURCE]) armLiveTakeover();
-    return value;
-  }, options);
+  return coreFn((prev: any) => readSerializedOrCompute(fn, prev, options), options);
 }
 
 function hydratedCreateMemo(compute: any, options?: any) {

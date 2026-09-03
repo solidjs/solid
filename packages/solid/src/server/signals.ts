@@ -2017,8 +2017,29 @@ export function createProjection<T extends object>(
 
   const ssrSource = options?.ssrSource;
   const useProxy = ssrSource !== "hybrid";
+  // Projections have no server-component continuation pump: a standing live
+  // answer always hands off after V1, including no-hydrate/frame consumers.
+  const usesHybrid = (source: AsyncIterable<unknown>) =>
+    ssrSource === "hybrid" || !!(source as any)[LIVE_SOURCE];
   const patches: PatchOp[] = [];
   const draft = useProxy ? createDeepProxy(state as any, patches) : (state as any as T);
+  const takeFirst = (source: AsyncIterable<void | T>) =>
+    Promise.resolve().then(() => {
+      const iter = source[Symbol.asyncIterator]();
+      return Promise.resolve(iter.next()).then((first: IteratorResult<void | T>) => {
+        if (first.done) return undefined;
+        closeAsyncIterator(iter);
+        return first.value;
+      });
+    });
+  const normalizeAsync = (value: any) =>
+    Promise.resolve(value).then(value =>
+      // A bounded Promise→AsyncIterable needs the projection patch-trace
+      // protocol; only one-shot hybrid/live sources normalize to a value here.
+      typeof value?.[Symbol.asyncIterator] === "function" && usesHybrid(value)
+        ? takeFirst(value)
+        : value
+    );
   // seedLoadingValue = commit #0: reads never throw, they serve a frozen copy
   // of the seed for the whole response (first-value lock — `state` still
   // advances underneath for patch/serialization correctness, the landing is
@@ -2046,7 +2067,7 @@ export function createProjection<T extends object>(
     if (seedLoading) markReady(frozenSeed);
     settleServerAsync<void | T, T>(
       Promise.reject(error),
-      () => runProjection() as void | T | PromiseLike<void | T>,
+      () => normalizeAsync(runProjection()),
       deferred,
       (value: void | T) => {
         if (value !== undefined && value !== state && value !== draft) {
@@ -2067,31 +2088,22 @@ export function createProjection<T extends object>(
   // Async iterable (generator)
   const iteratorFn = (result as any)?.[Symbol.asyncIterator];
   if (typeof iteratorFn === "function") {
-    if (ssrSource === "hybrid") {
+    if (usesHybrid(result as AsyncIterable<void | T>)) {
       let currentResult = result;
-      let iter: AsyncIterator<void | T>;
       const deferred = createDeferredPromise<T>();
       const [pending, markReady, markError] = createPendingProxy(state, deferred.promise);
       if (seedLoading) markReady(frozenSeed);
       const runFirst = () => {
         const source = currentResult ?? runProjection();
         currentResult = undefined;
-        const nextIterator = (source as any)?.[Symbol.asyncIterator];
-        if (typeof nextIterator !== "function") {
-          throw new Error("Expected async iterator while retrying server createProjection");
-        }
-        iter = nextIterator.call(source);
-        return iter.next().then((r: IteratorResult<void | T>) => {
-          if (!r.done) closeAsyncIterator(iter);
-          return r.value as T;
-        });
+        return takeFirst(source as AsyncIterable<void | T>);
       };
       settleServerAsync(
         runFirst(),
         runFirst,
         deferred,
         (value: void | T) => {
-          if (value !== undefined && value !== state) {
+          if (value !== undefined && value !== state && value !== draft) {
             replaceState(state, value as T);
           }
           markReady();
@@ -2236,11 +2248,11 @@ export function createProjection<T extends object>(
     const [pending, markReady, markError] = createPendingProxy(state, deferred.promise);
     if (seedLoading) markReady(frozenSeed);
     settleServerAsync(
-      result,
-      () => runProjection() as void | T | PromiseLike<void | T>,
+      normalizeAsync(result),
+      () => normalizeAsync(runProjection()),
       deferred,
       (value: void | T) => {
-        if (value !== undefined && value !== state) {
+        if (value !== undefined && value !== state && value !== draft) {
           replaceState(state, value as T);
         }
         markReady();

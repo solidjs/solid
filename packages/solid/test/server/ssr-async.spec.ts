@@ -5514,6 +5514,136 @@ describe("Promise-of-AsyncIterable flattening", () => {
     expect(channel).toBe("current");
   });
 
+  test("projection: promised live iterable auto-hybrids at its first value", async () => {
+    const { context, serialized } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    const gate = deferred<void>();
+    const stream = controlledStream<{ name: string }>();
+    (stream.iterable as any)[Symbol.for("solid.LiveSource")] = true;
+    let store: any;
+
+    createRoot(
+      () => {
+        store = createProjection(() => gate.promise.then(() => stream.iterable) as any, {
+          name: "seed"
+        });
+      },
+      { id: "t" }
+    );
+
+    expect(() => store.name).toThrow(NotReadyError);
+
+    gate.resolve();
+    await tick();
+    expect(() => store.name).toThrow(NotReadyError);
+    expect(stream.openCalls).toBe(1);
+
+    stream.yield({ name: "current" });
+    await tick();
+
+    expect(store.name).toBe("current");
+    expect(stream.returnCalls).toBe(1);
+    const channel = await [...serialized.values()][0];
+    expect(channel).toEqual({ name: "current" });
+  });
+
+  test("projection: direct live iterable also selects hybrid automatically", async () => {
+    const { context, serialized } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    const stream = controlledStream<{ name: string }>();
+    (stream.iterable as any)[Symbol.for("solid.LiveSource")] = true;
+    let store: any;
+
+    createRoot(
+      () => {
+        store = createProjection(() => stream.iterable as any, { name: "seed" });
+      },
+      { id: "t" }
+    );
+
+    await tick();
+    expect(stream.openCalls).toBe(1);
+    stream.yield({ name: "current" });
+    await tick();
+
+    expect(store.name).toBe("current");
+    expect(stream.returnCalls).toBe(1);
+    const channel = await [...serialized.values()][0];
+    expect(channel).toEqual({ name: "current" });
+  });
+
+  test("projection: an empty live iterable ignores its iterator return value", async () => {
+    const { context, serialized } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    const source = {
+      [Symbol.for("solid.LiveSource")]: true,
+      [Symbol.asyncIterator]() {
+        return {
+          next: () =>
+            Promise.resolve({
+              done: true as const,
+              value: { name: "not-a-yield" }
+            })
+        };
+      }
+    };
+    let store: any;
+
+    createRoot(
+      () => {
+        store = createProjection(() => Promise.resolve(source) as any, { name: "seed" });
+      },
+      { id: "t" }
+    );
+
+    const channel = await [...serialized.values()][0];
+    expect(channel).toEqual({ name: "seed" });
+    expect(store.name).toBe("seed");
+  });
+
+  test("projection: a synchronous first-pull failure rejects the store and channel", async () => {
+    const { context, serialized } = createMockSSRContext();
+    sharedConfig.context = context;
+
+    const gate = deferred<void>();
+    const error = new Error("first pull failed");
+    const source = {
+      [Symbol.for("solid.LiveSource")]: true,
+      [Symbol.asyncIterator]() {
+        return {
+          next() {
+            throw error;
+          }
+        };
+      }
+    };
+    let store: any;
+
+    createRoot(
+      () => {
+        store = createProjection(() => gate.promise.then(() => source) as any, {
+          name: "seed"
+        });
+      },
+      { id: "t" }
+    );
+
+    const channel = [...serialized.values()][0];
+    gate.resolve();
+    await expect(channel).rejects.toBe(error);
+
+    let thrown: unknown;
+    try {
+      store.name;
+    } catch (reason) {
+      thrown = reason;
+    }
+    expect(thrown).toBe(error);
+  });
+
   test("Loading boundary reveals at first yield, not at promise resolution", async () => {
     const { context, fragmentResults } = createMockSSRContext();
     sharedConfig.context = context;
