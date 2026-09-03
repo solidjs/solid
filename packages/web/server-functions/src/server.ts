@@ -659,6 +659,60 @@ function provideEvent(event, fn) {
   );
 }
 
+// The two ways a hand-written provideEvent breaks the call it is scoping,
+// in the words both dispatch legs answer with.
+const PROVIDE_EVENT_TWICE =
+  "provideEvent invoked the server function callback more than once: a second invocation " +
+  "would commit the call's side effects twice. The hook must call fn exactly once and return " +
+  "its result.";
+const PROVIDE_EVENT_NEVER =
+  "provideEvent returned without invoking the server function callback: the call would have " +
+  "answered as a void success without running the function. The hook must call fn exactly once " +
+  "and return its result.";
+
+// provideEvent's contract — run the callback, once, with `event` visible to
+// getRequestEvent() — enforced rather than assumed (#3172): every way a
+// hand-written hook gets it wrong otherwise answers as an ordinary success.
+// The hook is one object an adapter installs once, so a hook broken in
+// either direction is broken for every call the process makes — which is
+// why the guard belongs to the hook contract and not to one dispatch leg
+// (#3246): HTTP dispatch and the direct SSR call both enter through here.
+//
+// A second invocation is refused BEFORE the body runs again (a retry
+// wrapper or a misplaced await double-committed a mutation, silently), and
+// the count is re-checked once the hook has returned, so swallowing the
+// in-flight refusal cannot turn it back into a success. Zero invocations
+// is the other violation: a void result a caller cannot tell from a
+// function that returned nothing.
+//
+// The re-check waits for a promised result and is otherwise synchronous —
+// that is what keeps the direct leg transparent (a synchronous function
+// called during a render still returns its value, not a promise) while
+// still catching a hook that only defers its invocation.
+function provideEventOnce(provide, event, run) {
+  let invocations = 0;
+  const settle = () => {
+    if (invocations !== 1)
+      throw new Error(invocations === 0 ? PROVIDE_EVENT_NEVER : PROVIDE_EVENT_TWICE);
+  };
+  const result = provide(event, () => {
+    // thrown synchronously, never as a rejected promise: the second
+    // execution must not START, and a hook that ignores the return must not
+    // mint an unobserved rejection
+    if (++invocations > 1) throw new Error(PROVIDE_EVENT_TWICE);
+    return run();
+  });
+  const promised = nativePromise(result);
+  if (promised) {
+    return promised.then(value => {
+      settle();
+      return value;
+    });
+  }
+  settle();
+  return result;
+}
+
 // Calling a generator only allocates it; calling a stream's reader is what
 // runs its pull. A request scope around the function CALL therefore does not
 // own either body. Bind each deferred operation to the event explicitly so
@@ -928,7 +982,11 @@ export function createServerReference({ id, fn, name }) {
       INVOCATIONS.set(evt, { id });
       evt.serverOnly = true;
       const scope = run => provideEvent(evt, run);
-      let result = provideEvent(evt, () => {
+      // Exactly-once is enforced on this leg too (#3246, see
+      // provideEventOnce): a broken hook used to double-commit or skip the
+      // body silently during a render, where there is no status line to
+      // notice it by.
+      let result = provideEventOnce(provideEvent, evt, () => {
         const run = () => fn.apply(thisArg, args);
         // Per-invocation wrap (see configureServerFunctionsServer): direct
         // SSR calls run through the same policy as HTTP dispatch, so
@@ -3165,20 +3223,11 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // `event.response.headers` during a server function reach the wire.
   const dispatch = async () => {
     try {
-      // provideEvent's contract — run the callback, once, with `event`
-      // visible to getRequestEvent() — is enforced rather than assumed
-      // (#3172): every way a hand-written hook gets it wrong used to answer
-      // a successful-looking 200. The two data-integrity violations are
-      // counted here at the seam: a second invocation is refused BEFORE the
-      // function body runs again (a retry wrapper or a misplaced await
-      // double-committed a mutation under a 200, silently), and a hook that
-      // never invoked the callback must not resolve as a void success a
-      // caller cannot distinguish from a function that returned nothing.
-      // Both land on dispatch's catch — a sanitized 500 in production, the
-      // hook named in development — and the count is re-checked after the
-      // hook returns, so swallowing the in-flight refusal does not turn it
-      // back into a 200.
-      let invocations = 0;
+      // provideEvent's invocation contract is enforced, not assumed (#3172)
+      // — by the same guard the direct SSR call enters through, so a hook
+      // broken in either direction fails on whichever leg meets it (see
+      // provideEventOnce, #3246). Both violations land on dispatch's catch:
+      // a sanitized 500 in production, the hook named in development.
       const invokeOnce = async () => {
         // Identity is established BEFORE the wrapper runs, so
         // getServerFunctionInvocation() answers throughout the wrap — code
@@ -3189,30 +3238,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
           ? wrapInvocation(run, { id: functionId, args: parsed, event, request, direct: false })
           : run();
       };
-      let result = await provide(event, () => {
-        if (++invocations > 1) {
-          // thrown synchronously, never as a rejected promise: the second
-          // execution must not START, and a hook that ignores the return
-          // must not mint an unobserved rejection
-          throw new Error(
-            "provideEvent invoked the server function callback more than once: a second " +
-              "invocation would commit the call's side effects twice. The hook must call " +
-              "fn exactly once and return its result."
-          );
-        }
-        return invokeOnce();
-      });
-      if (invocations !== 1) {
-        throw new Error(
-          invocations === 0
-            ? "provideEvent returned without invoking the server function callback: the call " +
-                "would have answered as a void success without running the function. The hook " +
-                "must call fn exactly once and return its result."
-            : "provideEvent invoked the server function callback more than once: a second " +
-                "invocation would commit the call's side effects twice. The hook must call " +
-                "fn exactly once and return its result."
-        );
-      }
+      let result = await provideEventOnce(provide, event, invokeOnce);
 
       if (transformResult) {
         result = await transformResult(event, result, flightContext);
