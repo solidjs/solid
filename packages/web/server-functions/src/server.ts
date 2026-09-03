@@ -1774,8 +1774,11 @@ export function createNoJSHandler({ base = "" } = {}) {
       headers = new Headers({ Location: back });
     }
     // Responses carry their meaning in their metadata; anything else flashes
-    // the outcome for the next render to read.
-    if (result && !(result instanceof Response)) {
+    // the outcome for the next render to read — decided by shape, never by
+    // the value's truthiness: `0`, `false`, `""` and `null` are ordinary
+    // outcomes a committed mutation must report (#3248). `undefined` writes
+    // no cookie, unchanged pending a product ruling on the bare-return case.
+    if (result !== undefined && !(result instanceof Response)) {
       headers.append(
         "Set-Cookie",
         encodeFlashCookie(url.pathname + url.search, result, args, thrown)
@@ -3287,8 +3290,16 @@ export async function handleServerFunctionRequest(request, options = {}) {
         // handler reads redirect metadata off its argument — hand it the
         // envelope's response when the value is empty, matching what the
         // thrown path passes (#3096: a returned redirect envelope must
-        // navigate a form post too).
-        if (handleNoJS) return handleNoJS(result ?? metadata, request, parsed);
+        // navigate a form post too). Structural, not `??`: with no metadata
+        // to prefer, a returned `null` passes through as the outcome it is
+        // rather than eroding to `undefined` on the way to the flash (#3248).
+        if (handleNoJS) {
+          return handleNoJS(
+            result == null && metadata !== undefined ? metadata : result,
+            request,
+            parsed
+          );
+        }
         if (result instanceof Response) return result;
         // the envelope's status forwards for unscripted callers too — this
         // used to hardcode 200 where the thrown path forwarded it (#3096)

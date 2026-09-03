@@ -159,7 +159,12 @@ export function decodeFlashCookie(cookieHeader) {
   if (!match) return;
   try {
     const payload = JSON.parse(match);
-    if (!payload || !payload.result) return;
+    // Structural, not truthy: a well-formed cookie whose result is `""`,
+    // `0`, `false` or `null` is a delivered outcome — a truthiness test here
+    // discarded it after the encoder wrote it and the browser stored it, and
+    // took a thrown `Error("")`'s error flag with it (#3248). Only a payload
+    // without the result field at all decodes to nothing, as before.
+    if (!payload || typeof payload !== "object" || !("result" in payload)) return;
     const result = payload.error ? new Error(payload.result) : payload.result;
     const submission = {
       input: Array.isArray(payload.input) ? payload.input.map(decodeInputValue) : [],
