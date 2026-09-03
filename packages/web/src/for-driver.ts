@@ -122,6 +122,9 @@ function removeRow(r: Row): void {
 
 const FLATTEN_OPTS = { skipNonRendered: true, doNotUnwrap: true } as const;
 
+/** Shared no-op owner for the ownerless measurement mode. */
+const NO_OWNER: RowOwner = { dispose() {} };
+
 /** Build a row under its own owner (untracked + owned via runWithOwner —
  * mapArray's per-row shape). Fast path: compiled single-root rows return an
  * element directly and skip flatten. Detached DOM only — placement is the
@@ -129,8 +132,10 @@ const FLATTEN_OPTS = { skipNonRendered: true, doNotUnwrap: true } as const;
  * contract. MUST run inside `runWithOwner(slot.owner, ...)` so the row
  * owner chains to the slot (context + auto-teardown). */
 function buildRow(rowFn: (item: any) => any, item: any): Row | null {
-  const o = createOwner() as unknown as RowOwner;
-  let v = runWithOwner(o as any, () => rowFn(item));
+  // Measurement flag: ambient (slot) ownership, no per-row owner. Removed
+  // rows leak their effect until slot teardown — bench-only semantics.
+  const o: RowOwner = __ownerlessRows ? NO_OWNER : (createOwner() as unknown as RowOwner);
+  let v = __ownerlessRows ? rowFn(item) : runWithOwner(o as any, () => rowFn(item));
   if (v != null && (v as any).nodeType !== undefined)
     return { k: item, o, n: v as Node, ns: null, p: null, x: null, live: false, mv: true, g: 0 };
   const t = typeof v;
@@ -139,7 +144,9 @@ function buildRow(rowFn: (item: any) => any, item: any): Row | null {
     return { k: item, o, n, ns: null, p: null, x: null, live: false, mv: true, g: 0 };
   }
   // Slow path: fragments / nested arrays / signals — flatten (still owned).
-  v = runWithOwner(o as any, () => flatten(v, FLATTEN_OPTS));
+  v = __ownerlessRows
+    ? flatten(v, FLATTEN_OPTS)
+    : runWithOwner(o as any, () => flatten(v, FLATTEN_OPTS));
   if (Array.isArray(v) && v.length > 0) {
     const ns: Node[] = new Array(v.length);
     for (let i = 0; i < v.length; i++) {
@@ -432,9 +439,18 @@ function driveKeyedFor(
   return true;
 }
 
+/** MEASUREMENT-ONLY spike flag (never product): skip per-row owners
+ * entirely — rows run with the SLOT owner ambient, so row effects chain to
+ * the slot and individual row disposal is a no-op (removed rows leak their
+ * effect until slot teardown). Quantifies the per-row ownership tax
+ * (createOwner + runWithOwner + dispose) that a compiler-proven
+ * single-effect row contract would eliminate soundly. */
+export let __ownerlessRows = false;
+
 /** Arm the unified For driver (spike registration — pay-for-use: `insert`
  * is in every bundle; the driver rides only apps that call this). */
-export function enableUnifiedFor(): void {
+export function enableUnifiedFor(options?: { unsafeOwnerlessRows?: boolean }): void {
+  __ownerlessRows = options?.unsafeOwnerlessRows === true;
   setListDriver(driveKeyedFor);
 }
 
