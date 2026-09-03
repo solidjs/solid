@@ -9,10 +9,22 @@
  * goes first, then the value is bounded, and `url` plus the error/thrown
  * flags always survive, arriving with `truncated` set.
  *
+ * The ceiling is measured on the ENCRYPTED value the browser stores
+ * (#3239): the codec needs a key, and the pair length asserted below is the
+ * ciphertext's, not the JSON's.
+ *
  * Runs against the built bundles like the other server-function specs.
  */
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { decodeFlashCookie, encodeFlashCookie } from "@solidjs/web/server-functions/server";
+
+// the internal bundler contract: the secret the vite plugin injects
+beforeAll(() => {
+  (globalThis as any).__SOLID_SECRET__ = "flash-bounds-spec-key";
+});
+afterAll(() => {
+  delete (globalThis as any).__SOLID_SECRET__;
+});
 
 // what the browser stores: the name=value pair, before the attributes
 // (null means the encoder refused to flash, #3249 — never expected here,
@@ -27,29 +39,29 @@ function roundTrip(setCookie: string | null) {
 }
 
 describe("the flash cookie stays under the browser's ceiling", () => {
-  it("passes a small outcome through whole, untruncated", () => {
+  it("passes a small outcome through whole, untruncated", async () => {
     const form = new FormData();
     form.set("sku", "A-1");
-    const cookie = encodeFlashCookie("/checkout", { receipt: "RCPT-1" }, [form]);
-    const submission = roundTrip(cookie)!;
+    const cookie = await encodeFlashCookie("/checkout", { receipt: "RCPT-1" }, [form]);
+    const submission = (await roundTrip(cookie))!;
     expect(submission.url).toBe("/checkout");
     expect(submission.result).toEqual({ receipt: "RCPT-1" });
     expect(submission.truncated).toBeUndefined();
     expect((submission.input[0] as FormData).get("sku")).toBe("A-1");
   });
 
-  it("drops the input echo first, keeping a result that still fits", () => {
+  it("drops the input echo first, keeping a result that still fits", async () => {
     const form = new FormData();
     form.set("note", "x".repeat(8000)); // the submission is the bulk
-    const cookie = encodeFlashCookie("/save", { id: 7, ok: true }, [form]);
+    const cookie = await encodeFlashCookie("/save", { id: 7, ok: true }, [form]);
     expect(pairOf(cookie).length).toBeLessThanOrEqual(4096);
-    const submission = roundTrip(cookie)!;
+    const submission = (await roundTrip(cookie))!;
     expect(submission.result).toEqual({ id: 7, ok: true }); // the answer survives whole
     expect(submission.input).toEqual([]); // the echo paid for it
     expect(submission.truncated).toBe(true);
   });
 
-  it("reduces a structured result past the ceiling to the outcome flag", () => {
+  it("reduces a structured result past the ceiling to the outcome flag", async () => {
     // ~200 rows of the issue's shape — 29 was already past the ceiling
     const rows = Array.from({ length: 200 }, (_, i) => ({
       id: i,
@@ -58,9 +70,9 @@ describe("the flash cookie stays under the browser's ceiling", () => {
       price: 19.99,
       note: "restocked"
     }));
-    const cookie = encodeFlashCookie("/bulk-save", rows, []);
+    const cookie = await encodeFlashCookie("/bulk-save", rows, []);
     expect(pairOf(cookie).length).toBeLessThanOrEqual(4096);
-    const submission = roundTrip(cookie)!;
+    const submission = (await roundTrip(cookie))!;
     // structured JSON has no partial spelling: what survives is THAT it
     // happened and where — the part whose loss causes the double-submit
     expect(submission.url).toBe("/bulk-save");
@@ -68,20 +80,20 @@ describe("the flash cookie stays under the browser's ceiling", () => {
     expect(submission.truncated).toBe(true);
   });
 
-  it("keeps the longest prefix of a string result that fits", () => {
-    const cookie = encodeFlashCookie("/report", "line ".repeat(4000), []);
+  it("keeps the longest prefix of a string result that fits", async () => {
+    const cookie = await encodeFlashCookie("/report", "line ".repeat(4000), []);
     expect(pairOf(cookie).length).toBeLessThanOrEqual(4096);
-    const submission = roundTrip(cookie)!;
+    const submission = (await roundTrip(cookie))!;
     expect(typeof submission.result).toBe("string");
     expect(submission.result.startsWith("line line ")).toBe(true);
     expect(submission.truncated).toBe(true);
   });
 
-  it("a thrown outcome stays an error with a bounded message", () => {
+  it("a thrown outcome stays an error with a bounded message", async () => {
     const failure = new Error("constraint violated: " + "detail ".repeat(3000));
-    const cookie = encodeFlashCookie("/charge", failure, [], true);
+    const cookie = await encodeFlashCookie("/charge", failure, [], true);
     expect(pairOf(cookie).length).toBeLessThanOrEqual(4096);
-    const submission = roundTrip(cookie)!;
+    const submission = (await roundTrip(cookie))!;
     expect(submission.error).toBeInstanceOf(Error);
     expect((submission.error as Error).message.startsWith("constraint violated:")).toBe(true);
     expect(submission.result).toBeUndefined();

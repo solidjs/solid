@@ -14,10 +14,132 @@
 // browser without pulling this module — or the server-functions package at
 // all — in with it.
 //
-// The payload is plain JSON rather than the wire codec: it has to survive a
-// 4 KB cookie, and both halves here are synchronous while the codec is not.
+// The payload is JSON rather than the wire codec (it has to survive a 4 KB
+// cookie), and the JSON is AES-GCM ENCRYPTED before it becomes the cookie
+// value (#3239): the flash carries the submitted form input — whatever the
+// user typed, passwords included — and a plaintext cookie leaves that
+// readable in proxy logs, in the jar at rest, and on every request it rides
+// until cleared. Both codec halves run only on the server (the browser just
+// stores and returns the value), so the cookie is an opaque server-to-server
+// channel and encrypting it costs consumers nothing but the async signature.
 
 import { FLASH_COOKIE, parseCookieHeader, serializeCookie } from "../../src/cookies.js";
+
+const DEV = "_SOLID_DEV_" === true;
+
+// ---------------------------------------------------------------------------
+// Key resolution (#3239). The AES key derives from THE DEPLOYMENT SECRET —
+// deliberately not a flash-specific key: the secret is the deployment-wide
+// concept, and any future feature that needs a key derives its own from the
+// same secret under its own domain string (see FLASH_KEY_DOMAIN below), so
+// consumers configure one value, ever. Resolution order:
+//
+//   1. `configureServerFunctionsServer({ secret })` — the explicit option.
+//   2. `globalThis.__SOLID_SECRET__` — the INTERNAL bundler contract: the
+//      Solid vite plugin injects `globalThis.__SOLID_SECRET__ ??=
+//      "<random-per-build>"` into the app's server entry, so every instance
+//      of one deployment shares one secret with zero configuration. Injected
+//      into server output only; not public API.
+//   3. Neither — there is no way to store the outcome confidentially, so the
+//      flash is withheld entirely: the no-JS post still redirects cleanly,
+//      only the outcome echo is missing, and dev builds say why once.
+//
+// The secret must be shared by every instance that can serve the redirect
+// that follows the 303 (an ephemeral per-process key would silently lose
+// flashes behind a load balancer), which is why there is no generated
+// fallback.
+let configuredSecret;
+
+export function setFlashSecret(secret) {
+  configuredSecret = secret;
+}
+
+function resolveSecret() {
+  return configuredSecret !== undefined ? configuredSecret : globalThis.__SOLID_SECRET__;
+}
+
+// The flash key is a DOMAIN-SEPARATED derivation of the deployment secret:
+// SHA-256 over the domain string then the secret's UTF-8 bytes, imported as
+// raw AES-256-GCM key material. The digest normalizes arbitrary-length
+// secrets to the key size and keeps the secret itself out of the CryptoKey;
+// the domain prefix means a future feature deriving its own key from the
+// same secret (a different domain string) shares no key material with the
+// flash — one secret, per-purpose keys, never cross-decryptable.
+const FLASH_KEY_DOMAIN = "solid.flash.v1\0";
+
+let cachedSecret;
+let cachedKey;
+
+function resolveFlashKey() {
+  const secret = resolveSecret();
+  if (typeof secret !== "string" || secret.length === 0) return null;
+  if (secret !== cachedSecret) {
+    cachedSecret = secret;
+    cachedKey = crypto.subtle
+      .digest("SHA-256", new TextEncoder().encode(FLASH_KEY_DOMAIN + secret))
+      .then(digest =>
+        crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"])
+      );
+  }
+  return cachedKey;
+}
+
+let warnedMissingKey = false;
+function warnMissingKey() {
+  if (!DEV || warnedMissingKey) return;
+  warnedMissingKey = true;
+  console.warn(
+    "[solid] A no-JS form outcome was not flashed: the flash cookie is encrypted and no key " +
+      "is configured. Set configureServerFunctionsServer({ secret }) — or build with the Solid " +
+      "bundler plugin, which provides a per-deployment key automatically. The submission " +
+      "committed and the redirect was served; only the outcome echo was withheld."
+  );
+}
+
+// Wire format, versioned for evolution: the cookie value is
+// `1.<base64url(iv || ciphertext || tag)>` — a leading format version, a
+// 12-byte random IV, then AES-GCM output (whose trailing 16 bytes are the
+// auth tag). base64url is cookie-safe as-is, so the value survives
+// serializeCookie's percent-encoding byte-for-byte.
+const FLASH_FORMAT_VERSION = "1.";
+const IV_BYTES = 12;
+const GCM_TAG_BYTES = 16;
+
+function toBase64url(bytes) {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function fromBase64url(text) {
+  const binary = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function encryptFlashValue(key, json) {
+  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(json))
+  );
+  const packed = new Uint8Array(IV_BYTES + ciphertext.length);
+  packed.set(iv);
+  packed.set(ciphertext, IV_BYTES);
+  return FLASH_FORMAT_VERSION + toBase64url(packed);
+}
+
+async function decryptFlashValue(key, value) {
+  if (!value.startsWith(FLASH_FORMAT_VERSION)) return;
+  const packed = fromBase64url(value.slice(FLASH_FORMAT_VERSION.length));
+  if (packed.length <= IV_BYTES + GCM_TAG_BYTES) return;
+  const plain = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: packed.subarray(0, IV_BYTES) },
+    key,
+    packed.subarray(IV_BYTES)
+  );
+  return new TextDecoder().decode(plain);
+}
 
 /**
  * The outcome of a call made without the client runtime, as it rides the
@@ -28,7 +150,15 @@ import { FLASH_COOKIE, parseCookieHeader, serializeCookie } from "../../src/cook
 export interface FlashSubmission {
   /** The arguments the call was made with (files are dropped). */
   input: any[];
-  /** The call's url: pathname + search of the server function request. */
+  /**
+   * The call's url: the UNBOUND function base — the server function
+   * request's pathname (`<endpoint>/<id>`), without the `?args=` query a
+   * `.with()`-bound form's action carries (or any other query decoration).
+   * Matches what the scripted road records as a submission's url, so
+   * integrations can match flash and scripted submissions with the same
+   * `s.url === fn.base` test; bound arguments arrive in `input` instead,
+   * prepended exactly like a scripted call's.
+   */
   url: string;
   /** The returned value, when the call returned. */
   result?: any;
@@ -72,33 +202,44 @@ function decodeInputValue(value) {
  * outcome belongs to; pass `thrown` when the call threw rather than
  * returned.
  *
- * The payload is JSON inside the cookie: `FormData` and `URLSearchParams`
+ * The payload is JSON, AES-GCM encrypted into the cookie value (#3239; see
+ * the key resolution notes above — without a configured key the flash is
+ * withheld and this returns `null`): `FormData` and `URLSearchParams`
  * arguments are captured as entry pairs and revived on decode, and `File`
  * entries are dropped (they cannot ride a cookie). Outcomes larger than
- * the 4 KB cookie ceiling are degraded to fit rather than silently lost —
- * the input echo goes first, then the value is bounded — and arrive with
- * `truncated` set (#3137). When even the fully-degraded payload cannot
- * fit (a caller-chosen `url` alone past the ceiling), the flash is
- * REFUSED — `null`, no cookie — rather than truncated to a prefix that
- * would attach the outcome to a submission it does not identify (#3249);
- * the handler falls back to the plain redirect.
+ * the 4 KB cookie ceiling — measured on the encrypted value the browser
+ * stores — are degraded to fit rather than silently lost: the input echo
+ * goes first, then the value is bounded, arriving with `truncated` set
+ * (#3137). When even the fully-degraded payload cannot fit (a
+ * caller-chosen `url` alone past the ceiling), the flash is REFUSED —
+ * `null`, no cookie — rather than truncated to a prefix that would attach
+ * the outcome to a submission it does not identify (#3249); the handler
+ * falls back to the plain redirect.
  */
 export function encodeFlashCookie(
   url: string,
   result: any,
   input: any[],
   thrown?: boolean
-): string | null;
+): Promise<string | null>;
 
 /**
  * Encodes the outcome of a no-JS call as a Set-Cookie value, or `null`
- * when no storable cookie exists for it. `url` is the call's url
- * (pathname + search of the server function request) so the integration
+ * when no storable cookie exists for it — the outcome cannot fit the
+ * cookie ceiling (#3249), or no encryption key is configured (#3239: the
+ * payload carries form input and never rides plaintext; without a key the
+ * flash is withheld and dev builds warn once). `url` is the call's url
+ * (the unbound function base — the request's pathname) so the integration
  * can tell which submission the outcome belongs to; `thrown` errors land
  * on `error`, returned values on `result`, mirroring the split a scripted
  * call sees.
  */
-export function encodeFlashCookie(url, result, input, thrown) {
+export async function encodeFlashCookie(url, result, input, thrown) {
+  const key = resolveFlashKey();
+  if (!key) {
+    warnMissingKey();
+    return null;
+  }
   const isError = result instanceof Error;
   const payload = {
     url,
@@ -107,7 +248,7 @@ export function encodeFlashCookie(url, result, input, thrown) {
     thrown: !!thrown,
     input: input.map(encodeInputValue)
   };
-  if (fitsCookie(payload)) return flashCookie(payload);
+  if (fitsCookie(payload)) return flashCookie(payload, await key);
   // A cookie has a hard ceiling and no failure signal: past it the browser
   // discards the whole Set-Cookie — nothing in the response, nothing in the
   // console, nothing server-side — and the page after the redirect is
@@ -135,7 +276,8 @@ export function encodeFlashCookie(url, result, input, thrown) {
     }
   }
   // The ladder has spent everything it may spend and the payload still does
-  // not fit: `url` — pathname + search of a request the CALLER chose — is
+  // not fit: `url` — an address the CALLER chose (for the no-JS handler,
+  // the request's pathname: endpoint mount + function id) — is
   // past the ceiling on its own. It is the identifier of last resort, and a
   // prefix of an identifier is a WRONG identifier: the outcome would attach
   // to a submission it does not name, silently. Emitting the oversized
@@ -145,11 +287,27 @@ export function encodeFlashCookie(url, result, input, thrown) {
   // plain redirect — the navigation still lands, only the outcome echo is
   // withheld.
   if (!fitsCookie(payload)) return null;
-  return flashCookie(payload);
+  return flashCookie(payload, await key);
 }
 
-function flashCookie(payload) {
-  return serializeCookie(FLASH_COOKIE, JSON.stringify(payload), { secure: true, httpOnly: true });
+// The envelope (#3239): one-shot by design, so `Max-Age=60` bounds how long
+// an unconsumed outcome — an interrupted redirect, a closed tab — rests in
+// the jar; the consuming render is the very next navigation, milliseconds
+// away. `SameSite=Lax` over Strict deliberately: the flash must ride the
+// top-level GET that follows the 303 even when that navigation is
+// cross-site-initiated, so a stray flash is consumed (and cleared) rather
+// than lingering. Lax is not load-bearing for confidentiality — the value
+// is ciphertext — nor for CSRF: the origin gate refuses cross-site POSTs
+// before the no-JS handler is ever selected, so no flash exists for them.
+const FLASH_MAX_AGE_SECONDS = 60;
+
+async function flashCookie(payload, key) {
+  return serializeCookie(FLASH_COOKIE, await encryptFlashValue(key, JSON.stringify(payload)), {
+    secure: true,
+    httpOnly: true,
+    sameSite: "lax",
+    maxAge: FLASH_MAX_AGE_SECONDS
+  });
 }
 
 // The browser ceiling is 4096 bytes of `name=value` (RFC 6265bis §5.6);
@@ -157,29 +315,42 @@ function flashCookie(payload) {
 // the pair leaves headroom for the attributes under either reading.
 const COOKIE_PAIR_BUDGET = 4000;
 
+// The ceiling is measured on what the browser stores: the ENCRYPTED value
+// (#3249 composed with #3239). AES-GCM ciphertext length equals plaintext
+// length, so the stored size is deterministic from the JSON's UTF-8 byte
+// count — version prefix, IV, auth tag, then unpadded base64url inflation —
+// and the degradation ladder can still probe fit cheaply on the plaintext
+// payload it is shrinking.
 function fitsCookie(payload) {
-  return (
-    FLASH_COOKIE.length + 1 + encodeURIComponent(JSON.stringify(payload)).length <=
-    COOKIE_PAIR_BUDGET
-  );
+  const plaintextBytes = new TextEncoder().encode(JSON.stringify(payload)).length;
+  const packedBytes = IV_BYTES + plaintextBytes + GCM_TAG_BYTES;
+  const valueLength = FLASH_FORMAT_VERSION.length + Math.ceil((packedBytes * 4) / 3);
+  return FLASH_COOKIE.length + 1 + valueLength <= COOKIE_PAIR_BUDGET;
 } /**
  * Decodes the flash cookie out of a request's `Cookie` header, for the
  * render that follows the redirect. Returns undefined when the cookie is
  * absent or unreadable — a malformed cookie never takes down the render,
  * and `clearFlashCookie` should be appended regardless.
  */
-export function decodeFlashCookie(cookieHeader: string | null): FlashSubmission | undefined;
+export function decodeFlashCookie(
+  cookieHeader: string | null
+): Promise<FlashSubmission | undefined>;
 
 /**
  * Decodes the flash cookie out of a request's Cookie header. Returns
- * undefined when absent or unreadable — a malformed cookie must never take
- * down the render, and it is cleared either way.
+ * undefined when absent or unreadable — a malformed, tampered, foreign-key
+ * or key-less cookie must never take down the render (#3239: decryption
+ * failure reads as "no flash"), and it is cleared either way.
  */
-export function decodeFlashCookie(cookieHeader) {
+export async function decodeFlashCookie(cookieHeader) {
   const match = parseCookieHeader(cookieHeader)[FLASH_COOKIE];
   if (!match) return;
   try {
-    const payload = JSON.parse(match);
+    const key = resolveFlashKey();
+    if (!key) return;
+    const json = await decryptFlashValue(await key, match);
+    if (json === undefined) return;
+    const payload = JSON.parse(json);
     // Structural, not truthy: a well-formed cookie whose result is `""`,
     // `0`, `false` or `null` is a delivered outcome — a truthiness test here
     // discarded it after the encoder wrote it and the browser stored it, and
@@ -196,6 +367,11 @@ export function decodeFlashCookie(cookieHeader) {
     if (payload.truncated) submission.truncated = true;
     return submission;
   } catch (error) {
-    console.error(error);
+    // A cookie that fails to decrypt or parse is not an outcome: a tampered
+    // value, a rotated deployment key, or plain garbage all read as "no
+    // flash" — and the eager one-shot clear disposes of it either way. Noisy
+    // only in dev; a key rotation must not error-log every affected request
+    // in production.
+    if (DEV) console.error(error);
   }
 }

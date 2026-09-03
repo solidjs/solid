@@ -42,10 +42,12 @@ const RequestContext = Symbol.for("solid.RequestContext");
 
 beforeAll(() => {
   (globalThis as any)[RequestContext] = new AsyncLocalStorage();
+  (globalThis as any).__SOLID_SECRET__ = "flash-falsy-spec-key";
 });
 
 afterAll(() => {
   delete (globalThis as any)[RequestContext];
+  delete (globalThis as any).__SOLID_SECRET__;
 });
 
 /**
@@ -85,32 +87,32 @@ function formPost(url = "https://app.example/_server/save-draft") {
 }
 
 describe("a falsy result is still an outcome", () => {
-  it("delivers an empty-string result rather than discarding the cookie", () => {
-    const cookie = encodeFlashCookie("/_server/save-draft", "", ["hello"]);
-    const submission = roundTrip(cookie);
+  it("delivers an empty-string result rather than discarding the cookie", async () => {
+    const cookie = await encodeFlashCookie("/_server/save-draft", "", ["hello"]);
+    const submission = await roundTrip(cookie);
 
     // the control: absence really is absence, and stays undefined
-    expect(decodeFlashCookie(null)).toBeUndefined();
+    expect(await decodeFlashCookie(null)).toBeUndefined();
 
     expect(submission).toBeDefined();
     expect(submission?.url).toBe("/_server/save-draft");
     expect(submission?.result).toBe("");
   });
 
-  it("delivers 0, false and null the same way", () => {
+  it("delivers 0, false and null the same way", async () => {
     for (const result of [0, false, null]) {
-      const submission = roundTrip(encodeFlashCookie("/_server/vote", result, []));
+      const submission = await roundTrip(await encodeFlashCookie("/_server/vote", result, []));
       expect(submission, `result ${JSON.stringify(result)} was discarded`).toBeDefined();
       expect(submission?.url).toBe("/_server/vote");
       expect(submission?.result).toBe(result);
     }
   });
 
-  it("keeps the error flag on a thrown outcome whose message is empty", () => {
+  it("keeps the error flag on a thrown outcome whose message is empty", async () => {
     // the flag, not the text, is what the next render branches on: losing it
     // turns a failed charge into a page that looks like nothing was posted
-    const cookie = encodeFlashCookie("/_server/charge", new Error(""), [], true);
-    const submission = roundTrip(cookie);
+    const cookie = await encodeFlashCookie("/_server/charge", new Error(""), [], true);
+    const submission = await roundTrip(cookie);
 
     expect(submission).toBeDefined();
     expect(submission?.error).toBeInstanceOf(Error);
@@ -118,13 +120,13 @@ describe("a falsy result is still an outcome", () => {
     expect(submission?.result).toBeUndefined();
   });
 
-  it("the no-JS handler flashes falsy outcomes and still redirects back", () => {
+  it("the no-JS handler flashes falsy outcomes and still redirects back", async () => {
     for (const result of [0, false, "", null]) {
-      const response = createNoJSHandler()(result, formPost(), ["hello"]);
+      const response = await createNoJSHandler()(result, formPost(), ["hello"]);
 
       expect(response.status).toBe(303);
       expect(response.headers.get("Location")).toBe("https://app.example/drafts/9");
-      const submission = flashed(response);
+      const submission = await flashed(response);
       expect(submission, `result ${JSON.stringify(result)} emitted no cookie`).toBeDefined();
       expect(submission?.result).toBe(result);
       expect(submission?.input).toEqual(["hello"]);
@@ -142,7 +144,7 @@ describe("a falsy result is still an outcome", () => {
 
     expect(response.status).toBe(303);
     expect(response.headers.get("Location")).toBe("https://app.example/drafts/9");
-    const submission = flashed(response);
+    const submission = await flashed(response);
     expect(submission, "the committed mutation's null outcome emitted no cookie").toBeDefined();
     expect(submission?.result).toBe(null);
   });
@@ -155,7 +157,7 @@ describe("a falsy result is still an outcome", () => {
     );
 
     expect(response.status).toBe(303);
-    const submission = flashed(response);
+    const submission = await flashed(response);
     expect(submission?.result).toBe(0);
   });
 
@@ -173,13 +175,12 @@ describe("a falsy result is still an outcome", () => {
 
     expect(response.status).toBe(303);
     expect(response.headers.get("Location")).toBe("https://app.example/orders/42");
-    expect(flashed(response)).toBeUndefined();
+    expect(await flashed(response)).toBeUndefined();
   });
 
-  it("an undefined outcome keeps its current behavior: no cookie (pending ruling)", () => {
-    // Whether a bare `return` should flash is an open product ruling — this
-    // pins today's behavior so the falsy fix cannot drift it by accident.
-    const response = createNoJSHandler()(undefined, formPost(), ["hello"]);
+  it("an undefined outcome keeps its current behavior: no cookie (ruled)", async () => {
+    // Ruled: a bare `return` has nothing to replay, so it writes no cookie.
+    const response = await createNoJSHandler()(undefined, formPost(), ["hello"]);
 
     expect(response.status).toBe(303);
     expect(
