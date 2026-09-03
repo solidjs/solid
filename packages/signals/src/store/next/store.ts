@@ -344,15 +344,23 @@ export function getKeySetNode(target: StoreNextTarget): Signal<number> {
   return k;
 }
 
+/** Count of LIVE deep-witness nodes — the bubble gate: apps with no deep()/
+ * witness() subscribers pay one number check per change, never a chain walk. */
+let deepWitnessesLive = 0;
+
 function getDeepNode(target: StoreNextTarget): Signal<number> {
   let dk = target.dk;
   if (dk === null) {
+    deepWitnessesLive++;
     const created: Signal<number> = (dk = signal(
       0,
       {
         equals: false,
         unobserved() {
-          if (target.dk === created) target.dk = null;
+          if (target.dk === created) {
+            target.dk = null;
+            deepWitnessesLive--;
+          }
         }
       },
       (target.fam?.node as any) ?? undefined
@@ -369,10 +377,36 @@ function getDeepNode(target: StoreNextTarget): Signal<number> {
   return dk;
 }
 
-/** Deep-witness bump: any value/shape change on a record with a live deep()
- * subscriber notifies it. One null check when unused. */
+/** Deep-witness bump — BUBBLING (create-floor coarse rows): a change on any
+ * record notifies witnesses on the record AND its ancestors, so a coarse row
+ * subscribes ONE witness on its record instead of one per nested child
+ * (deep()'s per-record walk keeps working — ancestors were already
+ * subscribed, they just notify redundantly within the same flush). Gated by
+ * the live-witness counter: unwitnessed apps pay one number check; the
+ * chain walk costs tree-depth pointer hops and only runs when a witness
+ * exists somewhere. */
 export function bumpDeep(t: StoreNextTarget): void {
+  // Own-record bump: legacy semantics untouched (optimistic-family dks are
+  // deliberately override-armed; their own writes ride the lane).
   if (t.dk !== null) setSignal(t.dk, 1 as any);
+  // Ancestor bubble (create-floor coarse rows): a coarse row witnesses ONE
+  // record; changes on descendants must reach it. Ancestor bumps are pure
+  // notification bookkeeping — AUTHORITATIVE, never lane cargo (bisected:
+  // bubbling into an optimistic root's armed dk mid-action created an
+  // unintended override that wedged the family's generator; same ruling as
+  // the keyset revert-resync's authoritative bump).
+  if (deepWitnessesLive === 0) return;
+  for (let p: StoreNextTarget | null = t.u; p !== null; p = p.u) {
+    if (p.dk !== null) {
+      const dk = p.dk;
+      runAuthoritative(() => setSignal(dk, 1 as any));
+    }
+  }
+}
+
+/** True when any deep witness is live — callers gate walk-side work. */
+export function deepLive(): boolean {
+  return deepWitnessesLive !== 0;
 }
 
 /** PROTOTYPE (create-floor coarse rows): the coarse read — subscribe to ONE
@@ -882,8 +916,9 @@ function notifyWrites(t: StoreNextTarget): void {
     }
   }
   // Deep-witness (dk): setter writes must notify a deep() subscriber even on
-  // keys with no node. O(written/pb keys) equality only when a witness exists.
-  if (t.dk !== null) {
+  // keys with no node. O(written/pb keys) equality only when a witness exists
+  // somewhere (bubbling: an ancestor's witness must see this record's write).
+  if (t.dk !== null || deepWitnessesLive !== 0) {
     if (t.del !== null && t.del.size !== 0) bumpDeep(t);
     else
       for (const key of writtenKeys ?? Reflect.ownKeys(pb)) {
@@ -1084,7 +1119,7 @@ export function notifyFold(
   old: Record<PropertyKey, any>,
   neu: Record<PropertyKey, any>
 ): void {
-  if (t.dk !== null && old !== neu) bumpDeep(t);
+  if ((t.dk !== null || deepWitnessesLive !== 0) && old !== neu) bumpDeep(t);
   // Optimistic targets: adoption notifications are authoritative landings —
   // bypass the engine (commit into _value; active overrides keep shadowing
   // until their transaction settles, per the no-revert-stash contract).
