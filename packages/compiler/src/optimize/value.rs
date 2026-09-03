@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use oxc_ast::ast::Expression;
+use oxc_ast::ast::{ArrayExpressionElement, Expression, ObjectPropertyKind, PropertyKey};
 use oxc_syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 
 use crate::shared::utils::format_number;
@@ -332,6 +332,81 @@ pub(crate) fn truthiness(expression: &Expression<'_>, env: &ConstantEnv) -> Opti
             truthiness(&unary.argument, env).map(|value| !value)
         }
         _ => evaluate(expression, env).map(|value| value.truthy()),
+    }
+}
+
+/// Whether skipping `expression` entirely loses nothing observable.
+///
+/// Every fold that reads a condition also *discards* it: `<Show when={C}>`
+/// keeps neither `C` nor the component that read it, and a resolved `if` or
+/// ternary keeps neither its test. [`truthiness`] answers what a value is
+/// worth, which is a different question from whether producing it can be
+/// skipped, so the two are asked separately at each of those sites.
+///
+/// Composite literals are the reason this cannot be folded into
+/// `truthiness`: `[effect()]` and `{ k: effect() }` are always truthy, yet
+/// evaluating them runs a call. A class is never skippable, since evaluating
+/// one runs its heritage expression, computed keys, static field
+/// initializers, and static blocks.
+pub(crate) fn is_side_effect_free(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::NullLiteral(_)
+        | Expression::BooleanLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::RegExpLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::Identifier(_)
+        | Expression::ThisExpression(_)
+        // Creating a function does not run its body.
+        | Expression::ArrowFunctionExpression(_)
+        | Expression::FunctionExpression(_) => true,
+        Expression::TemplateLiteral(template) => {
+            template.expressions.iter().all(is_side_effect_free)
+        }
+        Expression::UnaryExpression(unary) => {
+            // `delete` mutates its target.
+            unary.operator != UnaryOperator::Delete && is_side_effect_free(&unary.argument)
+        }
+        Expression::BinaryExpression(binary) => {
+            // `in` and `instanceof` both consult the right operand's
+            // prototype chain, which a proxy or `Symbol.hasInstance` observes.
+            !matches!(
+                binary.operator,
+                BinaryOperator::In | BinaryOperator::Instanceof
+            ) && is_side_effect_free(&binary.left)
+                && is_side_effect_free(&binary.right)
+        }
+        Expression::LogicalExpression(logical) => {
+            is_side_effect_free(&logical.left) && is_side_effect_free(&logical.right)
+        }
+        Expression::ConditionalExpression(conditional) => {
+            is_side_effect_free(&conditional.test)
+                && is_side_effect_free(&conditional.consequent)
+                && is_side_effect_free(&conditional.alternate)
+        }
+        Expression::ArrayExpression(array) => array.elements.iter().all(|element| match element {
+            // A spread iterates its argument, which is observable.
+            ArrayExpressionElement::SpreadElement(_) => false,
+            ArrayExpressionElement::Elision(_) => true,
+            element => element.as_expression().is_some_and(is_side_effect_free),
+        }),
+        Expression::ObjectExpression(object) => object.properties.iter().all(|property| {
+            // A spread reads the source's own enumerable properties, which a
+            // getter observes.
+            let ObjectPropertyKind::ObjectProperty(property) = property else {
+                return false;
+            };
+            property_key_is_side_effect_free(&property.key) && is_side_effect_free(&property.value)
+        }),
+        _ => false,
+    }
+}
+
+fn property_key_is_side_effect_free(key: &PropertyKey<'_>) -> bool {
+    match key {
+        PropertyKey::StaticIdentifier(_) | PropertyKey::PrivateIdentifier(_) => true,
+        key => key.as_expression().is_some_and(is_side_effect_free),
     }
 }
 

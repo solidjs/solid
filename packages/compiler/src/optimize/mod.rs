@@ -53,7 +53,7 @@ use crate::shared::ast_builder::AstBuilder;
 use crate::shared::classify::jsx_text_is_filtered;
 use crate::shared::utils::decode_html_entities;
 use env::ProgramFacts;
-use value::{Const, array_literal_len, evaluate, truthiness};
+use value::{Const, array_literal_len, evaluate, is_side_effect_free, truthiness};
 
 /// Folding one node can expose the next one up (a `<Show>` that resolves to
 /// an empty `<For>`, say). The traversal is post-order, so a single pass
@@ -165,8 +165,9 @@ impl<'a> Optimizer<'a, '_> {
             return;
         }
 
-        // Short-circuiting operators drop the unevaluated side outright: it
-        // never runs, so any effects in it are not observable.
+        // The side a short-circuit does not reach never runs, so dropping
+        // it is free. The side that *does* run has to be skippable before
+        // the other one can replace the whole expression.
         match expression {
             Expression::LogicalExpression(logical) => {
                 let Some(left) = truthiness(&logical.left, &self.facts.constants) else {
@@ -187,6 +188,9 @@ impl<'a> Optimizer<'a, '_> {
                 let kept = if takes_left {
                     logical.left.take_in(&self.allocator)
                 } else {
+                    if !is_side_effect_free(&logical.left) {
+                        return;
+                    }
                     logical.right.take_in(&self.allocator)
                 };
                 *expression = kept;
@@ -196,6 +200,9 @@ impl<'a> Optimizer<'a, '_> {
                 let Some(test) = truthiness(&conditional.test, &self.facts.constants) else {
                     return;
                 };
+                if !is_side_effect_free(&conditional.test) {
+                    return;
+                }
                 let kept = if test {
                     conditional.consequent.take_in(&self.allocator)
                 } else {
@@ -408,10 +415,12 @@ impl<'a> Optimizer<'a, '_> {
         };
         let expression = container.expression.as_expression()?;
         // `each={[]}` renders the fallback, and so does any statically falsy
-        // `each` — `mapArray` treats `null`/`undefined`/`false` as an empty
-        // list, which is what the prop's own type allows.
+        // `each`. `mapArray` treats `null`/`undefined`/`false` as an empty
+        // list, which is what the prop's own type allows. Either way the
+        // expression itself is dropped, so it has to be skippable.
         let empty = array_literal_len(expression) == Some(0)
             || truthiness(expression, &self.facts.constants) == Some(false);
+        let empty = empty && is_side_effect_free(expression);
         if !empty {
             return None;
         }
@@ -559,6 +568,7 @@ impl<'a> Optimizer<'a, '_> {
             Some(JSXAttributeValue::ExpressionContainer(container)) => container
                 .expression
                 .as_expression()
+                .filter(|expression| is_side_effect_free(expression))
                 .and_then(|expression| truthiness(expression, &self.facts.constants)),
         }
     }
@@ -664,6 +674,9 @@ impl<'a> Optimizer<'a, '_> {
         match statement {
             Statement::IfStatement(branch) => {
                 let test = truthiness(&branch.test, &self.facts.constants)?;
+                if !is_side_effect_free(&branch.test) {
+                    return None;
+                }
                 let dropped_hoists = if test {
                     branch
                         .alternate
@@ -693,6 +706,9 @@ impl<'a> Optimizer<'a, '_> {
             }
             Statement::WhileStatement(loop_statement) => {
                 if truthiness(&loop_statement.test, &self.facts.constants)? {
+                    return None;
+                }
+                if !is_side_effect_free(&loop_statement.test) {
                     return None;
                 }
                 if contains_hoisted_declaration(&loop_statement.body) {
@@ -964,6 +980,56 @@ mod tests {
         let hoisted =
             optimized("function App() {\n  if (false) { var kept = 1; }\n  return <div />;\n}");
         assert!(hoisted.contains("kept"), "{hoisted}");
+    }
+
+    /// A condition is discarded along with the component or branch that read
+    /// it, so a truthy-but-effectful condition must stop the fold. Composite
+    /// literals are always truthy yet can run arbitrary code.
+    #[test]
+    fn a_discarded_condition_keeps_its_side_effects() {
+        let logical = optimized("export const x = [effect()] && other;");
+        assert!(logical.contains("effect()"), "{logical}");
+
+        let ternary = optimized("export const y = { k: effect() } ? a : b;");
+        assert!(ternary.contains("effect()"), "{ternary}");
+
+        let spread = optimized("export const s = [...iterable()] ? a : b;");
+        assert!(spread.contains("iterable()"), "{spread}");
+
+        let computed_key = optimized("export const c = { [key()]: 1 } ? a : b;");
+        assert!(computed_key.contains("key()"), "{computed_key}");
+
+        // Evaluating a class runs its static blocks and heritage expression.
+        let static_block = optimized("export const z = (class { static { effect(); } }) ? a : b;");
+        assert!(static_block.contains("effect()"), "{static_block}");
+
+        let heritage = optimized("export const w = (class extends base() {}) ? a : b;");
+        assert!(heritage.contains("base()"), "{heritage}");
+
+        let when = optimized("export const v = <Show when={[effect()]}><b /></Show>;");
+        assert!(when.contains("effect()"), "{when}");
+
+        let each = optimized("export const l = <For each={effects() && null}><b /></For>;");
+        assert!(each.contains("effects()"), "{each}");
+
+        let branch = optimized(
+            "export function App() {\n  if ({ k: effect() }) { taken(); }\n  return <div />;\n}",
+        );
+        assert!(branch.contains("effect()"), "{branch}");
+
+        let loop_test = optimized(
+            "export function App() {\n  while ([effect()] && false) { body(); }\n  return <div />;\n}",
+        );
+        assert!(loop_test.contains("effect()"), "{loop_test}");
+
+        // The unreached side of a short-circuit never runs, so dropping it
+        // stays correct.
+        let unreached = optimized("export const k = false && effect();");
+        assert!(!unreached.contains("effect()"), "{unreached}");
+
+        let untaken = optimized("export const j = true ? kept() : effect();");
+        assert!(!untaken.contains("effect()"), "{untaken}");
+        assert!(untaken.contains("kept()"), "{untaken}");
     }
 
     #[test]
