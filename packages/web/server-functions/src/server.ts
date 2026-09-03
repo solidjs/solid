@@ -3093,8 +3093,12 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // honoring it from anyone else hands a curl one shared-cache poisoning.
   const flightHeader =
     scripted && method === "POST" ? request.headers.get(SINGLE_FLIGHT_HEADER) : null;
+  // The list is a set (one consumer per source id on the client, one slice
+  // per id in the envelope), so a repeated id is deduped first-seen-order at
+  // entry — the caller-controlled list must not choose how many times the
+  // most expensive per-request work runs (#3251).
   const flightHooks = flightHeader
-    ? flightHeader.split(",").flatMap(source => {
+    ? [...new Set(flightHeader.split(","))].flatMap(source => {
         const hook = source === "true" ? flightHook : flightSources.get(source);
         return hook ? [[source, hook]] : [];
       })
