@@ -248,7 +248,16 @@ setSlotUnobserved((node: any): void => {
   }
 });
 
-export function getNode(target: StoreNextTarget, key: PropertyKey, current: any): Signal<any> {
+export function getNode(
+  target: StoreNextTarget,
+  key: PropertyKey,
+  current: any,
+  // First-read dedupe (create-floor slice 2): the get trap probes
+  // accessor-ness right before creating the node — pass the verdict through
+  // so creation skips the second descriptor scan. -1 = unknown (other
+  // callers), 0/1 = probed.
+  accKnown: -1 | 0 | 1 = -1
+): Signal<any> {
   const nodes = (target.n ??= Object.create(null));
   let node: Signal<any> | undefined = nodes[key];
   if (node === undefined) {
@@ -270,7 +279,7 @@ export function getNode(target: StoreNextTarget, key: PropertyKey, current: any)
       // Accessor-ness resolved ONCE per node (no per-object descriptor
       // scan on reads): accessor keys serve through Reflect.get with the
       // proxy receiver.
-      isOwnAccessor(target.pb ?? target.v, key),
+      accKnown === -1 ? isOwnAccessor(target.pb ?? target.v, key) : accKnown === 1,
       (target.fam?.node as any) ?? undefined
     ));
     // Attribution-only: name store property nodes by path segment so
@@ -1392,7 +1401,8 @@ function serveDataKey(
   key: PropertyKey,
   backingValue: any,
   src: Record<PropertyKey, any>,
-  node?: Signal<any>
+  node?: Signal<any>,
+  accKnown: -1 | 0 | 1 = -1
 ): any {
   const chained = target.ch && src === target.v;
   let v = backingValue;
@@ -1441,7 +1451,9 @@ function serveDataKey(
         v = nodeValue(node, backingValue);
       }
     } else if (getObserver() !== null) {
-      readNode(getNode(target, key, backingValue));
+      // First tracked read: create + link, and let the wrap-cache branch
+      // below populate px/pxv so read #2 skips wrapNext (slice 2).
+      readNode((node = getNode(target, key, backingValue, accKnown)));
     }
   }
   // Shallow stores serve data raw; store-proxy slots get boundary wrappers.
@@ -1546,8 +1558,11 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // tracked read of a present data key — the dbmon/uibench effect re-read
     // shape. Skips serveDataKey's frame, the FORCE compare (only accessor
     // keys ever hold the sentinel), and isWrappable for primitives.
+    // ONE node-map lookup serves this block and the accessor probe below
+    // (nothing between them creates nodes).
+    const node0 = target.n?.[key as any];
     if (target.ch === false && writeScopes === null) {
-      const nodeH = target.n?.[key as any];
+      const nodeH = node0;
       if (nodeH !== undefined && (nodeH as any).acc !== true && getObserver() !== null) {
         let nv = readNodeFast(nodeH);
         if (nv === READ_SLOW) nv = readNode(nodeH);
@@ -1601,15 +1616,21 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // absent-key/accessor subscriptions for every store read during any
     // derive, leaving nested projections permanently dependency-less when
     // their sources hadn't materialized yet (#3037).
-    const node0 = target.n?.[key as any];
+    // First-read dedupe (create-floor slice 2): remember the probe verdict —
+    // node creation downstream reuses it instead of re-scanning the
+    // descriptor, but only when the probed object IS the one getNode would
+    // scan (pb ?? v).
+    let accProbe: -1 | 0 | 1 = -1;
     {
-      const acc =
-        node0 !== undefined
-          ? (node0 as any).acc === true
-          : !inDraft(target) && getObserver() !== null && isOwnAccessor(src, key);
+      let acc: boolean;
+      if (node0 !== undefined) acc = (node0 as any).acc === true;
+      else if (!inDraft(target) && getObserver() !== null) {
+        acc = isOwnAccessor(src, key);
+        if (src === (target.pb ?? target.v)) accProbe = acc ? 1 : 0;
+      } else acc = false;
       if (acc) {
         if (!inDraft(target) && getObserver() !== null)
-          readNode(node0 ?? getNode(target, key, undefined));
+          readNode(node0 ?? getNode(target, key, undefined, accProbe));
         const v = Reflect.get(src, key, receiver);
         if (target.s) return serveShallow(target, key, v);
         return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;
@@ -1639,7 +1660,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
       // Reading a currently-absent own key subscribes to it (R12) — for any
       // target OUTSIDE its own draft scope, even mid-setter (#3037, above).
       if (v === undefined && !inDraft(target)) {
-        if (getObserver() !== null) readNode(getNode(target, key, undefined));
+        if (getObserver() !== null) readNode(getNode(target, key, undefined, accProbe));
         const node = target.n?.[key];
         if (node) {
           const nv = nodeValue(node, undefined);
@@ -1668,7 +1689,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
       !(viewOvl && hasOwn.call(target.v, key))
     )
       return v; // proto method
-    return serveDataKey(target, key, v, src, node0);
+    return serveDataKey(target, key, v, src, node0, accProbe);
   },
 
   has(target, key) {
