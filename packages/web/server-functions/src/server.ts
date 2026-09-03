@@ -788,8 +788,31 @@ const REGISTRATIONS = new Map();
 // Declared-method bookkeeping keyed by function id (internal, not public
 // API): the server half of `GET` records entries here so the HTTP handler
 // can gate GET dispatch — a GET request to a function that never declared
-// it answers 405. Declaring GET grants GET without revoking POST.
+// it answers 405. Declaring GET grants GET without revoking POST. The
+// entry is the FUNCTION the grant was made about, not the bare word
+// "GET" (#3237): what a declaration asserts is safe is a function, and
+// dispatch is reached by an id, so the grant carries the one thing that
+// can tell them apart later (see `declaresRead` and `GET`).
 const METHODS = new Map();
+// Which registered function a reference NAMES, so a declaration made about
+// the reference can be recorded against the binding it was made about
+// rather than against its id alone (see `GET`).
+const REFERENCE_BINDINGS = new WeakMap();
+
+// Whether the id's CURRENT binding is the function a `GET()` grant was made
+// to — the one question both dispatch gates ask (#3237): the method gate
+// itself, and the 405 `Allow` advertisement, which must not promise a read
+// the gate would refuse. A grant made about a function must never govern
+// another one, in either interleaving: the id rebound after the declaration
+// (#3129, dropped eagerly at rebind below) or already rebound before it
+// (the grant then names a binding this id does not have). Neither is a
+// declared read — a stale or unverifiable grant fails CLOSED, so such a
+// call is gated exactly like a function that never declared GET: 405,
+// origin gate on.
+function declaresRead(id) {
+  const granted = METHODS.get(id);
+  return granted !== undefined && granted === REGISTRATIONS.get(id);
+}
 // In-flight invocation state, keyed by the request event the call runs
 // under — the derived event a direct SSR call creates, or the handler's own
 // event for HTTP dispatch. Deliberately NOT `event.locals`: locals is
@@ -1017,6 +1040,8 @@ export function createServerReference({ id, fn, name }) {
         : result;
     }
   });
+  // the reference names this binding (see `GET`)
+  REFERENCE_BINDINGS.set(proxy, fn);
   return proxy;
 } /**
  * Declares a server function callable over HTTP GET. The server half is
@@ -1075,7 +1100,9 @@ export function GET<A extends readonly any[], R>(
  * The declaration is about the FUNCTION, not the id: registering a
  * different function under the same id revokes it (#3129), and the new
  * function's own `GET()` — which module order runs right after the
- * re-registration — is what re-grants it.
+ * re-registration — is what re-grants it. A declaration that names a
+ * binding the id no longer has grants nothing, for the same reason
+ * (#3237).
  *
  * Wrap the reference at its declaration; the compiler round-trips the call
  * in both builds:
@@ -1091,9 +1118,68 @@ export function GET(fn) {
   if (!isServerFunction(fn) || typeof fn.id !== "string") {
     throw new Error("GET expects a server function reference");
   }
-  METHODS.set(fn.id, "GET");
-  // the declaration itself is a metadata write like any other
-  return withMeta(fn, { method: "GET" });
+  const id = fn.id;
+  // The grant is recorded as the FUNCTION it was granted about (#3237): a
+  // declaration is made ABOUT a function, so it may reach dispatch only
+  // while the id still names that function (see `declaresRead`). The
+  // binding is the one the reference itself wraps when this module built
+  // it; a reference built elsewhere names no binding we can verify, so the
+  // grant falls back to the live registration — same-module declaration
+  // order (register, then declare) makes that the declared function.
+  const binding = REFERENCE_BINDINGS.has(fn) ? REFERENCE_BINDINGS.get(fn) : REGISTRATIONS.get(id);
+  const existing = METHODS.get(id);
+  if (existing !== undefined && existing !== binding) {
+    // This declaration would CHANGE an existing grant's binding — an id
+    // collision between two live references. Never rebind silently: the
+    // grant is a safety assertion the new function did not sign.
+    if (DEV) {
+      throw new Error(
+        `GET() would rebind the existing grant for server function "${id}" to a different ` +
+          `function. A GET declaration is made about a function, not an id - two references ` +
+          `sharing one id cannot both hold it. Give the functions distinct ids, or drop the ` +
+          `stale declaration.`
+      );
+    }
+    // prod: fail closed — neither function keeps the read grant
+    METHODS.delete(id);
+    return fn;
+  }
+  METHODS.set(id, binding);
+  // the declaration records itself on the metadata channel
+  const reference = withMeta(fn, { method: "GET" });
+  guardDeclaredMethod(getServerFunctionMetadata(reference), id);
+  return reference;
+}
+
+// `withMeta(fn, { method })` writes only the metadata channel — it can
+// never grant or revoke the wire's GET dispatch, so on a granted reference
+// an accepted write would leave the two disagreeing: the reference reads
+// back as POST while a cross-site GET still executes the function (#3237).
+// The declaration's own metadata slot therefore refuses divergent writes in
+// dev, and in prod fails closed — the wire grant dies with the declaration
+// the metadata no longer reports. Not general `withMeta({ method })`
+// support: the guard exists only to keep an existing grant and its report
+// from being changed out from under each other.
+function guardDeclaredMethod(metadata, id) {
+  let declared = metadata.method;
+  Object.defineProperty(metadata, "method", {
+    configurable: true,
+    enumerable: true,
+    get: () => declared,
+    set(next) {
+      if (next === declared) return;
+      if (DEV) {
+        throw new Error(
+          `withMeta({ method }) cannot change the GET() declaration of server function ` +
+            `"${id}". The method is declaration-scoped: it was granted about the function ` +
+            `by GET(fn), and a metadata write cannot re-shape the wire grant.`
+        );
+      }
+      // prod: fail closed — revoke the grant the metadata now contradicts
+      METHODS.delete(id);
+      declared = next;
+    }
+  });
 } /**
  * Declares a value-shaped live source: a server function returning an async
  * iterable whose yields are successive VALUES of one logical query, with
@@ -2948,9 +3034,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // CDNs that ignore Vary, poisons) the shared-cache entries the GET helper
   // exists to enable (#3071). State-changing dispatch (POST) stays gated.
   const declaredRead =
-    (method === "GET" || method === "HEAD") &&
-    functionId !== null &&
-    METHODS.get(functionId) === "GET";
+    (method === "GET" || method === "HEAD") && functionId !== null && declaresRead(functionId);
   const csrf = options.csrf !== undefined ? options.csrf : config.csrf;
   // The skip is `GET()`'s safety contract at work (see its notes and
   // #3114); `protectDeclaredReads` is the opt-in for deployments that
@@ -3027,7 +3111,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
       DEV ? `Method not allowed for server function: ${functionId}` : null,
       {
         status: 405,
-        headers: { Allow: METHODS.get(functionId) === "GET" ? "POST, GET, HEAD" : "POST" }
+        headers: { Allow: declaresRead(functionId) ? "POST, GET, HEAD" : "POST" }
       }
     );
     return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
