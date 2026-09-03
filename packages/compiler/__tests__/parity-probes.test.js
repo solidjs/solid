@@ -497,6 +497,16 @@ const b = <span {...one} {...two()} />;
   "spread with events and refs": `
 const a = <div {...props} onClick={click} ref={r} class={c()}>{x()}</div>;
 `,
+  "reactive lone spread with intrinsic refs": `
+let node;
+const a = <div ref={node} {...props()} />;
+const b = <div {...props()} ref={node}>child</div>;
+const c = <div ref={el => (node = el)} {/* @static */ ...props()} />;
+const d = <div ref={node} id="x" {...props()} />;
+const e = <Comp ref={node} {...props()} />;
+const f = <input ref={node} prop:value={value()} {...props()} />;
+const g = <div ref={directive(source)} {...props()} />;
+`,
   "conditional attribute chains": `
 const a = <div class={cond() ? "a" : cond2() ? "b" : "c"} title={x() && y() || z()}>{t()}</div>;
 `,

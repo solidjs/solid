@@ -1002,9 +1002,15 @@ function createElement(
       return memo;
     }, []);
 
+  // The DOM transform handles `ref` outside its spread prop sources.
+  const propAttributes = attributes.filter(attribute => {
+    const node = attribute.node;
+    return !(t.isJSXAttribute(node) && t.isJSXIdentifier(node.name) && node.name.name === "ref");
+  });
+
   let props: babelTypes.Expression[];
-  if (attributes.length === 1 && t.isJSXSpreadAttribute(attributes[0].node)) {
-    props = [attributes[0].node.argument];
+  if (propAttributes.length === 1 && t.isJSXSpreadAttribute(propAttributes[0].node)) {
+    props = [propAttributes[0].node.argument];
   } else {
     props = [];
     let runningObject: Array<babelTypes.ObjectProperty | babelTypes.ObjectMethod> = [],

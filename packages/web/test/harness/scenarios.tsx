@@ -1520,6 +1520,25 @@ function ReactiveLoneSpread() {
   );
 }
 
+// An explicit ref does not add a spread prop source on the client. SSR must
+// make the same lone-source decision so the next element keeps the same key.
+let refSpreadButton!: HTMLButtonElement;
+function ReactiveRefLoneSpread() {
+  const attrs = () => ({ class: "example" });
+  const [label, setLabel] = createSignal("before");
+  let node!: HTMLDivElement;
+  return (
+    <>
+      <div ref={node} {...attrs()}>
+        <span>spread</span>
+      </div>
+      <button ref={refSpreadButton} onClick={() => setLabel("after")}>
+        {label()}
+      </button>
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // solidjs/solid#3033: a conditional expression in a JSX prop compiles to a
 // condition memo INSIDE the prop getter, minted when the getter is first
@@ -2074,6 +2093,14 @@ export const scenarios: Scenario[] = [
     App: ReactiveLoneSpread,
     expectedText: "spreadbefore",
     update: () => setLoneSpreadLabel("after"),
+    expectedTextAfterUpdate: "spreadafter",
+    stableSelector: "div, span, button"
+  },
+  {
+    name: "reactive-ref-lone-spread-id-parity",
+    App: ReactiveRefLoneSpread,
+    expectedText: "spreadbefore",
+    update: () => refSpreadButton.click(),
     expectedTextAfterUpdate: "spreadafter",
     stableSelector: "div, span, button"
   },
