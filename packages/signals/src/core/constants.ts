@@ -115,6 +115,14 @@ export const CONFIG_FRESH_READ = 1 << 16;
  * (A17). Cleared at commit (the commit IS the reveal); subscribers masked
  * during the hold are woken by finalizePureQueue's post-revert pass. */
 export const CONFIG_HELD_TRUTH = 1 << 17;
+/** SLOT node (store leaf): created through `slotSignal` with `_host`/`_key`
+ * backrefs baked into the literal. The unobserved sweep dispatches these to
+ * the ONE shared hook (`setSlotUnobserved`) instead of a per-node closure
+ * held in a per-node extension — store mounts materialize one signal per
+ * touched leaf, so per-node allocations (options object, equals closure,
+ * unobserved closure, NodeExtension) were the measured create-floor bytes
+ * (warm dbmon profile: store node machinery ~36% + GC ~29%). */
+export const CONFIG_SLOT_NODE = 1 << 18;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
