@@ -176,6 +176,14 @@ function familyHasLiveOverrides(fam: { overlaid?: Set<any> }): boolean {
 }
 
 export function createOptimisticStoreNext<T extends object = {}>(
+  store: NoFn<T> | Store<NoFn<T>>
+): [get: Store<T>, set: StoreSetter<T>];
+export function createOptimisticStoreNext<T extends object = {}>(
+  fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  store: NoFn<T> | Store<NoFn<T>>,
+  options?: ProjectionOptions
+): [get: Store<T>, set: StoreSetter<T>];
+export function createOptimisticStoreNext<T extends object = {}>(
   first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
   second?: NoFn<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
