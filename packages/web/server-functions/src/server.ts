@@ -1221,13 +1221,14 @@ function stripUnsafeArgumentKeys(value) {
 }
 
 /**
- * Buffers a POST body that declared no length (chunked transfer), refusing
- * once it runs past the limit — a declared length is enforced by the HTTP
- * server's own framing and is checked against the limit before this runs.
- * The original body is read, not a clone: cancellation must tear down the
- * upload source rather than one branch of a tee (#3219). On success the
- * consumed body is replaced so the ordinary decoder can still read it.
- * Returns that replacement Request, or `null` past the limit.
+ * Buffers a POST body, refusing once it runs past the limit. Every body a
+ * capped route accepts is read through here — a declaration is checked
+ * against the limit before this runs, but a declaration under it is not
+ * evidence of anything (#3236), so the count is taken on the bytes that
+ * arrive. The original body is read, not a clone: cancellation must tear
+ * down the upload source rather than one branch of a tee (#3219). On
+ * success the consumed body is replaced so the ordinary decoder can still
+ * read it. Returns that replacement Request, or `null` past the limit.
  */
 async function bufferBodyWithin(request, limit) {
   const reader = request.body.getReader();
@@ -2933,11 +2934,10 @@ export async function handleServerFunctionRequest(request, options = {}) {
 
   // The argument payload is buffered and decoded before dispatch, so its
   // cost is paid before application code can decline it — bound it before
-  // paying (#3115). A CONFORMING declared Content-Length is trusted (the
-  // HTTP server's framing enforces it); a body without one — or with a
-  // declaration that isn't a plain digit string (#3153) — is buffered under
-  // the cap. The `?args=` encoding is the same payload on a different road,
-  // so it gets the same ceiling.
+  // paying (#3115). A declared Content-Length is evidence, never proof: an
+  // over-declaration is refused before a byte is read, and the bound itself
+  // is measured on the bytes that ARRIVE. The `?args=` encoding is the same
+  // payload on a different road, so it gets the same ceiling.
   const bodySizeLimit =
     options.bodySizeLimit !== undefined ? options.bodySizeLimit : config.bodySizeLimit;
   const argsEncoding = url.searchParams.get("args");
@@ -2949,14 +2949,21 @@ export async function handleServerFunctionRequest(request, options = {}) {
     return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
   }
   if (method === "POST" && request.body !== null && bodySizeLimit !== Infinity) {
-    // Trust only a CONFORMING declaration — digits, per RFC 9110 §8.6. The
-    // bare Number() parse lost that information: Number("-1") is -1, which
-    // is neither `> limit` nor falsy, so a negative declaration satisfied
-    // NEITHER guard and the body streamed into the decoder uncapped
-    // (#3153). A stock node:http parser refuses it first, but an adapter
-    // that builds the Request itself, or a rewriting proxy, delivers it
-    // here — anything non-conforming now routes through the bounded buffer
-    // alongside the undeclared bodies.
+    // The one thing a declaration is good for: a CONFORMING one — digits,
+    // per RFC 9110 §8.6 (the bare Number() parse lost that: Number("-1")
+    // is -1, which satisfied NEITHER guard and streamed uncapped, #3153) —
+    // that is already over the limit says the peer intends to send too
+    // much, so refuse before paying for a byte. That is the whole of the
+    // trust. Believing a declaration in the other direction, to SKIP the
+    // counting read, believed the same header from the same untrusted
+    // producer #3153 ruled must not be believed: `Content-Length: 10` on a
+    // 2 MiB body dispatched the whole 2 MiB (#3236). A stock node:http
+    // parser frames the body BY the declaration and would truncate it
+    // first, but an adapter that builds the Request itself, or a rewriting
+    // proxy, delivers it here. So every capped body goes through the
+    // counting read, and the read's signal/reader coupling (#3217/#3218)
+    // now covers the conforming-declaration POST every browser sends, not
+    // just chunked uploads.
     const raw = request.headers.get("content-length");
     const declared = raw !== null && /^\d+$/.test(raw) ? Number(raw) : NaN;
     if (declared > bodySizeLimit) {
@@ -2966,34 +2973,26 @@ export async function handleServerFunctionRequest(request, options = {}) {
       );
       return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
     }
-    if (!(declared > 0)) {
-      let bounded;
-      try {
-        bounded = await bufferBodyWithin(request, bodySizeLimit);
-      } catch {
-        // A failed or aborted upload is an incomplete argument encoding,
-        // not a handler failure. Match the decoder's malformed-body answer
-        // instead of rejecting out of dispatch (#3217).
-        const response = new Response(DEV ? "Malformed server function arguments" : null, {
-          status: 400
-        });
-        return finalizeTransportResponse(
-          protectsRequest ? withCSRFVary(response) : response,
-          method
-        );
-      }
-      if (bounded === null) {
-        const response = new Response(
-          DEV ? "Server function request body exceeds the configured bodySizeLimit" : null,
-          { status: 413 }
-        );
-        return finalizeTransportResponse(
-          protectsRequest ? withCSRFVary(response) : response,
-          method
-        );
-      }
-      request = bounded;
+    let bounded;
+    try {
+      bounded = await bufferBodyWithin(request, bodySizeLimit);
+    } catch {
+      // A failed or aborted upload is an incomplete argument encoding,
+      // not a handler failure. Match the decoder's malformed-body answer
+      // instead of rejecting out of dispatch (#3217).
+      const response = new Response(DEV ? "Malformed server function arguments" : null, {
+        status: 400
+      });
+      return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
     }
+    if (bounded === null) {
+      const response = new Response(
+        DEV ? "Server function request body exceeds the configured bodySizeLimit" : null,
+        { status: 413 }
+      );
+      return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+    }
+    request = bounded;
   }
 
   // An async createEvent is out of contract (the type is synchronous), but
