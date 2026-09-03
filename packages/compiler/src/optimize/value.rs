@@ -15,9 +15,12 @@ use oxc_syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 
 use crate::shared::utils::format_number;
 
-/// Program-wide constant bindings the pass may substitute (see
-/// [`super::env::collect_facts`] for the safety rules that admit a name).
-pub(crate) type ConstantEnv = HashMap<String, Const>;
+/// The constant each identifier *reference* resolves to, keyed by the
+/// reference's span start. Keying by span rather than by name is what lets
+/// the pass fold a `const` declared in any scope: resolution already
+/// happened in [`super::env::collect_facts`], so a lookup here cannot
+/// confuse two same-named bindings.
+pub(crate) type ConstantEnv = HashMap<u32, Const>;
 
 /// A JavaScript primitive known at compile time.
 #[derive(Clone, Debug, PartialEq)]
@@ -120,7 +123,7 @@ pub(crate) fn evaluate(expression: &Expression<'_>, env: &ConstantEnv) -> Option
         Expression::BooleanLiteral(literal) => Some(Const::Bool(literal.value)),
         Expression::NumericLiteral(literal) => Some(Const::Number(literal.value)),
         Expression::StringLiteral(literal) => Some(Const::String(literal.value.to_string())),
-        Expression::Identifier(identifier) => env.get(identifier.name.as_str()).cloned(),
+        Expression::Identifier(identifier) => env.get(&identifier.span.start).cloned(),
         Expression::TemplateLiteral(template) => {
             let mut out = String::new();
             for (index, quasi) in template.quasis.iter().enumerate() {

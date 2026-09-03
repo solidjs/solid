@@ -4,6 +4,8 @@
 
 Add an `optimize` option (default `false`) that constant-folds the program, removes the code a constant condition makes unreachable, and resolves Solid's control-flow components when their props decide the outcome.
 
+Constant bindings resolve through `oxc_semantic`, so a `const` (or an unwritten `let`) folds at any scope and a same-named binding elsewhere is correctly left alone.
+
 The pass runs before JSX is lowered, so a resolved element never reaches the generate: it pays for no component call, memo, or insert hole, and its markup joins the surrounding template.
 
 - `<Show when>` becomes its children or its `fallback`.

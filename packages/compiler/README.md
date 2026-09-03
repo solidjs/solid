@@ -137,7 +137,9 @@ Pass `sourceMap: true` to receive a JSON source map string in `result.map`. For 
 
 `optimize: true` adds a constant-folding and dead-code-elimination pass that runs before JSX is lowered, so whatever it resolves never reaches the generate at all.
 
-It folds constant expressions, substitutes module-level `const` bindings the program declares exactly once and never writes to, and removes branches a constant condition makes unreachable (`if`/`else`, `while (false)`, and statements after a `return`, `throw`, `break`, or `continue`).
+It folds constant expressions, substitutes `const` bindings (and `let` bindings nothing writes to) at any scope, and removes branches a constant condition makes unreachable (`if`/`else`, `while (false)`, and statements after a `return`, `throw`, `break`, or `continue`).
+
+Binding resolution runs through `oxc_semantic`, so it is exact: a `const` declared inside a component folds at its use sites, while a same-named binding in another scope is a different symbol and is left alone. `var` is excluded, since a read before its declaration sees `undefined` rather than throwing.
 
 It also resolves Solid's control-flow components when their props decide the outcome:
 

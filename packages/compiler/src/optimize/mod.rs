@@ -11,9 +11,10 @@
 //!
 //! - Constant expressions: literals, template literals, and the unary,
 //!   binary, logical, and conditional operators over them.
-//! - Module-level `const` bindings that the whole program declares exactly
-//!   once and never writes to (see [`env`]), so `const DEBUG = false` folds
-//!   at every use site.
+//! - `const` bindings, and `let` bindings nothing ever writes to, at any
+//!   scope. References are resolved through `oxc_semantic` (see [`env`]), so
+//!   a `const DEBUG = false` inside a component folds at its use sites while
+//!   an unrelated binding of the same name elsewhere is untouched.
 //! - Statements a constant condition makes unreachable: `if`/`else` branches,
 //!   `while (false)` loops, and anything after a `return`, `throw`, `break`,
 //!   or `continue`.
@@ -49,7 +50,6 @@ use oxc_ast_visit::{Visit, VisitMut, walk, walk_mut};
 use oxc_span::{GetSpan, Span};
 
 use crate::shared::ast_builder::AstBuilder;
-use crate::shared::bindings::BindingTable;
 use crate::shared::classify::jsx_text_is_filtered;
 use crate::shared::utils::decode_html_entities;
 use env::ProgramFacts;
@@ -82,14 +82,11 @@ pub(crate) fn optimize_program<'a>(
     built_ins: &[String],
     module_name: &str,
 ) {
-    let mut bindings = BindingTable::default();
-    bindings.scan_builtin_shadowing(program, built_ins);
     let mut optimizer = Optimizer {
         allocator,
         ast: AstBuilder::new(allocator),
         built_ins,
         flow_sources: [module_name, SOLID_MODULE_NAME],
-        bindings,
         facts: env::collect_facts(program),
         changed: false,
     };
@@ -118,7 +115,6 @@ struct Optimizer<'a, 'o> {
     built_ins: &'o [String],
     /// Module specifiers an explicit built-in import may come from.
     flow_sources: [&'o str; 2],
-    bindings: BindingTable,
     facts: ProgramFacts,
     changed: bool,
 }
@@ -342,10 +338,11 @@ impl<'a> Optimizer<'a, '_> {
     /// candidate; a fold rewrites the component's semantics, so the tag has
     /// to resolve to Solid's own component before one is safe:
     ///
-    /// - a top-level value import from a Solid module decides the identity
-    ///   outright, so `<Cond>` from `import { Show as Cond }` is `Show`;
-    /// - with no such import, the name folds only when no binding is in
-    ///   scope, which means the compiler auto-imports the built-in;
+    /// - a value import from a Solid module decides the identity outright,
+    ///   by the name that module exports, so `<Cond>` from
+    ///   `import { Show as Cond }` is `Show`;
+    /// - a tag that binds to nothing is the built-in the compiler
+    ///   auto-imports;
     /// - anything else (a local `Show`, an import from an unrelated module)
     ///   is a different component and is left alone.
     fn built_in_tag(&self, element: &JSXElement<'a>) -> Option<&'static str> {
@@ -356,13 +353,10 @@ impl<'a> Optimizer<'a, '_> {
             JSXElementName::Identifier(identifier) => (identifier.name.as_str(), identifier.span),
             _ => return None,
         };
-        if let Some(imported) = self.facts.solid_import(name, &self.flow_sources) {
-            return self.known_flow(imported);
-        }
-        if self.bindings.is_builtin_shadowed(span) {
-            return None;
-        }
-        self.known_flow(name)
+        let identity = self
+            .facts
+            .tag_identity(span.start, name, &self.flow_sources)?;
+        self.known_flow(identity)
     }
 
     /// The built-in named `name`, when the configuration still treats that
@@ -970,6 +964,70 @@ mod tests {
         let hoisted =
             optimized("function App() {\n  if (false) { var kept = 1; }\n  return <div />;\n}");
         assert!(hoisted.contains("kept"), "{hoisted}");
+    }
+
+    #[test]
+    fn constants_fold_in_any_scope() {
+        let local = optimized(
+            "export function App() {\n  const DEBUG = false;\n  return <div><Show when={DEBUG}><b>panel</b></Show></div>;\n}",
+        );
+        assert!(!local.contains("panel"), "{local}");
+        assert!(!local.contains("createComponent"), "{local}");
+
+        let nested = optimized(
+            "export function App() {\n  const N = 2;\n  const render = () => <div><Show when={N > 1}><b>panel</b></Show></div>;\n  return render();\n}",
+        );
+        assert!(nested.contains("<b>panel"), "{nested}");
+        assert!(!nested.contains("createComponent"), "{nested}");
+
+        // An unwritten `let` is a constant too; a written one is not.
+        let unwritten = optimized(
+            "export function App() {\n  let DEBUG = false;\n  return <Show when={DEBUG}><b /></Show>;\n}",
+        );
+        assert!(!unwritten.contains("createComponent"), "{unwritten}");
+
+        let written = optimized(
+            "export function App() {\n  let DEBUG = false;\n  DEBUG = flag();\n  return <Show when={DEBUG}><b /></Show>;\n}",
+        );
+        assert!(written.contains("createComponent"), "{written}");
+
+        // A parameter shadows the outer constant, so the inner tag is not
+        // decided by it.
+        let shadowed = optimized(
+            "const DEBUG = false;\nexport function App(DEBUG) {\n  return <Show when={DEBUG}><b /></Show>;\n}",
+        );
+        assert!(shadowed.contains("createComponent"), "{shadowed}");
+
+        // Two unrelated locals of the same name resolve independently.
+        let independent = optimized(
+            "export function A() {\n  const FLAG = true;\n  return <Show when={FLAG}><b /></Show>;\n}\nexport function B(FLAG) {\n  return <Show when={FLAG}><i /></Show>;\n}",
+        );
+        assert!(independent.contains("<b"), "{independent}");
+        assert!(independent.contains("createComponent"), "{independent}");
+
+        // A local declaration cannot reach a reference outside its scope.
+        let out_of_scope = optimized(
+            "function inner() {\n  const OUTSIDE = false;\n  return OUTSIDE;\n}\nexport const view = <Show when={OUTSIDE}><b /></Show>;",
+        );
+        assert!(out_of_scope.contains("createComponent"), "{out_of_scope}");
+
+        // A use site above its declaration still folds, since the function
+        // body runs after the module finishes evaluating.
+        let later = optimized(
+            "export function App() {\n  return <Show when={DEBUG}><b /></Show>;\n}\nconst DEBUG = false;",
+        );
+        assert!(!later.contains("createComponent"), "{later}");
+    }
+
+    #[test]
+    fn a_local_binding_shadows_a_solid_import_for_its_own_scope() {
+        let source = "import { Show } from \"solid-js\";\nexport function App() {\n  const Show = props => props.children;\n  return <Show when={true}><b /></Show>;\n}\nexport const view = <Show when={true}><i /></Show>;";
+        let output = optimized(source);
+        // The inner tag binds to the local component and keeps its call...
+        assert!(output.contains("createComponent"), "{output}");
+        // ...while the outer one still resolves to the import and folds.
+        assert!(output.contains("<i"), "{output}");
+        assert_eq!(output.matches("_$createComponent(").count(), 1, "{output}");
     }
 
     #[test]

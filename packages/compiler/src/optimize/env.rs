@@ -1,92 +1,134 @@
 //! Program-wide facts the `optimize` pass needs before it may rewrite
-//! anything: which names carry a known constant value, and which names
-//! actually resolve to Solid's own control-flow components.
+//! anything: which identifier references carry a known constant value, and
+//! which JSX tags actually resolve to Solid's own control-flow components.
 //!
-//! Both answers rest on the same observation, which removes the need for a
-//! scope model: a name the whole program declares exactly once cannot be
-//! shadowed by anything but that one declaration, so every reference to it
-//! resolves there. A name declared twice, or written to anywhere, is simply
-//! not eligible.
+//! Both answers come from `oxc_semantic`, so they are exact at any scope. A
+//! reference is resolved to the symbol it binds to, and only that symbol's
+//! declaration decides the answer: a `const` in a function body folds the
+//! same way a module-level one does, and a same-named binding elsewhere in
+//! the program is simply a different symbol and does not interfere.
+//!
+//! Facts are keyed by the source span of the reference rather than by name,
+//! so the folding pass can look one up without carrying a scope stack of its
+//! own. Spans are stable across the rewrite: the pass never renumbers a node
+//! it keeps, and the nodes it creates are literals and intrinsic tags that no
+//! lookup asks about.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use oxc_ast::ast::{
-    Declaration, ImportDeclarationSpecifier, ModuleExportName, Program, Statement,
-    VariableDeclarationKind,
+    ImportDeclarationSpecifier, ModuleExportName, Program, VariableDeclarationKind,
 };
 use oxc_ast_visit::{Visit, walk};
+use oxc_semantic::{Scoping, SemanticBuilder};
+use oxc_syntax::symbol::SymbolId;
 
 use super::value::{Const, ConstantEnv, evaluate};
 
-/// The globals worth folding, admitted only when the program never declares
-/// or writes the name itself.
-const FOLDABLE_GLOBALS: [&str; 3] = ["undefined", "NaN", "Infinity"];
-
-/// A named import binding at the top level of the module.
-pub(crate) struct ImportBinding {
-    /// The name as exported by the source module, which is what identifies
-    /// the component (`import { Show as Cond }` imports `Show`).
-    pub(crate) imported: String,
-    pub(crate) source: String,
+/// What a JSX tag identifier resolves to.
+enum TagBinding {
+    /// Nothing in the program declares the name, so the compiler's own
+    /// auto-import supplies it.
+    Unbound,
+    /// A named import, carrying the name the source module exports.
+    Import { imported: String, source: String },
+    /// Some other binding: a local, a parameter, an unrelated import form.
+    Local,
 }
 
 pub(crate) struct ProgramFacts {
+    /// The constant each identifier reference resolves to, keyed by the
+    /// reference's span start.
     pub(crate) constants: ConstantEnv,
-    /// How many times each name is declared anywhere in the program.
-    declared: HashMap<String, usize>,
-    /// Top-level value imports, keyed by their local name.
-    imports: HashMap<String, ImportBinding>,
+    /// What each identifier reference binds to, keyed by span start.
+    tags: HashMap<u32, TagBinding>,
 }
 
 impl ProgramFacts {
-    /// The exported name `local` was imported under, when it comes from one
-    /// of `sources`. The exported name is the component's identity, so an
-    /// alias resolves to what it renamed: `import { Show as Cond }` answers
-    /// `Show` for `Cond`.
+    /// The built-in a JSX tag names, given the tag's own spelling and the
+    /// module specifiers a Solid import may come from.
     ///
-    /// A name the program declares more than once could resolve to either
-    /// declaration, so it does not qualify.
-    pub(crate) fn solid_import(&self, local: &str, sources: &[&str]) -> Option<&str> {
-        if self.declared.get(local) != Some(&1) {
-            return None;
+    /// An import decides the identity by its *exported* name, so
+    /// `import { Show as Cond }` answers `Show` for a `<Cond>` tag. With no
+    /// binding at all the tag is the auto-imported built-in of the same
+    /// name. Every other binding is somebody else's component.
+    pub(crate) fn tag_identity<'f>(
+        &'f self,
+        span_start: u32,
+        name: &'f str,
+        sources: &[&str],
+    ) -> Option<&'f str> {
+        match self.tags.get(&span_start)? {
+            TagBinding::Unbound => Some(name),
+            TagBinding::Import { imported, source } => sources
+                .iter()
+                .any(|candidate| *candidate == source)
+                .then_some(imported.as_str()),
+            TagBinding::Local => None,
         }
-        let import = self.imports.get(local)?;
-        sources
-            .iter()
-            .any(|source| *source == import.source)
-            .then_some(import.imported.as_str())
     }
 }
 
 pub(crate) fn collect_facts(program: &Program<'_>) -> ProgramFacts {
-    let mut scan = Scan::default();
-    scan.visit_program(program);
+    // Populates the node, symbol, and reference ids the AST carries in its
+    // own cells; nothing downstream reads them, so this is additive.
+    let semantic = SemanticBuilder::new().build(program).semantic;
+    let scoping = semantic.scoping();
 
-    let mut constants = ConstantEnv::new();
-    for name in FOLDABLE_GLOBALS {
-        if !scan.declared.contains_key(name) && !scan.reassigned.contains(name) {
-            constants.insert(
-                name.to_string(),
-                match name {
-                    "NaN" => Const::Number(f64::NAN),
-                    "Infinity" => Const::Number(f64::INFINITY),
-                    _ => Const::Undefined,
-                },
-            );
-        }
+    // Pass one walks in source order and records the value of every constant
+    // declaration, evaluating each initializer against the constants already
+    // seen. Source order is what keeps `const A = B; const B = 1;` from
+    // folding `A` to a value the runtime would never reach.
+    let mut collector = Collector {
+        scoping,
+        constants: ConstantEnv::new(),
+        values: HashMap::new(),
+        imports: HashMap::new(),
+        tags: HashMap::new(),
+        resolve_tags: false,
+    };
+    collector.visit_program(program);
+
+    // Pass two resolves every remaining reference against the finished set,
+    // so a use site earlier in the file than its declaration still folds,
+    // and records what each tag binds to.
+    collector.resolve_tags = true;
+    collector.visit_program(program);
+
+    ProgramFacts {
+        constants: collector.constants,
+        tags: collector.tags,
     }
+}
 
-    let mut imports = HashMap::new();
-    // Module-level `const`s execute top to bottom, so evaluating each
-    // initializer against the environment built so far lets a later constant
-    // be defined in terms of an earlier one.
-    for statement in &program.body {
-        if let Statement::ImportDeclaration(import) = statement {
-            if !import.import_kind.is_value() {
-                continue;
-            }
-            for specifier in import.specifiers.iter().flatten() {
+/// The globals worth folding. They only apply to a reference that resolves to
+/// no symbol, which is exactly the case where the global is what runs.
+fn global_value(name: &str) -> Option<Const> {
+    match name {
+        "undefined" => Some(Const::Undefined),
+        "NaN" => Some(Const::Number(f64::NAN)),
+        "Infinity" => Some(Const::Number(f64::INFINITY)),
+        _ => None,
+    }
+}
+
+struct Collector<'s> {
+    scoping: &'s Scoping,
+    constants: ConstantEnv,
+    values: HashMap<SymbolId, Const>,
+    imports: HashMap<SymbolId, (String, String)>,
+    tags: HashMap<u32, TagBinding>,
+    resolve_tags: bool,
+}
+
+impl<'a> Visit<'a> for Collector<'_> {
+    fn visit_import_declaration(&mut self, it: &oxc_ast::ast::ImportDeclaration<'a>) {
+        if it.import_kind.is_value() {
+            for specifier in it.specifiers.iter().flatten() {
                 let ImportDeclarationSpecifier::ImportSpecifier(specifier) = specifier else {
+                    continue;
+                };
+                let Some(symbol) = specifier.local.symbol_id.get() else {
                     continue;
                 };
                 if !specifier.import_kind.is_value() {
@@ -97,77 +139,68 @@ pub(crate) fn collect_facts(program: &Program<'_>) -> ProgramFacts {
                     ModuleExportName::IdentifierReference(name) => name.name.to_string(),
                     ModuleExportName::StringLiteral(name) => name.value.to_string(),
                 };
-                imports.insert(
-                    specifier.local.name.to_string(),
-                    ImportBinding {
-                        imported,
-                        source: import.source.value.to_string(),
-                    },
-                );
+                self.imports
+                    .insert(symbol, (imported, it.source.value.to_string()));
             }
-            continue;
         }
-        let declaration = match statement {
-            Statement::VariableDeclaration(declaration) => &**declaration,
-            Statement::ExportDeclaration(export) => match &export.declaration {
-                Declaration::VariableDeclaration(declaration) => &**declaration,
-                _ => continue,
-            },
-            _ => continue,
-        };
-        if declaration.kind != VariableDeclarationKind::Const {
-            continue;
+        walk::walk_import_declaration(self, it);
+    }
+
+    fn visit_variable_declaration(&mut self, it: &oxc_ast::ast::VariableDeclaration<'a>) {
+        walk::walk_variable_declaration(self, it);
+        // `var` is excluded: it is readable before its declaration runs, and
+        // such a read sees `undefined` rather than throwing, so folding it to
+        // the initializer would silently change the result. `let` qualifies
+        // when nothing ever writes to it.
+        if !matches!(
+            it.kind,
+            VariableDeclarationKind::Const | VariableDeclarationKind::Let
+        ) {
+            return;
         }
-        for declarator in &declaration.declarations {
-            let Some(name) = declarator.id.get_binding_identifier() else {
+        for declarator in &it.declarations {
+            let Some(binding) = declarator.id.get_binding_identifier() else {
                 continue;
             };
-            let name = name.name.as_str();
-            if scan.declared.get(name) != Some(&1) || scan.reassigned.contains(name) {
+            let Some(symbol) = binding.symbol_id.get() else {
                 continue;
-            }
+            };
             let Some(init) = &declarator.init else {
                 continue;
             };
-            if let Some(value) = evaluate(init, &constants) {
-                constants.insert(name.to_string(), value);
+            if self.scoping.symbol_is_mutated(symbol) {
+                continue;
+            }
+            if let Some(value) = evaluate(init, &self.constants) {
+                self.values.insert(symbol, value);
             }
         }
     }
 
-    ProgramFacts {
-        constants,
-        declared: scan.declared,
-        imports,
-    }
-}
-
-/// Counts every binding of every name in the program and records every name
-/// written to, at any depth.
-#[derive(Default)]
-struct Scan {
-    declared: HashMap<String, usize>,
-    reassigned: HashSet<String>,
-}
-
-impl<'a> Visit<'a> for Scan {
-    fn visit_binding_identifier(&mut self, it: &oxc_ast::ast::BindingIdentifier<'a>) {
-        *self.declared.entry(it.name.to_string()).or_default() += 1;
-    }
-
-    fn visit_assignment_target(&mut self, it: &oxc_ast::ast::AssignmentTarget<'a>) {
-        if let oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(identifier) = it {
-            self.reassigned.insert(identifier.name.to_string());
+    fn visit_identifier_reference(&mut self, it: &oxc_ast::ast::IdentifierReference<'a>) {
+        let symbol = it
+            .reference_id
+            .get()
+            .and_then(|reference| self.scoping.get_reference(reference).symbol_id());
+        let value = match symbol {
+            Some(symbol) => self.values.get(&symbol).cloned(),
+            None => global_value(it.name.as_str()),
+        };
+        if let Some(value) = value {
+            self.constants.insert(it.span.start, value);
         }
-        walk::walk_assignment_target(self, it);
-    }
-
-    fn visit_update_expression(&mut self, it: &oxc_ast::ast::UpdateExpression<'a>) {
-        if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) =
-            &it.argument
-        {
-            self.reassigned.insert(identifier.name.to_string());
+        if self.resolve_tags {
+            let binding = match symbol {
+                None => TagBinding::Unbound,
+                Some(symbol) => match self.imports.get(&symbol) {
+                    Some((imported, source)) => TagBinding::Import {
+                        imported: imported.clone(),
+                        source: source.clone(),
+                    },
+                    None => TagBinding::Local,
+                },
+            };
+            self.tags.insert(it.span.start, binding);
         }
-        walk::walk_update_expression(self, it);
     }
 }

@@ -73,12 +73,23 @@ describe("optimize option", () => {
     expect(dynamic).not.toContain("_$createComponent");
   });
 
-  it("folds module-level constants into conditions", () => {
-    const code = optimized(
+  it("folds constants into conditions at any scope", () => {
+    const moduleLevel = optimized(
       "const DEBUG = false;\nexport const view = <div><Show when={DEBUG}><b>panel</b></Show></div>;"
     );
-    expect(code).not.toContain("panel");
-    expect(code).not.toContain("_$createComponent");
+    expect(moduleLevel).not.toContain("panel");
+    expect(moduleLevel).not.toContain("_$createComponent");
+
+    const local = optimized(
+      "export function App() {\n  const DEBUG = false;\n  return <div><Show when={DEBUG}><b>panel</b></Show></div>;\n}"
+    );
+    expect(local).not.toContain("panel");
+    expect(local).not.toContain("_$createComponent");
+
+    const shadowed = optimized(
+      "const DEBUG = false;\nexport function App(DEBUG) {\n  return <Show when={DEBUG}><b /></Show>;\n}"
+    );
+    expect(shadowed).toContain("_$createComponent");
   });
 
   it("folds constant expressions and drops unreachable statements", () => {
