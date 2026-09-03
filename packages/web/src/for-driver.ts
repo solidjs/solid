@@ -10,16 +10,23 @@
  * channel, no second diff: mapArray and reconcileArrays are both bypassed
  * for engaged lists.
  *
- * PHASE DISCIPLINE (the H1 bet): the COMPUTE half reads, diffs, and may
- * create fresh rows as DETACHED DOM (same legality as template cloning in
- * classic computes), but never touches the live document or the committed
- * chain. The EFFECT half is the only writer of both. Under a held
- * transition the effect doesn't run until reveal, so the slot can never
- * half-apply speculative state; a re-compute before the effect (transition
- * retry, rapid writes) discards the superseded plan's fresh rows and diffs
- * again from committed state — the "retry against uncorrupted state"
- * contract mapArray's strong-abort ordering exists to provide, here free by
- * construction.
+ * PHASE DISCIPLINE (the H1 bet, validated by the spike suites): the COMPUTE
+ * half reads, diffs, and may create fresh rows as DETACHED DOM (same
+ * legality as template cloning in classic computes), but never touches the
+ * live document or the committed chain. The EFFECT half is the only writer
+ * of both. Under a held transition the effect doesn't run until reveal, so
+ * the slot can never half-apply speculative state; a re-compute before the
+ * effect discards the superseded plan's fresh rows and diffs again from
+ * committed state.
+ *
+ * ROW OWNERSHIP (mapArray's own diet, copied): the slot carries ONE owner
+ * created at engage time under the insert context — rows inherit context
+ * through it, survive compute reruns because they never chain to the
+ * per-run scope, and the whole slot tears down automatically with the
+ * component (no manual cleanup walk). Per row: `createOwner()` +
+ * `runWithOwner` (untracked + owned — no createRoot closure protocol), and
+ * a `nodeType` fast path that skips flatten entirely for the compiled
+ * single-root shape. Bulk teardown (clear) is `owner.dispose(false)`.
  *
  * SPIKE SCOPE — declines (pre-engage) or late-classic demotes (post-engage)
  * rather than implements: hydration claiming (H2), `keyed` functions
@@ -27,16 +34,18 @@
  * FUNCTION (dynamic top-level content), empty-rendering rows, and non-array
  * subjects. Every decline lands on the classic mapArray path.
  */
-import { flatten, onCleanup, sharedConfig, createRoot, untrack } from "solid-js";
+import { createOwner, runWithOwner, flatten, onCleanup, sharedConfig } from "solid-js";
 import { effect } from "./render.js";
 import { $$SLOT } from "./constants.js";
 import { setListDriver } from "./client.js";
 
+type RowOwner = { dispose(self?: boolean): void };
+
 interface Row {
   /** Row key — the item reference itself (identity mode only in the spike). */
   k: any;
-  /** Root disposer for the row's owned scope. */
-  d: () => void;
+  /** Row owner (context carrier + disposer). */
+  o: RowOwner;
   /** Single-root fast form (the common compiled shape)... */
   n: Node | null;
   /** ...or the fragment form (multi-root rows); exactly one of n/ns is set. */
@@ -45,13 +54,16 @@ interface Row {
   x: Row | null;
   /** True once the effect phase has placed the row into live DOM. */
   live: boolean;
+  /** Needs placement this commit (fresh or displaced) — set by compute,
+   * cleared by the commit. Replaces a per-pass Set. */
+  mv: boolean;
+  /** Reuse stamp for the current pass (duplicate detection without Sets). */
+  g: number;
 }
 
 interface Plan {
   /** Final row order for the CHANGED middle window only. */
   order: Row[];
-  /** Rows needing placement this commit (fresh or moved). */
-  place: Set<Row>;
   /** Committed rows leaving the list — detach + dispose at commit. */
   removes: Row[];
   /** Chain splice boundaries: last untouched prefix row / first untouched
@@ -60,6 +72,8 @@ interface Plan {
   after: Row | null;
   /** List length after this plan applies. */
   len: number;
+  /** Count of freshly built rows in `order` (dispose-on-supersede set). */
+  fresh: number;
 }
 
 interface Slot {
@@ -69,9 +83,13 @@ interface Slot {
   map: Map<any, Row>;
   parent: Node;
   end: Node | null;
+  owner: RowOwner;
   pending: Plan | null;
   dead: boolean;
 }
+
+/** Pass generation counter (Row.g stamps). */
+let gen = 0;
 
 const firstNode = (r: Row): Node => (r.n !== null ? r.n : r.ns![0]);
 
@@ -99,66 +117,79 @@ function removeRow(r: Row): void {
     if (r.n !== null) (r.n as ChildNode).remove();
     else for (const n of r.ns!) (n as ChildNode).remove();
   }
-  r.d();
+  r.o.dispose();
 }
 
-/** Build a row: owned root, body called untracked (component semantics),
- * result flattened WITHOUT unwrap so a top-level function is detectable
- * (declined). Detached DOM only — placement is the commit's job. Returns
- * null when the row shape is outside the spike contract. */
+const FLATTEN_OPTS = { skipNonRendered: true, doNotUnwrap: true } as const;
+
+/** Build a row under its own owner (untracked + owned via runWithOwner —
+ * mapArray's per-row shape). Fast path: compiled single-root rows return an
+ * element directly and skip flatten. Detached DOM only — placement is the
+ * commit's job. Returns null when the row shape is outside the spike
+ * contract. MUST run inside `runWithOwner(slot.owner, ...)` so the row
+ * owner chains to the slot (context + auto-teardown). */
 function buildRow(rowFn: (item: any) => any, item: any): Row | null {
-  let out: Row | null = null;
-  const dispose = createRoot(d => {
-    const v = flatten(
-      untrack(() => rowFn(item)),
-      { skipNonRendered: true, doNotUnwrap: true }
-    );
-    if (typeof v === "function") return d;
-    if (Array.isArray(v)) {
-      if (v.length === 0) return d;
-      const ns: Node[] = new Array(v.length);
-      for (let i = 0; i < v.length; i++) {
-        const c = v[i];
-        ns[i] = (c as any)?.nodeType ? (c as Node) : document.createTextNode(String(c));
-      }
-      out = { k: item, d, n: null, ns, p: null, x: null, live: false };
-    } else {
-      const n: Node = (v as any)?.nodeType ? (v as Node) : document.createTextNode(String(v ?? ""));
-      out = { k: item, d, n, ns: null, p: null, x: null, live: false };
+  const o = createOwner() as unknown as RowOwner;
+  let v = runWithOwner(o as any, () => rowFn(item));
+  if (v != null && (v as any).nodeType !== undefined)
+    return { k: item, o, n: v as Node, ns: null, p: null, x: null, live: false, mv: true, g: 0 };
+  const t = typeof v;
+  if (t === "string" || t === "number") {
+    const n = document.createTextNode(String(v));
+    return { k: item, o, n, ns: null, p: null, x: null, live: false, mv: true, g: 0 };
+  }
+  // Slow path: fragments / nested arrays / signals — flatten (still owned).
+  v = runWithOwner(o as any, () => flatten(v, FLATTEN_OPTS));
+  if (Array.isArray(v) && v.length > 0) {
+    const ns: Node[] = new Array(v.length);
+    for (let i = 0; i < v.length; i++) {
+      const c = v[i];
+      if (typeof c === "function") return (o.dispose(), null);
+      ns[i] = (c as any)?.nodeType ? (c as Node) : document.createTextNode(String(c));
     }
-    return d;
-  });
-  if (out === null) dispose();
-  return out;
+    return { k: item, o, n: null, ns, p: null, x: null, live: false, mv: true, g: 0 };
+  }
+  if (v != null && (v as any).nodeType !== undefined)
+    return { k: item, o, n: v as Node, ns: null, p: null, x: null, live: false, mv: true, g: 0 };
+  o.dispose();
+  return null; // function / empty / unrenderable top level → classic
 }
 
-/** Longest increasing subsequence over old-middle indices (-1 = fresh row).
- * Returns the set of `order` positions that KEEP their DOM position. */
-function stablePositions(oldPos: number[]): Set<number> {
-  const tails: number[] = [];
-  const tailIdx: number[] = [];
-  const prev: number[] = new Array(oldPos.length).fill(-1);
-  for (let i = 0; i < oldPos.length; i++) {
+// LIS scratch (module-level, reused — stablePositions runs NO user code, so
+// reentrancy is impossible mid-call).
+let lisTails: number[] = [];
+let lisTailIdx: number[] = [];
+let lisPrev: number[] = [];
+
+/** Mark rows that KEEP their DOM position (longest increasing subsequence of
+ * old-middle indices); everything else gets `mv = true`. `oldPos[j]` is -1
+ * for fresh rows (already stamped mv by buildRow). */
+function markMoves(order: Row[], oldPos: number[]): void {
+  const len = oldPos.length;
+  if (lisPrev.length < len) lisPrev = new Array(len);
+  let tlen = 0;
+  for (let i = 0; i < len; i++) {
     const v = oldPos[i];
     if (v === -1) continue;
     let lo = 0,
-      hi = tails.length;
+      hi = tlen;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (tails[mid] < v) lo = mid + 1;
+      if (lisTails[mid] < v) lo = mid + 1;
       else hi = mid;
     }
-    tails[lo] = v;
-    prev[i] = lo > 0 ? tailIdx[lo - 1] : -1;
-    tailIdx[lo] = i;
+    lisTails[lo] = v;
+    lisPrev[i] = lo > 0 ? lisTailIdx[lo - 1] : -1;
+    lisTailIdx[lo] = i;
+    if (lo === tlen) tlen++;
   }
-  const keep = new Set<number>();
-  let at = tails.length > 0 ? tailIdx[tails.length - 1] : -1;
+  // Everything moves unless proven stable.
+  for (let i = 0; i < len; i++) if (oldPos[i] !== -1) order[i].mv = true;
+  let at = tlen > 0 ? lisTailIdx[tlen - 1] : -1;
   while (at !== -1) {
-    keep.add(at);
-    at = prev[at];
+    order[at].mv = false;
+    at = lisPrev[at];
   }
-  return keep;
 }
 
 const IDENTICAL = 0 as const;
@@ -185,13 +216,19 @@ function driveKeyedFor(
     map: new Map(),
     parent,
     end: marker ?? null,
+    // Slot owner under the INSERT context: rows inherit context through it,
+    // survive compute reruns, and tear down automatically with the
+    // component — cleanup needs no row walk.
+    owner: createOwner() as unknown as RowOwner,
     pending: null,
     dead: false
   };
+  __unifiedForStats.engaged++;
 
   const dropPending = (): void => {
     if (slot.pending !== null) {
-      for (const r of slot.pending.place) if (!r.live) r.d();
+      const { order } = slot.pending;
+      for (let j = 0; j < order.length; j++) if (!order[j].live) order[j].o.dispose();
       slot.pending = null;
     }
   };
@@ -202,18 +239,21 @@ function driveKeyedFor(
     __unifiedForStats.demoted++;
     slot.dead = true;
     dropPending();
-    for (let r = slot.head; r !== null; r = r.x) removeRow(r);
+    for (let r = slot.head; r !== null; r = r.x) {
+      if (r.n !== null) (r.n as ChildNode).remove();
+      else if (r.ns !== null) for (const n of r.ns) (n as ChildNode).remove();
+    }
+    slot.owner.dispose(false); // bulk: every row owner is a child
     slot.head = slot.tail = null;
     slot.size = 0;
     slot.map.clear();
     lateClassic();
   };
 
-  __unifiedForStats.engaged++;
+  // The insert owner disposes slot.owner (and with it every row) through the
+  // owner tree — cleanup only has to silence the slot.
   onCleanup(() => {
     slot.dead = true;
-    dropPending();
-    for (let r = slot.head; r !== null; r = r.x) r.d();
   });
 
   effect(
@@ -247,7 +287,8 @@ function driveKeyedFor(
         oldRemain--;
       }
       const after = oldRemain === 0 ? cursor : tailCursor!.x; // first suffix row
-      // ── Old middle rows, keyed for reuse.
+      const passGen = ++gen;
+      // ── Old middle rows, keyed for reuse (map probe stamps duplicates).
       const oldMid: Row[] = new Array(oldRemain);
       {
         let r = cursor;
@@ -261,37 +302,64 @@ function driveKeyedFor(
         if (oldIndexOf.has(oldMid[j].k)) return DEMOTE; // duplicate keys
         oldIndexOf.set(oldMid[j].k, j);
       }
-      // ── New middle: reuse by key, build the rest (detached).
+      // ── New middle: reuse by key; build the rest (detached, owned by the
+      // slot owner — untracked via runWithOwner inside buildRow).
       const width = end - i + 1;
+      // Read the window TRACKED, before entering the owner wrapper: inside
+      // runWithOwner reads are untracked, and an untracked store read
+      // resolves the COMMITTED backing while this flush's setter writes are
+      // still pending — `length` (a written node) says N+1 while the unread
+      // index N falls back to committed undefined. mapArray solves the same
+      // tear with `_owner._parentComputed` routing; the driver hoists the
+      // reads instead.
+      const midItems: any[] = new Array(width);
+      for (let j = 0; j < width; j++) midItems[j] = arr[i + j];
       const order: Row[] = new Array(width);
       const oldPos: number[] = new Array(width);
-      const reused = new Set<Row>();
-      for (let j = 0; j < width; j++) {
-        const item = arr[i + j];
-        const at = oldIndexOf.get(item);
-        if (at !== undefined) {
-          const row = oldMid[at];
-          if (reused.has(row)) return DEMOTE; // duplicate incoming key
-          reused.add(row);
-          order[j] = row;
-          oldPos[j] = at;
-        } else if (slot.map.has(item)) {
-          // Same identity alive outside the middle window = duplicate key
-          // across the prefix/suffix boundary. Classic owns duplicates.
-          return DEMOTE;
-        } else {
-          const fresh = buildRow(meta.row, item);
-          if (fresh === null) return DEMOTE; // dynamic/empty row shape
-          order[j] = fresh;
-          oldPos[j] = -1;
+      let fresh = 0;
+      let demoteFlag = false;
+      runWithOwner(slot.owner as any, () => {
+        for (let j = 0; j < width; j++) {
+          const item = midItems[j];
+          const at = oldIndexOf.get(item);
+          if (at !== undefined) {
+            const row = oldMid[at];
+            if (row.g === passGen) {
+              demoteFlag = true; // duplicate incoming key
+              return;
+            }
+            row.g = passGen;
+            order[j] = row;
+            oldPos[j] = at;
+          } else if (slot.map.has(item)) {
+            // Same identity alive outside the middle window = duplicate key
+            // across the prefix/suffix boundary. Classic owns duplicates.
+            demoteFlag = true;
+            return;
+          } else {
+            const built = buildRow(meta.row, item);
+            if (built === null) {
+              demoteFlag = true; // dynamic/empty row shape
+              return;
+            }
+            fresh++;
+            order[j] = built;
+            oldPos[j] = -1;
+          }
         }
+      });
+      if (demoteFlag) {
+        // Partial build: dispose what this pass created before demoting.
+        for (let j = 0; j < width; j++) {
+          const r = order[j];
+          if (r !== undefined && !r.live) r.o.dispose();
+        }
+        return DEMOTE;
       }
-      const keep = stablePositions(oldPos);
-      const place = new Set<Row>();
-      for (let j = 0; j < width; j++) if (!keep.has(j)) place.add(order[j]);
+      markMoves(order, oldPos);
       const removes: Row[] = [];
-      for (let j = 0; j < oldRemain; j++) if (!reused.has(oldMid[j])) removes.push(oldMid[j]);
-      return (slot.pending = { order, place, removes, before, after, len });
+      for (let j = 0; j < oldRemain; j++) if (oldMid[j].g !== passGen) removes.push(oldMid[j]);
+      return (slot.pending = { order, removes, before, after, len, fresh });
     },
     out => {
       if (out === IDENTICAL) return;
@@ -299,17 +367,13 @@ function driveKeyedFor(
       const plan = out as Plan;
       if (plan !== slot.pending) return; // superseded mid-flight
       slot.pending = null;
-      const { order, place, removes, before, after } = plan;
+      const { order, removes, before, after } = plan;
       // Batch clear (design §5.2): N→0 on a whole-parent slot is one
-      // `textContent = ''` instead of N removeChild calls — the rows' nodes
-      // are already detached wholesale, so dispose skips per-node removal.
+      // `textContent = ''` + one bulk owner dispose — no per-row work.
       if (plan.len === 0 && slot.end === null && before === null && after === null) {
         __unifiedForStats.batchCleared++;
         (slot.parent as Element).textContent = "";
-        for (let j = 0; j < removes.length; j++) {
-          removes[j].live = false;
-          removes[j].d();
-        }
+        slot.owner.dispose(false);
         slot.map.clear();
         slot.head = slot.tail = null;
         slot.size = 0;
@@ -324,7 +388,10 @@ function driveKeyedFor(
       let anchor: Node | null = after !== null ? firstNode(after) : slot.end;
       for (let j = order.length - 1; j >= 0; j--) {
         const r = order[j];
-        if (place.has(r)) placeRow(slot, r, anchor);
+        if (r.mv) {
+          placeRow(slot, r, anchor);
+          r.mv = false;
+        }
         anchor = firstNode(r);
       }
       // 3. Splice the chain: [before] → order… → [after].
@@ -352,5 +419,5 @@ export function enableUnifiedFor(): void {
   setListDriver(driveKeyedFor);
 }
 
-/** Spike test probes: engagement / late-classic-demotion counters. */
+/** Spike test probes: engagement / demotion / batch-clear counters. */
 export const __unifiedForStats = { engaged: 0, demoted: 0, batchCleared: 0 };
