@@ -28,7 +28,15 @@ import { FLASH_COOKIE, parseCookieHeader, serializeCookie } from "../../src/cook
 export interface FlashSubmission {
   /** The arguments the call was made with (files are dropped). */
   input: any[];
-  /** The call's url: pathname + search of the server function request. */
+  /**
+   * The call's url: the UNBOUND function base — the server function
+   * request's pathname (`<endpoint>/<id>`), without the `?args=` query a
+   * `.with()`-bound form's action carries (or any other query decoration).
+   * Matches what the scripted road records as a submission's url, so
+   * integrations can match flash and scripted submissions with the same
+   * `s.url === fn.base` test; bound arguments arrive in `input` instead,
+   * prepended exactly like a scripted call's.
+   */
   url: string;
   /** The returned value, when the call returned. */
   result?: any;
@@ -92,10 +100,10 @@ export function encodeFlashCookie(
 
 /**
  * Encodes the outcome of a no-JS call as a Set-Cookie value, or `null`
- * when no storable cookie exists for it. `url` is the call's url
- * (pathname + search of the server function request) so the integration
- * can tell which submission the outcome belongs to; `thrown` errors land
- * on `error`, returned values on `result`, mirroring the split a scripted
+ * when no storable cookie exists for it. `url` is the call's url (the
+ * unbound function base — the request's pathname) so the integration can
+ * tell which submission the outcome belongs to; `thrown` errors land on
+ * `error`, returned values on `result`, mirroring the split a scripted
  * call sees.
  */
 export function encodeFlashCookie(url, result, input, thrown) {
@@ -135,7 +143,8 @@ export function encodeFlashCookie(url, result, input, thrown) {
     }
   }
   // The ladder has spent everything it may spend and the payload still does
-  // not fit: `url` — pathname + search of a request the CALLER chose — is
+  // not fit: `url` — an address the CALLER chose (for the no-JS handler,
+  // the request's pathname: endpoint mount + function id) — is
   // past the ceiling on its own. It is the identifier of last resort, and a
   // prefix of an identifier is a WRONG identifier: the outcome would attach
   // to a submission it does not name, silently. Emitting the oversized

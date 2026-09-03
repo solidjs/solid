@@ -9,13 +9,13 @@
  * twice.
  *
  * The ladder bounds two of the payload's three variable-length fields — it
- * drops `input`, it bounds `result` — and never looked at `url`, which is
- * `pathname + search` of a request the CALLER chose (`<form
- * action={fn.url + "?return=" + here}>` is the convention's own idiom). A
- * long enough url put the payload past the ceiling with everything else
- * already spent, and the encoder emitted a cookie the browser throws away
- * — while writing `truncated: true`, asserting a degradation that never
- * stored.
+ * drops `input`, it bounds `result` — and never looked at `url`, an
+ * address the CALLER chose (for the no-JS handler, the request's pathname:
+ * endpoint mount + function id; direct encoder callers pass whatever
+ * identifies the submission to them). A long enough url put the payload
+ * past the ceiling with everything else already spent, and the encoder
+ * emitted a cookie the browser throws away — while writing `truncated:
+ * true`, asserting a degradation that never stored.
  *
  * The ruled fix: when the fully-degraded payload still cannot fit, REFUSE
  * to flash. The encoder returns no cookie and the no-JS handler falls back
@@ -89,26 +89,26 @@ describe("the encoder refuses what it cannot fit", () => {
 describe("the no-JS handler falls back to a plain redirect", () => {
   it("redirects without a flash cookie when the request url cannot fit", async () => {
     let ran = 0;
-    registerServerFunction("flash-url-bound-publish", async () => {
+    // the flash url is the request's PATHNAME (the unbound function base —
+    // query decorations like `?return=` never ride it), so the overrun of
+    // last resort is a function id past the ceiling on its own
+    const id = "flash-url-bound-publish-" + "e".repeat(4200);
+    registerServerFunction(id, async () => {
       ran++;
       return { published: true };
     });
 
-    const back = "/catalog/" + "e".repeat(4200);
     const response = await handleServerFunctionRequest(
-      new Request(
-        "https://app.example/_server/flash-url-bound-publish?return=" + encodeURIComponent(back),
-        {
-          method: "POST",
-          headers: {
-            "Sec-Fetch-Site": "same-origin",
-            "Sec-Fetch-Mode": "navigate",
-            "Content-Type": "application/x-www-form-urlencoded",
-            Referer: "https://app.example/catalog"
-          },
-          body: "qty=1"
-        }
-      )
+      new Request(`https://app.example/_server/${id}`, {
+        method: "POST",
+        headers: {
+          "Sec-Fetch-Site": "same-origin",
+          "Sec-Fetch-Mode": "navigate",
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: "https://app.example/catalog"
+        },
+        body: "qty=1"
+      })
     );
 
     // the mutation committed and the navigation still lands (#3250 pending:

@@ -2139,8 +2139,18 @@ export function createNoJSHandler({ base = "" } = {}) {
     // outcome (a caller-chosen url alone past the cookie ceiling, #3249):
     // the redirect then goes out plain — never an oversized cookie the
     // browser discards whole, never a truncated identifier.
+    //
+    // The flash records the UNBOUND base — the request's pathname, which
+    // for a server function is `<endpoint>/<id>` — never the query. A
+    // `.with()`-bound form's action url carries `?args=…`, and integrations
+    // match submissions against the action's unbound base (the router's
+    // `s.url === fn.base`): a flash url wearing the binding would store,
+    // decode, and then match nothing. The scripted road records the same
+    // shape — the base as `url`, the bound arguments prepended to `input` —
+    // and the argument parser's `?args` prepend already gives `args` that
+    // input shape here (#3239).
     if (result !== undefined && !(result instanceof Response)) {
-      const flash = encodeFlashCookie(url.pathname + url.search, result, args, thrown);
+      const flash = encodeFlashCookie(url.pathname, result, args, thrown);
       if (flash !== null) headers.append("Set-Cookie", flash);
     }
     return new Response(null, { status, headers });
