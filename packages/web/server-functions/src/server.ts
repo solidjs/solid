@@ -1398,15 +1398,22 @@ async function foldFlightData(hooks, event, headers, outcome, context = {}) {
       context
     );
     if (transformed !== undefined) {
+      // Ownership BEFORE the first stamp (#3234, completing #3155): nothing
+      // in the hook's contract says the Response is freshly built, and a
+      // policy that memoizes its body would otherwise accumulate every
+      // caller's session cookies permanently — the thrown path's tail copies
+      // for exactly this reason, but only after these writes have already
+      // landed on the shared object.
+      const owned = ownResponse(transformed);
       // Headers accumulated during the call (the mutation's cookies, an
       // envelope's metadata) belong on whatever body carries the outcome.
-      for (const cookie of headers.getSetCookie()) transformed.headers.append("Set-Cookie", cookie);
+      for (const cookie of headers.getSetCookie()) owned.headers.append("Set-Cookie", cookie);
       headers.forEach((value, key) => {
-        if (key !== "set-cookie" && !transformed.headers.has(key)) {
-          transformed.headers.set(key, value);
+        if (key !== "set-cookie" && !owned.headers.has(key)) {
+          owned.headers.set(key, value);
         }
       });
-      return transformed;
+      return owned;
     }
   }
   // A void mutation's envelope omits the `value` key rather than carrying
