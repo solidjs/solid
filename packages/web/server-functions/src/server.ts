@@ -3373,19 +3373,32 @@ export async function handleServerFunctionRequest(request, options = {}) {
         // thrown envelopes keep the author's status above.
         return encodeResult(safe, headers, 500, codec, request.signal, scope);
       };
-      if (x instanceof Response || isResponseEnvelope(x)) {
-        if (transformResult) {
-          try {
-            x = await transformResult(event, x, { ...flightContext, thrown: true });
-          } catch (hookError) {
-            // Same hook, same failure, same containment as the return path
-            // (#3171): there a throwing transformResult lands in this catch
-            // as a plain error and answers a sanitized 500. Uncontained here,
-            // it escaped the handler entirely — no status, no event stub,
-            // the host adapter left to improvise.
-            return respondThrown(hookError);
-          }
+      // The result policy sees EVERY outcome, which is what `context.thrown`
+      // is for (#3247): a thrown Error or a thrown string is the failure
+      // shape an error-mapping or audit policy is written for, and it used
+      // to be the one shape the hook never saw — the hook ran inside the
+      // branch below, so it met every success and every failure an author
+      // had already shaped by hand, and none of the failures that happen TO
+      // the app. Hoisted here it runs once for the whole thrown path, and
+      // the tail is chosen by the shape the policy settled on, exactly as on
+      // the return path: mapping an internal error to a wire shape works by
+      // returning a Response/envelope. What the hook hands back is not
+      // privileged — a plain value still answers through `respondThrown`,
+      // sanitized unless branded safe, so meeting the raw error is not a
+      // road for it onto the wire.
+      if (transformResult) {
+        try {
+          x = await transformResult(event, x, { ...flightContext, thrown: true });
+        } catch (hookError) {
+          // Same hook, same failure, same containment as the return path
+          // (#3171): there a throwing transformResult lands in this catch
+          // as a plain error and answers a sanitized 500. Uncontained here,
+          // it escaped the handler entirely — no status, no event stub,
+          // the host adapter left to improvise.
+          return respondThrown(hookError);
         }
+      }
+      if (x instanceof Response || isResponseEnvelope(x)) {
         let status = 200;
         let metadata;
         if (isResponseEnvelope(x)) {
