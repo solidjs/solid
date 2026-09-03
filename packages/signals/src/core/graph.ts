@@ -1,10 +1,12 @@
 import {
   CONFIG_AUTO_DISPOSE,
+  CONFIG_SLOT_NODE,
   REACTIVE_DISPOSED,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_ZOMBIE,
   STATUS_PENDING
 } from "./constants.js";
+import { runSlotUnobserved } from "./core.js";
 import { noteGraphLink, unnoteGraphLink } from "./dev.js";
 import { deleteFromHeap, queueFor } from "./heap.js";
 import { disposeChildren } from "./owner.js";
@@ -25,7 +27,10 @@ export function unlinkSubs(link: Link): Link | null {
   else {
     dep._subs = nextSub;
     if (nextSub === null) {
-      dep._x?._unobserved?.();
+      // Slot nodes (store leaves) dispatch to the ONE shared hook — no
+      // per-node unobserved closure, no NodeExtension to hold it.
+      if (dep._config & CONFIG_SLOT_NODE) runSlotUnobserved(dep as Signal<any>);
+      else dep._x?._unobserved?.();
       // No more subscribers; only tear down if CONFIG_AUTO_DISPOSE is set.
       // A pending node is exempt: its in-flight async work (or the
       // transition holding it) is an observer — tearing down would orphan

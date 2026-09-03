@@ -41,7 +41,9 @@ import {
   readNodeFast,
   setLatestReadActive,
   setSignal,
+  setSlotUnobserved,
   signal,
+  slotSignal,
   untrack,
   ext
 } from "../../core/core.js";
@@ -222,50 +224,61 @@ export function unwrapValue(v: any): any {
 // ---------------------------------------------------------------------------
 // nodes: pure subscription points (values used only for equality gating)
 
+// Shared slot-node equality (create-floor diet): ONE function for every
+// store node — `this` is the node (method-call convention at every _equals
+// site), `_host` is the baked-in target backref. Logical-slot equality:
+// values resolving to the same child target are the same slot
+// (privatization/adoption swap raw identity without changing the logical
+// value — only changed leaves notify, R9).
+const slotNodeEquals = function (this: any, a: any, b: any): boolean {
+  return isEqual(a, b) || sameLogicalSlot(this._host, a, b);
+};
+
+// Shared slot-node unobserved handler (create-floor diet): registered once;
+// the core sweep dispatches CONFIG_SLOT_NODE nodes here instead of holding a
+// per-node closure in a per-node NodeExtension.
+setSlotUnobserved((node: any): void => {
+  // A live affects() mark keeps the node addressable (sweep parity).
+  if (node._x?._affectsCount) return;
+  const t: StoreNextTarget = node._host;
+  const key: PropertyKey = node._key;
+  if (t.n && t.n[key as any] === node) {
+    delete t.n[key as any];
+    t.nc--;
+  }
+});
+
 export function getNode(target: StoreNextTarget, key: PropertyKey, current: any): Signal<any> {
   const nodes = (target.n ??= Object.create(null));
   let node: Signal<any> | undefined = nodes[key];
   if (node === undefined) {
-    const created: Signal<any> = (node = signal(
+    // Create-floor diet: slotSignal bakes the whole node into one literal —
+    // no options object, no equals/unobserved closures, no NodeExtension,
+    // no post-construction expandos (acc + the wrap cache px/pxv are
+    // pre-shaped fields: the proxy last served for this key and the raw it
+    // wrapped — one pointer compare replaces the per-read WeakMap lookup in
+    // wrapNext). ownedWrite rides the literal's config: the setter carries
+    // the owned-scope write guard; node-level setSignals are internal
+    // notification machinery. Projection nodes carry the projection
+    // computed as their firewall: reads through them link the derive's
+    // status/lifecycle (§7b).
+    const created: Signal<any> = (node = slotSignal(
       current,
-      {
-        // Attribution-only: name store property nodes by path segment so
-        // attribution chains and wide-scope warnings read "store.todos", not
-        // "signal". Gated on the engine being installed — node creation is
-        // the hottest store path, and the disabled cost must stay one null
-        // check (nodes created before enable() stay generically named).
-        name: __DEV__ && attrHooks !== null ? "store." + String(key) : undefined,
-        // Logical-slot equality: values resolving to the same child target
-        // are the same slot (privatization/adoption swap raw identity without
-        // changing the logical value — only changed leaves notify, R9).
-        equals: (a: any, b: any) => isEqual(a, b) || sameLogicalSlot(target, a, b),
-        unobserved() {
-          // A live affects() mark keeps the node addressable (sweep parity).
-          if ((created as any)._x?._affectsCount) return;
-          if (target.n && target.n[key] === created) {
-            delete target.n[key];
-            target.nc--;
-          }
-        }
-      },
-      // Projection nodes carry the projection computed as their firewall:
-      // reads through them link the derive's status/lifecycle (§7b).
+      slotNodeEquals,
+      target,
+      key,
+      // Accessor-ness resolved ONCE per node (no per-object descriptor
+      // scan on reads): accessor keys serve through Reflect.get with the
+      // proxy receiver.
+      isOwnAccessor(target.pb ?? target.v, key),
       (target.fam?.node as any) ?? undefined
     ));
-    // Store nodes are ownedWrite: the setter carries the owned-scope write
-    // guard; node-level setSignals are internal notification machinery.
-    created._config |= CONFIG_OWNED_WRITE;
-    // Accessor-ness resolved ONCE per node (no per-object descriptor scan):
-    // accessor keys serve through Reflect.get with the proxy receiver.
-    (created as any).acc = isOwnAccessor(target.pb ?? target.v, key);
-    // Wrap cache: the proxy last served for this key and the raw it wrapped.
-    // Raw-as-truth stores raw in nodes, so every object read needs a wrapper;
-    // one pointer compare (pxv === value) replaces the per-read WeakMap
-    // lookup in wrapNext — the dominant read-path cost vs legacy, whose
-    // nodes stored pre-wrapped values. A replaced child fails the compare
-    // and re-wraps; at most one stale proxy is pinned until the next read.
-    (created as any).px = undefined;
-    (created as any).pxv = undefined;
+    // Attribution-only: name store property nodes by path segment so
+    // attribution chains and wide-scope warnings read "store.todos", not
+    // "signal". Gated on the engine being installed — node creation is
+    // the hottest store path, and the disabled cost must stay one null
+    // check (nodes created before enable() stay generically named).
+    if (__DEV__ && attrHooks !== null) (created as any)._name = "store." + String(key);
     // Optimistic families: arm the override slot — setSignal routes armed
     // nodes through the core engine (lanes, ownership, reverts all native).
     if (target.fam?.opt) {
