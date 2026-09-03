@@ -1330,6 +1330,26 @@ async function bufferBodyWithin(request, limit) {
   return new Request(request, { body });
 }
 
+// Every tag the decode switch has a case for, derived from `BodyFormat`
+// itself so the two can never drift: a tag added there is accepted here the
+// same day, and a tag from anywhere else is not.
+const KNOWN_BODY_FORMATS = new Set(Object.values(BodyFormat));
+
+// Brands the unknown-tag refusal so dispatch's malformed-arguments 400 can
+// surface ITS message in development: version skew has a recovery (redeploy
+// or reload) that "malformed arguments" does not point anyone at.
+const FORMAT_SKEW = Symbol("solid.serverFunction.formatSkew");
+
+function unknownFormatError(tag) {
+  const error = new TypeError(
+    `Server function body carries an unrecognized ${BODY_FORMAT_HEADER} tag ("${tag}"): the ` +
+      "caller encodes a newer wire format than this build can decode (version skew), or an " +
+      "intermediary duplicated the header. The body was refused rather than reinterpreted."
+  );
+  error[FORMAT_SKEW] = true;
+  return error;
+}
+
 async function parseArguments(request, url, scripted, codec) {
   const parsed = [];
   // Bound arguments arrive on the url for GET calls, no-JS form posts, and
@@ -1372,6 +1392,20 @@ async function parseArguments(request, url, scripted, codec) {
     parsed.push(url.searchParams);
   }
   if (request.method === "POST" && request.body !== null) {
+    // The tag names the encoding, so a tag this build has no case for is
+    // refused BEFORE the decode switch runs (#3245): `extractBody`'s
+    // content-type sniffing branches (there for form posts that never saw
+    // the client runtime) match regardless of the tag, so an unknown tag
+    // over a form content-type used to be silently reinterpreted as the
+    // form — the function ran on an argument shaped nothing like what the
+    // caller encoded, and committed under a 200. The two ordinary ways in
+    // are version skew (a `BodyFormat` past `Void` from a newer peer) and
+    // a duplicated header, which `Headers.get` joins into the single
+    // unknown value `"8, 9"`. An untagged body keeps the sniffing — that
+    // is what it is for.
+    if (bodyFormat !== null && !KNOWN_BODY_FORMATS.has(bodyFormat)) {
+      throw unknownFormatError(bodyFormat);
+    }
     const decoded = await extractBody(request.clone(), codec);
     // Both argument-array encodings: codec-framed and plain JSON. The
     // framed codec enforces its own depth cap during decode; bare JSON
@@ -1394,13 +1428,13 @@ async function parseArguments(request, url, scripted, codec) {
       if (bodyFormat === null && (await request.clone().arrayBuffer()).byteLength === 0) {
         return parsed;
       }
-      // The decode switch fell through: the format tag — or its duplicate-
-      // header comma join, which `Headers` produces silently — names no
-      // encoding this runtime has. Refusing is the point: substituting
-      // `undefined` for the body calls the function on an argument it was
-      // never sent, and the mutation commits and answers 200 (#3130). The
-      // throw lands on dispatch's malformed-arguments 400, the same answer
-      // a single unusable tag already earned from the codec.
+      // The decode switch fell through on a tag it does know (`Void` on a
+      // request leg) or an untagged body no sniff matched. Refusing is the
+      // point: substituting `undefined` for the body calls the function on
+      // an argument it was never sent, and the mutation commits and answers
+      // 200 (#3130). Unknown tags were already refused above (#3245), so
+      // this is the everything-else answer, landing on the same
+      // malformed-arguments 400.
       throw new TypeError("Server function body carries no usable encoding");
     }
     parsed.push(decoded);
@@ -3177,13 +3211,17 @@ export async function handleServerFunctionRequest(request, options = {}) {
   let parsed;
   try {
     parsed = await parseArguments(request, url, scripted, codec);
-  } catch {
+  } catch (error) {
     // A query that is not the encoding it claims to be is a malformed
     // request, not a failing call: 400 keeps it out of the function's error
-    // channel, and answers the same way for every caller of that url.
-    const response = new Response(DEV ? "Malformed server function arguments" : null, {
-      status: 400
-    });
+    // channel, and answers the same way for every caller of that url. The
+    // unknown-tag refusal carries its own development message: version skew
+    // has a recovery (redeploy, reload) worth naming (#3245).
+    const skewed = error !== null && typeof error === "object" && error[FORMAT_SKEW] === true;
+    const response = new Response(
+      DEV ? (skewed ? error.message : "Malformed server function arguments") : null,
+      { status: 400 }
+    );
     return refuseCommitted(response);
   }
 
