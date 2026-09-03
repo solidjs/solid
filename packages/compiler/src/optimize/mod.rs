@@ -53,7 +53,7 @@ use crate::shared::ast_builder::AstBuilder;
 use crate::shared::classify::jsx_text_is_filtered;
 use crate::shared::utils::decode_html_entities;
 use env::ProgramFacts;
-use value::{Const, array_literal_len, evaluate, is_side_effect_free, truthiness};
+use value::{Const, array_literal_len, effectful_parts, evaluate, is_side_effect_free, truthiness};
 
 /// Folding one node can expose the next one up (a `<Show>` that resolves to
 /// an empty `<For>`, say). The traversal is post-order, so a single pass
@@ -185,13 +185,14 @@ impl<'a> Optimizer<'a, '_> {
                         }
                     }
                 };
+                let span = logical.span;
                 let kept = if takes_left {
                     logical.left.take_in(&self.allocator)
                 } else {
-                    if !is_side_effect_free(&logical.left) {
-                        return;
-                    }
-                    logical.right.take_in(&self.allocator)
+                    let effectful = !is_side_effect_free(&logical.left);
+                    let discarded = effectful.then(|| logical.left.take_in(&self.allocator));
+                    let right = logical.right.take_in(&self.allocator);
+                    self.keep_after(span, discarded, right)
                 };
                 *expression = kept;
                 self.changed = true;
@@ -200,15 +201,15 @@ impl<'a> Optimizer<'a, '_> {
                 let Some(test) = truthiness(&conditional.test, &self.facts.constants) else {
                     return;
                 };
-                if !is_side_effect_free(&conditional.test) {
-                    return;
-                }
+                let span = conditional.span;
+                let effectful = !is_side_effect_free(&conditional.test);
+                let discarded = effectful.then(|| conditional.test.take_in(&self.allocator));
                 let kept = if test {
                     conditional.consequent.take_in(&self.allocator)
                 } else {
                     conditional.alternate.take_in(&self.allocator)
                 };
-                *expression = kept;
+                *expression = self.keep_after(span, discarded, kept);
                 self.changed = true;
             }
             _ => {
@@ -218,6 +219,32 @@ impl<'a> Optimizer<'a, '_> {
                 }
             }
         }
+    }
+
+    /// Keeps `value`, evaluating `discarded` first when the fold could not
+    /// simply skip it.
+    ///
+    /// A condition whose truthiness is known but whose evaluation is
+    /// observable still has to run. `(discarded, value)` runs it in the same
+    /// order the original did and yields the same result, so the branch goes
+    /// even though the test stays.
+    fn keep_after(
+        &self,
+        span: Span,
+        discarded: Option<Expression<'a>>,
+        value: Expression<'a>,
+    ) -> Expression<'a> {
+        let Some(discarded) = discarded else {
+            return value;
+        };
+        let mut parts = std::vec::Vec::new();
+        effectful_parts(discarded, &mut parts);
+        if parts.is_empty() {
+            return value;
+        }
+        parts.push(value);
+        self.ast
+            .expression_sequence(span, self.ast.vec_from_iter(parts))
     }
 
     /// The literal spelling of a constant expression, or `None` when the
@@ -631,11 +658,31 @@ impl<'a> Optimizer<'a, '_> {
         &mut self,
         statements: &mut oxc_allocator::Vec<'a, Statement<'a>>,
     ) {
+        // A resolution can leave nothing, one statement, or an effectful
+        // test followed by the taken branch, so the list is rebuilt rather
+        // than patched in place.
+        let mut resolutions = std::vec::Vec::with_capacity(statements.len());
+        let mut resolved_any = false;
         for statement in statements.iter_mut() {
-            if let Some(replacement) = self.resolve_statement(statement) {
-                *statement = replacement;
-                self.changed = true;
+            let resolution = self.resolve_statement(statement);
+            resolved_any |= resolution.is_some();
+            resolutions.push(resolution);
+        }
+        if resolved_any {
+            let taken = std::mem::replace(statements, self.ast.vec());
+            let mut rebuilt = self.ast.vec_with_capacity(taken.len());
+            for (statement, resolution) in taken.into_iter().zip(resolutions) {
+                match resolution {
+                    Some(replacements) => {
+                        for replacement in replacements {
+                            rebuilt.push(replacement);
+                        }
+                    }
+                    None => rebuilt.push(statement),
+                }
             }
+            *statements = rebuilt;
+            self.changed = true;
         }
 
         // Everything after the first `return`/`throw`/`break`/`continue` is
@@ -669,14 +716,15 @@ impl<'a> Optimizer<'a, '_> {
         }
     }
 
-    /// The statement a constant condition leaves behind, if any.
-    fn resolve_statement(&mut self, statement: &mut Statement<'a>) -> Option<Statement<'a>> {
+    /// The statements a constant condition leaves behind, or `None` when the
+    /// statement stands as written. An empty list removes it outright.
+    fn resolve_statement(
+        &mut self,
+        statement: &mut Statement<'a>,
+    ) -> Option<std::vec::Vec<Statement<'a>>> {
         match statement {
             Statement::IfStatement(branch) => {
                 let test = truthiness(&branch.test, &self.facts.constants)?;
-                if !is_side_effect_free(&branch.test) {
-                    return None;
-                }
                 let dropped_hoists = if test {
                     branch
                         .alternate
@@ -693,31 +741,56 @@ impl<'a> Optimizer<'a, '_> {
                 } else {
                     branch.alternate.as_mut()
                 };
-                let Some(kept) = kept else {
-                    return Some(self.ast.statement_empty(branch.span));
-                };
-                // A bare function declaration as a branch body is
-                // Annex B web-compatibility semantics, not something to
-                // relocate into the enclosing list.
-                if matches!(kept, Statement::FunctionDeclaration(_)) {
+                // A bare function declaration as a branch body is Annex B
+                // web-compatibility semantics, not something to relocate
+                // into the enclosing list.
+                if matches!(kept, Some(Statement::FunctionDeclaration(_))) {
                     return None;
                 }
-                Some(kept.take_in(&self.allocator))
+                let kept = kept.map(|kept| kept.take_in(&self.allocator));
+                let mut resolved = std::vec::Vec::with_capacity(2);
+                if let Some(effect) = self.discarded_test(&mut branch.test) {
+                    resolved.push(effect);
+                }
+                resolved.extend(kept);
+                Some(resolved)
             }
             Statement::WhileStatement(loop_statement) => {
                 if truthiness(&loop_statement.test, &self.facts.constants)? {
                     return None;
                 }
-                if !is_side_effect_free(&loop_statement.test) {
-                    return None;
-                }
                 if contains_hoisted_declaration(&loop_statement.body) {
                     return None;
                 }
-                Some(self.ast.statement_empty(loop_statement.span))
+                // A `while` whose test is falsy evaluates that test exactly
+                // once and never enters the body.
+                Some(
+                    self.discarded_test(&mut loop_statement.test)
+                        .into_iter()
+                        .collect(),
+                )
             }
             _ => None,
         }
+    }
+
+    /// The statement that preserves a discarded test's evaluation, or `None`
+    /// when skipping it changes nothing.
+    fn discarded_test(&self, test: &mut Expression<'a>) -> Option<Statement<'a>> {
+        if is_side_effect_free(test) {
+            return None;
+        }
+        let span = test.span();
+        let mut parts = std::vec::Vec::new();
+        effectful_parts(test.take_in(&self.allocator), &mut parts);
+        let kept = match parts.len() {
+            0 => return None,
+            1 => parts.pop().expect("one part"),
+            _ => self
+                .ast
+                .expression_sequence(span, self.ast.vec_from_iter(parts)),
+        };
+        Some(self.ast.statement_expression(span, kept))
     }
 }
 
@@ -982,16 +1055,22 @@ mod tests {
         assert!(hoisted.contains("kept"), "{hoisted}");
     }
 
-    /// A condition is discarded along with the component or branch that read
-    /// it, so a truthy-but-effectful condition must stop the fold. Composite
-    /// literals are always truthy yet can run arbitrary code.
+    /// A condition is discarded along with the branch that read it, so an
+    /// effectful condition keeps running in front of whatever the branch
+    /// resolved to. Composite literals are always truthy yet can run
+    /// arbitrary code, so they are the interesting case.
     #[test]
     fn a_discarded_condition_keeps_its_side_effects() {
         let logical = optimized("export const x = [effect()] && other;");
-        assert!(logical.contains("effect()"), "{logical}");
+        assert!(logical.contains("([effect()], other)"), "{logical}");
 
         let ternary = optimized("export const y = { k: effect() } ? a : b;");
-        assert!(ternary.contains("effect()"), "{ternary}");
+        assert!(ternary.contains("({ k: effect() }, a)"), "{ternary}");
+
+        // The sequence a previous fold left behind still decides the next
+        // one, and only its effectful parts survive.
+        let chained = optimized("export const n = ([effect()] && false) ? a : b;");
+        assert!(chained.contains("([effect()], b)"), "{chained}");
 
         let spread = optimized("export const s = [...iterable()] ? a : b;");
         assert!(spread.contains("iterable()"), "{spread}");
@@ -1006,21 +1085,29 @@ mod tests {
         let heritage = optimized("export const w = (class extends base() {}) ? a : b;");
         assert!(heritage.contains("base()"), "{heritage}");
 
+        // A component prop is not hoistable: Solid reads `when` inside a
+        // memo, so evaluating it eagerly here would change when and how
+        // often it runs. These stay unfolded rather than resequenced.
         let when = optimized("export const v = <Show when={[effect()]}><b /></Show>;");
         assert!(when.contains("effect()"), "{when}");
+        assert!(when.contains("createComponent"), "{when}");
 
         let each = optimized("export const l = <For each={effects() && null}><b /></For>;");
         assert!(each.contains("effects()"), "{each}");
 
         let branch = optimized(
-            "export function App() {\n  if ({ k: effect() }) { taken(); }\n  return <div />;\n}",
+            "export function App() {\n  if ({ k: effect() }) { taken(); }\n  else { gone(); }\n  return <div />;\n}",
         );
         assert!(branch.contains("effect()"), "{branch}");
+        assert!(branch.contains("taken()"), "{branch}");
+        assert!(!branch.contains("gone()"), "{branch}");
 
         let loop_test = optimized(
             "export function App() {\n  while ([effect()] && false) { body(); }\n  return <div />;\n}",
         );
         assert!(loop_test.contains("effect()"), "{loop_test}");
+        assert!(!loop_test.contains("body()"), "{loop_test}");
+        assert!(!loop_test.contains("while"), "{loop_test}");
 
         // The unreached side of a short-circuit never runs, so dropping it
         // stays correct.

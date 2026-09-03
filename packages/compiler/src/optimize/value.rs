@@ -331,6 +331,12 @@ pub(crate) fn truthiness(expression: &Expression<'_>, env: &ConstantEnv) -> Opti
         Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::LogicalNot => {
             truthiness(&unary.argument, env).map(|value| !value)
         }
+        // A sequence evaluates to its last element, which is what a fold
+        // built from an earlier one leaves in test position.
+        Expression::SequenceExpression(sequence) => sequence
+            .expressions
+            .last()
+            .and_then(|last| truthiness(last, env)),
         _ => evaluate(expression, env).map(|value| value.truthy()),
     }
 }
@@ -380,6 +386,9 @@ pub(crate) fn is_side_effect_free(expression: &Expression<'_>) -> bool {
         Expression::LogicalExpression(logical) => {
             is_side_effect_free(&logical.left) && is_side_effect_free(&logical.right)
         }
+        Expression::SequenceExpression(sequence) => {
+            sequence.expressions.iter().all(is_side_effect_free)
+        }
         Expression::ConditionalExpression(conditional) => {
             is_side_effect_free(&conditional.test)
                 && is_side_effect_free(&conditional.consequent)
@@ -407,6 +416,30 @@ fn property_key_is_side_effect_free(key: &PropertyKey<'_>) -> bool {
     match key {
         PropertyKey::StaticIdentifier(_) | PropertyKey::PrivateIdentifier(_) => true,
         key => key.as_expression().is_some_and(is_side_effect_free),
+    }
+}
+
+/// Splits `expression` into the parts that must still run, flattening any
+/// sequence and dropping the parts that can be skipped.
+///
+/// A fold that discards a condition can leave a sequence behind, and that
+/// sequence often ends in the very constant that decided the fold. Keeping
+/// only the parts with effects stops those leftovers from accumulating as
+/// folds chain.
+pub(crate) fn effectful_parts<'a>(
+    expression: Expression<'a>,
+    parts: &mut std::vec::Vec<Expression<'a>>,
+) {
+    if is_side_effect_free(&expression) {
+        return;
+    }
+    match expression {
+        Expression::SequenceExpression(sequence) => {
+            for part in sequence.unbox().expressions {
+                effectful_parts(part, parts);
+            }
+        }
+        expression => parts.push(expression),
     }
 }
 
