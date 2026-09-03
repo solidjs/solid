@@ -718,7 +718,152 @@ function provideEventOnce(provide, event, run) {
 // own either body. Bind each deferred operation to the event explicitly so
 // direct SSR calls keep their per-call event after the proxy has returned.
 // Non-deferred values pass through by identity and synchronously.
+//
+// A body one CONTAINER down is driven by the consumer exactly the same way:
+// `return { rows: cursor() }` is the shape the codec road's guard walk
+// descends into for this very reason, and until this road descended too,
+// #3222's harm survived intact for it (#3241) — the body ran under the
+// RENDER's ambient event instead of the per-call copy #3156 made for it, so
+// two concurrent direct calls read and wrote each other's request state,
+// and the render's own locals were mutated by a call that should not have
+// been able to reach them. The carriers descended are PLAIN OBJECTS and
+// ARRAYS only, and the user's returned containers are never written into:
+// a carrier holding deferred work is handed to the caller as a shallow
+// rebuild (same prototype, same descriptors) with the bound wrappers in the
+// deferred slots — mirroring how the codec road applies the wrapping in its
+// rebuilt shells. Set/Map members, class instances, and frozen or
+// non-writable slots are out of the carrier set and keep their authored,
+// unbound bodies.
 function scopeDeferredResult(value, scope) {
+  const bound = bindDeferredBody(value, scope);
+  if (bound !== value || value === null || typeof value !== "object") return bound;
+  return scopeDeferredContents(value, scope);
+}
+
+/** One carrier mid-walk on the direct road's descent. Module-private, so a
+ * user value can never satisfy the driver's `instanceof` dispatch. */
+class ScopeFrame {
+  constructor(value, next, keys, descriptors) {
+    this.value = value;
+    this.next = next;
+    this.keys = keys;
+    this.descriptors = descriptors;
+    this.i = 0;
+    this.changed = false;
+  }
+}
+
+/** Resolve one nested value for the direct road's carrier descent: leaves,
+ * already-walked entries and deferred bodies answer immediately; a plain
+ * object or array answers a frame for the driver, its shallow-rebuilt shell
+ * pre-registered so cycles resolve to the shell being built. */
+function enterScopeCarrier(value, state) {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return value;
+  if (state.seen.has(value)) {
+    state.cyclic.add(value);
+    return state.seen.get(value);
+  }
+  const bound = bindDeferredBody(value, state.scope);
+  if (bound !== value) {
+    state.seen.set(value, bound);
+    return bound;
+  }
+  if (typeof value !== "object") return value;
+  // Frozen carriers (and every slot of one) are out of the carrier set:
+  // rebuilding around them would hand the caller a shape the author sealed.
+  if (Array.isArray(value)) {
+    if (Object.isFrozen(value)) {
+      state.seen.set(value, value);
+      return value;
+    }
+    const next = value.slice();
+    state.seen.set(value, next);
+    return new ScopeFrame(value, next, null, null);
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if ((prototype !== Object.prototype && prototype !== null) || Object.isFrozen(value)) {
+    state.seen.set(value, value);
+    return value;
+  }
+  // The shell carries the original descriptors whole — hidden slots,
+  // accessors and non-writable data stay exactly as authored (accessors are
+  // the caller's to invoke, non-writable slots are out of the carrier set);
+  // only writable enumerable data slots are candidates for binding.
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const next = Object.create(prototype, descriptors);
+  state.seen.set(value, next);
+  return new ScopeFrame(value, next, Object.keys(value), descriptors);
+}
+
+// The descent is ITERATIVE for the same reason the codec road's walk is
+// (#3160): a deep-but-legal result must not overflow the stack and surface
+// as a phantom error. The driver mirrors guardFailures' frame loop.
+function scopeDeferredContents(root, scope) {
+  const state = { seen: new Map(), cyclic: new Set(), scope };
+  const entered = enterScopeCarrier(root, state);
+  if (!(entered instanceof ScopeFrame)) return entered;
+  const stack = [entered];
+  let delivered = NOTHING;
+  for (;;) {
+    const top = stack[stack.length - 1];
+    const length = top.keys ? top.keys.length : top.value.length;
+    let pushed = null;
+    while (top.i < length) {
+      const i = top.i;
+      let original;
+      let writable = true;
+      if (top.keys) {
+        const descriptor = top.descriptors[top.keys[i]];
+        // accessors are not invoked, and non-writable slots keep their
+        // authored value (out of the carrier set) — both already ride the
+        // shell's copied descriptors
+        writable = "value" in descriptor && descriptor.writable === true;
+        original = writable ? descriptor.value : undefined;
+      } else {
+        original = top.value[i];
+      }
+      if (!writable) {
+        top.i++;
+        continue;
+      }
+      let bound;
+      if (delivered !== NOTHING) {
+        bound = delivered;
+        delivered = NOTHING;
+      } else {
+        bound = enterScopeCarrier(original, state);
+        if (bound instanceof ScopeFrame) {
+          pushed = bound;
+          break;
+        }
+      }
+      if (bound !== original) {
+        if (top.keys) top.next[top.keys[i]] = bound;
+        else top.next[i] = bound;
+        top.changed = true;
+      }
+      top.i++;
+    }
+    if (pushed !== null) {
+      stack.push(pushed);
+      continue;
+    }
+    stack.pop();
+    // a rebuild stands if anything below changed, or if a cycle already
+    // took the shell; otherwise the caller keeps the author's container
+    let out;
+    if (top.changed || state.cyclic.has(top.value)) {
+      out = top.next;
+    } else {
+      state.seen.set(top.value, top.value);
+      out = top.value;
+    }
+    if (stack.length === 0) return out;
+    delivered = out;
+  }
+}
+
+function bindDeferredBody(value, scope) {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return value;
 
   const promised = scope(() => nativePromise(value));
