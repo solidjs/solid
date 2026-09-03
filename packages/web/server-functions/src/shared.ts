@@ -729,23 +729,24 @@ const JSON_SAFE_DEPTH_LIMIT = 4096;
 // never collide with user data.
 const EXIT = {}; /**
  * Whether a value survives a `JSON.stringify` round trip faithfully: JSON
- * primitives (finite numbers only), arrays, and plain objects. Anything
- * else — Dates, Maps, typed arrays, undefined (bare or as a property),
- * NaN, class instances, cyclic structures — needs the codec. Never throws:
- * cycles and pathological depth answer `false`. Both peers negotiate the
- * wire format with this guard: the client for argument lists, the server
- * for results.
+ * primitives (numbers `JSON.stringify` spells faithfully only), arrays,
+ * and plain objects. Anything else — Dates, Maps, typed arrays, undefined
+ * (bare or as a property), NaN, `-0`, class instances, cyclic structures —
+ * needs the codec. Never throws: cycles and pathological depth answer
+ * `false`. Both peers negotiate the wire format with this guard: the
+ * client for argument lists, the server for results.
  */
 export function isJSONSafe(value: unknown): boolean;
 
 /**
  * Whether a value survives a `JSON.stringify` round trip faithfully: JSON
- * primitives (finite numbers only), arrays, and plain objects. Anything
- * else — Dates, Maps, typed arrays, undefined (bare or as a property),
- * NaN, class instances, cyclic structures — needs the codec. Both peers
- * negotiate with this same guard: the client for argument lists (see
- * client.js), the server for results (see server.js encodeResult) — so
- * the codec rides the wire exactly when a value actually needs it.
+ * primitives (numbers `JSON.stringify` spells faithfully only), arrays,
+ * and plain objects. Anything else — Dates, Maps, typed arrays, undefined
+ * (bare or as a property), NaN, `-0`, class instances, cyclic structures —
+ * needs the codec. Both peers negotiate with this same guard: the client
+ * for argument lists (see client.js), the server for results (see
+ * server.js encodeResult) — so the codec rides the wire exactly when a
+ * value actually needs it.
  *
  * Traversal is iterative on an explicit stack with an ancestor set: the
  * old recursive walk overflowed on cycles (forever) and on deep nesting
@@ -769,7 +770,14 @@ export function isJSONSafe(value) {
     const t = typeof v;
     if (t === "string" || t === "boolean") continue;
     if (t === "number") {
-      if (!Number.isFinite(v)) return false;
+      // A signed zero belongs with NaN and the infinities, not with the
+      // finite numbers: `JSON.stringify(-0)` is `"0"`, so the fast path
+      // would carry it and silently flatten the sign — the same class of
+      // quiet corruption the branches below refuse (`undefined` read back
+      // as `null`, a sparse hole read back as `null`). The codec spells it
+      // exactly (seroval has a constant for it), so `-0` rides the codec
+      // like every other number stringify cannot spell (#3253).
+      if (!Number.isFinite(v) || Object.is(v, -0)) return false;
       continue;
     }
     if (t !== "object") return false;
