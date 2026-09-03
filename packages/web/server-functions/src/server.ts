@@ -1406,7 +1406,14 @@ async function parseArguments(request, url, scripted, codec) {
     if (bodyFormat !== null && !KNOWN_BODY_FORMATS.has(bodyFormat)) {
       throw unknownFormatError(bodyFormat);
     }
-    const decoded = await extractBody(request.clone(), codec);
+    // The one deliberate tee on this road: the decoder consumes the body it
+    // is handed (#3244 — `extractBody` reads its source, never a clone of
+    // it), and the clone is what it gets, so the app can still read the
+    // original through `event.request`. Every path below reads this branch:
+    // a matched decode consumes it, and the fall-through hands it to the
+    // empty-body inspection instead of minting a second clone.
+    const body = request.clone();
+    const decoded = await extractBody(body, codec);
     // Both argument-array encodings: codec-framed and plain JSON. The
     // framed codec enforces its own depth cap during decode; bare JSON
     // must not be the uncapped alternative (#3119). Either way the payload
@@ -1424,8 +1431,10 @@ async function parseArguments(request, url, scripted, codec) {
       // stream even when the POST had no payload. The Fetch body is then
       // non-null, but there is still no argument to decode (#3214). Inspect
       // the bytes rather than trusting Content-Length: an adapter or proxy
-      // can preserve a stale zero while supplying a non-empty stream.
-      if (bodyFormat === null && (await request.clone().arrayBuffer()).byteLength === 0) {
+      // can preserve a stale zero while supplying a non-empty stream. The
+      // fall-through read nothing, so the decode's own clone is still whole
+      // — inspect that branch rather than teeing the request again.
+      if (bodyFormat === null && (await body.arrayBuffer()).byteLength === 0) {
         return parsed;
       }
       // The decode switch fell through on a tag it does know (`Void` on a
