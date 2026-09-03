@@ -449,7 +449,12 @@ export function handleAsync<T>(
     // change (and only then classify it as an async landing).
     if (__DEV__ && attrHooks !== null) attrHooks.asyncStart(el);
     if (setter) {
-      setter(value);
+      try {
+        setter(value);
+      } catch (error) {
+        handleError(error);
+        return;
+      }
       if (wasUninitialized) clearStatus(el, true);
     } else if (el._x?._overrideValue !== undefined) {
       // Optimistic node — resting OR covered by an active override — holds
