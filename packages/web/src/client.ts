@@ -19,13 +19,15 @@ import {
 } from "solid-js";
 import { effect, memo } from "./render.js";
 
-// Unified-For driver registration (pay-for-use: `insert` rides every bundle,
-// the driver only rides apps that arm it — see for-driver.ts).
-let listDriver:
+// Unified-For SLOT registration (pay-for-use: `insert` rides every bundle,
+// the slot implementation only rides apps that arm it — see for-driver.ts).
+// "Slot", never "driver": the patch-era driver was push-fed by a channel;
+// this is a pull-based consumer of the ordinary render effect.
+let unifiedFor:
   | ((parent: Node, listFn: any, marker: Node | undefined, lateClassic: () => void) => boolean)
   | undefined;
-export function setListDriver(driver: typeof listDriver): void {
-  listDriver = driver;
+export function setUnifiedFor(impl: typeof unifiedFor): void {
+  unifiedFor = impl;
 }
 
 import { JSX } from "../jsx/jsx.js";
@@ -925,16 +927,16 @@ export function insert(parent, accessor, marker, initial, options) {
   if (multi && !initial) initial = [];
   if (hydrationRt !== null) initial = hydrationRt.claimInitial(parent, multi, initial);
   // Unified-For seam (DESIGN-UNIFIED-FOR §4): a list value carrying the
-  // `$for` descriptor is offered to the registered keyed-list driver first.
+  // `$for` descriptor is offered to the registered unified-For slot first.
   // `false` declines to classic (the descriptor is also a callable — calling
   // it IS the classic mapArray path). The lateClassic thunk serves ENGAGED
-  // lists that later leave the driver's contract: it re-enters this insert
+  // lists that later leave the slot's contract: it re-enters this insert
   // under the ORIGINAL owner with a bare accessor (no `$for` marker).
-  if (listDriver !== undefined && typeof accessor === "function" && accessor.$for !== undefined) {
+  if (unifiedFor !== undefined && typeof accessor === "function" && accessor.$for !== undefined) {
     const listAccessor = accessor;
     const owner = getOwner();
     if (
-      listDriver(parent, accessor, marker ?? undefined, () =>
+      unifiedFor(parent, accessor, marker ?? undefined, () =>
         runWithOwner(owner, () =>
           insert(
             parent,

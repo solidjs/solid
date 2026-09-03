@@ -1,5 +1,9 @@
 /**
- * Unified For driver (SPIKE — DESIGN-UNIFIED-FOR.md).
+ * Unified For SLOT (SPIKE — DESIGN-UNIFIED-FOR.md).
+ *
+ * Naming note: "slot", never "driver" — the patch-era driver was PUSH (a
+ * channel delivered row ops to it; the seam was the failure mode). This is
+ * PULL: nothing delivers anything.
  *
  * One persistent structure owns both the row bookkeeping AND the DOM
  * placement for a keyed <For>: an intrusive doubly-linked chain of rows plus
@@ -28,22 +32,41 @@
  * a `nodeType` fast path that skips flatten entirely for the compiled
  * single-root shape. Bulk teardown (clear) is `owner.dispose(false)`.
  *
+ * KEYED-FN MODE (H4, implemented for the shallow tier): keys come from the
+ * user's function; rows are chained/mapped by KEY, and honor the classic
+ * accessor-row contract — the row receives an item ACCESSOR backed by a
+ * per-row signal, and a NEW item arriving under the SAME key updates the
+ * signal (bindings rerun) instead of rebuilding the row. This is the
+ * shallow-store idiom (raw rows, value identity); deep stores keep
+ * reference keying and never need a key fn.
+ *
  * SPIKE SCOPE — declines (pre-engage) or late-classic demotes (post-engage)
- * rather than implements: hydration claiming (H2), `keyed` functions
- * (accessor-row contract, H4), duplicate keys, rows whose top level is a
- * FUNCTION (dynamic top-level content), empty-rendering rows, and non-array
- * subjects. Every decline lands on the classic mapArray path.
+ * rather than implements: hydration claiming (H2), duplicate keys, rows
+ * whose top level is a FUNCTION (dynamic top-level content),
+ * empty-rendering rows, and non-array subjects. Every decline lands on the
+ * classic mapArray path.
  */
-import { createOwner, runWithOwner, flatten, onCleanup, sharedConfig } from "solid-js";
+import {
+  createOwner,
+  createSignal,
+  runWithOwner,
+  flatten,
+  onCleanup,
+  sharedConfig
+} from "solid-js";
 import { effect } from "./render.js";
 import { $$SLOT } from "./constants.js";
-import { setListDriver } from "./client.js";
+import { setUnifiedFor } from "./client.js";
 
 type RowOwner = { dispose(self?: boolean): void };
 
 interface Row {
-  /** Row key — the item reference itself (identity mode only in the spike). */
+  /** Row key — the item reference (identity mode) or keyFn(item) (fn mode). */
   k: any;
+  /** Current item (fn mode: same-key replacements update it + the signal). */
+  it: any;
+  /** Item-signal setter (fn mode only; null in identity mode). */
+  set: ((v: any) => any) | null;
   /** Row owner (context carrier + disposer). */
   o: RowOwner;
   /** Single-root fast form (the common compiled shape)... */
@@ -131,17 +154,46 @@ const NO_OWNER: RowOwner = { dispose() {} };
  * commit's job. Returns null when the row shape is outside the spike
  * contract. MUST run inside `runWithOwner(slot.owner, ...)` so the row
  * owner chains to the slot (context + auto-teardown). */
-function buildRow(rowFn: (item: any) => any, item: any): Row | null {
+function buildRow(
+  rowFn: (item: any) => any,
+  item: any,
+  keyFn: ((item: any) => any) | null
+): Row | null {
   // Measurement flag: ambient (slot) ownership, no per-row owner. Removed
   // rows leak their effect until slot teardown — bench-only semantics.
   const o: RowOwner = __ownerlessRows ? NO_OWNER : (createOwner() as unknown as RowOwner);
-  let v = __ownerlessRows ? rowFn(item) : runWithOwner(o as any, () => rowFn(item));
+  // Keyed-fn mode: the classic accessor-row contract — rowFn receives a
+  // getter backed by a per-row signal (ownedWrite: the slot's compute is the
+  // author, mapArray's own pureOptions precedent). Identity mode hands the
+  // raw item.
+  let k: any = item;
+  let set: ((v: any) => any) | null = null;
+  let arg: any = item;
+  if (keyFn !== null) {
+    k = keyFn(item);
+    const sig = createSignal(item, { ownedWrite: true } as any);
+    arg = sig[0];
+    set = sig[1];
+  }
+  let v = __ownerlessRows ? rowFn(arg) : runWithOwner(o as any, () => rowFn(arg));
   if (v != null && (v as any).nodeType !== undefined)
-    return { k: item, o, n: v as Node, ns: null, p: null, x: null, live: false, mv: true, g: 0 };
+    return {
+      k,
+      it: item,
+      set,
+      o,
+      n: v as Node,
+      ns: null,
+      p: null,
+      x: null,
+      live: false,
+      mv: true,
+      g: 0
+    };
   const t = typeof v;
   if (t === "string" || t === "number") {
     const n = document.createTextNode(String(v));
-    return { k: item, o, n, ns: null, p: null, x: null, live: false, mv: true, g: 0 };
+    return { k, it: item, set, o, n, ns: null, p: null, x: null, live: false, mv: true, g: 0 };
   }
   // Slow path: fragments / nested arrays / signals — flatten (still owned).
   v = __ownerlessRows
@@ -154,13 +206,29 @@ function buildRow(rowFn: (item: any) => any, item: any): Row | null {
       if (typeof c === "function") return (o.dispose(), null);
       ns[i] = (c as any)?.nodeType ? (c as Node) : document.createTextNode(String(c));
     }
-    return { k: item, o, n: null, ns, p: null, x: null, live: false, mv: true, g: 0 };
+    return { k, it: item, set, o, n: null, ns, p: null, x: null, live: false, mv: true, g: 0 };
   }
   if (v != null && (v as any).nodeType !== undefined)
-    return { k: item, o, n: v as Node, ns: null, p: null, x: null, live: false, mv: true, g: 0 };
+    return {
+      k,
+      it: item,
+      set,
+      o,
+      n: v as Node,
+      ns: null,
+      p: null,
+      x: null,
+      live: false,
+      mv: true,
+      g: 0
+    };
   o.dispose();
   return null; // function / empty / unrenderable top level → classic
 }
+
+/** SameValueZero key equality — NaN keys stay self-equal (store reconcile's
+ * pinned ruling; Map lookups already agree). */
+const sameKey = (a: any, b: any): boolean => a === b || (a !== a && b !== b);
 
 // LIS scratch (module-level, reused — stablePositions runs NO user code, so
 // reentrancy is impossible mid-call).
@@ -203,16 +271,16 @@ const IDENTICAL = 0 as const;
 const DEMOTE = 1 as const;
 type ComputeOut = Plan | typeof IDENTICAL | typeof DEMOTE;
 
-function driveKeyedFor(
+function unifiedForSlot(
   parent: Node,
   listFn: any,
   marker: Node | undefined,
   lateClassic: () => void
 ): boolean {
   const meta = listFn.$for;
-  // H4 pin: keyed-fn rows receive accessors in the classic contract — the
-  // driver binds raw items, so engaging would hand user code the wrong shape.
-  if (typeof meta.keyed === "function") return false;
+  // Keyed-fn mode (H4 implemented): keys from the user's function, rows on
+  // the accessor contract. Identity mode when `keyed` is true/undefined.
+  const keyFn: ((item: any) => any) | null = typeof meta.keyed === "function" ? meta.keyed : null;
   // Hydration claiming is post-spike (design §6 H2): decline to classic.
   if (sharedConfig.hydrating) return false;
 
@@ -275,10 +343,22 @@ function driveKeyedFor(
       // diff again from COMMITTED state (retry against uncorrupted state).
       dropPending();
       const len = arr.length;
-      // ── Prefix walk.
+      // ── Prefix walk (key-aware: fn mode compares keyFn(item), and a
+      // SAME-KEY item replacement updates the row's item signal in place —
+      // the aligned-tick shape of shallow stores never leaves the prefix).
       let cursor = slot.head;
       let i = 0;
-      while (cursor !== null && i < len && cursor.k === arr[i]) {
+      while (cursor !== null && i < len) {
+        const item = arr[i];
+        if (keyFn === null) {
+          if (cursor.k !== item) break;
+        } else {
+          if (!sameKey(cursor.k, keyFn(item))) break;
+          if (cursor.it !== item) {
+            cursor.set!(item);
+            cursor.it = item;
+          }
+        }
         cursor = cursor.x;
         i++;
       }
@@ -288,7 +368,17 @@ function driveKeyedFor(
       let tailCursor = slot.tail;
       let end = len - 1;
       let oldRemain = slot.size - i;
-      while (tailCursor !== null && oldRemain > 0 && end >= i && tailCursor.k === arr[end]) {
+      while (tailCursor !== null && oldRemain > 0 && end >= i) {
+        const item = arr[end];
+        if (keyFn === null) {
+          if (tailCursor.k !== item) break;
+        } else {
+          if (!sameKey(tailCursor.k, keyFn(item))) break;
+          if (tailCursor.it !== item) {
+            tailCursor.set!(item);
+            tailCursor.it = item;
+          }
+        }
         tailCursor = tailCursor.p;
         end--;
         oldRemain--;
@@ -320,7 +410,11 @@ function driveKeyedFor(
       // tear with `_owner._parentComputed` routing; the driver hoists the
       // reads instead.
       const midItems: any[] = new Array(width);
-      for (let j = 0; j < width; j++) midItems[j] = arr[i + j];
+      const midKeys: any[] = new Array(width);
+      for (let j = 0; j < width; j++) {
+        const item = (midItems[j] = arr[i + j]);
+        midKeys[j] = keyFn === null ? item : keyFn(item);
+      }
       const order: Row[] = new Array(width);
       const oldPos: number[] = new Array(width);
       let fresh = 0;
@@ -328,7 +422,8 @@ function driveKeyedFor(
       runWithOwner(slot.owner as any, () => {
         for (let j = 0; j < width; j++) {
           const item = midItems[j];
-          const at = oldIndexOf.get(item);
+          const key = midKeys[j];
+          const at = oldIndexOf.get(key);
           if (at !== undefined) {
             const row = oldMid[at];
             if (row.g === passGen) {
@@ -336,15 +431,20 @@ function driveKeyedFor(
               return;
             }
             row.g = passGen;
+            // Fn mode: same key, new item — update the row's item signal.
+            if (keyFn !== null && row.it !== item) {
+              row.set!(item);
+              row.it = item;
+            }
             order[j] = row;
             oldPos[j] = at;
-          } else if (slot.map.has(item)) {
-            // Same identity alive outside the middle window = duplicate key
+          } else if (slot.map.has(key)) {
+            // Same key alive outside the middle window = duplicate key
             // across the prefix/suffix boundary. Classic owns duplicates.
             demoteFlag = true;
             return;
           } else {
-            const built = buildRow(meta.row, item);
+            const built = buildRow(meta.row, item, keyFn);
             if (built === null) {
               demoteFlag = true; // dynamic/empty row shape
               return;
@@ -451,7 +551,7 @@ export let __ownerlessRows = false;
  * is in every bundle; the driver rides only apps that call this). */
 export function enableUnifiedFor(options?: { unsafeOwnerlessRows?: boolean }): void {
   __ownerlessRows = options?.unsafeOwnerlessRows === true;
-  setListDriver(driveKeyedFor);
+  setUnifiedFor(unifiedForSlot);
 }
 
 /** Spike test probes: engagement / demotion / batch-clear counters. */

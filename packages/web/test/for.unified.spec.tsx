@@ -294,3 +294,107 @@ describe("unified For: batch clear engagement", () => {
     expect(__unifiedForStats.batchCleared).toBe(before + 1);
   });
 });
+
+describe("unified For: keyed-fn mode (shallow idiom)", () => {
+  test("engages, retains DOM by key across raw replacement, accessor updates bindings", () => {
+    const before = __unifiedForStats.engaged;
+    const [list, setList] = createSignal([
+      { id: 1, label: "a" },
+      { id: 2, label: "b" }
+    ]);
+    let div!: HTMLDivElement;
+    createRoot(() => {
+      <div ref={div}>
+        <For each={list()} keyed={(r: any) => r.id}>
+          {(row: any) => <span>{row().label}</span>}
+        </For>
+      </div>;
+    });
+    flush();
+    expect(__unifiedForStats.engaged).toBe(before + 1);
+    expect(div.innerHTML).toBe("<span>a</span><span>b</span>");
+    const [s1, s2] = Array.from(div.children);
+    // Raw replacement, same keys: rows RETAINED, bindings update via accessor.
+    setList([
+      { id: 1, label: "a2" },
+      { id: 2, label: "b2" }
+    ]);
+    flush();
+    expect(div.textContent).toBe("a2b2");
+    expect(Array.from(div.children)).toEqual([s1, s2]); // same DOM
+  });
+
+  test("reorders move DOM by key", () => {
+    const [list, setList] = createSignal([
+      { id: 1, label: "a" },
+      { id: 2, label: "b" },
+      { id: 3, label: "c" }
+    ]);
+    let div!: HTMLDivElement;
+    createRoot(() => {
+      <div ref={div}>
+        <For each={list()} keyed={(r: any) => r.id}>
+          {(row: any) => <span>{row().label}</span>}
+        </For>
+      </div>;
+    });
+    flush();
+    const [sa, sb, sc] = Array.from(div.children);
+    setList([
+      { id: 3, label: "c" },
+      { id: 1, label: "a" },
+      { id: 2, label: "b" }
+    ]);
+    flush();
+    expect(div.textContent).toBe("cab");
+    expect(Array.from(div.children)).toEqual([sc, sa, sb]); // moved, not rebuilt
+  });
+
+  test("adds and removes by key", () => {
+    const [list, setList] = createSignal([{ id: 1, label: "a" }]);
+    let div!: HTMLDivElement;
+    createRoot(() => {
+      <div ref={div}>
+        <For each={list()} keyed={(r: any) => r.id}>
+          {(row: any) => <span>{row().label}</span>}
+        </For>
+      </div>;
+    });
+    flush();
+    setList([
+      { id: 2, label: "b" },
+      { id: 1, label: "a" },
+      { id: 3, label: "c" }
+    ]);
+    flush();
+    expect(div.textContent).toBe("bac");
+    setList([{ id: 3, label: "c" }]);
+    flush();
+    expect(div.textContent).toBe("c");
+  });
+
+  test("duplicate keys demote to classic and still render", () => {
+    const d0 = __unifiedForStats.demoted;
+    const [list, setList] = createSignal([
+      { id: 1, label: "a" },
+      { id: 2, label: "b" }
+    ]);
+    let div!: HTMLDivElement;
+    createRoot(() => {
+      <div ref={div}>
+        <For each={list()} keyed={(r: any) => r.id}>
+          {(row: any) => <span>{row().label}</span>}
+        </For>
+      </div>;
+    });
+    flush();
+    setList([
+      { id: 1, label: "a" },
+      { id: 1, label: "dup" },
+      { id: 2, label: "b" }
+    ]);
+    flush();
+    expect(__unifiedForStats.demoted).toBe(d0 + 1);
+    expect(div.textContent).toBe("adupb");
+  });
+});
