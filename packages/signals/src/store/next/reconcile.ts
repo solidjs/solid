@@ -113,8 +113,19 @@ export function reconcileNextState(
   applyAdopt(t, incoming, keyFn, replace);
 }
 
-function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj = false): void {
+function applyAdopt(
+  t: StoreNextTarget,
+  incoming: any,
+  keyFn: KeyFn | null,
+  proj = false,
+  uw = false
+): void {
   const prev = t.pb ?? t.v;
+  // Under-witness (create-floor coarse rows): a deep witness on this record
+  // or any ancestor IS a subscription at/below for the R18 pruning contract
+  // — witness(array) buys subtree identity/liveness the way deep()'s
+  // per-record subscriptions always did, without materializing nodes.
+  uw = uw || t.dk !== null;
   // The sound identity skip (O7): same reference AND we never diverged it.
   if (incoming === prev && !ownedRaw.has(prev)) return;
   const fam = t.fam;
@@ -180,7 +191,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
           nv !== null &&
           typeof nv === "object"
         )
-          descend(unwrapValue(pvRaw), nv, keyFn, fam, proj);
+          descend(unwrapValue(pvRaw), nv, keyFn, fam, proj, uw);
         if (
           t.dk !== null &&
           !dkBumpedA &&
@@ -244,7 +255,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
           } else {
             pv = unwrapValue(prevRows[i]); // keyless item: positional fallback
           }
-          descend(pv, nv, keyFn, fam, proj);
+          descend(pv, nv, keyFn, fam, proj, uw);
         }
         if (nodes !== null) {
           const node = nodes[i];
@@ -261,7 +272,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       for (let i = 0; i < nlen; i++) {
         const nvP = nextRows[i];
         if (!shallow && i < dlen && nvP !== null && typeof nvP === "object")
-          descend(unwrapValue(prevRows[i]), nvP, keyFn, fam, proj);
+          descend(unwrapValue(prevRows[i]), nvP, keyFn, fam, proj, uw);
         if (
           t.dk !== null &&
           !dkBumpedP &&
@@ -320,7 +331,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
         if (nodes !== null && nodes[k] !== undefined) nodesHit++;
         continue;
       }
-      if (isObj && !shallow) descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
+      if (isObj && !shallow) descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj, uw);
       // Deep-witness (dk): value changes must notify even with NO per-key
       // node — deep() subscribes one node per record. Checked after descend
       // so in-place adoptions (same logical slot) don't bump; child records
@@ -342,7 +353,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       const k = syms[i];
       const nv = (incoming as any)[k];
       if (!shallow && nv !== null && typeof nv === "object")
-        descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
+        descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj, uw);
       if (nodes !== null) {
         const node = nodes[k as any];
         if (node !== undefined) {
@@ -384,7 +395,8 @@ function descend(
   nv: any,
   keyFn: KeyFn | null,
   fam: StoreNextFamily | null,
-  proj = false
+  proj = false,
+  uw = false
 ): void {
   if (pv === null || typeof pv !== "object" || nv === null || typeof nv !== "object") return;
   // Lookup FIRST: a hit implies pv was wrappable and never raw-marked (only
@@ -423,6 +435,6 @@ function descend(
   // UNCONDITIONALLY (proj R6: the slot keeps its proxy without needing a
   // subscriber below); plain keyed reconcile detaches unobserved captures
   // (recon-snap R18 — staleness is the pinned pruning contract).
-  if (!proj && keyFn !== null && !ct.d) return;
-  applyAdopt(ct, nv, keyFn, proj);
+  if (!proj && keyFn !== null && !ct.d && !uw) return;
+  applyAdopt(ct, nv, keyFn, proj, uw);
 }
