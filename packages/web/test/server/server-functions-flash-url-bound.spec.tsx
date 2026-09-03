@@ -22,8 +22,9 @@
  * to the plain redirect — the navigation still lands where it should, only
  * the outcome echo is withheld. Never a prefix of the url: a truncated
  * identifier is a wrong identifier, silently attached to a different
- * submission. Cookie naming, attributes, and refusal/redirect statuses are
- * deliberately untouched (#3239, #3250 pending).
+ * submission. Refusal/redirect statuses are deliberately untouched (#3250
+ * ruled: refusals keep raw statuses). The codec is encrypted (#3239), so a
+ * key is configured below and the ceiling is measured on the ciphertext.
  *
  * Like the other server-function specs, these run against the built bundles
  * (server-functions/dist/*, wired up in vite.config.server.mjs).
@@ -42,10 +43,12 @@ const RequestContext = Symbol.for("solid.RequestContext");
 
 beforeAll(() => {
   (globalThis as any)[RequestContext] = new AsyncLocalStorage();
+  (globalThis as any).__SOLID_SECRET__ = "flash-url-bound-spec-key";
 });
 
 afterAll(() => {
   delete (globalThis as any)[RequestContext];
+  delete (globalThis as any).__SOLID_SECRET__;
 });
 
 /** RFC 6265bis §5.6: what the browser measures is the name=value pair. */
@@ -57,29 +60,29 @@ function pairOf(setCookie: string) {
 }
 
 describe("the encoder refuses what it cannot fit", () => {
-  it("returns no cookie when the url alone overruns the ceiling", () => {
+  it("returns no cookie when the url alone overruns the ceiling", async () => {
     const url = "/_server/publish?return=" + encodeURIComponent("/catalog/" + "a".repeat(4200));
 
     // today: a >4 KB Set-Cookie the browser discards whole, wearing
     // `truncated: true` — the encoder asserting it degraded to fit
-    expect(encodeFlashCookie(url, { published: true }, [])).toBeNull();
+    expect(await encodeFlashCookie(url, { published: true }, [])).toBeNull();
   });
 
-  it("refuses a thrown outcome the same way — no lying prefix, no oversized pair", () => {
+  it("refuses a thrown outcome the same way — no lying prefix, no oversized pair", async () => {
     const url = "/_server/charge?receipt=" + "d".repeat(4200);
 
-    expect(encodeFlashCookie(url, new Error("card declined"), [], true)).toBeNull();
+    expect(await encodeFlashCookie(url, new Error("card declined"), [], true)).toBeNull();
   });
 
-  it("keeps the #3137 ladder for outcomes that CAN fit", () => {
+  it("keeps the #3137 ladder for outcomes that CAN fit", async () => {
     // oversized input and result, ordinary url: the ladder spends the input
     // echo, bounds the value, and the cookie arrives marked truncated
     const pair = pairOf(
-      encodeFlashCookie("/_server/import", "x".repeat(6000), [{ big: "c".repeat(5000) }])!
+      (await encodeFlashCookie("/_server/import", "x".repeat(6000), [{ big: "c".repeat(5000) }]))!
     );
 
     expect(pair.length).toBeLessThanOrEqual(COOKIE_CEILING);
-    const submission = decodeFlashCookie(pair);
+    const submission = await decodeFlashCookie(pair);
     expect(submission?.truncated).toBe(true);
     expect(submission?.url).toBe("/_server/import");
     expect(typeof submission?.result).toBe("string");
@@ -146,6 +149,6 @@ describe("the no-JS handler falls back to a plain redirect", () => {
     expect(flash).toBeDefined();
     const pair = pairOf(flash);
     expect(pair.length).toBeLessThanOrEqual(COOKIE_CEILING);
-    expect(decodeFlashCookie(pair)?.result).toEqual({ published: true });
+    expect((await decodeFlashCookie(pair))?.result).toEqual({ published: true });
   });
 });

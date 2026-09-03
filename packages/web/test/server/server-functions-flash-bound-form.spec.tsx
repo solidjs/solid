@@ -38,10 +38,12 @@ const RequestContext = Symbol.for("solid.RequestContext");
 
 beforeAll(() => {
   (globalThis as any)[RequestContext] = new AsyncLocalStorage();
+  (globalThis as any).__SOLID_SECRET__ = "flash-bound-form-spec-key";
 });
 
 afterAll(() => {
   delete (globalThis as any)[RequestContext];
+  delete (globalThis as any).__SOLID_SECRET__;
 });
 
 /** The flash payload the next render would decode from the answer. */
@@ -83,7 +85,7 @@ describe("the flash url is the unbound function base", () => {
     );
 
     expect(response.status).toBe(303);
-    const submission = flashed(response);
+    const submission = await flashed(response);
     expect(submission).toBeDefined();
     // the scripted road records the UNBOUND base — `s.url === fn.base` is
     // the router's whole matching contract — never the bound request url
@@ -108,7 +110,7 @@ describe("the flash url is the unbound function base", () => {
     );
 
     expect(response.status).toBe(303);
-    const submission = flashed(response);
+    const submission = await flashed(response);
     expect(submission).toBeDefined();
     expect(submission!.url).toBe("/_server/flash-bound-plain");
   });

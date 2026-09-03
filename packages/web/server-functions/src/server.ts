@@ -21,7 +21,7 @@ import {
 } from "../../src/response.js";
 import { COMPOSED_BODY_FRAMING, isHttpNavigationTarget } from "../../src/constants.js";
 import { RequestContext, commitEventResponse, getRequestEvent } from "../../src/server.js";
-import { encodeFlashCookie } from "./flash.js";
+import { encodeFlashCookie, setFlashSecret } from "./flash.js";
 import {
   BODY_FORMAT_HEADER,
   BodyFormat,
@@ -378,6 +378,25 @@ export interface ServerFunctionsServerConfig {
    * @default 1000
    */
   maxArguments?: number;
+  /**
+   * The DEPLOYMENT SECRET: one value per deployment, from which any feature
+   * that needs a key derives its own (domain-separated, so per-purpose keys
+   * share no material). Today one feature does — the no-JS flash cookie
+   * (#3239): the flash carries the submitted form input — whatever the user
+   * typed — so its payload is always AES-GCM encrypted; it never rides the
+   * wire or rests in the cookie jar as plaintext. Every instance that can
+   * serve the render after a form post must share the secret (behind a load
+   * balancer, a per-instance secret would silently lose outcomes), so there
+   * is no generated fallback here: when this is not set, the secret falls
+   * back to the one the Solid bundler plugin injects into the server build
+   * (a fresh value per build), and with neither present the outcome is
+   * simply not flashed — the form post still redirects cleanly, and dev
+   * builds warn once. Any non-empty string works; rotating it (or
+   * redeploying with the plugin's value) invalidates in-flight flashes,
+   * which are 60-second one-shot cookies — the next render reads "no
+   * flash".
+   */
+  secret?: string;
 }
 
 /**
@@ -594,7 +613,8 @@ export function configureServerFunctionsServer({
   csrf,
   codec,
   bodySizeLimit,
-  maxArguments
+  maxArguments,
+  secret
 } = {}) {
   if (provideEvent !== undefined) config.provideEvent = provideEvent;
   if (wrapInvocation !== undefined) config.wrapInvocation = wrapInvocation;
@@ -608,6 +628,8 @@ export function configureServerFunctionsServer({
   if (codec !== undefined) configureServerFunctionsCodec(codec);
   if (bodySizeLimit !== undefined) config.bodySizeLimit = bodySizeLimit;
   if (maxArguments !== undefined) config.maxArguments = maxArguments;
+  // the flash codec owns the key (flash.js) — the option just names it
+  if (secret !== undefined) setFlashSecret(secret);
 }
 
 // Named flight-data collectors, keyed by source id. The unnamed
@@ -2084,7 +2106,7 @@ function warnScripted304(functionId) {
  */
 export function createNoJSHandler(
   options?: NoJSHandlerOptions
-): (result: unknown, request: Request, args: unknown[], thrown?: boolean) => Response;
+): (result: unknown, request: Request, args: unknown[], thrown?: boolean) => Promise<Response>;
 
 /**
  * Builds the `handleNoJS` implementation for the no-JS form convention: a
@@ -2098,7 +2120,7 @@ export function createNoJSHandler(
  * including direct HTTP ones.
  */
 export function createNoJSHandler({ base = "" } = {}) {
-  return function handleNoJS(result, request, args, thrown) {
+  return async function handleNoJS(result, request, args, thrown) {
     const url = new URL(request.url);
     // an unusable referer (no-referrer policy, garbage) still beats leaving
     // the browser sitting on the server function endpoint
@@ -2150,7 +2172,10 @@ export function createNoJSHandler({ base = "" } = {}) {
     // and the argument parser's `?args` prepend already gives `args` that
     // input shape here (#3239).
     if (result !== undefined && !(result instanceof Response)) {
-      const flash = encodeFlashCookie(url.pathname, result, args, thrown);
+      // Encrypted (#3239), hence async; null when the outcome cannot fit
+      // (#3249) or no key is configured — either way the redirect goes out
+      // plain.
+      const flash = await encodeFlashCookie(url.pathname, result, args, thrown);
       if (flash !== null) headers.append("Set-Cookie", flash);
     }
     return new Response(null, { status, headers });

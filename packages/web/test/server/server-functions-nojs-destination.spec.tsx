@@ -24,13 +24,21 @@
  * Like the other server-function specs, these run against the built bundles
  * (server-functions/dist/*, wired up in vite.config.server.mjs).
  */
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { redirect } from "@solidjs/web";
 import {
   FLASH_COOKIE,
   createNoJSHandler,
   decodeFlashCookie
 } from "@solidjs/web/server-functions/server";
+
+// the internal bundler contract: the secret the vite plugin injects (#3239)
+beforeAll(() => {
+  (globalThis as any).__SOLID_SECRET__ = "nojs-destination-spec-key";
+});
+afterAll(() => {
+  delete (globalThis as any).__SOLID_SECRET__;
+});
 
 /** A browser form post to a server function, as the no-JS leg receives it. */
 function formPost(headers: Record<string, string> = {}) {
@@ -51,10 +59,10 @@ function flashed(response: Response) {
 }
 
 describe("the browser is never left on the endpoint", () => {
-  it("returns to the referring page, carrying the outcome in the flash cookie", () => {
+  it("returns to the referring page, carrying the outcome in the flash cookie", async () => {
     const handler = createNoJSHandler({ base: "/app" });
 
-    const response = handler(
+    const response = await handler(
       { saved: true },
       formPost({ referer: "https://app.example/app/settings" }),
       ["Ada"],
@@ -63,22 +71,22 @@ describe("the browser is never left on the endpoint", () => {
 
     expect(response.status).toBe(303);
     expect(response.headers.get("Location")).toBe("https://app.example/app/settings");
-    expect(flashed(response)).toEqual({
+    expect(await flashed(response)).toEqual({
       result: { saved: true },
       input: ["Ada"],
       url: "/app/_server/save-profile"
     });
   });
 
-  it("falls back to the app's mount when there is no referer to return to", () => {
-    const response = createNoJSHandler({ base: "/app" })({ saved: true }, formPost(), []);
+  it("falls back to the app's mount when there is no referer to return to", async () => {
+    const response = await createNoJSHandler({ base: "/app" })({ saved: true }, formPost(), []);
 
     expect(response.status).toBe(303);
     expect(response.headers.get("Location")).toBe("https://app.example/app");
   });
 
-  it("falls back rather than trusting a referer it cannot parse", () => {
-    const response = createNoJSHandler({ base: "/app" })(
+  it("falls back rather than trusting a referer it cannot parse", async () => {
+    const response = await createNoJSHandler({ base: "/app" })(
       { saved: true },
       formPost({ referer: "://not a url" }),
       []
@@ -87,14 +95,14 @@ describe("the browser is never left on the endpoint", () => {
     expect(response.headers.get("Location")).toBe("https://app.example/app");
   });
 
-  it("uses the origin root when the app has no mount path", () => {
-    const response = createNoJSHandler()({ saved: true }, formPost(), []);
+  it("uses the origin root when the app has no mount path", async () => {
+    const response = await createNoJSHandler()({ saved: true }, formPost(), []);
 
     expect(response.headers.get("Location")).toBe("https://app.example/");
   });
 
-  it("carries a thrown outcome as an error, not as a result", () => {
-    const response = createNoJSHandler({ base: "/app" })(
+  it("carries a thrown outcome as an error, not as a result", async () => {
+    const response = await createNoJSHandler({ base: "/app" })(
       new Error("the field is required"),
       formPost({ referer: "https://app.example/app/settings" }),
       ["Ada"],
@@ -102,7 +110,7 @@ describe("the browser is never left on the endpoint", () => {
     );
 
     expect(response.status).toBe(303);
-    const submission = flashed(response);
+    const submission = await flashed(response);
     expect(submission?.error).toBeInstanceOf(Error);
     expect((submission?.error as Error).message).toBe("the field is required");
     expect(submission?.result).toBeUndefined();
@@ -110,8 +118,8 @@ describe("the browser is never left on the endpoint", () => {
 });
 
 describe("a result that is already a Response", () => {
-  it("navigates to its Location and keeps its redirect status", () => {
-    const response = createNoJSHandler()(
+  it("navigates to its Location and keeps its redirect status", async () => {
+    const response = await createNoJSHandler()(
       redirect("/orders/9", 307),
       formPost({ referer: "https://app.example/app/cart" }),
       []
@@ -120,13 +128,13 @@ describe("a result that is already a Response", () => {
     expect(response.status).toBe(307);
     expect(response.headers.get("Location")).toBe("https://app.example/orders/9");
     // a Response carries its own meaning — nothing is flashed
-    expect(flashed(response)).toBeUndefined();
+    expect(await flashed(response)).toBeUndefined();
   });
 
-  it("still turns the POST into a GET when the status is not a redirect", () => {
+  it("still turns the POST into a GET when the status is not a redirect", async () => {
     // a 201's Location is where the thing was CREATED, not a navigation the
     // browser may repeat as a POST
-    const response = createNoJSHandler()(
+    const response = await createNoJSHandler()(
       new Response(null, { status: 201, headers: { Location: "/orders/9" } }),
       formPost({ referer: "https://app.example/app/cart" }),
       []
@@ -136,8 +144,8 @@ describe("a result that is already a Response", () => {
     expect(response.headers.get("Location")).toBe("https://app.example/orders/9");
   });
 
-  it("returns to the referring page when it names no Location at all", () => {
-    const response = createNoJSHandler()(
+  it("returns to the referring page when it names no Location at all", async () => {
+    const response = await createNoJSHandler()(
       new Response(null, { status: 200 }),
       formPost({ referer: "https://app.example/app/cart" }),
       []
@@ -147,7 +155,7 @@ describe("a result that is already a Response", () => {
     expect(response.headers.get("Location")).toBe("https://app.example/app/cart");
   });
 
-  it("keeps its cookies and headers but never advertises a body it dropped", () => {
+  it("keeps its cookies and headers but never advertises a body it dropped", async () => {
     const result = new Response("<h1>saved</h1>", {
       status: 200,
       headers: {
@@ -159,7 +167,7 @@ describe("a result that is already a Response", () => {
     result.headers.append("Set-Cookie", "session=fresh; Path=/");
     result.headers.append("Set-Cookie", "theme=dark; Path=/");
 
-    const response = createNoJSHandler()(
+    const response = await createNoJSHandler()(
       result,
       formPost({ referer: "https://app.example/app/cart" }),
       []

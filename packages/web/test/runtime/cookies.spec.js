@@ -44,10 +44,13 @@ class FakeStorage {
 
 beforeEach(() => {
   globalThis[RequestContext] = new FakeStorage();
+  // the flash codec is encrypted (#3239); the no-JS assertions need a key
+  globalThis.__SOLID_SECRET__ = "cookies-spec-key";
 });
 
 afterEach(() => {
   delete globalThis[RequestContext];
+  delete globalThis.__SOLID_SECRET__;
 });
 
 function eventWithCookies(cookieHeader) {
