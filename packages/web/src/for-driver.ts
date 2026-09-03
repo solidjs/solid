@@ -379,10 +379,29 @@ function driveKeyedFor(
         slot.size = 0;
         return;
       }
-      // 1. Removes: detach + dispose + unmap.
-      for (let j = 0; j < removes.length; j++) {
-        removeRow(removes[j]);
-        slot.map.delete(removes[j].k);
+      // Full replace (no survivors, whole-parent): bulk-detach the old rows
+      // with one textContent write, dispose them without per-node removes,
+      // and let the placement walk below append the fresh window. Covers the
+      // jfb `replace` / `runlots`-over-rows shapes.
+      if (
+        slot.end === null &&
+        before === null &&
+        after === null &&
+        removes.length === slot.size &&
+        removes.length > 0
+      ) {
+        (slot.parent as Element).textContent = "";
+        for (let j = 0; j < removes.length; j++) {
+          removes[j].live = false;
+          removes[j].o.dispose();
+        }
+        slot.map.clear();
+      } else {
+        // 1. Removes: detach + dispose + unmap.
+        for (let j = 0; j < removes.length; j++) {
+          removeRow(removes[j]);
+          slot.map.delete(removes[j].k);
+        }
       }
       // 2. Place fresh/moved rows back-to-front so anchors are always final.
       let anchor: Node | null = after !== null ? firstNode(after) : slot.end;
