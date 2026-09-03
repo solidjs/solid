@@ -4,6 +4,7 @@ import {
   Feature,
   Serializer,
   getCrossReferenceHeader,
+  toCrossJSON,
   toCrossJSONStream,
   createPlugin as createPluginImpl,
   OpaqueReference as OpaqueReferenceImpl
@@ -228,6 +229,45 @@ export function getLocalHeaderScript(id) {
  * Integration-facing; may change (see the entry banner).
  */
 export function serializeJSON(value: unknown, options: JSONSerializeOptions): () => void;
+
+/**
+ * Whether the codec has a node for `value` — the encoder's own answer,
+ * asked before anything is committed to a stream.
+ *
+ * `serializeJSON` reports an unsupported type through `onError`, which for
+ * a transport arrives after the head is on the wire: too late to answer
+ * differently. A caller that can still choose (single-flight's fold drops
+ * a slice the wire cannot carry rather than losing the whole envelope with
+ * it) asks here instead of re-deriving the supported set, which plugins
+ * make unknowable from outside anyway.
+ *
+ * Asked through the SYNCHRONOUS parser, so an async channel — a promise,
+ * stream or async iterable — parses to a node without being drained and
+ * the real encode still has it. Enumerable accessors are read, exactly as
+ * the encode reads them; a caller that must not mint values early walks
+ * its own containers and asks only about leaves.
+ * @internal
+ */
+export function canSerializeJSON(value: unknown, options?: JSONCodecOptions): boolean;
+
+/**
+ * Whether the codec has a node for `value`, answered by the synchronous
+ * parser under the same plugins and feature policy `serializeJSON` uses.
+ */
+export function canSerializeJSON(value, options) {
+  const resolved = resolveCodecOptions(options);
+  try {
+    toCrossJSON(value, {
+      refs: new Map(),
+      ...resolved,
+      disabledFeatures:
+        resolved.disabledFeatures | serializeOnlyDisabledFeatures(resolved.serializeErrorStacks)
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ---- JSON codec (server function transports) ----
 //

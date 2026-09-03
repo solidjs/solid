@@ -1,0 +1,5 @@
+---
+"@solidjs/web": patch
+---
+
+Let the client transport finish a call it started, and read the body once. Each call minted an `AbortController` that was wired only into the async-iterator wrapper, so an ordinary result never fired it and never cancelled the reader — while `ChunkReader` held the body lock, leaving the application unable to reclaim it either; a peer that answers correctly and then holds the body open wedges six calls' worth of an origin's HTTP/1.1 budget while every call reports success. Cancelling one branch of a tee does not cancel the fetch, so the teardown only became possible once the transport stopped cloning: `extractBody` now consumes the response it is given. Separately, both "did the runtime write this answer?" guards tested the format header's presence while the decoder matches it by value, so a duplicated header or a tag from a newer build resolved any status — `500` included — as a void success; the guards now derive their predicate from `BodyFormat` itself.

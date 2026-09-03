@@ -165,9 +165,43 @@ function assertServableCookie(name: string, options: CookieOptions): void {
 // the transport + codec, which a router-only app never ships. The codec
 // that fills and decodes the cookie is server-only and stays behind the
 // server-functions server entry (server-functions/flash.js).
-export const FLASH_COOKIE = "flash";
+//
+// The name carries the `__Host-` prefix because the cookie carries the
+// SUBMISSION — a no-JS login form's password rides it as plaintext JSON
+// (see the codec's own note on why it is plain JSON) — and the prefix is
+// what bounds who can produce one: browsers refuse a `__Host-` cookie that
+// names a `Domain`, so a sibling subdomain cannot toss a second `flash`
+// entry at the app. It has to be the NAME, not a check at the read: a
+// Cookie header is one string and `parseCookieHeader` cannot tell a
+// sibling's entry from the app's own, so last-wins hands the render the
+// attacker's outcome. The prefix's price is `Secure`, which the encoder
+// already required: a no-JS outcome never reaches a plain-http origin, and
+// localhost is potentially-trustworthy, so development is unaffected.
+export const FLASH_COOKIE = "__Host-flash";
 
 const FLASH_MATCHER = new RegExp(`(?:^|;\\s*)${FLASH_COOKIE}=([^;]+)`);
+
+// Written ONCE, for both directions. The prefix rules bind the set and the
+// clear together — a `__Host-` deletion cookie without `Secure` is
+// rejected on arrival exactly like the cookie it meant to delete (#3138),
+// silently, and the outcome then haunts every later request — so the two
+// must not be spelled twice and allowed to drift. `SameSite=Lax` keeps a
+// cross-site post's outcome out of the jar entirely.
+//
+// Spelled out rather than run through `serializeCookie` for the same
+// reason the matcher above is a regex and not `parseCookieHeader`: an
+// integration that only clears the cookie must not drag the pair codec
+// into its client bundle. Nothing here is caller-supplied, so there is no
+// combination for that function's dev-time prefix check to catch.
+const FLASH_ATTRIBUTES = "Path=/; HttpOnly; Secure; SameSite=Lax";
+
+// One redirect's worth of life. Clearing is the integration's (it consumes
+// the cookie eagerly per request, see below), but no integration is
+// REQUIRED to exist, and without a lifetime an unread outcome is a session
+// cookie at `Path=/`: the submission, in the clear, attached to every
+// subsequent request to the origin — assets included — and into every
+// access and CDN log, for as long as the browser lives.
+const FLASH_MAX_AGE = 60;
 
 /** Whether a Cookie header carries a flash cookie (readable or not). */
 export function hasFlashCookie(cookieHeader: string | null): boolean {
@@ -180,7 +214,15 @@ export function matchFlashCookie(cookieHeader: string | null): string | undefine
   return match ? match[1] : undefined;
 }
 
+/**
+ * The `Set-Cookie` value that carries `value` as the flash cookie: the one
+ * writer, shared with the clear below so the attributes cannot drift apart.
+ */
+export function writeFlashCookie(value: string): string {
+  return `${FLASH_COOKIE}=${encodeURIComponent(value)}; ${FLASH_ATTRIBUTES}; Max-Age=${FLASH_MAX_AGE}`;
+}
+
 /** The Set-Cookie value clearing the flash cookie after it has been read. */
 export function clearFlashCookie(): string {
-  return `${FLASH_COOKIE}=; Max-Age=0; Path=/`;
+  return `${FLASH_COOKIE}=; ${FLASH_ATTRIBUTES}; Max-Age=0`;
 }

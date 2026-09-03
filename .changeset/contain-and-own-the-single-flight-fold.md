@@ -1,0 +1,5 @@
+---
+"@solidjs/web": patch
+---
+
+Hold the fold to its own containment rule, and to the response it hands back. A collector that returned a value the wire cannot carry escaped the try/catch that covers a collector which throws, because the slice is encoded later — destroying the committed mutation's own result and every other cache's slice, and answering `200` with no error header, so the caller retries a write that already happened. The fold also appended this request's `Set-Cookie` and gap-filled headers into whatever `transformFlightResult` returned without owning it first, though the thrown tail already owns it for exactly the reason named in its comment; an integration that memoizes its shell served one caller's session and redirect target to the next. The caller-supplied source list is now read as the set the protocol defines rather than a multiset, so a repeated id can no longer buy a revalidation pass per repetition, and a redirect's own `Location` is the flight target whether or not the request carried a `Referer` — `Referrer-Policy: no-referrer` no longer switches single-flight off for every redirecting mutation.

@@ -21,17 +21,20 @@ import {
   UNKNOWN_HEADER,
   configureServerFunctionsCodec,
   decodeResponse,
+  declareMeta,
+  extractBody,
   getFlightDataConsumer,
   getFlightDataSourceIds,
   getHeadersAndBody,
   getServerFunctionMetadata,
+  getServerFunctionsCodec,
+  hasReadableBodyFormat,
   isJSONSafe,
   isServerFunction,
   parseServerFunctionAddress,
   provideServerFunctionRPC,
   serverFunctionAddress,
-  serverFunctionDataAddress,
-  withMeta
+  serverFunctionDataAddress
 } from "./shared.js";
 
 // The flash cookie's name, detection and clearing are re-exported here so
@@ -677,13 +680,16 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
     if (handled !== undefined) return handled;
   }
 
-  // Every response the runtime encodes carries the body format — a void one
-  // and a thrown one included — so at 400 and up its absence means the peer
-  // refused. Answered before the passthrough beneath, because a refusal can
-  // carry a `Location` of its own and the passthrough would hand it back as
-  // control flow; and undecoded, because its body is someone else's, not a
-  // payload for the caller.
-  if (response.status >= 400 && !response.headers.has(BODY_FORMAT_HEADER)) {
+  // Every response the runtime encodes carries a body format this build can
+  // read — a void one and a thrown one included — so at 400 and up anything
+  // else means the peer refused. READ, not merely present: a tag with no
+  // case behind it is no evidence the runtime wrote the answer, and it
+  // decodes to `undefined`, so honouring its presence turned a 500 into a
+  // silent void success (see `hasReadableBodyFormat`). Answered before the
+  // passthrough beneath, because a refusal can carry a `Location` of its own
+  // and the passthrough would hand it back as control flow; and undecoded,
+  // because its body is someone else's, not a payload for the caller.
+  if (response.status >= 400 && !hasReadableBodyFormat(response)) {
     throw serverFunctionFailure(response, undefined);
   }
 
@@ -762,7 +768,7 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
   // a conditional read, not a payload, and decodes to nothing at any peer.
   if (
     response.status < 300 &&
-    !response.headers.has(BODY_FORMAT_HEADER) &&
+    !hasReadableBodyFormat(response) &&
     !response.headers.has("X-Content-Raw")
   ) {
     throw serverFunctionFailure(
@@ -778,7 +784,14 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
     );
   }
 
-  const result = await decodeResponse(response.clone());
+  // Decoded from the response ITSELF, not a clone. The transport owns this
+  // body — every road that hands it to somebody else has already returned
+  // above — so a clone would only tee it into a branch nobody reads, which
+  // queues the whole payload for the life of the read. Owning it is also
+  // what lets the decoder END the call: cancelling one branch of a tee
+  // leaves the fetch running, cancelling the real body does not.
+  // `decodeResponse` keeps its clone for integrations, who still own theirs.
+  const result = response.body ? await extractBody(response, getServerFunctionsCodec()) : undefined;
   if (failed) {
     throw serverFunctionFailure(response, result);
   }
@@ -791,7 +804,24 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
       [Symbol.asyncIterator]() {
         const it = result[Symbol.asyncIterator]();
         return {
-          next: () => it.next(),
+          // Both ways a consumer can be done with the stream end the CALL.
+          // `for await` invokes `return()` on an early exit but not on a
+          // natural end, so the teardown that already existed on the
+          // abandoned leg is mirrored onto the finished one: a stream
+          // drained to its last item has strictly less left to say than one
+          // that was walked away from, and it must not be the leg that keeps
+          // the connection. `done` is decided by the payload's own closing
+          // frame, so this fires whether or not the peer ends the body.
+          next: async () => {
+            try {
+              const step = await it.next();
+              if (step.done) controller.abort();
+              return step;
+            } catch (error) {
+              controller.abort();
+              throw error;
+            }
+          },
           return: value => (controller.abort(), Promise.resolve({ done: true, value }))
         };
       }
@@ -988,8 +1018,11 @@ export function GET(fn) {
     get: () => serverFunctionAddress(config.endpoint, id),
     configurable: true
   });
-  // the declaration itself is a metadata write like any other
-  return withMeta(wrapped, { method: "GET" });
+  // the declaration records itself on the metadata channel — through the
+  // declaration writer, not `withMeta`: the GET wire is baked into `run`
+  // above, so a metadata write is a REPORT of this declaration and cannot
+  // be a way to make (or unmake) one
+  return declareMeta(wrapped, { method: "GET" });
 } /**
  * A live reference: calling it opens an iteration and hands back the
  * reconnecting iterable ITSELF, synchronously — not a promise of one (the

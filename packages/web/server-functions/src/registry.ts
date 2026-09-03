@@ -49,7 +49,9 @@ export function isServerFunction(fn) {
  * (client proxy or server-registered callable) and returns the reference.
  * Writes ride the same channel `GET` uses: later writes shallow-merge over
  * earlier ones, and `getServerFunctionMetadata(fn)` reads the merged bag —
- * so `withMeta` composes with `GET` in either order.
+ * so `withMeta` composes with `GET` in either order. Metadata only, never
+ * behavior: `method` is a declaration, not a user write, and is refused
+ * here (see below).
  *
  * The pattern is declare-on-function, react-in-hook: metadata declared
  * here is what `prepareRequest` receives as `context.meta`, letting
@@ -80,7 +82,32 @@ export function withMeta(fn, meta) {
   if (!metadata) {
     throw new Error("withMeta expects a server function reference");
   }
+  // `method` is a DECLARATION, and a declaration is more than its metadata:
+  // `GET(fn)` also records the grant the server's dispatch reads (which is
+  // what skips the CSRF origin gate — #3114), and the client's `GET`
+  // reference bakes the query encoding into its own call. A write here
+  // reaches neither, so it could only ever REPORT a grant, or a revocation,
+  // that the wire never performed — `getServerFunctionMetadata(fn).method`
+  // reading "POST" while a cross-site GET still executes the function.
+  // Refused for the reason `invoke` refuses it, in the same words.
+  if (meta && "method" in meta) {
+    throw new Error("`method` is not user-written metadata. " + INVOKE_OPTION_REDIRECTS.method);
+  }
   Object.assign(metadata, meta);
+  return fn;
+}
+
+/**
+ * The declaration channel's own write: `GET` (and any future
+ * declaration-static capability) records what it declared on the metadata
+ * bag, alongside the behavior the declaration carries — the server's grant,
+ * the client's GET wire. Internal on purpose: `withMeta` is the user write,
+ * and a user write must not be able to forge a declaration, or revoke one,
+ * by writing its metadata alone.
+ * @internal
+ */
+export function declareMeta(fn, meta) {
+  Object.assign(getServerFunctionMetadata(fn), meta);
   return fn;
 }
 

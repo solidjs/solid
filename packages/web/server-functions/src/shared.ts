@@ -40,6 +40,7 @@ export {
   LIVE_SOURCE,
   SERVER_FUNCTION_INVOKE,
   SERVER_FUNCTION_METADATA,
+  declareMeta,
   getServerFunctionMetadata,
   getServerFunctionRPC,
   invoke,
@@ -160,7 +161,11 @@ export type ServerFunctionInvoker<A extends readonly any[] = any[], R = any> = (
  * over earlier ones.
  */
 export interface ServerFunctionMetadata {
-  /** The declared HTTP method. Undeclared references call over POST. */
+  /**
+   * The declared HTTP method. Undeclared references call over POST.
+   * Written by the `GET(fn)` declaration alone — `withMeta` refuses it,
+   * because the grant it reports lives on the wire, not in this bag.
+   */
   readonly method?: "GET" | "POST";
   /**
    * A human-readable label for the function, seeded by development builds
@@ -713,6 +718,35 @@ export const BodyFormat = {
   Void: "9"
 };
 
+// Every tag `extractBody` has a case for. Derived from `BodyFormat` itself
+// so the two can never drift: a tag added there is readable here the same
+// day, and a tag from anywhere else is not.
+const READABLE_BODY_FORMATS = new Set(Object.values(BodyFormat));
+
+/**
+ * Whether a message carries a body-format tag THIS build can decode.
+ *
+ * The transport's "did the runtime write this answer?" guards ask this, not
+ * whether the header is present. Presence is not readability: `extractBody`
+ * matches the tag by value and falls through to `undefined` for anything it
+ * has no case for, so a tag the reader cannot place used to pass the guards
+ * and resolve the call as a void success — the phantom success #3173 closed,
+ * reopened one layer down by a header the runtime never wrote. Two ordinary
+ * ways in, neither hostile: version skew (a tag past `Void` from a newer
+ * peer) and a duplicated header, which `Headers.get` joins into the single
+ * unreadable value `"8, 9"`. An encoding this build cannot read must fail
+ * as loudly as no encoding at all — the honesty #3110 gave an unknown id.
+ *
+ * Transport building block; not meant for hand-written code.
+ * @internal
+ */
+export function hasReadableBodyFormat(source: Request | Response): boolean;
+
+/** Whether a message carries a body-format tag this build can decode. */
+export function hasReadableBodyFormat(source) {
+  return READABLE_BODY_FORMATS.has(source.headers.get(BODY_FORMAT_HEADER));
+}
+
 // Nesting deeper than this is not JSON-safe. The guard itself walks an
 // explicit stack so any depth is CHECKABLE, but claiming safety means
 // JSON.stringify must then deliver. Stringify is recursive and the cliff
@@ -729,23 +763,24 @@ const JSON_SAFE_DEPTH_LIMIT = 4096;
 // never collide with user data.
 const EXIT = {}; /**
  * Whether a value survives a `JSON.stringify` round trip faithfully: JSON
- * primitives (finite numbers only), arrays, and plain objects. Anything
- * else — Dates, Maps, typed arrays, undefined (bare or as a property),
- * NaN, class instances, cyclic structures — needs the codec. Never throws:
- * cycles and pathological depth answer `false`. Both peers negotiate the
- * wire format with this guard: the client for argument lists, the server
- * for results.
+ * primitives (numbers `JSON.stringify` spells faithfully only), arrays,
+ * and plain objects. Anything else — Dates, Maps, typed arrays, undefined
+ * (bare or as a property), NaN, `-0`, class instances, cyclic structures —
+ * needs the codec. Never throws: cycles and pathological depth answer
+ * `false`. Both peers negotiate the wire format with this guard: the
+ * client for argument lists, the server for results.
  */
 export function isJSONSafe(value: unknown): boolean;
 
 /**
  * Whether a value survives a `JSON.stringify` round trip faithfully: JSON
- * primitives (finite numbers only), arrays, and plain objects. Anything
- * else — Dates, Maps, typed arrays, undefined (bare or as a property),
- * NaN, class instances, cyclic structures — needs the codec. Both peers
- * negotiate with this same guard: the client for argument lists (see
- * client.js), the server for results (see server.js encodeResult) — so
- * the codec rides the wire exactly when a value actually needs it.
+ * primitives (numbers `JSON.stringify` spells faithfully only), arrays,
+ * and plain objects. Anything else — Dates, Maps, typed arrays, undefined
+ * (bare or as a property), NaN, `-0`, class instances, cyclic structures —
+ * needs the codec. Both peers negotiate with this same guard: the client
+ * for argument lists (see client.js), the server for results (see
+ * server.js encodeResult) — so the codec rides the wire exactly when a
+ * value actually needs it.
  *
  * Traversal is iterative on an explicit stack with an ancestor set: the
  * old recursive walk overflowed on cycles (forever) and on deep nesting
@@ -769,7 +804,14 @@ export function isJSONSafe(value) {
     const t = typeof v;
     if (t === "string" || t === "boolean") continue;
     if (t === "number") {
-      if (!Number.isFinite(v)) return false;
+      // A signed zero belongs with NaN and the infinities, not with the
+      // finite numbers: `JSON.stringify(-0)` is `"0"`, so the fast path
+      // would carry it and silently flatten the sign — the same class of
+      // quiet corruption the branches below refuse (`undefined` read back
+      // as `null`, a sparse hole read back as `null`). The codec spells it
+      // exactly (seroval has a constant for it), so `-0` rides the codec
+      // like every other number stringify cannot spell.
+      if (!Number.isFinite(v) || Object.is(v, -0)) return false;
       continue;
     }
     if (t !== "object") return false;
@@ -789,7 +831,18 @@ export function isJSONSafe(value) {
       // silently losing the stream (async generators dodge this branch only
       // by prototype). Such values must ride the codec.
       if (Symbol.asyncIterator in v || Symbol.iterator in v) return false;
-      for (const k in v) {
+      // Own names, at any enumerability. `for (const k in v)` asked which
+      // slots stringify would EMIT; the question this guard answers is which
+      // slots the value HOLDS, and they are not the same question for a
+      // channel: `enumerable: false` hides a promise or a stream from both
+      // roads alike, so hiding it changes nothing about the wire and
+      // everything about which road the value takes — and this road is the
+      // one where guardFailures never runs. Nobody then owns the rejection
+      // (it reaches no handler and takes the process down AFTER the 200 has
+      // been delivered) and nobody closes the stream when the caller leaves.
+      // Answering "not safe" hands the value to the codec, where the walk
+      // reaches the slot on the same terms.
+      for (const k of Object.getOwnPropertyNames(v)) {
         // Through the descriptor, never `v[k]`: reading a getter here MINTS
         // a value nobody guards — a rejecting promise from a getter took
         // the process down as an unhandled rejection before the codec ever
@@ -879,10 +932,83 @@ export function getHeadersAndBody(body) {
       return undefined;
   }
 } /**
+ * Strips the keys that turn a decoded graph into prototype pollution, in
+ * place, and hands the same value back.
+ *
+ * Both decode roads preserve such a key faithfully — `JSON.parse` creates
+ * it as an ordinary own property and the codec round-trips it the same way
+ * — and core itself is unharmed: `Object.prototype` is never touched. What
+ * the key subverts is the most ordinary thing either side does with a
+ * decoded value: `Object.assign` merges by [[Set]], so merging one into a
+ * fresh object re-prototypes the copy with data the peer chose (#3168),
+ * and a recursive merge walks `constructor.prototype` onto
+ * `Object.prototype` itself (#3202).
+ *
+ * It lives at the decode boundary rather than on one leg because neither
+ * leg's payload was authored by the side that decodes it, and both arrive
+ * through this one function. Arguments were the reported half (#3200); a
+ * result is the same graph travelling the other way — the most ordinary
+ * handler there is, `async raw => JSON.parse(raw)` over a document its
+ * user wrote, puts `__proto__` on the wire without a hostile server
+ * anywhere — and on that leg the pollution lands on the page's single
+ * shared `Object.prototype`, which every framework internal and
+ * third-party script on it reads through. One guard, both directions.
+ *
+ * This seam already makes decisions of exactly this class — the decode
+ * depth cap, the argument-count bound, the RegExp exclusion — so the key
+ * is removed here rather than documented away.
+ *
+ * The walk is iterative (the codec revives cyclic graphs, and depth is the
+ * attack input on the JSON road) with a visited set for cycles. It reaches
+ * plain objects and arrays, plus the values and keys of revived Maps and
+ * Sets, and enumerable properties on revived non-plain objects. Containers
+ * keep their shape — the codec owns their construction, not this guard.
+ * Only the value a decode resolves with is walked: a graph that settles
+ * later, through an async placeholder inside a frame stream, reaches the
+ * caller as that side's own promise rather than as an own key on the
+ * delivered value.
+ *
+ * Transport building block; the decoders below apply it for you.
+ * @internal
+ */
+export function stripUnsafeKeys<T>(value: T): T;
+
+const UNSAFE_DECODED_KEYS = ["__proto__", "constructor", "prototype"];
+
+/** Strips prototype-mutating keys from a decoded graph, in place. */
+export function stripUnsafeKeys(value) {
+  const stack = [value];
+  const seen = new Set();
+  while (stack.length) {
+    const v = stack.pop();
+    if (v === null || typeof v !== "object" || seen.has(v)) continue;
+    seen.add(v);
+    // Mutating in place never required a plain prototype. Strip every
+    // container, then walk both own metadata and collection contents.
+    for (const key of UNSAFE_DECODED_KEYS) {
+      delete v[key];
+    }
+    for (const key of Object.keys(v)) stack.push(v[key]);
+    if (v instanceof Map) {
+      for (const [k, entry] of v) stack.push(k, entry);
+    } else if (v instanceof Set) {
+      for (const member of v) stack.push(member);
+    }
+  }
+  return value;
+} /**
  * Decodes a Request/Response body according to its `BODY_FORMAT_HEADER`
  * tag (falling back to content-type sniffing for form posts that never saw
  * the client runtime). The inverse of `getHeadersAndBody` + the serialized
  * stream. Resolves undefined for bodies without a recognized encoding.
+ *
+ * CONSUMES `source`: the body is read where it lies, not from a clone. The
+ * decoder holding the real body is what lets it END the message — a framed
+ * body whose payload is complete cancels its own reader instead of sitting
+ * on the connection until the peer closes (see `deserializeStream`), and a
+ * tee branch nobody reads is not left queueing the payload behind it. The
+ * caller that still needs its own copy hands over one: that is exactly what
+ * `decodeResponse`, the integration-facing entry, does.
  *
  * Transport building block; use `decodeResponse` from integration code.
  * @internal
@@ -900,31 +1026,35 @@ export function extractBody(
 export async function extractBody(source, codecOptions) {
   const contentType = source.headers.get("content-type");
   const format = source.headers.get(BODY_FORMAT_HEADER);
-  const clone = source.clone();
 
   switch (true) {
+    // The two roads that decode to a structured graph are the two roads a
+    // dangerous key can ride; the rest are bytes, text or a natural HTTP
+    // encoding with no own keys to strip. Applied here so BOTH legs are
+    // covered by construction: an argument body and a response body are
+    // the same two encodings through the same function.
     case format === BodyFormat.Serialized:
-      return await deserializeStream(clone, codecOptions);
+      return stripUnsafeKeys(await deserializeStream(source, codecOptions));
     case format === BodyFormat.Json:
-      return JSON.parse(await clone.text());
+      return stripUnsafeKeys(JSON.parse(await source.text()));
     case format === BodyFormat.String:
-      return await clone.text();
+      return await source.text();
     case format === BodyFormat.File: {
-      const formData = await clone.formData();
+      const formData = await source.formData();
       return formData.get(FILE_FORM_KEY);
     }
     case format === BodyFormat.FormData:
     case contentType && contentType.startsWith("multipart/form-data"):
-      return await clone.formData();
+      return await source.formData();
     case format === BodyFormat.URLSearchParams:
     case contentType && contentType.startsWith("application/x-www-form-urlencoded"):
-      return new URLSearchParams(await clone.text());
+      return new URLSearchParams(await source.text());
     case format === BodyFormat.Blob:
-      return await clone.blob();
+      return await source.blob();
     case format === BodyFormat.ArrayBuffer:
-      return await clone.arrayBuffer();
+      return await source.arrayBuffer();
     case format === BodyFormat.Uint8Array:
-      return new Uint8Array(await clone.arrayBuffer());
+      return new Uint8Array(await source.arrayBuffer());
   }
 
   return undefined;
@@ -1046,6 +1176,18 @@ export class ChunkReader {
       }
       interpret(result.value);
     }
+  }
+
+  /**
+   * Stops reading and releases the body. On a response body that is a live
+   * connection this is what ENDS the call rather than abandoning it: the
+   * body is the fetch, and cancelling it is the only way a reader holding
+   * the lock can give the socket back. Rejections are swallowed — a body
+   * already errored is a body already released.
+   */
+  cancel() {
+    this.done = true;
+    return this.reader.cancel().catch(() => {});
   }
 }
 
@@ -1205,6 +1347,33 @@ export async function deserializeStream(source, codecOptions) {
       return deserializeChunk(JSON.parse(chunk));
     }
 
+    // The head chunk is interpreted before the drain is wired, because what
+    // it decodes to is what decides whether there is anything left to read.
+    let value;
+    try {
+      value = interpretChunk(result.value);
+    } catch (error) {
+      // The head did not decode, so the answer is already final — no later
+      // chunk has anything to say to a value that was never delivered.
+      reader.cancel();
+      throw error;
+    }
+
+    // A head chunk that left NOTHING waiting on a later one is the whole
+    // answer, and reading on would only be waiting for an end of body the
+    // peer owes us. Ending the read here is what makes a finished call give
+    // its connection back: a peer that holds the socket after the payload —
+    // a proxy, a CDN, a hung origin — otherwise keeps one connection per
+    // SUCCESSFUL call, and six of those wedge a browser's per-origin pool
+    // while every one of them reported success. The decision is the
+    // payload's, never the peer's, which is the same standard the streaming
+    // result is held to. Cancelling reaches the caller's body because
+    // `extractBody` reads the real one rather than a clone.
+    if (!deserializeChunk.pending()) {
+      reader.cancel();
+      return value;
+    }
+
     // Failure wiring for the drain: a network drop or malformed frame must
     // fail every value still waiting on later chunks — otherwise their
     // promises hang forever and open streams never terminate (and the drain
@@ -1218,7 +1387,7 @@ export async function deserializeStream(source, codecOptions) {
       error => deserializeChunk.abort(error)
     );
 
-    return interpretChunk(result.value);
+    return value;
   }
   return undefined;
 } /**
@@ -1261,7 +1430,14 @@ export function decodeResponse<T = unknown>(
  */
 export async function decodeResponse(response, codecOptions) {
   if (!response.body) return undefined;
-  return await extractBody(response, codecOptions === undefined ? codecConfig.codec : codecOptions);
+  // The clone lives HERE, at the entry whose contract promises it: an
+  // integration hands over a response it still owns. The transport, which
+  // owns the body it opened, calls `extractBody` directly — a clone there
+  // buys nothing and costs the whole payload in a tee branch nobody reads.
+  return await extractBody(
+    response.clone(),
+    codecOptions === undefined ? codecConfig.codec : codecOptions
+  );
 } /**
  * `decodeResponse` plus the single-flight envelope split: when the response
  * carries the single-flight header the decoded `{ value, data }` payload is

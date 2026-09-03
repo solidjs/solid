@@ -17,7 +17,8 @@
 // The payload is plain JSON rather than the wire codec: it has to survive a
 // 4 KB cookie, and both halves here are synchronous while the codec is not.
 
-import { FLASH_COOKIE, parseCookieHeader, serializeCookie } from "../../src/cookies.js";
+import { FLASH_COOKIE, parseCookieHeader, writeFlashCookie } from "../../src/cookies.js";
+import { stripUnsafeKeys } from "./shared.js";
 
 /**
  * The outcome of a call made without the client runtime, as it rides the
@@ -108,27 +109,46 @@ export function encodeFlashCookie(url, result, input, thrown) {
   // second write. Ladder: drop the input echo (usually the bulk), then
   // bound the value itself — a string keeps the longest prefix that fits
   // (halving, because percent-encoding inflates unevenly), anything
-  // structured has no partial JSON and reduces to the outcome flag `true`.
-  // `url` and the error/thrown flags always survive: what happened, and to
-  // which submission, is the part that must not be lost.
+  // structured has no partial JSON and reduces to the outcome flag `true`,
+  // and only then is `url` itself bounded. The error/thrown flags always
+  // survive: THAT it happened is the part that must not be lost.
   payload.truncated = true;
   payload.input = [];
   if (!fitsCookie(payload)) {
     if (typeof payload.result === "string") {
-      let prefix = payload.result;
-      while (prefix.length > 0 && !fitsCookie({ ...payload, result: prefix })) {
-        prefix = prefix.slice(0, prefix.length >> 1);
-      }
+      const prefix = boundedPrefix(payload, "result");
       payload.result = prefix.length > 0 ? prefix : true;
     } else {
       payload.result = true;
     }
   }
+  // Last rung, and the one the ladder above forgot it needed: `url` is
+  // `pathname + search` of a request the CALLER chose, and a form whose
+  // action carries state (`<form action={fn.url + "?return=" + here}>`) is
+  // this convention's own idiom. Past the ceiling on the url alone, every
+  // rung above has been spent and the encoder returns a cookie the browser
+  // discards whole — while writing `truncated: true`, which is the encoder
+  // asserting it degraded to fit about a payload that did not. Bounded
+  // last because it is the identifier of last resort: a prefix of the url
+  // is a worse answer than the whole url, and a better one than no cookie
+  // at all, which is the #3137 harm this ladder exists to prevent.
+  if (!fitsCookie(payload)) payload.url = boundedPrefix(payload, "url");
   return flashCookie(payload);
 }
 
+// The longest prefix of a string field that keeps the payload under the
+// ceiling, "" when nothing does. Halving, because percent-encoding inflates
+// unevenly and a byte-exact cut would have to be searched for.
+function boundedPrefix(payload, field) {
+  let prefix = payload[field];
+  while (prefix.length > 0 && !fitsCookie({ ...payload, [field]: prefix })) {
+    prefix = prefix.slice(0, prefix.length >> 1);
+  }
+  return prefix;
+}
+
 function flashCookie(payload) {
-  return serializeCookie(FLASH_COOKIE, JSON.stringify(payload), { secure: true, httpOnly: true });
+  return writeFlashCookie(JSON.stringify(payload));
 }
 
 // The browser ceiling is 4096 bytes of `name=value` (RFC 6265bis §5.6);
@@ -159,7 +179,24 @@ export function decodeFlashCookie(cookieHeader) {
   if (!match) return;
   try {
     const payload = JSON.parse(match);
-    if (!payload || !payload.result) return;
+    // What makes a payload READABLE is the field the ladder promises always
+    // survives, not the optional one: a truthiness test on `result`
+    // discarded a well-formed cookie whose outcome was `""`, `0`, `false`
+    // or `null` — and a thrown `Error("")` with it, flags and all. The
+    // encoder wrote that cookie, the browser stored it, and the render
+    // showed nothing: the same "nothing happened" the size ladder degrades
+    // to avoid, on the commonest results there are. `url` is also what
+    // every integration reads to decide whether the outcome belongs to the
+    // page it is rendering (`url.startsWith("/")`), so a payload carrying
+    // anything else there is malformed — caught here, where a malformed
+    // cookie is answered with undefined, rather than in the render this
+    // module promises it can never take down.
+    if (!payload || typeof payload !== "object" || typeof payload.url !== "string") return;
+    // Same guard the argument road applies, on the same grounds: what a
+    // decoded value meets downstream is a merge, and `JSON.parse` makes
+    // `__proto__` an own property (#3168/#3202). Reaching this road costs a
+    // cookie on the origin — narrower than the argument road, not nil.
+    stripUnsafeKeys(payload);
     const result = payload.error ? new Error(payload.result) : payload.result;
     const submission = {
       input: Array.isArray(payload.input) ? payload.input.map(decodeInputValue) : [],

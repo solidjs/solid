@@ -300,37 +300,111 @@ export function createJSONDeserializer(options?: JSONCodecOptions): <T>(node: Se
  * chunks resolve through a map shared across calls, so all chunks from one
  * stream must go through the same deserializer instance.
  */
+/**
+ * Whether a ref in a deserializer's shared map is a value only a LATER chunk
+ * can settle. That map holds seroval's in-progress state between chunks: an
+ * open stream under `__SEROVAL_STREAM__`, and a pending promise as the
+ * `{p, s, f}` resolver triple (the promise under one id, its resolver under
+ * the special-reference id next to it). One predicate for both readers of
+ * that state — the sweep that settles them and the check that asks whether
+ * any exist — so "still waiting" is one definition, not two.
+ */
+function awaitsLaterChunk(value) {
+  if (value === null || typeof value !== "object") return false;
+  return (
+    !!value.__SEROVAL_STREAM__ ||
+    (typeof value.s === "function" && typeof value.f === "function" && value.p instanceof Promise)
+  );
+}
+
 export function createJSONDeserializer(options) {
   const refs = new Map();
   const resolved = resolveCodecOptions(options);
+  // How many `refs` entries `ownDecodedPromises` has already claimed.
+  // seroval never reassigns a ref id (a second write throws "Conflicted ref
+  // id"), so the map only ever grows and iterates in insertion order:
+  // skipping the entries already claimed makes the sweep amortized O(1) per
+  // decoded node rather than O(refs) on every chunk of a long stream.
+  let owned = 0;
+  /**
+   * Takes ownership of every promise this decoder has just minted.
+   *
+   * A decoded payload is a PEER's bytes, and a promise it decodes to is a
+   * rejection nobody is holding: the value goes on to be a server function
+   * argument, or a slot in a decoded result, and ordinary code does not
+   * await a slot it never expected to be a promise. Under Node's default
+   * policy that ends the process — so the decoder keeps a fallback owner on
+   * what it mints, exactly as the encode side does for the promises IT
+   * mints (`guardFailures`, server.js: "Keep a fallback owner on the
+   * promise WE minted"). This changes nothing for a real consumer: `p`
+   * still rejects for whoever awaits it; only the "nobody at all" case is
+   * covered.
+   *
+   * It runs at the MINT, not at `abort`, because seroval has two promise
+   * spellings and only one of them is still pending when a stream ends. The
+   * constructor pair (`{p, s, f}` under the special-reference id, the bare
+   * promise under its own) settles from a later chunk, so `abort` can still
+   * reach it. The ATOMIC promise node (seroval type 12) settles
+   * SYNCHRONOUSLY inside the `fromCrossJSON` call that reads it — by the
+   * time any later hook runs, the microtask queue has drained and Node has
+   * already reported the rejection. Both spellings put the bare promise in
+   * `refs`, so claiming promises here covers the pair as well and there is
+   * one guard rather than one per spelling.
+   */
+  function ownDecodedPromises() {
+    if (refs.size === owned) return;
+    let index = 0;
+    for (const value of refs.values()) {
+      if (index++ < owned) continue;
+      if (value instanceof Promise) value.then(undefined, () => {});
+    }
+    owned = refs.size;
+  }
   function deserializeJSONChunk(node) {
-    return fromCrossJSON(node, { refs, ...resolved });
+    try {
+      return fromCrossJSON(node, { refs, ...resolved });
+    } finally {
+      // `finally`: a chunk that throws part-way through (a malformed node, a
+      // depth-limit refusal) has already minted whatever it minted.
+      ownDecodedPromises();
+    }
   }
   /**
-   * Fails every value still waiting on chunks that will never arrive. The
-   * shared refs map holds seroval's in-progress state between chunks: open
-   * streams (`__SEROVAL_STREAM__`) and pending-promise resolvers (`{p, s, f}`
-   * — the promise under one id, its resolver under the special-reference id
-   * next to it). Both settle idempotently — throwing into a completed stream
-   * and rejecting a resolved promise are no-ops — so the sweep is safe to
-   * run on normal end-of-stream too. The defusing handler on `p` keeps a
-   * rejection nobody awaited (a pending promise the app never touched) from
-   * surfacing as an unhandled rejection.
+   * Fails every value still waiting on chunks that will never arrive. Both
+   * kinds settle idempotently — throwing into a completed stream and
+   * rejecting a resolved promise are no-ops — so the sweep is safe to run on
+   * normal end-of-stream too. Settling is all this does: the rejection it
+   * induces already has a fallback owner, put there by
+   * `ownDecodedPromises` when the chunk that minted the promise was read.
    */
   deserializeJSONChunk.abort = function abort(error) {
     for (const value of refs.values()) {
-      if (value === null || typeof value !== "object") continue;
+      if (!awaitsLaterChunk(value)) continue;
       if (value.__SEROVAL_STREAM__) {
         value.throw(error);
-      } else if (
-        typeof value.s === "function" &&
-        typeof value.f === "function" &&
-        value.p instanceof Promise
-      ) {
-        value.p.then(undefined, () => {});
+      } else {
         value.f(error);
       }
     }
+  };
+  /**
+   * Whether anything decoded so far can still be changed by a later chunk —
+   * the question a reader asks before it stops reading. Answered from the
+   * same refs the sweep above settles, so the two can never disagree about
+   * what "still waiting" means.
+   *
+   * Conservative by construction: a resolver stays in the map after it
+   * settles, so a stream or promise that is already done still answers
+   * true. That is the safe direction. Saying "nothing is waiting" is a
+   * licence to stop reading, and stopping early would strand a value that
+   * was still on its way; saying it late only means the reader waits for
+   * the peer's own end of body, which is what every reader did before.
+   */
+  deserializeJSONChunk.pending = function pending() {
+    for (const value of refs.values()) {
+      if (awaitsLaterChunk(value)) return true;
+    }
+    return false;
   };
   return deserializeJSONChunk;
 }
