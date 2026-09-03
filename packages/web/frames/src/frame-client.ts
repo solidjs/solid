@@ -2061,11 +2061,15 @@ function parseFragment(html) {
 // Mirrors head.ts without importing it into the standalone frame client.
 const PRELOAD_QUALIFIERS = ["as", "crossorigin", "type", "media", "imagesrcset", "imagesizes"];
 
-// Mirrors head.ts's qualifierValue: `crossorigin` is three states, not a
-// string range, so `""`, a bare attribute and `anonymous` are one request.
-// Frame `attrs` are already strings, but the document may carry any spelling.
+// Mirrors head.ts's qualifierValue — keep them in step. `as` folds ASCII
+// case; an empty source set or size reads as absent (registration never
+// emits one); `crossorigin` is three states, not a string range, so `""`, a
+// bare attribute and `anonymous` are one request. Frame `attrs` are already
+// canonical strings, but the document may carry any spelling.
 function qualifierValue(name, value) {
   if (value == null) return null;
+  if (name === "imagesrcset" || name === "imagesizes") return value === "" ? null : value;
+  if (name === "as") return value.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32));
   if (name !== "crossorigin") return value;
   return value.length === 15 && value.toLowerCase() === "use-credentials"
     ? "use-credentials"

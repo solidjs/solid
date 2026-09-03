@@ -319,7 +319,15 @@ module.exports = [
     // Patch-channel removal (2026-09-02): 10.86 -> 10.73 KB, measured at
     // 10.70. The channel is deleted from next — regions own value delivery,
     // the unified-For design owns structure — reclaiming the core-retained emission seams.
-    limit: "10.73 KB",
+    // Preload identity canonicalization, rebased onto next (2026-09-02):
+    // 10.73 -> 10.74 KB, measured at 10.731 against next's 10.700 with only
+    // dist/web.js swapped. Not retained code: the tree-shaken bundle is
+    // byte-identical and web.js contributes the same 7106 minified bytes on
+    // both sides. head.ts gains two top-level helpers this bundle never
+    // reaches (asciiLowerCase, qualifierValue), which shifts esbuild's
+    // identifier allocation over the same-length output — brotli layout
+    // drift, 31 B. Ratcheted to the next 0.01 kB per this file's rule.
+    limit: "10.74 KB",
     modifyEsbuildConfig
   },
   {
@@ -374,15 +382,16 @@ module.exports = [
     // 17.673. Hydration seeds the applied-class snapshot without mutating
     // the claimed DOM so the first live in-place change still diffs.
     //
-    // Patch-channel removal (2026-09-02): 17.72 -> 17.61 KB, measured at
-    // 17.58. The channel is deleted from next — regions own value delivery,
-    // the unified-For design owns structure — reclaiming the insert $ll seam and core emission bytes.
     // Responsive image preloads (2026-09-01): 17.56 -> 17.59 KB, measured at
     // 17.570 (+29 B). The one document scenario that pays: it retains
     // `lazy`, so the whole asset-registration path is reachable and it picks
     // up the source-set branch in mountHeadResource. csr-app moved the other
     // way on brotli layout (see its note); the identity commit before this
     // one was byte-neutral in every document bundle.
+    //
+    // Patch-channel removal (2026-09-02): 17.72 -> 17.61 KB, measured at
+    // 17.58. The channel is deleted from next — regions own value delivery,
+    // the unified-For design owns structure — reclaiming the insert $ll seam and core emission bytes.
     limit: "17.61 KB",
     modifyEsbuildConfig
   },
@@ -531,8 +540,21 @@ module.exports = [
     // 11.360 (+40 B on top of the identity commit). Frame consumers locate
     // and create a source-set link with no href — adoption matches on a null
     // href — and the wire entry drops the key when there is none.
+    //
+    // Canonical qualifier matching (2026-09-01): 11.37 -> 11.38 KB, measured
+    // at 11.374 (+14 B). The frame client's mirrored `qualifierValue` folds
+    // `as` and reads an empty source set or size as absent, so a document
+    // link spelled `as="IMAGE"` or carrying `imagesrcset=""` adopts instead
+    // of duplicating — the same rules head.ts applies.
+    //
+    // Rebased onto next after the patch-channel removal (2026-09-02):
+    // 11.30 -> 11.40 KB, measured at 11.372 against next's 11.266 — +106 B
+    // for the whole branch (identity canonicalization, the source-set form,
+    // and the mirrored qualifier folding above). The per-commit notes were
+    // measured on the pre-removal base, so their absolutes no longer line
+    // up with this file's floor, but their deltas do.
     path: "../../packages/web/frames/dist/client.js",
-    limit: "11.30 KB",
+    limit: "11.40 KB",
     modifyEsbuildConfig: framesEsbuildConfig
   }
 ];

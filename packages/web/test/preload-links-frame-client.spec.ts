@@ -150,6 +150,32 @@ describe("frame preload links", () => {
     expect(document.head.querySelector('link[crossorigin="anonymous"]')).toBe(server);
   });
 
+  it("adopts across destination case and filtered responsive values", () => {
+    const server = document.createElement("link");
+    server.rel = "preload";
+    server.setAttribute("href", "/j.avif");
+    server.setAttribute("as", "IMAGE");
+    server.setAttribute("imagesrcset", "");
+    server.setAttribute("imagesizes", "");
+    document.head.appendChild(server);
+
+    const boundary = document.createElement("div");
+    document.body.appendChild(boundary);
+    createFrame(boundary).apply({
+      version: 1,
+      r: {
+        "seg::assets": {
+          type: "assets",
+          key: "",
+          preloads: [{ href: "/j.avif", attrs: { as: "image" } }]
+        }
+      }
+    });
+
+    expect(document.head.querySelectorAll('link[href="/j.avif"]')).toHaveLength(1);
+    expect(document.head.querySelector('link[href="/j.avif"]')).toBe(server);
+  });
+
   it("retains every late root asset record until a frame registers", () => {
     const host = createFrameHost();
     host.apply({

@@ -112,4 +112,12 @@ describe("preload link adoption on the client", () => {
     expect(preloads()).toHaveLength(1);
     expect(preloads()[0]).toBe(server);
   });
+
+  test("adopts across destination case and filtered responsive values", () => {
+    const server = serverEmitted({ href: "/j.avif", as: "image" });
+    mount({ href: "/j.avif", as: "IMAGE", imagesrcset: "", imagesizes: "" });
+
+    expect(preloads()).toHaveLength(1);
+    expect(preloads()[0]).toBe(server);
+  });
 });

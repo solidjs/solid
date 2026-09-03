@@ -49,6 +49,7 @@ import {
   evalHeadProps,
   evalHeadValue,
   resourceIdentity,
+  asciiLowerCase,
   replaceableIdentity,
   resolveHead,
   STYLESHEET_FETCH_META
@@ -341,7 +342,9 @@ function joinAssetPath(base, file) {
 // commas TRAILING that run separate it from the next candidate. Commas INSIDE a
 // URL (`/w,400/hero.avif`, the shape image CDNs emit) are part of it, so they no
 // longer read as two relative candidates.
-function eachCandidateUrl(srcset, visit) {
+// `visit(url, descriptors)` sees each candidate's URL and the descriptor text
+// between it and the closing comma, so a descriptor check never scans a URL.
+function eachCandidate(srcset, visit) {
   let i = 0;
   const n = srcset.length;
   while (i < n) {
@@ -351,12 +354,15 @@ function eachCandidateUrl(srcset, visit) {
     if (i === start) return false;
     const raw = srcset.slice(start, i);
     const url = raw.replace(/,+$/, "");
-    if (url && visit(url)) return true;
+    let descriptors = "";
     // A URL that did not end in commas is followed by its descriptor; the
     // comma that closes this candidate comes after it.
     if (url === raw) {
+      const from = i;
       while (i < n && srcset[i] !== ",") i++;
+      descriptors = srcset.slice(from, i);
     }
+    if (url && visit(url, descriptors)) return true;
   }
   return false;
 }
@@ -366,14 +372,17 @@ function eachCandidateUrl(srcset, visit) {
 // places on any route below the root — which is true whether or not `_base` is
 // set, hence no base guard here.
 function hasRelativeCandidate(srcset) {
-  return eachCandidateUrl(srcset, url => !/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|\/)/.test(url));
+  return eachCandidate(srcset, url => !/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|\/)/.test(url));
 }
 
 // Whether any candidate carries a width descriptor (`400w`), which the spec
-// makes `imagesizes` mandatory for. Descriptors sit between a candidate's URL
-// and the comma that closes it, so a separator always precedes them.
+// makes `imagesizes` mandatory for. Only descriptor text is examined: a URL is
+// free-form and `https://cdn.example/image,400w 1x` is one density candidate,
+// not a width descriptor.
 function hasWidthDescriptor(srcset) {
-  return /[\s,]\d+(?:\.\d+)?w(?=[\s,]|$)/.test(srcset);
+  return eachCandidate(srcset, (_, descriptors) =>
+    /(?:^|\s)\d+(?:\.\d+)?w(?=\s|$)/.test(descriptors)
+  );
 }
 
 function resolveAssets(moduleUrl, manifest) {
@@ -1241,12 +1250,6 @@ export function styleNonce(nonce?: CSPNonce): string | undefined;
 /** The style-destination half of a render `nonce`. */
 export function styleNonce(nonce) {
   return destinationNonce(nonce, "style");
-}
-
-// HTML compares rel/as ASCII case-insensitively; toLowerCase would fold a
-// non-ASCII character onto an ASCII one the parser never matches.
-function asciiLowerCase(value) {
-  return value.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32));
 }
 
 // Attribute names are ASCII case-insensitive, so a caller-supplied `Nonce`

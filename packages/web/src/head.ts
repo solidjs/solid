@@ -99,11 +99,28 @@ export function classifyHeadTag(desc) {
 //     invalid value — is Anonymous. `crossorigin=""` and `crossorigin="anonymous"`
 //     are one request and must be one identity, or the same font ships twice
 //     and the client mounts a second link instead of adopting the server's.
+//   - `as` is an enumerated attribute, ASCII case-insensitive: registration
+//     lowercases it before emitting, so identity and adoption must fold the
+//     same way or a client `as="IMAGE"` never adopts the server's `as="image"`.
+//   - the responsive pair is filtered at registration: `""` and any
+//     non-string value never reach the markup, so they must read as absent
+//     here too, or a client `imagesrcset: ""` mounts a second link beside a
+//     server link that (correctly) carries none.
+// The standalone frame client mirrors this function; keep them in step.
 export function qualifierValue(name, value) {
   if (value == null || value === false) return null;
+  if (name === "imagesrcset" || name === "imagesizes")
+    return typeof value === "string" && value !== "" ? value : null;
   const v = value === true ? "" : String(value);
+  if (name === "as") return asciiLowerCase(v);
   if (name !== "crossorigin") return v;
   return v.length === 15 && v.toLowerCase() === "use-credentials" ? v.toLowerCase() : "anonymous";
+}
+
+// HTML compares rel/as ASCII case-insensitively; toLowerCase would fold a
+// non-ASCII character onto an ASCII one the parser never matches.
+export function asciiLowerCase(value) {
+  return value.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32));
 }
 
 // Identity for a resource-class tag (evaluated props). Qualifier values are
@@ -111,9 +128,13 @@ export function qualifierValue(name, value) {
 // delimiters forge another qualifier (`type: "a:media=b"` collided with
 // `type: "a", media: "b"`), which silently dropped the second resource. The
 // responsive attributes made that reachable — a source set is a long free-form
-// string that routinely carries `:` and `=`.
+// string that routinely carries `:` and `=`. The URL is length-prefixed for the
+// same reason: it is free-form too, and `/loader:type=6:module` with no `type`
+// otherwise reads as `/loader` with `type: "module"`. `tag` and `rel` come
+// from closed sets and cannot carry the delimiters.
 export function resourceIdentity(tag, props) {
-  let id = "res:" + tag + ":" + (props.rel || "") + ":" + (props.href || props.src || "");
+  const url = String(props.href || props.src || "");
+  let id = "res:" + tag + ":" + (props.rel || "") + ":" + url.length + ":" + url;
   for (let i = 0; i < RESOURCE_QUALIFIERS.length; i++) {
     const q = RESOURCE_QUALIFIERS[i];
     const value = qualifierValue(q, props[q]);

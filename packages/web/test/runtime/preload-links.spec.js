@@ -267,12 +267,21 @@ describe("typed preload links", () => {
     expect(html).not.toContain("imagesizes");
   });
 
-  it("does not fork an image identity on an empty source set", () => {
+  it("canonicalizes destinations and filtered responsive qualifiers", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const html = r.renderToString(() => {
       const ctx = sharedConfig.context;
       ctx.registerAsset("preload", { href: "/x.avif", as: "image" });
-      ctx.registerAsset("preload", { href: "/x.avif", as: "image", imagesrcset: "" });
+      r.useHead({
+        tag: "link",
+        props: {
+          rel: "preload",
+          href: "/x.avif",
+          as: "IMAGE",
+          imagesrcset: "",
+          imagesizes: ""
+        }
+      });
       return r.ssr`<html><head></head><body></body></html>`;
     });
     warn.mockRestore();
@@ -488,6 +497,10 @@ describe("typed preload links", () => {
         imagesizes: "50vw"
       });
       ctx.registerAsset("preload", { as: "image", imagesrcset: "/c-1x.avif, /c-2x.avif 2x" });
+      ctx.registerAsset("preload", {
+        as: "image",
+        imagesrcset: "https://cdn.example/image,400w 1x"
+      });
       return r.ssr`<html><head></head><body></body></html>`;
     });
     const warnings = warn.mock.calls.map(call => String(call[0]));
@@ -713,5 +726,21 @@ describe("typed preload links", () => {
     });
 
     expect(html.match(/rel="preload"/g)).toHaveLength(2);
+  });
+
+  it("keeps URLs from forging qualifier fields", () => {
+    const html = r.renderToString(() => {
+      r.useHead({
+        tag: "link",
+        props: { rel: "stylesheet", href: "/loader:type=8:text/css" }
+      });
+      r.useHead({
+        tag: "link",
+        props: { rel: "stylesheet", href: "/loader", type: "text/css" }
+      });
+      return r.ssr`<html><head></head><body></body></html>`;
+    });
+
+    expect(html.match(/rel="stylesheet"/g)).toHaveLength(2);
   });
 });
