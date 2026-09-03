@@ -397,6 +397,19 @@ export function bumpDeep(t: StoreNextTarget): void {
   if (t.dk !== null) setSignal(t.dk, 1 as any);
 }
 
+/** PROTOTYPE (create-floor coarse rows): the coarse read — subscribe to ONE
+ * record's deep-witness node and return its CURRENT RAW backing. No child
+ * walk, no key-set, no snapshot (deepNext's jobs), no leaf nodes, no wrap.
+ * Raw is served per-call because folds swap the backing object. Non-store
+ * values pass through; untracked calls skip the subscription but still
+ * serve raw. */
+export function witnessNext<T>(value: T): T {
+  const t: StoreNextTarget | undefined = (value as any)?.[$TARGET];
+  if (t === undefined || t.px !== value) return value;
+  if (getObserver() !== null) readNode(getDeepNode(t));
+  return (t.pb ?? t.v) as T;
+}
+
 // ---------------------------------------------------------------------------
 // pending backing + fold (the single mutation point)
 
