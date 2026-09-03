@@ -648,6 +648,24 @@ export function registerFlightDataSource(source, hook) {
   };
 }
 
+// A wrap that is not a function cannot wrap (#3238): `null`, `false`, an
+// options bag in the wrong slot — each used to fail in the quietest
+// available direction (falsy values silently took per-invocation policy —
+// auth, logging — off the call; truthy non-functions threw a bare
+// "not a function" out of the middle of dispatch, attributed to nothing).
+// An invalid value is a configuration error, refused loudly at the point
+// the hook is resolved for an invocation, on both dispatch roads.
+// `undefined` stays the one spelling of absence.
+function resolveWrapInvocation(hook) {
+  if (hook === undefined || typeof hook === "function") return hook;
+  throw new Error(
+    `Invalid wrapInvocation: expected a function, received ${
+      hook === null ? "null" : typeof hook
+    }. A hook that is not callable cannot wrap the call - configure a function, or leave ` +
+      `wrapInvocation undefined.`
+  );
+}
+
 function provideEvent(event, fn) {
   if (config.provideEvent) return config.provideEvent(event, fn);
   // Fall back to the AsyncLocalStorage instance provideRequestEvent parks on
@@ -1150,20 +1168,21 @@ export function createServerReference({ id, fn, name }) {
       INVOCATIONS.set(evt, { id });
       evt.serverOnly = true;
       const scope = run => provideEvent(evt, run);
+      // Per-invocation wrap (see configureServerFunctionsServer): direct
+      // SSR calls run through the same policy as HTTP dispatch, so
+      // per-function middleware built on it can't be bypassed by calling
+      // the function during a render. Resolved — and validated (#3238) —
+      // per invocation, before the body can run.
+      const wrap = resolveWrapInvocation(config.wrapInvocation);
       // Exactly-once is enforced on this leg too (#3246, see
       // provideEventOnce): a broken hook used to double-commit or skip the
       // body silently during a render, where there is no status line to
       // notice it by.
       let result = provideEventOnce(provideEvent, evt, () => {
         const run = () => fn.apply(thisArg, args);
-        // Per-invocation wrap (see configureServerFunctionsServer): direct
-        // SSR calls run through the same policy as HTTP dispatch, so
-        // per-function middleware built on it can't be bypassed by calling
-        // the function during a render. The wrapper must return run()'s
-        // value (this path stays synchronous for synchronous functions).
-        return config.wrapInvocation
-          ? config.wrapInvocation(run, { id, args, event: evt, direct: true })
-          : run();
+        // The wrapper must return run()'s value (this path stays
+        // synchronous for synchronous functions).
+        return wrap ? wrap(run, { id, args, event: evt, direct: true }) : run();
       });
       // A generator or stream body runs when the caller pulls it, after the
       // call-time scope above has gone. Bind the WRAPPER'S result (not merely
@@ -3375,8 +3394,12 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // configured transform (frames installs itself here once, server-wide).
   const transformResult =
     options.transformResult !== undefined ? options.transformResult : config.transformResult;
-  const wrapInvocation =
-    options.wrapInvocation !== undefined ? options.wrapInvocation : config.wrapInvocation;
+  // Resolved and validated per invocation (#3238): a non-function,
+  // non-undefined value is a configuration error and refuses the request
+  // loudly, never a silent unhooking.
+  const wrapInvocation = resolveWrapInvocation(
+    options.wrapInvocation !== undefined ? options.wrapInvocation : config.wrapInvocation
+  );
   const transformFlightResult =
     options.transformFlightResult !== undefined
       ? options.transformFlightResult

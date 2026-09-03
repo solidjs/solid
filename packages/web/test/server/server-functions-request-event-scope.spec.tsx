@@ -16,7 +16,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  configureServerFunctionsServer({ wrapInvocation: null as any });
+  configureServerFunctionsServer({ wrapInvocation: run => run() });
   delete (globalThis as any)[RequestContext];
 });
 
@@ -187,7 +187,7 @@ describe("server-function request-event scope (#3222)", () => {
       });
       expect(scoped).toEqual([true, true]);
     } finally {
-      configureServerFunctionsServer({ wrapInvocation: null as any });
+      configureServerFunctionsServer({ wrapInvocation: run => run() });
     }
   });
 });
