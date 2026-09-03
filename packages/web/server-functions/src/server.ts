@@ -2174,8 +2174,17 @@ function enterGuard(value, state) {
     return new Frame(SET, value, next, [...value], null);
   }
 
+  // Errors descend too (#3235): seroval encodes an Error's own enumerable
+  // properties like any other object's, and `Object.assign(new Error(...),
+  // { rows })` is the ordinary shape of a domain failure carrying its
+  // context — so a channel under an Error carrier rode the wire unguarded.
+  // The rebuild below keeps the carrier's prototype and its own descriptors
+  // (message and stack are own data properties), so the author's Error —
+  // subclass identity included — is what the codec encodes. Other foreign
+  // prototypes stay untouched: their own properties are not ours to rebuild
+  // (private fields, getters, invariants).
   const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
+  if (prototype !== Object.prototype && prototype !== null && !(value instanceof Error)) {
     state.seen.set(value, value);
     return value;
   }
