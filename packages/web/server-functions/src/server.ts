@@ -439,8 +439,13 @@ export interface HandleServerFunctionOptions {
   /**
    * Overrides the configured per-invocation wrap for this handler — same
    * contract as the `wrapInvocation` config option (see
-   * `WrapInvocationHook`), except it only applies to HTTP dispatch (a
-   * per-request option can't see direct SSR calls).
+   * `WrapInvocationHook`), except it is ENTRY-ONLY: it wraps exactly the
+   * invocation the request addressed. Nested direct server-function calls
+   * made by the dispatched body are not re-wrapped by it — they consult
+   * only the configured hook, which is ambient and wraps every direct call
+   * (a per-request option can't see direct SSR calls). Policy that must
+   * cover every hop belongs on `configureServerFunctionsServer`'s
+   * `wrapInvocation`, not here.
    */
   wrapInvocation?: WrapInvocationHook;
   /**
@@ -3140,9 +3145,12 @@ export function handleServerFunctionRequest(
  *   (`getServerFunctionInvocation()` answers before, during and after
  *   `run()`); the context carries `{ id, args, event, request, direct }`.
  *   Must return (or resolve to) `run()`'s result — replacing it replaces
- *   the function's result. The configured hook (see
- *   `configureServerFunctionsServer`) also wraps direct SSR calls, where
- *   `context.direct` is `true` and `request` is absent.
+ *   the function's result. The per-request option is ENTRY-ONLY: it wraps
+ *   the invocation the request addressed, and nested direct calls made by
+ *   the dispatched body are not re-wrapped by it. The configured hook (see
+ *   `configureServerFunctionsServer`) is ambient instead: it also wraps
+ *   direct SSR calls — nested ones included — where `context.direct` is
+ *   `true` and `request` is absent.
  * - `transformResult(event, result, context)`: observes/replaces the result
  *   before encoding — the extension point for response metadata policies.
  *   The context carries the call's identity (`id`, parsed `args`) alongside
