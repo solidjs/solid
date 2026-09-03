@@ -108,24 +108,43 @@ implementation/tests, prior accepted fixes, and platform semantics.
 - #3242's construct trap and #3244's completion-teardown — behavior changes
   without a defect.
 
-**Rulings required before any implementation:**
+**Rulings — resolved 2026-09-03:**
 
-1. #3239 flash cookie: `__Host-` rename (wire break), SameSite choice
-   (the PR's Lax claim is factually wrong), lifetime, and whether raw form
-   input belongs in the cookie at all.
-2. #3249 flash `url` identity on overflow: refuse, digest, or explicit
-   truncation flag — never a silent prefix.
-3. #3250 refused no-JS navigation: which statuses (if any) become 303s; the
-   PR's version redirects CSRF refusals and sets cookies pre-origin-check.
-4. #3252 `targetUrl` contract: does a same-origin `Location` alone name the
-   destination without a `Referer`?
-5. #3240/#3238 `wrapInvocation` semantics: entry-only vs hop-by-hop per-handler
-   hooks, and whether invalid hook values fall back, disable, or throw.
-6. #3237 `withMeta({ method })` post-GET: throw, revoke, or document.
-7. #3241 nested deferred scope: which carriers (objects/arrays vs Set/Map/
-   frozen) are supported, and whether returned containers may be mutated.
-8. #3248 whether a `undefined` outcome writes a flash cookie.
-9. #3242 whether `new serverFn()` deserves runtime rejection.
+1. #3239 flash cookie: the payload (including form `input`, which the router's
+   `filter(s.input)` attribution requires on the flash-seeded render) is
+   AES-GCM encrypted, always. Key resolution: explicit `secret` option →
+   bundler-injected `globalThis.__SOLID_FLASH_KEY__` → no key means no flash
+   cookie plus a dev diagnostic. Envelope gains `SameSite=Lax` and
+   `Max-Age=60`; the recorded `url` is the unbound base so `.with()`-bound
+   forms match `fn.base`. No `__Host-` rename, no redaction heuristics.
+2. #3249 flash overflow: refuse to flash (plain redirect, no cookie) — never a
+   silent prefix. Landed in `3393fb62`.
+3. #3250 refused no-JS navigation: ratified as-is — security refusals keep raw
+   statuses and never flash; a refused request is of unproven origin and its
+   `Referer` is attacker-controlled. Closed, no code change.
+4. #3252 `targetUrl`: a same-origin `Location` is server-authored and alone
+   names the fold destination; no `Referer` corroboration. Closed as ratified.
+5. #3240/#3238 `wrapInvocation`: entry-only semantics kept and pinned
+   (`c08e9742`); invalid hook values throw at hook resolution on both roads
+   (`ed6b6053`). No hop-by-hop propagation.
+6. #3237 `withMeta({ method })` against an existing grant: throws in dev,
+   fails closed (grant revoked) in prod (`12263816`).
+7. #3241 supported carriers: plain objects and arrays, copy-on-write — user
+   containers are never mutated; Set/Map/frozen slots documented out of scope
+   (`84a94bc1`).
+8. #3248 `undefined` outcome: writes no flash cookie, pinned by test
+   (`f21e060b`).
+9. #3242 construction: native Proxy semantics stay; no construct trap.
+
+**Landed fixes (all merged to `next` 2026-09-03):** #3232 `ff2ecf11`,
+#3234 `c0bc9baa`, #3235 `5cee0f77`, #3236 `7009adfd`, #3237 `12263816`,
+#3238 `ed6b6053`, #3241 `84a94bc1`, #3244 `b7b17abf`, #3245 `6c9f8f45`,
+#3246 `292bdc52`, #3247 `a1ff2860`, #3248 `f21e060b`, #3249 `3393fb62`,
+#3251 `a14c1385`, #3253 `6bb51c9b`. Every issue in the sweep is closed;
+the #3239 encrypted-flash runtime and its vite-plugin key-injection
+companion are the remaining implementation work. The **audit**/**ruling**
+markers in the tables above record the pre-triage state and read as
+resolved per this section.
 
 ## Extraction and merge discipline
 
