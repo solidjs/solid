@@ -9,6 +9,7 @@ export {
   createRoot,
   createTrackedEffect,
   deep,
+  witness,
   flatten,
   flush,
   getNextChildId,

@@ -59,6 +59,13 @@ export function deep<T>(value: T): T {
   return deepNext(value);
 }
 
+/** PROTOTYPE (create-floor coarse rows — not product API): subscribe to ONE
+ * record's deep-witness node, nothing else. The coarse-row read model: a row
+ * effect witnesses its record(s) and reads values RAW — one node + one link
+ * per record instead of one per touched leaf. Unlike `deep()` this does NOT
+ * walk children, does NOT subscribe key-sets, and takes no snapshot. */
+export { witnessNext as witness } from "./next/store.js";
+
 export { storePath } from "./storePath.js";
 export type {
   PathSetter,
