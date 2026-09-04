@@ -9,6 +9,8 @@ All conversational RESPONSES an agent posts to GitHub on the maintainer's behalf
 
 Bodies of NEW issues and PRs the agent opens are exempt — authorship is already clearly credited there. This policy is about responses in conversation.
 
+Every blockquoted response MUST end with an attribution line as the last line of the quote, after a blank quoted line:
+
 ```markdown
 ❌ BAD
 Confirmed and fixed in fc7e626f — thanks for the reproduction.
@@ -17,11 +19,14 @@ Confirmed and fixed in fc7e626f — thanks for the reproduction.
 > Confirmed and fixed in fc7e626f — thanks for the reproduction.
 >
 > Root cause: derived stores fold drafts on the clone path...
+>
+> — *Claude via Cursor*
 ```
 
 Rules of thumb:
 
 - Code blocks inside the comment stay inside the blockquote (prefix the fences too: `> ```ts`).
+- The attribution names the actual agent — model and/or product, e.g. `— *Claude via Cursor*` — the same way agents credit themselves on commits and PRs. Keep the `— *<agent>*` shape consistent so readers learn to recognize it.
 - Applies to `gh issue comment`, `gh pr comment`, `gh pr review --body`, close/merge `--comment` bodies, and API-posted comment bodies.
 - Does NOT apply to commit messages, changesets, PR/issue titles, labels, or code — only conversational bodies.
 - If quoting someone else inside an agent comment, use a nested quote (`> >`).
