@@ -32,24 +32,29 @@ import {
   store.count satisfies number;
 }
 
-// ── createStore (projection) — partial seed ───────────────────────────
+// ── projection seeds must be complete ────────────────────────────────
 
-{
-  const [store] = createStore(() => ({ foo: true }), {});
-  store.foo satisfies boolean;
-}
+type UserState = { user: { name: string }; ready: boolean };
 
-{
-  const [store] = createStore(() => ({ a: 1, b: "hello" }), {});
-  store.a satisfies number;
-  store.b satisfies string;
-}
+// @ts-expect-error An inferred seed cannot omit required properties.
+createStore(() => ({ user: { name: "Ada" }, ready: true }), { ready: false });
 
-{
-  const [store] = createStore(() => ({ a: 1, b: "hello" }), { a: 0 });
-  store.a satisfies number;
-  store.b satisfies string;
-}
+// @ts-expect-error An explicit type argument cannot opt back into a partial seed.
+createStore<UserState>(() => ({ user: { name: "Ada" }, ready: true }), {});
+
+// ── callable store roots are rejected ────────────────────────────────
+
+type CallableState = (() => void) & { count: number };
+const callableState = Object.assign(() => {}, { count: 0 });
+
+// @ts-expect-error A projection draft cannot represent a callable root.
+createStore<CallableState>(() => callableState, callableState);
+
+// @ts-expect-error A projection draft cannot represent a callable root.
+createProjection<CallableState>(() => callableState, callableState);
+
+// @ts-expect-error A projection draft cannot represent a callable root.
+createOptimisticStore<CallableState>(() => callableState, callableState);
 
 // ── createProjection — mutation only (void return, T from seed) ───────
 
@@ -75,17 +80,8 @@ import {
   store.active satisfies boolean;
 }
 
-// ── createProjection — partial seed ───────────────────────────────────
-
-{
-  const store = createProjection(() => ({ foo: true }), {});
-  store.foo satisfies boolean;
-}
-
-{
-  const store = createProjection(() => ({ nested: { x: 1 } }), {});
-  store.nested.x satisfies number;
-}
+// @ts-expect-error createProjection also requires a complete seed.
+createProjection(() => ({ user: { name: "Ada" }, ready: true }), { ready: false });
 
 // ── createProjection — empty array seed ───────────────────────────────
 
@@ -113,12 +109,8 @@ import {
   proj.count satisfies number;
 }
 
-// ── createOptimisticStore (projection) — partial seed ─────────────────
-
-{
-  const [store] = createOptimisticStore(() => ({ foo: true }), {});
-  store.foo satisfies boolean;
-}
+// @ts-expect-error createOptimisticStore also requires a complete seed.
+createOptimisticStore(() => ({ user: { name: "Ada" }, ready: true }), { ready: false });
 
 // ── createOptimisticStore (projection) — seed matches return type ─────
 

@@ -1592,7 +1592,7 @@ export const createOptimistic: {
  */
 export const createProjection: <T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  initialValue: Partial<T> | Store<NoFn<T>>,
+  initialValue: NoFn<T> | Store<NoFn<T>>,
   options?: HydrationProjectionOptions
 ) => Refreshable<Store<T>> = ((...args: any[]) => {
   // `hydrating` can only be true once enableHydration() installed the

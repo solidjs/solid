@@ -495,6 +495,7 @@ type ServerMemoOptions<T> = MemoOptions<T> & {
 };
 type ServerSignalOptions<T> = SignalOptions<T>;
 type ServerStoreOptions = ServerSsrOptions;
+type NoFn<T> = T extends Function ? never : T;
 
 /**
  * The pending source for BARE `ssrSource: "client"` (no declared commit #0):
@@ -1778,12 +1779,12 @@ function setProperty(state: any, property: PropertyKey, value: any) {
 }
 
 export function createStore<T extends object>(
-  store: T | Store<T>,
+  store: NoFn<T> | Store<NoFn<T>>,
   options?: { name?: string; shallow?: boolean }
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object>(
   fn: (store: T) => void | T | Promise<void | T>,
-  store: Partial<T> | Store<T>,
+  store: NoFn<T> | Store<NoFn<T>>,
   options?: ServerStoreOptions & { name?: string; shallow?: boolean }
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object>(
@@ -1798,7 +1799,7 @@ export function createStore<T extends object>(
     // The impl signature stays loose; the public overload above enforces the
     // client/seedLoadingValue pairing, and createProjection re-checks at
     // runtime.
-    const store = createProjection(first as any, second as T, options as any);
+    const store = createProjection(first as any, second as NoFn<T>, options as any);
     return [store as Store<T>, storeSetter(store as T)];
   }
   const state = first as T;
@@ -1823,12 +1824,12 @@ function storeSetter<T extends object>(state: T): StoreSetter<T> {
 }
 
 export function createOptimisticStore<T extends object>(
-  store: T | Store<T>,
+  store: NoFn<T> | Store<NoFn<T>>,
   options?: { name?: string; shallow?: boolean }
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object>(
   fn: (store: T) => void | T | Promise<void | T>,
-  store: Partial<T> | Store<T>,
+  store: NoFn<T> | Store<NoFn<T>>,
   options?: ServerStoreOptions & { name?: string; shallow?: boolean }
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object>(
@@ -1969,7 +1970,7 @@ function replaceState<T extends object>(target: T, next: T): void {
 
 export function createProjection<T extends object>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  initialValue: Partial<T> | Store<T>,
+  initialValue: NoFn<T> | Store<NoFn<T>>,
   options?: ServerStoreOptions
 ): Store<T> {
   const ctx = sharedConfig.context;
@@ -1999,7 +2000,7 @@ export function createProjection<T extends object>(
     if (slots) slots[slotId!] = proxy;
     return proxy;
   };
-  const [state] = createStore(initialValue as T);
+  const [state] = createStore(initialValue as NoFn<T>);
 
   if (options?.ssrSource === "client") {
     // seedLoadingValue = declared commit #0: the seed renders. Bare = the
