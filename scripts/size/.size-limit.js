@@ -529,10 +529,10 @@ module.exports = [
     // 26.36 macOS — the drainFolds merge arm (see the createStore note);
     // this scenario retains all of it.
     //
-    // rc.6 P1 store sweep (#3282/#3283/#3284): 26.37 -> 26.42 KB, measured
-    // at 26.42 macOS — see the createStore note; this scenario retains all
-    // of it.
-    limit: "26.42 KB",
+    // rc.6 P1 store sweep (#3282/#3283/#3284): 26.37 -> 26.43 KB, measured
+    // at 26.42 macOS / 26424 B Linux CI (the usual +4-7 B Linux delta) —
+    // see the createStore note; this scenario retains all of it.
+    limit: "26.43 KB",
     modifyEsbuildConfig
   },
   {
