@@ -16,12 +16,12 @@ export { isWrappable, $TRACK, $PROXY, $TARGET } from "./store.js";
 
 import type {
   NoFn,
+  NoArray,
   ProjectionOptions,
   SeededProjectionOptions,
   Store,
   StoreOptions,
-  StoreSetter,
-  SeedlessRoot
+  StoreSetter
 } from "./store.js";
 import type { Refreshable } from "../core/index.js";
 import {
@@ -47,17 +47,17 @@ export {
 /** Public createStore: plain form `(initialValue, options?)` and derived writable
  * forms `(fn)` / `(fn, seed, options?)`. */
 export function createStore<T extends object = {}>(
-  initialValue: NoFn<T> | Store<NoFn<T>>,
+  initialValue: T & NoFn<T>,
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
-  fn: (() => T | Promise<T> | AsyncIterable<T>) & SeedlessRoot<T>,
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T> & NoFn<T>,
   seed?: null,
   options?: ProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
-  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: NoFn<T> | Store<NoFn<T>>,
+  fn: ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>) & NoFn<T>,
+  seed: T,
   options?: SeededProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createStore(first: any, second?: any, third?: any): any {

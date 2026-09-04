@@ -497,8 +497,8 @@ type ServerMemoOptions<T> = MemoOptions<T> & {
   serialize?: false;
 };
 type ServerSignalOptions<T> = SignalOptions<T>;
-type NoFn<T> = T extends Function ? never : T;
-type SeedlessRoot<T> = Extract<T, Function | readonly unknown[]> extends never ? unknown : never;
+type NoArray<T> = Extract<T, readonly unknown[]> extends never ? unknown : never;
+type NoFn<T> = Extract<T, Function> extends never ? unknown : never;
 
 /**
  * The pending source for BARE `ssrSource: "client"` (no declared commit #0):
@@ -1782,17 +1782,17 @@ function setProperty(state: any, property: PropertyKey, value: any) {
 }
 
 export function createStore<T extends object = {}>(
-  initialValue: NoFn<T> | Store<NoFn<T>>,
+  initialValue: T & NoFn<T>,
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
-  fn: (() => T | Promise<T> | AsyncIterable<T>) & SeedlessRoot<T>,
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T> & NoFn<T>,
   seed?: null,
   options?: ServerProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
-  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: NoFn<T> | Store<NoFn<T>>,
+  fn: ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>) & NoFn<T>,
+  seed: T,
   options?: ServerSeededProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
@@ -1811,7 +1811,7 @@ export function createStore<T extends object = {}>(
     // The impl signature stays loose; the public overload above enforces the
     // client/seedLoadingValue pairing, and createProjection re-checks at
     // runtime.
-    const store = createProjection(first as any, second as NoFn<T>, third as any);
+    const store = createProjection(first as any, second as T, third as any);
     return [store as Store<T>, storeSetter(store as T)];
   }
   const state = first as T;
@@ -1836,17 +1836,17 @@ function storeSetter<T extends object>(state: T): StoreSetter<T> {
 }
 
 export function createOptimisticStore<T extends object = {}>(
-  initialValue: NoFn<T> | Store<NoFn<T>>,
+  initialValue: T & NoFn<T>,
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
-  fn: (() => T | Promise<T> | AsyncIterable<T>) & SeedlessRoot<T>,
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T> & NoFn<T>,
   seed?: null,
   options?: ServerProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
-  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: NoFn<T> | Store<NoFn<T>>,
+  fn: ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>) & NoFn<T>,
+  seed: T,
   options?: ServerSeededProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
@@ -2000,20 +2000,20 @@ function validateStoreValue(value: void | object): void {
 }
 
 export function createProjection<T extends object = {}>(
-  fn: (() => T | Promise<T> | AsyncIterable<T>) & SeedlessRoot<T>,
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T> & NoFn<T>,
   seed?: null,
   options?: ServerProjectionOptions
 ): Refreshable<Store<T>>;
 export function createProjection<T extends object = {}>(
-  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  initialValue: NoFn<T> | Store<NoFn<T>>,
+  fn: ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>) & NoFn<T>,
+  initialValue: T,
   options?: ServerSeededProjectionOptions
 ): Refreshable<Store<T>>;
 export function createProjection<T extends object = {}>(
   fn:
     | ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>)
     | (() => T | Promise<T> | AsyncIterable<T>),
-  initialValue: NoFn<T> | Store<NoFn<T>> | null | undefined,
+  initialValue: T | null | undefined,
   options?: ServerSeededProjectionOptions
 ): Store<T> {
   const seeded = initialValue != null;
@@ -2047,7 +2047,7 @@ export function createProjection<T extends object = {}>(
     if (slots) slots[slotId!] = proxy;
     return proxy;
   };
-  const [state] = createStore(seed as NoFn<T>);
+  const [state] = createStore<T>(seed as T & NoFn<T>);
 
   if (options?.ssrSource === "client") {
     // seedLoadingValue = declared commit #0: the seed renders. Bare = the

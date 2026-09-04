@@ -32,11 +32,11 @@ import {
   markRawIngest,
   setWriteOverride,
   STORE_VALUE,
+  type NoArray,
   type NoFn,
   type ProjectionOptions,
   type SeededProjectionOptions,
-  type Store,
-  type SeedlessRoot
+  type Store
 } from "../store.js";
 import { reconcileNextState } from "./reconcile.js";
 import { storeSetterNext, wrapNext } from "./store.js";
@@ -52,9 +52,6 @@ export function validateStoreValue(value: void | object): void {
     throw new Error("A seedless store projection must produce a plain object value");
 }
 
-export type ProjectionFn<T extends object> = (
-  draft: T
-) => void | T | Promise<void | T> | AsyncIterable<void | T>;
 export type ProjectionResultValidator<T extends object> = (
   value: void | T,
   owner: Computed<void | T>
@@ -205,7 +202,7 @@ function wrapDraft(
 }
 
 function createProjectionNextInternal<T extends object = {}>(
-  fn: ProjectionFn<T>,
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   initialValue: T,
   options?: SeededProjectionOptions,
   validateResult?: ProjectionResultValidator<T>
@@ -247,28 +244,26 @@ function createProjectionNextInternal<T extends object = {}>(
 }
 
 export function createProjectionNext<T extends object = {}>(
-  fn: (() => T | Promise<T> | AsyncIterable<T>) & SeedlessRoot<T>,
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T> & NoFn<T>,
   seed?: null,
   options?: ProjectionOptions
 ): Refreshable<Store<T>>;
 export function createProjectionNext<T extends object = {}>(
-  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: NoFn<T> | Store<NoFn<T>>,
+  fn: ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>) & NoFn<T>,
+  seed: T,
   options?: SeededProjectionOptions
 ): Refreshable<Store<T>>;
 export function createProjectionNext<T extends object = {}>(
   fn:
     | ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>)
     | (() => T | Promise<T> | AsyncIterable<T>),
-  seed: NoFn<T> | Store<NoFn<T>> | null | undefined,
+  seed: T | null | undefined,
   options?: SeededProjectionOptions
 ): Refreshable<Store<T>> {
   const seeded = seed != null;
   if (!seeded && options?.seedLoadingValue)
     throw new Error("seedLoadingValue requires an explicit store seed");
-  const derive = seeded
-    ? (fn as ProjectionFn<T>)
-    : () => (fn as () => T | Promise<T> | AsyncIterable<T>)();
+  const derive = seeded ? fn : () => (fn as () => T | Promise<T> | AsyncIterable<T>)();
   return createProjectionNextInternal(
     derive,
     (seed ?? {}) as T,
@@ -279,7 +274,7 @@ export function createProjectionNext<T extends object = {}>(
 
 /** @internal Hydration replay starts with a complete snapshot, then mutates a private draft. */
 export function createProjectionHydrationReplayNext<T extends object = {}>(
-  fn: ProjectionFn<T>,
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   replaying: () => boolean,
   options?: ProjectionOptions
 ): Refreshable<Store<T>> {
@@ -294,15 +289,13 @@ export function createStoreDerivedNext<T extends object = {}>(
   fn:
     | ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>)
     | (() => T | Promise<T> | AsyncIterable<T>),
-  seed: NoFn<T> | Store<NoFn<T>> | null | undefined,
+  seed: T | null | undefined,
   options?: SeededProjectionOptions
 ): [Refreshable<Store<T>>, (f: (draft: T) => T | void) => void] {
   const seeded = seed != null;
   if (!seeded && options?.seedLoadingValue)
     throw new Error("seedLoadingValue requires an explicit store seed");
-  const derive = seeded
-    ? (fn as ProjectionFn<T>)
-    : () => (fn as () => T | Promise<T> | AsyncIterable<T>)();
+  const derive = seeded ? fn : () => (fn as () => T | Promise<T> | AsyncIterable<T>)();
   return createStoreDerivedNextInternal(
     derive,
     (seed ?? {}) as T,
@@ -312,7 +305,7 @@ export function createStoreDerivedNext<T extends object = {}>(
 }
 
 function createStoreDerivedNextInternal<T extends object = {}>(
-  fn: ProjectionFn<T>,
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   initialValue: T,
   options?: SeededProjectionOptions,
   validateResult?: ProjectionResultValidator<T>
@@ -330,7 +323,7 @@ function createStoreDerivedNextInternal<T extends object = {}>(
 
 /** @internal Hydration replay starts with a complete snapshot, then mutates a private draft. */
 export function createStoreHydrationReplayNext<T extends object = {}>(
-  fn: ProjectionFn<T>,
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   replaying: () => boolean,
   options?: ProjectionOptions
 ): [Refreshable<Store<T>>, (f: (draft: T) => T | void) => void] {
@@ -344,7 +337,7 @@ export function createStoreHydrationReplayNext<T extends object = {}>(
 
 export function runProjectionComputedNext<T extends object>(
   wrappedStore: Store<T>,
-  fn: ProjectionFn<T>,
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   key: string | ((item: NonNullable<any>) => any) | null,
   wrapCommit?: (write: () => void, value: T) => void,
   aroundDraftWrite?: (op: () => void) => void,

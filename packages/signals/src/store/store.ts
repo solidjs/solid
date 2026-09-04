@@ -56,10 +56,10 @@ export interface SeededProjectionOptions extends ProjectionOptions {
    */
   seedLoadingValue?: boolean;
 }
-/** Restricts seedless projections to non-callable object roots with a known proxy shape. @internal */
-export type SeedlessRoot<T> =
-  Extract<T, Function | readonly unknown[]> extends never ? unknown : never;
-export type NoFn<T> = T extends Function ? never : T;
+/** Rejects array and tuple roots without transforming `T`. @internal */
+export type NoArray<T> = Extract<T, readonly unknown[]> extends never ? unknown : never;
+/** Rejects callable store roots without transforming `T`. @internal */
+export type NoFn<T> = Extract<T, Function> extends never ? unknown : never;
 
 type DataNode = Signal<any>;
 type DataNodes = Record<PropertyKey, DataNode>;
