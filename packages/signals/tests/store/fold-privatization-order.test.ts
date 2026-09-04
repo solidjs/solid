@@ -133,6 +133,59 @@ describe("#3271: ancestor write after descendant write in one draft", () => {
     });
   });
 
+  // Adapted from PR #3278 (javascript-unsafe): three writes across sibling
+  // subtrees in all six orderings — broader interleaving coverage than the
+  // two-write cases above.
+  it("every direct write survives across nested sibling orderings", () => {
+    type WideRow = {
+      id: number;
+      selected: boolean;
+      children: Child[];
+      metadata: { active: boolean };
+    };
+    const operations = [
+      (row: WideRow) => (row.children[0].selected = false),
+      (row: WideRow) => (row.metadata.active = false),
+      (row: WideRow) => (row.selected = false)
+    ];
+    const orders = [
+      [0, 1, 2],
+      [0, 2, 1],
+      [1, 0, 2],
+      [1, 2, 0],
+      [2, 0, 1],
+      [2, 1, 0]
+    ];
+    for (const order of orders) {
+      run(() => {
+        const [store, setStore] = createStore(
+          () => [
+            {
+              id: 1,
+              selected: true,
+              children: [{ id: 11, selected: true }],
+              metadata: { active: true }
+            }
+          ],
+          [] as WideRow[]
+        );
+        untrack(() => deep(store));
+        setStore(rows => {
+          for (const index of order) operations[index](rows[0]);
+        });
+        flush();
+        expect(read(store), `order ${order.join(",")}`).toEqual([
+          {
+            id: 1,
+            selected: false,
+            children: [{ id: 11, selected: false }],
+            metadata: { active: false }
+          }
+        ]);
+      });
+    }
+  });
+
   it("createProjection: descendant-first write order commits both", () => {
     run(() => {
       const store = createProjection(() => ({ rows: seed() }), {} as { rows: Row[] });
