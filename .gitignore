@@ -29,3 +29,4 @@ packages/solid/universal/src/universal.d.ts
 /.devcontainer.json
 /devcontainer
 packages/solid-web/test/harness/__artifacts__/
+packages/test-integration/tests/fixtures/downloaded/
