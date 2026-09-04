@@ -356,9 +356,20 @@ export function createJSONDeserializer(options) {
    * — the promise under one id, its resolver under the special-reference id
    * next to it). Both settle idempotently — throwing into a completed stream
    * and rejecting a resolved promise are no-ops — so the sweep is safe to
-   * run on normal end-of-stream too. Settling is all the promise leg does:
-   * the rejection it induces already has a fallback owner, put there by
-   * `ownDecodedPromises` when the chunk that minted the promise was read.
+   * run on normal end-of-stream too.
+   *
+   * The rejection this leg induces normally has a fallback owner already,
+   * put there by `ownDecodedPromises` when the chunk that minted the promise
+   * was read — but that claims only `refs` entries that are themselves
+   * `instanceof Promise`, and seroval can leave a `{p, s, f}` deferred in
+   * `refs` whose `.p` never became its own entry:
+   * `deserializePromiseConstructor` registers the deferred (under the
+   * special-reference id) BEFORE the bare promise (under its own id), so a
+   * collision or malformed id on the second registration throws with the
+   * deferred already in `refs` and its `.p` owned by nobody (#3267). So this
+   * leg owns `.p` itself before rejecting it — belt-and-suspenders alongside
+   * `ownDecodedPromises`, closing every promise the sweep touches regardless
+   * of how it entered `refs`.
    */
   deserializeJSONChunk.abort = function abort(error) {
     for (const value of refs.values()) {
@@ -370,6 +381,7 @@ export function createJSONDeserializer(options) {
         typeof value.f === "function" &&
         value.p instanceof Promise
       ) {
+        value.p.then(undefined, () => {});
         value.f(error);
       }
     }

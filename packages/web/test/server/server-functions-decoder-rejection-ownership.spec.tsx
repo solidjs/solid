@@ -112,6 +112,23 @@ const ATOMIC_REJECTED_GRAPH =
   `{"t":12,"i":1,"s":0,"f":{"t":13,"i":2,"s":0,"m":"never read","p":{"k":[],"v":[]}}}` +
   `],"s":1}}`;
 
+/**
+ * An arguments array holding two `PromiseConstructor` nodes (seroval type
+ * 22, the streaming pending-promise spelling) whose second node reuses the
+ * first's ref id (`i:1`). `deserializePromiseConstructor` registers the
+ * `{p, s, f}` deferred under `node.s` BEFORE the bare promise under
+ * `node.i`, so the collision throws on the second registration with the
+ * deferred (`s:4`) already in `refs` and its `.p` owned by nobody — the gap
+ * `ownDecodedPromises` cannot see, since the deferred is not itself a
+ * Promise (#3267). Handwritten: the encoder never mints a collision, but a
+ * peer writes whatever bytes it likes.
+ */
+const COLLIDING_PROMISE_CTOR_ARGS =
+  `{"t":9,"i":0,"a":[` +
+  `{"t":22,"i":1,"s":2,"f":{"t":26,"i":3,"s":1}},` +
+  `{"t":22,"i":1,"s":4,"f":{"t":26,"i":5,"s":1}}` +
+  `],"o":0}`;
+
 describe("decoder-minted rejected promises are owned (#3232)", () => {
   it("does not escape when a rejection frame lands mid-stream and the slot is never read", async () => {
     // The rejected slot settles from an early chunk while `slow` keeps the
@@ -146,5 +163,38 @@ describe("decoder-minted rejected promises are owned (#3232)", () => {
       []
     );
     await expect((value as any).slot).rejects.toMatchObject({ message: "never read" });
+  });
+
+  it("does not orphan a promise when a PromiseConstructor ref id collides (#3267)", async () => {
+    // The argument leg — the server decoding untrusted client bytes. The
+    // collision throws mid-decode, the body is refused 400, and the
+    // function never runs; the orphaned deferred is left in `refs` for the
+    // end-of-stream sweep to reject, and that rejection must have an owner
+    // or Node's default policy ends the process a few turns later.
+    registerServerFunction("decoder-ownership-collision", async () => "never runs");
+    const json = COLLIDING_PROMISE_CTOR_ARGS;
+    const length = new TextEncoder().encode(json).byteLength;
+    const body = `;0x${length.toString(16).padStart(8, "0")};${json}`;
+
+    const { escaped, value: response } = await watchRejections(() =>
+      handleServerFunctionRequest(
+        new Request("https://app.example/_server/data/decoder-ownership-collision", {
+          method: "POST",
+          body,
+          headers: {
+            "Sec-Fetch-Site": "same-origin",
+            "Content-Type": "text/plain",
+            [BODY_FORMAT_HEADER]: SERIALIZED_FORMAT
+          }
+        })
+      )
+    );
+
+    // the malformed body is refused, and no unowned rejection escapes
+    expect(response.status).toBe(400);
+    expect(
+      escaped,
+      `the orphaned decoder promise escaped as an unhandled rejection: ${escaped.join(", ")}`
+    ).toEqual([]);
   });
 });
