@@ -1209,8 +1209,6 @@ function hydrateStoreLike(
   options?: any
 ) {
   markTopLevelSnapshotScope();
-  if (initialValue == null && options?.seedLoadingValue)
-    throw new Error("seedLoadingValue requires an explicit store seed");
   return hydrateStoreLikeFn(coreFn, replayFn, fn, initialValue, options, options?.ssrSource);
 }
 

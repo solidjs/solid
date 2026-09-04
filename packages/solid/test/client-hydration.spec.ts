@@ -1728,7 +1728,9 @@ describe("Async Iterable Hydration — createProjection", () => {
     await Promise.resolve();
     await Promise.resolve();
     flush();
-    expect(() => store.name).toThrow("A seedless store projection must produce a value");
+    expect(() => store.name).toThrow(
+      "A seedless store projection must produce a plain object value"
+    );
   });
 
   test("server+AI: deep nested patch application", async () => {

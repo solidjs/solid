@@ -64,6 +64,7 @@ import {
 } from "../store.js";
 import {
   runProjectionComputedNext,
+  validateSeedlessOptions,
   validateStoreValue,
   createReplayStoreValidator,
   type ProjectionResultValidator
@@ -210,8 +211,7 @@ export function createOptimisticStoreNext<T extends object = {}>(
   const derived = typeof first === "function";
   const seeded = !derived || second != null;
   const options = (derived ? third : second) as SeededProjectionOptions | undefined;
-  if (!seeded && options?.seedLoadingValue)
-    throw new Error("seedLoadingValue requires an explicit store seed");
+  if (!seeded) validateSeedlessOptions(options);
   const derive =
     derived && !seeded ? () => (first as () => T | Promise<T> | AsyncIterable<T>)() : first;
   return createOptimisticStoreNextInternal<T>(
@@ -388,6 +388,7 @@ export function createOptimisticStoreHydrationReplayNext<T extends object = {}>(
   replaying: () => boolean,
   options?: ProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>] {
+  validateSeedlessOptions(options);
   return createOptimisticStoreNextInternal<T>(
     fn,
     {} as T,

@@ -43,13 +43,15 @@ import { storeSetterNext, wrapNext } from "./store.js";
 import type { StoreNextFamily } from "./target.js";
 
 export function validateStoreValue(value: void | object): void {
-  if (value === undefined) throw new Error("A seedless store projection must produce a value");
-  if (value === null || typeof value !== "object")
-    throw new Error("A seedless store projection must produce an object value");
-  if (Array.isArray(value)) throw new Error("Array store projections require an explicit seed");
-  const prototype = Object.getPrototypeOf(value);
+  const prototype =
+    value != null && typeof value === "object" ? Object.getPrototypeOf(value) : false;
   if (prototype !== Object.prototype && prototype !== null)
-    throw new Error("A seedless store projection must produce a plain object value");
+    throw new Error(__DEV__ ? "A seedless store projection must produce a plain object value" : "");
+}
+
+export function validateSeedlessOptions(options?: SeededProjectionOptions): void {
+  if (options?.seedLoadingValue)
+    throw new Error(__DEV__ ? "seedLoadingValue requires an explicit store seed" : "");
 }
 
 export type ProjectionResultValidator<T extends object> = (
@@ -261,8 +263,7 @@ export function createProjectionNext<T extends object = {}>(
   options?: SeededProjectionOptions
 ): Refreshable<Store<T>> {
   const seeded = seed != null;
-  if (!seeded && options?.seedLoadingValue)
-    throw new Error("seedLoadingValue requires an explicit store seed");
+  if (!seeded) validateSeedlessOptions(options);
   const derive = seeded ? fn : () => (fn as () => T | Promise<T> | AsyncIterable<T>)();
   return createProjectionNextInternal(
     derive,
@@ -278,6 +279,7 @@ export function createProjectionHydrationReplayNext<T extends object = {}>(
   replaying: () => boolean,
   options?: ProjectionOptions
 ): Refreshable<Store<T>> {
+  validateSeedlessOptions(options);
   return createProjectionNextInternal(fn, {} as T, options, createReplayStoreValidator(replaying))
     .store;
 }
@@ -293,8 +295,7 @@ export function createStoreDerivedNext<T extends object = {}>(
   options?: SeededProjectionOptions
 ): [Refreshable<Store<T>>, (f: (draft: T) => T | void) => void] {
   const seeded = seed != null;
-  if (!seeded && options?.seedLoadingValue)
-    throw new Error("seedLoadingValue requires an explicit store seed");
+  if (!seeded) validateSeedlessOptions(options);
   const derive = seeded ? fn : () => (fn as () => T | Promise<T> | AsyncIterable<T>)();
   return createStoreDerivedNextInternal(
     derive,
@@ -327,6 +328,7 @@ export function createStoreHydrationReplayNext<T extends object = {}>(
   replaying: () => boolean,
   options?: ProjectionOptions
 ): [Refreshable<Store<T>>, (f: (draft: T) => T | void) => void] {
+  validateSeedlessOptions(options);
   return createStoreDerivedNextInternal(
     fn,
     {} as T,

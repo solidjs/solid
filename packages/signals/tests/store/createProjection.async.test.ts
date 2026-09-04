@@ -63,10 +63,10 @@ describe("Projection async behavior", () => {
     };
 
     expect(() => createInvalid(() => undefined)).toThrow(
-      "A seedless store projection must produce a value"
+      "A seedless store projection must produce a plain object value"
     );
     expect(() => createInvalid(() => [])).toThrow(
-      "Array store projections require an explicit seed"
+      "A seedless store projection must produce a plain object value"
     );
     expect(() => createInvalid(() => new State())).toThrow(
       "A seedless store projection must produce a plain object value"
@@ -76,7 +76,9 @@ describe("Projection async behavior", () => {
     flush();
     await Promise.resolve();
     await Promise.resolve();
-    expect(() => asyncProjection.value).toThrow("A seedless store projection must produce a value");
+    expect(() => asyncProjection.value).toThrow(
+      "A seedless store projection must produce a plain object value"
+    );
   });
 
   it("resolves async draft and transforms into new value", async () => {

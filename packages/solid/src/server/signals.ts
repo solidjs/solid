@@ -1990,11 +1990,8 @@ function replaceState<T extends object>(target: T, next: T): void {
 }
 
 function validateStoreValue(value: void | object): void {
-  if (value === undefined) throw new Error("A seedless store projection must produce a value");
-  if (value === null || typeof value !== "object")
-    throw new Error("A seedless store projection must produce an object value");
-  if (Array.isArray(value)) throw new Error("Array store projections require an explicit seed");
-  const prototype = Object.getPrototypeOf(value);
+  const prototype =
+    value != null && typeof value === "object" ? Object.getPrototypeOf(value) : false;
   if (prototype !== Object.prototype && prototype !== null)
     throw new Error("A seedless store projection must produce a plain object value");
 }
