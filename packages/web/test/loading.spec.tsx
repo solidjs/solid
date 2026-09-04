@@ -7,8 +7,11 @@ import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
 import {
   lazy,
   type Component,
+  createOptimisticStore,
   createSignal,
   createMemo,
+  createStore,
+  For,
   Loading,
   Errored,
   Show,
@@ -823,5 +826,97 @@ describe("Testing Loading", () => {
   test("dispose", () => {
     div.innerHTML = "";
     disposer();
+  });
+});
+
+// An optimistic store's first flight must suspend into the nearest <Loading>
+// like createStore(fn, seed) does. Its flight-owned transaction (#3146),
+// declared for the uninitialized first ask too, held render()'s scheduled
+// root insert until the fetch landed: the page stayed blank — not even
+// content OUTSIDE the boundary mounted — and the fallback never showed.
+describe("<Loading> around an optimistic store's first flight", () => {
+  // Real timers: the fetches below settle on their own schedule.
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+  const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+  type Item = { id: number; label: string; votes: number };
+  function poll(make: typeof createStore | typeof createOptimisticStore) {
+    const [tick, setTick] = createSignal(0);
+    let fetches = 0;
+    const [list] = make<Item[]>(async () => {
+      tick();
+      const n = ++fetches;
+      await wait(10);
+      return [{ id: 1, label: "Tacos", votes: n - 1 }];
+    }, [] as Item[]);
+    return { list, setTick };
+  }
+
+  function mount(make: typeof createStore | typeof createOptimisticStore) {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const div = document.createElement("div");
+    let setTick!: (v: number) => void;
+    const dispose = render(() => {
+      const p = poll(make);
+      setTick = p.setTick;
+      return (
+        <>
+          <h1>Poll</h1>
+          <Loading fallback={<div>Loading...</div>}>
+            <ul>
+              <For each={p.list}>
+                {item => (
+                  <li>
+                    {item.label} - {item.votes}
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Loading>
+        </>
+      );
+    }, div);
+    flush();
+    // Comment markers from insert() are noise for these assertions.
+    const html = () => div.innerHTML.replace(/<!---->/g, "");
+    return {
+      html,
+      refetch: () => setTick(1),
+      dispose: () => {
+        dispose();
+        warn.mockRestore();
+      }
+    };
+  }
+
+  test("createOptimisticStore(fn, seed) in the component body: fallback at mount, list after landing, content kept on refetch", async () => {
+    const { html, dispose, refetch } = mount(createOptimisticStore);
+    expect(html()).toBe("<h1>Poll</h1><div>Loading...</div>");
+
+    await wait(30);
+    flush();
+    expect(html()).toBe("<h1>Poll</h1><ul><li>Tacos - 0</li></ul>");
+
+    // Refetch: stale-while-revalidate — no fallback, then the new truth.
+    refetch();
+    flush();
+    await wait(2);
+    flush();
+    expect(html()).toBe("<h1>Poll</h1><ul><li>Tacos - 0</li></ul>");
+    await wait(30);
+    flush();
+    expect(html()).toBe("<h1>Poll</h1><ul><li>Tacos - 1</li></ul>");
+    dispose();
+  });
+
+  test("control: createStore(fn, seed) in the same spot", async () => {
+    const { html, dispose } = mount(createStore);
+    expect(html()).toBe("<h1>Poll</h1><div>Loading...</div>");
+    await wait(30);
+    flush();
+    expect(html()).toBe("<h1>Poll</h1><ul><li>Tacos - 0</li></ul>");
+    dispose();
   });
 });
