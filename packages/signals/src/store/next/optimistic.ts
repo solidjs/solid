@@ -27,6 +27,7 @@ import {
   CONFIG_OPTIMISTIC,
   NOT_PENDING,
   STATUS_PENDING,
+  STATUS_UNINITIALIZED,
   unwrapOverride
 } from "../../core/constants.js";
 import {
@@ -277,7 +278,16 @@ export function createOptimisticStoreNext<T extends object = {}>(
         if (!self._loading) fam.ft = null;
         return;
       }
-      if (self._loading) return;
+      // First flight (#3146 carve-out): nothing has ever committed, so there
+      // is no truth to keep on screen and no optimistic state to protect. An
+      // uninitialized ask suspends its readers into their Loading boundary
+      // exactly like a plain derived store's first flight — declaring a
+      // transaction here instead held the ROOT MOUNT (render()'s scheduled
+      // insert rides transitions) until the fetch landed, so the boundary's
+      // fallback never showed and the whole page stayed blank. The loading
+      // window (#2933) already declares nothing for the same reason; once
+      // the first truth lands, every refetch flight declares as before.
+      if (self._loading || self._statusFlags & STATUS_UNINITIALIZED) return;
       let txn = activeTransition;
       if (txn === null) globalQueue.initTransition((txn = createTransition()));
       fam.ft = txn;
