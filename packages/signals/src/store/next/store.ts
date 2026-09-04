@@ -635,6 +635,22 @@ export const stagedTruthPB = new WeakMap<StoreNextTarget, Record<PropertyKey, an
  * are consumed at setter exit. */
 const tentativePBs = new WeakSet<object>();
 
+/** A draft read composes the live optimistic view until the draft has opened
+ * its OWN view-seeded backing (ensurePB seeds that clone from the view and
+ * registers it in tentativePBs; from then on reads must see the draft's
+ * writes, not the overrides they superseded). A pending backing that exists
+ * for any other reason is not that clone — a truth landing staged into a
+ * retaining transaction (#3164 fold) is authoritative truth WITHOUT the
+ * live overrides. ensurePB parks such a backing on the draft's first WRITE
+ * and reseeds from the view, but the reads that precede that write went to
+ * the staged truth: `votes++` read base, wrote base+1, and the override it
+ * emitted landed on the value already displayed — a second in-flight
+ * increment made after a sibling's landing was invisible (#2951's compose
+ * half, one landing later). */
+function draftSeesOverrides(target: StoreNextTarget): boolean {
+  return target.pb === null || !tentativePBs.has(target.pb);
+}
+
 /** Committed-time privatization for parent-chain slot updates (path copying). */
 function privatizeCommitted(target: StoreNextTarget): void {
   if (ownedRaw.has(target.v)) return;
@@ -1392,7 +1408,7 @@ function serveDataKey(
     // #2951). Once ensurePB runs, the seeded clone carries the view.
     // AUTHORITATIVE drafts (projection derive) never overlay — ensurePB's
     // seeding rule, applied to the read side (#3108).
-    if (target.fam?.opt && target.pb === null && !authoritativeServe()) {
+    if (target.fam?.opt && draftSeesOverrides(target) && !authoritativeServe()) {
       const node = target.n?.[key as any];
       if (node !== undefined && hasActiveOverride(node))
         v = unwrapOverride(node._x?._overrideValue);
@@ -1614,7 +1630,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
         v === undefined &&
         inDraft(target) &&
         target.fam?.opt &&
-        target.pb === null &&
+        draftSeesOverrides(target) &&
         // AUTHORITATIVE drafts (landing folds) never seed from overrides —
         // the caller's optimism is not truth (has-trap twin below).
         !authoritativeServe()
@@ -1655,7 +1671,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
         if (node !== undefined && hasActiveOverride(node))
           present = !!unwrapOverride(node._x?._overrideValue);
       }
-    } else if (target.fam?.opt && target.pb === null && !authoritativeServe()) {
+    } else if (target.fam?.opt && draftSeesOverrides(target) && !authoritativeServe()) {
       const node = target.h?.[key as any];
       if (node !== undefined && hasActiveOverride(node))
         present = !!unwrapOverride(node._x?._overrideValue);
@@ -1688,7 +1704,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
       !authoritativeServe() &&
       target.fam?.opt &&
       target.h !== null &&
-      (!inDraft(target) || target.pb === null)
+      (!inDraft(target) || draftSeesOverrides(target))
     ) {
       let set: Set<PropertyKey> | null = null;
       for (const key of Reflect.ownKeys(target.h)) {
