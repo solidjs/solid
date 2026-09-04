@@ -261,7 +261,17 @@ module.exports = [
     // swapping in the stale ensurePB clone — the swap orphaned the
     // ancestor's writes (parent CAS failed against the privatization
     // clone). Silent data loss on writable projections; load-bearing.
-    limit: "14.29 KB",
+    //
+    // rc.6 P1 store sweep (#3282/#3283/#3284): 14.29 -> 14.35 KB, measured
+    // at 14.35 macOS. Three corruption/disconnection fixes: identity-
+    // resolved parent-slot keys at fold time (wrap-time pk goes stale when
+    // arrays move — an edited moved row folded onto a sibling's slot),
+    // family-map registration of privatization clones (derived stores
+    // orphaned ancestor observers and broke proxy identity), and the #3044
+    // overlay key merge in deep()'s walk (mid-flush re-walks dropped every
+    // untouched child from the effect's dependency set). All fold-time or
+    // deep()-only paths — no hot read/write cost.
+    limit: "14.35 KB",
     modifyEsbuildConfig
   },
   {
@@ -518,7 +528,11 @@ module.exports = [
     // Fold privatization merge (#3271): 26.27 -> 26.37 KB, measured at
     // 26.36 macOS — the drainFolds merge arm (see the createStore note);
     // this scenario retains all of it.
-    limit: "26.37 KB",
+    //
+    // rc.6 P1 store sweep (#3282/#3283/#3284): 26.37 -> 26.42 KB, measured
+    // at 26.42 macOS — see the createStore note; this scenario retains all
+    // of it.
+    limit: "26.42 KB",
     modifyEsbuildConfig
   },
   {

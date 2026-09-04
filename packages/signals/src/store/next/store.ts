@@ -676,16 +676,38 @@ function draftSeesOverrides(target: StoreNextTarget): boolean {
 /** Committed-time privatization for parent-chain slot updates (path copying). */
 function privatizeCommitted(target: StoreNextTarget): void {
   if (ownedRaw.has(target.v)) return;
-  const clone = cloneRaw(target.v, target);
+  const before = target.v;
+  const clone = cloneRaw(before, target);
   ownedRaw.add(clone);
-  storeNextLookup.set(clone, target);
+  // Register in the target's OWN registration map (#3284): family targets
+  // (derived stores, projections, optimistic) resolve children through
+  // fam.map — a clone parked only in the global lookup makes the next parent
+  // read miss, wrap a fresh target, and orphan every node (subscribers) on
+  // this one.
+  (target.fam?.map ?? storeNextLookup).set(clone, target);
   target.v = clone;
   target.ch = false;
   if (target.u) {
     privatizeCommitted(target.u);
     devAssertNeverUserMutation(target.u.v);
-    target.u.v[target.pk!] = target.v;
+    target.u.v[parentSlotKey(target, before)] = target.v;
   }
+}
+
+/** Resolve the slot this child currently occupies in its parent's committed
+ * backing (#3282). `pk` is stamped at wrap time and arrays MOVE: a reverse/
+ * unshift/splice relocates the raw, and a fold that re-points the wrap-time
+ * slot writes the clone over whichever row lives there now. Objects never
+ * move keys, so the stamp is authoritative; for arrays, verify and re-locate
+ * by identity when stale (fold-time only — never on a read path). */
+function parentSlotKey(target: StoreNextTarget, expected: unknown): PropertyKey {
+  const pk = target.pk!;
+  const pv = target.u!.v;
+  if (pv[pk] === expected || !Array.isArray(pv)) return pk;
+  const at = (pv as unknown[]).indexOf(expected);
+  if (at === -1) return pk;
+  target.pk = at;
+  return at;
 }
 
 function drainFolds(): void {
@@ -823,11 +845,17 @@ function drainFolds(): void {
       t.adopted = false;
       continue;
     }
-    // Path copying (CAS: see the eager-fold twin above).
-    if (t.u && t.u.v[t.pk!] === old) {
-      privatizeCommitted(t.u);
-      devAssertNeverUserMutation(t.u.v);
-      t.u.v[t.pk!] = t.v;
+    // Path copying (CAS: see the eager-fold twin above). Slot resolved by
+    // identity (#3282): an array move relocated the raw, so the wrap-time pk
+    // may point at a sibling — a raw-slot CAS there both failed to re-point
+    // AND (via privatizeCommitted's unguarded write) clobbered the sibling.
+    if (t.u) {
+      const slot = parentSlotKey(t, old);
+      if (t.u.v[slot] === old) {
+        privatizeCommitted(t.u);
+        devAssertNeverUserMutation(t.u.v);
+        t.u.v[slot] = t.v;
+      }
     }
     if (t.adopted) {
       t.adopted = false;
@@ -1008,10 +1036,14 @@ function notifyWrites(t: StoreNextTarget): void {
     t.pb = null;
     t.v = pb;
     t.ch = false;
-    if (t.u && t.u.v[t.pk!] === oldBacking) {
-      privatizeCommitted(t.u);
-      devAssertNeverUserMutation(t.u.v);
-      t.u.v[t.pk!] = pb;
+    if (t.u) {
+      // Identity-resolved slot (#3282) — see drainFolds' path-copy twin.
+      const slot = parentSlotKey(t, oldBacking);
+      if (t.u.v[slot] === oldBacking) {
+        privatizeCommitted(t.u);
+        devAssertNeverUserMutation(t.u.v);
+        t.u.v[slot] = pb;
+      }
     }
   }
 }
@@ -2074,8 +2106,26 @@ export function deepNext<T>(value: T): T {
     readNode(getKeySetNode(t));
     readNode(getDeepNode(t));
     const map = t.fam?.map ?? storeNextLookup;
-    for (const key of Reflect.ownKeys(src)) {
-      const desc = Object.getOwnPropertyDescriptor(src, key);
+    // Overlay pending backings chain to the committed object (#3044): their
+    // OWN keys are only this batch's writes. A bare ownKeys walk mid-flush
+    // (effects recompute before the fold commits) missed every untouched
+    // child, so the re-subscribing effect dropped those records from its
+    // dependency set — later child edits never notified it (#3283). Merge
+    // committed keys, minus deletes, exactly as the ownKeys trap does.
+    let keys = Reflect.ownKeys(src);
+    if (t.ovl && src === t.pb) {
+      const merged = Reflect.ownKeys(t.v);
+      const del = t.del;
+      const filtered =
+        del !== null && del.size !== 0 ? merged.filter(key => !del.has(key)) : merged;
+      for (const key of keys) {
+        if (!hasOwn.call(t.v, key)) filtered.push(key);
+      }
+      keys = filtered;
+    }
+    for (const key of keys) {
+      const desc =
+        Object.getOwnPropertyDescriptor(src, key) ?? Object.getOwnPropertyDescriptor(t.v, key);
       if (desc === undefined) continue;
       if (desc.get || desc.set) {
         t.a = true;
