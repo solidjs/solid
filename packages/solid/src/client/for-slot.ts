@@ -1,7 +1,7 @@
 /**
- * Unified For driver (SPIKE — DESIGN-UNIFIED-FOR.md).
+ * Unified For SLOT (DESIGN-UNIFIED-FOR.md).
  *
- * One persistent structure owns both the row bookkeeping AND the DOM
+ * One persistent structure owns both the row bookkeeping AND the node
  * placement for a keyed <For>: an intrusive doubly-linked chain of rows plus
  * an incrementally-maintained key→row Map, per engaged list. The update is
  * pull-based — an ordinary two-phase render effect reads `each()`, diffs
@@ -9,6 +9,13 @@
  * partition + LIS), and commits placement — no delivery seam, no message
  * channel, no second diff: mapArray and reconcileArrays are both bypassed
  * for engaged lists.
+ *
+ * DELIVERY (module-graph, no registration): this module rides For's OWN
+ * import graph — For stamps `$for.impl` with `unifiedForSlot`, and a
+ * renderer's insert() engages it by calling the impl with ITS `SlotOps`
+ * singleton (web: `domOps`). Apps without For tree-shake the slot entirely;
+ * renderers that ignore `$for` call the accessor and get classic mapArray.
+ * The slot itself is platform-free — every node touch rides the ops.
  *
  * PHASE DISCIPLINE (the H1 bet, validated by the spike suites): the COMPUTE
  * half reads, diffs, and may create fresh rows as DETACHED DOM (same
@@ -34,10 +41,20 @@
  * FUNCTION (dynamic top-level content), empty-rendering rows, and non-array
  * subjects. Every decline lands on the classic mapArray path.
  */
-import { createOwner, runWithOwner, flatten, onCleanup, sharedConfig } from "solid-js";
-import { effect } from "./render.js";
-import { $$SLOT } from "./constants.js";
-import { setListDriver } from "./client.js";
+import {
+  createOwner,
+  createRenderEffect,
+  flatten,
+  onCleanup,
+  runWithOwner
+} from "@solidjs/signals";
+import { sharedConfig } from "./hydration.js";
+
+// The two-phase render effect in web's `effect()` shape: transparent + sync.
+const transparentOptions = { transparent: true, sync: true } as const;
+function effect<T>(fn: (prev?: T) => T, effectFn: (value: T, prev?: T) => void): void {
+  createRenderEffect(fn, effectFn, transparentOptions);
+}
 
 type RowOwner = { dispose(self?: boolean): void };
 
@@ -114,28 +131,6 @@ export interface SlotOps {
   tag(node: Node, marker: Node): void;
 }
 
-/** Web's ops singleton — the one instance every web slot shares. */
-const domOps: SlotOps = {
-  insert(parent, node, anchor) {
-    parent.insertBefore(node, anchor);
-  },
-  remove(node) {
-    (node as ChildNode).remove();
-  },
-  createText(text) {
-    return document.createTextNode(text);
-  },
-  isNode(v) {
-    return v != null && (v as any).nodeType !== undefined;
-  },
-  clear(parent) {
-    (parent as Element).textContent = "";
-  },
-  tag(node, marker) {
-    (node as any)[$$SLOT] = marker;
-  }
-};
-
 interface Slot {
   head: Row | null;
   tail: Row | null;
@@ -185,16 +180,13 @@ function removeRow(r: Row, ops: SlotOps): void {
 
 const FLATTEN_OPTS = { skipNonRendered: true, doNotUnwrap: true } as const;
 
-/** Shared no-op owner for the ownerless measurement mode. */
-const NO_OWNER: RowOwner = { dispose() {} };
-
 /** Build a row under its own owner (untracked + owned via runWithOwner —
  * mapArray's per-row shape). Fast path: compiled single-root rows return an
- * element directly and skip flatten. Detached DOM only — placement is the
- * commit's job. Returns null when the row shape is outside the spike
+ * element directly and skip flatten. Detached nodes only — placement is the
+ * commit's job. Returns null when the row shape is outside the slot
  * contract. MUST run inside `runWithOwner(slot.owner, ...)` so the row
  * owner chains to the slot (context + auto-teardown). */
-/** Row-body build core: owner + detached DOM, no bookkeeping. Returns
+/** Row-body build core: owner + detached nodes, no bookkeeping. Returns
  * [owner, node|nodes] or null (shape outside contract). Shared by the flat
  * fill (arrays only) and structural buildRow (wraps into a Row). */
 function buildParts(
@@ -202,17 +194,13 @@ function buildParts(
   item: any,
   ops: SlotOps
 ): [RowOwner, Node | Node[]] | null {
-  // Measurement flag: ambient (slot) ownership, no per-row owner. Removed
-  // rows leak their effect until slot teardown — bench-only semantics.
-  const o: RowOwner = __ownerlessRows ? NO_OWNER : (createOwner() as unknown as RowOwner);
-  let v = __ownerlessRows ? rowFn(item) : runWithOwner(o as any, () => rowFn(item));
+  const o: RowOwner = createOwner() as unknown as RowOwner;
+  let v = runWithOwner(o as any, () => rowFn(item));
   if (ops.isNode(v)) return [o, v as Node];
   const t = typeof v;
   if (t === "string" || t === "number") return [o, ops.createText(String(v))];
   // Slow path: fragments / nested arrays / signals — flatten (still owned).
-  v = __ownerlessRows
-    ? flatten(v, FLATTEN_OPTS)
-    : runWithOwner(o as any, () => flatten(v, FLATTEN_OPTS));
+  v = runWithOwner(o as any, () => flatten(v, FLATTEN_OPTS));
   if (Array.isArray(v) && v.length > 0) {
     const ns: Node[] = new Array(v.length);
     for (let i = 0; i < v.length; i++) {
@@ -327,7 +315,10 @@ const IDENTICAL = 0 as const;
 const DEMOTE = 1 as const;
 type ComputeOut = Plan | FlatPlan | typeof IDENTICAL | typeof DEMOTE;
 
-function driveKeyedFor(
+/** THE unified For slot — For stamps this as `$for.impl`; a renderer's
+ * insert() engages it with its SlotOps. Returns false to decline (classic
+ * path); lateClassic re-enters classic insert after a post-engage demote. */
+export function unifiedForSlot(
   parent: Node,
   listFn: any,
   marker: Node | undefined,
@@ -336,9 +327,9 @@ function driveKeyedFor(
 ): boolean {
   const meta = listFn.$for;
   // H4 pin: keyed-fn rows receive accessors in the classic contract — the
-  // driver binds raw items, so engaging would hand user code the wrong shape.
+  // slot binds raw items, so engaging would hand user code the wrong shape.
   if (typeof meta.keyed === "function") return false;
-  // Hydration claiming is post-spike (design §6 H2): decline to classic.
+  // Hydration claiming is future work (design §6 H2): decline to classic.
   if (sharedConfig.hydrating) return false;
 
   const slot: Slot = {
@@ -706,24 +697,5 @@ function driveKeyedFor(
   return true;
 }
 
-/** MEASUREMENT-ONLY spike flag (never product): skip per-row owners
- * entirely — rows run with the SLOT owner ambient, so row effects chain to
- * the slot and individual row disposal is a no-op (removed rows leak their
- * effect until slot teardown). Quantifies the per-row ownership tax
- * (createOwner + runWithOwner + dispose) that a compiler-proven
- * single-effect row contract would eliminate soundly. */
-export let __ownerlessRows = false;
-
-/** Arm the unified For driver (spike registration — pay-for-use: `insert`
- * is in every bundle; the driver rides only apps that call this). */
-export function enableUnifiedFor(options?: { unsafeOwnerlessRows?: boolean }): void {
-  __ownerlessRows = options?.unsafeOwnerlessRows === true;
-  // Web hands the slot ITS platform: the domOps singleton. (Interim wiring —
-  // the module-graph landing passes ops at insert's engagement site instead.)
-  setListDriver((parent, listFn, marker, lateClassic) =>
-    driveKeyedFor(parent, listFn, marker, lateClassic, domOps)
-  );
-}
-
-/** Spike test probes: engagement / demotion / batch-clear counters. */
+/** Test probes: engagement / demotion / batch-clear counters. */
 export const __unifiedForStats = { engaged: 0, demoted: 0, batchCleared: 0 };

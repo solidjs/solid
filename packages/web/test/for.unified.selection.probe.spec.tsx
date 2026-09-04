@@ -5,9 +5,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { createRoot, createStore, flush, For } from "solid-js";
-import { enableUnifiedFor } from "@solidjs/web";
-
-enableUnifiedFor();
+// No arming: the slot rides For's module graph and engages by default.
 
 describe("unified For: selection map binding", () => {
   test("row class updates from a sibling store branch", () => {

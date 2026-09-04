@@ -104,6 +104,10 @@ export * from "./component.js";
 
 // Flow controls
 export * from "./flow.js";
+// Unified For slot surface, server parity: the slot is client-only (server
+// For renders arrays directly), but isomorphic imports must resolve.
+export type { SlotOps } from "../client/for-slot.js";
+export const __unifiedForStats = { engaged: 0, demoted: 0, batchCleared: 0 };
 export type { ArrayElement, Element } from "../types.js";
 
 // SSR coordination
