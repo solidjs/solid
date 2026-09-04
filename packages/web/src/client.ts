@@ -277,6 +277,18 @@ function create(html, bypassGuard, flag) {
     throw new Error(
       "Failed attempt to create new DOM elements during hydration. Check that the libraries you are using support hydration."
     );
+  // A document shell cannot be client-created: `<template>` contents parsing
+  // ignores `<html>`/`<head>`/`<body>` start tags, so the markup would be
+  // silently flattened and the emitted walk would bind the wrong nodes. The
+  // validator deliberately accepts well-formed shells (#3259) because they
+  // are legitimate under hydration — the failure belongs here, at the actual
+  // broken act, not on every module that imports the component.
+  if ("_SOLID_DEV_" && /^<(html|head|body)[\s>]/i.test(html))
+    throw new Error(
+      "Document shell templates (<html>, <head>, <body>) cannot be client-created: " +
+        "a <template> parse strips those tags. Render this component through hydrate(), " +
+        "where the document shell already exists."
+    );
   const t = document.createElement("template");
   t.innerHTML = html;
   return flag === 2 ? t.content.firstChild.firstChild : t.content.firstChild;

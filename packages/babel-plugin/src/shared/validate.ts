@@ -21,6 +21,29 @@ function innerHTML(htmlFragment: string) {
 }
 
 /**
+ * A document shell (`<html>`/`<head>`/`<body>` root) can never round-trip a
+ * body-context fragment parse — the parser strips those wrappers no matter
+ * how well-formed the markup is — so it is parsed as a DOCUMENT instead and
+ * the shell element serialized back out (#3259). The same "used in the right
+ * place" assumption the synthetic `<table>` makes for table partials: a
+ * shell template is hydrated against a real document, not client-created.
+ * Restructuring inside the shell still mismatches — an implied `<head>`,
+ * flow content hoisted out of `<head>`, a `<p>` split in `<body>` — so the
+ * #3099 guarantee holds for markup a browser would actually rebuild.
+ */
+function documentShell(html: string, tag: string) {
+  const document = parse5.parse(html) as Document;
+  const htmlElement = document.childNodes.find(
+    node => (node as Element).tagName === "html"
+  ) as Element;
+  const shell =
+    tag === "html"
+      ? htmlElement
+      : (htmlElement.childNodes.find(node => (node as Element).tagName === tag) as Element);
+  return parse5.serializeOuter(shell);
+}
+
+/**
  * Returns an object with information when the markup is invalid
  *
  * @param {string} html - The html string to validate
@@ -90,7 +113,8 @@ export function isInvalidMarkup(html: string): { html: string; browser: string }
   }
 
   /** Parse HTML. `browser` is a string with the supposed resulting html of a real `innerHTML` call */
-  const browser = innerHTML(html);
+  const shell = /^<(html|head|body)>/.exec(html);
+  const browser = shell ? documentShell(html, shell[1]) : innerHTML(html);
 
   if (html.toLowerCase() !== browser.toLowerCase()) {
     return {
