@@ -76,6 +76,27 @@ interface Plan {
   fresh: number;
 }
 
+/** FLAT MODE (lazy structure — the mount-regression fix): first fills carry
+ * NO Row objects, no chain, no key map — just parallel arrays (mapArray's
+ * own mount economics). The structure MATERIALIZES once, lazily, on the
+ * first PARTIAL structural op (the moment the chain/LIS wins start paying);
+ * aligned ticks, clears, and no-survivor full replaces stay flat forever. */
+interface Flat {
+  /** Committed item snapshot (identity keys). */
+  items: any[];
+  owners: RowOwner[];
+  nodes: (Node | Node[])[];
+}
+
+interface FlatPlan {
+  ff: 1;
+  mode: "fill" | "replace" | "clear";
+  items: any[];
+  owners: RowOwner[];
+  nodes: (Node | Node[])[];
+  len: number;
+}
+
 interface Slot {
   head: Row | null;
   tail: Row | null;
@@ -84,7 +105,8 @@ interface Slot {
   parent: Node;
   end: Node | null;
   owner: RowOwner;
-  pending: Plan | null;
+  flat: Flat | null;
+  pending: Plan | FlatPlan | null;
   dead: boolean;
 }
 
@@ -131,18 +153,17 @@ const NO_OWNER: RowOwner = { dispose() {} };
  * commit's job. Returns null when the row shape is outside the spike
  * contract. MUST run inside `runWithOwner(slot.owner, ...)` so the row
  * owner chains to the slot (context + auto-teardown). */
-function buildRow(rowFn: (item: any) => any, item: any): Row | null {
+/** Row-body build core: owner + detached DOM, no bookkeeping. Returns
+ * [owner, node|nodes] or null (shape outside contract). Shared by the flat
+ * fill (arrays only) and structural buildRow (wraps into a Row). */
+function buildParts(rowFn: (item: any) => any, item: any): [RowOwner, Node | Node[]] | null {
   // Measurement flag: ambient (slot) ownership, no per-row owner. Removed
   // rows leak their effect until slot teardown — bench-only semantics.
   const o: RowOwner = __ownerlessRows ? NO_OWNER : (createOwner() as unknown as RowOwner);
   let v = __ownerlessRows ? rowFn(item) : runWithOwner(o as any, () => rowFn(item));
-  if (v != null && (v as any).nodeType !== undefined)
-    return { k: item, o, n: v as Node, ns: null, p: null, x: null, live: false, mv: true, g: 0 };
+  if (v != null && (v as any).nodeType !== undefined) return [o, v as Node];
   const t = typeof v;
-  if (t === "string" || t === "number") {
-    const n = document.createTextNode(String(v));
-    return { k: item, o, n, ns: null, p: null, x: null, live: false, mv: true, g: 0 };
-  }
+  if (t === "string" || t === "number") return [o, document.createTextNode(String(v))];
   // Slow path: fragments / nested arrays / signals — flatten (still owned).
   v = __ownerlessRows
     ? flatten(v, FLATTEN_OPTS)
@@ -154,12 +175,70 @@ function buildRow(rowFn: (item: any) => any, item: any): Row | null {
       if (typeof c === "function") return (o.dispose(), null);
       ns[i] = (c as any)?.nodeType ? (c as Node) : document.createTextNode(String(c));
     }
-    return { k: item, o, n: null, ns, p: null, x: null, live: false, mv: true, g: 0 };
+    return [o, ns];
   }
-  if (v != null && (v as any).nodeType !== undefined)
-    return { k: item, o, n: v as Node, ns: null, p: null, x: null, live: false, mv: true, g: 0 };
+  if (v != null && (v as any).nodeType !== undefined) return [o, v as Node];
   o.dispose();
   return null; // function / empty / unrenderable top level → classic
+}
+
+function buildRow(rowFn: (item: any) => any, item: any): Row | null {
+  const parts = buildParts(rowFn, item);
+  if (parts === null) return null;
+  const nd = parts[1];
+  return Array.isArray(nd)
+    ? { k: item, o: parts[0], n: null, ns: nd, p: null, x: null, live: false, mv: true, g: 0 }
+    : { k: item, o: parts[0], n: nd, ns: null, p: null, x: null, live: false, mv: true, g: 0 };
+}
+
+/** Lossless representation change: committed flat arrays → chain + map.
+ * Runs in COMPUTE (phase-safe: it derives bookkeeping from COMMITTED state,
+ * touches no DOM, and stays valid if the pass aborts). Returns false on
+ * duplicate identity keys (classic owns duplicates → demote). */
+function materialize(slot: Slot): boolean {
+  const f = slot.flat!;
+  const n = f.items.length;
+  let prev: Row | null = null;
+  for (let i = 0; i < n; i++) {
+    const nd = f.nodes[i];
+    const r: Row = Array.isArray(nd)
+      ? {
+          k: f.items[i],
+          o: f.owners[i],
+          n: null,
+          ns: nd,
+          p: prev,
+          x: null,
+          live: true,
+          mv: false,
+          g: 0
+        }
+      : {
+          k: f.items[i],
+          o: f.owners[i],
+          n: nd,
+          ns: null,
+          p: prev,
+          x: null,
+          live: true,
+          mv: false,
+          g: 0
+        };
+    if (slot.map.has(r.k)) {
+      // Roll back the partial chain bookkeeping; demote handles teardown.
+      slot.map.clear();
+      slot.head = slot.tail = null;
+      return false;
+    }
+    slot.map.set(r.k, r);
+    if (prev !== null) prev.x = r;
+    else slot.head = r;
+    prev = r;
+  }
+  slot.tail = prev;
+  slot.size = n;
+  slot.flat = null;
+  return true;
 }
 
 // LIS scratch (module-level, reused — stablePositions runs NO user code, so
@@ -201,7 +280,7 @@ function markMoves(order: Row[], oldPos: number[]): void {
 
 const IDENTICAL = 0 as const;
 const DEMOTE = 1 as const;
-type ComputeOut = Plan | typeof IDENTICAL | typeof DEMOTE;
+type ComputeOut = Plan | FlatPlan | typeof IDENTICAL | typeof DEMOTE;
 
 function driveKeyedFor(
   parent: Node,
@@ -227,6 +306,7 @@ function driveKeyedFor(
     // survive compute reruns, and tear down automatically with the
     // component — cleanup needs no row walk.
     owner: createOwner() as unknown as RowOwner,
+    flat: null,
     pending: null,
     dead: false
   };
@@ -234,10 +314,27 @@ function driveKeyedFor(
 
   const dropPending = (): void => {
     if (slot.pending !== null) {
-      const { order } = slot.pending;
-      for (let j = 0; j < order.length; j++) if (!order[j].live) order[j].o.dispose();
+      if ((slot.pending as FlatPlan).ff === 1) {
+        // A superseded flat plan placed nothing — dispose all its owners.
+        const { owners } = slot.pending as FlatPlan;
+        for (let j = 0; j < owners.length; j++) owners[j].dispose();
+      } else {
+        const { order } = slot.pending as Plan;
+        for (let j = 0; j < order.length; j++) if (!order[j].live) order[j].o.dispose();
+      }
       slot.pending = null;
     }
+  };
+
+  const removeFlatDom = (): void => {
+    const f = slot.flat!;
+    if (slot.end === null) (slot.parent as Element).textContent = "";
+    else
+      for (let i = 0; i < f.nodes.length; i++) {
+        const nd = f.nodes[i];
+        if (Array.isArray(nd)) for (const n of nd) (n as ChildNode).remove();
+        else (nd as ChildNode).remove();
+      }
   };
 
   const demote = (): void => {
@@ -246,6 +343,12 @@ function driveKeyedFor(
     __unifiedForStats.demoted++;
     slot.dead = true;
     dropPending();
+    if (slot.flat !== null) {
+      removeFlatDom();
+      const f = slot.flat;
+      for (let i = 0; i < f.owners.length; i++) f.owners[i].dispose();
+      slot.flat = null;
+    }
     for (let r = slot.head; r !== null; r = r.x) {
       if (r.n !== null) (r.n as ChildNode).remove();
       else if (r.ns !== null) for (const n of r.ns) (n as ChildNode).remove();
@@ -255,6 +358,30 @@ function driveKeyedFor(
     slot.size = 0;
     slot.map.clear();
     lateClassic();
+  };
+
+  /** Build the flat arrays for `arr` (tracked snapshot already taken by the
+   * caller). Returns null when a row shape is outside the contract. */
+  const buildFlat = (itemsSnap: any[]): FlatPlan | null => {
+    const len = itemsSnap.length;
+    const owners: RowOwner[] = new Array(len);
+    const nodes: (Node | Node[])[] = new Array(len);
+    let failed = false;
+    runWithOwner(slot.owner as any, () => {
+      for (let j = 0; j < len; j++) {
+        const parts = buildParts(meta.row, itemsSnap[j]);
+        if (parts === null) {
+          // Dispose what this pass created before demoting.
+          for (let d = 0; d < j; d++) owners[d].dispose();
+          failed = true;
+          return;
+        }
+        owners[j] = parts[0];
+        nodes[j] = parts[1];
+      }
+    });
+    if (failed) return null;
+    return { ff: 1, mode: "fill", items: itemsSnap, owners, nodes, len };
   };
 
   // The insert owner disposes slot.owner (and with it every row) through the
@@ -275,6 +402,63 @@ function driveKeyedFor(
       // diff again from COMMITTED state (retry against uncorrupted state).
       dropPending();
       const len = arr.length;
+      // ── FLAT MODE (lazy structure): aligned lists stay flat (zero work);
+      // clears and no-survivor replaces stay flat (bulk swap); only a
+      // PARTIAL structural op materializes the chain — once, amortized into
+      // the op the chain's wins then repay.
+      if (slot.flat !== null) {
+        const fi = slot.flat.items;
+        if (len === fi.length) {
+          let aligned = true;
+          for (let j = 0; j < len; j++)
+            if (arr[j] !== fi[j]) {
+              aligned = false;
+              break;
+            }
+          if (aligned) return IDENTICAL;
+        }
+        if (len === 0)
+          return (slot.pending = {
+            ff: 1,
+            mode: "clear",
+            items: [],
+            owners: [],
+            nodes: [],
+            len: 0
+          });
+        // Survivor probe (once, on the rare structural event): no shared
+        // identities = full replace — swap flat wholesale, never build rows.
+        let survivor = false;
+        {
+          const old = new Set(fi);
+          for (let j = 0; j < len; j++)
+            if (old.has(arr[j])) {
+              survivor = true;
+              break;
+            }
+        }
+        if (!survivor) {
+          const snap: any[] = new Array(len);
+          for (let j = 0; j < len; j++) snap[j] = arr[j];
+          const plan = buildFlat(snap);
+          if (plan === null) return DEMOTE;
+          plan.mode = "replace";
+          return (slot.pending = plan);
+        }
+        // Partial structure: materialize the chain from committed flat state
+        // (phase-safe: pure bookkeeping over committed rows, no DOM) and
+        // fall through to the structural walk.
+        if (!materialize(slot)) return DEMOTE; // duplicate identity keys
+      }
+      // ── FLAT FILL: an empty slot fills with arrays only (mapArray's mount
+      // economics — no Rows, no chain, no map).
+      if (slot.head === null && slot.size === 0) {
+        if (len === 0) return IDENTICAL;
+        const snap: any[] = new Array(len);
+        for (let j = 0; j < len; j++) snap[j] = arr[j];
+        const plan = buildFlat(snap);
+        return plan === null ? DEMOTE : (slot.pending = plan);
+      }
       // ── Prefix walk.
       let cursor = slot.head;
       let i = 0;
@@ -371,6 +555,42 @@ function driveKeyedFor(
     out => {
       if (out === IDENTICAL) return;
       if (out === DEMOTE) return demote();
+      if ((out as FlatPlan).ff === 1) {
+        const fp = out as FlatPlan;
+        if (fp !== slot.pending) return; // superseded mid-flight
+        slot.pending = null;
+        if (fp.mode === "clear") {
+          removeFlatDom();
+          const f = slot.flat!;
+          for (let i = 0; i < f.owners.length; i++) f.owners[i].dispose();
+          slot.flat = null;
+          slot.size = 0;
+          __unifiedForStats.batchCleared++;
+          return;
+        }
+        if (fp.mode === "replace") {
+          removeFlatDom();
+          const f = slot.flat!;
+          for (let i = 0; i < f.owners.length; i++) f.owners[i].dispose();
+        }
+        // fill / replace: append the new window before the end anchor.
+        const tag = slot.end;
+        for (let i = 0; i < fp.nodes.length; i++) {
+          const nd = fp.nodes[i];
+          if (Array.isArray(nd))
+            for (const n of nd) {
+              slot.parent.insertBefore(n, slot.end);
+              if (tag) (n as any)[$$SLOT] = tag;
+            }
+          else {
+            slot.parent.insertBefore(nd, slot.end);
+            if (tag) (nd as any)[$$SLOT] = tag;
+          }
+        }
+        slot.flat = { items: fp.items, owners: fp.owners, nodes: fp.nodes };
+        slot.size = fp.len;
+        return;
+      }
       const plan = out as Plan;
       if (plan !== slot.pending) return; // superseded mid-flight
       slot.pending = null;
