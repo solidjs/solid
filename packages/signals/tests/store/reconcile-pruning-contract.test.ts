@@ -19,10 +19,12 @@ import {
   createStore,
   flush,
   reconcile,
-  untrack,
-  witness
+  untrack
 } from "../../src/index.js";
 import { __adoptVisits, __resetAdoptVisits } from "../../src/store/next/reconcile.js";
+// Internal machinery — deliberately NOT a public export (the compiler-emitted
+// coarse-row track is its consumer; user code never calls it directly).
+import { witnessNext as witness } from "../../src/store/next/store.js";
 
 const ROWS = 1000;
 
