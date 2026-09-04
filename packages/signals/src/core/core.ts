@@ -1204,9 +1204,16 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         console.warn(message);
       }
       // Per-lane suspension lives with the engine (a non-null lane implies it
-      // is installed): under a lane, only same-lane pending async without an
-      // active override throws.
-      if (currentOptimisticLane === null || GlobalQueue._laneSuspends!(owner)) {
+      // is installed): under a lane, same-lane pending async without an active
+      // override throws; uninitialized async sources always suspend.
+      // A lane mismatch can preserve an already committed stale value, but an
+      // uninitialized async source has no such value. Never let that path
+      // surface `undefined` while a conditional branch is being updated.
+      if (
+        currentOptimisticLane === null ||
+        owner._statusFlags & STATUS_UNINITIALIZED ||
+        GlobalQueue._laneSuspends!(owner)
+      ) {
         if (!tracking && el !== c) link(el, c as Computed<any>);
         throw owner._x?._error;
       }
