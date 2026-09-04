@@ -13,6 +13,7 @@ import {
   CONFIG_HAS_COMPANIONS,
   CONFIG_HAS_LANE,
   CONFIG_HAS_SNAPSHOT,
+  CONFIG_SLOT_NODE,
   REACTIVE_IN_HEAP_HEIGHT,
   REACTIVE_MANUAL_WRITE,
   REACTIVE_MISSED_WAKE,
@@ -24,7 +25,7 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
-import { currentOptimisticLane, ext } from "./core.js";
+import { currentOptimisticLane, ext, slotUnobservedHook } from "./core.js";
 import { DEV, emitDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { sweepDormant } from "./graph.js";
@@ -122,7 +123,8 @@ function sweepTransientStoreNodes(): void {
     // unmarked node for the same property).
     if (node._x?._affectsCount) continue;
     transientStoreNodes.delete(node);
-    node._x?._unobserved?.();
+    if (node._config & CONFIG_SLOT_NODE) slotUnobservedHook(node);
+    else node._x?._unobserved?.();
   }
 }
 export function resetUnhandledAsync(): void {

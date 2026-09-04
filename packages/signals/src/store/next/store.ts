@@ -41,7 +41,9 @@ import {
   readNodeFast,
   setLatestReadActive,
   setSignal,
+  setSlotUnobserved,
   signal,
+  slotSignal,
   untrack,
   ext
 } from "../../core/core.js";
@@ -222,50 +224,70 @@ export function unwrapValue(v: any): any {
 // ---------------------------------------------------------------------------
 // nodes: pure subscription points (values used only for equality gating)
 
-export function getNode(target: StoreNextTarget, key: PropertyKey, current: any): Signal<any> {
+// Shared slot-node equality (create-floor diet): ONE function for every
+// store node — `this` is the node (method-call convention at every _equals
+// site), `_host` is the baked-in target backref. Logical-slot equality:
+// values resolving to the same child target are the same slot
+// (privatization/adoption swap raw identity without changing the logical
+// value — only changed leaves notify, R9).
+const slotNodeEquals = function (this: any, a: any, b: any): boolean {
+  return isEqual(a, b) || sameLogicalSlot(this._host, a, b);
+};
+
+// Shared slot-node unobserved handler (create-floor diet): registered once;
+// the core sweep dispatches CONFIG_SLOT_NODE nodes here instead of holding a
+// per-node closure in a per-node NodeExtension.
+setSlotUnobserved((node: any): void => {
+  // A live affects() mark keeps the node addressable (sweep parity).
+  if (node._x?._affectsCount) return;
+  const t: StoreNextTarget = node._host;
+  const key: PropertyKey = node._key;
+  if (t.n && t.n[key as any] === node) {
+    delete t.n[key as any];
+    t.nc--;
+  }
+});
+
+export function getNode(
+  target: StoreNextTarget,
+  key: PropertyKey,
+  current: any,
+  // First-read dedupe (create-floor slice 2): the get trap probes
+  // accessor-ness right before creating the node — pass the verdict through
+  // so creation skips the second descriptor scan. -1 = unknown (other
+  // callers), 0/1 = probed.
+  accKnown: -1 | 0 | 1 = -1
+): Signal<any> {
   const nodes = (target.n ??= Object.create(null));
   let node: Signal<any> | undefined = nodes[key];
   if (node === undefined) {
-    const created: Signal<any> = (node = signal(
+    // Create-floor diet: slotSignal bakes the whole node into one literal —
+    // no options object, no equals/unobserved closures, no NodeExtension,
+    // no post-construction expandos (acc + the wrap cache px/pxv are
+    // pre-shaped fields: the proxy last served for this key and the raw it
+    // wrapped — one pointer compare replaces the per-read WeakMap lookup in
+    // wrapNext). ownedWrite rides the literal's config: the setter carries
+    // the owned-scope write guard; node-level setSignals are internal
+    // notification machinery. Projection nodes carry the projection
+    // computed as their firewall: reads through them link the derive's
+    // status/lifecycle (§7b).
+    const created: Signal<any> = (node = slotSignal(
       current,
-      {
-        // Attribution-only: name store property nodes by path segment so
-        // attribution chains and wide-scope warnings read "store.todos", not
-        // "signal". Gated on the engine being installed — node creation is
-        // the hottest store path, and the disabled cost must stay one null
-        // check (nodes created before enable() stay generically named).
-        name: __DEV__ && attrHooks !== null ? "store." + String(key) : undefined,
-        // Logical-slot equality: values resolving to the same child target
-        // are the same slot (privatization/adoption swap raw identity without
-        // changing the logical value — only changed leaves notify, R9).
-        equals: (a: any, b: any) => isEqual(a, b) || sameLogicalSlot(target, a, b),
-        unobserved() {
-          // A live affects() mark keeps the node addressable (sweep parity).
-          if ((created as any)._x?._affectsCount) return;
-          if (target.n && target.n[key] === created) {
-            delete target.n[key];
-            target.nc--;
-          }
-        }
-      },
-      // Projection nodes carry the projection computed as their firewall:
-      // reads through them link the derive's status/lifecycle (§7b).
+      slotNodeEquals,
+      target,
+      key,
+      // Accessor-ness resolved ONCE per node (no per-object descriptor
+      // scan on reads): accessor keys serve through Reflect.get with the
+      // proxy receiver.
+      accKnown === -1 ? isOwnAccessor(target.pb ?? target.v, key) : accKnown === 1,
       (target.fam?.node as any) ?? undefined
     ));
-    // Store nodes are ownedWrite: the setter carries the owned-scope write
-    // guard; node-level setSignals are internal notification machinery.
-    created._config |= CONFIG_OWNED_WRITE;
-    // Accessor-ness resolved ONCE per node (no per-object descriptor scan):
-    // accessor keys serve through Reflect.get with the proxy receiver.
-    (created as any).acc = isOwnAccessor(target.pb ?? target.v, key);
-    // Wrap cache: the proxy last served for this key and the raw it wrapped.
-    // Raw-as-truth stores raw in nodes, so every object read needs a wrapper;
-    // one pointer compare (pxv === value) replaces the per-read WeakMap
-    // lookup in wrapNext — the dominant read-path cost vs legacy, whose
-    // nodes stored pre-wrapped values. A replaced child fails the compare
-    // and re-wraps; at most one stale proxy is pinned until the next read.
-    (created as any).px = undefined;
-    (created as any).pxv = undefined;
+    // Attribution-only: name store property nodes by path segment so
+    // attribution chains and wide-scope warnings read "store.todos", not
+    // "signal". Gated on the engine being installed — node creation is
+    // the hottest store path, and the disabled cost must stay one null
+    // check (nodes created before enable() stay generically named).
+    if (__DEV__ && attrHooks !== null) (created as any)._name = "store." + String(key);
     // Optimistic families: arm the override slot — setSignal routes armed
     // nodes through the core engine (lanes, ownership, reverts all native).
     if (target.fam?.opt) {
@@ -1379,7 +1401,8 @@ function serveDataKey(
   key: PropertyKey,
   backingValue: any,
   src: Record<PropertyKey, any>,
-  node?: Signal<any>
+  node?: Signal<any>,
+  accKnown: -1 | 0 | 1 = -1
 ): any {
   const chained = target.ch && src === target.v;
   let v = backingValue;
@@ -1428,7 +1451,9 @@ function serveDataKey(
         v = nodeValue(node, backingValue);
       }
     } else if (getObserver() !== null) {
-      readNode(getNode(target, key, backingValue));
+      // First tracked read: create + link, and let the wrap-cache branch
+      // below populate px/pxv so read #2 skips wrapNext (slice 2).
+      readNode((node = getNode(target, key, backingValue, accKnown)));
     }
   }
   // Shallow stores serve data raw; store-proxy slots get boundary wrappers.
@@ -1533,8 +1558,11 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // tracked read of a present data key — the dbmon/uibench effect re-read
     // shape. Skips serveDataKey's frame, the FORCE compare (only accessor
     // keys ever hold the sentinel), and isWrappable for primitives.
+    // ONE node-map lookup serves this block and the accessor probe below
+    // (nothing between them creates nodes).
+    const node0 = target.n?.[key as any];
     if (target.ch === false && writeScopes === null) {
-      const nodeH = target.n?.[key as any];
+      const nodeH = node0;
       if (nodeH !== undefined && (nodeH as any).acc !== true && getObserver() !== null) {
         let nv = readNodeFast(nodeH);
         if (nv === READ_SLOW) nv = readNode(nodeH);
@@ -1588,15 +1616,21 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // absent-key/accessor subscriptions for every store read during any
     // derive, leaving nested projections permanently dependency-less when
     // their sources hadn't materialized yet (#3037).
-    const node0 = target.n?.[key as any];
+    // First-read dedupe (create-floor slice 2): remember the probe verdict —
+    // node creation downstream reuses it instead of re-scanning the
+    // descriptor, but only when the probed object IS the one getNode would
+    // scan (pb ?? v).
+    let accProbe: -1 | 0 | 1 = -1;
     {
-      const acc =
-        node0 !== undefined
-          ? (node0 as any).acc === true
-          : !inDraft(target) && getObserver() !== null && isOwnAccessor(src, key);
+      let acc: boolean;
+      if (node0 !== undefined) acc = (node0 as any).acc === true;
+      else if (!inDraft(target) && getObserver() !== null) {
+        acc = isOwnAccessor(src, key);
+        if (src === (target.pb ?? target.v)) accProbe = acc ? 1 : 0;
+      } else acc = false;
       if (acc) {
         if (!inDraft(target) && getObserver() !== null)
-          readNode(node0 ?? getNode(target, key, undefined));
+          readNode(node0 ?? getNode(target, key, undefined, accProbe));
         const v = Reflect.get(src, key, receiver);
         if (target.s) return serveShallow(target, key, v);
         return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;
@@ -1626,7 +1660,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
       // Reading a currently-absent own key subscribes to it (R12) — for any
       // target OUTSIDE its own draft scope, even mid-setter (#3037, above).
       if (v === undefined && !inDraft(target)) {
-        if (getObserver() !== null) readNode(getNode(target, key, undefined));
+        if (getObserver() !== null) readNode(getNode(target, key, undefined, accProbe));
         const node = target.n?.[key];
         if (node) {
           const nv = nodeValue(node, undefined);
@@ -1655,7 +1689,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
       !(viewOvl && hasOwn.call(target.v, key))
     )
       return v; // proto method
-    return serveDataKey(target, key, v, src, node0);
+    return serveDataKey(target, key, v, src, node0, accProbe);
   },
 
   has(target, key) {

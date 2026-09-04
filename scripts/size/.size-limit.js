@@ -115,7 +115,14 @@ module.exports = [
     // Patch-channel removal (2026-09-02): 8.02 -> 7.98 KB, measured at
     // 7.95. The channel is deleted from next — regions own value delivery,
     // the unified-For design owns structure — reclaiming the store write-path emission seams retained by the core floor.
-    limit: "7.98 KB",
+    //
+    // Store create-floor diet (2026-09-04): 7.98 -> 8.00 KB, measured at
+    // 7.995. The slot-node unobserved dispatch sits on the two core sweep
+    // sites (unlinkSubs, sweepTransientStoreNodes): a config-flag branch to
+    // the ONE shared hook. slotSignal itself shakes out of storeless
+    // bundles; these ~15 B buy the store scenarios their per-node closure/
+    // NodeExtension diet (see the createStore note).
+    limit: "8.00 KB",
     modifyEsbuildConfig
   },
   {
@@ -221,7 +228,18 @@ module.exports = [
     // Patch-channel removal (2026-09-02): 14.66 -> 14.05 KB, measured at
     // 14.00. The channel is deleted from next — regions own value delivery,
     // the unified-For design owns structure — reclaiming the write-path seams, wk struct indirection, and reconcile row-ops builders.
-    limit: "14.05 KB",
+    //
+    // Store create-floor diet (2026-09-04): 14.05 -> 14.16 KB, measured at
+    // 14.155. slotSignal (the pre-shaped store-leaf literal: _host/_key
+    // backrefs replacing the per-node options object, equals closure,
+    // unobserved closure, and NodeExtension) plus the get trap's first-read
+    // dedupe (one descriptor probe threaded to node creation, one node-map
+    // lookup, first-read wrap-cache population). ~105 B of retained code
+    // that deletes four allocations + three hidden-class transitions per
+    // store leaf: getNode self-time −23%, get-trap self-time −19%, dbmon
+    // mount min −4%. Conscious speed-for-bytes trade, same ruling as the
+    // Stage-3 hot-path batch.
+    limit: "14.16 KB",
     modifyEsbuildConfig
   },
   {
@@ -452,7 +470,11 @@ module.exports = [
     // Patch-channel removal (2026-09-02): 26.99 -> 26.15 KB, measured at
     // 26.09. The channel is deleted from next — regions own value delivery,
     // the unified-For design owns structure — reclaiming the full store-family emission surface (value + row tiers).
-    limit: "26.15 KB",
+    //
+    // Store create-floor diet (2026-09-04): 26.15 -> 26.25 KB, measured at
+    // 26.248 — the slotSignal + first-read-dedupe bytes (see the
+    // createStore note; this scenario retains all of it).
+    limit: "26.25 KB",
     modifyEsbuildConfig
   },
   {

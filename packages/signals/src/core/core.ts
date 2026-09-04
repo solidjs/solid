@@ -24,6 +24,7 @@ import {
   CONFIG_NO_SNAPSHOT,
   CONFIG_OPTIMISTIC,
   CONFIG_OWNED_WRITE,
+  CONFIG_SLOT_NODE,
   CONFIG_SYNC,
   CONFIG_TRANSPARENT,
   defaultContext,
@@ -871,6 +872,71 @@ export function signal<T>(
     snapshotSources!.add(s);
   }
   return s as Signal<T>;
+}
+
+// ---------------------------------------------------------------------------
+// SLOT SIGNALS (store leaves) — the create-floor diet. Store mounts
+// materialize one signal per touched leaf (~13 × rows on dbmon), so per-node
+// allocations are mount bytes: the generic path costs an options object, an
+// equals closure, an unobserved closure, a NodeExtension to hold it, and
+// three post-construction expandos (acc/px/pxv → hidden-class transitions).
+// slotSignal bakes everything into ONE literal: `_host`/`_key` backrefs
+// replace the closures (equals is a method call — `this` is the node; the
+// unobserved sweep dispatches CONFIG_SLOT_NODE to one shared hook), and the
+// store's wrap-cache fields are pre-shaped.
+
+/** The shared slot-node unobserved handler — a live binding read directly by
+ * the sweep sites (no wrapper frame, no null check: a CONFIG_SLOT_NODE node
+ * existing implies the store module loaded and registered the hook). */
+export let slotUnobservedHook: (node: Signal<any>) => void;
+/** Install the shared slot-node unobserved handler (store module, once). */
+export function setSlotUnobserved(fn: (node: Signal<any>) => void): void {
+  slotUnobservedHook = fn;
+}
+
+export function slotSignal<T>(
+  v: T,
+  equals: (a: T, b: T) => boolean,
+  host: object,
+  key: PropertyKey,
+  acc: boolean,
+  firewall: Computed<unknown> | null = null
+): Signal<T> {
+  const s = {
+    _equals: equals,
+    _config: CONFIG_OWNED_WRITE | CONFIG_SLOT_NODE,
+    _value: v,
+    _subs: null,
+    _subsTail: null,
+    _time: clock,
+    _firewall: firewall,
+    _nextChild: firewall?._x?._child || null,
+    _pendingValue: NOT_PENDING,
+    _transition: null,
+    _notifiedAt: -1,
+    _x: null,
+    // Slot backrefs: what the equals/unobserved closures used to capture.
+    _host: host,
+    _key: key,
+    // Store read-path caches, pre-shaped (were post-construction expandos).
+    acc,
+    px: undefined,
+    pxv: undefined
+  };
+  if (__DEV__) {
+    (s as any)._name = "signal";
+    (s as any)._internal = !!firewall;
+  }
+  if (firewall) {
+    ext(firewall)._child = s as unknown as FirewallSignal<unknown>;
+    firewall._config |= CONFIG_FW_CHILDREN;
+  }
+  if (snapshotCaptureActive && !((firewall?._statusFlags ?? 0) & STATUS_PENDING)) {
+    ext(s as any)._snapshotValue = v === undefined ? NO_SNAPSHOT : v;
+    (s as any)._config |= CONFIG_HAS_SNAPSHOT;
+    snapshotSources!.add(s);
+  }
+  return s as unknown as Signal<T>;
 }
 
 export function optimisticSignal<T>(v: T, options?: NodeOptions<T>): Signal<T> {
