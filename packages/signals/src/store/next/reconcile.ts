@@ -113,6 +113,16 @@ export function reconcileNextState(
   applyAdopt(t, incoming, keyFn, replace);
 }
 
+/** TEST-ONLY pruning-contract probe: counts records the adoption walk
+ * actually VISITS. The React-like contract ("diff only what is listened
+ * to") is pinned by asserting this stays narrow for unwitnessed
+ * large-store/narrow-subscription reconciles — O7's under-witness liveness
+ * may only ADD the witnessed case, never weaken pruning without one. */
+export let __adoptVisits = 0;
+export function __resetAdoptVisits(): void {
+  __adoptVisits = 0;
+}
+
 function applyAdopt(
   t: StoreNextTarget,
   incoming: any,
@@ -120,6 +130,7 @@ function applyAdopt(
   proj = false,
   uw = false
 ): void {
+  if (__TEST__) __adoptVisits++;
   const prev = t.pb ?? t.v;
   // Under-witness (create-floor coarse rows): a deep witness on this record
   // or any ancestor IS a subscription at/below for the R18 pruning contract
