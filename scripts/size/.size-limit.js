@@ -239,7 +239,21 @@ module.exports = [
     // store leaf: getNode self-time −23%, get-trap self-time −19%, dbmon
     // mount min −4%. Conscious speed-for-bytes trade, same ruling as the
     // Stage-3 hot-path batch.
-    limit: "14.16 KB",
+    //
+    // Store correctness batch (2026-09-04): 14.16 -> 14.20 KB, measured at
+    // 14.197 on Linux CI (14.19 macOS). The livestream-found fixes on
+    // always-retained store paths: the first-flight transaction carve-out
+    // (#3264), the held-manual-write re-ask classification (#3265), the
+    // draft compose-read gate (#3266, its dev-only sibling #3263 costs
+    // nothing in prod), plus routing async setter errors through the node's
+    // error state (#3262, handleAsync). A golf pass was attempted and
+    // measured: extracting the repeated compose-gate/override-read into
+    // helpers came out +29 B, fully inlining the #3266 helper +70 B, and
+    // merging the has-trap's twin override arms −1 B here but +7 B on the
+    // store-family app — the graph sits at its brotli optimum post-#3270
+    // (repeats compress free; indirection adds unique tokens). Ratcheted,
+    // not golfed.
+    limit: "14.20 KB",
     modifyEsbuildConfig
   },
   {
@@ -291,7 +305,12 @@ module.exports = [
     // Patch-channel removal (2026-09-02): 10.10 -> 10.04 KB, measured at
     // 10.01. The channel is deleted from next — regions own value delivery,
     // the unified-For design owns structure — reclaiming the optimistic emission seams retained via latest().
-    limit: "10.04 KB",
+    //
+    // Store correctness batch (2026-09-04): 10.04 -> 10.05 KB, measured at
+    // 10.043 on Linux CI (10.03 macOS) — this scenario pays only the #3262
+    // handleAsync try/catch and the #3265 re-ask line (see the createStore
+    // note for the batch and the measured no-win golf pass).
+    limit: "10.05 KB",
     modifyEsbuildConfig
   },
   {
@@ -474,7 +493,12 @@ module.exports = [
     // Store create-floor diet (2026-09-04): 26.15 -> 26.25 KB, measured at
     // 26.248 — the slotSignal + first-read-dedupe bytes (see the
     // createStore note; this scenario retains all of it).
-    limit: "26.25 KB",
+    //
+    // Store correctness batch (2026-09-04): 26.25 -> 26.27 KB, measured at
+    // 26.264 on Linux CI (26.26 macOS) — the same fixes as the createStore
+    // note; this scenario retains all of them plus the optimistic module's
+    // first-flight carve-out (#3264).
+    limit: "26.27 KB",
     modifyEsbuildConfig
   },
   {
