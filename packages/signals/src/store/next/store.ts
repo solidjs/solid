@@ -766,6 +766,49 @@ function drainFolds(): void {
         t.pb = null;
         t.ovl = false;
         t.wk = null; // written-keys window closes with the fold commit
+      } else if (t.v !== old) {
+        // Privatized mid-batch (#3271): an earlier fold in this drain
+        // path-copied THROUGH this target — privatizeCommitted cloned the
+        // committed backing, re-pointed the parent slot at the clone, and
+        // stitched the descendant's fold into it. The draft's pb predates
+        // that: swapping it in would clobber the descendant's fold, and the
+        // parent CAS below (still comparing against `old`) would fail and
+        // orphan this fold entirely — a projection draft writing descendant-
+        // then-ancestor silently lost the ancestor write. Merge the batch's
+        // writes onto the current container instead (the parent slot already
+        // points at it). privatize first: an adopt-then-write batch can land
+        // here with an unowned adoptee as t.v.
+        privatizeCommitted(t);
+        const v = t.v;
+        const wk = t.wk;
+        if (wk !== null && wk !== WK_ALL) {
+          // The trap records every write/delete key — apply exactly those.
+          for (const key of wk) {
+            if (hasOwn.call(pb, key)) {
+              const d = Object.getOwnPropertyDescriptor(pb, key)!;
+              if (d.get || d.set || !d.enumerable || !d.writable || !d.configurable)
+                Object.defineProperty(v, key, d);
+              else (v as any)[key] = d.value;
+            } else delete (v as any)[key];
+          }
+        } else {
+          // Array length write poisoned the bound (WK_ALL) — value-diff
+          // against the pre-batch old. Slots the draft never touched hold
+          // the same raw reference in both, so descendant folds stay put.
+          for (const key of Reflect.ownKeys(pb)) {
+            const d = Object.getOwnPropertyDescriptor(pb, key)!;
+            if (d.get || d.set || !d.enumerable || !d.writable || !d.configurable)
+              Object.defineProperty(v, key, d);
+            else if (d.value !== (old as any)[key] || !hasOwn.call(old, key))
+              (v as any)[key] = d.value;
+          }
+          for (const key of Reflect.ownKeys(old)) {
+            if (!hasOwn.call(pb, key)) delete (v as any)[key];
+          }
+        }
+        (t.fam?.map ?? storeNextLookup).delete(pb);
+        t.pb = null;
+        t.wk = null; // written-keys window closes with the fold commit
       } else {
         t.v = pb;
         t.ch = false; // pb is always a plain clone

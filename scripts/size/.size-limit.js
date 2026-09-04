@@ -253,7 +253,15 @@ module.exports = [
     // store-family app — the graph sits at its brotli optimum post-#3270
     // (repeats compress free; indirection adds unique tokens). Ratcheted,
     // not golfed.
-    limit: "14.20 KB",
+    //
+    // Fold privatization merge (#3271): 14.20 -> 14.29 KB, measured at
+    // 14.282 macOS (Linux typically +~7 B on this scenario). Clone-path
+    // folds finding their container privatized mid-batch (a descendant fold
+    // path-copied through them) merge written keys in place instead of
+    // swapping in the stale ensurePB clone — the swap orphaned the
+    // ancestor's writes (parent CAS failed against the privatization
+    // clone). Silent data loss on writable projections; load-bearing.
+    limit: "14.29 KB",
     modifyEsbuildConfig
   },
   {
@@ -498,7 +506,11 @@ module.exports = [
     // 26.264 on Linux CI (26.26 macOS) — the same fixes as the createStore
     // note; this scenario retains all of them plus the optimistic module's
     // first-flight carve-out (#3264).
-    limit: "26.27 KB",
+    //
+    // Fold privatization merge (#3271): 26.27 -> 26.37 KB, measured at
+    // 26.36 macOS — the drainFolds merge arm (see the createStore note);
+    // this scenario retains all of it.
+    limit: "26.37 KB",
     modifyEsbuildConfig
   },
   {
