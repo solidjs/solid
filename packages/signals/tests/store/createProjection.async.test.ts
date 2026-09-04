@@ -1031,6 +1031,29 @@ describe("errored derive follows memo rules", () => {
     flush();
   };
 
+  it("routes async reconciliation errors through the projection error state", async () => {
+    const boom = new Error("invalid projection key");
+    let store!: { id: number };
+    const dispose = createRoot(d => {
+      store = createProjection(
+        async () => ({ id: 2 }),
+        { id: 1 },
+        {
+          key: item => {
+            if (item.id === 2) throw boom;
+            return item.id;
+          }
+        }
+      );
+      return d;
+    });
+
+    flush();
+    await settle();
+    expect(() => untrack(() => store.id)).toThrow("invalid projection key");
+    dispose();
+  });
+
   it("untracked reads of a rejected uninitialized derive throw its error", async () => {
     const boom = new Error("boom");
     let store!: any;
