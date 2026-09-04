@@ -327,8 +327,8 @@ describe("Deferred root mount — async stores", () => {
   }
 
   const warned = (spy: ReturnType<typeof vi.spyOn>) =>
-    spy.mock.calls.some(args =>
-      args.some(a => typeof a === "string" && a.includes("Loading boundary"))
+    spy.mock.calls.some((args: unknown[]) =>
+      args.some((a: unknown) => typeof a === "string" && a.includes("Loading boundary"))
     );
 
   test("optimistic store first flight: root mount held, warning fired, atomic reveal", async () => {
