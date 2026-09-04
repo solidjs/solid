@@ -37,6 +37,7 @@ import {
   isEqual,
   setSignal,
   type Computed,
+  type Refreshable,
   type Signal
 } from "../../core/index.js";
 import {
@@ -56,6 +57,7 @@ import {
   type NoFn,
   type ProjectionOptions,
   type Store,
+  type StoreOptions,
   type StoreSetter
 } from "../store.js";
 import { runProjectionComputedNext } from "./projection.js";
@@ -177,17 +179,18 @@ function familyHasLiveOverrides(fam: { overlaid?: Set<any> }): boolean {
 }
 
 export function createOptimisticStoreNext<T extends object = {}>(
-  store: NoFn<T> | Store<NoFn<T>>
+  initialValue: NoFn<T> | Store<NoFn<T>>,
+  options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createOptimisticStoreNext<T extends object = {}>(
-  fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  store: NoFn<T> | Store<NoFn<T>>,
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed: NoFn<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
-): [get: Store<T>, set: StoreSetter<T>];
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createOptimisticStoreNext<T extends object = {}>(
   first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
-  second?: NoFn<T> | Store<NoFn<T>>,
-  options?: ProjectionOptions
+  second?: NoFn<T> | Store<NoFn<T>> | StoreOptions,
+  third?: ProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   // Engine first (armed nodes need optimisticWrite installed before any
   // node exists), then the next-shape hooks.
@@ -195,7 +198,7 @@ export function createOptimisticStoreNext<T extends object = {}>(
   installNextBlockedHalf();
 
   const derived = typeof first === "function";
-  if (!derived && options === undefined) options = second as ProjectionOptions | undefined;
+  const options = (derived ? third : second) as ProjectionOptions | undefined;
   const initialValue = (derived ? second : first) as T;
 
   const fam: StoreNextFamily = {

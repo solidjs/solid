@@ -33,6 +33,7 @@ import {
   type SignalOptions,
   type SourceAccessor,
   type Store,
+  type StoreOptions,
   type StoreSetter,
   type RevealOrder,
   createOwner,
@@ -1592,7 +1593,7 @@ export const createOptimistic: {
  */
 export const createProjection: <T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  initialValue: NoFn<T> | Store<NoFn<T>>,
+  seed: NoFn<T> | Store<NoFn<T>>,
   options?: HydrationProjectionOptions
 ) => Refreshable<Store<T>> = ((...args: any[]) => {
   // `hydrating` can only be true once enableHydration() installed the
@@ -1625,7 +1626,7 @@ type NoFn<T> = T extends Function ? never : T;
  * `filter`. The setter does **not** do keyed reconciliation; for
  * that, use the derived/projection form (or `createProjection`).
  *
- * - **Plain form** — `createStore(initialValue)`: wraps a value in a
+ * - **Plain form** — `createStore(initialValue, options?)`: wraps a value in a
  *   reactive proxy.
  * - **Derived form** — `createStore(fn, seed, options?)`: a
  *   *projection store* whose contents are computed by `fn(draft)`.
@@ -1666,12 +1667,12 @@ type NoFn<T> = T extends Function ? never : T;
  */
 export const createStore: {
   <T extends object = {}>(
-    store: NoFn<T> | Store<NoFn<T>>,
-    options?: { name?: string; shallow?: boolean }
+    initialValue: NoFn<T> | Store<NoFn<T>>,
+    options?: StoreOptions
   ): [get: Store<T>, set: StoreSetter<T>];
   <T extends object = {}>(
-    fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-    store: NoFn<T> | Store<NoFn<T>>,
+    fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+    seed: NoFn<T> | Store<NoFn<T>>,
     options?: HydrationProjectionOptions
   ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 } = ((...args: any[]) => {
@@ -1691,12 +1692,12 @@ export const createStore: {
  * Use this for optimistic UI on collection-shaped data. For
  * single-value optimistic state, prefer `createOptimistic`.
  *
- * - **Plain form** — `createOptimisticStore(initialValue)`.
+ * - **Plain form** — `createOptimisticStore(initialValue, options?)`.
  * - **Derived form** — `createOptimisticStore(fn, seed, options?)`:
  *   a projection store whose authoritative value is recomputed by
  *   `fn` and whose optimistic overlay reverts after each transition.
  *
- * `options.key` defaults to `"id"`; specify it only when your data
+ * In the derived form, `options.key` defaults to `"id"`; specify it only when your data
  * uses a different identity field (e.g. `{ key: "uuid" }` or
  * `{ key: t => t.slug }`). Restating the default just adds noise.
  *
@@ -1729,10 +1730,13 @@ export const createStore: {
  * @returns `[store: Store<T>, setStore: StoreSetter<T>]`
  */
 export const createOptimisticStore: {
-  <T extends object = {}>(store: NoFn<T> | Store<NoFn<T>>): [get: Store<T>, set: StoreSetter<T>];
   <T extends object = {}>(
-    fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-    store: NoFn<T> | Store<NoFn<T>>,
+    initialValue: NoFn<T> | Store<NoFn<T>>,
+    options?: StoreOptions
+  ): [get: Store<T>, set: StoreSetter<T>];
+  <T extends object = {}>(
+    fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+    seed: NoFn<T> | Store<NoFn<T>>,
     options?: HydrationProjectionOptions
   ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 } = ((...args: any[]) => {

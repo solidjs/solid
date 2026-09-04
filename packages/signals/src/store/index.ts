@@ -28,15 +28,15 @@ export { createProjectionNext as createProjection } from "./next/projection.js";
 export { storeIsShallow, storeHasFamily, storeHasOptimisticFamily } from "./next/store.js";
 export { createOptimisticStoreNext as createOptimisticStore } from "./next/optimistic.js";
 
-/** Public createStore: plain form `(init, options?)` and derived writable
+/** Public createStore: plain form `(initialValue, options?)` and derived writable
  * form `(fn, seed, options?)`. */
 export function createStore<T extends object = {}>(
-  store: NoFn<T> | Store<NoFn<T>>,
-  options?: StoreOptions & { shallow?: boolean }
+  initialValue: NoFn<T> | Store<NoFn<T>>,
+  options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
-  fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  store: NoFn<T> | Store<NoFn<T>>,
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed: NoFn<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createStore(first: any, second?: any, third?: any): any {

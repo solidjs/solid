@@ -31,7 +31,12 @@ export { snapshot, omit, storePath, $PROXY, $TRACK } from "@solidjs/signals";
 
 // === Type re-exports ===
 
-import type { Accessor as SignalAccessor, Refreshable } from "@solidjs/signals";
+import type {
+  Accessor as SignalAccessor,
+  ProjectionOptions,
+  Refreshable,
+  StoreOptions
+} from "@solidjs/signals";
 
 export type SourceAccessor<T> = Refreshable<SignalAccessor<T>>;
 
@@ -472,17 +477,10 @@ interface ServerComputation<T = any> {
 const LIVE_SOURCE = Symbol.for("solid.LiveSource");
 
 type SsrSourceMode = "server" | "hybrid" | "client";
-type ServerSsrOptions = {
+interface ServerProjectionOptions extends ProjectionOptions {
   deferStream?: boolean;
   ssrSource?: SsrSourceMode;
-  /**
-   * Commit #0 for derived stores: serve the seed instead of suspending. The
-   * markup flushes with the seed (locked for the whole response — the
-   * first-value lock at commit #0) and the landing streams as data for the
-   * client, whose store is born committed with the same seed.
-   */
-  seedLoadingValue?: boolean;
-};
+}
 type ServerMemoOptions<T> = MemoOptions<T> & {
   /**
    * Keep this value out of the hydration payload. The subtree still hydrates;
@@ -494,7 +492,6 @@ type ServerMemoOptions<T> = MemoOptions<T> & {
   serialize?: false;
 };
 type ServerSignalOptions<T> = SignalOptions<T>;
-type ServerStoreOptions = ServerSsrOptions;
 type NoFn<T> = T extends Function ? never : T;
 
 /**
@@ -1778,19 +1775,19 @@ function setProperty(state: any, property: PropertyKey, value: any) {
   } else state[property] = value;
 }
 
-export function createStore<T extends object>(
-  store: NoFn<T> | Store<NoFn<T>>,
-  options?: { name?: string; shallow?: boolean }
+export function createStore<T extends object = {}>(
+  initialValue: NoFn<T> | Store<NoFn<T>>,
+  options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
-export function createStore<T extends object>(
-  fn: (store: T) => void | T | Promise<void | T>,
-  store: NoFn<T> | Store<NoFn<T>>,
-  options?: ServerStoreOptions & { name?: string; shallow?: boolean }
-): [get: Store<T>, set: StoreSetter<T>];
-export function createStore<T extends object>(
-  first: T | Store<T> | ((store: T) => void | T | Promise<void | T>),
+export function createStore<T extends object = {}>(
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options?: ServerProjectionOptions
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createStore<T extends object = {}>(
+  first: T | Store<T> | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
   second?: T | Store<T>,
-  options?: ServerSsrOptions & { name?: string; shallow?: boolean }
+  third?: ServerProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   if (typeof first === "function") {
     // Forward options: dropping them made ssrSource inert for derived stores —
@@ -1799,7 +1796,7 @@ export function createStore<T extends object>(
     // The impl signature stays loose; the public overload above enforces the
     // client/seedLoadingValue pairing, and createProjection re-checks at
     // runtime.
-    const store = createProjection(first as any, second as NoFn<T>, options as any);
+    const store = createProjection(first as any, second as NoFn<T>, third as any);
     return [store as Store<T>, storeSetter(store as T)];
   }
   const state = first as T;
@@ -1823,25 +1820,25 @@ function storeSetter<T extends object>(state: T): StoreSetter<T> {
   }) as StoreSetter<T>;
 }
 
-export function createOptimisticStore<T extends object>(
-  store: NoFn<T> | Store<NoFn<T>>,
-  options?: { name?: string; shallow?: boolean }
+export function createOptimisticStore<T extends object = {}>(
+  initialValue: NoFn<T> | Store<NoFn<T>>,
+  options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
-export function createOptimisticStore<T extends object>(
-  fn: (store: T) => void | T | Promise<void | T>,
-  store: NoFn<T> | Store<NoFn<T>>,
-  options?: ServerStoreOptions & { name?: string; shallow?: boolean }
-): [get: Store<T>, set: StoreSetter<T>];
-export function createOptimisticStore<T extends object>(
-  first: T | Store<T> | ((store: T) => void | T | Promise<void | T>),
+export function createOptimisticStore<T extends object = {}>(
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options?: ServerProjectionOptions
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createOptimisticStore<T extends object = {}>(
+  first: T | Store<T> | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
   second?: T | Store<T>,
-  options?: ServerSsrOptions & { name?: string; shallow?: boolean }
+  third?: ServerProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   // Same no-op rationale as createOptimistic above: optimistic writes are
   // masks that revert at settle, and server output is settled state. The
   // setter never invokes its function — a draft mutation here would be a
   // literal (permanent) mutation, the opposite of optimistic.
-  const [store] = (createStore as Function)(first, second, options) as [Store<T>, StoreSetter<T>];
+  const [store] = (createStore as Function)(first, second, third) as [Store<T>, StoreSetter<T>];
   return [store, (() => warnServerWrite("optimistic")) as StoreSetter<T>];
 }
 
@@ -1968,10 +1965,15 @@ function replaceState<T extends object>(target: T, next: T): void {
   Object.assign(target, next);
 }
 
-export function createProjection<T extends object>(
+export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  initialValue: NoFn<T> | Store<NoFn<T>>,
-  options?: ServerStoreOptions
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options?: ServerProjectionOptions
+): Refreshable<Store<T>>;
+export function createProjection<T extends object = {}>(
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options?: ServerProjectionOptions
 ): Store<T> {
   const ctx = sharedConfig.context;
   const owner = createOwner();
@@ -2000,7 +2002,7 @@ export function createProjection<T extends object>(
     if (slots) slots[slotId!] = proxy;
     return proxy;
   };
-  const [state] = createStore(initialValue as NoFn<T>);
+  const [state] = createStore(seed as NoFn<T>);
 
   if (options?.ssrSource === "client") {
     // seedLoadingValue = declared commit #0: the seed renders. Bare = the
