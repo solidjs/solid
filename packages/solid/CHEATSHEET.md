@@ -662,6 +662,7 @@ If your training data is 1.x, these are the corrections. **Read this before gene
 - **Refs are functions** — `ref={el => ...}`. No `useRef`-style ref objects. Compose with arrays: `ref={[a, b]}`.
 - **Boolean attributes are presence/absence** — `<video muted={false} />` removes the attribute.
 - **Built-in attributes are lowercase** — `tabindex` not `tabIndex`. Event handlers stay camelCase (`onClick`).
+- **Event handlers bind once — the binding expression is not reactive** — `onClick={cond() ? a : b}` picks a handler at mount and never re-evaluates. Put the decision inside a stable handler: `onClick={e => (cond() ? a : b)(e)}`. (Spread is the one exception: it must re-apply changed props, handlers included — that's forced, not a pattern.)
 - **In tests, `flush()` before asserting on signals** — `setCount(1); flush(); expect(count()).toBe(1)`.
 - **Reactive primitives need an owner** — wrap test code in `createRoot(dispose => { ... })` or you'll leak.
 
