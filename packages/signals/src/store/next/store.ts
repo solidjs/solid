@@ -688,9 +688,21 @@ function privatizeCommitted(target: StoreNextTarget): void {
   }
 }
 
+function targetDepth(target: StoreNextTarget): number {
+  let depth = 0;
+  while (target.u !== null) {
+    target = target.u;
+    depth++;
+  }
+  return depth;
+}
+
 function drainFolds(): void {
   if (foldOlds.size === 0) return;
-  const entries = [...foldOlds];
+  // Parent drafts must fold before child drafts. A child fold path-copies its
+  // ancestors; if it runs first, a later parent fold compares against an
+  // outdated slot and its direct write is silently lost (#3271).
+  const entries = [...foldOlds].sort(([a], [b]) => targetDepth(a) - targetDepth(b));
   foldOlds.clear();
   for (const [t, old] of entries) {
     // A latest()-pull staging holds only until the fold commit: this flush
