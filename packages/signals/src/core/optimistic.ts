@@ -212,6 +212,14 @@ function cleanupCompletedLanes(completingTransition: Transition | null): void {
 
 /** read()'s per-lane suspension test (pending-throw path, lane context). */
 function laneSuspends(owner: OptimisticNode): boolean {
+  // An UNINITIALIZED async source suspends regardless of lane (#3276): a
+  // lane mismatch preserves an already-committed stale value, but a source
+  // with no committed truth has nothing to serve — the cross-lane read
+  // surfaced a fabricated `undefined` where latest() itself suspends
+  // (latestRead rethrows NotReady for tracked uninitialized reads). Lives
+  // here rather than read()'s throw path so the floor bundles don't pay:
+  // this is only reachable under a lane, which implies the engine.
+  if ((owner as Computed<unknown>)._statusFlags & STATUS_UNINITIALIZED) return true;
   // Per-lane suspension: only throw if in same lane as pending async
   // AND the node doesn't have an active override (overrides are the visible value,
   // downstream in the lane should read the override, not throw)

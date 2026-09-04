@@ -318,7 +318,15 @@ module.exports = [
     // 10.043 on Linux CI (10.03 macOS) — this scenario pays only the #3262
     // handleAsync try/catch and the #3265 re-ask line (see the createStore
     // note for the batch and the measured no-win golf pass).
-    limit: "10.05 KB",
+    //
+    // Uninitialized cross-lane suspension (#3276/#3277): 10.05 -> 10.08 KB,
+    // measured at 10.058 macOS. The check rides laneSuspends in the
+    // optimistic module — which THIS scenario retains via latest()'s
+    // optimisticComputed shadow — rather than core read()'s throw path:
+    // the original inline placement cost 27-66 B across five scenarios
+    // (createStore, both floors, family, CSR); relocated, every other
+    // scenario is unchanged and only this one pays ~8 B.
+    limit: "10.08 KB",
     modifyEsbuildConfig
   },
   {
