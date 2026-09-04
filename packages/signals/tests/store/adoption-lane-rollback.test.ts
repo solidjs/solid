@@ -88,7 +88,7 @@ test("reconcile inside an action window is tentative: full revert at settle", as
   expect(s.rows[0]).toBe(capturedRow);
 });
 
-// FINDING-2 (rules-mining/FINDINGS.md): failed on shipped — a key ADDED by a
+// FINDING-2 (docs/rules-mining/FINDINGS.md): failed on shipped — a key ADDED by a
 // reconcile inside the action window survived settle. FIXED by the rewrite's
 // tentative reconcile channel (§6b): membership rides armed presence nodes,
 // so additions revert with their transaction exactly like deletes (RUL-8's

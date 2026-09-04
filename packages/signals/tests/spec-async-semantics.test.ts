@@ -1,5 +1,5 @@
 /**
- * SPEC TESTS — see packages/signals/SPEC-ASYNC-SEMANTICS.md.
+ * SPEC TESTS — see packages/signals/docs/SPEC-ASYNC-SEMANTICS.md.
  *
  * These pin *ruled* semantics (Tier A). Changing an expectation here requires
  * a design decision recorded in the spec document — never "update

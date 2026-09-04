@@ -14,7 +14,7 @@ import type { Computed, Signal } from "./types.js";
 
 /**
  * Test-mode invariant checks for the async/transition/lane machinery.
- * Catalog and rationale: packages/signals/INTERNALS-ASYNC-STATE.md.
+ * Catalog and rationale: packages/signals/docs/INTERNALS-ASYNC-STATE.md.
  *
  * These are implementation self-consistency checks, not semantic rules: a
  * violation means the reactive system contradicted itself.
