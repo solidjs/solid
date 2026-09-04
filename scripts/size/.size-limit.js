@@ -239,7 +239,15 @@ module.exports = [
     // store leaf: getNode self-time −23%, get-trap self-time −19%, dbmon
     // mount min −4%. Conscious speed-for-bytes trade, same ruling as the
     // Stage-3 hot-path batch.
-    limit: "14.16 KB",
+    //
+    // Witness coarse-read machinery (2026-09-04): 14.16 -> 14.30 KB,
+    // measured at 14.30. witnessNext (internal, no public export — the
+    // compiler-emitted coarse-row track is its consumer), deep-witness
+    // bubbling on bumpDeep (gated by the live-witness counter: unwitnessed
+    // apps pay one number check per change), and the under-witness flag
+    // threaded through keyed reconcile's adoption walk (the R18 amendment,
+    // pinned by reconcile-pruning-contract.test.ts).
+    limit: "14.30 KB",
     modifyEsbuildConfig
   },
   {
@@ -474,7 +482,11 @@ module.exports = [
     // Store create-floor diet (2026-09-04): 26.15 -> 26.25 KB, measured at
     // 26.248 — the slotSignal + first-read-dedupe bytes (see the
     // createStore note; this scenario retains all of it).
-    limit: "26.25 KB",
+    //
+    // Witness coarse-read machinery (2026-09-04): 26.25 -> 26.31 KB,
+    // measured at 26.301 — the witnessNext/bubbling/under-witness bytes
+    // (see the createStore note).
+    limit: "26.31 KB",
     modifyEsbuildConfig
   },
   {
