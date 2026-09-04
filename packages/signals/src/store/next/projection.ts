@@ -177,7 +177,7 @@ function wrapDraft(
 
 function createProjectionNextInternal<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: T,
+  seed: Partial<T>,
   options?: ProjectionOptions
 ) {
   const fam: StoreNextFamily = {
@@ -211,7 +211,7 @@ function createProjectionNextInternal<T extends object = {}>(
 
 export function createProjectionNext<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: NoFn<T> | Store<NoFn<T>>,
+  seed: Partial<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ): Refreshable<Store<T>> {
   return createProjectionNextInternal(fn, seed, options).store;
@@ -222,7 +222,7 @@ export function createProjectionNext<T extends object = {}>(
  * same-flush dependency change). */
 export function createStoreDerivedNext<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: NoFn<T> | Store<NoFn<T>>,
+  seed: Partial<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ): [Refreshable<Store<T>>, (f: (draft: T) => T | void) => void] {
   const { store, node } = createProjectionNextInternal(fn, seed, options);

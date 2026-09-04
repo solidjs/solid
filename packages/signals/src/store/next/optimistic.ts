@@ -184,12 +184,12 @@ export function createOptimisticStoreNext<T extends object = {}>(
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createOptimisticStoreNext<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: NoFn<T> | Store<NoFn<T>>,
+  seed: Partial<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createOptimisticStoreNext<T extends object = {}>(
   first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
-  second?: NoFn<T> | Store<NoFn<T>> | StoreOptions,
+  second?: Partial<T> | NoFn<T> | Store<NoFn<T>> | StoreOptions,
   third?: ProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   // Engine first (armed nodes need optimisticWrite installed before any

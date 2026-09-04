@@ -1593,7 +1593,7 @@ describe("Stream Blocking / deferStream", () => {
 
     createRoot(
       () => {
-        createProjection(() => d.promise, {} as any);
+        createProjection(() => d.promise, {} as { name?: string });
       },
       { id: "t" }
     );

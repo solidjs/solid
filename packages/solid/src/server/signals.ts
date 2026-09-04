@@ -1781,7 +1781,7 @@ export function createStore<T extends object = {}>(
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: NoFn<T> | Store<NoFn<T>>,
+  seed: Partial<T> | Store<NoFn<T>>,
   options?: ServerProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
@@ -1796,7 +1796,7 @@ export function createStore<T extends object = {}>(
     // The impl signature stays loose; the public overload above enforces the
     // client/seedLoadingValue pairing, and createProjection re-checks at
     // runtime.
-    const store = createProjection(first as any, second as NoFn<T>, third as any);
+    const store = createProjection(first as any, second as Partial<T>, third as any);
     return [store as Store<T>, storeSetter(store as T)];
   }
   const state = first as T;
@@ -1826,7 +1826,7 @@ export function createOptimisticStore<T extends object = {}>(
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: NoFn<T> | Store<NoFn<T>>,
+  seed: Partial<T> | Store<NoFn<T>>,
   options?: ServerProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
@@ -1967,12 +1967,12 @@ function replaceState<T extends object>(target: T, next: T): void {
 
 export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: NoFn<T> | Store<NoFn<T>>,
+  seed: Partial<T> | Store<NoFn<T>>,
   options?: ServerProjectionOptions
 ): Refreshable<Store<T>>;
 export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: NoFn<T> | Store<NoFn<T>>,
+  seed: Partial<T> | Store<NoFn<T>>,
   options?: ServerProjectionOptions
 ): Store<T> {
   const ctx = sharedConfig.context;

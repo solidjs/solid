@@ -1593,7 +1593,7 @@ export const createOptimistic: {
  */
 export const createProjection: <T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: NoFn<T> | Store<NoFn<T>>,
+  seed: Partial<T> | Store<NoFn<T>>,
   options?: HydrationProjectionOptions
 ) => Refreshable<Store<T>> = ((...args: any[]) => {
   // `hydrating` can only be true once enableHydration() installed the
@@ -1672,7 +1672,7 @@ export const createStore: {
   ): [get: Store<T>, set: StoreSetter<T>];
   <T extends object = {}>(
     fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-    seed: NoFn<T> | Store<NoFn<T>>,
+    seed: Partial<T> | Store<NoFn<T>>,
     options?: HydrationProjectionOptions
   ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 } = ((...args: any[]) => {
@@ -1736,7 +1736,7 @@ export const createOptimisticStore: {
   ): [get: Store<T>, set: StoreSetter<T>];
   <T extends object = {}>(
     fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-    seed: NoFn<T> | Store<NoFn<T>>,
+    seed: Partial<T> | Store<NoFn<T>>,
     options?: HydrationProjectionOptions
   ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 } = ((...args: any[]) => {
