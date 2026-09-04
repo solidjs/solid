@@ -153,6 +153,19 @@ companions (solid-vite-plugin#343, solid-router#597) ride as drafts until
 2.0.0-rc.7 ships. The **audit**/**ruling** markers in the tables above
 record the pre-triage state and read as resolved per this section.
 
+**Post-sweep gaps in the sweep's own fixes (landed 2026-09-04):**
+
+- #3267 `285a7177` — a `PromiseConstructor` ref-id collision orphans the
+  `{p, s, f}` deferred (registered under `node.s` before the promise under
+  `node.i`), which `ownDecodedPromises` cannot claim; the abort sweep now
+  defuses `.p` before rejecting it. Gap in #3232's fix; pinned in
+  `server-functions-decoder-rejection-ownership`.
+- #3268 `8f11ea7f` — the #3235 guard walked Error carriers with
+  `Object.keys` while seroval encodes them through `getOwnPropertyNames`;
+  a channel on a non-enumerable own DATA slot (`cause`) escaped the walk.
+  Now descended; hidden accessors stay the codec's read per `47995412`'s
+  ruling. Pinned in `server-functions-failure-sanitization`.
+
 ## Extraction and merge discipline
 
 - A red test demonstrates current behavior; it becomes an ordinary guard only
