@@ -1536,11 +1536,18 @@ const traps: ProxyHandler<StoreNextTarget> = {
     }
     // Dev strictRead: untracked store reads in labeled scopes (component
     // bodies, effect callbacks) warn — the value can never update the reader.
+    // `then` is exempt: resolving a promise with a store proxy (refresh()'s
+    // waiter delivers the store, `Promise.resolve(store)`, `return store`
+    // from an async function) makes the engine probe `.then` for
+    // thenable-ness synchronously in the caller's scope. That is not a read
+    // the user wrote, and it must neither warn nor escalate to the pending
+    // throw — a throw out of promise resolution rejects the promise.
     if (
       __DEV__ &&
       strictRead &&
       !inDraft(target) &&
       typeof key === "string" &&
+      key !== "then" &&
       getObserver() === null
     ) {
       // Safeguard parity with core read() (#2897): a component-body read of
