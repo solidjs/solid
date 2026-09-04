@@ -112,11 +112,18 @@ implementation/tests, prior accepted fixes, and platform semantics.
 
 1. #3239 flash cookie: the payload (including form `input`, which the router's
    `filter(s.input)` attribution requires on the flash-seeded render) is
-   AES-GCM encrypted, always. Key resolution: explicit `secret` option →
-   bundler-injected `globalThis.__SOLID_FLASH_KEY__` → no key means no flash
-   cookie plus a dev diagnostic. Envelope gains `SameSite=Lax` and
-   `Max-Age=60`; the recorded `url` is the unbound base so `.with()`-bound
-   forms match `fn.base`. No `__Host-` rename, no redaction heuristics.
+   AES-GCM encrypted, always, under a key derived (domain-separated,
+   `solid.flash.v1`) from THE DEPLOYMENT SECRET — one secret per deployment,
+   future features derive their own keys from it under their own domain
+   strings. Resolution: explicit `secret` option → bundler-injected
+   `globalThis.__SOLID_SECRET__` → no secret means no flash cookie plus a
+   dev diagnostic. Envelope gains `SameSite=Lax` and `Max-Age=60`; the
+   recorded `url` is the unbound base so `.with()`-bound forms match
+   `fn.base`. No `__Host-` rename, no redaction heuristics. Runtime landed
+   in `fbe5bef4` (encode/decode now async); companions:
+   solid-vite-plugin#343 (secret injection into server builds) and
+   solid-router#597 (async decoder absorbed by the submissions seed), both
+   draft until rc.7 ships.
 2. #3249 flash overflow: refuse to flash (plain redirect, no cookie) — never a
    silent prefix. Landed in `3393fb62`.
 3. #3250 refused no-JS navigation: ratified as-is — security refusals keep raw
@@ -138,13 +145,13 @@ implementation/tests, prior accepted fixes, and platform semantics.
 
 **Landed fixes (all merged to `next` 2026-09-03):** #3232 `ff2ecf11`,
 #3234 `c0bc9baa`, #3235 `5cee0f77`, #3236 `7009adfd`, #3237 `12263816`,
-#3238 `ed6b6053`, #3241 `84a94bc1`, #3244 `b7b17abf`, #3245 `6c9f8f45`,
-#3246 `292bdc52`, #3247 `a1ff2860`, #3248 `f21e060b`, #3249 `3393fb62`,
-#3251 `a14c1385`, #3253 `6bb51c9b`. Every issue in the sweep is closed;
-the #3239 encrypted-flash runtime and its vite-plugin key-injection
-companion are the remaining implementation work. The **audit**/**ruling**
-markers in the tables above record the pre-triage state and read as
-resolved per this section.
+#3238 `ed6b6053`, #3239 `fbe5bef4`, #3241 `84a94bc1`, #3244 `b7b17abf`,
+#3245 `6c9f8f45`, #3246 `292bdc52`, #3247 `a1ff2860`, #3248 `f21e060b`,
+#3249 `3393fb62`, #3251 `a14c1385`, #3253 `6bb51c9b`. Every issue in the
+sweep is closed and every accepted fix is on `next`; the two cross-repo
+companions (solid-vite-plugin#343, solid-router#597) ride as drafts until
+2.0.0-rc.7 ships. The **audit**/**ruling** markers in the tables above
+record the pre-triage state and read as resolved per this section.
 
 ## Extraction and merge discipline
 
