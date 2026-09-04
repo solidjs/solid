@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, test, vi, afterEach } from "vitest";
-import { createMemo, Errored, Loading, flush } from "solid-js";
+import { createMemo, createOptimisticStore, createStore, Errored, Loading, flush } from "solid-js";
 import { render } from "../src/index.js";
 
 describe("Dev-mode async warning", () => {
@@ -298,6 +298,135 @@ describe("Deferred root mount", () => {
     flush();
 
     expect(slowEl.innerHTML).toContain("slow-done");
+    warnSpy.mockRestore();
+  });
+});
+
+// Top-level async STORES follow the same designed contract as memo-over-
+// promise above: no boundary means the root mount is held until the first
+// truth lands (static siblings included — the reveal is atomic) and the
+// Loading-boundary dev warning fires. Deliberate design, not an accident of
+// the store machinery — these pin the store-shaped paths (an optimistic
+// store's first flight rides pending propagation only; its flight
+// transaction declares nothing while uninitialized, #3264) so a future
+// "fix" to pending-at-root can't silently trade it away.
+describe("Deferred root mount — async stores", () => {
+  let divs: HTMLDivElement[] = [];
+  const disposers: Array<() => void> = [];
+
+  afterEach(() => {
+    disposers.splice(0).forEach(d => d());
+    divs.splice(0).forEach(d => d.remove());
+  });
+
+  function makeMount(): HTMLDivElement {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    divs.push(el);
+    return el;
+  }
+
+  const warned = (spy: ReturnType<typeof vi.spyOn>) =>
+    spy.mock.calls.some(args =>
+      args.some(a => typeof a === "string" && a.includes("Loading boundary"))
+    );
+
+  test("optimistic store first flight: root mount held, warning fired, atomic reveal", async () => {
+    const el = makeMount();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let resolveFn!: (rows: { name: string }[]) => void;
+
+    disposers.push(
+      render(() => {
+        const [rows] = createOptimisticStore<{ name: string }[]>(
+          () => new Promise<{ name: string }[]>(r => (resolveFn = r)),
+          []
+        );
+        return (
+          <div class="outer">
+            <span class="sibling">static</span>
+            <span class="row">{rows[0]?.name ?? "none"}</span>
+          </div>
+        );
+      }, el)
+    );
+    flush();
+
+    // Held: nothing mounts, not even the static sibling.
+    expect(el.innerHTML).toBe("");
+    // Warned: uncaught pending at the root is diagnosed.
+    expect(warned(warnSpy)).toBe(true);
+
+    resolveFn([{ name: "first-truth" }]);
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    const html = el.innerHTML;
+    expect(html).toContain("static");
+    expect(html).toContain("first-truth");
+    warnSpy.mockRestore();
+  });
+
+  test("derived store first flight: root mount held, warning fired, atomic reveal", async () => {
+    const el = makeMount();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let resolveFn!: (rows: { name: string }[]) => void;
+
+    disposers.push(
+      render(() => {
+        const [rows] = createStore<{ name: string }[]>(
+          () => new Promise<{ name: string }[]>(r => (resolveFn = r)),
+          []
+        );
+        return (
+          <div class="outer">
+            <span class="sibling">static</span>
+            <span class="row">{rows[0]?.name ?? "none"}</span>
+          </div>
+        );
+      }, el)
+    );
+    flush();
+
+    expect(el.innerHTML).toBe("");
+    expect(warned(warnSpy)).toBe(true);
+
+    resolveFn([{ name: "first-truth" }]);
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    const html = el.innerHTML;
+    expect(html).toContain("static");
+    expect(html).toContain("first-truth");
+    warnSpy.mockRestore();
+  });
+
+  test("optimistic store first flight inside Loading: fallback shows, no warning", () => {
+    const el = makeMount();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    disposers.push(
+      render(() => {
+        const [rows] = createOptimisticStore<{ name: string }[]>(
+          () => new Promise<{ name: string }[]>(() => {}),
+          []
+        );
+        return (
+          <div class="outer">
+            <Loading fallback={<span class="fallback">wait</span>}>
+              <span class="row">{rows[0]?.name ?? "none"}</span>
+            </Loading>
+          </div>
+        );
+      }, el)
+    );
+    flush();
+
+    expect(el.innerHTML).toContain("fallback");
+    expect(el.innerHTML).toContain("outer");
+    expect(warned(warnSpy)).toBe(false);
     warnSpy.mockRestore();
   });
 });
