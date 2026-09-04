@@ -1,0 +1,27 @@
+---
+description: Agent-authored GitHub comments must be blockquoted to distinguish them from the maintainer's own writing
+alwaysApply: true
+---
+
+# Agent Voice on GitHub
+
+All conversational RESPONSES an agent posts to GitHub on the maintainer's behalf — comments on existing issues and PRs, review bodies, discussion replies, close/reopen comments — MUST be wrapped in markdown blockquotes (`> ` prefixing every line, including blank lines within the quoted body). This is the maintainer's established convention (used on Discord as well) so readers can tell agent-authored responses from his own, and so responsibility for agent actions (closes, merges, verdicts) is auditable.
+
+Bodies of NEW issues and PRs the agent opens are exempt — authorship is already clearly credited there. This policy is about responses in conversation.
+
+```markdown
+❌ BAD
+Confirmed and fixed in fc7e626f — thanks for the reproduction.
+
+✅ GOOD
+> Confirmed and fixed in fc7e626f — thanks for the reproduction.
+>
+> Root cause: derived stores fold drafts on the clone path...
+```
+
+Rules of thumb:
+
+- Code blocks inside the comment stay inside the blockquote (prefix the fences too: `> ```ts`).
+- Applies to `gh issue comment`, `gh pr comment`, `gh pr review --body`, close/merge `--comment` bodies, and API-posted comment bodies.
+- Does NOT apply to commit messages, changesets, PR/issue titles, labels, or code — only conversational bodies.
+- If quoting someone else inside an agent comment, use a nested quote (`> >`).

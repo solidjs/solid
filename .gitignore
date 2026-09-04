@@ -4,7 +4,8 @@ lib/
 # ...but an example's source tree may legitimately have one (src/lib/api.ts).
 !examples/*/src/lib/
 .vscode/
-.cursor/
+.cursor/*
+!.cursor/rules/
 .idea/
 coverage/
 types/
