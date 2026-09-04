@@ -28,6 +28,57 @@ function deferred<T>() {
 }
 
 describe("Projection async behavior", () => {
+  it("adopts every value from a seedless async iterable", async () => {
+    const next = deferred<void>();
+    let receivedArgs: unknown[] | undefined;
+    const projection = createProjection<{ value: number }>(async function* (...args: unknown[]) {
+      receivedArgs = args;
+      yield { value: 1 };
+      await next.promise;
+      yield { value: 2 };
+    });
+
+    flush();
+    expect(() => projection.value).toThrow(NotReadyError);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(receivedArgs).toEqual([]);
+    expect(projection.value).toBe(1);
+
+    next.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(projection.value).toBe(2);
+  });
+
+  it("rejects seedless values without a compatible object proxy shape", async () => {
+    class State {
+      value = 1;
+    }
+    const createInvalid = (fn: () => any) => {
+      const projection = createProjection<any>(fn);
+      flush();
+      return projection.value;
+    };
+
+    expect(() => createInvalid(() => undefined)).toThrow(
+      "A seedless store projection must produce a value"
+    );
+    expect(() => createInvalid(() => [])).toThrow(
+      "Array store projections require an explicit seed"
+    );
+    expect(() => createInvalid(() => new State())).toThrow(
+      "A seedless store projection must produce a plain object value"
+    );
+
+    const asyncProjection = createProjection<any>(async () => undefined);
+    flush();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(() => asyncProjection.value).toThrow("A seedless store projection must produce a value");
+  });
+
   it("resolves async draft and transforms into new value", async () => {
     const [$x, setX] = createSignal(1);
 

@@ -1293,6 +1293,47 @@ describe("bare ssrSource 'client' — unasked through the gate, computes after",
     expect(store.name).toBe("landed");
     expect(read(result)).toBe("landed");
   });
+
+  test("bare seedless client store initializes after hydration", async () => {
+    startHydration({});
+    let store: any;
+    let setStore: any;
+    let deriveRan = 0;
+    let receivedArgs: unknown[] | undefined;
+    let resolve!: (value: { name: string }) => void;
+    createRoot(
+      () => {
+        [store, setStore] = createStore<{ name: string }>(
+          (...args: unknown[]) => {
+            deriveRan++;
+            receivedArgs = args;
+            return new Promise(r => (resolve = r));
+          },
+          undefined,
+          { ssrSource: "client" }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(deriveRan).toBe(0);
+    expect(() => store.name).toThrow(NotReadyError);
+
+    stopHydration();
+    flush();
+    expect(deriveRan).toBe(1);
+    expect(receivedArgs).toEqual([]);
+    expect(() => store.name).toThrow(NotReadyError);
+
+    resolve({ name: "computed" });
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(store.name).toBe("computed");
+    setStore((draft: any) => void (draft.name = "updated"));
+    expect(store.name).toBe("updated");
+  });
 });
 
 // The hydration gate must not close the loading window: a sync prev-return
@@ -1640,6 +1681,54 @@ describe("Async Iterable Hydration — createProjection", () => {
 
     expect(store.name).toBe("Bob");
     expect(store.count).toBe(0);
+  });
+
+  test("seedless replay adopts its snapshot before applying patch batches", async () => {
+    const patches = [[["name"], "Bob"]];
+    const ai = createBufferedAsyncIterable([{ name: "Alice", count: 0 }, patches]);
+    startHydration({ t0: ai });
+
+    let store: any;
+    let receivedArgs: unknown[] | undefined;
+    let valid = true;
+    let setVersion!: (value: number) => number;
+    createRoot(
+      () => {
+        const [version, set] = coreSignal(0);
+        setVersion = set;
+        store = createProjection<{ name: string; count: number }>((...args: unknown[]) => {
+          version();
+          receivedArgs = args;
+          return valid ? { name: "client", count: 1 } : (undefined as any);
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(receivedArgs).toEqual([]);
+    expect(store.name).toBe("Alice");
+    expect(store.count).toBe(0);
+
+    stopHydration();
+    await Promise.resolve();
+    flush();
+
+    expect(store.name).toBe("Bob");
+    expect(store.count).toBe(0);
+
+    ai.complete();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    valid = false;
+    setVersion(1);
+    flush();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(() => store.name).toThrow("A seedless store projection must produce a value");
   });
 
   test("server+AI: deep nested patch application", async () => {

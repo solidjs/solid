@@ -16,6 +16,9 @@ import {
   createProjection as coreProjection,
   createStore as coreStore,
   createOptimisticStore as coreOptimisticStore,
+  createProjectionHydrationReplay as coreProjectionHydrationReplay,
+  createStoreHydrationReplay as coreStoreHydrationReplay,
+  createOptimisticStoreHydrationReplay as coreOptimisticStoreHydrationReplay,
   createRenderEffect as coreRenderEffect,
   createEffect as coreEffect,
   setSnapshotCapture,
@@ -28,6 +31,7 @@ import {
   type NoInfer,
   type Owner,
   type ProjectionOptions,
+  type SeededProjectionOptions,
   type Refreshable,
   type Signal,
   type SignalOptions,
@@ -108,6 +112,7 @@ declare module "@solidjs/signals" {
 type HydrationMemoOptions<T> = MemoOptions<T>;
 type HydrationSignalOptions<T> = SignalOptions<T> & MemoOptions<T>;
 type HydrationProjectionOptions = ProjectionOptions;
+type HydrationSeededProjectionOptions = SeededProjectionOptions;
 
 export type HydrationContext = {};
 
@@ -287,7 +292,7 @@ let _createLoadingBoundary: Function | undefined;
 // enableHydration() installed these.
 let _hydrateSignalLike: ((coreFn: Function, fn: any, options?: any) => any) | undefined;
 let _hydrateStoreLike:
-  | ((coreFn: Function, fn: any, initialValue: any, options?: any) => any)
+  | ((coreFn: Function, replayFn: Function, fn: any, initialValue: any, options?: any) => any)
   | undefined;
 // lazy()'s server-module lookup: only meaningful under hydration, so the
 // implementation (and peekNextChildId/_$HY access behind it) installs here
@@ -683,8 +688,22 @@ function hydrateSignalFromAsyncIterable(coreFn: Function, compute: any, options:
   }, options);
 }
 
+function createStoreFromHydrationReplay(
+  coreFn: Function,
+  replayFn: Function,
+  compute: Function,
+  initialValue: any,
+  options: any,
+  replaying: () => boolean
+) {
+  return initialValue != null
+    ? coreFn(compute, initialValue, options)
+    : replayFn(compute, replaying, options);
+}
+
 function hydrateStoreFromAsyncIterable(
   coreFn: Function,
+  replayFn: Function,
   fn: any,
   initialValue: any,
   options: any
@@ -697,6 +716,7 @@ function hydrateStoreFromAsyncIterable(
 
   const srcIt = loaded[Symbol.asyncIterator]();
   const loading = hasLoadingWindow(options);
+  const seeded = initialValue != null;
   let isFirst = true;
   let buffered: any = null;
   let terminal = false;
@@ -704,7 +724,9 @@ function hydrateStoreFromAsyncIterable(
     terminal = true;
     throw e;
   };
-  return coreFn(
+  return createStoreFromHydrationReplay(
+    coreFn,
+    replayFn,
     (draft: any) => {
       // A run after the serialized stream reached its terminal state (done
       // or error) is a real invalidation — a dependency change or refresh()
@@ -716,13 +738,17 @@ function hydrateStoreFromAsyncIterable(
       // re-runs each time a pending pull lands — and must keep adopting the
       // shared replay (going live there re-fetches data the document is
       // still delivering).
-      if (terminal) return fn(draft);
+      if (terminal) return runStoreFn(fn, draft, seeded);
       // Run the user fn up to its first await on the client so any reactive
       // dependencies read before the first suspension are tracked. Writes go
       // to a shadow of the draft and are discarded — the server iterator is
       // authoritative and drives the real draft via the iterable below.
-      const { proxy } = createShadowDraft(draft);
-      subFetch(fn, proxy);
+      if (seeded) {
+        const { proxy } = createShadowDraft(draft);
+        subFetch(fn, proxy);
+      } else {
+        subFetch(() => fn());
+      }
       const process = (res: any) => {
         if (res.done) {
           terminal = true;
@@ -730,6 +756,9 @@ function hydrateStoreFromAsyncIterable(
         }
         if (isFirst) {
           isFirst = false;
+          // A seedless replay's first entry is a complete snapshot. Let core
+          // adopt it before later patch entries mutate the private draft.
+          if (!seeded) return { done: false, value: res.value };
           // The initial full value IS the snapshot state the SSR DOM reflects.
           // Disable snapshot capture while applying it so prepareStoreWrite doesn't
           // record the pre-write (empty) base as the snapshot — otherwise reads
@@ -856,7 +885,8 @@ function hydrateStoreFromAsyncIterable(
       };
     },
     initialValue,
-    options
+    options,
+    () => !terminal
   );
 }
 
@@ -1103,17 +1133,24 @@ function hydratedCreateErrorBoundary<T, U>(
   return coreErrorBoundary(fn, fallback);
 }
 
-function wrapStoreFn(fn: any, options?: any) {
-  return (draft: any) => readSerializedOrCompute(() => fn(draft), draft, options);
+function runStoreFn(fn: any, draft: any, seeded: boolean) {
+  return seeded ? fn(draft) : fn();
+}
+
+function wrapStoreFn(fn: any, seeded: boolean, options?: any) {
+  return (draft: any) =>
+    readSerializedOrCompute(() => runStoreFn(fn, draft, seeded), draft, options);
 }
 
 function hydrateStoreLikeFn(
   coreFn: Function,
+  replayFn: Function,
   fn: any,
   initialValue: any,
   options: any,
   ssrSource: string | undefined
 ): any {
+  const seeded = initialValue != null;
   if (ssrSource === "client") {
     return withHydrationGate(hydrated =>
       coreFn(
@@ -1122,7 +1159,7 @@ function hydrateStoreLikeFn(
           // seedLoadingValue the seed is commit #0 and remains readable;
           // otherwise the store suspends until its first client result.
           if (!hydrated()) return UNASKED;
-          return fn(draft);
+          return runStoreFn(fn, draft, seeded);
         },
         initialValue,
         options
@@ -1138,11 +1175,12 @@ function hydrateStoreLikeFn(
             if (sharedConfig.has!(o.id!))
               return readHydratedValue(
                 sharedConfig.load!(o.id!),
-                () => subFetch(fn, draft),
+                () => subFetch(() => runStoreFn(fn, draft, seeded)),
                 options
               );
-            return fn(draft);
+            return runStoreFn(fn, draft, seeded);
           }
+          if (!seeded) return fn();
           const { proxy, activate } = createShadowDraft(draft);
           const r = fn(proxy);
           return isAsyncIterable(r) ? wrapFirstYield(r, activate) : r;
@@ -1152,9 +1190,9 @@ function hydrateStoreLikeFn(
       )
     );
   }
-  const aiResult = hydrateStoreFromAsyncIterable(coreFn, fn, initialValue, options);
+  const aiResult = hydrateStoreFromAsyncIterable(coreFn, replayFn, fn, initialValue, options);
   if (aiResult !== null) return aiResult;
-  return coreFn(wrapStoreFn(fn, options), initialValue, options);
+  return coreFn(wrapStoreFn(fn, seeded, options), initialValue, options);
 }
 
 // The store-shaped counterpart to hydrateSignalLike: one body for
@@ -1163,9 +1201,17 @@ function hydrateStoreLikeFn(
 // backlog parking in hydrateStoreFromAsyncIterable (and the module-local
 // onHydrationEnd it defers through) is unchanged — only how the code is
 // reached moved.
-function hydrateStoreLike(coreFn: Function, fn: any, initialValue: any, options?: any) {
+function hydrateStoreLike(
+  coreFn: Function,
+  replayFn: Function,
+  fn: any,
+  initialValue: any,
+  options?: any
+) {
   markTopLevelSnapshotScope();
-  return hydrateStoreLikeFn(coreFn, fn, initialValue, options, options?.ssrSource);
+  if (initialValue == null && options?.seedLoadingValue)
+    throw new Error("seedLoadingValue requires an explicit store seed");
+  return hydrateStoreLikeFn(coreFn, replayFn, fn, initialValue, options, options?.ssrSource);
 }
 
 // --- Hydration-aware effect implementations ---
@@ -1555,12 +1601,11 @@ export const createOptimistic: {
 }) as any;
 
 /**
- * Creates a derived (projected) store — `createMemo` for stores. The
- * derive function receives a mutable draft and either mutates it in
- * place (canonical) or returns a new value. Either way the result is
- * reconciled against the previous draft by `options.key` (default
- * `"id"`), so surviving items keep their proxy identity — only
- * added/removed items are created/disposed.
+ * Creates a derived (projected) store — `createMemo` for stores. With a
+ * seed, the derive receives a mutable draft and may mutate or replace it.
+ * Without a seed, the derive receives no draft and must return a complete
+ * plain object. Results are reconciled by `options.key` (default `"id"`),
+ * so surviving items keep their proxy identity.
  *
  * Returns the projected store directly (no setter — reads only).
  *
@@ -1591,18 +1636,26 @@ export const createOptimistic: {
  * (`"server"` | `"hybrid"` | `"client"`) for the same client-vs-server
  * tradeoffs as the other primitives. See {@link HydrationSsrFields}.
  */
-export const createProjection: <T extends object = {}>(
-  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
-  options?: HydrationProjectionOptions
-) => Refreshable<Store<T>> = ((...args: any[]) => {
+export const createProjection: {
+  <T extends object = {}>(
+    fn: (() => T | Promise<T> | AsyncIterable<T>) & SeedlessRoot<T>,
+    seed?: null,
+    options?: HydrationProjectionOptions
+  ): Refreshable<Store<T>>;
+  <T extends object = {}>(
+    fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+    seed: NoFn<T> | Store<NoFn<T>>,
+    options?: HydrationSeededProjectionOptions
+  ): Refreshable<Store<T>>;
+} = ((...args: any[]) => {
   // `hydrating` can only be true once enableHydration() installed the
   // adapter slot (see createOptimistic above for the retention story).
   return sharedConfig.hydrating
-    ? _hydrateStoreLike!(coreProjection, args[0], args[1], args[2])
+    ? _hydrateStoreLike!(coreProjection, coreProjectionHydrationReplay, args[0], args[1], args[2])
     : (coreProjection as Function)(...args);
 }) as any;
 
+type SeedlessRoot<T> = Extract<T, Function | readonly unknown[]> extends never ? unknown : never;
 type NoFn<T> = T extends Function ? never : T;
 
 /**
@@ -1628,11 +1681,10 @@ type NoFn<T> = T extends Function ? never : T;
  *
  * - **Plain form** — `createStore(initialValue, options?)`: wraps a value in a
  *   reactive proxy.
- * - **Derived form** — `createStore(fn, seed, options?)`: a
- *   *projection store* whose contents are computed by `fn(draft)`.
- *   `fn` may be sync, async, or an `AsyncIterable`; the projection's
- *   result reconciles against the existing store by `options.key`
- *   (default `"id"`) for stable identity.
+ * - **Derived form** — `createStore(fn, seed?, options?)`: a
+ *   *projection store* whose contents are computed by `fn`. With a seed,
+ *   `fn(draft)` may mutate or replace it. Without one, `fn()` returns a
+ *   complete plain object. `fn` may be sync, async, or an `AsyncIterable`.
  *
  * @example
  * ```ts
@@ -1671,15 +1723,20 @@ export const createStore: {
     options?: StoreOptions
   ): [get: Store<T>, set: StoreSetter<T>];
   <T extends object = {}>(
-    fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-    seed: Partial<T> | Store<NoFn<T>>,
+    fn: (() => T | Promise<T> | AsyncIterable<T>) & SeedlessRoot<T>,
+    seed?: null,
     options?: HydrationProjectionOptions
+  ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+  <T extends object = {}>(
+    fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+    seed: NoFn<T> | Store<NoFn<T>>,
+    options?: HydrationSeededProjectionOptions
   ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 } = ((...args: any[]) => {
   // `hydrating` can only be true once enableHydration() installed the
   // adapter slot (see createOptimistic above for the retention story).
   return typeof args[0] === "function" && sharedConfig.hydrating
-    ? _hydrateStoreLike!(coreStore, args[0], args[1] ?? {}, args[2])
+    ? _hydrateStoreLike!(coreStore, coreStoreHydrationReplay, args[0], args[1], args[2])
     : (coreStore as Function)(...args);
 }) as any;
 
@@ -1693,9 +1750,11 @@ export const createStore: {
  * single-value optimistic state, prefer `createOptimistic`.
  *
  * - **Plain form** — `createOptimisticStore(initialValue, options?)`.
- * - **Derived form** — `createOptimisticStore(fn, seed, options?)`:
+ * - **Derived form** — `createOptimisticStore(fn, seed?, options?)`:
  *   a projection store whose authoritative value is recomputed by
  *   `fn` and whose optimistic overlay reverts after each transition.
+ *   With a seed, `fn` receives its mutable draft. Without one, `fn`
+ *   receives no draft and returns a complete plain object.
  *
  * In the derived form, `options.key` defaults to `"id"`; specify it only when your data
  * uses a different identity field (e.g. `{ key: "uuid" }` or
@@ -1735,15 +1794,26 @@ export const createOptimisticStore: {
     options?: StoreOptions
   ): [get: Store<T>, set: StoreSetter<T>];
   <T extends object = {}>(
-    fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-    seed: Partial<T> | Store<NoFn<T>>,
+    fn: (() => T | Promise<T> | AsyncIterable<T>) & SeedlessRoot<T>,
+    seed?: null,
     options?: HydrationProjectionOptions
+  ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+  <T extends object = {}>(
+    fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+    seed: NoFn<T> | Store<NoFn<T>>,
+    options?: HydrationSeededProjectionOptions
   ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 } = ((...args: any[]) => {
   // `hydrating` can only be true once enableHydration() installed the
   // adapter slot (see createOptimistic above for the retention story).
   return typeof args[0] === "function" && sharedConfig.hydrating
-    ? _hydrateStoreLike!(coreOptimisticStore, args[0], args[1] ?? {}, args[2])
+    ? _hydrateStoreLike!(
+        coreOptimisticStore,
+        coreOptimisticStoreHydrationReplay,
+        args[0],
+        args[1],
+        args[2]
+      )
     : (coreOptimisticStore as Function)(...args);
 }) as any;
 

@@ -25,7 +25,7 @@ export type Store<T> = T;
 export type StoreSetter<T> = (fn: (state: T) => T | void) => void;
 /** Tuple returned by the plain `createStore(initialValue, options?)` form. */
 export type StoreReturn<T> = [get: Store<T>, set: StoreSetter<T>];
-/** Tuple returned by the derived `createStore(fn, seed, options?)` form. */
+/** Tuple returned by the derived `createStore(fn, seed?, options?)` form. */
 export type ProjectionStoreReturn<T> = [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 /** Options shared by all store primitives. */
 export interface StoreOptions {
@@ -34,14 +34,13 @@ export interface StoreOptions {
   /** Single-layer store: root keys reactive, values raw records replaced by reference */
   shallow?: boolean;
 }
-/**
- * Options for derived/projected stores created with
- * `createStore(fn, seed, options?)`, `createProjection(fn, seed, options?)`,
- * or `createOptimisticStore(fn, seed, options?)`.
- */
+/** Options shared by seeded and seedless derived/projected stores. */
 export interface ProjectionOptions extends StoreOptions {
   /** Key property name or function for reconciliation identity; `null` merges positionally */
   key?: string | ((item: NonNullable<any>) => any) | null;
+}
+/** Options for a derived/projected store with an explicit seed. */
+export interface SeededProjectionOptions extends ProjectionOptions {
   /**
    * Treat the seed as commit #0: the store is born committed with the seed's
    * contents, shown until the derive's first real answer lands. While that
@@ -57,6 +56,9 @@ export interface ProjectionOptions extends StoreOptions {
    */
   seedLoadingValue?: boolean;
 }
+/** Restricts seedless projections to non-callable object roots with a known proxy shape. @internal */
+export type SeedlessRoot<T> =
+  Extract<T, Function | readonly unknown[]> extends never ? unknown : never;
 export type NoFn<T> = T extends Function ? never : T;
 
 type DataNode = Signal<any>;
