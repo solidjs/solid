@@ -2598,9 +2598,27 @@ function enterGuard(value, state) {
   }
   const next = Object.create(prototype, descriptors);
   state.seen.set(value, next);
-  // The codec reads enumerable string properties; hidden accessors must stay
-  // hidden without being invoked merely because another slot needs guarding.
-  return new Frame(OBJECT, value, next, Object.keys(value), descriptors);
+  // Walk what the codec will encode — the guard's whole contract is that
+  // every slot seroval emits is a slot it descended. For a plain object that
+  // is the enumerable string keys, and hidden accessors must stay hidden
+  // without being invoked merely because another slot needs guarding. But
+  // seroval encodes an Error's own properties through `getOwnPropertyNames`,
+  // enumerable or not — so a failure channel under a NON-enumerable own DATA
+  // slot (a rejected promise parked on `cause`, non-enumerable by spec since
+  // ES2022; `AggregateError.errors`; any `defineProperty` context) rode the
+  // wire unwalked: unsanitized, and unowned (#3268). Descend the Error's
+  // hidden data slots too. Hidden ACCESSORS stay the codec's read
+  // (47995412's ruling, pinned in server-functions-error-carrier-guard):
+  // walking one would turn its throw into a guard-time 500 where the codec
+  // fails in-band on the committed 200. (message/stack/name come along and
+  // guard to themselves — a no-op on strings.)
+  const children = !(value instanceof Error)
+    ? Object.keys(value)
+    : Object.getOwnPropertyNames(value).filter(key => {
+        const descriptor = descriptors[key];
+        return descriptor.enumerable || "value" in descriptor;
+      });
+  return new Frame(OBJECT, value, next, children, descriptors);
 }
 
 /** A rebuild stands if anything below changed, or if a cycle already took it. */
