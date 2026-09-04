@@ -94,6 +94,11 @@ export type {
 
 export * from "./client/component.js";
 export * from "./client/flow.js";
+// Unified For slot: type surface for renderer integrators (web's insert
+// passes its SlotOps) + the engagement/demotion test probe. The impl itself
+// travels on `$for.impl` — not a user API.
+export type { SlotOps } from "./client/for-slot.js";
+export { __unifiedForStats } from "./client/for-slot.js";
 export type { ArrayElement, Element } from "./types.js";
 export {
   sharedConfig,

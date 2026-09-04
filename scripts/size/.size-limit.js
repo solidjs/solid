@@ -423,7 +423,15 @@ module.exports = [
     // KB, measured at 10.751 macOS (+21 B; brotli drift — the minified core
     // shrank, see the createStore note). Linux CI has measured ~23 B above
     // macOS on this scenario, hence the extra 0.02 kB.
-    limit: "10.78 KB",
+
+
+    //
+    // Unified For slot, default-on (2026-09-04): 10.73 -> 10.89 KB, measured
+    // at 10.884. The floor has NO For — this is the ENGAGEMENT SEAM only:
+    // insert's `$for.impl` call site plus the domOps singleton (the platform
+    // web hands the slot). The slot algorithm itself rides For's module
+    // graph in solid-js and tree-shakes out of For-less apps like this one.
+    limit: "10.89 KB",
     modifyEsbuildConfig
   },
   {
@@ -488,7 +496,16 @@ module.exports = [
     // Patch-channel removal (2026-09-02): 17.72 -> 17.61 KB, measured at
     // 17.58. The channel is deleted from next — regions own value delivery,
     // the unified-For design owns structure — reclaiming the insert $ll seam and core emission bytes.
-    limit: "17.61 KB",
+    //
+    // Unified For slot, default-on (2026-09-04): 17.61 -> 19.76 KB, measured
+    // at 19.75. THE deliberate bill: this scenario renders <For>, so it
+    // retains the slot (~2.1 KB) through For's own module graph — every
+    // keyed For gets chain+LIS structural updates and flat-mode mounts with
+    // zero API and zero compiler involvement (jfb-signal structural geomean
+    // 0.63, uibench 0.73, creates at parity — see DESIGN-UNIFIED-FOR.md).
+    // Hydration claiming declines to classic at runtime today; the bytes
+    // still ride for post-hydration mounts.
+    limit: "19.76 KB",
     modifyEsbuildConfig
   },
   {
@@ -591,7 +608,11 @@ module.exports = [
     // scenario's layout; the createStore scenario carrying the same change
     // came in UNDER its pre-fix size — see its note). The usual +4-7 B
     // Linux delta leaves ~20 B headroom.
-    limit: "26.45 KB",
+
+    // Unified For slot, default-on (2026-09-04): 26.43 -> 28.64 KB — the
+    // slot bytes through For's module graph (see the hydrating no-stores
+    // note).
+    limit: "28.64 KB",
     modifyEsbuildConfig
   },
   {
@@ -637,7 +658,11 @@ module.exports = [
     // the canonicalization split and hasWidthDescriptor to client.ts —
     // those bytes land here, and this scenario was not ratcheted with the
     // hydrating ones. Ratchet on next so the branch is green again.
-    limit: "13.01 KB",
+
+    // Unified For slot, default-on (2026-09-04): 12.97 -> 15.20 KB, measured
+    // at 15.19 — the slot bytes through For's module graph (see the
+    // hydrating no-stores note).
+    limit: "15.20 KB",
     modifyEsbuildConfig
   },
   {

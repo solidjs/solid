@@ -14,13 +14,19 @@
  *      in flight, revert restores committed).
  */
 import { beforeEach, describe, expect, test } from "vitest";
-import { createRoot, createSignal, createOptimisticStore, flush, For } from "solid-js";
+import {
+  createRoot,
+  createSignal,
+  createOptimisticStore,
+  flush,
+  For,
+  __unifiedForStats
+} from "solid-js";
 // IMPORTANT: the packaged specifier, NOT ../src — compiled JSX resolves
-// `@solidjs/web` to dist (browser+development), and arming the driver on a
-// second from-source instance would leave the compiled inserts classic.
-import { insert, enableUnifiedFor, __unifiedForStats } from "@solidjs/web";
-
-enableUnifiedFor();
+// `solid-js`/`@solidjs/web` to dist (browser+development); the stats probe
+// must come from the SAME solid-js instance the compiled For runs on. No
+// arming: the slot rides For's module graph and engages by default.
+import { insert } from "@solidjs/web";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
