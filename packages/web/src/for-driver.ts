@@ -97,6 +97,45 @@ interface FlatPlan {
   len: number;
 }
 
+/** RENDERER OPS — the slot's entire platform surface. The slot never touches
+ * DOM directly: the engaging insert() hands it ONE module-level singleton
+ * (web: `domOps` below), so every call site stays monomorphic and V8 inlines
+ * the indirection. This is what lets the slot ride For's own module graph
+ * (pay-for-use via tree-shaking, no compiler emission, no registration API)
+ * and what gives universal renderers a direct adoption path: pass your ops. */
+export interface SlotOps {
+  insert(parent: Node, node: Node, anchor: Node | null): void;
+  remove(node: Node): void;
+  createText(text: string): Node;
+  isNode(v: unknown): boolean;
+  /** Whole-parent bulk clear (batch-clear / full-replace fast paths). */
+  clear(parent: Node): void;
+  /** Ownership marker for multi-slot parents (web: `$$SLOT`). */
+  tag(node: Node, marker: Node): void;
+}
+
+/** Web's ops singleton — the one instance every web slot shares. */
+const domOps: SlotOps = {
+  insert(parent, node, anchor) {
+    parent.insertBefore(node, anchor);
+  },
+  remove(node) {
+    (node as ChildNode).remove();
+  },
+  createText(text) {
+    return document.createTextNode(text);
+  },
+  isNode(v) {
+    return v != null && (v as any).nodeType !== undefined;
+  },
+  clear(parent) {
+    (parent as Element).textContent = "";
+  },
+  tag(node, marker) {
+    (node as any)[$$SLOT] = marker;
+  }
+};
+
 interface Slot {
   head: Row | null;
   tail: Row | null;
@@ -108,6 +147,7 @@ interface Slot {
   flat: Flat | null;
   pending: Plan | FlatPlan | null;
   dead: boolean;
+  ops: SlotOps;
 }
 
 /** Pass generation counter (Row.g stamps). */
@@ -118,14 +158,15 @@ const firstNode = (r: Row): Node => (r.n !== null ? r.n : r.ns![0]);
 /** Insert (fresh) or move (live) a row's nodes before `anchor`. */
 function placeRow(slot: Slot, r: Row, anchor: Node | null): void {
   const tag = slot.end;
+  const ops = slot.ops;
   if (r.n !== null) {
-    slot.parent.insertBefore(r.n, anchor);
-    if (tag && !r.live) (r.n as any)[$$SLOT] = tag;
+    ops.insert(slot.parent, r.n, anchor);
+    if (tag && !r.live) ops.tag(r.n, tag);
   } else {
     const ns = r.ns!;
     for (let i = 0; i < ns.length; i++) {
-      slot.parent.insertBefore(ns[i], anchor);
-      if (tag && !r.live) (ns[i] as any)[$$SLOT] = tag;
+      ops.insert(slot.parent, ns[i], anchor);
+      if (tag && !r.live) ops.tag(ns[i], tag);
     }
   }
   if (!r.live) {
@@ -134,10 +175,10 @@ function placeRow(slot: Slot, r: Row, anchor: Node | null): void {
   }
 }
 
-function removeRow(r: Row): void {
+function removeRow(r: Row, ops: SlotOps): void {
   if (r.live) {
-    if (r.n !== null) (r.n as ChildNode).remove();
-    else for (const n of r.ns!) (n as ChildNode).remove();
+    if (r.n !== null) ops.remove(r.n);
+    else for (const n of r.ns!) ops.remove(n);
   }
   r.o.dispose();
 }
@@ -156,14 +197,18 @@ const NO_OWNER: RowOwner = { dispose() {} };
 /** Row-body build core: owner + detached DOM, no bookkeeping. Returns
  * [owner, node|nodes] or null (shape outside contract). Shared by the flat
  * fill (arrays only) and structural buildRow (wraps into a Row). */
-function buildParts(rowFn: (item: any) => any, item: any): [RowOwner, Node | Node[]] | null {
+function buildParts(
+  rowFn: (item: any) => any,
+  item: any,
+  ops: SlotOps
+): [RowOwner, Node | Node[]] | null {
   // Measurement flag: ambient (slot) ownership, no per-row owner. Removed
   // rows leak their effect until slot teardown — bench-only semantics.
   const o: RowOwner = __ownerlessRows ? NO_OWNER : (createOwner() as unknown as RowOwner);
   let v = __ownerlessRows ? rowFn(item) : runWithOwner(o as any, () => rowFn(item));
-  if (v != null && (v as any).nodeType !== undefined) return [o, v as Node];
+  if (ops.isNode(v)) return [o, v as Node];
   const t = typeof v;
-  if (t === "string" || t === "number") return [o, document.createTextNode(String(v))];
+  if (t === "string" || t === "number") return [o, ops.createText(String(v))];
   // Slow path: fragments / nested arrays / signals — flatten (still owned).
   v = __ownerlessRows
     ? flatten(v, FLATTEN_OPTS)
@@ -173,17 +218,17 @@ function buildParts(rowFn: (item: any) => any, item: any): [RowOwner, Node | Nod
     for (let i = 0; i < v.length; i++) {
       const c = v[i];
       if (typeof c === "function") return (o.dispose(), null);
-      ns[i] = (c as any)?.nodeType ? (c as Node) : document.createTextNode(String(c));
+      ns[i] = ops.isNode(c) ? (c as Node) : ops.createText(String(c));
     }
     return [o, ns];
   }
-  if (v != null && (v as any).nodeType !== undefined) return [o, v as Node];
+  if (ops.isNode(v)) return [o, v as Node];
   o.dispose();
   return null; // function / empty / unrenderable top level → classic
 }
 
-function buildRow(rowFn: (item: any) => any, item: any): Row | null {
-  const parts = buildParts(rowFn, item);
+function buildRow(rowFn: (item: any) => any, item: any, ops: SlotOps): Row | null {
+  const parts = buildParts(rowFn, item, ops);
   if (parts === null) return null;
   const nd = parts[1];
   return Array.isArray(nd)
@@ -286,7 +331,8 @@ function driveKeyedFor(
   parent: Node,
   listFn: any,
   marker: Node | undefined,
-  lateClassic: () => void
+  lateClassic: () => void,
+  ops: SlotOps
 ): boolean {
   const meta = listFn.$for;
   // H4 pin: keyed-fn rows receive accessors in the classic contract — the
@@ -308,7 +354,8 @@ function driveKeyedFor(
     owner: createOwner() as unknown as RowOwner,
     flat: null,
     pending: null,
-    dead: false
+    dead: false,
+    ops
   };
   __unifiedForStats.engaged++;
 
@@ -328,12 +375,12 @@ function driveKeyedFor(
 
   const removeFlatDom = (): void => {
     const f = slot.flat!;
-    if (slot.end === null) (slot.parent as Element).textContent = "";
+    if (slot.end === null) ops.clear(slot.parent);
     else
       for (let i = 0; i < f.nodes.length; i++) {
         const nd = f.nodes[i];
-        if (Array.isArray(nd)) for (const n of nd) (n as ChildNode).remove();
-        else (nd as ChildNode).remove();
+        if (Array.isArray(nd)) for (const n of nd) ops.remove(n);
+        else ops.remove(nd);
       }
   };
 
@@ -350,8 +397,8 @@ function driveKeyedFor(
       slot.flat = null;
     }
     for (let r = slot.head; r !== null; r = r.x) {
-      if (r.n !== null) (r.n as ChildNode).remove();
-      else if (r.ns !== null) for (const n of r.ns) (n as ChildNode).remove();
+      if (r.n !== null) ops.remove(r.n);
+      else if (r.ns !== null) for (const n of r.ns) ops.remove(n);
     }
     slot.owner.dispose(false); // bulk: every row owner is a child
     slot.head = slot.tail = null;
@@ -369,7 +416,7 @@ function driveKeyedFor(
     let failed = false;
     runWithOwner(slot.owner as any, () => {
       for (let j = 0; j < len; j++) {
-        const parts = buildParts(meta.row, itemsSnap[j]);
+        const parts = buildParts(meta.row, itemsSnap[j], ops);
         if (parts === null) {
           // Dispose what this pass created before demoting.
           for (let d = 0; d < j; d++) owners[d].dispose();
@@ -528,7 +575,7 @@ function driveKeyedFor(
             demoteFlag = true;
             return;
           } else {
-            const built = buildRow(meta.row, item);
+            const built = buildRow(meta.row, item, ops);
             if (built === null) {
               demoteFlag = true; // dynamic/empty row shape
               return;
@@ -579,12 +626,12 @@ function driveKeyedFor(
           const nd = fp.nodes[i];
           if (Array.isArray(nd))
             for (const n of nd) {
-              slot.parent.insertBefore(n, slot.end);
-              if (tag) (n as any)[$$SLOT] = tag;
+              ops.insert(slot.parent, n, slot.end);
+              if (tag) ops.tag(n, tag);
             }
           else {
-            slot.parent.insertBefore(nd, slot.end);
-            if (tag) (nd as any)[$$SLOT] = tag;
+            ops.insert(slot.parent, nd, slot.end);
+            if (tag) ops.tag(nd, tag);
           }
         }
         slot.flat = { items: fp.items, owners: fp.owners, nodes: fp.nodes };
@@ -599,7 +646,7 @@ function driveKeyedFor(
       // `textContent = ''` + one bulk owner dispose — no per-row work.
       if (plan.len === 0 && slot.end === null && before === null && after === null) {
         __unifiedForStats.batchCleared++;
-        (slot.parent as Element).textContent = "";
+        ops.clear(slot.parent);
         slot.owner.dispose(false);
         slot.map.clear();
         slot.head = slot.tail = null;
@@ -617,7 +664,7 @@ function driveKeyedFor(
         removes.length === slot.size &&
         removes.length > 0
       ) {
-        (slot.parent as Element).textContent = "";
+        ops.clear(slot.parent);
         for (let j = 0; j < removes.length; j++) {
           removes[j].live = false;
           removes[j].o.dispose();
@@ -626,7 +673,7 @@ function driveKeyedFor(
       } else {
         // 1. Removes: detach + dispose + unmap.
         for (let j = 0; j < removes.length; j++) {
-          removeRow(removes[j]);
+          removeRow(removes[j], ops);
           slot.map.delete(removes[j].k);
         }
       }
@@ -671,7 +718,11 @@ export let __ownerlessRows = false;
  * is in every bundle; the driver rides only apps that call this). */
 export function enableUnifiedFor(options?: { unsafeOwnerlessRows?: boolean }): void {
   __ownerlessRows = options?.unsafeOwnerlessRows === true;
-  setListDriver(driveKeyedFor);
+  // Web hands the slot ITS platform: the domOps singleton. (Interim wiring —
+  // the module-graph landing passes ops at insert's engagement site instead.)
+  setListDriver((parent, listFn, marker, lateClassic) =>
+    driveKeyedFor(parent, listFn, marker, lateClassic, domOps)
+  );
 }
 
 /** Spike test probes: engagement / demotion / batch-clear counters. */
