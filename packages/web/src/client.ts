@@ -19,14 +19,31 @@ import {
 } from "solid-js";
 import { effect, memo } from "./render.js";
 
-// Unified-For driver registration (pay-for-use: `insert` rides every bundle,
-// the driver only rides apps that arm it — see for-driver.ts).
-let listDriver:
-  | ((parent: Node, listFn: any, marker: Node | undefined, lateClassic: () => void) => boolean)
-  | undefined;
-export function setListDriver(driver: typeof listDriver): void {
-  listDriver = driver;
-}
+// Unified-For engagement ops: the slot algorithm rides For's own module
+// graph (solid-js client, `$for.impl`); web hands it THIS platform — one
+// module-level singleton, so every op call site in the slot stays
+// monomorphic. Apps without For tree-shake the slot; renderers that never
+// check `$for` call the accessor and get classic mapArray.
+const domOps = {
+  insert(parent: Node, node: Node, anchor: Node | null): void {
+    parent.insertBefore(node, anchor);
+  },
+  remove(node: Node): void {
+    (node as ChildNode).remove();
+  },
+  createText(text: string): Node {
+    return document.createTextNode(text);
+  },
+  isNode(v: unknown): boolean {
+    return v != null && (v as any).nodeType !== undefined;
+  },
+  clear(parent: Node): void {
+    (parent as Element).textContent = "";
+  },
+  tag(node: Node, marker: Node): void {
+    (node as any)[$$SLOT] = marker;
+  }
+};
 
 import { JSX } from "../jsx/jsx.js";
 
@@ -939,25 +956,31 @@ export function insert(parent, accessor, marker, initial, options) {
   if (multi && !initial) initial = [];
   if (hydrationRt !== null) initial = hydrationRt.claimInitial(parent, multi, initial);
   // Unified-For seam (DESIGN-UNIFIED-FOR §4): a list value carrying the
-  // `$for` descriptor is offered to the registered keyed-list driver first.
-  // `false` declines to classic (the descriptor is also a callable — calling
-  // it IS the classic mapArray path). The lateClassic thunk serves ENGAGED
-  // lists that later leave the driver's contract: it re-enters this insert
-  // under the ORIGINAL owner with a bare accessor (no `$for` marker).
-  if (listDriver !== undefined && typeof accessor === "function" && accessor.$for !== undefined) {
+  // `$for` descriptor brings the slot impl WITH it (For's module graph);
+  // insert engages it by handing over web's domOps. `false` declines to
+  // classic (the descriptor is also a callable — calling it IS the classic
+  // mapArray path). The lateClassic thunk serves ENGAGED lists that later
+  // leave the slot's contract: it re-enters this insert under the ORIGINAL
+  // owner with a bare accessor (no `$for` marker).
+  if (typeof accessor === "function" && accessor.$for !== undefined) {
     const listAccessor = accessor;
     const owner = getOwner();
     if (
-      listDriver(parent, accessor, marker ?? undefined, () =>
-        runWithOwner(owner, () =>
-          insert(
-            parent,
-            () => listAccessor(),
-            marker,
-            marker !== undefined ? [] : undefined,
-            options
-          )
-        )
+      accessor.$for.impl(
+        parent,
+        accessor,
+        marker ?? undefined,
+        () =>
+          runWithOwner(owner, () =>
+            insert(
+              parent,
+              () => listAccessor(),
+              marker,
+              marker !== undefined ? [] : undefined,
+              options
+            )
+          ),
+        domOps
       )
     )
       return;

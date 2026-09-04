@@ -390,7 +390,14 @@ module.exports = [
     // reaches (asciiLowerCase, qualifierValue), which shifts esbuild's
     // identifier allocation over the same-length output — brotli layout
     // drift, 31 B. Ratcheted to the next 0.01 kB per this file's rule.
-    limit: "10.74 KB",
+
+    //
+    // Unified For slot, default-on (2026-09-04): 10.73 -> 10.89 KB, measured
+    // at 10.884. The floor has NO For — this is the ENGAGEMENT SEAM only:
+    // insert's `$for.impl` call site plus the domOps singleton (the platform
+    // web hands the slot). The slot algorithm itself rides For's module
+    // graph in solid-js and tree-shakes out of For-less apps like this one.
+    limit: "10.89 KB",
     modifyEsbuildConfig
   },
   {
@@ -455,7 +462,16 @@ module.exports = [
     // Patch-channel removal (2026-09-02): 17.72 -> 17.61 KB, measured at
     // 17.58. The channel is deleted from next — regions own value delivery,
     // the unified-For design owns structure — reclaiming the insert $ll seam and core emission bytes.
-    limit: "17.61 KB",
+    //
+    // Unified For slot, default-on (2026-09-04): 17.61 -> 19.76 KB, measured
+    // at 19.75. THE deliberate bill: this scenario renders <For>, so it
+    // retains the slot (~2.1 KB) through For's own module graph — every
+    // keyed For gets chain+LIS structural updates and flat-mode mounts with
+    // zero API and zero compiler involvement (jfb-signal structural geomean
+    // 0.63, uibench 0.73, creates at parity — see DESIGN-UNIFIED-FOR.md).
+    // Hydration claiming declines to classic at runtime today; the bytes
+    // still ride for post-hydration mounts.
+    limit: "19.76 KB",
     modifyEsbuildConfig
   },
   {
@@ -552,7 +568,11 @@ module.exports = [
     // rc.6 P1 store sweep (#3282/#3283/#3284): 26.37 -> 26.43 KB, measured
     // at 26.42 macOS / 26424 B Linux CI (the usual +4-7 B Linux delta) —
     // see the createStore note; this scenario retains all of it.
-    limit: "26.43 KB",
+    //
+    // Unified For slot, default-on (2026-09-04): 26.43 -> 28.64 KB — the
+    // slot bytes through For's module graph (see the hydrating no-stores
+    // note).
+    limit: "28.64 KB",
     modifyEsbuildConfig
   },
   {
@@ -591,7 +611,11 @@ module.exports = [
     // Patch-channel removal (2026-09-02): 13.11 -> 12.97 KB, measured at
     // 12.93. The channel is deleted from next — regions own value delivery,
     // the unified-For design owns structure — reclaiming the insert $ll seam and core emission bytes.
-    limit: "12.97 KB",
+    //
+    // Unified For slot, default-on (2026-09-04): 12.97 -> 15.20 KB, measured
+    // at 15.19 — the slot bytes through For's module graph (see the
+    // hydrating no-stores note).
+    limit: "15.20 KB",
     modifyEsbuildConfig
   },
   {

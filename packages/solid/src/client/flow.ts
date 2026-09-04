@@ -9,6 +9,7 @@ import {
   runWithOwner
 } from "@solidjs/signals";
 import { createErrorBoundary, createLoadingBoundary, sharedConfig } from "./hydration.js";
+import { unifiedForSlot } from "./for-slot.js";
 import type { Accessor, RevealOrder } from "@solidjs/signals";
 export type { RevealOrder };
 import type { Element as SolidElement } from "../types.js";
@@ -114,7 +115,14 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
   // reference identity or key-fn rows (`keyed !== false`), no fallback, and
   // no index parameter (row arity < 2).
   if (props.keyed !== false && !("fallback" in props) && props.children.length < 2)
-    (list as any).$for = { each: () => props.each, row: props.children, keyed: props.keyed };
+    (list as any).$for = {
+      each: () => props.each,
+      row: props.children,
+      keyed: props.keyed,
+      // The slot rides For's OWN module graph: apps without For tree-shake
+      // it; a renderer's insert() engages it by passing its SlotOps.
+      impl: unifiedForSlot
+    };
   return list as unknown as SolidElement;
 }
 
