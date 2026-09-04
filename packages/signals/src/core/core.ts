@@ -1504,8 +1504,14 @@ export function markRefresh(node: Computed<any>): void {
       // for the rest of the transaction (#3026).
       if (node._manualWriteTime === clock) return;
       node._flags &= ~REACTIVE_MANUAL_WRITE;
-      // No REASK below: the batch carries a manual value change, so the
-      // recompute is not a quiet re-ask of an unchanged question.
+      // The lift falls through to the re-ask classification below. The held
+      // write's value change already rides the transaction; the refetch it
+      // asks for is the same question with unchanged inputs. Skipping the
+      // mark here classified that refetch as a NEW question, which pends
+      // every leaf (3.1) — an action doing setStore + yield + refresh(store)
+      // lit up every sibling row, and affects() could not narrow it (a mark
+      // only turns pending on). Same-question motion stays silent (3.4);
+      // the written slot and any declared mark carry the pending instead.
     }
     // A refresh with no value-change dirt already queued is a re-ask of the
     // same question: mark it so the recompute classifies any resulting
@@ -1514,7 +1520,7 @@ export function markRefresh(node: Computed<any>): void {
     // REACTIVE_IN_HEAP counts as dirt: insertSubs schedules subscribers by
     // heap insertion alone (no DIRTY/CHECK flag), so a same-batch value
     // change followed by refresh() must not be laundered into a quiet re-ask.
-    else if (!(node._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_IN_HEAP))) {
+    if (!(node._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_IN_HEAP))) {
       node._flags |= REACTIVE_REASK;
       armReaskClear();
     }
