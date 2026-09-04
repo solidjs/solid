@@ -1,0 +1,28 @@
+---
+description: Signals engine internals — core reactivity, async, stores, optimistic lanes, and the size/testing discipline for changing them
+globs: packages/signals/**
+alwaysApply: false
+---
+
+# Solid Signals (`@solidjs/signals`)
+
+## Source Map
+
+- **`src/core/`** — the engine: `core.ts` (nodes, read/write, recompute), `scheduler.ts` + `heap.ts` (height-ordered flush), `effect.ts`, `async.ts` (promise/iterable protocols, `handleAsync`), `verdict.ts` (`isPending`/`latest`, pending-signal companions, latest shadows), `optimistic.ts` + `lanes.ts` (optimistic lane engine — pay-for-use, installed on first use), `owner.ts`/`context.ts`, `error.ts` (`NotReadyError`), `constants.ts` (STATUS_* flags), `invariants.ts` (dev checks).
+- **`src/store/next/`** — the store: `store.ts` (proxy traps, targets, folds), `projection.ts`, `optimistic.ts`, `reconcile.ts`, `target.ts`.
+- **`src/signals.ts`**, `boundaries.ts`, `affects.ts`, `map.ts` — public primitives layered on core.
+
+## Load-Bearing Semantics (pinned by tests and rulings — don't relearn these)
+
+- **Suspension**: an unresolved async read throws `NotReadyError`; `STATUS_UNINITIALIZED` marks never-resolved nodes and is repeatedly special-cased — first flight is NOT a refetch (no truth to keep on screen). Uninitialized sources suspend even across optimistic lanes (#3276); initialized ones serve committed stale.
+- **`latest()`**: subscribes through an `optimisticComputed` shadow (the reader becomes a lane consumer). Serves committed truth; suspends for tracked readers when the source is uninitialized.
+- **Store targets**: `.v` committed backing, `.pb` pending (draft) backing. Plain objects fold via prototype **overlay** in place; families (projection/optimistic) and arrays fold via the **clone path** (swap + parent-slot CAS). A fold finding its container privatized mid-batch must MERGE written keys onto it, not swap (#3271). `wk` is the written-keys bound (`WK_ALL` = poisoned by array length writes); `tentativePBs` marks draft-owned backings for the compose gate (#2951).
+- **Optimistic**: user writes become node-level overrides; drafts seed from the optimistic view (compose, not clobber). Landings staged under retaining transactions fold atomically (#3164).
+
+## Changing This Package — Checklist
+
+1. **Bundle size is budgeted.** Scenarios and ratcheted caps live in `scripts/size/.size-limit.js` (run `npm run size` from `scripts/size/` after `pnpm build:js`). Every cap bump needs an audit note there. Restructuring golf is measured NO-WIN (brotli compresses repeats free; indirection adds unique tokens — 2026-09-04 notes). The winning move is **relocation into pay-for-use modules** (e.g. the optimistic module) so floor bundles don't pay.
+2. **Dev-only code** goes under `__DEV__` (stripped from prod bundles — free).
+3. **Downstream tests consume built dist.** After changing signals, `pnpm --filter @solidjs/signals build` and `pnpm --filter solid-js build` BEFORE running `packages/solid` or `packages/web` tests — stale dist has caused false regression alarms repeatedly.
+4. **Facades mirror types.** Store/signal API type changes must be applied in `packages/solid/src/client/hydration.ts` and `packages/solid/src/server/signals.ts` too.
+5. Internal fields are mangled at build (`scripts/mangle-props.mjs`); keep the `_name` convention. `check-pure` verifies `/*#__PURE__*/` annotation count.

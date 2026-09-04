@@ -11,13 +11,14 @@ SolidJS core monorepo — a declarative JavaScript UI library that compiles temp
 
 PNPM workspaces + Turborepo. All packages version together (`2.0.0-rc.x`).
 
+- **`@solidjs/signals`** (`packages/signals/`): The reactive engine — signals, memos, effects, async, stores, optimistic lanes, scheduler. Internal to this repo; everything else builds on it (see `signals.mdc`).
 - **`solid-js`** (`packages/solid/`): Core runtime — component model, flow controls, context, hydration. Wraps `@solidjs/signals` with a UI layer.
-- **`@solidjs/web`** (`packages/web/`): Web platform runtime — `render`, `hydrate`, SSR methods, `Portal`, `Dynamic`, and the DOM operation runtime.
+- **`@solidjs/web`** (`packages/web/`): Web platform runtime — `render`, `hydrate`, SSR methods, `Portal`, `Dynamic`, and the DOM operation runtime. Also hosts the server-function runtime (`server-functions/`), the frames transport (`frames/`), the seroval streaming codec (`serialization/`), and storage helpers (`storage/`), each behind its own export path.
 - **`@solidjs/h`** (`packages/h/`): Hyperscript/JSX factory — less-optimal JSX alternative.
 - **`@solidjs/element`** (`packages/element/`): Web Components wrapper.
 - **`@solidjs/html`** (`packages/html/`): Build-less tagged template literals.
 - **`@solidjs/universal`** (`packages/universal/`): Universal runtime for custom renderers.
-- **`@solidjs/babel-plugin-jsx`** (`packages/babel-plugin-jsx/`): Babel plugin for JSX compilation.
+- **`@solidjs/babel-plugin`** (`packages/babel-plugin/`): Babel plugin for JSX compilation.
 - **`@solidjs/compiler`** (`packages/compiler/`): Native (Oxc) JSX compiler.
 - **`test-integration`** (`packages/test-integration/`): Integration tests against external repos.
 
@@ -32,7 +33,7 @@ PNPM workspaces + Turborepo. All packages version together (`2.0.0-rc.x`).
   @solidjs/universal / @solidjs/h / @solidjs/html
 ```
 
-`solid-js` re-exports all reactivity primitives from `@solidjs/signals` and adds the component/JSX layer on top. `@solidjs/web` provides the platform-specific runtime, including the DOM operation runtime. Compilers live in `@solidjs/compiler` (native) and `@solidjs/babel-plugin-jsx`.
+`solid-js` re-exports all reactivity primitives from `@solidjs/signals` and adds the component/JSX layer on top. `@solidjs/web` provides the platform-specific runtime, including the DOM operation runtime. Compilers live in `@solidjs/compiler` (native) and `@solidjs/babel-plugin`; their validators and codegen must stay in parity (shared test expectations).
 
 ## Component Model
 
@@ -55,7 +56,7 @@ All reactivity comes from `@solidjs/signals`:
 
 ## Flow Controls
 
-Built on signals primitives: `For` (mapArray), `Repeat` (repeat), `Show` (createMemo), `Switch/Match` (children + memos), `Errored` (createErrorBoundary), `Boundary` (createBoundary), `Loading` (createLoadingBoundary).
+Built on signals primitives: `For` (mapArray), `Repeat` (repeat), `Show` (createMemo), `Switch/Match` (children + memos), `Errored` (createErrorBoundary), `Loading` (createLoadingBoundary), `Reveal` (createRevealOrder).
 
 All support `keyed` mode (identity comparison) vs non-keyed (truthiness). Function children in `Show`/`Match` receive narrowed accessors with stale-read protection.
 
@@ -74,5 +75,4 @@ All support `keyed` mode (identity comparison) vs non-keyed (truthiness). Functi
 
 ## Key External Dependencies
 
-- `@solidjs/signals` — reactive primitives (this repo, `packages/signals`)
-- `seroval` / `seroval-plugins` — serialization for SSR
+- `seroval` / `seroval-plugins` — serialization for SSR, server functions, and storage

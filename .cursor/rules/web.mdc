@@ -50,9 +50,12 @@ Renders components or elements dynamically based on `component` prop.
 - Hydration-aware via `sharedConfig.hydrating` and `getNextElement()`
 - Uses `spread()` to apply props to native elements
 
-## Storage Submodule
+## Submodules (each with its own export path and source directory)
 
-Exported as `@solidjs/web/storage`. Uses `seroval` and `seroval-plugins` for serialization.
+- **`server-functions/`** (`./server-functions`, `/server`, `/client`, `/rich-args`) — the server-function runtime: request-event scoping (`provideEvent`), invocation wrapping, argument/result (de)serialization over seroval, failure sanitization on the result walk, request body caps, and the encrypted flash-cookie mechanism for no-JS form flows (AES-GCM, key derived via HKDF from the bundler-injected `globalThis.__SOLID_SECRET__`, domain-separated). The conformance matrix and pinned rulings live in `test/server/server-function-matrix/MATRIX.md` — consult it before changing semantics; add rulings there when making them.
+- **`frames/`** (`./frames`, `/server`, `/client`) — frames transport: eager client consumer + transport with a lazily-loaded codec.
+- **`serialization/`** (`./serialization`, `./serialization/decode`) — the seroval-based streaming codec shared by server functions and frames; the decoder owns promise lifecycle (every deferred it creates must be owned/defused — see the #3235/#3267 rulings in the matrix).
+- **`storage/`** (`./storage`) — persisted storage helpers over `seroval`/`seroval-plugins`.
 
 ## Server-Mock (`src/server-mock.ts`)
 
