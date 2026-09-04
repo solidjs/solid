@@ -25,7 +25,6 @@ describe("State immutability", () => {
   test("Setting a property", () => {
     const [state] = createStore({ name: "John" });
     expect(state.name).toBe("John");
-    // @ts-expect-error can't write readonly property
     state.name = "Jake";
     expect(state.name).toBe("John");
   });

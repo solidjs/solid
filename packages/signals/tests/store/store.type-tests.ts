@@ -12,8 +12,40 @@ import {
   const [store, setStore] = createStore({ name: "John", age: 30 });
   store.name satisfies string;
   store.age satisfies number;
-  // @ts-expect-error readonly
-  store.name = "Jake";
+}
+
+// ── stores preserve the supplied type ────────────────────────────────
+
+{
+  const [source] = createStore([{ id: 1 }]);
+  const [store, setStore] = createStore(source);
+  setStore(draft => {
+    draft.push({ id: 2 });
+  });
+  store satisfies { id: number }[];
+}
+
+{
+  type List = { readonly id: string; items: { title: string }[] };
+  const [list] = createStore<List>({ id: "todos", items: [] });
+  const [store, setStore] = createStore({ list });
+  setStore(draft => {
+    draft.list.items = [{ title: "Review PR" }];
+    // @ts-expect-error User-authored readonly remains readonly through nesting.
+    draft.list.id = "done";
+  });
+  store satisfies { list: List };
+}
+
+{
+  type State = { readonly id: number; name: string };
+  const [store, setStore] = createStore<State>({ id: 1, name: "John" });
+  store satisfies State;
+  setStore(draft => {
+    draft.name = "Jane";
+    // @ts-expect-error User-authored readonly properties remain readonly.
+    draft.id = 2;
+  });
 }
 
 // ── createStore (projection) — seed matches return type ───────────────

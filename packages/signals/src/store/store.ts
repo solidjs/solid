@@ -4,8 +4,8 @@ import type { Refreshable } from "../core/index.js";
 import { GlobalQueue } from "../core/scheduler.js";
 import { storeNextLookup } from "./next/target.js";
 
-/** A read-only view of a store's value as seen by consumers. Mutate it via the paired `StoreSetter`. */
-export type Store<T> = Readonly<T>;
+/** A reactive view of a store's value. Update it through the paired `StoreSetter`. */
+export type Store<T> = T;
 /**
  * A store setter. The callback receives a writable **draft** of the store.
  *
