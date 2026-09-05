@@ -1,0 +1,5 @@
+{
+  "name": "slot-hydrate-text-rows",
+  "shell": "<ul _hk=0>a<!--!$-->b<!--!$-->c</ul>",
+  "rest": ""
+}

@@ -44,6 +44,7 @@ import {
 } from "@solidjs/signals";
 import type { Element as SolidElement } from "../types.js";
 import { IS_DEV } from "./core.js";
+import { installForSlotHydration } from "./for-slot-hydration.js";
 
 type HydrationSsrFields = {
   /**
@@ -148,6 +149,9 @@ type SharedConfig = {
   // Assigned by enableHydration(); callers only reach it behind a
   // `sharedConfig.hydrating` check, which can never be true before that.
   getNextContextId?: () => string;
+  /** Peek the NEXT context id without consuming it (unified For's id-parity
+   * handle). Assigned by enableHydration(), same gating as getNextContextId. */
+  peekNextContextId?: () => string | undefined;
   /**
    * Whether a hydration pass is still claiming server-rendered DOM — true
    * from hydrate()'s synchronous walk until every streamed boundary has
@@ -196,6 +200,11 @@ function hydrationGetNextContextId(): string {
   if (!o) throw new Error(`getNextContextId cannot be used under non-hydrating context`);
   if (getContext(NoHydrateContext)) return undefined as unknown as string;
   return getNextChildId(o);
+}
+function hydrationPeekNextContextId(): string | undefined {
+  const o = getOwner();
+  if (!o || o.id == null || getContext(NoHydrateContext)) return undefined;
+  return peekNextChildId(o);
 }
 
 // === Hydration phase API ===
@@ -1273,6 +1282,10 @@ export function enableHydration() {
   _createLoadingBoundary = hydratedCreateLoadingBoundary;
   _lazyHydrationLookup = lazyHydrationLookup;
   sharedConfig.getNextContextId = hydrationGetNextContextId;
+  sharedConfig.peekNextContextId = hydrationPeekNextContextId;
+  // Unified For: the slot's hydration hooks (claim recording, reversible
+  // demote, mismatch fix-up) install here so CSR bundles shake them.
+  installForSlotHydration();
   // Installed here rather than in the sharedConfig literal so CSR bundles
   // shake the hydration-phase bookkeeping these close over. Consumers treat
   // absence as "not hydrating": the refresh runtime optional-chains

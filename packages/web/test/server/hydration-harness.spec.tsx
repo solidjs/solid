@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { renderToStream } from "@solidjs/web";
 import type { RequestEvent, ResponseStub } from "@solidjs/web";
 import { scenarios } from "../harness/scenarios.jsx";
+import { forSlotScenarios } from "../harness/for-slot-scenarios.jsx";
 
 const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
 mkdirSync(artifactsDir, { recursive: true });
@@ -81,6 +82,31 @@ describe("hydration parity harness — server render", () => {
         expect(visible).toContain(token);
       }
 
+      writeFileSync(
+        resolve(artifactsDir, `${scenario.name}.json`),
+        JSON.stringify({ name: scenario.name, shell, rest }, null, 2)
+      );
+    });
+  }
+});
+
+// Unified For hydration scenarios (test/hydration/for-slot.spec.tsx consumes
+// these artifacts). Kept out of `scenarios` because the mismatch cases
+// legitimately diverge from the generic parity invariants (key-miss
+// warnings, client-created rows) by design.
+describe("unified For hydration scenarios — server render", () => {
+  for (const scenario of forSlotScenarios) {
+    test(scenario.name, async () => {
+      const { shell, rest } = await storage.run(makeEvent(), () =>
+        collectChunks(() => <scenario.App />)
+      );
+      const full = shell + rest;
+      const visible = full.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<[^>]*>/g, "");
+      for (const token of (scenario.serverText ?? scenario.expectedText)
+        .split(/\s+/)
+        .filter(Boolean)) {
+        expect(visible).toContain(token);
+      }
       writeFileSync(
         resolve(artifactsDir, `${scenario.name}.json`),
         JSON.stringify({ name: scenario.name, shell, rest }, null, 2)

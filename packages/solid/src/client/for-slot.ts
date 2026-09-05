@@ -48,8 +48,30 @@ import {
   onCleanup,
   runWithOwner
 } from "@solidjs/signals";
-import { sharedConfig } from "./hydration.js";
 import { IS_DEV } from "./core.js";
+
+/** HYDRATION HOOKS — installed by enableHydration() (for-slot-hydration.ts),
+ * null in CSR bundles so every hydration path here folds away (#2883's
+ * discipline: pay for hydration only when you hydrate). */
+export interface SlotHydration {
+  /** Engage-time decision: `false` = not hydrating (normal engage); `null` =
+   * decline to classic; `{ id }` = hydrating engage with the parity owner id. */
+  engage(
+    meta: any,
+    marker: Node | null | undefined,
+    region: Node[] | undefined
+  ): { id: string } | null | false;
+  /** Run a build pass recording the registry keys its templates consume. */
+  record<T>(slot: Slot, fn: () => T): T;
+  /** Demote mid-fill: hand recorded claims back for classic's re-run. */
+  restore(slot: Slot): void;
+  /** Hydrating fill commit: reconcile claimed rows against the region. */
+  commitFill(slot: Slot, fp: FlatPlan): void;
+}
+let slotHydration: SlotHydration | null = null;
+export function installSlotHydration(h: SlotHydration): void {
+  slotHydration = h;
+}
 
 // The two-phase render effect in web's `effect()` shape: transparent + sync.
 const transparentOptions = { transparent: true, sync: true } as const;
@@ -59,7 +81,7 @@ function effect<T>(fn: (prev?: T) => T, effectFn: (value: T, prev?: T) => void):
 
 type RowOwner = { dispose(self?: boolean): void };
 
-interface Row {
+export interface Row {
   /** Row key — the item reference itself (identity mode only in the spike). */
   k: any;
   /** Row owner (context carrier + disposer). */
@@ -99,14 +121,14 @@ interface Plan {
  * own mount economics). The structure MATERIALIZES once, lazily, on the
  * first PARTIAL structural op (the moment the chain/LIS wins start paying);
  * aligned ticks, clears, and no-survivor full replaces stay flat forever. */
-interface Flat {
+export interface Flat {
   /** Committed item snapshot (identity keys). */
   items: any[];
   owners: RowOwner[];
   nodes: (Node | Node[])[];
 }
 
-interface FlatPlan {
+export interface FlatPlan {
   ff: 1;
   mode: "fill" | "replace" | "clear";
   items: any[];
@@ -130,9 +152,11 @@ export interface SlotOps {
   clear(parent: Node): void;
   /** Ownership marker for multi-slot parents (web: `$$SLOT`). */
   tag(node: Node, marker: Node): void;
+  /** True when `node` is a direct child of `parent` (hydration fix-up). */
+  contains(parent: Node, node: Node): boolean;
 }
 
-interface Slot {
+export interface Slot {
   head: Row | null;
   tail: Row | null;
   size: number;
@@ -149,6 +173,15 @@ interface Slot {
   pending: Plan | FlatPlan | null;
   dead: boolean;
   ops: SlotOps;
+  /** HYDRATING FILL in progress (engaged during hydration; cleared by the
+   * first commit). While set: row templates CLAIM server nodes, registry
+   * deletions are recorded so a demote can hand them back, and the commit
+   * reconciles claimed rows against the region instead of placing. */
+  hyd: boolean;
+  /** Registry entries consumed during the hydrating fill (key, node). */
+  hydLog: [string, Element][] | null;
+  /** Hydration: the claimed region snapshot (whole-parent childNodes). */
+  region: Node[] | undefined;
 }
 
 /** Whole-parent bulk ops (`ops.clear`) are safe only when our window IS the
@@ -359,14 +392,26 @@ export function unifiedForSlot(
   listFn: any,
   marker: Node | null | undefined,
   lateClassic: () => void,
-  ops: SlotOps
+  ops: SlotOps,
+  region?: Node[]
 ): boolean {
   const meta = listFn.$for;
   // H4 pin: keyed-fn rows receive accessors in the classic contract — the
   // slot binds raw items, so engaging would hand user code the wrong shape.
   if (typeof meta.keyed === "function") return false;
-  // Hydration claiming is future work (design §6 H2): decline to classic.
-  if (sharedConfig.hydrating) return false;
+  // HYDRATION (H2): decided by the installed hooks (null in CSR bundles —
+  // the branch folds away). A hydrating engage hands back the parity owner
+  // id so the slot's rows mint the same hydration keys classic's would.
+  let ownerOpts: { id: string } | undefined;
+  let hyd = false;
+  if (slotHydration !== null) {
+    const h = slotHydration.engage(meta, marker, region);
+    if (h === null) return false;
+    if (h !== false) {
+      ownerOpts = h;
+      hyd = true;
+    }
+  }
 
   const slot: Slot = {
     head: null,
@@ -378,12 +423,16 @@ export function unifiedForSlot(
     whole: marker === undefined,
     // Slot owner under the INSERT context: rows inherit context through it,
     // survive compute reruns, and tear down automatically with the
-    // component — cleanup needs no row walk.
-    owner: createOwner() as unknown as RowOwner,
+    // component — cleanup needs no row walk. Under hydration it takes the
+    // explicit parity id (no consumption of the insert owner's counter).
+    owner: createOwner(ownerOpts) as unknown as RowOwner,
     flat: null,
     pending: null,
     dead: false,
-    ops
+    ops,
+    hyd,
+    hydLog: null,
+    region
   };
   if (IS_DEV) __unifiedForStats.engaged++;
 
@@ -418,6 +467,9 @@ export function unifiedForSlot(
     if (IS_DEV) __unifiedForStats.demoted++;
     slot.dead = true;
     dropPending();
+    // Demote DURING a hydrating fill: hand recorded claims back so classic's
+    // re-run (same parity ids) claims the same server nodes.
+    if (slot.hyd) slotHydration!.restore(slot);
     if (slot.flat !== null) {
       removeFlatDom();
       const f = slot.flat;
@@ -442,7 +494,7 @@ export function unifiedForSlot(
     const owners: RowOwner[] = new Array(len);
     const nodes: (Node | Node[])[] = new Array(len);
     let failed = false;
-    try {
+    const build = (): void => {
       runWithOwner(slot.owner as any, () => {
         for (let j = 0; j < len; j++) {
           const parts = buildParts(meta.row, itemsSnap[j], ops);
@@ -456,6 +508,12 @@ export function unifiedForSlot(
           nodes[j] = parts[1];
         }
       });
+    };
+    try {
+      // Hydrating fill: row templates claim server nodes; record the claims
+      // so a demote can hand them back to classic's re-run.
+      if (slot.hyd) slotHydration!.record(slot, build);
+      else build();
     } catch (e) {
       // A row fn threw mid-pass: rows built so far chain to the PERSISTENT
       // slot owner (by design — they survive compute reruns), so they'd leak
@@ -536,7 +594,12 @@ export function unifiedForSlot(
       // ── FLAT FILL: an empty slot fills with arrays only (mapArray's mount
       // economics — no Rows, no chain, no map).
       if (slot.head === null && slot.size === 0) {
-        if (len === 0) return IDENTICAL;
+        if (len === 0) {
+          if (!slot.hyd) return IDENTICAL;
+          // Empty hydrating fill still commits: clears the hydration state
+          // and removes any server rows the client no longer has.
+          return (slot.pending = { ff: 1, mode: "fill", items: [], owners: [], nodes: [], len: 0 });
+        }
         const snap: any[] = new Array(len);
         for (let j = 0; j < len; j++) snap[j] = arr[j];
         const plan = buildFlat(snap);
@@ -668,6 +731,9 @@ export function unifiedForSlot(
           const f = slot.flat!;
           for (let i = 0; i < f.owners.length; i++) f.owners[i].dispose();
         }
+        // Hydrating fill: a claim pass, not a placement pass — the hooks
+        // reconcile claimed rows against the region (mismatch only).
+        if (slot.hyd) return slotHydration!.commitFill(slot, fp);
         // fill / replace: append the new window before the end anchor.
         const tag = slot.end;
         for (let i = 0; i < fp.nodes.length; i++) {

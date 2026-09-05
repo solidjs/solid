@@ -104,7 +104,23 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
   // the list (the siblings hydrated detached: dead buttons). Outside
   // hydration the laziness stands: an unread list never builds its
   // mapArray at all.
-  if (sharedConfig.hydrating) mapped = create();
+  // Unified-For id parity: the slot's rows must mint the SAME hydration ids
+  // classic's would. Classic rows hang under mapArray's internal owner, which
+  // is the next child of For's owner at creation — peek that id BEFORE the
+  // eager create() consumes it, and hand it to the slot (`$for.hid`) so its
+  // row parent can be created with the identical explicit id.
+  let hid: string | undefined;
+  if (sharedConfig.hydrating) {
+    // Installed by enableHydration() (CSR bundles never carry the id peek).
+    hid = sharedConfig.peekNextContextId?.();
+    // Lazy pass: the map's owner still spends the id slot HERE (the #3161
+    // fix), but the first mapping pass waits for the first read — so when
+    // the renderer engages the slot, the slot's rows claim the server nodes
+    // instead of an eager classic pass claiming them first. Classic readers
+    // (universal, declines) still claim on first read with identical ids.
+    (options as any).lazy = true;
+    mapped = create();
+  }
   const list = () => (mapped ?? (mapped = create()))();
   // Unified-For seam (DESIGN-UNIFIED-FOR §4): the returned value IS a data
   // structure — a callable carrying the list descriptor. A renderer that
@@ -121,7 +137,9 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
       keyed: props.keyed,
       // The slot rides For's OWN module graph: apps without For tree-shake
       // it; a renderer's insert() engages it by passing its SlotOps.
-      impl: unifiedForSlot
+      impl: unifiedForSlot,
+      // Hydration only: the id classic's row parent would carry.
+      hid
     };
   return list as unknown as SolidElement;
 }

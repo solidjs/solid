@@ -42,6 +42,9 @@ const domOps = {
   },
   tag(node: Node, marker: Node): void {
     (node as any)[$$SLOT] = marker;
+  },
+  contains(parent: Node, node: Node): boolean {
+    return node.parentNode === parent;
   }
 };
 
@@ -962,7 +965,10 @@ export function insert(parent, accessor, marker, initial, options) {
               options
             )
           ),
-        domOps
+        domOps,
+        // Hydration: the claimed region snapshot (claimInitial ran above) —
+        // the slot's fill reconciles claimed rows against it (whole-parent).
+        hydrationRt !== null && Array.isArray(initial) ? initial : undefined
       )
     )
       return;
