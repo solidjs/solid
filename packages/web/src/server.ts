@@ -3345,6 +3345,15 @@ export function ssrElement(tag, props, children, needsId) {
   let result = `<${tag}${hk} `;
   for (let i = 0; i < keys.length; i++) {
     const prop = keys[i];
+    const value = props[prop];
+    // The compiler moves static textarea values into children, but an
+    // element with a spread is serialized here instead. Keep the runtime
+    // path equivalent: textarea value/defaultValue are its text content,
+    // never HTML attributes.
+    if (tag === "textarea" && (prop === "value" || prop === "defaultValue")) {
+      if (value !== null) children = escape(value);
+      continue;
+    }
     if (ChildProperties.has(prop)) {
       if (children === undefined && !skipChildren)
         children =
@@ -3353,7 +3362,6 @@ export function ssrElement(tag, props, children, needsId) {
             : escape(props[prop]);
       continue;
     }
-    const value = props[prop];
     if (prop === "style") {
       result += `style="${ssrStyle(value)}"`;
     } else if (prop === "class") {
