@@ -1,0 +1,5 @@
+{
+  "name": "slot-hydrate-nested-demote",
+  "shell": "<ul _hk=0><li _hk=100><ul _hk=1010><span _hk=101100>1</span><span _hk=101110>2</span></ul></li><li _hk=1120><ul _hk=11210><span _hk=1121100>3</span></ul></li></ul>",
+  "rest": ""
+}
