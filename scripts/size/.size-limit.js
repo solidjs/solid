@@ -382,7 +382,15 @@ module.exports = [
     // Patch-channel removal (2026-09-02): 10.86 -> 10.73 KB, measured at
     // 10.70. The channel is deleted from next — regions own value delivery,
     // the unified-For design owns structure — reclaiming the core-retained emission seams.
-    limit: "10.73 KB",
+    // Preload identity canonicalization, rebased onto next (2026-09-02):
+    // 10.73 -> 10.74 KB, measured at 10.731 against next's 10.700 with only
+    // dist/web.js swapped. Not retained code: the tree-shaken bundle is
+    // byte-identical and web.js contributes the same 7106 minified bytes on
+    // both sides. head.ts gains two top-level helpers this bundle never
+    // reaches (asciiLowerCase, qualifierValue), which shifts esbuild's
+    // identifier allocation over the same-length output — brotli layout
+    // drift, 31 B. Ratcheted to the next 0.01 kB per this file's rule.
+    limit: "10.74 KB",
     modifyEsbuildConfig
   },
   {
@@ -436,6 +444,13 @@ module.exports = [
     // In-place class mutation fix (#3188): 17.67 -> 17.68 KB, measured at
     // 17.673. Hydration seeds the applied-class snapshot without mutating
     // the claimed DOM so the first live in-place change still diffs.
+    //
+    // Responsive image preloads (2026-09-01): 17.56 -> 17.59 KB, measured at
+    // 17.570 (+29 B). The one document scenario that pays: it retains
+    // `lazy`, so the whole asset-registration path is reachable and it picks
+    // up the source-set branch in mountHeadResource. csr-app moved the other
+    // way on brotli layout (see its note); the identity commit before this
+    // one was byte-neutral in every document bundle.
     //
     // Patch-channel removal (2026-09-02): 17.72 -> 17.61 KB, measured at
     // 17.58. The channel is deleted from next — regions own value delivery,
@@ -510,6 +525,11 @@ module.exports = [
     // revert path resyncs overlaid keysets for mapArray. This scenario
     // retains every store family, so it pays the whole module. Ruled
     // correctness-over-size in the #3164 thread; conscious bump.
+    //
+    // Typed responsive preloads (2026-09-01): byte-neutral, measured at
+    // 26.701 across the whole branch — the identity canonicalization shares
+    // one helper with the code it replaced, and this bundle does not retain
+    // the source-set adoption branch.
     path: "hydrating-store-app.js",
     //
     // Patch-channel removal (2026-09-02): 26.99 -> 26.15 KB, measured at
@@ -561,6 +581,11 @@ module.exports = [
     // 12.948. The one counter-mover: this bundle never retained the
     // scheduler-resident ledger (nothing to shake), so it pays only the
     // hook call site's second argument plus brotli layout drift.
+    //
+    // Responsive image preloads (2026-09-01): 23 B SMALLER, measured at
+    // 12.925 against 12.948. Brotli layout drift, not a real shrink — the
+    // preceding identity commit measured byte-identical here. Ceiling left
+    // where it is; ratchet it in a drift pass, not in a feature PR.
     path: "csr-app.js",
     //
     // Patch-channel removal (2026-09-02): 13.11 -> 12.97 KB, measured at
@@ -585,12 +610,31 @@ module.exports = [
     // Verified via metafile that the bundle is still exactly the two dist
     // files (no seroval creep — the regression this scenario guards).
     //
-    // Typed preload links: 11.1 -> 11.28 KB, measured at 11.269. Frames now
-    // preserve request metadata, adopt matching document links, and retain
-    // every late root asset record for mounts that register after the
-    // stream arrives.
+    // Typed preload links: 11.06 -> 11.27 KB measured on the rc.5 base
+    // (~210 B). Frames now preserve request metadata (ensurePreload +
+    // qualifier-aware head matching), adopt matching document links, and
+    // retain every late root asset record for mounts that register after
+    // the stream arrives.
+    //
+    // Responsive image preloads (2026-09-01): 11.34 -> 11.37 KB, measured at
+    // 11.360 (+40 B on top of the identity commit). Frame consumers locate
+    // and create a source-set link with no href — adoption matches on a null
+    // href — and the wire entry drops the key when there is none.
+    //
+    // Canonical qualifier matching (2026-09-01): 11.37 -> 11.38 KB, measured
+    // at 11.374 (+14 B). The frame client's mirrored `qualifierValue` folds
+    // `as` and reads an empty source set or size as absent, so a document
+    // link spelled `as="IMAGE"` or carrying `imagesrcset=""` adopts instead
+    // of duplicating — the same rules head.ts applies.
+    //
+    // Rebased onto next after the patch-channel removal (2026-09-02):
+    // 11.30 -> 11.40 KB, measured at 11.372 against next's 11.266 — +106 B
+    // for the whole branch (identity canonicalization, the source-set form,
+    // and the mirrored qualifier folding above). The per-commit notes were
+    // measured on the pre-removal base, so their absolutes no longer line
+    // up with this file's floor, but their deltas do.
     path: "../../packages/web/frames/dist/client.js",
-    limit: "11.30 KB",
+    limit: "11.40 KB",
     modifyEsbuildConfig: framesEsbuildConfig
   }
 ];

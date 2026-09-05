@@ -48,7 +48,7 @@ export type FrameChunk =
       modules?: string[];
       styles?: string[];
       inlineStyles?: { id: string; content?: string; attrs?: Record<string, string> }[];
-      preloads?: { href: string; attrs: Record<string, string> }[];
+      preloads?: { href?: string; attrs: Record<string, string> }[];
     }
   | { type: "slot"; id: string; version: number; key: string; args: Record<string, unknown> }
   | { type: "complete"; id: string; version: number }
@@ -2061,6 +2061,21 @@ function parseFragment(html) {
 // Mirrors head.ts without importing it into the standalone frame client.
 const PRELOAD_QUALIFIERS = ["as", "crossorigin", "type", "media", "imagesrcset", "imagesizes"];
 
+// Mirrors head.ts's qualifierValue — keep them in step. `as` folds ASCII
+// case; an empty source set or size reads as absent (registration never
+// emits one); `crossorigin` is three states, not a string range, so `""`, a
+// bare attribute and `anonymous` are one request. Frame `attrs` are already
+// canonical strings, but the document may carry any spelling.
+function qualifierValue(name, value) {
+  if (value == null) return null;
+  if (name === "imagesrcset" || name === "imagesizes") return value === "" ? null : value;
+  if (name === "as") return value.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32));
+  if (name !== "crossorigin") return value;
+  return value.length === 15 && value.toLowerCase() === "use-credentials"
+    ? "use-credentials"
+    : "anonymous";
+}
+
 /** Attribute-compared head lookup so href/id values never need escaping. */
 function findHeadElement(selector, attr, value, qualifiers) {
   candidate: for (const node of document.head.querySelectorAll(selector)) {
@@ -2068,7 +2083,11 @@ function findHeadElement(selector, attr, value, qualifiers) {
     if (!qualifiers) return node;
     for (let i = 0; i < PRELOAD_QUALIFIERS.length; i++) {
       const name = PRELOAD_QUALIFIERS[i];
-      if (node.getAttribute(name) !== (qualifiers[name] ?? null)) continue candidate;
+      if (
+        qualifierValue(name, node.getAttribute(name)) !==
+        qualifierValue(name, qualifiers[name] ?? null)
+      )
+        continue candidate;
     }
     return node;
   }
@@ -2078,11 +2097,12 @@ function findHeadElement(selector, attr, value, qualifiers) {
 /** Ensure one typed preload exists, preserving request-qualifying attributes. */
 function ensurePreload(entry) {
   const attrs = entry.attrs;
-  if (findHeadElement('link[rel="preload"]', "href", entry.href, attrs)) return;
+  const href = entry.href;
+  if (findHeadElement('link[rel="preload"]', "href", href || null, attrs)) return;
   const link = document.createElement("link");
   link.rel = "preload";
   for (const name in attrs) link.setAttribute(name, attrs[name]);
-  link.setAttribute("href", entry.href);
+  if (href) link.setAttribute("href", href);
   document.head.appendChild(link);
 }
 

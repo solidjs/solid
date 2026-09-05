@@ -134,6 +134,8 @@ import {
   resourceIdentity,
   replaceableIdentity,
   resolveHead,
+  RESOURCE_QUALIFIERS,
+  qualifierValue,
   STYLESHEET_FETCH_META
 } from "./head.js";
 export {
@@ -1031,10 +1033,25 @@ function assetEntryKey(descriptor) {
 
 // Attribute-compared lookup (instead of an attribute selector) so href/id
 // values never need selector escaping.
-function findAssetElement(selector, attr, value) {
+// `qualifiers` narrows a match to the same request: two preloads sharing an
+// href still differ if their destination, CORS mode or source set differ, so
+// adopting across them would drop a link the server meant to emit. Both sides
+// go through `qualifierValue`, the same canonicalization the identity uses —
+// a server-emitted `crossorigin=""` and an authored `crossorigin="anonymous"`
+// are one request, so adoption must see them as one.
+function findAssetElement(selector, attr, value, qualifiers) {
   const nodes = document.querySelectorAll(selector);
-  for (let i = 0; i < nodes.length; i++) {
-    if (nodes[i].getAttribute(attr) === value) return nodes[i];
+  outer: for (let i = 0; i < nodes.length; i++) {
+    if (nodes[i].getAttribute(attr) !== value) continue;
+    if (!qualifiers) return nodes[i];
+    for (let q = 0; q < RESOURCE_QUALIFIERS.length; q++) {
+      const name = RESOURCE_QUALIFIERS[q];
+      if (
+        qualifierValue(name, qualifiers[name]) !== qualifierValue(name, nodes[i].getAttribute(name))
+      )
+        continue outer;
+    }
+    return nodes[i];
   }
   return null;
 }
@@ -1443,10 +1460,15 @@ function mountHeadResource(tag, props) {
   headMountedResources.add(identity);
   const url = props.href || props.src;
   let el = null;
-  if (url != null) {
-    // Adopt a server-emitted element for the same resource. `rel` values are
-    // constrained to the resource set, so embedding in a selector is safe.
-    if (tag === "link") el = findAssetElement(`link[rel="${props.rel}"]`, "href", url);
+  // Adopt a server-emitted element for the same resource. `rel` values are
+  // constrained to the resource set, so embedding in a selector is safe.
+  // A responsive image preload legitimately has no href — the source set is
+  // the request — so it matches on a null href plus the identity qualifiers,
+  // the same rule the frame client applies.
+  if (tag === "link" && url == null && typeof props.imagesrcset === "string")
+    el = findAssetElement(`link[rel="${props.rel}"]`, "href", null, props);
+  else if (url != null) {
+    if (tag === "link") el = findAssetElement(`link[rel="${props.rel}"]`, "href", url, props);
     else if (tag === "script") el = findAssetElement("script[src]", "src", url);
     else el = findAssetElement("style[href]", "href", url);
   }
