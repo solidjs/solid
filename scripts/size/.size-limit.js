@@ -397,7 +397,7 @@ module.exports = [
     // insert's `$for.impl` call site plus the domOps singleton (the platform
     // web hands the slot). The slot algorithm itself rides For's module
     // graph in solid-js and tree-shakes out of For-less apps like this one.
-    limit: "10.89 KB",
+    limit: "10.90 KB",
     modifyEsbuildConfig
   },
   {
@@ -470,8 +470,10 @@ module.exports = [
     // zero API and zero compiler involvement (jfb-signal structural geomean
     // 0.63, uibench 0.73, creates at parity — see DESIGN-UNIFIED-FOR.md).
     // Hydration claiming declines to classic at runtime today; the bytes
-    // still ride for post-hydration mounts.
-    limit: "19.76 KB",
+    // still ride for post-hydration mounts. P0 audit sweep (ownsParent
+    // guards on every bulk clear, empty-row placeholders, throw-safe
+    // builds) adds ~120 B here; siblings/foreign-node safety is the cost.
+    limit: "19.88 KB",
     modifyEsbuildConfig
   },
   {
@@ -572,7 +574,7 @@ module.exports = [
     // Unified For slot, default-on (2026-09-04): 26.43 -> 28.64 KB — the
     // slot bytes through For's module graph (see the hydrating no-stores
     // note).
-    limit: "28.64 KB",
+    limit: "28.75 KB",
     modifyEsbuildConfig
   },
   {
@@ -615,7 +617,7 @@ module.exports = [
     // Unified For slot, default-on (2026-09-04): 12.97 -> 15.20 KB, measured
     // at 15.19 — the slot bytes through For's module graph (see the
     // hydrating no-stores note).
-    limit: "15.20 KB",
+    limit: "15.29 KB",
     modifyEsbuildConfig
   },
   {

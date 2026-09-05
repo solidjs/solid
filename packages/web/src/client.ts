@@ -966,10 +966,15 @@ export function insert(parent, accessor, marker, initial, options) {
     const listAccessor = accessor;
     const owner = getOwner();
     if (
+      // Marker passes through UNTOUCHED: `undefined` = whole-parent insert,
+      // `null` = trailing child with preceding siblings (classic MULTI mode
+      // — the compiler emits it for `<div><h1/>{list}</div>`), Node = bounded
+      // hole. The slot's bulk-clear paths key off this distinction (P0:
+      // collapsing null→undefined wiped preceding siblings).
       accessor.$for.impl(
         parent,
         accessor,
-        marker ?? undefined,
+        marker,
         () =>
           runWithOwner(owner, () =>
             insert(

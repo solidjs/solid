@@ -49,6 +49,7 @@ import {
   runWithOwner
 } from "@solidjs/signals";
 import { sharedConfig } from "./hydration.js";
+import { IS_DEV } from "./core.js";
 
 // The two-phase render effect in web's `effect()` shape: transparent + sync.
 const transparentOptions = { transparent: true, sync: true } as const;
@@ -137,12 +138,40 @@ interface Slot {
   size: number;
   map: Map<any, Row>;
   parent: Node;
+  /** Placement anchor: the end marker Node, or null (append at parent end). */
   end: Node | null;
+  /** True ONLY for whole-parent inserts (marker === undefined). A `null`
+   * marker is classic MULTI mode — trailing child with preceding siblings —
+   * and must NEVER take a `textContent = ""` bulk path (P0). */
+  whole: boolean;
   owner: RowOwner;
   flat: Flat | null;
   pending: Plan | FlatPlan | null;
   dead: boolean;
   ops: SlotOps;
+}
+
+/** Whole-parent bulk ops (`ops.clear`) are safe only when our window IS the
+ * parent's entire child list — classic's ownsAllChildren ruling: streaming
+ * appends foreign nodes (late-flushed <link>s) that must survive a clear. */
+function ownsParent(slot: Slot): boolean {
+  if (!slot.whole) return false;
+  let first: Node | null = null;
+  let last: Node | null = null;
+  const f = slot.flat;
+  if (f !== null) {
+    const n = f.nodes.length;
+    if (n === 0) return false;
+    const n0 = f.nodes[0];
+    first = Array.isArray(n0) ? n0[0] : n0;
+    const nl = f.nodes[n - 1];
+    last = Array.isArray(nl) ? nl[nl.length - 1] : nl;
+  } else if (slot.head !== null) {
+    first = firstNode(slot.head);
+    const t = slot.tail!;
+    last = t.n !== null ? t.n : t.ns![t.ns!.length - 1];
+  } else return false;
+  return slot.parent.firstChild === first && slot.parent.lastChild === last;
 }
 
 /** Pass generation counter (Row.g stamps). */
@@ -211,8 +240,15 @@ function buildParts(
     return [o, ns];
   }
   if (ops.isNode(v)) return [o, v as Node];
+  // Empty-rendering rows (null/undefined/false/true/"" or an empty flatten)
+  // hold their position with an empty text node — classic's own multi-mode
+  // trick. Demoting here would tear down SIBLING rows' DOM state (focused
+  // inputs, scroll) to rebuild through classic; a placeholder is strictly
+  // better and keeps the row addressable for reorders.
+  if (v == null || typeof v === "boolean" || v === "" || (Array.isArray(v) && v.length === 0))
+    return [o, ops.createText("")];
   o.dispose();
-  return null; // function / empty / unrenderable top level → classic
+  return null; // function top level (dynamic content) / unrenderable → classic
 }
 
 function buildRow(rowFn: (item: any) => any, item: any, ops: SlotOps): Row | null {
@@ -321,7 +357,7 @@ type ComputeOut = Plan | FlatPlan | typeof IDENTICAL | typeof DEMOTE;
 export function unifiedForSlot(
   parent: Node,
   listFn: any,
-  marker: Node | undefined,
+  marker: Node | null | undefined,
   lateClassic: () => void,
   ops: SlotOps
 ): boolean {
@@ -339,6 +375,7 @@ export function unifiedForSlot(
     map: new Map(),
     parent,
     end: marker ?? null,
+    whole: marker === undefined,
     // Slot owner under the INSERT context: rows inherit context through it,
     // survive compute reruns, and tear down automatically with the
     // component — cleanup needs no row walk.
@@ -348,7 +385,7 @@ export function unifiedForSlot(
     dead: false,
     ops
   };
-  __unifiedForStats.engaged++;
+  if (IS_DEV) __unifiedForStats.engaged++;
 
   const dropPending = (): void => {
     if (slot.pending !== null) {
@@ -366,7 +403,7 @@ export function unifiedForSlot(
 
   const removeFlatDom = (): void => {
     const f = slot.flat!;
-    if (slot.end === null) ops.clear(slot.parent);
+    if (ownsParent(slot)) ops.clear(slot.parent);
     else
       for (let i = 0; i < f.nodes.length; i++) {
         const nd = f.nodes[i];
@@ -378,7 +415,7 @@ export function unifiedForSlot(
   const demote = (): void => {
     // Late-classic (contract carried from the patch-driver era): tear the
     // slot down whole, then re-enter classic insert under the ORIGINAL owner.
-    __unifiedForStats.demoted++;
+    if (IS_DEV) __unifiedForStats.demoted++;
     slot.dead = true;
     dropPending();
     if (slot.flat !== null) {
@@ -405,19 +442,27 @@ export function unifiedForSlot(
     const owners: RowOwner[] = new Array(len);
     const nodes: (Node | Node[])[] = new Array(len);
     let failed = false;
-    runWithOwner(slot.owner as any, () => {
-      for (let j = 0; j < len; j++) {
-        const parts = buildParts(meta.row, itemsSnap[j], ops);
-        if (parts === null) {
-          // Dispose what this pass created before demoting.
-          for (let d = 0; d < j; d++) owners[d].dispose();
-          failed = true;
-          return;
+    try {
+      runWithOwner(slot.owner as any, () => {
+        for (let j = 0; j < len; j++) {
+          const parts = buildParts(meta.row, itemsSnap[j], ops);
+          if (parts === null) {
+            // Dispose what this pass created before demoting.
+            for (let d = 0; d < j; d++) owners[d].dispose();
+            failed = true;
+            return;
+          }
+          owners[j] = parts[0];
+          nodes[j] = parts[1];
         }
-        owners[j] = parts[0];
-        nodes[j] = parts[1];
-      }
-    });
+      });
+    } catch (e) {
+      // A row fn threw mid-pass: rows built so far chain to the PERSISTENT
+      // slot owner (by design — they survive compute reruns), so they'd leak
+      // until slot death. Dispose, then let the throw ride the boundary.
+      for (let d = 0; d < len; d++) owners[d]?.dispose();
+      throw e;
+    }
     if (failed) return null;
     return { ff: 1, mode: "fill", items: itemsSnap, owners, nodes, len };
   };
@@ -547,36 +592,48 @@ export function unifiedForSlot(
       const oldPos: number[] = new Array(width);
       let fresh = 0;
       let demoteFlag = false;
-      runWithOwner(slot.owner as any, () => {
-        for (let j = 0; j < width; j++) {
-          const item = midItems[j];
-          const at = oldIndexOf.get(item);
-          if (at !== undefined) {
-            const row = oldMid[at];
-            if (row.g === passGen) {
-              demoteFlag = true; // duplicate incoming key
+      try {
+        runWithOwner(slot.owner as any, () => {
+          for (let j = 0; j < width; j++) {
+            const item = midItems[j];
+            const at = oldIndexOf.get(item);
+            if (at !== undefined) {
+              const row = oldMid[at];
+              if (row.g === passGen) {
+                demoteFlag = true; // duplicate incoming key
+                return;
+              }
+              row.g = passGen;
+              order[j] = row;
+              oldPos[j] = at;
+            } else if (slot.map.has(item)) {
+              // Same identity alive outside the middle window = duplicate key
+              // across the prefix/suffix boundary. Classic owns duplicates.
+              demoteFlag = true;
               return;
+            } else {
+              const built = buildRow(meta.row, item, ops);
+              if (built === null) {
+                demoteFlag = true; // dynamic row shape (function top level)
+                return;
+              }
+              fresh++;
+              order[j] = built;
+              oldPos[j] = -1;
             }
-            row.g = passGen;
-            order[j] = row;
-            oldPos[j] = at;
-          } else if (slot.map.has(item)) {
-            // Same identity alive outside the middle window = duplicate key
-            // across the prefix/suffix boundary. Classic owns duplicates.
-            demoteFlag = true;
-            return;
-          } else {
-            const built = buildRow(meta.row, item, ops);
-            if (built === null) {
-              demoteFlag = true; // dynamic/empty row shape
-              return;
-            }
-            fresh++;
-            order[j] = built;
-            oldPos[j] = -1;
           }
+        });
+      } catch (e) {
+        // A row fn threw mid-pass: fresh rows chain to the PERSISTENT slot
+        // owner and would leak until slot death — dispose before the throw
+        // rides the boundary. (Reused rows stay live; their g-stamps are
+        // reset by the next pass's fresh passGen.)
+        for (let j = 0; j < width; j++) {
+          const r = order[j];
+          if (r !== undefined && !r.live) r.o.dispose();
         }
-      });
+        throw e;
+      }
       if (demoteFlag) {
         // Partial build: dispose what this pass created before demoting.
         for (let j = 0; j < width; j++) {
@@ -603,7 +660,7 @@ export function unifiedForSlot(
           for (let i = 0; i < f.owners.length; i++) f.owners[i].dispose();
           slot.flat = null;
           slot.size = 0;
-          __unifiedForStats.batchCleared++;
+          if (IS_DEV) __unifiedForStats.batchCleared++;
           return;
         }
         if (fp.mode === "replace") {
@@ -633,10 +690,12 @@ export function unifiedForSlot(
       if (plan !== slot.pending) return; // superseded mid-flight
       slot.pending = null;
       const { order, removes, before, after } = plan;
-      // Batch clear (design §5.2): N→0 on a whole-parent slot is one
+      // Batch clear (design §5.2): N→0 on an OWNED whole-parent slot is one
       // `textContent = ''` + one bulk owner dispose — no per-row work.
-      if (plan.len === 0 && slot.end === null && before === null && after === null) {
-        __unifiedForStats.batchCleared++;
+      // ownsParent guards both the null-marker MULTI case (preceding
+      // siblings, P0) and foreign nodes streaming appended to our parent.
+      if (plan.len === 0 && before === null && after === null && ownsParent(slot)) {
+        if (IS_DEV) __unifiedForStats.batchCleared++;
         ops.clear(slot.parent);
         slot.owner.dispose(false);
         slot.map.clear();
@@ -644,16 +703,16 @@ export function unifiedForSlot(
         slot.size = 0;
         return;
       }
-      // Full replace (no survivors, whole-parent): bulk-detach the old rows
-      // with one textContent write, dispose them without per-node removes,
-      // and let the placement walk below append the fresh window. Covers the
-      // jfb `replace` / `runlots`-over-rows shapes.
+      // Full replace (no survivors, owned whole parent): bulk-detach the old
+      // rows with one textContent write, dispose them without per-node
+      // removes, and let the placement walk below append the fresh window.
+      // Covers the jfb `replace` / `runlots`-over-rows shapes.
       if (
-        slot.end === null &&
         before === null &&
         after === null &&
         removes.length === slot.size &&
-        removes.length > 0
+        removes.length > 0 &&
+        ownsParent(slot)
       ) {
         ops.clear(slot.parent);
         for (let j = 0; j < removes.length; j++) {
@@ -697,5 +756,7 @@ export function unifiedForSlot(
   return true;
 }
 
-/** Test probes: engagement / demotion / batch-clear counters. */
+/** DEV-ONLY test probes: engagement / demotion / batch-clear counters.
+ * Increments are IS_DEV-gated — frozen at zero in prod bundles (the export
+ * itself is a few bytes; the double-underscore marks it non-API). */
 export const __unifiedForStats = { engaged: 0, demoted: 0, batchCleared: 0 };
