@@ -473,7 +473,14 @@ module.exports = [
     // still ride for post-hydration mounts. P0 audit sweep (ownsParent
     // guards on every bulk clear, empty-row placeholders, throw-safe
     // builds) adds ~120 B here; siblings/foreign-node safety is the cost.
-    limit: "19.88 KB",
+    //
+    // Unified For hydration claiming (H2 v1, 2026-09-05): 19.88 -> 20.31 KB,
+    // measured at 20.37 (hooks module split; CSR shakes it). Whole-parent
+    // lists now ENGAGE during hydration:
+    // id-parity owner, recorded claims (reversible demote hands them back to
+    // classic's re-run), and a fill commit that reconciles claimed rows
+    // against the region on mismatch. First-paint SSR lists get the slot.
+    limit: "20.38 KB",
     modifyEsbuildConfig
   },
   {
@@ -574,7 +581,10 @@ module.exports = [
     // Unified For slot, default-on (2026-09-04): 26.43 -> 28.64 KB — the
     // slot bytes through For's module graph (see the hydrating no-stores
     // note).
-    limit: "28.75 KB",
+    //
+    // Unified For hydration claiming (2026-09-05): 28.75 -> 29.10 KB,
+    // measured at 29.10 (see the hydrating no-stores note).
+    limit: "29.22 KB",
     modifyEsbuildConfig
   },
   {
@@ -617,7 +627,12 @@ module.exports = [
     // Unified For slot, default-on (2026-09-04): 12.97 -> 15.20 KB, measured
     // at 15.19 — the slot bytes through For's module graph (see the
     // hydrating no-stores note).
-    limit: "15.29 KB",
+    //
+    // Unified For hydration claiming (2026-09-05): 15.29 -> 15.49 KB,
+    // measured at 15.48. CSR pays only the hook GUARDS + slot field plumbing
+    // (~190 B): the claim/restore/fix-up bodies live in for-slot-hydration.ts,
+    // installed by enableHydration(), and shake out of this bundle (#2883).
+    limit: "15.49 KB",
     modifyEsbuildConfig
   },
   {

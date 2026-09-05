@@ -1,0 +1,5 @@
+{
+  "name": "slot-hydrate-nested",
+  "shell": "<ul _hk=0><li _hk=100><ul><span _hk=10100>1</span><span _hk=10110>2</span></ul></li><li _hk=110><ul><span _hk=11100>3</span></ul></li></ul>",
+  "rest": ""
+}
