@@ -197,6 +197,7 @@ export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
       }. A JSX tag resolved to a non-function value — check the import: a missing or misnamed export resolves to undefined.`
     );
   }
+  const label = `<${Comp.name || "Anonymous"}>`;
   return createRoot(
     () => {
       const owner: any = getOwner();
@@ -205,8 +206,13 @@ export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
         props,
         name: Comp.name
       };
+      // The component root carries its label as `_name`, the same field the
+      // signals dev layer reads for owner names — so diagnostics locate scopes
+      // by component (`ownerPath: ["<App>", "<TodoRow>", "effect"]`) and an
+      // owned-scope write in a component body reports "(in <TodoRow>)".
+      owner._name = label;
       Object.assign(Comp, { [$DEVCOMP]: true });
-      return untrack(() => Comp(props), IS_DEV && `<${Comp.name || "Anonymous"}>`);
+      return untrack(() => Comp(props), IS_DEV && label);
     },
     { transparent: true }
   );

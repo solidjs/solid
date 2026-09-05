@@ -16,7 +16,7 @@ import {
   runWithOwner,
   untrack
 } from "../src/index.js";
-import { emitDiagnostic } from "../src/core/dev.js";
+import { emitDiagnostic, ownerPath, reportDiagnostic } from "../src/core/dev.js";
 
 // Several diagnostics are escaping errors, which halt the reactive system.
 afterEach(() => {
@@ -277,69 +277,227 @@ describe("diagnostics console footer", () => {
     DEV!.diagnostics.setConsoleFooter(undefined);
   });
 
-  it("prints a registered footer once per code", async () => {
+  const warnTexts = (warn: { mock: { calls: unknown[][] } }) =>
+    warn.mock.calls.map(args => String(args[0]));
+
+  it("folds the footer into the first reported console entry of each code — one entry per finding", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     DEV!.diagnostics.setConsoleFooter(event => `footer:${event.code}`);
 
-    emitDiagnostic({
-      code: "STRICT_READ_UNTRACKED",
-      kind: "strict-read",
-      severity: "warn",
-      message: "one"
-    });
-    emitDiagnostic({
-      code: "STRICT_READ_UNTRACKED",
-      kind: "strict-read",
-      severity: "warn",
-      message: "two"
-    });
-    emitDiagnostic({ code: "HOT_SCOPE_RERUNS", kind: "perf", severity: "warn", message: "three" });
+    reportDiagnostic(
+      emitDiagnostic({
+        code: "STRICT_READ_UNTRACKED",
+        kind: "strict-read",
+        severity: "warn",
+        message: "one"
+      })
+    );
+    reportDiagnostic(
+      emitDiagnostic({
+        code: "STRICT_READ_UNTRACKED",
+        kind: "strict-read",
+        severity: "warn",
+        message: "two"
+      })
+    );
+    reportDiagnostic(
+      emitDiagnostic({ code: "HOT_SCOPE_RERUNS", kind: "perf", severity: "warn", message: "three" })
+    );
     await Promise.resolve();
 
-    const footers = warn.mock.calls
-      .map(args => String(args[0]))
-      .filter(t => t.startsWith("footer:"));
-    expect(footers).toEqual(["footer:STRICT_READ_UNTRACKED", "footer:HOT_SCOPE_RERUNS"]);
+    // Exactly one console entry per report; the footer rides the first entry
+    // of its code as a trailing line and never appears on its own.
+    expect(warnTexts(warn)).toEqual([
+      "one\nfooter:STRICT_READ_UNTRACKED",
+      "two",
+      "three\nfooter:HOT_SCOPE_RERUNS"
+    ]);
+  });
+
+  it("defers the footer to a follow-up line only for thrown (unreported) errors", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    DEV!.diagnostics.setConsoleFooter(event => `footer:${event.code}`);
+
+    // A throw site: emits, then throws the message — never reports.
+    emitDiagnostic({
+      code: "MISSING_EFFECT_FN",
+      kind: "lifecycle",
+      severity: "error",
+      message: "thrown"
+    });
+    // An advisory event is structured-channel only: no console, no footer.
+    emitDiagnostic({ code: "ASYNC_WATERFALL", kind: "perf", severity: "info", message: "quiet" });
+    expect(warnTexts(warn)).toEqual([]);
+    await Promise.resolve();
+    expect(warnTexts(warn)).toEqual(["footer:MISSING_EFFECT_FN"]);
+  });
+
+  it("does not double-print when a reported error's microtask runs after the report", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    DEV!.diagnostics.setConsoleFooter(event => `footer:${event.code}`);
+
+    reportDiagnostic(
+      emitDiagnostic({
+        code: "INVARIANT_VIOLATION",
+        kind: "error",
+        severity: "error",
+        message: "bad"
+      })
+    );
+    await Promise.resolve();
+
+    expect(error.mock.calls.map(args => String(args[0]))).toEqual([
+      "bad\nfooter:INVARIANT_VIOLATION"
+    ]);
+    expect(warnTexts(warn)).toEqual([]);
   });
 
   it("suppresses the footer when the callback returns undefined", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     DEV!.diagnostics.setConsoleFooter(() => undefined);
 
-    emitDiagnostic({
-      code: "STRICT_READ_UNTRACKED",
-      kind: "strict-read",
-      severity: "warn",
-      message: "one"
-    });
+    reportDiagnostic(
+      emitDiagnostic({
+        code: "STRICT_READ_UNTRACKED",
+        kind: "strict-read",
+        severity: "warn",
+        message: "one"
+      })
+    );
     await Promise.resolve();
 
-    expect(
-      warn.mock.calls.map(args => String(args[0])).filter(t => t.startsWith("footer:"))
-    ).toEqual([]);
+    expect(warnTexts(warn)).toEqual(["one"]);
   });
 
   it("re-registering resets the once-per-code memory", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     DEV!.diagnostics.setConsoleFooter(() => "footer:first");
-    emitDiagnostic({
-      code: "STRICT_READ_UNTRACKED",
-      kind: "strict-read",
-      severity: "warn",
-      message: "one"
-    });
+    reportDiagnostic(
+      emitDiagnostic({
+        code: "STRICT_READ_UNTRACKED",
+        kind: "strict-read",
+        severity: "warn",
+        message: "one"
+      })
+    );
     DEV!.diagnostics.setConsoleFooter(() => "footer:second");
-    emitDiagnostic({
-      code: "STRICT_READ_UNTRACKED",
-      kind: "strict-read",
-      severity: "warn",
-      message: "two"
-    });
+    reportDiagnostic(
+      emitDiagnostic({
+        code: "STRICT_READ_UNTRACKED",
+        kind: "strict-read",
+        severity: "warn",
+        message: "two"
+      })
+    );
     await Promise.resolve();
 
-    const footers = warn.mock.calls
-      .map(args => String(args[0]))
-      .filter(t => t.startsWith("footer:"));
-    expect(footers).toEqual(["footer:first", "footer:second"]);
+    expect(warnTexts(warn)).toEqual(["one\nfooter:first", "two\nfooter:second"]);
+  });
+});
+
+describe("diagnostics owner path", () => {
+  // Stand-in for solid-js's devComponent, which labels each component root.
+  const nameOwner = (name: string) => ((getOwner() as any)._name = name);
+
+  it("walks from a computation up through named owners, root first, skipping unnamed roots", () => {
+    let leaf: any;
+    createRoot(() => {
+      nameOwner("<App>");
+      createRoot(() => {
+        // An unnamed intermediate root (a mapArray item scope, say) is skipped.
+        createMemo(
+          () => {
+            nameOwner("<TodoRow>"); // a computed is itself an owner; renaming it here
+            createMemo(
+              () => {
+                leaf = getOwner(); // inside its fn, the memo node is the owner
+                return 1;
+              },
+              { name: "label" }
+            )();
+            return 1;
+          },
+          { name: "row" }
+        );
+      });
+    });
+    flush();
+    expect(ownerPath(leaf)).toEqual(["<App>", "<TodoRow>", "label"]);
+  });
+
+  it("locates a signal through its registering owner and stamps the path on the event", () => {
+    let node: any;
+    createRoot(() => {
+      nameOwner("<Counter>");
+      createSignal(0, { name: "count" });
+      node = DEV!.getSignals(getOwner()!)[0];
+    });
+    // No ambient context here: the event locates via the explicit subject.
+    const event = emitDiagnostic(
+      { code: "WIDE_WRITE", kind: "perf", severity: "warn", message: "m" },
+      node
+    );
+    // A signal is not itself an owner; its path is its registering owner's.
+    expect(event.ownerPath).toEqual(["<Counter>"]);
+    expect(ownerPath(undefined)).toBeUndefined();
+    expect(ownerPath(null)).toBeUndefined();
+  });
+
+  it("defaults the subject to the ambient context and omits the path when there is none", () => {
+    let inside: ReturnType<typeof emitDiagnostic> | undefined;
+    createRoot(() => {
+      (getOwner() as any)._name = "<App>";
+      createEffect(
+        () => {
+          inside = emitDiagnostic({
+            code: "STRICT_READ_UNTRACKED",
+            kind: "strict-read",
+            severity: "warn",
+            message: "m"
+          });
+          return 1;
+        },
+        () => {},
+        { name: "body" }
+      );
+    });
+    flush();
+    expect(inside!.ownerPath).toEqual(["<App>", "body"]);
+
+    const outside = emitDiagnostic({
+      code: "NO_OWNER_CLEANUP",
+      kind: "lifecycle",
+      severity: "warn",
+      message: "m"
+    });
+    expect(outside.ownerPath).toBeUndefined();
+  });
+
+  it("reportDiagnostic prints the path as an `in` line under the message", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    createRoot(() => {
+      (getOwner() as any)._name = "<App>";
+      createEffect(
+        () => {
+          reportDiagnostic(
+            emitDiagnostic({
+              code: "STRICT_READ_UNTRACKED",
+              kind: "strict-read",
+              severity: "warn",
+              message: "[STRICT_READ_UNTRACKED] m"
+            })
+          );
+          return 1;
+        },
+        () => {},
+        { name: "body" }
+      );
+    });
+    flush();
+    expect(warn.mock.calls.map(args => String(args[0]))).toEqual([
+      "[STRICT_READ_UNTRACKED] m\n  in <App> › body"
+    ]);
+    warn.mockRestore();
   });
 });

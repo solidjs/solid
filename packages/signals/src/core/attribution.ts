@@ -3,7 +3,7 @@ import { $REFRESH, NOT_PENDING } from "./constants.js";
 // Cycle note: dev.ts imports this module for the `attribution` object, and we
 // import its hoisted emitDiagnostic back — safe (only called at runtime) and
 // treeshake-neutral (dev.ts is already reachable from the core).
-import { emitDiagnostic } from "./dev.js";
+import { emitDiagnostic, reportDiagnostic } from "./dev.js";
 import type { Computed, Signal } from "./types.js";
 
 /**
@@ -348,15 +348,19 @@ function checkWideWrite(
     `re-runs this flush. If consumers ask keyed questions of this value (for example every ` +
     `row comparing against one selected id), invert with createSelector or createProjection ` +
     `so only the keys whose answer flipped update.`;
-  emitDiagnostic({
-    code: "WIDE_WRITE",
-    kind: "perf",
-    severity: "warn",
-    message,
-    nodeName: nodeName(node),
-    data: { subscribers: subs, write: kind }
-  });
-  console.warn(message);
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "WIDE_WRITE",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: nodeName(node),
+        data: { subscribers: subs, write: kind }
+      },
+      node
+    )
+  );
 }
 
 function stampWrite(
@@ -441,15 +445,19 @@ function checkDepWidth(el: Computed<any>): void {
     `[WIDE_SCOPE_DEPS] ${kind} "${nodeName(el)}" is subscribed to ${count} sources — ` +
     `it re-runs when any of them change. Narrow its reads or split it into smaller memos. ` +
     `Sources: ${names.join(", ")}${count > names.length ? ", …" : ""}`;
-  emitDiagnostic({
-    code: "WIDE_SCOPE_DEPS",
-    kind: "perf",
-    severity: "warn",
-    message,
-    nodeName: nodeName(el),
-    data: { depCount: count, deps: names }
-  });
-  console.warn(message);
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "WIDE_SCOPE_DEPS",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: nodeName(el),
+        data: { depCount: count, deps: names }
+      },
+      el
+    )
+  );
 }
 
 /**
@@ -510,19 +518,23 @@ function checkHotRuns(el: Computed<any>, event: RerunEvent): void {
       `[HOT_SCOPE_RERUNS] ${event.nodeKind} "${event.nodeName}" re-ran ${node._devWinCount} times ` +
       `in ${Math.max(1, now - node._devWinStart)}ms — a hot signal is likely leaking into this ` +
       `scope. Latest cause: ${rootCause || "(untracked pull)"}`;
-    emitDiagnostic({
-      code: "HOT_SCOPE_RERUNS",
-      kind: "perf",
-      severity: "warn",
-      message,
-      nodeName: event.nodeName,
-      data: {
-        runs: node._devWinCount,
-        windowMs: cfg.windowMs,
-        causes: event.causes.map(c => c.name)
-      }
-    });
-    console.warn(message);
+    reportDiagnostic(
+      emitDiagnostic(
+        {
+          code: "HOT_SCOPE_RERUNS",
+          kind: "perf",
+          severity: "warn",
+          message,
+          nodeName: event.nodeName,
+          data: {
+            runs: node._devWinCount,
+            windowMs: cfg.windowMs,
+            causes: event.causes.map(c => c.name)
+          }
+        },
+        el
+      )
+    );
     return;
   }
 
@@ -535,15 +547,21 @@ function checkHotRuns(el: Computed<any>, event: RerunEvent): void {
     `${cfg.windowMs}ms, all driven by ${causeKey} — one hot cause is re-running a large part ` +
     `of the graph. Per-scope warnings are suppressed; fix the cause. If consumers ask keyed ` +
     `questions of it, invert with createSelector or createProjection.`;
-  emitDiagnostic({
-    code: "HOT_SCOPE_FANOUT",
-    kind: "perf",
-    severity: "warn",
-    message,
-    nodeName: causeKey,
-    data: { cause: causeKey, scopes: window.scopes, runs: window.runs, windowMs: cfg.windowMs }
-  });
-  console.warn(message);
+  // The subject is the shared CAUSE, not this victim scope — no single owner
+  // path locates it, so the event carries none.
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "HOT_SCOPE_FANOUT",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: causeKey,
+        data: { cause: causeKey, scopes: window.scopes, runs: window.runs, windowMs: cfg.windowMs }
+      },
+      null
+    )
+  );
 }
 
 /**
@@ -569,20 +587,24 @@ function checkHotTime(el: Computed<any>, event: RerunEvent): void {
     `[HOT_SCOPE_TIME] ${event.nodeKind} "${event.nodeName}" spent ` +
     `${node._devTimeWinMs.toFixed(1)}ms of compute inside one ${cfg.windowMs}ms window ` +
     `(budget ${cfg.budgetMs}ms). Latest cause: ${rootCause || "(untracked pull)"}`;
-  emitDiagnostic({
-    code: "HOT_SCOPE_TIME",
-    kind: "perf",
-    severity: "warn",
-    message,
-    nodeName: event.nodeName,
-    data: {
-      spentMs: node._devTimeWinMs,
-      budgetMs: cfg.budgetMs,
-      windowMs: cfg.windowMs,
-      causes: event.causes.map(c => c.name)
-    }
-  });
-  console.warn(message);
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "HOT_SCOPE_TIME",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: event.nodeName,
+        data: {
+          spentMs: node._devTimeWinMs,
+          budgetMs: cfg.budgetMs,
+          windowMs: cfg.windowMs,
+          causes: event.causes.map(c => c.name)
+        }
+      },
+      el
+    )
+  );
 }
 
 function recordRerun(
@@ -765,15 +787,19 @@ function checkUnstableOutput(el: Computed<any>, prevValue: unknown, newValue: un
     `${node._devUnstableRuns} consecutive runs — its equality gate never closes, so every ` +
     `subscriber re-runs on every upstream change. Return stable references or pass an ` +
     `\`equals\` option.`;
-  emitDiagnostic({
-    code: "UNSTABLE_MEMO_OUTPUT",
-    kind: "perf",
-    severity: "warn",
-    message,
-    nodeName: nodeName(el),
-    data: { runs: node._devUnstableRuns, shape }
-  });
-  console.warn(message);
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "UNSTABLE_MEMO_OUTPUT",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: nodeName(el),
+        data: { runs: node._devUnstableRuns, shape }
+      },
+      el
+    )
+  );
 }
 
 // --- Async waterfall tracking -----------------------------------------------
@@ -936,15 +962,18 @@ function checkWaterfall(el: Computed<any>, chain: FlightLink[], ms: number): voi
   // preload. A 3+ chain that survived the origin test is near-certainly
   // structural — that one earns the console.
   const severity = seq > 2 ? "warn" : "info";
-  emitDiagnostic({
-    code: "ASYNC_WATERFALL",
-    kind: "perf",
-    severity,
-    message,
-    nodeName: nodeName(el),
-    data: { chain: links.map(l => ({ name: l.name, ms: l.ms })), sequentialMs: totalMs }
-  });
-  if (severity === "warn") console.warn(message);
+  const entry = emitDiagnostic(
+    {
+      code: "ASYNC_WATERFALL",
+      kind: "perf",
+      severity,
+      message,
+      nodeName: nodeName(el),
+      data: { chain: links.map(l => ({ name: l.name, ms: l.ms })), sequentialMs: totalMs }
+    },
+    el
+  );
+  if (severity === "warn") reportDiagnostic(entry);
 }
 
 // The engine's implementation of the core's dev hook points. Installed by

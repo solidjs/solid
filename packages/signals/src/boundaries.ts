@@ -24,7 +24,7 @@ import {
   type Owner
 } from "./core/index.js";
 import type { IQueue, Signal } from "./core/index.js";
-import { emitDiagnostic } from "./core/dev.js";
+import { emitDiagnostic, reportDiagnostic } from "./core/dev.js";
 import { haltReactivity, schedule } from "./core/scheduler.js";
 import { accessor, type Accessor } from "./signals.js";
 
@@ -386,14 +386,15 @@ function createCollectionBoundary<T>(
   if (__DEV__ && !getOwner()) {
     const message =
       "[NO_OWNER_BOUNDARY] Boundaries created outside a reactive context will never be disposed.";
-    emitDiagnostic({
-      code: "NO_OWNER_BOUNDARY",
-      kind: "lifecycle",
-      severity: "warn",
-      message,
-      data: { boundaryType: type === STATUS_PENDING ? "loading" : "error" }
-    });
-    console.warn(message);
+    reportDiagnostic(
+      emitDiagnostic({
+        code: "NO_OWNER_BOUNDARY",
+        kind: "lifecycle",
+        severity: "warn",
+        message,
+        data: { boundaryType: type === STATUS_PENDING ? "loading" : "error" }
+      })
+    );
   }
   const owner = createOwner();
   if (_revealUsed) setContext(RevealControllerContext, null, owner);

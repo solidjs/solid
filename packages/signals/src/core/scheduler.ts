@@ -26,7 +26,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { currentOptimisticLane, ext, slotUnobservedHook } from "./core.js";
-import { DEV, emitDiagnostic } from "./dev.js";
+import { DEV, emitDiagnostic, reportDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { sweepDormant } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
@@ -89,6 +89,10 @@ let inTrackedQueueCallback = false;
 
 let _enforceLoadingBoundary = false;
 export let _hitUnhandledAsync = false;
+// Once per enforcement window: the ASYNC_OUTSIDE_LOADING_BOUNDARY finding is a
+// fact about the MOUNT ("the root mount will be deferred"), not about each
+// pending render effect — N async siblings at mount used to produce N copies.
+let _reportedUnhandledAsync = false;
 
 // Store property nodes that were created solely to carry a pending write (no
 // subscribers at write time). Swept after each flush that commits pending
@@ -127,8 +131,15 @@ function sweepTransientStoreNodes(): void {
     else node._x?._unobserved?.();
   }
 }
-export function resetUnhandledAsync(): void {
+/**
+ * Consume the unhandled-async hit. Returns whether this is the first report
+ * of the current enforcement window — the caller warns only then.
+ */
+export function resetUnhandledAsync(): boolean {
   _hitUnhandledAsync = false;
+  if (_reportedUnhandledAsync) return false;
+  _reportedUnhandledAsync = true;
+  return true;
 }
 /**
  * Toggles the dev-mode "must be inside a `<Loading>` boundary" enforcement
@@ -140,6 +151,7 @@ export function resetUnhandledAsync(): void {
  */
 export function enforceLoadingBoundary(enabled: boolean): void {
   _enforceLoadingBoundary = enabled;
+  if (enabled) _reportedUnhandledAsync = false;
 }
 
 export function setProjectionWriteActive(value: boolean) {
@@ -1161,13 +1173,14 @@ export function flush<T>(fn?: () => T): T | void {
       const message =
         "[FLUSH_IN_EFFECT_CALLBACK] flush() called from inside an effect callback is a no-op: the flush that runs effects is already in progress. " +
         "Writes made here are processed in the same flush's continuation; to force a drain afterwards, defer it: queueMicrotask(() => flush()).";
-      emitDiagnostic({
-        code: "FLUSH_IN_EFFECT_CALLBACK",
-        kind: "lifecycle",
-        severity: "warn",
-        message
-      });
-      console.warn(message);
+      reportDiagnostic(
+        emitDiagnostic({
+          code: "FLUSH_IN_EFFECT_CALLBACK",
+          kind: "lifecycle",
+          severity: "warn",
+          message
+        })
+      );
     }
     return;
   }

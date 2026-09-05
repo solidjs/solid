@@ -9,6 +9,23 @@ you do not understand; every one of these is a real defect or a real cost.
 Severity `error` codes indicate broken behavior; `warn` codes indicate code
 that works but is structurally wrong or expensive.
 
+## Locating a finding
+
+Every console report is one entry: the message, then an `in` line naming the
+owners that enclose the subject, root first — component roots as `<Name>`,
+computations by their `name` option or the `effect`/`computed` default:
+
+```
+[HOT_SCOPE_TIME] effect "effect" spent 12.4ms of compute inside one 1000ms window ...
+  in <App> › <TodoList> › <TodoRow> › effect
+```
+
+Read it as the component tree down to the scope. In captured artifacts the
+same chain is `event.ownerPath` (a string array). No `in` line means the
+subject has no named owner — a top-level scope, or an unowned primitive,
+which for the `NO_OWNER_*` codes is the finding itself. Naming your memos and
+effects (`{ name }`) turns the trailing `effect` into something you can grep.
+
 ## Tracking mistakes (reads in the wrong place)
 
 ### STRICT_READ_UNTRACKED

@@ -28,7 +28,7 @@ import {
   trackedEffect,
   untrack
 } from "./core/index.js";
-import { emitDiagnostic, registerGraph } from "./core/dev.js";
+import { emitDiagnostic, registerGraph, reportDiagnostic } from "./core/dev.js";
 import { installOptimisticEngine } from "./core/optimistic.js";
 import {
   activeTransition,
@@ -82,13 +82,14 @@ export function onCleanup(fn: Disposable): Disposable {
     if (!owner) {
       const message =
         "[NO_OWNER_CLEANUP] onCleanup called outside a reactive context will never be run";
-      emitDiagnostic({
-        code: "NO_OWNER_CLEANUP",
-        kind: "lifecycle",
-        severity: "warn",
-        message
-      });
-      console.warn(message);
+      reportDiagnostic(
+        emitDiagnostic({
+          code: "NO_OWNER_CLEANUP",
+          kind: "lifecycle",
+          severity: "warn",
+          message
+        })
+      );
     } else if (owner._config & CONFIG_CHILDREN_FORBIDDEN) {
       const message =
         "[CLEANUP_IN_FORBIDDEN_SCOPE] Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead";

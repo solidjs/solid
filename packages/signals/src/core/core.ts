@@ -69,6 +69,7 @@ import {
   clearSignals,
   DEV,
   emitDiagnostic,
+  reportDiagnostic,
   throwPendingUntrackedRead,
   warnStrictReadUntracked
 } from "./dev.js";
@@ -1206,16 +1207,20 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         const message =
           "[PENDING_ASYNC_FORBIDDEN_SCOPE] Reading a pending async value inside createTrackedEffect or onSettled will throw. " +
           "Use createEffect instead which supports async-aware reactivity.";
-        emitDiagnostic({
-          code: "PENDING_ASYNC_FORBIDDEN_SCOPE",
-          kind: "async",
-          severity: "warn",
-          message,
-          ownerId: c.id,
-          ownerName: (c as any)._name,
-          nodeName: (owner as any)?._name
-        });
-        console.warn(message);
+        reportDiagnostic(
+          emitDiagnostic(
+            {
+              code: "PENDING_ASYNC_FORBIDDEN_SCOPE",
+              kind: "async",
+              severity: "warn",
+              message,
+              ownerId: c.id,
+              ownerName: (c as any)._name,
+              nodeName: (owner as any)?._name
+            },
+            c
+          )
+        );
       }
       // Per-lane suspension lives with the engine (a non-null lane implies it
       // is installed): under a lane, only same-lane pending async without an
@@ -1518,15 +1523,19 @@ export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
   if (__DEV__ && owner && (owner as any)._flags & REACTIVE_DISPOSED) {
     const message =
       "[RUN_WITH_DISPOSED_OWNER] runWithOwner called with a disposed owner. Children created inside will never be disposed.";
-    emitDiagnostic({
-      code: "RUN_WITH_DISPOSED_OWNER",
-      kind: "owner",
-      severity: "warn",
-      message,
-      ownerId: owner.id,
-      ownerName: (owner as any)._name
-    });
-    console.warn(message);
+    reportDiagnostic(
+      emitDiagnostic(
+        {
+          code: "RUN_WITH_DISPOSED_OWNER",
+          kind: "owner",
+          severity: "warn",
+          message,
+          ownerId: owner.id,
+          ownerName: (owner as any)._name
+        },
+        owner
+      )
+    );
   }
   const oldContext = context;
   const prevTracking = tracking;
