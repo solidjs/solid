@@ -1,0 +1,5 @@
+{
+  "name": "slot-hydrate-bounded",
+  "shell": "<ul _hk=0><li>head</li><!--$--><li _hk=100>a</li><li _hk=110>b</li><li _hk=120>c</li><!--/--><li>tail</li></ul>",
+  "rest": ""
+}
