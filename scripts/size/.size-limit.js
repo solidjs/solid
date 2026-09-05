@@ -390,7 +390,33 @@ module.exports = [
     // reaches (asciiLowerCase, qualifierValue), which shifts esbuild's
     // identifier allocation over the same-length output — brotli layout
     // drift, 31 B. Ratcheted to the next 0.01 kB per this file's rule.
-    limit: "10.74 KB",
+
+    //
+    // Unified For slot, default-on (2026-09-04): 10.73 -> 10.89 KB, measured
+    // at 10.884. The floor has NO For — this is the ENGAGEMENT SEAM only:
+    // insert's `$for.impl` call site plus the domOps singleton (the platform
+    // web hands the slot). The slot algorithm itself rides For's module
+    // graph in solid-js and tree-shakes out of For-less apps like this one.
+    // (P0 audit sweep: 10.89 -> 10.90, the ownership guards' share.)
+    //
+    // Hydration hooks split (2026-09-05): 10.90 -> 10.85 measured — For's
+    // id peek moved behind enableHydration() (sharedConfig hook), so CSR no
+    // longer carries the id formatter it never used.
+    //
+    // Unified For HOLE seam (2026-09-05): 10.85 -> 11.00 KB, measured at
+    // 10.996. A `$for` accessor reaching insert THROUGH a wrapper
+    // (`{props.children}` in a parent component) now engages the slot for
+    // that hole; the seam sits in insert's effect (every bundle), so the
+    // floor pays the guard + hand-off (~110 B). Lists passed through layout
+    // components — the most common real-world list shape — get the slot.
+    //
+    // Anchored-hole hydration (2026-09-05): 11.00 -> 11.03 KB, measured at
+    // 11.02 — the active-hydration guard on the seam's region hand-off.
+    //
+    // Rebase over #3183 (responsive preloads) + audit round 3 (2026-09-05):
+    // 11.03 -> 11.07 KB, measured at 11.06 — upstream head.ts drift plus the
+    // hole seam's synchronous hydration re-entry branch.
+    limit: "11.07 KB",
     modifyEsbuildConfig
   },
   {
@@ -455,7 +481,32 @@ module.exports = [
     // Patch-channel removal (2026-09-02): 17.72 -> 17.61 KB, measured at
     // 17.58. The channel is deleted from next — regions own value delivery,
     // the unified-For design owns structure — reclaiming the insert $ll seam and core emission bytes.
-    limit: "17.61 KB",
+    //
+    // Unified For slot, default-on (2026-09-04): 17.61 -> 19.76 KB, measured
+    // at 19.75. THE deliberate bill: this scenario renders <For>, so it
+    // retains the slot (~2.1 KB) through For's own module graph — every
+    // keyed For gets chain+LIS structural updates and flat-mode mounts with
+    // zero API and zero compiler involvement (jfb-signal structural geomean
+    // 0.63, uibench 0.73, creates at parity — see DESIGN-UNIFIED-FOR.md).
+    // Hydration claiming declines to classic at runtime today; the bytes
+    // still ride for post-hydration mounts. P0 audit sweep (ownsParent
+    // guards on every bulk clear, empty-row placeholders, throw-safe
+    // builds) adds ~120 B here; siblings/foreign-node safety is the cost.
+    //
+    // Unified For hydration claiming (H2 v1, 2026-09-05): 19.88 -> 20.31 KB,
+    // measured at 20.37 (hooks module split; CSR shakes it). Whole-parent
+    // lists now ENGAGE during hydration:
+    // id-parity owner, recorded claims (reversible demote hands them back to
+    // classic's re-run), and a fill commit that reconciles claimed rows
+    // against the region on mismatch. First-paint SSR lists get the slot.
+    //
+    // Anchored-hole hydration (2026-09-05): 20.53 -> 20.57 KB, measured at
+    // 20.56 — comment-bounded holes engage under hydration (hydrationRt
+    // hands the slot the marker-bounded region minus comment markers).
+    //
+    // Rebase over #3183 + audit round 3 (2026-09-05): 20.57 -> 20.59 KB,
+    // measured at 20.587 (nested claim-recording stack; sync re-entry).
+    limit: "20.59 KB",
     modifyEsbuildConfig
   },
   {
@@ -552,7 +603,17 @@ module.exports = [
     // rc.6 P1 store sweep (#3282/#3283/#3284): 26.37 -> 26.43 KB, measured
     // at 26.42 macOS / 26424 B Linux CI (the usual +4-7 B Linux delta) —
     // see the createStore note; this scenario retains all of it.
-    limit: "26.43 KB",
+    //
+    // Unified For slot, default-on (2026-09-04): 26.43 -> 28.64 KB — the
+    // slot bytes through For's module graph (see the hydrating no-stores
+    // note).
+    //
+    // Unified For hydration claiming (2026-09-05): 28.75 -> 29.10 KB,
+    // measured at 29.10 (see the hydrating no-stores note).
+    //
+    // Anchored-hole hydration (2026-09-05): 29.29 -> 29.45 KB, measured at
+    // 29.44 (see the hydrating no-stores note).
+    limit: "29.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -591,7 +652,22 @@ module.exports = [
     // Patch-channel removal (2026-09-02): 13.11 -> 12.97 KB, measured at
     // 12.93. The channel is deleted from next — regions own value delivery,
     // the unified-For design owns structure — reclaiming the insert $ll seam and core emission bytes.
-    limit: "12.97 KB",
+    //
+    // Unified For slot, default-on (2026-09-04): 12.97 -> 15.20 KB, measured
+    // at 15.19 — the slot bytes through For's module graph (see the
+    // hydrating no-stores note).
+    //
+    // Unified For hydration claiming (2026-09-05): 15.29 -> 15.49 KB,
+    // measured at 15.48. CSR pays only the hook GUARDS + slot field plumbing
+    // (~190 B): the claim/restore/fix-up bodies live in for-slot-hydration.ts,
+    // installed by enableHydration(), and shake out of this bundle (#2883).
+    //
+    // Unified For HOLE seam (2026-09-05): 15.49 -> 15.62 KB, measured at
+    // 15.62 (see the simple-app note; hydrating scenarios +67-147 B).
+    //
+    // Rebase over #3183 + audit round 3 (2026-09-05): 15.62 -> 15.66 KB,
+    // measured at 15.65 (see the simple-app note).
+    limit: "15.66 KB",
     modifyEsbuildConfig
   },
   {

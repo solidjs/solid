@@ -1,0 +1,5 @@
+{
+  "name": "slot-hydrate-through-children",
+  "shell": "<ul _hk=0><li _hk=1000>a</li><li _hk=1010>b</li><li _hk=1020>c</li></ul>",
+  "rest": ""
+}

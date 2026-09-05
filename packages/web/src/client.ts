@@ -12,12 +12,42 @@ import {
   merge as mergeProps,
   flatten,
   createMemo,
+  createSignal,
   flush,
   enableHydration,
   enforceLoadingBoundary,
   resetErrorHalt
 } from "solid-js";
 import { effect, memo } from "./render.js";
+
+// Unified-For engagement ops: the slot algorithm rides For's own module
+// graph (solid-js client, `$for.impl`); web hands it THIS platform — one
+// module-level singleton, so every op call site in the slot stays
+// monomorphic. Apps without For tree-shake the slot; renderers that never
+// check `$for` call the accessor and get classic mapArray.
+const domOps = {
+  insert(parent: Node, node: Node, anchor: Node | null): void {
+    parent.insertBefore(node, anchor);
+  },
+  remove(node: Node): void {
+    (node as ChildNode).remove();
+  },
+  createText(text: string): Node {
+    return document.createTextNode(text);
+  },
+  isNode(v: unknown): boolean {
+    return v != null && (v as any).nodeType !== undefined;
+  },
+  clear(parent: Node): void {
+    (parent as Element).textContent = "";
+  },
+  tag(node: Node, marker: Node): void {
+    (node as any)[$$SLOT] = marker;
+  },
+  contains(parent: Node, node: Node): boolean {
+    return node.parentNode === parent;
+  }
+};
 
 import { JSX } from "../jsx/jsx.js";
 
@@ -863,6 +893,18 @@ export function installHydrationRuntime() {
       } else nodes = [...parent.childNodes];
       return stripTextSeparators(nodes);
     },
+    // Unified For: the hydration region handed to the slot — the hole's
+    // claimed nodes minus comment markers (`<!--$-->` stays in place exactly
+    // as classic leaves it; reclaimRegion walks back to it for $df swaps).
+    slotRegion(nodes) {
+      let out = null;
+      for (let i = 0; i < nodes.length; i++) {
+        if (nodes[i].nodeType === 8) {
+          out ??= nodes.slice(0, i);
+        } else if (out !== null) out.push(nodes[i]);
+      }
+      return out ?? nodes;
+    },
     // eventHandler(): replayed server events are deduped against the live
     // event queue during hydration.
     dedupEvent(e) {
@@ -929,6 +971,48 @@ export function insert(parent, accessor, marker, initial, options) {
   const host = options && options.host;
   if (multi && !initial) initial = [];
   if (hydrationRt !== null) initial = hydrationRt.claimInitial(parent, multi, initial);
+  // Unified-For seam (DESIGN-UNIFIED-FOR §4): a list value carrying the
+  // `$for` descriptor brings the slot impl WITH it (For's module graph);
+  // insert engages it by handing over web's domOps. `false` declines to
+  // classic (the descriptor is also a callable — calling it IS the classic
+  // mapArray path). The lateClassic thunk serves ENGAGED lists that later
+  // leave the slot's contract: it re-enters this insert under the ORIGINAL
+  // owner with a bare accessor (no `$for` marker).
+  if (typeof accessor === "function" && accessor.$for !== undefined) {
+    const listAccessor = accessor;
+    const owner = getOwner();
+    if (
+      // Marker passes through UNTOUCHED: `undefined` = whole-parent insert,
+      // `null` = trailing child with preceding siblings (classic MULTI mode
+      // — the compiler emits it for `<div><h1/>{list}</div>`), Node = bounded
+      // hole. The slot's bulk-clear paths key off this distinction (P0:
+      // collapsing null→undefined wiped preceding siblings).
+      accessor.$for.impl(
+        parent,
+        accessor,
+        marker,
+        () =>
+          runWithOwner(owner, () =>
+            insert(
+              parent,
+              () => listAccessor(),
+              marker,
+              marker !== undefined ? [] : undefined,
+              options
+            )
+          ),
+        domOps,
+        // Hydration: the claimed region snapshot — the parent's childNodes
+        // (claimInitial, whole-parent) or the comment-bounded hole range the
+        // compiled client resolved via getNextMarker (anchored holes). The
+        // slot's fill reconciles claimed rows against it.
+        hydrationRt !== null && isHydrating(parent) && Array.isArray(initial)
+          ? hydrationRt.slotRegion(initial)
+          : undefined
+      )
+    )
+      return;
+  }
   if (typeof accessor !== "function") {
     accessor = withInsertionParent(parent, () => normalize(accessor, initial, multi, true));
     if (typeof accessor !== "function") {
@@ -943,11 +1027,84 @@ export function insert(parent, accessor, marker, initial, options) {
     initial = [placeholder];
   }
   let current = initial;
+  // Unified-For HOLE seam: a `$for` accessor reaching this hole THROUGH a
+  // wrapper (`{props.children}` in a parent component compiles to
+  // `insert(el, () => props.children)`) engages the slot for the hole. The
+  // slot is created inside this compute, so a children change tears it down
+  // (hole-mode cleanup removes its rows). A post-engage demote can't spawn a
+  // second insert into a hole this effect owns — instead it flips
+  // `holeClassic` and bumps `holeGen` (created lazily, only for holes that
+  // ever see a For) so this effect re-runs and takes its classic path.
+  let holeClassic = false;
+  let holeGen = null;
   effect(
     prev => {
       if (hydrationRt !== null) current = hydrationRt.reclaimRegion(current, parent, marker);
+      if (holeGen !== null) holeGen[0]();
       const value = withInsertionParent(parent, () => normalize(accessor(), current, multi, true));
       if (typeof value !== "function") return value;
+      if (value.$for !== undefined && !holeClassic) {
+        if (holeGen === null) {
+          // ownedWrite: the demote bump is internal machinery and may fire
+          // from inside an owned scope (a hydrating fill's demote).
+          holeGen = createSignal(0, { ownedWrite: true });
+          holeGen[0]();
+        }
+        // Hand-off: whatever classic content this hole tracked goes away
+        // first (a For returning after other children). Multi holes keep
+        // insert's placeholder invariant — a surviving anchor the slot's
+        // rows land after, before the marker. Under an ACTIVE hydration of
+        // this parent the tracked range is the claimed server region: keep
+        // it for the slot's fill instead of cleaning.
+        const region =
+          hydrationRt !== null && isHydrating(parent) && Array.isArray(current)
+            ? hydrationRt.slotRegion(current)
+            : undefined;
+        let keep;
+        // Under hydration the tracked range STAYS the claimed region: if the
+        // slot demotes mid-fill, this effect's classic re-run reconciles
+        // against the real server rows (leftovers on mismatch get cleaned
+        // instead of surviving invisibly). After a successful engage the
+        // range is merely stale — cleanChildren skips nodes no longer ours.
+        if (region !== undefined) keep = region;
+        else if (multi) {
+          const ph = document.createTextNode("");
+          cleanChildren(parent, current, marker, ph);
+          keep = [ph];
+        } else {
+          if (current !== undefined) cleanChildren(parent, current, undefined);
+          keep = [];
+        }
+        const listFn = value;
+        const holeOwner = getOwner();
+        if (
+          value.$for.impl(
+            parent,
+            value,
+            marker,
+            () => {
+              holeClassic = true;
+              if (sharedConfig.hydrating) {
+                // Demote DURING a hydrating fill: re-enter classic NOW, inside
+                // the hydration window — the deferred re-run below would land
+                // after hydrate() flips the flag and CLONE instead of claim.
+                // `() => listFn()` INVOKES the list (classic rows), so this
+                // insert cannot re-engage; `current` is the server region, so
+                // classic reconciles against the real rows (mismatch cleaned).
+                runWithOwner(holeOwner, () =>
+                  insert(parent, () => listFn(), marker, current, options)
+                );
+              } else holeGen[1](g => g + 1);
+            },
+            domOps,
+            region,
+            true
+          )
+        ) {
+          current = keep;
+          return INNER_OWNED;
+        }
+      }
       effect(
         () => (
           hydrationRt !== null && (current = hydrationRt.reclaimRegion(current, parent, marker)),

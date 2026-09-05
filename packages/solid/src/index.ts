@@ -94,6 +94,10 @@ export type {
 
 export * from "./client/component.js";
 export * from "./client/flow.js";
+// Unified For slot: type surface for renderer integrators (web's insert
+// passes its SlotOps). The impl itself travels on `$for.impl` — not a user
+// API. Dev counters ride `DEV.unifiedFor` (below), not a new export.
+export type { SlotOps, UnifiedForStats } from "./client/for-slot.js";
 export type { ArrayElement, Element } from "./types.js";
 export {
   sharedConfig,
@@ -144,7 +148,12 @@ export function getProjectionTrace(
 // dev
 import { IS_DEV } from "./client/core.js";
 import { DEV as _DEV, type Dev } from "@solidjs/signals";
-export const DEV: Dev | undefined = IS_DEV ? _DEV : undefined;
+import { __unifiedForStats, type UnifiedForStats } from "./client/for-slot.js";
+/** Dev diagnostics bag. `unifiedFor`: unified For engagement / demotion /
+ * batch-clear counters (test probes; dev builds only). */
+export const DEV: (Dev & { unifiedFor: UnifiedForStats }) | undefined = IS_DEV
+  ? Object.assign(_DEV!, { unifiedFor: __unifiedForStats })
+  : undefined;
 
 // handle multiple instance check
 declare global {
