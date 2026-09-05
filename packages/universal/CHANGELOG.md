@@ -1,5 +1,17 @@
 # @solidjs/universal
 
+## 2.0.0-rc.7
+
+### Patch Changes
+
+- d601119: Remove the experimental patch channel and patch-mode list driver (always opt-in, never default). Graph-native regions own value delivery and the unified-For design owns list structure, so the channel's parallel delivery machinery is retired: `patch.ts`/`patch-driver.ts` deleted, the compiler-contract exports (`registerPatch`/`registerRowOps`/`registerSlotPatch`/`patchableRaw`, `patchDriver`/`rowProof`/`driveList`) removed, the `patchDriver` compiler option dropped from both compilers, the insert `$ll` seam stripped, and the write-side channel struct dieted to the single written-keys bound (`t.wk`) the core fold/notify paths actually use. Store-family app bundles reclaim up to ~900 B brotli; every measured tier shrinks.
+- Updated dependencies [215de3b]
+- Updated dependencies [3424f9a]
+- Updated dependencies [d601119]
+- Updated dependencies [ac5159a]
+- Updated dependencies [de1c8b5]
+  - solid-js@2.0.0-rc.7
+
 ## 2.0.0-rc.6
 
 ### Patch Changes

@@ -1,5 +1,32 @@
 # solid-js
 
+## 2.0.0-rc.7
+
+### Patch Changes
+
+- 215de3b: Align store overloads across the signals, client, and server entry points. Plain stores share `StoreOptions`, projection forms share `ProjectionOptions`, plain optimistic stores expose their existing options argument, and derived optimistic stores are typed as refreshable.
+- 3424f9a: Consume the first value of live-derived stores during SSR and reconnect their live sources after hydration.
+- d601119: Remove the experimental patch channel and patch-mode list driver (always opt-in, never default). Graph-native regions own value delivery and the unified-For design owns list structure, so the channel's parallel delivery machinery is retired: `patch.ts`/`patch-driver.ts` deleted, the compiler-contract exports (`registerPatch`/`registerRowOps`/`registerSlotPatch`/`patchableRaw`, `patchDriver`/`rowProof`/`driveList`) removed, the `patchDriver` compiler option dropped from both compilers, the insert `$ll` seam stripped, and the write-side channel struct dieted to the single written-keys bound (`t.wk`) the core fold/notify paths actually use. Store-family app bundles reclaim up to ~900 B brotli; every measured tier shrinks.
+- ac5159a: Preserve the supplied type in `Store<T>` instead of adding a shallow readonly mapping.
+- de1c8b5: Revert the complete-seed requirement on derived store forms (#3258). Derived `createStore`, `createProjection`, and derived `createOptimisticStore` accept `Partial<T>` seeds again, on maintainer review: requiring a full `T` forces callers to fabricate a throwaway complete object in the common async case — any object store reconciling on a non-`id` key needs the options slot, hence the seed slot — while the seed is never observable there (reads pend until the first resolution). The type-honesty concern it addressed is real only for sync draft-reading callbacks and is better served by the seedless-callback direction discussed in #3194. Since #3258 never shipped in a release, its pending changeset is dropped rather than superseded; the API is unchanged from 2.0.0-rc.6. The #3260 overload alignment (slot order, `shallow` in options, `Refreshable` derived returns) is unaffected.
+- Updated dependencies [215de3b]
+- Updated dependencies [ae46c92]
+- Updated dependencies [fc7e626]
+- Updated dependencies [d50e855]
+- Updated dependencies [8f9f369]
+- Updated dependencies [0653673]
+- Updated dependencies [067e3bc]
+- Updated dependencies [8a65e5e]
+- Updated dependencies [f24e53d]
+- Updated dependencies [fa568d3]
+- Updated dependencies [d601119]
+- Updated dependencies [ac5159a]
+- Updated dependencies [de1c8b5]
+- Updated dependencies [e346e61]
+- Updated dependencies [e346e61]
+- Updated dependencies [0255729]
+  - @solidjs/signals@2.0.0-rc.7
+
 ## 2.0.0-rc.6
 
 ### Patch Changes

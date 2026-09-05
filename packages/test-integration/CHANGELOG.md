@@ -1,5 +1,58 @@
 # test-integration
 
+## 2.0.0-rc.7
+
+### Patch Changes
+
+- Updated dependencies [ead7b1a]
+- Updated dependencies [215de3b]
+- Updated dependencies [1226381]
+- Updated dependencies [7009adf]
+- Updated dependencies [a14c138]
+- Updated dependencies [ae46c92]
+- Updated dependencies [c08e974]
+- Updated dependencies [fbe5bef]
+- Updated dependencies [292bdc5]
+- Updated dependencies [285a717]
+- Updated dependencies [8f11ea7]
+- Updated dependencies [d0ca3a4]
+- Updated dependencies [fc7e626]
+- Updated dependencies [d50e855]
+- Updated dependencies [8f9f369]
+- Updated dependencies [3424f9a]
+- Updated dependencies [b3586e8]
+- Updated dependencies [f21e060]
+- Updated dependencies [5cee0f7]
+- Updated dependencies [0653673]
+- Updated dependencies [6bb51c9]
+- Updated dependencies [067e3bc]
+- Updated dependencies [8a65e5e]
+- Updated dependencies [ff2ecf1]
+- Updated dependencies [c0bc9ba]
+- Updated dependencies [ace227e]
+- Updated dependencies [b7b17ab]
+- Updated dependencies [f24e53d]
+- Updated dependencies [ed6b605]
+- Updated dependencies [6c9f8f4]
+- Updated dependencies [3393fb6]
+- Updated dependencies [fa568d3]
+- Updated dependencies [d601119]
+- Updated dependencies [ac5159a]
+- Updated dependencies [ace227e]
+- Updated dependencies [de1c8b5]
+- Updated dependencies [84a94bc]
+- Updated dependencies [e346e61]
+- Updated dependencies [e346e61]
+- Updated dependencies [0255729]
+- Updated dependencies [a1ff286]
+  - @solidjs/babel-plugin@2.0.0-rc.7
+  - @solidjs/signals@2.0.0-rc.7
+  - solid-js@2.0.0-rc.7
+  - @solidjs/web@2.0.0-rc.7
+  - @solidjs/universal@2.0.0-rc.7
+  - @solidjs/h@2.0.0-rc.7
+  - @solidjs/html@2.0.0-rc.7
+
 ## 2.0.0-rc.6
 
 ### Patch Changes

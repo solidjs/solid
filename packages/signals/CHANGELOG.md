@@ -1,5 +1,72 @@
 # @solidjs/signals
 
+## 2.0.0-rc.7
+
+### Patch Changes
+
+- 215de3b: Align store overloads across the signals, client, and server entry points. Plain stores share `StoreOptions`, projection forms share `ProjectionOptions`, plain optimistic stores expose their existing options argument, and derived optimistic stores are typed as refreshable.
+- ae46c92: Comment-only: update doc paths in source comments after relocating the signals internals docs (INTERNALS-\*, SPEC-ASYNC-SEMANTICS, rules-mining) from the package root into `packages/signals/docs/`. No behavior change.
+- fc7e626: Merge clone-path folds onto a container privatized mid-batch (#3271). Family and array drafts fold by swapping their pending backing in and re-slotting the parent with a CAS against the pre-batch old. When a descendant of the same node was written earlier in the draft, the descendant's fold path-copies THROUGH the ancestor first — privatizeCommitted clones the ancestor's committed backing and re-points the parent slot at the clone — so the ancestor's own fold swapped in a stale ensurePB-time clone, failed the parent CAS, and its writes were silently discarded (writable projections; plain object stores fold through the overlay path and were immune). Such folds now merge the batch's written keys onto the privatized container in place — the trap's written-keys bound is authoritative, with a value-diff fallback when an array length write poisoned it — composing both folds instead of losing one.
+- d50e855: rc.6 P1 store sweep — three fold-machinery gaps reported by @brenelz, all predating the #3271 fix:
+  - **#3282** — an array move (`reverse`/`unshift`/`splice`) plus an edit of a moved row corrupted sibling rows: the row target's parent-key is stamped at wrap time and never followed the move, so the fold's parent-slot re-point wrote the edited row's clone over whichever sibling now occupied the old index (`[1,2]` became `[1,1]`). Fold-time slot writes (privatization stitch, drainFolds path-copy, and the eager-fold twin) now resolve the slot by raw identity when the stamped key is stale — arrays only, fold-time only, no read-path cost.
+  - **#3283** — `deep()` silently unsubscribed from every untouched child after a parent-field edit: the walk bypasses the proxy traps, and a bare `Reflect.ownKeys` on a plain-object overlay pending backing (own keys = this batch's writes) hid inherited committed keys from the mid-flush re-walk, dropping those records from the effect's refreshed dependency set. The walk now merges committed keys minus deletes, mirroring the ownKeys trap's #3044 overlay merge.
+  - **#3284** — in derived stores, a descendant write disconnected ancestor observers and broke proxy identity: `privatizeCommitted` registered its clone only in the global lookup, but family targets resolve children through `fam.map`, so the next parent read wrapped a fresh target and orphaned the original's nodes. The clone now registers in the target's own map.
+
+- 8f9f369: Suspend uninitialized async values across optimistic lanes so `latest()`-conditioned branches wait for their first value instead of rendering `undefined`.
+- 0653673: Route errors thrown while applying asynchronous computed setters through the
+  node's error state. This prevents user callbacks invoked during asynchronous
+  projection reconciliation, such as key selectors, from escaping as unhandled
+  promise rejections.
+- 067e3bc: Optimistic increments keep stacking after a sibling landing. With several
+  optimistic-store actions in flight (optimistic `votes++`, server confirm,
+  `refresh(store)`), the first vote's truth landing is staged into the
+  transaction that still retains the second vote, and that vote's increment
+  replays over it. A third click's draft then read the staged truth WITHOUT
+  the replayed override: draft reads composed live overrides only while no
+  pending backing existed, and `votes++` reads before the first write triggers
+  the view-reseed hand-off. It read base, wrote base + 1, and its override
+  landed on the value already on screen — the click was invisible and the
+  count stuck (or fell back) until truth caught up. Draft reads now compose
+  overrides whenever the pending backing is not the draft's own view-seeded
+  clone.
+- 8a65e5e: An optimistic store's first flight suspends into its Loading boundary again.
+  The flight-owned transaction (#3146) was declared for the uninitialized
+  first ask too, so every transition-riding consumer — `render()`'s scheduled
+  root insert included — was held until the initial fetch landed: the page
+  stayed blank (content outside the boundary included) and the boundary's
+  fallback never showed, while `createStore(fn, seed)` and
+  `createOptimistic(fn, seed)` in the same spot showed it. Nothing has
+  committed on a first flight, so there is no truth to keep on screen and no
+  optimistic state to protect: it now declares nothing, like the loading
+  window (#2933). Refetch flights declare exactly as before, so bare
+  optimistic writes during an in-flight refetch still ride the flight's
+  transaction (#2951) and content stays put until the new truth lands.
+- f24e53d: `refresh()` after a held manual write stays a quiet re-ask. When an action
+  wrote to a derived store and later called `refresh(store)`, the lift of the
+  manual-write mask (#3026) dropped the re-ask classification, so the refetch
+  was treated as a brand-new question and pended every leaf — every sibling
+  row lit up `isPending`, and a row-scoped `affects()` could not narrow it.
+  The lift now keeps the classification: same-question motion stays silent,
+  and only the written slot and any declared `affects()` mark read pending
+  until the truth lands. Same-tick precedence (#2692) is unchanged.
+- fa568d3: Relocate #3277's uninitialized cross-lane suspension check from core `read()` into the optimistic module's `laneSuspends`. No behavior change — the check is only reachable under a lane, which implies the engine is installed — but the inline placement taxed every bundle including storeless floors (27-66 B across five size scenarios); in `laneSuspends` only bundles that retain the optimistic module pay.
+- d601119: Remove the experimental patch channel and patch-mode list driver (always opt-in, never default). Graph-native regions own value delivery and the unified-For design owns list structure, so the channel's parallel delivery machinery is retired: `patch.ts`/`patch-driver.ts` deleted, the compiler-contract exports (`registerPatch`/`registerRowOps`/`registerSlotPatch`/`patchableRaw`, `patchDriver`/`rowProof`/`driveList`) removed, the `patchDriver` compiler option dropped from both compilers, the insert `$ll` seam stripped, and the write-side channel struct dieted to the single written-keys bound (`t.wk`) the core fold/notify paths actually use. Store-family app bundles reclaim up to ~900 B brotli; every measured tier shrinks.
+- ac5159a: Preserve the supplied type in `Store<T>` instead of adding a shallow readonly mapping.
+- de1c8b5: Revert the complete-seed requirement on derived store forms (#3258). Derived `createStore`, `createProjection`, and derived `createOptimisticStore` accept `Partial<T>` seeds again, on maintainer review: requiring a full `T` forces callers to fabricate a throwaway complete object in the common async case — any object store reconciling on a non-`id` key needs the options slot, hence the seed slot — while the seed is never observable there (reads pend until the first resolution). The type-honesty concern it addressed is real only for sync draft-reading callbacks and is better served by the seedless-callback direction discussed in #3194. Since #3258 never shipped in a release, its pending changeset is dropped rather than superseded; the API is unchanged from 2.0.0-rc.6. The #3260 overload alignment (slot order, `shallow` in options, `Refreshable` derived returns) is unaffected.
+- e346e61: Store leaf nodes ride `slotSignal` — one pre-shaped literal with `_host`/`_key` backrefs replacing the per-node options object, equals closure, unobserved closure, and the NodeExtension that held it; the unobserved sweep dispatches CONFIG_SLOT_NODE nodes to one shared hook. getNode self-time −23% on dbmon warm mounts.
+- e346e61: Store first-read diet: the get trap's accessor probe verdict threads through to node creation (one descriptor scan per first read, not two), the trap's duplicate node-map lookup is hoisted, and the first tracked read populates the wrap cache so the second read skips wrapNext. dbmon mount min −4%, get-trap self-time −19%.
+- 0255729: Stop the store proxy's dev strict-read check from firing on the engine's
+  thenable probe. Resolving a promise with a store proxy — `refresh(store)`'s
+  waiter delivers the store, `Promise.resolve(store)`, `return store` from an
+  async function — makes the engine read `store.then` synchronously in the
+  caller's scope. When that scope carries a strict-read label (an effect
+  callback, a component body) the read produced a spurious
+  `STRICT_READ_UNTRACKED` warning, and against a refetching derived store it
+  could escalate to the `PENDING_ASYNC_UNTRACKED_READ` throw, rejecting the
+  promise being resolved. `await refresh(list)` inside an action logged the
+  warning on every call. The `then` probe is not a read the user wrote and is
+  now exempt from both.
+
 ## 2.0.0-rc.6
 
 ### Patch Changes
