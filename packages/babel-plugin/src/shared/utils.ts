@@ -1,7 +1,7 @@
 import * as t from "@babel/types";
 import { addNamed } from "@babel/helper-module-imports";
 import { DOMWithState } from "../../../web/src/constants.js";
-import type { NodePath, Visitor } from "@babel/traverse";
+import type { NodePath, Scope, Visitor } from "@babel/traverse";
 import type { PluginConfig, RendererConfig } from "../config";
 import type {
   BabelHubWithMetadata,
@@ -567,6 +567,76 @@ export function canNativeSpread(
   // TODO: figure out how to detect definitely function ref
   if (key === "ref") return false;
   return true;
+}
+
+/**
+ * Rewrite bare assignment targets inside a `ref` array literal into callback
+ * refs, so `ref={[elRef]}` assigns the element just like `ref={elRef}` does
+ * (#3285). Nested arrays are recursed because the runtime flattens ref arrays;
+ * call expressions and const/module bindings (a function ref passed by
+ * reference, e.g. `ref={[callbackRef]}`) are left untouched.
+ *
+ * Mutable bindings and member targets keep the same runtime contract as the
+ * non-array lval path: the current value is read once — when it is a function
+ * it is invoked with the element, otherwise the element is assigned back.
+ * Mutates the array expression in place.
+ */
+export function transformRefArrayLiteral(scope: Scope, array: t.ArrayExpression): void {
+  for (let i = 0; i < array.elements.length; i++) {
+    let element = array.elements[i];
+    if (element === null || t.isSpreadElement(element)) continue;
+    if (t.isArrayExpression(element)) {
+      transformRefArrayLiteral(scope, element);
+      continue;
+    }
+    // Normalize TS non-null / as / satisfies wrappers
+    while (
+      t.isTSNonNullExpression(element) ||
+      t.isTSAsExpression(element) ||
+      t.isTSSatisfiesExpression(element)
+    ) {
+      element = (element as t.TSNonNullExpression | t.TSAsExpression | t.TSSatisfiesExpression)
+        .expression;
+    }
+    let target: t.LVal | null = null;
+    if (t.isIdentifier(element)) {
+      // Only declared, mutable bindings can be assignment targets.
+      // const/module bindings are function refs passed by reference, and
+      // globals (`undefined`, `NaN`, ...) are not assignable at all — leave
+      // both untouched so falsy ref-array slots keep short-circuiting.
+      const binding = scope.getBinding(element.name);
+      if (!binding || binding.kind === "const" || binding.kind === "module") continue;
+      target = element;
+    } else if (t.isMemberExpression(element) && !t.isOptionalMemberExpression(element)) {
+      // Optional member targets (`a?.b`) keep their existing best-effort
+      // behavior; they cannot be assigned without an object guard.
+      target = element;
+    }
+    if (!target) continue;
+    const param = scope.generateUidIdentifier("el$");
+    const cached = scope.generateUidIdentifier("_ref$");
+    // `(el$) => { var _ref$ = <target>; typeof _ref$ === "function" ? _ref$(el$) : <target> = el$; }`
+    const callback = t.arrowFunctionExpression(
+      [param],
+      t.blockStatement([
+        t.variableDeclaration("var", [
+          t.variableDeclarator(cached, t.cloneNode(target) as t.Expression)
+        ]),
+        t.expressionStatement(
+          t.conditionalExpression(
+            t.binaryExpression(
+              "===",
+              t.unaryExpression("typeof", t.cloneNode(cached)),
+              t.stringLiteral("function")
+            ),
+            t.callExpression(t.cloneNode(cached), [t.cloneNode(param)]),
+            t.assignmentExpression("=", target, t.cloneNode(param))
+          )
+        )
+      ])
+    );
+    array.elements[i] = callback;
+  }
 }
 
 export function inlineCallExpression(node: t.Expression): t.Expression {
