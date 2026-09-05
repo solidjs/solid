@@ -14,14 +14,8 @@
  *      in flight, revert restores committed).
  */
 import { beforeEach, describe, expect, test } from "vitest";
-import {
-  createRoot,
-  createSignal,
-  createOptimisticStore,
-  flush,
-  For,
-  __unifiedForStats
-} from "solid-js";
+import { createRoot, createSignal, createOptimisticStore, flush, For, DEV } from "solid-js";
+const stats = DEV!.unifiedFor;
 // IMPORTANT: the packaged specifier, NOT ../src — compiled JSX resolves
 // `solid-js`/`@solidjs/web` to dist (browser+development); the stats probe
 // must come from the SAME solid-js instance the compiled For runs on. No
@@ -53,14 +47,14 @@ describe("unified For: engaged semantics parity", () => {
   }
 
   test("creates and ENGAGES the driver", () => {
-    const before = __unifiedForStats.engaged;
+    const before = stats.engaged;
     createRoot(dispose => {
       disposer = dispose;
       <Component />;
     });
     flush();
     expect(div.innerHTML).toBe("abcd");
-    expect(__unifiedForStats.engaged).toBe(before + 1);
+    expect(stats.engaged).toBe(before + 1);
   });
 
   test("1 missing", () => {
@@ -195,7 +189,7 @@ describe("unified For: element rows and moves preserve identity", () => {
 
 describe("unified For: demotion to classic", () => {
   beforeEach(() => {
-    __unifiedForStats.demoted = 0;
+    stats.demoted = 0;
   });
 
   test("duplicate keys demote and still render correctly", () => {
@@ -210,7 +204,7 @@ describe("unified For: demotion to classic", () => {
     expect(div.innerHTML).toBe("<span>a</span><span>b</span>");
     setList(["a", "a", "b"]); // duplicate identity → driver demotes
     flush();
-    expect(__unifiedForStats.demoted).toBe(1);
+    expect(stats.demoted).toBe(1);
     expect(div.innerHTML).toBe("<span>a</span><span>a</span><span>b</span>");
     // Classic owns it from here on — still fully live.
     setList(["b", "a"]);
@@ -230,7 +224,7 @@ describe("unified For: demotion to classic", () => {
     expect(div.innerHTML).toBe("<span>a</span>");
     setList("not-an-array" as any);
     flush();
-    expect(__unifiedForStats.demoted).toBe(1);
+    expect(stats.demoted).toBe(1);
   });
 });
 
@@ -293,10 +287,10 @@ describe("unified For: batch clear engagement", () => {
     });
     flush();
     expect(div.childNodes.length).toBe(100);
-    const before = __unifiedForStats.batchCleared;
+    const before = stats.batchCleared;
     setList([]);
     flush();
     expect(div.innerHTML).toBe("");
-    expect(__unifiedForStats.batchCleared).toBe(before + 1);
+    expect(stats.batchCleared).toBe(before + 1);
   });
 });

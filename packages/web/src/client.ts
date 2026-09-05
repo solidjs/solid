@@ -1045,7 +1045,9 @@ export function insert(parent, accessor, marker, initial, options) {
       if (typeof value !== "function") return value;
       if (value.$for !== undefined && !holeClassic) {
         if (holeGen === null) {
-          holeGen = createSignal(0);
+          // ownedWrite: the demote bump is internal machinery and may fire
+          // from inside an owned scope (a hydrating fill's demote).
+          holeGen = createSignal(0, { ownedWrite: true });
           holeGen[0]();
         }
         // Hand-off: whatever classic content this hole tracked goes away
@@ -1059,7 +1061,12 @@ export function insert(parent, accessor, marker, initial, options) {
             ? hydrationRt.slotRegion(current)
             : undefined;
         let keep;
-        if (region !== undefined) keep = [];
+        // Under hydration the tracked range STAYS the claimed region: if the
+        // slot demotes mid-fill, this effect's classic re-run reconciles
+        // against the real server rows (leftovers on mismatch get cleaned
+        // instead of surviving invisibly). After a successful engage the
+        // range is merely stale — cleanChildren skips nodes no longer ours.
+        if (region !== undefined) keep = region;
         else if (multi) {
           const ph = document.createTextNode("");
           cleanChildren(parent, current, marker, ph);
@@ -1068,6 +1075,8 @@ export function insert(parent, accessor, marker, initial, options) {
           if (current !== undefined) cleanChildren(parent, current, undefined);
           keep = [];
         }
+        const listFn = value;
+        const holeOwner = getOwner();
         if (
           value.$for.impl(
             parent,
@@ -1075,7 +1084,17 @@ export function insert(parent, accessor, marker, initial, options) {
             marker,
             () => {
               holeClassic = true;
-              holeGen[1](g => g + 1);
+              if (sharedConfig.hydrating) {
+                // Demote DURING a hydrating fill: re-enter classic NOW, inside
+                // the hydration window — the deferred re-run below would land
+                // after hydrate() flips the flag and CLONE instead of claim.
+                // `() => listFn()` INVOKES the list (classic rows), so this
+                // insert cannot re-engage; `current` is the server region, so
+                // classic reconciles against the real rows (mismatch cleaned).
+                runWithOwner(holeOwner, () =>
+                  insert(parent, () => listFn(), marker, current, options)
+                );
+              } else holeGen[1](g => g + 1);
             },
             domOps,
             region,

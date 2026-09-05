@@ -18,6 +18,18 @@
 import { sharedConfig } from "./hydration.js";
 import { installSlotHydration, type FlatPlan, type Slot } from "./for-slot.js";
 
+/** RECORDING STACK. Nested lists hydrate INSIDE an outer row's build (row →
+ * inner insert → inner engage → inner fill, all synchronous), so recording
+ * must nest: the OUTERMOST record() installs the registry shadow once, every
+ * active log on the stack receives every deletion, an inner commitFill drops
+ * only its OWN log, and an outer restore() hands back everything claimed
+ * beneath it — including nested slots' already-committed claims, which the
+ * classic re-run's re-engaged nested lists will mint again with the same
+ * ids. (Per-slot shadows broke both: the inner `finally` tore down the
+ * outer's shadow, and committed inner claims were in no log at all.) */
+const logs: [string, Element][][] = [];
+let shadowed = false;
+
 const hooks = {
   engage(
     meta: any,
@@ -34,21 +46,27 @@ const hooks = {
   },
 
   record<T>(slot: Slot, fn: () => T): T {
-    // Shadow the registry's `delete` for the duration of the build so every
-    // key the row templates consume is logged (with its node).
     const reg = sharedConfig.registry as Map<string, Element> | undefined;
     if (!reg) return fn();
-    const log: [string, Element][] = (slot.hydLog ??= []);
-    const proto = Map.prototype.delete;
-    (reg as any).delete = function (this: Map<string, Element>, key: string): boolean {
-      const node = this.get(key);
-      if (node !== undefined) log.push([key, node]);
-      return proto.call(this, key);
-    };
+    logs.push((slot.hydLog ??= []));
+    const installed = !shadowed;
+    if (installed) {
+      shadowed = true;
+      const proto = Map.prototype.delete;
+      (reg as any).delete = function (this: Map<string, Element>, key: string): boolean {
+        const node = this.get(key);
+        if (node !== undefined) for (let i = 0; i < logs.length; i++) logs[i].push([key, node]);
+        return proto.call(this, key);
+      };
+    }
     try {
       return fn();
     } finally {
-      delete (reg as any).delete; // back to the prototype method
+      logs.pop();
+      if (installed) {
+        delete (reg as any).delete; // back to the prototype method
+        shadowed = false;
+      }
     }
   },
 

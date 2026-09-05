@@ -18,7 +18,8 @@
 import { beforeEach, describe, expect, test } from "vitest";
 // The packaged specifier, NOT ../src — compiled JSX resolves solid-js to
 // dist; probes must share that instance.
-import { createSignal, flush, For, __unifiedForStats } from "solid-js";
+import { createSignal, flush, For, DEV } from "solid-js";
+const stats = DEV!.unifiedFor;
 import { render } from "@solidjs/web";
 
 describe("unified For: preceding siblings survive bulk paths (P0)", () => {
@@ -118,10 +119,10 @@ describe("unified For: preceding siblings survive bulk paths (P0)", () => {
       container
     );
     // A row whose top level is a FUNCTION demotes to classic.
-    const before = __unifiedForStats.demoted;
+    const before = stats.demoted;
     setList(["a", () => <b>dyn</b>]);
     flush();
-    expect(__unifiedForStats.demoted).toBe(before + 1);
+    expect(stats.demoted).toBe(before + 1);
     expect(container.querySelector("h1")).not.toBeNull();
     expect(container.querySelector("h1")!.textContent).toBe("Title");
     expect(container.querySelectorAll("span").length).toBe(1);
@@ -197,10 +198,10 @@ describe("unified For: whole-parent ownership guard (foreign nodes survive)", ()
     const section = container.querySelector("section")!;
     setList(["c", "b", "a"]); // materialize
     flush();
-    const before = __unifiedForStats.batchCleared;
+    const before = stats.batchCleared;
     setList([]);
     flush();
-    expect(__unifiedForStats.batchCleared).toBe(before + 1);
+    expect(stats.batchCleared).toBe(before + 1);
     expect(section.innerHTML).toBe("");
   });
 });
@@ -226,10 +227,10 @@ describe("unified For: empty-rendering rows hold position (no demote)", () => {
     );
     const inputA = container.querySelector("input")!;
     inputA.value = "typed";
-    const before = __unifiedForStats.demoted;
+    const before = stats.demoted;
     setList([a, b, { id: "c", hidden: true }]);
     flush();
-    expect(__unifiedForStats.demoted).toBe(before);
+    expect(stats.demoted).toBe(before);
     expect(container.querySelector("input")).toBe(inputA); // same node
     expect(inputA.value).toBe("typed"); // state intact
     expect(container.querySelectorAll("input").length).toBe(2);
