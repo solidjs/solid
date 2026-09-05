@@ -393,7 +393,12 @@ export function unifiedForSlot(
   marker: Node | null | undefined,
   lateClassic: () => void,
   ops: SlotOps,
-  region?: Node[]
+  region?: Node[],
+  /** HOLE mode: engaged from inside a wrapper insert's compute (the
+   * `{props.children}` seam). The hosting effect owns the hole, so this
+   * slot removes its rows on cleanup (a children change or dispose) — in
+   * direct mode the parent element's removal covers that for free. */
+  hole = false
 ): boolean {
   const meta = listFn.$for;
   // H4 pin: keyed-fn rows receive accessors in the classic contract — the
@@ -526,9 +531,18 @@ export function unifiedForSlot(
   };
 
   // The insert owner disposes slot.owner (and with it every row) through the
-  // owner tree — cleanup only has to silence the slot.
+  // owner tree — cleanup only has to silence the slot. HOLE mode also
+  // removes the rows: the hosting effect keeps the parent and re-fills it.
   onCleanup(() => {
     slot.dead = true;
+    if (hole) {
+      if (slot.flat !== null) removeFlatDom();
+      else
+        for (let r = slot.head; r !== null; r = r.x) {
+          if (r.n !== null) ops.remove(r.n);
+          else if (r.ns !== null) for (const n of r.ns) ops.remove(n);
+        }
+    }
   });
 
   effect(
