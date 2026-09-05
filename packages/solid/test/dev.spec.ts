@@ -7,7 +7,9 @@ import {
   createComputed,
   DEV,
   createContext,
-  createComponent
+  createComponent,
+  onCleanup,
+  untrack
 } from "../src/index.js";
 import type { DevComponent } from "../src/reactive/signal.js";
 import { createStore, unwrap, DEV as STORE_DEV } from "../store/src/index.js";
@@ -181,6 +183,128 @@ describe("Dev features", () => {
         expect(owner.component).toBe(MyComponent);
         return null;
       }, props);
+    });
+  });
+
+  // https://github.com/solidjs/solid/issues/1561
+  // The dev-only component wrapper added by `createComponent`/`devComponent`
+  // must not change the order in which `onCleanup` callbacks fire on disposal
+  // compared to production (where no wrapper exists).
+  describe("onCleanup order is consistent with production (#1561)", () => {
+    test("cleanups in a component body interleave with sibling cleanups", () => {
+      const devOrder: string[] = [];
+      createRoot(dispose => {
+        onCleanup(() => devOrder.push("before"));
+        createComponent(function Child() {
+          onCleanup(() => devOrder.push("child"));
+          return null;
+        }, {});
+        onCleanup(() => devOrder.push("after"));
+        dispose();
+      });
+
+      // Simulate the production code path (no dev wrapper) by calling the
+      // component directly under `untrack`, like `createComponent` does in prod.
+      const prodOrder: string[] = [];
+      createRoot(dispose => {
+        onCleanup(() => prodOrder.push("before"));
+        untrack(() =>
+          (function Child() {
+            onCleanup(() => prodOrder.push("child"));
+            return null;
+          })()
+        );
+        onCleanup(() => prodOrder.push("after"));
+        dispose();
+      });
+
+      expect(devOrder).toEqual(prodOrder);
+      expect(devOrder).toEqual(["after", "child", "before"]);
+    });
+
+    test("nested component cleanups interleave with sibling cleanups", () => {
+      const devOrder: string[] = [];
+      createRoot(dispose => {
+        onCleanup(() => devOrder.push("root-before"));
+        createComponent(function Outer() {
+          onCleanup(() => devOrder.push("outer-before"));
+          createComponent(function Inner() {
+            onCleanup(() => devOrder.push("inner"));
+            return null;
+          }, {});
+          onCleanup(() => devOrder.push("outer-after"));
+          return null;
+        }, {});
+        onCleanup(() => devOrder.push("root-after"));
+        dispose();
+      });
+
+      const prodOrder: string[] = [];
+      createRoot(dispose => {
+        onCleanup(() => prodOrder.push("root-before"));
+        untrack(() =>
+          (function Outer() {
+            onCleanup(() => prodOrder.push("outer-before"));
+            untrack(() =>
+              (function Inner() {
+                onCleanup(() => prodOrder.push("inner"));
+                return null;
+              })()
+            );
+            onCleanup(() => prodOrder.push("outer-after"));
+            return null;
+          })()
+        );
+        onCleanup(() => prodOrder.push("root-after"));
+        dispose();
+      });
+
+      expect(devOrder).toEqual(prodOrder);
+      expect(devOrder).toEqual([
+        "root-after",
+        "outer-after",
+        "inner",
+        "outer-before",
+        "root-before"
+      ]);
+    });
+
+    test("component cleanups still run when the component is re-created", () => {
+      const log: string[] = [];
+      let setKey!: (v: number) => void;
+      const dispose = createRoot(dispose => {
+        const [key, _setKey] = createSignal(0);
+        setKey = _setKey;
+        createEffect(() => {
+          const k = key();
+          createComponent(function Child() {
+            onCleanup(() => log.push(`cleanup-${k}`));
+            return null;
+          }, {});
+        });
+        return dispose;
+      });
+      // Re-running the effect must dispose the previous component instance and
+      // fire its cleanup, even though the cleanup lives on the (persistent) parent.
+      setKey(1);
+      setKey(2);
+      dispose();
+      expect(log).toEqual(["cleanup-0", "cleanup-1", "cleanup-2"]);
+    });
+
+    test("getOwner inside a component still returns the dev component wrapper", () => {
+      createRoot(dispose => {
+        const root = getOwner();
+        createComponent(function MyComponent() {
+          const owner = getOwner() as DevComponent<{}>;
+          // owner identity is the dev wrapper, not the parent (preserves devtools)
+          expect(owner).not.toBe(root);
+          expect(owner.component).toBe(MyComponent);
+          expect(owner.owner).toBe(root);
+          return null;
+        }, {});
+        dispose();
+      });
     });
   });
 });
