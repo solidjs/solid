@@ -412,7 +412,11 @@ module.exports = [
     //
     // Anchored-hole hydration (2026-09-05): 11.00 -> 11.03 KB, measured at
     // 11.02 — the active-hydration guard on the seam's region hand-off.
-    limit: "11.03 KB",
+    //
+    // Rebase over #3183 (responsive preloads) + audit round 3 (2026-09-05):
+    // 11.03 -> 11.07 KB, measured at 11.06 — upstream head.ts drift plus the
+    // hole seam's synchronous hydration re-entry branch.
+    limit: "11.07 KB",
     modifyEsbuildConfig
   },
   {
@@ -499,7 +503,10 @@ module.exports = [
     // Anchored-hole hydration (2026-09-05): 20.53 -> 20.57 KB, measured at
     // 20.56 — comment-bounded holes engage under hydration (hydrationRt
     // hands the slot the marker-bounded region minus comment markers).
-    limit: "20.57 KB",
+    //
+    // Rebase over #3183 + audit round 3 (2026-09-05): 20.57 -> 20.59 KB,
+    // measured at 20.587 (nested claim-recording stack; sync re-entry).
+    limit: "20.59 KB",
     modifyEsbuildConfig
   },
   {
@@ -657,7 +664,10 @@ module.exports = [
     //
     // Unified For HOLE seam (2026-09-05): 15.49 -> 15.62 KB, measured at
     // 15.62 (see the simple-app note; hydrating scenarios +67-147 B).
-    limit: "15.62 KB",
+    //
+    // Rebase over #3183 + audit round 3 (2026-09-05): 15.62 -> 15.66 KB,
+    // measured at 15.65 (see the simple-app note).
+    limit: "15.66 KB",
     modifyEsbuildConfig
   },
   {
