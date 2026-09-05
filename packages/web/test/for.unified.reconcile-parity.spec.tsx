@@ -1,4 +1,5 @@
 /**
+ * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  *
  * RECONCILE PARITY MATRIX — the classic for.spec transition table (and then

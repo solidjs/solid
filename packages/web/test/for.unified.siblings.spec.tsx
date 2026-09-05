@@ -1,4 +1,5 @@
 /**
+ * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  *
  * P0 regression suite (external audit, 2026-09-04): the slot's bulk-clear
