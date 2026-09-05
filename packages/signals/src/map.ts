@@ -68,7 +68,17 @@ export function mapArray<Item, MappedItem>(
     | ((value: Item, index: Accessor<number>) => MappedItem)
     | ((value: Accessor<Item>, index: number) => MappedItem)
     | ((value: Accessor<Item>, index: Accessor<number>) => MappedItem),
-  options?: { keyed?: boolean | ((item: Item) => any); fallback?: Accessor<any>; name?: string }
+  options?: {
+    keyed?: boolean | ((item: Item) => any);
+    fallback?: Accessor<any>;
+    name?: string;
+    /** @internal solid-js For, hydration only: create the internal owner NOW —
+     * it spends the list's hydration id slot at For's source position — but
+     * defer the first mapping pass to the first read. Lets a renderer that
+     * engages the unified For slot claim the server rows itself; the classic
+     * fallback still claims them on first read, minting identical ids. */
+    lazy?: boolean;
+  }
 ): Accessor<MappedItem[]> {
   const keyFn = typeof options?.keyed === "function" ? options.keyed : undefined;
   const indexes = map.length > 1;
@@ -99,7 +109,13 @@ export function mapArray<Item, MappedItem>(
   };
   const node = computed(
     updateKeyedMap.bind(data as MapData<unknown, unknown>),
-    __DEV__ && options?.name ? { name: options.name } : undefined
+    options?.lazy
+      ? __DEV__ && options?.name
+        ? { name: options.name, lazy: true }
+        : LAZY_OPTIONS
+      : __DEV__ && options?.name
+        ? { name: options.name }
+        : undefined
   );
   // Untracked reads inside the internal owner resolve via _parentComputed; routing
   // them through node lets store-proxy lookups see pending writes (not stale _value).
@@ -109,6 +125,7 @@ export function mapArray<Item, MappedItem>(
 }
 
 const pureOptions = { ownedWrite: true };
+const LAZY_OPTIONS = { lazy: true } as const;
 // Exception safety (#2903): a map callback can throw NotReadyError mid-pass
 // (async read), and the computed re-runs the whole pass after settle. Every
 // pass therefore STAGES its work — new rows are created into temp arrays and
