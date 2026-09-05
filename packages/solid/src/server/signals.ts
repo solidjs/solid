@@ -34,6 +34,7 @@ export { snapshot, omit, storePath, $PROXY, $TRACK } from "@solidjs/signals";
 import type {
   Accessor as SignalAccessor,
   ProjectionOptions,
+  SeededProjectionOptions,
   Refreshable,
   StoreOptions
 } from "@solidjs/signals";
@@ -481,6 +482,10 @@ interface ServerProjectionOptions extends ProjectionOptions {
   deferStream?: boolean;
   ssrSource?: SsrSourceMode;
 }
+interface ServerSeededProjectionOptions extends SeededProjectionOptions {
+  deferStream?: boolean;
+  ssrSource?: SsrSourceMode;
+}
 type ServerMemoOptions<T> = MemoOptions<T> & {
   /**
    * Keep this value out of the hydration payload. The subtree still hydrates;
@@ -492,7 +497,8 @@ type ServerMemoOptions<T> = MemoOptions<T> & {
   serialize?: false;
 };
 type ServerSignalOptions<T> = SignalOptions<T>;
-type NoFn<T> = T extends Function ? never : T;
+type NoArray<T> = Extract<T, readonly unknown[]> extends never ? unknown : never;
+type NoFn<T> = Extract<T, Function> extends never ? unknown : never;
 
 /**
  * The pending source for BARE `ssrSource: "client"` (no declared commit #0):
@@ -1776,18 +1782,27 @@ function setProperty(state: any, property: PropertyKey, value: any) {
 }
 
 export function createStore<T extends object = {}>(
-  initialValue: NoFn<T> | Store<NoFn<T>>,
+  initialValue: T & NoFn<T>,
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
-  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T> & NoFn<T>,
+  seed?: null,
   options?: ServerProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
-  first: T | Store<T> | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
-  second?: T | Store<T>,
-  third?: ServerProjectionOptions
+  fn: ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>) & NoFn<T>,
+  seed: T,
+  options?: ServerSeededProjectionOptions
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createStore<T extends object = {}>(
+  first:
+    | T
+    | Store<T>
+    | ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>)
+    | (() => T | Promise<T> | AsyncIterable<T>),
+  second?: T | Store<T> | null,
+  third?: ServerSeededProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   if (typeof first === "function") {
     // Forward options: dropping them made ssrSource inert for derived stores —
@@ -1796,7 +1811,7 @@ export function createStore<T extends object = {}>(
     // The impl signature stays loose; the public overload above enforces the
     // client/seedLoadingValue pairing, and createProjection re-checks at
     // runtime.
-    const store = createProjection(first as any, second as Partial<T>, third as any);
+    const store = createProjection(first as any, second as T, third as any);
     return [store as Store<T>, storeSetter(store as T)];
   }
   const state = first as T;
@@ -1821,18 +1836,27 @@ function storeSetter<T extends object>(state: T): StoreSetter<T> {
 }
 
 export function createOptimisticStore<T extends object = {}>(
-  initialValue: NoFn<T> | Store<NoFn<T>>,
+  initialValue: T & NoFn<T>,
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
-  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T> & NoFn<T>,
+  seed?: null,
   options?: ServerProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
-  first: T | Store<T> | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
-  second?: T | Store<T>,
-  third?: ServerProjectionOptions
+  fn: ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>) & NoFn<T>,
+  seed: T,
+  options?: ServerSeededProjectionOptions
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createOptimisticStore<T extends object = {}>(
+  first:
+    | T
+    | Store<T>
+    | ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>)
+    | (() => T | Promise<T> | AsyncIterable<T>),
+  second?: T | Store<T> | null,
+  third?: ServerSeededProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   // Same no-op rationale as createOptimistic above: optimistic writes are
   // masks that revert at settle, and server output is settled state. The
@@ -1965,16 +1989,34 @@ function replaceState<T extends object>(target: T, next: T): void {
   Object.assign(target, next);
 }
 
+function validateStoreValue(value: void | object): void {
+  const prototype =
+    value != null && typeof value === "object" ? Object.getPrototypeOf(value) : false;
+  if (prototype !== Object.prototype && prototype !== null)
+    throw new Error("A seedless store projection must produce a plain object value");
+}
+
 export function createProjection<T extends object = {}>(
-  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T> & NoFn<T>,
+  seed?: null,
   options?: ServerProjectionOptions
 ): Refreshable<Store<T>>;
 export function createProjection<T extends object = {}>(
-  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
-  options?: ServerProjectionOptions
+  fn: ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>) & NoFn<T>,
+  initialValue: T,
+  options?: ServerSeededProjectionOptions
+): Refreshable<Store<T>>;
+export function createProjection<T extends object = {}>(
+  fn:
+    | ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>)
+    | (() => T | Promise<T> | AsyncIterable<T>),
+  initialValue: T | null | undefined,
+  options?: ServerSeededProjectionOptions
 ): Store<T> {
+  const seeded = initialValue != null;
+  if (!seeded && options?.seedLoadingValue)
+    throw new Error("seedLoadingValue requires an explicit store seed");
+  const seed = (seeded ? initialValue : {}) as T;
   const ctx = sharedConfig.context;
   const owner = createOwner();
   // Slot memory (#3068), the projection flavor of the memo slots above
@@ -2002,7 +2044,7 @@ export function createProjection<T extends object = {}>(
     if (slots) slots[slotId!] = proxy;
     return proxy;
   };
-  const [state] = createStore(seed as NoFn<T>);
+  const [state] = createStore<T>(seed as T & NoFn<T>);
 
   if (options?.ssrSource === "client") {
     // seedLoadingValue = declared commit #0: the seed renders. Bare = the
@@ -2057,7 +2099,7 @@ export function createProjection<T extends object = {}>(
 
   const runProjection = () => {
     resetOwnerForRerun(owner);
-    return runWithOwner(owner, () => fn(draft));
+    return runWithOwner(owner, () => (seeded ? (fn as Function)(draft) : (fn as Function)()));
   };
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
   try {
@@ -2073,6 +2115,7 @@ export function createProjection<T extends object = {}>(
       () => normalizeAsync(runProjection()),
       deferred,
       (value: void | T) => {
+        if (!seeded) validateStoreValue(value);
         if (value !== undefined && value !== state && value !== draft) {
           replaceState(state, value as T);
         }
@@ -2106,6 +2149,7 @@ export function createProjection<T extends object = {}>(
         runFirst,
         deferred,
         (value: void | T) => {
+          if (!seeded) validateStoreValue(value);
           if (value !== undefined && value !== state && value !== draft) {
             replaceState(state, value as T);
           }
@@ -2149,6 +2193,7 @@ export function createProjection<T extends object = {}>(
         () => {
           patches.length = 0;
           const resolved = firstResult;
+          if (!seeded) validateStoreValue(resolved && !resolved.done ? resolved.value : undefined);
           if (
             resolved &&
             !resolved.done &&
@@ -2194,6 +2239,7 @@ export function createProjection<T extends object = {}>(
               logDone = true;
               return;
             }
+            if (!seeded) validateStoreValue(r.value);
             // Apply the replacement through the patch-recording draft BEFORE
             // draining: its sets/deletes must ride in THIS batch, not sit
             // unsent behind an already-emitted empty one (#2948).
@@ -2255,6 +2301,7 @@ export function createProjection<T extends object = {}>(
       () => normalizeAsync(runProjection()),
       deferred,
       (value: void | T) => {
+        if (!seeded) validateStoreValue(value);
         if (value !== undefined && value !== state && value !== draft) {
           replaceState(state, value as T);
         }
@@ -2271,6 +2318,7 @@ export function createProjection<T extends object = {}>(
   }
 
   // Synchronous: fn either mutated state directly (void) or returned a new value
+  if (!seeded) validateStoreValue(result as void | T);
   if (result !== undefined && result !== state && result !== draft) {
     replaceState(state, result as T);
   }

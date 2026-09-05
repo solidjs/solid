@@ -54,13 +54,21 @@ import { installOptimisticEngine } from "../../core/optimistic.js";
 import {
   $TARGET,
   markRawIngest,
+  type NoArray,
   type NoFn,
   type ProjectionOptions,
+  type SeededProjectionOptions,
   type Store,
   type StoreOptions,
   type StoreSetter
 } from "../store.js";
-import { runProjectionComputedNext } from "./projection.js";
+import {
+  runProjectionComputedNext,
+  validateSeedlessOptions,
+  validateStoreValue,
+  createReplayStoreValidator,
+  type ProjectionResultValidator
+} from "./projection.js";
 import {
   bumpDeep,
   authoritativeRead,
@@ -179,18 +187,46 @@ function familyHasLiveOverrides(fam: { overlaid?: Set<any> }): boolean {
 }
 
 export function createOptimisticStoreNext<T extends object = {}>(
-  initialValue: NoFn<T> | Store<NoFn<T>>,
+  initialValue: T & NoFn<T>,
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createOptimisticStoreNext<T extends object = {}>(
-  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T> & NoFn<T>,
+  seed?: null,
   options?: ProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createOptimisticStoreNext<T extends object = {}>(
-  first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
-  second?: Partial<T> | NoFn<T> | Store<NoFn<T>> | StoreOptions,
-  third?: ProjectionOptions
+  fn: ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>) & NoFn<T>,
+  seed: T,
+  options?: SeededProjectionOptions
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createOptimisticStoreNext<T extends object = {}>(
+  first:
+    | T
+    | ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>)
+    | (() => T | Promise<T> | AsyncIterable<T>),
+  second?: T | StoreOptions | null,
+  third?: SeededProjectionOptions
+): [get: Store<T>, set: StoreSetter<T>] {
+  const derived = typeof first === "function";
+  const seeded = !derived || second != null;
+  const options = (derived ? third : second) as SeededProjectionOptions | undefined;
+  if (!seeded) validateSeedlessOptions(options);
+  const derive =
+    derived && !seeded ? () => (first as () => T | Promise<T> | AsyncIterable<T>)() : first;
+  return createOptimisticStoreNextInternal<T>(
+    derive,
+    (derived ? (second ?? {}) : first) as T,
+    options,
+    derived && !seeded ? validateStoreValue : undefined
+  );
+}
+
+function createOptimisticStoreNextInternal<T extends object = {}>(
+  first: T | ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
+  initialValue: T,
+  options?: SeededProjectionOptions,
+  validateResult?: ProjectionResultValidator<T>
 ): [get: Store<T>, set: StoreSetter<T>] {
   // Engine first (armed nodes need optimisticWrite installed before any
   // node exists), then the next-shape hooks.
@@ -198,8 +234,6 @@ export function createOptimisticStoreNext<T extends object = {}>(
   installNextBlockedHalf();
 
   const derived = typeof first === "function";
-  const options = (derived ? third : second) as ProjectionOptions | undefined;
-  const initialValue = (derived ? second : first) as T;
 
   const fam: StoreNextFamily = {
     map: new WeakMap(),
@@ -224,7 +258,7 @@ export function createOptimisticStoreNext<T extends object = {}>(
   }
 
   if (derived) {
-    const fn = first as (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>;
+    const fn = first as (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>;
     // #3146: an async settle event belongs to the flight's OWN transaction.
     // A live declared one re-enters (a merge if the generic settle path
     // already entered a graph-stamped stranger — the landing supersedes any
@@ -321,7 +355,8 @@ export function createOptimisticStoreNext<T extends object = {}>(
             fn,
             options?.key === undefined ? "id" : options.key,
             wrapCommit,
-            aroundDraftWrite
+            aroundDraftWrite,
+            validateResult
           )
         );
       } finally {
@@ -345,6 +380,21 @@ export function createOptimisticStoreNext<T extends object = {}>(
       if (txn !== null) (fam.rt ??= new Set()).add(txn);
     }) as StoreSetter<T>
   ];
+}
+
+/** @internal Hydration replay starts with a complete snapshot, then mutates a private draft. */
+export function createOptimisticStoreHydrationReplayNext<T extends object = {}>(
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  replaying: () => boolean,
+  options?: ProjectionOptions
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>] {
+  validateSeedlessOptions(options);
+  return createOptimisticStoreNextInternal<T>(
+    fn,
+    {} as T,
+    options,
+    createReplayStoreValidator(replaying)
+  ) as [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 }
 
 /** Resolve a retained transition through its merge chain (`_done` holds the
