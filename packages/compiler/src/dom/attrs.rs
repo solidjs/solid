@@ -379,6 +379,10 @@ impl<'a> AstDomTransform<'a, '_> {
             }
         }
 
+        // Lower bare lvals inside `ref={[el]}` arrays to assignment callbacks
+        // (https://github.com/solidjs/solid/issues/3285).
+        value = crate::shared::refs::transform_ref_array_literal(self, span, value);
+
         let is_constant = matches!(
             &value,
             Expression::Identifier(identifier)

@@ -2997,6 +2997,10 @@ impl<'a> crate::shared::refs::RefPropertyContext<'a> for AstSsrTransform<'a, '_>
         self.bindings.is_const(name)
     }
 
+    fn is_declared_ref_binding(&self, name: &str) -> bool {
+        self.bindings.is_declared(name)
+    }
+
     fn next_ref_id(&mut self) -> String {
         AstSsrTransform::next_ref_id(self)
     }

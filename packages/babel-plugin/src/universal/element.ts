@@ -11,7 +11,8 @@ import {
   convertJSXIdentifier,
   canNativeSpread,
   transformCondition,
-  escapeStringForTemplate
+  escapeStringForTemplate,
+  transformRefArrayLiteral
 } from "../shared/utils";
 import { transformNode } from "../shared/transform";
 import type { BabelPath, TransformInfo, TransformResult, UniversalTransformResult } from "../types";
@@ -149,6 +150,11 @@ function transformAttributes(
             t.isFunction(value.expression) ||
             t.isArrayExpression(value.expression)
           ) {
+            if (t.isArrayExpression(value.expression)) {
+              // Bare lval elements (e.g. `ref={[elRef]}`) become callback refs
+              // so the variable actually gets assigned (#3285).
+              transformRefArrayLiteral(path.scope, value.expression);
+            }
             results.exprs.unshift(
               t.expressionStatement(
                 t.callExpression(

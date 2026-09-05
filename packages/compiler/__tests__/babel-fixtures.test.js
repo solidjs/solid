@@ -25,6 +25,7 @@ const fixtureParity = {
   keyedElements: parityLevel.subset,
   multipleClassAttributes: parityLevel.subset,
   namespaceElements: parityLevel.subset,
+  refArrays: parityLevel.subset,
   simpleElements: parityLevel.subset,
   textInterpolation: parityLevel.subset
 };
@@ -152,6 +153,8 @@ function supportedSubset(fixture) {
     case "eventExpressions":
       return source;
     case "attributeExpressions":
+      return source;
+    case "refArrays":
       return source;
     default:
       throw new Error(`No supported AST-native subset for ${fixture}`);

@@ -11,6 +11,9 @@ pub(crate) trait RefPropertyContext<'a> {
     /// `binding.kind === "const" || binding.kind === "module"` for a plain
     /// identifier ref target.
     fn is_const_ref_binding(&self, name: &str) -> bool;
+    /// Whether `name` resolves to a tracked binding (`false` for globals
+    /// like `undefined`).
+    fn is_declared_ref_binding(&self, name: &str) -> bool;
     fn next_ref_id(&mut self) -> String;
     fn mark_uses_apply_ref(&mut self);
 }
@@ -22,6 +25,10 @@ impl<'a> RefPropertyContext<'a> for AstDomTransform<'a, '_> {
 
     fn is_const_ref_binding(&self, name: &str) -> bool {
         self.bindings.is_const(name)
+    }
+
+    fn is_declared_ref_binding(&self, name: &str) -> bool {
+        self.bindings.is_declared(name)
     }
 
     fn next_ref_id(&mut self) -> String {
@@ -36,7 +43,7 @@ impl<'a> RefPropertyContext<'a> for AstDomTransform<'a, '_> {
 pub(crate) fn component_ref_property<'a, C: RefPropertyContext<'a>>(
     ctx: &mut C,
     span: Span,
-    value: Expression<'a>,
+    mut value: Expression<'a>,
     setup: &mut std::vec::Vec<Statement<'a>>,
 ) -> Option<ObjectPropertyKind<'a>> {
     let allocator = ctx.allocator();
@@ -63,6 +70,10 @@ pub(crate) fn component_ref_property<'a, C: RefPropertyContext<'a>>(
             return Some(object_property(value));
         }
     }
+    // Bare lvals inside a `ref` array literal (`ref={[el]}`) must be lowered
+    // to assignment callbacks, mirroring `transformRefArrayLiteral` in the
+    // babel plugin (https://github.com/solidjs/solid/issues/3285).
+    value = transform_ref_array_literal(ctx, span, value);
     if matches!(
         value,
         Expression::ArrowFunctionExpression(_)
@@ -131,6 +142,138 @@ pub(crate) fn ref_assignment_fallback<'a>(
     assignment_value: Expression<'a>,
 ) -> Option<Expression<'a>> {
     assignment_fallback(ctx.allocator, span, value, assignment_value)
+}
+
+/// Rewrite bare assignment targets inside a `ref` array expression
+/// (`ref={[el]}`) into callback refs, mirroring `transformRefArrayLiteral`
+/// in the babel plugin (https://github.com/solidjs/solid/issues/3285).
+///
+/// The runtime `applyRef` flattens ref arrays and only *calls* their entries;
+/// it never assigns anything. A bare variable evaluates to its current value
+/// (`undefined`) at mount time, so without this rewrite the ref is silently
+/// dropped. Non-array values pass through unchanged; nested arrays are
+/// recursed so runtime flattening still reaches every rewritten callback.
+pub(crate) fn transform_ref_array_literal<'a, C: RefPropertyContext<'a>>(
+    ctx: &mut C,
+    span: Span,
+    mut value: Expression<'a>,
+) -> Expression<'a> {
+    if let Expression::ArrayExpression(array) = &mut value {
+        transform_ref_array_elements(ctx, span, &mut array.elements);
+    }
+    value
+}
+
+fn transform_ref_array_elements<'a, C: RefPropertyContext<'a>>(
+    ctx: &mut C,
+    span: Span,
+    elements: &mut oxc_allocator::Vec<'a, oxc_ast::ast::ArrayExpressionElement<'a>>,
+) {
+    for element in elements.iter_mut() {
+        // Spread elements and elisions have no expression to rewrite.
+        let Some(expression) = element.as_expression_mut() else {
+            continue;
+        };
+        if let Expression::ArrayExpression(inner) = expression {
+            transform_ref_array_elements(ctx, span, &mut inner.elements);
+            continue;
+        }
+        let is_lval_target = match expression {
+            Expression::Identifier(identifier) => {
+                let name = identifier.name.as_str();
+                // Only declared, mutable bindings are assignment targets;
+                // globals (`undefined`, ...) and const/module refs pass
+                // through untouched.
+                ctx.is_declared_ref_binding(name) && !ctx.is_const_ref_binding(name)
+            }
+            Expression::StaticMemberExpression(member) => !member.optional,
+            Expression::ComputedMemberExpression(member) => !member.optional,
+            _ => false,
+        };
+        if is_lval_target {
+            let target = expression.clone_in(ctx.allocator());
+            *expression = ref_lval_callback(ctx, span, target);
+        }
+    }
+}
+
+/// Build the callback-ref form the non-array lval branch lowers to:
+/// `(param) => { var cached = <target>; return typeof cached === "function"
+/// ? cached(param) : <target> = param; }`
+///
+/// Reading the target once preserves mutable bindings that currently hold a
+/// function (`let cb = fn; ref={[cb]}` calls `fn` instead of overwriting
+/// `cb`); const/module refs never reach this path and keep their
+/// pass-by-reference semantics.
+fn ref_lval_callback<'a, C: RefPropertyContext<'a>>(
+    ctx: &mut C,
+    span: Span,
+    target: Expression<'a>,
+) -> Expression<'a> {
+    let allocator = ctx.allocator();
+    let ast = crate::shared::ast_builder::AstBuilder::new(allocator);
+    let param_id = ctx.next_ref_id();
+    let cached_id = ctx.next_ref_id();
+    let param = ast.expression_identifier(span, ast.ident(&param_id));
+    let cached = ast.expression_identifier(span, ast.ident(&cached_id));
+
+    let mut statements = ast.vec();
+    statements.push(crate::shared::ast::variable_statement(
+        allocator,
+        span,
+        VariableDeclarationKind::Var,
+        &cached_id,
+        target.clone_in(allocator),
+    ));
+    // Match the babel helper's test exactly: `typeof cached === "function"`
+    // (no `Array.isArray` arm — an element can never be a ref array here).
+    let test = ast.expression_binary(
+        span,
+        ast.expression_unary(
+            span,
+            oxc_ast::ast::UnaryOperator::Typeof,
+            cached.clone_in(allocator),
+        ),
+        oxc_ast::ast::BinaryOperator::StrictEquality,
+        ast.expression_string_literal(span, ast.str("function"), None),
+    );
+    let call = ast.expression_call(
+        span,
+        cached.clone_in(allocator),
+        None,
+        ast.vec1(crate::shared::ast::expression_to_argument(
+            param.clone_in(allocator),
+        )),
+        false,
+    );
+    let fallback = assignment_fallback(allocator, span, &target, param.clone_in(allocator))
+        .expect("ref array lval targets have an assignment fallback");
+    // Expression statement (not a `return`) so the generated arrow body
+    // matches the babel plugin's output byte-for-byte.
+    statements.push(ast.statement_expression(
+        span,
+        ast.expression_conditional(span, test, call, fallback),
+    ));
+
+    let params = ast.vec1(ast.formal_parameter(
+        span,
+        ast.vec(),
+        ast.binding_pattern_binding_identifier(span, ast.ident(&param_id)),
+        None,
+        None,
+        false,
+        None,
+        false,
+        false,
+    ));
+    let params = ast.formal_parameters(
+        span,
+        oxc_ast::ast::FormalParameterKind::ArrowFormalParameters,
+        params,
+        None,
+    );
+    let body = ast.function_body(span, ast.vec(), statements);
+    ast.expression_arrow_function(span, false, false, None, params, None, body)
 }
 
 /// `typeof <value> === "function" || Array.isArray(<value>)`

@@ -842,6 +842,9 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
         mut value: Expression<'a>,
     ) -> std::vec::Vec<Statement<'a>> {
         self.visit_expression(&mut value);
+        // Lower bare lvals inside `ref={[el]}` arrays to assignment callbacks
+        // (https://github.com/solidjs/solid/issues/3285).
+        value = crate::shared::refs::transform_ref_array_literal(self, span, value);
         let elem = self.identifier_expression(span, element_id);
         let is_constant = matches!(&value, Expression::Identifier(identifier)
             if self.bindings.is_const(identifier.name.as_str()));
@@ -1360,7 +1363,7 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
     fn universal_component_ref(
         &mut self,
         span: Span,
-        value: Expression<'a>,
+        mut value: Expression<'a>,
         setup: &mut std::vec::Vec<Statement<'a>>,
     ) -> Option<ObjectPropertyKind<'a>> {
         if let Expression::Identifier(identifier) = &value {
@@ -1369,9 +1372,15 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
                 return Some(self.object_property(span, "ref", value));
             }
         }
+        // Lower bare lvals inside `ref={[el]}` arrays to assignment callbacks
+        // (https://github.com/solidjs/solid/issues/3285), then pass the array
+        // through like the shared component transform does.
+        value = crate::shared::refs::transform_ref_array_literal(self, span, value);
         if matches!(
             value,
-            Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+            Expression::ArrowFunctionExpression(_)
+                | Expression::FunctionExpression(_)
+                | Expression::ArrayExpression(_)
         ) {
             return Some(self.object_property(span, "ref", value));
         }
@@ -1857,6 +1866,28 @@ impl<'a> crate::shared::component::ComponentLower<'a> for AstUniversalTransform<
         setup: &mut std::vec::Vec<Statement<'a>>,
     ) -> Option<ObjectPropertyKind<'a>> {
         self.universal_component_ref(span, value, setup)
+    }
+}
+
+impl<'a> crate::shared::refs::RefPropertyContext<'a> for AstUniversalTransform<'a, '_> {
+    fn allocator(&self) -> &'a Allocator {
+        self.allocator
+    }
+
+    fn is_const_ref_binding(&self, name: &str) -> bool {
+        self.bindings.is_const(name)
+    }
+
+    fn is_declared_ref_binding(&self, name: &str) -> bool {
+        self.bindings.is_declared(name)
+    }
+
+    fn next_ref_id(&mut self) -> String {
+        AstUniversalTransform::next_ref_id(self)
+    }
+
+    fn mark_uses_apply_ref(&mut self) {
+        self.uses_apply_ref = true;
     }
 }
 

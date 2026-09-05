@@ -7,7 +7,8 @@ import {
   filterChildren,
   trimWhitespace,
   transformCondition,
-  convertJSXIdentifier
+  convertJSXIdentifier,
+  transformRefArrayLiteral
 } from "./utils";
 import { transformNode, getCreateTemplate } from "./transform";
 import type { PluginConfig } from "../config";
@@ -212,6 +213,11 @@ export default function transformComponent(
               t.isFunction(value.expression) ||
               t.isArrayExpression(value.expression)
             ) {
+              if (t.isArrayExpression(value.expression)) {
+                // Bare lval elements (e.g. `ref={[elRef]}`) become callback refs
+                // so the variable actually gets assigned (#3285).
+                transformRefArrayLiteral(path.scope, value.expression);
+              }
               runningObject.push(
                 t.objectProperty(t.identifier("ref"), value.expression as t.Expression)
               );

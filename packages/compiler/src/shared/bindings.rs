@@ -189,6 +189,13 @@ impl BindingTable {
         }
     }
 
+    /// Whether `name` resolves to any tracked binding. Global identifiers
+    /// (`undefined`, `NaN`, `Infinity`, ...) return false — they are not
+    /// assignment targets and must pass through untouched.
+    pub(crate) fn is_declared(&self, name: &str) -> bool {
+        self.resolve(name).is_some()
+    }
+
     pub(crate) fn is_const(&self, name: &str) -> bool {
         self.resolve(name).is_some_and(|binding| binding.is_const)
     }
