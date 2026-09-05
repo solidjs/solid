@@ -12,6 +12,7 @@ import {
   merge as mergeProps,
   flatten,
   createMemo,
+  createSignal,
   flush,
   enableHydration,
   enforceLoadingBoundary,
@@ -1010,11 +1011,65 @@ export function insert(parent, accessor, marker, initial, options) {
     initial = [placeholder];
   }
   let current = initial;
+  // Unified-For HOLE seam: a `$for` accessor reaching this hole THROUGH a
+  // wrapper (`{props.children}` in a parent component compiles to
+  // `insert(el, () => props.children)`) engages the slot for the hole. The
+  // slot is created inside this compute, so a children change tears it down
+  // (hole-mode cleanup removes its rows). A post-engage demote can't spawn a
+  // second insert into a hole this effect owns — instead it flips
+  // `holeClassic` and bumps `holeGen` (created lazily, only for holes that
+  // ever see a For) so this effect re-runs and takes its classic path.
+  let holeClassic = false;
+  let holeGen = null;
   effect(
     prev => {
       if (hydrationRt !== null) current = hydrationRt.reclaimRegion(current, parent, marker);
+      if (holeGen !== null) holeGen[0]();
       const value = withInsertionParent(parent, () => normalize(accessor(), current, multi, true));
       if (typeof value !== "function") return value;
+      if (value.$for !== undefined && !holeClassic) {
+        if (holeGen === null) {
+          holeGen = createSignal(0);
+          holeGen[0]();
+        }
+        // Hand-off: whatever classic content this hole tracked goes away
+        // first (a For returning after other children). Multi holes keep
+        // insert's placeholder invariant — a surviving anchor the slot's
+        // rows land after, before the marker. Under an ACTIVE hydration of
+        // this parent the tracked range is the claimed server region: keep
+        // it for the slot's fill instead of cleaning.
+        const region =
+          hydrationRt !== null && isHydrating(parent) && Array.isArray(current)
+            ? current
+            : undefined;
+        let keep;
+        if (region !== undefined) keep = [];
+        else if (multi) {
+          const ph = document.createTextNode("");
+          cleanChildren(parent, current, marker, ph);
+          keep = [ph];
+        } else {
+          if (current !== undefined) cleanChildren(parent, current, undefined);
+          keep = [];
+        }
+        if (
+          value.$for.impl(
+            parent,
+            value,
+            marker,
+            () => {
+              holeClassic = true;
+              holeGen[1](g => g + 1);
+            },
+            domOps,
+            region,
+            true
+          )
+        ) {
+          current = keep;
+          return INNER_OWNED;
+        }
+      }
       effect(
         () => (
           hydrationRt !== null && (current = hydrationRt.reclaimRegion(current, parent, marker)),

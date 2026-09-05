@@ -171,7 +171,36 @@ function SlotNested() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 9. For passed THROUGH a component's children (the hole seam) — the
+//    wrapper's `{props.children}` hole engages under hydration too.
+function ListShell(props: { children: any }) {
+  return <ul>{props.children}</ul>;
+}
+let setThrough!: (v: string[]) => void;
+function SlotThroughChildren() {
+  const [items, set] = createSignal(["a", "b", "c"]);
+  setThrough = set;
+  return (
+    <ListShell>
+      <For each={items()}>{item => <li>{item}</li>}</For>
+    </ListShell>
+  );
+}
+
 export const forSlotScenarios: ForSlotScenario[] = [
+  {
+    name: "slot-hydrate-through-children",
+    App: SlotThroughChildren,
+    expectedText: "abc",
+    engaged: 1,
+    demoted: 0,
+    warnings: 0,
+    identitySelector: "li",
+    update: () => setThrough(["b", "c", "a"]),
+    expectedTextAfterUpdate: "bca",
+    survivorsAfterUpdate: ["a", "b", "c"]
+  },
   {
     name: "slot-hydrate-basic",
     App: SlotBasic,

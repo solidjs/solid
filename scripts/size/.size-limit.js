@@ -397,7 +397,19 @@ module.exports = [
     // insert's `$for.impl` call site plus the domOps singleton (the platform
     // web hands the slot). The slot algorithm itself rides For's module
     // graph in solid-js and tree-shakes out of For-less apps like this one.
-    limit: "10.90 KB",
+    // (P0 audit sweep: 10.89 -> 10.90, the ownership guards' share.)
+    //
+    // Hydration hooks split (2026-09-05): 10.90 -> 10.85 measured — For's
+    // id peek moved behind enableHydration() (sharedConfig hook), so CSR no
+    // longer carries the id formatter it never used.
+    //
+    // Unified For HOLE seam (2026-09-05): 10.85 -> 11.00 KB, measured at
+    // 10.996. A `$for` accessor reaching insert THROUGH a wrapper
+    // (`{props.children}` in a parent component) now engages the slot for
+    // that hole; the seam sits in insert's effect (every bundle), so the
+    // floor pays the guard + hand-off (~110 B). Lists passed through layout
+    // components — the most common real-world list shape — get the slot.
+    limit: "11.00 KB",
     modifyEsbuildConfig
   },
   {
@@ -480,7 +492,7 @@ module.exports = [
     // id-parity owner, recorded claims (reversible demote hands them back to
     // classic's re-run), and a fill commit that reconciles claimed rows
     // against the region on mismatch. First-paint SSR lists get the slot.
-    limit: "20.38 KB",
+    limit: "20.53 KB",
     modifyEsbuildConfig
   },
   {
@@ -584,7 +596,7 @@ module.exports = [
     //
     // Unified For hydration claiming (2026-09-05): 28.75 -> 29.10 KB,
     // measured at 29.10 (see the hydrating no-stores note).
-    limit: "29.22 KB",
+    limit: "29.29 KB",
     modifyEsbuildConfig
   },
   {
@@ -632,7 +644,10 @@ module.exports = [
     // measured at 15.48. CSR pays only the hook GUARDS + slot field plumbing
     // (~190 B): the claim/restore/fix-up bodies live in for-slot-hydration.ts,
     // installed by enableHydration(), and shake out of this bundle (#2883).
-    limit: "15.49 KB",
+    //
+    // Unified For HOLE seam (2026-09-05): 15.49 -> 15.62 KB, measured at
+    // 15.62 (see the simple-app note; hydrating scenarios +67-147 B).
+    limit: "15.62 KB",
     modifyEsbuildConfig
   },
   {
