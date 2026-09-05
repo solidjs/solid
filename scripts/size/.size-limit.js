@@ -409,7 +409,10 @@ module.exports = [
     // that hole; the seam sits in insert's effect (every bundle), so the
     // floor pays the guard + hand-off (~110 B). Lists passed through layout
     // components — the most common real-world list shape — get the slot.
-    limit: "11.00 KB",
+    //
+    // Anchored-hole hydration (2026-09-05): 11.00 -> 11.03 KB, measured at
+    // 11.02 — the active-hydration guard on the seam's region hand-off.
+    limit: "11.03 KB",
     modifyEsbuildConfig
   },
   {
@@ -492,7 +495,11 @@ module.exports = [
     // id-parity owner, recorded claims (reversible demote hands them back to
     // classic's re-run), and a fill commit that reconciles claimed rows
     // against the region on mismatch. First-paint SSR lists get the slot.
-    limit: "20.53 KB",
+    //
+    // Anchored-hole hydration (2026-09-05): 20.53 -> 20.57 KB, measured at
+    // 20.56 — comment-bounded holes engage under hydration (hydrationRt
+    // hands the slot the marker-bounded region minus comment markers).
+    limit: "20.57 KB",
     modifyEsbuildConfig
   },
   {
@@ -596,7 +603,10 @@ module.exports = [
     //
     // Unified For hydration claiming (2026-09-05): 28.75 -> 29.10 KB,
     // measured at 29.10 (see the hydrating no-stores note).
-    limit: "29.29 KB",
+    //
+    // Anchored-hole hydration (2026-09-05): 29.29 -> 29.45 KB, measured at
+    // 29.44 (see the hydrating no-stores note).
+    limit: "29.45 KB",
     modifyEsbuildConfig
   },
   {

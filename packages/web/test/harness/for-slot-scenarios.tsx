@@ -132,12 +132,38 @@ function SlotEmpty() {
 }
 
 // ---------------------------------------------------------------------------
-// 7. Trailing hole (preceding sibling → null marker): stays CLASSIC under
-//    hydration in v1; must hydrate cleanly and update.
+// 7. Trailing hole (preceding sibling): the hydrating client resolves it to
+//    the `<!--/-->` end marker with the bounded region — ENGAGES.
 let setTrailing!: (v: string[]) => void;
-function SlotTrailingClassic() {
+function SlotTrailing() {
   const [items, set] = createSignal(["a", "b"]);
   setTrailing = set;
+  return (
+    <ul>
+      <li>head</li>
+      <For each={items()}>{item => <li>{item}</li>}</For>
+    </ul>
+  );
+}
+
+// 7b. Bounded hole (siblings both sides) — engages; siblings untouched.
+let setBounded!: (v: string[]) => void;
+function SlotBounded() {
+  const [items, set] = createSignal(["a", "b", "c"]);
+  setBounded = set;
+  return (
+    <ul>
+      <li>head</li>
+      <For each={items()}>{item => <li>{item}</li>}</For>
+      <li>tail</li>
+    </ul>
+  );
+}
+
+// 7c. Anchored-hole MISMATCH: server has more rows — leftover removed from
+//     the hole only; the sibling and the hole's comment markers survive.
+function SlotTrailingFewer() {
+  const [items] = createSignal(isServer ? ["a", "b", "c"] : ["a", "b"]);
   return (
     <ul>
       <li>head</li>
@@ -264,15 +290,38 @@ export const forSlotScenarios: ForSlotScenario[] = [
     expectedTextAfterUpdate: "a"
   },
   {
-    name: "slot-hydrate-trailing-classic",
-    App: SlotTrailingClassic,
+    name: "slot-hydrate-trailing",
+    App: SlotTrailing,
     expectedText: "headab",
-    engaged: 0,
+    engaged: 1,
     demoted: 0,
     warnings: 0,
     identitySelector: "li",
     update: () => setTrailing(["b", "a"]),
-    expectedTextAfterUpdate: "headba"
+    expectedTextAfterUpdate: "headba",
+    survivorsAfterUpdate: ["head", "a", "b"]
+  },
+  {
+    name: "slot-hydrate-bounded",
+    App: SlotBounded,
+    expectedText: "headabctail",
+    engaged: 1,
+    demoted: 0,
+    warnings: 0,
+    identitySelector: "li",
+    update: () => setBounded(["c", "b", "a"]),
+    expectedTextAfterUpdate: "headcbatail",
+    survivorsAfterUpdate: ["head", "a", "b", "c", "tail"]
+  },
+  {
+    name: "slot-hydrate-trailing-mismatch-fewer",
+    App: SlotTrailingFewer,
+    expectedText: "headab",
+    serverText: "headabc",
+    engaged: 1,
+    demoted: 0,
+    warnings: 0,
+    identitySelector: "li"
   },
   {
     name: "slot-hydrate-nested",
