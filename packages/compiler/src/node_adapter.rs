@@ -261,6 +261,7 @@ fn core_options(options: TransformOptions) -> Result<CompileOptions> {
         validate: options.validate.unwrap_or(true),
         omit_nested_closing_tags: options.omit_nested_closing_tags.unwrap_or(false),
         omit_last_closing_tag: options.omit_last_closing_tag.unwrap_or(true),
+        optimize: options.optimize.unwrap_or(false),
         built_ins: options.built_ins.unwrap_or_else(default_built_ins),
         renderers: options
             .renderers

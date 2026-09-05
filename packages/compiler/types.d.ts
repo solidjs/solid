@@ -26,6 +26,23 @@ export interface TransformOptions {
   validate?: boolean;
   omitNestedClosingTags?: boolean;
   omitLastClosingTag?: boolean;
+  /**
+   * Constant-fold the program, drop the code that folding proves
+   * unreachable, and resolve control-flow components whose props are
+   * statically decidable: `<Show when={false}>`, `<For each={[]}>`,
+   * `<Repeat count={0}>`, `<Switch>` over constant `<Match when>`s, and
+   * `<Dynamic component="div">`. Default `false`.
+   *
+   * A built-in tag only folds when it resolves to Solid's own component:
+   * either nothing declares the name (the compiler auto-imports it) or it is
+   * imported from `moduleName` or `"solid-js"`. The exported name decides
+   * the identity, so `<Cond>` from `import { Show as Cond }` folds as
+   * `<Show>`.
+   *
+   * Folding changes the rendered tree shape and therefore hydration ids, so
+   * a server build and its client build must pass the same value.
+   */
+  optimize?: boolean;
   serverComponents?: boolean;
   /** Default `["For", "Show", "Switch", "Match", "Loading", "Reveal", "Portal", "Repeat", "Dynamic", "Errored"]`. */
   builtIns?: string[];

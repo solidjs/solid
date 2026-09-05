@@ -50,6 +50,11 @@ pub struct TransformOptions {
     pub validate: Option<bool>,
     pub omit_nested_closing_tags: Option<bool>,
     pub omit_last_closing_tag: Option<bool>,
+    /// Constant-fold the program, drop the code that folding proves
+    /// unreachable, and resolve control-flow components whose props are
+    /// statically decidable (`<Show when={false}>`, `<For each={[]}>`).
+    /// Default `false`. Server and client builds must use the same value.
+    pub optimize: Option<bool>,
     /// Babel's `serverComponents`: SSR-only. `ref`/`on*` positions on
     /// intrinsic elements compile to a guarded `_$ssrClaim` hole (the
     /// `_bnd` behavior-claim marker) instead of dropping.
