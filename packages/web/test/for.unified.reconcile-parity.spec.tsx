@@ -25,7 +25,8 @@
  * state-to-state transitions, not just canonical-to-X.
  */
 import { beforeEach, describe, expect, test } from "vitest";
-import { createSignal, flush, For, __unifiedForStats } from "solid-js";
+import { createSignal, flush, For, DEV } from "solid-js";
+const stats = DEV!.unifiedFor;
 import { render } from "@solidjs/web";
 
 type Shape = {
@@ -173,15 +174,15 @@ for (const mode of ["slot", "classic"] as const) {
       for (const container of makeContainers(useIdx, shape)) {
         test(`${container.name}: full transition matrix`, () => {
           const [list, setList] = createSignal(CANON);
-          const engagedBefore = __unifiedForStats.engaged;
-          const demotedBefore = __unifiedForStats.demoted;
+          const engagedBefore = stats.engaged;
+          const demotedBefore = stats.demoted;
           const [el, dispose] = container.mount(list, null);
           try {
             // Mode sanity: slot engages exactly once, classic never.
             if (mode === "slot") {
-              expect(__unifiedForStats.engaged).toBe(engagedBefore + 1);
+              expect(stats.engaged).toBe(engagedBefore + 1);
             } else {
-              expect(__unifiedForStats.engaged).toBe(engagedBefore);
+              expect(stats.engaged).toBe(engagedBefore);
             }
             const expected = (arr: string[]) => container.wrap(arr.map(shape.html).join(""));
             expect(el.innerHTML).toBe(expected(CANON));
@@ -195,7 +196,7 @@ for (const mode of ["slot", "classic"] as const) {
             }
             // The whole matrix must run WITHOUT falling back to classic.
             if (mode === "slot") {
-              expect(__unifiedForStats.demoted).toBe(demotedBefore);
+              expect(stats.demoted).toBe(demotedBefore);
             }
           } finally {
             dispose();

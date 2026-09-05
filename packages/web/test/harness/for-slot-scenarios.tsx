@@ -214,7 +214,90 @@ function SlotThroughChildren() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 10. NESTED lists + mid-fill demote (audit P1): the outer engages, row x's
+//     nested list engages AND COMMITS, then row y is <Show>-rooted → the outer
+//     demotes. Every claim beneath the outer — including the nested list's
+//     committed ones — must be handed back so classic's re-run (which
+//     re-engages the nested lists with the same ids) claims the same nodes.
+const NX = { g: "x", items: ["1", "2"], special: false };
+const NY = { g: "y", items: ["3"], special: true };
+function SlotNestedDemote() {
+  const [groups] = createSignal([NX, NY]);
+  const inner = (g: typeof NX) => (
+    <ul>
+      <For each={g.items}>{item => <span>{item}</span>}</For>
+    </ul>
+  );
+  return (
+    <ul>
+      <For each={groups()}>
+        {group =>
+          group.special ? (
+            <Show when={true}>
+              <li>{inner(group)}</li>
+            </Show>
+          ) : (
+            <li>{inner(group)}</li>
+          )
+        }
+      </For>
+    </ul>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 11. Through-children + mid-fill demote + server MISMATCH (audit P2). The
+//     demote re-enters classic SYNCHRONOUSLY inside the hydration window (a
+//     deferred re-run would clone instead of claim): rows a/b are the server
+//     nodes, zero warnings. The leftover server row `c` SURVIVES — classic's
+//     own hydration is a claim pass that never removes server leftovers, so
+//     this is exactly what a never-slotted app shows on the same mismatch
+//     (ruled: classic parity, not a slot defect). The hosting effect keeps
+//     the real range as `current`, so a later children change cleans it.
+function SlotThroughDemoteMismatch() {
+  const [items] = createSignal(isServer ? ["a", "b", "c"] : ["a", "b"]);
+  return (
+    <ListShell>
+      <For each={items()}>
+        {item =>
+          item === "b" ? (
+            <Show when={true}>
+              <li>{item}</li>
+            </Show>
+          ) : (
+            <li>{item}</li>
+          )
+        }
+      </For>
+    </ListShell>
+  );
+}
+
 export const forSlotScenarios: ForSlotScenario[] = [
+  {
+    name: "slot-hydrate-nested-demote",
+    App: SlotNestedDemote,
+    expectedText: "123",
+    // Attempt 1: outer + nested x + nested y (the Show-rooted row's <li>
+    // template runs its hole insert before the outer sees the function and
+    // demotes). Classic re-run: nested x + nested y again. All five claim
+    // cleanly — the restore covered every nested claim beneath the outer.
+    engaged: 5,
+    demoted: 1,
+    warnings: 0,
+    identitySelector: "span"
+  },
+  {
+    name: "slot-hydrate-through-demote-mismatch",
+    App: SlotThroughDemoteMismatch,
+    expectedText: "abc", // classic parity: the claim pass leaves server leftovers
+    serverText: "abc",
+    engaged: 1,
+    demoted: 1,
+    warnings: 1, // the runtime's honest "1 unclaimed server-rendered node" report
+    identitySelector: "li"
+  },
   {
     name: "slot-hydrate-through-children",
     App: SlotThroughChildren,

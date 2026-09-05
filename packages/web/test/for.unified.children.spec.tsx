@@ -16,7 +16,8 @@
  *   - `children()` introspection and fragment children stay classic
  */
 import { beforeEach, describe, expect, test } from "vitest";
-import { createSignal, flush, For, children, __unifiedForStats } from "solid-js";
+import { createSignal, flush, For, children, DEV } from "solid-js";
+const stats = DEV!.unifiedFor;
 import { render } from "@solidjs/web";
 
 function Table(props: { children: any }) {
@@ -61,8 +62,8 @@ describe("unified For through props.children (hole seam)", () => {
 
   test("whole-parent hole engages; reorder moves the same rows", () => {
     const [rows, setRows] = createSignal(["a", "b", "c"]);
-    const engaged0 = __unifiedForStats.engaged;
-    const demoted0 = __unifiedForStats.demoted;
+    const engaged0 = stats.engaged;
+    const demoted0 = stats.demoted;
     dispose = render(
       () => (
         <Table>
@@ -77,7 +78,7 @@ describe("unified For through props.children (hole seam)", () => {
       ),
       container
     );
-    expect(__unifiedForStats.engaged).toBe(engaged0 + 1);
+    expect(stats.engaged).toBe(engaged0 + 1);
     expect(texts(container, "tr")).toEqual(["a", "b", "c"]);
     const before = new Map([...container.querySelectorAll("tr")].map(tr => [tr.textContent, tr]));
     setRows(["c", "a", "b"]);
@@ -88,12 +89,12 @@ describe("unified For through props.children (hole seam)", () => {
     setRows([]);
     flush();
     expect(container.querySelector("tbody")!.innerHTML).toBe("");
-    expect(__unifiedForStats.demoted).toBe(demoted0);
+    expect(stats.demoted).toBe(demoted0);
   });
 
   test("bounded hole (element marker) engages; siblings untouched through reorder and clear", () => {
     const [rows, setRows] = createSignal(["a", "b", "c"]);
-    const engaged0 = __unifiedForStats.engaged;
+    const engaged0 = stats.engaged;
     dispose = render(
       () => (
         <Card>
@@ -102,7 +103,7 @@ describe("unified For through props.children (hole seam)", () => {
       ),
       container
     );
-    expect(__unifiedForStats.engaged).toBe(engaged0 + 1);
+    expect(stats.engaged).toBe(engaged0 + 1);
     const section = container.querySelector("section")!;
     expect(section.querySelector("header")!.textContent).toBe("h");
     expect(texts(section, "p")).toEqual(["a", "b", "c"]);
@@ -123,20 +124,20 @@ describe("unified For through props.children (hole seam)", () => {
   test("children change tears the slot down cleanly; a returning For re-engages", () => {
     const [rows, setRows] = createSignal(["a", "b"]);
     const [show, setShow] = createSignal(true);
-    const engaged0 = __unifiedForStats.engaged;
+    const engaged0 = stats.engaged;
     dispose = render(
       () => <Wrap>{show() ? <For each={rows()}>{r => <span>{r}</span>}</For> : <p>none</p>}</Wrap>,
       container
     );
     const div = container.querySelector("div")!;
-    expect(__unifiedForStats.engaged).toBe(engaged0 + 1);
+    expect(stats.engaged).toBe(engaged0 + 1);
     expect(div.innerHTML).toBe("<span>a</span><span>b</span>");
     setShow(false);
     flush();
     expect(div.innerHTML).toBe("<p>none</p>"); // rows gone, no leftovers
     setShow(true);
     flush();
-    expect(__unifiedForStats.engaged).toBe(engaged0 + 2); // fresh slot
+    expect(stats.engaged).toBe(engaged0 + 2); // fresh slot
     expect(div.innerHTML).toBe("<span>a</span><span>b</span>");
     setRows(["b", "a"]);
     flush();
@@ -145,7 +146,7 @@ describe("unified For through props.children (hole seam)", () => {
 
   test("demote inside a hole hands the hole to classic via the hosting effect", () => {
     const [rows, setRows] = createSignal<any[]>(["a", "b"]);
-    const demoted0 = __unifiedForStats.demoted;
+    const demoted0 = stats.demoted;
     dispose = render(
       () => (
         <Wrap>
@@ -159,7 +160,7 @@ describe("unified For through props.children (hole seam)", () => {
     // A function-top-level row arrives → slot demotes; the hole re-runs classic.
     setRows(["a", () => <b>dyn</b>, "b"]);
     flush();
-    expect(__unifiedForStats.demoted).toBe(demoted0 + 1);
+    expect(stats.demoted).toBe(demoted0 + 1);
     expect(div.innerHTML).toBe("<span>a</span><b>dyn</b><span>b</span>");
     // Classic now owns the hole: further updates keep working, no duplicates.
     setRows(["b", "a"]);
@@ -172,7 +173,7 @@ describe("unified For through props.children (hole seam)", () => {
 
   test("children() introspection stays classic and correct", () => {
     const [rows, setRows] = createSignal(["a", "b"]);
-    const engaged0 = __unifiedForStats.engaged;
+    const engaged0 = stats.engaged;
     dispose = render(
       () => (
         <Introspect>
@@ -181,7 +182,7 @@ describe("unified For through props.children (hole seam)", () => {
       ),
       container
     );
-    expect(__unifiedForStats.engaged).toBe(engaged0);
+    expect(stats.engaged).toBe(engaged0);
     expect(container.querySelector("div")!.innerHTML).toBe("<span>a</span><span>b</span>");
     setRows(["b", "a", "c"]);
     flush();
@@ -192,7 +193,7 @@ describe("unified For through props.children (hole seam)", () => {
 
   test("fragment children (For beside siblings) stay classic and correct", () => {
     const [rows, setRows] = createSignal(["a", "b"]);
-    const engaged0 = __unifiedForStats.engaged;
+    const engaged0 = stats.engaged;
     dispose = render(
       () => (
         <Wrap>
@@ -202,7 +203,7 @@ describe("unified For through props.children (hole seam)", () => {
       ),
       container
     );
-    expect(__unifiedForStats.engaged).toBe(engaged0);
+    expect(stats.engaged).toBe(engaged0);
     const div = container.querySelector("div")!;
     expect(div.innerHTML).toBe("<h1>t</h1><span>a</span><span>b</span>");
     setRows(["b"]);

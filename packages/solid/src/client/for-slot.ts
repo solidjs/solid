@@ -836,7 +836,12 @@ export function unifiedForSlot(
   return true;
 }
 
-/** DEV-ONLY test probes: engagement / demotion / batch-clear counters.
- * Increments are IS_DEV-gated — frozen at zero in prod bundles (the export
- * itself is a few bytes; the double-underscore marks it non-API). */
-export const __unifiedForStats = { engaged: 0, demoted: 0, batchCleared: 0 };
+/** DEV-ONLY probes: engagement / demotion / batch-clear counters, exposed as
+ * `DEV.unifiedFor` (solid-js's dev diagnostics bag — undefined in prod).
+ * Increments are IS_DEV-gated; not a package export of its own. */
+export interface UnifiedForStats {
+  engaged: number;
+  demoted: number;
+  batchCleared: number;
+}
+export const __unifiedForStats: UnifiedForStats = { engaged: 0, demoted: 0, batchCleared: 0 };

@@ -13,7 +13,8 @@ import { describe, expect, test, vi } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { flush, __unifiedForStats } from "solid-js";
+import { flush, DEV } from "solid-js";
+const stats = DEV!.unifiedFor;
 import { hydrate } from "@solidjs/web";
 import { forSlotScenarios, type ForSlotScenario } from "../harness/for-slot-scenarios.jsx";
 
@@ -54,20 +55,16 @@ async function run(scenario: ForSlotScenario) {
         )
       : null;
 
-    const engaged0 = __unifiedForStats.engaged;
-    const demoted0 = __unifiedForStats.demoted;
+    const engaged0 = stats.engaged;
+    const demoted0 = stats.demoted;
     dispose = hydrate(() => <scenario.App />, container);
     flush();
     await sleep(10);
     flush();
 
     expect(container.textContent, "hydrated text").toBe(scenario.expectedText);
-    expect(__unifiedForStats.engaged - engaged0, "slots engaged during hydrate").toBe(
-      scenario.engaged
-    );
-    expect(__unifiedForStats.demoted - demoted0, "slots demoted during hydrate").toBe(
-      scenario.demoted
-    );
+    expect(stats.engaged - engaged0, "slots engaged during hydrate").toBe(scenario.engaged);
+    expect(stats.demoted - demoted0, "slots demoted during hydrate").toBe(scenario.demoted);
     expect(warn, "console.warn calls during hydrate").toHaveBeenCalledTimes(scenario.warnings);
 
     if (serverRows) {
@@ -101,7 +98,7 @@ async function run(scenario: ForSlotScenario) {
         }
       }
       // No demote may happen on the post-hydration update either.
-      expect(__unifiedForStats.demoted - demoted0).toBe(scenario.demoted);
+      expect(stats.demoted - demoted0).toBe(scenario.demoted);
     }
   } finally {
     warn.mockRestore();
