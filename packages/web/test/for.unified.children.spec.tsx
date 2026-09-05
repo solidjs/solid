@@ -1,4 +1,5 @@
 /**
+ * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  *
  * Unified For through COMPONENT CHILDREN — the hole seam. A `<For>` passed
