@@ -3,15 +3,17 @@
  * bundles never import this module, so the slot's null-guarded hook calls
  * fold away (#2883's pay-for-hydration discipline).
  *
- * Contract: engage only whole-parent lists carrying an id-parity handle
- * (`$for.hid`) and a region snapshot. Row templates then CLAIM server nodes
+ * Contract: engage lists carrying an id-parity handle (`$for.hid`) and a
+ * region snapshot — whole-parent holes (the parent's childNodes) and
+ * comment-bounded holes (the hydrating client resolves anchored holes to
+ * their `<!--/-->` end-marker node via getNextMarker, with the bounded
+ * region as `initial`). Row templates then CLAIM server nodes
  * exactly as classic's would — the slot's row parent takes the SAME id
  * classic's mapArray owner spends, so rows mint identical hydration keys.
  * Claims are RECORDED so a demote mid-fill hands them back: classic's re-run
  * mints the same ids and claims the same nodes (never a stranded claim).
  * The fill commit mutates only on MISMATCH (leftover server rows removed,
  * key-missed fresh rows inserted); the normal case is zero DOM writes.
- * Anchored holes (null/element markers) stay classic under hydration.
  */
 import { sharedConfig } from "./hydration.js";
 import { installSlotHydration, type FlatPlan, type Slot } from "./for-slot.js";
@@ -23,7 +25,11 @@ const hooks = {
     region: Node[] | undefined
   ): { id: string } | null | false {
     if (!sharedConfig.hydrating) return false;
-    if (marker !== undefined || meta.hid === undefined || region === undefined) return null;
+    // Whole-parent (marker undefined) and comment-bounded holes (the
+    // compiled hydrating client resolves anchored holes to the `<!--/-->`
+    // marker NODE via getNextMarker, with the region as `initial`) both
+    // engage. A `null` marker never occurs under hydration; decline it.
+    if (marker === null || meta.hid === undefined || region === undefined) return null;
     return { id: meta.hid };
   },
 
@@ -78,8 +84,9 @@ const hooks = {
       if (!ours.has(region[i]) && ops.contains(slot.parent, region[i])) ops.remove(region[i]);
     // Fresh rows (template key-missed → detached; the runtime already
     // warned) are inserted at their position, back to front so anchors are
-    // always attached. Whole-parent: the list ends at the parent's end.
-    let anchor: Node | null = null;
+    // always attached. The list ends at the hole's end marker (or the
+    // parent's end for whole-parent holes).
+    let anchor: Node | null = slot.end;
     for (let i = fp.nodes.length - 1; i >= 0; i--) {
       const nd = fp.nodes[i];
       if (Array.isArray(nd)) {

@@ -870,6 +870,18 @@ export function installHydrationRuntime() {
       } else nodes = [...parent.childNodes];
       return stripTextSeparators(nodes);
     },
+    // Unified For: the hydration region handed to the slot — the hole's
+    // claimed nodes minus comment markers (`<!--$-->` stays in place exactly
+    // as classic leaves it; reclaimRegion walks back to it for $df swaps).
+    slotRegion(nodes) {
+      let out = null;
+      for (let i = 0; i < nodes.length; i++) {
+        if (nodes[i].nodeType === 8) {
+          out ??= nodes.slice(0, i);
+        } else if (out !== null) out.push(nodes[i]);
+      }
+      return out ?? nodes;
+    },
     // eventHandler(): replayed server events are deduped against the live
     // event queue during hydration.
     dedupEvent(e) {
@@ -967,9 +979,13 @@ export function insert(parent, accessor, marker, initial, options) {
             )
           ),
         domOps,
-        // Hydration: the claimed region snapshot (claimInitial ran above) —
-        // the slot's fill reconciles claimed rows against it (whole-parent).
-        hydrationRt !== null && Array.isArray(initial) ? initial : undefined
+        // Hydration: the claimed region snapshot — the parent's childNodes
+        // (claimInitial, whole-parent) or the comment-bounded hole range the
+        // compiled client resolved via getNextMarker (anchored holes). The
+        // slot's fill reconciles claimed rows against it.
+        hydrationRt !== null && isHydrating(parent) && Array.isArray(initial)
+          ? hydrationRt.slotRegion(initial)
+          : undefined
       )
     )
       return;
@@ -1017,7 +1033,7 @@ export function insert(parent, accessor, marker, initial, options) {
         // it for the slot's fill instead of cleaning.
         const region =
           hydrationRt !== null && isHydrating(parent) && Array.isArray(current)
-            ? current
+            ? hydrationRt.slotRegion(current)
             : undefined;
         let keep;
         if (region !== undefined) keep = [];
