@@ -659,7 +659,7 @@ If your training data is 1.x, these are the corrections. **Read this before gene
 - **`isPending` ≠ 1.x `.loading`** — it fires while a value _change_ is in flight (an input changed, or `affects()` declared one), not for every fetch. A bare `refresh()`/poll re-asks the same question and is silent. For a reload that should read as pending: `affects(x); refresh(x)`. For a "saving…" affordance: a co-written optimistic flag.
 - **No `Suspense.Provider` or single error path** — async errors flow to `<Errored>` (or effect `error`); no inline `resource.error` branching.
 - **`createRoot` is owned by parent by default** — disposed when parent disposes. To detach: `runWithOwner(null, fn)`.
-- **Refs are functions** — `ref={el => ...}`. No `useRef`-style ref objects. Compose with arrays: `ref={[a, b]}`.
+- **Refs are functions** — `ref={el => ...}`. No `useRef`-style ref objects. Compose with arrays: `ref={[a, b]}` — entries are callbacks; a bare `let el` inside an array is never assigned (that rewrite is single-`ref` only).
 - **Boolean attributes are presence/absence** — `<video muted={false} />` removes the attribute.
 - **Built-in attributes are lowercase** — `tabindex` not `tabIndex`. Event handlers stay camelCase (`onClick`).
 - **Event handlers bind once — the binding expression is not reactive** — `onClick={cond() ? a : b}` picks a handler at mount and never re-evaluates. Put the decision inside a stable handler: `onClick={e => (cond() ? a : b)(e)}`. (Spread is the one exception: it must re-apply changed props, handlers included — that's forced, not a pattern.)
