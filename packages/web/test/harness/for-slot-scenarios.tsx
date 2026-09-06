@@ -310,7 +310,67 @@ function SlotThroughDemoteResidue() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 13. TEXT-row mismatch, both directions: server text nodes must never
+//     survive beside their fresh twins (no orphan, no duplicate) — the fill
+//     removes every region node that isn't ours before inserting.
+function SlotTextFewer() {
+  const [items] = createSignal(isServer ? ["a", "b", "c"] : ["a", "b"]);
+  return (
+    <ul>
+      <For each={items()}>{item => item}</For>
+    </ul>
+  );
+}
+function SlotTextMore() {
+  const [items] = createSignal(isServer ? ["a", "b"] : ["a", "b", "c"]);
+  return (
+    <ul>
+      <For each={items()}>{item => item}</For>
+    </ul>
+  );
+}
+// Anchored text rows (comment-bounded region with separators) — mismatch.
+function SlotTextAnchoredFewer() {
+  const [items] = createSignal(isServer ? ["a", "b", "c"] : ["a", "b"]);
+  return (
+    <ul>
+      <li>head</li>
+      <For each={items()}>{item => item}</For>
+      <li>tail</li>
+    </ul>
+  );
+}
+
 export const forSlotScenarios: ForSlotScenario[] = [
+  {
+    name: "slot-hydrate-text-mismatch-fewer",
+    App: SlotTextFewer,
+    expectedText: "ab",
+    serverText: "abc",
+    engaged: 1,
+    demoted: 0,
+    warnings: 0 // text churn is excluded from the repair report (follow-up: adopt server text)
+  },
+  {
+    name: "slot-hydrate-text-mismatch-more",
+    App: SlotTextMore,
+    expectedText: "abc",
+    serverText: "ab",
+    engaged: 1,
+    demoted: 0,
+    warnings: 0
+  },
+  {
+    name: "slot-hydrate-text-anchored-mismatch-fewer",
+    App: SlotTextAnchoredFewer,
+    expectedText: "headabtail",
+    serverText: "headabctail",
+    engaged: 1,
+    demoted: 0,
+    warnings: 0,
+    identitySelector: "li"
+  },
   {
     name: "slot-hydrate-through-demote-residue",
     App: SlotThroughDemoteResidue,

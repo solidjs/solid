@@ -1,0 +1,5 @@
+{
+  "name": "slot-hydrate-text-anchored-mismatch-fewer",
+  "shell": "<ul _hk=0><li>head</li><!--$-->a<!--!$-->b<!--!$-->c<!--/--><li>tail</li></ul>",
+  "rest": ""
+}
