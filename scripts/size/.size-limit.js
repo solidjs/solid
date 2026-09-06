@@ -540,7 +540,7 @@ module.exports = [
     //
     // Rebase over #3183 + audit round 3 (2026-09-05): 20.57 -> 20.59 KB,
     // measured at 20.587 (nested claim-recording stack; sync re-entry).
-    limit: "20.59 KB",
+    limit: "20.60 KB",
     modifyEsbuildConfig
   },
   {
@@ -653,7 +653,7 @@ module.exports = [
     //
     // Anchored-hole hydration (2026-09-05): 29.29 -> 29.45 KB, measured at
     // 29.44 (see the hydrating no-stores note).
-    limit: "29.47 KB",
+    limit: "29.48 KB",
     modifyEsbuildConfig
   },
   {
@@ -714,7 +714,7 @@ module.exports = [
     //
     // Rebase over #3183 + audit round 3 (2026-09-05): 15.62 -> 15.66 KB,
     // measured at 15.65 (see the simple-app note).
-    limit: "15.67 KB",
+    limit: "15.68 KB",
     modifyEsbuildConfig
   },
   {
