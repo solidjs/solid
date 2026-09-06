@@ -4,6 +4,7 @@ import { $REFRESH, NOT_PENDING } from "./constants.js";
 // import its hoisted emitDiagnostic back — safe (only called at runtime) and
 // treeshake-neutral (dev.ts is already reachable from the core).
 import { emitDiagnostic, reportDiagnostic } from "./dev.js";
+import type { Transition } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
 
 /**
@@ -164,6 +165,18 @@ export interface AttributionOptions {
    * disables.
    */
   waterfalls?: { minFlightMs: number } | false;
+  /**
+   * Silent-hold warning: emit a diagnostic when a transition held a user's
+   * writes behind async work for at least `infoMs` (default 300ms) and the
+   * screen never acknowledged the wait — no `isPending()`/`latest()` reader
+   * downstream of the held writes or their blockers, no optimistic value, no
+   * `affects()` mark, and no effect ran during the hold. Below `warnMs`
+   * (default 500ms) the event is advisory (structured channel only); at or
+   * above it the console gets the finding. Holds that staged no root write
+   * (initial loads, bare `refresh()`) are never judged: nothing the user did
+   * went unanswered. `false` disables.
+   */
+  holds?: { infoMs: number; warnMs: number } | false;
 }
 
 interface AttributedNode {
@@ -197,7 +210,8 @@ const defaultOptions = {
   hotTime: { budgetMs: 8, windowMs: 1000 } as { budgetMs: number; windowMs: number } | false,
   unstableMemos: 4 as number | false,
   wideWrites: 250 as number | false,
-  waterfalls: { minFlightMs: 50 } as { minFlightMs: number } | false
+  waterfalls: { minFlightMs: 50 } as { minFlightMs: number } | false,
+  holds: { infoMs: 300, warnMs: 500 } as { infoMs: number; warnMs: number } | false
 };
 let options: typeof defaultOptions = { ...defaultOptions };
 const listeners = new Set<(event: RerunEvent) => void>();
@@ -707,6 +721,13 @@ export interface Attribution {
    */
   waterfalls(): readonly WaterfallRecord[];
   /**
+   * Every settled transition hold that staged at least one root write since
+   * enable() (ring-buffered like history()). Facts, not verdicts: recorded
+   * regardless of duration or acknowledgment — the SILENT_HOLD diagnostic is
+   * the thresholded, unacknowledged subset.
+   */
+  holds(): readonly HoldEvent[];
+  /**
    * Cooperative preload declaration: stamp a flight object (promise or async
    * iterable) with its true kickoff time BEFORE the reactive graph sees it.
    * A route preloader or query cache calls this on the promise it hands out
@@ -976,6 +997,221 @@ function checkWaterfall(el: Computed<any>, chain: FlightLink[], ms: number): voi
   if (severity === "warn") reportDiagnostic(entry);
 }
 
+// --- Transition holds ---------------------------------------------------------
+//
+// A "hold" is the runtime's answer to a write that lands on async work: the
+// write (and everything derived from it) stays staged in a transition until
+// the async settles, so the screen never shows a torn state. That guarantee
+// has a cost the graph cannot see on its own — from the user's side, the
+// click did nothing until the data came back. Solid gives the screen four
+// ways to acknowledge the wait: `isPending()` companions, `latest()` shadows,
+// optimistic values (`createOptimistic`/`createOptimisticStore`, or an action
+// writing them), and `affects()` marks. Each one is a graph fact this engine
+// can census at settle. A hold that used none of them, and during which no
+// effect ran at all, is a hold the user watched with no feedback: SILENT_HOLD.
+//
+// What is deliberately NOT judged: holds that staged no root write. An
+// initial load, a bare `refresh()`, a re-ask — nothing the user did is
+// waiting behind them, and `<Loading>` boundaries already own the "nothing
+// yet" case. The census walks DOWNSTREAM from the held writes and blockers
+// (subs + firewall children, the same reach as verdict repolling) because a
+// probe on a derived memo (`isPending(() => filteredPosts())`) plants its
+// companion on the memo, not on the source it derives from.
+
+export interface HeldWrite {
+  name: string;
+  prev?: string;
+  value?: string;
+}
+export interface HoldEvent {
+  /** Wall time from the first flush that parked the transition to its completion. */
+  holdMs: number;
+  /** Flushes that ended with the transition still incomplete. */
+  flushes: number;
+  /** Root signal writes staged behind the hold (the user's unanswered input). */
+  heldWrites: HeldWrite[];
+  /** Async nodes the transition waited on (union across its parked flushes). */
+  blockers: string[];
+  /**
+   * Feedback the graph provably rendered for this hold, as `"<kind>:<node>"`
+   * — `isPending:posts`, `latest:page`, `optimistic:todos`, `affects:list`.
+   * Empty and `paintedDuringHold === 0` is the SILENT_HOLD signature.
+   */
+  acknowledgedBy: string[];
+  /** Effect callbacks that ran inside the transition's parked flushes. */
+  paintedDuringHold: number;
+  /** The transition was opened (or joined) by an `action()`. */
+  action: boolean;
+}
+
+interface HoldState {
+  start: number;
+  flushes: number;
+  blockers: Set<Computed<any>>;
+  acknowledgedBy: Set<string>;
+  painted: number;
+  action: boolean;
+}
+const holdStates = new WeakMap<Transition, HoldState>();
+let activeHold: HoldState | null = null;
+let holdLog: HoldEvent[] = [];
+
+/** Companions are optimistic nodes too; `_parentSource` marks them. */
+function isCompanion(node: Signal<any> | Computed<any>): boolean {
+  return !!node._x && node._x._parentSource !== undefined;
+}
+
+function censusRegistrations(t: Transition, state: HoldState): void {
+  for (const node of t._optimisticNodes)
+    if (!isCompanion(node)) state.acknowledgedBy.add(`optimistic:${nodeName(node)}`);
+  for (const store of t._optimisticStores)
+    state.acknowledgedBy.add(`optimistic:${(store as { _name?: string })?._name ?? "store"}`);
+  for (const node of t._affectsNodes) state.acknowledgedBy.add(`affects:${nodeName(node)}`);
+}
+
+const HOLD_CENSUS_CAP = 10_000;
+/** Companions with live readers, anywhere downstream of the hold's nodes. */
+function censusCompanions(roots: Iterable<Signal<any> | Computed<any>>, out: Set<string>): void {
+  const visited = new Set<Signal<any> | Computed<any>>();
+  const stack: (Signal<any> | Computed<any>)[] = [...roots];
+  while (stack.length > 0 && visited.size < HOLD_CENSUS_CAP) {
+    const node = stack.pop()!;
+    if (visited.has(node)) continue;
+    visited.add(node);
+    const x = node._x;
+    if (x) {
+      if (x._pendingSignal !== undefined && x._pendingSignal._subs !== null)
+        out.add(`isPending:${nodeName(node)}`);
+      if (x._latestValueComputed !== undefined && x._latestValueComputed._subs !== null)
+        out.add(`latest:${nodeName(node)}`);
+      for (
+        let child: Signal<any> | null = (x as { _child?: Signal<any> | null })._child ?? null;
+        child !== null;
+        child = (child as { _nextChild?: Signal<any> | null })._nextChild ?? null
+      )
+        stack.push(child);
+    }
+    for (let s = node._subs; s !== null; s = s._nextSub) stack.push(s._sub);
+  }
+}
+
+function holdState(t: Transition): HoldState {
+  let state = holdStates.get(t);
+  if (state === undefined) {
+    state = {
+      start: now(),
+      flushes: 0,
+      blockers: new Set(),
+      acknowledgedBy: new Set(),
+      painted: 0,
+      action: false
+    };
+    holdStates.set(t, state);
+  }
+  return state;
+}
+
+function trackHoldStart(t: Transition): void {
+  if (options.holds === false) return;
+  const state = holdState(t);
+  state.flushes++;
+  if (t._actions.length > 0) state.action = true;
+  for (const [source, reporters] of t._asyncReporters)
+    if (reporters.size > 0) state.blockers.add(source);
+  censusRegistrations(t, state);
+  activeHold = state;
+}
+
+function trackHoldMerge(target: Transition, outgoing: Transition): void {
+  const from = holdStates.get(outgoing);
+  if (from === undefined) return;
+  holdStates.delete(outgoing);
+  const into = holdState(target);
+  if (from.start < into.start) into.start = from.start;
+  into.flushes += from.flushes;
+  into.painted += from.painted;
+  into.action ||= from.action;
+  for (const b of from.blockers) into.blockers.add(b);
+  for (const a of from.acknowledgedBy) into.acknowledgedBy.add(a);
+}
+
+function trackHoldSettled(t: Transition): void {
+  const state = holdStates.get(t);
+  if (state === undefined) return;
+  holdStates.delete(t);
+  // Root writes only: a memo in _pendingNodes is a derived hold, and the
+  // question is whether the USER's input went unanswered.
+  const heldWrites: HeldWrite[] = [];
+  let subject: Signal<any> | null = null;
+  for (const node of t._pendingNodes) {
+    if (typeof (node as Computed<any>)._fn === "function" || isCompanion(node)) continue;
+    const change = (node as AttributedNode)._devChange;
+    if (change === undefined || change.kind !== "write") continue;
+    if (subject === null) subject = node;
+    heldWrites.push({ name: nodeName(node), prev: change.prev, value: change.value });
+  }
+  if (heldWrites.length === 0) return;
+  censusRegistrations(t, state);
+  censusCompanions([...t._pendingNodes, ...state.blockers], state.acknowledgedBy);
+  const event: HoldEvent = {
+    holdMs: now() - state.start,
+    flushes: state.flushes,
+    heldWrites,
+    blockers: [...state.blockers].map(nodeName),
+    acknowledgedBy: [...state.acknowledgedBy],
+    paintedDuringHold: state.painted,
+    action: state.action
+  };
+  holdLog.push(event);
+  if (holdLog.length > options.historyLimit) holdLog.shift();
+  checkSilentHold(event, subject!);
+}
+
+function checkSilentHold(event: HoldEvent, subject: Signal<any>): void {
+  const cfg = options.holds;
+  if (cfg === false) return;
+  if (event.paintedDuringHold > 0 || event.acknowledgedBy.length > 0) return;
+  if (event.holdMs < cfg.infoMs) return;
+  const ms = event.holdMs.toFixed(0);
+  const writes = event.heldWrites
+    .map(w => (w.prev !== undefined ? `"${w.name}" (${w.prev} → ${w.value})` : `"${w.name}"`))
+    .join(", ");
+  const waitedOn =
+    event.blockers.length > 0 ? ` waiting on ${event.blockers.map(b => `"${b}"`).join(", ")}` : "";
+  const message = event.action
+    ? `[SILENT_HOLD] an action held ${writes} for ${ms}ms${waitedOn} and the screen showed ` +
+      `nothing for the whole round-trip: no optimistic value, no isPending() reader, no ` +
+      `affects() mark, and no effect ran while it was held. Pair the action with a ` +
+      `createOptimistic/createOptimisticStore write for the expected outcome (it reverts ` +
+      `on failure), or co-write a createOptimistic(false) "saving" flag the UI reads.`
+    : `[SILENT_HOLD] writes to ${writes} were held ${ms}ms${waitedOn} and the screen showed ` +
+      `nothing for the wait: no isPending()/latest() reader downstream, no optimistic ` +
+      `value, no affects() mark, and no effect ran while it was held — the interaction ` +
+      `was dead for ${ms}ms. Show the wait: read isPending(() => ${event.blockers[0] ?? "source"}()) ` +
+      `to render a busy state, or latest(${event.heldWrites[0].name}) to reveal the new input ` +
+      `immediately while the data catches up. The hold itself is correct — do not "fix" ` +
+      `this by moving the write off the async path.`;
+  const severity = event.holdMs >= cfg.warnMs ? "warn" : "info";
+  const entry = emitDiagnostic(
+    {
+      code: "SILENT_HOLD",
+      kind: "responsiveness",
+      severity,
+      message,
+      nodeName: nodeName(subject),
+      data: {
+        holdMs: event.holdMs,
+        flushes: event.flushes,
+        heldWrites: event.heldWrites.map(w => w.name),
+        blockers: event.blockers,
+        action: event.action
+      }
+    },
+    subject
+  );
+  if (severity === "warn") reportDiagnostic(entry);
+}
+
 // The engine's implementation of the core's dev hook points. Installed by
 // enable(), uninstalled by disable() — while uninstalled the core pays one
 // null check per site and nothing else.
@@ -1088,6 +1324,21 @@ const engineHooks: AttributionHooks = {
     if (change !== undefined && change.seq > asyncStartSeq && change.kind === "write")
       stampWrite(el, "async", NO_VALUES, value);
     finalizeFlight(el);
+  },
+  effectRun() {
+    if (activeHold !== null) activeHold.painted++;
+  },
+  holdStart(t) {
+    trackHoldStart(t);
+  },
+  holdEnd() {
+    activeHold = null;
+  },
+  transitionSettled(t) {
+    trackHoldSettled(t);
+  },
+  transitionMerged(target, outgoing) {
+    trackHoldMerge(target, outgoing);
   }
 };
 
@@ -1099,6 +1350,8 @@ export const attribution: Attribution = {
     scopeCosts.clear();
     writeCosts.clear();
     waterfallLog = [];
+    holdLog = [];
+    activeHold = null;
     hotCauses.clear();
     setAttributionHooks(engineHooks);
   },
@@ -1110,6 +1363,8 @@ export const attribution: Attribution = {
     scopeCosts.clear();
     writeCosts.clear();
     waterfallLog = [];
+    holdLog = [];
+    activeHold = null;
     hotCauses.clear();
     setAttributionHooks(null);
   },
@@ -1138,6 +1393,9 @@ export const attribution: Attribution = {
   },
   waterfalls() {
     return waterfallLog;
+  },
+  holds() {
+    return holdLog;
   },
   markFlight(flight: object, startedAt: number = now()) {
     // Earliest wins: re-marking (a cache re-serving the same promise) must

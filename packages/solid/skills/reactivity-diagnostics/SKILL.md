@@ -219,6 +219,39 @@ warning shows. Repairs, in order of preference:
    chains are `info` severity for exactly this reason — treat them as leads,
    not verdicts.
 
+## Responsiveness (from the attribution engine)
+
+The runtime did the correct thing; the user saw nothing while it did. These
+fire only while attribution is enabled.
+
+### SILENT_HOLD
+
+A write landed on async work, so the runtime held it (and everything derived
+from it) until the data came back — that hold is correct; it is what keeps the
+screen from tearing. But for the whole wait nothing on screen acknowledged it:
+no `isPending()`/`latest()` reader downstream of the write or its blocker, no
+optimistic value, no `affects()` mark, and no effect ran at all. From the
+user's side the click was dead for the duration in the message. The fix is
+ALWAYS to add feedback, never to remove the hold:
+
+- Show the wait: read `isPending(() => blocker())` (the blocker is named in
+  the message) or `isPending(() => derivedFromIt())` in the affected UI and
+  render a busy state from it.
+- Reveal the input immediately: `latest(source)` shows the NEW value of the
+  held write (a page number, a filter, a query string) while the data catches
+  up, so the control the user touched reflects the touch.
+- Predict the outcome: `createOptimistic`/`createOptimisticStore` written
+  alongside the real write (or inside the action) shows the expected result
+  now and reverts on failure. For actions this is the primary repair — the
+  message says "an action held" when the hold came from one.
+- Do NOT: move the write off the async path, wrap it in `untrack`, or split
+  the read so the write commits "faster" — that trades the hold for a torn
+  screen (old data under new controls).
+
+Below `holds.warnMs` (default 500ms) the event is `info`-severity, structured
+channel only; `DEV.attribution.holds()` lists every hold (acknowledged or not)
+with what was held, what blocked it, and which affordances answered it.
+
 ## Verifying a fix
 
 If you are working with `@solidjs/diagnostics`, re-run the capture after the

@@ -164,19 +164,20 @@ if (IS_DEV && globalThis) {
 // reader (human or agent) hitting the warning learns where the prescribed
 // fix lives without any prior knowledge of the skill system.
 //
-// Perf/graph codes additionally name the attribution surface. This breaks a
-// discovery circularity: the sensitive perf detectors (WIDE_WRITE,
-// HOT_SCOPE_*, ASYNC_WATERFALL, …) only fire while `DEV.attribution` is
-// enabled, and a reader who doesn't know the channel exists never enables it
-// — so the always-on graph warnings (and any perf code that does fire) are
-// the moments to teach that deeper evidence is one call away.
+// Perf/graph/responsiveness codes additionally name the attribution surface.
+// This breaks a discovery circularity: the sensitive detectors (WIDE_WRITE,
+// HOT_SCOPE_*, ASYNC_WATERFALL, SILENT_HOLD, …) only fire while
+// `DEV.attribution` is enabled, and a reader who doesn't know the channel
+// exists never enables it — so the always-on graph warnings (and any such
+// code that does fire) are the moments to teach that deeper evidence is one
+// call away.
 if (IS_DEV && _DEV) {
   _DEV.diagnostics.setConsoleFooter(event => {
     const base = `[${event.code}] repair guide: node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md`;
-    return event.kind === "perf" || event.kind === "graph"
+    return event.kind === "perf" || event.kind === "graph" || event.kind === "responsiveness"
       ? base +
           `\n[${event.code}] deeper evidence: DEV.attribution.enable() explains every re-run ` +
-          `— why-chains, costs(), waterfalls() — agent loop: ` +
+          `— why-chains, costs(), waterfalls(), holds() — agent loop: ` +
           `node_modules/@solidjs/diagnostics/skills/agent-loops/SKILL.md`
       : base;
   });

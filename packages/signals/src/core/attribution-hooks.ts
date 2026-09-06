@@ -1,3 +1,4 @@
+import type { Transition } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
 
 /**
@@ -66,6 +67,29 @@ export interface AttributionHooks {
    * from the node's state against its asyncStart snapshot.
    */
   asyncEnd(el: Computed<any>, prev: unknown, value: unknown, direct: boolean): void;
+  /**
+   * An effect's imperative half (its effect callback) has run. Fired after the
+   * run, outside its try — whether or not the callback threw.
+   */
+  effectRun(el: Computed<any>): void;
+  /**
+   * A flush found `t` incomplete (transitionComplete's false verdict): its
+   * writes stay staged and its queues are about to be parked. Fired BEFORE
+   * this flush's lane effects (the visible acknowledgers — isPending
+   * companions, optimistic values) run; `holdEnd` fires from the root
+   * stashQueues call after them, so effect runs between the two are runs that
+   * painted *during* the hold.
+   */
+  holdStart(t: Transition): void;
+  holdEnd(): void;
+  /**
+   * `t` was judged complete (transitionComplete's true verdict, before `_done`
+   * flips). Fired before its held writes commit, so `t._pendingNodes` still
+   * lists what was staged.
+   */
+  transitionSettled(t: Transition): void;
+  /** `outgoing` was folded into `target` (`outgoing._done = target`). */
+  transitionMerged(target: Transition, outgoing: Transition): void;
 }
 
 export let attrHooks: AttributionHooks | null = null;

@@ -50,7 +50,8 @@ export type DiagnosticCode =
   | "UNSTABLE_MEMO_OUTPUT"
   | "WIDE_WRITE"
   | "ASYNC_WATERFALL"
-  | "HOT_SCOPE_FANOUT";
+  | "HOT_SCOPE_FANOUT"
+  | "SILENT_HOLD";
 
 export type DiagnosticKind =
   | "strict-read"
@@ -60,7 +61,9 @@ export type DiagnosticKind =
   | "owner"
   | "error"
   | "perf"
-  | "graph";
+  | "graph"
+  /** Perceived responsiveness: the runtime behaved correctly but the user saw no feedback. */
+  | "responsiveness";
 
 /** First warning when a node's live edge count reaches this size. */
 export const GRAPH_SIZE_WARN_AT = 2000;

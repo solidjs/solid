@@ -25,6 +25,7 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
+import { attrHooks } from "./attribution-hooks.js";
 import { currentOptimisticLane, ext, slotUnobservedHook } from "./core.js";
 import { DEV, emitDiagnostic, reportDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
@@ -219,6 +220,7 @@ function createBatch(): Transition {
 }
 
 function mergeTransitionState(target: Transition, outgoing: Transition): void {
+  if (__DEV__ && attrHooks !== null) attrHooks.transitionMerged(target, outgoing);
   outgoing._done = target;
   target._actions.push(...outgoing._actions);
   for (const lane of activeLanes) if (lane._transition === outgoing) lane._transition = target;
@@ -481,6 +483,9 @@ export class Queue implements IQueue {
     schedule();
   }
   stashQueues(stub: QueueStub): void {
+    // Attribution hook: the parking transition's lane effects have run; its
+    // queues are being stashed. Root call only (children recurse below).
+    if (__DEV__ && attrHooks !== null && (this as Queue) === globalQueue) attrHooks.holdEnd();
     stub._queues[0].push(...this._queues[0]);
     stub._queues[1].push(...this._queues[1]);
     this._queues = [[], []];
@@ -1232,7 +1237,11 @@ function reporterBlocksSource(reporter: Computed<any>, source: Computed<any>): b
 
 function transitionComplete(transition: Transition): boolean {
   if (transition._done) return true;
-  if (transition._actions.length) return false;
+  if (transition._actions.length) {
+    // A live action parks the transaction regardless of async state.
+    if (__DEV__ && attrHooks !== null) attrHooks.holdStart(transition);
+    return false;
+  }
   let done = true;
   for (const [source, reporters] of transition._asyncReporters) {
     let hasLive = false;
@@ -1256,6 +1265,13 @@ function transitionComplete(transition: Transition): boolean {
   // blockage"); the hook's loops over _optimisticNodes/_optimisticStores are
   // no-ops when the transition holds neither, so no pre-check is needed.
   if (done && GlobalQueue._transitionBlocked?.(transition)) done = false;
+  // Attribution hook: this verdict is the fork between settling (held writes
+  // commit next — `_pendingNodes` still lists them) and parking (the flush
+  // runs the lane effects, then stashes; `holdEnd` fires from stashQueues).
+  // Fired here rather than at flush()'s call site because that site is inside
+  // a `try` (see the rule in attribution-hooks.ts).
+  if (__DEV__ && attrHooks !== null)
+    done ? attrHooks.transitionSettled(transition) : attrHooks.holdStart(transition);
   done && (transition._done = true);
   return done;
 }
