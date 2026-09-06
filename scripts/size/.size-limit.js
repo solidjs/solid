@@ -450,7 +450,13 @@ module.exports = [
     // Rebase over #3183 (responsive preloads) + audit round 3 (2026-09-05):
     // 11.03 -> 11.07 KB, measured at 11.06 — upstream head.ts drift plus the
     // hole seam's synchronous hydration re-entry branch.
-    limit: "11.07 KB",
+    //
+    // Rebase over the #3187 revert + synchronous hole demote (2026-09-05):
+    // 11.07 -> 10.98 KB, measured at 10.97. Insertion-parent tracking left
+    // insert with the revert, and the hole seam's lazy demote signal
+    // (holeGen) is gone — a demote hands the hole to the shared classic
+    // effect synchronously in CSR and hydration alike. Locked in.
+    limit: "10.98 KB",
     modifyEsbuildConfig
   },
   {
@@ -540,7 +546,10 @@ module.exports = [
     //
     // Rebase over #3183 + audit round 3 (2026-09-05): 20.57 -> 20.59 KB,
     // measured at 20.587 (nested claim-recording stack; sync re-entry).
-    limit: "20.60 KB",
+    //
+    // #3187 revert + synchronous hole demote (2026-09-05): 20.60 -> 20.54 KB,
+    // measured at 20.53. Locked in.
+    limit: "20.54 KB",
     modifyEsbuildConfig
   },
   {
@@ -653,7 +662,10 @@ module.exports = [
     //
     // Anchored-hole hydration (2026-09-05): 29.29 -> 29.45 KB, measured at
     // 29.44 (see the hydrating no-stores note).
-    limit: "29.48 KB",
+    //
+    // #3187 revert + synchronous hole demote (2026-09-05): 29.48 -> 29.40 KB,
+    // measured at 29.39. Locked in.
+    limit: "29.40 KB",
     modifyEsbuildConfig
   },
   {
@@ -714,7 +726,10 @@ module.exports = [
     //
     // Rebase over #3183 + audit round 3 (2026-09-05): 15.62 -> 15.66 KB,
     // measured at 15.65 (see the simple-app note).
-    limit: "15.68 KB",
+    //
+    // #3187 revert + synchronous hole demote (2026-09-05): 15.68 -> 15.61 KB,
+    // measured at 15.60. Locked in.
+    limit: "15.61 KB",
     modifyEsbuildConfig
   },
   {

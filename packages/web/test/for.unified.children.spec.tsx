@@ -18,7 +18,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { createSignal, flush, For, children, DEV } from "solid-js";
 const stats = DEV!.unifiedFor;
-import { render } from "@solidjs/web";
+import { render, Dynamic } from "@solidjs/web";
 
 function Table(props: { children: any }) {
   return (
@@ -169,6 +169,34 @@ describe("unified For through props.children (hole seam)", () => {
     setRows([]);
     flush();
     expect(div.innerHTML).toBe("");
+  });
+
+  test("<Dynamic>-rooted rows demote cleanly to classic (memo top level) and stay correct", () => {
+    // Dynamic returns a MEMO (its `component` may change), so the row's top
+    // level is a function whether element creation is eager (#3291 revert)
+    // or deferred (#3187) — the slot demotes, classic owns the hole. Pinned
+    // through the revert so the contract is explicit either way.
+    const [rows, setRows] = createSignal(["a", "b", "c"]);
+    const engaged0 = stats.engaged;
+    const demoted0 = stats.demoted;
+    dispose = render(
+      () => (
+        <Table>
+          <For each={rows()}>{r => <Dynamic component="tr">{r}</Dynamic>}</For>
+        </Table>
+      ),
+      container
+    );
+    expect(stats.engaged).toBe(engaged0 + 1);
+    expect(stats.demoted).toBe(demoted0 + 1);
+    expect(texts(container, "tr")).toEqual(["a", "b", "c"]);
+    setRows(["c", "a", "b"]);
+    flush();
+    expect(texts(container, "tr")).toEqual(["c", "a", "b"]);
+    setRows([]);
+    flush();
+    expect(container.querySelector("tbody")!.innerHTML).toBe("");
+    expect(stats.demoted).toBe(demoted0 + 1); // one demote, no thrash
   });
 
   test("children() introspection stays classic and correct", () => {

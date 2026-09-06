@@ -12,7 +12,6 @@ import {
   merge as mergeProps,
   flatten,
   createMemo,
-  createSignal,
   flush,
   enableHydration,
   enforceLoadingBoundary,
@@ -1066,12 +1065,11 @@ export function insert(parent, accessor, marker, initial, options) {
   // wrapper (`{props.children}` in a parent component compiles to
   // `insert(el, () => props.children)`) engages the slot for the hole. The
   // slot is created inside this compute, so a children change tears it down
-  // (hole-mode cleanup removes its rows). A post-engage demote can't spawn a
-  // second insert into a hole this effect owns — instead it flips
-  // `holeClassic` and bumps `holeGen` (created lazily, only for holes that
-  // ever see a For) so this effect re-runs and takes its classic path.
+  // (hole-mode cleanup removes its rows). A demote hands the hole to the
+  // SHARED classic effect synchronously (the slot has already removed its
+  // rows and disposed its owner) and flips `holeClassic` so a later
+  // children-change re-run takes the classic path directly.
   let holeClassic = false;
-  let holeGen = null;
   // The classic inner effect for a function-valued hole. Shared by the
   // normal path and the hydrating demote re-entry so BOTH write this insert's
   // `current` — a nested insert() would own a private range and leave the
@@ -1093,16 +1091,9 @@ export function insert(parent, accessor, marker, initial, options) {
   effect(
     prev => {
       if (hydrationRt !== null) current = hydrationRt.reclaimRegion(current, parent, marker);
-      if (holeGen !== null) holeGen[0]();
       const value = normalize(accessor(), current, multi, true);
       if (typeof value !== "function") return value;
       if (value.$for !== undefined && !holeClassic) {
-        if (holeGen === null) {
-          // ownedWrite: the demote bump is internal machinery and may fire
-          // from inside an owned scope (a hydrating fill's demote).
-          holeGen = createSignal(0, { ownedWrite: true });
-          holeGen[0]();
-        }
         // Hand-off: whatever classic content this hole tracked goes away
         // first (a For returning after other children). Multi holes keep
         // insert's placeholder invariant — a surviving anchor the slot's
@@ -1136,17 +1127,17 @@ export function insert(parent, accessor, marker, initial, options) {
             value,
             marker,
             () => {
+              // Demote: the slot has removed its rows and disposed its owner;
+              // hand the hole to the SHARED classic effect NOW (synchronous in
+              // CSR and hydration alike — under hydration a deferred re-run
+              // would land after hydrate() flips the flag and clone instead
+              // of claim; in CSR it left the hole empty for a microtask).
+              // Shared, not a nested insert: the rows classic manages from
+              // here live in THIS effect's `current`, so a later children
+              // change cleans them. normalize() unwraps the list (classic
+              // rows) — no re-engage.
               holeClassic = true;
-              if (sharedConfig.hydrating) {
-                // Demote DURING a hydrating fill: re-enter classic NOW, inside
-                // the hydration window — the deferred re-run below would land
-                // after hydrate() flips the flag and CLONE instead of claim.
-                // The SHARED classic effect (not a nested insert) so the rows
-                // classic manages from here on live in this effect's
-                // `current` and a later children change cleans them.
-                // normalize() unwraps the list (classic rows) — no re-engage.
-                runWithOwner(holeOwner, () => classic(listFn, undefined));
-              } else holeGen[1](g => g + 1);
+              runWithOwner(holeOwner, () => classic(listFn, undefined));
             },
             domOps,
             region,
