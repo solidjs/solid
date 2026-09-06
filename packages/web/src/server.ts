@@ -1582,6 +1582,14 @@ export function renderToStream<T>(
    * await renderToStream(...)`). Render errors route through `onError` and
    * the promise resolves with whatever HTML the render produced; it never
    * rejects.
+   *
+   * Completion is this path's head-freeze point: the request event's
+   * `response` head (the request scope the render was started in) is
+   * committed right before the render's final dispose, so
+   * `httpStatus`/`httpHeader` declarations still live at completion survive
+   * into `createSSRResponse(html, event)` — which sees the already-committed
+   * stub and passes it through. The piped forms freeze at shell flush
+   * instead.
    */
   then<TResult1 = string, TResult2 = never>(
     onfulfilled?: ((html: string) => TResult1 | PromiseLike<TResult1>) | null,
@@ -1605,6 +1613,14 @@ export function renderToStream<T>(
 export function renderToStream(code, options = {}) {
   let { onCompleteShell, onCompleteAll, renderId = "", noScripts, manifest, onHead } = options;
   const nonce = normalizeNonce(options.nonce);
+  // The request this render serves, read at start: the scope-tied response
+  // primitives (`httpStatus`/`httpHeader`) write to ITS `response` head, and
+  // the awaited path freezes that same head at completion (see `then`).
+  // Captured here, not in `then`, because the thenable may legitimately be
+  // awaited outside the request scope it was started in —
+  // `await provideRequestEvent(event, () => renderToStream(...))` is the
+  // storage module's own documented shape.
+  const requestEvent = peekRequestEvent();
   let dispose;
   let dead = false;
   // Client-disconnect teardown. A sink that throws from `write`/`end` (its
@@ -2486,9 +2502,28 @@ export function renderToStream(code, options = {}) {
     // renderToStringAsync. Render errors route through `onError` (the
     // promise resolves with whatever HTML the render produced; it never
     // rejects), matching the pipe/pipeTo contract.
+    //
+    // Head-freeze point: completion. The pipe paths freeze the request's
+    // response head when the shell reaches the sink (`createSSRResponse`
+    // commits the stub on the first write, before the final dispose runs).
+    // This path has no shell flush — the whole document resolves at once,
+    // and the consumer derives the head from the SAME stub afterwards
+    // (`createSSRResponse`'s string path) — so the render commits the stub
+    // itself, immediately before disposing the render owner. Without that,
+    // the final dispose would run every `httpStatus`/`httpHeader` cleanup
+    // against a still-open head and retract the declarations before the
+    // consumer ever saw the HTML (a page's `httpStatus(404)` came back 200).
+    // Retraction semantics are untouched: a scope disposed mid-render (an
+    // errored, recovered boundary) still retracts, because the head is
+    // still open then. Consumers see an already-committed stub, which
+    // `createSSRResponse`/`commitEventResponse` pass through idempotently.
     then(onFulfilled, onRejected) {
+      const freezeHead = () => {
+        if (requestEvent && requestEvent.response) commitResponseStub(requestEvent.response);
+      };
       const p = new Promise(resolve => {
         function complete() {
+          freezeHead();
           dispose();
           resolve(tmp);
         }
@@ -2519,7 +2554,11 @@ export function renderToStream(code, options = {}) {
               } catch (err) {
                 // Contain retry-pass errors (see failRender); the thenable
                 // contract already routes render errors through onError and
-                // resolves with whatever HTML the render produced.
+                // resolves with whatever HTML the render produced. The head
+                // is deliberately NOT frozen on this path: the render died,
+                // its teardown retracts the declarations as it always did,
+                // and the consumer keeps a writable head for whatever error
+                // response it builds around the partial HTML.
                 failRender(err);
                 return resolve(tmp);
               }
@@ -4476,6 +4515,19 @@ export function getRequestEvent() {
           "RequestEvent is missing. This is most likely due to accessing `getRequestEvent` non-managed async scope in a partially polyfilled environment. Try moving it above all `await` calls."
         )
     : undefined;
+}
+
+// The runtime's own silent read of the request scope's event, for
+// `renderToStream` at render start: whether there is a response head to
+// freeze at completion. Only the scope store is consulted — no
+// `sharedConfig.context.event` fallback, since at render start that context
+// is the PREVIOUS render's and could name another request's head — and no
+// missing-event warning: that warning is for application code reading the
+// event where it should exist, while a render outside any request scope
+// (tests, static generation, a bare script) is a normal thing.
+function peekRequestEvent() {
+  const store = (globalThis as any)[RequestContext];
+  return store ? store.getStore() : undefined;
 } /** A fresh, uncommitted response head. */
 export function createResponseStub(): ResponseStub;
 
@@ -4539,8 +4591,9 @@ function reportLostHeaderWrite(method, name) {
  * reads are untouched) so a post-commit write fails loudly instead of
  * silently missing the wire: it throws in the dev build and reports +
  * no-ops otherwise. Every head materialization path commits through here
- * (`createSSRResponse`, the server-function handler's commit seam);
- * integrations deriving their own heads should too.
+ * (`createSSRResponse`, an awaited `renderToStream` result's completion,
+ * the server-function handler's commit seam); integrations deriving their
+ * own heads should too.
  *
  * `allowLateLocation` is the stream path's documented exception: a
  * `Location` set after the shell flushed is still honored client-side
@@ -4560,7 +4613,9 @@ export function commitResponseStub(
  * instead of silently missing the wire: it throws in the dev build and
  * reports + no-ops otherwise. Every head materialization path commits
  * through here — `createSSRResponse` (string results and the stream's
- * shell flush) and the server-function handler's commit seam — so the
+ * shell flush), an awaited `renderToStream` result's completion (the
+ * render commits before its final dispose so scope-tied declarations
+ * survive), and the server-function handler's commit seam — so the
  * guarantee holds for every writer, not just core's own primitives.
  *
  * `allowLateLocation` is the stream path's documented exception: a
@@ -4765,9 +4820,13 @@ export function createSSRResponse(
  * Derives the outgoing `Response` for an SSR render result, running the
  * response-head lifecycle against `event.response`:
  *
- * - String results (sync/async renders) commit the stub and return a
- *   `Response` synchronously; a `Location` on the stub becomes a real
- *   redirect (`getExpectedRedirectStatus`) instead of an HTML response.
+ * - String results commit the stub and return a `Response` synchronously;
+ *   a `Location` on the stub becomes a real redirect
+ *   (`getExpectedRedirectStatus`) instead of an HTML response. An awaited
+ *   `renderToStream(...)` result arrives with its stub ALREADY committed —
+ *   the render froze the head at completion, before its final dispose, so
+ *   `httpStatus`/`httpHeader` declarations survive into the derived head —
+ *   and the commit here is an idempotent pass-through for it.
  * - Stream results (`renderToStream(...)`) resolve at shell flush — the
  *   moment the head freezes: the stub is committed there (post-commit
  *   header writes fail loudly — see `commitResponseStub`), its

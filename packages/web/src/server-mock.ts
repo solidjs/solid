@@ -270,8 +270,9 @@ export function getExpectedRedirectStatus(response: ResponseStub): number {
  * shell flush, a pre-flush `Location` becomes a real redirect
  * (`getExpectedRedirectStatus`), and a post-flush one appends the
  * nonce-aware `<script>window.location=...</script>` fallback. String
- * results return a `Response` synchronously; stream results resolve at
- * shell flush. Server-only.
+ * results return a `Response` synchronously (an awaited `renderToStream`
+ * result arrives already committed — its head froze at completion); stream
+ * results resolve at shell flush. Server-only.
  */
 export function createSSRResponse(
   result: string,

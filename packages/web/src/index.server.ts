@@ -270,9 +270,14 @@ const headerLedgers = /* @__PURE__ */ new WeakMap<ResponseStub, Map<string, Head
  * write without stomping a status a surviving part of the tree legitimately
  * set (e.g. a 404 page whose inner boundary recovers stays a 404), and
  * sibling scopes may dispose in any order (#2984). Both the write and the
- * cleanup are no-ops once the integration marks the response head
- * `committed` (head derived/sent — status can no longer change). On the
- * client this is a no-op.
+ * cleanup are no-ops once the response head is `committed` (head
+ * derived/sent — status can no longer change). The head commits when it
+ * freezes: at shell flush for a piped `renderToStream` (`createSSRResponse`
+ * commits on the first write), at completion for an awaited one (the render
+ * commits right before its final dispose, so the declarations still live at
+ * that point are the ones the consumer derives the head from), and when
+ * `createSSRResponse` receives a `renderToString` result. On the client this
+ * is a no-op.
  */
 export function httpStatus(code: number, text?: string): void {
   // `response` is an integration-augmented field (see core's ResponseStub);
@@ -323,9 +328,12 @@ export function httpStatus(code: number, text?: string): void {
  * multiple values must survive as separate entries — the base is captured
  * and replayed entry-exact (`getSetCookie()` + re-append; `get()`/`set()`
  * would comma-join the entries and then collapse them into one corrupt
- * header). Both the write and the cleanup are no-ops once the integration
- * marks the response head `committed` (head derived/sent — headers can no
- * longer change). On the client this is a no-op.
+ * header). Both the write and the cleanup are no-ops once the response head
+ * is `committed` (head derived/sent — headers can no longer change); the
+ * head commits when it freezes — shell flush for a piped `renderToStream`,
+ * completion (right before the final dispose) for an awaited one,
+ * `createSSRResponse` for a `renderToString` result — see `httpStatus`. On
+ * the client this is a no-op.
  */
 export function httpHeader(name: string, value: string, options?: { append?: boolean }): void {
   const event = getRequestEvent() as (RequestEvent & { response?: ResponseStub }) | undefined;

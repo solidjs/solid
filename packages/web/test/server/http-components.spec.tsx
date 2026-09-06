@@ -16,10 +16,13 @@ import {
   clientOnly,
   renderToString,
   renderToStream,
-  Loading
+  createRequestEvent,
+  createSSRResponse,
+  Loading,
+  Errored
 } from "@solidjs/web";
 import type { RequestEvent, ResponseStub } from "@solidjs/web";
-import { createRoot, type Component } from "solid-js";
+import { createMemo, createRoot, type Component } from "solid-js";
 
 // `response` is integration-augmented (see core's ResponseStub); model an
 // integration event here.
@@ -450,6 +453,153 @@ describe("httpHeader (server primitive)", () => {
       });
     });
     expect(midway.response!.headers.get("x-b")).toBe("kept");
+  });
+});
+
+// The awaited path: `await renderToStream(...)` resolves with the complete
+// document, and the consumer derives the head from the SAME stub the render
+// wrote to (`createSSRResponse`'s string path). There is no shell flush to
+// freeze the head at, so render completion is the freeze point — the runtime
+// commits the stub before the final dispose, or every scope-tied declaration
+// would retract before the consumer ever saw the HTML (a bare
+// `httpStatus(404)` coming back as a 200).
+describe("awaited renderToStream: response head freezes at completion", () => {
+  function delay(ms: number) {
+    return new Promise(r => setTimeout(r, ms));
+  }
+
+  test("httpStatus/httpHeader declarations survive into createSSRResponse", async () => {
+    const event = createRequestEvent(new Request("http://localhost/missing"));
+    const Page = () => {
+      httpStatus(404, "Not Found");
+      httpHeader("x-test", "yes");
+      return <div>not found</div>;
+    };
+    // The storage doc's own shape: the render starts inside the request
+    // scope, the thenable is awaited outside it — the head to freeze is the
+    // one the render was started under.
+    const html = await storage.run(event, () => renderToStream(() => <Page />));
+    expect(html).toContain("not found");
+    // Completion froze the head: the final dispose's retractions were no-ops.
+    expect(event.response.committed).toBe(true);
+    expect(event.response.status).toBe(404);
+    expect(event.response.headers.get("x-test")).toBe("yes");
+
+    // An already-committed stub passes through createSSRResponse untouched.
+    const response = createSSRResponse(html, event);
+    expect(response.status).toBe(404);
+    expect(response.statusText).toBe("Not Found");
+    expect(response.headers.get("x-test")).toBe("yes");
+    expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(await response.text()).toContain("not found");
+  });
+
+  test("declarations made under a boundary that settles asynchronously survive too", async () => {
+    // No shell flush on this path: the freeze must wait for COMPLETION (every
+    // boundary settled), not fire when the shell would have gone out.
+    const event = createRequestEvent(new Request("http://localhost/item"));
+    function Item() {
+      const data = createMemo(async () => {
+        await delay(5);
+        return "gone";
+      });
+      httpStatus(410, "Gone");
+      httpHeader("x-late", "declared");
+      return <p>{data()}</p>;
+    }
+    const html = await storage.run(event, () =>
+      renderToStream(() => (
+        <Loading fallback={<i>loading</i>}>
+          <Item />
+        </Loading>
+      ))
+    );
+    expect(html).toContain("gone");
+    const response = createSSRResponse(html, event);
+    expect(response.status).toBe(410);
+    expect(response.statusText).toBe("Gone");
+    expect(response.headers.get("x-late")).toBe("declared");
+  });
+
+  test("a scope disposed mid-render still retracts (recovered-boundary semantics preserved)", async () => {
+    // The freeze lands at completion only: a boundary that errored, declared
+    // a status, and recovered BEFORE the render completed has already
+    // retracted — and the surviving page-level declaration stands.
+    const event = createRequestEvent(new Request("http://localhost/missing"));
+    const Page = () => {
+      httpStatus(404, "Not Found");
+      httpHeader("x-page", "kept");
+      // Model the errored-and-recovered scope: it declares, then its owner is
+      // disposed while the head is still open.
+      createRoot(dispose => {
+        httpStatus(500, "Server Error");
+        httpHeader("x-errored", "1");
+        expect(event.response.status).toBe(500);
+        dispose();
+      });
+      return <div>not found</div>;
+    };
+    const html = await storage.run(event, () => renderToStream(() => <Page />));
+    const response = createSSRResponse(html, event);
+    expect(response.status).toBe(404);
+    expect(response.statusText).toBe("Not Found");
+    expect(response.headers.get("x-page")).toBe("kept");
+    expect(response.headers.has("x-errored")).toBe(false);
+  });
+
+  test("a synchronously erroring child under Errored keeps parity with the pipe path", async () => {
+    // Existing semantics on both paths: a child that declares and then throws
+    // synchronously is caught by the boundary, and its owner is not disposed
+    // until the render's final dispose — after the head froze. The awaited
+    // result must derive the same head the pipe path's shell flush would.
+    const Page = () => {
+      httpStatus(404, "Not Found");
+      return (
+        <Errored fallback={<p>caught</p>}>
+          {(() => {
+            httpStatus(500, "Server Error");
+            httpHeader("x-errored", "1");
+            throw new Error("boom");
+          })()}
+        </Errored>
+      );
+    };
+
+    const awaited = createRequestEvent(new Request("http://localhost/"));
+    const html = await storage.run(awaited, () => renderToStream(() => <Page />));
+    const awaitedResponse = createSSRResponse(html, awaited);
+
+    const piped = createRequestEvent(new Request("http://localhost/"));
+    const pipedResponse = await storage.run(piped, () =>
+      createSSRResponse(
+        renderToStream(() => <Page />),
+        piped
+      )
+    );
+
+    expect(html).toContain("caught");
+    expect(awaitedResponse.status).toBe(pipedResponse.status);
+    expect(awaitedResponse.headers.get("x-errored")).toBe(pipedResponse.headers.get("x-errored"));
+  });
+
+  test("the pipe path is unchanged: the head freezes at shell flush", async () => {
+    const event = createRequestEvent(new Request("http://localhost/missing"));
+    const Page = () => {
+      httpStatus(404, "Not Found");
+      httpHeader("x-test", "yes");
+      return <div>not found</div>;
+    };
+    const response = await storage.run(event, () =>
+      createSSRResponse(
+        renderToStream(() => <Page />),
+        event
+      )
+    );
+    expect(event.response.committed).toBe(true);
+    expect(response.status).toBe(404);
+    expect(response.statusText).toBe("Not Found");
+    expect(response.headers.get("x-test")).toBe("yes");
+    expect(await response.text()).toContain("not found");
   });
 });
 

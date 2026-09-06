@@ -522,9 +522,10 @@ export function clientOnly<T extends Component<any>>(
  * `event.response` status at write time and restores it when the owning
  * scope is disposed — so a boundary that errored, declared a status, and
  * then recovered retracts its write instead of stomping a status a
- * surviving part of the tree legitimately set. Once the integration marks
- * the response head `committed` (head derived/sent), writes and
- * retractions are no-ops.
+ * surviving part of the tree legitimately set. Once the response head is
+ * `committed` (head derived/sent — the shell flush of a piped
+ * `renderToStream`, the completion of an awaited one, `createSSRResponse`
+ * for a `renderToString` result), writes and retractions are no-ops.
  */
 export function httpStatus(_code: number, _text?: string): void {}
 
@@ -543,7 +544,9 @@ export function httpStatus(_code: number, _text?: string): void {}
  * Retraction semantics (server): the header's prior value is snapshotted at
  * write time and restored when the owning scope is disposed (deleted if
  * there was none) — a boundary that errors or recovers retracts its writes.
- * Once the integration marks the response head `committed` (head
- * derived/sent), writes and retractions are no-ops.
+ * Once the response head is `committed` (head derived/sent — the shell
+ * flush of a piped `renderToStream`, the completion of an awaited one,
+ * `createSSRResponse` for a `renderToString` result), writes and
+ * retractions are no-ops.
  */
 export function httpHeader(_name: string, _value: string, _options?: { append?: boolean }): void {}
