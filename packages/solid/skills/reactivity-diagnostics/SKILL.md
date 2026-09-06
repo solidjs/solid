@@ -26,6 +26,15 @@ subject has no named owner — a top-level scope, or an unowned primitive,
 which for the `NO_OWNER_*` codes is the finding itself. Naming your memos and
 effects (`{ name }`) turns the trailing `effect` into something you can grep.
 
+With attribution enabled, every root write also carries WHO performed it
+(`ChangeRecord.origin`): the user event and element (`click on button#next
+"Next →"`), the effect or action it ran inside (`effect "syncTitle"`,
+`action "save"`), the async landing, or `outside the reactive system`
+(timers, sockets, post-`await` code in an action — the documented escape).
+Why-chains print it after the write; re-runs and holds expose the
+interaction they trace back to (`event.interaction`, `hold.interaction`), so
+a cost or a wait can be read as "what did the user do to pay for this."
+
 ## Tracking mistakes (reads in the wrong place)
 
 ### STRICT_READ_UNTRACKED
@@ -231,8 +240,10 @@ from it) until the data came back — that hold is correct; it is what keeps the
 screen from tearing. But for the whole wait nothing on screen acknowledged it:
 no `isPending()`/`latest()` reader downstream of the write or its blocker, no
 optimistic value, no `affects()` mark, and no effect ran at all. From the
-user's side the click was dead for the duration in the message. The fix is
-ALWAYS to add feedback, never to remove the hold:
+user's side the click was dead for the duration in the message — which, when
+the write came from a JSX event handler, starts with what they did (`click on
+button#next "Next →" wrote "page" (1 → 2)`) and is measured from that event.
+The fix is ALWAYS to add feedback, never to remove the hold:
 
 - Show the wait: read `isPending(() => blocker())` (the blocker is named in
   the message) or `isPending(() => derivedFromIt())` in the affected UI and

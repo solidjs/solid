@@ -15,7 +15,8 @@ import {
   flush,
   enableHydration,
   enforceLoadingBoundary,
-  resetErrorHalt
+  resetErrorHalt,
+  DEV
 } from "solid-js";
 import { effect, memo } from "./render.js";
 
@@ -378,9 +379,44 @@ export function unregisterDelegatedContainer(container, owner = container) {
 
 function attachDelegatedEvent(name, container, state) {
   if (state.handlers.has(name)) return;
-  const handler = e => eventHandler(e, container, state);
+  const handler = "_SOLID_DEV_"
+    ? e => dispatchAsInteraction(e, () => eventHandler(e, container, state))
+    : e => eventHandler(e, container, state);
   state.handlers.set(name, handler);
   container.addEventListener(name, handler);
+}
+
+// === Interaction provenance (dev) ===
+//
+// Delegated events — every INP-relevant type: click, input, keydown,
+// pointer*… — reach user code through the dispatch above, and runtime-attached
+// direct handlers (spreads, non-literal handler expressions) through addEvent.
+// Wrapping those two in the signals attribution engine's `withInteraction`
+// stamps every root write a handler performs with the event that caused it
+// (`click on button#next "Next →"`) — what turns a transition hold or a hot
+// scope into a per-interaction number. Not covered: non-delegated events
+// whose handler is a literal function (the compiler emits a bare
+// `addEventListener` for those) and hand-written `ref`-based listeners.
+
+/** `button#next "Next →"`, `input[name=q]`, `a "Docs"` — what the user hit. */
+function describeEventTarget(target) {
+  if (!target || typeof target.tagName !== "string") return undefined;
+  const tag = target.tagName.toLowerCase();
+  let out = tag;
+  if (target.id) out += `#${target.id}`;
+  else if (typeof target.name === "string" && target.name) out += `[name=${target.name}]`;
+  if (tag !== "input" && tag !== "textarea" && tag !== "select") {
+    const text = (target.textContent || "").trim().replace(/\s+/g, " ");
+    if (text) out += ` "${text.length > 30 ? text.slice(0, 29) + "…" : text}"`;
+  }
+  return out;
+}
+
+function dispatchAsInteraction(e, fn) {
+  return DEV.attribution.withInteraction(
+    { type: e.type, target: describeEventTarget(e.target) },
+    fn
+  );
 } /** Event-delegation plumbing (Portal/custom-root wiring). Integration plumbing. @internal */
 export function getDelegatedRoot(node: MountableElement): MountableElement | undefined;
 
@@ -634,10 +670,21 @@ export function addEvent(node, name, handler, delegate) {
   }
   if (Array.isArray(handler)) {
     const handlerFn = handler[0];
-    const listener = e => handlerFn.call(node, handler[1], e);
+    const listener = "_SOLID_DEV_"
+      ? e => dispatchAsInteraction(e, () => handlerFn.call(node, handler[1], e))
+      : e => handlerFn.call(node, handler[1], e);
     // Keep authored identity on this attachment's wrapper, never on the
     // shared element where another spread/root/direct listener could replace it.
     listener[$$EVENT_TUPLE] = handler;
+    node.addEventListener(name, listener);
+    return listener;
+  }
+  if ("_SOLID_DEV_" && typeof handler === "function") {
+    // Dev wraps plain function listeners for provenance; the wrapper is what
+    // the caller gets back, so removal by the returned identity still works.
+    // Listener objects keep their identity (their options object rides along
+    // on the attach call and must match on removal).
+    const listener = e => dispatchAsInteraction(e, () => handler.call(node, e));
     node.addEventListener(name, listener);
     return listener;
   }

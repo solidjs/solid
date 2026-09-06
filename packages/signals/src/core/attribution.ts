@@ -32,6 +32,43 @@ import type { Computed, Signal } from "./types.js";
 
 export type ChangeKind = "write" | "derived" | "async" | "refresh";
 
+/**
+ * Provenance of a root change: the imperative frame that performed it.
+ *
+ * - `interaction` — a user event handler (the web runtime marks dispatch via
+ *   `withInteraction`). `name` is the event type, `target` the element hit
+ *   (`button#next "Next →"`), `at` the dispatch time on the `performance.now()`
+ *   clock — the base every feedback-latency number is measured from.
+ * - `effect` — an effect callback (`name` = the effect's name).
+ * - `action` — a step of an `action()` generator (`name` = the generator's
+ *   name, when it has one). Writes after an `await` (not a `yield`) run in a
+ *   bare microtask and stamp `external` — the documented escape.
+ * - `async` — an async landing (`name` = the node whose flight landed).
+ * - `external` — none of the above: timers, sockets, promise callbacks, setup.
+ *
+ * `interaction` on a non-interaction frame is the user event the frame runs
+ * under — an action started by a click, an effect whose run was caused by a
+ * click's write, a landing whose flight a click started. It is what lets
+ * every downstream cost be keyed by the interaction that paid for it.
+ */
+export interface ChangeOrigin {
+  kind: "interaction" | "effect" | "action" | "async" | "external";
+  name?: string;
+  target?: string;
+  at?: number;
+  interaction?: ChangeOrigin;
+}
+
+/** A user interaction, as the web runtime describes it to `withInteraction`. */
+export interface InteractionRef {
+  /** Event type — `click`, `keydown`, `input`… */
+  type: string;
+  /** The element hit, e.g. `button#next "Next →"`. */
+  target?: string;
+  /** Dispatch time on the `performance.now()` clock; defaults to now. */
+  at?: number;
+}
+
 export interface ChangeRecord {
   /** Global monotonic change sequence — orders causes across the app. */
   seq: number;
@@ -44,6 +81,8 @@ export interface ChangeRecord {
   stack?: string[];
   /** For derived changes: the upstream changes that produced this one. */
   causes?: ChangeRecord[];
+  /** Root changes only: who performed the write. */
+  origin?: ChangeOrigin;
 }
 
 export interface RerunEvent {
@@ -98,6 +137,8 @@ export interface RerunEvent {
    * schedule. Held runs are excluded from waste accounting.
    */
   held: boolean;
+  /** The user interaction this run traces back to through its causes, if any. */
+  interaction?: ChangeOrigin;
 }
 
 export interface AttributionOptions {
@@ -195,6 +236,8 @@ interface AttributedNode {
   _devWideWriteWarnedAt?: number;
   /** Longest sequential-flight chain already warned for this node. */
   _devWaterfallWarnedAt?: number;
+  /** Interaction the node's latest compute run traced to — inherited by its effect phase. */
+  _devRunInteraction?: ChangeOrigin;
 }
 
 let attributionActive = false;
@@ -334,6 +377,106 @@ function captureStack(): string[] | undefined {
 /** Sentinel for "no value transition to record" (refresh() stamps). */
 const NO_VALUES = Symbol("no-values");
 
+// --- Provenance -------------------------------------------------------------
+//
+// Who performed a write is not a graph fact — the graph only sees the write.
+// The engine keeps an ambient answer: a stack of imperative frames the core
+// announces (effect callbacks, action steps) and the interaction the web
+// runtime declares around event dispatch. A write stamps the innermost frame;
+// frames nested under an interaction carry it. Effects run in a later flush
+// than the click that caused them, so their frame inherits the interaction
+// from the run's cause chain instead (recorded at recomputeEnd).
+
+const EXTERNAL_ORIGIN: ChangeOrigin = { kind: "external" };
+const originFrames: ChangeOrigin[] = [];
+/** Per action invocation (keyed by its iterator): the interaction its first step ran under. */
+const actionInteractions = new WeakMap<object, ChangeOrigin | undefined>();
+/**
+ * Set by `withInteraction` for the duration of a handler. Lives outside the
+ * enable/disable lifecycle on purpose: the web runtime marks dispatch whether
+ * or not an engine is listening, and enable() mid-handler must see the mark.
+ */
+let currentInteraction: ChangeOrigin | null = null;
+
+/** The interaction an origin runs under (itself, when it is one). */
+function interactionOf(origin: ChangeOrigin | undefined): ChangeOrigin | undefined {
+  if (origin === undefined) return undefined;
+  return origin.kind === "interaction" ? origin : origin.interaction;
+}
+
+/** The interaction a cause list traces back to — root writes only, derived links walked. */
+function interactionIn(causes: ChangeRecord[]): ChangeOrigin | undefined {
+  for (const c of causes) {
+    const found =
+      c.kind === "derived"
+        ? c.causes !== undefined
+          ? interactionIn(c.causes)
+          : undefined
+        : interactionOf(c.origin);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function currentOrigin(): ChangeOrigin {
+  const frame = originFrames[originFrames.length - 1];
+  if (frame !== undefined) return frame;
+  return currentInteraction ?? EXTERNAL_ORIGIN;
+}
+
+function pushFrame(
+  kind: "effect" | "action",
+  name: string | undefined,
+  interaction?: ChangeOrigin
+) {
+  const frame: ChangeOrigin = { kind };
+  if (name) frame.name = name;
+  const under = interaction ?? currentInteraction ?? undefined;
+  if (under !== undefined) frame.interaction = under;
+  originFrames.push(frame);
+}
+
+function popFrame(kind: "effect" | "action") {
+  // Frames are strictly nested; a mismatch means enable() landed mid-frame
+  // (the opener never pushed) — leave the stack alone rather than pop a stranger.
+  const top = originFrames[originFrames.length - 1];
+  if (top !== undefined && top.kind === kind) originFrames.pop();
+}
+
+/**
+ * Run `fn` as the handler of a user interaction: every root write it performs
+ * (and every action step or effect the write causes) carries the interaction
+ * as provenance. The web runtime wraps event dispatch in this; it is dev-only
+ * and safe to call with no engine enabled.
+ */
+export function withInteraction<T>(ref: InteractionRef, fn: () => T): T {
+  const prev = currentInteraction;
+  const origin: ChangeOrigin = { kind: "interaction", name: ref.type, at: ref.at ?? now() };
+  if (ref.target) origin.target = ref.target;
+  currentInteraction = origin;
+  try {
+    return fn();
+  } finally {
+    currentInteraction = prev;
+  }
+}
+
+/** `click on button#next "Next →"`, `effect "syncTitle"`, `action "save"`, … */
+export function formatOrigin(origin: ChangeOrigin): string {
+  switch (origin.kind) {
+    case "interaction":
+      return `${origin.name} on ${origin.target ?? "an element"}`;
+    case "effect":
+      return `effect${origin.name ? ` "${origin.name}"` : ""}`;
+    case "action":
+      return `action${origin.name ? ` "${origin.name}"` : ""}`;
+    case "async":
+      return `async landing${origin.name ? ` on "${origin.name}"` : ""}`;
+    default:
+      return "outside the reactive system";
+  }
+}
+
 /** Record a root change (setSignal / refresh / async landing) on the node. */
 /**
  * Written-fan-out warning — the write-time complement of the always-on
@@ -388,6 +531,7 @@ function stampWrite(
     record.prev = prev === NO_VALUES ? undefined : preview(prev);
     record.value = preview(value);
   }
+  record.origin = kind === "async" ? asyncOrigin(node as Computed<any>) : currentOrigin();
   record.stack = captureStack();
   (node as AttributedNode)._devChange = record;
   // stampWrite is the single funnel for committed root invalidations (sync
@@ -657,6 +801,11 @@ function recordRerun(
     phase,
     held
   };
+  const interaction = interactionIn(causes);
+  if (interaction !== undefined) event.interaction = interaction;
+  // The effect phase runs later in the flush with no cause list of its own:
+  // it inherits this run's interaction (see effectRunStart).
+  node._devRunInteraction = interaction;
   history.push(event);
   if (history.length > options.historyLimit) history.shift();
   recordCosts(event);
@@ -673,6 +822,11 @@ function formatCause(cause: ChangeRecord, depth: number, out: string[]): void {
     cause.kind === "derived" ? "changed" : cause.kind
   } (#${cause.seq})`;
   if (cause.prev !== undefined) line += ` ${cause.prev} → ${cause.value}`;
+  if (cause.origin !== undefined && cause.origin.kind !== "external") {
+    line += ` — ${formatOrigin(cause.origin)}`;
+    const under = cause.origin.interaction;
+    if (under !== undefined) line += ` (under ${formatOrigin(under)})`;
+  }
   out.push(line);
   if (cause.stack) for (const frame of cause.stack) out.push(`${pad}    ${frame}`);
   if (cause.causes && depth < 10) {
@@ -739,7 +893,15 @@ export interface Attribution {
    * later enable()). Dev-only, like the whole DEV surface.
    */
   markFlight(flight: object, startedAt?: number): void;
+  /**
+   * Run `fn` as a user interaction's handler: root writes inside stamp it as
+   * their origin, and actions/effects/flights it causes carry it. The web
+   * runtime wraps every event dispatch in this; custom renderers and test
+   * harnesses call it themselves. Callable while attribution is disabled.
+   */
+  withInteraction: typeof withInteraction;
   format: typeof formatRerun;
+  formatOrigin: typeof formatOrigin;
 }
 
 /**
@@ -874,6 +1036,16 @@ interface LiveFlight {
   /** changeSeq at flight start — associates the eventual landing stamp. */
   startSeq: number;
   chain: FlightLink[];
+  /** The user interaction whose write started this flight, if any. */
+  interaction?: ChangeOrigin;
+}
+
+/** Provenance of an async landing: the flight, under the interaction that started it. */
+function asyncOrigin(el: Computed<any>): ChangeOrigin {
+  const origin: ChangeOrigin = { kind: "async", name: nodeName(el) };
+  const interaction = liveFlights.get(el)?.interaction;
+  if (interaction !== undefined) origin.interaction = interaction;
+  return origin;
 }
 // WeakMaps: an errored/abandoned flight must not leak its node or block GC.
 const liveFlights = new WeakMap<Computed<any>, LiveFlight>();
@@ -900,7 +1072,6 @@ function flightCauseIn(causes: ChangeRecord[]): LandedFlight | null {
 }
 
 function trackFlightStart(el: Computed<any>, flight: object): void {
-  if (options.waterfalls === false) return;
   const at = now();
   const origin = flightOrigins.get(flight) ?? at;
   if (origin === at) flightOrigins.set(flight, at);
@@ -908,22 +1079,27 @@ function trackFlightStart(el: Computed<any>, flight: object): void {
   // inside a parent's recompute inherits the parent's causality — the
   // boundary-reveal case, and the lazy sibling whose first pull is gated
   // behind an earlier not-ready read), so walk down to the first re-run frame.
-  let parent: LandedFlight | null = null;
+  let causes: ChangeRecord[] | null = null;
   for (let i = frames.length - 1; i >= 0; i--) {
-    const causes = frames[i].causes;
-    if (causes !== null) {
-      parent = flightCauseIn(causes);
+    if (frames[i].causes !== null) {
+      causes = frames[i].causes;
       break;
     }
   }
-  // The sequentiality test. A marked/previously-seen flight whose origin
-  // predates the upstream landing was in the air alongside it: parallel.
-  if (parent !== null && origin < parent.landedAt) parent = null;
-  liveFlights.set(el, {
-    origin,
-    startSeq: changeSeq,
-    chain: parent === null ? [] : [...parent.chain, { name: parent.name, ms: parent.ms }]
-  });
+  const live: LiveFlight = { origin, startSeq: changeSeq, chain: [] };
+  // Provenance: the flight belongs to whatever interaction caused the
+  // recompute that started it (a create run under a click's handler — a
+  // freshly mounted async node — inherits the ambient interaction instead).
+  const interaction = causes !== null ? interactionIn(causes) : (currentInteraction ?? undefined);
+  if (interaction !== undefined) live.interaction = interaction;
+  if (options.waterfalls !== false && causes !== null) {
+    let parent = flightCauseIn(causes);
+    // The sequentiality test. A marked/previously-seen flight whose origin
+    // predates the upstream landing was in the air alongside it: parallel.
+    if (parent !== null && origin < parent.landedAt) parent = null;
+    if (parent !== null) live.chain = [...parent.chain, { name: parent.name, ms: parent.ms }];
+  }
+  liveFlights.set(el, live);
 }
 
 /**
@@ -1022,10 +1198,17 @@ export interface HeldWrite {
   name: string;
   prev?: string;
   value?: string;
+  origin?: ChangeOrigin;
 }
 export interface HoldEvent {
-  /** Wall time from the first flush that parked the transition to its completion. */
+  /**
+   * Wall time the user waited: from the interaction that performed the held
+   * writes when one is known (`interaction.at`), else from the first flush
+   * that parked the transition, to its completion.
+   */
   holdMs: number;
+  /** The user interaction whose writes were held, when the stamp is known. */
+  interaction?: ChangeOrigin;
   /** Flushes that ended with the transition still incomplete. */
   flushes: number;
   /** Root signal writes staged behind the hold (the user's unanswered input). */
@@ -1143,18 +1326,26 @@ function trackHoldSettled(t: Transition): void {
   // question is whether the USER's input went unanswered.
   const heldWrites: HeldWrite[] = [];
   let subject: Signal<any> | null = null;
+  let interaction: ChangeOrigin | undefined;
   for (const node of t._pendingNodes) {
     if (typeof (node as Computed<any>)._fn === "function" || isCompanion(node)) continue;
     const change = (node as AttributedNode)._devChange;
     if (change === undefined || change.kind !== "write") continue;
     if (subject === null) subject = node;
-    heldWrites.push({ name: nodeName(node), prev: change.prev, value: change.value });
+    const held: HeldWrite = { name: nodeName(node), prev: change.prev, value: change.value };
+    if (change.origin !== undefined) held.origin = change.origin;
+    heldWrites.push(held);
+    // Earliest interaction among the held writes: the user has been waiting
+    // since the first thing they did that this transaction is holding.
+    const under = interactionOf(change.origin);
+    if (under !== undefined && (interaction === undefined || under.at! < interaction.at!))
+      interaction = under;
   }
   if (heldWrites.length === 0) return;
   censusRegistrations(t, state);
   censusCompanions([...t._pendingNodes, ...state.blockers], state.acknowledgedBy);
   const event: HoldEvent = {
-    holdMs: now() - state.start,
+    holdMs: now() - (interaction !== undefined ? interaction.at! : state.start),
     flushes: state.flushes,
     heldWrites,
     blockers: [...state.blockers].map(nodeName),
@@ -1162,6 +1353,7 @@ function trackHoldSettled(t: Transition): void {
     paintedDuringHold: state.painted,
     action: state.action
   };
+  if (interaction !== undefined) event.interaction = interaction;
   holdLog.push(event);
   if (holdLog.length > options.historyLimit) holdLog.shift();
   checkSilentHold(event, subject!);
@@ -1178,20 +1370,34 @@ function checkSilentHold(event: HoldEvent, subject: Signal<any>): void {
     .join(", ");
   const waitedOn =
     event.blockers.length > 0 ? ` waiting on ${event.blockers.map(b => `"${b}"`).join(", ")}` : "";
+  // With the interaction stamped the sentence starts from what the user did;
+  // without it, from the writes.
+  const who = event.interaction !== undefined ? `${formatOrigin(event.interaction)} ` : "";
   const message = event.action
-    ? `[SILENT_HOLD] an action held ${writes} for ${ms}ms${waitedOn} and the screen showed ` +
-      `nothing for the whole round-trip: no optimistic value, no isPending() reader, no ` +
-      `affects() mark, and no effect ran while it was held. Pair the action with a ` +
-      `createOptimistic/createOptimisticStore write for the expected outcome (it reverts ` +
-      `on failure), or co-write a createOptimistic(false) "saving" flag the UI reads.`
-    : `[SILENT_HOLD] writes to ${writes} were held ${ms}ms${waitedOn} and the screen showed ` +
-      `nothing for the wait: no isPending()/latest() reader downstream, no optimistic ` +
-      `value, no affects() mark, and no effect ran while it was held — the interaction ` +
-      `was dead for ${ms}ms. Show the wait: read isPending(() => ${event.blockers[0] ?? "source"}()) ` +
-      `to render a busy state, or latest(${event.heldWrites[0].name}) to reveal the new input ` +
-      `immediately while the data catches up. The hold itself is correct — do not "fix" ` +
-      `this by moving the write off the async path.`;
+    ? `[SILENT_HOLD] ${who}${who ? "started an action that" : "an action"} held ${writes} for ` +
+      `${ms}ms${waitedOn} and the screen showed nothing for the whole round-trip: no optimistic ` +
+      `value, no isPending() reader, no affects() mark, and no effect ran while it was held. ` +
+      `Pair the action with a createOptimistic/createOptimisticStore write for the expected ` +
+      `outcome (it reverts on failure), or co-write a createOptimistic(false) "saving" flag ` +
+      `the UI reads.`
+    : `[SILENT_HOLD] ${who}${who ? "wrote" : "writes to"} ${writes}${who ? "; the write was" : " were"} ` +
+      `held ${ms}ms${waitedOn} and the screen showed nothing for the wait: no ` +
+      `isPending()/latest() reader downstream, no optimistic value, no affects() mark, and no ` +
+      `effect ran while it was held — the interaction was dead for ${ms}ms. Show the wait: ` +
+      `read isPending(() => ${event.blockers[0] ?? "source"}()) to render a busy state, or ` +
+      `latest(${event.heldWrites[0].name}) to reveal the new input immediately while the data ` +
+      `catches up. The hold itself is correct — do not "fix" this by moving the write off the ` +
+      `async path.`;
   const severity = event.holdMs >= cfg.warnMs ? "warn" : "info";
+  const data: Record<string, unknown> = {
+    holdMs: event.holdMs,
+    flushes: event.flushes,
+    heldWrites: event.heldWrites.map(w => w.name),
+    blockers: event.blockers,
+    action: event.action
+  };
+  if (event.interaction !== undefined)
+    data.interaction = { type: event.interaction.name, target: event.interaction.target };
   const entry = emitDiagnostic(
     {
       code: "SILENT_HOLD",
@@ -1199,13 +1405,7 @@ function checkSilentHold(event: HoldEvent, subject: Signal<any>): void {
       severity,
       message,
       nodeName: nodeName(subject),
-      data: {
-        holdMs: event.holdMs,
-        flushes: event.flushes,
-        heldWrites: event.heldWrites.map(w => w.name),
-        blockers: event.blockers,
-        action: event.action
-      }
+      data
     },
     subject
   );
@@ -1325,8 +1525,26 @@ const engineHooks: AttributionHooks = {
       stampWrite(el, "async", NO_VALUES, value);
     finalizeFlight(el);
   },
-  effectRun() {
+  effectRunStart(el) {
+    pushFrame("effect", nodeName(el), (el as AttributedNode)._devRunInteraction);
+  },
+  effectRunEnd() {
+    popFrame("effect");
     if (activeHold !== null) activeHold.painted++;
+  },
+  actionStepStart(it, name) {
+    // Steps after a yield resume from a promise callback with no ambient
+    // interaction; the one that started the action (its first step) is the
+    // action's interaction for every step.
+    let interaction = actionInteractions.get(it);
+    if (interaction === undefined && !actionInteractions.has(it)) {
+      interaction = currentInteraction ?? undefined;
+      actionInteractions.set(it, interaction);
+    }
+    pushFrame("action", name, interaction);
+  },
+  actionStepEnd() {
+    popFrame("action");
   },
   holdStart(t) {
     trackHoldStart(t);
@@ -1352,6 +1570,7 @@ export const attribution: Attribution = {
     waterfallLog = [];
     holdLog = [];
     activeHold = null;
+    originFrames.length = 0;
     hotCauses.clear();
     setAttributionHooks(engineHooks);
   },
@@ -1365,6 +1584,7 @@ export const attribution: Attribution = {
     waterfallLog = [];
     holdLog = [];
     activeHold = null;
+    originFrames.length = 0;
     hotCauses.clear();
     setAttributionHooks(null);
   },
@@ -1403,5 +1623,7 @@ export const attribution: Attribution = {
     const existing = flightOrigins.get(flight);
     if (existing === undefined || startedAt < existing) flightOrigins.set(flight, startedAt);
   },
-  format: formatRerun
+  withInteraction,
+  format: formatRerun,
+  formatOrigin
 };

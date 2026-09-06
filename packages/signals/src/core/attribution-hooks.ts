@@ -68,10 +68,20 @@ export interface AttributionHooks {
    */
   asyncEnd(el: Computed<any>, prev: unknown, value: unknown, direct: boolean): void;
   /**
-   * An effect's imperative half (its effect callback) has run. Fired after the
-   * run, outside its try — whether or not the callback threw.
+   * An effect's imperative half (its effect callback) is about to run /
+   * has run. Both fire outside the run's try; `effectRunEnd` fires whether
+   * or not the callback threw. Writes between the two are the effect's.
    */
-  effectRun(el: Computed<any>): void;
+  effectRunStart(el: Computed<any>): void;
+  effectRunEnd(el: Computed<any>): void;
+  /**
+   * One synchronous step of an `action()` generator is about to run / has
+   * run (`it.next()`/`it.throw()` up to the next yield). `it` is the
+   * invocation's iterator — stable identity across its steps; `name` the
+   * generator function's name. Writes between the two are the action's.
+   */
+  actionStepStart(it: object, name: string | undefined): void;
+  actionStepEnd(it: object): void;
   /**
    * A flush found `t` incomplete (transitionComplete's false verdict): its
    * writes stay staged and its queues are about to be parked. Fired BEFORE

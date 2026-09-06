@@ -176,6 +176,7 @@ function runEffect(node: Effect<any>): void {
   if (__DEV__) {
     prevStrictRead = setStrictRead("an effect callback");
     setEffectCallback(true);
+    if (attrHooks !== null) attrHooks.effectRunStart(node);
   }
   const prevCleanup = node._cleanup;
   node._cleanup = undefined;
@@ -206,7 +207,7 @@ function runEffect(node: Effect<any>): void {
   }
   // Outside the try (see the rule in attribution-hooks.ts). Reached whether or
   // not the callback threw — a throw that escapes the catch above halts.
-  if (__DEV__ && attrHooks !== null) attrHooks.effectRun(node);
+  if (__DEV__ && attrHooks !== null) attrHooks.effectRunEnd(node);
 }
 
 GlobalQueue._runEffect = runEffect as (el: Computed<unknown>) => void;
