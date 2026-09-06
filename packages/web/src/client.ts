@@ -958,6 +958,14 @@ export function insert(parent, accessor, marker, initial, options) {
   if (typeof accessor === "function" && accessor.$for !== undefined) {
     const listAccessor = accessor;
     const owner = getOwner();
+    // Hydration: the claimed region snapshot — the parent's childNodes
+    // (claimInitial, whole-parent) or the comment-bounded hole range the
+    // compiled client resolved via getNextMarker (anchored holes). The
+    // slot's fill reconciles claimed rows against it.
+    const region =
+      hydrationRt !== null && isHydrating(parent) && Array.isArray(initial)
+        ? hydrationRt.slotRegion(initial)
+        : undefined;
     if (
       // Marker passes through UNTOUCHED: `undefined` = whole-parent insert,
       // `null` = trailing child with preceding siblings (classic MULTI mode
@@ -974,18 +982,15 @@ export function insert(parent, accessor, marker, initial, options) {
               parent,
               () => listAccessor(),
               marker,
-              marker !== undefined ? [] : undefined,
+              // Anchored holes: hand classic the bounded region the slot had
+              // (a hydrating demote's primitive rows adopt positional text
+              // from it — same as the hole seam); whole-parent re-derives.
+              marker !== undefined ? (region ?? []) : undefined,
               options
             )
           ),
         domOps,
-        // Hydration: the claimed region snapshot — the parent's childNodes
-        // (claimInitial, whole-parent) or the comment-bounded hole range the
-        // compiled client resolved via getNextMarker (anchored holes). The
-        // slot's fill reconciles claimed rows against it.
-        hydrationRt !== null && isHydrating(parent) && Array.isArray(initial)
-          ? hydrationRt.slotRegion(initial)
-          : undefined
+        region
       )
     )
       return;
