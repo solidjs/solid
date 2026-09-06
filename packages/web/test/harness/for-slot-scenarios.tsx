@@ -16,7 +16,7 @@
  *
  * Mismatch scenarios diverge on `isServer` so one source renders both sides.
  */
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, flush, For, Show } from "solid-js";
 import { isServer } from "@solidjs/web";
 
 export type ForSlotScenario = {
@@ -274,7 +274,58 @@ function SlotThroughDemoteMismatch() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 12. Through-children + mid-fill demote + LATER children change (audit r3
+//     P2 follow-up): after the synchronous classic re-entry, rows classic
+//     appends must live in the HOSTING effect's range — swapping the children
+//     out afterwards must leave no list residue ("noned" was the leak).
+function ShellWrap(props: { children: any }) {
+  return <div>{props.children}</div>;
+}
+let residueItems!: (v: string[]) => void;
+let residueShow!: (v: boolean) => void;
+function SlotThroughDemoteResidue() {
+  const [items, setItems] = createSignal(["a", "b", "c"]);
+  const [show, setShow] = createSignal(true);
+  residueItems = setItems;
+  residueShow = setShow;
+  return (
+    <ShellWrap>
+      {show() ? (
+        <For each={items()}>
+          {item =>
+            item === "b" ? (
+              <Show when={true}>
+                <li>{item}</li>
+              </Show>
+            ) : (
+              <li>{item}</li>
+            )
+          }
+        </For>
+      ) : (
+        <p>none</p>
+      )}
+    </ShellWrap>
+  );
+}
+
 export const forSlotScenarios: ForSlotScenario[] = [
+  {
+    name: "slot-hydrate-through-demote-residue",
+    App: SlotThroughDemoteResidue,
+    expectedText: "abc",
+    engaged: 1,
+    demoted: 1,
+    warnings: 0,
+    identitySelector: "li",
+    update: () => {
+      residueItems(["a", "b", "c", "d"]); // classic (post-demote) appends d
+      flush();
+      residueShow(false); // children change: the hosting effect must clean d too
+    },
+    expectedTextAfterUpdate: "none"
+  },
   {
     name: "slot-hydrate-nested-demote",
     App: SlotNestedDemote,
@@ -339,7 +390,7 @@ export const forSlotScenarios: ForSlotScenario[] = [
     serverText: "abc",
     engaged: 1,
     demoted: 0,
-    warnings: 0,
+    warnings: 1, // the slot's repair report (leftover server row removed)
     identitySelector: "li"
   },
   {
@@ -349,7 +400,7 @@ export const forSlotScenarios: ForSlotScenario[] = [
     serverText: "ab",
     engaged: 1,
     demoted: 0,
-    warnings: 1
+    warnings: 2 // the runtime's key-miss + the slot's repair report
   },
   {
     name: "slot-hydrate-demote-mid-fill",
@@ -403,7 +454,7 @@ export const forSlotScenarios: ForSlotScenario[] = [
     serverText: "headabc",
     engaged: 1,
     demoted: 0,
-    warnings: 0,
+    warnings: 1, // the slot's repair report
     identitySelector: "li"
   },
   {

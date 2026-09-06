@@ -1014,6 +1014,24 @@ export function insert(parent, accessor, marker, initial, options) {
   // ever see a For) so this effect re-runs and takes its classic path.
   let holeClassic = false;
   let holeGen = null;
+  // The classic inner effect for a function-valued hole. Shared by the
+  // normal path and the hydrating demote re-entry so BOTH write this insert's
+  // `current` — a nested insert() would own a private range and leave the
+  // rows classic appends afterward invisible to this effect's cleanup.
+  const classic = (value, prev) =>
+    effect(
+      () => (
+        hydrationRt !== null && (current = hydrationRt.reclaimRegion(current, parent, marker)),
+        normalize(value, current, multi)
+      ),
+      inner => {
+        current = insertExpression(parent, inner, current, marker);
+        host && tagHost(current, host);
+      },
+      prev !== undefined && !(options && options.schedule)
+        ? { ...options, schedule: true }
+        : options
+    );
   effect(
     prev => {
       if (hydrationRt !== null) current = hydrationRt.reclaimRegion(current, parent, marker);
@@ -1065,12 +1083,11 @@ export function insert(parent, accessor, marker, initial, options) {
                 // Demote DURING a hydrating fill: re-enter classic NOW, inside
                 // the hydration window — the deferred re-run below would land
                 // after hydrate() flips the flag and CLONE instead of claim.
-                // `() => listFn()` INVOKES the list (classic rows), so this
-                // insert cannot re-engage; `current` is the server region, so
-                // classic reconciles against the real rows (mismatch cleaned).
-                runWithOwner(holeOwner, () =>
-                  insert(parent, () => listFn(), marker, current, options)
-                );
+                // The SHARED classic effect (not a nested insert) so the rows
+                // classic manages from here on live in this effect's
+                // `current` and a later children change cleans them.
+                // normalize() unwraps the list (classic rows) — no re-engage.
+                runWithOwner(holeOwner, () => classic(listFn, undefined));
               } else holeGen[1](g => g + 1);
             },
             domOps,
@@ -1082,19 +1099,7 @@ export function insert(parent, accessor, marker, initial, options) {
           return INNER_OWNED;
         }
       }
-      effect(
-        () => (
-          hydrationRt !== null && (current = hydrationRt.reclaimRegion(current, parent, marker)),
-          normalize(value, current, multi)
-        ),
-        inner => {
-          current = insertExpression(parent, inner, current, marker);
-          host && tagHost(current, host);
-        },
-        prev !== undefined && !(options && options.schedule)
-          ? { ...options, schedule: true }
-          : options
-      );
+      classic(value, prev);
       return INNER_OWNED;
     },
     value => {

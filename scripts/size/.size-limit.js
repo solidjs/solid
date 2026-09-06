@@ -640,7 +640,7 @@ module.exports = [
     //
     // Anchored-hole hydration (2026-09-05): 29.29 -> 29.45 KB, measured at
     // 29.44 (see the hydrating no-stores note).
-    limit: "29.45 KB",
+    limit: "29.47 KB",
     modifyEsbuildConfig
   },
   {
@@ -701,7 +701,7 @@ module.exports = [
     //
     // Rebase over #3183 + audit round 3 (2026-09-05): 15.62 -> 15.66 KB,
     // measured at 15.65 (see the simple-app note).
-    limit: "15.66 KB",
+    limit: "15.67 KB",
     modifyEsbuildConfig
   },
   {

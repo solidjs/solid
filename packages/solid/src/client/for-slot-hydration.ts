@@ -16,6 +16,7 @@
  * key-missed fresh rows inserted); the normal case is zero DOM writes.
  */
 import { sharedConfig } from "./hydration.js";
+import { IS_DEV } from "./core.js";
 import { installSlotHydration, type FlatPlan, type Slot } from "./for-slot.js";
 
 /** RECORDING STACK. Nested lists hydrate INSIDE an outer row's build (row →
@@ -97,9 +98,18 @@ const hooks = {
       else ours.add(nd);
     }
     // Leftovers: server rows the client no longer has, separator comments.
+    let removed = 0;
+    let inserted = 0;
     const region = slot.region!;
     for (let i = 0; i < region.length; i++)
-      if (!ours.has(region[i]) && ops.contains(slot.parent, region[i])) ops.remove(region[i]);
+      if (!ours.has(region[i]) && ops.contains(slot.parent, region[i])) {
+        ops.remove(region[i]);
+        // Element rows only: primitive rows currently re-create their text
+        // node (fresh text swaps in for the server's — correct DOM, not a
+        // mismatch). Adopting server text nodes for primitive rows is the
+        // follow-up that makes that path zero-write too.
+        if ((region[i] as any).nodeType === 1) removed++;
+      }
     // Fresh rows (template key-missed → detached; the runtime already
     // warned) are inserted at their position, back to front so anchors are
     // always attached. The list ends at the hole's end marker (or the
@@ -109,14 +119,29 @@ const hooks = {
       const nd = fp.nodes[i];
       if (Array.isArray(nd)) {
         for (let k = nd.length - 1; k >= 0; k--) {
-          if (!ops.contains(slot.parent, nd[k])) ops.insert(slot.parent, nd[k], anchor);
+          if (!ops.contains(slot.parent, nd[k])) {
+            ops.insert(slot.parent, nd[k], anchor);
+            if ((nd[k] as any).nodeType === 1) inserted++;
+          }
           anchor = nd[k];
         }
       } else {
-        if (!ops.contains(slot.parent, nd)) ops.insert(slot.parent, nd, anchor);
+        if (!ops.contains(slot.parent, nd)) {
+          ops.insert(slot.parent, nd, anchor);
+          if ((nd as any).nodeType === 1) inserted++;
+        }
         anchor = nd;
       }
     }
+    // The slot REPAIRS a server/client mismatch (classic's claim pass leaves
+    // leftovers in place and reports them at hydration end); repairing
+    // silently would hide the mismatch, so say so once, in dev.
+    if (IS_DEV && (removed !== 0 || inserted !== 0))
+      console.warn(
+        `Hydration mismatch in <For>: the server rendered a different list than the client ` +
+          `(${removed} unclaimed server row node(s) removed, ${inserted} client row node(s) inserted). ` +
+          `The DOM was repaired, but server and client should render the same list.`
+      );
     slot.region = undefined;
     slot.flat = { items: fp.items, owners: fp.owners, nodes: fp.nodes };
     slot.size = fp.len;
