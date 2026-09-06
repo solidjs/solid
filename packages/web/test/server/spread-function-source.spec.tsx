@@ -32,6 +32,37 @@ describe("SSR spread with function source (#2815)", () => {
     expect(html).toContain('id="y"');
   });
 
+  test("textarea value from props merged around a spread becomes text content (#3286)", () => {
+    const value = () => "something";
+    const html = renderToString(() => <textarea {...{ "data-x": "x" }} value={value()} />);
+
+    expect(html).toMatch(/data-x="x"\s*>something<\/textarea>/);
+    expect(html).not.toContain(' value="something"');
+  });
+
+  test("textarea value supplied by a spread becomes text content (#3286)", () => {
+    const html = renderToString(() => <textarea {...{ "data-x": "x", value: "something" }} />);
+
+    expect(html).toMatch(/data-x="x"\s*>something<\/textarea>/);
+    expect(html).not.toContain(' value="something"');
+  });
+
+  test("textarea value before a spread remains text content (#3286)", () => {
+    const html = renderToString(() => <textarea value="something" {...{ "data-x": "x" }} />);
+
+    expect(html).toMatch(/data-x="x"\s*>something<\/textarea>/);
+    expect(html).not.toContain(' value="something"');
+  });
+
+  test("textarea defaultValue supplied by a spread becomes text content (#3286)", () => {
+    const html = renderToString(() => (
+      <textarea {...{ "data-x": "x", defaultValue: "something" }} />
+    ));
+
+    expect(html).toMatch(/data-x="x"\s*>something<\/textarea>/);
+    expect(html).not.toContain(' defaultValue="something"');
+  });
+
   test("Dynamic routes spreads through mergeProps", () => {
     const props = { "data-x": "1", id: "y" };
     const html = renderToString(() => <Dynamic component="div" {...props} />);
