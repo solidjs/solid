@@ -199,6 +199,61 @@ describe("unified For through props.children (hole seam)", () => {
     expect(stats.demoted).toBe(demoted0 + 1); // one demote, no thrash
   });
 
+  test("first-fill demote in a hole: classic owns the range from its first run", () => {
+    // The slot's first fill runs synchronously inside impl(); a demote there
+    // hands the hole to classic BEFORE impl returns. The hosting effect must
+    // have already pointed `current` at the hand-off range, or classic's
+    // first run reconciles against the stale pre-hand-off nodes and its
+    // result is then clobbered — rows leak on the next replace or children
+    // change (a b x y), and the multi placeholder survives as an orphan.
+    const [rows, setRows] = createSignal(["a", "b"]);
+    const [show, setShow] = createSignal(true);
+    const demoted0 = stats.demoted;
+    dispose = render(
+      () => (
+        <Card>
+          {show() ? (
+            <For each={rows()}>{r => <Dynamic component="span">{r}</Dynamic>}</For>
+          ) : (
+            <p>none</p>
+          )}
+        </Card>
+      ),
+      container
+    );
+    const sec = container.querySelector("section")!;
+    expect(stats.demoted).toBe(demoted0 + 1);
+    expect(sec.innerHTML).toBe("<header>h</header><span>a</span><span>b</span><footer>f</footer>");
+    expect(sec.childNodes.length).toBe(4); // no orphan placeholder
+    setRows(["x", "y"]); // REPLACE (not reorder): old rows must go
+    flush();
+    expect(sec.innerHTML).toBe("<header>h</header><span>x</span><span>y</span><footer>f</footer>");
+    expect(sec.childNodes.length).toBe(4);
+    setShow(false);
+    flush();
+    expect(sec.innerHTML).toBe("<header>h</header><p>none</p><footer>f</footer>");
+    setShow(true);
+    flush();
+    expect(sec.innerHTML).toBe("<header>h</header><span>x</span><span>y</span><footer>f</footer>");
+    expect(stats.demoted).toBe(demoted0 + 1); // holeClassic sticks: no re-engage, no thrash
+
+    // Whole-parent hole, same hazard, replace only.
+    dispose();
+    const [rows2, setRows2] = createSignal(["a", "b"]);
+    dispose = render(
+      () => (
+        <Wrap>
+          <For each={rows2()}>{r => <Dynamic component="span">{r}</Dynamic>}</For>
+        </Wrap>
+      ),
+      container
+    );
+    const div = container.querySelector("div")!;
+    setRows2(["x", "y"]);
+    flush();
+    expect(div.innerHTML).toBe("<span>x</span><span>y</span>");
+  });
+
   test("children() introspection stays classic and correct", () => {
     const [rows, setRows] = createSignal(["a", "b"]);
     const engaged0 = stats.engaged;
