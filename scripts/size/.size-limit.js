@@ -411,7 +411,6 @@ module.exports = [
     // shrank, see the createStore note). Linux CI has measured ~23 B above
     // macOS on this scenario, hence the extra 0.02 kB.
 
-
     //
     // Unified For slot, default-on (2026-09-04): 10.73 -> 10.89 KB, measured
     // at 10.884. The floor has NO For — this is the ENGAGEMENT SEAM only:
@@ -652,7 +651,10 @@ module.exports = [
     //
     // #3187 revert + synchronous hole demote (2026-09-05): 29.48 -> 29.40 KB,
     // measured at 29.39. Locked in.
-    limit: "29.40 KB",
+    //
+    // Rebase drift (2026-09-06, #3287 textarea spread et al.): 29.40 -> 29.42
+    // KB, measured at 29.42 (+16 B). Not slot bytes.
+    limit: "29.42 KB",
     modifyEsbuildConfig
   },
   {
@@ -716,7 +718,10 @@ module.exports = [
     //
     // #3187 revert + synchronous hole demote (2026-09-05): 15.68 -> 15.61 KB,
     // measured at 15.60. Locked in.
-    limit: "15.61 KB",
+    //
+    // Rebase drift (2026-09-06, #3287 textarea spread et al.): 15.61 -> 15.63
+    // KB, measured at 15.63 (+16 B). Not slot bytes.
+    limit: "15.63 KB",
     modifyEsbuildConfig
   },
   {
