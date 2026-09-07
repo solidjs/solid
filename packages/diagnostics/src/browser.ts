@@ -11,8 +11,10 @@
 import { DEV, flush } from "@solidjs/signals";
 import type {
   AttributionCosts,
+  AttributionFeedback,
   AttributionOptions,
   DiagnosticsArtifact,
+  HoldEvent,
   RerunEvent,
   RerunRecord
 } from "./types.js";
@@ -39,6 +41,10 @@ export interface DiagnosticsBridge {
   whyDidRun(name: string): RerunRecord[];
   /** Cost tables of the open session so far, without closing it. */
   costs(): AttributionCosts;
+  /** Transition holds the open session has recorded so far. */
+  holds(): HoldEvent[];
+  /** Feedback tables (what the user waited on) of the open session so far. */
+  feedback(): AttributionFeedback;
 }
 
 /**
@@ -110,7 +116,9 @@ export function installDiagnosticsBridge(
           reruns: DEV!.attribution
             .history()
             .map(({ node: _node, ...record }: RerunEvent) => record),
-          costs: DEV!.attribution.costs()
+          costs: DEV!.attribution.costs(),
+          holds: [...DEV!.attribution.holds()],
+          feedback: DEV!.attribution.feedback()
         };
         DEV!.attribution.disable();
       }
@@ -137,6 +145,14 @@ export function installDiagnosticsBridge(
     costs() {
       requireAttributionSession("costs");
       return toSerializable(DEV!.attribution.costs());
+    },
+    holds() {
+      requireAttributionSession("holds");
+      return toSerializable([...DEV!.attribution.holds()]);
+    },
+    feedback() {
+      requireAttributionSession("feedback");
+      return toSerializable(DEV!.attribution.feedback());
     }
   };
 

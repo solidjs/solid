@@ -10,6 +10,7 @@ import { isThenable } from "./async.js";
 import { getOwner } from "./owner.js";
 import { CONFIG_CHILDREN_FORBIDDEN } from "./constants.js";
 import { emitDiagnostic } from "./dev.js";
+import { attrHooks } from "./attribution-hooks.js";
 
 const ACTION_CALLED_IN_OWNED_SCOPE_MESSAGE =
   "[ACTION_CALLED_IN_OWNED_SCOPE] Calling an action inside an owned scope (component, computation) is not allowed. " +
@@ -133,11 +134,17 @@ export function action<Args extends any[], Y, R>(
 
       const step = (v?: any, err?: boolean): void => {
         let r: IteratorResult<Y, R> | Promise<IteratorResult<Y, R>>;
+        // Attribution hooks bracket the synchronous slice of generator body
+        // this step runs (up to the next yield): writes inside are the
+        // action's. Both sites sit outside the try (attribution-hooks.ts).
+        if (__DEV__ && attrHooks !== null) attrHooks.actionStepStart(it, genFn.name || undefined);
         try {
           r = err ? it.throw!(v) : it.next(v);
         } catch (e) {
+          if (__DEV__ && attrHooks !== null) attrHooks.actionStepEnd(it);
           return done(undefined, e, true);
         }
+        if (__DEV__ && attrHooks !== null) attrHooks.actionStepEnd(it);
         // A rejected iterator result (async generators) means the error already
         // escaped the generator body — it is completed, and throwing back in
         // would just reject again forever. Settle instead.

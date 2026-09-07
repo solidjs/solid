@@ -66,11 +66,13 @@ export async function captureArtifact<T>(
     result = await scenario();
     if (options.autoFlush !== false) flush();
   } finally {
-    // Read history/costs before disable(): aggregates reset on disable.
+    // Read every table before disable(): aggregates reset on disable.
     if (useAttribution) {
       attribution = {
         reruns: DEV.attribution.history().map(toRerunRecord),
-        costs: DEV.attribution.costs()
+        costs: DEV.attribution.costs(),
+        holds: [...DEV.attribution.holds()],
+        feedback: DEV.attribution.feedback()
       };
       DEV.attribution.disable();
     }

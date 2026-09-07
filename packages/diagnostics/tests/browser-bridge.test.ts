@@ -52,7 +52,7 @@ describe("browser bridge + playwright adapter", () => {
     );
     app.dispose();
 
-    expect(artifact.formatVersion).toBe(1);
+    expect(artifact.formatVersion).toBe(2);
     expect(artifact.scenario).toBe("browser-toggle");
     expectNoDiagnostics(artifact);
     // Same assertions work on browser-captured artifacts: mount happened

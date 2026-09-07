@@ -1,3 +1,4 @@
+import type { Transition } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
 
 /**
@@ -66,6 +67,81 @@ export interface AttributionHooks {
    * from the node's state against its asyncStart snapshot.
    */
   asyncEnd(el: Computed<any>, prev: unknown, value: unknown, direct: boolean): void;
+  /**
+   * An effect's imperative half (its effect callback) is about to run /
+   * has run. Both fire outside the run's try; `effectRunEnd` fires whether
+   * or not the callback threw. Writes between the two are the effect's.
+   */
+  effectRunStart(el: Computed<any>): void;
+  effectRunEnd(el: Computed<any>): void;
+  /**
+   * One synchronous step of an `action()` generator is about to run / has
+   * run (`it.next()`/`it.throw()` up to the next yield). `it` is the
+   * invocation's iterator — stable identity across its steps; `name` the
+   * generator function's name. Writes between the two are the action's.
+   */
+  actionStepStart(it: object, name: string | undefined): void;
+  actionStepEnd(it: object): void;
+  /**
+   * A flush found `t` incomplete (transitionComplete's false verdict): its
+   * writes stay staged and its queues are about to be parked. Fired BEFORE
+   * this flush's lane effects (the visible acknowledgers — isPending
+   * companions, optimistic values) run; `holdEnd` fires from the root
+   * stashQueues call after them, so effect runs between the two are runs that
+   * painted *during* the hold.
+   */
+  holdStart(t: Transition): void;
+  holdEnd(): void;
+  /**
+   * `t` was judged complete (transitionComplete's true verdict, before `_done`
+   * flips). Fired before its held writes commit, so `t._pendingNodes` still
+   * lists what was staged.
+   */
+  transitionSettled(t: Transition): void;
+  /** `outgoing` was folded into `target` (`outgoing._done = target`). */
+  transitionMerged(target: Transition, outgoing: Transition): void;
+  /**
+   * A store setter batch replaced the container at `path` (e.g. `store.user`)
+   * with a different one (both non-null, same array-ness, not the same
+   * logical slot), and this is the leaf census of the new container against
+   * the old: `total` leaves (own keys, or items) in the new one, `unchanged`
+   * of which are the same value as before (identity, judged on unwrapped
+   * values — object keys compared by key, array items by membership), and
+   * `prevTotal` leaves in the old one. Containers above 64 leaves are not
+   * announced. Fired per written key from the write channel's notify. The
+   * engine decides whether the replacement was a spread-copy worth a
+   * diagnostic.
+   */
+  storeReplaced(
+    path: string,
+    isArray: boolean,
+    total: number,
+    unchanged: number,
+    prevTotal: number
+  ): void;
+  /**
+   * A `mapArray` update both disposed and created rows: `removed` are the
+   * items whose rows were disposed, `created` the items that got new rows,
+   * `newLen` the list's new length, `keyed` whether a key function is in use
+   * (false = identity or by-index). Fired after commit. The engine judges
+   * whether the churn replaced equivalent records (unstable identity).
+   */
+  listChurn(
+    el: Computed<any>,
+    removed: unknown[],
+    created: unknown[],
+    newLen: number,
+    keyed: boolean
+  ): void;
+  /**
+   * A loading boundary started (`shown` true) or stopped showing its
+   * fallback. `boundary` is the boundary's queue (stable identity); `tree`
+   * its bound subtree computed when already constructed — the first show can
+   * fire while the subtree is still being built — whose owner chain names
+   * the boundary. Fired at the source-set transitions (first pending source
+   * registers / last one clears), not per flush.
+   */
+  boundaryFallback(boundary: object, tree: Computed<any> | undefined, shown: boolean): void;
 }
 
 export let attrHooks: AttributionHooks | null = null;

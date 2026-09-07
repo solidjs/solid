@@ -3,7 +3,8 @@ import { $REFRESH, NOT_PENDING } from "./constants.js";
 // Cycle note: dev.ts imports this module for the `attribution` object, and we
 // import its hoisted emitDiagnostic back — safe (only called at runtime) and
 // treeshake-neutral (dev.ts is already reachable from the core).
-import { emitDiagnostic } from "./dev.js";
+import { emitDiagnostic, ownerPath, reportDiagnostic } from "./dev.js";
+import type { Transition } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
 
 /**
@@ -31,6 +32,47 @@ import type { Computed, Signal } from "./types.js";
 
 export type ChangeKind = "write" | "derived" | "async" | "refresh";
 
+/**
+ * Provenance of a root change: the imperative frame that performed it.
+ *
+ * - `interaction` — a user event handler (the web runtime marks dispatch via
+ *   `withInteraction`). `name` is the event type, `target` the element hit
+ *   (`button#next "Next →"`), `at` the dispatch time on the `performance.now()`
+ *   clock — the base every feedback-latency number is measured from.
+ * - `effect` — an effect callback (`name` = the effect's name; `run` = the
+ *   compute run whose effect phase performed the write, when that run was
+ *   recorded — so a write can be joined to the re-run that produced it).
+ * - `action` — a step of an `action()` generator (`name` = the generator's
+ *   name, when it has one). Writes after an `await` (not a `yield`) run in a
+ *   bare microtask and stamp `external` — the documented escape.
+ * - `async` — an async landing (`name` = the node whose flight landed).
+ * - `external` — none of the above: timers, sockets, promise callbacks, setup.
+ *
+ * `interaction` on a non-interaction frame is the user event the frame runs
+ * under — an action started by a click, an effect whose run was caused by a
+ * click's write, a landing whose flight a click started. It is what lets
+ * every downstream cost be keyed by the interaction that paid for it.
+ */
+export interface ChangeOrigin {
+  kind: "interaction" | "effect" | "action" | "async" | "external";
+  name?: string;
+  target?: string;
+  at?: number;
+  interaction?: ChangeOrigin;
+  /** `effect` only: the `RerunEvent.run` of the compute run this callback belongs to. */
+  run?: number;
+}
+
+/** A user interaction, as the web runtime describes it to `withInteraction`. */
+export interface InteractionRef {
+  /** Event type — `click`, `keydown`, `input`… */
+  type: string;
+  /** The element hit, e.g. `button#next "Next →"`. */
+  target?: string;
+  /** Dispatch time on the `performance.now()` clock; defaults to now. */
+  at?: number;
+}
+
 export interface ChangeRecord {
   /** Global monotonic change sequence — orders causes across the app. */
   seq: number;
@@ -43,6 +85,8 @@ export interface ChangeRecord {
   stack?: string[];
   /** For derived changes: the upstream changes that produced this one. */
   causes?: ChangeRecord[];
+  /** Root changes only: who performed the write. */
+  origin?: ChangeOrigin;
 }
 
 export interface RerunEvent {
@@ -97,6 +141,8 @@ export interface RerunEvent {
    * schedule. Held runs are excluded from waste accounting.
    */
   held: boolean;
+  /** The user interaction this run traces back to through its causes, if any. */
+  interaction?: ChangeOrigin;
 }
 
 export interface AttributionOptions {
@@ -164,6 +210,18 @@ export interface AttributionOptions {
    * disables.
    */
   waterfalls?: { minFlightMs: number } | false;
+  /**
+   * Silent-hold warning: emit a diagnostic when a transition held a user's
+   * writes behind async work for at least `infoMs` (default 300ms) and the
+   * screen never acknowledged the wait — no `isPending()`/`latest()` reader
+   * downstream of the held writes or their blockers, no optimistic value, no
+   * `affects()` mark, and no effect ran during the hold. Below `warnMs`
+   * (default 500ms) the event is advisory (structured channel only); at or
+   * above it the console gets the finding. Holds that staged no root write
+   * (initial loads, bare `refresh()`) are never judged: nothing the user did
+   * went unanswered. `false` disables.
+   */
+  holds?: { infoMs: number; warnMs: number } | false;
 }
 
 interface AttributedNode {
@@ -182,6 +240,16 @@ interface AttributedNode {
   _devWideWriteWarnedAt?: number;
   /** Longest sequential-flight chain already warned for this node. */
   _devWaterfallWarnedAt?: number;
+  /** Interaction the node's latest compute run traced to — inherited by its effect phase. */
+  _devRunInteraction?: ChangeOrigin;
+  /** Sequence and causes of the node's latest recorded run (undefined after a create run). */
+  _devRunSeq?: number;
+  _devRunCauses?: ChangeRecord[];
+  /** Writers of this signal: undefined = none yet, 0 = non-effect, n = effect devId, null = mixed. */
+  _devSoleWriter?: number | null;
+  /** Consecutive effect-phase writes that copied the writing effect's compute output. */
+  _devCopyRuns?: number;
+  _devCopyFrom?: number;
 }
 
 let attributionActive = false;
@@ -197,7 +265,8 @@ const defaultOptions = {
   hotTime: { budgetMs: 8, windowMs: 1000 } as { budgetMs: number; windowMs: number } | false,
   unstableMemos: 4 as number | false,
   wideWrites: 250 as number | false,
-  waterfalls: { minFlightMs: 50 } as { minFlightMs: number } | false
+  waterfalls: { minFlightMs: 50 } as { minFlightMs: number } | false,
+  holds: { infoMs: 300, warnMs: 500 } as { infoMs: number; warnMs: number } | false
 };
 let options: typeof defaultOptions = { ...defaultOptions };
 const listeners = new Set<(event: RerunEvent) => void>();
@@ -320,6 +389,125 @@ function captureStack(): string[] | undefined {
 /** Sentinel for "no value transition to record" (refresh() stamps). */
 const NO_VALUES = Symbol("no-values");
 
+// --- Provenance -------------------------------------------------------------
+//
+// Who performed a write is not a graph fact — the graph only sees the write.
+// The engine keeps an ambient answer: a stack of imperative frames the core
+// announces (effect callbacks, action steps) and the interaction the web
+// runtime declares around event dispatch. A write stamps the innermost frame;
+// frames nested under an interaction carry it. Effects run in a later flush
+// than the click that caused them, so their frame inherits the interaction
+// from the run's cause chain instead (recorded at recomputeEnd).
+
+const EXTERNAL_ORIGIN: ChangeOrigin = { kind: "external" };
+const originFrames: ChangeOrigin[] = [];
+/** Per action invocation (keyed by its iterator): the interaction its first step ran under. */
+const actionInteractions = new WeakMap<object, ChangeOrigin | undefined>();
+/**
+ * Set by `withInteraction` for the duration of a handler. Lives outside the
+ * enable/disable lifecycle on purpose: the web runtime marks dispatch whether
+ * or not an engine is listening, and enable() mid-handler must see the mark.
+ */
+let currentInteraction: ChangeOrigin | null = null;
+
+/** The interaction an origin runs under (itself, when it is one). */
+function interactionOf(origin: ChangeOrigin | undefined): ChangeOrigin | undefined {
+  if (origin === undefined) return undefined;
+  return origin.kind === "interaction" ? origin : origin.interaction;
+}
+
+/** The interaction a cause list traces back to — root writes only, derived links walked. */
+function interactionIn(causes: ChangeRecord[]): ChangeOrigin | undefined {
+  for (const c of causes) {
+    const found =
+      c.kind === "derived"
+        ? c.causes !== undefined
+          ? interactionIn(c.causes)
+          : undefined
+        : interactionOf(c.origin);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function currentOrigin(): ChangeOrigin {
+  const frame = originFrames[originFrames.length - 1];
+  if (frame !== undefined) return frame;
+  return currentInteraction ?? EXTERNAL_ORIGIN;
+}
+
+/**
+ * What the engine knows about an effect frame beyond its serializable face:
+ * the node, and the causes of the run whose effect phase this is (undefined
+ * for a create run). `ChangeRecord.origin` IS the frame object, so a write's
+ * origin resolves back to this through the map — the hop the effect-cycle
+ * walk needs (see checkEffectCycle).
+ */
+interface EffectFrameInfo {
+  node: Computed<any>;
+  causes: ChangeRecord[] | undefined;
+}
+const effectFrames = new WeakMap<ChangeOrigin, EffectFrameInfo>();
+
+function pushFrame(
+  kind: "effect" | "action",
+  name: string | undefined,
+  interaction?: ChangeOrigin,
+  effect?: Computed<any>
+) {
+  const frame: ChangeOrigin = { kind };
+  if (name) frame.name = name;
+  const under = interaction ?? currentInteraction ?? undefined;
+  if (under !== undefined) frame.interaction = under;
+  if (effect !== undefined) {
+    const node = effect as AttributedNode;
+    if (node._devRunSeq !== undefined) frame.run = node._devRunSeq;
+    effectFrames.set(frame, { node: effect, causes: node._devRunCauses });
+  }
+  originFrames.push(frame);
+}
+
+function popFrame(kind: "effect" | "action") {
+  // Frames are strictly nested; a mismatch means enable() landed mid-frame
+  // (the opener never pushed) — leave the stack alone rather than pop a stranger.
+  const top = originFrames[originFrames.length - 1];
+  if (top !== undefined && top.kind === kind) originFrames.pop();
+}
+
+/**
+ * Run `fn` as the handler of a user interaction: every root write it performs
+ * (and every action step or effect the write causes) carries the interaction
+ * as provenance. The web runtime wraps event dispatch in this; it is dev-only
+ * and safe to call with no engine enabled.
+ */
+export function withInteraction<T>(ref: InteractionRef, fn: () => T): T {
+  const prev = currentInteraction;
+  const origin: ChangeOrigin = { kind: "interaction", name: ref.type, at: ref.at ?? now() };
+  if (ref.target) origin.target = ref.target;
+  currentInteraction = origin;
+  try {
+    return fn();
+  } finally {
+    currentInteraction = prev;
+  }
+}
+
+/** `click on button#next "Next →"`, `effect "syncTitle"`, `action "save"`, … */
+export function formatOrigin(origin: ChangeOrigin): string {
+  switch (origin.kind) {
+    case "interaction":
+      return `${origin.name} on ${origin.target ?? "an element"}`;
+    case "effect":
+      return `effect${origin.name ? ` "${origin.name}"` : ""}`;
+    case "action":
+      return `action${origin.name ? ` "${origin.name}"` : ""}`;
+    case "async":
+      return `async landing${origin.name ? ` on "${origin.name}"` : ""}`;
+    default:
+      return "outside the reactive system";
+  }
+}
+
 /** Record a root change (setSignal / refresh / async landing) on the node. */
 /**
  * Written-fan-out warning — the write-time complement of the always-on
@@ -348,15 +536,19 @@ function checkWideWrite(
     `re-runs this flush. If consumers ask keyed questions of this value (for example every ` +
     `row comparing against one selected id), invert with createSelector or createProjection ` +
     `so only the keys whose answer flipped update.`;
-  emitDiagnostic({
-    code: "WIDE_WRITE",
-    kind: "perf",
-    severity: "warn",
-    message,
-    nodeName: nodeName(node),
-    data: { subscribers: subs, write: kind }
-  });
-  console.warn(message);
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "WIDE_WRITE",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: nodeName(node),
+        data: { subscribers: subs, write: kind }
+      },
+      node
+    )
+  );
 }
 
 function stampWrite(
@@ -370,8 +562,10 @@ function stampWrite(
     record.prev = prev === NO_VALUES ? undefined : preview(prev);
     record.value = preview(value);
   }
+  record.origin = kind === "async" ? asyncOrigin(node as Computed<any>) : currentOrigin();
   record.stack = captureStack();
   (node as AttributedNode)._devChange = record;
+  if (kind === "write") trackEffectWrite(node, record, value);
   // stampWrite is the single funnel for committed root invalidations (sync
   // writes, refresh(), async landings), which makes it the one place the
   // written-fan-out check needs to live.
@@ -441,15 +635,19 @@ function checkDepWidth(el: Computed<any>): void {
     `[WIDE_SCOPE_DEPS] ${kind} "${nodeName(el)}" is subscribed to ${count} sources — ` +
     `it re-runs when any of them change. Narrow its reads or split it into smaller memos. ` +
     `Sources: ${names.join(", ")}${count > names.length ? ", …" : ""}`;
-  emitDiagnostic({
-    code: "WIDE_SCOPE_DEPS",
-    kind: "perf",
-    severity: "warn",
-    message,
-    nodeName: nodeName(el),
-    data: { depCount: count, deps: names }
-  });
-  console.warn(message);
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "WIDE_SCOPE_DEPS",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: nodeName(el),
+        data: { depCount: count, deps: names }
+      },
+      el
+    )
+  );
 }
 
 /**
@@ -510,19 +708,23 @@ function checkHotRuns(el: Computed<any>, event: RerunEvent): void {
       `[HOT_SCOPE_RERUNS] ${event.nodeKind} "${event.nodeName}" re-ran ${node._devWinCount} times ` +
       `in ${Math.max(1, now - node._devWinStart)}ms — a hot signal is likely leaking into this ` +
       `scope. Latest cause: ${rootCause || "(untracked pull)"}`;
-    emitDiagnostic({
-      code: "HOT_SCOPE_RERUNS",
-      kind: "perf",
-      severity: "warn",
-      message,
-      nodeName: event.nodeName,
-      data: {
-        runs: node._devWinCount,
-        windowMs: cfg.windowMs,
-        causes: event.causes.map(c => c.name)
-      }
-    });
-    console.warn(message);
+    reportDiagnostic(
+      emitDiagnostic(
+        {
+          code: "HOT_SCOPE_RERUNS",
+          kind: "perf",
+          severity: "warn",
+          message,
+          nodeName: event.nodeName,
+          data: {
+            runs: node._devWinCount,
+            windowMs: cfg.windowMs,
+            causes: event.causes.map(c => c.name)
+          }
+        },
+        el
+      )
+    );
     return;
   }
 
@@ -535,15 +737,21 @@ function checkHotRuns(el: Computed<any>, event: RerunEvent): void {
     `${cfg.windowMs}ms, all driven by ${causeKey} — one hot cause is re-running a large part ` +
     `of the graph. Per-scope warnings are suppressed; fix the cause. If consumers ask keyed ` +
     `questions of it, invert with createSelector or createProjection.`;
-  emitDiagnostic({
-    code: "HOT_SCOPE_FANOUT",
-    kind: "perf",
-    severity: "warn",
-    message,
-    nodeName: causeKey,
-    data: { cause: causeKey, scopes: window.scopes, runs: window.runs, windowMs: cfg.windowMs }
-  });
-  console.warn(message);
+  // The subject is the shared CAUSE, not this victim scope — no single owner
+  // path locates it, so the event carries none.
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "HOT_SCOPE_FANOUT",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: causeKey,
+        data: { cause: causeKey, scopes: window.scopes, runs: window.runs, windowMs: cfg.windowMs }
+      },
+      null
+    )
+  );
 }
 
 /**
@@ -569,20 +777,24 @@ function checkHotTime(el: Computed<any>, event: RerunEvent): void {
     `[HOT_SCOPE_TIME] ${event.nodeKind} "${event.nodeName}" spent ` +
     `${node._devTimeWinMs.toFixed(1)}ms of compute inside one ${cfg.windowMs}ms window ` +
     `(budget ${cfg.budgetMs}ms). Latest cause: ${rootCause || "(untracked pull)"}`;
-  emitDiagnostic({
-    code: "HOT_SCOPE_TIME",
-    kind: "perf",
-    severity: "warn",
-    message,
-    nodeName: event.nodeName,
-    data: {
-      spentMs: node._devTimeWinMs,
-      budgetMs: cfg.budgetMs,
-      windowMs: cfg.windowMs,
-      causes: event.causes.map(c => c.name)
-    }
-  });
-  console.warn(message);
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "HOT_SCOPE_TIME",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: event.nodeName,
+        data: {
+          spentMs: node._devTimeWinMs,
+          budgetMs: cfg.budgetMs,
+          windowMs: cfg.windowMs,
+          causes: event.causes.map(c => c.name)
+        }
+      },
+      el
+    )
+  );
 }
 
 function recordRerun(
@@ -595,6 +807,7 @@ function recordRerun(
   held: boolean
 ): void {
   const node = el as AttributedNode;
+  const prevCauses = node._devRunCauses;
   // Subscription diff: `prevDeps` was captured at run entry; `_deps` now
   // holds the fresh set. A changed set is the "helper edit changed distant
   // call sites" signal — surfaced per-event and in the console format.
@@ -621,14 +834,25 @@ function recordRerun(
     phase,
     held
   };
+  const interaction = interactionIn(causes);
+  if (interaction !== undefined) event.interaction = interaction;
+  // The effect phase runs later in the flush with no cause list of its own:
+  // it inherits this run's interaction and is joined to this run's causes
+  // (see effectRunStart / pushFrame).
+  node._devRunInteraction = interaction;
+  node._devRunSeq = event.run;
+  node._devRunCauses = causes;
   history.push(event);
   if (history.length > options.historyLimit) history.shift();
   recordCosts(event);
+  recordFeedbackRun(event);
+  if (event.nodeKind === "effect") checkEffectCycle(el, causes);
+  checkRelayTear(el, causes, prevCauses);
   checkHotRuns(el, event);
   checkHotTime(el, event);
   checkDepWidth(el);
   for (const listener of listeners) listener(event);
-  if (options.log) console.log(formatRerun(event));
+  if (options.log) logRerun(event);
 }
 
 function formatCause(cause: ChangeRecord, depth: number, out: string[]): void {
@@ -637,6 +861,11 @@ function formatCause(cause: ChangeRecord, depth: number, out: string[]): void {
     cause.kind === "derived" ? "changed" : cause.kind
   } (#${cause.seq})`;
   if (cause.prev !== undefined) line += ` ${cause.prev} → ${cause.value}`;
+  if (cause.origin !== undefined && cause.origin.kind !== "external") {
+    line += ` — ${formatOrigin(cause.origin)}`;
+    const under = cause.origin.interaction;
+    if (under !== undefined) line += ` (under ${formatOrigin(under)})`;
+  }
   out.push(line);
   if (cause.stack) for (const frame of cause.stack) out.push(`${pad}    ${frame}`);
   if (cause.causes && depth < 10) {
@@ -662,6 +891,23 @@ export function formatRerun(event: RerunEvent): string {
   return out.join("\n");
 }
 
+/**
+ * Console face of a re-run: the headline as a collapsed group with the
+ * why-chain and dep delta inside, so a busy console stays scannable (one line
+ * per run, evidence a click away). Consoles without grouping get the text.
+ */
+function logRerun(event: RerunEvent): void {
+  const text = formatRerun(event);
+  const nl = text.indexOf("\n");
+  if (nl === -1 || typeof console.groupCollapsed !== "function") {
+    console.log(text);
+    return;
+  }
+  console.groupCollapsed(text.slice(0, nl));
+  console.log(text.slice(nl + 1));
+  console.groupEnd();
+}
+
 export interface Attribution {
   enable(opts?: AttributionOptions): void;
   disable(): void;
@@ -685,6 +931,26 @@ export interface Attribution {
    */
   waterfalls(): readonly WaterfallRecord[];
   /**
+   * Every settled transition hold that staged at least one root write since
+   * enable() (ring-buffered like history()). Facts, not verdicts: recorded
+   * regardless of duration or acknowledgment — the SILENT_HOLD diagnostic is
+   * the thresholded, unacknowledged subset.
+   */
+  holds(): readonly HoldEvent[];
+  /**
+   * What the user waited on, folded from holds() and the interaction on each
+   * re-run: `sources` ranks async sources by the silent time writes spent
+   * held behind them (with which affordances answered, how often, and which
+   * interactions were held); `interactions` ranks user events by the total
+   * time they cost — re-run work caused (long-flush hazard) beside time held
+   * (silent-hold hazard). Facts at every duration; SILENT_HOLD is the
+   * thresholded verdict. Two more tables round out the picture: `flights`
+   * counts each async source's flights and how many were abandoned before
+   * landing (the re-ask storm), and `fallbacks` measures how long each
+   * loading boundary showed its fallback and how often that was a flash.
+   */
+  feedback(): AttributionFeedbackTables;
+  /**
    * Cooperative preload declaration: stamp a flight object (promise or async
    * iterable) with its true kickoff time BEFORE the reactive graph sees it.
    * A route preloader or query cache calls this on the promise it hands out
@@ -696,7 +962,15 @@ export interface Attribution {
    * later enable()). Dev-only, like the whole DEV surface.
    */
   markFlight(flight: object, startedAt?: number): void;
+  /**
+   * Run `fn` as a user interaction's handler: root writes inside stamp it as
+   * their origin, and actions/effects/flights it causes carry it. The web
+   * runtime wraps every event dispatch in this; custom renderers and test
+   * harnesses call it themselves. Callable while attribution is disabled.
+   */
+  withInteraction: typeof withInteraction;
   format: typeof formatRerun;
+  formatOrigin: typeof formatOrigin;
 }
 
 /**
@@ -765,15 +1039,526 @@ function checkUnstableOutput(el: Computed<any>, prevValue: unknown, newValue: un
     `${node._devUnstableRuns} consecutive runs — its equality gate never closes, so every ` +
     `subscriber re-runs on every upstream change. Return stable references or pass an ` +
     `\`equals\` option.`;
-  emitDiagnostic({
-    code: "UNSTABLE_MEMO_OUTPUT",
-    kind: "perf",
-    severity: "warn",
-    message,
-    nodeName: nodeName(el),
-    data: { runs: node._devUnstableRuns, shape }
-  });
-  console.warn(message);
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "UNSTABLE_MEMO_OUTPUT",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: nodeName(el),
+        data: { runs: node._devUnstableRuns, shape }
+      },
+      el
+    )
+  );
+}
+
+// --- Effect write cycles --------------------------------------------------------
+//
+// An effect that writes a value its own inputs depend on converges rather than
+// loops when the second run finds nothing left to change — so the flush guard
+// never fires, and nothing tells the developer the effect ran twice and the
+// screen rendered the pre-write value in between. The graph sees it exactly:
+// the re-run's cause chain (root writes, walked through however many memos)
+// contains a write whose origin is an effect frame, and the frame resolves to
+// the effect that is now re-running. Cycles that span effects — E1 writes A,
+// E2 reads A and writes B, E1 reads B — are the same walk one hop deeper: an
+// effect-origin write resolves to the run that made it, whose causes resolve
+// to the next write. The walk stops at any non-effect origin (a click, a
+// timer, an async landing: a real outside cause), at a revisited effect, and
+// at a depth cap. Causality through untracked indirection is not a graph edge
+// and is not claimed.
+//
+// Reported once per cycle. A single-effect cycle warns — the repair is
+// unambiguous: the written value is a function of what the effect reads, so
+// it is a memo. Multi-effect cycles are advisory until real fixtures have
+// shaped the message.
+
+interface CycleLink {
+  effect: Computed<any>;
+  write: ChangeRecord;
+}
+const EFFECT_CYCLE_MAX_HOPS = 6;
+const reportedCycles = new Set<string>();
+let nextDevId = 0;
+const devIds = new WeakMap<object, number>();
+function devId(node: object): number {
+  let id = devIds.get(node);
+  if (id === undefined) devIds.set(node, (id = ++nextDevId));
+  return id;
+}
+
+function rootWrites(causes: ChangeRecord[], out: ChangeRecord[]): void {
+  for (const c of causes) {
+    if (c.kind === "derived") {
+      if (c.causes !== undefined) rootWrites(c.causes, out);
+    } else out.push(c);
+  }
+}
+
+/**
+ * The effect writes leading from an earlier run of `target` to the run whose
+ * `causes` these are, in causal order (target's own write first), or null.
+ */
+function findEffectCycle(
+  target: Computed<any>,
+  causes: ChangeRecord[],
+  visited: Set<Computed<any>>,
+  hops: number
+): CycleLink[] | null {
+  const roots: ChangeRecord[] = [];
+  rootWrites(causes, roots);
+  for (const write of roots) {
+    const origin = write.origin;
+    if (origin === undefined || origin.kind !== "effect") continue;
+    const info = effectFrames.get(origin);
+    if (info === undefined) continue;
+    if (info.node === target) return [{ effect: info.node, write }];
+    if (hops >= EFFECT_CYCLE_MAX_HOPS || visited.has(info.node) || info.causes === undefined)
+      continue;
+    visited.add(info.node);
+    const rest = findEffectCycle(target, info.causes, visited, hops + 1);
+    if (rest !== null) {
+      rest.push({ effect: info.node, write });
+      return rest;
+    }
+  }
+  return null;
+}
+
+/** Names of the memos between a direct cause of a run and `write`, root-first. */
+function derivedPath(causes: ChangeRecord[], write: ChangeRecord, path: string[]): boolean {
+  for (const c of causes) {
+    if (c === write) return true;
+    if (c.kind === "derived" && c.causes !== undefined) {
+      path.unshift(c.name);
+      if (derivedPath(c.causes, write, path)) return true;
+      path.shift();
+    }
+  }
+  return false;
+}
+
+function describeWrite(write: ChangeRecord): string {
+  if (write.kind === "refresh") return `refreshed "${write.name}"`;
+  const values = write.prev !== undefined ? ` (${write.prev} → ${write.value})` : "";
+  return `wrote "${write.name}"${values}`;
+}
+
+function checkEffectCycle(el: Computed<any>, causes: ChangeRecord[]): void {
+  const links = findEffectCycle(el, causes, new Set([el]), 0);
+  if (links === null) return;
+  const key = links
+    .map(link => devId(link.effect))
+    .sort((a, b) => a - b)
+    .join(",");
+  if (reportedCycles.has(key)) return;
+  reportedCycles.add(key);
+  const flushes = links.length + 1;
+  let message: string;
+  if (links.length === 1) {
+    const [{ write }] = links;
+    const path: string[] = [];
+    derivedPath(causes, write, path);
+    const via = path.length > 0 ? ` through ${path.map(n => `memo "${n}"`).join(" → ")}` : "";
+    message =
+      `[EFFECT_WRITES_OWN_SOURCE] effect "${nodeName(el)}" re-ran because of its own write: it ` +
+      `${describeWrite(write)}, which fed back into its inputs${via}. Two flushes to settle, ` +
+      `and the screen rendered the pre-write value in between. The written value is a function ` +
+      `of what the effect reads — compute it in a memo (or normalize where the source is ` +
+      `written) instead of correcting it after the fact.`;
+  } else {
+    const names = links.map(link => `"${nodeName(link.effect)}"`);
+    const steps = links
+      .map(
+        (link, i) => `effect ${names[i]}${i > 0 ? " re-ran and" : ""} ${describeWrite(link.write)}`
+      )
+      .join("; ");
+    message =
+      `[EFFECT_WRITES_OWN_SOURCE] effects ${[...names, names[0]].join(" → ")} relay writes in a ` +
+      `cycle: ${steps}; which fed back into effect ${names[0]}'s inputs — ${flushes} flushes to ` +
+      `settle after each change, each rendering an intermediate state. Every relayed value is a ` +
+      `function of the original inputs: derive them in memos and drop the writes.`;
+  }
+  const severity = links.length === 1 ? "warn" : "info";
+  const entry = emitDiagnostic(
+    {
+      code: "EFFECT_WRITES_OWN_SOURCE",
+      kind: "perf",
+      severity,
+      message,
+      nodeName: nodeName(el),
+      data: {
+        effects: links.map(link => nodeName(link.effect)),
+        writes: links.map(link => ({
+          effect: nodeName(link.effect),
+          kind: link.write.kind,
+          name: link.write.name,
+          prev: link.write.prev,
+          value: link.write.value
+        })),
+        flushes
+      }
+    },
+    el
+  );
+  if (severity === "warn") reportDiagnostic(entry);
+}
+
+// --- Effect relay tears -------------------------------------------------------
+//
+// Derived state kept in sync by an effect — `createEffect(() => filter(a()),
+// v => setS(v))` — is the React habit Solid does not need, but "should have
+// been a memo" is a claim about intent the runtime cannot see. What it CAN
+// see is the harm: every scope that reads both `a` and `S` runs twice for one
+// write of `a` — once in the flush where `a` changed (against stale `S`), and
+// again after the effect's write lands — and the first frame was
+// inconsistent. That is a pure cause-chain fact: C's re-run has ONLY
+// effect-origin root writes, and the run that made one of them was itself
+// caused by a root write C already ran for. No guess about purity.
+//
+// The intent heuristics are then confidence modifiers on the message, not
+// gates. Two are cheap and honest:
+// - copy: the written value IS the effect's compute output (one `===` per
+//   effect-phase write). By Solid's contract the compute half is a pure
+//   function of its tracked reads, so the written value is derivable — a
+//   memo — with no guess about the callback's purity. Near-certain, so it
+//   warns on its own once it has repeated, even with no double-running
+//   reader: everything reading the copy paints a flush behind everything
+//   reading the source. The prop-to-state port is the special case where the
+//   compute output is itself one of the effect's sources (`passthrough`):
+//   read the source directly.
+// - sole writer: every write to `S` in the session came from this effect.
+//   Medium — real state grows other writers eventually — so it sharpens the
+//   text, not the severity.
+// A tear whose write is neither is `info` (a DOM-measurement effect tears
+// legitimately: the cost of measuring) until the same relay has torn
+// repeatedly, then `warn`.
+
+interface RelayState {
+  count: number;
+  warned: boolean;
+}
+const RELAY_WARN_AT = 3;
+const relays = new Map<string, RelayState>();
+const copyWrites = new WeakSet<ChangeRecord>();
+const copyReported = new WeakSet<object>();
+/** The node each root write record was stamped on (records are serializable and cannot hold it). */
+const recordNodes = new WeakMap<ChangeRecord, Signal<any> | Computed<any>>();
+
+/**
+ * Write-side bookkeeping for the relay heuristics: who has written this
+ * signal, and whether an effect just copied its compute output into it.
+ */
+function trackEffectWrite(node: Signal<any> | Computed<any>, record: ChangeRecord, value: unknown) {
+  const n = node as AttributedNode;
+  const origin = record.origin;
+  const info =
+    origin !== undefined && origin.kind === "effect" ? effectFrames.get(origin) : undefined;
+  const writer = info === undefined ? 0 : devId(info.node);
+  recordNodes.set(record, node);
+  n._devSoleWriter = n._devSoleWriter === undefined || n._devSoleWriter === writer ? writer : null;
+  if (info !== undefined && value !== undefined && value === info.node._value) {
+    copyWrites.add(record);
+    n._devCopyRuns = n._devCopyFrom === writer ? (n._devCopyRuns ?? 0) + 1 : 1;
+    n._devCopyFrom = writer;
+    if (n._devCopyRuns >= 2 && n._devSoleWriter === writer) checkCopyEffect(info.node, node);
+  } else n._devCopyRuns = 0;
+}
+
+/** The effect's source whose current value the compute output is, if any (the prop-to-state port). */
+function passthroughSource(effect: Computed<any>): string | undefined {
+  for (let l = effect._deps; l !== null; l = l._nextDep)
+    if (l._dep._value === effect._value) return nodeName(l._dep);
+  return undefined;
+}
+
+/** The repair for a write that is the effect's compute output. */
+function copyRepair(effect: Computed<any>, target: string): string {
+  const source = passthroughSource(effect);
+  return source !== undefined
+    ? `The written value is "${source}" itself: read "${source}" where "${target}" is read ` +
+        `(or createMemo it if a stable derivation is needed) and delete the effect.`
+    : `The written value is the effect's compute output — by contract a pure function of ` +
+        `what it tracks: make "${target}" a memo of that computation and delete the effect.`;
+}
+
+function checkCopyEffect(effect: Computed<any>, target: Signal<any> | Computed<any>): void {
+  if (copyReported.has(target)) return;
+  copyReported.add(target);
+  const name = nodeName(target);
+  const message =
+    `[EFFECT_RELAY_TEAR] effect "${nodeName(effect)}" writes its compute output into ` +
+    `"${name}" on every run, and nothing else writes "${name}" — it is derived state kept ` +
+    `one flush late: everything reading it paints a frame behind everything reading the ` +
+    `source. ${copyRepair(effect, name)}`;
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "EFFECT_RELAY_TEAR",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: nodeName(effect),
+        data: {
+          relay: nodeName(effect),
+          wrote: name,
+          copy: true,
+          passthrough: passthroughSource(effect) ?? null,
+          soleWriter: true
+        }
+      },
+      effect
+    )
+  );
+}
+
+/**
+ * `victim` re-ran with `causes`; its previous run had `prevCauses`. A tear is
+ * a re-run whose root writes ALL came from effects (no independent outside
+ * cause) and at least one of which was made by a run that shares a root
+ * write with the victim's previous run.
+ */
+function checkRelayTear(
+  victim: Computed<any>,
+  causes: ChangeRecord[],
+  prevCauses: ChangeRecord[] | undefined
+): void {
+  if (prevCauses === undefined || causes.length === 0) return;
+  const roots: ChangeRecord[] = [];
+  rootWrites(causes, roots);
+  if (roots.length === 0) return;
+  let relay: EffectFrameInfo | undefined;
+  let write: ChangeRecord | undefined;
+  let shared: ChangeRecord | undefined;
+  for (const root of roots) {
+    const origin = root.origin;
+    if (origin === undefined || origin.kind !== "effect") return;
+    const info = effectFrames.get(origin);
+    // Own-source cycles are EFFECT_WRITES_OWN_SOURCE's; a create-run relay
+    // is initial sync, not a tear for one change.
+    if (info === undefined || info.node === victim || info.causes === undefined) return;
+    if (shared === undefined) {
+      const relayRoots: ChangeRecord[] = [];
+      rootWrites(info.causes, relayRoots);
+      const prevRoots: ChangeRecord[] = [];
+      rootWrites(prevCauses, prevRoots);
+      const hit = relayRoots.find(r => prevRoots.includes(r));
+      if (hit !== undefined) {
+        shared = hit;
+        relay = info;
+        write = root;
+      }
+    }
+  }
+  if (shared === undefined || relay === undefined || write === undefined) return;
+  const key = `${devId(relay.node)}:${write.name}`;
+  let state = relays.get(key);
+  if (state === undefined) relays.set(key, (state = { count: 0, warned: false }));
+  state.count++;
+  const copy = copyWrites.has(write);
+  const target = recordNodes.get(write) as AttributedNode | undefined;
+  const soleWriter = target !== undefined && target._devSoleWriter === devId(relay.node);
+  // Derivable outright: the value is the compute output and nothing else
+  // writes the signal. A copy INTO a signal that has other writers is the
+  // "reset editable state from a source" shape — the tear is real, but a memo
+  // is not the answer, so it stays advisory like any other non-derivable tear.
+  const derivable = copy && soleWriter;
+  const severity = derivable || state.count >= RELAY_WARN_AT ? "warn" : "info";
+  // First sighting always reports (advisory); afterwards only the escalation.
+  if (state.count > 1 && (severity !== "warn" || state.warned)) return;
+  // One verdict per derivable signal: the copy report (checkCopyEffect) and
+  // the tear report carry the same repair.
+  if (derivable && target !== undefined) {
+    if (copyReported.has(target)) return;
+    copyReported.add(target);
+  }
+  if (severity === "warn") state.warned = true;
+  const victimKind = (victim as { _type?: number })._type ? "effect" : "memo";
+  const relayName = nodeName(relay.node);
+  const repair = derivable
+    ? copyRepair(relay.node, write.name)
+    : copy
+      ? `The written value is the effect's compute output, but "${write.name}" has other ` +
+        `writers — editable state reset from a source. If the reset is the intent, the tear ` +
+        `is its cost; if "${write.name}" only ever mirrors the source, drop the local copy ` +
+        `and read the source.`
+      : soleWriter
+        ? `Nothing else writes "${write.name}" — it is derived state: make it a memo over what ` +
+          `the effect reads and every reader gets it in the same flush.`
+        : `If "${write.name}" is computed from what the effect reads, make it a memo so readers ` +
+          `get it in the same flush; if the write reads something outside the graph (layout, ` +
+          `time), the tear is the cost of measuring.`;
+  const message =
+    `[EFFECT_RELAY_TEAR] ${victimKind} "${nodeName(victim)}" ran twice for one write of ` +
+    `"${shared.name}": once in the flush where "${shared.name}" changed, and again after ` +
+    `effect "${relayName}" relayed it by writing "${write.name}" — the first frame showed the ` +
+    `new "${shared.name}" with the stale "${write.name}"` +
+    (state.count > 1 ? ` (${state.count} times so far)` : "") +
+    `. ${repair}`;
+  const entry = emitDiagnostic(
+    {
+      code: "EFFECT_RELAY_TEAR",
+      kind: "perf",
+      severity,
+      message,
+      nodeName: nodeName(victim),
+      data: {
+        victim: nodeName(victim),
+        root: shared.name,
+        relay: relayName,
+        wrote: write.name,
+        copy,
+        passthrough: copy ? (passthroughSource(relay.node) ?? null) : null,
+        soleWriter,
+        occurrences: state.count
+      }
+    },
+    victim
+  );
+  if (severity === "warn") reportDiagnostic(entry);
+}
+
+// --- Immutable updates in stores ---------------------------------------------
+//
+// `draft.user = { ...draft.user, name }` / `draft.items = [...draft.items,
+// x]` / `draft.items = draft.items.filter(...)` — the React habit of
+// producing a fresh container to change one leaf. The store tracks leaves, so
+// a fresh container is pure cost: every reader of `user` (any path below it)
+// re-runs for the one leaf that moved, where a draft mutation would re-run
+// only the readers of `name`. The store's notify sees both containers at the
+// write and reports a leaf census (identity on unwrapped values, capped); the
+// verdict is the whole detector: a replacement whose leaves are mostly the
+// SAME values is a spread-copy, and one whose leaves are mostly different is
+// new data (reconcile's job — and UNSTABLE_LIST_IDENTITY's, downstream). Once
+// per store path.
+
+const immutableReported = new Set<string>();
+
+function checkImmutableUpdate(
+  path: string,
+  isArray: boolean,
+  total: number,
+  same: number,
+  prevTotal: number
+): void {
+  if (immutableReported.has(path) || total < 2) return;
+  // Push/filter/splice copies change the length by a little; a wholesale
+  // resize is a different operation even if some items survive.
+  if (isArray && Math.abs(prevTotal - total) > Math.max(1, total >> 2)) return;
+  // At least half the leaves carried over unchanged, and at least one did.
+  if (same === 0 || same * 2 < total) return;
+  immutableReported.add(path);
+  const changed = total - same;
+  const shape = isArray ? "array" : "object";
+  const repair = isArray
+    ? `mutate the draft in place (push/splice/index assignment) so only the touched ` +
+      `indices notify`
+    : `assign the leaf on the draft (\`${path}.<key> = …\`) so only readers of that key re-run`;
+  const message =
+    `[IMMUTABLE_UPDATE_IN_STORE] "${path}" was replaced with a fresh ${shape} whose ` +
+    `${isArray ? "items" : "leaves"} are mostly the same values (${same} of ${total} unchanged` +
+    `${changed > 0 ? `, ${changed} changed` : ""}) — a spread-copy update. The store already ` +
+    `tracks ${isArray ? "items" : "leaves"}; a new container makes every reader of "${path}" ` +
+    `re-run for the ${changed === 1 ? "one that" : "few that"} moved. Instead, ${repair}. For ` +
+    `data arriving from outside (a fetch result), merge it with reconcile(data, key)(${path}).`;
+  reportDiagnostic(
+    emitDiagnostic({
+      code: "IMMUTABLE_UPDATE_IN_STORE",
+      kind: "perf",
+      severity: "warn",
+      message,
+      nodeName: path,
+      data: { path, shape, total, unchanged: same, changed }
+    })
+  );
+}
+
+// --- Unstable list identity -----------------------------------------------------
+//
+// `<For>` keyed by identity (the default) treats every new object as a new
+// row. When a re-fetch hands back fresh objects for the same records, or a
+// spread-copy rebuilds the array, most rows are disposed and recreated —
+// DOM, state, focus, and all — for data that did not change. mapArray knows
+// exactly which items exited and entered; pairing them (by `id` when the
+// items carry one, else by position) and sampling shallow equivalence turns
+// that into a verdict: churn that replaced equivalent records is unstable
+// identity, not a new list. A key function that still churns has the same
+// disease one level up (its keys are not stable). Once per list.
+
+const LIST_CHURN_SAMPLE = 8;
+const listIdentityWarned = new WeakSet<object>();
+
+function recordId(item: unknown): unknown {
+  if (item === null || typeof item !== "object") return undefined;
+  const o = item as Record<string, unknown>;
+  return o.id ?? o.key ?? o._id ?? undefined;
+}
+
+function checkListIdentity(
+  el: Computed<any>,
+  removed: unknown[],
+  created: unknown[],
+  newLen: number,
+  keyed: boolean
+): void {
+  if (listIdentityWarned.has(el)) return;
+  // Most of the list turned over, and the turnover was a swap (rows out ≈ rows in).
+  if (created.length < 2 || created.length * 2 < newLen) return;
+  if (Math.abs(removed.length - created.length) > Math.max(1, created.length >> 2)) return;
+  // Pair exited with entered: by record id when present, else by position.
+  const byId = new Map<unknown, unknown>();
+  for (const item of removed) {
+    const id = recordId(item);
+    if (id !== undefined) byId.set(id, item);
+  }
+  let sampled = 0;
+  let equivalent = 0;
+  const step = Math.max(1, Math.floor(created.length / LIST_CHURN_SAMPLE));
+  for (let i = 0; i < created.length && sampled < LIST_CHURN_SAMPLE; i += step) {
+    const item = created[i];
+    const id = recordId(item);
+    const prev = id !== undefined ? byId.get(id) : removed[i];
+    if (prev === undefined || !isPlainShape(prev) || !isPlainShape(item)) continue;
+    sampled++;
+    if (shallowEquivalent(prev, item)) equivalent++;
+  }
+  if (sampled === 0 || equivalent * 2 < sampled) return;
+  listIdentityWarned.add(el);
+  const name = nodeName(el);
+  const repair = keyed
+    ? `The key function returned different keys for equivalent records — return a stable ` +
+      `field (\`keyed: item => item.id\`), not the object or a computed value that changes ` +
+      `with the fetch.`
+    : `Key the list by a stable field (\`keyed: item => item.id\`), or merge the data into ` +
+      `a store with reconcile(data, "id") so the same records keep the same identity.`;
+  const message =
+    `[UNSTABLE_LIST_IDENTITY] list "${name}" recreated ${created.length} of ${newLen} rows on ` +
+    `an update where the entering items are equivalent to the ones they replaced ` +
+    `(${equivalent} of ${sampled} sampled pairs identical field-for-field) — fresh objects ` +
+    `for the same records, so identity keying threw away every row's DOM and state and ` +
+    `rebuilt it. ${repair}`;
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "UNSTABLE_LIST_IDENTITY",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: name,
+        data: {
+          removed: removed.length,
+          created: created.length,
+          length: newLen,
+          sampled,
+          equivalent,
+          keyed
+        }
+      },
+      el
+    )
+  );
 }
 
 // --- Async waterfall tracking -----------------------------------------------
@@ -827,6 +1612,16 @@ interface LiveFlight {
   /** changeSeq at flight start — associates the eventual landing stamp. */
   startSeq: number;
   chain: FlightLink[];
+  /** The user interaction whose write started this flight, if any. */
+  interaction?: ChangeOrigin;
+}
+
+/** Provenance of an async landing: the flight, under the interaction that started it. */
+function asyncOrigin(el: Computed<any>): ChangeOrigin {
+  const origin: ChangeOrigin = { kind: "async", name: nodeName(el) };
+  const interaction = liveFlights.get(el)?.interaction;
+  if (interaction !== undefined) origin.interaction = interaction;
+  return origin;
 }
 // WeakMaps: an errored/abandoned flight must not leak its node or block GC.
 const liveFlights = new WeakMap<Computed<any>, LiveFlight>();
@@ -853,30 +1648,39 @@ function flightCauseIn(causes: ChangeRecord[]): LandedFlight | null {
 }
 
 function trackFlightStart(el: Computed<any>, flight: object): void {
-  if (options.waterfalls === false) return;
   const at = now();
   const origin = flightOrigins.get(flight) ?? at;
   if (origin === at) flightOrigins.set(flight, at);
+  // Census: a flight still in the air when the node starts another was
+  // superseded — its answer will be discarded.
+  const stats = flightBucket(el);
+  stats.flights++;
+  if (liveFlights.has(el)) stats.abandoned++;
   // Nearest enclosing frame with causes: create runs carry null (a node born
   // inside a parent's recompute inherits the parent's causality — the
   // boundary-reveal case, and the lazy sibling whose first pull is gated
   // behind an earlier not-ready read), so walk down to the first re-run frame.
-  let parent: LandedFlight | null = null;
+  let causes: ChangeRecord[] | null = null;
   for (let i = frames.length - 1; i >= 0; i--) {
-    const causes = frames[i].causes;
-    if (causes !== null) {
-      parent = flightCauseIn(causes);
+    if (frames[i].causes !== null) {
+      causes = frames[i].causes;
       break;
     }
   }
-  // The sequentiality test. A marked/previously-seen flight whose origin
-  // predates the upstream landing was in the air alongside it: parallel.
-  if (parent !== null && origin < parent.landedAt) parent = null;
-  liveFlights.set(el, {
-    origin,
-    startSeq: changeSeq,
-    chain: parent === null ? [] : [...parent.chain, { name: parent.name, ms: parent.ms }]
-  });
+  const live: LiveFlight = { origin, startSeq: changeSeq, chain: [] };
+  // Provenance: the flight belongs to whatever interaction caused the
+  // recompute that started it (a create run under a click's handler — a
+  // freshly mounted async node — inherits the ambient interaction instead).
+  const interaction = causes !== null ? interactionIn(causes) : (currentInteraction ?? undefined);
+  if (interaction !== undefined) live.interaction = interaction;
+  if (options.waterfalls !== false && causes !== null) {
+    let parent = flightCauseIn(causes);
+    // The sequentiality test. A marked/previously-seen flight whose origin
+    // predates the upstream landing was in the air alongside it: parallel.
+    if (parent !== null && origin < parent.landedAt) parent = null;
+    if (parent !== null) live.chain = [...parent.chain, { name: parent.name, ms: parent.ms }];
+  }
+  liveFlights.set(el, live);
 }
 
 /**
@@ -890,6 +1694,10 @@ function finalizeFlight(el: Computed<any>): void {
   liveFlights.delete(el);
   const landedAt = now();
   const ms = landedAt - flight.origin;
+  const stats = flightBucket(el);
+  stats.landed++;
+  stats.landedMs += ms;
+  if (ms > stats.worstMs) stats.worstMs = ms;
   const record = (el as AttributedNode)._devChange;
   // Only a stamp this landing produced may carry the measurement — a stale
   // async record from a previous landing must not be re-labeled.
@@ -936,15 +1744,559 @@ function checkWaterfall(el: Computed<any>, chain: FlightLink[], ms: number): voi
   // preload. A 3+ chain that survived the origin test is near-certainly
   // structural — that one earns the console.
   const severity = seq > 2 ? "warn" : "info";
-  emitDiagnostic({
-    code: "ASYNC_WATERFALL",
-    kind: "perf",
-    severity,
-    message,
-    nodeName: nodeName(el),
-    data: { chain: links.map(l => ({ name: l.name, ms: l.ms })), sequentialMs: totalMs }
-  });
-  if (severity === "warn") console.warn(message);
+  const entry = emitDiagnostic(
+    {
+      code: "ASYNC_WATERFALL",
+      kind: "perf",
+      severity,
+      message,
+      nodeName: nodeName(el),
+      data: { chain: links.map(l => ({ name: l.name, ms: l.ms })), sequentialMs: totalMs }
+    },
+    el
+  );
+  if (severity === "warn") reportDiagnostic(entry);
+}
+
+// --- Transition holds ---------------------------------------------------------
+//
+// A "hold" is the runtime's answer to a write that lands on async work: the
+// write (and everything derived from it) stays staged in a transition until
+// the async settles, so the screen never shows a torn state. That guarantee
+// has a cost the graph cannot see on its own — from the user's side, the
+// click did nothing until the data came back. Solid gives the screen four
+// ways to acknowledge the wait: `isPending()` companions, `latest()` shadows,
+// optimistic values (`createOptimistic`/`createOptimisticStore`, or an action
+// writing them), and `affects()` marks. Each one is a graph fact this engine
+// can census at settle. A hold that used none of them, and during which no
+// effect ran at all, is a hold the user watched with no feedback: SILENT_HOLD.
+//
+// What is deliberately NOT judged: holds that staged no root write. An
+// initial load, a bare `refresh()`, a re-ask — nothing the user did is
+// waiting behind them, and `<Loading>` boundaries already own the "nothing
+// yet" case. The census walks DOWNSTREAM from the held writes and blockers
+// (subs + firewall children, the same reach as verdict repolling) because a
+// probe on a derived memo (`isPending(() => filteredPosts())`) plants its
+// companion on the memo, not on the source it derives from.
+
+export interface HeldWrite {
+  name: string;
+  prev?: string;
+  value?: string;
+  origin?: ChangeOrigin;
+}
+export interface HoldEvent {
+  /**
+   * Wall time the user waited: from the interaction that performed the held
+   * writes when one is known (`interaction.at`), else from the first flush
+   * that parked the transition, to its completion.
+   */
+  holdMs: number;
+  /** The user interaction whose writes were held, when the stamp is known. */
+  interaction?: ChangeOrigin;
+  /** Flushes that ended with the transition still incomplete. */
+  flushes: number;
+  /** Root signal writes staged behind the hold (the user's unanswered input). */
+  heldWrites: HeldWrite[];
+  /** Async nodes the transition waited on (union across its parked flushes). */
+  blockers: string[];
+  /**
+   * Feedback the graph provably rendered for this hold, as `"<kind>:<node>"`
+   * — `isPending:posts`, `latest:page`, `optimistic:todos`, `affects:list`.
+   * Empty and `paintedDuringHold === 0` is the SILENT_HOLD signature.
+   */
+  acknowledgedBy: string[];
+  /** Effect callbacks that ran inside the transition's parked flushes. */
+  paintedDuringHold: number;
+  /** The transition was opened (or joined) by an `action()`. */
+  action: boolean;
+}
+
+interface HoldState {
+  start: number;
+  flushes: number;
+  blockers: Set<Computed<any>>;
+  acknowledgedBy: Set<string>;
+  painted: number;
+  action: boolean;
+}
+const holdStates = new WeakMap<Transition, HoldState>();
+let activeHold: HoldState | null = null;
+let holdLog: HoldEvent[] = [];
+
+/** Companions are optimistic nodes too; `_parentSource` marks them. */
+function isCompanion(node: Signal<any> | Computed<any>): boolean {
+  return !!node._x && node._x._parentSource !== undefined;
+}
+
+function censusRegistrations(t: Transition, state: HoldState): void {
+  for (const node of t._optimisticNodes)
+    if (!isCompanion(node)) state.acknowledgedBy.add(`optimistic:${nodeName(node)}`);
+  for (const store of t._optimisticStores)
+    state.acknowledgedBy.add(`optimistic:${(store as { _name?: string })?._name ?? "store"}`);
+  for (const node of t._affectsNodes) state.acknowledgedBy.add(`affects:${nodeName(node)}`);
+}
+
+const HOLD_CENSUS_CAP = 10_000;
+/** Companions with live readers, anywhere downstream of the hold's nodes. */
+function censusCompanions(roots: Iterable<Signal<any> | Computed<any>>, out: Set<string>): void {
+  const visited = new Set<Signal<any> | Computed<any>>();
+  const stack: (Signal<any> | Computed<any>)[] = [...roots];
+  while (stack.length > 0 && visited.size < HOLD_CENSUS_CAP) {
+    const node = stack.pop()!;
+    if (visited.has(node)) continue;
+    visited.add(node);
+    const x = node._x;
+    if (x) {
+      if (x._pendingSignal !== undefined && x._pendingSignal._subs !== null)
+        out.add(`isPending:${nodeName(node)}`);
+      if (x._latestValueComputed !== undefined && x._latestValueComputed._subs !== null)
+        out.add(`latest:${nodeName(node)}`);
+      for (
+        let child: Signal<any> | null = (x as { _child?: Signal<any> | null })._child ?? null;
+        child !== null;
+        child = (child as { _nextChild?: Signal<any> | null })._nextChild ?? null
+      )
+        stack.push(child);
+    }
+    for (let s = node._subs; s !== null; s = s._nextSub) stack.push(s._sub);
+  }
+}
+
+function holdState(t: Transition): HoldState {
+  let state = holdStates.get(t);
+  if (state === undefined) {
+    state = {
+      start: now(),
+      flushes: 0,
+      blockers: new Set(),
+      acknowledgedBy: new Set(),
+      painted: 0,
+      action: false
+    };
+    holdStates.set(t, state);
+  }
+  return state;
+}
+
+function trackHoldStart(t: Transition): void {
+  if (options.holds === false) return;
+  const state = holdState(t);
+  state.flushes++;
+  if (t._actions.length > 0) state.action = true;
+  for (const [source, reporters] of t._asyncReporters)
+    if (reporters.size > 0) state.blockers.add(source);
+  censusRegistrations(t, state);
+  activeHold = state;
+}
+
+function trackHoldMerge(target: Transition, outgoing: Transition): void {
+  const from = holdStates.get(outgoing);
+  if (from === undefined) return;
+  holdStates.delete(outgoing);
+  const into = holdState(target);
+  if (from.start < into.start) into.start = from.start;
+  into.flushes += from.flushes;
+  into.painted += from.painted;
+  into.action ||= from.action;
+  for (const b of from.blockers) into.blockers.add(b);
+  for (const a of from.acknowledgedBy) into.acknowledgedBy.add(a);
+}
+
+function trackHoldSettled(t: Transition): void {
+  const state = holdStates.get(t);
+  if (state === undefined) return;
+  holdStates.delete(t);
+  // Root writes only: a memo in _pendingNodes is a derived hold, and the
+  // question is whether the USER's input went unanswered.
+  const heldWrites: HeldWrite[] = [];
+  let subject: Signal<any> | null = null;
+  let interaction: ChangeOrigin | undefined;
+  for (const node of t._pendingNodes) {
+    if (typeof (node as Computed<any>)._fn === "function" || isCompanion(node)) continue;
+    const change = (node as AttributedNode)._devChange;
+    if (change === undefined || change.kind !== "write") continue;
+    if (subject === null) subject = node;
+    const held: HeldWrite = { name: nodeName(node), prev: change.prev, value: change.value };
+    if (change.origin !== undefined) held.origin = change.origin;
+    heldWrites.push(held);
+    // Earliest interaction among the held writes: the user has been waiting
+    // since the first thing they did that this transaction is holding.
+    const under = interactionOf(change.origin);
+    if (under !== undefined && (interaction === undefined || under.at! < interaction.at!))
+      interaction = under;
+  }
+  if (heldWrites.length === 0) return;
+  censusRegistrations(t, state);
+  censusCompanions([...t._pendingNodes, ...state.blockers], state.acknowledgedBy);
+  const event: HoldEvent = {
+    holdMs: now() - (interaction !== undefined ? interaction.at! : state.start),
+    flushes: state.flushes,
+    heldWrites,
+    blockers: [...state.blockers].map(nodeName),
+    acknowledgedBy: [...state.acknowledgedBy],
+    paintedDuringHold: state.painted,
+    action: state.action
+  };
+  if (interaction !== undefined) event.interaction = interaction;
+  holdLog.push(event);
+  if (holdLog.length > options.historyLimit) holdLog.shift();
+  recordFeedbackHold(event);
+  checkSilentHold(event, subject!);
+}
+
+function checkSilentHold(event: HoldEvent, subject: Signal<any>): void {
+  const cfg = options.holds;
+  if (cfg === false) return;
+  if (!isSilentHold(event)) return;
+  if (event.holdMs < cfg.infoMs) return;
+  const ms = event.holdMs.toFixed(0);
+  const writes = event.heldWrites
+    .map(w => (w.prev !== undefined ? `"${w.name}" (${w.prev} → ${w.value})` : `"${w.name}"`))
+    .join(", ");
+  const waitedOn =
+    event.blockers.length > 0 ? ` waiting on ${event.blockers.map(b => `"${b}"`).join(", ")}` : "";
+  // With the interaction stamped the sentence starts from what the user did;
+  // without it, from the writes.
+  const who = event.interaction !== undefined ? `${formatOrigin(event.interaction)} ` : "";
+  const message = event.action
+    ? `[SILENT_HOLD] ${who}${who ? "started an action that" : "an action"} held ${writes} for ` +
+      `${ms}ms${waitedOn} and the screen showed nothing for the whole round-trip: no optimistic ` +
+      `value, no isPending() reader, no affects() mark, and no effect ran while it was held. ` +
+      `Pair the action with a createOptimistic/createOptimisticStore write for the expected ` +
+      `outcome (it reverts on failure), or co-write a createOptimistic(false) "saving" flag ` +
+      `the UI reads.`
+    : `[SILENT_HOLD] ${who}${who ? "wrote" : "writes to"} ${writes}${who ? "; the write was" : " were"} ` +
+      `held ${ms}ms${waitedOn} and the screen showed nothing for the wait: no ` +
+      `isPending()/latest() reader downstream, no optimistic value, no affects() mark, and no ` +
+      `effect ran while it was held — the interaction was dead for ${ms}ms. Show the wait: ` +
+      `read isPending(() => ${event.blockers[0] ?? "source"}()) to render a busy state, or ` +
+      `latest(${event.heldWrites[0].name}) to reveal the new input immediately while the data ` +
+      `catches up. The hold itself is correct — do not "fix" this by moving the write off the ` +
+      `async path.`;
+  const severity = event.holdMs >= cfg.warnMs ? "warn" : "info";
+  const data: Record<string, unknown> = {
+    holdMs: event.holdMs,
+    flushes: event.flushes,
+    heldWrites: event.heldWrites.map(w => w.name),
+    blockers: event.blockers,
+    action: event.action
+  };
+  if (event.interaction !== undefined)
+    data.interaction = { type: event.interaction.name, target: event.interaction.target };
+  const entry = emitDiagnostic(
+    {
+      code: "SILENT_HOLD",
+      kind: "responsiveness",
+      severity,
+      message,
+      nodeName: nodeName(subject),
+      data
+    },
+    subject
+  );
+  if (severity === "warn") reportDiagnostic(entry);
+}
+
+// --- Feedback tables ----------------------------------------------------------
+//
+// costs() ranks scopes and writes by the time they burn; feedback() ranks what
+// the USER waited on, folded from records the engine already keeps — the
+// HoldEvents and the interaction on each RerunEvent — with no measurement of
+// its own. Two views of one question, "what did the click cost the person who
+// clicked": per async source, how often writes were held behind it, for how
+// long, and whether the screen said anything meanwhile; per interaction, the
+// synchronous re-run work it caused (the long-flush hazard) beside the time
+// its writes spent held (the silent-hold hazard) — the two INP failure modes
+// as columns of one row. Facts, not verdicts: every hold counts, not only the
+// ones past SILENT_HOLD's thresholds, so a source acknowledged on one screen
+// and silent on another shows up as exactly that.
+
+export interface FeedbackSource {
+  /** The async nodes the holds waited on; empty when an action alone kept them open. */
+  sources: string[];
+  holds: number;
+  /** Summed wait across the holds (ms). */
+  heldMs: number;
+  worstMs: number;
+  /** Holds with no acknowledgment at all — the SILENT_HOLD signature, at any duration. */
+  silent: number;
+  silentMs: number;
+  /** Holds whose only acknowledgment was a `latest()` shadow: the input showed, nothing said "loading". */
+  latestOnly: number;
+  /**
+   * Acknowledged holds that still ran past the silent-hold `infoMs` threshold —
+   * the screen said "loading", but for long enough that the affordance is not
+   * the whole answer (preload, cache, or a faster source is).
+   */
+  late: number;
+  lateMs: number;
+  /** Which affordances answered, and in how many holds — ranked. */
+  acknowledgedBy: { by: string; holds: number }[];
+  /** Interactions whose writes were held here, ranked by holds. */
+  interactions: { interaction: string; holds: number }[];
+  /** Distinct root writes that were held. */
+  writes: string[];
+  /** Holds an action opened or joined. */
+  actions: number;
+}
+
+export interface FeedbackInteraction {
+  /** `click on button#next "Next →"` — type and target; repeated dispatches fold together. */
+  interaction: string;
+  /** Distinct dispatches seen (by dispatch time). */
+  dispatches: number;
+  /** Re-runs traced back to this interaction, and their summed self-time. */
+  runs: number;
+  selfMs: number;
+  /** The most re-run self-time a single dispatch caused — the long-flush hazard. */
+  worstDispatchMs: number;
+  /** Holds this interaction's writes waited in — the silent-hold hazard. */
+  holds: number;
+  heldMs: number;
+  silentMs: number;
+  worstHoldMs: number;
+}
+
+/** Per async source: how many flights it started, and how many it threw away. */
+export interface FlightStats {
+  source: string;
+  /** Flights registered (a recompute that produced a new promise/iterable). */
+  flights: number;
+  /** Flights that landed (whether or not the value changed). */
+  landed: number;
+  /**
+   * Flights superseded by a newer one before landing — the search-as-you-type
+   * signature when large: every keystroke asked, most answers were discarded.
+   * A debounced/equality-gated derivation between input and fetch is the repair.
+   */
+  abandoned: number;
+  /** Summed and worst wall time of landed flights (ms). */
+  landedMs: number;
+  worstMs: number;
+}
+
+/** Per loading boundary: how long, and how briefly, it showed its fallback. */
+export interface FallbackStats {
+  /** The boundary's owner path (`<App> › <Feed>`), or `boundary` when unnamed. */
+  boundary: string;
+  /** Times the fallback was shown. */
+  shows: number;
+  /** Summed and worst fallback duration (ms) across completed shows. */
+  shownMs: number;
+  worstMs: number;
+  /**
+   * Shows shorter than the flash window (default 150ms): a spinner that
+   * appeared and vanished — the other end of the SILENT_HOLD spectrum, too
+   * much feedback for too little wait. A preload, a cache, or lifting the
+   * fetch above the boundary removes the flash.
+   */
+  flashes: number;
+}
+
+interface SourceBucket {
+  row: FeedbackSource;
+  acks: Map<string, number>;
+  interactions: Map<string, number>;
+  writes: Set<string>;
+}
+interface InteractionBucket {
+  row: FeedbackInteraction;
+  /** Self-time per dispatch, keyed by dispatch time. */
+  dispatches: Map<number, number>;
+}
+const feedbackSources = new Map<string, SourceBucket>();
+const feedbackInteractions = new Map<string, InteractionBucket>();
+const flightStats = new Map<Computed<any>, FlightStats>();
+interface FallbackBucket {
+  row: FallbackStats;
+  /** Start of the show currently on screen, or null. */
+  shownAt: number | null;
+}
+const fallbackStats = new Map<object, FallbackBucket>();
+const FALLBACK_FLASH_MS = 150;
+
+function flightBucket(el: Computed<any>): FlightStats {
+  let row = flightStats.get(el);
+  if (row === undefined) {
+    row = { source: nodeName(el), flights: 0, landed: 0, abandoned: 0, landedMs: 0, worstMs: 0 };
+    flightStats.set(el, row);
+  }
+  return row;
+}
+
+function trackFallback(boundary: object, tree: Computed<any> | undefined, shown: boolean): void {
+  let bucket = fallbackStats.get(boundary);
+  if (bucket === undefined) {
+    bucket = {
+      row: { boundary: "boundary", shows: 0, shownMs: 0, worstMs: 0, flashes: 0 },
+      shownAt: null
+    };
+    fallbackStats.set(boundary, bucket);
+  }
+  // The first show can fire before the subtree exists; name on first sight.
+  if (bucket.row.boundary === "boundary" && tree !== undefined) {
+    const path = ownerPath(tree);
+    if (path !== undefined) bucket.row.boundary = path.join(" › ");
+  }
+  if (shown) {
+    if (bucket.shownAt === null) {
+      bucket.shownAt = now();
+      bucket.row.shows++;
+    }
+    return;
+  }
+  if (bucket.shownAt === null) return;
+  const ms = now() - bucket.shownAt;
+  bucket.shownAt = null;
+  bucket.row.shownMs += ms;
+  if (ms > bucket.row.worstMs) bucket.row.worstMs = ms;
+  if (ms < FALLBACK_FLASH_MS) bucket.row.flashes++;
+}
+
+/** No affordance answered and nothing painted while held. */
+function isSilentHold(event: HoldEvent): boolean {
+  return event.paintedDuringHold === 0 && event.acknowledgedBy.length === 0;
+}
+
+function interactionBucket(interaction: ChangeOrigin): InteractionBucket {
+  const key = formatOrigin(interaction);
+  let bucket = feedbackInteractions.get(key);
+  if (bucket === undefined) {
+    bucket = {
+      row: {
+        interaction: key,
+        dispatches: 0,
+        runs: 0,
+        selfMs: 0,
+        worstDispatchMs: 0,
+        holds: 0,
+        heldMs: 0,
+        silentMs: 0,
+        worstHoldMs: 0
+      },
+      dispatches: new Map()
+    };
+    feedbackInteractions.set(key, bucket);
+  }
+  const at = interaction.at ?? 0;
+  if (!bucket.dispatches.has(at)) {
+    bucket.dispatches.set(at, 0);
+    bucket.row.dispatches++;
+  }
+  return bucket;
+}
+
+function recordFeedbackRun(event: RerunEvent): void {
+  if (event.interaction === undefined) return;
+  const bucket = interactionBucket(event.interaction);
+  bucket.row.runs++;
+  bucket.row.selfMs += event.selfMs;
+  const at = event.interaction.at ?? 0;
+  const dispatchMs = bucket.dispatches.get(at)! + event.selfMs;
+  bucket.dispatches.set(at, dispatchMs);
+  if (dispatchMs > bucket.row.worstDispatchMs) bucket.row.worstDispatchMs = dispatchMs;
+}
+
+function recordFeedbackHold(event: HoldEvent): void {
+  const sources = [...event.blockers].sort();
+  const key = sources.join("\u0000");
+  let bucket = feedbackSources.get(key);
+  if (bucket === undefined) {
+    bucket = {
+      row: {
+        sources,
+        holds: 0,
+        heldMs: 0,
+        worstMs: 0,
+        silent: 0,
+        silentMs: 0,
+        latestOnly: 0,
+        late: 0,
+        lateMs: 0,
+        acknowledgedBy: [],
+        interactions: [],
+        writes: [],
+        actions: 0
+      },
+      acks: new Map(),
+      interactions: new Map(),
+      writes: new Set()
+    };
+    feedbackSources.set(key, bucket);
+  }
+  const row = bucket.row;
+  const silent = isSilentHold(event);
+  row.holds++;
+  row.heldMs += event.holdMs;
+  if (event.holdMs > row.worstMs) row.worstMs = event.holdMs;
+  if (silent) {
+    row.silent++;
+    row.silentMs += event.holdMs;
+  } else {
+    if (
+      event.acknowledgedBy.length > 0 &&
+      event.acknowledgedBy.every(by => by.startsWith("latest:"))
+    )
+      row.latestOnly++;
+    const holdsCfg = options.holds;
+    if (holdsCfg !== false && holdsCfg !== undefined && event.holdMs >= holdsCfg.infoMs) {
+      row.late++;
+      row.lateMs += event.holdMs;
+    }
+  }
+  if (event.action) row.actions++;
+  for (const by of event.acknowledgedBy) bucket.acks.set(by, (bucket.acks.get(by) ?? 0) + 1);
+  for (const w of event.heldWrites) bucket.writes.add(w.name);
+  if (event.interaction !== undefined) {
+    const key = formatOrigin(event.interaction);
+    bucket.interactions.set(key, (bucket.interactions.get(key) ?? 0) + 1);
+    const ib = interactionBucket(event.interaction);
+    ib.row.holds++;
+    ib.row.heldMs += event.holdMs;
+    if (silent) ib.row.silentMs += event.holdMs;
+    if (event.holdMs > ib.row.worstHoldMs) ib.row.worstHoldMs = event.holdMs;
+  }
+}
+
+function rankedCounts<K extends string>(
+  counts: Map<string, number>,
+  key: K
+): ({ [P in K]: string } & { holds: number })[] {
+  return [...counts]
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, holds]) => ({ [key]: name, holds }) as { [P in K]: string } & { holds: number });
+}
+
+export interface AttributionFeedbackTables {
+  sources: FeedbackSource[];
+  interactions: FeedbackInteraction[];
+  /** Async sources ranked by abandoned flights, then by flights. */
+  flights: FlightStats[];
+  /** Loading boundaries ranked by flashes, then by time shown. */
+  fallbacks: FallbackStats[];
+}
+
+function feedbackTables(): AttributionFeedbackTables {
+  const flights = [...flightStats.values()]
+    .map(row => ({ ...row }))
+    .sort((a, b) => b.abandoned - a.abandoned || b.flights - a.flights);
+  const fallbacks = [...fallbackStats.values()]
+    .map(bucket => ({ ...bucket.row }))
+    .sort((a, b) => b.flashes - a.flashes || b.shownMs - a.shownMs);
+  const sources = [...feedbackSources.values()]
+    .map(bucket => ({
+      ...bucket.row,
+      acknowledgedBy: rankedCounts(bucket.acks, "by"),
+      interactions: rankedCounts(bucket.interactions, "interaction"),
+      writes: [...bucket.writes]
+    }))
+    .sort((a, b) => b.silentMs - a.silentMs || b.heldMs - a.heldMs);
+  // Ranked by the total time the user spent on it: held plus synchronous work.
+  const interactions = [...feedbackInteractions.values()]
+    .map(bucket => ({ ...bucket.row }))
+    .sort((a, b) => b.heldMs + b.selfMs - (a.heldMs + a.selfMs));
+  return { sources, interactions, flights, fallbacks };
 }
 
 // The engine's implementation of the core's dev hook points. Installed by
@@ -1059,6 +2411,48 @@ const engineHooks: AttributionHooks = {
     if (change !== undefined && change.seq > asyncStartSeq && change.kind === "write")
       stampWrite(el, "async", NO_VALUES, value);
     finalizeFlight(el);
+  },
+  effectRunStart(el) {
+    pushFrame("effect", nodeName(el), (el as AttributedNode)._devRunInteraction, el);
+  },
+  effectRunEnd() {
+    popFrame("effect");
+    if (activeHold !== null) activeHold.painted++;
+  },
+  actionStepStart(it, name) {
+    // Steps after a yield resume from a promise callback with no ambient
+    // interaction; the one that started the action (its first step) is the
+    // action's interaction for every step.
+    let interaction = actionInteractions.get(it);
+    if (interaction === undefined && !actionInteractions.has(it)) {
+      interaction = currentInteraction ?? undefined;
+      actionInteractions.set(it, interaction);
+    }
+    pushFrame("action", name, interaction);
+  },
+  actionStepEnd() {
+    popFrame("action");
+  },
+  holdStart(t) {
+    trackHoldStart(t);
+  },
+  holdEnd() {
+    activeHold = null;
+  },
+  transitionSettled(t) {
+    trackHoldSettled(t);
+  },
+  transitionMerged(target, outgoing) {
+    trackHoldMerge(target, outgoing);
+  },
+  storeReplaced(path, isArray, total, unchanged, prevTotal) {
+    checkImmutableUpdate(path, isArray, total, unchanged, prevTotal);
+  },
+  listChurn(el, removed, created, newLen, keyed) {
+    checkListIdentity(el, removed, created, newLen, keyed);
+  },
+  boundaryFallback(boundary, tree, shown) {
+    trackFallback(boundary, tree, shown);
   }
 };
 
@@ -1070,6 +2464,16 @@ export const attribution: Attribution = {
     scopeCosts.clear();
     writeCosts.clear();
     waterfallLog = [];
+    holdLog = [];
+    activeHold = null;
+    feedbackSources.clear();
+    feedbackInteractions.clear();
+    reportedCycles.clear();
+    relays.clear();
+    immutableReported.clear();
+    flightStats.clear();
+    fallbackStats.clear();
+    originFrames.length = 0;
     hotCauses.clear();
     setAttributionHooks(engineHooks);
   },
@@ -1081,6 +2485,16 @@ export const attribution: Attribution = {
     scopeCosts.clear();
     writeCosts.clear();
     waterfallLog = [];
+    holdLog = [];
+    activeHold = null;
+    feedbackSources.clear();
+    feedbackInteractions.clear();
+    reportedCycles.clear();
+    relays.clear();
+    immutableReported.clear();
+    flightStats.clear();
+    fallbackStats.clear();
+    originFrames.length = 0;
     hotCauses.clear();
     setAttributionHooks(null);
   },
@@ -1110,11 +2524,19 @@ export const attribution: Attribution = {
   waterfalls() {
     return waterfallLog;
   },
+  holds() {
+    return holdLog;
+  },
+  feedback() {
+    return feedbackTables();
+  },
   markFlight(flight: object, startedAt: number = now()) {
     // Earliest wins: re-marking (a cache re-serving the same promise) must
     // not move the origin later.
     const existing = flightOrigins.get(flight);
     if (existing === undefined || startedAt < existing) flightOrigins.set(flight, startedAt);
   },
-  format: formatRerun
+  withInteraction,
+  format: formatRerun,
+  formatOrigin
 };

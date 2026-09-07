@@ -25,8 +25,9 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
+import { attrHooks } from "./attribution-hooks.js";
 import { currentOptimisticLane, ext, slotUnobservedHook } from "./core.js";
-import { DEV, emitDiagnostic } from "./dev.js";
+import { DEV, emitDiagnostic, reportDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { sweepDormant } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
@@ -89,6 +90,10 @@ let inTrackedQueueCallback = false;
 
 let _enforceLoadingBoundary = false;
 export let _hitUnhandledAsync = false;
+// Once per enforcement window: the ASYNC_OUTSIDE_LOADING_BOUNDARY finding is a
+// fact about the MOUNT ("the root mount will be deferred"), not about each
+// pending render effect — N async siblings at mount used to produce N copies.
+let _reportedUnhandledAsync = false;
 
 // Store property nodes that were created solely to carry a pending write (no
 // subscribers at write time). Swept after each flush that commits pending
@@ -127,8 +132,15 @@ function sweepTransientStoreNodes(): void {
     else node._x?._unobserved?.();
   }
 }
-export function resetUnhandledAsync(): void {
+/**
+ * Consume the unhandled-async hit. Returns whether this is the first report
+ * of the current enforcement window — the caller warns only then.
+ */
+export function resetUnhandledAsync(): boolean {
   _hitUnhandledAsync = false;
+  if (_reportedUnhandledAsync) return false;
+  _reportedUnhandledAsync = true;
+  return true;
 }
 /**
  * Toggles the dev-mode "must be inside a `<Loading>` boundary" enforcement
@@ -140,6 +152,7 @@ export function resetUnhandledAsync(): void {
  */
 export function enforceLoadingBoundary(enabled: boolean): void {
   _enforceLoadingBoundary = enabled;
+  if (enabled) _reportedUnhandledAsync = false;
 }
 
 export function setProjectionWriteActive(value: boolean) {
@@ -207,6 +220,7 @@ function createBatch(): Transition {
 }
 
 function mergeTransitionState(target: Transition, outgoing: Transition): void {
+  if (__DEV__ && attrHooks !== null) attrHooks.transitionMerged(target, outgoing);
   outgoing._done = target;
   target._actions.push(...outgoing._actions);
   for (const lane of activeLanes) if (lane._transition === outgoing) lane._transition = target;
@@ -469,6 +483,9 @@ export class Queue implements IQueue {
     schedule();
   }
   stashQueues(stub: QueueStub): void {
+    // Attribution hook: the parking transition's lane effects have run; its
+    // queues are being stashed. Root call only (children recurse below).
+    if (__DEV__ && attrHooks !== null && (this as Queue) === globalQueue) attrHooks.holdEnd();
     stub._queues[0].push(...this._queues[0]);
     stub._queues[1].push(...this._queues[1]);
     this._queues = [[], []];
@@ -1161,13 +1178,14 @@ export function flush<T>(fn?: () => T): T | void {
       const message =
         "[FLUSH_IN_EFFECT_CALLBACK] flush() called from inside an effect callback is a no-op: the flush that runs effects is already in progress. " +
         "Writes made here are processed in the same flush's continuation; to force a drain afterwards, defer it: queueMicrotask(() => flush()).";
-      emitDiagnostic({
-        code: "FLUSH_IN_EFFECT_CALLBACK",
-        kind: "lifecycle",
-        severity: "warn",
-        message
-      });
-      console.warn(message);
+      reportDiagnostic(
+        emitDiagnostic({
+          code: "FLUSH_IN_EFFECT_CALLBACK",
+          kind: "lifecycle",
+          severity: "warn",
+          message
+        })
+      );
     }
     return;
   }
@@ -1219,7 +1237,11 @@ function reporterBlocksSource(reporter: Computed<any>, source: Computed<any>): b
 
 function transitionComplete(transition: Transition): boolean {
   if (transition._done) return true;
-  if (transition._actions.length) return false;
+  if (transition._actions.length) {
+    // A live action parks the transaction regardless of async state.
+    if (__DEV__ && attrHooks !== null) attrHooks.holdStart(transition);
+    return false;
+  }
   let done = true;
   for (const [source, reporters] of transition._asyncReporters) {
     let hasLive = false;
@@ -1243,6 +1265,13 @@ function transitionComplete(transition: Transition): boolean {
   // blockage"); the hook's loops over _optimisticNodes/_optimisticStores are
   // no-ops when the transition holds neither, so no pre-check is needed.
   if (done && GlobalQueue._transitionBlocked?.(transition)) done = false;
+  // Attribution hook: this verdict is the fork between settling (held writes
+  // commit next — `_pendingNodes` still lists them) and parking (the flush
+  // runs the lane effects, then stashes; `holdEnd` fires from stashQueues).
+  // Fired here rather than at flush()'s call site because that site is inside
+  // a `try` (see the rule in attribution-hooks.ts).
+  if (__DEV__ && attrHooks !== null)
+    done ? attrHooks.transitionSettled(transition) : attrHooks.holdStart(transition);
   done && (transition._done = true);
   return done;
 }

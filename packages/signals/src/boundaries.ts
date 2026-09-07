@@ -24,7 +24,8 @@ import {
   type Owner
 } from "./core/index.js";
 import type { IQueue, Signal } from "./core/index.js";
-import { emitDiagnostic } from "./core/dev.js";
+import { emitDiagnostic, reportDiagnostic } from "./core/dev.js";
+import { attrHooks } from "./core/attribution-hooks.js";
 import { haltReactivity, schedule } from "./core/scheduler.js";
 import { accessor, type Accessor } from "./signals.js";
 
@@ -328,7 +329,11 @@ export class CollectionQueue extends Queue {
       if (source) {
         const wasEmpty = this._sources.size === 0;
         this._sources.add(source);
-        if (wasEmpty) setSignal(this._disabled, true);
+        if (wasEmpty) {
+          setSignal(this._disabled, true);
+          if (__DEV__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
+            attrHooks.boundaryFallback(this, this._tree, true);
+        }
         if (this._collectionType & STATUS_ERROR) {
           setSignal(this._error!, unwrapStatusError(source._x?._error));
         }
@@ -364,6 +369,8 @@ export class CollectionQueue extends Queue {
       }
       if (!this._pending) {
         setSignal(this._disabled, false);
+        if (__DEV__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
+          attrHooks.boundaryFallback(this, this._tree, false);
         if (this._onFn) {
           try {
             this._prevOn = untrack(() => this._onFn!());
@@ -386,14 +393,15 @@ function createCollectionBoundary<T>(
   if (__DEV__ && !getOwner()) {
     const message =
       "[NO_OWNER_BOUNDARY] Boundaries created outside a reactive context will never be disposed.";
-    emitDiagnostic({
-      code: "NO_OWNER_BOUNDARY",
-      kind: "lifecycle",
-      severity: "warn",
-      message,
-      data: { boundaryType: type === STATUS_PENDING ? "loading" : "error" }
-    });
-    console.warn(message);
+    reportDiagnostic(
+      emitDiagnostic({
+        code: "NO_OWNER_BOUNDARY",
+        kind: "lifecycle",
+        severity: "warn",
+        message,
+        data: { boundaryType: type === STATUS_PENDING ? "loading" : "error" }
+      })
+    );
   }
   const owner = createOwner();
   if (_revealUsed) setContext(RevealControllerContext, null, owner);

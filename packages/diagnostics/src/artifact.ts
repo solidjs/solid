@@ -1,6 +1,6 @@
 import type { DiagnosticsArtifact } from "./types.js";
 
-export const ARTIFACT_FORMAT_VERSION = 1 as const;
+export const ARTIFACT_FORMAT_VERSION = 2 as const;
 
 /** Pretty JSON for humans and for checked-in golden files. */
 export function serializeArtifact(artifact: DiagnosticsArtifact): string {
@@ -22,7 +22,8 @@ export function artifactToJSONL(artifact: DiagnosticsArtifact): string {
       capturedAt: artifact.capturedAt,
       durationMs: artifact.durationMs,
       diagnosticCount: artifact.diagnostics.length,
-      rerunCount: artifact.attribution?.reruns.length ?? null
+      rerunCount: artifact.attribution?.reruns.length ?? null,
+      holdCount: artifact.attribution?.holds.length ?? null
     })
   );
   for (const event of artifact.diagnostics) {
@@ -33,6 +34,10 @@ export function artifactToJSONL(artifact: DiagnosticsArtifact): string {
       lines.push(JSON.stringify({ type: "rerun", ...rerun }));
     }
     lines.push(JSON.stringify({ type: "costs", ...artifact.attribution.costs }));
+    for (const hold of artifact.attribution.holds) {
+      lines.push(JSON.stringify({ type: "hold", ...hold }));
+    }
+    lines.push(JSON.stringify({ type: "feedback", ...artifact.attribution.feedback }));
   }
   return lines.join("\n") + "\n";
 }

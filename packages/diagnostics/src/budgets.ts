@@ -1,6 +1,8 @@
 import {
   DiagnosticsAssertionError,
+  expectHoldBudget,
   expectNoDiagnostics,
+  expectNoSilentHolds,
   expectNoWaste,
   expectRerunBudget
 } from "./assertions.js";
@@ -24,6 +26,15 @@ export interface ScenarioBudget {
    * when written as "/pattern/" (e.g. "/TodoRow/": 1).
    */
   scopes?: Record<string, number>;
+  /**
+   * Responsiveness: a transition hold the screen never acknowledged (no
+   * isPending/latest reader, no optimistic value, no affects mark, nothing
+   * painted) may last at most this long. `0` means every silent hold fails —
+   * the right setting for any scenario that is a user interaction.
+   */
+  maxSilentHoldMs?: number;
+  /** Latency: no hold, acknowledged or not, may outlast this. */
+  maxHoldMs?: number;
 }
 
 /** Checked-in budget file: scenario name → budget. CI owns regressions. */
@@ -55,6 +66,12 @@ export function assertBudget(artifact: DiagnosticsArtifact, budget: ScenarioBudg
     for (const [key, max] of Object.entries(budget.scopes)) {
       expectRerunBudget(artifact, max, { scope: scopeMatcher(key) });
     }
+  }
+  if (budget.maxSilentHoldMs !== undefined) {
+    expectNoSilentHolds(artifact, { maxSilentMs: budget.maxSilentHoldMs });
+  }
+  if (budget.maxHoldMs !== undefined) {
+    expectHoldBudget(artifact, budget.maxHoldMs);
   }
 }
 

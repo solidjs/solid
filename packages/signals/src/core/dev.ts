@@ -1,4 +1,8 @@
 import { attribution, type Attribution } from "./attribution.js";
+// Cycle note: core.ts imports this module; we read its live `context` binding
+// only at call time (emitDiagnostic's default subject), never during module
+// evaluation, so the cycle is inert — same shape as the attribution.ts edge.
+import { context } from "./core.js";
 import type { Computed, Link, Owner, Signal } from "./types.js";
 
 export interface DevHooks {
@@ -46,7 +50,12 @@ export type DiagnosticCode =
   | "UNSTABLE_MEMO_OUTPUT"
   | "WIDE_WRITE"
   | "ASYNC_WATERFALL"
-  | "HOT_SCOPE_FANOUT";
+  | "HOT_SCOPE_FANOUT"
+  | "SILENT_HOLD"
+  | "EFFECT_WRITES_OWN_SOURCE"
+  | "EFFECT_RELAY_TEAR"
+  | "IMMUTABLE_UPDATE_IN_STORE"
+  | "UNSTABLE_LIST_IDENTITY";
 
 export type DiagnosticKind =
   | "strict-read"
@@ -56,7 +65,9 @@ export type DiagnosticKind =
   | "owner"
   | "error"
   | "perf"
-  | "graph";
+  | "graph"
+  /** Perceived responsiveness: the runtime behaved correctly but the user saw no feedback. */
+  | "responsiveness";
 
 /** First warning when a node's live edge count reaches this size. */
 export const GRAPH_SIZE_WARN_AT = 2000;
@@ -72,6 +83,15 @@ export interface DiagnosticEvent {
   ownerId?: string;
   ownerName?: string;
   nodeName?: string;
+  /**
+   * Root-first chain of named owners enclosing the subject of the event —
+   * component roots as `<Name>`, computations by their `name` option (or
+   * the `effect`/`computed` default) — e.g. `["<App>", "<TodoRow>", "effect"]`.
+   * Unnamed owners (plain roots) are skipped. Absent when the subject has no
+   * named owner at all (a top-level scope, or an unowned primitive — which
+   * is usually the finding itself).
+   */
+  ownerPath?: string[];
   data?: Record<string, unknown>;
 }
 
@@ -87,10 +107,12 @@ export interface Diagnostics {
   subscribe(listener: DiagnosticListener): () => void;
   capture(): DiagnosticCapture;
   /**
-   * Registers a console footer printed after the first console report of
+   * Registers a console footer appended to the first console report of
    * each diagnostic code — a discovery pointer to deeper guidance (e.g.
-   * solid-js registers its shipped repair skill). Returning undefined for
-   * an event suppresses the footer. Passing undefined unregisters and
+   * solid-js registers its shipped repair skill). Reported events carry
+   * it as trailing lines of the same console entry; events that surface as
+   * a thrown error instead get it as a follow-up line. Returning undefined
+   * for an event suppresses the footer. Passing undefined unregisters and
    * resets the once-per-code memory.
    */
   setConsoleFooter(footer: ((event: DiagnosticEvent) => string | undefined) | undefined): void;
@@ -170,7 +192,7 @@ export const DEV: Dev = __DEV__
 export function assertInvariant(condition: boolean, name: string, message: string): void {
   if (!__DEV__ || condition) return;
   const full = `[INVARIANT_VIOLATION] ${name}: ${message}`;
-  emitDiagnostic({
+  const entry = emitDiagnostic({
     code: "INVARIANT_VIOLATION",
     kind: "error",
     severity: "error",
@@ -178,24 +200,101 @@ export function assertInvariant(condition: boolean, name: string, message: strin
     data: { invariant: name }
   });
   if (typeof __TEST__ !== "undefined" && __TEST__) throw new Error(full);
-  console.error(full);
+  reportDiagnostic(entry);
 }
 
-export function emitDiagnostic(event: Omit<DiagnosticEvent, "sequence">): DiagnosticEvent {
+/** Anything a diagnostic can be about: an owner (root, computed, effect) or a signal. */
+export type DiagnosticSubject = Owner | Signal<any> | Computed<any>;
+
+/**
+ * Root-first names of the owners enclosing `subject` (inclusive when the
+ * subject is itself a named owner). Signals hop to their registering owner
+ * (`_owner`, set by registerGraph). Unnamed owners are skipped so the path
+ * reads as the component tree plus the scope: `<App> › <TodoRow> › effect`.
+ */
+export function ownerPath(subject: DiagnosticSubject | null | undefined): string[] | undefined {
+  if (!subject) return undefined;
+  let owner: Owner | null =
+    "_parent" in subject ? (subject as Owner) : (((subject as any)._owner as Owner | null) ?? null);
+  const path: string[] = [];
+  for (; owner !== null; owner = owner._parent) {
+    const name = (owner as any)._name;
+    if (typeof name === "string" && name.length) path.push(name);
+  }
+  return path.length ? path.reverse() : undefined;
+}
+
+/**
+ * Records a diagnostic on the structured channel (listeners, captures) and
+ * returns the entry. `subject` locates it: the current reactive `context` by
+ * default (right for the synchronous rule checks — they fire inside the
+ * scope that misbehaved); pass the node for scheduler-time findings whose
+ * ambient context is the flush, or `null` for events that have no location
+ * by nature. Console output is a separate step — see `reportDiagnostic`.
+ */
+export function emitDiagnostic(
+  event: Omit<DiagnosticEvent, "sequence" | "ownerPath">,
+  subject: DiagnosticSubject | null | undefined = context
+): DiagnosticEvent {
   const entry: DiagnosticEvent = {
     sequence: ++diagnosticSequence,
     ...event
   };
+  const path = ownerPath(subject);
+  if (path) entry.ownerPath = path;
+  if (subject) eventSubjects.set(entry, subject);
   for (const listener of diagnosticListeners) listener(entry);
   for (const capture of diagnosticCaptures) capture.push(entry);
-  if (consoleFooter && !footeredCodes.has(entry.code)) {
-    footeredCodes.add(entry.code);
-    const footer = consoleFooter(entry);
-    // Call sites console.warn/error their message after emitDiagnostic
-    // returns; a microtask lands the footer right below that report.
-    if (footer) queueMicrotask(() => console.warn(footer));
+  // Footer for events that never reach reportDiagnostic because the call site
+  // throws the message instead (every such site is severity "error"): a
+  // microtask lands it below the thrown error. Sites that DO report consume
+  // the once-per-code slot synchronously first, so this finds it taken and
+  // stays silent — one console entry per finding. Advisory (`info`) events
+  // are structured-channel only and get no footer: nothing on the console
+  // for it to follow.
+  if (entry.severity === "error" && consoleFooter && !footeredCodes.has(entry.code)) {
+    queueMicrotask(() => {
+      const footer = takeFooter(entry);
+      if (footer) console.warn(footer);
+    });
   }
   return entry;
+}
+
+/** The once-per-code footer text, consuming the slot. Undefined if taken or unregistered. */
+function takeFooter(entry: DiagnosticEvent): string | undefined {
+  if (!consoleFooter || footeredCodes.has(entry.code)) return undefined;
+  footeredCodes.add(entry.code);
+  return consoleFooter(entry);
+}
+
+/**
+ * The subject each emitted event was about, for the console step: events are
+ * serializable records and cannot carry the node, but the console can show
+ * what the node knows — a rendering runtime may stamp a binding effect with
+ * the DOM element it writes (`_devElement`), and a live element reference
+ * beside the message is the most addressable pointer a console can print.
+ */
+const eventSubjects = new WeakMap<DiagnosticEvent, DiagnosticSubject>();
+
+/**
+ * The console face of a diagnostic — ONE entry per finding: the message, the
+ * owner path (`in <App> › <TodoRow> › effect`) so a human can locate it, the
+ * once-per-code footer as trailing lines, and — when the subject is a
+ * binding effect the rendering runtime tagged — the element it writes, as a
+ * second console argument (hover highlights it, click jumps to Elements).
+ * Severity picks the console method. Call sites report the entry
+ * `emitDiagnostic` returned so the structured and console channels never
+ * disagree.
+ */
+export function reportDiagnostic(entry: DiagnosticEvent): void {
+  let text = entry.message;
+  if (entry.ownerPath) text += `\n  in ${entry.ownerPath.join(" › ")}`;
+  const footer = takeFooter(entry);
+  if (footer) text += `\n${footer}`;
+  const element = (eventSubjects.get(entry) as { _devElement?: object } | undefined)?._devElement;
+  const args = element !== undefined ? [text, element] : [text];
+  entry.severity === "error" ? console.error(...args) : console.warn(...args);
 }
 
 /**
@@ -205,7 +304,7 @@ export function emitDiagnostic(event: Omit<DiagnosticEvent, "sequence">): Diagno
  */
 export function throwPendingUntrackedRead(
   strictReadLabel: string,
-  fields?: Partial<Omit<DiagnosticEvent, "sequence" | "data">>
+  fields?: Partial<Omit<DiagnosticEvent, "sequence" | "data" | "ownerPath">>
 ): never {
   const message =
     `[PENDING_ASYNC_UNTRACKED_READ] Reading a pending async value directly in ${strictReadLabel}. ` +
@@ -223,20 +322,21 @@ export function throwPendingUntrackedRead(
 
 export function warnStrictReadUntracked(
   strictReadLabel: string,
-  fields?: Partial<Omit<DiagnosticEvent, "sequence">>
+  fields?: Partial<Omit<DiagnosticEvent, "sequence" | "ownerPath">>
 ): void {
   const message =
     `[STRICT_READ_UNTRACKED] Reactive value read directly in ${strictReadLabel} will not update. ` +
     `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`;
-  emitDiagnostic({
-    code: "STRICT_READ_UNTRACKED",
-    kind: "strict-read",
-    severity: "warn",
-    message,
-    data: { strictRead: strictReadLabel },
-    ...fields
-  });
-  console.warn(message);
+  reportDiagnostic(
+    emitDiagnostic({
+      code: "STRICT_READ_UNTRACKED",
+      kind: "strict-read",
+      severity: "warn",
+      message,
+      data: { strictRead: strictReadLabel },
+      ...fields
+    })
+  );
 }
 
 export function registerGraph(value: any, owner: Owner | null): void {
@@ -313,17 +413,21 @@ export function noteGraphLink(dep: Signal<any> | Computed<any>, sub: Computed<an
       `Each will re-run when it changes. If many independent computations read the same value ` +
       `(for example every row of a list comparing against one selected id), prefer a per-key ` +
       `store or projection so only the items whose result flipped update.`;
-    emitDiagnostic({
-      code: "HUGE_FAN_OUT",
-      kind: "graph",
-      severity: "warn",
-      message,
-      nodeName: name,
-      ownerId: (dep as Computed<any>).id,
-      ownerName: name,
-      data: { count: fanOut }
-    });
-    console.warn(message);
+    reportDiagnostic(
+      emitDiagnostic(
+        {
+          code: "HUGE_FAN_OUT",
+          kind: "graph",
+          severity: "warn",
+          message,
+          nodeName: name,
+          ownerId: (dep as Computed<any>).id,
+          ownerName: name,
+          data: { count: fanOut }
+        },
+        dep
+      )
+    );
   }
   if (shouldWarnGraphSize(fanIn)) {
     const name = sub._name;
@@ -331,17 +435,21 @@ export function noteGraphLink(dep: Signal<any> | Computed<any>, sub: Computed<an
       `[HUGE_FAN_IN] ${name ? `Computation "${name}"` : "A computation"} has ${fanIn} sources. ` +
       `It will re-run when any of them change. Narrow the read or split the derivation so each ` +
       `computation tracks only what it needs.`;
-    emitDiagnostic({
-      code: "HUGE_FAN_IN",
-      kind: "graph",
-      severity: "warn",
-      message,
-      nodeName: name,
-      ownerId: sub.id,
-      ownerName: name,
-      data: { count: fanIn }
-    });
-    console.warn(message);
+    reportDiagnostic(
+      emitDiagnostic(
+        {
+          code: "HUGE_FAN_IN",
+          kind: "graph",
+          severity: "warn",
+          message,
+          nodeName: name,
+          ownerId: sub.id,
+          ownerName: name,
+          data: { count: fanIn }
+        },
+        sub
+      )
+    );
   }
 }
 

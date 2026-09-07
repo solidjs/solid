@@ -17,7 +17,8 @@ import {
   ext,
   setEffectStatusNotify
 } from "./core.js";
-import { emitDiagnostic } from "./dev.js";
+import { attrHooks } from "./attribution-hooks.js";
+import { emitDiagnostic, reportDiagnostic } from "./dev.js";
 import { StatusError, unwrapStatusError } from "./error.js";
 import { enqueueSub } from "./heap.js";
 import {
@@ -67,16 +68,20 @@ export function effect<T>(
   if (__DEV__ && !node._parent) {
     const message =
       "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed";
-    emitDiagnostic({
-      code: "NO_OWNER_EFFECT",
-      kind: "lifecycle",
-      severity: "warn",
-      message,
-      ownerId: node.id,
-      ownerName: node._name,
-      data: { effectType: "effect" }
-    });
-    console.warn(message);
+    reportDiagnostic(
+      emitDiagnostic(
+        {
+          code: "NO_OWNER_EFFECT",
+          kind: "lifecycle",
+          severity: "warn",
+          message,
+          ownerId: node.id,
+          ownerName: node._name,
+          data: { effectType: "effect" }
+        },
+        node
+      )
+    );
   }
 }
 
@@ -108,24 +113,29 @@ function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): vo
     }
   } else if (this._type === EFFECT_RENDER) {
     this._queue.notify(this, STATUS_PENDING | STATUS_ERROR, actualStatus, actualError);
-    if (__DEV__ && _hitUnhandledAsync) {
+    if (__DEV__ && _hitUnhandledAsync && resetUnhandledAsync()) {
       // Async without a `Loading` ancestor is legal (the mount defers), so this
       // is a consistent FYI — an `Errored` above must not swallow it. The old
       // STATUS_ERROR re-notify here dated from when enforcement routed the
       // pending to the error boundary; that both suppressed the warning and
-      // showed the error fallback in dev only (#2822).
-      resetUnhandledAsync();
+      // showed the error fallback in dev only (#2822). Reported once per
+      // mount (resetUnhandledAsync gates), located at the first pending
+      // effect's owner path.
       const message =
         "[ASYNC_OUTSIDE_LOADING_BOUNDARY] An async value was read outside a Loading boundary. The root mount will be deferred until all pending async settles.";
-      emitDiagnostic({
-        code: "ASYNC_OUTSIDE_LOADING_BOUNDARY",
-        kind: "async",
-        severity: "warn",
-        message,
-        ownerId: this.id,
-        ownerName: this._name
-      });
-      console.warn(message);
+      reportDiagnostic(
+        emitDiagnostic(
+          {
+            code: "ASYNC_OUTSIDE_LOADING_BOUNDARY",
+            kind: "async",
+            severity: "warn",
+            message,
+            ownerId: this.id,
+            ownerName: this._name
+          },
+          this
+        )
+      );
     }
   }
 }
@@ -166,6 +176,7 @@ function runEffect(node: Effect<any>): void {
   if (__DEV__) {
     prevStrictRead = setStrictRead("an effect callback");
     setEffectCallback(true);
+    if (attrHooks !== null) attrHooks.effectRunStart(node);
   }
   const prevCleanup = node._cleanup;
   node._cleanup = undefined;
@@ -194,6 +205,9 @@ function runEffect(node: Effect<any>): void {
     node._prevValue = node._value;
     node._modified = false;
   }
+  // Outside the try (see the rule in attribution-hooks.ts). Reached whether or
+  // not the callback threw — a throw that escapes the catch above halts.
+  if (__DEV__ && attrHooks !== null) attrHooks.effectRunEnd(node);
 }
 
 GlobalQueue._runEffect = runEffect as (el: Computed<unknown>) => void;
@@ -257,16 +271,20 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
   if (__DEV__ && !node._parent) {
     const message =
       "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed";
-    emitDiagnostic({
-      code: "NO_OWNER_EFFECT",
-      kind: "lifecycle",
-      severity: "warn",
-      message,
-      ownerId: node.id,
-      ownerName: node._name,
-      data: { effectType: "trackedEffect" }
-    });
-    console.warn(message);
+    reportDiagnostic(
+      emitDiagnostic(
+        {
+          code: "NO_OWNER_EFFECT",
+          kind: "lifecycle",
+          severity: "warn",
+          message,
+          ownerId: node.id,
+          ownerName: node._name,
+          data: { effectType: "trackedEffect" }
+        },
+        node
+      )
+    );
   }
 }
 

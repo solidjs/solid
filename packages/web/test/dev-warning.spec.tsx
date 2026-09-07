@@ -194,10 +194,13 @@ describe("Deferred root mount", () => {
       return <span class="inner">{value()}</span>;
     }
 
+    // Two pending siblings: the finding is about the MOUNT, so it must not
+    // repeat per pending effect — and the one report locates itself.
     disposers.push(
       render(
         () => (
           <div class="outer">
+            <Inner />
             <Inner />
           </div>
         ),
@@ -205,11 +208,11 @@ describe("Deferred root mount", () => {
       )
     );
 
-    expect(
-      warnSpy.mock.calls.some(args =>
-        args.some(a => typeof a === "string" && a.includes("Loading boundary"))
-      )
-    ).toBe(true);
+    const reports = warnSpy.mock.calls
+      .map(args => String(args[0]))
+      .filter(text => text.includes("Loading boundary"));
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toContain("\n  in <Inner> › effect");
 
     resolveFn("ready");
     await promise;
