@@ -118,6 +118,8 @@ const user = createMemo(() => fetchUser(userId()));
 const latestUserId = () => latest(userId);
 ```
 
+`latest()` escapes the *transaction*, not its own lane. Readers of `latest(x)` render ahead of the transition that holds `x`, but they reveal together with any async derived from `latest(x)` — the same rule every lane follows, so a `latest()` view is never shown beside a half-computed derivation of itself. This holds whether or not that derivation is rendered anywhere. Derive with the plain read (`x()` inside the async memo — it is held by the transition anyway) and reserve `latest()` for the display that should run ahead; routing several async computations through the same `latest(x)` makes them one lane that reveals when the slowest settles.
+
 ### `resolve(fn)` (wait for a reactive expression to settle)
 
 `resolve(fn)` returns a Promise that resolves once the reactive expression `fn` produces a settled (non-pending) value. It cannot be called inside a reactive scope (it only resolves the current value and does not track updates).
