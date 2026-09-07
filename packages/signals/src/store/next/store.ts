@@ -2054,15 +2054,6 @@ export function createStoreNext<T extends Record<PropertyKey, any>>(
 // Sees pending (R27) by reading pb. Chained/owned-copy caching lands with the
 // utilities increment; this covers the createStore-suite contract.
 
-function isNextProxy(value: any): boolean {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    (value as any)[$TARGET] !== undefined &&
-    ((value as any)[$TARGET] as StoreNextTarget).px === value
-  );
-}
-
 /** True when `proxy` is a SHALLOW store (children served verbatim, slots
  * replaced by reference — #2932). The list driver uses this to choose the
  * slot-patch channel (collected row bodies) over per-record registration. */

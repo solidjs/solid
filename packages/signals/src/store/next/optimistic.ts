@@ -650,7 +650,12 @@ function applyTentative(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null):
   const isArr = Array.isArray(incoming);
   if (Array.isArray(view) !== isArr) return; // kind change at root: flat overrides below
   const pairs: Array<[StoreNextTarget, any]> = [];
-  const pbLike: any = isArr ? [...(incoming as any[])] : shallowWithSymbols(incoming);
+  let pbLike: any;
+  if (isArr) pbLike = [...(incoming as any[])];
+  else {
+    pbLike = {};
+    for (const k of Reflect.ownKeys(incoming)) pbLike[k] = (incoming as any)[k];
+  }
   const match = (pv: any, nv: any): StoreNextTarget | null => {
     if (!isWrappable(pv) || !isWrappable(nv)) return null;
     if (rawValuesUsed && (isRawValue(pv) || isRawValue(nv))) return null;
@@ -728,10 +733,4 @@ function applyTentative(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null):
   t.pb = priorPB;
   for (let i = 0; i < pairs.length; i++)
     applyTentative(pairs[i][0], unwrapValue(pairs[i][1]), keyFn);
-}
-
-function shallowWithSymbols(src: any): any {
-  const out: any = {};
-  for (const k of Reflect.ownKeys(src)) out[k] = src[k];
-  return out;
 }

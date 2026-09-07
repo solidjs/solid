@@ -211,6 +211,9 @@ export interface TrackedEffect extends Computed<void> {
  */
 export function trackedEffect(fn: () => void | (() => void), options?: NodeOptions<any>): void {
   const run = () => {
+    // `_modified` is NOT redundant with the heap: the heap dedups within a
+    // pass, but a held transition's passes each enqueue `_run` into the same
+    // user queue, and this gate is what collapses them into one run at commit.
     if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
     if (__DEV__) setTrackedQueueCallback(true);
     try {

@@ -36,11 +36,11 @@ export function getContext<T>(context: Context<T>, owner: Owner | null = getOwne
     throw new NoOwnerError();
   }
 
-  const value = hasContext(context, owner)
-    ? (owner._context[context.id] as T)
-    : context.defaultValue;
+  // `undefined` alone means unset — a provided `null` is a value (no `??`).
+  let value = owner._context[context.id] as T | undefined;
+  if (value === undefined) value = context.defaultValue;
 
-  if (isUndefined(value)) {
+  if (value === undefined) {
     throw new ContextNotFoundError();
   }
 
@@ -65,14 +65,6 @@ export function setContext<T>(context: Context<T>, value?: T, owner: Owner | nul
   // we don't do this, everything will be a singleton and all hell will break lose.
   owner._context = {
     ...owner._context,
-    [context.id]: isUndefined(value) ? context.defaultValue : value
+    [context.id]: value === undefined ? context.defaultValue : value
   };
-}
-
-function hasContext(context: Context<any>, owner: Owner): boolean {
-  return !isUndefined(owner?._context[context.id]);
-}
-
-function isUndefined(value: any): value is undefined {
-  return typeof value === "undefined";
 }

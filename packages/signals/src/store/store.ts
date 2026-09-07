@@ -242,13 +242,6 @@ function ownEnumerableSymbols(o: object): symbol[] {
   return result;
 }
 
-// Plain-object variant that keeps Object.keys() as the fast path and only pays
-// descriptor checks for symbols. Do not use this on store proxies: splitting
-// strings/symbols would invoke their ownKeys trap twice.
-function ownEnumerableKeysPlain(o: object): (string | symbol)[] {
-  return (Object.keys(o) as (string | symbol)[]).concat(ownEnumerableSymbols(o));
-}
-
 /**
  * Scope inheritance for late-created nodes: every live mark whose identity
  * scope contains the owning record's raw — and, for keyed marks, whose key
