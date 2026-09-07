@@ -100,6 +100,48 @@ export interface AttributionHooks {
   transitionSettled(t: Transition): void;
   /** `outgoing` was folded into `target` (`outgoing._done = target`). */
   transitionMerged(target: Transition, outgoing: Transition): void;
+  /**
+   * A store setter batch replaced the container at `path` (e.g. `store.user`)
+   * with a different one (both non-null, same array-ness, not the same
+   * logical slot), and this is the leaf census of the new container against
+   * the old: `total` leaves (own keys, or items) in the new one, `unchanged`
+   * of which are the same value as before (identity, judged on unwrapped
+   * values — object keys compared by key, array items by membership), and
+   * `prevTotal` leaves in the old one. Containers above 64 leaves are not
+   * announced. Fired per written key from the write channel's notify. The
+   * engine decides whether the replacement was a spread-copy worth a
+   * diagnostic.
+   */
+  storeReplaced(
+    path: string,
+    isArray: boolean,
+    total: number,
+    unchanged: number,
+    prevTotal: number
+  ): void;
+  /**
+   * A `mapArray` update both disposed and created rows: `removed` are the
+   * items whose rows were disposed, `created` the items that got new rows,
+   * `newLen` the list's new length, `keyed` whether a key function is in use
+   * (false = identity or by-index). Fired after commit. The engine judges
+   * whether the churn replaced equivalent records (unstable identity).
+   */
+  listChurn(
+    el: Computed<any>,
+    removed: unknown[],
+    created: unknown[],
+    newLen: number,
+    keyed: boolean
+  ): void;
+  /**
+   * A loading boundary started (`shown` true) or stopped showing its
+   * fallback. `boundary` is the boundary's queue (stable identity); `tree`
+   * its bound subtree computed when already constructed — the first show can
+   * fire while the subtree is still being built — whose owner chain names
+   * the boundary. Fired at the source-set transitions (first pending source
+   * registers / last one clears), not per flush.
+   */
+  boundaryFallback(boundary: object, tree: Computed<any> | undefined, shown: boolean): void;
 }
 
 export let attrHooks: AttributionHooks | null = null;

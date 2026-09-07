@@ -127,6 +127,25 @@ web runtime; in-process, wrap the write in
 `DEV.attribution.withInteraction({ type, target }, () => …)` so holds are
 measured from the event and keyed by it.
 
+Two more fact tables in `feedback` have no verdict of their own; read them
+when a scenario is slow without being silent:
+
+- `flights` — per async source, `flights`/`landed`/`abandoned`. A source that
+  abandons most of its flights re-asks on every input change (search as you
+  type); put a debounced or equality-gated derivation between the input and
+  the fetch. `late`/`lateMs` on a `sources` row is the sibling fact: the hold
+  WAS acknowledged and still ran past the info threshold — preload or cache.
+- `fallbacks` — per loading boundary, `shows`/`shownMs`/`flashes`. A flash
+  (under 150ms) is a spinner that appeared and vanished; preload, cache, or
+  lift the fetch above the boundary. Do not add artificial delay.
+
+Loop 4's structural siblings live in Loop 2's diagnostics list:
+`EFFECT_RELAY_TEAR` (derived state via effect — a reader ran twice for one
+write, the first frame inconsistent; make it a memo), `IMMUTABLE_UPDATE_IN_STORE`
+(spread-copy store writes — mutate the draft or `reconcile`), and
+`UNSTABLE_LIST_IDENTITY` (a list rebuilt for equivalent records — key by a
+stable field or `reconcile`). Each names its repair in the message.
+
 ## Practical rules
 
 1. **Name your scopes.** Pass `{ name }` to `createSignal`/`createMemo`/

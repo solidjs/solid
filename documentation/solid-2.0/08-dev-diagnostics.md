@@ -4,9 +4,20 @@
 
 ## Summary
 
-Solid 2.0 introduces a structured diagnostics system that catches common mistakes at development time. Every diagnostic has a code, severity (error or warning), and actionable message. Errors throw and halt execution; warnings log to the console. All diagnostics are stripped from production builds via `_SOLID_DEV_` / `__DEV__` guards.
+Solid 2.0 introduces a structured diagnostics system that catches common mistakes at development time. Every diagnostic has a code, severity (`error`, `warn`, or `info`), and actionable message. Errors throw and halt execution; warnings log to the console; `info` events are advisory leads that reach only the structured channel. All diagnostics are stripped from production builds via `_SOLID_DEV_` / `__DEV__` guards.
 
-Diagnostics can also be programmatically observed via `DEV.diagnostics.subscribe()` and `DEV.diagnostics.capture()` for tooling and testing.
+Diagnostics can also be programmatically observed via `DEV.diagnostics.subscribe()` and `DEV.diagnostics.capture()` for tooling and testing. The `@solidjs/diagnostics` package builds an agent-facing harness on that channel (captured artifacts, budgets, Vitest matchers, a browser bridge); the `reactivity-diagnostics` skill shipped in `solid-js` maps every code to its repair.
+
+## Console addressability
+
+Every console report is one entry built for a human to act on:
+
+- The message, with the code in brackets and the repair in the text.
+- An `in` line naming the owners enclosing the subject, root first — component roots as `<Name>`, computations by their `name` option or the `effect`/`computed` default (`in <App> › <TodoList> › <TodoRow> › effect`). The same chain is `event.ownerPath` on the structured event.
+- For a compiled JSX binding effect (attribute, class, style, property, spread, insert), the element it writes as a second console argument — hover highlights it on the page, click jumps to it in the Elements panel. The web runtime tags binding effects with their element in dev; the core prints whatever the subject knows.
+- The first report of each code ends with a footer registered by `solid-js` (`DEV.diagnostics.setConsoleFooter`): the installed repair skill path (`node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md`) and the same file's stable GitHub URL anchored to the code's section. Perf, graph, and responsiveness codes add a second line pointing at `DEV.attribution.enable()` and the `agent-loops` skill in `@solidjs/diagnostics`.
+
+Attribution's own output (`[why-run]` chains) prints as collapsed console groups — one headline per re-run, the cause chain and dependency delta inside.
 
 ## Diagnostic reference
 
@@ -74,11 +85,14 @@ The diagnostic is an FYI, not an error: while async is pending the mount contain
 render(() => <Profile user={asyncUser()} />, root);
 
 // Explicit fallback UI: wrap in Loading
-render(() => (
-  <Loading fallback={<Spinner />}>
-    <Profile user={asyncUser()} />
-  </Loading>
-), root);
+render(
+  () => (
+    <Loading fallback={<Spinner />}>
+      <Profile user={asyncUser()} />
+    </Loading>
+  ),
+  root
+);
 ```
 
 **Debugging tip:** if your app doesn't mount, check the console for `ASYNC_OUTSIDE_LOADING_BOUNDARY` — it names the render effect whose pending async is holding the root.
@@ -157,7 +171,7 @@ Effect, tracked effect, reaction, and `onSettled` callbacks must return either a
 // Throws
 createEffect(
   () => count(),
-  (value) => {
+  value => {
     return value; // not a function!
   }
 );
@@ -165,7 +179,7 @@ createEffect(
 // Fix: return a function or nothing
 createEffect(
   () => count(),
-  (value) => {
+  value => {
     console.log(value);
     return () => {}; // cleanup function
   }
@@ -229,11 +243,17 @@ An effect (`createEffect` or `createTrackedEffect`) was created without a parent
 
 ```js
 // Warns: no owner
-createEffect(() => count(), (v) => console.log(v));
+createEffect(
+  () => count(),
+  v => console.log(v)
+);
 
 // Fix: create inside a component or createRoot
 createRoot(() => {
-  createEffect(() => count(), (v) => console.log(v));
+  createEffect(
+    () => count(),
+    v => console.log(v)
+  );
 });
 ```
 
@@ -277,7 +297,7 @@ Related: `WIDE_SCOPE_DEPS` (below) fires at a much lower threshold, but only whi
 
 Perf-kind warnings emitted by the **attribution engine** — they only fire while `DEV.attribution.enable()` is active (see the next section). Defaults:
 
-- `HOT_SCOPE_RERUNS`: one scope re-ran 120+ times within 1000ms (above animation-frame cadence, so a legitimate rAF-driven scope doesn't cry wolf). The message names the most recent cause chain. When many scopes go hot from the *same* root cause (a selection write re-running every row), only the first warns per-node; the rest fold into `HOT_SCOPE_FANOUT` (below) so one culprit can't bury the console in victim warnings.
+- `HOT_SCOPE_RERUNS`: one scope re-ran 120+ times within 1000ms (above animation-frame cadence, so a legitimate rAF-driven scope doesn't cry wolf). The message names the most recent cause chain. When many scopes go hot from the _same_ root cause (a selection write re-running every row), only the first warns per-node; the rest fold into `HOT_SCOPE_FANOUT` (below) so one culprit can't bury the console in victim warnings.
 - `HOT_SCOPE_TIME`: one scope's summed self-time exceeded 8ms within 1000ms — half a frame in one scope. Catches the few-but-expensive runs that counts miss.
 - `WIDE_SCOPE_DEPS`: a scope's dependency count reached 30 (re-warns after another 50% growth), with the source names listed.
 
@@ -287,9 +307,9 @@ All three thresholds are configurable (or disable-able) through `enable()` optio
 
 **Message:** "write to [name] reached N subscribers — every one re-runs this flush. …"
 
-A committed root invalidation — a signal or store write, a `refresh()`, or an async landing — reached a node with an unusually large number of live subscribers (default 250). Where the per-scope warnings above blame the *reader*, this one blames the *write*: it is the fan-out actually happening, priced at the moment it happens. The classic shape is many consumers asking keyed questions of one value (every row comparing against one selected id); the fix is inverting the subscription with `createSelector` or `createProjection` so only the keys whose answer flipped re-run.
+A committed root invalidation — a signal or store write, a `refresh()`, or an async landing — reached a node with an unusually large number of live subscribers (default 250). Where the per-scope warnings above blame the _reader_, this one blames the _write_: it is the fan-out actually happening, priced at the moment it happens. The classic shape is many consumers asking keyed questions of one value (every row comparing against one selected id); the fix is inverting the subscription with `createSelector` or `createProjection` so only the keys whose answer flipped re-run.
 
-Attribution-engine only, like the trio above. Specced together with `HUGE_FAN_OUT` so the two never double-fire on one node: `HUGE_FAN_OUT` is always-on and fires at *link* time from 2000 subscribers up — structure so large it warns even if never written — while `WIDE_WRITE` fires at *write* time from a much lower bar, once per node, re-warning only after the subscriber count doubles. Unchanged writes never fire it (the source equality gate commits nothing and notifies no one). The check reads the same live `_subCount` the graph-size warnings maintain, so disposed subscribers don't count.
+Attribution-engine only, like the trio above. Specced together with `HUGE_FAN_OUT` so the two never double-fire on one node: `HUGE_FAN_OUT` is always-on and fires at _link_ time from 2000 subscribers up — structure so large it warns even if never written — while `WIDE_WRITE` fires at _write_ time from a much lower bar, once per node, re-warning only after the subscriber count doubles. Unchanged writes never fire it (the source equality gate commits nothing and notifies no one). The check reads the same live `_subCount` the graph-size warnings maintain, so disposed subscribers don't count.
 
 Threshold configurable (or disable-able) via `enable({ wideWrites })`.
 
@@ -305,9 +325,63 @@ The per-cause aggregate of `HOT_SCOPE_RERUNS`. Hot-scope warnings blame the vict
 
 Attribution-engine only. An async flight (a promise or async iterable entering the system) formed a sequential chain behind an upstream flight. A chain link is asserted only on double proof: the flight's recompute was **caused** by the upstream's landing (graph causality — create runs inherit the enclosing recompute's causes, which covers boundary reveals and lazy first pulls), and the flight's **origin** post-dates the upstream's landing. Origin is the earliest provable start of the work: a `DEV.attribution.markFlight(promise, startedAt)` stamp (preloaders and request caches declaring their kickoff), first-seen object identity, else registration time — so preloaded work already in the air alongside its upstream is parallel and never chains.
 
-The verdict is duration-gated (each link ≥ `waterfalls.minFlightMs`, default 50ms — a settled cache hit resolves fast and never warns). Depth-2 chains emit at `info` severity on the structured channel only: a dependent fetch is sometimes intrinsic, and an *unmarked* external preload is indistinguishable from a real waterfall, so the console stays quiet. Depth-3+ escalates to a console `warn`. Once per node, re-warning only when the chain grows. Every graph-provable chain — warned or not — is queryable via `DEV.attribution.waterfalls()`.
+The verdict is duration-gated (each link ≥ `waterfalls.minFlightMs`, default 50ms — a settled cache hit resolves fast and never warns). Depth-2 chains emit at `info` severity on the structured channel only: a dependent fetch is sometimes intrinsic, and an _unmarked_ external preload is indistinguishable from a real waterfall, so the console stays quiet. Depth-3+ escalates to a console `warn`. Once per node, re-warning only when the chain grows. Every graph-provable chain — warned or not — is queryable via `DEV.attribution.waterfalls()`.
 
 If a preloading layer hands out wrapper promises (e.g. `.then()` chains over a cached flight), it must call `markFlight` on the wrapper it returns, with the original kickoff time — wrapping defeats identity tracking otherwise.
+
+#### `UNSTABLE_MEMO_OUTPUT`
+
+**Message:** "memo [name] produced a new-but-equivalent [object/array] on N consecutive runs — its equality gate never closes, so every subscriber re-runs on every upstream change. …"
+
+Attribution-engine only. A memo returned a fresh container that is shallowly equivalent to its previous value on `unstableMemos` consecutive runs (default 4). The equality cutoff that normally absorbs no-op recomputes never fires, so the memo's whole subtree re-runs for nothing. Return stable references (memoize the container, mutate a store) or pass an `equals` option that compares by content.
+
+#### `EFFECT_WRITES_OWN_SOURCE`
+
+**Message:** "effect [name] re-ran because of its own write: it [wrote signal X 3 → 5], which fed back into its inputs [via memo Y]. Two flushes to settle, and the screen rendered the pre-write value in between. …"
+
+Attribution-engine only; graph-proven. An effect's callback wrote a signal or store, and the cause chain of the effect's _next_ run leads back to that write — directly or through any number of derived nodes. The written value is therefore a function of what the effect reads: compute it in a memo (or normalize where the source is written) and drop the effect. The engine follows the chain across effects too: when two or more effects relay writes in a cycle (`A → B → A`), one `info`-severity report names the whole ring and the flush count per change, instead of blaming one effect. A converging loop (clamp, dedupe) is reported the same way — the runtime settles, but each change costs an extra flush and a visible intermediate frame.
+
+Excluded by construction: writes to signals the effect does not (transitively) read, and writes inside `untrack` that never feed back.
+
+#### `EFFECT_RELAY_TEAR`
+
+**Messages:**
+
+- "[kind] [victim] ran twice for one write of [root]: once in the flush where [root] changed, and again after effect [relay] relayed it by writing [signal] — the first frame showed the new [root] with the stale [signal]. …"
+- "effect [relay] writes its compute output into [signal] on every run, and nothing else writes [signal] — it is derived state kept one flush late: everything reading it paints a frame behind everything reading the source. …"
+
+Attribution-engine only; graph-proven. A scope re-ran, and every root cause of that run was an effect-originated write whose own run was caused by the same root change that triggered the scope's _previous_ run. The reader rendered a stale frame in between: that is the tear. The verdict adapts to what the graph shows:
+
+- The relay writes its compute output unchanged (an identity copy) and is the signal's sole writer → the value is derivable; `warn` as soon as the copy repeats, even with no reader of both sides, with the repair "read the source / make it a memo."
+- Identity copy into a signal that has other writers (a controlled input reset from props) → `info`; the pattern is legitimate editable state, and the repair is to seed the local signal from the prop rather than sync it.
+- Anything else (the effect measures DOM, reads a ref, or transforms) → `info` on first sighting, escalating to `warn` once the same relay tears repeatedly. The message offers the measurement fork: if the value cannot be derived, the tear is the price of measuring, and a `createRenderEffect` (or reading the measurement in the same effect) avoids the second frame.
+
+#### `IMMUTABLE_UPDATE_IN_STORE`
+
+**Message:** "[store.path] was replaced with a fresh [object/array] whose [leaves/items] are mostly the same values (K of M unchanged, 1 changed) — a spread-copy update. The store already tracks leaves; a new container makes every reader of [path] re-run for the one that moved. …"
+
+Attribution-engine only. A store write replaced a container (`setState("todos", [...todos, next])`, `setState("user", { ...user, name })`) with a new instance whose leaves are mostly referentially identical to the old ones (unwrapping proxies). The store's fine-grained readers gain nothing from the copy and every subscriber of the container path re-runs. Mutate the draft in place (`setState(s => { s.todos.push(next) })`) or pass `reconcile()` for data that arrives as a fresh tree from the server. Reports once per path.
+
+#### `UNSTABLE_LIST_IDENTITY`
+
+**Message:** "list [name] recreated N of M rows on an update where the entering items are equivalent to the ones they replaced (K of S sampled pairs identical field-for-field) — fresh objects for the same records, so identity keying threw away every row's DOM and state and rebuilt it. …"
+
+Attribution-engine only. A `mapArray` / `<For>` update disposed and recreated a set of rows whose items pair up (by `id`/`key`/`_id`, else by position) as shallowly equivalent. Under identity keying this is the re-fetch-returns-new-objects shape: fix by keying on the id (`<For by="id">`), reconciling into a store, or caching by id upstream. When the list _is_ keyed by a function and rows still churn, the key function is unstable (returns a new object, an index, a random) and the message blames it instead. Genuine turnover and small edits never fire it.
+
+### Responsiveness (attribution engine)
+
+These name **holds** — intervals where a user-visible write was withheld by pending async and nothing on screen acknowledged the wait. They are the INP-shaped hazard of implicit transitions: the runtime is correct, but the interaction looks dead.
+
+#### `SILENT_HOLD`
+
+**Messages:**
+
+- "[click on button#save] wrote [signal] ; the write was held 640ms waiting on [fetch user] and the screen showed nothing for the wait: no `isPending()`/`latest()` reader downstream, no optimistic value, no `affects()` mark, and no effect ran while it was held — the interaction was dead for 640ms. …"
+- "[click on button#save] started an action that held [writes] for 640ms … Pair the action with a `createOptimistic`/`createOptimisticStore` write for the expected result, or read `isPending()` where the result renders."
+
+A signal/store write (or an action's writes) entered an implicit transition because a downstream async source went pending, and for the whole hold no acknowledgement was observed: no subscribed `isPending()` or `latest()` companion on the held graph, no optimistic overlay, no `affects()` declaration, and no effect that painted while the hold was open. (A `Loading` boundary above the async source is a different answer — the read never enters a transition, so there is no hold to report.) Holds shorter than `holds.infoMs` (default 300ms) are recorded silently; from `infoMs` the hold emits `info`; from `holds.warnMs` (default 500ms) it warns. Holds that _were_ acknowledged but still exceeded `infoMs` are not diagnostics — they are counted as `late` in the `feedback()` tables so the cost is visible without blaming the author for waiting correctly.
+
+The hold is attributed to its opening interaction when the web runtime can stamp it (`click`, `keydown`, `input` on the element hit), to the effect or action that made the write otherwise. Every hold — reported or not — is queryable via `DEV.attribution.holds()`.
 
 ## Programmatic diagnostics API
 
@@ -320,7 +394,7 @@ Registers a callback that fires for every diagnostic event. Returns an unsubscri
 ```js
 import { DEV } from "solid-js";
 
-const unsub = DEV.diagnostics.subscribe((event) => {
+const unsub = DEV.diagnostics.subscribe(event => {
   console.log(`[${event.severity}] ${event.code}: ${event.message}`);
 });
 // later: unsub();
@@ -341,41 +415,48 @@ const events = capture.stop();
 
 Each `DiagnosticEvent` has:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `sequence` | `number` | Monotonically increasing counter |
-| `code` | `DiagnosticCode` | Machine-readable code (e.g. `"STRICT_READ_UNTRACKED"`) |
-| `kind` | `DiagnosticKind` | Category: `"strict-read"`, `"async"`, `"write"`, `"lifecycle"`, `"owner"`, `"perf"`, `"graph"` |
-| `severity` | `"info" \| "warn" \| "error"` | `error` throws, `warn` logs; `info` is advisory (structured channel only — budget/assertion consumers should not fail on it) |
-| `message` | `string` | Human-readable message |
-| `ownerId` | `string?` | ID of the reactive owner where the diagnostic occurred |
-| `ownerName` | `string?` | Debug name of the owner |
-| `nodeName` | `string?` | Debug name of the signal/node involved |
-| `data` | `object?` | Additional context |
+| Field       | Type                          | Description                                                                                                                  |
+| ----------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `sequence`  | `number`                      | Monotonically increasing counter                                                                                             |
+| `code`      | `DiagnosticCode`              | Machine-readable code (e.g. `"STRICT_READ_UNTRACKED"`)                                                                       |
+| `kind`      | `DiagnosticKind`              | Category: `"strict-read"`, `"async"`, `"write"`, `"lifecycle"`, `"owner"`, `"perf"`, `"graph"`, `"responsiveness"`           |
+| `severity`  | `"info" \| "warn" \| "error"` | `error` throws, `warn` logs; `info` is advisory (structured channel only — budget/assertion consumers should not fail on it) |
+| `message`   | `string`                      | Human-readable message                                                                                                       |
+| `ownerId`   | `string?`                     | ID of the reactive owner where the diagnostic occurred                                                                       |
+| `ownerName` | `string?`                     | Debug name of the owner                                                                                                      |
+| `ownerPath` | `string[]?`                   | Owner chain root-first (`["<App>", "<TodoRow>", "effect"]`) — the console's `in` line                                        |
+| `nodeName`  | `string?`                     | Debug name of the signal/node involved                                                                                       |
+| `data`      | `object?`                     | Additional context                                                                                                           |
 
 ## Diagnostic codes (quick reference)
 
-| Code | Severity | Category | Trigger |
-|------|----------|----------|---------|
-| `REACTIVE_WRITE_IN_OWNED_SCOPE` | error | write | Reactive write/invalidation inside component/computation |
-| `PENDING_ASYNC_UNTRACKED_READ` | error | async | Reading pending async outside tracking scope |
-| `ASYNC_OUTSIDE_LOADING_BOUNDARY` | warn | async | Async computation outside Loading boundary (non-halting; root mount is deferred) |
-| `CLEANUP_IN_FORBIDDEN_SCOPE` | error | lifecycle | `onCleanup` inside trackedEffect/onSettled |
-| `SETTLED_CLEANUP_UNOWNED` | error | lifecycle | `onSettled` returned a cleanup in an unowned (out-of-band) scope |
-| `STRICT_READ_UNTRACKED` | warn | strict-read | Untracked reactive read in component/effect body |
-| `PENDING_ASYNC_FORBIDDEN_SCOPE` | warn | async | Pending async read in trackedEffect/onSettled |
-| `NO_OWNER_EFFECT` | warn | lifecycle | Effect created without reactive owner |
-| `NO_OWNER_CLEANUP` | warn | lifecycle | `onCleanup` called without owner |
-| `NO_OWNER_BOUNDARY` | warn | lifecycle | Boundary created without owner |
-| `RUN_WITH_DISPOSED_OWNER` | warn | owner | `runWithOwner` with disposed owner |
-| `HUGE_FAN_OUT` | warn | graph | One source reached 2000 live subscribers (always on) |
-| `HUGE_FAN_IN` | warn | graph | One computation reached 2000 live sources (always on) |
-| `HOT_SCOPE_RERUNS` | warn | perf | 120+ re-runs of one scope in 1s (attribution enabled) |
-| `HOT_SCOPE_FANOUT` | warn | perf | 5+/50+/500+ scopes hot from one root cause (attribution enabled) |
-| `HOT_SCOPE_TIME` | warn | perf | 8ms+ self-time in one scope in 1s (attribution enabled) |
-| `WIDE_SCOPE_DEPS` | warn | perf | Scope subscribed to 30+ sources (attribution enabled) |
-| `WIDE_WRITE` | warn | perf | Committed write reached 250+ subscribers (attribution enabled) |
-| `ASYNC_WATERFALL` | info/warn | perf | 2+/3+ origin-proven sequential async flights (attribution enabled) |
+| Code                             | Severity  | Category       | Trigger                                                                                                                    |
+| -------------------------------- | --------- | -------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `REACTIVE_WRITE_IN_OWNED_SCOPE`  | error     | write          | Reactive write/invalidation inside component/computation                                                                   |
+| `PENDING_ASYNC_UNTRACKED_READ`   | error     | async          | Reading pending async outside tracking scope                                                                               |
+| `ASYNC_OUTSIDE_LOADING_BOUNDARY` | warn      | async          | Async computation outside Loading boundary (non-halting; root mount is deferred)                                           |
+| `CLEANUP_IN_FORBIDDEN_SCOPE`     | error     | lifecycle      | `onCleanup` inside trackedEffect/onSettled                                                                                 |
+| `SETTLED_CLEANUP_UNOWNED`        | error     | lifecycle      | `onSettled` returned a cleanup in an unowned (out-of-band) scope                                                           |
+| `STRICT_READ_UNTRACKED`          | warn      | strict-read    | Untracked reactive read in component/effect body                                                                           |
+| `PENDING_ASYNC_FORBIDDEN_SCOPE`  | warn      | async          | Pending async read in trackedEffect/onSettled                                                                              |
+| `NO_OWNER_EFFECT`                | warn      | lifecycle      | Effect created without reactive owner                                                                                      |
+| `NO_OWNER_CLEANUP`               | warn      | lifecycle      | `onCleanup` called without owner                                                                                           |
+| `NO_OWNER_BOUNDARY`              | warn      | lifecycle      | Boundary created without owner                                                                                             |
+| `RUN_WITH_DISPOSED_OWNER`        | warn      | owner          | `runWithOwner` with disposed owner                                                                                         |
+| `HUGE_FAN_OUT`                   | warn      | graph          | One source reached 2000 live subscribers (always on)                                                                       |
+| `HUGE_FAN_IN`                    | warn      | graph          | One computation reached 2000 live sources (always on)                                                                      |
+| `HOT_SCOPE_RERUNS`               | warn      | perf           | 120+ re-runs of one scope in 1s (attribution enabled)                                                                      |
+| `HOT_SCOPE_FANOUT`               | warn      | perf           | 5+/50+/500+ scopes hot from one root cause (attribution enabled)                                                           |
+| `HOT_SCOPE_TIME`                 | warn      | perf           | 8ms+ self-time in one scope in 1s (attribution enabled)                                                                    |
+| `WIDE_SCOPE_DEPS`                | warn      | perf           | Scope subscribed to 30+ sources (attribution enabled)                                                                      |
+| `WIDE_WRITE`                     | warn      | perf           | Committed write reached 250+ subscribers (attribution enabled)                                                             |
+| `ASYNC_WATERFALL`                | info/warn | perf           | 2+/3+ origin-proven sequential async flights (attribution enabled)                                                         |
+| `UNSTABLE_MEMO_OUTPUT`           | warn      | perf           | Memo returned a new-but-equivalent container 4+ runs running (attribution enabled)                                         |
+| `EFFECT_WRITES_OWN_SOURCE`       | info/warn | perf           | Effect's write provably feeds back into its own inputs; `info` for multi-effect rings (attribution enabled)                |
+| `EFFECT_RELAY_TEAR`              | info/warn | perf           | Reader ran twice for one root change because an effect relayed it; `warn` when derivable or repeated (attribution enabled) |
+| `IMMUTABLE_UPDATE_IN_STORE`      | warn      | perf           | Store container replaced by a mostly-identical copy (attribution enabled)                                                  |
+| `UNSTABLE_LIST_IDENTITY`         | warn      | perf           | `mapArray`/`For` recreated rows for equivalent items (attribution enabled)                                                 |
+| `SILENT_HOLD`                    | info/warn | responsiveness | Write held 300ms+/500ms+ by pending async with no on-screen acknowledgement (attribution enabled)                          |
 
 ## Run attribution — "why did this run"
 
@@ -399,8 +480,10 @@ DEV.attribution.enable({
   hotRuns: { count: 120, windowMs: 1000 },   // or false
   hotTime: { budgetMs: 8, windowMs: 1000 },  // or false
   wideDeps: 30,                               // or false
+  unstableMemos: 4,                           // or false
   wideWrites: 250,                            // or false
-  waterfalls: { minFlightMs: 50 }             // or false
+  waterfalls: { minFlightMs: 50 },            // or false
+  holds: { infoMs: 300, warnMs: 500 }         // or false
 });
 
 DEV.attribution.history();          // ring buffer of RerunEvents
@@ -408,6 +491,8 @@ DEV.attribution.why(someMemo);      // re-run history for one node
 DEV.attribution.subscriptions(fn);  // current dep names of one scope
 DEV.attribution.costs();            // { scopes, writes } ranked cost tables
 DEV.attribution.waterfalls();       // graph-provable sequential flight chains
+DEV.attribution.holds();            // every hold, acknowledged or not
+DEV.attribution.feedback();         // responsiveness tables (below)
 DEV.attribution.subscribe(fn);      // live RerunEvent feed
 DEV.attribution.disable();
 
@@ -415,9 +500,40 @@ DEV.attribution.disable();
 // kickoff of promises they hand out, so dependents that pick them up later
 // are never misread as waterfalls.
 DEV.attribution.markFlight(promise, startedAt?);
+
+// Web runtime: stamp the writes made synchronously inside `fn` with a user
+// interaction. Compiled event bindings do this for every handler.
+DEV.attribution.withInteraction({ type: "click", target: 'button#next "Next →"' }, fn);
 ```
 
 `costs()` aggregates since `enable()`: `scopes` ranked by self-time with `wastedMs` (time in runs whose value didn't change — the equality cutoff absorbed them), and `writes` ranked by the total downstream re-run time each root write caused. Overlay work (optimistic-lane and transition-replay runs) is accounted separately as `overlayMs` and never blamed as waste.
+
+### Provenance — "who wrote this"
+
+Every root `ChangeRecord` carries an `origin` describing the imperative frame the write came from, so a cause chain terminates in something a person can act on, not just a signal name:
+
+| `origin.kind` | Meaning                                                                                          |
+| ------------- | ------------------------------------------------------------------------------------------------ |
+| `interaction` | A user event (`type`, `target`, dispatch time `at`); stamped by the web runtime's event bindings |
+| `effect`      | An effect callback (`name`, and the `run` of the compute run it belongs to)                      |
+| `action`      | An `action()` body (`name`); an `interaction` field carries the event that invoked it            |
+| `async`       | An async landing — the value arrived from a promise or iterable                                  |
+| `external`    | Nothing enclosing was known (module scope, a timer, a foreign callback)                          |
+
+Effect- and action-origin writes resolve through the record of the run they belong to, so `RerunEvent.interaction` names the user interaction a re-run ultimately traces to, however many effects relayed it. Writes made after an `await` inside an action's body have left the action's synchronous frame; they are stamped `async`, which is what makes their escape from the transaction visible.
+
+Known gap: handlers bound through the runtime (delegated events, and non-literal `on*` expressions that route through `addEvent`) are stamped; a _literal_ function handler compiles to a bare `addEventListener` and is not, so its writes read as `external` until the compiler wraps them too.
+
+### Responsiveness tables (`feedback()`)
+
+`feedback()` is a pure aggregation over `HoldEvent`s and `RerunEvent`s — facts, not verdicts — shaped for an agent to read in one pass:
+
+- `sources`: per set of async sources waited on, `holds`, `heldMs`/`worstMs`, the `silent` subset (no acknowledgement at any duration) with its `silentMs`, `latestOnly` (the only acknowledgement was a `latest()` shadow — the input showed, nothing said "loading"), `late`/`lateMs` (acknowledged holds that still ran past `holds.infoMs`), `acknowledgedBy` ranked by affordance (`isPending:`, `latest:`, `optimistic:`, `affects:` prefixed with the node), the `interactions` and root `writes` that were held, and how many holds an `action` opened or joined.
+- `interactions`: per opening interaction (`click on button#next "Next →"`), `dispatches` folded together, the re-`runs` traced back to it with summed `selfMs` and `worstDispatchMs` (the long-flush hazard) beside `holds`, `heldMs`, `silentMs`, and `worstHoldMs` (the silent-hold hazard) — the two INP failure modes as columns of one row.
+- `flights`: per async source, flights started, `landed` (with `landedMs`/`worstMs`) and `abandoned` — superseded before landing. A high abandon count is the request-per-keystroke signature.
+- `fallbacks`: per `Loading` boundary, `shows`, total `shownMs`, `worstMs`, and `flashes` — fallbacks shown under 150ms, the loading-flash shape.
+
+All tables are sorted worst-first. The `@solidjs/diagnostics` artifact includes `holds` and `feedback` alongside diagnostics and costs, and the browser bridge exposes both as live queries.
 
 ### Architecture
 

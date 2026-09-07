@@ -20,6 +20,8 @@ export type HoldEvent = ReturnType<Attribution["holds"]>[number];
 export type AttributionFeedback = ReturnType<Attribution["feedback"]>;
 export type FeedbackSource = AttributionFeedback["sources"][number];
 export type FeedbackInteraction = AttributionFeedback["interactions"][number];
+export type FlightStats = AttributionFeedback["flights"][number];
+export type FallbackStats = AttributionFeedback["fallbacks"][number];
 
 /**
  * A serializable projection of RerunEvent: everything except the live `node`

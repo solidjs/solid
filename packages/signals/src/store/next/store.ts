@@ -874,6 +874,75 @@ function drainFolds(): void {
   }
 }
 
+/** Dev: dotted path of a target from its store root (`store.user.address`). */
+function storePath(t: StoreNextTarget): string {
+  let path = "";
+  for (let cur: StoreNextTarget | null = t; cur !== null; cur = cur.u)
+    path = cur.pk === null ? "store" + path : "." + String(cur.pk) + path;
+  return path;
+}
+
+/**
+ * Dev (attribution engine installed): announce written keys whose old and new
+ * values are both containers but different logical slots — the raw material
+ * for the spread-copy diagnostic. The engine owns the verdict.
+ */
+function reportReplacedContainers(
+  t: StoreNextTarget,
+  old: Record<PropertyKey, any>,
+  pb: Record<PropertyKey, any>,
+  writtenKeys: Iterable<PropertyKey> | null
+): void {
+  const keys = writtenKeys ?? Reflect.ownKeys(pb);
+  const isArray = Array.isArray(pb);
+  for (const key of keys) {
+    if (isArray && key === "length") continue;
+    if (t.del !== null && t.del.has(key)) continue;
+    const ov = unwrapValue(old[key as any]);
+    const nv = unwrapValue(pb[key as any]);
+    if (
+      ov === null ||
+      nv === null ||
+      typeof ov !== "object" ||
+      typeof nv !== "object" ||
+      ov === nv ||
+      targetsEqual(ov, nv)
+    )
+      continue;
+    // Leaf census on the store side: leaves read through a draft are proxies
+    // of the committed raws, so identity must be judged on unwrapped values.
+    const isArr = Array.isArray(nv);
+    if (isArr !== Array.isArray(ov)) continue;
+    let total: number;
+    let unchanged = 0;
+    if (isArr) {
+      total = (nv as unknown[]).length;
+      if (total > REPLACED_CENSUS_MAX) continue;
+      const oldItems = new Set<unknown>();
+      for (const item of ov as unknown[]) oldItems.add(unwrapValue(item));
+      for (const item of nv as unknown[]) if (oldItems.has(unwrapValue(item))) unchanged++;
+    } else {
+      const nkeys = Object.keys(nv);
+      total = nkeys.length;
+      if (total > REPLACED_CENSUS_MAX) continue;
+      for (const k of nkeys) if (sameLeaf((ov as any)[k], (nv as any)[k])) unchanged++;
+    }
+    attrHooks!.storeReplaced(
+      storePath(t) + "." + String(key),
+      isArr,
+      total,
+      unchanged,
+      isArr ? (ov as unknown[]).length : Object.keys(ov).length
+    );
+  }
+}
+const REPLACED_CENSUS_MAX = 64;
+function sameLeaf(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
+  return unwrapValue(a) === unwrapValue(b) || targetsEqual(a, b);
+}
+
 /**
  * Setter-exit notification (write channel): diff the draft's pending backing
  * against committed and setSignal every changed OBSERVED key — write-time
@@ -947,6 +1016,7 @@ function notifyWrites(t: StoreNextTarget): void {
   // `select` regressed 2x on this).
   const writtenKeys =
     wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
+  if (__DEV__ && attrHooks !== null) reportReplacedContainers(t, old, pb, writtenKeys);
   if (nodes !== null) {
     const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(nodes);
     for (const key of keys) {

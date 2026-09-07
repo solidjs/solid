@@ -18,7 +18,7 @@ import {
   resetErrorHalt,
   DEV
 } from "solid-js";
-import { effect, memo } from "./render.js";
+import { effect, memo, tagElement } from "./render.js";
 
 import { JSX } from "../jsx/jsx.js";
 
@@ -439,6 +439,7 @@ function findOwner(target, state) {
 export function setProperty(node: Element, name: string, value: any): void;
 
 export function setProperty(node, name, value) {
+  if ("_SOLID_DEV_") tagElement(node);
   if (isHydrating(node)) return;
   // Stateful DOM properties (DOMWithState) route through here in hydratable
   // builds so the claim pass adopts pre-hydration user state instead of
@@ -566,6 +567,7 @@ export function claimElement(node) {
 export function setAttribute(node: Element, name: string, value: string): void;
 
 export function setAttribute(node, name, value) {
+  if ("_SOLID_DEV_") tagElement(node);
   if (isHydrating(node)) return;
   const selectMultiple = name === "multiple" && node.localName === "select";
   if (value == null || value === false) node.removeAttribute(name);
@@ -594,6 +596,7 @@ export function setAttribute(node, name, value) {
 export function setAttributeNS(node: Element, namespace: string, name: string, value: string): void;
 
 export function setAttributeNS(node, namespace, name, value) {
+  if ("_SOLID_DEV_") tagElement(node);
   if (isHydrating(node)) return;
   // removeAttributeNS takes the local name; setAttributeNS accepts the qualified form.
   if (value == null || value === false)
@@ -603,6 +606,7 @@ export function setAttributeNS(node, namespace, name, value) {
 export function className(node: Element, value: JSX.ClassValue, prev?: JSX.ClassValue): void;
 
 export function className(node, value, prev) {
+  if ("_SOLID_DEV_") tagElement(node);
   // Numbers stringify like the compiler's static output (`class={1}`
   // inlines as `class="1"` in the template) so static and dynamic forms of
   // the same ClassValue behave identically (#3189).
@@ -698,6 +702,7 @@ export function style(
 ): void;
 
 export function style(node, value, prev) {
+  if ("_SOLID_DEV_") tagElement(node);
   // Hydration is a claim pass: the server-rendered inline style stays
   // authoritative, consistent with class/attribute bindings (#3180). The
   // first post-hydration update diffs against the hydration-time value
@@ -749,6 +754,7 @@ export function style(node, value, prev) {
 export function setStyleProperty(node: Element, name: string, value: any): void;
 
 export function setStyleProperty(node, name, value) {
+  if ("_SOLID_DEV_") tagElement(node);
   // Same hydration adoption contract as style() (#3180): the compiled
   // per-property effect dedupes against the previous compute value, so the
   // first actual change after hydration writes through.
@@ -1006,6 +1012,7 @@ export function assign(
 ): void;
 
 export function assign(node, props, skipChildren, prevProps = {}, skipRef = false) {
+  if ("_SOLID_DEV_") tagElement(node);
   const nodeName = node.nodeName;
   props || (props = {});
   for (const prop in prevProps) {
@@ -2222,6 +2229,7 @@ function eventHandler(e, container, state) {
 }
 
 function insertExpression(parent, value, current, marker) {
+  if ("_SOLID_DEV_") tagElement(parent);
   if (hydrationRt !== null && isHydrating(parent)) {
     // A hydrating render is a claim pass, not a mutation pass — but the
     // caller's `current` bookkeeping must stay HONEST about what the DOM

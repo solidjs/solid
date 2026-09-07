@@ -3,7 +3,7 @@ import { $REFRESH, NOT_PENDING } from "./constants.js";
 // Cycle note: dev.ts imports this module for the `attribution` object, and we
 // import its hoisted emitDiagnostic back — safe (only called at runtime) and
 // treeshake-neutral (dev.ts is already reachable from the core).
-import { emitDiagnostic, reportDiagnostic } from "./dev.js";
+import { emitDiagnostic, ownerPath, reportDiagnostic } from "./dev.js";
 import type { Transition } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
 
@@ -245,6 +245,11 @@ interface AttributedNode {
   /** Sequence and causes of the node's latest recorded run (undefined after a create run). */
   _devRunSeq?: number;
   _devRunCauses?: ChangeRecord[];
+  /** Writers of this signal: undefined = none yet, 0 = non-effect, n = effect devId, null = mixed. */
+  _devSoleWriter?: number | null;
+  /** Consecutive effect-phase writes that copied the writing effect's compute output. */
+  _devCopyRuns?: number;
+  _devCopyFrom?: number;
 }
 
 let attributionActive = false;
@@ -560,6 +565,7 @@ function stampWrite(
   record.origin = kind === "async" ? asyncOrigin(node as Computed<any>) : currentOrigin();
   record.stack = captureStack();
   (node as AttributedNode)._devChange = record;
+  if (kind === "write") trackEffectWrite(node, record, value);
   // stampWrite is the single funnel for committed root invalidations (sync
   // writes, refresh(), async landings), which makes it the one place the
   // written-fan-out check needs to live.
@@ -801,6 +807,7 @@ function recordRerun(
   held: boolean
 ): void {
   const node = el as AttributedNode;
+  const prevCauses = node._devRunCauses;
   // Subscription diff: `prevDeps` was captured at run entry; `_deps` now
   // holds the fresh set. A changed set is the "helper edit changed distant
   // call sites" signal — surfaced per-event and in the console format.
@@ -840,11 +847,12 @@ function recordRerun(
   recordCosts(event);
   recordFeedbackRun(event);
   if (event.nodeKind === "effect") checkEffectCycle(el, causes);
+  checkRelayTear(el, causes, prevCauses);
   checkHotRuns(el, event);
   checkHotTime(el, event);
   checkDepWidth(el);
   for (const listener of listeners) listener(event);
-  if (options.log) console.log(formatRerun(event));
+  if (options.log) logRerun(event);
 }
 
 function formatCause(cause: ChangeRecord, depth: number, out: string[]): void {
@@ -883,6 +891,23 @@ export function formatRerun(event: RerunEvent): string {
   return out.join("\n");
 }
 
+/**
+ * Console face of a re-run: the headline as a collapsed group with the
+ * why-chain and dep delta inside, so a busy console stays scannable (one line
+ * per run, evidence a click away). Consoles without grouping get the text.
+ */
+function logRerun(event: RerunEvent): void {
+  const text = formatRerun(event);
+  const nl = text.indexOf("\n");
+  if (nl === -1 || typeof console.groupCollapsed !== "function") {
+    console.log(text);
+    return;
+  }
+  console.groupCollapsed(text.slice(0, nl));
+  console.log(text.slice(nl + 1));
+  console.groupEnd();
+}
+
 export interface Attribution {
   enable(opts?: AttributionOptions): void;
   disable(): void;
@@ -919,9 +944,12 @@ export interface Attribution {
    * interactions were held); `interactions` ranks user events by the total
    * time they cost — re-run work caused (long-flush hazard) beside time held
    * (silent-hold hazard). Facts at every duration; SILENT_HOLD is the
-   * thresholded verdict.
+   * thresholded verdict. Two more tables round out the picture: `flights`
+   * counts each async source's flights and how many were abandoned before
+   * landing (the re-ask storm), and `fallbacks` measures how long each
+   * loading boundary showed its fallback and how often that was a flash.
    */
-  feedback(): { sources: FeedbackSource[]; interactions: FeedbackInteraction[] };
+  feedback(): AttributionFeedbackTables;
   /**
    * Cooperative preload declaration: stamp a flight object (promise or async
    * iterable) with its true kickoff time BEFORE the reactive graph sees it.
@@ -1178,6 +1206,361 @@ function checkEffectCycle(el: Computed<any>, causes: ChangeRecord[]): void {
   if (severity === "warn") reportDiagnostic(entry);
 }
 
+// --- Effect relay tears -------------------------------------------------------
+//
+// Derived state kept in sync by an effect — `createEffect(() => filter(a()),
+// v => setS(v))` — is the React habit Solid does not need, but "should have
+// been a memo" is a claim about intent the runtime cannot see. What it CAN
+// see is the harm: every scope that reads both `a` and `S` runs twice for one
+// write of `a` — once in the flush where `a` changed (against stale `S`), and
+// again after the effect's write lands — and the first frame was
+// inconsistent. That is a pure cause-chain fact: C's re-run has ONLY
+// effect-origin root writes, and the run that made one of them was itself
+// caused by a root write C already ran for. No guess about purity.
+//
+// The intent heuristics are then confidence modifiers on the message, not
+// gates. Two are cheap and honest:
+// - copy: the written value IS the effect's compute output (one `===` per
+//   effect-phase write). By Solid's contract the compute half is a pure
+//   function of its tracked reads, so the written value is derivable — a
+//   memo — with no guess about the callback's purity. Near-certain, so it
+//   warns on its own once it has repeated, even with no double-running
+//   reader: everything reading the copy paints a flush behind everything
+//   reading the source. The prop-to-state port is the special case where the
+//   compute output is itself one of the effect's sources (`passthrough`):
+//   read the source directly.
+// - sole writer: every write to `S` in the session came from this effect.
+//   Medium — real state grows other writers eventually — so it sharpens the
+//   text, not the severity.
+// A tear whose write is neither is `info` (a DOM-measurement effect tears
+// legitimately: the cost of measuring) until the same relay has torn
+// repeatedly, then `warn`.
+
+interface RelayState {
+  count: number;
+  warned: boolean;
+}
+const RELAY_WARN_AT = 3;
+const relays = new Map<string, RelayState>();
+const copyWrites = new WeakSet<ChangeRecord>();
+const copyReported = new WeakSet<object>();
+/** The node each root write record was stamped on (records are serializable and cannot hold it). */
+const recordNodes = new WeakMap<ChangeRecord, Signal<any> | Computed<any>>();
+
+/**
+ * Write-side bookkeeping for the relay heuristics: who has written this
+ * signal, and whether an effect just copied its compute output into it.
+ */
+function trackEffectWrite(node: Signal<any> | Computed<any>, record: ChangeRecord, value: unknown) {
+  const n = node as AttributedNode;
+  const origin = record.origin;
+  const info =
+    origin !== undefined && origin.kind === "effect" ? effectFrames.get(origin) : undefined;
+  const writer = info === undefined ? 0 : devId(info.node);
+  recordNodes.set(record, node);
+  n._devSoleWriter = n._devSoleWriter === undefined || n._devSoleWriter === writer ? writer : null;
+  if (info !== undefined && value !== undefined && value === info.node._value) {
+    copyWrites.add(record);
+    n._devCopyRuns = n._devCopyFrom === writer ? (n._devCopyRuns ?? 0) + 1 : 1;
+    n._devCopyFrom = writer;
+    if (n._devCopyRuns >= 2 && n._devSoleWriter === writer) checkCopyEffect(info.node, node);
+  } else n._devCopyRuns = 0;
+}
+
+/** The effect's source whose current value the compute output is, if any (the prop-to-state port). */
+function passthroughSource(effect: Computed<any>): string | undefined {
+  for (let l = effect._deps; l !== null; l = l._nextDep)
+    if (l._dep._value === effect._value) return nodeName(l._dep);
+  return undefined;
+}
+
+/** The repair for a write that is the effect's compute output. */
+function copyRepair(effect: Computed<any>, target: string): string {
+  const source = passthroughSource(effect);
+  return source !== undefined
+    ? `The written value is "${source}" itself: read "${source}" where "${target}" is read ` +
+        `(or createMemo it if a stable derivation is needed) and delete the effect.`
+    : `The written value is the effect's compute output — by contract a pure function of ` +
+        `what it tracks: make "${target}" a memo of that computation and delete the effect.`;
+}
+
+function checkCopyEffect(effect: Computed<any>, target: Signal<any> | Computed<any>): void {
+  if (copyReported.has(target)) return;
+  copyReported.add(target);
+  const name = nodeName(target);
+  const message =
+    `[EFFECT_RELAY_TEAR] effect "${nodeName(effect)}" writes its compute output into ` +
+    `"${name}" on every run, and nothing else writes "${name}" — it is derived state kept ` +
+    `one flush late: everything reading it paints a frame behind everything reading the ` +
+    `source. ${copyRepair(effect, name)}`;
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "EFFECT_RELAY_TEAR",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: nodeName(effect),
+        data: {
+          relay: nodeName(effect),
+          wrote: name,
+          copy: true,
+          passthrough: passthroughSource(effect) ?? null,
+          soleWriter: true
+        }
+      },
+      effect
+    )
+  );
+}
+
+/**
+ * `victim` re-ran with `causes`; its previous run had `prevCauses`. A tear is
+ * a re-run whose root writes ALL came from effects (no independent outside
+ * cause) and at least one of which was made by a run that shares a root
+ * write with the victim's previous run.
+ */
+function checkRelayTear(
+  victim: Computed<any>,
+  causes: ChangeRecord[],
+  prevCauses: ChangeRecord[] | undefined
+): void {
+  if (prevCauses === undefined || causes.length === 0) return;
+  const roots: ChangeRecord[] = [];
+  rootWrites(causes, roots);
+  if (roots.length === 0) return;
+  let relay: EffectFrameInfo | undefined;
+  let write: ChangeRecord | undefined;
+  let shared: ChangeRecord | undefined;
+  for (const root of roots) {
+    const origin = root.origin;
+    if (origin === undefined || origin.kind !== "effect") return;
+    const info = effectFrames.get(origin);
+    // Own-source cycles are EFFECT_WRITES_OWN_SOURCE's; a create-run relay
+    // is initial sync, not a tear for one change.
+    if (info === undefined || info.node === victim || info.causes === undefined) return;
+    if (shared === undefined) {
+      const relayRoots: ChangeRecord[] = [];
+      rootWrites(info.causes, relayRoots);
+      const prevRoots: ChangeRecord[] = [];
+      rootWrites(prevCauses, prevRoots);
+      const hit = relayRoots.find(r => prevRoots.includes(r));
+      if (hit !== undefined) {
+        shared = hit;
+        relay = info;
+        write = root;
+      }
+    }
+  }
+  if (shared === undefined || relay === undefined || write === undefined) return;
+  const key = `${devId(relay.node)}:${write.name}`;
+  let state = relays.get(key);
+  if (state === undefined) relays.set(key, (state = { count: 0, warned: false }));
+  state.count++;
+  const copy = copyWrites.has(write);
+  const target = recordNodes.get(write) as AttributedNode | undefined;
+  const soleWriter = target !== undefined && target._devSoleWriter === devId(relay.node);
+  // Derivable outright: the value is the compute output and nothing else
+  // writes the signal. A copy INTO a signal that has other writers is the
+  // "reset editable state from a source" shape — the tear is real, but a memo
+  // is not the answer, so it stays advisory like any other non-derivable tear.
+  const derivable = copy && soleWriter;
+  const severity = derivable || state.count >= RELAY_WARN_AT ? "warn" : "info";
+  // First sighting always reports (advisory); afterwards only the escalation.
+  if (state.count > 1 && (severity !== "warn" || state.warned)) return;
+  // One verdict per derivable signal: the copy report (checkCopyEffect) and
+  // the tear report carry the same repair.
+  if (derivable && target !== undefined) {
+    if (copyReported.has(target)) return;
+    copyReported.add(target);
+  }
+  if (severity === "warn") state.warned = true;
+  const victimKind = (victim as { _type?: number })._type ? "effect" : "memo";
+  const relayName = nodeName(relay.node);
+  const repair = derivable
+    ? copyRepair(relay.node, write.name)
+    : copy
+      ? `The written value is the effect's compute output, but "${write.name}" has other ` +
+        `writers — editable state reset from a source. If the reset is the intent, the tear ` +
+        `is its cost; if "${write.name}" only ever mirrors the source, drop the local copy ` +
+        `and read the source.`
+      : soleWriter
+        ? `Nothing else writes "${write.name}" — it is derived state: make it a memo over what ` +
+          `the effect reads and every reader gets it in the same flush.`
+        : `If "${write.name}" is computed from what the effect reads, make it a memo so readers ` +
+          `get it in the same flush; if the write reads something outside the graph (layout, ` +
+          `time), the tear is the cost of measuring.`;
+  const message =
+    `[EFFECT_RELAY_TEAR] ${victimKind} "${nodeName(victim)}" ran twice for one write of ` +
+    `"${shared.name}": once in the flush where "${shared.name}" changed, and again after ` +
+    `effect "${relayName}" relayed it by writing "${write.name}" — the first frame showed the ` +
+    `new "${shared.name}" with the stale "${write.name}"` +
+    (state.count > 1 ? ` (${state.count} times so far)` : "") +
+    `. ${repair}`;
+  const entry = emitDiagnostic(
+    {
+      code: "EFFECT_RELAY_TEAR",
+      kind: "perf",
+      severity,
+      message,
+      nodeName: nodeName(victim),
+      data: {
+        victim: nodeName(victim),
+        root: shared.name,
+        relay: relayName,
+        wrote: write.name,
+        copy,
+        passthrough: copy ? (passthroughSource(relay.node) ?? null) : null,
+        soleWriter,
+        occurrences: state.count
+      }
+    },
+    victim
+  );
+  if (severity === "warn") reportDiagnostic(entry);
+}
+
+// --- Immutable updates in stores ---------------------------------------------
+//
+// `draft.user = { ...draft.user, name }` / `draft.items = [...draft.items,
+// x]` / `draft.items = draft.items.filter(...)` — the React habit of
+// producing a fresh container to change one leaf. The store tracks leaves, so
+// a fresh container is pure cost: every reader of `user` (any path below it)
+// re-runs for the one leaf that moved, where a draft mutation would re-run
+// only the readers of `name`. The store's notify sees both containers at the
+// write and reports a leaf census (identity on unwrapped values, capped); the
+// verdict is the whole detector: a replacement whose leaves are mostly the
+// SAME values is a spread-copy, and one whose leaves are mostly different is
+// new data (reconcile's job — and UNSTABLE_LIST_IDENTITY's, downstream). Once
+// per store path.
+
+const immutableReported = new Set<string>();
+
+function checkImmutableUpdate(
+  path: string,
+  isArray: boolean,
+  total: number,
+  same: number,
+  prevTotal: number
+): void {
+  if (immutableReported.has(path) || total < 2) return;
+  // Push/filter/splice copies change the length by a little; a wholesale
+  // resize is a different operation even if some items survive.
+  if (isArray && Math.abs(prevTotal - total) > Math.max(1, total >> 2)) return;
+  // At least half the leaves carried over unchanged, and at least one did.
+  if (same === 0 || same * 2 < total) return;
+  immutableReported.add(path);
+  const changed = total - same;
+  const shape = isArray ? "array" : "object";
+  const repair = isArray
+    ? `mutate the draft in place (push/splice/index assignment) so only the touched ` +
+      `indices notify`
+    : `assign the leaf on the draft (\`${path}.<key> = …\`) so only readers of that key re-run`;
+  const message =
+    `[IMMUTABLE_UPDATE_IN_STORE] "${path}" was replaced with a fresh ${shape} whose ` +
+    `${isArray ? "items" : "leaves"} are mostly the same values (${same} of ${total} unchanged` +
+    `${changed > 0 ? `, ${changed} changed` : ""}) — a spread-copy update. The store already ` +
+    `tracks ${isArray ? "items" : "leaves"}; a new container makes every reader of "${path}" ` +
+    `re-run for the ${changed === 1 ? "one that" : "few that"} moved. Instead, ${repair}. For ` +
+    `data arriving from outside (a fetch result), merge it with reconcile(data, key)(${path}).`;
+  reportDiagnostic(
+    emitDiagnostic({
+      code: "IMMUTABLE_UPDATE_IN_STORE",
+      kind: "perf",
+      severity: "warn",
+      message,
+      nodeName: path,
+      data: { path, shape, total, unchanged: same, changed }
+    })
+  );
+}
+
+// --- Unstable list identity -----------------------------------------------------
+//
+// `<For>` keyed by identity (the default) treats every new object as a new
+// row. When a re-fetch hands back fresh objects for the same records, or a
+// spread-copy rebuilds the array, most rows are disposed and recreated —
+// DOM, state, focus, and all — for data that did not change. mapArray knows
+// exactly which items exited and entered; pairing them (by `id` when the
+// items carry one, else by position) and sampling shallow equivalence turns
+// that into a verdict: churn that replaced equivalent records is unstable
+// identity, not a new list. A key function that still churns has the same
+// disease one level up (its keys are not stable). Once per list.
+
+const LIST_CHURN_SAMPLE = 8;
+const listIdentityWarned = new WeakSet<object>();
+
+function recordId(item: unknown): unknown {
+  if (item === null || typeof item !== "object") return undefined;
+  const o = item as Record<string, unknown>;
+  return o.id ?? o.key ?? o._id ?? undefined;
+}
+
+function checkListIdentity(
+  el: Computed<any>,
+  removed: unknown[],
+  created: unknown[],
+  newLen: number,
+  keyed: boolean
+): void {
+  if (listIdentityWarned.has(el)) return;
+  // Most of the list turned over, and the turnover was a swap (rows out ≈ rows in).
+  if (created.length < 2 || created.length * 2 < newLen) return;
+  if (Math.abs(removed.length - created.length) > Math.max(1, created.length >> 2)) return;
+  // Pair exited with entered: by record id when present, else by position.
+  const byId = new Map<unknown, unknown>();
+  for (const item of removed) {
+    const id = recordId(item);
+    if (id !== undefined) byId.set(id, item);
+  }
+  let sampled = 0;
+  let equivalent = 0;
+  const step = Math.max(1, Math.floor(created.length / LIST_CHURN_SAMPLE));
+  for (let i = 0; i < created.length && sampled < LIST_CHURN_SAMPLE; i += step) {
+    const item = created[i];
+    const id = recordId(item);
+    const prev = id !== undefined ? byId.get(id) : removed[i];
+    if (prev === undefined || !isPlainShape(prev) || !isPlainShape(item)) continue;
+    sampled++;
+    if (shallowEquivalent(prev, item)) equivalent++;
+  }
+  if (sampled === 0 || equivalent * 2 < sampled) return;
+  listIdentityWarned.add(el);
+  const name = nodeName(el);
+  const repair = keyed
+    ? `The key function returned different keys for equivalent records — return a stable ` +
+      `field (\`keyed: item => item.id\`), not the object or a computed value that changes ` +
+      `with the fetch.`
+    : `Key the list by a stable field (\`keyed: item => item.id\`), or merge the data into ` +
+      `a store with reconcile(data, "id") so the same records keep the same identity.`;
+  const message =
+    `[UNSTABLE_LIST_IDENTITY] list "${name}" recreated ${created.length} of ${newLen} rows on ` +
+    `an update where the entering items are equivalent to the ones they replaced ` +
+    `(${equivalent} of ${sampled} sampled pairs identical field-for-field) — fresh objects ` +
+    `for the same records, so identity keying threw away every row's DOM and state and ` +
+    `rebuilt it. ${repair}`;
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "UNSTABLE_LIST_IDENTITY",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: name,
+        data: {
+          removed: removed.length,
+          created: created.length,
+          length: newLen,
+          sampled,
+          equivalent,
+          keyed
+        }
+      },
+      el
+    )
+  );
+}
+
 // --- Async waterfall tracking -----------------------------------------------
 //
 // A "flight" is one registered async operation (`_inFlight` assignment) on one
@@ -1268,6 +1651,11 @@ function trackFlightStart(el: Computed<any>, flight: object): void {
   const at = now();
   const origin = flightOrigins.get(flight) ?? at;
   if (origin === at) flightOrigins.set(flight, at);
+  // Census: a flight still in the air when the node starts another was
+  // superseded — its answer will be discarded.
+  const stats = flightBucket(el);
+  stats.flights++;
+  if (liveFlights.has(el)) stats.abandoned++;
   // Nearest enclosing frame with causes: create runs carry null (a node born
   // inside a parent's recompute inherits the parent's causality — the
   // boundary-reveal case, and the lazy sibling whose first pull is gated
@@ -1306,6 +1694,10 @@ function finalizeFlight(el: Computed<any>): void {
   liveFlights.delete(el);
   const landedAt = now();
   const ms = landedAt - flight.origin;
+  const stats = flightBucket(el);
+  stats.landed++;
+  stats.landedMs += ms;
+  if (ms > stats.worstMs) stats.worstMs = ms;
   const record = (el as AttributedNode)._devChange;
   // Only a stamp this landing produced may carry the measurement — a stale
   // async record from a previous landing must not be re-labeled.
@@ -1632,6 +2024,13 @@ export interface FeedbackSource {
   silentMs: number;
   /** Holds whose only acknowledgment was a `latest()` shadow: the input showed, nothing said "loading". */
   latestOnly: number;
+  /**
+   * Acknowledged holds that still ran past the silent-hold `infoMs` threshold —
+   * the screen said "loading", but for long enough that the affordance is not
+   * the whole answer (preload, cache, or a faster source is).
+   */
+  late: number;
+  lateMs: number;
   /** Which affordances answered, and in how many holds — ranked. */
   acknowledgedBy: { by: string; holds: number }[];
   /** Interactions whose writes were held here, ranked by holds. */
@@ -1659,6 +2058,42 @@ export interface FeedbackInteraction {
   worstHoldMs: number;
 }
 
+/** Per async source: how many flights it started, and how many it threw away. */
+export interface FlightStats {
+  source: string;
+  /** Flights registered (a recompute that produced a new promise/iterable). */
+  flights: number;
+  /** Flights that landed (whether or not the value changed). */
+  landed: number;
+  /**
+   * Flights superseded by a newer one before landing — the search-as-you-type
+   * signature when large: every keystroke asked, most answers were discarded.
+   * A debounced/equality-gated derivation between input and fetch is the repair.
+   */
+  abandoned: number;
+  /** Summed and worst wall time of landed flights (ms). */
+  landedMs: number;
+  worstMs: number;
+}
+
+/** Per loading boundary: how long, and how briefly, it showed its fallback. */
+export interface FallbackStats {
+  /** The boundary's owner path (`<App> › <Feed>`), or `boundary` when unnamed. */
+  boundary: string;
+  /** Times the fallback was shown. */
+  shows: number;
+  /** Summed and worst fallback duration (ms) across completed shows. */
+  shownMs: number;
+  worstMs: number;
+  /**
+   * Shows shorter than the flash window (default 150ms): a spinner that
+   * appeared and vanished — the other end of the SILENT_HOLD spectrum, too
+   * much feedback for too little wait. A preload, a cache, or lifting the
+   * fetch above the boundary removes the flash.
+   */
+  flashes: number;
+}
+
 interface SourceBucket {
   row: FeedbackSource;
   acks: Map<string, number>;
@@ -1672,6 +2107,52 @@ interface InteractionBucket {
 }
 const feedbackSources = new Map<string, SourceBucket>();
 const feedbackInteractions = new Map<string, InteractionBucket>();
+const flightStats = new Map<Computed<any>, FlightStats>();
+interface FallbackBucket {
+  row: FallbackStats;
+  /** Start of the show currently on screen, or null. */
+  shownAt: number | null;
+}
+const fallbackStats = new Map<object, FallbackBucket>();
+const FALLBACK_FLASH_MS = 150;
+
+function flightBucket(el: Computed<any>): FlightStats {
+  let row = flightStats.get(el);
+  if (row === undefined) {
+    row = { source: nodeName(el), flights: 0, landed: 0, abandoned: 0, landedMs: 0, worstMs: 0 };
+    flightStats.set(el, row);
+  }
+  return row;
+}
+
+function trackFallback(boundary: object, tree: Computed<any> | undefined, shown: boolean): void {
+  let bucket = fallbackStats.get(boundary);
+  if (bucket === undefined) {
+    bucket = {
+      row: { boundary: "boundary", shows: 0, shownMs: 0, worstMs: 0, flashes: 0 },
+      shownAt: null
+    };
+    fallbackStats.set(boundary, bucket);
+  }
+  // The first show can fire before the subtree exists; name on first sight.
+  if (bucket.row.boundary === "boundary" && tree !== undefined) {
+    const path = ownerPath(tree);
+    if (path !== undefined) bucket.row.boundary = path.join(" › ");
+  }
+  if (shown) {
+    if (bucket.shownAt === null) {
+      bucket.shownAt = now();
+      bucket.row.shows++;
+    }
+    return;
+  }
+  if (bucket.shownAt === null) return;
+  const ms = now() - bucket.shownAt;
+  bucket.shownAt = null;
+  bucket.row.shownMs += ms;
+  if (ms > bucket.row.worstMs) bucket.row.worstMs = ms;
+  if (ms < FALLBACK_FLASH_MS) bucket.row.flashes++;
+}
 
 /** No affordance answered and nothing painted while held. */
 function isSilentHold(event: HoldEvent): boolean {
@@ -1731,6 +2212,8 @@ function recordFeedbackHold(event: HoldEvent): void {
         silent: 0,
         silentMs: 0,
         latestOnly: 0,
+        late: 0,
+        lateMs: 0,
         acknowledgedBy: [],
         interactions: [],
         writes: [],
@@ -1750,11 +2233,17 @@ function recordFeedbackHold(event: HoldEvent): void {
   if (silent) {
     row.silent++;
     row.silentMs += event.holdMs;
-  } else if (
-    event.acknowledgedBy.length > 0 &&
-    event.acknowledgedBy.every(by => by.startsWith("latest:"))
-  ) {
-    row.latestOnly++;
+  } else {
+    if (
+      event.acknowledgedBy.length > 0 &&
+      event.acknowledgedBy.every(by => by.startsWith("latest:"))
+    )
+      row.latestOnly++;
+    const holdsCfg = options.holds;
+    if (holdsCfg !== false && holdsCfg !== undefined && event.holdMs >= holdsCfg.infoMs) {
+      row.late++;
+      row.lateMs += event.holdMs;
+    }
   }
   if (event.action) row.actions++;
   for (const by of event.acknowledgedBy) bucket.acks.set(by, (bucket.acks.get(by) ?? 0) + 1);
@@ -1779,7 +2268,22 @@ function rankedCounts<K extends string>(
     .map(([name, holds]) => ({ [key]: name, holds }) as { [P in K]: string } & { holds: number });
 }
 
-function feedbackTables(): { sources: FeedbackSource[]; interactions: FeedbackInteraction[] } {
+export interface AttributionFeedbackTables {
+  sources: FeedbackSource[];
+  interactions: FeedbackInteraction[];
+  /** Async sources ranked by abandoned flights, then by flights. */
+  flights: FlightStats[];
+  /** Loading boundaries ranked by flashes, then by time shown. */
+  fallbacks: FallbackStats[];
+}
+
+function feedbackTables(): AttributionFeedbackTables {
+  const flights = [...flightStats.values()]
+    .map(row => ({ ...row }))
+    .sort((a, b) => b.abandoned - a.abandoned || b.flights - a.flights);
+  const fallbacks = [...fallbackStats.values()]
+    .map(bucket => ({ ...bucket.row }))
+    .sort((a, b) => b.flashes - a.flashes || b.shownMs - a.shownMs);
   const sources = [...feedbackSources.values()]
     .map(bucket => ({
       ...bucket.row,
@@ -1792,7 +2296,7 @@ function feedbackTables(): { sources: FeedbackSource[]; interactions: FeedbackIn
   const interactions = [...feedbackInteractions.values()]
     .map(bucket => ({ ...bucket.row }))
     .sort((a, b) => b.heldMs + b.selfMs - (a.heldMs + a.selfMs));
-  return { sources, interactions };
+  return { sources, interactions, flights, fallbacks };
 }
 
 // The engine's implementation of the core's dev hook points. Installed by
@@ -1940,6 +2444,15 @@ const engineHooks: AttributionHooks = {
   },
   transitionMerged(target, outgoing) {
     trackHoldMerge(target, outgoing);
+  },
+  storeReplaced(path, isArray, total, unchanged, prevTotal) {
+    checkImmutableUpdate(path, isArray, total, unchanged, prevTotal);
+  },
+  listChurn(el, removed, created, newLen, keyed) {
+    checkListIdentity(el, removed, created, newLen, keyed);
+  },
+  boundaryFallback(boundary, tree, shown) {
+    trackFallback(boundary, tree, shown);
   }
 };
 
@@ -1956,6 +2469,10 @@ export const attribution: Attribution = {
     feedbackSources.clear();
     feedbackInteractions.clear();
     reportedCycles.clear();
+    relays.clear();
+    immutableReported.clear();
+    flightStats.clear();
+    fallbackStats.clear();
     originFrames.length = 0;
     hotCauses.clear();
     setAttributionHooks(engineHooks);
@@ -1973,6 +2490,10 @@ export const attribution: Attribution = {
     feedbackSources.clear();
     feedbackInteractions.clear();
     reportedCycles.clear();
+    relays.clear();
+    immutableReported.clear();
+    flightStats.clear();
+    fallbackStats.clear();
     originFrames.length = 0;
     hotCauses.clear();
     setAttributionHooks(null);

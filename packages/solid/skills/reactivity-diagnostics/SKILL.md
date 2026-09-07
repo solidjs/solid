@@ -26,6 +26,18 @@ subject has no named owner — a top-level scope, or an unowned primitive,
 which for the `NO_OWNER_*` codes is the finding itself. Naming your memos and
 effects (`{ name }`) turns the trailing `effect` into something you can grep.
 
+In a browser, a report about a compiled JSX binding effect (an attribute,
+class, style, or insert) also carries the element it writes as a second
+console argument — hover to highlight it on the page, click to jump to it in
+the Elements panel. That is the fastest way from a `HOT_SCOPE_*` warning to
+"which row on screen." Why-chains (`DEV.attribution.enable()`) print as
+collapsed console groups: one headline per run, the causes inside.
+
+The first report of each code ends with a footer pointing here — the
+installed copy (`node_modules/solid-js/skills/...`) for tooling in the repo,
+and the same file on GitHub with an anchor to the code's section for a human
+reading the console.
+
 With attribution enabled, every root write also carries WHO performed it
 (`ChangeRecord.origin`): the user event and element (`click on button#next
 "Next →"`), the effect or action it ran inside (`effect "syncTitle"`,
@@ -246,6 +258,62 @@ derive every relayed value from the original inputs and drop the writes.
 The walk follows graph edges only; a write fed back through untracked
 indirection is not claimed.
 
+### EFFECT_RELAY_TEAR
+
+Derived state kept in sync by an effect: `createEffect(() => f(a()), v =>
+setS(v))`. The message names a reader that ran twice for ONE write of `a` —
+once in the flush where `a` changed (against the stale `S`), once after the
+effect's write landed — so its first frame was inconsistent. That double run
+is proven from the cause chain; the rest of the message is confidence:
+
+- "The written value is the effect's compute output" — by Solid's contract
+  the compute half is a pure function of its tracked reads, so the value is
+  derivable. Repair: `const s = createMemo(() => f(a()))`, delete the
+  effect and the signal. This form warns on its own once it has repeated
+  (`data.copy: true`), even with no double-running reader — everything
+  reading the copy paints a flush behind everything reading the source.
+- "The written value is `a` itself" (`data.passthrough`) — the prop-to-state
+  port. Repair: read `a` where `S` was read; a memo only if a stable
+  derivation is genuinely needed.
+- "Nothing else writes `S`" (`data.soleWriter`) — derived state without the
+  identity proof; same memo repair.
+- "`S` has other writers — editable state reset from a source" (`copy` true,
+  `soleWriter` false; `info` until it repeats) — the controlled-input shape.
+  If resetting local editable state when the source changes is the intent,
+  the tear is its cost; if `S` only ever mirrors the source, drop the copy.
+- Neither (`info` until it repeats) — the written value is not the compute
+  output and the signal has other writers. If the effect reads something
+  outside the graph (layout, `Date.now()`, a ref), the tear is the cost of
+  measuring and the finding is a fact to accept; if the value is computed
+  from what the effect reads, it is still a memo.
+
+### IMMUTABLE_UPDATE_IN_STORE
+
+A store setter replaced a container with a fresh object/array whose leaves are
+mostly the same values: `draft.user = { ...draft.user, name }`,
+`draft.items = [...draft.items, x]`, `draft.items = draft.items.filter(…)`.
+The store tracks leaves; a fresh container makes every reader of the
+container's path (anything under `user`) re-run for the one leaf that moved.
+Repair: mutate the draft — `draft.user.name = name`, `draft.items.push(x)`,
+`draft.items.splice(i, 1)` — so only readers of the touched key or index
+re-run. Data arriving from outside (a fetch result for the same records)
+merges with `reconcile(data, "id")(draft.items)`, which keeps identity for
+records that did not change. Once per store path; `data.unchanged/total`
+says how much of the container was carried over.
+
+### UNSTABLE_LIST_IDENTITY
+
+A `mapArray`/`<For>` update disposed and recreated most rows while the
+entering items were field-for-field equivalent to the ones they replaced:
+a re-fetch (or a spread-copy, see above) handed back fresh objects for the
+same records, and identity keying treated each as a new row — DOM, state,
+focus, and scroll position thrown away and rebuilt. Repairs: key the list by
+a stable field (`<For each={rows()} keyed={r => r.id}>`), or merge the
+data into a store with `reconcile(data, "id")` so the same records keep the
+same identity. If a key function is already in use (`data.keyed: true`) it
+is returning unstable keys (the object itself, or something that changes
+with the fetch) — return the stable field. Once per list.
+
 ## Responsiveness (from the attribution engine)
 
 The runtime did the correct thing; the user saw nothing while it did. These
@@ -301,9 +369,22 @@ same fold over holds and re-runs that `costs()` is over scopes and writes:
   fix with `costs()`: fan-out, waste, unstable memos); `holds`/`heldMs`/
   `silentMs`/`worstHoldMs` is the time its writes spent held (the silent-hold
   hazard — fix with the affordances above). Two INP failure modes, one row.
+  On `sources`, `late`/`lateMs` counts holds that WERE acknowledged but still
+  ran past `holds.infoMs`: the spinner is not the whole answer there — a
+  preload, a cache, or a faster source is.
+- `flights` — one row per async source: `flights` started, `landed`,
+  `abandoned` (superseded by a newer flight before landing), `landedMs`,
+  `worstMs`. A source with many abandoned flights is re-asking on every
+  keystroke; put a debounced or equality-gated derivation between the input
+  and the fetch so only settled inputs ask.
+- `fallbacks` — one row per loading boundary (named by owner path): `shows`,
+  `shownMs`, `worstMs`, and `flashes` (shows under 150ms — a spinner that
+  appeared and vanished, the other end of the SILENT_HOLD spectrum). Remove a
+  flash by preloading, caching, or lifting the fetch above the boundary so
+  the wait never reaches it; do not add artificial delay.
 
-Every hold counts here at any duration; `SILENT_HOLD` is the thresholded
-verdict over the same records.
+Every hold, flight and show counts here at any duration; `SILENT_HOLD` is the
+thresholded verdict over the hold records.
 
 ## Verifying a fix
 

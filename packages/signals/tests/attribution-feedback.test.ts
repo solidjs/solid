@@ -12,6 +12,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   action,
+  createLoadingBoundary,
   createMemo,
   createOptimistic,
   createRenderEffect,
@@ -93,7 +94,12 @@ function pagedFeed(name = "posts") {
 describe("feedback()", () => {
   it("starts empty and counts every hold, not only the ones past the verdict thresholds", async () => {
     arm();
-    expect(DEV!.attribution.feedback()).toEqual({ sources: [], interactions: [] });
+    expect(DEV!.attribution.feedback()).toEqual({
+      sources: [],
+      interactions: [],
+      flights: [],
+      fallbacks: []
+    });
     const feed = pagedFeed();
     createRoot(() => feed.reading());
     flush();
@@ -335,6 +341,101 @@ describe("feedback()", () => {
     expect(DEV!.attribution.feedback().sources).toHaveLength(1);
     DEV!.attribution.disable();
     arm();
-    expect(DEV!.attribution.feedback()).toEqual({ sources: [], interactions: [] });
+    expect(DEV!.attribution.feedback()).toEqual({
+      sources: [],
+      interactions: [],
+      flights: [],
+      fallbacks: []
+    });
+  });
+
+  it("counts acknowledged holds that still ran past the info threshold as late", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    // infoMs 0: every acknowledged hold is "late"; warnMs far away keeps the console quiet.
+    DEV!.attribution.enable({
+      log: false,
+      hotRuns: false,
+      hotTime: false,
+      waterfalls: false,
+      holds: { infoMs: 0, warnMs: 60_000 }
+    });
+    const feed = pagedFeed();
+    createRoot(() => {
+      feed.reading();
+      createRenderEffect(
+        () => isPending(() => feed.posts()),
+        () => {},
+        { name: "spinner" }
+      );
+    });
+    flush();
+    await feed.load("a");
+    feed.setPage(2);
+    flush();
+    await feed.load("b");
+    const [row] = DEV!.attribution.feedback().sources;
+    expect(row).toMatchObject({ holds: 1, silent: 0, late: 1 });
+    expect(row.lateMs).toBe(row.heldMs);
+  });
+
+  it("counts each source's flights and the ones abandoned before landing", async () => {
+    arm();
+    const feed = pagedFeed();
+    createRoot(() => feed.reading());
+    flush();
+    await feed.load("a");
+    expect(DEV!.attribution.feedback().flights).toEqual([
+      {
+        source: "posts",
+        flights: 1,
+        landed: 1,
+        abandoned: 0,
+        landedMs: expect.any(Number),
+        worstMs: expect.any(Number)
+      }
+    ]);
+    // Two re-asks before the first answer arrives: the middle flight is thrown away.
+    feed.setPage(2);
+    flush();
+    feed.setPage(3);
+    flush();
+    await feed.load("c");
+    const [row] = DEV!.attribution.feedback().flights;
+    expect(row).toMatchObject({ source: "posts", flights: 3, landed: 2, abandoned: 1 });
+    expect(row.worstMs).toBeGreaterThan(0);
+    expect(row.landedMs).toBeGreaterThanOrEqual(row.worstMs);
+  });
+
+  it("measures how long each loading boundary showed its fallback, and counts flashes", async () => {
+    arm();
+    const feed = pagedFeed();
+    const shown: string[] = [];
+    createRoot(() => {
+      const view = createLoadingBoundary(
+        () => feed.posts(),
+        () => "loading…"
+      );
+      createRenderEffect(
+        view,
+        v => {
+          shown.push(String(v));
+        },
+        { name: "view" }
+      );
+    });
+    flush();
+    expect(shown).toEqual(["loading…"]);
+    let [row] = DEV!.attribution.feedback().fallbacks;
+    expect(row).toMatchObject({ boundary: "boundary", shows: 1, shownMs: 0, flashes: 0 });
+    await wait(20);
+    feed.resolve("a");
+    await until(() => shown.includes("a-p1"), "content");
+    [row] = DEV!.attribution.feedback().fallbacks;
+    expect(row.shows).toBe(1);
+    expect(row.shownMs).toBeGreaterThanOrEqual(15);
+    expect(row.worstMs).toBe(row.shownMs);
+    // Under 150ms: a spinner that flashed.
+    expect(row.flashes).toBe(1);
   });
 });

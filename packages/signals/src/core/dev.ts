@@ -52,7 +52,10 @@ export type DiagnosticCode =
   | "ASYNC_WATERFALL"
   | "HOT_SCOPE_FANOUT"
   | "SILENT_HOLD"
-  | "EFFECT_WRITES_OWN_SOURCE";
+  | "EFFECT_WRITES_OWN_SOURCE"
+  | "EFFECT_RELAY_TEAR"
+  | "IMMUTABLE_UPDATE_IN_STORE"
+  | "UNSTABLE_LIST_IDENTITY";
 
 export type DiagnosticKind =
   | "strict-read"
@@ -239,6 +242,7 @@ export function emitDiagnostic(
   };
   const path = ownerPath(subject);
   if (path) entry.ownerPath = path;
+  if (subject) eventSubjects.set(entry, subject);
   for (const listener of diagnosticListeners) listener(entry);
   for (const capture of diagnosticCaptures) capture.push(entry);
   // Footer for events that never reach reportDiagnostic because the call site
@@ -265,18 +269,32 @@ function takeFooter(entry: DiagnosticEvent): string | undefined {
 }
 
 /**
+ * The subject each emitted event was about, for the console step: events are
+ * serializable records and cannot carry the node, but the console can show
+ * what the node knows — a rendering runtime may stamp a binding effect with
+ * the DOM element it writes (`_devElement`), and a live element reference
+ * beside the message is the most addressable pointer a console can print.
+ */
+const eventSubjects = new WeakMap<DiagnosticEvent, DiagnosticSubject>();
+
+/**
  * The console face of a diagnostic — ONE entry per finding: the message, the
- * owner path (`in <App> › <TodoRow> › effect`) so a human can locate it, and
- * the once-per-code footer as trailing lines. Severity picks the console
- * method. Call sites report the entry `emitDiagnostic` returned so the
- * structured and console channels never disagree.
+ * owner path (`in <App> › <TodoRow> › effect`) so a human can locate it, the
+ * once-per-code footer as trailing lines, and — when the subject is a
+ * binding effect the rendering runtime tagged — the element it writes, as a
+ * second console argument (hover highlights it, click jumps to Elements).
+ * Severity picks the console method. Call sites report the entry
+ * `emitDiagnostic` returned so the structured and console channels never
+ * disagree.
  */
 export function reportDiagnostic(entry: DiagnosticEvent): void {
   let text = entry.message;
   if (entry.ownerPath) text += `\n  in ${entry.ownerPath.join(" › ")}`;
   const footer = takeFooter(entry);
   if (footer) text += `\n${footer}`;
-  entry.severity === "error" ? console.error(text) : console.warn(text);
+  const element = (eventSubjects.get(entry) as { _devElement?: object } | undefined)?._devElement;
+  const args = element !== undefined ? [text, element] : [text];
+  entry.severity === "error" ? console.error(...args) : console.warn(...args);
 }
 
 /**
