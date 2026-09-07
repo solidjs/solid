@@ -808,6 +808,15 @@ export function unifiedForSlot(
         }
       }
       // 2. Place fresh/moved rows back-to-front so anchors are always final.
+      // Direct insertBefore per row, deliberately — NOT fragment-batched runs.
+      // Browsers charge per MOVE, and LIS + direct placement is move-minimal
+      // (Chrome: shuffle 0.63 vs classic ~0.75-0.80). Batching moved rows
+      // through a DocumentFragment moves each live row TWICE (into the
+      // fragment, then into the parent): it made jsdom ~10% faster (its cost
+      // is anchor-index computation, not moves) and Chrome 20-25% slower on
+      // reverse/shuffle — measured both orders, 2026-09-06. The jsdom-based
+      // CodSpeed shuffle bench therefore reads ~10% behind classic by
+      // construction; that is the accepted trade. Ruling: prioritize browsers.
       let anchor: Node | null = after !== null ? firstNode(after) : slot.end;
       for (let j = order.length - 1; j >= 0; j--) {
         const r = order[j];
