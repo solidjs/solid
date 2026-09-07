@@ -238,6 +238,10 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
  * propagates as `NotReadyError` through the surrounding reactive scope, so
  * async swaps compose with `<Loading>` boundaries the same way as `lazy`.
  *
+ * During SSR a pending source streams in behind its boundary by default. Pass
+ * `{ deferStream: true }` to hold the document's first flush until it settles
+ * (the same option `createMemo` takes); the client ignores it.
+ *
  * @example
  * ```tsx
  * // `source` can return either a custom Component or a native tag
@@ -265,8 +269,19 @@ function bindingOf(value: any): { component: Function; address: string } | undef
   );
 }
 
+export interface DynamicOptions {
+  /**
+   * SSR only: hold the document's first flush until the source settles, so
+   * the resolved component renders into the shell instead of streaming in
+   * behind its boundary's fallback. Same meaning as `createMemo`'s
+   * `deferStream`. Ignored on the client.
+   */
+  deferStream?: boolean;
+}
+
 export function dynamic<T extends ValidComponent>(
-  source: () => T | Promise<T> | null | undefined | false
+  source: () => T | Promise<T> | null | undefined | false,
+  _options?: DynamicOptions
 ): Component<ComponentProps<T>> {
   // `prev` threads into the resolution so a source switching server-component
   // calls of the same function DELIVERS instead of swapping: the memo keeps

@@ -63,30 +63,69 @@ export type ComponentProps<T extends ValidComponent> =
       ? JSX.IntrinsicElements[T]
       : Record<string, unknown>;
 
+export interface DynamicOptions {
+  /**
+   * SSR only: hold the document's first flush until the source settles, so
+   * the resolved component renders into the shell instead of streaming in
+   * behind its boundary's fallback. Same meaning as `createMemo`'s
+   * `deferStream`. Default `false` — a `dynamic()` source is data of unknown
+   * cost and streams by default (a code-split `lazy()` always holds the shell
+   * for its module load, since its code is a prerequisite to the render).
+   */
+  deferStream?: boolean;
+}
+
 export function dynamic<T extends ValidComponent>(
-  source: () => T | Promise<T> | null | undefined | false
+  source: () => T | Promise<T> | null | undefined | false,
+  options?: DynamicOptions
 ): Component<ComponentProps<T>> {
   // Mirrors the client exactly: a factory-level memo over the source, then a
   // per-instance memo that applies props. An async source needs no bespoke
   // handling — the (async-aware, non-`sync`) server memo suspends the read
   // while pending, and the nearest boundary owns it and streams.
   //
-  // Notably the pending read must NOT be registered as a renderer-blocking
-  // promise: that gates the shell flush on the source, so the boundary never
-  // shows its fallback and a slow source stalls the whole document. With no
-  // boundary to defer to the read becomes a root hole and resolveRootHoles
-  // blocks the shell on it anyway — correct, since there is nothing else to
-  // do.
+  // By default the pending read is NOT a renderer-blocking promise: a source
+  // is data of unknown cost (a server component call, say), and gating the
+  // shell on it means the boundary never shows its fallback and a slow source
+  // stalls the whole document. With no boundary to defer to the read becomes a
+  // root hole and resolveRootHoles blocks the shell on it anyway. Unlike
+  // lazy(), whose module load always holds the shell (code is a prerequisite
+  // to knowing what the segment contains), dynamic() leaves that call to the
+  // author: `deferStream` holds the shell on the source's settle, with the
+  // same meaning it has on createMemo. It is applied at the INSTANCE, not on
+  // the factory memo: dynamic() is routinely hoisted, so the factory runs with
+  // no render context, and only the mount knows which document to hold.
   //
   // `serialize: false` because the resolved component must never cross the
   // wire (it isn't serializable, and the client re-runs `source()` during
   // hydration anyway, the same way lazy() re-imports its module). The owner
   // id is still allocated, so hydration keys stay aligned with the client.
   const cached = createMemo(source as () => any, { serialize: false } as any);
+  const deferStream = !!options?.deferStream;
   return props => {
+    // Client `solid-js` types don't expose the server `sharedConfig.context`.
+    const ctx = (sharedConfig as { context?: any }).context;
+    let gated = !deferStream || !ctx?.async;
     return createMemo(
       () => {
-        const c: unknown = cached();
+        let c: unknown;
+        try {
+          c = cached();
+        } catch (err) {
+          // Hold the shell on the source once per instance. A no-op after the
+          // shell has flushed, like every blocker; a rejection is the memo's
+          // to surface on the retry, the block only needs to clear.
+          if (!gated && err instanceof NotReadyError) {
+            gated = true;
+            ctx.block(
+              Promise.resolve(err.source).then(
+                () => {},
+                () => {}
+              )
+            );
+          }
+          throw err;
+        }
         if (c) {
           if (typeof c === "function") return (c as Function)(props);
           if (typeof c === "string") {

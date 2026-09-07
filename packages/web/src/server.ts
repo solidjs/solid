@@ -1764,6 +1764,10 @@ export function renderToStream(code, options = {}) {
   };
   const onDone = () => {
     writeTasks();
+    // Every blocker has settled by definition here (the render is complete),
+    // so doShell's growth gate has nothing to wait for: align its baseline
+    // rather than let a stale flush-loop snapshot hold a finished shell.
+    lastBlockingSize = blockingPromises.size;
     doShell();
     onCompleteAll &&
       onCompleteAll({
@@ -2313,18 +2317,20 @@ export function renderToStream(code, options = {}) {
     // context. Restore this stream before re-pulling them so hydration data
     // is serialized into the response that owns the rendered markup.
     sharedConfig.context = context;
-    // A hole that completes by MOUNTING content can register new shell
-    // blockers as it renders: a deferStream read under a boundary created
-    // during this very re-invocation adds its source promise via
-    // serialize() (solidjs/solid#3047 — the code-split lazy route shape).
-    // This attempt already runs inside the previous allSettled snapshot's
-    // continuation, so flushing now would ship the fallback deferStream
-    // exists to prevent. Bail on growth; the flush loop re-awaits the grown
-    // set, and the boundary's pre-flush replace() splices the resolved
-    // content into the held shell before the retry flushes it.
-    const blockersBefore = blockingPromises.size;
+    // Content that MOUNTS after the awaited blockers settle can register new
+    // shell blockers as it renders: a deferStream read under a boundary that
+    // resumes during the drain (its lazy module just landed — the code-split
+    // route shape, solidjs/solid#3047, #3299) or under a root hole re-pulled
+    // below adds its source promise via serialize(). This attempt already runs
+    // inside the previous allSettled snapshot's continuation, so flushing now
+    // would ship the fallback deferStream exists to prevent. Bail on growth
+    // since that snapshot (`lastBlockingSize`, taken when the loop scheduled
+    // this attempt); the flush loop re-awaits the grown set, and the
+    // boundary's pre-flush replace() splices the resolved content into the
+    // held shell before the retry flushes it.
+    if (blockingPromises.size !== lastBlockingSize) return;
     if (!resolveRootHoles()) return;
-    if (blockingPromises.size !== blockersBefore) return;
+    if (blockingPromises.size !== lastBlockingSize) return;
     // Root-owned head registrations join the shell-hole contract: a pending
     // prop blocks the shell on its source and this attempt bails; the flush
     // loop re-awaits and retries (#2975 follow-up).
@@ -2385,10 +2391,14 @@ export function renderToStream(code, options = {}) {
   // cost is nanoseconds — and keep extending while fragments are actually
   // completing (registry churn), so nested settled boundaries drain fully.
   const MIN_DRAIN_TURNS = 8;
+  // Size of the blocking set when the current attempt was scheduled — i.e.
+  // the snapshot the preceding allSettled awaited. doShell (and the thenable's
+  // gate) compare against it: anything added since was discovered during the
+  // drain and has NOT been awaited.
   let lastBlockingSize = -1;
   let lastRegistrySize = -1;
   let drainTurn = 0;
-  const scheduleFlush = fn => {
+  const scheduleFlush = (fn, awaited) => {
     const attempt = () => {
       // Flush batched stubs at the TOP of the drain, not at doShell: a
       // promise that already settled emits its fulfillment on a microtask
@@ -2406,8 +2416,8 @@ export function renderToStream(code, options = {}) {
       }
       fn();
     };
-    const progressed = blockingPromises.size !== lastBlockingSize;
-    lastBlockingSize = blockingPromises.size;
+    const progressed = awaited !== lastBlockingSize;
+    lastBlockingSize = awaited;
     lastRegistrySize = -1;
     drainTurn = 0;
     progressed ? queue(attempt) : setTimeout(attempt);
@@ -2429,7 +2439,7 @@ export function renderToStream(code, options = {}) {
     let resolve;
     const p = new Promise(r => (resolve = r));
     function flush() {
-      allSettled(blockingPromises).then(() => {
+      allSettled(blockingPromises).then(awaited => {
         scheduleFlush(() => {
           if (dead) return resolve();
           // Root-hole retries and shell assembly run inside this microtask —
@@ -2490,7 +2500,7 @@ export function renderToStream(code, options = {}) {
             dispose();
             writable.end();
           } else flushEnd();
-        });
+        }, awaited);
       });
     }
     flush();
@@ -2535,7 +2545,7 @@ export function renderToStream(code, options = {}) {
           };
         } else onCompleteAll = complete;
         function flush() {
-          allSettled(blockingPromises).then(() => {
+          allSettled(blockingPromises).then(awaited => {
             scheduleFlush(() => {
               // Same gates as doShell: pending root head props are shell
               // blockers, so flushEnd must not run ahead of them (their
@@ -2544,10 +2554,10 @@ export function renderToStream(code, options = {}) {
               // new blockers (deferStream under a just-mounted boundary,
               // solidjs/solid#3047) must be re-awaited before completion.
               try {
-                const blockersBefore = blockingPromises.size;
                 if (
+                  blockingPromises.size !== lastBlockingSize ||
                   !resolveRootHoles() ||
-                  blockingPromises.size !== blockersBefore ||
+                  blockingPromises.size !== lastBlockingSize ||
                   !headShellReady(headRegistry, p => blockingPromises.add(p))
                 )
                   return flush();
@@ -2563,7 +2573,7 @@ export function renderToStream(code, options = {}) {
                 return resolve(tmp);
               }
               queue(flushEnd);
-            });
+            }, awaited);
           });
         }
         flush();
@@ -2573,7 +2583,7 @@ export function renderToStream(code, options = {}) {
     pipe(w) {
       claimConsumer("pipe");
       function flush() {
-        allSettled(blockingPromises).then(() => {
+        allSettled(blockingPromises).then(awaited => {
           scheduleFlush(() => {
             if (dead) return;
             try {
@@ -2599,7 +2609,7 @@ export function renderToStream(code, options = {}) {
               dispose();
               writable.end();
             } else flushEnd();
-          });
+          }, awaited);
         });
       }
       flush();
@@ -4071,11 +4081,16 @@ function queue(fn) {
 // Node; timer fallback for hosts without it (workerd, browsers).
 const deferFlush = typeof setImmediate === "function" ? setImmediate : fn => setTimeout(fn, 0);
 
+// Resolves with the size of the set it awaited. The caller snapshots THAT,
+// not the size when its continuation runs: a blocker registered in the
+// microtask between the growth check here and the caller's `.then` (a
+// boundary resuming on the same settlement — its lazy module landed and the
+// mounted content took a deferStream read) has not been awaited (#3299).
 function allSettled(promises) {
   let size = promises.size;
   return Promise.allSettled(promises).then(() => {
     if (promises.size !== size) return allSettled(promises);
-    return;
+    return size;
   });
 }
 
