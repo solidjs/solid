@@ -3562,8 +3562,9 @@ export function ssrElement(tag, props, children, needsId) {
   // so the server must allocate in the same order or the element's own id
   // shifts by one and it is left unclaimed on hydration.
   const hk = needsId ? ssrHydrationKey() : "";
+  if (typeof props === "function") props = props();
+  // A nullish source (static or resolved) is an empty spread (#3297).
   if (props == null) props = {};
-  else if (typeof props === "function") props = props();
   const skipChildren = VOID_ELEMENTS.test(tag);
   const keys = Object.keys(props);
   let result = `<${tag}${hk} `;

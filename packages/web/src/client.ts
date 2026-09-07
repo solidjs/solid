@@ -716,8 +716,11 @@ export function spread(node, props = {}, skipChildren) {
   // A lone reactive spread compiles to its accessor directly: merging one
   // source is pure overhead, and the mergeProps memo would consume a
   // hydration id the server-side fast path never allocates (#3105). The
-  // accessor resolves inside each tracking scope instead.
-  const get = typeof props === "function" ? props : () => props;
+  // accessor resolves inside each tracking scope instead. A nullish source
+  // (`{...props()}` where the optional props are absent) is an empty spread:
+  // attributes applied by the previous value are removed, nothing throws
+  // (#3297).
+  const get = typeof props === "function" ? () => props() ?? {} : () => props ?? {};
   if (!skipChildren)
     insert(node, () => {
       const source = get();
