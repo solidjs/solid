@@ -39,7 +39,9 @@ export type ChangeKind = "write" | "derived" | "async" | "refresh";
  *   `withInteraction`). `name` is the event type, `target` the element hit
  *   (`button#next "Next →"`), `at` the dispatch time on the `performance.now()`
  *   clock — the base every feedback-latency number is measured from.
- * - `effect` — an effect callback (`name` = the effect's name).
+ * - `effect` — an effect callback (`name` = the effect's name; `run` = the
+ *   compute run whose effect phase performed the write, when that run was
+ *   recorded — so a write can be joined to the re-run that produced it).
  * - `action` — a step of an `action()` generator (`name` = the generator's
  *   name, when it has one). Writes after an `await` (not a `yield`) run in a
  *   bare microtask and stamp `external` — the documented escape.
@@ -57,6 +59,8 @@ export interface ChangeOrigin {
   target?: string;
   at?: number;
   interaction?: ChangeOrigin;
+  /** `effect` only: the `RerunEvent.run` of the compute run this callback belongs to. */
+  run?: number;
 }
 
 /** A user interaction, as the web runtime describes it to `withInteraction`. */
@@ -238,6 +242,9 @@ interface AttributedNode {
   _devWaterfallWarnedAt?: number;
   /** Interaction the node's latest compute run traced to — inherited by its effect phase. */
   _devRunInteraction?: ChangeOrigin;
+  /** Sequence and causes of the node's latest recorded run (undefined after a create run). */
+  _devRunSeq?: number;
+  _devRunCauses?: ChangeRecord[];
 }
 
 let attributionActive = false;
@@ -424,15 +431,34 @@ function currentOrigin(): ChangeOrigin {
   return currentInteraction ?? EXTERNAL_ORIGIN;
 }
 
+/**
+ * What the engine knows about an effect frame beyond its serializable face:
+ * the node, and the causes of the run whose effect phase this is (undefined
+ * for a create run). `ChangeRecord.origin` IS the frame object, so a write's
+ * origin resolves back to this through the map — the hop the effect-cycle
+ * walk needs (see checkEffectCycle).
+ */
+interface EffectFrameInfo {
+  node: Computed<any>;
+  causes: ChangeRecord[] | undefined;
+}
+const effectFrames = new WeakMap<ChangeOrigin, EffectFrameInfo>();
+
 function pushFrame(
   kind: "effect" | "action",
   name: string | undefined,
-  interaction?: ChangeOrigin
+  interaction?: ChangeOrigin,
+  effect?: Computed<any>
 ) {
   const frame: ChangeOrigin = { kind };
   if (name) frame.name = name;
   const under = interaction ?? currentInteraction ?? undefined;
   if (under !== undefined) frame.interaction = under;
+  if (effect !== undefined) {
+    const node = effect as AttributedNode;
+    if (node._devRunSeq !== undefined) frame.run = node._devRunSeq;
+    effectFrames.set(frame, { node: effect, causes: node._devRunCauses });
+  }
   originFrames.push(frame);
 }
 
@@ -804,11 +830,16 @@ function recordRerun(
   const interaction = interactionIn(causes);
   if (interaction !== undefined) event.interaction = interaction;
   // The effect phase runs later in the flush with no cause list of its own:
-  // it inherits this run's interaction (see effectRunStart).
+  // it inherits this run's interaction and is joined to this run's causes
+  // (see effectRunStart / pushFrame).
   node._devRunInteraction = interaction;
+  node._devRunSeq = event.run;
+  node._devRunCauses = causes;
   history.push(event);
   if (history.length > options.historyLimit) history.shift();
   recordCosts(event);
+  recordFeedbackRun(event);
+  if (event.nodeKind === "effect") checkEffectCycle(el, causes);
   checkHotRuns(el, event);
   checkHotTime(el, event);
   checkDepWidth(el);
@@ -881,6 +912,16 @@ export interface Attribution {
    * the thresholded, unacknowledged subset.
    */
   holds(): readonly HoldEvent[];
+  /**
+   * What the user waited on, folded from holds() and the interaction on each
+   * re-run: `sources` ranks async sources by the silent time writes spent
+   * held behind them (with which affordances answered, how often, and which
+   * interactions were held); `interactions` ranks user events by the total
+   * time they cost — re-run work caused (long-flush hazard) beside time held
+   * (silent-hold hazard). Facts at every duration; SILENT_HOLD is the
+   * thresholded verdict.
+   */
+  feedback(): { sources: FeedbackSource[]; interactions: FeedbackInteraction[] };
   /**
    * Cooperative preload declaration: stamp a flight object (promise or async
    * iterable) with its true kickoff time BEFORE the reactive graph sees it.
@@ -983,6 +1024,158 @@ function checkUnstableOutput(el: Computed<any>, prevValue: unknown, newValue: un
       el
     )
   );
+}
+
+// --- Effect write cycles --------------------------------------------------------
+//
+// An effect that writes a value its own inputs depend on converges rather than
+// loops when the second run finds nothing left to change — so the flush guard
+// never fires, and nothing tells the developer the effect ran twice and the
+// screen rendered the pre-write value in between. The graph sees it exactly:
+// the re-run's cause chain (root writes, walked through however many memos)
+// contains a write whose origin is an effect frame, and the frame resolves to
+// the effect that is now re-running. Cycles that span effects — E1 writes A,
+// E2 reads A and writes B, E1 reads B — are the same walk one hop deeper: an
+// effect-origin write resolves to the run that made it, whose causes resolve
+// to the next write. The walk stops at any non-effect origin (a click, a
+// timer, an async landing: a real outside cause), at a revisited effect, and
+// at a depth cap. Causality through untracked indirection is not a graph edge
+// and is not claimed.
+//
+// Reported once per cycle. A single-effect cycle warns — the repair is
+// unambiguous: the written value is a function of what the effect reads, so
+// it is a memo. Multi-effect cycles are advisory until real fixtures have
+// shaped the message.
+
+interface CycleLink {
+  effect: Computed<any>;
+  write: ChangeRecord;
+}
+const EFFECT_CYCLE_MAX_HOPS = 6;
+const reportedCycles = new Set<string>();
+let nextDevId = 0;
+const devIds = new WeakMap<object, number>();
+function devId(node: object): number {
+  let id = devIds.get(node);
+  if (id === undefined) devIds.set(node, (id = ++nextDevId));
+  return id;
+}
+
+function rootWrites(causes: ChangeRecord[], out: ChangeRecord[]): void {
+  for (const c of causes) {
+    if (c.kind === "derived") {
+      if (c.causes !== undefined) rootWrites(c.causes, out);
+    } else out.push(c);
+  }
+}
+
+/**
+ * The effect writes leading from an earlier run of `target` to the run whose
+ * `causes` these are, in causal order (target's own write first), or null.
+ */
+function findEffectCycle(
+  target: Computed<any>,
+  causes: ChangeRecord[],
+  visited: Set<Computed<any>>,
+  hops: number
+): CycleLink[] | null {
+  const roots: ChangeRecord[] = [];
+  rootWrites(causes, roots);
+  for (const write of roots) {
+    const origin = write.origin;
+    if (origin === undefined || origin.kind !== "effect") continue;
+    const info = effectFrames.get(origin);
+    if (info === undefined) continue;
+    if (info.node === target) return [{ effect: info.node, write }];
+    if (hops >= EFFECT_CYCLE_MAX_HOPS || visited.has(info.node) || info.causes === undefined)
+      continue;
+    visited.add(info.node);
+    const rest = findEffectCycle(target, info.causes, visited, hops + 1);
+    if (rest !== null) {
+      rest.push({ effect: info.node, write });
+      return rest;
+    }
+  }
+  return null;
+}
+
+/** Names of the memos between a direct cause of a run and `write`, root-first. */
+function derivedPath(causes: ChangeRecord[], write: ChangeRecord, path: string[]): boolean {
+  for (const c of causes) {
+    if (c === write) return true;
+    if (c.kind === "derived" && c.causes !== undefined) {
+      path.unshift(c.name);
+      if (derivedPath(c.causes, write, path)) return true;
+      path.shift();
+    }
+  }
+  return false;
+}
+
+function describeWrite(write: ChangeRecord): string {
+  if (write.kind === "refresh") return `refreshed "${write.name}"`;
+  const values = write.prev !== undefined ? ` (${write.prev} → ${write.value})` : "";
+  return `wrote "${write.name}"${values}`;
+}
+
+function checkEffectCycle(el: Computed<any>, causes: ChangeRecord[]): void {
+  const links = findEffectCycle(el, causes, new Set([el]), 0);
+  if (links === null) return;
+  const key = links
+    .map(link => devId(link.effect))
+    .sort((a, b) => a - b)
+    .join(",");
+  if (reportedCycles.has(key)) return;
+  reportedCycles.add(key);
+  const flushes = links.length + 1;
+  let message: string;
+  if (links.length === 1) {
+    const [{ write }] = links;
+    const path: string[] = [];
+    derivedPath(causes, write, path);
+    const via = path.length > 0 ? ` through ${path.map(n => `memo "${n}"`).join(" → ")}` : "";
+    message =
+      `[EFFECT_WRITES_OWN_SOURCE] effect "${nodeName(el)}" re-ran because of its own write: it ` +
+      `${describeWrite(write)}, which fed back into its inputs${via}. Two flushes to settle, ` +
+      `and the screen rendered the pre-write value in between. The written value is a function ` +
+      `of what the effect reads — compute it in a memo (or normalize where the source is ` +
+      `written) instead of correcting it after the fact.`;
+  } else {
+    const names = links.map(link => `"${nodeName(link.effect)}"`);
+    const steps = links
+      .map(
+        (link, i) => `effect ${names[i]}${i > 0 ? " re-ran and" : ""} ${describeWrite(link.write)}`
+      )
+      .join("; ");
+    message =
+      `[EFFECT_WRITES_OWN_SOURCE] effects ${[...names, names[0]].join(" → ")} relay writes in a ` +
+      `cycle: ${steps}; which fed back into effect ${names[0]}'s inputs — ${flushes} flushes to ` +
+      `settle after each change, each rendering an intermediate state. Every relayed value is a ` +
+      `function of the original inputs: derive them in memos and drop the writes.`;
+  }
+  const severity = links.length === 1 ? "warn" : "info";
+  const entry = emitDiagnostic(
+    {
+      code: "EFFECT_WRITES_OWN_SOURCE",
+      kind: "perf",
+      severity,
+      message,
+      nodeName: nodeName(el),
+      data: {
+        effects: links.map(link => nodeName(link.effect)),
+        writes: links.map(link => ({
+          effect: nodeName(link.effect),
+          kind: link.write.kind,
+          name: link.write.name,
+          prev: link.write.prev,
+          value: link.write.value
+        })),
+        flushes
+      }
+    },
+    el
+  );
+  if (severity === "warn") reportDiagnostic(entry);
 }
 
 // --- Async waterfall tracking -----------------------------------------------
@@ -1356,13 +1549,14 @@ function trackHoldSettled(t: Transition): void {
   if (interaction !== undefined) event.interaction = interaction;
   holdLog.push(event);
   if (holdLog.length > options.historyLimit) holdLog.shift();
+  recordFeedbackHold(event);
   checkSilentHold(event, subject!);
 }
 
 function checkSilentHold(event: HoldEvent, subject: Signal<any>): void {
   const cfg = options.holds;
   if (cfg === false) return;
-  if (event.paintedDuringHold > 0 || event.acknowledgedBy.length > 0) return;
+  if (!isSilentHold(event)) return;
   if (event.holdMs < cfg.infoMs) return;
   const ms = event.holdMs.toFixed(0);
   const writes = event.heldWrites
@@ -1410,6 +1604,195 @@ function checkSilentHold(event: HoldEvent, subject: Signal<any>): void {
     subject
   );
   if (severity === "warn") reportDiagnostic(entry);
+}
+
+// --- Feedback tables ----------------------------------------------------------
+//
+// costs() ranks scopes and writes by the time they burn; feedback() ranks what
+// the USER waited on, folded from records the engine already keeps — the
+// HoldEvents and the interaction on each RerunEvent — with no measurement of
+// its own. Two views of one question, "what did the click cost the person who
+// clicked": per async source, how often writes were held behind it, for how
+// long, and whether the screen said anything meanwhile; per interaction, the
+// synchronous re-run work it caused (the long-flush hazard) beside the time
+// its writes spent held (the silent-hold hazard) — the two INP failure modes
+// as columns of one row. Facts, not verdicts: every hold counts, not only the
+// ones past SILENT_HOLD's thresholds, so a source acknowledged on one screen
+// and silent on another shows up as exactly that.
+
+export interface FeedbackSource {
+  /** The async nodes the holds waited on; empty when an action alone kept them open. */
+  sources: string[];
+  holds: number;
+  /** Summed wait across the holds (ms). */
+  heldMs: number;
+  worstMs: number;
+  /** Holds with no acknowledgment at all — the SILENT_HOLD signature, at any duration. */
+  silent: number;
+  silentMs: number;
+  /** Holds whose only acknowledgment was a `latest()` shadow: the input showed, nothing said "loading". */
+  latestOnly: number;
+  /** Which affordances answered, and in how many holds — ranked. */
+  acknowledgedBy: { by: string; holds: number }[];
+  /** Interactions whose writes were held here, ranked by holds. */
+  interactions: { interaction: string; holds: number }[];
+  /** Distinct root writes that were held. */
+  writes: string[];
+  /** Holds an action opened or joined. */
+  actions: number;
+}
+
+export interface FeedbackInteraction {
+  /** `click on button#next "Next →"` — type and target; repeated dispatches fold together. */
+  interaction: string;
+  /** Distinct dispatches seen (by dispatch time). */
+  dispatches: number;
+  /** Re-runs traced back to this interaction, and their summed self-time. */
+  runs: number;
+  selfMs: number;
+  /** The most re-run self-time a single dispatch caused — the long-flush hazard. */
+  worstDispatchMs: number;
+  /** Holds this interaction's writes waited in — the silent-hold hazard. */
+  holds: number;
+  heldMs: number;
+  silentMs: number;
+  worstHoldMs: number;
+}
+
+interface SourceBucket {
+  row: FeedbackSource;
+  acks: Map<string, number>;
+  interactions: Map<string, number>;
+  writes: Set<string>;
+}
+interface InteractionBucket {
+  row: FeedbackInteraction;
+  /** Self-time per dispatch, keyed by dispatch time. */
+  dispatches: Map<number, number>;
+}
+const feedbackSources = new Map<string, SourceBucket>();
+const feedbackInteractions = new Map<string, InteractionBucket>();
+
+/** No affordance answered and nothing painted while held. */
+function isSilentHold(event: HoldEvent): boolean {
+  return event.paintedDuringHold === 0 && event.acknowledgedBy.length === 0;
+}
+
+function interactionBucket(interaction: ChangeOrigin): InteractionBucket {
+  const key = formatOrigin(interaction);
+  let bucket = feedbackInteractions.get(key);
+  if (bucket === undefined) {
+    bucket = {
+      row: {
+        interaction: key,
+        dispatches: 0,
+        runs: 0,
+        selfMs: 0,
+        worstDispatchMs: 0,
+        holds: 0,
+        heldMs: 0,
+        silentMs: 0,
+        worstHoldMs: 0
+      },
+      dispatches: new Map()
+    };
+    feedbackInteractions.set(key, bucket);
+  }
+  const at = interaction.at ?? 0;
+  if (!bucket.dispatches.has(at)) {
+    bucket.dispatches.set(at, 0);
+    bucket.row.dispatches++;
+  }
+  return bucket;
+}
+
+function recordFeedbackRun(event: RerunEvent): void {
+  if (event.interaction === undefined) return;
+  const bucket = interactionBucket(event.interaction);
+  bucket.row.runs++;
+  bucket.row.selfMs += event.selfMs;
+  const at = event.interaction.at ?? 0;
+  const dispatchMs = bucket.dispatches.get(at)! + event.selfMs;
+  bucket.dispatches.set(at, dispatchMs);
+  if (dispatchMs > bucket.row.worstDispatchMs) bucket.row.worstDispatchMs = dispatchMs;
+}
+
+function recordFeedbackHold(event: HoldEvent): void {
+  const sources = [...event.blockers].sort();
+  const key = sources.join("\u0000");
+  let bucket = feedbackSources.get(key);
+  if (bucket === undefined) {
+    bucket = {
+      row: {
+        sources,
+        holds: 0,
+        heldMs: 0,
+        worstMs: 0,
+        silent: 0,
+        silentMs: 0,
+        latestOnly: 0,
+        acknowledgedBy: [],
+        interactions: [],
+        writes: [],
+        actions: 0
+      },
+      acks: new Map(),
+      interactions: new Map(),
+      writes: new Set()
+    };
+    feedbackSources.set(key, bucket);
+  }
+  const row = bucket.row;
+  const silent = isSilentHold(event);
+  row.holds++;
+  row.heldMs += event.holdMs;
+  if (event.holdMs > row.worstMs) row.worstMs = event.holdMs;
+  if (silent) {
+    row.silent++;
+    row.silentMs += event.holdMs;
+  } else if (
+    event.acknowledgedBy.length > 0 &&
+    event.acknowledgedBy.every(by => by.startsWith("latest:"))
+  ) {
+    row.latestOnly++;
+  }
+  if (event.action) row.actions++;
+  for (const by of event.acknowledgedBy) bucket.acks.set(by, (bucket.acks.get(by) ?? 0) + 1);
+  for (const w of event.heldWrites) bucket.writes.add(w.name);
+  if (event.interaction !== undefined) {
+    const key = formatOrigin(event.interaction);
+    bucket.interactions.set(key, (bucket.interactions.get(key) ?? 0) + 1);
+    const ib = interactionBucket(event.interaction);
+    ib.row.holds++;
+    ib.row.heldMs += event.holdMs;
+    if (silent) ib.row.silentMs += event.holdMs;
+    if (event.holdMs > ib.row.worstHoldMs) ib.row.worstHoldMs = event.holdMs;
+  }
+}
+
+function rankedCounts<K extends string>(
+  counts: Map<string, number>,
+  key: K
+): ({ [P in K]: string } & { holds: number })[] {
+  return [...counts]
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, holds]) => ({ [key]: name, holds }) as { [P in K]: string } & { holds: number });
+}
+
+function feedbackTables(): { sources: FeedbackSource[]; interactions: FeedbackInteraction[] } {
+  const sources = [...feedbackSources.values()]
+    .map(bucket => ({
+      ...bucket.row,
+      acknowledgedBy: rankedCounts(bucket.acks, "by"),
+      interactions: rankedCounts(bucket.interactions, "interaction"),
+      writes: [...bucket.writes]
+    }))
+    .sort((a, b) => b.silentMs - a.silentMs || b.heldMs - a.heldMs);
+  // Ranked by the total time the user spent on it: held plus synchronous work.
+  const interactions = [...feedbackInteractions.values()]
+    .map(bucket => ({ ...bucket.row }))
+    .sort((a, b) => b.heldMs + b.selfMs - (a.heldMs + a.selfMs));
+  return { sources, interactions };
 }
 
 // The engine's implementation of the core's dev hook points. Installed by
@@ -1526,7 +1909,7 @@ const engineHooks: AttributionHooks = {
     finalizeFlight(el);
   },
   effectRunStart(el) {
-    pushFrame("effect", nodeName(el), (el as AttributedNode)._devRunInteraction);
+    pushFrame("effect", nodeName(el), (el as AttributedNode)._devRunInteraction, el);
   },
   effectRunEnd() {
     popFrame("effect");
@@ -1570,6 +1953,9 @@ export const attribution: Attribution = {
     waterfallLog = [];
     holdLog = [];
     activeHold = null;
+    feedbackSources.clear();
+    feedbackInteractions.clear();
+    reportedCycles.clear();
     originFrames.length = 0;
     hotCauses.clear();
     setAttributionHooks(engineHooks);
@@ -1584,6 +1970,9 @@ export const attribution: Attribution = {
     waterfallLog = [];
     holdLog = [];
     activeHold = null;
+    feedbackSources.clear();
+    feedbackInteractions.clear();
+    reportedCycles.clear();
     originFrames.length = 0;
     hotCauses.clear();
     setAttributionHooks(null);
@@ -1616,6 +2005,9 @@ export const attribution: Attribution = {
   },
   holds() {
     return holdLog;
+  },
+  feedback() {
+    return feedbackTables();
   },
   markFlight(flight: object, startedAt: number = now()) {
     // Earliest wins: re-marking (a cache re-serving the same promise) must

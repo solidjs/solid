@@ -51,7 +51,8 @@ export type DiagnosticCode =
   | "WIDE_WRITE"
   | "ASYNC_WATERFALL"
   | "HOT_SCOPE_FANOUT"
-  | "SILENT_HOLD";
+  | "SILENT_HOLD"
+  | "EFFECT_WRITES_OWN_SOURCE";
 
 export type DiagnosticKind =
   | "strict-read"

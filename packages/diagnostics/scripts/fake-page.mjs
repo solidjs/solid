@@ -35,6 +35,10 @@ function dispatch(request) {
       return bridge.whyDidRun(request.params.name);
     case "costs":
       return bridge.costs();
+    case "holds":
+      return bridge.holds();
+    case "feedback":
+      return bridge.feedback();
     default:
       throw new Error("Unknown diagnostics method: " + request.method);
   }

@@ -177,7 +177,7 @@ if (IS_DEV && _DEV) {
     return event.kind === "perf" || event.kind === "graph" || event.kind === "responsiveness"
       ? base +
           `\n[${event.code}] deeper evidence: DEV.attribution.enable() explains every re-run ` +
-          `— why-chains, costs(), waterfalls(), holds() — agent loop: ` +
+          `— why-chains, costs(), waterfalls(), holds(), feedback() — agent loop: ` +
           `node_modules/@solidjs/diagnostics/skills/agent-loops/SKILL.md`
       : base;
   });

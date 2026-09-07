@@ -14,6 +14,12 @@ export type AttributionCosts = ReturnType<Attribution["costs"]>;
 export type ScopeCost = AttributionCosts["scopes"][number];
 export type WriteCost = AttributionCosts["writes"][number];
 export type ChangeRecord = RerunEvent["causes"][number];
+export type ChangeOrigin = NonNullable<ChangeRecord["origin"]>;
+/** A settled transition hold that staged a root write — already serializable (no live nodes). */
+export type HoldEvent = ReturnType<Attribution["holds"]>[number];
+export type AttributionFeedback = ReturnType<Attribution["feedback"]>;
+export type FeedbackSource = AttributionFeedback["sources"][number];
+export type FeedbackInteraction = AttributionFeedback["interactions"][number];
 
 /**
  * A serializable projection of RerunEvent: everything except the live `node`
@@ -24,14 +30,21 @@ export type RerunRecord = Omit<RerunEvent, "node">;
 export interface ArtifactAttribution {
   reruns: RerunRecord[];
   costs: AttributionCosts;
+  /** Every transition hold that staged a root write — what the user waited on. */
+  holds: HoldEvent[];
+  /** The ranked feedback tables folded from `holds` and the re-runs' interactions. */
+  feedback: AttributionFeedback;
 }
 
 /**
  * The unit of exchange between a captured run and everything downstream:
  * assertions, budget files, JSONL egress, agent consumption.
+ *
+ * Format history: v1 carried `attribution.{reruns, costs}`; v2 adds
+ * `attribution.{holds, feedback}` (responsiveness evidence).
  */
 export interface DiagnosticsArtifact {
-  formatVersion: 1;
+  formatVersion: 2;
   /** Human/agent-readable label for the captured scenario. */
   scenario?: string;
   capturedAt: string;

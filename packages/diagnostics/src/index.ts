@@ -6,21 +6,34 @@ export {
   expectNoDiagnostics,
   expectDiagnostic,
   expectRerunBudget,
-  expectNoWaste
+  expectNoWaste,
+  expectNoSilentHolds,
+  expectHoldBudget
 } from "./assertions.js";
 export { assertBudget, assertBudgetFile, parseBudgetFile } from "./budgets.js";
 export type { ScenarioBudget, BudgetFile } from "./budgets.js";
-export type { NoDiagnosticsOptions, RerunBudgetOptions, WasteBudgetOptions } from "./assertions.js";
+export type {
+  NoDiagnosticsOptions,
+  RerunBudgetOptions,
+  WasteBudgetOptions,
+  SilentHoldOptions,
+  HoldBudgetOptions
+} from "./assertions.js";
 export type {
   Attribution,
   AttributionOptions,
   AttributionCosts,
+  AttributionFeedback,
   ArtifactAttribution,
+  ChangeOrigin,
   ChangeRecord,
   DiagnosticsArtifact,
   DiagnosticEvent,
   DiagnosticCode,
   DiagnosticSeverity,
+  FeedbackInteraction,
+  FeedbackSource,
+  HoldEvent,
   RerunEvent,
   RerunRecord,
   ScopeCost,

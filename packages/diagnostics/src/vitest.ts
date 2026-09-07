@@ -2,13 +2,21 @@ import { expect } from "vitest";
 import {
   DiagnosticsAssertionError,
   expectDiagnostic,
+  expectHoldBudget,
   expectNoDiagnostics,
+  expectNoSilentHolds,
   expectNoWaste,
   expectRerunBudget
 } from "./assertions.js";
 import { assertBudget } from "./budgets.js";
 import type { ScenarioBudget } from "./budgets.js";
-import type { NoDiagnosticsOptions, RerunBudgetOptions, WasteBudgetOptions } from "./assertions.js";
+import type {
+  HoldBudgetOptions,
+  NoDiagnosticsOptions,
+  RerunBudgetOptions,
+  SilentHoldOptions,
+  WasteBudgetOptions
+} from "./assertions.js";
 import type { DiagnosticCode, DiagnosticsArtifact } from "./types.js";
 
 interface MatcherResult {
@@ -62,6 +70,22 @@ expect.extend({
       "Expected wasted re-runs, but there were none."
     );
   },
+  toHaveNoSilentHolds(artifact: DiagnosticsArtifact, options?: SilentHoldOptions) {
+    return runAssertion(
+      () => expectNoSilentHolds(artifact, options),
+      "Expected a silent hold, but every hold was acknowledged."
+    );
+  },
+  toStayWithinHoldBudget(
+    artifact: DiagnosticsArtifact,
+    maxMs: number,
+    options?: HoldBudgetOptions
+  ) {
+    return runAssertion(
+      () => expectHoldBudget(artifact, maxMs, options),
+      `Expected a hold longer than ${maxMs}ms, but every hold settled within it.`
+    );
+  },
   toStayWithinBudget(artifact: DiagnosticsArtifact, budget: ScenarioBudget) {
     return runAssertion(
       () => assertBudget(artifact, budget),
@@ -75,6 +99,8 @@ interface DiagnosticsMatchers<R = unknown> {
   toHaveDiagnostic(code: DiagnosticCode, options?: { count?: number }): R;
   toStayWithinRerunBudget(max: number, options?: RerunBudgetOptions): R;
   toHaveNoWaste(options?: WasteBudgetOptions): R;
+  toHaveNoSilentHolds(options?: SilentHoldOptions): R;
+  toStayWithinHoldBudget(maxMs: number, options?: HoldBudgetOptions): R;
   toStayWithinBudget(budget: ScenarioBudget): R;
 }
 

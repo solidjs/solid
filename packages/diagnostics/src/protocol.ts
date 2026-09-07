@@ -8,7 +8,7 @@
  * release. Shape changes here are contract changes.
  */
 import type { BridgeBeginOptions, BridgePayload } from "./browser.js";
-import type { AttributionCosts, RerunRecord } from "./types.js";
+import type { AttributionCosts, AttributionFeedback, HoldEvent, RerunRecord } from "./types.js";
 
 /** Vite custom-event names carrying requests into the page and back. */
 export const DIAGNOSTICS_REQUEST_EVENT = "solid:diagnostics:request";
@@ -28,6 +28,10 @@ export interface DiagnosticsMethods {
   whyDidRun: { params: { name: string }; result: RerunRecord[] };
   /** Cost tables of the open session so far, without closing it. */
   costs: { params: undefined; result: AttributionCosts };
+  /** Transition holds recorded by the open session so far. */
+  holds: { params: undefined; result: HoldEvent[] };
+  /** Feedback tables (what the user waited on) of the open session so far. */
+  feedback: { params: undefined; result: AttributionFeedback };
 }
 
 export type DiagnosticsMethod = keyof DiagnosticsMethods;

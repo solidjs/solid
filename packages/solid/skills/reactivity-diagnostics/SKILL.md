@@ -228,6 +228,24 @@ warning shows. Repairs, in order of preference:
    chains are `info` severity for exactly this reason — treat them as leads,
    not verdicts.
 
+### EFFECT_WRITES_OWN_SOURCE
+
+An effect re-ran because of a write it made itself: its callback wrote a
+value that its own inputs depend on (directly, or through the memos the
+message names), so the flush settled in two passes and the screen rendered
+the pre-write value in between. The effect converged — an infinite loop
+throws on its own — which is exactly why nothing else reports it. Typical
+shapes: clamping (`if (page() > max()) setPage(max())`), resetting one
+signal when another changes, filling a default, normalizing input. The
+written value is a function of what the effect reads, so it is a memo:
+`const page = createMemo(() => Math.min(rawPage(), max()))`, or normalize
+where the source is _written_ (in the setter/handler) instead of correcting
+it afterwards. The `info` form names a cycle relayed across several effects
+(`A` writes `x`, `B` reads `x` and writes `y`, `A` reads `y`) — same repair:
+derive every relayed value from the original inputs and drop the writes.
+The walk follows graph edges only; a write fed back through untracked
+indirection is not claimed.
+
 ## Responsiveness (from the attribution engine)
 
 The runtime did the correct thing; the user saw nothing while it did. These
@@ -263,9 +281,35 @@ Below `holds.warnMs` (default 500ms) the event is `info`-severity, structured
 channel only; `DEV.attribution.holds()` lists every hold (acknowledged or not)
 with what was held, what blocked it, and which affordances answered it.
 
+### Where to start: `DEV.attribution.feedback()`
+
+Before chasing individual `SILENT_HOLD` events, read the ranked tables — the
+same fold over holds and re-runs that `costs()` is over scopes and writes:
+
+- `sources` — one row per set of async sources that held writes, ranked by
+  silent time. `holds`, `heldMs`, `worstMs`, `silent`/`silentMs`,
+  `acknowledgedBy` (which affordance answered, in how many holds),
+  `latestOnly` (answered only by `latest()`: the input showed, nothing said
+  "loading" — fine for short waits, a second UX problem for long ones),
+  `interactions` (which user events were held here), `writes`, `actions`. A
+  row like `posts: 6 holds, 4 silent, acknowledgedBy isPending:posts ×2` says
+  the affordance exists on one screen and is missing on another — add it
+  where the silent holds happen; do not touch the screen that already works.
+- `interactions` — one row per user event (type + target; repeated dispatches
+  fold together), ranked by total cost. `runs`/`selfMs`/`worstDispatchMs` is
+  the synchronous re-run work one dispatch caused (the long-flush hazard —
+  fix with `costs()`: fan-out, waste, unstable memos); `holds`/`heldMs`/
+  `silentMs`/`worstHoldMs` is the time its writes spent held (the silent-hold
+  hazard — fix with the affordances above). Two INP failure modes, one row.
+
+Every hold counts here at any duration; `SILENT_HOLD` is the thresholded
+verdict over the same records.
+
 ## Verifying a fix
 
 If you are working with `@solidjs/diagnostics`, re-run the capture after the
-repair: the code should disappear from `artifact.diagnostics`, and for the
-performance codes, `expectRerunBudget`/`expectNoWaste` should now pass. See
+repair: the code should disappear from `artifact.diagnostics`; for the
+performance codes, `expectRerunBudget`/`expectNoWaste` should now pass; for
+`SILENT_HOLD`, `expectNoSilentHolds` (budget `maxSilentHoldMs: 0`) should —
+and it checks every hold, not only the ones long enough to have warned. See
 the `agent-loops` skill in `@solidjs/diagnostics` for the full loop.
