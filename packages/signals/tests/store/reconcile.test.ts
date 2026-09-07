@@ -959,6 +959,41 @@ describe("adoption after a draft write in the same batch (#3296)", () => {
     expect(hasTag()).toBe(true);
   });
 
+  test("a returned replacement that is the SAME raw as committed still cancels the draft", () => {
+    const raw = { count: 0, tag: "a" as string | undefined };
+    const [store, setStore] = createStore(raw);
+    let count!: () => number;
+    createRoot(() => {
+      count = createMemo(() => store.count);
+    });
+    flush();
+    setStore(s => {
+      s.count = 1;
+    });
+    setStore(() => raw); // adoption back to the identical committed object
+    flush();
+    expect(store.count).toBe(0);
+    expect(count()).toBe(0);
+  });
+
+  test("a draft write after a deferred adoption composes: adoption keys and draft keys both land", () => {
+    const { store, setStore, count } = setup();
+    let tag!: () => string | undefined;
+    createRoot(() => {
+      tag = createMemo(() => store.tag);
+    });
+    flush();
+    setStore(() => ({ count: 7, tag: "b" })); // deferred adoption (fold at flush)
+    setStore(s => {
+      s.count = 9; // draft on top of the adopted backing, same batch
+    });
+    flush();
+    expect(store.count).toBe(9);
+    expect(store.tag).toBe("b");
+    expect(count()).toBe(9);
+    expect(tag()).toBe("b");
+  });
+
   test("the direct-draft control: writing back in a draft already agrees", () => {
     const { store, setStore, count } = setup();
     setStore(s => {

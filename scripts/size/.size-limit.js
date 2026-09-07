@@ -280,14 +280,14 @@ module.exports = [
     // the other seven scenarios moved -28…+21 B in both directions. Capped
     // with ~30 B of Linux headroom (cf. the simple-app cap, 2026-09-05).
     //
-    // Adoption cancels draft notifications (#3296, 2026-09-06): 14.42 -> 14.47
-    // KB, measured at 14435 macOS (+44 B). Retained code: adoptPB puts every
-    // value node the discarded draft moved back on committed before the fold
-    // diff runs (cancelDraftNotifications), so a same-batch reset via
-    // reconcile / returned object no longer commits the cancelled draft value
-    // to subscribers. The written-keys bound rule is shared with notifyWrites
-    // (writtenKeysBound). ~30 B Linux headroom as above.
-    limit: "14.47 KB",
+    // Adoption diffs against the pending view (#3296, 2026-09-06): measured
+    // at 14374 macOS — 17 B UNDER the pre-fix 14391, cap unchanged. The
+    // adoption diff base is the view the nodes were last told (the draft's
+    // pending backing when one preceded the adoption), carried to the
+    // deferred fold in the slot that was the boolean `adopted` flag; the
+    // eager reconcile path reads `prev` it already had. An interim cancel
+    // pass (+44 B) was replaced by this before release.
+    limit: "14.42 KB",
     modifyEsbuildConfig
   },
   {
@@ -573,10 +573,12 @@ module.exports = [
     // at 26.42 macOS / 26424 B Linux CI (the usual +4-7 B Linux delta) —
     // see the createStore note; this scenario retains all of it.
     //
-    // Adoption cancels draft notifications (#3296, 2026-09-06): 26.43 -> 26.47
-    // KB, measured at 26434 macOS (+44 B; the usual +4-7 B Linux delta) — see
-    // the createStore note; this scenario retains all of it.
-    limit: "26.47 KB",
+    // Adoption diffs against the pending view (#3296, 2026-09-06): 26.43 ->
+    // 26.45 KB, measured at 26423 macOS (+~30 B brotli drift on this
+    // scenario's layout; the createStore scenario carrying the same change
+    // came in UNDER its pre-fix size — see its note). The usual +4-7 B
+    // Linux delta leaves ~20 B headroom.
+    limit: "26.45 KB",
     modifyEsbuildConfig
   },
   {

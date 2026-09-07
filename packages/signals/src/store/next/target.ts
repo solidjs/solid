@@ -102,8 +102,12 @@ export interface StoreNextTarget {
   /** Accessor scan performed (scan-once on first trap read; adopted data is
    * not rescanned — legacy-parity behavior). */
   sc: boolean;
-  /** Backing was swapped by adoption this batch (fold diff-notifies it). */
-  adopted: boolean;
+  /** Adoption diff base, non-null when the backing was swapped by adoption
+   * this batch: the view the nodes were LAST TOLD — the pre-batch committed
+   * backing, or the draft's pending backing when a draft preceded the
+   * adoption (its setter-exit notifications already moved the nodes, #3296).
+   * The deferred fold diffs incoming against this, never against committed. */
+  ab: Record<PropertyKey, any> | null;
   /** Pending backing is a prototype-chain OVERLAY of the committed backing
    * (`Object.create(v)` — own keys are this batch's writes, everything else
    * reads through). O(written) per flush instead of O(container) clones

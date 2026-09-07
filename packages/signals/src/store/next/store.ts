@@ -130,7 +130,7 @@ function TargetShape(this: any) {
   this.a = undefined;
   this.sc = undefined;
   this.nc = undefined;
-  this.adopted = undefined;
+  this.ab = undefined;
   this.fam = undefined;
   this.s = undefined;
   this.ovl = undefined;
@@ -170,7 +170,7 @@ function createTarget(
   t.a = false;
   t.sc = false;
   t.nc = 0;
-  t.adopted = false;
+  t.ab = null;
   t.fam = fam;
   t.s = false;
   t.ovl = false;
@@ -575,7 +575,18 @@ export function adoptPB(
   // fold diff; ~half of dbmon tick time was this duplication).
   if (!eager) {
     queueFold(target); // records the pre-batch old before we swap
-    target.adopted = true;
+    // Diff base = the view the nodes were last told (#3296). A draft's
+    // setter-exit notifications already moved them to its pending backing,
+    // so a later adoption diffs against THAT — against committed, a key the
+    // draft changed and the adoption restores would never re-notify. An
+    // adoption with no draft leaves nodes where they were: keep an existing
+    // base, else the pre-batch committed (foldOlds' entry itself stays the
+    // committed identity for the path-copy CAS). Eager callers read t.pb
+    // directly; this hand-off exists because pb is gone by drain time.
+    if (target.pb !== null) {
+      if (target.ovl) materializePB(target);
+      target.ab = target.pb;
+    } else target.ab ??= foldOlds.get(target)!;
     // #3074/#3075: a projection recompute deriving from uncommitted inputs
     // swaps the backing SPECULATIVELY — committed-visibility readers must
     // keep the pre-hold view until the hold resolves (a source held by a
@@ -591,7 +602,6 @@ export function adoptPB(
       }
     }
   }
-  if (target.pb !== null) cancelDraftNotifications(target);
   target.pb = null;
   // Overlay and accessor-scan state describe the OUTGOING backing — a
   // swapped container must not inherit them: a stale `ovl` beside a nulled
@@ -839,74 +849,28 @@ function drainFolds(): void {
         t.wk = null; // written-keys window closes with the fold commit
       }
     }
-    if (t.v === old) {
-      // A no-op adoption (A -> B -> A before flush) still consumed its walk:
-      // clear the flag (adoption bookkeeping below assumes it reflects THIS
-      // fold's walk).
-      t.adopted = false;
-      continue;
-    }
-    // Path copying (CAS: see the eager-fold twin above). Slot resolved by
-    // identity (#3282): an array move relocated the raw, so the wrap-time pk
-    // may point at a sibling — a raw-slot CAS there both failed to re-point
-    // AND (via privatizeCommitted's unguarded write) clobbered the sibling.
-    if (t.u) {
-      const slot = parentSlotKey(t, old);
-      if (t.u.v[slot] === old) {
-        privatizeCommitted(t.u);
-        devAssertNeverUserMutation(t.u.v);
-        t.u.v[slot] = t.v;
+    const base = t.ab;
+    t.ab = null;
+    if (t.v !== old) {
+      // Path copying (CAS: see the eager-fold twin above). Slot resolved by
+      // identity (#3282): an array move relocated the raw, so the wrap-time
+      // pk may point at a sibling — a raw-slot CAS there both failed to
+      // re-point AND (via privatizeCommitted's unguarded write) clobbered
+      // the sibling.
+      if (t.u) {
+        const slot = parentSlotKey(t, old);
+        if (t.u.v[slot] === old) {
+          privatizeCommitted(t.u);
+          devAssertNeverUserMutation(t.u.v);
+          t.u.v[slot] = t.v;
+        }
       }
     }
-    if (t.adopted) {
-      t.adopted = false;
-      notifyFold(t, old, t.v);
-    }
-  }
-}
-
-/** The set of node keys a draft's writes can have touched, or null when the
- * bound can't hold and every node must be visited: no trap granularity (wk
- * null), an array length write (WK_ALL — implicit index deletes), accessors
- * on the record (t.a — a getter node's value can change when ANY key is
- * written), or a non-plain prototype (class instances: prototype getters
- * derive from arbitrary fields). Overlay pbs chain to the COMMITTED object
- * (#3044): a prototype-overlay draft is plain data on its own layer, but its
- * getPrototypeOf is the committed container — judge plainness by the
- * COMMITTED prototype or the bound never engages for overlay writes (every
- * plain-object setter batch would full-scan: the exact selection-map
- * workload wk exists for; jf `select` regressed 2x on this). */
-function writtenKeysBound(
-  t: StoreNextTarget,
-  pb: Record<PropertyKey, any>
-): Set<PropertyKey> | null {
-  const wk = t.wk;
-  return wk === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk;
-}
-
-/**
- * An adoption discards the batch's draft — but the draft's writes already
- * notified their nodes at setter exit (notifyWrites), and the adoption diff
- * that follows compares incoming against the COMMITTED backing. A key the
- * draft changed and the adoption restores therefore never re-notifies: the
- * node commits the cancelled draft value while the backing holds the reset
- * (#3296). Put every node the draft moved back on committed first; the diff
- * then moves exactly the keys the adoption changes. O(written) — same bound
- * as the notify that staged them. Only VALUE nodes need this: `has` nodes
- * are written against the new backing without a pre-compare (notifyFoldTail),
- * and counter witnesses (keyset, deep) only re-run readers, who see the
- * adopted backing.
- */
-function cancelDraftNotifications(t: StoreNextTarget): void {
-  const nodes = t.n;
-  if (nodes === null) return;
-  const old = t.v;
-  for (const key of writtenKeysBound(t, t.pb!) ?? Reflect.ownKeys(nodes)) {
-    const node = nodes[key as any];
-    if (node === undefined || node._pendingValue === NOT_PENDING) continue;
-    // Accessor keys are never invoked (FORCE → readers re-read the backing).
-    const ov = (node as any).acc === true ? FORCE : old[key as any];
-    setSignal(node, () => ov);
+    // Adoption notify against the base the nodes were last told (#3296). A
+    // no-op adoption (A -> B -> A before flush, no draft) has base === v and
+    // nothing to say; a draft superseded by an adoption back to the SAME raw
+    // still has (base = pending backing) !== v and must notify.
+    if (base !== null && base !== t.v) notifyFold(t, base, t.v);
   }
 }
 
@@ -974,7 +938,15 @@ function notifyWrites(t: StoreNextTarget): void {
   // implicit index deletes), accessors on the record (t.a — a getter node's
   // value can change when ANY key is written), or a non-plain prototype
   // (class instances: prototype getters derive from arbitrary fields).
-  const writtenKeys = writtenKeysBound(t, pb);
+  const wk0 = t.wk;
+  // Overlay pbs chain to the COMMITTED object (#3044): a prototype-overlay
+  // draft is plain data on its own layer, but its getPrototypeOf is the
+  // committed container — judge plainness by the COMMITTED prototype or the
+  // bound never engages for overlay writes (every plain-object setter batch
+  // would full-scan: the exact selection-map workload wk exists for; jf
+  // `select` regressed 2x on this).
+  const writtenKeys =
+    wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
   if (nodes !== null) {
     const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(nodes);
     for (const key of keys) {

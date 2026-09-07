@@ -129,7 +129,12 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
   // folds (downstream holds can form later in the flush).
   const eager = fam === null;
   const shallow = t.s === true;
-  const old = t.v;
+  // Node-notify base is the view the nodes were last told (#3296): a draft
+  // preceding this reconcile already moved them to its pending backing at
+  // setter exit (prev, materialized above), so diffing incoming against the
+  // committed backing would skip a key the draft changed and the reconcile
+  // restores — the node would commit the superseded draft value.
+  const old = prev;
   adoptPB(t, incoming, eager);
   // Shallow adoption: records are slot values — sticky raw-mark the incoming
   // set (R41) and never descend; slot notification is the positional diff.
