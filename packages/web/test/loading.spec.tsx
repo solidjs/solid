@@ -658,6 +658,55 @@ describe("Testing Loading", () => {
     localDispose();
   });
 
+  test("a conditional reveal waits for an async flight from an earlier flush", async () => {
+    const localDiv = document.createElement("div");
+    let click!: () => void;
+    const localDispose = render(() => {
+      const [value, setValue] = createSignal(0);
+      const [show, setShow] = createSignal(false);
+      const details = createMemo(async () => {
+        const v = value();
+        await new Promise(r => setTimeout(r, 3000));
+        return v;
+      });
+      click = () => {
+        setValue(v => v + 1);
+        setTimeout(() => setShow(true), 1000);
+      };
+      return (
+        <div>
+          <div>
+            value(): {value()} {isPending(value) ? "pending" : null}
+          </div>
+          <div>
+            show(): {String(show())} {isPending(show) ? "pending" : null}
+          </div>
+          <div>{show() ? details() : "hidden"}</div>
+        </div>
+      );
+    }, localDiv);
+    const lines = () =>
+      Array.from(localDiv.firstElementChild!.children, el => el.textContent!.trim());
+
+    try {
+      flush();
+      expect(lines()).toEqual(["value(): 0", "show(): false", "hidden"]);
+      click();
+      flush();
+      expect(lines()).toEqual(["value(): 1", "show(): false", "hidden"]);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      flush();
+      expect(lines()).toEqual(["value(): 1", "show(): false pending", "hidden"]);
+
+      await vi.advanceTimersByTimeAsync(2000);
+      flush();
+      expect(lines()).toEqual(["value(): 1", "show(): true", "1"]);
+    } finally {
+      localDispose();
+    }
+  });
+
   test("implicit route transition stays held after lazy component is cached", async () => {
     let setRoute!: (value: "home" | "profile") => void;
     const localDiv = document.createElement("div");

@@ -755,6 +755,17 @@ export class GlobalQueue extends Queue {
         // to completion accounting BY CONSTRUCTION: it never registers a
         // reporter and never counts toward the loading-boundary diagnostic.
         if ((actualError as NotReadyError)?._markVisual) return true;
+        // A reveal can discover a flight started in an earlier flush. Hold the
+        // staged writes with that reader (A15), even if the reader is new.
+        // Fresh/reset loading boundaries consume pending before it reaches here.
+        // A reader already parked in a transition must not open a second one.
+        if (
+          !activeTransition &&
+          !node._transition &&
+          actualError &&
+          this._batch._pendingNodes.length
+        )
+          this.initTransition();
         if (activeTransition && actualError) {
           const source = (actualError as NotReadyError).source;
           // The one sanctioned registration site (INV-3): async blockers only
