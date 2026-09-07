@@ -135,6 +135,10 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
       each: () => props.each,
       row: props.children,
       keyed: props.keyed,
+      // For's CREATION owner: the slot's rows live under it (mapArray's own
+      // parent), so context/boundaries/lifetime follow the <For>'s source
+      // position, not wherever the accessor is later inserted.
+      owner,
       // The slot rides For's OWN module graph: apps without For tree-shake
       // it; a renderer's insert() engages it by passing its SlotOps.
       impl: unifiedForSlot,

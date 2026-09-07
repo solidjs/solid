@@ -10,32 +10,20 @@
  * region as `initial`). Row templates then CLAIM server nodes
  * exactly as classic's would — the slot's row parent takes the SAME id
  * classic's mapArray owner spends, so rows mint identical hydration keys.
- * Claims are RECORDED so a demote mid-fill hands them back: classic's re-run
- * mints the same ids and claims the same nodes (never a stranded claim).
- * The fill commit mutates only on MISMATCH (leftover server rows removed,
- * key-missed fresh rows inserted); the normal case is zero DOM writes.
+ * Nothing can demote mid-fill (see Slot.hyd), so claims are never handed
+ * back. The fill commit mutates only on MISMATCH (leftover server rows
+ * removed, key-missed fresh rows inserted); primitive rows ADOPT the
+ * server's text nodes, so the normal case is zero DOM writes.
  */
 import { sharedConfig } from "./hydration.js";
 import { IS_DEV } from "./core.js";
-import { installSlotHydration, type FlatPlan, type Slot } from "./for-slot.js";
-
-/** RECORDING STACK. Nested lists hydrate INSIDE an outer row's build (row →
- * inner insert → inner engage → inner fill, all synchronous), so recording
- * must nest: the OUTERMOST record() installs the registry shadow once, every
- * active log on the stack receives every deletion, an inner commitFill drops
- * only its OWN log, and an outer restore() hands back everything claimed
- * beneath it — including nested slots' already-committed claims, which the
- * classic re-run's re-engaged nested lists will mint again with the same
- * ids. (Per-slot shadows broke both: the inner `finally` tore down the
- * outer's shadow, and committed inner claims were in no log at all.) */
-const logs: [string, Element][][] = [];
-let shadowed = false;
+import { installSlotHydration, type FlatPlan, type Slot, type SlotNode } from "./for-slot.js";
 
 const hooks = {
   engage(
     meta: any,
-    marker: Node | null | undefined,
-    region: Node[] | undefined
+    marker: SlotNode | null | undefined,
+    region: SlotNode[] | undefined
   ): { id: string } | null | false {
     if (!sharedConfig.hydrating) return false;
     // Whole-parent (marker undefined) and comment-bounded holes (the
@@ -46,89 +34,71 @@ const hooks = {
     return { id: meta.hid };
   },
 
-  record<T>(slot: Slot, fn: () => T): T {
-    const reg = sharedConfig.registry as Map<string, Element> | undefined;
-    if (!reg) return fn();
-    logs.push((slot.hydLog ??= []));
-    const installed = !shadowed;
-    if (installed) {
-      shadowed = true;
-      const proto = Map.prototype.delete;
-      (reg as any).delete = function (this: Map<string, Element>, key: string): boolean {
-        const node = this.get(key);
-        if (node !== undefined) for (let i = 0; i < logs.length; i++) logs[i].push([key, node]);
-        return proto.call(this, key);
-      };
-    }
-    try {
-      return fn();
-    } finally {
-      logs.pop();
-      if (installed) {
-        delete (reg as any).delete; // back to the prototype method
-        shadowed = false;
-      }
-    }
-  },
-
-  restore(slot: Slot): void {
-    // Nothing was placed (compute never writes DOM); only registry keys were
-    // consumed. Hand them all back, and un-complete the nodes.
-    slot.hyd = false;
-    const reg = sharedConfig.registry as Map<string, Element> | undefined;
-    const log = slot.hydLog;
-    if (reg && log !== null) {
-      for (let i = 0; i < log.length; i++) {
-        reg.set(log[i][0], log[i][1]);
-        (sharedConfig as any).completed?.delete(log[i][1]);
-      }
-    }
-    slot.hydLog = null;
-  },
-
   commitFill(slot: Slot, fp: FlatPlan): void {
-    // Past this point the slot owns the rows for good: drop the claim log.
     slot.hyd = false;
-    slot.hydLog = null;
     const ops = slot.ops;
+    // This module IS the web hydration binding: nodes are DOM nodes here.
+    const parent = slot.parent as Node;
+    const region = slot.region as Node[];
+    const nodes = fp.nodes as (Node | Node[])[];
+    // Primitive rows: ADOPT the positional server text node (classic's
+    // normalizeIncomingArray rule) — zero-write hydration and node identity
+    // for text rows (pre-hydration edits/selection survive). Rows and region
+    // walk in lockstep, skipping the server's separator comments; the walk
+    // stops at the first misaligned element (a mismatch — repaired below).
+    let cursor = 0;
+    adopt: for (let i = 0; i < nodes.length; i++) {
+      const nd = nodes[i];
+      const arr = Array.isArray(nd) ? nd : null;
+      const n = arr !== null ? arr.length : 1;
+      for (let k = 0; k < n; k++) {
+        const c = arr !== null ? arr[k] : (nd as Node);
+        let s = region[cursor];
+        while (s !== undefined && s.nodeType === 8) s = region[++cursor];
+        if (s === undefined) break adopt;
+        cursor++;
+        if (s === c) continue;
+        if (c.nodeType !== 3 || s.nodeType !== 3 || ops.contains(parent, c)) break adopt;
+        if ((s as Text).data !== (c as Text).data) (s as Text).data = (c as Text).data;
+        if (arr !== null) arr[k] = s;
+        else nodes[i] = s;
+      }
+    }
     const ours = new Set<Node>();
-    for (let i = 0; i < fp.nodes.length; i++) {
-      const nd = fp.nodes[i];
+    for (let i = 0; i < nodes.length; i++) {
+      const nd = nodes[i];
       if (Array.isArray(nd)) for (const n of nd) ours.add(n);
       else ours.add(nd);
     }
     // Leftovers: server rows the client no longer has, separator comments.
     let removed = 0;
     let inserted = 0;
-    const region = slot.region!;
     for (let i = 0; i < region.length; i++)
-      if (!ours.has(region[i]) && ops.contains(slot.parent, region[i])) {
+      if (!ours.has(region[i]) && ops.contains(parent, region[i])) {
         ops.remove(region[i]);
-        // Element rows only: primitive rows currently re-create their text
-        // node (fresh text swaps in for the server's — correct DOM, not a
-        // mismatch). Adopting server text nodes for primitive rows is the
-        // follow-up that makes that path zero-write too.
-        if ((region[i] as any).nodeType === 1) removed++;
+        // Separator comments are not rows; text leftovers past the adoption
+        // walk are (a shorter client list).
+        if (region[i].nodeType !== 8) removed++;
       }
     // Fresh rows (template key-missed → detached; the runtime already
     // warned) are inserted at their position, back to front so anchors are
     // always attached. The list ends at the hole's end marker (or the
     // parent's end for whole-parent holes).
-    let anchor: Node | null = slot.end;
-    for (let i = fp.nodes.length - 1; i >= 0; i--) {
-      const nd = fp.nodes[i];
+    let anchor: Node | null = slot.end as Node | null;
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const nd = nodes[i];
       if (Array.isArray(nd)) {
         for (let k = nd.length - 1; k >= 0; k--) {
-          if (!ops.contains(slot.parent, nd[k])) {
-            ops.insert(slot.parent, nd[k], anchor);
-            if ((nd[k] as any).nodeType === 1) inserted++;
+          if (!ops.contains(parent, nd[k])) {
+            ops.insert(parent, nd[k], anchor);
+            inserted++;
           }
           anchor = nd[k];
         }
       } else {
-        if (!ops.contains(slot.parent, nd)) {
-          ops.insert(slot.parent, nd, anchor);
-          if ((nd as any).nodeType === 1) inserted++;
+        if (!ops.contains(parent, nd)) {
+          ops.insert(parent, nd, anchor);
+          inserted++;
         }
         anchor = nd;
       }
@@ -143,7 +113,7 @@ const hooks = {
           `The DOM was repaired, but server and client should render the same list.`
       );
     slot.region = undefined;
-    slot.flat = { items: fp.items, owners: fp.owners, nodes: fp.nodes };
+    slot.flat = { items: fp.items, owners: fp.owners, nodes: fp.nodes, fns: fp.fns };
     slot.size = fp.len;
   }
 };

@@ -55,6 +55,13 @@ async function run(scenario: ForSlotScenario) {
         )
       : null;
 
+    // Server TEXT nodes before hydration (primitive rows must adopt them).
+    const serverTexts = scenario.textIdentityParent
+      ? [...container.querySelector(scenario.textIdentityParent)!.childNodes].filter(
+          n => n.nodeType === 3
+        )
+      : null;
+
     const engaged0 = stats.engaged;
     const demoted0 = stats.demoted;
     dispose = hydrate(() => <scenario.App />, container);
@@ -74,6 +81,15 @@ async function run(scenario: ForSlotScenario) {
         const server = serverRows.get(el.textContent);
         if (server) expect(el, `row "${el.textContent}" is the server node`).toBe(server);
       }
+    }
+
+    if (serverTexts) {
+      const now = [...container.querySelector(scenario.textIdentityParent!)!.childNodes].filter(
+        n => n.nodeType === 3
+      );
+      expect(now.length, "text row count").toBe(serverTexts.length);
+      for (let i = 0; i < now.length; i++)
+        expect(now[i], `text row ${i} is the server text node`).toBe(serverTexts[i]);
     }
 
     if (scenario.update) {

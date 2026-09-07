@@ -455,7 +455,12 @@ module.exports = [
     // insert with the revert, and the hole seam's lazy demote signal
     // (holeGen) is gone — a demote hands the hole to the shared classic
     // effect synchronously in CSR and hydration alike. Locked in.
-    limit: "10.98 KB",
+    //
+    // External audit fixes (2026-09-07): 10.98 -> 11.05 KB, measured at
+    // 11.04 (+61 B). Four renderer ops on web's domOps singleton (owns /
+    // next / textOf / setText) — retained by insert's object literal even
+    // without For. Not slot bytes.
+    limit: "11.05 KB",
     modifyEsbuildConfig
   },
   {
@@ -548,7 +553,16 @@ module.exports = [
     //
     // #3187 revert + synchronous hole demote (2026-09-05): 20.60 -> 20.54 KB,
     // measured at 20.53. Locked in.
-    limit: "20.54 KB",
+    //
+    // External audit fixes (2026-09-07): 20.54 -> 21.45 KB, measured at
+    // 21.42 (+~880 B, net of the claim-recording stack this round DELETED —
+    // nothing can demote mid-fill any more). Dynamic rows (function-top-level
+    // rows resolved tracked by the slot compute: no shape demote, no double
+    // invocation, NotReady-parked plan reuse, in-place text splice), rows
+    // under For's creation owner, contiguous list-end anchor, parent-guarded
+    // removes, throw-safe row build, fresh-duplicate detection, positional
+    // server-text adoption in the hydrating fill commit.
+    limit: "21.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -670,7 +684,10 @@ module.exports = [
     //
     // Rebase drift (2026-09-07, #3296 store adoption fixes): 29.42 -> 29.50
     // KB, measured at 29.49 (+73 B). Store-module bytes from next, not slot.
-    limit: "29.50 KB",
+    //
+    // External audit fixes (2026-09-07): 29.50 -> 30.38 KB, measured at
+    // 30.35 (+~850 B) — the slot's dynamic-row/ownership/anchor work above.
+    limit: "30.38 KB",
     modifyEsbuildConfig
   },
   {
@@ -737,7 +754,13 @@ module.exports = [
     //
     // Rebase drift (2026-09-06, #3287 textarea spread et al.): 15.61 -> 15.63
     // KB, measured at 15.63 (+16 B). Not slot bytes.
-    limit: "15.63 KB",
+    //
+    // External audit fixes (2026-09-07): 15.63 -> 16.50 KB, measured at
+    // 16.48 (+~850 B) — dynamic rows (classic's list-effect model inside the
+    // slot), creation-owner rows, contiguous end anchor, guarded removes,
+    // throw-safe build, fresh-duplicate detection. Structural, not golfable:
+    // the empty-leaves normalization and node-selector dedupes bought ~80 B.
+    limit: "16.50 KB",
     modifyEsbuildConfig
   },
   {

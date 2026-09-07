@@ -1,5 +1,5 @@
 {
-  "name": "slot-hydrate-through-demote-residue",
+  "name": "slot-hydrate-through-dynamic-residue",
   "shell": "<div _hk=0><li _hk=1100>a</li><li _hk=11120>b</li><li _hk=1120>c</li></div>",
   "rest": ""
 }
