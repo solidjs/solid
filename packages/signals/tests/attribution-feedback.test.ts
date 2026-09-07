@@ -249,16 +249,18 @@ describe("feedback()", () => {
     const { sources, interactions } = DEV!.attribution.feedback();
     expect(sources).toEqual([]);
     expect(interactions).toHaveLength(2);
-    expect(interactions[0]).toMatchObject({
-      interaction: "click on button#b",
+    // Rows are ranked by measured time (heldMs + selfMs); ten trivial runs
+    // versus one is not a stable ordering on a cold CI runner, so look the
+    // rows up by name and assert the counts.
+    const byName = Object.fromEntries(interactions.map(row => [row.interaction, row]));
+    expect(byName["click on button#b"]).toMatchObject({
       dispatches: 2,
       runs: 10,
       holds: 0,
       heldMs: 0,
       silentMs: 0
     });
-    expect(interactions[1]).toMatchObject({
-      interaction: "input on input#a",
+    expect(byName["input on input#a"]).toMatchObject({
       dispatches: 1,
       runs: 1
     });
