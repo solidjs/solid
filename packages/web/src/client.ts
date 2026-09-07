@@ -1068,6 +1068,7 @@ export function insert(parent, accessor, marker, initial, options) {
         }
         const listFn = value;
         const holeOwner = getOwner();
+        current = keep;
         if (
           value.$for.impl(
             parent,
@@ -1090,10 +1091,8 @@ export function insert(parent, accessor, marker, initial, options) {
             region,
             true
           )
-        ) {
-          current = keep;
+        )
           return INNER_OWNED;
-        }
       }
       classic(value, prev);
       return INNER_OWNED;
