@@ -2125,6 +2125,11 @@ export function renderToStream(code, options = {}) {
           p.then(d => serializer.write(id, d)).catch(e => serializer.write(id, e));
           return;
         }
+        if (deferStream && firstFlushed && "_SOLID_DEV_") {
+          console.warn(
+            "deferStream can only block the initial SSR shell. This value was created after the shell flushed and will stream normally."
+          );
+        }
         // Every pending promise handed to seroval joins the abandonment
         // ledger (#3165) — pre-shell and streaming alike, since a fragment
         // can error terminally at any point after this write.

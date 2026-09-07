@@ -1,7 +1,7 @@
 /**
  * @jsxImportSource @solidjs/web
  */
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   renderToString,
   renderToStream,
@@ -657,6 +657,45 @@ describe("SSR Streaming — deferStream", () => {
     );
     expect(shell).toContain("Team Roster");
     expect(shell).not.toContain("skeleton");
+  });
+
+  test("warns when a lazy boundary creates deferStream after the shell flushes (#3299)", async () => {
+    const Route: Component = () => {
+      const data = createMemo(async () => asyncValue("Team Roster", 30), {
+        deferStream: true
+      });
+      return (
+        <Loading fallback={<div class="skeleton">loading</div>}>
+          <div>{data()}</div>
+        </Loading>
+      );
+    };
+    const manifest = { "./Route.tsx": { file: "assets/route.js" } };
+    const LazyRoute = lazy(
+      () => delay(10).then(() => ({ default: Route })),
+      undefined,
+      "./Route.tsx"
+    ) as any;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { chunks, shell } = await collectChunks(
+        () => (
+          <main>
+            <Loading fallback={<div class="skeleton">loading</div>}>
+              <LazyRoute />
+            </Loading>
+          </main>
+        ),
+        { manifest }
+      );
+      expect(shell).toContain("skeleton");
+      expect(chunks.join("")).toContain("Team Roster");
+      expect(warn).toHaveBeenCalledWith(
+        "deferStream can only block the initial SSR shell. This value was created after the shell flushed and will stream normally."
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 
