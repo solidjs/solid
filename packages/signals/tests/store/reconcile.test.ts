@@ -883,3 +883,92 @@ describe("reconcile without a key (positional merge)", () => {
   // @ts-expect-error should not be able to reconcile partial type
   setState(reconcile({ data: 5 }));
 };
+
+describe("adoption after a draft write in the same batch (#3296)", () => {
+  // A draft write notifies its node at setter exit; an adoption in the same
+  // batch discards the draft and diffs incoming against the COMMITTED
+  // backing. A key the draft changed and the adoption restores must not
+  // deliver the cancelled draft value to subscribers.
+  function setup() {
+    const [store, setStore] = createStore({ count: 0, tag: "a" as string | undefined });
+    let count!: () => number;
+    let hasTag!: () => boolean;
+    const seen: number[] = [];
+    createRoot(() => {
+      count = createMemo(() => store.count);
+      hasTag = createMemo(() => "tag" in store);
+      createEffect(
+        () => store.count,
+        v => {
+          seen.push(v);
+        }
+      );
+    });
+    flush();
+    expect(count()).toBe(0);
+    seen.length = 0;
+    return { store, setStore, count, hasTag, seen };
+  }
+
+  test("reconcile back to the committed value cancels the draft write", () => {
+    const { store, setStore, count, seen } = setup();
+    setStore(s => {
+      s.count = 1;
+    });
+    setStore(reconcile({ count: 0, tag: "a" }));
+    flush();
+    expect(store.count).toBe(0);
+    expect(count()).toBe(0);
+    expect(seen.every(v => v === 0)).toBe(true);
+    flush();
+    expect(count()).toBe(0);
+  });
+
+  test("a returned replacement back to the committed value cancels the draft write", () => {
+    const { store, setStore, count, seen } = setup();
+    setStore(s => {
+      s.count = 1;
+    });
+    setStore(() => ({ count: 0, tag: "a" }));
+    flush();
+    expect(store.count).toBe(0);
+    expect(count()).toBe(0);
+    expect(seen.every(v => v === 0)).toBe(true);
+  });
+
+  test("an adoption that changes the key still wins over the draft", () => {
+    const { store, setStore, count } = setup();
+    setStore(s => {
+      s.count = 1;
+    });
+    setStore(reconcile({ count: 5, tag: "a" }));
+    flush();
+    expect(store.count).toBe(5);
+    expect(count()).toBe(5);
+  });
+
+  test("a draft delete cancelled by an adoption restores membership", () => {
+    const { store, setStore, hasTag } = setup();
+    expect(hasTag()).toBe(true);
+    setStore(s => {
+      delete s.tag;
+    });
+    setStore(reconcile({ count: 0, tag: "a" }));
+    flush();
+    expect("tag" in store).toBe(true);
+    expect(hasTag()).toBe(true);
+  });
+
+  test("the direct-draft control: writing back in a draft already agrees", () => {
+    const { store, setStore, count } = setup();
+    setStore(s => {
+      s.count = 1;
+    });
+    setStore(s => {
+      s.count = 0;
+    });
+    flush();
+    expect(store.count).toBe(0);
+    expect(count()).toBe(0);
+  });
+});

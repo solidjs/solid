@@ -279,7 +279,15 @@ module.exports = [
     // (21,536 -> 21,461). Brotli layout drift on this scenario's output —
     // the other seven scenarios moved -28…+21 B in both directions. Capped
     // with ~30 B of Linux headroom (cf. the simple-app cap, 2026-09-05).
-    limit: "14.42 KB",
+    //
+    // Adoption cancels draft notifications (#3296, 2026-09-06): 14.42 -> 14.47
+    // KB, measured at 14435 macOS (+44 B). Retained code: adoptPB puts every
+    // value node the discarded draft moved back on committed before the fold
+    // diff runs (cancelDraftNotifications), so a same-batch reset via
+    // reconcile / returned object no longer commits the cancelled draft value
+    // to subscribers. The written-keys bound rule is shared with notifyWrites
+    // (writtenKeysBound). ~30 B Linux headroom as above.
+    limit: "14.47 KB",
     modifyEsbuildConfig
   },
   {
@@ -564,7 +572,11 @@ module.exports = [
     // rc.6 P1 store sweep (#3282/#3283/#3284): 26.37 -> 26.43 KB, measured
     // at 26.42 macOS / 26424 B Linux CI (the usual +4-7 B Linux delta) —
     // see the createStore note; this scenario retains all of it.
-    limit: "26.43 KB",
+    //
+    // Adoption cancels draft notifications (#3296, 2026-09-06): 26.43 -> 26.47
+    // KB, measured at 26434 macOS (+44 B; the usual +4-7 B Linux delta) — see
+    // the createStore note; this scenario retains all of it.
+    limit: "26.47 KB",
     modifyEsbuildConfig
   },
   {

@@ -591,6 +591,7 @@ export function adoptPB(
       }
     }
   }
+  if (target.pb !== null) cancelDraftNotifications(target);
   target.pb = null;
   // Overlay and accessor-scan state describe the OUTGOING backing — a
   // swapped container must not inherit them: a stale `ovl` beside a nulled
@@ -864,6 +865,51 @@ function drainFolds(): void {
   }
 }
 
+/** The set of node keys a draft's writes can have touched, or null when the
+ * bound can't hold and every node must be visited: no trap granularity (wk
+ * null), an array length write (WK_ALL — implicit index deletes), accessors
+ * on the record (t.a — a getter node's value can change when ANY key is
+ * written), or a non-plain prototype (class instances: prototype getters
+ * derive from arbitrary fields). Overlay pbs chain to the COMMITTED object
+ * (#3044): a prototype-overlay draft is plain data on its own layer, but its
+ * getPrototypeOf is the committed container — judge plainness by the
+ * COMMITTED prototype or the bound never engages for overlay writes (every
+ * plain-object setter batch would full-scan: the exact selection-map
+ * workload wk exists for; jf `select` regressed 2x on this). */
+function writtenKeysBound(
+  t: StoreNextTarget,
+  pb: Record<PropertyKey, any>
+): Set<PropertyKey> | null {
+  const wk = t.wk;
+  return wk === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk;
+}
+
+/**
+ * An adoption discards the batch's draft — but the draft's writes already
+ * notified their nodes at setter exit (notifyWrites), and the adoption diff
+ * that follows compares incoming against the COMMITTED backing. A key the
+ * draft changed and the adoption restores therefore never re-notifies: the
+ * node commits the cancelled draft value while the backing holds the reset
+ * (#3296). Put every node the draft moved back on committed first; the diff
+ * then moves exactly the keys the adoption changes. O(written) — same bound
+ * as the notify that staged them. Only VALUE nodes need this: `has` nodes
+ * are written against the new backing without a pre-compare (notifyFoldTail),
+ * and counter witnesses (keyset, deep) only re-run readers, who see the
+ * adopted backing.
+ */
+function cancelDraftNotifications(t: StoreNextTarget): void {
+  const nodes = t.n;
+  if (nodes === null) return;
+  const old = t.v;
+  for (const key of writtenKeysBound(t, t.pb!) ?? Reflect.ownKeys(nodes)) {
+    const node = nodes[key as any];
+    if (node === undefined || node._pendingValue === NOT_PENDING) continue;
+    // Accessor keys are never invoked (FORCE → readers re-read the backing).
+    const ov = (node as any).acc === true ? FORCE : old[key as any];
+    setSignal(node, () => ov);
+  }
+}
+
 /**
  * Setter-exit notification (write channel): diff the draft's pending backing
  * against committed and setSignal every changed OBSERVED key — write-time
@@ -928,15 +974,7 @@ function notifyWrites(t: StoreNextTarget): void {
   // implicit index deletes), accessors on the record (t.a — a getter node's
   // value can change when ANY key is written), or a non-plain prototype
   // (class instances: prototype getters derive from arbitrary fields).
-  const wk0 = t.wk;
-  // Overlay pbs chain to the COMMITTED object (#3044): a prototype-overlay
-  // draft is plain data on its own layer, but its getPrototypeOf is the
-  // committed container — judge plainness by the COMMITTED prototype or the
-  // bound never engages for overlay writes (every plain-object setter batch
-  // would full-scan: the exact selection-map workload wk exists for; jf
-  // `select` regressed 2x on this).
-  const writtenKeys =
-    wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
+  const writtenKeys = writtenKeysBound(t, pb);
   if (nodes !== null) {
     const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(nodes);
     for (const key of keys) {
