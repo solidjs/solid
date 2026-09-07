@@ -667,7 +667,10 @@ module.exports = [
     //
     // Rebase drift (2026-09-06, #3287 textarea spread et al.): 29.40 -> 29.42
     // KB, measured at 29.42 (+16 B). Not slot bytes.
-    limit: "29.42 KB",
+    //
+    // Rebase drift (2026-09-07, #3296 store adoption fixes): 29.42 -> 29.50
+    // KB, measured at 29.49 (+73 B). Store-module bytes from next, not slot.
+    limit: "29.50 KB",
     modifyEsbuildConfig
   },
   {
