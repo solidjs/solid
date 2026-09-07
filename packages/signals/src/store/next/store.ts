@@ -424,6 +424,17 @@ function cloneRaw(source: Record<PropertyKey, any>, t?: StoreNextTarget): Record
     : Object.create(Object.getPrototypeOf(source), descs);
 }
 
+/** Copy own `key` from `from` onto `to`. A plain data slot (enumerable,
+ * writable, configurable, no accessor) is a bare assignment — the common case
+ * and the cheap one; anything else goes through defineProperty so accessors
+ * and attribute flags survive the copy. */
+function copyOwn(to: object, from: object, key: PropertyKey): void {
+  const d = Object.getOwnPropertyDescriptor(from, key)!;
+  if (d.get || d.set || !d.enumerable || !d.writable || !d.configurable)
+    Object.defineProperty(to, key, d);
+  else (to as any)[key] = d.value;
+}
+
 /** One-time own-accessor scan (Annex-B probes, no descriptor allocation);
  * returns true when the container is plain data (overlay-safe). */
 function scanAccessorsOnce(target: StoreNextTarget): boolean {
@@ -448,12 +459,7 @@ export function materializePB(target: StoreNextTarget): void {
   if (!target.ovl) return;
   const proto = target.pb!;
   const clone = cloneRaw(target.v, target);
-  for (const key of Reflect.ownKeys(proto)) {
-    const d = Object.getOwnPropertyDescriptor(proto, key)!;
-    if (d.get || d.set || !d.enumerable || !d.writable || !d.configurable)
-      Object.defineProperty(clone, key, d);
-    else (clone as any)[key] = d.value;
-  }
+  for (const key of Reflect.ownKeys(proto)) copyOwn(clone, proto, key);
   if (target.del !== null) {
     for (const key of target.del) delete (clone as any)[key];
     target.del = null;
@@ -785,12 +791,7 @@ function drainFolds(): void {
         // — the never-mutate-user-data contract holds.
         privatizeCommitted(t);
         const v = t.v;
-        for (const key of Reflect.ownKeys(pb)) {
-          const d = Object.getOwnPropertyDescriptor(pb, key)!;
-          if (d.get || d.set || !d.enumerable || !d.writable || !d.configurable)
-            Object.defineProperty(v, key, d);
-          else (v as any)[key] = d.value;
-        }
+        for (const key of Reflect.ownKeys(pb)) copyOwn(v, pb, key);
         if (t.del !== null) {
           for (const key of t.del) delete (v as any)[key];
           t.del = null;
@@ -817,17 +818,16 @@ function drainFolds(): void {
         if (wk !== null && wk !== WK_ALL) {
           // The trap records every write/delete key — apply exactly those.
           for (const key of wk) {
-            if (hasOwn.call(pb, key)) {
-              const d = Object.getOwnPropertyDescriptor(pb, key)!;
-              if (d.get || d.set || !d.enumerable || !d.writable || !d.configurable)
-                Object.defineProperty(v, key, d);
-              else (v as any)[key] = d.value;
-            } else delete (v as any)[key];
+            if (hasOwn.call(pb, key)) copyOwn(v, pb, key);
+            else delete (v as any)[key];
           }
         } else {
           // Array length write poisoned the bound (WK_ALL) — value-diff
           // against the pre-batch old. Slots the draft never touched hold
           // the same raw reference in both, so descendant folds stay put.
+          // Not copyOwn: the plain-value write is GATED on "the draft changed
+          // this slot" — an untouched slot in pb holds the pre-batch reference,
+          // and writing it back would clobber a descendant fold stitched into v.
           for (const key of Reflect.ownKeys(pb)) {
             const d = Object.getOwnPropertyDescriptor(pb, key)!;
             if (d.get || d.set || !d.enumerable || !d.writable || !d.configurable)
