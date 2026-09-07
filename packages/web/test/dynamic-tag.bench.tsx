@@ -27,8 +27,8 @@
 // slow" claim honest with numbers before anything is optimized.
 
 import { afterAll, bench } from "vitest";
-import { createRoot, createSignal, flush, For, getOwner, type JSX } from "solid-js";
-import { dynamic, Dynamic, insert } from "../src/index.js";
+import { createRoot, createSignal, flush, For, getOwner } from "solid-js";
+import { dynamic, Dynamic, insert, type JSX } from "../src/index.js";
 
 interface Row {
   id: number;

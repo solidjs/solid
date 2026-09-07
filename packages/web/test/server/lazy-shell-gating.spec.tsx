@@ -167,7 +167,7 @@ describe("lazy() under a boundary", () => {
     const { shell, shellAt, html } = await collectTimed(
       () => (
         <div>
-          <Errored fallback={err => <i>{(err as Error).message}</i>}>
+          <Errored fallback={err => <i>{(err() as Error).message}</i>}>
             <Loading fallback={<span>waiting…</span>}>
               <LazyBroken />
             </Loading>
