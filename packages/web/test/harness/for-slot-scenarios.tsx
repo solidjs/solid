@@ -34,6 +34,9 @@ export type ForSlotScenario = {
   warnings: number;
   /** selector for row nodes that must be the SERVER nodes after hydration */
   identitySelector?: string;
+  /** selector for a parent whose TEXT child nodes must be the server's text
+   * nodes after hydration (primitive rows adopt, never replace) */
+  textIdentityParent?: string;
   /** post-hydration update + expectations */
   update?: () => void;
   expectedTextAfterUpdate?: string;
@@ -93,12 +96,12 @@ function SlotMore() {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Demote DURING the hydrating fill: row "b" renders a <Show> (function
-//    top level) after row "a" already CLAIMED. The slot must hand a's claim
-//    back so classic's re-run claims the same server node — no warnings,
-//    no phantom rows, and the classic path then owns the list.
+// 5. DYNAMIC row under hydration: row "b" renders a <Show> (function top
+//    level). The slot resolves it tracked in its own compute during the
+//    fill — the Show's template claims its server node like any other row;
+//    no demote, no warnings, and the slot keeps owning the list.
 let setDemote!: (v: string[]) => void;
-function SlotDemoteMidFill() {
+function SlotDynamicRow() {
   const [items, set] = createSignal(["a", "b", "c"]);
   setDemote = set;
   return (
@@ -215,14 +218,13 @@ function SlotThroughChildren() {
 }
 
 // ---------------------------------------------------------------------------
-// 10. NESTED lists + mid-fill demote (audit P1): the outer engages, row x's
-//     nested list engages AND COMMITS, then row y is <Show>-rooted → the outer
-//     demotes. Every claim beneath the outer — including the nested list's
-//     committed ones — must be handed back so classic's re-run (which
-//     re-engages the nested lists with the same ids) claims the same nodes.
+// 10. NESTED lists + a <Show>-rooted outer row: the outer engages, row x's
+//     nested list engages and commits, row y is dynamic (resolved by the
+//     outer slot's compute, its nested list engaging inside that resolve).
+//     Three slots, zero demotes, every node the server's.
 const NX = { g: "x", items: ["1", "2"], special: false };
 const NY = { g: "y", items: ["3"], special: true };
-function SlotNestedDemote() {
+function SlotNestedDynamic() {
   const [groups] = createSignal([NX, NY]);
   const inner = (g: typeof NX) => (
     <ul>
@@ -247,15 +249,12 @@ function SlotNestedDemote() {
 }
 
 // ---------------------------------------------------------------------------
-// 11. Through-children + mid-fill demote + server MISMATCH (audit P2). The
-//     demote re-enters classic SYNCHRONOUSLY inside the hydration window (a
-//     deferred re-run would clone instead of claim): rows a/b are the server
-//     nodes, zero warnings. The leftover server row `c` SURVIVES — classic's
-//     own hydration is a claim pass that never removes server leftovers, so
-//     this is exactly what a never-slotted app shows on the same mismatch
-//     (ruled: classic parity, not a slot defect). The hosting effect keeps
-//     the real range as `current`, so a later children change cleans it.
-function SlotThroughDemoteMismatch() {
+// 11. Through-children + a dynamic row + server MISMATCH: the slot stays
+//     engaged (the <Show>-rooted row resolves in the fill), rows a/b are the
+//     server nodes, and the leftover server row `c` is REMOVED by the fill
+//     commit's repair, reported once (the slot repairs what classic would
+//     leave in place and report at hydration end).
+function SlotThroughDynamicMismatch() {
   const [items] = createSignal(isServer ? ["a", "b", "c"] : ["a", "b"]);
   return (
     <ListShell>
@@ -275,16 +274,16 @@ function SlotThroughDemoteMismatch() {
 }
 
 // ---------------------------------------------------------------------------
-// 12. Through-children + mid-fill demote + LATER children change (audit r3
-//     P2 follow-up): after the synchronous classic re-entry, rows classic
-//     appends must live in the HOSTING effect's range — swapping the children
-//     out afterwards must leave no list residue ("noned" was the leak).
+// 12. Through-children + a dynamic row + LATER children change: rows the
+//     engaged slot appends live in the hole; swapping the children out
+//     afterwards must leave no list residue ("noned" was the classic-path
+//     leak this scenario originally caught).
 function ShellWrap(props: { children: any }) {
   return <div>{props.children}</div>;
 }
 let residueItems!: (v: string[]) => void;
 let residueShow!: (v: boolean) => void;
-function SlotThroughDemoteResidue() {
+function SlotThroughDynamicResidue() {
   const [items, setItems] = createSignal(["a", "b", "c"]);
   const [show, setShow] = createSignal(true);
   residueItems = setItems;
@@ -350,7 +349,7 @@ export const forSlotScenarios: ForSlotScenario[] = [
     serverText: "abc",
     engaged: 1,
     demoted: 0,
-    warnings: 0 // text churn is excluded from the repair report (follow-up: adopt server text)
+    warnings: 1 // the slot's repair report (leftover server text row removed)
   },
   {
     name: "slot-hydrate-text-mismatch-more",
@@ -359,7 +358,7 @@ export const forSlotScenarios: ForSlotScenario[] = [
     serverText: "ab",
     engaged: 1,
     demoted: 0,
-    warnings: 0
+    warnings: 1 // the slot's repair report (client text row inserted)
   },
   {
     name: "slot-hydrate-text-anchored-mismatch-fewer",
@@ -368,45 +367,43 @@ export const forSlotScenarios: ForSlotScenario[] = [
     serverText: "headabctail",
     engaged: 1,
     demoted: 0,
-    warnings: 0,
+    warnings: 1, // the slot's repair report
     identitySelector: "li"
   },
   {
-    name: "slot-hydrate-through-demote-residue",
-    App: SlotThroughDemoteResidue,
+    name: "slot-hydrate-through-dynamic-residue",
+    App: SlotThroughDynamicResidue,
     expectedText: "abc",
     engaged: 1,
-    demoted: 1,
+    demoted: 0,
     warnings: 0,
     identitySelector: "li",
     update: () => {
-      residueItems(["a", "b", "c", "d"]); // classic (post-demote) appends d
+      residueItems(["a", "b", "c", "d"]); // the engaged slot appends d
       flush();
-      residueShow(false); // children change: the hosting effect must clean d too
+      residueShow(false); // children change: the hole cleanup must remove d too
     },
     expectedTextAfterUpdate: "none"
   },
   {
-    name: "slot-hydrate-nested-demote",
-    App: SlotNestedDemote,
+    name: "slot-hydrate-nested-dynamic",
+    App: SlotNestedDynamic,
     expectedText: "123",
-    // Attempt 1: outer + nested x + nested y (the Show-rooted row's <li>
-    // template runs its hole insert before the outer sees the function and
-    // demotes). Classic re-run: nested x + nested y again. All five claim
-    // cleanly — the restore covered every nested claim beneath the outer.
-    engaged: 5,
-    demoted: 1,
+    // Outer + nested x + nested y (engaging inside the outer's resolve of
+    // the Show-rooted row). No demote, so no second pass.
+    engaged: 3,
+    demoted: 0,
     warnings: 0,
     identitySelector: "span"
   },
   {
-    name: "slot-hydrate-through-demote-mismatch",
-    App: SlotThroughDemoteMismatch,
-    expectedText: "abc", // classic parity: the claim pass leaves server leftovers
+    name: "slot-hydrate-through-dynamic-mismatch",
+    App: SlotThroughDynamicMismatch,
+    expectedText: "ab", // the slot's fill commit repairs the leftover
     serverText: "abc",
     engaged: 1,
-    demoted: 1,
-    warnings: 1, // the runtime's honest "1 unclaimed server-rendered node" report
+    demoted: 0,
+    warnings: 1, // the slot's repair report
     identitySelector: "li"
   },
   {
@@ -440,6 +437,7 @@ export const forSlotScenarios: ForSlotScenario[] = [
     engaged: 1,
     demoted: 0,
     warnings: 0,
+    textIdentityParent: "ul",
     update: () => setText(["a", "b", "c", "d"]),
     expectedTextAfterUpdate: "abcd"
   },
@@ -463,11 +461,11 @@ export const forSlotScenarios: ForSlotScenario[] = [
     warnings: 2 // the runtime's key-miss + the slot's repair report
   },
   {
-    name: "slot-hydrate-demote-mid-fill",
-    App: SlotDemoteMidFill,
+    name: "slot-hydrate-dynamic-row",
+    App: SlotDynamicRow,
     expectedText: "abc",
     engaged: 1,
-    demoted: 1,
+    demoted: 0,
     warnings: 0,
     identitySelector: "li",
     update: () => setDemote(["a", "b", "c", "d"]),

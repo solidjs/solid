@@ -106,6 +106,29 @@ describe("unified For: preceding siblings survive bulk paths (P0)", () => {
   });
 
   test("demote (flat) with preceding sibling: classic rebuild keeps the sibling", () => {
+    const a = { id: "a" },
+      b = { id: "b" };
+    const [list, setList] = createSignal<any[]>([a, b]);
+    dispose = render(
+      () => (
+        <div>
+          <h1>Title</h1>
+          <For each={list()}>{(item: any) => <span>{item.id}</span>}</For>
+        </div>
+      ),
+      container
+    );
+    // A duplicate identity key demotes to classic (flat → materialize fails).
+    const before = stats.demoted;
+    setList([a, b, a]);
+    flush();
+    expect(stats.demoted).toBe(before + 1);
+    expect(container.querySelector("h1")).not.toBeNull();
+    expect(container.querySelector("h1")!.textContent).toBe("Title");
+    expect(container.querySelectorAll("span").length).toBe(3);
+  });
+
+  test("function-top-level row with preceding sibling: dynamic row, no demote", () => {
     const [list, setList] = createSignal<any[]>(["a", "b"]);
     dispose = render(
       () => (
@@ -118,15 +141,14 @@ describe("unified For: preceding siblings survive bulk paths (P0)", () => {
       ),
       container
     );
-    // A row whose top level is a FUNCTION demotes to classic.
     const before = stats.demoted;
     setList(["a", () => <b>dyn</b>]);
     flush();
-    expect(stats.demoted).toBe(before + 1);
-    expect(container.querySelector("h1")).not.toBeNull();
+    expect(stats.demoted).toBe(before);
     expect(container.querySelector("h1")!.textContent).toBe("Title");
     expect(container.querySelectorAll("span").length).toBe(1);
     expect(container.querySelector("b")!.textContent).toBe("dyn");
+    expect(container.firstElementChild!.innerHTML).toBe("<h1>Title</h1><span>a</span><b>dyn</b>");
   });
 });
 

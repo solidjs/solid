@@ -45,6 +45,20 @@ const domOps = {
   },
   contains(parent: Node, node: Node): boolean {
     return node.parentNode === parent;
+  },
+  owns(parent: Node, first: Node, last: Node): boolean {
+    return parent.firstChild === first && parent.lastChild === last;
+  },
+  next(node: Node): Node | null {
+    return node.nextSibling;
+  },
+  textOf(node: Node): string | undefined {
+    return node.nodeType === 3 ? (node as Text).data : undefined;
+  },
+  setText(node: Node, text: string): boolean {
+    if (node.nodeType !== 3) return false;
+    if ((node as Text).data !== text) (node as Text).data = text;
+    return true;
   }
 };
 

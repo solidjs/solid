@@ -144,7 +144,7 @@ describe("unified For through props.children (hole seam)", () => {
     expect(div.innerHTML).toBe("<span>b</span><span>a</span>");
   });
 
-  test("demote inside a hole hands the hole to classic via the hosting effect", () => {
+  test("function-top-level rows stay engaged inside a hole (dynamic rows, no demote)", () => {
     const [rows, setRows] = createSignal<any[]>(["a", "b"]);
     const demoted0 = stats.demoted;
     dispose = render(
@@ -157,13 +157,44 @@ describe("unified For through props.children (hole seam)", () => {
     );
     const div = container.querySelector("div")!;
     expect(div.innerHTML).toBe("<span>a</span><span>b</span>");
-    // A function-top-level row arrives → slot demotes; the hole re-runs classic.
-    setRows(["a", () => <b>dyn</b>, "b"]);
+    // A function-top-level row arrives → resolved by the slot's own compute
+    // (classic's list-effect model); the slot stays engaged.
+    const dyn = () => <b>dyn</b>;
+    setRows(["a", dyn, "b"]);
+    flush();
+    expect(stats.demoted).toBe(demoted0);
+    expect(div.innerHTML).toBe("<span>a</span><b>dyn</b><span>b</span>");
+    setRows(["b", dyn, "a"]);
+    flush();
+    expect(div.innerHTML).toBe("<span>b</span><b>dyn</b><span>a</span>");
+    setRows([]);
+    flush();
+    expect(div.innerHTML).toBe("");
+    expect(stats.demoted).toBe(demoted0);
+  });
+
+  test("demote inside a hole hands the hole to classic via the hosting effect", () => {
+    const a = { id: "a" },
+      b = { id: "b" };
+    const [rows, setRows] = createSignal<any[]>([a, b]);
+    const demoted0 = stats.demoted;
+    dispose = render(
+      () => (
+        <Wrap>
+          <For each={rows()}>{(r: any) => <span>{r.id}</span>}</For>
+        </Wrap>
+      ),
+      container
+    );
+    const div = container.querySelector("div")!;
+    expect(div.innerHTML).toBe("<span>a</span><span>b</span>");
+    // A duplicate identity key arrives → slot demotes; the hole re-runs classic.
+    setRows([a, b, a]);
     flush();
     expect(stats.demoted).toBe(demoted0 + 1);
-    expect(div.innerHTML).toBe("<span>a</span><b>dyn</b><span>b</span>");
+    expect(div.innerHTML).toBe("<span>a</span><span>b</span><span>a</span>");
     // Classic now owns the hole: further updates keep working, no duplicates.
-    setRows(["b", "a"]);
+    setRows([b, a]);
     flush();
     expect(div.innerHTML).toBe("<span>b</span><span>a</span>");
     setRows([]);
@@ -171,11 +202,11 @@ describe("unified For through props.children (hole seam)", () => {
     expect(div.innerHTML).toBe("");
   });
 
-  test("<Dynamic>-rooted rows demote cleanly to classic (memo top level) and stay correct", () => {
+  test("<Dynamic>-rooted rows stay engaged (memo top level → dynamic row) and stay correct", () => {
     // Dynamic returns a MEMO (its `component` may change), so the row's top
     // level is a function whether element creation is eager (#3291 revert)
-    // or deferred (#3187) — the slot demotes, classic owns the hole. Pinned
-    // through the revert so the contract is explicit either way.
+    // or deferred (#3187). The slot resolves it tracked in its own compute —
+    // no demote, no second invocation of the row — and reorders as usual.
     const [rows, setRows] = createSignal(["a", "b", "c"]);
     const engaged0 = stats.engaged;
     const demoted0 = stats.demoted;
@@ -188,15 +219,18 @@ describe("unified For through props.children (hole seam)", () => {
       container
     );
     expect(stats.engaged).toBe(engaged0 + 1);
-    expect(stats.demoted).toBe(demoted0 + 1);
+    expect(stats.demoted).toBe(demoted0);
     expect(texts(container, "tr")).toEqual(["a", "b", "c"]);
+    const trs = Array.from(container.querySelectorAll("tr"));
     setRows(["c", "a", "b"]);
     flush();
     expect(texts(container, "tr")).toEqual(["c", "a", "b"]);
+    // Reorder moved the SAME elements (row identity survived).
+    expect(Array.from(container.querySelectorAll("tr"))).toEqual([trs[2], trs[0], trs[1]]);
     setRows([]);
     flush();
     expect(container.querySelector("tbody")!.innerHTML).toBe("");
-    expect(stats.demoted).toBe(demoted0 + 1); // one demote, no thrash
+    expect(stats.demoted).toBe(demoted0);
   });
 
   test("first-fill demote in a hole: classic owns the range from its first run", () => {
@@ -206,14 +240,17 @@ describe("unified For through props.children (hole seam)", () => {
     // first run reconciles against the stale pre-hand-off nodes and its
     // result is then clobbered — rows leak on the next replace or children
     // change (a b x y), and the multi placeholder survives as an orphan.
-    const [rows, setRows] = createSignal(["a", "b"]);
+    // Trigger: a NON-ARRAY subject (classic mapArray duck-types anything
+    // with `length` + indices — a string renders its characters) is the one
+    // shape that demotes on the very first compute.
+    const [rows, setRows] = createSignal<any>("ab");
     const [show, setShow] = createSignal(true);
     const demoted0 = stats.demoted;
     dispose = render(
       () => (
         <Card>
           {show() ? (
-            <For each={rows()}>{r => <Dynamic component="span">{r}</Dynamic>}</For>
+            <For each={rows()}>{(r: any) => <Dynamic component="span">{r}</Dynamic>}</For>
           ) : (
             <p>none</p>
           )}
@@ -239,16 +276,17 @@ describe("unified For through props.children (hole seam)", () => {
 
     // Whole-parent hole, same hazard, replace only.
     dispose();
-    const [rows2, setRows2] = createSignal(["a", "b"]);
+    const [rows2, setRows2] = createSignal<any>("ab");
     dispose = render(
       () => (
         <Wrap>
-          <For each={rows2()}>{r => <Dynamic component="span">{r}</Dynamic>}</For>
+          <For each={rows2()}>{(r: any) => <Dynamic component="span">{r}</Dynamic>}</For>
         </Wrap>
       ),
       container
     );
     const div = container.querySelector("div")!;
+    expect(div.innerHTML).toBe("<span>a</span><span>b</span>");
     setRows2(["x", "y"]);
     flush();
     expect(div.innerHTML).toBe("<span>x</span><span>y</span>");
