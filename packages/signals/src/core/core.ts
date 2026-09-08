@@ -260,10 +260,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     el._x?._overrideValue !== NOT_PENDING &&
     el._x?._overrideValue !== undefined;
   const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
-  // Outgoing error, captured before the compute clears status: if this run
-  // recovers to an unchanged value, dependents still holding this object must
-  // be swept (settleErroredDependents, #2949).
+  // Capture both error and pending status before the compute clears them.
+  // A conditional can drop its pending source and recover to an unchanged
+  // value, leaving blocked dependents outside that source’s settle walk.
   const outgoingError = el._statusFlags & STATUS_ERROR ? el._x?._error : undefined;
+  const outgoingPendingSources =
+    el._statusFlags & STATUS_PENDING ? el._x?._pendingSources : undefined;
   // Pending SOURCE-hood, captured before the compute clears status: a node
   // whose own flight parked dependents self-registers in _pendingSources
   // (notifyStatus, isSource). If this recompute supersedes that flight and
@@ -602,8 +604,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // in an errored run and may sit on stale commits (#2949). Changed-value
     // recoveries ride insertSubs above; a comparator throw re-errored the node
     // (el._x?._error re-set), so this only runs on a genuinely clean recovery.
-    if (outgoingError !== undefined && !valueChanged && !el._x?._error)
-      settleErroredDependents(el, outgoingError);
+    if (!valueChanged && !el._x?._error) {
+      if (outgoingError !== undefined) settleErroredDependents(el, outgoingError);
+      if (outgoingPendingSources)
+        for (const source of outgoingPendingSources) settlePendingSource(el, source);
+    }
 
     // #3181: a synchronous settle supersedes the old landing callback, so
     // recompute owns its pending-source sweep. An uninitialized node without

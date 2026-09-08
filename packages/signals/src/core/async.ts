@@ -69,7 +69,7 @@ function clearPendingSources(el: Computed<any>): void {
 // SOURCE's subscribers, so it is retryable iff a tracked read created that
 // edge: a dep that IS the source, or one whose own pending chain carries it
 // (pending sources propagate the origin node, so this covers any depth).
-// Dev-only caller — tree-shaken from prod builds.
+// Also guards branch-local recovery: another dependency may still need the source.
 function retryReaches(el: Computed<any>, source: any): boolean {
   for (let d = el._deps; d; d = d._nextDep) {
     const dep = ((d._dep as FirewallSignal<unknown>)._firewall || d._dep) as Computed<any>;
@@ -171,9 +171,9 @@ export function releaseSettledDependents(el: Computed<any>): void {
 // object identity down the whole dependent tree, and holding it is exactly
 // the "blocked on this error" marker — re-enqueue those holders so they
 // re-run: fresh values commit and flow, and a dependent with another
-// still-broken source simply re-errors. The async dimension needs no twin of
-// its own: recovery there passes through a pending window whose re-runners
-// set _blocked and ride settlePendingSource. Walks the full dependent graph
+// still-broken source simply re-errors. Pending recovery uses
+// settlePendingSource to clear inherited status and retry blocked readers.
+// Walks the full dependent graph
 // (releaseSettledDependents shape): identity holders can sit below an
 // intermediate whose own error state has since been scrubbed or replaced
 // (e.g. an error boundary's tree node).
@@ -193,9 +193,13 @@ export function settleErroredDependents(el: Computed<any>, error: any): void {
   if (scheduled) schedule();
 }
 
-export function settlePendingSource(el: Computed<any>): void {
+// Retire `source` from pending state along the dependent graph rooted at `el`.
+// By default, `el` is the source whose flight settled or was superseded.
+// With a distinct `source`, `el` is a recovered computation that dropped it:
+// the source may still be pending, so dependents with another path to it stay pending.
+export function settlePendingSource(el: Computed<any>, source: Computed<any> = el): void {
   // Invariant: walking a settle implies truth exists. A caller reaching this
-  // with an uninitialized source is announcing a settle that has not
+  // with an uninitialized traversal root (`el`) is announcing a settle that has not
   // happened — parked readers would wake into a value that was never
   // produced (the rc.5 regression: the recompute-side walk fired on a
   // projection driver whose first flight was superseded before any commit
@@ -233,17 +237,21 @@ export function settlePendingSource(el: Computed<any>): void {
       });
     }
   }
-  // The normal landing path already cleared the source's own set. Superseded
-  // re-parks arrive here with an abandoned self entry, which must retire in
-  // the same walk as its propagated copies.
-  removePendingSource(el, el);
+  // Landing and branch recovery already cleared el's own set. Superseded
+  // re-parks can retain an abandoned self entry (source === el), which must
+  // retire in the same walk as its propagated copies.
+  removePendingSource(el, source);
   let scheduled = false;
   let released: Computed<any>[] | undefined;
   const visited = new Set<Computed<any>>();
   // Companion updates no-op without the verdict layer (null hook).
   const updateCompanions = GlobalQueue._updatePendingSignal;
   const settle = (node: Computed<any>) => {
-    if (visited.has(node) || !removePendingSource(node, el)) return;
+    if (visited.has(node)) return;
+    // A conditional dropped this source, but another dependency can still
+    // carry it. Only retire pending state inherited through the recovered branch.
+    if (source !== el && retryReaches(node, source)) return;
+    if (!removePendingSource(node, source)) return;
     visited.add(node);
     node._time = clock;
     const remaining = node._x?._pendingSources?.values().next().value;
