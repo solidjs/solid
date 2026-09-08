@@ -180,8 +180,8 @@ guesses.
 
 One value has very many subscribers, so a single change re-runs all of them.
 Classic signature: every row of a list comparing against one selected id.
-Invert the question with `createSelector` or a per-key store/projection so
-only the keys whose answer flipped update.
+Invert the question with a projection — `createProjection`, or a
+`createStore(fn)` keyed by id — so only the keys whose answer flipped update.
 
 ### HUGE_FAN_IN / WIDE_SCOPE_DEPS
 
@@ -202,8 +202,8 @@ Many scopes went hot from ONE root cause (named in the message) — the
 aggregate form of HOT_SCOPE_RERUNS, emitted so a single culprit doesn't
 produce one warning per victim. Fix the cause, not the scopes: if consumers
 ask keyed questions of it (every row vs. one selected id), invert with
-`createSelector`/`createProjection`; if it's a per-frame value, gate it
-behind a slower derivation.
+`createProjection` / a keyed `createStore(fn)`; if it's a per-frame value, gate
+it behind a slower derivation.
 
 ### HOT_SCOPE_TIME
 

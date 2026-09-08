@@ -76,8 +76,8 @@ causality:
 
 Start from the top of the cost tables. The usual repairs: a missing memo
 boundary (waste), an unstable memo output (fan-out amplifier), a wide read
-that should be split, or a hot value that needs `createSelector`/projection
-inversion. Re-capture after each change and diff the rerun counts — the
+that should be split, or a hot value that needs projection inversion
+(`createProjection`). Re-capture after each change and diff the rerun counts — the
 artifact is the before/after evidence.
 
 ## Loop 4 — Responsiveness (the click did something, visibly)

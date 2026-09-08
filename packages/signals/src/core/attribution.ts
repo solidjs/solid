@@ -534,8 +534,8 @@ function checkWideWrite(
   const message =
     `[WIDE_WRITE] ${verb} "${nodeName(node)}" reached ${subs} subscribers — every one ` +
     `re-runs this flush. If consumers ask keyed questions of this value (for example every ` +
-    `row comparing against one selected id), invert with createSelector or createProjection ` +
-    `so only the keys whose answer flipped update.`;
+    `row comparing against one selected id), invert it with a projection — createProjection, ` +
+    `or a createStore(fn) keyed by id — so only the keys whose answer flipped update.`;
   reportDiagnostic(
     emitDiagnostic(
       {
@@ -736,7 +736,7 @@ function checkHotRuns(el: Computed<any>, event: RerunEvent): void {
     `[HOT_SCOPE_FANOUT] ${window.scopes} scopes have gone hot (${window.runs} re-runs) within ` +
     `${cfg.windowMs}ms, all driven by ${causeKey} — one hot cause is re-running a large part ` +
     `of the graph. Per-scope warnings are suppressed; fix the cause. If consumers ask keyed ` +
-    `questions of it, invert with createSelector or createProjection.`;
+    `questions of it, invert it with a projection (createProjection or a keyed createStore(fn)).`;
   // The subject is the shared CAUSE, not this victim scope — no single owner
   // path locates it, so the event carries none.
   reportDiagnostic(
