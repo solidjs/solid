@@ -44,8 +44,9 @@ Semantics of the `(_pendingValue, _overrideValue)` pair for an optimistic node
 
 - One lane per optimistic *source signal* (`signalLanes` WeakMap), reused across writes to the same signal. Union-find merging (`_mergedInto`); merges move `_pendingAsync` and effect queues into the root.
 - `_parentLane`: companion nodes (`_pendingSignal`/`_latestValueComputed`) get *child* lanes that intentionally do **not** merge with the parent (`assignOrMergeLane` parent/child carve-out) so `isPending` effects can flush before the parent's async settles.
-- Lane lifecycle: created on optimistic write → nodes join via `insertSubs(node, true)` → `assignOrMergeLane` → lane-routed effects run when `_pendingAsync` is empty (`runLaneEffects`) → cleaned up by `cleanupCompletedLanes` when the owning transition completes (or when orphaned, `_transition === null`).
-- `_pendingAsync` add/delete sites: added in `recompute`'s async catch under a lane (core.ts ~264), removed on async resolution (`asyncWrite`, async.ts ~214) and on lane-corrected recompute (core.ts ~254).
+- Lane lifecycle: created on optimistic write → nodes join via `insertSubs(node, true)` → `assignOrMergeLane` → lane-routed effects run when the lane is not held (`runLaneEffects` → `laneHeld`) → cleaned up by `cleanupCompletedLanes` when the owning transition completes (or when orphaned, `_transition === null`).
+- `_pendingAsync` add/delete sites: added in `recompute`'s async catch under a lane (core.ts ~264), removed on async resolution (`asyncWrite`, async.ts ~214) and on lane-corrected recompute (core.ts ~254). The set records the async the lane *owns*, not what holds it.
+- Hold rule (`laneHeld`, #3289): a lane is held iff some `_pendingAsync` node is also in its transaction's `_asyncReporters` — i.e. a render effect observed it pending and no boundary consumed the status (INV-3, the one registration site). Same rule as `transitionComplete`: unrendered async and fallback-caught async hold nothing. The two facts arrive in either order (a node created by the lane's own reveal is observed first and stamped on a later re-ask), which is why the hold is a predicate over both records rather than a registration.
 
 ## 3. Transitions (`scheduler.ts`)
 

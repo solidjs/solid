@@ -352,7 +352,14 @@ module.exports = [
     // the original inline placement cost 27-66 B across five scenarios
     // (createStore, both floors, family, CSR); relocated, every other
     // scenario is unchanged and only this one pays ~8 B.
-    limit: "10.08 KB",
+    //
+    // Lane hold on observation (#3289): 10.08 -> 10.13 KB, measured at
+    // 10.080 macOS (baseline 10.040). laneHeld — a lane is held only by
+    // async a render effect observed (the transaction's reporter map), the
+    // same INV-3 rule transactions use — lives in the lanes module this
+    // scenario retains via latest(); the core floor and createStore are
+    // byte-identical. ~40 B for the predicate and its two call sites.
+    limit: "10.13 KB",
     modifyEsbuildConfig
   },
   {

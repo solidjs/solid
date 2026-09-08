@@ -42,7 +42,7 @@ import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
 import { enqueueSub, insertIntoHeap, markHeap, queueFor } from "./heap.js";
 import { devTrackCompanionOwner, InvariantHooks } from "./invariants.js";
-import { assignOrMergeLane, findLane, hasActiveOverride } from "./lanes.js";
+import { assignOrMergeLane, findLane, hasActiveOverride, laneHeld } from "./lanes.js";
 import { installOptimisticEngine } from "./optimistic.js";
 import {
   activeAffectsMarks,
@@ -438,7 +438,7 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
   if (stale && currentOptimisticLane && pendingComputed._x?._optimisticLane) {
     const pcLane = findLane(pendingComputed._x?._optimisticLane);
     const curLane = findLane(currentOptimisticLane);
-    if (pcLane !== curLane && pcLane._pendingAsync.size > 0) {
+    if (pcLane !== curLane && laneHeld(pcLane)) {
       return visibleValue;
     }
   }

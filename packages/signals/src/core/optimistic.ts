@@ -34,6 +34,7 @@ import {
   findLane,
   getOrCreateLane,
   hasActiveOverride,
+  laneHeld,
   resolveLane,
   resolveTransition,
   signalLanes,
@@ -173,12 +174,13 @@ function runQueue(queue: QueueCallback[], type: number): void {
 }
 
 /**
- * Run effects from all lanes that are ready (no pending async).
+ * Run effects from all lanes that are ready (no OBSERVED pending async — see
+ * laneHeld).
  */
 function runLaneEffects(type: number): void {
   for (const lane of activeLanes) {
     if (__DEV__) devCheckMergedLaneEmpty(lane);
-    if (lane._mergedInto || lane._pendingAsync.size > 0) continue;
+    if (lane._mergedInto || laneHeld(lane)) continue;
     const effects = lane._effectQueues[type - 1];
     if (effects.length) {
       lane._effectQueues[type - 1] = [];
