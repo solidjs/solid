@@ -590,9 +590,10 @@ export class GlobalQueue extends Queue {
     | ((el: Computed<any>, own: boolean) => OptimisticLane | null | false)
     | null = null;
   static _laneAsyncPending: ((el: Computed<any>) => void) | null = null;
-  /** Authoritative-view reader wakeup (until()): installed at first until() call.
-   * Call sites are gated by CONFIG_AUTHORITATIVE_OBSERVED, which only until()'s
-   * carve-out read can set, so `!` invocations are safe once the gate holds. */
+  /** Authoritative-view reader wakeup: installed by until() and refresh() before
+   * their first read. Call sites are gated by CONFIG_AUTHORITATIVE_OBSERVED, which
+   * only such a reader's carve-out read can set, so `!` invocations are safe once
+   * the gate holds (#3303). */
   static _notifyAuthoritativeObservers: ((el: Signal<any> | Computed<any>) => void) | null = null;
   static _laneAsyncSettled: ((el: Computed<any>) => void) | null = null;
   static _trackOptimisticStore: ((store: any) => void) | null = null;

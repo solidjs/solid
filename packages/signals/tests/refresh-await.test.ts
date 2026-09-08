@@ -21,6 +21,7 @@ import { expect, test } from "vitest";
 import {
   action,
   createEffect,
+  createLoadingBoundary,
   createMemo,
   createOptimistic,
   createProjection,
@@ -393,4 +394,63 @@ test("iterable-backed source: resolves at the fresh iteration's first yield", as
 test("plain signal accessor: refresh is a no-op — already quiescent, resolves with the value", async () => {
   const [count] = createSignal(1);
   await expect(refresh(count as any)).resolves.toBe(1);
+});
+
+// refresh()'s waiter reads authoritatively (the override is not the answer),
+// which marks the node CONFIG_AUTHORITATIVE_OBSERVED — and when the re-ask then
+// lands EQUAL to the override, the A17-silent branch wakes those readers through
+// a late-bound hook that only until() used to install. An app that refreshes an
+// optimistic without ever calling until() threw there and halted the graph
+// (#3303). This file never imports until(). The shape needs a loading boundary
+// downstream: its fallback consumes the async pending, which is what keeps the
+// override standing when the second re-ask lands equal to it.
+test("refresh of an overridden optimistic with no until() in the app does not crash (#3303)", async () => {
+  let truth = 0;
+  let count!: () => number;
+  let setCount!: (v: number) => void;
+  const views: unknown[] = [];
+  let dispose!: () => void;
+  createRoot(d => {
+    dispose = d;
+    const [s, setS] = createOptimistic(() => truth);
+    count = s;
+    setCount = v => {
+      truth = v;
+      setS(v);
+      refresh(s);
+    };
+    const doubled = createMemo(async () => {
+      const c = count();
+      await tick();
+      return c * 2;
+    });
+    const shown = createLoadingBoundary(
+      () => doubled(),
+      () => "loading"
+    );
+    createEffect(
+      () => shown(),
+      v => void views.push(v)
+    );
+  });
+  flush();
+  await tick();
+  await tick();
+  flush();
+  expect(views).toEqual(["loading", 0]);
+
+  setCount(1);
+  for (let i = 0; i < 4; i++) await tick();
+  flush();
+  expect(count()).toBe(1);
+  expect(views.at(-1)).toBe(2);
+
+  // Second round: the landing equals the override again — the waiter is the
+  // authoritative observer whose wake dereferenced a null hook.
+  setCount(2);
+  for (let i = 0; i < 4; i++) await tick();
+  flush();
+  expect(count()).toBe(2);
+  expect(views.at(-1)).toBe(4);
+  dispose();
 });

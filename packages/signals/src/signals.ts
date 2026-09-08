@@ -833,6 +833,13 @@ export function refresh<T>(
   // own eager compute is untouched: created after a refresh it still settles
   // stale-while-revalidate (#2930) — its contract is "first settled value",
   // not "next quiescent state".
+  //
+  // An authoritative reader is woken through a late-bound hook when the truth
+  // lands EQUAL to a standing override (the A17-silent path). Every setter of
+  // that reader bit must install it — until() does, and this waiter is the
+  // other one (#3303: refresh of an optimistic in an app that never called
+  // until() dereferenced the null hook).
+  installAuthoritativeRead();
   markRefresh(node);
   const promise = new Promise<any>((res, rej) => {
     queueMicrotask(() => {

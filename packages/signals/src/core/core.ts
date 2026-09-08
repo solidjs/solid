@@ -512,11 +512,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._pendingValue = value;
       if (__DEV__) devTrackHeldPending(el);
       if (wasLoading) el._loading = true; // see the held branch above (#2990)
-      // A authoritative-view reader (until()) observed this node past its
-      // override — and "authoritative arrival equal to the override" is
-      // exactly the acknowledgment it waits for. Wake those readers only;
-      // A17 silence holds for every ordinary subscriber. (Hook installed by
-      // until(), the only setter of the gating bit.)
+      // An authoritative-view reader (until()'s predicate, refresh()'s waiter)
+      // observed this node past its override — and "authoritative arrival
+      // equal to the override" is exactly the acknowledgment it waits for.
+      // Wake those readers only; A17 silence holds for every ordinary
+      // subscriber. (Hook installed by both setters of the gating bit, #3303.)
       if (el._config & CONFIG_AUTHORITATIVE_OBSERVED)
         GlobalQueue._notifyAuthoritativeObservers!(el);
     } else if (el._height != oldHeight) {
@@ -1088,9 +1088,11 @@ export function notifyAuthoritativeObservers(el: Signal<any> | Computed<any>): v
   schedule();
 }
 
-/** Installs the until() machinery hook. Idempotent; called by until() before
- * any authoritative-view read happens (same late-binding contract as the
- * optimistic engine). */
+/** Installs the authoritative-reader wakeup hook. Idempotent; called by every
+ * creator of a CONFIG_AUTHORITATIVE_READ computation — until() and refresh() —
+ * before its first read (same late-binding contract as the optimistic engine;
+ * the gating bit is only ever set by such a read, so the `!` call sites are
+ * safe once every setter installs, #3303). */
 export function installAuthoritativeRead(): void {
   if (GlobalQueue._notifyAuthoritativeObservers === null)
     GlobalQueue._notifyAuthoritativeObservers = notifyAuthoritativeObservers;
