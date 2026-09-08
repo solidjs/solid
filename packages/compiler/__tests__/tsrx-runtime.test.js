@@ -45,6 +45,16 @@ function compileRuntime(source, compiler, generate) {
     : compileOxc(source, `${generate}-runtime`, options, ".tsrx");
 }
 
+// The runtime bundle is prod: `__DEV__` (signals) is a `define` below, but
+// solid-js / @solidjs/web gate dev code on the `"_SOLID_DEV_"` string literal
+// that rollup's replace plugin rewrites at build time — esbuild `define` can't
+// reach a string literal, so a source-text replace mirrors the build here.
+// Without it the bundle is half dev (web's dev event wrapper runs) and half
+// prod (signals' `DEV` export is undefined) and the first click throws.
+const workspaceSourceRoots = ["solid", "web", "signals"].map(
+  name => path.join(repoRoot, "packages", name, "src") + path.sep
+);
+
 async function loadRuntimeModule(code, generate) {
   const aliases = new Map([
     [
@@ -76,6 +86,13 @@ async function loadRuntimeModule(code, generate) {
           esbuild.onResolve({ filter: /^(?:@solidjs\/web|solid-js|@solidjs\/signals)$/ }, args => ({
             path: aliases.get(args.path)
           }));
+          esbuild.onLoad({ filter: /\.ts$/ }, args => {
+            if (!workspaceSourceRoots.some(root => args.path.startsWith(root))) return;
+            return {
+              contents: fs.readFileSync(args.path, "utf8").replaceAll('"_SOLID_DEV_"', "false"),
+              loader: "ts"
+            };
+          });
         }
       }
     ]
