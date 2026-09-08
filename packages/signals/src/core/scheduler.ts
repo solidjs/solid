@@ -222,6 +222,10 @@ function createBatch(): Transition {
 function mergeTransitionState(target: Transition, outgoing: Transition): void {
   if (__DEV__ && attrHooks !== null) attrHooks.transitionMerged(target, outgoing);
   outgoing._done = target;
+  // Requeue held effects under the surviving transition so its next flush
+  // either parks them again or runs them when the merged work completes.
+  globalQueue.restoreQueues(outgoing._queueStash);
+  outgoing._queueStash = { _queues: [[], []], _children: [] };
   target._actions.push(...outgoing._actions);
   for (const lane of activeLanes) if (lane._transition === outgoing) lane._transition = target;
   if (outgoing._optimisticNodes.length) {
