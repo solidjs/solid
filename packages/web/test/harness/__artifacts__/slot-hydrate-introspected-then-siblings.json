@@ -1,0 +1,5 @@
+{
+  "name": "slot-hydrate-introspected-then-siblings",
+  "shell": "<ul _hk=2><li _hk=0000>a</li><li _hk=0010>b</li><li _hk=0020>c</li></ul><button _hk=4 id=\"bump2\">bump</button><pre _hk=5 id=\"after2\">count: <!--$-->0<!--/--></pre>",
+  "rest": ""
+}

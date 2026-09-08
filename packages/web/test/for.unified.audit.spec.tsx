@@ -8,6 +8,7 @@ import { describe, expect, test, beforeEach } from "vitest";
 import {
   createContext,
   createMemo,
+  createRoot,
   createSignal,
   flush,
   onCleanup,
@@ -18,7 +19,8 @@ import {
   Show
 } from "solid-js";
 import { referenceMapArray as mapArray } from "./reference/mapArray.js";
-import { render } from "@solidjs/web";
+import { mapArray as engineMapArray } from "solid-js";
+import { insert, render } from "@solidjs/web";
 
 const stats = () => DEV!.unifiedFor;
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -352,6 +354,270 @@ describe("P1-5 a throwing row disposes its own owner", () => {
     // Whatever the boundary does with the surviving row, the slot matches classic.
     const classic = throwScenario(true);
     expect(slot).toEqual(classic);
+  });
+});
+
+// ─── Audit 2 (PR #3308, 2026-09-08) ────────────────────────────────────────
+
+describe("#3308 P1-1 nested lists: row ownership survives reentrant builds", () => {
+  test("removing an outer row disposes THAT row (and its nested list), nothing else", () => {
+    type G = { id: string; items: string[] };
+    const g1: G = { id: "g1", items: ["a", "b"] };
+    const g2: G = { id: "g2", items: ["c"] };
+    const [groups, setGroups] = createSignal<G[]>([g1, g2]);
+    const cleaned: string[] = [];
+    dispose = render(
+      () => (
+        <ul>
+          <For each={groups()}>
+            {g => {
+              onCleanup(() => cleaned.push(`outer:${g.id}`));
+              return (
+                <li>
+                  <For each={g.items}>
+                    {item => {
+                      onCleanup(() => cleaned.push(`inner:${g.id}:${item}`));
+                      return <span>{item}</span>;
+                    }}
+                  </For>
+                </li>
+              );
+            }}
+          </For>
+        </ul>
+      ),
+      container
+    );
+    flush();
+    expect(container.textContent).toBe("abc");
+    setGroups([g2]);
+    flush();
+    expect(container.textContent).toBe("c");
+    // Exactly g1 and its nested rows were disposed — not g2's.
+    expect(cleaned.sort()).toEqual(["inner:g1:a", "inner:g1:b", "outer:g1"]);
+  });
+});
+
+describe("#3308 P1-2 key-fn semantics match mapArray", () => {
+  test("no key fn calls during the fill; identity beats keys (in-place key mutation keeps the row)", () => {
+    type It = { id: number; v: string };
+    const a: It = { id: 1, v: "a" },
+      b: It = { id: 2, v: "b" };
+    const [list, setList] = createSignal<It[]>([a, b]);
+    let eKeys = 0,
+      oKeys = 0;
+    const eKey = (x: It) => (eKeys++, x.id);
+    const oKey = (x: It) => (oKeys++, x.id);
+    const host = document.createElement("div");
+    dispose = render(
+      () => (
+        <>
+          <section id="e">
+            <For each={list()} keyed={eKey}>
+              {it => <span>{it().v}</span>}
+            </For>
+          </section>
+          <section id="o">
+            {mapArray(
+              list,
+              (it: () => It) => (
+                <span>{it().v}</span>
+              ),
+              { keyed: oKey }
+            )}
+          </section>
+        </>
+      ),
+      host
+    );
+    flush();
+    const e = host.querySelector("#e")!,
+      o = host.querySelector("#o")!;
+    expect(eKeys).toBe(0); // the fill keys nothing (mapArray parity)
+    expect(oKeys).toBe(0);
+    const [ea] = Array.from(e.querySelectorAll("span"));
+    // Same objects, one key mutated IN PLACE: identity matches first → the
+    // row stays; no rebuild.
+    a.id = 99;
+    setList([a, b]);
+    flush();
+    expect(e.innerHTML).toBe(o.innerHTML);
+    expect(e.querySelectorAll("span")[0]).toBe(ea);
+  });
+});
+
+describe("#3308 P1-3 the engine dies with For's creation owner", () => {
+  test("after the creation owner is disposed, source updates no longer touch the DOM (frozen, like mapArray)", () => {
+    const [list, setList] = createSignal(["a", "b"]);
+    let forAcc!: any;
+    const disposeCreator = createRoot(d => {
+      forAcc = <For each={list()}>{item => <span>{item}</span>}</For>;
+      return d;
+    });
+    // Rendered under a DIFFERENT owner that outlives the creator.
+    dispose = render(() => <div>{forAcc}</div>, container);
+    flush();
+    const div = container.firstChild as HTMLElement;
+    expect(div.innerHTML).toBe("<span>a</span><span>b</span>");
+    disposeCreator();
+    setList(["c"]);
+    flush();
+    expect(div.innerHTML).toBe("<span>a</span><span>b</span>"); // frozen at the last value
+  });
+});
+
+describe("#3308 P1-4 one engine per list: calling AND rendering an accessor", () => {
+  test("called first (children-style) then rendered: rows built once, both views live", () => {
+    const [list, setList] = createSignal(["a", "b"]);
+    let calls = 0;
+    let seen: any[] = [];
+    dispose = render(() => {
+      const acc = (
+        <For each={list()}>
+          {item => {
+            calls++;
+            return <span>{item}</span>;
+          }}
+        </For>
+      ) as any;
+      createMemo(() => (seen = acc())); // introspection
+      return <div>{acc}</div>;
+    }, container);
+    flush();
+    const div = container.firstChild as HTMLElement;
+    expect(calls).toBe(2);
+    expect(div.innerHTML).toBe("<span>a</span><span>b</span>");
+    expect(seen.length).toBe(2);
+    setList(["b", "c", "a"]);
+    flush();
+    expect(calls).toBe(3);
+    expect(div.innerHTML).toBe("<span>b</span><span>c</span><span>a</span>");
+    expect(seen.map((n: any) => n.textContent)).toEqual(["b", "c", "a"]);
+  });
+
+  test("rendered first then called: the call reads the rendered engine's array view", () => {
+    const [list, setList] = createSignal(["a", "b"]);
+    let calls = 0;
+    let seen: any[] = [];
+    let acc!: any;
+    dispose = render(() => {
+      acc = (
+        <For each={list()}>
+          {item => {
+            calls++;
+            return <span>{item}</span>;
+          }}
+        </For>
+      ) as any;
+      return <div>{acc}</div>;
+    }, container);
+    flush();
+    const div = container.firstChild as HTMLElement;
+    const stop = createRoot(d => {
+      createMemo(() => (seen = acc()));
+      return d;
+    });
+    flush();
+    expect(calls).toBe(2);
+    expect(seen.map((n: any) => n.textContent)).toEqual(["a", "b"]);
+    setList(["c", "a"]);
+    flush();
+    expect(calls).toBe(3);
+    expect(div.innerHTML).toBe("<span>c</span><span>a</span>");
+    expect(seen.map((n: any) => n.textContent)).toEqual(["c", "a"]);
+    stop();
+  });
+});
+
+describe("#3308 P1-5 retained rows whose node migrated are reclaimed", () => {
+  test("a middle row moved elsewhere by user code comes back on the next structural pass (classic parity)", () => {
+    const [list, setList] = createSignal(["a", "b", "c"]);
+    const host = document.createElement("div");
+    dispose = render(
+      () => (
+        <>
+          <section id="e">
+            <For each={list()}>{item => <span>{item}</span>}</For>
+          </section>
+          <section id="o">
+            {mapArray(list, (item: string) => (
+              <span>{item}</span>
+            ))}
+          </section>
+        </>
+      ),
+      host
+    );
+    flush();
+    const e = host.querySelector("#e")!,
+      o = host.querySelector("#o")!;
+    const aside = document.createElement("aside");
+    aside.appendChild(e.children[1]); // migrate the engine's <span>b</span>
+    aside.appendChild(o.children[1]); // and the oracle's
+    setList(["a", "b", "c", "d"]);
+    flush();
+    expect(e.innerHTML).toBe(o.innerHTML);
+    expect(e.innerHTML).toBe("<span>a</span><span>b</span><span>c</span><span>d</span>");
+    expect(aside.childNodes.length).toBe(0);
+  });
+});
+
+describe("#3308 P1-6 insert contracts: host tagging and initial range", () => {
+  test("a host-aware insert tags every placed row node with _$host", () => {
+    const [list, setList] = createSignal(["a", "b"]);
+    const hostNode = document.createElement("main");
+    const parent = document.createElement("div");
+    dispose = createRoot(d => {
+      insert(
+        parent,
+        (<For each={list()}>{item => <span>{item}</span>}</For>) as any,
+        undefined,
+        undefined,
+        {
+          host: () => hostNode
+        }
+      );
+      return d;
+    });
+    flush();
+    for (const n of Array.from(parent.children)) expect((n as any)._$host).toBe(hostNode);
+    setList(["a", "b", "c"]);
+    flush();
+    expect((parent.children[2] as any)._$host).toBe(hostNode);
+  });
+
+  test("a caller-provided initial range is consumed, not left beside the list", () => {
+    const [list] = createSignal(["a"]);
+    const parent = document.createElement("div");
+    const stale = document.createElement("i");
+    parent.appendChild(stale);
+    dispose = createRoot(d => {
+      insert(parent, (<For each={list()}>{item => <span>{item}</span>}</For>) as any, undefined, [
+        stale
+      ]);
+      return d;
+    });
+    flush();
+    expect(parent.innerHTML).toBe("<span>a</span>");
+  });
+});
+
+describe("#3308 P2 fallback is called with zero arguments (mapArray parity)", () => {
+  test("mapArray fallback sees arguments.length === 0", () => {
+    const [list] = createSignal<string[]>([]);
+    let argc = -1;
+    dispose = render(() => {
+      const m = engineMapArray(list, (x: string) => x, {
+        fallback: function () {
+          argc = arguments.length;
+          return "none";
+        }
+      });
+      createMemo(() => m());
+      return null;
+    }, container);
+    flush();
+    expect(argc).toBe(0);
   });
 });
 

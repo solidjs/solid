@@ -16,7 +16,7 @@
  *
  * Mismatch scenarios diverge on `isServer` so one source renders both sides.
  */
-import { createSignal, flush, For, Show } from "solid-js";
+import { children, createSignal, flush, For, Show } from "solid-js";
 import { referenceMapArray as mapArray } from "../reference/mapArray.js";
 import { isServer } from "@solidjs/web";
 
@@ -419,7 +419,99 @@ function ClassicFallback() {
   return <ul>{mapped}</ul>;
 }
 
+// ---------------------------------------------------------------------------
+// 14. Audit 2 (#3308): chain-mode hydration (keyed={false} text rows and a
+//     primitive fallback) must adopt server text — never duplicate it; a
+//     children()-introspected For must not shift sibling ids; client text
+//     that differs from the server's is NOT rewritten (classic adopts by
+//     identity and leaves the server text standing).
+let setByIndexText!: (v: string[]) => void;
+function SlotByIndexText() {
+  const [items, set] = createSignal(["a", "b", "c"]);
+  setByIndexText = set;
+  return (
+    <ul>
+      <For each={items()} keyed={false}>
+        {item => item /* dynamic text row: the accessor itself */}
+      </For>
+    </ul>
+  );
+}
+function SlotFallbackText() {
+  const [items] = createSignal<string[]>([]);
+  return (
+    <ul>
+      <For each={items()} fallback="none">
+        {item => <li>{item}</li>}
+      </For>
+    </ul>
+  );
+}
+function IntrospectShell(props: { children: any }) {
+  const c = children(() => props.children);
+  return <ul>{c()}</ul>;
+}
+let bumpAfterIntrospected!: () => void;
+function SlotIntrospectedThenSiblings() {
+  const [count, setCount] = createSignal(0);
+  bumpAfterIntrospected = () => setCount(c => c + 1);
+  return (
+    <>
+      <IntrospectShell>
+        <For each={["a", "b", "c"]}>{item => <li>{item}</li>}</For>
+      </IntrospectShell>
+      <button id="bump2">bump</button>
+      <pre id="after2">count: {count()}</pre>
+    </>
+  );
+}
+function SlotTextDiffers() {
+  const [items] = createSignal(isServer ? ["a", "b", "c"] : ["A", "B", "C"]);
+  return (
+    <ul>
+      <For each={items()}>{item => item}</For>
+    </ul>
+  );
+}
+
 export const forSlotScenarios: ForSlotScenario[] = [
+  {
+    name: "slot-hydrate-byindex-text",
+    App: SlotByIndexText,
+    expectedText: "abc",
+    engaged: 1,
+    warnings: 0,
+    textIdentityParent: "ul",
+    update: () => setByIndexText(["a", "b", "c", "d"]),
+    expectedTextAfterUpdate: "abcd"
+  },
+  {
+    name: "slot-hydrate-fallback-text",
+    App: SlotFallbackText,
+    expectedText: "none",
+    engaged: 1,
+    warnings: 0,
+    textIdentityParent: "ul"
+  },
+  {
+    name: "slot-hydrate-introspected-then-siblings",
+    App: SlotIntrospectedThenSiblings,
+    expectedText: "abcbumpcount: 0",
+    engaged: 0, // children() called the accessor: array engine, classic insert
+    warnings: 0,
+    identitySelector: "li, button, pre",
+    update: () => bumpAfterIntrospected(),
+    expectedTextAfterUpdate: "abcbumpcount: 1"
+  },
+  {
+    name: "slot-hydrate-text-differs",
+    App: SlotTextDiffers,
+    expectedText: "abc", // server text stands (identity adoption, no rewrite)
+    serverText: "abc",
+    engaged: 1,
+    warnings: 0,
+    textIdentityParent: "ul"
+  },
   {
     name: "classic-fallback-oracle",
     App: ClassicFallback,

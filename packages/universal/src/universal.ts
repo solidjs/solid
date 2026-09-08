@@ -24,6 +24,11 @@ export interface RendererOptions<NodeType> {
   getParentNode(node: NodeType): NodeType | undefined;
   getFirstChild(node: NodeType): NodeType | undefined;
   getNextSibling(node: NodeType): NodeType | undefined;
+  /** Node predicate for the unified For engine. Default: any non-array
+   * object (insertExpression's own assumption). Renderers whose nodes are
+   * not objects must supply this — and text-data tracking then requires
+   * object text nodes (`replaceText` is the only way to write text). */
+  isNode?(value: unknown): boolean;
 }
 
 /**
@@ -112,7 +117,8 @@ export function createRenderer({
   setProperty,
   getParentNode,
   getFirstChild,
-  getNextSibling
+  getNextSibling,
+  isNode = v => v !== null && typeof v === "object" && !Array.isArray(v)
 }) {
   // Unified For ENGINE ops for this renderer (solid-js `SlotOps`): the
   // engine is platform-free and touches nodes only through these. Built from
@@ -131,12 +137,10 @@ export function createRenderer({
     },
     createText(text) {
       const n = createTextNode(text);
-      textData.set(n, text);
+      if (typeof n === "object") textData.set(n, text);
       return n;
     },
-    isNode(v) {
-      return v !== null && typeof v === "object" && !Array.isArray(v);
-    },
+    isNode,
     clear(p) {
       let c;
       while ((c = getFirstChild(p))) removeNode(p, c);
@@ -153,10 +157,10 @@ export function createRenderer({
       return n === undefined ? null : n;
     },
     textOf(node) {
-      return isTextNode(node) ? textData.get(node) : undefined;
+      return typeof node === "object" && isTextNode(node) ? textData.get(node) : undefined;
     },
     setText(node, text) {
-      if (!isTextNode(node)) return false;
+      if (typeof node !== "object" || !isTextNode(node)) return false;
       if (textData.get(node) !== text) {
         replaceText(node, text);
         textData.set(node, text);
@@ -178,8 +182,10 @@ export function createRenderer({
     // Unified For: a `$for` list descriptor brings the engine with it (For's
     // module graph); engage it with this renderer's ops. Same contract as web.
     if (typeof accessor === "function" && accessor.$for !== undefined) {
-      accessor.$for.impl(parent, accessor, marker, slotOps);
-      return;
+      if (Array.isArray(initial) && initial.length !== 0)
+        cleanChildren(parent, initial, multi ? marker : undefined);
+      // `false` = the list already has an array engine: classic insert below.
+      if (accessor.$for.impl(parent, accessor, marker, slotOps)) return;
     }
     if (typeof accessor !== "function") {
       accessor = normalize(accessor, multi, true);
@@ -202,7 +208,11 @@ export function createRenderer({
         // HOLE seam: a `$for` accessor reaching this hole through a wrapper
         // (`{props.children}`) engages the engine for the hole; a children
         // change tears it down (hole-mode cleanup removes its rows).
-        if (value.$for !== undefined) {
+        if (
+          value.$for !== undefined &&
+          value.$for.arr === undefined &&
+          value.$for.rendered === undefined
+        ) {
           if (current !== undefined) cleanChildren(parent, current, multi ? marker : undefined);
           current = [];
           value.$for.impl(parent, value, marker, slotOps, undefined, true);

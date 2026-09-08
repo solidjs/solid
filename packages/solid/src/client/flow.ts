@@ -87,13 +87,15 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
   // consumed id is handed to the engine, whose row parent takes it
   // explicitly, so rows mint the same hydration keys the server's did.
   let hid: string | undefined;
+  let hid2: string | undefined;
   if (sharedConfig.hydrating) {
     // The server's For runs mapArray, which spends TWO id slots at this
-    // position: its internal owner (the rows' parent — the id the engine's
-    // row owner takes) and then its computed. Consume both so every sibling
-    // after the list keeps the id the server gave it.
+    // position: its internal owner (the rows' parent) and then its computed.
+    // Consume both, and hand both to the engine — its row owner and (for a
+    // plain call) its array computed take them explicitly — so no sibling
+    // after the list shifts and no extra slot is ever burned.
     hid = sharedConfig.getNextContextId?.();
-    sharedConfig.getNextContextId?.();
+    hid2 = sharedConfig.getNextContextId?.();
   }
   // Unified-For: the returned value IS a data structure — a callable carrying
   // the list descriptor. A renderer that understands `$for` (web, universal)
@@ -113,14 +115,19 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
     // The engine rides For's OWN module graph; a renderer's insert()
     // engages it by passing its SlotOps.
     impl: unifiedForSlot,
-    hid
+    hid,
+    hid2
   };
   if (IS_DEV) meta.name = "<For>";
-  // A plain call (children(), introspection, renderers that don't engage) is
-  // the engine's ARRAY output — mapArray's contract — created lazily under
-  // For's owner on the first read.
-  let arr: (() => any[]) | undefined;
-  const list = () => (arr ?? (arr = listArray(meta)))();
+  // ONE engine per list. A plain call (children(), introspection, renderers
+  // that don't engage) reads the engine's ARRAY output — mapArray's contract.
+  // If the list is already RENDERED, the call reads that engine's array view
+  // (tracked per commit); otherwise an array engine is created lazily under
+  // For's owner, and a later render inserts its output the classic way.
+  const list = () =>
+    meta.rendered !== undefined
+      ? meta.rendered.array()
+      : (meta.arr ?? (meta.arr = listArray(meta)))();
   (list as any).$for = meta;
   return list as unknown as SolidElement;
 }

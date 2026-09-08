@@ -48,12 +48,14 @@
  * no marker nodes; a flip splices only that row's range.
  */
 import {
+  cleanup,
   computed,
   createOwner,
   runWithOwner,
   setSignal,
   signal,
-  type Owner
+  type Owner,
+  type Signal
 } from "./core/index.js";
 import { setStrictRead } from "./core/core.js";
 import { CONFIG_AUTO_DISPOSE } from "./core/constants.js";
@@ -68,9 +70,17 @@ export type Leaves = any[];
 
 type RowOwner = { dispose(self?: boolean): void; _parentComputed?: any };
 
+/** Lazy key marker: a key-fn row computes `kf(item)` the first time a diff
+ * needs it — never during the fill that created it (mapArray's timing). */
+const UNKEYED = {} as const;
+
 export interface ListRow {
-  /** Row key: the item (identity mode), `keyFn(item)`, or unused (by index). */
+  /** Row key: the item (identity mode), `keyFn(item)` (or UNKEYED until
+   * first needed), or null (by index). */
   k: any;
+  /** The row's CURRENT item (identity-first comparisons; key-fn rows update
+   * it on reuse). */
+  item: any;
   o: RowOwner;
   /** Item signal (accessor-row modes) / index signal (arity ≥ 2), else null. */
   it: any;
@@ -110,6 +120,8 @@ export interface ListFlat {
   items: any[];
   owners: RowOwner[];
   nodes: Nodes[];
+  /** Raw row values (the ARRAY view of a rendered list). */
+  vals: any[];
   fns: any[] | null;
   ixs: any[] | null;
   its: any[] | null;
@@ -121,6 +133,7 @@ export interface ListFlatPlan {
   items: any[];
   owners: RowOwner[];
   nodes: Nodes[];
+  vals: any[];
   fns: any[] | null;
   ixs: any[] | null;
   its: any[] | null;
@@ -138,8 +151,10 @@ export interface ListMeta {
   fallback?: () => any;
   /** Creation owner: rows live under it. */
   owner: Owner | null;
-  /** Hydration only: the explicit id the row parent takes. */
+  /** Hydration only: the explicit ids the row parent and the array computed
+   * take (the two slots the server's mapArray spent at this position). */
   hid?: string;
+  hid2?: string;
   /** Dev: strict-read name for row bodies. */
   name?: string;
   /** @internal defer the first pass to the first read. */
@@ -171,8 +186,9 @@ export interface ListNodeLayer {
   clear(slot: ListSlot): void;
   /** True when `node` is a direct child of the parent (hydration placement). */
   inParent(slot: ListSlot, node: ListNode): boolean;
-  /** Hydrating fill commit (claim pass), or null when not hydrating. */
-  commitFill: ((slot: ListSlot, fp: ListFlatPlan) => void) | null;
+  /** Hydrating fill commit (claim pass): adopts positional server nodes
+   * into `nodes` IN PLACE and detects mismatch; null when not hydrating. */
+  commitFill: ((slot: ListSlot, nodes: Nodes[]) => void) | null;
 }
 
 export interface ListSlot {
@@ -266,57 +282,67 @@ function setNodes(r: ListRow, nd: Nodes): void {
   }
 }
 
-// Row build: one shared thunk for the owned row call (no per-row closure);
-// arguments and results travel through module slots, consumed synchronously
-// before any nested row build can begin.
+// Row build: one shared thunk for the owned row call (no per-row closure).
+// Arguments travel through module slots that the thunk reads synchronously
+// on entry; RESULTS are written to module slots only AFTER user code returns.
+// User code may build nested lists (a <For> inside a row engages its engine
+// synchronously), so anything written before the row fn runs is not safe —
+// results are LIFO-safe because the outermost build writes last.
 let bpFn: (...args: any[]) => any;
 let bpA0: any;
 let bpA1: any;
 let bpV: any = null;
 let bpF: any = null;
-let bpOwner: RowOwner = null as unknown as RowOwner;
+let bpN: Nodes = null;
 const callRow = () => (bpA1 === undefined ? bpFn(bpA0) : bpFn(bpA0, bpA1));
+const callFallback = () => bpFn(); // zero arguments, as mapArray called it
 
 /** Build a row body under its own owner (untracked + owned). Returns the
- * row's nodes (null: zero-node, dynamic, or array output); the owner, raw
- * value and dynamic value come back through `bpOwner` / `bpV` / `bpF`. A
- * throw disposes the row's owner. Arity-exact (mapArray passes one argument
- * to arity-1 mappers). */
+ * row OWNER; the nodes (null: zero-node, dynamic, or array output), raw
+ * value and dynamic value come back through `bpN` / `bpV` / `bpF`, all
+ * written after user code. A throw disposes the row's owner. Arity-exact
+ * (mapArray passes one argument to arity-1 mappers, none to the fallback). */
 function buildParts(
   rowFn: (...args: any[]) => any,
   a0: any,
   a1: any,
-  layer: ListNodeLayer | null
-): Nodes {
-  const o: RowOwner = (bpOwner = createOwner() as unknown as RowOwner);
-  bpF = null;
+  layer: ListNodeLayer | null,
+  fallback: boolean
+): RowOwner {
+  const o: RowOwner = createOwner() as unknown as RowOwner;
+  let v: any;
+  let nd: Nodes = null;
   try {
     bpFn = rowFn;
     bpA0 = a0;
     bpA1 = a1;
-    bpV = runWithOwner(o as any, callRow);
-    if (layer === null) return null;
-    const nd = layer.build(bpV, o);
-    bpF = layer.dynamic();
-    return nd;
+    v = runWithOwner(o as any, fallback ? callFallback : callRow);
+    if (layer !== null) nd = layer.build(v, o);
   } catch (e) {
     o.dispose();
     throw e;
   }
+  bpV = v;
+  bpN = nd;
+  bpF = layer !== null ? layer.dynamic() : null;
+  return o;
 }
 
 function buildRow(slot: ListSlot, item: any, j: number, key: any): ListRow {
   const it = slot.ac ? signal(item, pureOptions) : null;
   const ix = slot.ixs ? signal(j, pureOptions) : null;
-  const nd = buildParts(
+  const o = buildParts(
     slot.row,
     it !== null ? accessor(it) : item,
     slot.bi ? j : ix !== null ? accessor(ix) : undefined,
-    slot.layer
+    slot.layer,
+    false
   );
+  const nd = bpN;
   return {
     k: key,
-    o: bpOwner,
+    item,
+    o,
     it,
     ix,
     n: Array.isArray(nd) ? null : nd,
@@ -333,7 +359,7 @@ function buildRow(slot: ListSlot, item: any, j: number, key: any): ListRow {
 
 /** Lossless representation change: committed flat arrays → chain. Pure
  * bookkeeping over committed rows (phase-safe); item/index signals carry
- * over and keys are computed now (a first fill never needs them). */
+ * over; key-fn keys stay lazy (computed by the first diff that needs them). */
 function materialize(slot: ListSlot): void {
   const f = slot.flat!;
   const kf = slot.kf;
@@ -342,14 +368,15 @@ function materialize(slot: ListSlot): void {
   for (let i = 0; i < n; i++) {
     const nd = f.nodes[i];
     const r: ListRow = {
-      k: kf !== undefined ? kf(f.items[i]) : f.items[i],
+      k: kf !== undefined ? UNKEYED : f.items[i],
+      item: f.items[i],
       o: f.owners[i],
       it: f.its !== null ? f.its[i] : null,
       ix: f.ixs !== null ? f.ixs[i] : null,
       n: Array.isArray(nd) ? null : nd,
       ns: Array.isArray(nd) ? nd : null,
       f: f.fns !== null ? f.fns[i] : null,
-      v: null, // flat mode is rendered-only; array output never materializes
+      v: f.vals[i],
       p: prev,
       x: null,
       live: true,
@@ -414,6 +441,11 @@ export interface ListEngine {
   commit(out: ListOut): void;
   /** ARRAY output: the raw row values in order; `[fallback]` when empty with one. */
   values(): any[];
+  /** Bumped by every committing pass — a plain call of a RENDERED list's
+   * accessor tracks it to re-read `values()` (one engine, two views). */
+  version: Signal<number>;
+  /** The tracked ARRAY view of this engine: `values()` re-read per commit. */
+  array(): any[];
   /** Rendered-output teardown (the engaging insert's cleanup). */
   teardown(): void;
 }
@@ -468,10 +500,22 @@ export function createListEngine(
     ixs: meta.row.length > 1 && !bi,
     fallback: meta.fallback
   };
+  // The engine dies with the list's CREATION owner (mapArray's computed is
+  // owned there and freezes at its last value): a rendered list whose <For>
+  // owner was disposed must stop updating even while its insertion owner
+  // lives on. Registered on the creation owner itself, not the list owner —
+  // the list owner's own cleanups run on every bulk `dispose(false)`.
+  const die = (): void => {
+    slot.dead = true;
+  };
+  if (meta.owner !== null) runWithOwner(meta.owner, () => cleanup(die));
+  const version = signal(0, pureOptions);
   // Flat mode covers every keyed mode of the RENDERED output; `keyed: false`
   // (positional) and array output are chain-first.
   const flatOk = !slot.bi && layer !== null;
-  const keyOf = kf !== undefined ? kf : (item: any) => item;
+  /** A row's key, computed lazily for key-fn rows (mapArray never keys a
+   * row during the fill that creates it). */
+  const rowKey = (r: ListRow): any => (r.k === UNKEYED ? (r.k = kf!(r.item)) : r.k);
 
   const dropPending = (): void => {
     const p = slot.pending;
@@ -512,10 +556,12 @@ export function createListEngine(
 
   /** The fallback row for an empty list (built owned, like a row). */
   const buildFallback = (): ListRow => {
-    const nd = buildParts(slot.fallback!, undefined, undefined, layer);
+    const o = buildParts(slot.fallback!, undefined, undefined, layer, true);
+    const nd = bpN;
     return {
       k: null,
-      o: bpOwner,
+      item: null,
+      o,
       it: null,
       ix: null,
       n: Array.isArray(nd) ? null : nd,
@@ -535,6 +581,7 @@ export function createListEngine(
     const len = itemsSnap.length;
     const owners: RowOwner[] = new Array(len);
     const nodes: Nodes[] = new Array(len);
+    const vals: any[] = new Array(len);
     const ixs: any[] | null = slot.ixs ? new Array(len) : null;
     const its: any[] | null = slot.ac ? new Array(len) : null;
     let fns: any[] | null = null;
@@ -544,6 +591,7 @@ export function createListEngine(
       items: itemsSnap,
       owners,
       nodes,
+      vals,
       fns,
       ixs,
       its,
@@ -558,12 +606,12 @@ export function createListEngine(
           let a1: any;
           if (its !== null) a0 = accessor((its[j] = signal(a0, pureOptions)));
           if (ixs !== null) a1 = accessor((ixs[j] = signal(j, pureOptions)));
-          const nd = buildParts(slot.row, a0, a1, layer);
-          owners[j] = bpOwner;
+          owners[j] = buildParts(slot.row, a0, a1, layer, false);
+          vals[j] = bpV;
           if (bpF !== null) {
             if (fns === null) fns = new Array(len).fill(null);
             fns[j] = bpF;
-          } else nodes[j] = nd;
+          } else nodes[j] = bpN;
         }
       });
       if (fns !== null) {
@@ -597,7 +645,7 @@ export function createListEngine(
       runWithOwner(slot.owner as any, () => {
         for (let j = 0; j < len; j++) {
           const item = snap[j];
-          const built = buildRow(slot, item, j, keyOf(item));
+          const built = buildRow(slot, item, j, kf !== undefined ? UNKEYED : item);
           if (built.f !== null) anyDyn = true;
           order[j] = built;
         }
@@ -728,6 +776,7 @@ export function createListEngine(
           items: [],
           owners: [],
           nodes: [],
+          vals: [],
           fns: null,
           ixs: null,
           its: null,
@@ -766,6 +815,7 @@ export function createListEngine(
           items: [],
           owners: [],
           nodes: [],
+          vals: [],
           fns: null,
           ixs: null,
           its: null,
@@ -786,7 +836,7 @@ export function createListEngine(
       const size = slot.size;
       const common = len < size ? len : size;
       let r: ListRow | null = slot.head;
-      for (let j = 0; j < common; j++, r = r!.x) setSignal(r!.it, arr[j]);
+      for (let j = 0; j < common; j++, r = r!.x) setSignal(r!.it, (r!.item = arr[j]));
       if (len === size) return IDENTICAL;
       if (len > size) {
         const tail: any[] = new Array(len - size);
@@ -837,10 +887,17 @@ export function createListEngine(
       });
     }
     // ── KEYED (identity / key fn): prefix walk.
+    // Identity FIRST, then keys (mapArray's `items[i] === newItems[i] ||
+    // key(a) === key(b)`): an in-place key mutation on the same object keeps
+    // its row, and no key fn runs when references match.
     let cursor: ListRow | null = slot.head;
     let i = 0;
-    while (cursor !== null && i < len && cursor.k === (kf !== undefined ? kf(arr[i]) : arr[i])) {
-      if (slot.ac) setSignal(cursor.it, arr[i]);
+    while (
+      cursor !== null &&
+      i < len &&
+      (cursor.item === arr[i] || (kf !== undefined && rowKey(cursor) === kf(arr[i])))
+    ) {
+      if (slot.ac) setSignal(cursor.it, (cursor.item = arr[i]));
       cursor = cursor.x;
       i++;
     }
@@ -855,9 +912,9 @@ export function createListEngine(
       tailCursor !== null &&
       oldRemain > 0 &&
       end >= i &&
-      tailCursor.k === (kf !== undefined ? kf(arr[end]) : arr[end])
+      (tailCursor.item === arr[end] || (kf !== undefined && rowKey(tailCursor) === kf(arr[end])))
     ) {
-      if (slot.ac) setSignal(tailCursor.it, arr[end]);
+      if (slot.ac) setSignal(tailCursor.it, (tailCursor.item = arr[end]));
       if (slot.ixs && dif !== 0) setSignal(tailCursor.ix, end);
       tailCursor = tailCursor.p;
       end--;
@@ -886,11 +943,12 @@ export function createListEngine(
       let r: ListRow | null = cursor;
       for (let c = 0; c < oldRemain; c++, r = r!.x) {
         const row = r!;
-        const j = newIndices.get(row.k);
+        const key = rowKey(row);
+        const j = newIndices.get(key);
         if (j !== undefined && j !== -1) {
           order[j] = row;
           oldPos[j] = c;
-          newIndices.set(row.k, newNext[j]);
+          newIndices.set(key, newNext[j]);
         } else {
           row.g = -1;
           removes.push(row);
@@ -904,7 +962,7 @@ export function createListEngine(
         for (let j = 0; j < width; j++) {
           const row = order[j];
           if (row !== undefined) {
-            if (slot.ac) setSignal(row.it, midItems[j]);
+            if (slot.ac) setSignal(row.it, (row.item = midItems[j]));
             if (slot.ixs) setSignal(row.ix, i + j);
           } else {
             const built = buildRow(slot, midItems[j], i + j, keys[j]);
@@ -966,6 +1024,7 @@ export function createListEngine(
           items: f.items,
           owners: [],
           nodes: f.nodes,
+          vals: f.vals,
           fns: f.fns,
           ixs: f.ixs,
           its: f.its,
@@ -1025,6 +1084,7 @@ export function createListEngine(
         slot.flat = null;
         slot.size = 0;
         slot.dyn = false;
+        setSignal(version, version._value + 1);
         return;
       }
       if (fp.mode === "replace") {
@@ -1033,18 +1093,24 @@ export function createListEngine(
         for (let i = 0; i < f.owners.length; i++) f.owners[i].dispose();
         slot.dyn = fp.fns !== null;
       }
-      // Hydrating fill: a claim pass, not a placement pass.
-      if (slot.hyd && layer!.commitFill !== null) return layer!.commitFill(slot, fp);
-      for (let i = 0; i < fp.nodes.length; i++) layer!.place(slot, fp.nodes[i], endA, true);
+      // Hydrating fill: a claim pass, not a placement pass (positional
+      // server nodes adopted in place; nothing moves).
+      if (slot.hyd && layer!.commitFill !== null) {
+        layer!.commitFill(slot, fp.nodes);
+        slot.hyd = false;
+        slot.region = undefined;
+      } else for (let i = 0; i < fp.nodes.length; i++) layer!.place(slot, fp.nodes[i], endA, true);
       slot.flat = {
         items: fp.items,
         owners: fp.owners,
         nodes: fp.nodes,
+        vals: fp.vals,
         fns: fp.fns,
         ixs: fp.ixs,
         its: fp.its
       };
       slot.size = fp.len;
+      setSignal(version, version._value + 1);
       return;
     }
     const plan = out as ListPlan;
@@ -1086,18 +1152,28 @@ export function createListEngine(
           r.o.dispose();
         }
       }
+      // Hydrating fill (chain modes — keyed:false, fallback): ONE claim/
+      // adoption path with flat fills. Positional server nodes are adopted
+      // into the rows in place; claimed/adopted nodes then skip placement.
+      const hydrating = slot.hyd;
+      if (hydrating && layer.commitFill !== null) {
+        const list: Nodes[] = new Array(order.length);
+        for (let j = 0; j < order.length; j++) list[j] = nodesOf(order[j]);
+        if (plan.fb !== null) list.push(nodesOf(plan.fb));
+        layer.commitFill(slot, list);
+        for (let j = 0; j < order.length; j++) setNodes(order[j], list[j]);
+        if (plan.fb !== null) setNodes(plan.fb, list[order.length]);
+        slot.region = undefined;
+      }
       // Place fresh/moved rows back-to-front so anchors are always final.
       // Direct insert per row, deliberately — NOT fragment-batched runs
       // (browsers charge per MOVE; LIS + direct placement is move-minimal).
       let anchor: ListNode | null = after !== null ? firstNodeFrom(after) : null;
       if (anchor === null) anchor = endA;
-      const hydrating = slot.hyd;
       for (let j = order.length - 1; j >= 0; j--) {
         const r = order[j];
         const first = firstOf(nodesOf(r));
         if (r.mv) {
-          // Hydrating fill (chain modes): rows whose templates CLAIMED server
-          // nodes are already in place.
           if (!(hydrating && first !== null && layer.inParent(slot, first)))
             layer.place(slot, nodesOf(r), anchor, !r.live);
           r.live = true;
@@ -1127,10 +1203,27 @@ export function createListEngine(
     if (after !== null) after.p = prev;
     else slot.tail = prev;
     slot.size = plan.len;
+    // RECLAIM: a retained row whose node user code moved elsewhere comes
+    // back on the next structural pass — classic's reconcile only skips
+    // LIVE common nodes (it reads parentNode per prefix/suffix node; so do
+    // we, chain-wide, on structural commits only).
+    if (layer !== null && plan.len !== 0) {
+      let a: ListNode | null = endA;
+      for (let r = slot.tail; r !== null; r = r.p) {
+        const first = firstOf(nodesOf(r));
+        if (first === null) continue;
+        if (!layer.inParent(slot, first)) layer.place(slot, nodesOf(r), a, false);
+        a = first;
+      }
+    }
     // Fallback arriving: place after the (now empty) list.
     const fb = plan.fb;
     if (fb !== null && fb !== fbOld) {
-      if (layer !== null) layer.place(slot, nodesOf(fb), endA, true);
+      if (layer !== null) {
+        const first = firstOf(nodesOf(fb));
+        if (!(first !== null && layer.inParent(slot, first)))
+          layer.place(slot, nodesOf(fb), endA, true);
+      }
       fb.live = true;
       fb.mv = false;
       slot.fb = fb;
@@ -1145,17 +1238,25 @@ export function createListEngine(
         if (a === null) a = endA;
         setNodes(r, layer!.splice(slot, nodesOf(r), upd[u][1], a));
       }
+    setSignal(version, version._value + 1);
   };
 
   const values = (): any[] => {
     if (slot.fb !== null) return [slot.fb.v];
+    if (slot.flat !== null) return slot.flat.vals;
     const out: any[] = new Array(slot.size);
     let i = 0;
     for (let r = slot.head; r !== null; r = r.x) out[i++] = r.v;
     return out;
   };
 
-  return { slot, compute, commit, values, teardown };
+  const versionAcc = accessor(version);
+  const array = (): any[] => {
+    versionAcc();
+    return values();
+  };
+
+  return { slot, compute, commit, values, version, array, teardown };
 }
 
 /** ARRAY output as a memo — `mapArray`'s contract: same array identity while
@@ -1176,6 +1277,8 @@ export function listArray(meta: ListMeta): Accessor<any[]> {
   // Created under the list's CREATION owner — a <For> builds its array output
   // lazily on the first read, and a computed created under the READER would
   // be disposed with that reader's next run.
+  // Under hydration the computed takes the second parity id the server's
+  // mapArray spent (owner, then computed), so it consumes no fresh slot.
   const node = runWithOwner(meta.owner, () =>
     computed(
       (): any[] => {
@@ -1184,7 +1287,13 @@ export function listArray(meta: ListMeta): Accessor<any[]> {
         e.commit(out);
         return (last = e.values());
       },
-      meta.lazy ? LAZY_OPTIONS : undefined
+      meta.hid2 !== undefined
+        ? meta.lazy
+          ? { id: meta.hid2, lazy: true }
+          : { id: meta.hid2 }
+        : meta.lazy
+          ? LAZY_OPTIONS
+          : undefined
     )
   )!;
   // Untracked reads inside row bodies resolve via the list's own computation

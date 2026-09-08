@@ -18,7 +18,8 @@
  */
 import { sharedConfig } from "./hydration.js";
 import { IS_DEV } from "./core.js";
-import { installSlotHydration, type FlatPlan, type Slot, type SlotNode } from "./for-slot.js";
+import { installSlotHydration, type Slot, type SlotNode } from "./for-slot.js";
+import type { ListNodes } from "@solidjs/signals";
 
 const hooks = {
   engage(
@@ -36,17 +37,18 @@ const hooks = {
     return { id: meta.hid };
   },
 
-  commitFill(slot: Slot, fp: FlatPlan): void {
-    slot.hyd = false;
+  commitFill(slot: Slot, list: ListNodes[]): void {
     // This module IS the web hydration binding: nodes are DOM nodes here.
     const parent = slot.parent as Node;
     const region = slot.region as Node[];
-    const nodes = fp.nodes as (Node | Node[] | null)[];
+    const nodes = list as (Node | Node[] | null)[];
     // Primitive rows: ADOPT the positional server text node (classic's
-    // normalizeIncomingArray rule) — zero-write hydration and node identity
-    // for text rows (pre-hydration edits/selection survive). Rows and region
-    // walk in lockstep, skipping the server's separator comments; the walk
-    // stops at the first misaligned element (a mismatch — detected below).
+    // normalizeIncomingArray rule) — node identity for text rows, and NO
+    // data write: classic never rewrites text during hydration, so live
+    // pre-hydration edits/selection survive and the server's text stands.
+    // Rows and region walk in lockstep, skipping the server's separator
+    // comments; the walk stops at the first misaligned element (a mismatch —
+    // detected below).
     let cursor = 0;
     adopt: for (let i = 0; i < nodes.length; i++) {
       const nd = nodes[i];
@@ -61,7 +63,6 @@ const hooks = {
         cursor++;
         if (s === c) continue;
         if (c.nodeType !== 3 || s.nodeType !== 3 || c.parentNode === parent) break adopt;
-        if ((s as Text).data !== (c as Text).data) (s as Text).data = (c as Text).data;
         if (arr !== null) arr[k] = s;
         else nodes[i] = s;
       }
@@ -98,16 +99,6 @@ const hooks = {
             `Server and client should render the same list; the DOM was left as the server sent it.`
         );
     }
-    slot.region = undefined;
-    slot.flat = {
-      items: fp.items,
-      owners: fp.owners,
-      nodes: fp.nodes,
-      fns: fp.fns,
-      ixs: fp.ixs,
-      its: fp.its
-    };
-    slot.size = fp.len;
   }
 };
 

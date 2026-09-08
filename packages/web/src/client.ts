@@ -62,6 +62,17 @@ const domOps = {
     return true;
   }
 };
+// Host-aware ops (portals): one per host, tagging every placed node with
+// `_$host` for delegated-event retargeting.
+const hostOpsCache = new WeakMap<object, typeof domOps & { placed(node: Node): void }>();
+function hostOps(host: any) {
+  let ops = hostOpsCache.get(host);
+  if (ops === undefined) {
+    ops = { ...domOps, placed: (node: Node) => tagHost(node, host) };
+    hostOpsCache.set(host, ops);
+  }
+  return ops;
+}
 
 import { JSX } from "../jsx/jsx.js";
 
@@ -1027,11 +1038,18 @@ export function insert(parent, accessor, marker, initial, options) {
       hydrationRt !== null && isHydrating(parent) && Array.isArray(initial)
         ? hydrationRt.slotRegion(initial)
         : undefined;
+    // A caller-provided initial range (non-hydrating) is CONSUMED, as the
+    // classic path reconciles it away before the list lands.
+    if (region === undefined && Array.isArray(initial) && initial.length !== 0)
+      cleanChildren(parent, initial, multi ? marker : undefined);
     // Marker passes through UNTOUCHED: `undefined` = whole-parent insert,
     // `null` = trailing child with preceding siblings (classic MULTI mode),
     // Node = bounded hole. The engine's bulk paths key off this distinction.
-    accessor.$for.impl(parent, accessor, marker, domOps, region);
-    return;
+    // Host-aware inserts (portals) tag every placed node for event
+    // retargeting, exactly as insertExpression's callers do.
+    // `false` = the list already has an ARRAY engine (its accessor was called
+    // before being rendered): insert its array output the classic way below.
+    if (accessor.$for.impl(parent, accessor, marker, host ? hostOps(host) : domOps, region)) return;
   }
   if (typeof accessor !== "function") {
     accessor = normalize(accessor, initial, multi, true);
@@ -1071,7 +1089,11 @@ export function insert(parent, accessor, marker, initial, options) {
       if (hydrationRt !== null) current = hydrationRt.reclaimRegion(current, parent, marker);
       const value = normalize(accessor(), current, multi, true);
       if (typeof value !== "function") return value;
-      if (value.$for !== undefined) {
+      if (
+        value.$for !== undefined &&
+        value.$for.arr === undefined &&
+        value.$for.rendered === undefined
+      ) {
         // Hand-off: whatever classic content this hole tracked goes away
         // first (a For returning after other children). The engine anchors
         // on the marker itself, so no placeholder node is kept (classic's
@@ -1087,7 +1109,7 @@ export function insert(parent, accessor, marker, initial, options) {
           if (current !== undefined) cleanChildren(parent, current, multi ? marker : undefined);
           current = [];
         }
-        value.$for.impl(parent, value, marker, domOps, region, true);
+        value.$for.impl(parent, value, marker, host ? hostOps(host) : domOps, region, true);
         return INNER_OWNED;
       }
       classic(value, prev);

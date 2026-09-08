@@ -31,6 +31,7 @@ import {
   runWithOwner,
   type ListFlatPlan,
   type ListLeaves,
+  type ListEngine,
   type ListMeta,
   type ListNode,
   type ListNodeLayer,
@@ -65,6 +66,9 @@ export interface SlotOps {
   textOf(node: SlotNode): string | undefined;
   /** Write text data if `node` is a text node; false otherwise (commit). */
   setText(node: SlotNode, text: string): boolean;
+  /** Optional: called for every node the engine inserts (web: host tagging
+   * for portals' event retargeting). */
+  placed?(node: SlotNode): void;
 }
 
 /** HYDRATION HOOKS — installed by enableHydration() (for-slot-hydration.ts),
@@ -77,8 +81,9 @@ export interface SlotHydration {
     marker: SlotNode | null | undefined,
     region: SlotNode[] | undefined
   ): { id: string } | false;
-  /** Hydrating fill commit: reconcile claimed rows against the region. */
-  commitFill(slot: Slot, fp: FlatPlan): void;
+  /** Hydrating fill commit: adopt positional server nodes into `nodes` in
+   * place and detect mismatch (no DOM writes). */
+  commitFill(slot: Slot, nodes: ListNodes[]): void;
 }
 let slotHydration: SlotHydration | null = null;
 export function installSlotHydration(h: SlotHydration): void {
@@ -125,10 +130,17 @@ export function nodeLayer(ops: SlotOps): ListNodeLayer {
   let dyn: any = null;
   layer = {
     build(v, o) {
-      dyn = null;
-      if (ops.isNode(v)) return v as SlotNode;
+      // `dyn` is written only AFTER any user code (flatten runs getters that
+      // may build nested lists): the outermost build writes last.
+      if (ops.isNode(v)) {
+        dyn = null;
+        return v as SlotNode;
+      }
       const t = typeof v;
-      if (t === "string" || t === "number") return ops.createText(String(v));
+      if (t === "string" || t === "number") {
+        dyn = null;
+        return ops.createText(String(v));
+      }
       if (t === "function") {
         dyn = v; // dynamic: resolved tracked by the engine
         return null;
@@ -141,6 +153,7 @@ export function nodeLayer(ops: SlotOps): ListNodeLayer {
         dyn = v;
         return null;
       }
+      dyn = null;
       return leavesToNodes(toLeaves(v), ops);
     },
     dynamic: () => dyn,
@@ -182,6 +195,7 @@ export function nodeLayer(ops: SlotOps): ListNodeLayer {
       for (let i = n - 1; i >= 0; i--) {
         ops.insert(parent, out[i], anchor);
         if (tag) ops.tag(out[i], tag);
+        if (ops.placed !== undefined) ops.placed(out[i]);
         anchor = out[i];
       }
       return n === 0 ? null : n === 1 ? out[0] : out;
@@ -194,10 +208,12 @@ export function nodeLayer(ops: SlotOps): ListNodeLayer {
         for (let i = 0; i < nd.length; i++) {
           ops.insert(parent, nd[i], anchor);
           if (tag && tagIt) ops.tag(nd[i], tag);
+          if (ops.placed !== undefined) ops.placed(nd[i]);
         }
       } else {
         ops.insert(parent, nd, anchor);
         if (tag && tagIt) ops.tag(nd, tag);
+        if (ops.placed !== undefined) ops.placed(nd);
       }
     },
     detach(slot, nd) {
@@ -231,7 +247,10 @@ export function nodeLayer(ops: SlotOps): ListNodeLayer {
 }
 
 /** Rendered output — For stamps this as `$for.impl`; a renderer's insert()
- * engages it with its SlotOps. */
+ * engages it with its SlotOps. Returns false when the list already has an
+ * ARRAY engine (its accessor was called before being rendered): ONE engine
+ * per list — the renderer then inserts the accessor's array output the
+ * classic way, so rows are never built twice. */
 export function unifiedForSlot(
   parent: SlotNode,
   listFn: any,
@@ -243,8 +262,9 @@ export function unifiedForSlot(
    * engine removes its rows on cleanup (a children change or dispose) — in
    * direct mode the parent element's removal covers that for free. */
   hole = false
-): void {
-  const meta: ListMeta = listFn.$for;
+): boolean {
+  const meta: ListMeta & { arr?: unknown; rendered?: unknown } = listFn.$for;
+  if (meta.arr !== undefined || meta.rendered !== undefined) return false;
   // HYDRATION: decided by the installed hooks (null in CSR bundles). A
   // hydrating engage hands back the parity owner id so the engine's rows
   // mint the same hydration keys the server's did.
@@ -261,9 +281,15 @@ export function unifiedForSlot(
     }
   }
   const e = createListEngine(meta, parent, marker, layer, region, hole, ownerOpts, hyd);
+  // A later plain call of the accessor reads THIS engine's array view.
+  meta.rendered = e;
   if (IS_DEV) __unifiedForStats.engaged++;
-  onCleanup(e.teardown);
+  onCleanup(() => {
+    meta.rendered = undefined;
+    e.teardown();
+  });
   createRenderEffect(e.compute, e.commit, transparentOptions);
+  return true;
 }
 
 /** DEV-ONLY probes: engagement / bulk-clear counters, exposed as `DEV.unifiedFor`. */

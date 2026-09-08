@@ -465,6 +465,11 @@ module.exports = [
     // decline/demote/late-classic seam left insert). Cumulative vs next:
     // 10.73 -> 10.97 = +236 B (the $for engage check + hole seam + domOps).
     limit: "11.00 KB",
+    //
+    // #3308 audit round (2026-09-08): 11.00 -> 11.05 KB, measured at 11.04
+    // (+44 B: host-aware ops for portals + initial-range consumption in the
+    // engagement path). Cumulative vs next: +276 B.
+    limit: "11.05 KB",
     modifyEsbuildConfig
   },
   {
@@ -588,6 +593,13 @@ module.exports = [
     // costs ~+220 B on For-only apps; For + mapArray apps DROP ~510 B (no
     // second list implementation). Cumulative vs next: +4.07 KB.
     limit: "21.60 KB",
+    //
+    // #3308 audit round (2026-09-08): 21.60 -> 22.05 KB, measured at 22.00.
+    // Reentrancy-safe row build, identity-first lazy keys (+ row.item),
+    // engine dies with the creation owner, one engine per list (version
+    // signal + tracked array view), retained-row reclaim sweep, host tagging,
+    // chain-mode hydration adoption, zero-arg fallback. Cumulative: +4.51 KB.
+    limit: "22.05 KB",
     modifyEsbuildConfig
   },
   {
@@ -728,6 +740,9 @@ module.exports = [
     // ONE ENGINE IN SIGNALS (2026-09-08): 30.35 -> 30.55 KB, measured at
     // 30.50. Cumulative vs next: +4.15 KB.
     limit: "30.55 KB",
+    //
+    // #3308 audit round (2026-09-08): 30.55 -> 30.95 KB, measured at 30.89.
+    limit: "30.95 KB",
     modifyEsbuildConfig
   },
   {
@@ -821,6 +836,10 @@ module.exports = [
     // mapArray is the engine (see the hydrating-app note). Cumulative vs
     // next: 12.90 -> 16.75 = +3.85 KB; For + mapArray apps: +3.87 (was +4.38).
     limit: "16.80 KB",
+    //
+    // #3308 audit round (2026-09-08): 16.80 -> 17.30 KB, measured at 17.24
+    // (+460 B; see the hydrating-app note). Cumulative vs next: +4.34 KB.
+    limit: "17.30 KB",
     modifyEsbuildConfig
   },
   {
