@@ -149,8 +149,11 @@ describe("ASYNC_WATERFALL", () => {
   });
 
   it("does not flag an already-settled cached dependent (duration gate)", async () => {
-    const events = arm(5);
-    const story = createMemo(() => sleep(15, "story"), { name: "story" });
+    // Both links must each clear the gate for a verdict. The gate sits far
+    // above what a resolved promise's landing can take on a loaded CI runner
+    // (a 5ms gate flaked there), and story sits far above the gate.
+    const events = arm(40);
+    const story = createMemo(() => sleep(100, "story"), { name: "story" });
     const author = createMemo(
       () => {
         story();
