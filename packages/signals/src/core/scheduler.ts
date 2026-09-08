@@ -749,25 +749,36 @@ export class GlobalQueue extends Queue {
     // Only track async if the boundary is propagating STATUS_PENDING (not caught by boundary)
     if (mask & STATUS_PENDING) {
       if (flags & STATUS_PENDING) {
-        const actualError = error !== undefined ? error : node._x?._error;
+        // Callers pass either nothing or this node's own `_x._error`, so `??`
+        // is exact (a null error falls back to the same null).
+        const actualError = error ?? node._x?._error;
         // A visibility-only mark notification (the affects() boundary
         // channel) updates display state on its way up but must be invisible
         // to completion accounting BY CONSTRUCTION: it never registers a
         // reporter and never counts toward the loading-boundary diagnostic.
         if ((actualError as NotReadyError)?._markVisual) return true;
-        if (activeTransition && actualError) {
-          const source = (actualError as NotReadyError).source;
-          // The one sanctioned registration site (INV-3): async blockers only
-          // enter the transition from queue notification.
-          if (__DEV__) beginAsyncReporterWrites();
-          let reporters = activeTransition._asyncReporters.get(source);
-          if (!reporters) activeTransition._asyncReporters.set(source, (reporters = new Set()));
-          if (__DEV__) endAsyncReporterWrites();
-          const prevSize = reporters.size;
-          reporters.add(node);
-          if (reporters.size !== prevSize) {
-            schedule();
-            GlobalQueue._wakeSuppressedProbes?.(activeTransition);
+        if (actualError) {
+          // A reveal can discover a flight started in an earlier flush. Hold
+          // the staged writes with that reader (A15), even if the reader is
+          // new. Fresh/reset loading boundaries consume pending before it
+          // reaches here. A reader already parked in a transition must not
+          // open a second one.
+          if (!activeTransition && !node._transition && currentBatch._pendingNodes.length)
+            this.initTransition();
+          if (activeTransition) {
+            const source = (actualError as NotReadyError).source;
+            // The one sanctioned registration site (INV-3): async blockers only
+            // enter the transition from queue notification.
+            if (__DEV__) beginAsyncReporterWrites();
+            let reporters = activeTransition._asyncReporters.get(source);
+            if (!reporters) activeTransition._asyncReporters.set(source, (reporters = new Set()));
+            if (__DEV__) endAsyncReporterWrites();
+            const prevSize = reporters.size;
+            reporters.add(node);
+            if (reporters.size !== prevSize) {
+              schedule();
+              GlobalQueue._wakeSuppressedProbes?.(activeTransition);
+            }
           }
         }
         if (__DEV__ && _enforceLoadingBoundary) _hitUnhandledAsync = true;
