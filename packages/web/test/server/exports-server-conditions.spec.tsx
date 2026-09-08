@@ -89,6 +89,40 @@ describe("export conditions: dev/prod artifact pairing", () => {
     });
   });
 
+  test("CJS `require` pairs solid-js's server.dev.cjs with signals' node.dev.cjs", () => {
+    // The web server bundle externalizes solid-js, and solid-js's server
+    // bundle externalizes @solidjs/signals, so a CJS host resolves each in
+    // turn. The dev server artifact is only honest if the signals it requires
+    // is dev too — its `DEV` export is signals' object — so the `require`
+    // branch of signals needs its own `development` entry, and this pins
+    // both hops flipping together.
+    const script =
+      `const { createRequire } = require("node:module"); ` +
+      `const r = createRequire(process.cwd() + "/"); ` +
+      `const solid = r.resolve("solid-js"); ` +
+      `const signals = createRequire(solid).resolve("@solidjs/signals"); ` +
+      `const web = r.resolve("@solidjs/web"); ` +
+      `process.stdout.write(JSON.stringify([web, solid, signals].map(p => p.replace(/^.*\\/packages\\//, ""))));`;
+    const run = (conditions: string[]) =>
+      JSON.parse(
+        execFileSync(
+          process.execPath,
+          [...conditions.map(c => `--conditions=${c}`), "-e", script],
+          { cwd: process.cwd(), encoding: "utf8" }
+        )
+      );
+    expect(run([])).toEqual([
+      "web/dist/server.cjs",
+      "solid/dist/server.cjs",
+      "signals/dist/node.cjs"
+    ]);
+    expect(run(["development"])).toEqual([
+      "web/dist/server.dev.cjs",
+      "solid/dist/server.dev.cjs",
+      "signals/dist/node.dev.cjs"
+    ]);
+  });
+
   test("worker and deno conditions carry the same dev/prod pairing as node", () => {
     // Node always adds its own `node` condition; passing `worker`/`deno` on top
     // exercises those keys' nesting (they precede `node` in every exports map

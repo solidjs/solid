@@ -80,7 +80,7 @@
       "outputs": []
     },
     "solid-js#test": {
-      "dependsOn": ["@solidjs/signals#build"],
+      "dependsOn": ["@solidjs/signals#build", "solid-js#build"],
       "outputs": []
     },
     "@solidjs/web#test": {

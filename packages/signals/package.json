@@ -34,6 +34,7 @@
       },
       "require": {
         "types": "./dist/types-cjs/index.d.cts",
+        "development": "./dist/node.dev.cjs",
         "default": "./dist/node.cjs"
       }
     },
@@ -41,7 +42,7 @@
   },
   "scripts": {
     "build": "npm-run-all -nl build:* && pnpm types",
-    "build:clean": "rimraf dist/dev dist/prod dist/node dist/dev.js dist/prod.js dist/node.cjs",
+    "build:clean": "rimraf dist/dev dist/prod dist/node dist/dev.js dist/prod.js dist/node.cjs dist/node.dev.cjs",
     "build:js": "rollup -c && node ./scripts/mangle-props.mjs dist/prod dist/node.cjs && node ./scripts/check-pure.mjs dist/prod",
     "types": "tsc -p tsconfig.build.json && node ../../scripts/sync-dual-types.mjs ./dist/types ./dist/types-cjs",
     "test": "vitest run",

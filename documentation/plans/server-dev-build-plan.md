@@ -141,10 +141,17 @@ false`), `exports-server-conditions.spec.tsx`; solid
   `solid.dev.*`, `web.dev.*`, `universal.dev.*`. Signals keeps `dev.js` vs
   `prod/` (chunked dir for the mangle pass; a restructure, not a rename).
   The resolution test now pins the client pairing under `browser` too.
-- Known gap, not P0: `@solidjs/signals`' `require` branch has no
-  `development` condition (`dist/node.cjs` is `__DEV__: false` only), so CJS
-  hosts loading `server.dev.cjs` still get signals' prod object and `DEV`
-  comes back `undefined`. Needs a dev CJS build of signals; file separately.
+- `@solidjs/signals`' `require` branch had no `development` condition
+  (`dist/node.cjs` is `__DEV__: false` only), so CJS hosts loading
+  `server.dev.cjs` got signals' prod object and `DEV` came back `undefined` —
+  a dev artifact lying about the one export P1 will emit through. Fixed in
+  the same PR: `dist/node.dev.cjs` (unmangled twin of `dev.js`), selected by
+  `require.development`. The resolution test walks the CJS hops
+  (`@solidjs/web` → `solid-js` → `@solidjs/signals`) and pins all three
+  flipping together; a signals dist test pins `DEV` per CJS artifact.
+- `solid-js#test` now depends on `solid-js#build` in `turbo.json` — it had
+  no dist-based tests until this work, so it was the one package whose test
+  task didn't wait for its own build.
 
 ### P1 — A server diagnostics channel
 
