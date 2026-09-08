@@ -713,6 +713,12 @@ export class GlobalQueue extends Queue {
         }
       }
       clock++;
+      // Finalization can re-enter a pending transaction. Its effects must
+      // return through the transition gate before any apply runs.
+      if (activeTransition) {
+        scheduled = true;
+        return;
+      }
       // Check if finalization added items to the heap (from optimistic reversion)
       scheduled = dirtyQueue._max >= dirtyQueue._min;
       // Run lane effects first (for ready lanes), then regular effects
@@ -1032,12 +1038,16 @@ export function finalizePureQueue(
 ) {
   // For incomplete transitions, skip pending resolution and optimistic reversion
   // For completing transitions or no-transition, resolve pending and revert optimistic
+  const finalizingBatch = currentBatch;
   const resolvePending = !incomplete;
   if (resolvePending) commitPendingNodes();
   if (!incomplete && globalQueue._children.length) checkBoundaryChildren(globalQueue);
   const ranHeap = dirtyQueue._max >= dirtyQueue._min;
   if (ranHeap) runHeap(dirtyQueue, GlobalQueue._update);
   if (resolvePending) {
+    // Boundary checks and recomputes can adopt another transaction. The
+    // current finalize must not commit or revert that transaction’s state.
+    if (currentBatch !== finalizingBatch) return;
     if (ranHeap) commitPendingNodes();
     // The settling batch: the completing transaction's, or the ambient one.
     const batch = completingTransition ?? globalQueue._batch;
