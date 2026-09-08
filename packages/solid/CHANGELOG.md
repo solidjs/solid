@@ -1,5 +1,112 @@
 # solid-js
 
+## 2.0.0-rc.7
+
+### Patch Changes
+
+- 215de3b: Align store overloads across the signals, client, and server entry points. Plain stores share `StoreOptions`, projection forms share `ProjectionOptions`, plain optimistic stores expose their existing options argument, and derived optimistic stores are typed as refreshable.
+- 1a1e2f2: Attribution: `feedback()` — what the user waited on, as ranked tables.
+
+  `DEV.attribution.feedback()` is a pure fold over the records the engine already keeps — `holds()` and the interaction on each re-run — with no measurement or hook sites of its own, the way `costs()` folds re-runs into scope and write tables. `sources` ranks each set of async sources that held writes by the silent time spent behind them, with `holds`/`heldMs`/`worstMs`, `silent`/`silentMs`, `acknowledgedBy` (which affordance answered and in how many holds — a source acknowledged on one screen and silent on another reads as exactly that), `latestOnly` (answered only by a `latest()` shadow), the `interactions` that were held, the distinct `writes`, and `actions`. `interactions` ranks user events (type + target; repeated dispatches fold together) by total cost, pairing the synchronous re-run work one dispatch caused (`runs`, `selfMs`, `worstDispatchMs` — the long-flush hazard) with the time its writes spent held (`holds`, `heldMs`, `silentMs`, `worstHoldMs` — the silent-hold hazard): the two INP failure modes as columns of one row. Every hold counts at any duration; `SILENT_HOLD` remains the thresholded verdict over the same records. New exported types `FeedbackSource` and `FeedbackInteraction`; the reactivity-diagnostics skill gains a "where to start" entry, and `solid-js`'s console footer names the surface.
+
+- 7c14e23: Attribution: write provenance — who performed a change.
+
+  Every root `ChangeRecord` now carries `origin`: the imperative frame that made the write. `interaction` (a user event — type, described target such as `button#next "Next →"`, and dispatch time), `effect` (the callback's name), `action` (the generator's name), `async` (the landing's node), or `external` (timers, sockets, promise callbacks — including writes after an `await` rather than a `yield` inside an action, the documented transaction escape). Frames nested under an interaction carry it: an action a click started (every step, including post-`yield` resumptions), an effect whose run a click's write caused, an async flight a click's write launched. Why-chains print the origin after the write; `RerunEvent.interaction` and `HoldEvent.interaction` expose the interaction a run or hold traces back to, and `SILENT_HOLD` now opens with what the user did and measures the wait from the event, not from the first parked flush.
+
+  `@solidjs/web` declares the interaction around its two dispatch sites — delegated events (`onClick`, `onInput`, `onKeyDown`, pointer events: every INP-relevant type) and runtime-attached direct handlers (spreads, non-literal handler expressions) — via the new `DEV.attribution.withInteraction(ref, fn)`, which custom renderers and test harnesses can call themselves. New core dev hooks `effectRunStart`/`effectRunEnd` (replacing `effectRun`) and `actionStepStart`/`actionStepEnd`; all sites fold out of prod, verified byte-identical against the size scenarios.
+
+- c6c415b: Mark `createTrackedEffect` as `@deprecated`. It is retained to ease 1.x migration, but it should not appear in new code: use `createEffect(compute, effect)` for side effects that follow reactive state (it separates tracking from the side effect, knows its dependencies before it runs, and participates in async and transitions) and `onSettled` for one-time DOM work after render. `onSettled` is unaffected (it uses the internal tracked-effect node directly).
+- bd22ac8: Rename the three legacy client dev artifacts to the `<entry>.dev.{js,cjs}` convention every other dev build already uses: `solid-js/dist/dev.*` → `dist/solid.dev.*`, `@solidjs/web/dist/dev.*` → `dist/web.dev.*`, `@solidjs/universal/dist/dev.*` → `dist/universal.dev.*`. With server dev builds now shipping as `dist/server.dev.*`, a bare `dev.js` no longer says which entry it is the dev build of. The `exports` maps are updated; only code deep-importing `dist/dev.js` directly (bypassing `exports`) is affected.
+- 6c8c956: Diagnostics console addressability: compiled JSX binding effects (attribute, class, style, property, spread, insert) are tagged in dev with the element they write, and a console diagnostic about such an effect prints that element as a second argument — hover highlights it on the page, click jumps to it in the Elements panel. Why-chains (`DEV.attribution.enable()` logging) print as collapsed console groups, one headline per run with the causes inside. The once-per-code footer now pairs the installed skill path with the file's stable GitHub URL, anchored to the code's section.
+- d5aba4b: `WIDE_WRITE` and `HOT_SCOPE_FANOUT` diagnostics, and the reactivity-diagnostics and agent-loops skills, now prescribe a projection (`createProjection`, or a `createStore(fn)` keyed by id) as the fan-out repair. They previously named an API that is not part of 2.0 (#3304).
+- 3ae0ca0: Diagnostics locate themselves and report once.
+  - Every `DiagnosticEvent` now carries `ownerPath` — the root-first chain of named owners enclosing the subject (`["<App>", "<TodoRow>", "effect"]`). Component roots are labeled `<Name>` by `solid-js`'s dev component wrapper, so the path reads as the component tree down to the scope; owned-scope write errors in a component body now say `(in <TodoRow>)`.
+  - Console reports are a single entry per finding: message, an `in <App> › <TodoRow> › effect` line, and the once-per-code repair footer as trailing lines — the footer no longer lands as a separate, duplicate-looking `[CODE]` line. Advisory (`info`) events emit no footer at all.
+  - `ASYNC_OUTSIDE_LOADING_BOUNDARY` fires once per `render()` instead of once per pending render effect (N async siblings at mount produced N copies).
+  - New dev-only helpers on the signals core: `reportDiagnostic(entry)` (the console face) and `ownerPath(subject)`; `emitDiagnostic` takes an optional subject (defaulting to the ambient reactive context).
+
+- 1a1e2f2: Diagnostics: the responsiveness gate — holds and feedback in the artifact, `expectNoSilentHolds`, and Loop 4.
+
+  The artifact (format v2) now carries `attribution.holds` — every transition hold the scenario caused, with the held writes, the blockers, the wait measured from the interaction, and which affordances acknowledged it — and `attribution.feedback`, the ranked `sources`/`interactions` tables folded from them. JSONL egress emits `hold` and `feedback` records; the browser bridge and the `/__solid/diagnostics` protocol gain `holds()` and `feedback()` live queries.
+
+  New gates: `expectNoSilentHolds(artifact, { maxSilentMs })` fails on any hold the screen never acknowledged (no `isPending()`/`latest()` reader, no optimistic value, no `affects()` mark, nothing painted) with the interaction, held write, blocker, and duration as evidence; `expectHoldBudget(artifact, ms, { source })` bounds hold latency regardless of acknowledgment. `ScenarioBudget` gains `maxSilentHoldMs` and `maxHoldMs`; Vitest gains `toHaveNoSilentHolds()` and `toStayWithinHoldBudget(ms)`. The agent-loops skill gains "Loop 4 — Responsiveness": read `feedback.sources` first, repair by shape (`isPending` → `latest` → `createOptimistic`), and the explicit anti-repair — never make the gate pass by moving the write off the async path. Types `HoldEvent`, `ChangeOrigin`, `AttributionFeedback`, `FeedbackSource`, `FeedbackInteraction` are exported.
+
+- 6c8c956: Attribution: `EFFECT_RELAY_TEAR` diagnostic — derived state kept in sync by an effect (`createEffect(() => f(a()), v => setS(v))`). "Should have been a memo" is a claim about intent the runtime cannot see; what it can see is the harm: every scope that reads both `a` and `S` runs twice for one write of `a` — once in the flush where `a` changed (against the stale `S`), once after the effect's write lands — and the first frame was inconsistent. The engine proves that from the cause chain (a re-run whose root writes all came from effects, one of whose runs shares a root write with the victim's previous run) and reports it once per relay, with intent heuristics as message modifiers rather than gates: `copy` (the written value is the effect's compute output — by contract a pure function of its tracked reads, so derivable; warns immediately, and on its own after two runs even with no double-running reader, since everything reading the copy paints a flush behind the source), `passthrough` (the compute output is one of the effect's sources — the prop-to-state port: read the source directly), and `soleWriter` (nothing else writes the signal). A tear whose write is none of these is `info` (a DOM-measurement effect tears legitimately — the cost of measuring) until the same relay has torn three times. The `reactivity-diagnostics` skill documents the code and repairs.
+- 1a1e2f2: Attribution: `EFFECT_WRITES_OWN_SOURCE` diagnostic. An effect whose callback writes a value its own inputs depend on converges (the second run finds nothing to change) rather than looping, so the flush guard never fires — yet the flush settled in two passes and the screen rendered the pre-write value in between. The engine now walks each effect re-run's cause chain (root writes, through any depth of memos) and, when a root write's effect origin resolves to the effect that is re-running, reports the cycle once: `warn` for a single effect (the written value is a function of what the effect reads — make it a memo, or normalize where the source is written), `info` for a cycle relayed across several effects (each effect-origin write is joined to the run that made it, so the walk continues hop by hop). Effect-origin `ChangeOrigin` frames gain `run`, the `RerunEvent.run` whose effect phase performed the write. The `reactivity-diagnostics` skill documents the code and repair.
+- b6a90f9: Fix `deferStream` being a silent no-op inside a code-split `lazy()` component (#3299). A module load is code, not data: the shell's "no new async discovered during the sync render" rule cannot be evaluated for a segment whose code has not run, so the shell now waits for the chunk even under a `<Loading>` (the boundary still owns the data the loaded code discovers — plain async streams behind the fallback as before, and a `deferStream` read inside the chunk holds the shell exactly like one in an eagerly imported component). Only the first render that reaches an un-preloaded chunk pays; a lazy mounted by a post-shell fragment streams as before.
+
+  Also closes a gap in the flush loop where a shell blocker registered while a boundary resumed during the drain — after the awaited set had settled but before the flush attempt snapshotted it — was never re-awaited.
+
+  `dynamic()` keeps streaming its source by default (a source is data of unknown cost) and gains a `deferStream` option to opt into holding the shell on it, with the same meaning as `createMemo`'s.
+
+- 3424f9a: Consume the first value of live-derived stores during SSR and reconnect their live sources after hydration.
+- 6c8c956: Attribution: `IMMUTABLE_UPDATE_IN_STORE` diagnostic. A store setter that replaces a container with a fresh object or array whose leaves are mostly the same values — `draft.user = { ...draft.user, name }`, `draft.items = [...draft.items, x]`, `draft.items = draft.items.filter(…)` — is the React habit the store does not need: it tracks leaves, so a fresh container makes every reader of the container's path re-run for the one leaf that moved. The store's write-channel notify now announces replaced containers to the attribution engine with a leaf census (identity on unwrapped values; object keys by key, array items by membership; containers over 64 leaves are skipped), and the engine warns once per store path when at least half the leaves carried over unchanged, naming the draft mutation that touches only the changed key or index and `reconcile()` for data arriving from outside. Genuinely new data (nothing carried over), draft mutation, and `reconcile()` do not report. New `AttributionHooks.storeReplaced` hook point.
+- f4d3c87: Responsiveness thresholds and the LONG_HOLD diagnostic.
+  - `SILENT_HOLD` defaults tighten to `holds: { infoMs: 100, warnMs: 200 }` (from 300/500): RAIL's "feels instant" ceiling and the INP "good" ceiling. The engine measures to the commit, not the paint, so every number is a floor on what the user saw; the console's thresholds now sit at the strict end of the band.
+  - New `LONG_HOLD` (`responsiveness` kind): an acknowledged hold whose quiescent tail — from the last write to join it to the commit — reached `longHolds.infoMs` (default 500ms), `warn` from `longHolds.warnMs` (1000ms). Measured from the last join so a hold that keeps taking input is judged by each wait, not its lifetime. The repair is a fallback: a `Loading` boundary keyed with `on` (a revealed boundary without `on` keeps the old content — that is the hold), a fresh boundary, or making the data fast. A silent long hold stays one `SILENT_HOLD` with the same repair appended and `data.long: true`.
+  - `HoldEvent.tailMs` added; `holdMs` now runs from the interaction dispatch or the first parked flush, whichever is earlier (a node rewritten mid-hold keeps only its latest record, so the flush clock keeps the first wait from being forgotten). `ChangeRecord.at` stamps root writes.
+  - `feedback().sources[].late/lateMs` replaced by `long/longMs`: holds whose tail reached the long-hold threshold, acknowledged or not.
+  - `@solidjs/diagnostics` artifact format version 3 (`tailMs` on holds, `long`/`longMs` on sources); hold evidence in assertion failures includes `tailMs`.
+  - `RerunEvent.phase` value `"transition"` renamed to `"held"` (`"plain" | "held" | "optimistic"`) — the dev surface uses one word for the state.
+
+- d601119: Remove the experimental patch channel and patch-mode list driver (always opt-in, never default). Graph-native regions own value delivery and the unified-For design owns list structure, so the channel's parallel delivery machinery is retired: `patch.ts`/`patch-driver.ts` deleted, the compiler-contract exports (`registerPatch`/`registerRowOps`/`registerSlotPatch`/`patchableRaw`, `patchDriver`/`rowProof`/`driveList`) removed, the `patchDriver` compiler option dropped from both compilers, the insert `$ll` seam stripped, and the write-side channel struct dieted to the single written-keys bound (`t.wk`) the core fold/notify paths actually use. Store-family app bundles reclaim up to ~900 B brotli; every measured tier shrinks.
+- ac5159a: Preserve the supplied type in `Store<T>` instead of adding a shallow readonly mapping.
+- de1c8b5: Revert the complete-seed requirement on derived store forms (#3258). Derived `createStore`, `createProjection`, and derived `createOptimisticStore` accept `Partial<T>` seeds again, on maintainer review: requiring a full `T` forces callers to fabricate a throwaway complete object in the common async case — any object store reconciling on a non-`id` key needs the options slot, hence the seed slot — while the seed is never observable there (reads pend until the first resolution). The type-honesty concern it addressed is real only for sync draft-reading callbacks and is better served by the seedless-callback direction discussed in #3194. Since #3258 never shipped in a release, its pending changeset is dropped rather than superseded; the API is unchanged from 2.0.0-rc.6. The #3260 overload alignment (slot order, `shallow` in options, `Refreshable` derived returns) is unaffected.
+- 80ff52e: Add development server builds — `dist/server.dev.*` for `solid-js` and `@solidjs/web`, and `frames/dist/server.dev.*` — selected by the `development` export condition nested under `node`/`worker`/`deno` (nesting is required: those conditions precede the top-level `development` key, so a top-level entry never matched on a server). Until now SSR had no dev build: the only server artifact was built with `_SOLID_DEV_` stripped, so the server runtime's dev checks (head/preload descriptor validation, `useHead` warnings, the committed-response header guard) never ran outside the test suite.
+
+  The server entries now gate their public dev flags on the same `_SOLID_DEV_` replace as their internals instead of hard-coding them: `solid-js`'s server `DEV` is `@solidjs/signals`' `DEV` object in the dev artifact (so `DEV.diagnostics.subscribe`/`capture` work server-side) and `undefined` in prod; `@solidjs/web`'s server `isDev` is `true` in the dev artifact and `false` in prod.
+
+  Behavior change for dev SSR hosts that pass the `development` condition (Vite dev does by default): a header write after the response has committed now **throws** with the offending header named, where the production artifact continues to `console.error` and drop the write.
+
+  Also runs `replaceDev(false)` on `solid-js`'s production server build so a future `_SOLID_DEV_` gate in `src/server/` cannot constant-fold into the dev branch in production.
+
+- 01e3a57: Attribution: transition holds and the `SILENT_HOLD` diagnostic.
+
+  When a write lands on async work the runtime holds it until the data settles — correct, but from the user's side the click did nothing until then. The attribution engine now records every such hold that staged a root write (`DEV.attribution.holds()`: duration, parked flushes, the held writes with their values, the async blockers, and which affordances answered it), and emits `SILENT_HOLD` when the screen provably rendered no acknowledgment: no `isPending()`/`latest()` reader anywhere downstream of the held writes or their blockers, no optimistic value, no `affects()` mark, and no effect ran inside the parked flushes. The verdict is tiered by `holds: { infoMs, warnMs }` (default 300/500ms): advisory on the structured channel, then a console `warn` naming the write, the blocker, and the concrete repair — `isPending(() => blocker())`, `latest(source)`, or `createOptimistic` for actions. Holds with no root write (initial loads, bare `refresh()`) are never judged.
+
+  New dev hook points on the core (`effectRun`, `holdStart`/`holdEnd`, `transitionSettled`, `transitionMerged`) sit outside every `try` and fold out of prod — verified byte-identical against the size scenarios. `DiagnosticKind` gains `"responsiveness"`; `solid-js`'s console footer teaches the attribution surface for it, and the reactivity-diagnostics skill documents the repair.
+
+- 6c8c956: Attribution: `UNSTABLE_LIST_IDENTITY` diagnostic. When a `mapArray`/`<For>` update disposes and recreates most rows while the entering items are field-for-field equivalent to the ones they replaced (a re-fetch handed back fresh objects for the same records under identity keying, or a key function returned unstable keys), every row's DOM and state was thrown away and rebuilt for data that did not change. `mapArray` now hands the exited and entered items to the attribution engine after a churning commit (`AttributionHooks.listChurn`); the engine pairs them (by `id`/`key`/`_id` when present, else by position), samples shallow equivalence, and warns once per list naming the repair — key by a stable field or merge with `reconcile(data, "id")`, or, when a key function is already in use, return a stable field from it. `mapArray` nodes now carry the `name` option as their node name in dev so the list is named in the report.
+- Updated dependencies [215de3b]
+- Updated dependencies [6c8c956]
+- Updated dependencies [1a1e2f2]
+- Updated dependencies [7c14e23]
+- Updated dependencies [ef2b02c]
+- Updated dependencies [c6c415b]
+- Updated dependencies [6c8c956]
+- Updated dependencies [d5aba4b]
+- Updated dependencies [3ae0ca0]
+- Updated dependencies [ae46c92]
+- Updated dependencies [6c8c956]
+- Updated dependencies [1a1e2f2]
+- Updated dependencies [f98bd77]
+- Updated dependencies [fc7e626]
+- Updated dependencies [d50e855]
+- Updated dependencies [8f9f369]
+- Updated dependencies [c531e2a]
+- Updated dependencies [aed21ac]
+- Updated dependencies [b3c94be]
+- Updated dependencies [0653673]
+- Updated dependencies [6c8c956]
+- Updated dependencies [94fe5b4]
+- Updated dependencies [23477ae]
+- Updated dependencies [f4d3c87]
+- Updated dependencies [067e3bc]
+- Updated dependencies [8a65e5e]
+- Updated dependencies [f24e53d]
+- Updated dependencies [fa568d3]
+- Updated dependencies [d601119]
+- Updated dependencies [ac5159a]
+- Updated dependencies [de1c8b5]
+- Updated dependencies [c07a044]
+- Updated dependencies [01e3a57]
+- Updated dependencies [e346e61]
+- Updated dependencies [713a910]
+- Updated dependencies [e346e61]
+- Updated dependencies [0255729]
+- Updated dependencies [6c8c956]
+  - @solidjs/signals@2.0.0-rc.7
+
 ## 2.0.0-rc.6
 
 ### Patch Changes
