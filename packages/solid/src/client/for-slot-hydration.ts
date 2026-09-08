@@ -24,13 +24,14 @@ const hooks = {
     meta: any,
     marker: SlotNode | null | undefined,
     region: SlotNode[] | undefined
-  ): { id: string } | null | false {
+  ): { id: string } | false {
     if (!sharedConfig.hydrating) return false;
     // Whole-parent (marker undefined) and comment-bounded holes (the
     // compiled hydrating client resolves anchored holes to the `<!--/-->`
-    // marker NODE via getNextMarker, with the region as `initial`) both
-    // engage. A `null` marker never occurs under hydration; decline it.
-    if (marker === null || meta.hid === undefined || region === undefined) return null;
+    // marker NODE via getNextMarker, with the region as `initial`) hydrate.
+    // Without a parity id or a region there is nothing to claim against
+    // (a `null` marker never occurs under hydration): fill as a CSR list.
+    if (marker === null || meta.hid === undefined || region === undefined) return false;
     return { id: meta.hid };
   },
 
@@ -40,7 +41,7 @@ const hooks = {
     // This module IS the web hydration binding: nodes are DOM nodes here.
     const parent = slot.parent as Node;
     const region = slot.region as Node[];
-    const nodes = fp.nodes as (Node | Node[])[];
+    const nodes = fp.nodes as (Node | Node[] | null)[];
     // Primitive rows: ADOPT the positional server text node (classic's
     // normalizeIncomingArray rule) — zero-write hydration and node identity
     // for text rows (pre-hydration edits/selection survive). Rows and region
@@ -49,6 +50,7 @@ const hooks = {
     let cursor = 0;
     adopt: for (let i = 0; i < nodes.length; i++) {
       const nd = nodes[i];
+      if (nd === null) continue; // zero-node row
       const arr = Array.isArray(nd) ? nd : null;
       const n = arr !== null ? arr.length : 1;
       for (let k = 0; k < n; k++) {
@@ -67,6 +69,7 @@ const hooks = {
     const ours = new Set<Node>();
     for (let i = 0; i < nodes.length; i++) {
       const nd = nodes[i];
+      if (nd === null) continue;
       if (Array.isArray(nd)) for (const n of nd) ours.add(n);
       else ours.add(nd);
     }
@@ -87,6 +90,7 @@ const hooks = {
     let anchor: Node | null = slot.end as Node | null;
     for (let i = nodes.length - 1; i >= 0; i--) {
       const nd = nodes[i];
+      if (nd === null) continue;
       if (Array.isArray(nd)) {
         for (let k = nd.length - 1; k >= 0; k--) {
           if (!ops.contains(parent, nd[k])) {

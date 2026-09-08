@@ -460,7 +460,11 @@ module.exports = [
     // 11.04 (+61 B). Four renderer ops on web's domOps singleton (owns /
     // next / textOf / setText) — retained by insert's object literal even
     // without For. Not slot bytes.
-    limit: "11.05 KB",
+    //
+    // ENGINE (2026-09-07): 11.05 -> 11.00 KB, measured at 10.97 (-72 B: the
+    // decline/demote/late-classic seam left insert). Cumulative vs next:
+    // 10.73 -> 10.97 = +236 B (the $for engage check + hole seam + domOps).
+    limit: "11.00 KB",
     modifyEsbuildConfig
   },
   {
@@ -562,7 +566,15 @@ module.exports = [
     // under For's creation owner, contiguous list-end anchor, parent-guarded
     // removes, throw-safe row build, fresh-duplicate detection, positional
     // server-text adoption in the hydrating fill commit.
-    limit: "21.45 KB",
+    //
+    // ENGINE (2026-09-07, unified-for-engine): 21.45 -> 22.10 KB, measured at
+    // 22.04. CUMULATIVE vs next: 17.49 -> 22.04 = +4.56 KB. The slot is THE
+    // keyed-For engine on web: every mode (identity / keyed:false / keyed:fn
+    // / index accessors / duplicates / fallback) implemented once on the
+    // chain; the engage/decline/demote/late-classic seam is deleted (-0.4 KB),
+    // the modes + fallback + duplicate chaining cost +0.9 KB. Flat mode is
+    // gated to identity arity-1 rows (measured: +5-10% on 10k create/clear).
+    limit: "22.10 KB",
     modifyEsbuildConfig
   },
   {
@@ -687,7 +699,10 @@ module.exports = [
     //
     // External audit fixes (2026-09-07): 29.50 -> 30.38 KB, measured at
     // 30.35 (+~850 B) — the slot's dynamic-row/ownership/anchor work above.
-    limit: "30.38 KB",
+    //
+    // ENGINE (2026-09-07): 30.38 -> 30.85 KB, measured at 30.79. Cumulative
+    // vs next: 26.36 -> 30.79 = +4.43 KB. See the hydrating-app note.
+    limit: "30.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -760,7 +775,11 @@ module.exports = [
     // slot), creation-owner rows, contiguous end anchor, guarded removes,
     // throw-safe build, fresh-duplicate detection. Structural, not golfable:
     // the empty-leaves normalization and node-selector dedupes bought ~80 B.
-    limit: "16.50 KB",
+    //
+    // ENGINE (2026-09-07, unified-for-engine): 16.50 -> 17.05 KB, measured at
+    // 17.00. CUMULATIVE vs next: 12.90 -> 17.00 = +4.10 KB. See the
+    // hydrating-app note for the breakdown.
+    limit: "17.05 KB",
     modifyEsbuildConfig
   },
   {

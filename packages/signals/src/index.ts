@@ -81,6 +81,10 @@ export type {
 } from "./signals.js";
 export { affects } from "./affects.js";
 export { mapArray, repeat, type Maybe } from "./map.js";
+/** @internal solid-js For engine: mapArray's per-row signal trio (node +
+ * owned write + bound accessor) without createSignal's tuple/closure pair. */
+export { signal, setSignal } from "./core/index.js";
+export { accessor } from "./signals.js";
 export * from "./store/index.js";
 export {
   createLoadingBoundary,

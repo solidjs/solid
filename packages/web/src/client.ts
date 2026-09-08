@@ -1014,52 +1014,24 @@ export function insert(parent, accessor, marker, initial, options) {
   const host = options && options.host;
   if (multi && !initial) initial = [];
   if (hydrationRt !== null) initial = hydrationRt.claimInitial(parent, multi, initial);
-  // Unified-For seam (DESIGN-UNIFIED-FOR §4): a list value carrying the
-  // `$for` descriptor brings the slot impl WITH it (For's module graph);
-  // insert engages it by handing over web's domOps. `false` declines to
-  // classic (the descriptor is also a callable — calling it IS the classic
-  // mapArray path). The lateClassic thunk serves ENGAGED lists that later
-  // leave the slot's contract: it re-enters this insert under the ORIGINAL
-  // owner with a bare accessor (no `$for` marker).
+  // Unified-For: a list value carrying the `$for` descriptor brings the
+  // engine WITH it (For's module graph); insert engages it by handing over
+  // web's domOps. The engine implements every For mode — there is no
+  // classic fallback on web (calling the descriptor IS the mapArray path,
+  // for children() and non-engaging renderers).
   if (typeof accessor === "function" && accessor.$for !== undefined) {
-    const listAccessor = accessor;
-    const owner = getOwner();
     // Hydration: the claimed region snapshot — the parent's childNodes
     // (claimInitial, whole-parent) or the comment-bounded hole range the
-    // compiled client resolved via getNextMarker (anchored holes). The
-    // slot's fill reconciles claimed rows against it.
+    // compiled client resolved via getNextMarker (anchored holes).
     const region =
       hydrationRt !== null && isHydrating(parent) && Array.isArray(initial)
         ? hydrationRt.slotRegion(initial)
         : undefined;
-    if (
-      // Marker passes through UNTOUCHED: `undefined` = whole-parent insert,
-      // `null` = trailing child with preceding siblings (classic MULTI mode
-      // — the compiler emits it for `<div><h1/>{list}</div>`), Node = bounded
-      // hole. The slot's bulk-clear paths key off this distinction (P0:
-      // collapsing null→undefined wiped preceding siblings).
-      accessor.$for.impl(
-        parent,
-        accessor,
-        marker,
-        () =>
-          runWithOwner(owner, () =>
-            insert(
-              parent,
-              () => listAccessor(),
-              marker,
-              // Anchored holes: hand classic the bounded region the slot had
-              // (a hydrating demote's primitive rows adopt positional text
-              // from it — same as the hole seam); whole-parent re-derives.
-              marker !== undefined ? (region ?? []) : undefined,
-              options
-            )
-          ),
-        domOps,
-        region
-      )
-    )
-      return;
+    // Marker passes through UNTOUCHED: `undefined` = whole-parent insert,
+    // `null` = trailing child with preceding siblings (classic MULTI mode),
+    // Node = bounded hole. The engine's bulk paths key off this distinction.
+    accessor.$for.impl(parent, accessor, marker, domOps, region);
+    return;
   }
   if (typeof accessor !== "function") {
     accessor = normalize(accessor, initial, multi, true);
@@ -1077,17 +1049,9 @@ export function insert(parent, accessor, marker, initial, options) {
   let current = initial;
   // Unified-For HOLE seam: a `$for` accessor reaching this hole THROUGH a
   // wrapper (`{props.children}` in a parent component compiles to
-  // `insert(el, () => props.children)`) engages the slot for the hole. The
-  // slot is created inside this compute, so a children change tears it down
-  // (hole-mode cleanup removes its rows). A demote hands the hole to the
-  // SHARED classic effect synchronously (the slot has already removed its
-  // rows and disposed its owner) and flips `holeClassic` so a later
-  // children-change re-run takes the classic path directly.
-  let holeClassic = false;
-  // The classic inner effect for a function-valued hole. Shared by the
-  // normal path and the hydrating demote re-entry so BOTH write this insert's
-  // `current` — a nested insert() would own a private range and leave the
-  // rows classic appends afterward invisible to this effect's cleanup.
+  // `insert(el, () => props.children)`) engages the engine for the hole. The
+  // engine is created inside this compute, so a children change tears it
+  // down (hole-mode cleanup removes its rows).
   const classic = (value, prev) =>
     effect(
       () => (
@@ -1107,59 +1071,24 @@ export function insert(parent, accessor, marker, initial, options) {
       if (hydrationRt !== null) current = hydrationRt.reclaimRegion(current, parent, marker);
       const value = normalize(accessor(), current, multi, true);
       if (typeof value !== "function") return value;
-      if (value.$for !== undefined && !holeClassic) {
+      if (value.$for !== undefined) {
         // Hand-off: whatever classic content this hole tracked goes away
-        // first (a For returning after other children). Multi holes keep
-        // insert's placeholder invariant — a surviving anchor the slot's
-        // rows land after, before the marker. Under an ACTIVE hydration of
-        // this parent the tracked range is the claimed server region: keep
-        // it for the slot's fill instead of cleaning.
+        // first (a For returning after other children). The engine anchors
+        // on the marker itself, so no placeholder node is kept (classic's
+        // multi-mode placeholder is insert's own positioning aid). Under an
+        // ACTIVE hydration of this parent the tracked range is the claimed
+        // server region: keep it for the engine's fill instead of cleaning.
         const region =
           hydrationRt !== null && isHydrating(parent) && Array.isArray(current)
             ? hydrationRt.slotRegion(current)
             : undefined;
-        let keep;
-        // Under hydration the tracked range STAYS the claimed region: if the
-        // slot demotes mid-fill, this effect's classic re-run reconciles
-        // against the real server rows (leftovers on mismatch get cleaned
-        // instead of surviving invisibly). After a successful engage the
-        // range is merely stale — cleanChildren skips nodes no longer ours.
-        if (region !== undefined) keep = region;
-        else if (multi) {
-          const ph = document.createTextNode("");
-          cleanChildren(parent, current, marker, ph);
-          keep = [ph];
-        } else {
-          if (current !== undefined) cleanChildren(parent, current, undefined);
-          keep = [];
+        if (region !== undefined) current = region;
+        else {
+          if (current !== undefined) cleanChildren(parent, current, multi ? marker : undefined);
+          current = [];
         }
-        const listFn = value;
-        const holeOwner = getOwner();
-        current = keep;
-        if (
-          value.$for.impl(
-            parent,
-            value,
-            marker,
-            () => {
-              // Demote: the slot has removed its rows and disposed its owner;
-              // hand the hole to the SHARED classic effect NOW (synchronous in
-              // CSR and hydration alike — under hydration a deferred re-run
-              // would land after hydrate() flips the flag and clone instead
-              // of claim; in CSR it left the hole empty for a microtask).
-              // Shared, not a nested insert: the rows classic manages from
-              // here live in THIS effect's `current`, so a later children
-              // change cleans them. normalize() unwraps the list (classic
-              // rows) — no re-engage.
-              holeClassic = true;
-              runWithOwner(holeOwner, () => classic(listFn, undefined));
-            },
-            domOps,
-            region,
-            true
-          )
-        )
-          return INNER_OWNED;
+        value.$for.impl(parent, value, marker, domOps, region, true);
+        return INNER_OWNED;
       }
       classic(value, prev);
       return INNER_OWNED;

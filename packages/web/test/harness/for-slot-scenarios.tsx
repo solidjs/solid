@@ -16,7 +16,7 @@
  *
  * Mismatch scenarios diverge on `isServer` so one source renders both sides.
  */
-import { createSignal, flush, For, Show } from "solid-js";
+import { mapArray, createSignal, flush, For, Show } from "solid-js";
 import { isServer } from "@solidjs/web";
 
 export type ForSlotScenario = {
@@ -28,8 +28,6 @@ export type ForSlotScenario = {
   serverText?: string;
   /** how many slots must ENGAGE during hydrate() (0 = classic expected) */
   engaged: number;
-  /** how many slots must DEMOTE during hydrate() */
-  demoted: number;
   /** expected console.warn calls during hydrate (key misses on real mismatch) */
   warnings: number;
   /** selector for row nodes that must be the SERVER nodes after hydration */
@@ -341,14 +339,140 @@ function SlotTextAnchoredFewer() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 13. MODES under hydration (chain fills, not flat): key-function rows,
+//     index-accessor rows, keyed={false} rows, and a server-rendered fallback.
+type KItem = { id: string; name: string };
+const K1: KItem = { id: "1", name: "a" };
+const K2: KItem = { id: "2", name: "b" };
+const K3: KItem = { id: "3", name: "c" };
+let setKeyFn!: (v: KItem[]) => void;
+function SlotKeyFn() {
+  const [items, set] = createSignal([K1, K2, K3]);
+  setKeyFn = set;
+  return (
+    <ul>
+      <For each={items()} keyed={(x: KItem) => x.id}>
+        {(item, i) => (
+          <li>
+            {item().name}
+            {i()}
+          </li>
+        )}
+      </For>
+    </ul>
+  );
+}
+let setIndexed!: (v: string[]) => void;
+function SlotIndexed() {
+  const [items, set] = createSignal(["a", "b", "c"]);
+  setIndexed = set;
+  return (
+    <ul>
+      <For each={items()}>
+        {(item, i) => (
+          <li>
+            {item}
+            {i()}
+          </li>
+        )}
+      </For>
+    </ul>
+  );
+}
+let setByIndex!: (v: string[]) => void;
+function SlotByIndex() {
+  const [items, set] = createSignal(["a", "b", "c"]);
+  setByIndex = set;
+  return (
+    <ul>
+      <For each={items()} keyed={false}>
+        {(item, i) => (
+          <li>
+            {item()}
+            {i}
+          </li>
+        )}
+      </For>
+    </ul>
+  );
+}
+let setFallback!: (v: string[]) => void;
+function SlotFallback() {
+  const [items, set] = createSignal<string[]>([]);
+  setFallback = set;
+  return (
+    <ul>
+      <For each={items()} fallback={<li>none</li>}>
+        {item => <li>{item}</li>}
+      </For>
+    </ul>
+  );
+}
+
+function ClassicFallback() {
+  const [items] = createSignal<string[]>([]);
+  const mapped = mapArray(items, (item: string) => <li>{item}</li>, {
+    fallback: () => <li>none</li>
+  });
+  return <ul>{mapped}</ul>;
+}
+
 export const forSlotScenarios: ForSlotScenario[] = [
+  {
+    name: "classic-fallback-oracle",
+    App: ClassicFallback,
+    expectedText: "none",
+    engaged: 0,
+    warnings: 0,
+    identitySelector: "li"
+  },
+  {
+    name: "slot-hydrate-keyfn",
+    App: SlotKeyFn,
+    expectedText: "a0b1c2",
+    engaged: 1,
+    warnings: 0,
+    identitySelector: "li",
+    update: () => setKeyFn([K3, { id: "1", name: "A" }, K2]),
+    expectedTextAfterUpdate: "c0A1b2"
+  },
+  {
+    name: "slot-hydrate-indexed",
+    App: SlotIndexed,
+    expectedText: "a0b1c2",
+    engaged: 1,
+    warnings: 0,
+    identitySelector: "li",
+    update: () => setIndexed(["c", "a", "b"]),
+    expectedTextAfterUpdate: "c0a1b2"
+  },
+  {
+    name: "slot-hydrate-byindex",
+    App: SlotByIndex,
+    expectedText: "a0b1c2",
+    engaged: 1,
+    warnings: 0,
+    identitySelector: "li",
+    update: () => setByIndex(["c", "a", "b", "d"]),
+    expectedTextAfterUpdate: "c0a1b2d3"
+  },
+  {
+    name: "slot-hydrate-fallback",
+    App: SlotFallback,
+    expectedText: "none",
+    engaged: 1,
+    warnings: 0,
+    identitySelector: "li",
+    update: () => setFallback(["x", "y"]),
+    expectedTextAfterUpdate: "xy"
+  },
   {
     name: "slot-hydrate-text-mismatch-fewer",
     App: SlotTextFewer,
     expectedText: "ab",
     serverText: "abc",
     engaged: 1,
-    demoted: 0,
     warnings: 1 // the slot's repair report (leftover server text row removed)
   },
   {
@@ -357,7 +481,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     expectedText: "abc",
     serverText: "ab",
     engaged: 1,
-    demoted: 0,
     warnings: 1 // the slot's repair report (client text row inserted)
   },
   {
@@ -366,7 +489,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     expectedText: "headabtail",
     serverText: "headabctail",
     engaged: 1,
-    demoted: 0,
     warnings: 1, // the slot's repair report
     identitySelector: "li"
   },
@@ -375,7 +497,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     App: SlotThroughDynamicResidue,
     expectedText: "abc",
     engaged: 1,
-    demoted: 0,
     warnings: 0,
     identitySelector: "li",
     update: () => {
@@ -392,7 +513,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     // Outer + nested x + nested y (engaging inside the outer's resolve of
     // the Show-rooted row). No demote, so no second pass.
     engaged: 3,
-    demoted: 0,
     warnings: 0,
     identitySelector: "span"
   },
@@ -402,7 +522,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     expectedText: "ab", // the slot's fill commit repairs the leftover
     serverText: "abc",
     engaged: 1,
-    demoted: 0,
     warnings: 1, // the slot's repair report
     identitySelector: "li"
   },
@@ -411,7 +530,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     App: SlotThroughChildren,
     expectedText: "abc",
     engaged: 1,
-    demoted: 0,
     warnings: 0,
     identitySelector: "li",
     update: () => setThrough(["b", "c", "a"]),
@@ -423,7 +541,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     App: SlotBasic,
     expectedText: "abc",
     engaged: 1,
-    demoted: 0,
     warnings: 0,
     identitySelector: "li",
     update: () => setBasic(["c", "a", "b"]),
@@ -435,7 +552,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     App: SlotTextRows,
     expectedText: "abc",
     engaged: 1,
-    demoted: 0,
     warnings: 0,
     textIdentityParent: "ul",
     update: () => setText(["a", "b", "c", "d"]),
@@ -447,7 +563,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     expectedText: "ab",
     serverText: "abc",
     engaged: 1,
-    demoted: 0,
     warnings: 1, // the slot's repair report (leftover server row removed)
     identitySelector: "li"
   },
@@ -457,7 +572,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     expectedText: "abc",
     serverText: "ab",
     engaged: 1,
-    demoted: 0,
     warnings: 2 // the runtime's key-miss + the slot's repair report
   },
   {
@@ -465,7 +579,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     App: SlotDynamicRow,
     expectedText: "abc",
     engaged: 1,
-    demoted: 0,
     warnings: 0,
     identitySelector: "li",
     update: () => setDemote(["a", "b", "c", "d"]),
@@ -476,7 +589,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     App: SlotEmpty,
     expectedText: "",
     engaged: 1,
-    demoted: 0,
     warnings: 0,
     update: () => setEmpty(["a"]),
     expectedTextAfterUpdate: "a"
@@ -486,7 +598,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     App: SlotTrailing,
     expectedText: "headab",
     engaged: 1,
-    demoted: 0,
     warnings: 0,
     identitySelector: "li",
     update: () => setTrailing(["b", "a"]),
@@ -498,7 +609,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     App: SlotBounded,
     expectedText: "headabctail",
     engaged: 1,
-    demoted: 0,
     warnings: 0,
     identitySelector: "li",
     update: () => setBounded(["c", "b", "a"]),
@@ -511,7 +621,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     expectedText: "headab",
     serverText: "headabc",
     engaged: 1,
-    demoted: 0,
     warnings: 1, // the slot's repair report
     identitySelector: "li"
   },
@@ -520,7 +629,6 @@ export const forSlotScenarios: ForSlotScenario[] = [
     App: SlotNested,
     expectedText: "123",
     engaged: 3,
-    demoted: 0,
     warnings: 0,
     identitySelector: "span",
     update: () => setNested([GY, GX]),

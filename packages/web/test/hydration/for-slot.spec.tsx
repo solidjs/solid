@@ -63,7 +63,6 @@ async function run(scenario: ForSlotScenario) {
       : null;
 
     const engaged0 = stats.engaged;
-    const demoted0 = stats.demoted;
     dispose = hydrate(() => <scenario.App />, container);
     flush();
     await sleep(10);
@@ -71,7 +70,6 @@ async function run(scenario: ForSlotScenario) {
 
     expect(container.textContent, "hydrated text").toBe(scenario.expectedText);
     expect(stats.engaged - engaged0, "slots engaged during hydrate").toBe(scenario.engaged);
-    expect(stats.demoted - demoted0, "slots demoted during hydrate").toBe(scenario.demoted);
     expect(warn, "console.warn calls during hydrate").toHaveBeenCalledTimes(scenario.warnings);
 
     if (serverRows) {
@@ -113,8 +111,6 @@ async function run(scenario: ForSlotScenario) {
           expect(now, `survivor "${text}" moved, not recreated`).toBe(before.get(text));
         }
       }
-      // No demote may happen on the post-hydration update either.
-      expect(stats.demoted - demoted0).toBe(scenario.demoted);
     }
   } finally {
     warn.mockRestore();

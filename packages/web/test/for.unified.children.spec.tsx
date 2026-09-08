@@ -11,8 +11,7 @@
  *   - whole-parent and bounded (marker) holes engage; rows move, not rebuild
  *   - a children CHANGE tears the slot down cleanly (rows removed, new
  *     content in place, no leftovers) and a returning For re-engages
- *   - a demote INSIDE a hole hands the hole to the classic path via the
- *     hosting effect's re-run — no second insert fighting for the hole
+ *   - duplicates and array-like subjects INSIDE a hole stay on the engine
  *   - `children()` introspection and fragment children stay classic
  */
 import { beforeEach, describe, expect, test } from "vitest";
@@ -63,7 +62,6 @@ describe("unified For through props.children (hole seam)", () => {
   test("whole-parent hole engages; reorder moves the same rows", () => {
     const [rows, setRows] = createSignal(["a", "b", "c"]);
     const engaged0 = stats.engaged;
-    const demoted0 = stats.demoted;
     dispose = render(
       () => (
         <Table>
@@ -89,7 +87,6 @@ describe("unified For through props.children (hole seam)", () => {
     setRows([]);
     flush();
     expect(container.querySelector("tbody")!.innerHTML).toBe("");
-    expect(stats.demoted).toBe(demoted0);
   });
 
   test("bounded hole (element marker) engages; siblings untouched through reorder and clear", () => {
@@ -146,7 +143,6 @@ describe("unified For through props.children (hole seam)", () => {
 
   test("function-top-level rows stay engaged inside a hole (dynamic rows, no demote)", () => {
     const [rows, setRows] = createSignal<any[]>(["a", "b"]);
-    const demoted0 = stats.demoted;
     dispose = render(
       () => (
         <Wrap>
@@ -162,7 +158,6 @@ describe("unified For through props.children (hole seam)", () => {
     const dyn = () => <b>dyn</b>;
     setRows(["a", dyn, "b"]);
     flush();
-    expect(stats.demoted).toBe(demoted0);
     expect(div.innerHTML).toBe("<span>a</span><b>dyn</b><span>b</span>");
     setRows(["b", dyn, "a"]);
     flush();
@@ -170,14 +165,12 @@ describe("unified For through props.children (hole seam)", () => {
     setRows([]);
     flush();
     expect(div.innerHTML).toBe("");
-    expect(stats.demoted).toBe(demoted0);
   });
 
-  test("demote inside a hole hands the hole to classic via the hosting effect", () => {
+  test("duplicate identity keys inside a hole: two rows, engine stays engaged", () => {
     const a = { id: "a" },
       b = { id: "b" };
     const [rows, setRows] = createSignal<any[]>([a, b]);
-    const demoted0 = stats.demoted;
     dispose = render(
       () => (
         <Wrap>
@@ -188,12 +181,9 @@ describe("unified For through props.children (hole seam)", () => {
     );
     const div = container.querySelector("div")!;
     expect(div.innerHTML).toBe("<span>a</span><span>b</span>");
-    // A duplicate identity key arrives → slot demotes; the hole re-runs classic.
     setRows([a, b, a]);
     flush();
-    expect(stats.demoted).toBe(demoted0 + 1);
     expect(div.innerHTML).toBe("<span>a</span><span>b</span><span>a</span>");
-    // Classic now owns the hole: further updates keep working, no duplicates.
     setRows([b, a]);
     flush();
     expect(div.innerHTML).toBe("<span>b</span><span>a</span>");
@@ -209,7 +199,6 @@ describe("unified For through props.children (hole seam)", () => {
     // no demote, no second invocation of the row — and reorders as usual.
     const [rows, setRows] = createSignal(["a", "b", "c"]);
     const engaged0 = stats.engaged;
-    const demoted0 = stats.demoted;
     dispose = render(
       () => (
         <Table>
@@ -219,7 +208,6 @@ describe("unified For through props.children (hole seam)", () => {
       container
     );
     expect(stats.engaged).toBe(engaged0 + 1);
-    expect(stats.demoted).toBe(demoted0);
     expect(texts(container, "tr")).toEqual(["a", "b", "c"]);
     const trs = Array.from(container.querySelectorAll("tr"));
     setRows(["c", "a", "b"]);
@@ -230,22 +218,14 @@ describe("unified For through props.children (hole seam)", () => {
     setRows([]);
     flush();
     expect(container.querySelector("tbody")!.innerHTML).toBe("");
-    expect(stats.demoted).toBe(demoted0);
   });
 
-  test("first-fill demote in a hole: classic owns the range from its first run", () => {
-    // The slot's first fill runs synchronously inside impl(); a demote there
-    // hands the hole to classic BEFORE impl returns. The hosting effect must
-    // have already pointed `current` at the hand-off range, or classic's
-    // first run reconciles against the stale pre-hand-off nodes and its
-    // result is then clobbered — rows leak on the next replace or children
-    // change (a b x y), and the multi placeholder survives as an orphan.
-    // Trigger: a NON-ARRAY subject (classic mapArray duck-types anything
-    // with `length` + indices — a string renders its characters) is the one
-    // shape that demotes on the very first compute.
+  test("array-like subject in a hole (string → characters), replace and children swap stay clean", () => {
+    // mapArray duck-types anything with `length` + indices; the engine does
+    // the same. The hole's range must stay exact through a replace and a
+    // children change (no orphan placeholder, no leaked rows).
     const [rows, setRows] = createSignal<any>("ab");
     const [show, setShow] = createSignal(true);
-    const demoted0 = stats.demoted;
     dispose = render(
       () => (
         <Card>
@@ -259,7 +239,6 @@ describe("unified For through props.children (hole seam)", () => {
       container
     );
     const sec = container.querySelector("section")!;
-    expect(stats.demoted).toBe(demoted0 + 1);
     expect(sec.innerHTML).toBe("<header>h</header><span>a</span><span>b</span><footer>f</footer>");
     expect(sec.childNodes.length).toBe(4); // no orphan placeholder
     setRows(["x", "y"]); // REPLACE (not reorder): old rows must go
@@ -272,9 +251,8 @@ describe("unified For through props.children (hole seam)", () => {
     setShow(true);
     flush();
     expect(sec.innerHTML).toBe("<header>h</header><span>x</span><span>y</span><footer>f</footer>");
-    expect(stats.demoted).toBe(demoted0 + 1); // holeClassic sticks: no re-engage, no thrash
 
-    // Whole-parent hole, same hazard, replace only.
+    // Whole-parent hole, replace only.
     dispose();
     const [rows2, setRows2] = createSignal<any>("ab");
     dispose = render(

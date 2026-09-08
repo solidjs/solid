@@ -105,7 +105,7 @@ describe("unified For: preceding siblings survive bulk paths (P0)", () => {
     expect(container.innerHTML).toBe("<div><h1>Title</h1><span>x</span><span>y</span></div>");
   });
 
-  test("demote (flat) with preceding sibling: classic rebuild keeps the sibling", () => {
+  test("duplicate identity keys with a preceding sibling: rows render, sibling untouched", () => {
     const a = { id: "a" },
       b = { id: "b" };
     const [list, setList] = createSignal<any[]>([a, b]);
@@ -118,14 +118,16 @@ describe("unified For: preceding siblings survive bulk paths (P0)", () => {
       ),
       container
     );
-    // A duplicate identity key demotes to classic (flat → materialize fails).
-    const before = stats.demoted;
-    setList([a, b, a]);
+    const h1 = container.querySelector("h1")!;
+    setList([a, b, a]); // duplicate identity (flat → chain materializes; duplicates are rows)
     flush();
-    expect(stats.demoted).toBe(before + 1);
-    expect(container.querySelector("h1")).not.toBeNull();
-    expect(container.querySelector("h1")!.textContent).toBe("Title");
-    expect(container.querySelectorAll("span").length).toBe(3);
+    expect(container.querySelector("h1")).toBe(h1);
+    expect(container.firstElementChild!.innerHTML).toBe(
+      "<h1>Title</h1><span>a</span><span>b</span><span>a</span>"
+    );
+    setList([]);
+    flush();
+    expect(container.firstElementChild!.innerHTML).toBe("<h1>Title</h1>");
   });
 
   test("function-top-level row with preceding sibling: dynamic row, no demote", () => {
@@ -141,10 +143,8 @@ describe("unified For: preceding siblings survive bulk paths (P0)", () => {
       ),
       container
     );
-    const before = stats.demoted;
     setList(["a", () => <b>dyn</b>]);
     flush();
-    expect(stats.demoted).toBe(before);
     expect(container.querySelector("h1")!.textContent).toBe("Title");
     expect(container.querySelectorAll("span").length).toBe(1);
     expect(container.querySelector("b")!.textContent).toBe("dyn");
@@ -228,7 +228,7 @@ describe("unified For: whole-parent ownership guard (foreign nodes survive)", ()
   });
 });
 
-describe("unified For: empty-rendering rows hold position (no demote)", () => {
+describe("unified For: empty-rendering rows render ZERO nodes and hold position", () => {
   let container: HTMLDivElement;
   let dispose: (() => void) | undefined;
 
@@ -238,7 +238,7 @@ describe("unified For: empty-rendering rows hold position (no demote)", () => {
     container = document.createElement("div");
   });
 
-  test("a null row arriving late does NOT demote — sibling input state survives", () => {
+  test("a null row arriving late renders nothing — sibling input state survives", () => {
     type R = { id: string; hidden?: boolean };
     const a: R = { id: "a" };
     const b: R = { id: "b" };
@@ -249,13 +249,12 @@ describe("unified For: empty-rendering rows hold position (no demote)", () => {
     );
     const inputA = container.querySelector("input")!;
     inputA.value = "typed";
-    const before = stats.demoted;
     setList([a, b, { id: "c", hidden: true }]);
     flush();
-    expect(stats.demoted).toBe(before);
     expect(container.querySelector("input")).toBe(inputA); // same node
     expect(inputA.value).toBe("typed"); // state intact
     expect(container.querySelectorAll("input").length).toBe(2);
+    expect(container.childNodes.length).toBe(2); // classic parity: the null row adds no node
   });
 
   test("null rows participate in reorders and removals", () => {
@@ -269,6 +268,7 @@ describe("unified For: empty-rendering rows hold position (no demote)", () => {
       container
     );
     expect(container.querySelectorAll("span").length).toBe(2);
+    expect(container.childNodes.length).toBe(2);
     setList([b, gap, a]);
     flush();
     const spans = [...container.querySelectorAll("span")].map(s => s.textContent);

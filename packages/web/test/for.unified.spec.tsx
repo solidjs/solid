@@ -7,8 +7,8 @@
  * Three jobs:
  *   1. Semantics parity on the engaged path — the classic for.spec matrix
  *      (permutations, inserts, removes, clear/refill) must hold verbatim.
- *   2. Contract edges — fragment rows, multi-slot mode, duplicate-key and
- *      non-array DEMOTION to classic (correct rendering after demote).
+ *   2. Contract edges — fragment rows, multi-slot mode, duplicate keys and
+ *      array-like subjects owned by the engine (no demotion exists).
  *   3. H1 — holds/transitions: an optimistic store's held update must not
  *      half-apply the slot (old DOM until reveal, optimistic writes visible
  *      in flight, revert restores committed).
@@ -187,12 +187,8 @@ describe("unified For: element rows and moves preserve identity", () => {
   });
 });
 
-describe("unified For: demotion to classic", () => {
-  beforeEach(() => {
-    stats.demoted = 0;
-  });
-
-  test("duplicate keys demote and still render correctly", () => {
+describe("unified For: the engine owns the classic contract (no demotion)", () => {
+  test("duplicate identity keys render as separate rows and reorder", () => {
     const [list, setList] = createSignal(["a", "b"]);
     let div!: HTMLDivElement;
     createRoot(() => {
@@ -202,17 +198,25 @@ describe("unified For: demotion to classic", () => {
     });
     flush();
     expect(div.innerHTML).toBe("<span>a</span><span>b</span>");
-    setList(["a", "a", "b"]); // duplicate identity → driver demotes
+    const [a0, b0] = Array.from(div.children);
+    setList(["a", "a", "b"]); // duplicate identity: a second row for "a"
     flush();
-    expect(stats.demoted).toBe(1);
     expect(div.innerHTML).toBe("<span>a</span><span>a</span><span>b</span>");
-    // Classic owns it from here on — still fully live.
+    // The first occurrence reuses the existing row (mapArray's pairing order).
+    expect(div.children[0]).toBe(a0);
+    expect(div.children[2]).toBe(b0);
+    setList(["b", "a", "a"]);
+    flush();
+    expect(div.innerHTML).toBe("<span>b</span><span>a</span><span>a</span>");
+    expect(div.children[0]).toBe(b0);
+    expect(div.children[1]).toBe(a0);
     setList(["b", "a"]);
     flush();
     expect(div.innerHTML).toBe("<span>b</span><span>a</span>");
+    expect(div.children[1]).toBe(a0);
   });
 
-  test("non-array subject demotes to classic single-value insert", () => {
+  test("array-like subject is duck-typed (a string renders its characters, as mapArray does)", () => {
     const [list, setList] = createSignal<any>(["a"]);
     let div!: HTMLDivElement;
     createRoot(() => {
@@ -222,9 +226,12 @@ describe("unified For: demotion to classic", () => {
     });
     flush();
     expect(div.innerHTML).toBe("<span>a</span>");
-    setList("not-an-array" as any);
+    setList("xyz" as any);
     flush();
-    expect(stats.demoted).toBe(1);
+    expect(div.innerHTML).toBe("<span>x</span><span>y</span><span>z</span>");
+    setList(["a"]);
+    flush();
+    expect(div.innerHTML).toBe("<span>a</span>");
   });
 });
 

@@ -5,11 +5,12 @@
  * RECONCILE PARITY MATRIX — the classic for.spec transition table (and then
  * some), driven through BOTH implementations:
  *
- *   slot    — arity-1 keyed rows (default-on unified For)
- *   classic — arity-2 rows (`(item, _i) =>`): the index param declines the
- *             `$for` stamp pre-engage, so the SAME semantics run through
- *             keyed mapArray + reconcileArrays. Identical expected output —
- *             a live oracle, not a snapshot.
+ *   slot     — arity-1 keyed rows (the engine, flat-mode eligible)
+ *   slot-idx — arity-2 rows (`(item, i) =>`): the engine in index mode
+ *              (per-row index signals, chain from the first fill)
+ *   classic  — the ORACLE: mapArray + insert directly, no <For> (every <For>
+ *              engages the engine on web). Identical expected output — a
+ *              live specification, not a snapshot.
  *
  * Each mode runs the full matrix in three container shapes, because the P0
  * audit proved anchoring is where list bugs hide:
@@ -25,7 +26,7 @@
  * state-to-state transitions, not just canonical-to-X.
  */
 import { beforeEach, describe, expect, test } from "vitest";
-import { createSignal, flush, For, DEV } from "solid-js";
+import { createSignal, flush, For, DEV, mapArray } from "solid-js";
 const stats = DEV!.unifiedFor;
 import { render } from "@solidjs/web";
 
@@ -110,21 +111,23 @@ type Container = {
   wrap: (rows: string) => string;
 };
 
-function makeContainers(useIdx: boolean, shape: Shape): Container[] {
-  const rowFn: any = useIdx ? shape.rowIdx : shape.row;
+type Mode = "slot" | "slot-idx" | "classic";
+
+/** The list expression for a mode: the engine (arity-1 rows), the engine in
+ * index mode (arity-2 rows), or the ORACLE — mapArray + insert directly, no
+ * <For> (every <For> engages the engine on web). */
+function listFor(mode: Mode, list: () => string[], shape: Shape): any {
+  if (mode === "classic") return mapArray(list, shape.row as any);
+  return <For each={list()}>{mode === "slot-idx" ? shape.rowIdx : shape.row}</For>;
+}
+
+function makeContainers(mode: Mode, shape: Shape): Container[] {
   return [
     {
       name: "whole",
       mount: (list, _row) => {
         const host = document.createElement("div");
-        const dispose = render(
-          () => (
-            <section>
-              <For each={list()}>{rowFn}</For>
-            </section>
-          ),
-          host
-        );
+        const dispose = render(() => <section>{listFor(mode, list, shape)}</section>, host);
         return [host.querySelector("section")!, dispose];
       },
       wrap: rows => rows
@@ -137,7 +140,7 @@ function makeContainers(useIdx: boolean, shape: Shape): Container[] {
           () => (
             <section>
               <em>pre</em>
-              <For each={list()}>{rowFn}</For>
+              {listFor(mode, list, shape)}
             </section>
           ),
           host
@@ -154,7 +157,7 @@ function makeContainers(useIdx: boolean, shape: Shape): Container[] {
           () => (
             <section>
               <em>pre</em>
-              <For each={list()}>{rowFn}</For>
+              {listFor(mode, list, shape)}
               <em>post</em>
             </section>
           ),
@@ -167,23 +170,17 @@ function makeContainers(useIdx: boolean, shape: Shape): Container[] {
   ];
 }
 
-for (const mode of ["slot", "classic"] as const) {
-  const useIdx = mode === "classic";
+for (const mode of ["slot", "slot-idx", "classic"] as const) {
   for (const shape of SHAPES) {
     describe(`reconcile parity [${mode}] [${shape.name} rows]`, () => {
-      for (const container of makeContainers(useIdx, shape)) {
+      for (const container of makeContainers(mode, shape)) {
         test(`${container.name}: full transition matrix`, () => {
           const [list, setList] = createSignal(CANON);
           const engagedBefore = stats.engaged;
-          const demotedBefore = stats.demoted;
           const [el, dispose] = container.mount(list, null);
           try {
-            // Mode sanity: slot engages exactly once, classic never.
-            if (mode === "slot") {
-              expect(stats.engaged).toBe(engagedBefore + 1);
-            } else {
-              expect(stats.engaged).toBe(engagedBefore);
-            }
+            // Mode sanity: the engine engages exactly once, the oracle never.
+            expect(stats.engaged).toBe(engagedBefore + (mode === "classic" ? 0 : 1));
             const expected = (arr: string[]) => container.wrap(arr.map(shape.html).join(""));
             expect(el.innerHTML).toBe(expected(CANON));
             for (const [label, target] of TRANSITIONS) {
@@ -193,10 +190,6 @@ for (const mode of ["slot", "classic"] as const) {
               setList(CANON);
               flush();
               expect(el.innerHTML, `${label} (reset)`).toBe(expected(CANON));
-            }
-            // The whole matrix must run WITHOUT falling back to classic.
-            if (mode === "slot") {
-              expect(stats.demoted).toBe(demotedBefore);
             }
           } finally {
             dispose();
@@ -235,13 +228,11 @@ describe("reconcile parity: differential (slot vs classic, one signal, no resets
       const [list, setList] = createSignal(SEQUENCE[0]);
       const slotHost = document.createElement("div");
       const classicHost = document.createElement("div");
-      const rowSlot: any = shape.row;
-      const rowClassic: any = shape.rowIdx;
       const disposeSlot = render(
         () => (
           <section>
             <em>pre</em>
-            <For each={list()}>{rowSlot}</For>
+            {listFor("slot", list, shape)}
             <em>post</em>
           </section>
         ),
@@ -251,7 +242,7 @@ describe("reconcile parity: differential (slot vs classic, one signal, no resets
         () => (
           <section>
             <em>pre</em>
-            <For each={list()}>{rowClassic}</For>
+            {listFor("classic", list, shape)}
             <em>post</em>
           </section>
         ),

@@ -15,7 +15,8 @@ import {
   DEV,
   For,
   Errored,
-  Show
+  Show,
+  mapArray
 } from "solid-js";
 import { render } from "@solidjs/web";
 
@@ -51,14 +52,11 @@ describe("P1-1 rows live under For's CREATION owner (mapArray parity)", () => {
           }}
         </For>
       );
-      const classic = (
-        <For each={items()}>
-          {(i, _idx) => {
-            classicSaw = useContext(Ctx);
-            return <span>{i}</span>;
-          }}
-        </For>
-      );
+      // Oracle: mapArray directly (every <For> engages the engine on web).
+      const classic = mapArray(items, (i: number) => {
+        classicSaw = useContext(Ctx);
+        return <span>{i}</span>;
+      });
       return (
         <>
           <Reader list={slot} />
@@ -119,7 +117,6 @@ describe("P1-2 dynamic rows: resolved by the slot, never demoted, never double-i
       );
     };
     const engaged0 = stats().engaged;
-    const demoted0 = stats().demoted;
     dispose = render(
       () => (
         <div>
@@ -131,7 +128,6 @@ describe("P1-2 dynamic rows: resolved by the slot, never demoted, never double-i
     flush();
     const div = container.firstChild as HTMLElement;
     expect(stats().engaged).toBe(engaged0 + 1);
-    expect(stats().demoted).toBe(demoted0);
     expect(calls).toBe(3);
     expect(div.innerHTML).toBe("<i>1</i><b>2</b><b>3</b>");
     // A row flips: only its range is spliced; siblings keep node identity.
@@ -147,12 +143,10 @@ describe("P1-2 dynamic rows: resolved by the slot, never demoted, never double-i
     expect(div.innerHTML).toBe("<b>3</b><i>1</i><i>2</i><b>4</b>");
     expect(div.children[0]).toBe(b3);
     expect(calls).toBe(4);
-    expect(stats().demoted).toBe(demoted0);
   });
 
   test("a LATE dynamic row does not remount the surviving rows", () => {
     const [items, setItems] = createSignal<any[]>(["a", "b"]);
-    const demoted0 = stats().demoted;
     dispose = render(
       () => (
         <div>
@@ -170,7 +164,6 @@ describe("P1-2 dynamic rows: resolved by the slot, never demoted, never double-i
     expect(div.innerHTML).toBe("<span>a</span><em>dyn</em><span>b</span>");
     expect(div.children[0]).toBe(a);
     expect(div.children[2]).toBe(b);
-    expect(stats().demoted).toBe(demoted0);
   });
 
   test("fragment rows with accessor leaves update text IN PLACE (.data write, node identity kept)", () => {
@@ -203,7 +196,7 @@ describe("P1-2 dynamic rows: resolved by the slot, never demoted, never double-i
     expect(div.childNodes[0]).toBe(bold);
   });
 
-  test("dynamic row resolving to nothing holds its position with a placeholder", () => {
+  test("dynamic row resolving to nothing renders ZERO nodes and keeps its position", () => {
     const [items, setItems] = createSignal(["a", "b"]);
     const [show, setShow] = createSignal(true);
     dispose = render(
@@ -220,7 +213,7 @@ describe("P1-2 dynamic rows: resolved by the slot, never demoted, never double-i
     setShow(false);
     flush();
     expect(div.innerHTML).toBe("");
-    expect(div.childNodes.length).toBe(2); // two empty text placeholders
+    expect(div.childNodes.length).toBe(0); // classic parity: nothing rendered, no placeholders
     setItems(["b", "a"]);
     flush();
     setShow(true);
@@ -362,13 +355,12 @@ describe("P1-5 a throwing row disposes its own owner", () => {
   });
 });
 
-describe("P2-1 duplicate FRESH keys are caught (no key→row map corruption)", () => {
-  test("two fresh copies of one identity demote to classic (which owns duplicates)", () => {
+describe("P2-1 duplicate keys are rows (mapArray's chained pairing, no demotion)", () => {
+  test("two fresh copies of one identity become two rows; removing one keeps the other", () => {
     const o1 = { id: 1 },
       o2 = { id: 2 },
       o3 = { id: 3 };
     const [items, setItems] = createSignal<any[]>([o1]);
-    const demoted0 = stats().demoted;
     dispose = render(
       () => (
         <div>
@@ -382,9 +374,13 @@ describe("P2-1 duplicate FRESH keys are caught (no key→row map corruption)", (
     setItems([o1, o2, o3, o2]); // o2 twice, both fresh
     flush();
     expect(parent.innerHTML).toBe("<span>1</span><span>2</span><span>3</span><span>2</span>");
-    expect(stats().demoted).toBe(demoted0 + 1);
+    const [e1, e2a, e3, e2b] = Array.from(parent.children);
     setItems([o3, o2, o1]);
     flush();
     expect(parent.innerHTML).toBe("<span>3</span><span>2</span><span>1</span>");
+    expect(parent.children[0]).toBe(e3);
+    expect(parent.children[1]).toBe(e2a); // first occurrence pairs with the first old row
+    expect(parent.children[2]).toBe(e1);
+    expect(parent.contains(e2b)).toBe(false);
   });
 });

@@ -122,29 +122,26 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
     mapped = create();
   }
   const list = () => (mapped ?? (mapped = create()))();
-  // Unified-For seam (DESIGN-UNIFIED-FOR §4): the returned value IS a data
-  // structure — a callable carrying the list descriptor. A renderer that
-  // understands `$for` may own rows and placement in one persistent
-  // structure (no mapArray, no value diff); everything else (children(),
-  // universal renderers, introspection) calls it and gets classic mapArray
-  // rows. Eligibility mirrors the classic contract the driver can honor:
-  // reference identity or key-fn rows (`keyed !== false`), no fallback, and
-  // no index parameter (row arity < 2).
-  if (props.keyed !== false && !("fallback" in props) && props.children.length < 2)
-    (list as any).$for = {
-      each: () => props.each,
-      row: props.children,
-      keyed: props.keyed,
-      // For's CREATION owner: the slot's rows live under it (mapArray's own
-      // parent), so context/boundaries/lifetime follow the <For>'s source
-      // position, not wherever the accessor is later inserted.
-      owner,
-      // The slot rides For's OWN module graph: apps without For tree-shake
-      // it; a renderer's insert() engages it by passing its SlotOps.
-      impl: unifiedForSlot,
-      // Hydration only: the id classic's row parent would carry.
-      hid
-    };
+  // Unified-For: the returned value IS a data structure — a callable carrying
+  // the list descriptor. A renderer that understands `$for` (web) owns rows
+  // and placement in one persistent engine, in every For mode; everything
+  // else (children(), universal renderers, introspection) calls it and gets
+  // mapArray rows — mapArray is the specification the engine matches.
+  (list as any).$for = {
+    each: () => props.each,
+    row: props.children,
+    keyed: props.keyed,
+    fallback: "fallback" in props ? () => props.fallback : undefined,
+    // For's CREATION owner: the engine's rows live under it (mapArray's own
+    // parent), so context/boundaries/lifetime follow the <For>'s source
+    // position, not wherever the accessor is later inserted.
+    owner,
+    // The engine rides For's OWN module graph; a renderer's insert()
+    // engages it by passing its SlotOps.
+    impl: unifiedForSlot,
+    // Hydration only: the id classic's row parent would carry.
+    hid
+  };
   return list as unknown as SolidElement;
 }
 
