@@ -51,7 +51,7 @@ describe("WIDE_WRITE", () => {
     expect(events[0].nodeName).toBe("selectedId");
     expect(events[0].data).toMatchObject({ subscribers: 30, write: "write" });
     // The repair must name an API 2.0 ships (#3304).
-    expect(events[0].message).toContain("createProjection");
+    expect(events[0].message).toContain("store used as a map keyed by id");
     expect(events[0].message).not.toContain("createSelector");
   });
 

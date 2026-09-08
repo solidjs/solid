@@ -73,7 +73,7 @@ describe("JSFB select-row (naive: every row reads the selected signal)", () => {
     expect(wide).toHaveLength(1);
     expect(wide[0].nodeName).toBe("selectedId");
     expect(wide[0].data!.subscribers).toBe(1000);
-    expect(wide[0].message).toContain("createProjection");
+    expect(wide[0].message).toContain("store used as a map keyed by id");
     expect(wide[0].message).not.toContain("createSelector");
 
     // FINDING (F2), now fixed engine-side: effects run with `_equals: false`,
@@ -122,7 +122,7 @@ describe("JSFB select-row (naive: every row reads the selected signal)", () => {
     expect(fanout).toHaveLength(2); // 5-scope and 50-scope milestones
     expect(fanout[0].data).toMatchObject({ cause: "selectedId", scopes: 5 });
     expect(fanout[1].data).toMatchObject({ cause: "selectedId", scopes: 50 });
-    expect(fanout[1].message).toContain("createProjection");
+    expect(fanout[1].message).toContain("store used as a map keyed by id");
     expect(fanout[1].message).not.toContain("createSelector");
     // WIDE_WRITE fired once and named the actual culprit.
     expect(diagnostics.filter(e => e.code === "WIDE_WRITE")).toHaveLength(1);
