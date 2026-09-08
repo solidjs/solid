@@ -30,8 +30,12 @@ async function withRetries(label, attempts, action) {
   }
 }
 
-// Registry propagation can lag the publish by a few seconds.
-await withRetries("dist-tag check", 5, () => {
+// Registry propagation lags the publish: npm now answers `publish` with "being
+// processed and may take a few minutes to become available". rc.6 became
+// visible on the 5th of 5 attempts (~80s); on rc.7 @solidjs/babel-plugin took
+// 5m11s and the old 80s window ran out, failing the job on a good release.
+// 30 × 20s = 10 minutes, well past anything observed.
+await withRetries("dist-tag check", 30, () => {
   for (const name of fixedPackages) {
     const tagged = npm(["view", name, "dist-tags.next"]);
     if (tagged !== version) {
@@ -47,7 +51,8 @@ fs.writeFileSync(
   JSON.stringify({ name: "solid-smoke", private: true, type: "module" })
 );
 
-await withRetries("install", 3, () => {
+// Tarball availability can trail the dist-tag flip by a little more.
+await withRetries("install", 6, () => {
   npm(
     [
       "install",
