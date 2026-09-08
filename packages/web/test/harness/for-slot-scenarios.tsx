@@ -470,26 +470,26 @@ export const forSlotScenarios: ForSlotScenario[] = [
   {
     name: "slot-hydrate-text-mismatch-fewer",
     App: SlotTextFewer,
-    expectedText: "ab",
+    expectedText: "abc", // detect, don't recover: the server's leftover text row stays
     serverText: "abc",
     engaged: 1,
-    warnings: 1 // the slot's repair report (leftover server text row removed)
+    warnings: 1 // the engine's mismatch detection
   },
   {
     name: "slot-hydrate-text-mismatch-more",
     App: SlotTextMore,
-    expectedText: "abc",
+    expectedText: "ab", // detect, don't recover: the extra client row lands on the next update (classic parity)
     serverText: "ab",
     engaged: 1,
-    warnings: 1 // the slot's repair report (client text row inserted)
+    warnings: 1 // the engine's mismatch detection
   },
   {
     name: "slot-hydrate-text-anchored-mismatch-fewer",
     App: SlotTextAnchoredFewer,
-    expectedText: "headabtail",
+    expectedText: "headabctail", // leftover stays
     serverText: "headabctail",
     engaged: 1,
-    warnings: 1, // the slot's repair report
+    warnings: 1, // the engine's mismatch detection
     identitySelector: "li"
   },
   {
@@ -519,10 +519,10 @@ export const forSlotScenarios: ForSlotScenario[] = [
   {
     name: "slot-hydrate-through-dynamic-mismatch",
     App: SlotThroughDynamicMismatch,
-    expectedText: "ab", // the slot's fill commit repairs the leftover
+    expectedText: "abc", // leftover stays (classic parity)
     serverText: "abc",
     engaged: 1,
-    warnings: 1, // the slot's repair report
+    warnings: 1, // the runtime's unclaimed-node report
     identitySelector: "li"
   },
   {
@@ -560,19 +560,19 @@ export const forSlotScenarios: ForSlotScenario[] = [
   {
     name: "slot-hydrate-mismatch-fewer",
     App: SlotFewer,
-    expectedText: "ab",
+    expectedText: "abc", // detect, don't recover: leftover server row stays (classic parity)
     serverText: "abc",
     engaged: 1,
-    warnings: 1, // the slot's repair report (leftover server row removed)
+    warnings: 1, // the runtime's unclaimed-node report
     identitySelector: "li"
   },
   {
     name: "slot-hydrate-mismatch-more",
     App: SlotMore,
-    expectedText: "abc",
+    expectedText: "ab", // the key-missed client row is not inserted (classic parity)
     serverText: "ab",
     engaged: 1,
-    warnings: 2 // the runtime's key-miss + the slot's repair report
+    warnings: 1 // the runtime's key-miss report
   },
   {
     name: "slot-hydrate-dynamic-row",
@@ -618,10 +618,10 @@ export const forSlotScenarios: ForSlotScenario[] = [
   {
     name: "slot-hydrate-trailing-mismatch-fewer",
     App: SlotTrailingFewer,
-    expectedText: "headab",
+    expectedText: "headabc", // leftover stays
     serverText: "headabc",
     engaged: 1,
-    warnings: 1, // the slot's repair report
+    warnings: 1, // the runtime's unclaimed-node report
     identitySelector: "li"
   },
   {

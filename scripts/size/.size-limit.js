@@ -702,7 +702,11 @@ module.exports = [
     //
     // ENGINE (2026-09-07): 30.38 -> 30.85 KB, measured at 30.79. Cumulative
     // vs next: 26.36 -> 30.79 = +4.43 KB. See the hydrating-app note.
-    limit: "30.85 KB",
+    //
+    // Flat mode for every keyed mode (its/ixs arrays) + detect-only hydration
+    // mismatch (2026-09-07): 30.85 -> 30.95 KB, measured at 30.91.
+    // Cumulative vs next: +4.55 KB.
+    limit: "30.95 KB",
     modifyEsbuildConfig
   },
   {
@@ -779,7 +783,13 @@ module.exports = [
     // ENGINE (2026-09-07, unified-for-engine): 16.50 -> 17.05 KB, measured at
     // 17.00. CUMULATIVE vs next: 12.90 -> 17.00 = +4.10 KB. See the
     // hydrating-app note for the breakdown.
-    limit: "17.05 KB",
+    //
+    // Flat mode for every keyed mode — item/index signals ride the parallel
+    // arrays, key-based survivor probe, keys computed at materialize
+    // (2026-09-07): 17.05 -> 17.25 KB, measured at 17.18 (+178 B). Closes the
+    // jfb-shallow (key-fn rows) 10k create/clear regression to parity.
+    // Cumulative vs next: 12.90 -> 17.18 = +4.28 KB.
+    limit: "17.25 KB",
     modifyEsbuildConfig
   },
   {

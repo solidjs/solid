@@ -149,6 +149,11 @@ export interface Flat {
   nodes: Nodes[];
   /** Dynamic rows' unresolved values by index (null entries = static). */
   fns: any[] | null;
+  /** Index signals (arity-2 rows) / item signals (key-fn rows), else null.
+   * Flat never UPDATES a signal: any structural op — including a same-key
+   * new-object update — materializes the chain first. */
+  ixs: any[] | null;
+  its: any[] | null;
 }
 
 export interface FlatPlan {
@@ -158,6 +163,8 @@ export interface FlatPlan {
   owners: RowOwner[];
   nodes: Nodes[];
   fns: any[] | null;
+  ixs: any[] | null;
+  its: any[] | null;
   len: number;
   upd: [number, Leaves][] | null;
   fb: Row | null;
@@ -321,31 +328,46 @@ const RESOLVE_OPTS = { skipNonRendered: true } as const;
 const EMPTY: Leaves = [];
 const toLeaves = (v: any): Leaves => (v === undefined ? EMPTY : Array.isArray(v) ? v : [v]);
 
-/** Build a row body under its own owner (untracked + owned). Returns
- * [owner, nodes, null] for a STATIC row or [owner, null, f] for a DYNAMIC
- * one (the caller resolves `f` tracked). A throw disposes the row's owner. */
-function buildParts(
-  rowFn: (...args: any[]) => any,
-  a0: any,
-  a1: any,
-  ops: SlotOps
-): [RowOwner, Nodes, any] {
-  const o: RowOwner = createOwner() as unknown as RowOwner;
+/** Build a row body under its own owner (untracked + owned). Returns the
+ * row's nodes (null for a zero-node or DYNAMIC row) and hands the owner and
+ * the dynamic value back through `bpOwner` / `bpF` (no per-row tuple — a
+ * 10k create is 10k rows). A throw disposes the row's owner. */
+let bpOwner: RowOwner = null as unknown as RowOwner;
+let bpF: any = null;
+// One shared thunk for the owned row call (no per-row closure): arguments
+// travel through module slots. Arity-exact (mapArray passes one argument to
+// arity-1 mappers). Reentrancy-safe: the slots are consumed synchronously
+// before any nested row build can begin.
+let bpFn: (...args: any[]) => any;
+let bpA0: any;
+let bpA1: any;
+const callRow = () => (bpA1 === undefined ? bpFn(bpA0) : bpFn(bpA0, bpA1));
+function buildParts(rowFn: (...args: any[]) => any, a0: any, a1: any, ops: SlotOps): Nodes {
+  const o: RowOwner = (bpOwner = createOwner() as unknown as RowOwner);
+  bpF = null;
   let v: any;
   try {
-    // Arity-exact call (mapArray passes one argument to arity-1 mappers).
-    v = runWithOwner(o as any, () => (a1 === undefined ? rowFn(a0) : rowFn(a0, a1)));
-    if (ops.isNode(v)) return [o, v as SlotNode, null];
+    bpFn = rowFn;
+    bpA0 = a0;
+    bpA1 = a1;
+    v = runWithOwner(o as any, callRow);
+    if (ops.isNode(v)) return v as SlotNode;
     const t = typeof v;
-    if (t === "string" || t === "number") return [o, ops.createText(String(v)), null];
-    if (t === "function") return [o, null, v]; // dynamic: resolved tracked by the caller
+    if (t === "string" || t === "number") return ops.createText(String(v));
+    if (t === "function") {
+      bpF = v; // dynamic: resolved tracked by the caller
+      return null;
+    }
     v = runWithOwner(o as any, () => flatten(v, FLATTEN_OPTS));
   } catch (e) {
     o.dispose();
     throw e;
   }
-  if (typeof v === "function") return [o, null, v]; // resolving wrapper (accessor leaves)
-  return [o, leavesToNodes(toLeaves(v), ops), null];
+  if (typeof v === "function") {
+    bpF = v; // resolving wrapper (accessor leaves)
+    return null;
+  }
+  return leavesToNodes(toLeaves(v), ops);
 }
 
 /** Resolve a dynamic row's value — classic's tracked `flatten` read. */
@@ -427,21 +449,20 @@ function spliceRange(slot: Slot, cur: Nodes, leaves: Leaves, anchor: SlotNode | 
 function buildRow(slot: Slot, item: any, j: number, key: any): Row {
   const it = slot.ac ? signal(item, pureOptions) : null;
   const ix = slot.ixs ? signal(j, pureOptions) : null;
-  const parts = buildParts(
+  const nd = buildParts(
     slot.row,
     it !== null ? accessor(it) : item,
     slot.bi ? j : ix !== null ? accessor(ix) : undefined,
     slot.ops
   );
-  const nd = parts[1];
   return {
     k: key,
-    o: parts[0],
+    o: bpOwner,
     it,
     ix,
     n: Array.isArray(nd) ? null : nd,
     ns: Array.isArray(nd) ? nd : null,
-    f: parts[2],
+    f: bpF,
     p: null,
     x: null,
     live: false,
@@ -451,19 +472,21 @@ function buildRow(slot: Slot, item: any, j: number, key: any): Row {
 }
 
 /** Lossless representation change: committed flat arrays → chain. Pure
- * bookkeeping over committed rows (phase-safe). Flat rows are identity
- * arity-1 rows: no signals. */
+ * bookkeeping over committed rows (phase-safe); item/index signals carry
+ * over and keys are computed now (a first fill never needs them). */
 function materialize(slot: Slot): void {
   const f = slot.flat!;
+  const kf = slot.kf;
   const n = f.items.length;
   let prev: Row | null = null;
   for (let i = 0; i < n; i++) {
     const nd = f.nodes[i];
     const r: Row = {
-      k: f.items[i],
+      // Keys are computed here, once, when the chain first needs them.
+      k: kf !== undefined ? kf(f.items[i]) : f.items[i],
       o: f.owners[i],
-      it: null,
-      ix: null,
+      it: f.its !== null ? f.its[i] : null,
+      ix: f.ixs !== null ? f.ixs[i] : null,
       n: Array.isArray(nd) ? null : nd,
       ns: Array.isArray(nd) ? nd : null,
       f: f.fns !== null ? f.fns[i] : null,
@@ -580,8 +603,9 @@ export function unifiedForSlot(
     ixs: meta.row.length > 1 && !bi,
     fallback: meta.fallback
   };
-  // Flat mode is for the common shape only (identity keys, no signals).
-  const flatOk = !slot.ac && !slot.ixs;
+  // Flat mode covers every keyed mode (identity and key-fn rows, with or
+  // without an index accessor); only keyed:false (positional) is chain-first.
+  const flatOk = !slot.bi;
   const keyOf = kf !== undefined ? kf : (item: any) => item;
   if (IS_DEV) __unifiedForStats.engaged++;
 
@@ -623,16 +647,15 @@ export function unifiedForSlot(
 
   /** The fallback row for an empty list (built owned, like a row). */
   const buildFallback = (): Row => {
-    const parts = buildParts(slot.fallback!, undefined, undefined, ops);
-    const nd = parts[1];
+    const nd = buildParts(slot.fallback!, undefined, undefined, ops);
     return {
       k: null,
-      o: parts[0],
+      o: bpOwner,
       it: null,
       ix: null,
       n: Array.isArray(nd) ? null : nd,
       ns: Array.isArray(nd) ? nd : null,
-      f: parts[2],
+      f: bpF,
       p: null,
       x: null,
       live: false,
@@ -641,11 +664,13 @@ export function unifiedForSlot(
     };
   };
 
-  /** Build the flat arrays for `itemsSnap` (identity arity-1 rows). */
+  /** Build the flat arrays for `itemsSnap` (identity rows). */
   const buildFlat = (itemsSnap: any[], mode: "fill" | "replace"): FlatPlan => {
     const len = itemsSnap.length;
     const owners: RowOwner[] = new Array(len);
     const nodes: Nodes[] = new Array(len);
+    const ixs: any[] | null = slot.ixs ? new Array(len) : null;
+    const its: any[] | null = slot.ac ? new Array(len) : null;
     let fns: any[] | null = null;
     const fp: FlatPlan = {
       ff: 1,
@@ -654,6 +679,8 @@ export function unifiedForSlot(
       owners,
       nodes,
       fns,
+      ixs,
+      its,
       len,
       upd: null,
       fb: null
@@ -661,12 +688,16 @@ export function unifiedForSlot(
     try {
       runWithOwner(slot.owner as any, () => {
         for (let j = 0; j < len; j++) {
-          const parts = buildParts(slot.row, itemsSnap[j], undefined, ops);
-          owners[j] = parts[0];
-          if (parts[2] !== null) {
+          let a0: any = itemsSnap[j];
+          let a1: any;
+          if (its !== null) a0 = accessor((its[j] = signal(a0, pureOptions)));
+          if (ixs !== null) a1 = accessor((ixs[j] = signal(j, pureOptions)));
+          const nd = buildParts(slot.row, a0, a1, ops);
+          owners[j] = bpOwner;
+          if (bpF !== null) {
             if (fns === null) fns = new Array(len).fill(null);
-            fns[j] = parts[2];
-          } else nodes[j] = parts[1];
+            fns[j] = bpF;
+          } else nodes[j] = nd;
         }
       });
       if (fns !== null) {
@@ -840,15 +871,22 @@ export function unifiedForSlot(
           owners: [],
           nodes: [],
           fns: null,
+          ixs: null,
+          its: null,
           len: 0,
           upd: null,
           fb: null
         });
+      // Survivors are judged by KEY (a key-fn list re-minting its objects
+      // keeps every row; the chain's prefix walk then writes the item
+      // signals). The aligned check above is identity-based on purpose: a
+      // same-key/new-object update is a structural op for flat mode.
       let survivor = false;
       {
-        const old = new Set(fi);
+        const old = new Set<any>();
+        for (let j = 0; j < fi.length; j++) old.add(kf !== undefined ? kf(fi[j]) : fi[j]);
         for (let j = 0; j < len; j++)
-          if (old.has(arr[j])) {
+          if (old.has(kf !== undefined ? kf(arr[j]) : arr[j])) {
             survivor = true;
             break;
           }
@@ -873,6 +911,8 @@ export function unifiedForSlot(
           owners: [],
           nodes: [],
           fns: null,
+          ixs: null,
+          its: null,
           len: 0,
           upd: null,
           fb: null
@@ -1068,6 +1108,8 @@ export function unifiedForSlot(
             owners: [],
             nodes: f.nodes,
             fns: f.fns,
+            ixs: f.ixs,
+            its: f.its,
             len: f.items.length,
             upd,
             fb: slot.fb
@@ -1135,7 +1177,14 @@ export function unifiedForSlot(
         // Hydrating fill: a claim pass, not a placement pass.
         if (slot.hyd) return slotHydration!.commitFill(slot, fp);
         for (let i = 0; i < fp.nodes.length; i++) placeNodes(slot, fp.nodes[i], endA, true);
-        slot.flat = { items: fp.items, owners: fp.owners, nodes: fp.nodes, fns: fp.fns };
+        slot.flat = {
+          items: fp.items,
+          owners: fp.owners,
+          nodes: fp.nodes,
+          fns: fp.fns,
+          ixs: fp.ixs,
+          its: fp.its
+        };
         slot.size = fp.len;
         return;
       }

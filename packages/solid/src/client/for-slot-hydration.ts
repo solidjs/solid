@@ -11,9 +11,10 @@
  * exactly as classic's would — the slot's row parent takes the SAME id
  * classic's mapArray owner spends, so rows mint identical hydration keys.
  * Nothing can demote mid-fill (see Slot.hyd), so claims are never handed
- * back. The fill commit mutates only on MISMATCH (leftover server rows
- * removed, key-missed fresh rows inserted); primitive rows ADOPT the
- * server's text nodes, so the normal case is zero DOM writes.
+ * back. The fill commit performs NO DOM writes: primitive rows ADOPT the
+ * server's text nodes (a claim, not a mutation), and a server/client
+ * mismatch is DETECTED (one dev warning) but not recovered — classic's
+ * claim pass leaves the server DOM as sent, and so does the engine.
  */
 import { sharedConfig } from "./hydration.js";
 import { IS_DEV } from "./core.js";
@@ -46,7 +47,7 @@ const hooks = {
     // normalizeIncomingArray rule) — zero-write hydration and node identity
     // for text rows (pre-hydration edits/selection survive). Rows and region
     // walk in lockstep, skipping the server's separator comments; the walk
-    // stops at the first misaligned element (a mismatch — repaired below).
+    // stops at the first misaligned element (a mismatch — detected below).
     let cursor = 0;
     adopt: for (let i = 0; i < nodes.length; i++) {
       const nd = nodes[i];
@@ -66,58 +67,47 @@ const hooks = {
         else nodes[i] = s;
       }
     }
-    const ours = new Set<Node>();
-    for (let i = 0; i < nodes.length; i++) {
-      const nd = nodes[i];
-      if (nd === null) continue;
-      if (Array.isArray(nd)) for (const n of nd) ours.add(n);
-      else ours.add(nd);
-    }
-    // Leftovers: server rows the client no longer has, separator comments.
-    let removed = 0;
-    let inserted = 0;
-    for (let i = 0; i < region.length; i++)
-      if (!ours.has(region[i]) && ops.contains(parent, region[i])) {
-        ops.remove(region[i]);
-        // Separator comments are not rows; text leftovers past the adoption
-        // walk are (a shorter client list).
-        if (region[i].nodeType !== 8) removed++;
-      }
-    // Fresh rows (template key-missed → detached; the runtime already
-    // warned) are inserted at their position, back to front so anchors are
-    // always attached. The list ends at the hole's end marker (or the
-    // parent's end for whole-parent holes).
-    let anchor: Node | null = slot.end as Node | null;
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      const nd = nodes[i];
-      if (nd === null) continue;
-      if (Array.isArray(nd)) {
-        for (let k = nd.length - 1; k >= 0; k--) {
-          if (!ops.contains(parent, nd[k])) {
-            ops.insert(parent, nd[k], anchor);
-            inserted++;
+    // MISMATCH: detect, don't recover (ruling 2026-09-07). Classic's claim
+    // pass leaves unclaimed server rows in place and never inserts a row
+    // whose template key-missed (it lands on the next update); the engine
+    // does the same. The runtime already reports unclaimed ELEMENTS and
+    // key-missed templates at hydration end; the one blind spot is TEXT rows
+    // (never in the registry), so detection here covers exactly those.
+    if (IS_DEV) {
+      const ours = new Set<Node>();
+      let detached = 0;
+      for (let i = 0; i < nodes.length; i++) {
+        const nd = nodes[i];
+        if (nd === null) continue;
+        if (Array.isArray(nd))
+          for (const n of nd) {
+            ours.add(n);
+            if (n.nodeType === 3 && !ops.contains(parent, n)) detached++;
           }
-          anchor = nd[k];
+        else {
+          ours.add(nd);
+          if (nd.nodeType === 3 && !ops.contains(parent, nd)) detached++;
         }
-      } else {
-        if (!ops.contains(parent, nd)) {
-          ops.insert(parent, nd, anchor);
-          inserted++;
-        }
-        anchor = nd;
       }
+      let leftover = 0;
+      for (let i = 0; i < region.length; i++)
+        if (region[i].nodeType === 3 && !ours.has(region[i])) leftover++;
+      if (leftover !== 0 || detached !== 0)
+        console.warn(
+          `Hydration mismatch in <For>: the server rendered a different list than the client ` +
+            `(${leftover} server text row(s) unclaimed, ${detached} client text row(s) not in the DOM). ` +
+            `Server and client should render the same list; the DOM was left as the server sent it.`
+        );
     }
-    // The slot REPAIRS a server/client mismatch (classic's claim pass leaves
-    // leftovers in place and reports them at hydration end); repairing
-    // silently would hide the mismatch, so say so once, in dev.
-    if (IS_DEV && (removed !== 0 || inserted !== 0))
-      console.warn(
-        `Hydration mismatch in <For>: the server rendered a different list than the client ` +
-          `(${removed} unclaimed server row node(s) removed, ${inserted} client row node(s) inserted). ` +
-          `The DOM was repaired, but server and client should render the same list.`
-      );
     slot.region = undefined;
-    slot.flat = { items: fp.items, owners: fp.owners, nodes: fp.nodes, fns: fp.fns };
+    slot.flat = {
+      items: fp.items,
+      owners: fp.owners,
+      nodes: fp.nodes,
+      fns: fp.fns,
+      ixs: fp.ixs,
+      its: fp.its
+    };
     slot.size = fp.len;
   }
 };
