@@ -28,6 +28,16 @@
   "exports": {
     ".": {
       "worker": {
+        "development": {
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/server.dev.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/server.dev.cjs"
+          }
+        },
         "import": {
           "types": "./types/index.d.ts",
           "default": "./dist/server.js"
@@ -58,6 +68,16 @@
         }
       },
       "deno": {
+        "development": {
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/server.dev.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/server.dev.cjs"
+          }
+        },
         "import": {
           "types": "./types/index.d.ts",
           "default": "./dist/server.js"
@@ -68,6 +88,16 @@
         }
       },
       "node": {
+        "development": {
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/server.dev.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/server.dev.cjs"
+          }
+        },
         "import": {
           "types": "./types/index.d.ts",
           "default": "./dist/server.js"

@@ -49,10 +49,13 @@ export const isServer: boolean = true;
 
 /**
  * Build-time constant indicating whether code is running in a dev build.
- * The server entry hard-codes `false` (SSR builds are production by
- * convention); the client entry's value is set by `_SOLID_DEV_` substitution.
+ * Set by `_SOLID_DEV_` substitution per artifact, exactly like the client
+ * entry: `dist/server.dev.*` (the `development` export condition) → `true`,
+ * `dist/server.*` → `false`. The server runtime's own `_SOLID_DEV_` gates are
+ * replaced by the same pass, so this flag and the bundle's internal behavior
+ * cannot disagree.
  */
-export const isDev: boolean = false;
+export const isDev: boolean = "_SOLID_DEV_" as unknown as boolean;
 
 export type IntrinsicElement = Extract<keyof JSX.IntrinsicElements, string>;
 export type ValidComponent = IntrinsicElement | Component<any> | (string & {});

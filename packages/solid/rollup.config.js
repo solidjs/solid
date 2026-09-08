@@ -44,6 +44,10 @@ export default [
     plugins: [replaceDev(false)].concat(plugins)
   },
   {
+    // Prod server build. `src/server/` has no `"_SOLID_DEV_"` gates today, but
+    // the replace must run anyway: without it babel constant-folds the truthy
+    // string literal and the first gate anyone adds takes the dev branch in
+    // production (the #2982 failure @solidjs/web's server entry shipped with).
     input: "src/server/index.ts",
     output: [
       {
@@ -56,7 +60,27 @@ export default [
       }
     ],
     external: ["@solidjs/signals", "stream"],
-    plugins
+    plugins: [replaceDev(false)].concat(plugins)
+  },
+  {
+    // Dev server build, selected by the `development` condition nested under
+    // `node`/`worker`/`deno` in package.json exports (nested on purpose: at the
+    // top level `node` precedes `development` and would win). Until this
+    // existed, SSR had no dev build at all — server-side dev diagnostics had
+    // nowhere to run. Mirrors `@solidjs/web/server-functions`'s server.dev.
+    input: "src/server/index.ts",
+    output: [
+      {
+        file: "dist/server.dev.cjs",
+        format: "cjs"
+      },
+      {
+        file: "dist/server.dev.js",
+        format: "es"
+      }
+    ],
+    external: ["@solidjs/signals", "stream"],
+    plugins: [replaceDev(true)].concat(plugins)
   },
   {
     input: "src/index.ts",

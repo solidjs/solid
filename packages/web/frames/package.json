@@ -17,6 +17,16 @@
           "default": "./dist/client.cjs"
         }
       },
+      "development": {
+        "import": {
+          "types": "../types/frames/server.d.ts",
+          "default": "./dist/server.dev.js"
+        },
+        "require": {
+          "types": "../types-cjs/frames/server.d.cts",
+          "default": "./dist/server.dev.cjs"
+        }
+      },
       "import": {
         "types": "../types/frames/server.d.ts",
         "default": "./dist/server.js"
