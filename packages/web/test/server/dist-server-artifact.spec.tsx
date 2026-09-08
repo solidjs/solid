@@ -18,9 +18,13 @@ import { describe, expect, test, vi } from "vitest";
 // in vite.config.server.mjs so the built artifact itself is under test.
 // @ts-ignore — the dist file has no adjacent type declarations; the runtime
 // behavior is what's being asserted.
-import { commitEventResponse, createRequestEvent } from "../../dist/server.js";
+import { commitEventResponse, createRequestEvent, isDev } from "../../dist/server.js";
 
 describe("dist/server.js production artifact", () => {
+  test("exports isDev === false", () => {
+    expect(isDev).toBe(false);
+  });
+
   test("post-commit header writes report through console.error and no-op (#2982)", () => {
     const event = createRequestEvent(new Request("http://localhost/"));
     commitEventResponse(new Response("body"), event);

@@ -43,6 +43,16 @@
   "exports": {
     ".": {
       "worker": {
+        "development": {
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/server.dev.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/server.dev.cjs"
+          }
+        },
         "import": {
           "types": "./types/index.d.ts",
           "default": "./dist/server.js"
@@ -56,11 +66,11 @@
         "development": {
           "import": {
             "types": "./types/index.d.ts",
-            "default": "./dist/dev.js"
+            "default": "./dist/web.dev.js"
           },
           "require": {
             "types": "./types-cjs/index.d.cts",
-            "default": "./dist/dev.cjs"
+            "default": "./dist/web.dev.cjs"
           }
         },
         "import": {
@@ -73,6 +83,16 @@
         }
       },
       "deno": {
+        "development": {
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/server.dev.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/server.dev.cjs"
+          }
+        },
         "import": {
           "types": "./types/index.d.ts",
           "default": "./dist/server.js"
@@ -83,6 +103,16 @@
         }
       },
       "node": {
+        "development": {
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/server.dev.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/server.dev.cjs"
+          }
+        },
         "import": {
           "types": "./types/index.d.ts",
           "default": "./dist/server.js"
@@ -95,11 +125,11 @@
       "development": {
         "import": {
           "types": "./types/index.d.ts",
-          "default": "./dist/dev.js"
+          "default": "./dist/web.dev.js"
         },
         "require": {
           "types": "./types-cjs/index.d.cts",
-          "default": "./dist/dev.cjs"
+          "default": "./dist/web.dev.cjs"
         }
       },
       "import": {
@@ -124,11 +154,11 @@
     "./jsx-dev-runtime": {
       "import": {
         "types": "./types/jsx.d.ts",
-        "default": "./dist/dev.js"
+        "default": "./dist/web.dev.js"
       },
       "require": {
         "types": "./types-cjs/jsx.d.cts",
-        "default": "./dist/dev.cjs"
+        "default": "./dist/web.dev.cjs"
       }
     },
     "./storage": {
@@ -283,6 +313,16 @@
     },
     "./frames": {
       "worker": {
+        "development": {
+          "import": {
+            "types": "./types/frames/server.d.ts",
+            "default": "./frames/dist/server.dev.js"
+          },
+          "require": {
+            "types": "./types-cjs/frames/server.d.cts",
+            "default": "./frames/dist/server.dev.cjs"
+          }
+        },
         "import": {
           "types": "./types/frames/server.d.ts",
           "default": "./frames/dist/server.js"
@@ -313,6 +353,16 @@
         }
       },
       "deno": {
+        "development": {
+          "import": {
+            "types": "./types/frames/server.d.ts",
+            "default": "./frames/dist/server.dev.js"
+          },
+          "require": {
+            "types": "./types-cjs/frames/server.d.cts",
+            "default": "./frames/dist/server.dev.cjs"
+          }
+        },
         "import": {
           "types": "./types/frames/server.d.ts",
           "default": "./frames/dist/server.js"
@@ -323,6 +373,16 @@
         }
       },
       "node": {
+        "development": {
+          "import": {
+            "types": "./types/frames/server.d.ts",
+            "default": "./frames/dist/server.dev.js"
+          },
+          "require": {
+            "types": "./types-cjs/frames/server.d.cts",
+            "default": "./frames/dist/server.dev.cjs"
+          }
+        },
         "import": {
           "types": "./types/frames/server.d.ts",
           "default": "./frames/dist/server.js"
@@ -352,6 +412,16 @@
       }
     },
     "./frames/server": {
+      "development": {
+        "import": {
+          "types": "./types/frames/server.d.ts",
+          "default": "./frames/dist/server.dev.js"
+        },
+        "require": {
+          "types": "./types-cjs/frames/server.d.cts",
+          "default": "./frames/dist/server.dev.cjs"
+        }
+      },
       "import": {
         "types": "./types/frames/server.d.ts",
         "default": "./frames/dist/server.js"

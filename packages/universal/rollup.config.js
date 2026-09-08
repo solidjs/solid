@@ -47,11 +47,11 @@ export default [
     input: "src/index.ts",
     output: [
       {
-        file: "dist/dev.cjs",
+        file: "dist/universal.dev.cjs",
         format: "cjs"
       },
       {
-        file: "dist/dev.js",
+        file: "dist/universal.dev.js",
         format: "es"
       }
     ],

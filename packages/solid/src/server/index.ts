@@ -1,3 +1,5 @@
+import { DEV as _DEV, type Dev } from "@solidjs/signals";
+
 // From mock signals (same exports that index.ts pulls from @solidjs/signals)
 export {
   $PROXY,
@@ -126,5 +128,11 @@ export function materializeContainerTrace(marker: unknown): unknown {
   return marker;
 }
 
-// Dev — no dev mode on server
-export const DEV = undefined;
+// Dev — same shape as the client entry. `"_SOLID_DEV_"` is replaced per build
+// (dist/server.dev.* → true, dist/server.* → false), so the dev artifact
+// exposes @solidjs/signals' DEV object — its `diagnostics` channel is the bus
+// server-side dev findings report through — and prod exports `undefined`.
+// The server reimplements reactivity, so `DEV.attribution`/graph helpers
+// have nothing to introspect here; the channel is what's shared.
+const IS_DEV = "_SOLID_DEV_" as string | boolean;
+export const DEV: Dev | undefined = IS_DEV ? _DEV : undefined;

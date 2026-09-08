@@ -29,11 +29,11 @@
       "development": {
         "import": {
           "types": "./types/index.d.ts",
-          "default": "./dist/dev.js"
+          "default": "./dist/universal.dev.js"
         },
         "require": {
           "types": "./types-cjs/index.d.cts",
-          "default": "./dist/dev.cjs"
+          "default": "./dist/universal.dev.cjs"
         }
       },
       "import": {

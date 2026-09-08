@@ -132,14 +132,13 @@ export default [
     plugins: [replaceDev(false)].concat(plugins)
   },
   {
-    // Prod build — the only node/worker/deno artifact for the main entry
-    // (SSR builds are production by convention; the server entry hard-codes
-    // isDev false). `_SOLID_DEV_` must strip to false here: without the
-    // replace, babel constant-folds the truthy "_SOLID_DEV_" string literal and
-    // the artifact permanently takes the DEV branch of every gate — most
-    // damaging the committed-stub header guard, which is spec'd to throw in
-    // dev but console.error + no-op in prod, so the shipped bundle turned a
-    // late header write into a crashed production request (#2982). Guarded
+    // Prod server build — the default node/worker/deno artifact for the main
+    // entry. `_SOLID_DEV_` must strip to false here: without the replace, babel
+    // constant-folds the truthy "_SOLID_DEV_" string literal and the artifact
+    // permanently takes the DEV branch of every gate — most damaging the
+    // committed-stub header guard, which is spec'd to throw in dev but
+    // console.error + no-op in prod, so the shipped bundle turned a late
+    // header write into a crashed production request (#2982). Guarded
     // behaviorally by test/server/dist-server-artifact.spec.tsx (a string
     // scan can't catch this: the folding erases the marker either way).
     input: "src/index.server.ts",
@@ -157,14 +156,37 @@ export default [
     plugins: [replaceDev(false)].concat(plugins)
   },
   {
-    input: "src/index.ts",
+    // Dev server build (`development` condition nested under node/worker/deno
+    // in package.json — nested because top-level `node` would match first).
+    // Until this existed the 26 `_SOLID_DEV_` gates in src/server.ts (head and
+    // preload descriptor validation, useHead warnings, the late-header throw)
+    // were stripped from the only server artifact and never ran outside the
+    // test suite. Same shape as server-functions/dist/server.dev below.
+    // Guarded by test/server/dist-server-dev-artifact.spec.tsx: the dev
+    // artifact must THROW on a late header write where prod reports and drops.
+    input: "src/index.server.ts",
     output: [
       {
-        file: "dist/dev.cjs",
+        file: "dist/server.dev.cjs",
         format: "cjs"
       },
       {
-        file: "dist/dev.js",
+        file: "dist/server.dev.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
+    plugins: [replaceDev(true)].concat(plugins)
+  },
+  {
+    input: "src/index.ts",
+    output: [
+      {
+        file: "dist/web.dev.cjs",
+        format: "cjs"
+      },
+      {
+        file: "dist/web.dev.js",
         format: "es"
       }
     ],
@@ -390,5 +412,25 @@ export default [
     ],
     external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
     plugins: [replaceDev(false)].concat(plugins)
+  },
+  {
+    // Dev server build for frames (`development` nested under node/worker/deno
+    // in the `./frames` export and the `./frames/server` subpath). Keeps the
+    // bundled SSR pipeline's `_SOLID_DEV_` gates live in dev SSR, matching the
+    // main dist/server.dev entry above.
+    input: "frames/src/server.ts",
+    output: [
+      {
+        file: "frames/dist/server.dev.cjs",
+        format: "cjs",
+        exports: "auto"
+      },
+      {
+        file: "frames/dist/server.dev.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
+    plugins: [replaceDev(true)].concat(plugins)
   }
 ];

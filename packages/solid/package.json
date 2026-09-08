@@ -28,6 +28,16 @@
   "exports": {
     ".": {
       "worker": {
+        "development": {
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/server.dev.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/server.dev.cjs"
+          }
+        },
         "import": {
           "types": "./types/index.d.ts",
           "default": "./dist/server.js"
@@ -41,11 +51,11 @@
         "development": {
           "import": {
             "types": "./types/index.d.ts",
-            "default": "./dist/dev.js"
+            "default": "./dist/solid.dev.js"
           },
           "require": {
             "types": "./types-cjs/index.d.cts",
-            "default": "./dist/dev.cjs"
+            "default": "./dist/solid.dev.cjs"
           }
         },
         "import": {
@@ -58,6 +68,16 @@
         }
       },
       "deno": {
+        "development": {
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/server.dev.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/server.dev.cjs"
+          }
+        },
         "import": {
           "types": "./types/index.d.ts",
           "default": "./dist/server.js"
@@ -68,6 +88,16 @@
         }
       },
       "node": {
+        "development": {
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/server.dev.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/server.dev.cjs"
+          }
+        },
         "import": {
           "types": "./types/index.d.ts",
           "default": "./dist/server.js"
@@ -80,11 +110,11 @@
       "development": {
         "import": {
           "types": "./types/index.d.ts",
-          "default": "./dist/dev.js"
+          "default": "./dist/solid.dev.js"
         },
         "require": {
           "types": "./types-cjs/index.d.cts",
-          "default": "./dist/dev.cjs"
+          "default": "./dist/solid.dev.cjs"
         }
       },
       "import": {
