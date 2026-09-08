@@ -45,7 +45,7 @@ function resolveAll(conditions: string[]): Record<string, string> {
   return JSON.parse(stdout);
 }
 
-describe("server export conditions", () => {
+describe("export conditions: dev/prod artifact pairing", () => {
   test("default node resolution reaches the production server artifacts", () => {
     expect(resolveAll([])).toEqual({
       "solid-js": "solid/dist/server.js",
@@ -63,6 +63,29 @@ describe("server export conditions", () => {
       "@solidjs/web/frames": "web/frames/dist/server.dev.js",
       "@solidjs/web/frames/server": "web/frames/dist/server.dev.js",
       "@solidjs/web/server-functions": "web/server-functions/dist/server.dev.js"
+    });
+  });
+
+  test("`browser` selects the client artifacts, named `<entry>.dev.js` like the server ones", () => {
+    // Node still adds its own `node` condition here, so this also pins that
+    // `browser` precedes `node`/`worker`/`deno` in every exports map — a
+    // bundler targeting the browser must never be handed a server bundle.
+    expect(resolveAll(["browser"])).toEqual({
+      "solid-js": "solid/dist/solid.js",
+      "@solidjs/web": "web/dist/web.js",
+      "@solidjs/web/frames": "web/frames/dist/client.js",
+      "@solidjs/web/frames/server": "web/frames/dist/server.js",
+      "@solidjs/web/server-functions": "web/server-functions/dist/client.js"
+    });
+    expect(resolveAll(["browser", "development"])).toEqual({
+      "solid-js": "solid/dist/solid.dev.js",
+      "@solidjs/web": "web/dist/web.dev.js",
+      "@solidjs/web/frames": "web/frames/dist/client.dev.js",
+      // `./frames/server` is server-only by name; it has no client half.
+      "@solidjs/web/frames/server": "web/frames/dist/server.dev.js",
+      // The server-functions client has no `_SOLID_DEV_` gates, hence no dev
+      // artifact — the one intentional gap in the grid.
+      "@solidjs/web/server-functions": "web/server-functions/dist/client.js"
     });
   });
 

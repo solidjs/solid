@@ -86,11 +86,11 @@ export default [
     input: "src/index.ts",
     output: [
       {
-        file: "dist/dev.cjs",
+        file: "dist/solid.dev.cjs",
         format: "cjs"
       },
       {
-        file: "dist/dev.js",
+        file: "dist/solid.dev.js",
         format: "es"
       }
     ],

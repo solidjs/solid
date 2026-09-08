@@ -51,11 +51,11 @@
         "development": {
           "import": {
             "types": "./types/index.d.ts",
-            "default": "./dist/dev.js"
+            "default": "./dist/solid.dev.js"
           },
           "require": {
             "types": "./types-cjs/index.d.cts",
-            "default": "./dist/dev.cjs"
+            "default": "./dist/solid.dev.cjs"
           }
         },
         "import": {
@@ -110,11 +110,11 @@
       "development": {
         "import": {
           "types": "./types/index.d.ts",
-          "default": "./dist/dev.js"
+          "default": "./dist/solid.dev.js"
         },
         "require": {
           "types": "./types-cjs/index.d.cts",
-          "default": "./dist/dev.cjs"
+          "default": "./dist/solid.dev.cjs"
         }
       },
       "import": {

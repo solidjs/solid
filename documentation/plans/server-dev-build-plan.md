@@ -135,6 +135,12 @@ false`), `exports-server-conditions.spec.tsx`; solid
   `test/server/dist-server-artifact.spec.ts` (`DEV` undefined in prod, is
   signals' object in dev, same export surface). Full `@solidjs/web`
   (712/764/165), `solid-js` (588), and type tests green.
+- Naming: the server dev builds made the legacy bare `dist/dev.js` names
+  ambiguous (dev of which entry?), so the three remaining ones were renamed
+  to the `<entry>.dev.*` convention the rest of the repo already used —
+  `solid.dev.*`, `web.dev.*`, `universal.dev.*`. Signals keeps `dev.js` vs
+  `prod/` (chunked dir for the mangle pass; a restructure, not a rename).
+  The resolution test now pins the client pairing under `browser` too.
 - Known gap, not P0: `@solidjs/signals`' `require` branch has no
   `development` condition (`dist/node.cjs` is `__DEV__: false` only), so CJS
   hosts loading `server.dev.cjs` still get signals' prod object and `DEV`

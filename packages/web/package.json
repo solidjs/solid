@@ -66,11 +66,11 @@
         "development": {
           "import": {
             "types": "./types/index.d.ts",
-            "default": "./dist/dev.js"
+            "default": "./dist/web.dev.js"
           },
           "require": {
             "types": "./types-cjs/index.d.cts",
-            "default": "./dist/dev.cjs"
+            "default": "./dist/web.dev.cjs"
           }
         },
         "import": {
@@ -125,11 +125,11 @@
       "development": {
         "import": {
           "types": "./types/index.d.ts",
-          "default": "./dist/dev.js"
+          "default": "./dist/web.dev.js"
         },
         "require": {
           "types": "./types-cjs/index.d.cts",
-          "default": "./dist/dev.cjs"
+          "default": "./dist/web.dev.cjs"
         }
       },
       "import": {
@@ -154,11 +154,11 @@
     "./jsx-dev-runtime": {
       "import": {
         "types": "./types/jsx.d.ts",
-        "default": "./dist/dev.js"
+        "default": "./dist/web.dev.js"
       },
       "require": {
         "types": "./types-cjs/jsx.d.cts",
-        "default": "./dist/dev.cjs"
+        "default": "./dist/web.dev.cjs"
       }
     },
     "./storage": {
