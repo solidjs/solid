@@ -1,4 +1,4 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 /**
  * Unified For ENGINE — every For mode, with mapArray + insert as the live
  * oracle (no <For> on the oracle side: every <For> engages the engine on web).
@@ -14,7 +14,8 @@
  */
 import { beforeEach, describe, expect, test } from "vitest";
 import { createSignal, flush, For, DEV, Show } from "solid-js";
-import { referenceMapArray as mapArray } from "./reference/mapArray.js";
+import { referenceMapArray as refMapArray } from "./reference/mapArray.js";
+const mapArray: (...a: any[]) => any = refMapArray as any;
 import { render } from "@solidjs/web";
 
 const stats = () => DEV!.unifiedFor;
@@ -81,7 +82,7 @@ describe("identity keys + index accessor (arity 2)", () => {
         </For>
       ),
       () =>
-        mapArray(list, (item: Item, i) => {
+        mapArray(list, (item: Item, i: any) => {
           oCalls++;
           return (
             <span>
@@ -214,7 +215,7 @@ describe("keyed={fn}", () => {
       () =>
         mapArray(
           list,
-          (item: () => Item, i) => {
+          (item: () => Item, i: any) => {
             oCalls++;
             return (
               <span>

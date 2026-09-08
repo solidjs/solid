@@ -59,18 +59,18 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
       mapper = this._rows
         ? this._byIndex
           ? () => {
-              rows![j] = createSignal(newItems[j], pureOptions);
-              return this._map(rows![j][0], j);
+              rows![j] = createSignal(newItems[j] as any, pureOptions as any) as any;
+              return (this._map as any)(rows![j][0], j);
             }
           : () => {
-              rows![j] = createSignal(newItems[j], pureOptions);
-              indexes && (indexes[j] = createSignal(j, pureOptions));
-              return this._map(rows![j][0], indexes ? indexes[j][0] : (undefined as any));
+              rows![j] = createSignal(newItems[j] as any, pureOptions as any) as any;
+              indexes && (indexes[j] = createSignal(j, pureOptions as any) as any);
+              return (this._map as any)(rows![j][0], indexes ? indexes[j][0] : (undefined as any));
             }
         : this._indexes
           ? () => {
               const item = newItems[j];
-              indexes![j] = createSignal(j, pureOptions);
+              indexes![j] = createSignal(j, pureOptions as any);
               return this._map(item, indexes![j][0]);
             }
           : () => {

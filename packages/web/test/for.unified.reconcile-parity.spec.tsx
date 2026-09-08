@@ -27,7 +27,8 @@
  */
 import { beforeEach, describe, expect, test } from "vitest";
 import { createSignal, flush, For, DEV } from "solid-js";
-import { referenceMapArray as mapArray } from "./reference/mapArray.js";
+import { referenceMapArray as refMapArray } from "./reference/mapArray.js";
+const mapArray: (...a: any[]) => any = refMapArray as any;
 const stats = DEV!.unifiedFor;
 import { render } from "@solidjs/web";
 

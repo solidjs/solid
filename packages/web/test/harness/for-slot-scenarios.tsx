@@ -17,7 +17,8 @@
  * Mismatch scenarios diverge on `isServer` so one source renders both sides.
  */
 import { children, createSignal, flush, For, Show } from "solid-js";
-import { referenceMapArray as mapArray } from "../reference/mapArray.js";
+import { referenceMapArray as refMapArray } from "../reference/mapArray.js";
+const mapArray: (...a: any[]) => any = refMapArray as any;
 import { isServer } from "@solidjs/web";
 
 export type ForSlotScenario = {
@@ -432,7 +433,7 @@ function SlotByIndexText() {
   return (
     <ul>
       <For each={items()} keyed={false}>
-        {item => item /* dynamic text row: the accessor itself */}
+        {(item: any) => item as any /* dynamic text row: the accessor itself */}
       </For>
     </ul>
   );

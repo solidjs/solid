@@ -1,4 +1,4 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 /**
  * Unified For ENGINE — the ORACLE HARNESS.
  *
@@ -24,7 +24,8 @@
  */
 import { describe, expect, test } from "vitest";
 import { createMemo, createSignal, flush, For, onCleanup, Show } from "solid-js";
-import { referenceMapArray as mapArray } from "./reference/mapArray.js";
+import { referenceMapArray as refMapArray } from "./reference/mapArray.js";
+const mapArray: (...a: any[]) => any = refMapArray as any;
 import { render } from "@solidjs/web";
 
 type Item = { id: number; v: number };
@@ -88,7 +89,7 @@ type Probe = { calls: number; cleaned: number[] };
 /** Row renderer shared by both sides. Shape by id: 0 mod 4 → zero nodes,
  * 1 mod 4 → fragment, 2 mod 4 → DYNAMIC (Show), else element. */
 function rowFor(mode: Mode, probe: Probe, dyn: () => boolean) {
-  const body = (it: Item, idx: () => number | number, key: number) => {
+  const body = (it: Item, idx: (() => number) | number, key: number) => {
     probe.calls++;
     onCleanup(() => probe.cleaned.push(key));
     const i = typeof idx === "function" ? idx() : idx;

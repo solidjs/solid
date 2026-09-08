@@ -1,4 +1,4 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 /**
  * Unified For — external audit regressions (PR #3281, 2026-09-07). One test
  * per finding, each pinned against classic's behavior (arity-2 rows decline
@@ -18,7 +18,8 @@ import {
   Errored,
   Show
 } from "solid-js";
-import { referenceMapArray as mapArray } from "./reference/mapArray.js";
+import { referenceMapArray as refMapArray } from "./reference/mapArray.js";
+const mapArray: (...a: any[]) => any = refMapArray as any;
 import { mapArray as engineMapArray } from "solid-js";
 import { insert, render } from "@solidjs/web";
 
