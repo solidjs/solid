@@ -133,8 +133,11 @@ when a scenario is slow without being silent:
 - `flights` — per async source, `flights`/`landed`/`abandoned`. A source that
   abandons most of its flights re-asks on every input change (search as you
   type); put a debounced or equality-gated derivation between the input and
-  the fetch. `late`/`lateMs` on a `sources` row is the sibling fact: the hold
-  WAS acknowledged and still ran past the info threshold — preload or cache.
+  the fetch. `long`/`longMs` on a `sources` row is the sibling fact: the
+  hold's tail (last input → commit) ran past the long-hold threshold,
+  acknowledged or not — the `LONG_HOLD` shape. A spinner over stale content
+  is not the answer at that length: key a `Loading` boundary with `on` so the
+  fallback shows, or preload/cache so the wait never gets there.
 - `fallbacks` — per loading boundary, `shows`/`shownMs`/`flashes`. A flash
   (under 150ms) is a spinner that appeared and vanished; preload, cache, or
   lift the fetch above the boundary. Do not add artificial delay.

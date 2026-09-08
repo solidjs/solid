@@ -347,9 +347,43 @@ The fix is ALWAYS to add feedback, never to remove the hold:
   the read so the write commits "faster" — that trades the hold for a torn
   screen (old data under new controls).
 
-Below `holds.warnMs` (default 500ms) the event is `info`-severity, structured
-channel only; `DEV.attribution.holds()` lists every hold (acknowledged or not)
-with what was held, what blocked it, and which affordances answered it.
+Thresholds sit at the strict end of the band on purpose: the engine measures
+to the commit, not the paint, so every number is a floor on what the user
+saw. From `holds.infoMs` (default 100ms — past "feels instant") the event is
+`info`-severity, structured channel only; from `holds.warnMs` (default 200ms —
+the INP "good" ceiling) it reaches the console. `DEV.attribution.holds()`
+lists every hold (acknowledged or not) with what was held, what blocked it,
+and which affordances answered it. When the silent hold's tail also crossed
+the long-hold threshold (`data.long: true`) the message carries the
+`LONG_HOLD` repair as well — the fallback is the honest UI at that length.
+
+### LONG_HOLD
+
+The hold WAS acknowledged — an `isPending()` spinner, a `latest()` header, an
+optimistic value — and still ran on: the time from the user's last input to
+the commit (`data.tailMs`; `holdMs` is the whole wait when input kept
+arriving) reached `longHolds.infoMs` (default 500ms), `warn` from
+`longHolds.warnMs` (default 1000ms, where the user loses the thread). A hold
+is the stale-while-revalidate tool: right when the old screen stays useful
+for the wait (tab switch, sort toggle, a fast page turn). At this length the
+old screen has stopped being useful and started being a lie; "loading" glued
+over it reads as broken. Show a fallback instead:
+
+- Put the reader behind a `Loading` boundary keyed on what changed:
+  `<Loading on={page()} fallback={<Skeleton />}>`. With `on`, the write
+  commits at once and the fallback shows where the data lands. Without it a
+  boundary that has already revealed keeps the old content — that IS the
+  hold, so wrapping alone changes nothing.
+- A boundary that has not revealed yet (a fresh route segment, a keyed
+  subtree) takes the wait the same way; `on` is the switch for one that has.
+- If the data itself is the problem, preload it (`markFlight` the kickoff so
+  it is not misread as a waterfall) or cache it so the tail never gets there.
+
+Do NOT remove the acknowledgement to "fix" this, and do not move the write
+off the async path. The measure is the tail, not the lifetime, so a hold
+that keeps taking input (typing) is judged by each wait, not by the sum.
+`feedback().sources[].long`/`longMs` counts these at the table level,
+acknowledged or not.
 
 ### Where to start: `DEV.attribution.feedback()`
 
@@ -371,9 +405,10 @@ same fold over holds and re-runs that `costs()` is over scopes and writes:
   fix with `costs()`: fan-out, waste, unstable memos); `holds`/`heldMs`/
   `silentMs`/`worstHoldMs` is the time its writes spent held (the silent-hold
   hazard — fix with the affordances above). Two INP failure modes, one row.
-  On `sources`, `late`/`lateMs` counts holds that WERE acknowledged but still
-  ran past `holds.infoMs`: the spinner is not the whole answer there — a
-  preload, a cache, or a faster source is.
+  On `sources`, `long`/`longMs` counts holds whose tail ran past
+  `longHolds.infoMs`, acknowledged or not: the spinner is not the whole
+  answer there — a `Loading` keyed with `on`, a preload, a cache, or a faster
+  source is (see `LONG_HOLD`).
 - `flights` — one row per async source: `flights` started, `landed`,
   `abandoned` (superseded by a newer flight before landing), `landedMs`,
   `worstMs`. A source with many abandoned flights is re-asking on every
@@ -385,8 +420,8 @@ same fold over holds and re-runs that `costs()` is over scopes and writes:
   flash by preloading, caching, or lifting the fetch above the boundary so
   the wait never reaches it; do not add artificial delay.
 
-Every hold, flight and show counts here at any duration; `SILENT_HOLD` is the
-thresholded verdict over the hold records.
+Every hold, flight and show counts here at any duration; `SILENT_HOLD` and
+`LONG_HOLD` are the thresholded verdicts over the hold records.
 
 ## Verifying a fix
 

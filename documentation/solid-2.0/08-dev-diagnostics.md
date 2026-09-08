@@ -370,7 +370,9 @@ Attribution-engine only. A `mapArray` / `<For>` update disposed and recreated a 
 
 ### Responsiveness (attribution engine)
 
-These name **holds** — intervals where a user-visible write was withheld by pending async and nothing on screen acknowledged the wait. They are the INP-shaped hazard of implicit transitions: the runtime is correct, but the interaction looks dead.
+These name **holds** — intervals where a user-visible write was withheld because a downstream async source went pending, so the screen kept the old content until the data landed. The runtime is correct; the question is what the user saw meanwhile. Note that INP does not catch a silent hold: the handler finishes fast, nothing changes, the browser presents a frame, and the metric reads as good. This is the dead-click class INP structurally misses; the INP-shaped cost in these tables is `selfMs`/`worstDispatchMs` on interactions.
+
+Thresholds sit at the strict end of the published bands on purpose. The engine measures to the commit, not the paint, so every number is a floor on what the user saw; and dev-time network is usually faster than the field.
 
 #### `SILENT_HOLD`
 
@@ -379,9 +381,17 @@ These name **holds** — intervals where a user-visible write was withheld by pe
 - "[click on button#save] wrote [signal] ; the write was held 640ms waiting on [fetch user] and the screen showed nothing for the wait: no `isPending()`/`latest()` reader downstream, no optimistic value, no `affects()` mark, and no effect ran while it was held — the interaction was dead for 640ms. …"
 - "[click on button#save] started an action that held [writes] for 640ms … Pair the action with a `createOptimistic`/`createOptimisticStore` write for the expected result, or read `isPending()` where the result renders."
 
-A signal/store write (or an action's writes) entered an implicit transition because a downstream async source went pending, and for the whole hold no acknowledgement was observed: no subscribed `isPending()` or `latest()` companion on the held graph, no optimistic overlay, no `affects()` declaration, and no effect that painted while the hold was open. (A `Loading` boundary above the async source is a different answer — the read never enters a transition, so there is no hold to report.) Holds shorter than `holds.infoMs` (default 300ms) are recorded silently; from `infoMs` the hold emits `info`; from `holds.warnMs` (default 500ms) it warns. Holds that _were_ acknowledged but still exceeded `infoMs` are not diagnostics — they are counted as `late` in the `feedback()` tables so the cost is visible without blaming the author for waiting correctly.
+A signal/store write (or an action's writes) was held because a downstream async source went pending, and for the whole hold no acknowledgement was observed: no subscribed `isPending()` or `latest()` companion on the held graph, no optimistic overlay, no `affects()` declaration, and no lane effect painted while the hold was open. (Mainline effects are stashed while a hold is open, so the only effects that _can_ paint are readers of optimistic values and companions — the screen changing in response to the hold. An unrelated effect cannot clear the verdict; it waits with everything else. A `Loading` boundary that has not revealed yet is a different answer — the read never holds, the fallback shows.) Holds shorter than `holds.infoMs` (default 100ms — RAIL's "feels instant" ceiling) are recorded silently; from `infoMs` the hold emits `info`; from `holds.warnMs` (default 200ms — the INP "good" ceiling) it warns. When the silent hold is also long (below) the message carries the boundary repair and `data.long` is `true`; one hold is one report.
 
-The hold is attributed to its opening interaction when the web runtime can stamp it (`click`, `keydown`, `input` on the element hit), to the effect or action that made the write otherwise. Every hold — reported or not — is queryable via `DEV.attribution.holds()`.
+The hold is attributed to its opening interaction when the web runtime can stamp it (`click`, `keydown`, `input` on the element hit), to the effect or action that made the write otherwise. `holdMs` runs from the interaction's dispatch or the first parked flush, whichever is earlier. Every hold — reported or not — is queryable via `DEV.attribution.holds()`.
+
+#### `LONG_HOLD`
+
+**Message:** "[click on button#next] wrote [page (1 → 2)]; the screen kept the old content for 1400ms after the last input (2100ms in all) waiting on [posts] — ["isPending:posts"] said it was pending, but the hold ran on well past the point where "loading" over stale content reads as broken. A wait this long is past what a stale screen should carry: show a fallback instead. Put the reader behind a Loading boundary keyed on what changed — `<Loading on={page()} fallback={…}>` — so the write commits at once and the fallback shows where the data lands; a boundary that has already revealed keeps the old content unless `on` changes. …"
+
+The hold _was_ acknowledged and still outlasted what a stale screen should carry. The measure is the hold's quiescent tail — `tailMs`, from the last write to join the hold (the user's final input) to the commit — not its lifetime, so a hold that keeps taking input is judged by each wait rather than the sum. `info` from `longHolds.infoMs` (default 500ms), `warn` from `longHolds.warnMs` (default 1000ms, where RAIL says the user loses the thread).
+
+The design point: a hold is the stale-while-revalidate tool, right when the old screen stays useful for the wait. Past that, the honest UI is a fallback — which a `Loading` boundary provides only when it has not revealed yet or its `on` prop changed; a revealed boundary with no `on` keeps the old content, which _is_ the hold. So the repair is `on`, a fresh boundary, or making the data fast (preload, cache), never removing the acknowledgement. Silent long holds are not double-reported: they stay one `SILENT_HOLD` with the same repair appended. `feedback().sources[].long`/`longMs` counts long tails at the table level, acknowledged or not.
 
 ## Programmatic diagnostics API
 
@@ -456,7 +466,8 @@ Each `DiagnosticEvent` has:
 | `EFFECT_RELAY_TEAR`              | info/warn | perf           | Reader ran twice for one root change because an effect relayed it; `warn` when derivable or repeated (attribution enabled) |
 | `IMMUTABLE_UPDATE_IN_STORE`      | warn      | perf           | Store container replaced by a mostly-identical copy (attribution enabled)                                                  |
 | `UNSTABLE_LIST_IDENTITY`         | warn      | perf           | `mapArray`/`For` recreated rows for equivalent items (attribution enabled)                                                 |
-| `SILENT_HOLD`                    | info/warn | responsiveness | Write held 300ms+/500ms+ by pending async with no on-screen acknowledgement (attribution enabled)                          |
+| `SILENT_HOLD`                    | info/warn | responsiveness | Write held 100ms+/200ms+ by pending async with no on-screen acknowledgement (attribution enabled)                          |
+| `LONG_HOLD`                      | info/warn | responsiveness | Acknowledged hold whose tail (last input → commit) ran 500ms+/1000ms+ (attribution enabled)                                |
 
 ## Run attribution — "why did this run"
 
@@ -483,7 +494,8 @@ DEV.attribution.enable({
   unstableMemos: 4,                           // or false
   wideWrites: 250,                            // or false
   waterfalls: { minFlightMs: 50 },            // or false
-  holds: { infoMs: 300, warnMs: 500 }         // or false
+  holds: { infoMs: 100, warnMs: 200 },        // or false (disables hold tracking)
+  longHolds: { infoMs: 500, warnMs: 1000 }    // or false
 });
 
 DEV.attribution.history();          // ring buffer of RerunEvents
@@ -506,7 +518,7 @@ DEV.attribution.markFlight(promise, startedAt?);
 DEV.attribution.withInteraction({ type: "click", target: 'button#next "Next →"' }, fn);
 ```
 
-`costs()` aggregates since `enable()`: `scopes` ranked by self-time with `wastedMs` (time in runs whose value didn't change — the equality cutoff absorbed them), and `writes` ranked by the total downstream re-run time each root write caused. Overlay work (optimistic-lane and transition-replay runs) is accounted separately as `overlayMs` and never blamed as waste.
+`costs()` aggregates since `enable()`: `scopes` ranked by self-time with `wastedMs` (time in runs whose value didn't change — the equality cutoff absorbed them), and `writes` ranked by the total downstream re-run time each root write caused. Overlay work (optimistic-lane and held runs — `phase: "optimistic" | "held"`) is accounted separately as `overlayMs` and never blamed as waste.
 
 ### Provenance — "who wrote this"
 
@@ -528,7 +540,7 @@ Known gap: handlers bound through the runtime (delegated events, and non-literal
 
 `feedback()` is a pure aggregation over `HoldEvent`s and `RerunEvent`s — facts, not verdicts — shaped for an agent to read in one pass:
 
-- `sources`: per set of async sources waited on, `holds`, `heldMs`/`worstMs`, the `silent` subset (no acknowledgement at any duration) with its `silentMs`, `latestOnly` (the only acknowledgement was a `latest()` shadow — the input showed, nothing said "loading"), `late`/`lateMs` (acknowledged holds that still ran past `holds.infoMs`), `acknowledgedBy` ranked by affordance (`isPending:`, `latest:`, `optimistic:`, `affects:` prefixed with the node), the `interactions` and root `writes` that were held, and how many holds an `action` opened or joined.
+- `sources`: per set of async sources waited on, `holds`, `heldMs`/`worstMs`, the `silent` subset (no acknowledgement at any duration) with its `silentMs`, `latestOnly` (the only acknowledgement was a `latest()` shadow — the input showed, nothing said "loading"), `long`/`longMs` (holds whose tail reached `longHolds.infoMs`, acknowledged or not — the `LONG_HOLD` shape; `longMs` sums the tails), `acknowledgedBy` ranked by affordance (`isPending:`, `latest:`, `optimistic:`, `affects:` prefixed with the node), the `interactions` and root `writes` that were held, and how many holds an `action` opened or joined.
 - `interactions`: per opening interaction (`click on button#next "Next →"`), `dispatches` folded together, the re-`runs` traced back to it with summed `selfMs` and `worstDispatchMs` (the long-flush hazard) beside `holds`, `heldMs`, `silentMs`, and `worstHoldMs` (the silent-hold hazard) — the two INP failure modes as columns of one row.
 - `flights`: per async source, flights started, `landed` (with `landedMs`/`worstMs`) and `abandoned` — superseded before landing. A high abandon count is the request-per-keystroke signature.
 - `fallbacks`: per `Loading` boundary, `shows`, total `shownMs`, `worstMs`, and `flashes` — fallbacks shown under 150ms, the loading-flash shape.

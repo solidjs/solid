@@ -43,7 +43,11 @@ async function until(cond: () => boolean, what: string, timeout = 5000) {
   }
 }
 
-function arm(holds: { infoMs: number; warnMs: number } | false = { infoMs: 0, warnMs: 0 }) {
+type Tiers = { infoMs: number; warnMs: number } | false;
+// Long-hold verdicts far away by default: these tests are about silence.
+const NEVER: Tiers = { infoMs: 60_000, warnMs: 60_000 };
+
+function arm(holds: Tiers = { infoMs: 0, warnMs: 0 }, longHolds: Tiers = NEVER) {
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "info").mockImplementation(() => {});
   DEV!.attribution.enable({
@@ -51,14 +55,19 @@ function arm(holds: { infoMs: number; warnMs: number } | false = { infoMs: 0, wa
     hotRuns: false,
     hotTime: false,
     waterfalls: false,
-    holds
+    holds,
+    longHolds
   });
   const events: DiagnosticEvent[] = [];
+  const longEvents: DiagnosticEvent[] = [];
   DEV!.diagnostics.subscribe(e => {
     if (e.code === "SILENT_HOLD") events.push(e);
+    if (e.code === "LONG_HOLD") longEvents.push(e);
   });
-  return { events, warn };
+  return { events, longEvents, warn };
 }
+
+const CLICK = { type: "click", target: 'button#next "Next →"' };
 
 /** A controllable async source: `posts` re-fetches whenever `page` changes. */
 function pagedFeed() {
@@ -357,5 +366,237 @@ describe("SILENT_HOLD", () => {
 
     expect(events).toHaveLength(0);
     expect(DEV!.attribution.holds()[0].acknowledgedBy).toContain("optimistic:pendingTitle");
+  });
+});
+
+describe("what can paint while held", () => {
+  it("a plain write in the same handler is held too — it cannot stand in for feedback", async () => {
+    const { events } = arm();
+    const feed = pagedFeed();
+    const [saving, setSaving] = createSignal(false, { name: "saving" });
+    const seen: boolean[] = [];
+    createRoot(() => {
+      feed.reading();
+      createRenderEffect(saving, v => {
+        seen.push(v);
+      });
+    });
+    flush();
+    feed.resolve("a");
+    await until(() => feed.shown.includes("a-p1"), "initial load");
+
+    // The whole batch is one transaction: the flag waits with the page.
+    DEV!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () => {
+      feed.setPage(2);
+      setSaving(true);
+    });
+    flush();
+    expect(seen).toEqual([false]); // nothing painted
+    await wait(10);
+    feed.resolve("b");
+    await until(() => feed.shown.includes("b-p2"), "the held page to land");
+
+    expect(events).toHaveLength(1);
+    const [hold] = DEV!.attribution.holds();
+    expect(hold.paintedDuringHold).toBe(0);
+    expect(hold.heldWrites.map(w => w.name).sort()).toEqual(["page", "saving"]);
+    expect(hold.interaction).toMatchObject({ kind: "interaction", name: "click" });
+  });
+
+  it("an unrelated mainline write landing in the parked flush is held with it, not painted", async () => {
+    const { events } = arm();
+    const feed = pagedFeed();
+    const [tick, setTick] = createSignal(0, { name: "tick" });
+    const ticks: number[] = [];
+    createRoot(() => {
+      feed.reading();
+      createRenderEffect(tick, v => {
+        ticks.push(v);
+      });
+    });
+    flush();
+    feed.resolve("a");
+    await until(() => feed.shown.includes("a-p1"), "initial load");
+
+    DEV!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () => feed.setPage(2));
+    setTick(1); // a timer, say — same flush, no relation to the click
+    flush();
+    expect(ticks).toEqual([0]);
+    await wait(10);
+    feed.resolve("b");
+    await until(() => feed.shown.includes("b-p2"), "the held page to land");
+
+    expect(events).toHaveLength(1);
+    expect(DEV!.attribution.holds()[0].paintedDuringHold).toBe(0);
+  });
+});
+
+describe("LONG_HOLD", () => {
+  it("reports an acknowledged hold whose tail outlasts the threshold, with the boundary repair", async () => {
+    const { events, longEvents, warn } = arm(NEVER, { infoMs: 20, warnMs: 30 });
+    const feed = pagedFeed();
+    createRoot(() => {
+      feed.reading();
+      createRenderEffect(
+        () => isPending(() => feed.posts()),
+        () => {},
+        { name: "spinner" }
+      );
+    });
+    flush();
+    feed.resolve("a");
+    await until(() => feed.shown.includes("a-p1"), "initial load");
+
+    DEV!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () => feed.setPage(2));
+    flush();
+    await wait(40);
+    feed.resolve("b");
+    await until(() => feed.shown.includes("b-p2"), "the held page to land");
+
+    expect(events).toHaveLength(0); // acknowledged: not silent
+    expect(longEvents).toHaveLength(1);
+    const e = longEvents[0];
+    expect(e.severity).toBe("warn");
+    expect(e.kind).toBe("responsiveness");
+    expect(e.nodeName).toBe("page");
+    expect(e.message).toContain('click on button#next "Next →" wrote "page" (1 → 2)');
+    expect(e.message).toContain('"isPending:posts" said it was pending');
+    expect(e.message).toContain("<Loading on={page()}");
+    expect(e.message).toContain("unless `on` changes");
+    expect(e.data).toMatchObject({
+      heldWrites: ["page"],
+      blockers: ["posts"],
+      acknowledgedBy: ["isPending:posts"]
+    });
+    expect((e.data as { tailMs: number }).tailMs).toBeGreaterThanOrEqual(30);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("tiers: below infoMs nothing, between info and warn an advisory", async () => {
+    const { longEvents, warn } = arm(NEVER, { infoMs: 20, warnMs: 10_000 });
+    const feed = pagedFeed();
+    createRoot(() => {
+      feed.reading();
+      createRenderEffect(
+        () => isPending(() => feed.posts()),
+        () => {},
+        { name: "spinner" }
+      );
+    });
+    flush();
+    feed.resolve("a");
+    await until(() => feed.shown.includes("a-p1"), "initial load");
+
+    feed.setPage(2);
+    flush();
+    feed.resolve("b");
+    await until(() => feed.shown.includes("b-p2"), "fast page");
+    expect(longEvents).toHaveLength(0);
+
+    feed.setPage(3);
+    flush();
+    await wait(40);
+    feed.resolve("c");
+    await until(() => feed.shown.includes("c-p3"), "slow page");
+    expect(longEvents).toHaveLength(1);
+    expect(longEvents[0].severity).toBe("info");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("measures the tail from the LAST write to join, not the first", async () => {
+    const { longEvents } = arm(NEVER, { infoMs: 0, warnMs: 10_000 });
+    const feed = pagedFeed();
+    createRoot(() => {
+      feed.reading();
+      createRenderEffect(
+        () => isPending(() => feed.posts()),
+        () => {},
+        { name: "spinner" }
+      );
+    });
+    flush();
+    feed.resolve("a");
+    await until(() => feed.shown.includes("a-p1"), "initial load");
+
+    // Typing: page 2, a long pause, page 3, a short pause, land.
+    DEV!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () => feed.setPage(2));
+    flush();
+    await wait(60);
+    DEV!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () => feed.setPage(3));
+    flush();
+    await wait(10);
+    feed.resolve("c");
+    await until(() => feed.shown.includes("c-p3"), "the final page to land");
+
+    const [hold] = DEV!.attribution.holds();
+    // holdMs reaches back to the first parked flush even though "page" now
+    // carries only the second click's record.
+    expect(hold.holdMs).toBeGreaterThanOrEqual(70);
+    expect(hold.tailMs).toBeGreaterThanOrEqual(10);
+    expect(hold.tailMs).toBeLessThan(hold.holdMs - 40);
+    expect(longEvents).toHaveLength(1);
+    expect(longEvents[0].message).toContain("after the last input");
+  });
+
+  it("a silent long hold is one SILENT_HOLD carrying the boundary repair, not two reports", async () => {
+    const { events, longEvents } = arm({ infoMs: 0, warnMs: 0 }, { infoMs: 20, warnMs: 30 });
+    const feed = pagedFeed();
+    createRoot(() => feed.reading());
+    flush();
+    feed.resolve("a");
+    await until(() => feed.shown.includes("a-p1"), "initial load");
+
+    feed.setPage(2);
+    flush();
+    await wait(40);
+    feed.resolve("b");
+    await until(() => feed.shown.includes("b-p2"), "the held page to land");
+
+    expect(longEvents).toHaveLength(0);
+    expect(events).toHaveLength(1);
+    expect(events[0].data).toMatchObject({ long: true });
+    expect(events[0].message).toContain("<Loading on={page()}");
+  });
+
+  it("a silent SHORT hold does not carry the boundary repair", async () => {
+    const { events } = arm({ infoMs: 0, warnMs: 0 }, { infoMs: 10_000, warnMs: 10_000 });
+    const feed = pagedFeed();
+    createRoot(() => feed.reading());
+    flush();
+    feed.resolve("a");
+    await until(() => feed.shown.includes("a-p1"), "initial load");
+
+    feed.setPage(2);
+    flush();
+    await wait(10);
+    feed.resolve("b");
+    await until(() => feed.shown.includes("b-p2"), "the held page to land");
+
+    expect(events).toHaveLength(1);
+    expect(events[0].data).toMatchObject({ long: false });
+    expect(events[0].message).not.toContain("<Loading");
+  });
+
+  it("longHolds: false records the tail but never judges it", async () => {
+    const { longEvents } = arm(NEVER, false);
+    const feed = pagedFeed();
+    createRoot(() => {
+      feed.reading();
+      createRenderEffect(
+        () => isPending(() => feed.posts()),
+        () => {},
+        { name: "spinner" }
+      );
+    });
+    flush();
+    feed.resolve("a");
+    await until(() => feed.shown.includes("a-p1"), "initial load");
+    feed.setPage(2);
+    flush();
+    await wait(30);
+    feed.resolve("b");
+    await until(() => feed.shown.includes("b-p2"), "the held page to land");
+    expect(longEvents).toHaveLength(0);
+    expect(DEV!.attribution.holds()[0].tailMs).toBeGreaterThanOrEqual(30);
   });
 });

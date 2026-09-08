@@ -50,7 +50,8 @@ function arm() {
     hotRuns: false,
     hotTime: false,
     waterfalls: false,
-    holds: { infoMs: 60_000, warnMs: 60_000 }
+    holds: { infoMs: 60_000, warnMs: 60_000 },
+    longHolds: { infoMs: 60_000, warnMs: 60_000 }
   });
 }
 
@@ -351,16 +352,17 @@ describe("feedback()", () => {
     });
   });
 
-  it("counts acknowledged holds that still ran past the info threshold as late", async () => {
+  it("counts holds whose tail ran past the long-hold threshold as long, acknowledged or not", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "info").mockImplementation(() => {});
-    // infoMs 0: every acknowledged hold is "late"; warnMs far away keeps the console quiet.
+    // longHolds.infoMs 0: every hold is "long"; warnMs far away keeps the console quiet.
     DEV!.attribution.enable({
       log: false,
       hotRuns: false,
       hotTime: false,
       waterfalls: false,
-      holds: { infoMs: 0, warnMs: 60_000 }
+      holds: { infoMs: 60_000, warnMs: 60_000 },
+      longHolds: { infoMs: 0, warnMs: 60_000 }
     });
     const feed = pagedFeed();
     createRoot(() => {
@@ -377,8 +379,31 @@ describe("feedback()", () => {
     flush();
     await feed.load("b");
     const [row] = DEV!.attribution.feedback().sources;
-    expect(row).toMatchObject({ holds: 1, silent: 0, late: 1 });
-    expect(row.lateMs).toBe(row.heldMs);
+    expect(row).toMatchObject({ holds: 1, silent: 0, long: 1 });
+    // One write: the tail is the whole hold.
+    const [hold] = DEV!.attribution.holds();
+    expect(row.longMs).toBe(hold.tailMs);
+    expect(hold.tailMs).toBeLessThanOrEqual(hold.holdMs);
+  });
+
+  it("does not count a hold as long when longHolds is off", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    DEV!.attribution.enable({
+      log: false,
+      hotRuns: false,
+      hotTime: false,
+      waterfalls: false,
+      holds: { infoMs: 60_000, warnMs: 60_000 },
+      longHolds: false
+    });
+    const feed = pagedFeed();
+    createRoot(() => feed.reading());
+    flush();
+    await feed.load("a");
+    feed.setPage(2);
+    flush();
+    await feed.load("b");
+    expect(DEV!.attribution.feedback().sources[0]).toMatchObject({ holds: 1, long: 0, longMs: 0 });
   });
 
   it("counts each source's flights and the ones abandoned before landing", async () => {

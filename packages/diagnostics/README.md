@@ -32,7 +32,7 @@ artifact.diagnostics; // DiagnosticEvent[] — coded anti-pattern events
 artifact.attribution; // { reruns, costs, holds, feedback } — who re-ran, why, what it cost, what the user waited on
 ```
 
-`attribution.holds` lists every transition hold the scenario caused — a write that landed on async work and stayed staged until the data settled — with what was held, what blocked it, how long the user waited (measured from the interaction when the web runtime stamped one), and which affordances acknowledged it (`isPending:posts`, `latest:page`, `optimistic:todos`, `affects:list`) or none. `attribution.feedback` folds those into ranked tables: `sources` (per async source: holds, silent ms, acknowledged-by counts, late-but-acknowledged holds, the interactions held), `interactions` (per user event: re-run work caused beside time held — the two INP hazards on one row), `flights` (per async source: flights started, landed, and abandoned before landing — the re-ask storm) and `fallbacks` (per loading boundary: time its fallback was shown, and how often that was a sub-150ms flash).
+`attribution.holds` lists every hold the scenario caused — a write that landed on async work and stayed staged until the data settled — with what was held, what blocked it, how long the user waited (measured from the interaction when the web runtime stamped one), and which affordances acknowledged it (`isPending:posts`, `latest:page`, `optimistic:todos`, `affects:list`) or none. `attribution.feedback` folds those into ranked tables: `sources` (per async source: holds, silent ms, acknowledged-by counts, long holds (tail past the long-hold threshold), the interactions held), `interactions` (per user event: re-run work caused beside time held — the two INP hazards on one row), `flights` (per async source: flights started, landed, and abandoned before landing — the re-ask storm) and `fallbacks` (per loading boundary: time its fallback was shown, and how often that was a sub-150ms flash).
 
 Options: `scenario` labels the artifact, `attribution: false` captures diagnostics only, and an options object is passed through to `DEV.attribution.enable()`. `artifactToJSONL(artifact)` emits line-oriented output for offline or agent-side analysis.
 
@@ -114,7 +114,7 @@ const { artifact } = await captureBrowserArtifact(
 );
 ```
 
-The bridge also answers live queries against an open session without closing it — `whyDidRun(name)` returns the recorded re-runs of one scope, `costs()` the running cost tables, `holds()` the transition holds so far, and `feedback()` the ranked feedback tables.
+The bridge also answers live queries against an open session without closing it — `whyDidRun(name)` returns the recorded re-runs of one scope, `costs()` the running cost tables, `holds()` the holds so far, and `feedback()` the ranked feedback tables.
 
 ## Dev-server endpoint
 

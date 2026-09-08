@@ -163,8 +163,8 @@ export function expectNoWaste(
 export interface SilentHoldOptions {
   /**
    * A silent hold shorter than this is tolerated (default 0: every silent
-   * hold fails). Mirrors the engine's `holds.infoMs`/`warnMs` thresholds but
-   * is the budget's number, not the console's.
+   * hold fails). The engine's `holds.infoMs`/`warnMs` (100/200ms) are the
+   * console's numbers; this is the budget's.
    */
   maxSilentMs?: number;
 }
@@ -183,6 +183,7 @@ function describeInteraction(origin: ChangeOrigin | undefined): string | undefin
 function holdEvidence(hold: HoldEvent) {
   return {
     holdMs: Math.round(hold.holdMs),
+    tailMs: Math.round(hold.tailMs),
     interaction: describeInteraction(hold.interaction),
     heldWrites: hold.heldWrites.map(write => write.name),
     blockers: hold.blockers,
@@ -193,7 +194,7 @@ function holdEvidence(hold: HoldEvent) {
 }
 
 /**
- * The responsiveness gate: every transition hold the scenario caused was
+ * The responsiveness gate: every hold the scenario caused was
  * acknowledged on screen — an `isPending()`/`latest()` reader downstream of
  * the held write or its blocker, an optimistic value, an `affects()` mark, or
  * at least an effect that painted while it was held. A hold that had none of

@@ -27,7 +27,7 @@ export interface ScenarioBudget {
    */
   scopes?: Record<string, number>;
   /**
-   * Responsiveness: a transition hold the screen never acknowledged (no
+   * Responsiveness: a hold the screen never acknowledged (no
    * isPending/latest reader, no optimistic value, no affects mark, nothing
    * painted) may last at most this long. `0` means every silent hold fails —
    * the right setting for any scenario that is a user interaction.

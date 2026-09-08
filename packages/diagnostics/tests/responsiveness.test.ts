@@ -107,7 +107,7 @@ async function capturePageTurn(withBusyIndicator: boolean, holdFor = 20) {
 describe("artifact — responsiveness evidence", () => {
   it("carries the holds and the feedback tables", async () => {
     const artifact = await capturePageTurn(false);
-    expect(artifact.formatVersion).toBe(2);
+    expect(artifact.formatVersion).toBe(3);
     const { holds, feedback } = artifact.attribution!;
     expect(holds).toHaveLength(1);
     expect(holds[0]).toMatchObject({

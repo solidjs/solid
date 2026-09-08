@@ -87,6 +87,8 @@ export interface ChangeRecord {
   causes?: ChangeRecord[];
   /** Root changes only: who performed the write. */
   origin?: ChangeOrigin;
+  /** Root changes only: when the write was stamped (`performance.now()` clock). */
+  at?: number;
 }
 
 export interface RerunEvent {
@@ -128,17 +130,17 @@ export interface RerunEvent {
   changed: boolean;
   /**
    * Which posture this run executed under. "optimistic" = under an
-   * optimistic lane (overlay recompute); "transition" = a transition was
-   * active or owns the node (the run may be replayed/settled later);
-   * "plain" = an ordinary committed run. Overlay runs are real work (they
-   * count toward time budgets) but are never blamed as waste, and costs()
-   * reports their time separately as `overlayMs`.
+   * optimistic lane (overlay recompute); "held" = a hold was open or owns
+   * the node (the run may be replayed/settled later); "plain" = an ordinary
+   * committed run. Overlay runs are real work (they count toward time
+   * budgets) but are never blamed as waste, and costs() reports their time
+   * separately as `overlayMs`.
    */
-  phase: "plain" | "transition" | "optimistic";
+  phase: "plain" | "held" | "optimistic";
   /**
-   * The changed value was held in `_pendingValue` (a transition hold) rather
-   * than committed directly; its reveal happens on the transition's own
-   * schedule. Held runs are excluded from waste accounting.
+   * The changed value was parked in `_pendingValue` (held) rather than
+   * committed directly; its reveal happens on the hold's own schedule. Held
+   * runs are excluded from waste accounting.
    */
   held: boolean;
   /** The user interaction this run traces back to through its causes, if any. */
@@ -211,17 +213,35 @@ export interface AttributionOptions {
    */
   waterfalls?: { minFlightMs: number } | false;
   /**
-   * Silent-hold warning: emit a diagnostic when a transition held a user's
-   * writes behind async work for at least `infoMs` (default 300ms) and the
-   * screen never acknowledged the wait — no `isPending()`/`latest()` reader
-   * downstream of the held writes or their blockers, no optimistic value, no
-   * `affects()` mark, and no effect ran during the hold. Below `warnMs`
-   * (default 500ms) the event is advisory (structured channel only); at or
-   * above it the console gets the finding. Holds that staged no root write
-   * (initial loads, bare `refresh()`) are never judged: nothing the user did
-   * went unanswered. `false` disables.
+   * Silent-hold warning: emit a diagnostic when a user's writes were held
+   * behind async work for at least `infoMs` (default 100ms — RAIL's "feels
+   * instant" ceiling) and the screen never acknowledged the wait — no
+   * `isPending()`/`latest()` reader downstream of the held writes or their
+   * blockers, no optimistic value, no `affects()` mark, and no lane effect
+   * painted while held. Below `warnMs`
+   * (default 200ms — the INP "good" ceiling) the event is advisory
+   * (structured channel only); at or above it the console gets the finding.
+   * The engine measures to the commit, not the paint, so every number is a
+   * floor on what the user saw; the thresholds sit at the strict end of the
+   * band on purpose. Holds that staged no root write (initial loads, bare
+   * `refresh()`) are never judged: nothing the user did went unanswered.
+   * `false` disables hold tracking altogether (`longHolds` included).
    */
   holds?: { infoMs: number; warnMs: number } | false;
+  /**
+   * Long-hold warning: emit a diagnostic when a hold's quiescent tail — the
+   * time from the LAST write to join it until it committed — reached
+   * `infoMs` (default 500ms), `warn` from `warnMs` (default 1000ms, where
+   * RAIL says the user loses the thread). Measured from the last join so a
+   * hold that keeps taking input (typing) is judged by each wait, not by its
+   * lifetime. A hold this long is past what a stale screen should carry,
+   * acknowledged or not: the honest UI is a fallback, which a `Loading`
+   * boundary gives only when it has not revealed yet or its `on` prop
+   * changed. Reported as LONG_HOLD when the hold was acknowledged; a silent
+   * long hold stays one SILENT_HOLD with the boundary repair appended.
+   * `false` disables.
+   */
+  longHolds?: { infoMs: number; warnMs: number } | false;
 }
 
 interface AttributedNode {
@@ -266,7 +286,8 @@ const defaultOptions = {
   unstableMemos: 4 as number | false,
   wideWrites: 250 as number | false,
   waterfalls: { minFlightMs: 50 } as { minFlightMs: number } | false,
-  holds: { infoMs: 300, warnMs: 500 } as { infoMs: number; warnMs: number } | false
+  holds: { infoMs: 100, warnMs: 200 } as { infoMs: number; warnMs: number } | false,
+  longHolds: { infoMs: 500, warnMs: 1000 } as { infoMs: number; warnMs: number } | false
 };
 let options: typeof defaultOptions = { ...defaultOptions };
 const listeners = new Set<(event: RerunEvent) => void>();
@@ -563,6 +584,7 @@ function stampWrite(
     record.value = preview(value);
   }
   record.origin = kind === "async" ? asyncOrigin(node as Computed<any>) : currentOrigin();
+  record.at = now();
   record.stack = captureStack();
   (node as AttributedNode)._devChange = record;
   if (kind === "write") trackEffectWrite(node, record, value);
@@ -803,7 +825,7 @@ function recordRerun(
   prevDeps: unknown[],
   timing: { selfMs: number; totalMs: number },
   changed: boolean,
-  phase: "plain" | "transition" | "optimistic",
+  phase: "plain" | "held" | "optimistic",
   held: boolean
 ): void {
   const node = el as AttributedNode;
@@ -1788,17 +1810,23 @@ export interface HeldWrite {
 export interface HoldEvent {
   /**
    * Wall time the user waited: from the interaction that performed the held
-   * writes when one is known (`interaction.at`), else from the first flush
-   * that parked the transition, to its completion.
+   * writes when one is known (`interaction.at`) or the first flush that
+   * parked them, whichever is earlier, to the commit.
    */
   holdMs: number;
+  /**
+   * The quiescent tail: from the LAST held write to join (the user's final
+   * input) to the commit. Equal to `holdMs` for a single write; shorter when
+   * the hold kept taking input. The LONG_HOLD measure.
+   */
+  tailMs: number;
   /** The user interaction whose writes were held, when the stamp is known. */
   interaction?: ChangeOrigin;
-  /** Flushes that ended with the transition still incomplete. */
+  /** Flushes that ended with the hold still open. */
   flushes: number;
   /** Root signal writes staged behind the hold (the user's unanswered input). */
   heldWrites: HeldWrite[];
-  /** Async nodes the transition waited on (union across its parked flushes). */
+  /** Async nodes the hold waited on (union across its parked flushes). */
   blockers: string[];
   /**
    * Feedback the graph provably rendered for this hold, as `"<kind>:<node>"`
@@ -1806,9 +1834,15 @@ export interface HoldEvent {
    * Empty and `paintedDuringHold === 0` is the SILENT_HOLD signature.
    */
   acknowledgedBy: string[];
-  /** Effect callbacks that ran inside the transition's parked flushes. */
+  /**
+   * Effect callbacks that ran inside the hold's parked flushes. Mainline
+   * effects are stashed while a hold is open, so these are lane effects —
+   * readers of optimistic values and of `isPending()`/`latest()` companions,
+   * i.e. the screen changing in response to the hold. An unrelated effect
+   * cannot land here: it waits with everything else.
+   */
   paintedDuringHold: number;
-  /** The transition was opened (or joined) by an `action()`. */
+  /** The hold was opened (or joined) by an `action()`. */
   action: boolean;
 }
 
@@ -1912,6 +1946,7 @@ function trackHoldSettled(t: Transition): void {
   const heldWrites: HeldWrite[] = [];
   let subject: Signal<any> | null = null;
   let interaction: ChangeOrigin | undefined;
+  let lastJoinAt = -Infinity;
   for (const node of t._pendingNodes) {
     if (typeof (node as Computed<any>)._fn === "function" || isCompanion(node)) continue;
     const change = (node as AttributedNode)._devChange;
@@ -1925,12 +1960,23 @@ function trackHoldSettled(t: Transition): void {
     const under = interactionOf(change.origin);
     if (under !== undefined && (interaction === undefined || under.at! < interaction.at!))
       interaction = under;
+    // Latest write: a signal written twice while held carries the later
+    // stamp, so this is the user's final input, not their first.
+    if (change.at !== undefined && change.at > lastJoinAt) lastJoinAt = change.at;
   }
   if (heldWrites.length === 0) return;
   censusRegistrations(t, state);
   censusCompanions([...t._pendingNodes, ...state.blockers], state.acknowledgedBy);
+  const end = now();
+  // The hold began no later than its first parked flush; an interaction stamp
+  // reaches further back (dispatch). A node rewritten mid-hold keeps only its
+  // latest record, so the surviving interaction may be a later one — the
+  // flush clock keeps the first wait from being forgotten.
+  const holdMs =
+    end - Math.min(state.start, interaction !== undefined ? interaction.at! : Infinity);
   const event: HoldEvent = {
-    holdMs: now() - (interaction !== undefined ? interaction.at! : state.start),
+    holdMs,
+    tailMs: lastJoinAt === -Infinity ? holdMs : Math.min(holdMs, end - lastJoinAt),
     flushes: state.flushes,
     heldWrites,
     blockers: [...state.blockers].map(nodeName),
@@ -1942,24 +1988,70 @@ function trackHoldSettled(t: Transition): void {
   holdLog.push(event);
   if (holdLog.length > options.historyLimit) holdLog.shift();
   recordFeedbackHold(event);
-  checkSilentHold(event, subject!);
+  if (isSilentHold(event)) checkSilentHold(event, subject!);
+  else checkLongHold(event, subject!);
+}
+
+/** `isLongHold` — the tail outlasted `longHolds.infoMs`. */
+function isLongHold(event: HoldEvent): boolean {
+  const cfg = options.longHolds;
+  return cfg !== false && cfg !== undefined && event.tailMs >= cfg.infoMs;
+}
+
+function describeHeldWrites(event: HoldEvent): string {
+  return event.heldWrites
+    .map(w => (w.prev !== undefined ? `"${w.name}" (${w.prev} → ${w.value})` : `"${w.name}"`))
+    .join(", ");
+}
+
+function describeBlockers(event: HoldEvent, lead: string): string {
+  return event.blockers.length > 0
+    ? ` ${lead} ${event.blockers.map(b => `"${b}"`).join(", ")}`
+    : "";
+}
+
+/**
+ * The boundary repair, shared by LONG_HOLD and a long SILENT_HOLD: a wait
+ * this long should show a fallback, not a stale screen. A `Loading` boundary
+ * lifts the write out of the hold only when it has not revealed yet or its
+ * `on` prop changed — a revealed boundary with no `on` IS the stale screen.
+ */
+function boundaryRepair(event: HoldEvent): string {
+  const key = event.heldWrites[0]?.name ?? "key";
+  return (
+    `A wait this long is past what a stale screen should carry: show a fallback instead. Put ` +
+    `the reader behind a Loading boundary keyed on what changed — <Loading on={${key}()} ` +
+    `fallback={…}> — so the write commits at once and the fallback shows where the data lands; ` +
+    `a boundary that has already revealed keeps the old content unless \`on\` changes. If the ` +
+    `data itself is the problem, preload it or cache it so the wait never gets this long.`
+  );
+}
+
+function holdData(event: HoldEvent): Record<string, unknown> {
+  const data: Record<string, unknown> = {
+    holdMs: event.holdMs,
+    tailMs: event.tailMs,
+    flushes: event.flushes,
+    heldWrites: event.heldWrites.map(w => w.name),
+    blockers: event.blockers,
+    action: event.action
+  };
+  if (event.interaction !== undefined)
+    data.interaction = { type: event.interaction.name, target: event.interaction.target };
+  return data;
 }
 
 function checkSilentHold(event: HoldEvent, subject: Signal<any>): void {
   const cfg = options.holds;
   if (cfg === false) return;
-  if (!isSilentHold(event)) return;
   if (event.holdMs < cfg.infoMs) return;
   const ms = event.holdMs.toFixed(0);
-  const writes = event.heldWrites
-    .map(w => (w.prev !== undefined ? `"${w.name}" (${w.prev} → ${w.value})` : `"${w.name}"`))
-    .join(", ");
-  const waitedOn =
-    event.blockers.length > 0 ? ` waiting on ${event.blockers.map(b => `"${b}"`).join(", ")}` : "";
+  const writes = describeHeldWrites(event);
+  const waitedOn = describeBlockers(event, "waiting on");
   // With the interaction stamped the sentence starts from what the user did;
   // without it, from the writes.
   const who = event.interaction !== undefined ? `${formatOrigin(event.interaction)} ` : "";
-  const message = event.action
+  let message = event.action
     ? `[SILENT_HOLD] ${who}${who ? "started an action that" : "an action"} held ${writes} for ` +
       `${ms}ms${waitedOn} and the screen showed nothing for the whole round-trip: no optimistic ` +
       `value, no isPending() reader, no affects() mark, and no effect ran while it was held. ` +
@@ -1974,19 +2066,51 @@ function checkSilentHold(event: HoldEvent, subject: Signal<any>): void {
       `latest(${event.heldWrites[0].name}) to reveal the new input immediately while the data ` +
       `catches up. The hold itself is correct — do not "fix" this by moving the write off the ` +
       `async path.`;
+  const long = isLongHold(event);
+  if (long) message += ` ${boundaryRepair(event)}`;
   const severity = event.holdMs >= cfg.warnMs ? "warn" : "info";
-  const data: Record<string, unknown> = {
-    holdMs: event.holdMs,
-    flushes: event.flushes,
-    heldWrites: event.heldWrites.map(w => w.name),
-    blockers: event.blockers,
-    action: event.action
-  };
-  if (event.interaction !== undefined)
-    data.interaction = { type: event.interaction.name, target: event.interaction.target };
+  const data = holdData(event);
+  data.long = long;
   const entry = emitDiagnostic(
     {
       code: "SILENT_HOLD",
+      kind: "responsiveness",
+      severity,
+      message,
+      nodeName: nodeName(subject),
+      data
+    },
+    subject
+  );
+  if (severity === "warn") reportDiagnostic(entry);
+}
+
+function checkLongHold(event: HoldEvent, subject: Signal<any>): void {
+  const cfg = options.longHolds;
+  if (cfg === false || cfg === undefined) return;
+  if (event.tailMs < cfg.infoMs) return;
+  const tail = event.tailMs.toFixed(0);
+  const writes = describeHeldWrites(event);
+  const waitedOn = describeBlockers(event, "waiting on");
+  const who = event.interaction !== undefined ? `${formatOrigin(event.interaction)} ` : "";
+  const answered =
+    event.acknowledgedBy.length > 0
+      ? `${event.acknowledgedBy.map(a => `"${a}"`).join(", ")} said it was pending`
+      : `an effect painted meanwhile`;
+  const sinceLast =
+    event.tailMs < event.holdMs - 1
+      ? ` after the last input (${event.holdMs.toFixed(0)}ms in all)`
+      : "";
+  const message =
+    `[LONG_HOLD] ${who}${who ? "wrote" : "writes to"} ${writes}; the screen kept the old ` +
+    `content for ${tail}ms${sinceLast}${waitedOn} — ${answered}, but the hold ran on well past ` +
+    `the point where "loading" over stale content reads as broken. ${boundaryRepair(event)}`;
+  const severity = event.tailMs >= cfg.warnMs ? "warn" : "info";
+  const data = holdData(event);
+  data.acknowledgedBy = event.acknowledgedBy;
+  const entry = emitDiagnostic(
+    {
+      code: "LONG_HOLD",
       kind: "responsiveness",
       severity,
       message,
@@ -2025,12 +2149,14 @@ export interface FeedbackSource {
   /** Holds whose only acknowledgment was a `latest()` shadow: the input showed, nothing said "loading". */
   latestOnly: number;
   /**
-   * Acknowledged holds that still ran past the silent-hold `infoMs` threshold —
-   * the screen said "loading", but for long enough that the affordance is not
-   * the whole answer (preload, cache, or a faster source is).
+   * Holds whose quiescent tail (last write to join → commit) reached
+   * `longHolds.infoMs`, acknowledged or not — the LONG_HOLD signature at the
+   * table level. The affordance is not the whole answer there: a fallback
+   * (`Loading` keyed with `on`), a preload, a cache, or a faster source is.
+   * `longMs` sums the tails.
    */
-  late: number;
-  lateMs: number;
+  long: number;
+  longMs: number;
   /** Which affordances answered, and in how many holds — ranked. */
   acknowledgedBy: { by: string; holds: number }[];
   /** Interactions whose writes were held here, ranked by holds. */
@@ -2212,8 +2338,8 @@ function recordFeedbackHold(event: HoldEvent): void {
         silent: 0,
         silentMs: 0,
         latestOnly: 0,
-        late: 0,
-        lateMs: 0,
+        long: 0,
+        longMs: 0,
         acknowledgedBy: [],
         interactions: [],
         writes: [],
@@ -2233,17 +2359,14 @@ function recordFeedbackHold(event: HoldEvent): void {
   if (silent) {
     row.silent++;
     row.silentMs += event.holdMs;
-  } else {
-    if (
-      event.acknowledgedBy.length > 0 &&
-      event.acknowledgedBy.every(by => by.startsWith("latest:"))
-    )
-      row.latestOnly++;
-    const holdsCfg = options.holds;
-    if (holdsCfg !== false && holdsCfg !== undefined && event.holdMs >= holdsCfg.infoMs) {
-      row.late++;
-      row.lateMs += event.holdMs;
-    }
+  } else if (
+    event.acknowledgedBy.length > 0 &&
+    event.acknowledgedBy.every(by => by.startsWith("latest:"))
+  )
+    row.latestOnly++;
+  if (isLongHold(event)) {
+    row.long++;
+    row.longMs += event.tailMs;
   }
   if (event.action) row.actions++;
   for (const by of event.acknowledgedBy) bucket.acks.set(by, (bucket.acks.get(by) ?? 0) + 1);
@@ -2364,7 +2487,7 @@ const engineHooks: AttributionHooks = {
         frame.prevDeps!,
         { selfMs, totalMs },
         changed,
-        optimistic ? "optimistic" : transition ? "transition" : "plain",
+        optimistic ? "optimistic" : transition ? "held" : "plain",
         held
       );
     // Creation runs still get the wide-scope check: a memo can be born with
