@@ -55,6 +55,7 @@
  */
 import {
   accessor,
+  createMemo,
   createOwner,
   createRenderEffect,
   flatten,
@@ -112,6 +113,9 @@ export interface Row {
   ns: SlotNode[] | null;
   /** DYNAMIC row: the unresolved value re-read TRACKED every run; null = static. */
   f: any;
+  /** The row fn's RAW result (what mapArray would have mapped to) — the
+   * engine's ARRAY output for children()/introspection/non-engaging renderers. */
+  v: any;
   p: Row | null;
   x: Row | null;
   /** True once the effect phase has placed the row into live DOM. */
@@ -198,7 +202,9 @@ export interface Slot {
   tail: Row | null;
   /** Chain size (rows; the fallback is NOT a chain row). */
   size: number;
-  parent: SlotNode;
+  /** Host parent, or null in ARRAY mode (no renderer: the engine answers a
+   * plain call with the row values instead of placing nodes). */
+  parent: SlotNode | null;
   /** Placement anchor: the end marker, or null (append at parent end). */
   end: SlotNode | null;
   /** True ONLY for whole-parent inserts (marker === undefined). */
@@ -211,7 +217,8 @@ export interface Slot {
   dyn: boolean;
   /** Live fallback row (empty list with `fallback`), else null. */
   fb: Row | null;
-  ops: SlotOps;
+  /** Renderer ops, or null in ARRAY mode. */
+  ops: SlotOps | null;
   /** HYDRATING FILL in progress; cleared by the first commit. Nothing can
    * demote mid-fill, so claims never need handing back. */
   hyd: boolean;
@@ -235,10 +242,10 @@ const pureOptions = { ownedWrite: true };
 /** Whole-parent bulk ops (`ops.clear`) are safe only when our window IS the
  * parent's entire child list — classic's ownsAllChildren ruling. */
 function ownsParent(slot: Slot): boolean {
-  if (!slot.whole || slot.fb !== null) return false;
+  if (!slot.whole || slot.fb !== null || slot.ops === null) return false;
   const first = firstNodeOf(slot);
   const last = lastNodeOf(slot);
-  return first !== null && last !== null && slot.ops.owns(slot.parent, first, last);
+  return first !== null && last !== null && slot.ops.owns(slot.parent!, first, last);
 }
 
 const firstOf = (nd: Nodes): SlotNode | null =>
@@ -288,13 +295,16 @@ function firstNodeFrom(r: Row | null): SlotNode | null {
  * while the tail is still ours). Falls back to the end marker / parent end.
  * Read at commit start, BEFORE removes. */
 function endAnchor(slot: Slot): SlotNode | null {
+  const ops = slot.ops;
+  if (ops === null) return null;
   const last = lastNodeOf(slot);
-  return last !== null && slot.ops.contains(slot.parent, last) ? slot.ops.next(last) : slot.end;
+  return last !== null && ops.contains(slot.parent!, last) ? ops.next(last) : slot.end;
 }
 
 /** Detach only what is still OURS (classic's `parentNode === parent` guard). */
 function detach(slot: Slot, n: SlotNode): void {
-  if (slot.ops.contains(slot.parent, n)) slot.ops.remove(n);
+  const ops = slot.ops;
+  if (ops !== null && ops.contains(slot.parent!, n)) ops.remove(n);
 }
 function detachAll(slot: Slot, nd: Nodes): void {
   if (nd === null) return;
@@ -304,16 +314,17 @@ function detachAll(slot: Slot, nd: Nodes): void {
 
 /** Insert (fresh) or move (live) a row's nodes before `anchor`. */
 function placeNodes(slot: Slot, nd: Nodes, anchor: SlotNode | null, tagIt: boolean): void {
-  if (nd === null) return;
-  const tag = slot.end;
   const ops = slot.ops;
+  if (nd === null || ops === null) return;
+  const tag = slot.end;
+  const parent = slot.parent!;
   if (Array.isArray(nd)) {
     for (let i = 0; i < nd.length; i++) {
-      ops.insert(slot.parent, nd[i], anchor);
+      ops.insert(parent, nd[i], anchor);
       if (tag && tagIt) ops.tag(nd[i], tag);
     }
   } else {
-    ops.insert(slot.parent, nd, anchor);
+    ops.insert(parent, nd, anchor);
     if (tag && tagIt) ops.tag(nd, tag);
   }
 }
@@ -334,6 +345,7 @@ const toLeaves = (v: any): Leaves => (v === undefined ? EMPTY : Array.isArray(v)
  * 10k create is 10k rows). A throw disposes the row's owner. */
 let bpOwner: RowOwner = null as unknown as RowOwner;
 let bpF: any = null;
+let bpV: any = null;
 // One shared thunk for the owned row call (no per-row closure): arguments
 // travel through module slots. Arity-exact (mapArray passes one argument to
 // arity-1 mappers). Reentrancy-safe: the slots are consumed synchronously
@@ -342,7 +354,7 @@ let bpFn: (...args: any[]) => any;
 let bpA0: any;
 let bpA1: any;
 const callRow = () => (bpA1 === undefined ? bpFn(bpA0) : bpFn(bpA0, bpA1));
-function buildParts(rowFn: (...args: any[]) => any, a0: any, a1: any, ops: SlotOps): Nodes {
+function buildParts(rowFn: (...args: any[]) => any, a0: any, a1: any, ops: SlotOps | null): Nodes {
   const o: RowOwner = (bpOwner = createOwner() as unknown as RowOwner);
   bpF = null;
   let v: any;
@@ -350,7 +362,9 @@ function buildParts(rowFn: (...args: any[]) => any, a0: any, a1: any, ops: SlotO
     bpFn = rowFn;
     bpA0 = a0;
     bpA1 = a1;
-    v = runWithOwner(o as any, callRow);
+    bpV = v = runWithOwner(o as any, callRow);
+    // ARRAY mode: the raw result IS the output (mapArray parity); no nodes.
+    if (ops === null) return null;
     if (ops.isNode(v)) return v as SlotNode;
     const t = typeof v;
     if (t === "string" || t === "number") return ops.createText(String(v));
@@ -422,7 +436,8 @@ function setNodes(r: Row, nd: Nodes): void {
  * with a `.data` write, detach what didn't survive (guarded), place the new
  * range before `anchor`. */
 function spliceRange(slot: Slot, cur: Nodes, leaves: Leaves, anchor: SlotNode | null): Nodes {
-  const ops = slot.ops;
+  const ops = slot.ops!; // DOM mode only (array mode never resolves dynamic rows)
+  const parent = slot.parent!;
   const arr: SlotNode[] = cur === null ? [] : Array.isArray(cur) ? cur : [cur];
   const n = leaves.length;
   const out: SlotNode[] = new Array(n);
@@ -438,7 +453,7 @@ function spliceRange(slot: Slot, cur: Nodes, leaves: Leaves, anchor: SlotNode | 
   for (let i = 0; i < arr.length; i++) if (out.indexOf(arr[i]) === -1) detach(slot, arr[i]);
   const tag = slot.end;
   for (let i = n - 1; i >= 0; i--) {
-    ops.insert(slot.parent, out[i], anchor);
+    ops.insert(parent, out[i], anchor);
     if (tag) ops.tag(out[i], tag);
     anchor = out[i];
   }
@@ -463,6 +478,7 @@ function buildRow(slot: Slot, item: any, j: number, key: any): Row {
     n: Array.isArray(nd) ? null : nd,
     ns: Array.isArray(nd) ? nd : null,
     f: bpF,
+    v: bpV,
     p: null,
     x: null,
     live: false,
@@ -490,6 +506,7 @@ function materialize(slot: Slot): void {
       n: Array.isArray(nd) ? null : nd,
       ns: Array.isArray(nd) ? nd : null,
       f: f.fns !== null ? f.fns[i] : null,
+      v: null, // flat mode is DOM-only; array mode never materializes
       p: prev,
       x: null,
       live: true,
@@ -548,33 +565,21 @@ function sameItems(a: ArrayLike<any>, b: any[]): boolean {
   return true;
 }
 
-/** THE unified For slot — For stamps this as `$for.impl`; a renderer's
- * insert() engages it with its SlotOps. */
-export function unifiedForSlot(
-  parent: SlotNode,
-  listFn: any,
+/** The engine: row bookkeeping for one <For>, in every mode. Two outputs
+ * share it — DOM placement (a renderer's insert() engaged it with its ops)
+ * and ARRAY output (`ops === null`: a plain call of the For accessor, the
+ * mapArray-shaped result for children()/introspection/renderers that don't
+ * engage). Returns the compute/commit halves and the array reader. */
+function engine(
+  meta: any,
+  parent: SlotNode | null,
   marker: SlotNode | null | undefined,
-  ops: SlotOps,
-  region?: SlotNode[],
-  /** HOLE mode: engaged from inside a wrapper insert's compute (the
-   * `{props.children}` seam). The hosting effect owns the hole, so this
-   * slot removes its rows on cleanup (a children change or dispose) — in
-   * direct mode the parent element's removal covers that for free. */
-  hole = false
-): void {
-  const meta = listFn.$for;
-  // HYDRATION: decided by the installed hooks (null in CSR bundles). A
-  // hydrating engage hands back the parity owner id so the slot's rows mint
-  // the same hydration keys classic's would.
-  let ownerOpts: { id: string } | undefined;
-  let hyd = false;
-  if (slotHydration !== null) {
-    const h = slotHydration.engage(meta, marker, region);
-    if (h !== false) {
-      ownerOpts = h;
-      hyd = true;
-    }
-  }
+  ops: SlotOps | null,
+  region: SlotNode[] | undefined,
+  hole: boolean,
+  ownerOpts: { id: string } | undefined,
+  hyd: boolean
+) {
   const kf = typeof meta.keyed === "function" ? meta.keyed : undefined;
   const bi = meta.keyed === false;
   const slot: Slot = {
@@ -605,9 +610,9 @@ export function unifiedForSlot(
   };
   // Flat mode covers every keyed mode (identity and key-fn rows, with or
   // without an index accessor); only keyed:false (positional) is chain-first.
-  const flatOk = !slot.bi;
+  // Array mode is chain-only (its output walks the chain).
+  const flatOk = !slot.bi && ops !== null;
   const keyOf = kf !== undefined ? kf : (item: any) => item;
-  if (IS_DEV) __unifiedForStats.engaged++;
 
   const dropPending = (): void => {
     const p = slot.pending;
@@ -627,7 +632,7 @@ export function unifiedForSlot(
 
   const removeFlatDom = (): void => {
     const f = slot.flat!;
-    if (ownsParent(slot)) ops.clear(slot.parent);
+    if (ownsParent(slot)) ops!.clear(slot.parent!);
     else for (let i = 0; i < f.nodes.length; i++) detachAll(slot, f.nodes[i]);
   };
 
@@ -635,14 +640,14 @@ export function unifiedForSlot(
   const resolveFreshFlat = (fp: FlatPlan): void => {
     const fns = fp.fns!;
     for (let j = 0; j < fns.length; j++)
-      if (fns[j] !== null) fp.nodes[j] = leavesToNodes(resolve(fns[j]), ops);
+      if (fns[j] !== null) fp.nodes[j] = leavesToNodes(resolve(fns[j]), ops!);
   };
   const resolveFreshRows = (order: Row[], fb: Row | null): void => {
     for (let j = 0; j < order.length; j++) {
       const r = order[j];
-      if (!r.live && r.f !== null) setNodes(r, leavesToNodes(resolve(r.f), ops));
+      if (!r.live && r.f !== null) setNodes(r, leavesToNodes(resolve(r.f), ops!));
     }
-    if (fb !== null && !fb.live && fb.f !== null) setNodes(fb, leavesToNodes(resolve(fb.f), ops));
+    if (fb !== null && !fb.live && fb.f !== null) setNodes(fb, leavesToNodes(resolve(fb.f), ops!));
   };
 
   /** The fallback row for an empty list (built owned, like a row). */
@@ -656,6 +661,7 @@ export function unifiedForSlot(
       n: Array.isArray(nd) ? null : nd,
       ns: Array.isArray(nd) ? nd : null,
       f: bpF,
+      v: bpV,
       p: null,
       x: null,
       live: false,
@@ -766,12 +772,12 @@ export function unifiedForSlot(
     for (let r = slot.head; r !== null; r = r.x) {
       if (r.f === null || r.g === -1) continue;
       const leaves = resolve(r.f);
-      if (!sameLeaves(leaves, nodesOf(r), ops)) (upd ??= []).push([r, leaves]);
+      if (!sameLeaves(leaves, nodesOf(r), ops!)) (upd ??= []).push([r, leaves]);
     }
     const fb = slot.fb;
     if (fb !== null && fb.f !== null && fb.g !== -1) {
       const leaves = resolve(fb.f);
-      if (!sameLeaves(leaves, nodesOf(fb), ops)) (upd ??= []).push([fb, leaves]);
+      if (!sameLeaves(leaves, nodesOf(fb), ops!)) (upd ??= []).push([fb, leaves]);
     }
     return upd;
   };
@@ -783,15 +789,15 @@ export function unifiedForSlot(
     for (let j = 0; j < fns.length; j++) {
       if (fns[j] === null) continue;
       const leaves = resolve(fns[j]);
-      if (!sameLeaves(leaves, f.nodes[j], ops)) (upd ??= []).push([j, leaves]);
+      if (!sameLeaves(leaves, f.nodes[j], ops!)) (upd ??= []).push([j, leaves]);
     }
     return upd;
   };
 
-  // The insert owner disposes the slot's render effect; the slot owner lives
-  // under For's creation owner, so dispose it explicitly here. HOLE mode
-  // also removes the nodes: the hosting effect keeps the parent and re-fills it.
-  onCleanup(() => {
+  /** DOM mode teardown (registered by the engaging insert's cleanup): the
+   * slot owner lives under For's creation owner, so dispose it explicitly.
+   * HOLE mode also removes the nodes — the hosting effect re-fills the parent. */
+  const teardown = (): void => {
     slot.dead = true;
     if (hole) {
       if (slot.flat !== null) removeFlatDom();
@@ -799,7 +805,7 @@ export function unifiedForSlot(
       if (slot.fb !== null) detachAll(slot, nodesOf(slot.fb));
     }
     slot.owner.dispose();
-  });
+  };
 
   /** All committed chain rows, as a removes list. */
   const allRows = (): Row[] => {
@@ -1084,199 +1090,270 @@ export function unifiedForSlot(
     return plan;
   };
 
-  effect(
-    (): ComputeOut => {
-      if (slot.dead) return IDENTICAL;
-      // Read FIRST (phase separation): a NotReady here leaves the slot
-      // untouched and rides the boundary like any compute throw. Array-likes
-      // are accepted the way mapArray duck-types them.
-      const items = meta.each();
-      const arr: ArrayLike<any> = items == null || items === false ? EMPTY : items;
-      const out = structural(arr);
-      if (!slot.dyn) return out;
-      // ── Dynamic rows: re-read every committed one (keeps the subscription
-      // alive) and attach the changed ranges.
-      if (out === IDENTICAL) {
-        if (slot.flat !== null) {
-          const upd = scanFlat();
-          if (upd === null) return IDENTICAL;
-          const f = slot.flat;
-          return (slot.pending = {
-            ff: 1,
-            mode: "dyn",
-            items: f.items,
-            owners: [],
-            nodes: f.nodes,
-            fns: f.fns,
-            ixs: f.ixs,
-            its: f.its,
-            len: f.items.length,
-            upd,
-            fb: slot.fb
-          });
-        }
-        const upd = scanChain();
+  const compute = (): ComputeOut => {
+    if (slot.dead) return IDENTICAL;
+    // Read FIRST (phase separation): a NotReady here leaves the slot
+    // untouched and rides the boundary like any compute throw. Array-likes
+    // are accepted the way mapArray duck-types them.
+    const items = meta.each();
+    const arr: ArrayLike<any> = items == null || items === false ? EMPTY : items;
+    const out = structural(arr);
+    if (!slot.dyn) return out;
+    // ── Dynamic rows: re-read every committed one (keeps the subscription
+    // alive) and attach the changed ranges.
+    if (out === IDENTICAL) {
+      if (slot.flat !== null) {
+        const upd = scanFlat();
         if (upd === null) return IDENTICAL;
+        const f = slot.flat;
         return (slot.pending = {
-          order: [],
-          removes: [],
-          before: slot.tail,
-          after: null,
-          len: slot.size,
+          ff: 1,
+          mode: "dyn",
+          items: f.items,
+          owners: [],
+          nodes: f.nodes,
+          fns: f.fns,
+          ixs: f.ixs,
+          its: f.its,
+          len: f.items.length,
           upd,
           fb: slot.fb
         });
       }
-      if ((out as FlatPlan).ff !== 1) (out as Plan).upd = scanChain();
-      return out;
-    },
-    out => {
-      if (out === IDENTICAL) return;
-      if (out !== slot.pending) return; // superseded mid-flight
-      slot.pending = null;
-      // The node after the list, read BEFORE removes.
-      const endA = endAnchor(slot);
-      // Fallback leaving: detach + dispose before anything is placed.
-      const fbOld = slot.fb;
-      if (fbOld !== null && out.fb !== fbOld) {
-        detachAll(slot, nodesOf(fbOld));
-        fbOld.o.dispose();
-        slot.fb = null;
-      }
-      if ((out as FlatPlan).ff === 1) {
-        const fp = out as FlatPlan;
-        if (fp.mode === "dyn") {
-          const f = slot.flat!;
-          const upd = fp.upd!;
-          for (let u = upd.length - 1; u >= 0; u--) {
-            const j = upd[u][0];
-            let anchor: SlotNode | null = null;
-            for (let q = j + 1; q < f.nodes.length && anchor === null; q++)
-              anchor = firstOf(f.nodes[q]);
-            if (anchor === null) anchor = endA;
-            f.nodes[j] = spliceRange(slot, f.nodes[j], upd[u][1], anchor);
-          }
-          return;
+      const upd = scanChain();
+      if (upd === null) return IDENTICAL;
+      return (slot.pending = {
+        order: [],
+        removes: [],
+        before: slot.tail,
+        after: null,
+        len: slot.size,
+        upd,
+        fb: slot.fb
+      });
+    }
+    if ((out as FlatPlan).ff !== 1) (out as Plan).upd = scanChain();
+    return out;
+  };
+
+  const commit = (out: ComputeOut): void => {
+    if (out === IDENTICAL) return;
+    if (out !== slot.pending) return; // superseded mid-flight
+    slot.pending = null;
+    // The node after the list, read BEFORE removes.
+    const endA = endAnchor(slot);
+    // Fallback leaving: detach + dispose before anything is placed.
+    const fbOld = slot.fb;
+    if (fbOld !== null && out.fb !== fbOld) {
+      detachAll(slot, nodesOf(fbOld));
+      fbOld.o.dispose();
+      slot.fb = null;
+    }
+    if ((out as FlatPlan).ff === 1) {
+      const fp = out as FlatPlan;
+      if (fp.mode === "dyn") {
+        const f = slot.flat!;
+        const upd = fp.upd!;
+        for (let u = upd.length - 1; u >= 0; u--) {
+          const j = upd[u][0];
+          let anchor: SlotNode | null = null;
+          for (let q = j + 1; q < f.nodes.length && anchor === null; q++)
+            anchor = firstOf(f.nodes[q]);
+          if (anchor === null) anchor = endA;
+          f.nodes[j] = spliceRange(slot, f.nodes[j], upd[u][1], anchor);
         }
-        if (fp.mode === "clear") {
-          removeFlatDom();
-          const f = slot.flat!;
-          for (let i = 0; i < f.owners.length; i++) f.owners[i].dispose();
-          slot.flat = null;
-          slot.size = 0;
-          slot.dyn = false;
-          if (IS_DEV) __unifiedForStats.batchCleared++;
-          return;
-        }
-        if (fp.mode === "replace") {
-          removeFlatDom();
-          const f = slot.flat!;
-          for (let i = 0; i < f.owners.length; i++) f.owners[i].dispose();
-          slot.dyn = fp.fns !== null;
-        }
-        // Hydrating fill: a claim pass, not a placement pass.
-        if (slot.hyd) return slotHydration!.commitFill(slot, fp);
-        for (let i = 0; i < fp.nodes.length; i++) placeNodes(slot, fp.nodes[i], endA, true);
-        slot.flat = {
-          items: fp.items,
-          owners: fp.owners,
-          nodes: fp.nodes,
-          fns: fp.fns,
-          ixs: fp.ixs,
-          its: fp.its
-        };
-        slot.size = fp.len;
         return;
       }
-      const plan = out as Plan;
-      const { order, removes, before, after } = plan;
-      // Batch clear: N→0 on an OWNED whole-parent slot is one `textContent = ''`
-      // + one bulk owner dispose.
-      if (
-        plan.len === 0 &&
-        plan.fb === null &&
-        before === null &&
-        after === null &&
-        ownsParent(slot)
-      ) {
-        if (IS_DEV) __unifiedForStats.batchCleared++;
-        ops.clear(slot.parent);
-        slot.owner.dispose(false);
-        slot.head = slot.tail = null;
+      if (fp.mode === "clear") {
+        removeFlatDom();
+        const f = slot.flat!;
+        for (let i = 0; i < f.owners.length; i++) f.owners[i].dispose();
+        slot.flat = null;
         slot.size = 0;
         slot.dyn = false;
+        if (IS_DEV) __unifiedForStats.batchCleared++;
         return;
       }
-      // Full replace (no survivors, owned whole parent): one bulk detach.
-      if (
-        before === null &&
-        after === null &&
-        removes.length === slot.size &&
-        removes.length > 0 &&
-        ownsParent(slot)
-      ) {
-        ops.clear(slot.parent);
-        for (let j = 0; j < removes.length; j++) {
-          removes[j].live = false;
-          removes[j].o.dispose();
-        }
-      } else {
-        for (let j = 0; j < removes.length; j++) removeRow(slot, removes[j]);
+      if (fp.mode === "replace") {
+        removeFlatDom();
+        const f = slot.flat!;
+        for (let i = 0; i < f.owners.length; i++) f.owners[i].dispose();
+        slot.dyn = fp.fns !== null;
       }
-      // Place fresh/moved rows back-to-front so anchors are always final.
-      // Direct insertBefore per row, deliberately — NOT fragment-batched runs
-      // (browsers charge per MOVE; LIS + direct placement is move-minimal).
-      let anchor: SlotNode | null = after !== null ? firstNodeFrom(after) : null;
-      if (anchor === null) anchor = endA;
-      const hydrating = slot.hyd;
-      for (let j = order.length - 1; j >= 0; j--) {
-        const r = order[j];
-        const first = firstOf(nodesOf(r));
-        if (r.mv) {
-          // Hydrating fill (chain modes): rows whose templates CLAIMED server
-          // nodes are already in place — a claim pass, not a placement pass.
-          if (!(hydrating && first !== null && ops.contains(slot.parent, first)))
-            placeNodes(slot, nodesOf(r), anchor, !r.live);
-          r.live = true;
-          r.mv = false;
-        }
-        if (first !== null) anchor = first;
-      }
-      slot.hyd = false;
-      // Splice the chain: [before] → order… → [after].
-      let prev = before;
-      for (let j = 0; j < order.length; j++) {
-        const r = order[j];
-        r.p = prev;
-        if (prev !== null) prev.x = r;
-        else slot.head = r;
-        prev = r;
-      }
-      if (prev !== null) prev.x = after;
-      else slot.head = after;
-      if (after !== null) after.p = prev;
-      else slot.tail = prev;
-      slot.size = plan.len;
-      // Fallback arriving: place after the (now empty) list.
-      const fb = plan.fb;
-      if (fb !== null && fb !== fbOld) {
-        placeNodes(slot, nodesOf(fb), endA, true);
-        fb.live = true;
-        fb.mv = false;
-        slot.fb = fb;
-      }
-      // Dynamic rows whose resolution changed: splice each range, back to
-      // front so a row's anchor (its successor's first node) is final.
-      const upd = plan.upd;
-      if (upd !== null)
-        for (let u = upd.length - 1; u >= 0; u--) {
-          const r = upd[u][0];
-          let a: SlotNode | null = r === slot.fb ? endA : firstNodeFrom(r.x);
-          if (a === null) a = endA;
-          setNodes(r, spliceRange(slot, nodesOf(r), upd[u][1], a));
-        }
+      // Hydrating fill: a claim pass, not a placement pass.
+      if (slot.hyd) return slotHydration!.commitFill(slot, fp);
+      for (let i = 0; i < fp.nodes.length; i++) placeNodes(slot, fp.nodes[i], endA, true);
+      slot.flat = {
+        items: fp.items,
+        owners: fp.owners,
+        nodes: fp.nodes,
+        fns: fp.fns,
+        ixs: fp.ixs,
+        its: fp.its
+      };
+      slot.size = fp.len;
+      return;
     }
+    const plan = out as Plan;
+    const { order, removes, before, after } = plan;
+    // Batch clear: N→0 on an OWNED whole-parent slot is one `textContent = ''`
+    // + one bulk owner dispose.
+    if (
+      plan.len === 0 &&
+      plan.fb === null &&
+      before === null &&
+      after === null &&
+      ownsParent(slot)
+    ) {
+      if (IS_DEV) __unifiedForStats.batchCleared++;
+      ops!.clear(slot.parent!);
+      slot.owner.dispose(false);
+      slot.head = slot.tail = null;
+      slot.size = 0;
+      slot.dyn = false;
+      return;
+    }
+    // Full replace (no survivors, owned whole parent): one bulk detach.
+    if (
+      before === null &&
+      after === null &&
+      removes.length === slot.size &&
+      removes.length > 0 &&
+      ownsParent(slot)
+    ) {
+      ops!.clear(slot.parent!);
+      for (let j = 0; j < removes.length; j++) {
+        removes[j].live = false;
+        removes[j].o.dispose();
+      }
+    } else {
+      for (let j = 0; j < removes.length; j++) removeRow(slot, removes[j]);
+    }
+    // Place fresh/moved rows back-to-front so anchors are always final.
+    // Direct insertBefore per row, deliberately — NOT fragment-batched runs
+    // (browsers charge per MOVE; LIS + direct placement is move-minimal).
+    let anchor: SlotNode | null = after !== null ? firstNodeFrom(after) : null;
+    if (anchor === null) anchor = endA;
+    const hydrating = slot.hyd;
+    for (let j = order.length - 1; j >= 0; j--) {
+      const r = order[j];
+      const first = firstOf(nodesOf(r));
+      if (r.mv) {
+        // Hydrating fill (chain modes): rows whose templates CLAIMED server
+        // nodes are already in place — a claim pass, not a placement pass.
+        if (!(hydrating && first !== null && ops!.contains(slot.parent!, first)))
+          placeNodes(slot, nodesOf(r), anchor, !r.live);
+        r.live = true;
+        r.mv = false;
+      }
+      if (first !== null) anchor = first;
+    }
+    slot.hyd = false;
+    // Splice the chain: [before] → order… → [after].
+    let prev = before;
+    for (let j = 0; j < order.length; j++) {
+      const r = order[j];
+      r.p = prev;
+      if (prev !== null) prev.x = r;
+      else slot.head = r;
+      prev = r;
+    }
+    if (prev !== null) prev.x = after;
+    else slot.head = after;
+    if (after !== null) after.p = prev;
+    else slot.tail = prev;
+    slot.size = plan.len;
+    // Fallback arriving: place after the (now empty) list.
+    const fb = plan.fb;
+    if (fb !== null && fb !== fbOld) {
+      placeNodes(slot, nodesOf(fb), endA, true);
+      fb.live = true;
+      fb.mv = false;
+      slot.fb = fb;
+    }
+    // Dynamic rows whose resolution changed: splice each range, back to
+    // front so a row's anchor (its successor's first node) is final.
+    const upd = plan.upd;
+    if (upd !== null)
+      for (let u = upd.length - 1; u >= 0; u--) {
+        const r = upd[u][0];
+        let a: SlotNode | null = r === slot.fb ? endA : firstNodeFrom(r.x);
+        if (a === null) a = endA;
+        setNodes(r, spliceRange(slot, nodesOf(r), upd[u][1], a));
+      }
+  };
+
+  /** ARRAY output: the raw row values in order (mapArray's mapped array);
+   * an empty list with a fallback yields `[fallback]`. */
+  const values = (): any[] => {
+    if (slot.fb !== null) return [slot.fb.v];
+    const out: any[] = new Array(slot.size);
+    let i = 0;
+    for (let r = slot.head; r !== null; r = r.x) out[i++] = r.v;
+    return out;
+  };
+
+  return { compute, commit, values, teardown };
+}
+
+/** DOM output — For stamps this as `$for.impl`; a renderer's insert()
+ * engages it with its SlotOps. */
+export function unifiedForSlot(
+  parent: SlotNode,
+  listFn: any,
+  marker: SlotNode | null | undefined,
+  ops: SlotOps,
+  region?: SlotNode[],
+  /** HOLE mode: engaged from inside a wrapper insert's compute (the
+   * `{props.children}` seam). The hosting effect owns the hole, so this
+   * slot removes its rows on cleanup (a children change or dispose) — in
+   * direct mode the parent element's removal covers that for free. */
+  hole = false
+): void {
+  const meta = listFn.$for;
+  // HYDRATION: decided by the installed hooks (null in CSR bundles). A
+  // hydrating engage hands back the parity owner id so the slot's rows mint
+  // the same hydration keys classic's would.
+  let ownerOpts: { id: string } | undefined;
+  let hyd = false;
+  if (slotHydration !== null) {
+    const h = slotHydration.engage(meta, marker, region);
+    if (h !== false) {
+      ownerOpts = h;
+      hyd = true;
+    }
+  }
+  const e = engine(meta, parent, marker, ops, region, hole, ownerOpts, hyd);
+  if (IS_DEV) __unifiedForStats.engaged++;
+  onCleanup(e.teardown);
+  effect(e.compute, e.commit);
+}
+
+/** ARRAY output — what a plain call of the For accessor returns: a memo of
+ * the row values with mapArray's exact contract (same array identity while
+ * the list is structurally unchanged; `[fallback]` when empty with one).
+ * Commits inline, like mapArray, so rows are created and disposed in the
+ * compute. Created lazily under For's owner on the first read. */
+export function unifiedForArray(meta: any): () => any[] {
+  const e = engine(
+    meta,
+    null,
+    undefined,
+    null,
+    undefined,
+    false,
+    meta.hid !== undefined ? { id: meta.hid } : undefined,
+    false
   );
+  let last: any[] | undefined;
+  return runWithOwner(meta.owner, () =>
+    createMemo((): any[] => {
+      const out = e.compute();
+      if (out === IDENTICAL && last !== undefined) return last;
+      e.commit(out);
+      return (last = e.values());
+    })
+  ) as () => any[];
 }
 
 /** DEV-ONLY probes: engagement / batch-clear counters, exposed as

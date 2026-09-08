@@ -2,14 +2,13 @@ import { children, IS_DEV } from "../client/core.js";
 import {
   createMemo,
   untrack,
-  mapArray,
   repeat,
   createRevealOrder,
   getOwner,
   runWithOwner
 } from "@solidjs/signals";
 import { createErrorBoundary, createLoadingBoundary, sharedConfig } from "./hydration.js";
-import { unifiedForSlot } from "./for-slot.js";
+import { unifiedForArray, unifiedForSlot } from "./for-slot.js";
 import type { Accessor, RevealOrder } from "@solidjs/signals";
 export type { RevealOrder };
 import type { Element as SolidElement } from "../types.js";
@@ -28,12 +27,6 @@ type KeyedConditionalRenderChildren<
   T,
   F extends KeyedConditionalRenderCallback<T> = KeyedConditionalRenderCallback<T>
 > = SolidElement | NonZeroParams<F>;
-type ForOptions<T> = {
-  keyed?: boolean | ((item: T) => any);
-  fallback?: Accessor<SolidElement>;
-  name?: string;
-};
-
 const narrowedError = (name: string) =>
   IS_DEV
     ? `Attempting to access a stale value from <${name}> that could possibly be undefined. This may occur because you are reading the accessor returned from the component at a time where it has already been unmounted. We recommend cleaning up any stale timers or async, or reading from the initial condition.`
@@ -85,49 +78,29 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
   keyed?: boolean | ((item: T[number]) => any);
   children: (item: any, index: any) => U;
 }): SolidElement {
-  const options: ForOptions<T[number]> =
-    "fallback" in props
-      ? { keyed: props.keyed, fallback: () => props.fallback }
-      : { keyed: props.keyed };
-  if (IS_DEV) options.name = "<For>";
   const owner = getOwner();
-  let mapped: (() => any) | undefined;
-  const create = () =>
-    runWithOwner(owner, () =>
-      mapArray(() => props.each, props.children as any, options as any)
-    ) as () => any;
   // Hydration id parity (#3161): hydration ids mint at CREATION time, and
-  // the server spends the list's id slot at For's source position — so a
-  // hydrating client must create the map HERE, not on first read. Deferred
-  // creation ran at insert's hole evaluation, AFTER later siblings had
-  // already claimed their template keys, shifting every hydration id after
-  // the list (the siblings hydrated detached: dead buttons). Outside
-  // hydration the laziness stands: an unread list never builds its
-  // mapArray at all.
-  // Unified-For id parity: the slot's rows must mint the SAME hydration ids
-  // classic's would. Classic rows hang under mapArray's internal owner, which
-  // is the next child of For's owner at creation — peek that id BEFORE the
-  // eager create() consumes it, and hand it to the slot (`$for.hid`) so its
-  // row parent can be created with the identical explicit id.
+  // the server spends the list's id slot at For's source position — so the
+  // client must consume that slot HERE (deferred creation ran after later
+  // siblings had claimed their keys, shifting every id after the list). The
+  // consumed id is handed to the engine, whose row parent takes it
+  // explicitly, so rows mint the same hydration keys the server's did.
   let hid: string | undefined;
   if (sharedConfig.hydrating) {
-    // Installed by enableHydration() (CSR bundles never carry the id peek).
-    hid = sharedConfig.peekNextContextId?.();
-    // Lazy pass: the map's owner still spends the id slot HERE (the #3161
-    // fix), but the first mapping pass waits for the first read — so when
-    // the renderer engages the slot, the slot's rows claim the server nodes
-    // instead of an eager classic pass claiming them first. Classic readers
-    // (universal, declines) still claim on first read with identical ids.
-    (options as any).lazy = true;
-    mapped = create();
+    // The server's For runs mapArray, which spends TWO id slots at this
+    // position: its internal owner (the rows' parent — the id the engine's
+    // row owner takes) and then its computed. Consume both so every sibling
+    // after the list keeps the id the server gave it.
+    hid = sharedConfig.getNextContextId?.();
+    sharedConfig.getNextContextId?.();
   }
-  const list = () => (mapped ?? (mapped = create()))();
   // Unified-For: the returned value IS a data structure — a callable carrying
-  // the list descriptor. A renderer that understands `$for` (web) owns rows
-  // and placement in one persistent engine, in every For mode; everything
-  // else (children(), universal renderers, introspection) calls it and gets
-  // mapArray rows — mapArray is the specification the engine matches.
-  (list as any).$for = {
+  // the list descriptor. A renderer that understands `$for` (web, universal)
+  // owns rows and placement in one persistent engine, in every For mode;
+  // everything else (children(), introspection, renderers that don't engage)
+  // CALLS it and gets the same engine's ARRAY output — mapArray's contract,
+  // one implementation. mapArray remains the public primitive and the spec.
+  const meta = {
     each: () => props.each,
     row: props.children,
     keyed: props.keyed,
@@ -139,9 +112,11 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
     // The engine rides For's OWN module graph; a renderer's insert()
     // engages it by passing its SlotOps.
     impl: unifiedForSlot,
-    // Hydration only: the id classic's row parent would carry.
     hid
   };
+  let arr: (() => any[]) | undefined;
+  const list = () => (arr ?? (arr = unifiedForArray(meta)))();
+  (list as any).$for = meta;
   return list as unknown as SolidElement;
 }
 

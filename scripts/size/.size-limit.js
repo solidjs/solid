@@ -575,6 +575,12 @@ module.exports = [
     // the modes + fallback + duplicate chaining cost +0.9 KB. Flat mode is
     // gated to identity arity-1 rows (measured: +5-10% on 10k create/clear).
     limit: "22.10 KB",
+    //
+    // ONE ENGINE (2026-09-07): 22.10 -> 21.40 KB, measured at 21.35. The
+    // engine answers a plain call of the For accessor with mapArray's array
+    // (children()/introspection), so For no longer imports mapArray and it
+    // shakes out of For-bearing bundles. Cumulative vs next: +3.86 KB.
+    limit: "21.40 KB",
     modifyEsbuildConfig
   },
   {
@@ -707,6 +713,10 @@ module.exports = [
     // mismatch (2026-09-07): 30.85 -> 30.95 KB, measured at 30.91.
     // Cumulative vs next: +4.55 KB.
     limit: "30.95 KB",
+    //
+    // ONE ENGINE (2026-09-07): 30.95 -> 30.35 KB, measured at 30.28
+    // (mapArray shakes out). Cumulative vs next: +3.93 KB.
+    limit: "30.35 KB",
     modifyEsbuildConfig
   },
   {
@@ -790,6 +800,12 @@ module.exports = [
     // jfb-shallow (key-fn rows) 10k create/clear regression to parity.
     // Cumulative vs next: 12.90 -> 17.18 = +4.28 KB.
     limit: "17.25 KB",
+    //
+    // ONE ENGINE (2026-09-07): 17.25 -> 16.55 KB, measured at 16.52 — For
+    // drops its mapArray import (array output comes from the engine), so
+    // mapArray shakes out of For-bearing bundles. Cumulative vs next:
+    // 12.90 -> 16.52 = +3.62 KB. Locked in.
+    limit: "16.55 KB",
     modifyEsbuildConfig
   },
   {

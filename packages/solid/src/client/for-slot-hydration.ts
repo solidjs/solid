@@ -38,7 +38,7 @@ const hooks = {
 
   commitFill(slot: Slot, fp: FlatPlan): void {
     slot.hyd = false;
-    const ops = slot.ops;
+    const ops = slot.ops!; // DOM mode (hydration never runs in array mode)
     // This module IS the web hydration binding: nodes are DOM nodes here.
     const parent = slot.parent as Node;
     const region = slot.region as Node[];

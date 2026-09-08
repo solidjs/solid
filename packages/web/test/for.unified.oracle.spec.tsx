@@ -23,7 +23,7 @@
  * clears, full replaces, and same-key/new-object updates (key-fn mode).
  */
 import { describe, expect, test } from "vitest";
-import { createSignal, flush, For, mapArray, onCleanup, Show } from "solid-js";
+import { createMemo, createSignal, flush, For, mapArray, onCleanup, Show } from "solid-js";
 import { render } from "@solidjs/web";
 
 type Item = { id: number; v: number };
@@ -175,6 +175,130 @@ function retained(before: Map<string, Element[]>, after: Map<string, Element[]>)
   }
   return out.sort();
 }
+
+/** ARRAY output: a plain call of the For accessor (children(), introspection,
+ * non-engaging renderers) must return mapArray's array — same values, same
+ * identity while structurally unchanged, `[fallback]` when empty. */
+describe("oracle: array output (plain call of the For accessor)", () => {
+  for (const mode of ["identity", "identity-index", "byindex", "keyfn"] as Mode[]) {
+    test(`${mode}: values, identity stability, invocation counts match mapArray`, () => {
+      const r = rng(mode.length * 131);
+      const pool: Item[] = Array.from({ length: 10 }, (_, id) => ({ id, v: 0 }));
+      const [list, setList] = createSignal<Item[]>(pool.slice(0, 4));
+      const [dyn] = createSignal(true);
+      const pe: Probe = { calls: 0, cleaned: [] };
+      const po: Probe = { calls: 0, cleaned: [] };
+      const rowE: any = rowFor(mode, pe, dyn);
+      const rowO: any = rowFor(mode, po, dyn);
+      let eAcc!: () => any[];
+      let oAcc!: () => any[];
+      const [tick, setTick] = createSignal(0);
+      const readsE: any[][] = [];
+      const readsO: any[][] = [];
+      const dispose = render(() => {
+        eAcc =
+          mode === "byindex"
+            ? ((
+                <For each={list()} keyed={false}>
+                  {rowE}
+                </For>
+              ) as any)
+            : mode === "keyfn"
+              ? ((
+                  <For each={list()} keyed={keyFn}>
+                    {rowE}
+                  </For>
+                ) as any)
+              : ((<For each={list()}>{rowE}</For>) as any);
+        oAcc = mapArray(
+          list,
+          rowO,
+          mode === "byindex" ? { keyed: false } : mode === "keyfn" ? { keyed: keyFn } : undefined
+        );
+        // Two readers per side that also depend on `tick`, so a tick-only
+        // change re-reads without a structural change (identity must hold).
+        createMemo(() => {
+          tick();
+          readsE.push(eAcc());
+        });
+        createMemo(() => {
+          tick();
+          readsO.push(oAcc());
+        });
+        return null;
+      }, document.createElement("div"));
+      try {
+        flush();
+        const same = (label: string) => {
+          const e = readsE[readsE.length - 1],
+            o = readsO[readsO.length - 1];
+          expect(e.length, `${label} length`).toBe(o.length);
+          for (let i = 0; i < e.length; i++) {
+            const ev = e[i],
+              ov = o[i];
+            // Values are what the row fn returned: nodes (compare by outerHTML
+            // / text), functions (Show memos), or null.
+            expect(typeof ev, `${label}[${i}] type`).toBe(typeof ov);
+            if (ev && ev.nodeType) expect(ev.outerHTML ?? ev.data).toBe(ov.outerHTML ?? ov.data);
+            else if (Array.isArray(ev)) expect(ev.length).toBe(ov.length);
+          }
+          expect(pe.calls, `${label} invocations`).toBe(po.calls);
+        };
+        same("init");
+        let cur = list();
+        for (let step = 0; step < 60; step++) {
+          if (step % 5 === 2) {
+            // Tick without a list change: both sides must return the SAME
+            // array identity as before.
+            const eBefore = readsE[readsE.length - 1];
+            const oBefore = readsO[readsO.length - 1];
+            setTick(t => t + 1);
+            flush();
+            expect(readsE[readsE.length - 1], `step ${step} identity`).toBe(eBefore);
+            expect(readsO[readsO.length - 1], `step ${step} oracle identity`).toBe(oBefore);
+            continue;
+          }
+          cur = nextList(cur, pool, r, mode === "keyfn");
+          setList(cur);
+          flush();
+          same(`step ${step}`);
+        }
+      } finally {
+        dispose();
+      }
+    });
+  }
+
+  test("fallback: empty list yields [fallback] and back", () => {
+    const [list, setList] = createSignal<string[]>([]);
+    let eAcc!: () => any[];
+    let oAcc!: () => any[];
+    const dispose = render(() => {
+      eAcc = (
+        <For each={list()} fallback={<i>none</i>}>
+          {(s: string) => <b>{s}</b>}
+        </For>
+      ) as any;
+      oAcc = mapArray(list, (s: string) => <b>{s}</b>, { fallback: () => <i>none</i> });
+      return null;
+    }, document.createElement("div"));
+    try {
+      flush();
+      const html = (a: any[]) => a.map(n => n.outerHTML).join("");
+      expect(html(eAcc())).toBe(html(oAcc()));
+      expect(html(eAcc())).toBe("<i>none</i>");
+      setList(["x", "y"]);
+      flush();
+      expect(html(eAcc())).toBe(html(oAcc()));
+      expect(html(eAcc())).toBe("<b>x</b><b>y</b>");
+      setList([]);
+      flush();
+      expect(html(eAcc())).toBe("<i>none</i>");
+    } finally {
+      dispose();
+    }
+  });
+});
 
 for (const mode of ["identity", "identity-index", "byindex", "keyfn"] as Mode[]) {
   describe(`oracle: ${mode}`, () => {
