@@ -359,7 +359,13 @@ module.exports = [
     // same INV-3 rule transactions use — lives in the lanes module this
     // scenario retains via latest(); the core floor and createStore are
     // byte-identical. ~40 B for the predicate and its two call sites.
-    limit: "10.13 KB",
+    //
+    // Dead companion refresh removed (follow-up): 10.13 -> 10.10 KB,
+    // measured at 10.062 macOS. laneAsyncPending/laneAsyncSettled refreshed
+    // the lane source's isPending companion on every derived pending/settle,
+    // but computePendingState never read _pendingAsync — the source's own
+    // write, commit and settlement paths already refresh it. -18 B.
+    limit: "10.10 KB",
     modifyEsbuildConfig
   },
   {

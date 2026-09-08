@@ -333,14 +333,16 @@ function recomputeLane(el: Computed<any>, own: boolean): OptimisticLane | null |
   return null;
 }
 
-/** recompute()'s catch path: track pending async in the current lane. */
+/** recompute()'s catch path: record the pending async as the current lane's
+ * (ownership — laneHeld decides the hold). The lane source's isPending
+ * companion is NOT refreshed here: its verdict never read _pendingAsync, and
+ * the source's own write/commit/settlement paths keep it current. */
 function laneAsyncPending(el: Computed<any>): void {
   const lane = findLane(currentOptimisticLane!);
   if (lane._source !== el) {
     lane._pendingAsync.add(el);
     ext(el)._optimisticLane = lane;
     (el as any)._config |= CONFIG_HAS_LANE;
-    GlobalQueue._updatePendingSignal !== null && GlobalQueue._updatePendingSignal(lane._source);
   }
 }
 
@@ -349,8 +351,6 @@ function laneAsyncSettled(el: Computed<any>): void {
   const resolvedLane = resolveLane(el);
   if (resolvedLane) {
     resolvedLane._pendingAsync.delete(el);
-    GlobalQueue._updatePendingSignal !== null &&
-      GlobalQueue._updatePendingSignal(resolvedLane._source);
   }
 }
 
