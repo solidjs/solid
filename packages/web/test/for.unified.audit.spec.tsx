@@ -530,6 +530,47 @@ describe("#3308 P1-4 one engine per list: calling AND rendering an accessor", ()
   });
 });
 
+describe("#3308 P1-5 reclaim: OUR runtime moving a row's node (element shared with a <Show>)", () => {
+  test("an element rendered in a row AND in a Show elsewhere returns to the list on the next structural pass", () => {
+    // The Show turning on moves the element out of the row (insertExpression);
+    // turning off detaches it (cleanup). The list must recover on its next
+    // structural pass — classic does, through its liveness walk.
+    const shared = document.createElement("b");
+    shared.textContent = "S";
+    const [list, setList] = createSignal<any[]>(["a", shared, "c"]);
+    const [show, setShow] = createSignal(false);
+    const row = (item: any) => (typeof item === "string" ? <span>{item}</span> : item);
+    const host = document.createElement("div");
+    dispose = render(
+      () => (
+        <>
+          <section id="e">
+            <For each={list()}>{row}</For>
+          </section>
+          <aside id="other">
+            <Show when={show()}>{shared}</Show>
+          </aside>
+        </>
+      ),
+      host
+    );
+    flush();
+    const e = host.querySelector("#e")!,
+      other = host.querySelector("#other")!;
+    expect(e.innerHTML).toBe("<span>a</span><b>S</b><span>c</span>");
+    setShow(true); // OUR insert moves the shared element into the aside
+    flush();
+    expect(other.contains(shared)).toBe(true);
+    expect(e.innerHTML).toBe("<span>a</span><span>c</span>");
+    setShow(false); // Show's cleanup detaches it: the row now points at a detached node
+    flush();
+    expect(shared.parentNode).toBe(null);
+    setList(["a", shared, "c", "d"]); // next structural pass reclaims it
+    flush();
+    expect(e.innerHTML).toBe("<span>a</span><b>S</b><span>c</span><span>d</span>");
+  });
+});
+
 describe("#3308 P1-5 retained rows whose node migrated are reclaimed", () => {
   test("a middle row moved elsewhere by user code comes back on the next structural pass (classic parity)", () => {
     const [list, setList] = createSignal(["a", "b", "c"]);

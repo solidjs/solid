@@ -1224,10 +1224,15 @@ export function createListEngine(
     if (after !== null) after.p = prev;
     else slot.tail = prev;
     slot.size = plan.len;
-    // RECLAIM: a retained row whose node user code moved elsewhere comes
-    // back on the next structural pass — classic's reconcile only skips
-    // LIVE common nodes (it reads parentNode per prefix/suffix node; so do
-    // we, chain-wide, on structural commits only).
+    // RECLAIM: a retained row whose node is no longer in the parent comes back
+    // on the next structural pass. This is OUR runtime's doing, not (only)
+    // user code's: an element held in a variable and rendered both in a row
+    // and in a <Show> elsewhere is moved out by insertExpression when the
+    // Show turns on and detached by its cleanup when it turns off — the row
+    // would otherwise keep a permanent hole. Classic recovers through its
+    // liveness walk (one parentNode read per common node); so does the
+    // engine, chain-wide, on structural commits only. There is no cheaper
+    // signal: the alternative is an ownership check in every insert path.
     if (layer !== null && plan.len !== 0) {
       let a: ListNode | null = endA;
       for (let r = slot.tail; r !== null; r = r.p) {
