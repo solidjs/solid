@@ -4,6 +4,7 @@
 
 ### Patch Changes
 
+- [#3310](https://github.com/solidjs/solid/pull/3310): Preserve queued effects when pending actions merge into another transaction, preventing stale DOM output after signal values commit. Thanks @DerpyCrabs!
 - 215de3b: Align store overloads across the signals, client, and server entry points. Plain stores share `StoreOptions`, projection forms share `ProjectionOptions`, plain optimistic stores expose their existing options argument, and derived optimistic stores are typed as refreshable.
 - 6c8c956: Attribution: `feedback()` gains the fact tables that have no verdict of their own. `flights` counts, per async source, flights started, landed, and abandoned (superseded by a newer flight before landing — the re-ask-on-every-keystroke signature) with landed wall time. `fallbacks` measures, per loading boundary (named by owner path), how many times and for how long its fallback was shown and how many shows were sub-150ms flashes — the other end of the SILENT_HOLD spectrum. `sources` rows gain `late`/`lateMs`: acknowledged holds that still ran past `holds.infoMs`, where the affordance is not the whole answer. New `AttributionHooks.boundaryFallback` hook point at the boundary's source-set transitions. `@solidjs/diagnostics` exports the `FlightStats` and `FallbackStats` types; artifacts and the bridge carry the new tables through the existing `feedback` field.
 - 1a1e2f2: Attribution: `feedback()` — what the user waited on, as ranked tables.

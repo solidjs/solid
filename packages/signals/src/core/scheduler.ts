@@ -805,6 +805,11 @@ export class GlobalQueue extends Queue {
     } else if (transition) {
       const outgoing = activeTransition;
       mergeTransitionState(transition, outgoing);
+      // Effects the outgoing transaction parked belong to the surviving one
+      // now: back onto the live queue, where this flush parks them under
+      // `transition` or runs them at its completion. The outgoing stash is
+      // never read again — the transaction is dead (#3310).
+      this.restoreQueues(outgoing._queueStash);
       transitions.delete(outgoing);
       activeTransition = transition;
     }
