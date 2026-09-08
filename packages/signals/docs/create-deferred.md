@@ -4,10 +4,12 @@
 > Discord report (2026-09-03) of independent dashboard panels sharing one
 > global selection store, where every panel's commit waited on the slowest
 > panel's fetch (20–200ms panels held hostage by 3–10s panels). Semantics
-> below are settled; the implementation seams are sketched and the open
-> questions are listed — the lane-independence rule (§8.1) is the one that
-> decides whether this is configuration of existing machinery or new
-> machinery. §9 records why this is a migration primitive, not a niche one:
+> below are settled. The implementation seams were verified against
+> `lanes.ts` / `optimistic.ts` / `verdict.ts` (§6, §8.0): the landing path is
+> the companion write path minus the override, and the one correctness trap
+> found (`refresh` resolving stale) has a fix by precedent (D9). Remaining
+> open items are in §8.1–8.4 and are all small. §9 records why this is a
+> migration primitive, not a niche one:
 > combined with `loadingValue` it is the per-node opt-out from coordination
 > that 1.0 → 2.0 migrations currently lack.
 
@@ -132,6 +134,82 @@ reporter-pruning-on-unmount; with `createDeferred` it works by construction.
 
 This makes coordination **opt-out per node**, which is what §9 is about.
 
+### 2.2 What the user actually sees
+
+For a single panel in isolation: **nothing new.** Same states, same
+affordances — stale content stays on screen, `isPending` drives the
+indicator, `<Loading>` covers first load, `<Errored>` covers rejection. No
+new visual vocabulary; deferred is a choreography change, not a UI state,
+which is why it needs no component.
+
+The differences are in the panel's timing relative to everything else:
+
+| | Hold (default async memo) | `createDeferred` |
+| --- | --- | --- |
+| When the data swaps | At the group's commit (slowest reporter lands) | At _this_ fetch's landing |
+| How long `isPending` is true | Until the group commits — the fast panel shows "refreshing" for the slow panel's 10s | Until _this_ fetch lands — 200ms |
+| Selector label vs. panel data | Flip together | Label flips at once (nobody holds the write); data follows when it lands. The interval is the tear (§4.3) — `isPending` being loud is what makes it legible |
+| Held sync writes (theme) | Flip at commit | Flip at commit — same as hold; `latest` is the one that would flip early |
+| In-flight future | Peekable via `latest` | Not visible through this node; `latest(() => d())` is a no-op. Overrides on _other_ nodes still show (A17) |
+
+The removed option is exactly one: peeking at the in-flight future of this
+node. Everything else the user could do before, they can do after.
+
+### 2.3 How to teach it
+
+Do not teach the behavior difference — §2.2 shows it is too subtle to carry
+a decision. Teach a UX question the reader can already answer:
+
+> **When this data is being refetched, what should the user see?**
+
+| The user should see… | Use |
+| --- | --- |
+| Nothing change until everything related is ready | default `createMemo(async …)` |
+| …but the control I just touched reflects my input _now_ | `latest()` on the control, `isPending` to dim the held content |
+| A placeholder | `<Loading>` (first load); `<Loading on={key}>` (refetch when the subject changed) |
+| The previous answer with a "refreshing" indicator | `createDeferred` + `isPending` |
+
+Rows one and two are the same view: the standard held interaction is _tab
+highlights immediately, content waits, content dims while it waits_ — `latest`
+on the input, default on the data, `isPending` between them. `latest` is
+therefore not rare; it is the **input-side** affordance (show my change while
+what depends on it loads). `createDeferred` is the **data-side** one (show
+the previous result while the next one loads). They answer different halves
+of the same screen and compose.
+
+The test for the last row: _"If this widget showed last period's numbers for
+five seconds with a spinner on it, is that fine or wrong?"_ Fine → deferred
+(dashboards, feeds, search-as-you-type, charts — **independent widgets**).
+Wrong → default (forms, detail pages, totals — **coherent views** whose parts
+must agree). The originating report called its components "independent
+panels" unprompted; that word is the tell.
+
+The frame that keeps it inside the model rather than an escape from it: 2.0
+is _consistency by default, staleness by declaration_, and it already had one
+declaration — `loadingValue` ("this placeholder is an acceptable answer
+before the first real one"). `createDeferred` is its sibling ("the previous
+answer is an acceptable answer between real ones"): same kind of statement,
+same place (the node, in the data layer), adjacent phase of the same node's
+life. **Two declarations of acceptable staleness — `loadingValue` before the
+first answer, `createDeferred` between answers.** The things that _were_
+escape hatches are the ones this replaces (§1).
+
+The subtlety is the safety property, not the hazard: a single widget looks
+identical either way, so a wrong choice is cheap and visible in both
+directions — wrong-default is sluggish but correct; wrong-deferred is a brief
+label/data mismatch inside a composed view — and the fix is one word. `latest`
+is different in kind: applied to the _input_ it is the everyday affordance;
+applied to _data_ (or scoped over a region, §4.2) it front-runs
+orchestration. That is why it stays a per-read call at the site where the
+author knows which one they are looking at, rather than becoming a node
+trait or a scope.
+
+Placement controls overuse: not on the getting-started async page. On a
+"coordination and staleness" page beside `<Loading on>` and `latest`,
+introduced after the reader has seen the hold and asked "what if I don't want
+to wait?" Migration (§9) is the exception — front and center, framed as a
+step with an exit.
+
 ## 3. What it is not
 
 - **Not a boundary.** No owner/subtree scope, no `<Deferred>` component (§4.1).
@@ -182,9 +260,10 @@ changed to committed-only (§4.2):
   _read site_. A panel has one or two query memos, not fifty reads;
   `createDeferred` at the _definition site_ is a different burden entirely.
 
-If real usage shows people deferring every query in a panel and wanting the
-ambient version, a `<Deferred>` boundary can be layered on later as sugar over
-the node. The primitive underneath should be the node.
+A `<Deferred>` boundary is not planned. The theme-fanout discussion (§4.3) is
+evidence that ambient scope is a bug as often as a feature, and the
+definition-site ergonomics (one `createDeferred` per query, not one `latest`
+per read) remove the pressure that motivated it. The node is the primitive.
 
 ### 4.2 Committed-only, not `latest` semantics
 
@@ -326,13 +405,13 @@ heavy chart lags) is real but narrow. Not forbidden, not advertised.
 | With | Behavior | Note |
 | --- | --- | --- |
 | `<Loading>` | Owns first load (node transparent while uninitialized). Never sees refetch pending from a deferred node. | Nesting order irrelevant. Inside a deferred consumer, Loading collapses to a pure first-paint concern and `isPending` is _the_ refetch affordance. |
-| `<Loading on={key}>` | Reset re-shows fallback only when refetch pending _arrives_ — a deferred node's refetch never arrives. | Inert for deferred sources. Dev-warn, or treat key change as a hard reset that re-opens the uninitialized path ("tear on refetch, skeleton on key change"). Decision pending (§8.2). |
+| `<Loading on={key}>` | Reset re-shows fallback only when refetch pending _arrives_ — a deferred node's refetch never arrives. | Inert for deferred sources; documented, not warned (the boundary cannot cheaply know it covers one). A "hard reset re-opens the uninitialized path" upgrade remains available (§8.0). |
 | `<Errored>` | Rejections propagate normally. | Deferred defers pending, not errors. |
 | `<Reveal>` | Untouched — coordinates first reveals only. | |
 | `createOptimistic` / `action` | Overrides visible to all ordinary readers (A17), so optimistic UI inside a deferred consumer works. A deferred panel does not hold an action's transition open. | The latter is the point. |
-| `isPending` | Verdict-loud (§2.4). | `isPending(store.leaf)` through the §4.5 composition must see the memo's flight via leaf → firewall → memo (§8.3). |
-| `latest` | Orthogonal; `latest(() => deferred())` is legal and pointless (nothing staged to lead with). | Eager tearing stays a deliberate per-read act with the loud name. |
-| `until` / `refresh` | Edges intact, so both reach the node. `refresh(deferred)` re-asks; `until(() => deferred())` awaits the authoritative landing. | Confirm `until`'s authoritative-view read tunnels past the clamp (it must see the landing, not the stale). |
+| `isPending` | Verdict-loud (§2.4): the latest-form verdict (A8), made the only form. | Pending does not propagate through sync derivations of a deferred node (they never re-run), so the probe needs a reachability walk for derived reads including store leaves (§8.1). In the initial implementation. |
+| `latest` | Complementary, not competing: `latest` is the input-side affordance (show my change while its consequences load), `createDeferred` the data-side one (show the previous result while the next loads). `latest(() => deferred())` is legal and a no-op (nothing staged to lead with). | In a held view they compose: `latest` on the control, `isPending` dimming the content. |
+| `until` / `refresh` | Edges intact, so both reach the node. Authoritative readers bypass the clamp (D9): `refresh(deferred)` parks and resolves on the landing; `until(() => deferred())` sees only settled truth. | Without the bypass `refresh` resolves with the stale value — a real bug (§6.3a). |
 
 ## 6. Implementation sketch
 
@@ -367,33 +446,100 @@ Hot-path cost: `read()` must not learn a new branch. Keep the node's _public_
 status clean — never `STATUS_PENDING` from a consumer's perspective — and carry
 in-flight state where the verdict machinery already looks.
 
-### 6.2 Landing schedule = the lane engine
+### 6.2 Landing schedule = the lane engine (verified against `lanes.ts` / `optimistic.ts`)
 
 A landing that arrives while an unrelated transition is active would be
 adopted into it (`currentBatch = this._batch = activeTransition`) and held —
-the panel becomes hostage to the theme's image loads. The existing escape is
-the lane: companions (`_pendingSignal` is an `optimisticSignal`, latest
-shadows are `optimisticComputed`) write through `optimisticWrite` →
-`getOrCreateLane`, each lane carries its own transition, and "in unmerged
-graphs, own-source resolution IS the lane-transition's completion, so the
-correction reveals on arrival" (A18). `runLaneEffects` flushes lanes with
-empty `_pendingAsync` while the main queues are stashed.
+the panel becomes hostage to the theme's image loads. The lane engine is the
+existing escape, and reading it shows every piece is already there:
 
-So a deferred node is `CONFIG_OPTIMISTIC`-shaped for its landings, with one
-crucial difference from an override: the landing is _authoritative_ and must
-elevate to `_value` on arrival, not sit as an `_overrideValue` that reverts.
-Whether this is "an optimistic node whose override is always immediately
-confirmed by itself" or a distinct lane-write path is an implementation
-choice; the observable requirement is §2.3.
+- **A lane is held only by observed async.** `laneHeld` returns true iff one
+  of the lane's `_pendingAsync` nodes is in the transition's
+  `_asyncReporters`. A deferred node never throws downstream, so it is never
+  a reporter, so its lane is **never held**, so `runLaneEffects` flushes its
+  effects on every flush — including under an incomplete unrelated
+  transition.
+- **Lanes merge with lanes, not transitions.** `assignOrMergeLane` merges at
+  convergence points between two _lanes_. A transition-held plain write
+  (theme) has no lane. There is no path by which a deferred lane is "pulled
+  into" the theme transition.
+- **Reading held sources under a lane already lags-never-leads.** A reader
+  recomputing under a lane that touches a mid-transition held source gets
+  the _committed_ value and is recorded in `_gatedSubs` for replay at that
+  transition's commit (`laneReadsCommitted`, `gatedRead`). New data + old
+  theme now; repaint at theme commit. This is D2/D3 for lane readers, already
+  implemented for optimism.
+- **Downstream derivations commit, not stage.** Sync memos recomputing under
+  lane posture direct-commit `_value` (the #3009 comment in `recomputeLane`),
+  so the landing propagates as committed truth through derivations.
+- **The #3009 wake-only demotion does not fire** (it keys on
+  `_parentSource`, which a deferred node lacks).
 
-### 6.3 Verdict = existing companion path
+**The landing path already exists verbatim.** `asyncWrite` has a lane branch
+(`else if (lane) { … el._value = value; el._time = clock;
+GlobalQueue._syncCompanions?.(el, value); insertSubs(el, true); }`) that
+direct-commits, pokes companions, and propagates on the optimistic-dirty
+channel — shipped today for `latest` shadows. A deferred node has no override
+slot, so it skips the optimistic hold branch above it and reaches this one
+_iff_ `resolveLane(el)` is truthy at landing. The entire landing-side change
+is therefore: **ensure the lane at landing time**, just before that branch —
+`resolveLane(el) ?? getOrCreateLane(el)` (no override, no `_optimisticNodes`
+entry) via a `GlobalQueue._deferredLane?.(el)` hook. At landing, not flight
+start: lanes are recycled at their owning transition's completion (or at the
+ambient flush for orphans, `cleanupCompletedLanes(null)`), so a lane made at
+flight start is gone by the time a 10s fetch lands. Recycling always runs the
+lane's leftover effects first, so nothing is lost.
 
-`isPending` collects probe sources and reads each source's `_pendingSignal`
-companion; `computePendingState` already classifies "own async in flight and
-non-quiet" (A19 cause ii, A8) as pending. A deferred node in flight should
-report through this path unchanged. The one thing to verify is that whatever
-suppresses the loading window's verdict (§6.1, "verdict-quiet") is keyed on
-the window, not on the served-committed read, so the deferred node is loud.
+The wrapping form (§4.7, upstream `NotReadyError`) takes the
+`parkLoadingWindow` branch in `recompute`'s catch with `_loading ||
+CONFIG_DEFERRED`; when the upstream settles, the settle walk recomputes the
+node and its sync result commits under the same lane posture.
+
+**Convergence with an in-flight optimistic action.** An effect that reads a
+deferred node **and** an optimistic override whose action is in flight
+converges → `mergeLanes` → the merged lane is held by the action's observed
+async → that effect's repaint waits for the action and lands in the same
+paint as the override drop (A18). Scoped to exactly the converged consumers;
+correct, not merely accepted — see §8.2. Two deferred lanes merging is
+harmless since neither can be held.
+
+**Spec consequence.** A18's "`_value` changes at commit points, period"
+already has lane posture as an unstated exception; deferred makes it
+load-bearing. Amend to "…or at a lane landing."
+
+### 6.3 Verdict = the `affects()` mark mechanics, verdict channel only
+
+The loading window is verdict-quiet _because it has nothing to see_: the node
+carries no `STATUS_PENDING` and no held `_pendingValue`, and
+`computePendingState` reads exactly those. A deferred node in flight is in
+the same state — and, because its committed value doesn't change, its
+derivations never re-run and never pick up status either. So the verdict
+cannot ride the recompute rails; it has to ride the mark channel `affects()`
+already built (pull-derived coverage via `markWalk` reachability, push via
+`_repollVerdicts`). Full mechanism and placement in §8.1. In one line: the
+"mark" is `CONFIG_DEFERRED && _x._inFlight && !quiet` on the node, `markWalk`
+looks for it, flight start and landing repoll. `notifyMarkBoundaries` and
+transaction registration are skipped — that is what "doesn't hold above"
+means mechanically.
+
+### 6.3a Authoritative readers bypass the clamp (D9)
+
+`refresh(node)`'s waiter contract depends on the read **parking**: it pulls
+the node and "the read either parks on the re-ask's pending window … or
+serves the sync answer." A deferred node never parks, so `await
+refresh(deferred)` would resolve **immediately with the stale value**. That is
+a correctness bug, and it lands on exactly the §9 audience who wanted
+`refresh` to work.
+
+Fix by precedent: `refresh` and `until` both read with
+`CONFIG_AUTHORITATIVE_READ`, which already tunnels past optimistic overrides
+(A17: "overrides invisible to the predicate"). The clamp is bypassed the same
+way — to an authoritative reader, a deferred node in flight throws
+`NotReadyError` like a plain memo, so the waiter parks and the settle walk
+delivers the landing. `until(() => deferred())` then sees only settled truth,
+which is what "authoritative" means. The check lives where
+`CONFIG_AUTHORITATIVE_READ` is already consulted in `read()` — no new
+hot-path branch.
 
 ### 6.4 Module layout
 
@@ -423,7 +569,10 @@ Numbered provisionally; renumber into the A-series when adopted.
   (ii) its own landing. It never observably leads a held write.
 - **D3.** A `createDeferred` landing that arrives during an incomplete
   unrelated transition commits and its consumers' effects flush without
-  waiting for that transition (subject to §8.1).
+  waiting for that transition. Consumers that also read a source held by that
+  transition see its committed value and are replayed at its commit (lane
+  read gate). Exception: a consumer whose lane has merged with an in-flight
+  optimistic action's lane waits for that action (§6.2, accepted coupling).
 - **D4.** `isPending(() => d())` for a deferred `d` follows A19 unchanged:
   `true` while `d`'s own non-quiet flight is in flight, `false` the instant
   it lands. `[isPending(() => d()), d()]` read in one scope is atomic (A10).
@@ -438,59 +587,163 @@ Numbered provisionally; renumber into the A-series when adopted.
 - **D8.** `createDeferred(() => m())` over a held memo `m` behaves per D1–D6
   with `m`'s `NotReadyError` as the cause of non-finality; `m`'s other
   consumers are unaffected.
+- **D9.** To a `CONFIG_AUTHORITATIVE_READ` reader (`refresh`'s waiter,
+  `until`'s predicate) a `createDeferred` node in flight throws
+  `NotReadyError` like a plain memo. `await refresh(d)` resolves with the
+  landed value, never the served stale one; `until(() => d())` evaluates only
+  settled truth. (Same standing as A17's override-invisibility for
+  authoritative readers.)
+- **D10.** (amends A18) `_value` changes at commit points **or at a lane
+  landing**. A `createDeferred` landing under lane posture, and the sync
+  derivations recomputed under it, commit directly.
 
 ## 8. Open questions
 
-### 8.1 Lane independence (decides the whole cost)
+### 8.0 Resolved by reading the code (2026-09-08)
 
-A render effect that reads a deferred node **and** a transition-held source
-(theme) is downstream of both the deferred lane and the main transition. Lanes
-merge on graph overlap (`mergeLanes`). If that merge pulls the deferred lane
-into the theme transition, D3 fails — the panel is hostage again. A14 already
-gives companions an exemption ("child lanes that do not merge with the
-owner's lane: an `isPending` effect fires while the owner's async is still
-in flight"). The deferred lane needs the same standing: consumers reading it
-alongside held sources must not merge it into their transitions. Whether
-that is the existing companion rule generalized, or a new rule, is the
-question that determines whether this is a small change or a medium one.
-Reproduce first: deferred landing during a held theme transition, assert the
-panel repaints with new data + committed (old) theme.
+Kept as a record so the reasoning isn't relearned.
 
-### 8.2 `<Loading on={key}>` under deferral
+- **Lane independence** (was 8.1, "decides the whole cost"). The feared
+  failure — a deferred lane merging into an unrelated transition — is not a
+  mechanism that exists: lanes merge with lanes, transitions hold lanes only
+  through observed reporters, and a deferred node is never a reporter. The
+  lane read gate already gives lane readers lag-never-lead against held
+  sources. Full account in §6.2. Cost collapsed from "small or medium" to
+  "small, with one accepted merge case."
+- **`until` / `refresh`** (was 8.4, "verify"). Not a verification — a bug.
+  `refresh(deferred)` would resolve with the stale value because the waiter
+  relies on the read parking. Fix is D9 (authoritative readers bypass the
+  clamp), by the A17 precedent. §6.3a.
+- **`isPending` on the deferred node itself** (half of 8.3). Trivial: one
+  `computePendingState` clause plus a companion poke at flight start. §6.3.
+- **`<Loading on={key}>`** (8.2). Inert; documented, not warned — the
+  boundary cannot cheaply know it covers a deferred source (it only learns of
+  sources when pending arrives, which never happens). The "hard reset
+  re-opens the uninitialized path" upgrade stays available if asked for.
 
-Inert (§5) or promoted to "hard reset re-opens the uninitialized path"? The
-latter is genuinely useful (paginate → tear; switch entity → skeleton) but
-means the deferred node must know about boundary reset propagation rather
-than being a pure resolution trait. Lean: ship inert with a dev warning; add
-the reset interplay if asked for.
+### 8.1 `isPending` through derivations of a deferred node (the one real engineering item)
 
-### 8.3 `isPending` through the store composition
+**Why `isPending` is loud at all.** A19 cause (ii) — "the node's own async in
+flight" — ends at resolution, not at commit; it was never transition-bound.
+A8 already rules that `isPending(() => latest(x))` follows `x`'s own async
+only and flips `false` the instant the fetch resolves regardless of held
+commits. A deferred node's verdict is exactly the latest-form verdict, made
+the only form. It is loud where the loading window is quiet because the
+window's stale value was _declared_ as the answer (affordance in the value
+channel) while a refetch's stale value is merely the _previous_ answer. And
+it is the primitive's only refetch affordance: without it deferred is silent
+SWR and the §9 audience is back to hand-rolled `isLoading` flags.
 
-`isPending(() => store.items.length)` where the store derives from a deferred
-memo: A9 says a leaf reports its firewall's refetch, but here the firewall is
-never pending — the flight is one hop further up, in the memo. If the probe's
-source collection walks leaf → firewall → memo it works for free; if not,
-`isPending(rows)` is the fallback and the leaf form needs a small extension.
-Test both forms.
+**The gap is general, not store-specific.** Cause (ii) normally reaches
+derivations _through recompute_: a sync memo over a pending async memo
+re-runs, reads pending, throws, becomes blocked, and so carries
+`STATUS_PENDING` itself. A deferred node's committed value does not change
+during a refetch, so its derivations **never re-run** and carry nothing —
+`isPending(() => count())` for `count = createMemo(() => rows().length)` is
+`false` while `rows` refetches. The channel that carries cause (ii)
+downstream is the very thing deferral turns off. The store composition
+(§4.5, leaf → firewall → memo) is the most important instance because it is
+the recommended pattern, not a special case.
 
-### 8.4 `until` / `refresh` past the clamp
+**Fix: the `affects()` mechanics, verdict channel only.** `affects()` is
+already the "doesn't hold above, shows pending below, without recompute"
+primitive, and it is built as two channels:
 
-`until(() => d())` must resolve on the authoritative landing, not the served
-stale value — the authoritative-view read path (`_notifyAuthoritativeObservers`,
-A18 tunneling) is the precedent. `refresh(d)` should re-ask and be a quiet
-re-ask (A24) if inputs are value-stable. Verify both.
+- _Pull_: a mark is only a count on the node (`_affectsCount`); coverage of
+  everything derived from it is computed by `markWalk` — dep-graph
+  reachability through current deps, hopping store firewalls (exactly
+  leaf → firewall → memo). Nothing is stored downstream, so rewires and
+  mid-window recomputes cannot strand or strip it.
+- _Push_: `_repollVerdicts(node)` re-derives every materialized companion
+  downstream on registration/release, on the companion's own lane so the
+  wake escapes an incomplete transition's effect stash (#2887).
 
-### 8.5 Smaller
+A deferred node in flight is a mark of this kind, with one structural
+difference: `affects()` marks are transaction-owned refcounts released at
+settle/revert, and a deferred node never has a transaction to end. Its mark
+is therefore **node state whose lifecycle is the flight** — a cold-slot flag
+(`_x._deferredFlight`, name TBD), not a count. Note that `_inFlight` itself
+cannot serve: it is never nulled at an async landing (it persists as the
+supersession identity token that `asyncWrite` / `handleError` compare
+against), so "`_inFlight` non-null" would read pending forever after the
+first landing.
+
+Lifecycle: **set** when `handleAsync` takes the served-committed branch for
+an initialized `CONFIG_DEFERRED` node with an async result (after the
+sync-resolve check, so a synchronously-resolving promise never sets it — A10);
+**cleared** at the top of `asyncWrite` and `handleError`, both already
+identity-gated so a superseded flight's landing cannot clear the flag the
+newer flight owns. By case: lands → cleared, repoll. Rejects → cleared,
+`STATUS_ERROR`; error outranks the verdict (A16) and throws to `<Errored>`.
+Superseded → stays set until the _new_ flight lands. Hangs → stays set, same
+as any async memo's `STATUS_PENDING`. Quiet re-ask (`_reask`, A24) → set but
+reads quiet. No release step, nothing to leak; the landing repoll is the
+"release."
+
+Then: `markWalk` looks for `CONFIG_DEFERRED && _x._deferredFlight && !quiet`
+alongside `_affectsCount`; flight start and landing call `_repollVerdicts`.
+Gate stays one integer compare via a global in-flight-deferred counter beside
+the affects counter (incremented/decremented with the flag).
+`isPending(store)` (A23) takes the same walk from the firewall.
+
+Deliberately **not** copied from `affects()`: `notifyMarkBoundaries` (the
+visual channel that holds `<Loading>` fallbacks / reveal order) and the
+`_affectsNodes` transaction registration. "Doesn't hold above" is precisely
+"skip those two." Deferred is the verdict channel of `affects` without its
+boundary channel.
+
+**Push placement.** The flight-start repoll sits where the flag is set; the
+landing repoll rides the `_syncCompanions` call already in `asyncWrite`'s lane
+branch. One check, which `affects()` already answers for its own
+register/release pair: no double-fire between the two pokes.
+
+**Decision (revised 2026-09-08).** In the initial implementation, not a
+follow-up: the docs' own recommended composition would otherwise show a
+visible hole (`isPending(() => store.items.length)` false during refetch).
+`isPending(rows)` on the memo itself needs only the §6.3 clause and works
+regardless.
+
+### 8.2 Lane merge with an in-flight optimistic action — **decided: accept, it is the correct semantics**
+
+§6.2's case: an effect reading a deferred node and an in-flight optimistic
+action's override converges, merges lanes, and waits on the action. First
+recorded as an accepted coupling; on examination it is the right outcome, not
+a tolerated one. The todo case: two rows from deferred `rows`; the user
+optimistically toggles row A inside an action still awaiting the server; a
+deferred refetch lands mid-action.
+
+- **Row B repaints now.** Its effect reads only deferred-derived data; its
+  lane never converges with the action's.
+- **Row A waits, and repaints once.** Its effect reads both, so it merges and
+  waits for the action — the one consumer the user is actively acting on,
+  where "wait for confirmation" is the expected feel. And per A18 ("the
+  correction reveals atomically with that merge") the override drop and the
+  landing's new data land in the **same paint** at action settle. The
+  exemption alternative would paint twice (landing under the override, then
+  the revert).
+
+One convergence rule, one paint, on the one row where it matters. Pinning
+test: assert B repaints on the landing; A shows the override throughout and
+repaints exactly once at settle. Re-open only on a field report.
+
+### 8.3 Smaller
 
 - Default `equals`: the source's own (inherit `NodeOptions`) — same as memo.
 - Store / projection as the fn's return value: a memo returning a store
   reference is legal today; deferral doesn't change that but is also not
   meaningful for it (leaf pending routes through the returned store's own
   firewall). Document, don't special-case.
-- A `<Deferred>` boundary later as sugar (§4.1) — only on usage evidence.
-- `createMemo(fn, { deferred })` as a second surface — only if the option
-  form is repeatedly asked for _and_ a way is found to keep the lane
-  dependency out of the floor bundle.
+- `refresh(d)` quiet re-ask (A24): with the D9 bypass the waiter parks like a
+  plain memo's, so quiet/loud classification should fall through unchanged.
+  Confirm the quiet re-ask keeps `isPending(() => d())` false (A24) while
+  still resolving the waiter.
+- `CONFIG_DEFERRED = 1 << 19` (`CONFIG_*` currently tops out at `1 << 18`;
+  fits).
+
+Not open — rejected, recorded so they aren't re-proposed: a `<Deferred>`
+boundary (§4.1: ambient scope is the theme-fanout hazard; not planned) and a
+`createMemo(fn, { deferred })` option (§4.6: puts the lane dependency in the
+floor bundle; the tree-shaking argument is decisive).
 
 ## 9. Migration role (raises the priority)
 
