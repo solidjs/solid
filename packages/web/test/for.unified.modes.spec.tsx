@@ -13,7 +13,8 @@
  * the mode promises them, and row-fn invocation counts equal on both sides.
  */
 import { beforeEach, describe, expect, test } from "vitest";
-import { createSignal, flush, For, DEV, mapArray, Show } from "solid-js";
+import { createSignal, flush, For, DEV, Show } from "solid-js";
+import { referenceMapArray as mapArray } from "./reference/mapArray.js";
 import { render } from "@solidjs/web";
 
 const stats = () => DEV!.unifiedFor;

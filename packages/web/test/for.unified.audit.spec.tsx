@@ -15,9 +15,9 @@ import {
   DEV,
   For,
   Errored,
-  Show,
-  mapArray
+  Show
 } from "solid-js";
+import { referenceMapArray as mapArray } from "./reference/mapArray.js";
 import { render } from "@solidjs/web";
 
 const stats = () => DEV!.unifiedFor;

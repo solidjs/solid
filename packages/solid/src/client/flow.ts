@@ -3,12 +3,13 @@ import {
   createMemo,
   untrack,
   repeat,
+  listArray,
   createRevealOrder,
   getOwner,
   runWithOwner
 } from "@solidjs/signals";
 import { createErrorBoundary, createLoadingBoundary, sharedConfig } from "./hydration.js";
-import { unifiedForArray, unifiedForSlot } from "./for-slot.js";
+import { unifiedForSlot } from "./for-slot.js";
 import type { Accessor, RevealOrder } from "@solidjs/signals";
 export type { RevealOrder };
 import type { Element as SolidElement } from "../types.js";
@@ -100,7 +101,7 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
   // everything else (children(), introspection, renderers that don't engage)
   // CALLS it and gets the same engine's ARRAY output — mapArray's contract,
   // one implementation. mapArray remains the public primitive and the spec.
-  const meta = {
+  const meta: any = {
     each: () => props.each,
     row: props.children,
     keyed: props.keyed,
@@ -114,8 +115,12 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
     impl: unifiedForSlot,
     hid
   };
+  if (IS_DEV) meta.name = "<For>";
+  // A plain call (children(), introspection, renderers that don't engage) is
+  // the engine's ARRAY output — mapArray's contract — created lazily under
+  // For's owner on the first read.
   let arr: (() => any[]) | undefined;
-  const list = () => (arr ?? (arr = unifiedForArray(meta)))();
+  const list = () => (arr ?? (arr = listArray(meta)))();
   (list as any).$for = meta;
   return list as unknown as SolidElement;
 }

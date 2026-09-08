@@ -1,5 +1,6 @@
 import * as r from "./custom.js";
-import { createRoot, createSignal, flush, For, mapArray, DEV } from "solid-js";
+import { createMemo, createRoot, createSignal, flush, For, DEV } from "solid-js";
+import { referenceMapArray as mapArray } from "../../web/test/reference/mapArray.js";
 
 /**
  * Unified For ENGINE through a custom renderer: `insert` engages `$for` with
@@ -137,6 +138,45 @@ describe("universal renderer: unified For engine", () => {
       e.dispose();
       o.dispose();
     }
+  });
+
+  it("dynamic rows (function top level) resolve through the renderer's ops — no DOM assumption", () => {
+    const [list, setList] = createSignal(["a", "b", "c"]);
+    const [big, setBig] = createSignal(false);
+    let calls = 0;
+    // A row whose top level is a MEMO (conditional content) — the node layer
+    // resolves it tracked through the engine's compute; flips splice the range.
+    const row = item => {
+      calls++;
+      return createMemo(() => (big() ? span(item.toUpperCase()) : span(item)));
+    };
+    const E = mount(() =>
+      r.createComponent(For, {
+        get each() {
+          return list();
+        },
+        children: row
+      })
+    );
+    const O = mount(() => mapArray(list, row));
+    expect(E.parent.innerHTML).toBe(O.parent.innerHTML);
+    expect(E.parent.innerHTML).toBe("<span>a</span><span>b</span><span>c</span>");
+    expect(calls).toBe(6); // 3 per side
+    setBig(true);
+    flush();
+    expect(E.parent.innerHTML).toBe(O.parent.innerHTML);
+    expect(E.parent.innerHTML).toBe("<span>A</span><span>B</span><span>C</span>");
+    expect(calls).toBe(6); // a flip re-runs the memo, never the row fn
+    setList(["c", "a", "d"]);
+    flush();
+    expect(E.parent.innerHTML).toBe(O.parent.innerHTML);
+    expect(E.parent.innerHTML).toBe("<span>C</span><span>A</span><span>D</span>");
+    expect(calls).toBe(8); // one fresh row per side
+    setBig(false);
+    flush();
+    expect(E.parent.innerHTML).toBe("<span>c</span><span>a</span><span>d</span>");
+    E.dispose();
+    O.dispose();
   });
 
   it("engages through a component's children hole and tears down on a children change", () => {

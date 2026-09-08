@@ -26,7 +26,8 @@
  * state-to-state transitions, not just canonical-to-X.
  */
 import { beforeEach, describe, expect, test } from "vitest";
-import { createSignal, flush, For, DEV, mapArray } from "solid-js";
+import { createSignal, flush, For, DEV } from "solid-js";
+import { referenceMapArray as mapArray } from "./reference/mapArray.js";
 const stats = DEV!.unifiedFor;
 import { render } from "@solidjs/web";
 

@@ -581,6 +581,13 @@ module.exports = [
     // (children()/introspection), so For no longer imports mapArray and it
     // shakes out of For-bearing bundles. Cumulative vs next: +3.86 KB.
     limit: "21.40 KB",
+    //
+    // ONE ENGINE IN SIGNALS (2026-09-08): 21.40 -> 21.60 KB, measured at
+    // 21.56. mapArray IS the engine's array output; solid-js keeps only the
+    // node layer (SlotOps → ListNodeLayer) + effect wiring. The layer boundary
+    // costs ~+220 B on For-only apps; For + mapArray apps DROP ~510 B (no
+    // second list implementation). Cumulative vs next: +4.07 KB.
+    limit: "21.60 KB",
     modifyEsbuildConfig
   },
   {
@@ -717,6 +724,10 @@ module.exports = [
     // ONE ENGINE (2026-09-07): 30.95 -> 30.35 KB, measured at 30.28
     // (mapArray shakes out). Cumulative vs next: +3.93 KB.
     limit: "30.35 KB",
+    //
+    // ONE ENGINE IN SIGNALS (2026-09-08): 30.35 -> 30.55 KB, measured at
+    // 30.50. Cumulative vs next: +4.15 KB.
+    limit: "30.55 KB",
     modifyEsbuildConfig
   },
   {
@@ -805,7 +816,11 @@ module.exports = [
     // drops its mapArray import (array output comes from the engine), so
     // mapArray shakes out of For-bearing bundles. Cumulative vs next:
     // 12.90 -> 16.52 = +3.62 KB. Locked in.
-    limit: "16.55 KB",
+    //
+    // ONE ENGINE IN SIGNALS (2026-09-08): -> 16.80 KB, measured at 16.75.
+    // mapArray is the engine (see the hydrating-app note). Cumulative vs
+    // next: 12.90 -> 16.75 = +3.85 KB; For + mapArray apps: +3.87 (was +4.38).
+    limit: "16.80 KB",
     modifyEsbuildConfig
   },
   {

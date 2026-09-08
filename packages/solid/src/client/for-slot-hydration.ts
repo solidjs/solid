@@ -38,7 +38,6 @@ const hooks = {
 
   commitFill(slot: Slot, fp: FlatPlan): void {
     slot.hyd = false;
-    const ops = slot.ops!; // DOM mode (hydration never runs in array mode)
     // This module IS the web hydration binding: nodes are DOM nodes here.
     const parent = slot.parent as Node;
     const region = slot.region as Node[];
@@ -61,7 +60,7 @@ const hooks = {
         if (s === undefined) break adopt;
         cursor++;
         if (s === c) continue;
-        if (c.nodeType !== 3 || s.nodeType !== 3 || ops.contains(parent, c)) break adopt;
+        if (c.nodeType !== 3 || s.nodeType !== 3 || c.parentNode === parent) break adopt;
         if ((s as Text).data !== (c as Text).data) (s as Text).data = (c as Text).data;
         if (arr !== null) arr[k] = s;
         else nodes[i] = s;
@@ -82,11 +81,11 @@ const hooks = {
         if (Array.isArray(nd))
           for (const n of nd) {
             ours.add(n);
-            if (n.nodeType === 3 && !ops.contains(parent, n)) detached++;
+            if (n.nodeType === 3 && n.parentNode !== parent) detached++;
           }
         else {
           ours.add(nd);
-          if (nd.nodeType === 3 && !ops.contains(parent, nd)) detached++;
+          if (nd.nodeType === 3 && nd.parentNode !== parent) detached++;
         }
       }
       let leftover = 0;

@@ -81,10 +81,30 @@ export type {
 } from "./signals.js";
 export { affects } from "./affects.js";
 export { mapArray, repeat, type Maybe } from "./map.js";
-/** @internal solid-js For engine: mapArray's per-row signal trio (node +
- * owned write + bound accessor) without createSignal's tuple/closure pair. */
-export { signal, setSignal } from "./core/index.js";
-export { accessor } from "./signals.js";
+/** @internal The list engine behind mapArray and <For>: solid-js builds a
+ * node layer over its renderer ops and drives the RENDERED output; the
+ * ARRAY output is mapArray itself. */
+export {
+  createListEngine,
+  listArray,
+  IDENTICAL as LIST_IDENTICAL,
+  firstOf,
+  lastOf,
+  nodesOf,
+  firstNodeOf,
+  lastNodeOf,
+  firstNodeFrom,
+  type ListEngine,
+  type ListMeta,
+  type ListNodeLayer,
+  type ListSlot,
+  type ListRow,
+  type ListFlatPlan,
+  type ListPlan,
+  type ListNode,
+  type Nodes as ListNodes,
+  type Leaves as ListLeaves
+} from "./list.js";
 export * from "./store/index.js";
 export {
   createLoadingBoundary,

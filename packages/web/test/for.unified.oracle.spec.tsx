@@ -23,7 +23,8 @@
  * clears, full replaces, and same-key/new-object updates (key-fn mode).
  */
 import { describe, expect, test } from "vitest";
-import { createMemo, createSignal, flush, For, mapArray, onCleanup, Show } from "solid-js";
+import { createMemo, createSignal, flush, For, onCleanup, Show } from "solid-js";
+import { referenceMapArray as mapArray } from "./reference/mapArray.js";
 import { render } from "@solidjs/web";
 
 type Item = { id: number; v: number };

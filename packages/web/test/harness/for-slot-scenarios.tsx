@@ -16,7 +16,8 @@
  *
  * Mismatch scenarios diverge on `isServer` so one source renders both sides.
  */
-import { mapArray, createSignal, flush, For, Show } from "solid-js";
+import { createSignal, flush, For, Show } from "solid-js";
+import { referenceMapArray as mapArray } from "../reference/mapArray.js";
 import { isServer } from "@solidjs/web";
 
 export type ForSlotScenario = {
