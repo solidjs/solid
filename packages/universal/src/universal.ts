@@ -114,6 +114,57 @@ export function createRenderer({
   getFirstChild,
   getNextSibling
 }) {
+  // Unified For ENGINE ops for this renderer (solid-js `SlotOps`): the
+  // engine is platform-free and touches nodes only through these. Built from
+  // the renderer's own primitives; two things the primitives don't expose —
+  // a node predicate and text READS — are covered without new options: a
+  // node is any non-array object (insertExpression's own assumption), and
+  // text data is remembered for the text nodes the engine itself creates.
+  const textData = new WeakMap();
+  const slotOps = {
+    insert(p, node, anchor) {
+      insertNode(p, node, anchor === null ? undefined : anchor);
+    },
+    remove(node) {
+      const p = getParentNode(node);
+      if (p) removeNode(p, node);
+    },
+    createText(text) {
+      const n = createTextNode(text);
+      textData.set(n, text);
+      return n;
+    },
+    isNode(v) {
+      return v !== null && typeof v === "object" && !Array.isArray(v);
+    },
+    clear(p) {
+      let c;
+      while ((c = getFirstChild(p))) removeNode(p, c);
+    },
+    tag() {},
+    contains(p, node) {
+      return getParentNode(node) === p;
+    },
+    owns(p, first, last) {
+      return getFirstChild(p) === first && getNextSibling(last) == null;
+    },
+    next(node) {
+      const n = getNextSibling(node);
+      return n === undefined ? null : n;
+    },
+    textOf(node) {
+      return isTextNode(node) ? textData.get(node) : undefined;
+    },
+    setText(node, text) {
+      if (!isTextNode(node)) return false;
+      if (textData.get(node) !== text) {
+        replaceText(node, text);
+        textData.set(node, text);
+      }
+      return true;
+    }
+  };
+
   function insert(parent, accessor, marker, initial, options) {
     const onUpdate = options && options.onUpdate;
     let effectOptions = options;
@@ -124,6 +175,12 @@ export function createRenderer({
     effectOptions = named(effectOptions, "renderer insert");
     const multi = marker !== undefined;
     if (multi && !initial) initial = [];
+    // Unified For: a `$for` list descriptor brings the engine with it (For's
+    // module graph); engage it with this renderer's ops. Same contract as web.
+    if (typeof accessor === "function" && accessor.$for !== undefined) {
+      accessor.$for.impl(parent, accessor, marker, slotOps);
+      return;
+    }
     if (typeof accessor !== "function") {
       accessor = normalize(accessor, multi, true);
       if (typeof accessor !== "function") {
@@ -142,6 +199,15 @@ export function createRenderer({
       prev => {
         const value = normalize(accessor(), multi, true);
         if (typeof value !== "function") return value;
+        // HOLE seam: a `$for` accessor reaching this hole through a wrapper
+        // (`{props.children}`) engages the engine for the hole; a children
+        // change tears it down (hole-mode cleanup removes its rows).
+        if (value.$for !== undefined) {
+          if (current !== undefined) cleanChildren(parent, current, multi ? marker : undefined);
+          current = [];
+          value.$for.impl(parent, value, marker, slotOps, undefined, true);
+          return INNER_OWNED;
+        }
         effect(
           () => normalize(value, multi),
           inner => {

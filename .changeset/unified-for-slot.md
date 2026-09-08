@@ -2,6 +2,7 @@
 "solid-js": patch
 "@solidjs/web": patch
 "@solidjs/signals": patch
+"@solidjs/universal": patch
 ---
 
 Unified For: on web, keyed `<For>` is driven by one persistent engine that owns both row bookkeeping and DOM placement — an intrusive row chain updated by a prefix/suffix walk plus a middle-window pass (mapArray's own matching, duplicates included) inside an ordinary two-phase render effect, with LIS placement at commit — replacing the mapArray + reconcileArrays double pass. Structural operations (swap, reorder, insert, remove) run 1.2–7x faster across jfb and uibench; creation and clear stay at parity via flat-mode first fills for identity-keyed rows (parallel arrays; the chain materializes lazily on the first partial structural op).
@@ -10,7 +11,7 @@ Unified For: on web, keyed `<For>` is driven by one persistent engine that owns 
 
 Rows whose top level resolves to a function — a component returning `<Show>`/`<Dynamic>`/a conditional, a memo, a fragment with accessor children — are dynamic rows: built once (owned, untracked) and resolved by the engine's own compute, tracked, exactly the `flatten` read classic's insert effect performs for them. No per-row effect, no marker nodes, so user row code never runs twice; a flip splices only that row's range, reusing positional text nodes with a `.data` write; a NotReady thrown from a row's resolution parks the built plan and the retry reuses the rows.
 
-Delivery is zero-API and zero-compiler: `For` stamps a `$for` descriptor on its accessor, the engine rides `For`'s module graph, and web's `insert` engages it with a renderer-ops singleton (`domOps`); the engine itself is platform-free (opaque `SlotNode`, every node touch through `SlotOps`) so universal renderers can engage it with their own ops. A `For` passed through a component's `{props.children}` engages too.
+Delivery is zero-API and zero-compiler: `For` stamps a `$for` descriptor on its accessor, the engine rides `For`'s module graph, and web's `insert` engages it with a renderer-ops singleton (`domOps`); the engine itself is platform-free (opaque `SlotNode`, every node touch through `SlotOps`). `@solidjs/universal`'s `createRenderer` engages it too, with ops built from the renderer's own primitives (`insertNode`, `removeNode`, `getNextSibling`, `replaceText`, …; nodes are non-array objects, and text data is tracked for engine-created text nodes) — no new renderer options. A `For` passed through a component's `{props.children}` engages on both platforms.
 
 Hydration: lists engage during hydration and claim the server rows themselves (whole-parent and comment-bounded holes), minting the same ids classic's mapArray owner would (`For` peeks the id via an `enableHydration()`-installed hook; mapArray gains an internal `lazy` option). Primitive rows adopt the server's positional text nodes; the fill commit reconciles against the region only on server/client mismatch and reports the repair once in dev. Nothing can demote mid-fill, so claims are never handed back. Hydration code lives in a module installed by `enableHydration()` — CSR bundles shake it.
 
