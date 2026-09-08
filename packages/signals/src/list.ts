@@ -59,6 +59,8 @@ import {
 } from "./core/index.js";
 import { setStrictRead } from "./core/core.js";
 import { CONFIG_AUTO_DISPOSE } from "./core/constants.js";
+import { attrHooks } from "./core/attribution-hooks.js";
+import { getOwner } from "./core/index.js";
 import { accessor, type Accessor } from "./signals.js";
 import { $TRACK } from "./store/index.js";
 
@@ -216,6 +218,8 @@ export interface ListSlot {
   hyd: boolean;
   /** Hydration: the claimed region snapshot. */
   region: ListNode[] | undefined;
+  /** Dev: the list's own computation (attribution's list-churn census). */
+  node: any;
   // ── Mode.
   row: (...args: any[]) => any;
   kf: ((item: any) => any) | undefined;
@@ -226,7 +230,6 @@ export interface ListSlot {
 }
 
 const pureOptions = { ownedWrite: true };
-const LAZY_OPTIONS = { lazy: true } as const;
 const EMPTY: any[] = [];
 
 export const firstOf = (nd: Nodes): ListNode | null =>
@@ -493,6 +496,7 @@ export function createListEngine(
     layer,
     hyd,
     region,
+    node: null,
     row: rowFn,
     kf,
     bi,
@@ -1003,6 +1007,7 @@ export function createListEngine(
 
   const compute = (): ListOut => {
     if (slot.dead) return IDENTICAL;
+    if (__DEV__) slot.node = getOwner();
     // Read FIRST (phase separation): a NotReady here leaves the list
     // untouched and rides the boundary like any compute throw. Array-likes
     // are accepted the way mapArray duck-types them.
@@ -1092,6 +1097,10 @@ export function createListEngine(
         const f = slot.flat!;
         for (let i = 0; i < f.owners.length; i++) f.owners[i].dispose();
         slot.dyn = fp.fns !== null;
+        // Dev attribution: a full replace is a list-identity churn (every
+        // row exited, every row entered).
+        if (__DEV__ && attrHooks !== null && f.items.length !== 0 && fp.items.length !== 0)
+          attrHooks.listChurn(slot.node, f.items, fp.items, fp.len, kf !== undefined);
       }
       // Hydrating fill: a claim pass, not a placement pass (positional
       // server nodes adopted in place; nothing moves).
@@ -1115,6 +1124,18 @@ export function createListEngine(
     }
     const plan = out as ListPlan;
     const { order, removes, before, after } = plan;
+    // Dev attribution (mapArray's list-identity census): rows that exited AND
+    // rows that entered in one pass — the shape that signals unstable keys.
+    if (__DEV__ && attrHooks !== null && removes.length !== 0) {
+      let created: any[] | undefined;
+      for (let j = 0; j < order.length; j++)
+        if (!order[j].live) (created ??= []).push(order[j].item);
+      if (created !== undefined) {
+        const removed: any[] = new Array(removes.length);
+        for (let j = 0; j < removes.length; j++) removed[j] = removes[j].item;
+        attrHooks.listChurn(slot.node, removed, created, plan.len, kf !== undefined);
+      }
+    }
     if (layer !== null) {
       // Batch clear: N→0 on an OWNED whole-parent list is one clear + one
       // bulk owner dispose.
@@ -1287,13 +1308,13 @@ export function listArray(meta: ListMeta): Accessor<any[]> {
         e.commit(out);
         return (last = e.values());
       },
-      meta.hid2 !== undefined
-        ? meta.lazy
-          ? { id: meta.hid2, lazy: true }
-          : { id: meta.hid2 }
-        : meta.lazy
-          ? LAZY_OPTIONS
-          : undefined
+      __DEV__ || meta.hid2 !== undefined || meta.lazy
+        ? {
+            id: meta.hid2,
+            lazy: meta.lazy,
+            name: __DEV__ ? meta.name : undefined
+          }
+        : undefined
     )
   )!;
   // Untracked reads inside row bodies resolve via the list's own computation

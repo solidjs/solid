@@ -470,6 +470,9 @@ module.exports = [
     // (+44 B: host-aware ops for portals + initial-range consumption in the
     // engagement path). Cumulative vs next: +276 B.
     limit: "11.05 KB",
+    //
+    // Rebase drift (2026-09-08, next @ 94fe5b46): 11.05 -> 11.06 KB (+5 B).
+    limit: "11.06 KB",
     modifyEsbuildConfig
   },
   {
