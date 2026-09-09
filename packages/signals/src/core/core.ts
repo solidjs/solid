@@ -54,7 +54,7 @@ import {
   type Refreshable
 } from "./constants.js";
 import { NotReadyError } from "./error.js";
-import { beginFanInPass, dormantNodes, endFanInPass, link, trimStaleDeps } from "./graph.js";
+import { dormantNodes, link, trimStaleDeps } from "./graph.js";
 import {
   deleteFromHeap,
   enqueueSub,
@@ -284,7 +284,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   el._time = clock;
   // Observe-tier fan-in: the pass's distinct-dep count lives in one module
   // counter (graph.ts), bracketed here so nested pulls don't disturb it.
-  const outerFanIn = __OBSERVE__ ? beginFanInPass() : 0;
   let value = el._pendingValue === NOT_PENDING ? el._value : el._pendingValue;
   let oldHeight = el._height;
   let missedWake = false;
@@ -405,7 +404,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     missedWake = (el._flags & REACTIVE_MISSED_WAKE) !== 0;
     el._flags = REACTIVE_NONE | (create ? el._flags & REACTIVE_SNAPSHOT_STALE : 0);
     context = oldcontext;
-    if (__OBSERVE__) endFanInPass(el, outerFanIn);
   }
 
   if (!el._x?._error) {

@@ -169,7 +169,6 @@ export function link(
       sub._depsTail = nextDep;
       // First touch of this pass: the previous pass's label is stale.
       nextDep._pendingObserver = pendingObserver;
-      if (__OBSERVE__) passFanIn++;
       return;
     }
   }
@@ -212,6 +211,4 @@ export function link(
 
   // New subscriber edge: staged-rewrite skips (§12d) must not miss it.
   bumpNotifyEpoch();
-
-  if (__OBSERVE__) passFanIn++;
 }
