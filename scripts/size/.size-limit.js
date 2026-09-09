@@ -150,7 +150,20 @@ module.exports = [
     // staged writes the slow path already had. ~+240 B minified, all of it
     // core: the clobber happens in recompute and the fix IS commit ordering.
     // Every scenario below moves by the same ~70-90 B.
-    limit: "8.10 KB",
+    //
+    // Effect ownership on finalize re-entry (#3319, 2026-09-09): 8.10 -> 8.18 KB,
+    // measured at 8.146. finalizePureQueue captures the batch it started with
+    // and no longer commits/reverts a batch that a commit hook, boundary
+    // sweep or recompute handed to an entered transaction (the PR's guard),
+    // while a completing transaction with a separate ambient batch still
+    // settles its own containers. Effects then follow the #3322 owner stamp:
+    // in a flush whose finalize entered a transaction, runEffect leaves runs
+    // owned by a still-held transaction queued for the next gate to park,
+    // and applies everything computed mainline. ~+166 B minified; the coarse
+    // alternative (park the whole flush) measured +70 B but left the write
+    // that caused the flush readable while its own render stayed stale.
+    // Lanes are exempt by construction (they never enter the ordinary queue).
+    limit: "8.18 KB",
     modifyEsbuildConfig
   },
   {
@@ -317,7 +330,9 @@ module.exports = [
     // pass (+44 B) was replaced by this before release.
     // Contested-effect re-derivation (#3322, 2026-09-09): 14.42 -> 14.52 KB,
     // measured at 14.49. Core scheduler cost; see the core-floor note.
-    limit: "14.52 KB",
+    // Effect ownership on finalize re-entry (#3319, 2026-09-09): 14.52 KB -> 14.60 KB,
+    // measured at 14.559. Core scheduler cost; see the core-floor note.
+    limit: "14.60 KB",
     modifyEsbuildConfig
   },
   {
@@ -397,7 +412,9 @@ module.exports = [
     // write, commit and settlement paths already refresh it. -18 B.
     // Contested-effect re-derivation (#3322, 2026-09-09): 10.10 -> 10.17 KB,
     // measured at 10.14. Core scheduler cost; see the core-floor note.
-    limit: "10.17 KB",
+    // Effect ownership on finalize re-entry (#3319, 2026-09-09): 10.17 KB -> 10.27 KB,
+    // measured at 10.237. Core scheduler cost; see the core-floor note.
+    limit: "10.27 KB",
     modifyEsbuildConfig
   },
   {
@@ -457,7 +474,9 @@ module.exports = [
     // macOS on this scenario, hence the extra 0.02 kB.
     // Contested-effect re-derivation (#3322, 2026-09-09): 10.78 -> 10.85 KB,
     // measured at 10.82. Core scheduler cost; see the core-floor note.
-    limit: "10.85 KB",
+    // Effect ownership on finalize re-entry (#3319, 2026-09-09): 10.85 KB -> 10.92 KB,
+    // measured at 10.883. Core scheduler cost; see the core-floor note.
+    limit: "10.92 KB",
     modifyEsbuildConfig
   },
   {
@@ -629,7 +648,9 @@ module.exports = [
     // Linux delta leaves ~20 B headroom.
     // Contested-effect re-derivation (#3322, 2026-09-09): 26.45 -> 26.52 KB,
     // measured at 26.453. Core scheduler cost; see the core-floor note.
-    limit: "26.52 KB",
+    // Effect ownership on finalize re-entry (#3319, 2026-09-09): 26.52 KB -> 26.60 KB,
+    // measured at 26.558. Core scheduler cost; see the core-floor note.
+    limit: "26.60 KB",
     modifyEsbuildConfig
   },
   {
@@ -677,7 +698,9 @@ module.exports = [
     // hydrating ones. Ratchet on next so the branch is green again.
     // Contested-effect re-derivation (#3322, 2026-09-09): 13.01 -> 13.04 KB,
     // measured at 13.00. Core scheduler cost; see the core-floor note.
-    limit: "13.04 KB",
+    // Effect ownership on finalize re-entry (#3319, 2026-09-09): 13.04 KB -> 13.08 KB,
+    // measured at 13.048. Core scheduler cost; see the core-floor note.
+    limit: "13.08 KB",
     modifyEsbuildConfig
   },
   {
@@ -695,7 +718,9 @@ module.exports = [
     // referenced statically from `OBSERVE.attribution`; it now lives behind
     // `@solidjs/signals/attribution` and is charged by the scenario below.
     path: "csr-app.js",
-    limit: "14.30 KB",
+    // Effect ownership on finalize re-entry (#3319, 2026-09-09): 14.30 KB -> 14.34 KB,
+    // measured at 14.302. Core scheduler cost; see the core-floor note.
+    limit: "14.34 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

@@ -23,8 +23,10 @@ import { StatusError, unwrapStatusError } from "./error.js";
 import { enqueueSub } from "./heap.js";
 import {
   _hitUnhandledAsync,
+  currentTransition,
   GlobalQueue,
   haltReactivity,
+  parkHeldOwners,
   resetUnhandledAsync,
   schedule,
   setTrackedQueueCallback,
@@ -148,6 +150,17 @@ function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): vo
 
 function runEffect(node: Effect<any>): void {
   if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
+  // Ownership (#3319): a value computed under a transaction is applied by that
+  // transaction's commit. Only a flush whose finalize entered a transaction
+  // can reach here with a still-held owner (every other path parks or settles
+  // first); leave the run queued — `_modified` stays set — and the next gate
+  // stashes it with the owner. Mainline-owned runs (null) apply now.
+  if (parkHeldOwners && node._valueTransition !== null) {
+    if (currentTransition(node._valueTransition)._done !== true) {
+      node._queue.enqueue(node._type, node._boundRunEffect!);
+      return;
+    }
+  }
   // Error arm (#2840), user effects only: a compute-phase error that is still
   // the node's settled state at effect time runs the bundle's error handler in
   // this same imperative, writable scope. Unwrap the StatusError used for

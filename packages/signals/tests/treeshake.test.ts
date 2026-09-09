@@ -158,7 +158,16 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // writes the slow path already had. Core-retained by necessity: the
     // clobber happens in recompute and the fix is the commit ordering itself.
     // Measured at 21,765 post-change.
-    expect(minifiedBytes).toBeLessThan(21_900);
+    // CONSCIOUS BUMP (2026-09-09): +~166B for effect ownership on finalize
+    // re-entry (#3319) — finalizePureQueue captures the batch it started
+    // with and does not commit/revert one an entered transaction adopted
+    // (while a completing transaction still settles its own separate
+    // containers), and runEffect leaves runs owned by a still-held
+    // transaction queued for the next gate when the flush's finalize entered
+    // one, applying only what was computed mainline. The coarse alternative
+    // (park the whole flush) is ~70B but splits reads from the DOM for the
+    // write that caused the flush. Measured at 21,931 post-change.
+    expect(minifiedBytes).toBeLessThan(22_050);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

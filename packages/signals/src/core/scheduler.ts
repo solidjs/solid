@@ -82,6 +82,10 @@ function cancelZombieRecompute(el: Computed<unknown>): void {
 export let clock = 0;
 export let activeTransition: Transition | null = null;
 let scheduled = false;
+/** Set only while the ordinary effect phase runs in a flush whose finalize
+ * entered a transaction (#3319): runEffect leaves runs owned by a still-held
+ * transaction queued for the next gate to park with their owner. */
+export let parkHeldOwners = false;
 let halted = false;
 let haltNotified = false;
 let syncDepth = 0;
@@ -744,11 +748,25 @@ export class GlobalQueue extends Queue {
       clock++;
       // Check if finalization added items to the heap (from optimistic reversion)
       scheduled = dirtyQueue._max >= dirtyQueue._min;
+      // Finalization entered a transaction (a commit hook, boundary sweep or
+      // recompute wrote a node it owns). Effects computed under it since are
+      // its to apply, not this flush's: runEffect leaves them queued and the
+      // next gate parks them with it. Everything computed mainline — the work
+      // this flush already committed — applies now (#3319).
+      // Lanes are exempt: a lane applies its own effects ahead of its
+      // transaction by design (the optimistic view), so the flag wraps only
+      // the ordinary runs.
+      const entered = activeTransition !== null;
+      if (entered) scheduled = true;
       // Run lane effects first (for ready lanes), then regular effects
       activeLanes.size && GlobalQueue._runLaneEffects!(EFFECT_RENDER);
+      parkHeldOwners = entered;
       this.run(EFFECT_RENDER);
+      parkHeldOwners = false;
       activeLanes.size && GlobalQueue._runLaneEffects!(EFFECT_USER);
+      parkHeldOwners = entered;
       this.run(EFFECT_USER);
+      parkHeldOwners = false;
       if (__DEV__) {
         devCheckActiveOverrides(n => {
           if (this._batch._optimisticNodes.includes(n as OptimisticNode)) return true;
@@ -1061,6 +1079,7 @@ export function finalizePureQueue(
 ) {
   // For incomplete transitions, skip pending resolution and optimistic reversion
   // For completing transitions or no-transition, resolve pending and revert optimistic
+  const finalizingBatch = currentBatch;
   const resolvePending = !incomplete;
   if (resolvePending) commitPendingNodes();
   if (!incomplete && globalQueue._children.length) checkBoundaryChildren(globalQueue);
@@ -1075,9 +1094,19 @@ export function finalizePureQueue(
   const ranHeap = dirtyQueue._max >= dirtyQueue._min;
   if (ranHeap) runHeap(dirtyQueue, GlobalQueue._update);
   if (resolvePending) {
-    if (ranHeap) commitPendingNodes();
+    // Boundary checks, commit hooks and recomputes can enter a transaction,
+    // which adopts the batch this finalize was settling: nothing batch-derived
+    // may be committed or reverted here — the entered transaction owns it now
+    // (#3319). A completing transaction's OWN containers are a different
+    // matter: when the ambient batch was separate from it (the #2916 shape),
+    // adoption never touched them and it must still settle them; when the
+    // batch WAS the completing transaction, adoption re-stamped its contents
+    // into the entered one and there is nothing left to settle.
+    if (currentBatch !== finalizingBatch) {
+      if (completingTransition === null || completingTransition === finalizingBatch) return;
+    } else if (ranHeap) commitPendingNodes();
     // The settling batch: the completing transaction's, or the ambient one.
-    const batch = completingTransition ?? globalQueue._batch;
+    const batch = completingTransition ?? finalizingBatch;
     // Optimistic reversion: a non-empty batch means _optimisticWrite ran,
     // which installed the engine's hooks.
     if (batch._optimisticNodes.length) GlobalQueue._resolveOptimistic!(batch._optimisticNodes);
