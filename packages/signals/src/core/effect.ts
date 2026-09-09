@@ -4,6 +4,7 @@ import {
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
+  LANE_RUN,
   REACTIVE_DISPOSED,
   STATUS_ERROR,
   STATUS_PENDING
@@ -23,10 +24,10 @@ import { StatusError, unwrapStatusError } from "./error.js";
 import { enqueueSub } from "./heap.js";
 import {
   _hitUnhandledAsync,
+  activeTransition,
   currentTransition,
   GlobalQueue,
   haltReactivity,
-  parkHeldOwners,
   resetUnhandledAsync,
   schedule,
   setTrackedQueueCallback,
@@ -41,11 +42,12 @@ export interface Effect<T> extends Computed<T>, Owner {
   _modified: boolean;
   _prevValue: T | undefined;
   _type: number;
-  _boundRunEffect?: () => void;
+  _boundRunEffect?: (type: number) => void;
   /** The transaction whose staged view produced `_value` (null = committed
    * view). Effects have one value slot and do not entangle transactions, so
    * a second transaction recomputing the same effect overwrites a value the
-   * first one still owes a run for; see contestEffect (#3322). */
+   * first one still owes a run for; see the contested-effect arm of recompute
+   * (#3322). */
   _valueTransition: Transition | null;
 }
 
@@ -72,7 +74,7 @@ export function effect<T>(
   !options?.defer &&
     (node._type === EFFECT_USER || options?.schedule
       ? node._queue.enqueue(node._type, runEffect.bind(null, node))
-      : runEffect(node));
+      : runEffect(node, LANE_RUN));
   if (__DEV__ && !node._parent) {
     const message =
       "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed";
@@ -148,18 +150,24 @@ function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): vo
   }
 }
 
-function runEffect(node: Effect<any>): void {
+function runEffect(node: Effect<any>, type: number): void {
   if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
   // Ownership (#3319): a value computed under a transaction is applied by that
-  // transaction's commit. Only a flush whose finalize entered a transaction
-  // can reach here with a still-held owner (every other path parks or settles
-  // first); leave the run queued — `_modified` stays set — and the next gate
-  // stashes it with the owner. Mainline-owned runs (null) apply now.
-  if (parkHeldOwners && node._valueTransition !== null) {
-    if (currentTransition(node._valueTransition)._done !== true) {
-      node._queue.enqueue(node._type, node._boundRunEffect!);
-      return;
-    }
+  // transaction's commit. The ordinary effect phase runs with a transaction
+  // active only when the flush's finalize ENTERED one (every other path parks
+  // or settles first): leave a run owned by a still-held transaction queued —
+  // `_modified` stays set — and the next gate stashes it with the owner.
+  // Mainline-owned runs (null) apply now. Lanes are exempt by design (they
+  // apply their own effects ahead of their transaction — the optimistic view)
+  // and mark their runs with LANE_RUN.
+  if (
+    activeTransition !== null &&
+    !(type & LANE_RUN) &&
+    node._valueTransition !== null &&
+    !currentTransition(node._valueTransition)._done
+  ) {
+    node._queue.enqueue(node._type, node._boundRunEffect!);
+    return;
   }
   // Error arm (#2840), user effects only: a compute-phase error that is still
   // the node's settled state at effect time runs the bundle's error handler in

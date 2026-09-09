@@ -76,6 +76,7 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { cleanup, disposeChildren, inheritId, markDisposal } from "./owner.js";
+import type { Transition } from "./scheduler.js";
 import {
   notifyEpoch,
   bumpNotifyEpoch,
@@ -83,7 +84,7 @@ import {
   activeTransition,
   armReaskClear,
   clock,
-  contestEffect,
+  currentTransition,
   dirtyQueue,
   globalQueue,
   GlobalQueue,
@@ -443,13 +444,31 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           isEffect,
           ((el as any)._boundRunEffect ??= GlobalQueue._runEffect.bind(null, el))
         );
-        // Effects don't entangle transactions (a shared effect is not shared
-        // state), yet they have one value slot: when this write replaces a
-        // value a live transaction computed and still owes a run for, that
-        // view is gone — contestEffect records the effect so the owed commit
-        // re-derives it against the committed world before running it
-        // (#3322).
-        if ((el as any)._valueTransition !== activeTransition) contestEffect(el);
+        // Contested effect (#3322). Effects don't entangle transactions (a
+        // shared effect is not shared state), yet they have one value slot:
+        // when this write commits under a different transaction
+        // (`activeTransition`, null = mainline) than the one that produced the
+        // previous value (`_valueTransition`), that view is gone. Rather than
+        // merge the two, each commit re-derives the effect against its own
+        // committed world (Transition._contested, re-dirtied by
+        // finalizePureQueue ahead of the heap run). The previous owner always
+        // needs it if still live: its commit is silent (staging already
+        // notified) and the value it computed is gone. The new owner needs it
+        // too, for the same reason, unless it is mainline — mainline publishes
+        // what it computes. A previous owner that was mainline, or already
+        // committed, left nothing to protect.
+        let prev: Transition | null = (el as any)._valueTransition;
+        if (prev !== activeTransition) {
+          (el as any)._valueTransition = activeTransition;
+          if (
+            prev !== null &&
+            (prev = currentTransition(prev)) !== activeTransition &&
+            !prev._done
+          ) {
+            (prev._contested ??= []).push(el);
+            if (activeTransition !== null) (activeTransition._contested ??= []).push(el);
+          }
+        }
       }
     }
 

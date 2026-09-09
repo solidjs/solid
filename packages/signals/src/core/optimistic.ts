@@ -14,6 +14,7 @@
 import {
   EFFECT_RENDER,
   EFFECT_USER,
+  LANE_RUN,
   NOT_PENDING,
   OVERRIDE_UNDEFINED,
   REACTIVE_CHECK,
@@ -170,7 +171,7 @@ function resolveOptimisticNodes(nodes: OptimisticNode[]): void {
 }
 
 function runQueue(queue: QueueCallback[], type: number): void {
-  for (let i = 0; i < queue.length; i++) queue[i](type);
+  for (let i = 0; i < queue.length; i++) queue[i](type | LANE_RUN);
 }
 
 /**

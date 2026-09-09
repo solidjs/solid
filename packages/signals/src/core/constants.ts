@@ -133,6 +133,9 @@ export const EFFECT_PURE = 0;
 export const EFFECT_RENDER = 1;
 export const EFFECT_USER = 2;
 export const EFFECT_TRACKED = 3;
+/** OR-ed into the `type` a lane passes to its effect runners: lane runs
+ * apply ahead of their transaction and are exempt from ownership parking. */
+export const LANE_RUN = 4;
 
 export const NOT_PENDING = {};
 export const NO_SNAPSHOT = {};

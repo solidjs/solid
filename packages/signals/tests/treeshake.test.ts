@@ -152,7 +152,7 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // transactions, so a second live transaction (or mainline) recomputing a
     // shared effect overwrote a value the first still owed a run for, and
     // the silent commit then published it. Effect._valueTransition stamps
-    // the owner, contestEffect records the effect on the owed transaction(s),
+    // the owner, recompute records the effect on the owed transaction(s),
     // finalizePureQueue re-dirties them ahead of the heap run; the signal
     // fast path in read() gains the stale-reader mask for foreign staged
     // writes the slow path already had. Core-retained by necessity: the
@@ -167,6 +167,12 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // one, applying only what was computed mainline. The coarse alternative
     // (park the whole flush) is ~70B but splits reads from the DOM for the
     // write that caused the flush. Measured at 21,931 post-change.
+    // GOLF (2026-09-09): -41B. The #3319 `parkHeldOwners` flag was set from
+    // `activeTransition !== null` at the very point the ordinary runs start,
+    // so runEffect reads activeTransition directly; the lane exemption moved
+    // to where lanes live (optimistic.ts ORs LANE_RUN into the run `type`,
+    // as does effect()'s creation-time immediate run). contestEffect inlined
+    // into its single call site in recompute. Measured at 21,890 post-change.
     expect(minifiedBytes).toBeLessThan(22_050);
   });
 

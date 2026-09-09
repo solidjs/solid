@@ -82,10 +82,6 @@ function cancelZombieRecompute(el: Computed<unknown>): void {
 export let clock = 0;
 export let activeTransition: Transition | null = null;
 let scheduled = false;
-/** Set only while the ordinary effect phase runs in a flush whose finalize
- * entered a transaction (#3319): runEffect leaves runs owned by a still-held
- * transaction queued for the next gate to park with their owner. */
-export let parkHeldOwners = false;
 let halted = false;
 let haltNotified = false;
 let syncDepth = 0;
@@ -227,28 +223,6 @@ function createBatch(): Transition {
     _gatedSubs: new Set(),
     _contested: null
   };
-}
-
-/**
- * recompute() is committing an effect value under a different transaction
- * (`activeTransition`, null = mainline) than the one that produced the
- * previous value (`_valueTransition`) (#3322). Effects are not shared state,
- * so this must not merge the two — instead each commit recomputes the effect
- * against its own committed world (see Transition._contested). The previous
- * owner always needs it if still live: its commit is silent (staging already
- * notified) and the value it computed is gone. The new owner needs it too,
- * for the same reason, unless it is mainline — mainline publishes what it
- * computes. A previous owner that was mainline, or already committed, left
- * nothing to protect.
- */
-export function contestEffect(el: any): void {
-  let prev: Transition | null = el._valueTransition;
-  el._valueTransition = activeTransition;
-  if (prev === null) return;
-  prev = currentTransition(prev);
-  if (prev === activeTransition || prev._done) return;
-  (prev._contested ??= []).push(el);
-  if (activeTransition !== null) (activeTransition._contested ??= []).push(el);
 }
 
 function mergeTransitionState(target: Transition, outgoing: Transition): void {
@@ -746,27 +720,18 @@ export class GlobalQueue extends Queue {
         }
       }
       clock++;
-      // Check if finalization added items to the heap (from optimistic reversion)
-      scheduled = dirtyQueue._max >= dirtyQueue._min;
-      // Finalization entered a transaction (a commit hook, boundary sweep or
-      // recompute wrote a node it owns). Effects computed under it since are
-      // its to apply, not this flush's: runEffect leaves them queued and the
-      // next gate parks them with it. Everything computed mainline — the work
-      // this flush already committed — applies now (#3319).
-      // Lanes are exempt: a lane applies its own effects ahead of its
-      // transaction by design (the optimistic view), so the flag wraps only
-      // the ordinary runs.
-      const entered = activeTransition !== null;
-      if (entered) scheduled = true;
+      // Check if finalization added items to the heap (from optimistic reversion).
+      // Finalization may also have ENTERED a transaction (a commit hook, boundary
+      // sweep or recompute wrote a node it owns): effects computed under it
+      // since are its to apply, not this flush's — runEffect leaves them queued
+      // and the next pass parks them with it (#3319). Everything computed
+      // mainline applies now.
+      scheduled = dirtyQueue._max >= dirtyQueue._min || activeTransition !== null;
       // Run lane effects first (for ready lanes), then regular effects
       activeLanes.size && GlobalQueue._runLaneEffects!(EFFECT_RENDER);
-      parkHeldOwners = entered;
       this.run(EFFECT_RENDER);
-      parkHeldOwners = false;
       activeLanes.size && GlobalQueue._runLaneEffects!(EFFECT_USER);
-      parkHeldOwners = entered;
       this.run(EFFECT_USER);
-      parkHeldOwners = false;
       if (__DEV__) {
         devCheckActiveOverrides(n => {
           if (this._batch._optimisticNodes.includes(n as OptimisticNode)) return true;
