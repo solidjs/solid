@@ -729,7 +729,15 @@ module.exports = [
     path: "csr-app.js",
     // Effect ownership on finalize re-entry (#3319, 2026-09-09): 14.30 KB -> 14.34 KB,
     // measured at 14.302. Core scheduler cost; see the core-floor note.
-    limit: "14.34 KB",
+    // Observe node shapes (#3324, 2026-09-09): 14.34 -> 14.40 KB, measured
+    // at 14.332 (was 14.284 before the PR, on the post-golf next). Observe
+    // now carries a second literal per node factory — prod's plus its
+    // `_name`/`_owner` slot — instead of a post-construction write, so the
+    // tier's node shapes stop transitioning (creation tests 2-3x under
+    // polymorphic load as shipped, at parity after). Prod is byte-identical;
+    // this scenario alone pays the duplicated literal bodies. Headroom
+    // restored: the +48 B left 8 B under the old ratchet.
+    limit: "14.40 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -745,7 +753,12 @@ module.exports = [
     path: "csr-app-attribution.js",
     // Contested-effect re-derivation (#3322, 2026-09-09): 24.00 -> 24.08 KB,
     // measured at 24.04. Core scheduler cost; see the core-floor note.
-    limit: "24.08 KB",
+    // Observe node shapes (#3324, 2026-09-09): 24.08 -> 24.14 KB, measured
+    // at 24.079 (1 B under the old ratchet). The literal duplication above
+    // is offset here by the engine dropping the live `_subCount`/`_depCount`
+    // machinery: WIDE_WRITE counts the subscriber list on the write and
+    // hands over to HUGE_FAN_OUT at 2000. Ratchet restores headroom only.
+    limit: "24.14 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
