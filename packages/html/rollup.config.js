@@ -22,17 +22,7 @@ const plugins = [
 export default [
   {
     input: "src/index.ts",
-    output: [
-      {
-        file: "dist/html.cjs",
-        format: "cjs",
-        exports: "auto"
-      },
-      {
-        file: "dist/html.js",
-        format: "es"
-      }
-    ],
+    output: { file: "dist/html.js", format: "es" },
     external: ["@solidjs/web"],
     plugins
   }

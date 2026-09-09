@@ -10,17 +10,19 @@
     "url": "git+https://github.com/solidjs/solid.git",
     "directory": "packages/solid"
   },
-  "main": "./dist/server.cjs",
+  "main": "./dist/server.js",
   "module": "./dist/server.js",
   "unpkg": "./dist/solid.js",
   "jsdelivr": "./dist/solid.js",
   "types": "types/index.d.ts",
   "sideEffects": false,
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "files": [
     "dist",
     "types",
-    "types-cjs",
     "package.json",
     "CHEATSHEET.md",
     "skills"
@@ -29,182 +31,74 @@
     ".": {
       "worker": {
         "development": {
-          "import": {
-            "types": "./types/index.d.ts",
-            "default": "./dist/server.dev.js"
-          },
-          "require": {
-            "types": "./types-cjs/index.d.cts",
-            "default": "./dist/server.dev.cjs"
-          }
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.dev.js"
         },
         "observe": {
-          "import": {
-            "types": "./types/index.d.ts",
-            "default": "./dist/server.observe.js"
-          },
-          "require": {
-            "types": "./types-cjs/index.d.cts",
-            "default": "./dist/server.observe.cjs"
-          }
-        },
-        "import": {
           "types": "./types/index.d.ts",
-          "default": "./dist/server.js"
+          "default": "./dist/server.observe.js"
         },
-        "require": {
-          "types": "./types-cjs/index.d.cts",
-          "default": "./dist/server.cjs"
-        }
+        "types": "./types/index.d.ts",
+        "default": "./dist/server.js"
       },
       "browser": {
         "development": {
-          "import": {
-            "types": "./types/index.d.ts",
-            "default": "./dist/solid.dev.js"
-          },
-          "require": {
-            "types": "./types-cjs/index.d.cts",
-            "default": "./dist/solid.dev.cjs"
-          }
-        },
-        "observe": {
-          "import": {
-            "types": "./types/index.d.ts",
-            "default": "./dist/solid.observe.js"
-          },
-          "require": {
-            "types": "./types-cjs/index.d.cts",
-            "default": "./dist/solid.observe.cjs"
-          }
-        },
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/solid.js"
-        },
-        "require": {
-          "types": "./types-cjs/index.d.cts",
-          "default": "./dist/solid.cjs"
-        }
-      },
-      "deno": {
-        "development": {
-          "import": {
-            "types": "./types/index.d.ts",
-            "default": "./dist/server.dev.js"
-          },
-          "require": {
-            "types": "./types-cjs/index.d.cts",
-            "default": "./dist/server.dev.cjs"
-          }
-        },
-        "observe": {
-          "import": {
-            "types": "./types/index.d.ts",
-            "default": "./dist/server.observe.js"
-          },
-          "require": {
-            "types": "./types-cjs/index.d.cts",
-            "default": "./dist/server.observe.cjs"
-          }
-        },
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/server.js"
-        },
-        "require": {
-          "types": "./types-cjs/index.d.cts",
-          "default": "./dist/server.cjs"
-        }
-      },
-      "node": {
-        "development": {
-          "import": {
-            "types": "./types/index.d.ts",
-            "default": "./dist/server.dev.js"
-          },
-          "require": {
-            "types": "./types-cjs/index.d.cts",
-            "default": "./dist/server.dev.cjs"
-          }
-        },
-        "observe": {
-          "import": {
-            "types": "./types/index.d.ts",
-            "default": "./dist/server.observe.js"
-          },
-          "require": {
-            "types": "./types-cjs/index.d.cts",
-            "default": "./dist/server.observe.cjs"
-          }
-        },
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/server.js"
-        },
-        "require": {
-          "types": "./types-cjs/index.d.cts",
-          "default": "./dist/server.cjs"
-        }
-      },
-      "development": {
-        "import": {
           "types": "./types/index.d.ts",
           "default": "./dist/solid.dev.js"
         },
-        "require": {
-          "types": "./types-cjs/index.d.cts",
-          "default": "./dist/solid.dev.cjs"
-        }
-      },
-      "observe": {
-        "import": {
+        "observe": {
           "types": "./types/index.d.ts",
           "default": "./dist/solid.observe.js"
         },
-        "require": {
-          "types": "./types-cjs/index.d.cts",
-          "default": "./dist/solid.observe.cjs"
-        }
-      },
-      "import": {
         "types": "./types/index.d.ts",
         "default": "./dist/solid.js"
       },
-      "require": {
-        "types": "./types-cjs/index.d.cts",
-        "default": "./dist/solid.cjs"
-      }
+      "deno": {
+        "development": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.dev.js"
+        },
+        "observe": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.observe.js"
+        },
+        "types": "./types/index.d.ts",
+        "default": "./dist/server.js"
+      },
+      "node": {
+        "development": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.dev.js"
+        },
+        "observe": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.observe.js"
+        },
+        "types": "./types/index.d.ts",
+        "default": "./dist/server.js"
+      },
+      "development": {
+        "types": "./types/index.d.ts",
+        "default": "./dist/solid.dev.js"
+      },
+      "observe": {
+        "types": "./types/index.d.ts",
+        "default": "./dist/solid.observe.js"
+      },
+      "types": "./types/index.d.ts",
+      "default": "./dist/solid.js"
     },
     "./refresh": {
       "development": {
-        "import": {
-          "types": "./types/refresh/index.d.ts",
-          "default": "./dist/refresh.dev.js"
-        },
-        "require": {
-          "types": "./types-cjs/refresh/index.d.cts",
-          "default": "./dist/refresh.dev.cjs"
-        }
-      },
-      "import": {
         "types": "./types/refresh/index.d.ts",
-        "default": "./dist/refresh.js"
+        "default": "./dist/refresh.dev.js"
       },
-      "require": {
-        "types": "./types-cjs/refresh/index.d.cts",
-        "default": "./dist/refresh.cjs"
-      }
+      "types": "./types/refresh/index.d.ts",
+      "default": "./dist/refresh.js"
     },
     "./attribution": {
-      "import": {
-        "types": "./types/attribution.d.ts",
-        "default": "./dist/attribution.js"
-      },
-      "require": {
-        "types": "./types-cjs/attribution.d.cts",
-        "default": "./dist/attribution.cjs"
-      }
+      "types": "./types/attribution.d.ts",
+      "default": "./dist/attribution.js"
     },
     "./package.json": "./package.json"
   },
@@ -212,10 +106,9 @@
     "build": "npm-run-all -nl build:*",
     "build:clean": "rimraf dist/ coverage/",
     "build:js": "rollup -c",
-    "types": "npm-run-all -nl types:clean types:src types:cjs",
-    "types:clean": "rimraf types/ types-cjs/",
+    "types": "npm-run-all -nl types:clean types:src",
+    "types:clean": "rimraf types/",
     "types:src": "tsc --project ./tsconfig.build.json",
-    "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
     "test-types": "tsc --project tsconfig.test.json && tsc --project tsconfig.no-dom.json"

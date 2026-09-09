@@ -36,12 +36,11 @@ const replaceFlags = (isDev, isObserve) =>
     delimiters: ["", ""]
   });
 
+// ESM only: Node >= 22.12 (the `engines` floor) `require()`s ESM natively, so
+// CJS hosts resolve these same files through the same export conditions.
 const build = (input, name, external, isDev, isObserve) => ({
   input,
-  output: [
-    { file: `dist/${name}.cjs`, format: "cjs" },
-    { file: `dist/${name}.js`, format: "es" }
-  ],
+  output: { file: `dist/${name}.js`, format: "es" },
   external,
   plugins: [replaceFlags(isDev, isObserve)].concat(plugins)
 });

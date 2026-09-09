@@ -13,47 +13,31 @@
   "publishConfig": {
     "access": "public"
   },
-  "main": "./dist/universal.cjs",
+  "main": "./dist/universal.js",
   "module": "./dist/universal.js",
   "types": "./types/index.d.ts",
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "sideEffects": false,
   "files": [
     "dist",
     "types",
-    "types-cjs",
     "package.json"
   ],
   "exports": {
     ".": {
       "development": {
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/universal.dev.js"
-        },
-        "require": {
-          "types": "./types-cjs/index.d.cts",
-          "default": "./dist/universal.dev.cjs"
-        }
+        "types": "./types/index.d.ts",
+        "default": "./dist/universal.dev.js"
       },
       "observe": {
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/universal.observe.js"
-        },
-        "require": {
-          "types": "./types-cjs/index.d.cts",
-          "default": "./dist/universal.observe.cjs"
-        }
-      },
-      "import": {
         "types": "./types/index.d.ts",
-        "default": "./dist/universal.js"
+        "default": "./dist/universal.observe.js"
       },
-      "require": {
-        "types": "./types-cjs/index.d.cts",
-        "default": "./dist/universal.cjs"
-      }
+      "types": "./types/index.d.ts",
+      "default": "./dist/universal.js"
     },
     "./types/*": "./types/*"
   },
@@ -61,10 +45,9 @@
     "build": "npm-run-all -nl build:*",
     "build:clean": "rimraf dist/ coverage/",
     "build:js": "rollup -c",
-    "types": "npm-run-all -nl types:clean types:universal types:cjs",
-    "types:clean": "rimraf types/ types-cjs/",
+    "types": "npm-run-all -nl types:clean types:universal",
+    "types:clean": "rimraf types/",
     "types:universal": "tsc --project ./tsconfig.json",
-    "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs",
     "test": "vitest run"
   },
   "peerDependencies": {

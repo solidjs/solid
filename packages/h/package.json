@@ -13,52 +13,35 @@
   "publishConfig": {
     "access": "public"
   },
-  "main": "./dist/h.cjs",
+  "main": "./dist/h.js",
   "module": "./dist/h.js",
   "types": "./types/index.d.ts",
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "sideEffects": false,
   "files": [
     "dist",
     "types",
-    "types-cjs",
     "package.json",
     "jsx-runtime/dist",
     "jsx-runtime/types",
-    "jsx-runtime/types-cjs",
     "jsx-runtime/package.json",
     "jsx-dev-runtime/package.json"
   ],
   "exports": {
     ".": {
-      "import": {
-        "types": "./types/index.d.ts",
-        "default": "./dist/h.js"
-      },
-      "require": {
-        "types": "./types-cjs/index.d.cts",
-        "default": "./dist/h.cjs"
-      }
+      "types": "./types/index.d.ts",
+      "default": "./dist/h.js"
     },
     "./jsx-runtime": {
-      "import": {
-        "types": "./jsx-runtime/types/index.d.ts",
-        "default": "./jsx-runtime/dist/jsx.js"
-      },
-      "require": {
-        "types": "./jsx-runtime/types-cjs/index.d.cts",
-        "default": "./jsx-runtime/dist/jsx.cjs"
-      }
+      "types": "./jsx-runtime/types/index.d.ts",
+      "default": "./jsx-runtime/dist/jsx.js"
     },
     "./jsx-dev-runtime": {
-      "import": {
-        "types": "./jsx-runtime/types/index.d.ts",
-        "default": "./jsx-runtime/dist/jsx.js"
-      },
-      "require": {
-        "types": "./jsx-runtime/types-cjs/index.d.cts",
-        "default": "./jsx-runtime/dist/jsx.cjs"
-      }
+      "types": "./jsx-runtime/types/index.d.ts",
+      "default": "./jsx-runtime/dist/jsx.js"
     },
     "./types/*": "./types/*"
   },
@@ -66,12 +49,11 @@
     "build": "npm-run-all -nl build:clean types:copy build:js",
     "build:clean": "rimraf dist/ coverage/ /jsx-runtime/dist",
     "build:js": "rollup -c",
-    "types": "npm-run-all -nl types:clean types:copy types:h types:jsx types:cjs",
-    "types:clean": "rimraf types/ types-cjs/ jsx-runtime/types-cjs/",
+    "types": "npm-run-all -nl types:clean types:copy types:h types:jsx",
+    "types:clean": "rimraf types/",
     "types:copy": "ncp ../web/jsx/jsx-properties.d.ts ./jsx-runtime/src/jsx-properties.d.ts && node ../web/scripts/jsx-sync.mjs --input ../web/jsx/jsx-h.d.ts --output ./jsx-runtime/src/jsx.d.ts --element \"SolidElement | Node | FunctionElement | ArrayElement\" --import \"import type { Element as SolidElement } from \\\"solid-js\\\";\"",
     "types:h": "tsc --project ./tsconfig.json",
     "types:jsx": "rimraf ./jsx-runtime/types && tsc --project ./jsx-runtime/tsconfig.json && ncp ../web/jsx/jsx-properties.d.ts ./jsx-runtime/types/jsx-properties.d.ts && node ../web/scripts/jsx-sync.mjs --input ../web/jsx/jsx-h.d.ts --output ./jsx-runtime/types/jsx.d.ts --element \"SolidElement | Node | FunctionElement | ArrayElement\" --import \"import type { Element as SolidElement } from \\\"solid-js\\\";\"",
-    "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs ./jsx-runtime/types ./jsx-runtime/types-cjs",
     "link": "symlink-dir . node_modules/@solidjs/h",
     "test": "vitest run"
   },

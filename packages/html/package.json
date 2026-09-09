@@ -13,37 +13,32 @@
   "publishConfig": {
     "access": "public"
   },
-  "main": "./dist/html.cjs",
+  "main": "./dist/html.js",
   "module": "./dist/html.js",
   "types": "./types/index.d.ts",
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "sideEffects": false,
   "files": [
     "dist",
     "types",
-    "types-cjs",
     "package.json"
   ],
   "exports": {
     ".": {
-      "import": {
-        "types": "./types/index.d.ts",
-        "default": "./dist/html.js"
-      },
-      "require": {
-        "types": "./types-cjs/index.d.cts",
-        "default": "./dist/html.cjs"
-      }
+      "types": "./types/index.d.ts",
+      "default": "./dist/html.js"
     }
   },
   "scripts": {
     "build": "npm-run-all -nl build:*",
     "build:clean": "rimraf dist/ coverage/",
     "build:js": "rollup -c",
-    "types": "npm-run-all -nl types:clean types:html types:cjs",
-    "types:clean": "rimraf types/ types-cjs/",
+    "types": "npm-run-all -nl types:clean types:html",
+    "types:clean": "rimraf types/",
     "types:html": "tsc --project ./tsconfig.json",
-    "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs",
     "test": "vitest run"
   },
   "peerDependencies": {

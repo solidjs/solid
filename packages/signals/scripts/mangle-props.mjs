@@ -8,11 +8,9 @@
  * modules and break cross-module member access at runtime (#2883).
  *
  * Each argument is one consistency domain with its own nameCache: a directory
- * tree, a single file, or a comma-separated group of files — the code-split
- * flat builds (`node.cjs,node.attribution.cjs,node-shared.cjs`) are three
- * files that share one module graph and must mangle as one.
+ * tree (the prod and observe trees) or a single file.
  *
- * Usage: node scripts/mangle-props.mjs <dir|file|file,file,...> [...]
+ * Usage: node scripts/mangle-props.mjs <dir|file> [...]
  */
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,16 +24,14 @@ function walk(dir) {
   )) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) files.push(...walk(path));
-    else if (/\.(js|cjs)$/.test(entry.name)) files.push(path);
+    else if (/\.js$/.test(entry.name)) files.push(path);
   }
   return files;
 }
 
-const domain = arg => arg.split(",").flatMap(walk);
-
 for (const dir of process.argv.slice(2)) {
   const nameCache = {};
-  for (const file of domain(dir)) {
+  for (const file of walk(dir)) {
     const code = readFileSync(file, "utf8");
     const result = await minify(code, {
       compress: false,
@@ -58,5 +54,5 @@ for (const dir of process.argv.slice(2)) {
     });
     writeFileSync(file, result.code);
   }
-  console.log(`mangled _-props across ${domain(dir).length} files in ${dir}`);
+  console.log(`mangled _-props across ${walk(dir).length} files in ${dir}`);
 }
