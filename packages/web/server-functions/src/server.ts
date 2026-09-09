@@ -1561,9 +1561,9 @@ function stripUnsafeArgumentKeys(value) {
  * against the limit before this runs, but a declaration under it is not
  * evidence of anything (#3236), so the count is taken on the bytes that
  * arrive. The original body is read, not a clone: cancellation must tear
- * down the upload source rather than one branch of a tee (#3219). On
- * success the consumed body is replaced so the ordinary decoder can still
- * read it. Returns that replacement Request, or `null` past the limit.
+ * down the upload source rather than one branch of a tee (#3219). Returns
+ * the bytes that arrived, or `null` past the limit; `withBufferedBody` puts
+ * them back in front of the ordinary decoder.
  */
 async function bufferBodyWithin(request, limit) {
   const reader = request.body.getReader();
@@ -1604,7 +1604,29 @@ async function bufferBodyWithin(request, limit) {
     body.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new Request(request, { body });
+  return body;
+}
+
+/**
+ * The consumed request with its buffered bytes back in front of the
+ * ordinary decoder. Assembled from the request's parts rather than
+ * `new Request(request, { body })`: the copy constructor reaches into the
+ * source's internal state, and a host adapter's request need not have any.
+ * srvx (Nitro's server layer) hands out a lazy `NodeRequest` that only
+ * wears `Request.prototype` — `instanceof` says Request, the native
+ * constructor never ran — so undici threw on the private slot and every
+ * POST under Nitro came back 400 (#3311). The parts the runtime reads are
+ * url, method, headers and signal, and any adapter has to serve those to
+ * get this far; the fetch-only fields the copy also carried (mode,
+ * credentials, cache) mean nothing on an inbound request.
+ */
+function withBufferedBody(request, body) {
+  return new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    signal: request.signal,
+    body
+  });
 }
 
 // Every tag the decode switch has a case for, derived from `BodyFormat`
@@ -3385,26 +3407,29 @@ export async function handleServerFunctionRequest(request, options = {}) {
       );
       return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
     }
-    let bounded;
+    let buffered;
     try {
-      bounded = await bufferBodyWithin(request, bodySizeLimit);
+      buffered = await bufferBodyWithin(request, bodySizeLimit);
     } catch {
       // A failed or aborted upload is an incomplete argument encoding,
       // not a handler failure. Match the decoder's malformed-body answer
-      // instead of rejecting out of dispatch (#3217).
+      // instead of rejecting out of dispatch (#3217). Only the READ sits
+      // under this answer: putting the bytes back is the runtime's own
+      // step, and answering its failure as the caller's malformed
+      // arguments pointed every Nitro user at their payload (#3311).
       const response = new Response(DEV ? "Malformed server function arguments" : null, {
         status: 400
       });
       return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
     }
-    if (bounded === null) {
+    if (buffered === null) {
       const response = new Response(
         DEV ? "Server function request body exceeds the configured bodySizeLimit" : null,
         { status: 413 }
       );
       return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
     }
-    request = bounded;
+    request = withBufferedBody(request, buffered);
   }
 
   // An async createEvent is out of contract (the type is synchronous), but
