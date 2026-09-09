@@ -22,7 +22,8 @@ export const attribution: Attribution = {
   costs: () => ({ scopes: [], writes: [] }),
   waterfalls: () => EMPTY,
   holds: () => EMPTY,
-  feedback: () => ({ sources: [], interactions: [], flights: [], fallbacks: [] }),
+  navigations: () => EMPTY,
+  feedback: () => ({ sources: [], interactions: [], navigations: [], flights: [], fallbacks: [] }),
   markFlight: noop,
   format: () => "",
   formatOrigin: () => ""
@@ -37,14 +38,16 @@ export type {
   ChangeRecord,
   FallbackStats,
   FeedbackInteraction,
+  FeedbackNavigation,
   FeedbackSource,
   FlightLink,
   FlightStats,
   HeldWrite,
   HoldEvent,
+  NavigationEvent,
   RerunEvent,
   ScopeCost,
   WaterfallRecord,
   WriteCost
 } from "./core/attribution.js";
-export type { InteractionRef } from "./core/attribution-hooks.js";
+export type { InteractionRef, NavigationRef, OriginRef } from "./core/attribution-hooks.js";

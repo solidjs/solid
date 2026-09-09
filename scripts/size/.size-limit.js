@@ -737,7 +737,13 @@ module.exports = [
     // polymorphic load as shipped, at parity after). Prod is byte-identical;
     // this scenario alone pays the duplicated literal bodies. Headroom
     // restored: the +48 B left 8 B under the old ratchet.
-    limit: "14.40 KB",
+    //
+    // Navigation origin frame (2026-09-09): 14.40 -> 14.44 KB, measured at
+    // 14.36 on top of #3324. `OBSERVE.attribution.withOrigin` (the
+    // router-agnostic navigation seam, a twin of withInteraction) and the
+    // `flushEnd` hook site after flush()'s drain loop. Observe-only: prod
+    // folds both out.
+    limit: "14.44 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -758,7 +764,14 @@ module.exports = [
     // is offset here by the engine dropping the live `_subCount`/`_depCount`
     // machinery: WIDE_WRITE counts the subscriber list on the write and
     // hands over to HUGE_FAN_OUT at 2000. Ratchet restores headroom only.
-    limit: "24.14 KB",
+    //
+    // Navigations (2026-09-09): 24.14 -> 24.90 KB, measured at 24.86. The
+    // engine's navigation records: the `navigation` origin kind and its
+    // formatting, one NavigationEvent per withOrigin frame settled through
+    // flushEnd / hold commit / supersession, `HoldEvent.origin` and the
+    // route-named SILENT_HOLD/LONG_HOLD actor, and the `feedback().navigations`
+    // fold. Engine-only cost; the observe tier above moved 30 B.
+    limit: "24.90 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

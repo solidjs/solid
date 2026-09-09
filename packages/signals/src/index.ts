@@ -51,6 +51,8 @@ export type {
   AttributionHooks,
   AttributionSlot,
   InteractionRef,
+  NavigationRef,
+  OriginRef,
   Dev,
   Observe,
   DevHooks,

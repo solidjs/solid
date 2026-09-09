@@ -67,7 +67,12 @@ export {
   type IQueue,
   type QueueCallback
 } from "./scheduler.js";
-export type { AttributionHooks, InteractionRef } from "./attribution-hooks.js";
+export type {
+  AttributionHooks,
+  InteractionRef,
+  NavigationRef,
+  OriginRef
+} from "./attribution-hooks.js";
 export {
   DEV,
   OBSERVE,

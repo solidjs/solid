@@ -36,9 +36,10 @@ function expectObserveLive(mod: Tier) {
   expect(typeof observe.diagnostics.subscribe).toBe("function");
   expect(typeof observe.diagnostics.capture).toBe("function");
   expect(typeof observe.diagnostics.emit).toBe("function");
-  // The core's side of attribution is the slot and the interaction frame only.
+  // The core's side of attribution is the slot and the two declared frames only.
   expect(typeof observe.attribution.install).toBe("function");
   expect(typeof observe.attribution.withInteraction).toBe("function");
+  expect(typeof observe.attribution.withOrigin).toBe("function");
   expect(observe.attribution.installed).toBeNull();
   expect(observe.attribution.enable).toBeUndefined();
   expect(typeof observe.subjectOf).toBe("function");
@@ -64,12 +65,19 @@ function expectEngineDrivesCore(core: any, engine: Engine) {
       return set;
     });
     core.flush();
-    observe.attribution.withInteraction({ type: "click", target: "button#go" }, () => setCount(1));
+    observe.attribution.withInteraction({ type: "click", target: "button#go" }, () =>
+      observe.attribution.withOrigin({ kind: "navigation", name: "/go", to: "/go" }, () =>
+        setCount(1)
+      )
+    );
     core.flush();
     const rerun = runs.find(r => r.nodeName === "reader" && r.causes.length);
     expect(rerun).toBeDefined();
     expect(rerun.causes[0].name).toBe("count");
+    expect(rerun.causes[0].origin).toMatchObject({ kind: "navigation", name: "/go" });
     expect(rerun.interaction).toMatchObject({ kind: "interaction", name: "click" });
+    // The drain's flushEnd reached the engine: the navigation settled.
+    expect(attribution.navigations()[0]).toMatchObject({ name: "/go", outcome: "committed" });
   } finally {
     attribution.disable();
   }
@@ -83,9 +91,11 @@ function expectEngineInert(engine: Engine) {
   expect(attribution.history()).toEqual([]);
   expect(attribution.costs()).toEqual({ scopes: [], writes: [] });
   expect(attribution.holds()).toEqual([]);
+  expect(attribution.navigations()).toEqual([]);
   expect(attribution.feedback()).toEqual({
     sources: [],
     interactions: [],
+    navigations: [],
     flights: [],
     fallbacks: []
   });
