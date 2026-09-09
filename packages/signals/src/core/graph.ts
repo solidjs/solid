@@ -7,15 +7,36 @@ import {
   STATUS_PENDING
 } from "./constants.js";
 import { slotUnobservedHook } from "./core.js";
-import { noteGraphLink, unnoteGraphLink } from "./dev.js";
+import { GRAPH_SIZE_WARN_AT, noteFanIn } from "./dev.js";
 import { deleteFromHeap, queueFor } from "./heap.js";
 import { disposeChildren } from "./owner.js";
 import { bumpNotifyEpoch, dirtyQueue, zombieQueue } from "./scheduler.js";
 import type { Computed, Link, Signal } from "./types.js";
 
+/**
+ * Observe-tier: distinct dependencies touched by the recompute pass in
+ * progress — `link()` counts each first touch (a reused in-order link or a
+ * new edge; repeat reads of the same dep within the pass do not count).
+ * `recompute` brackets its pass with begin/endFanInPass, saving the enclosing
+ * pass's count across nested pulls. One module counter instead of a live
+ * `_depCount` field on every computed: the per-node field was a
+ * post-construction expando that forked node shapes and taxed every link.
+ */
+let passFanIn = 0;
+
+export function beginFanInPass(): number {
+  const prev = passFanIn;
+  passFanIn = 0;
+  return prev;
+}
+
+export function endFanInPass(el: Computed<any>, prev: number): void {
+  if (passFanIn >= GRAPH_SIZE_WARN_AT) noteFanIn(el, passFanIn);
+  passFanIn = prev;
+}
+
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L100
 export function unlinkSubs(link: Link): Link | null {
-  if (__OBSERVE__) unnoteGraphLink(link);
   const dep = link._dep;
   const nextDep = link._nextDep;
   const nextSub = link._nextSub;
@@ -148,6 +169,7 @@ export function link(
       sub._depsTail = nextDep;
       // First touch of this pass: the previous pass's label is stale.
       nextDep._pendingObserver = pendingObserver;
+      if (__OBSERVE__) passFanIn++;
       return;
     }
   }
@@ -191,5 +213,5 @@ export function link(
   // New subscriber edge: staged-rewrite skips (§12d) must not miss it.
   bumpNotifyEpoch();
 
-  if (__OBSERVE__) noteGraphLink(dep, sub);
+  if (__OBSERVE__) passFanIn++;
 }
