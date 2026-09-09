@@ -14,8 +14,10 @@ function pack(packageRoot: string) {
 }
 
 describe("Packed package type resolution", () => {
-  const fixtureSource = resolve(join(__dirname, "..", "fixtures", "packaged-types", "node16-cjs"));
-  const fixtureRun = resolve(join(__dirname, "..", "fixtures", ".generated", "node16-cjs"));
+  const fixtureSource = resolve(
+    join(__dirname, "..", "fixtures", "packaged-types", "nodenext-cjs")
+  );
+  const fixtureRun = resolve(join(__dirname, "..", "fixtures", ".generated", "nodenext-cjs"));
   const rootPackageJson = JSON.parse(
     readFileSync(resolve(join(__dirname, "../../..", "package.json")), "utf8")
   );
@@ -59,7 +61,7 @@ describe("Packed package type resolution", () => {
     });
   }, 180_000);
 
-  test("Node16 CommonJS consumers can import packed packages", () => {
+  test("CommonJS consumers on Node >= 22.12 (module: NodeNext, require(esm)) resolve packed types", () => {
     const result = exec("npx tsc -p tsconfig.json", { cwd: fixtureRun, silent: true });
     expect(result.code).toBe(0);
   });

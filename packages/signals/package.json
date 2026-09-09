@@ -13,12 +13,15 @@
   "publishConfig": {
     "access": "public"
   },
-  "main": "./dist/node.cjs",
+  "main": "./dist/prod/index.js",
   "module": "./dist/prod/index.js",
   "unpkg": "./dist/prod/index.js",
   "jsdelivr": "./dist/prod/index.js",
   "types": "./dist/types/index.d.ts",
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "sideEffects": false,
   "files": [
     "dist",
@@ -26,42 +29,26 @@
   ],
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/types/index.d.ts",
-        "test": "./dist/dev.js",
-        "development": "./dist/dev.js",
-        "observe": "./dist/observe/index.js",
-        "default": "./dist/prod/index.js"
-      },
-      "require": {
-        "types": "./dist/types-cjs/index.d.cts",
-        "development": "./dist/node.dev.cjs",
-        "observe": "./dist/node.observe.cjs",
-        "default": "./dist/node.cjs"
-      }
+      "types": "./dist/types/index.d.ts",
+      "test": "./dist/dev.js",
+      "development": "./dist/dev.js",
+      "observe": "./dist/observe/index.js",
+      "default": "./dist/prod/index.js"
     },
     "./attribution": {
-      "import": {
-        "types": "./dist/types/attribution.d.ts",
-        "test": "./dist/dev.attribution.js",
-        "development": "./dist/dev.attribution.js",
-        "observe": "./dist/observe/attribution.js",
-        "default": "./dist/prod/attribution.js"
-      },
-      "require": {
-        "types": "./dist/types-cjs/attribution.d.cts",
-        "development": "./dist/node.dev.attribution.cjs",
-        "observe": "./dist/node.observe.attribution.cjs",
-        "default": "./dist/node.attribution.cjs"
-      }
+      "types": "./dist/types/attribution.d.ts",
+      "test": "./dist/dev.attribution.js",
+      "development": "./dist/dev.attribution.js",
+      "observe": "./dist/observe/attribution.js",
+      "default": "./dist/prod/attribution.js"
     },
     "./package.json": "./package.json"
   },
   "scripts": {
     "build": "npm-run-all -nl build:* && pnpm types",
-    "build:clean": "rimraf dist/dev dist/prod dist/observe dist/node dist/*.js dist/*.cjs",
-    "build:js": "rollup -c && node ./scripts/mangle-props.mjs dist/prod dist/observe dist/node.cjs,dist/node.attribution.cjs dist/node.observe.cjs,dist/node.observe.attribution.cjs,dist/node.observe-shared.cjs && node ./scripts/check-pure.mjs dist/prod && node ./scripts/check-pure.mjs dist/observe",
-    "types": "tsc -p tsconfig.build.json && node ../../scripts/sync-dual-types.mjs ./dist/types ./dist/types-cjs",
+    "build:clean": "rimraf dist/dev dist/prod dist/observe dist/*.js",
+    "build:js": "rollup -c && node ./scripts/mangle-props.mjs dist/prod dist/observe && node ./scripts/check-pure.mjs dist/prod && node ./scripts/check-pure.mjs dist/observe",
+    "types": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "test:watch": "vitest watch tests",
     "test:gc": "node --expose-gc ./vitest.js",

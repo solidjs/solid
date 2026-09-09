@@ -10,7 +10,7 @@
       "outputs": ["dist/**"]
     },
     "@solidjs/signals#types": {
-      "outputs": ["dist/types/**", "dist/types-cjs/**"]
+      "outputs": ["dist/types/**"]
     },
     "@solidjs/diagnostics#build": {
       "dependsOn": ["@solidjs/signals#build", "@solidjs/signals#types"],
@@ -22,7 +22,7 @@
     },
     "solid-js#types": {
       "dependsOn": ["@solidjs/signals#types"],
-      "outputs": ["types/**", "types-cjs/**", "**/types/**", "**/types-cjs/**"]
+      "outputs": ["types/**", "**/types/**"]
     },
     "@solidjs/web#link": {
       "dependsOn": ["solid-js#build"],
@@ -45,25 +45,11 @@
     },
     "types": {
       "dependsOn": ["^types"],
-      "outputs": [
-        "types/**",
-        "types-cjs/**",
-        "dist/types-cjs/**",
-        "**/types/**",
-        "**/types-cjs/**",
-        "**/dist/types-cjs/**"
-      ]
+      "outputs": ["types/**", "**/types/**"]
     },
     "@solidjs/web#types": {
       "dependsOn": ["^types"],
-      "outputs": [
-        "types/**",
-        "types-cjs/**",
-        "**/types/**",
-        "**/types-cjs/**",
-        "jsx/jsx.d.ts",
-        "jsx/jsx-properties.d.ts"
-      ]
+      "outputs": ["types/**", "**/types/**", "jsx/jsx.d.ts", "jsx/jsx-properties.d.ts"]
     },
     "coverage": {
       "outputs": ["coverage/**"]

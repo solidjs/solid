@@ -38,16 +38,16 @@ byte-identical to today under every bundler.
   gates: `"_SOLID_OBSERVE_"` is a replaced literal like `"_SOLID_DEV_"`, and
   packages ship an observe flavor only for entries that contain wiring:
   - `@solidjs/signals`: `dist/observe/` (per-module tree like `prod/`,
-    mangled) and `dist/node.observe.cjs`.
-  - `solid-js`: `dist/solid.observe.{js,cjs}` — the component root + label
+    mangled).
+  - `solid-js`: `dist/solid.observe.js` — the component root + label
     and the flow-control memo names (`<For>`, `<Repeat>`, `<Show>`'s
     "condition value"/"condition"/"value", `<Match>`'s, `children`); and
-    `dist/server.observe.{js,cjs}`, which today differs from prod only in
+    `dist/server.observe.js`, which today differs from prod only in
     exporting a live `OBSERVE` — it exists so `import { OBSERVE } from
 "solid-js"` agrees with `@solidjs/signals` when both resolve under
     `observe` in one process. P1's server labels give it content.
-  - `@solidjs/web`: `dist/web.observe.{js,cjs}` (3 `withInteraction` sites).
-  - `@solidjs/universal`: `dist/universal.observe.{js,cjs}` (renderer-effect
+  - `@solidjs/web`: `dist/web.observe.js` (3 `withInteraction` sites).
+  - `@solidjs/universal`: `dist/universal.observe.js` (renderer-effect
     fallback names, "renderer render").
   - frames, server-functions, storage, serialization, h, html, element: no
     wiring → no flavor; under `observe` they fall through to prod (pinned by
@@ -76,9 +76,8 @@ format/formatOrigin` — is `@solidjs/signals/attribution` (re-exported as
   that import it. Prod resolves an inert twin (`src/attribution.prod.ts`)
   with the same `Attribution` surface, so the import needs no per-tier guard.
   Every signals build therefore has two entries sharing one module instance:
-  the trees via `preserveModules`, the flat dev/CJS builds via code
-  splitting (`<name>.<ext>`, `<name>.attribution.<ext>`, `<name>-shared.<ext>`,
-  mangled as one domain). `InteractionRef` moved to `attribution-hooks.ts`;
+  the trees via `preserveModules`, the flat dev build via code splitting
+  (`dev.js`, `dev.attribution.js`, `dev-shared.js`). `InteractionRef` moved to `attribution-hooks.ts`;
   the hooks gained `interactionStart(ref)`/`interactionEnd()`.
 
 ## PR A (this plan) — flags, split, flavors, caps, engine entry
@@ -87,10 +86,9 @@ format/formatOrigin` — is `@solidjs/signals/attribution` (re-exported as
 
 Build: `globals.d.ts` declares `__OBSERVE__`. Rollup adds `dist/observe/`
 (`__DEV__: "false", __OBSERVE__: "true"`, `preserveModules`, no prettier,
-mangled) and `dist/node.observe.cjs`; `dev.js`/`node.dev.cjs` get
-`__OBSERVE__: "true"`; `prod/`/`node.cjs` get `"false"`. `mangle-props.mjs`
-reserves `_name`. `build:clean` covers the new outputs. Exports: `observe`
-after `development` on both `import` and `require`.
+mangled); `dev.js` gets `__OBSERVE__: "true"`; `prod/` gets `"false"`.
+`mangle-props.mjs` reserves `_name`. `build:clean` covers the new outputs.
+Exports: `observe` after `development`.
 
 `dev.ts`: construct `OBSERVE` under `__OBSERVE__`, `DEV` under `__DEV__`;
 `emitDiagnostic` (channel) is observe-tier; `reportDiagnostic`,
@@ -194,13 +192,22 @@ alongside server-dev-build-plan P1, which supplies the request half of
 
 ## Open questions
 
-- **Client CJS.** Every client entry ships a `.cjs` twin (and its dev/observe
-  siblings) for one consumer: Jest with `solid-jest`. Everything Solid 2
-  documents or ships is Vitest/ESM, `require(esm)` is unflagged on 20.19+,
-  and Svelte 4, Vite 7, Angular and Lit are ESM-only. Dropping client CJS —
-  or all CJS, with `engines.node >= 20.19` — would delete roughly a third of
-  the build matrix and the whole dual-types pipeline. Its own PR, after this
-  lands.
+- **CJS.** _Resolved: removed, across the board._ Every entry used to ship a
+  `.cjs` twin (and its dev/observe siblings) plus a `types-cjs/` mirror, for
+  one consumer: Jest with `solid-jest`. Everything Solid 2 documents or ships
+  is Vitest/ESM; Node 20 is EOL (2026-04) and Node 22.12+ `require()`s ESM
+  natively; the ESM-native runtimes (Bun, Deno, workers, Tauri, SolidTV's
+  bundled output) never read the CJS files. Runtime packages now publish
+  `engines.node >= 22.12` and ESM only — no `require` branch in any exports
+  map, so a CJS host resolves the very same files through the very same
+  conditions. That deleted roughly a third of the build matrix, the
+  dual-types pipeline (`sync-dual-types.mjs`), and signals' three flat CJS
+  builds. Two guards replaced them: the signals dist test `require()`s each
+  tier in a child Node and checks it is the same instance `import` yields,
+  and scans every shipped module for a top-level `await` (the one thing that
+  breaks `require(esm)`). Build-time tooling (`@solidjs/babel-plugin`,
+  `@solidjs/compiler`'s napi loader) is unchanged — those are loaded by Babel
+  and Node tooling, not by app code, and are outside the runtime tier story.
 
 ## Out of scope here
 

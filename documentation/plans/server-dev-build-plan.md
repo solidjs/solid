@@ -21,7 +21,7 @@ attribution work has no server foothold.
 
 1. **`solid-js` has no server dev build.** `packages/solid/rollup.config.js`
    builds `src/server/index.ts` once, with _no_ `_SOLID_DEV_` replace at all;
-   `dist/server.{js,cjs}` is the only artifact for the `worker`/`deno`/`node`
+   `dist/server.js` is the only artifact for the `worker`/`deno`/`node`
    conditions. `packages/solid/src/server/` contains **zero** `"_SOLID_DEV_"`
    gates. Its 8 `console.warn`/`console.error` sites fire **unconditionally in
    production**: `[SERVER_WRITE]` (`signals.ts:696`), nested `<Reveal>` in
@@ -38,7 +38,7 @@ attribution work has no server foothold.
    these ever run outside the test suite (which runs from source, where the
    string literal is truthy). `head.ts` and `cookies.ts` each have one more.
 3. **The pattern already exists in the same package.**
-   `@solidjs/web/server-functions` ships `server.dev.{js,cjs}` via
+   `@solidjs/web/server-functions` ships `server.dev.js` via
    `replaceDev(true)` and nests a `development` condition **inside**
    `worker`/`deno`/`node` in its exports — the correct shape, because at the
    top level `node` precedes `development` and would win. `./frames` server
@@ -71,7 +71,7 @@ attribution work has no server foothold.
 
 **`solid-js`** (`packages/solid/rollup.config.js`, `package.json`):
 
-- Add `dist/server.dev.{js,cjs}` from `src/server/index.ts` with
+- Add `dist/server.dev.js` from `src/server/index.ts` with
   `replaceDev(true)`.
 - Add `replaceDev(false)` to the existing prod server build. Today it has no
   replace because the source has no gates; the moment P1 adds one, an
@@ -83,9 +83,9 @@ attribution work has no server foothold.
 
 **`@solidjs/web`** (`packages/web/rollup.config.js`, `package.json`):
 
-- Add `dist/server.dev.{js,cjs}` from `src/index.server.ts` with
+- Add `dist/server.dev.js` from `src/index.server.ts` with
   `replaceDev(true)`; same external list as the prod server build.
-- Add `frames/dist/server.dev.{js,cjs}` likewise; nest `development` under
+- Add `frames/dist/server.dev.js` likewise; nest `development` under
   the server conditions of `./frames` and add it to `./frames/server`.
 - `./storage`, `./serialization`: no gates today; leave until one appears.
 
@@ -142,13 +142,16 @@ false`), `exports-server-conditions.spec.tsx`; solid
   `prod/` (chunked dir for the mangle pass; a restructure, not a rename).
   The resolution test now pins the client pairing under `browser` too.
 - `@solidjs/signals`' `require` branch had no `development` condition
-  (`dist/node.cjs` is `__DEV__: false` only), so CJS hosts loading
+  (`dist/node.cjs` was `__DEV__: false` only), so CJS hosts loading
   `server.dev.cjs` got signals' prod object and `DEV` came back `undefined` —
   a dev artifact lying about the one export P1 will emit through. Fixed in
-  the same PR: `dist/node.dev.cjs` (unmangled twin of `dev.js`), selected by
-  `require.development`. The resolution test walks the CJS hops
-  (`@solidjs/web` → `solid-js` → `@solidjs/signals`) and pins all three
-  flipping together; a signals dist test pins `DEV` per CJS artifact.
+  the same PR with a `dist/node.dev.cjs`; then made moot when CJS was removed
+  across the board (observe-tier-plan, "CJS"): there is one module graph per
+  tier now and `require()` reaches it through the same conditions `import`
+  does. The resolution test still walks the `require` hops (`@solidjs/web` →
+  `solid-js` → `@solidjs/signals`) and pins all three landing on the same
+  ESM files per tier, and loads the chain through a real CJS `require` to
+  prove the graph is `require(esm)`-safe (no top-level `await`).
 - `solid-js#test` now depends on `solid-js#build` in `turbo.json` — it had
   no dist-based tests until this work, so it was the one package whose test
   task didn't wait for its own build.

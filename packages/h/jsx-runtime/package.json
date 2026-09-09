@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/h/jsx-runtime",
-  "main": "./dist/jsx.cjs",
+  "main": "./dist/jsx.js",
   "module": "./dist/jsx.js",
   "types": "./types/index.d.ts",
   "type": "module",

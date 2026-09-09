@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+
 function checkError(error) {
   // This error happens when missing the type:module field in package.json when it is needed.
   if (
@@ -9,7 +11,17 @@ function checkError(error) {
   }
 
   // These errors happen if exports are not mapped to files that should be importable.
-  if (["ERR_PACKAGE_PATH_NOT_EXPORTED", "ERR_MODULE_NOT_FOUND"].includes(error.code)) {
+  // ERR_REQUIRE_ASYNC_MODULE is the `require()` half: every package ships ESM
+  // only and relies on Node's require(esm), which refuses a graph containing
+  // a top-level await — a CJS host would be locked out of that entry.
+  if (
+    [
+      "ERR_PACKAGE_PATH_NOT_EXPORTED",
+      "ERR_MODULE_NOT_FOUND",
+      "MODULE_NOT_FOUND",
+      "ERR_REQUIRE_ASYNC_MODULE"
+    ].includes(error.code)
+  ) {
     console.error(error);
     process.exit(1);
   }
@@ -24,26 +36,49 @@ function checkError(error) {
   // properly, for example.
 }
 
-Promise.all([
-  import("solid-js").catch(checkError),
+const specifiers = [
+  "solid-js",
+  "solid-js/attribution",
 
-  import("@solidjs/signals").catch(checkError),
-  import("@solidjs/web").catch(checkError),
-  import("@solidjs/web/jsx-runtime").catch(checkError),
-  import("@solidjs/web/jsx-dev-runtime").catch(checkError),
-  import("@solidjs/web/storage").catch(checkError),
-  import("@solidjs/web/server-functions").catch(checkError),
-  import("@solidjs/web/server-functions/server").catch(checkError),
-  import("@solidjs/web/server-functions/client").catch(checkError),
+  "@solidjs/signals",
+  "@solidjs/signals/attribution",
+  "@solidjs/web",
+  "@solidjs/web/jsx-runtime",
+  "@solidjs/web/jsx-dev-runtime",
+  "@solidjs/web/storage",
+  "@solidjs/web/serialization",
+  "@solidjs/web/serialization/decode",
+  "@solidjs/web/server-functions",
+  "@solidjs/web/server-functions/server",
+  "@solidjs/web/server-functions/client",
+  "@solidjs/web/server-functions/rich-args",
+  "@solidjs/web/frames",
+  "@solidjs/web/frames/server",
+  "@solidjs/web/frames/client",
 
-  import("@solidjs/h").catch(checkError),
-  import("@solidjs/h/jsx-runtime").catch(checkError),
-  import("@solidjs/h/jsx-dev-runtime").catch(checkError),
-  import("@solidjs/html").catch(checkError),
-  import("@solidjs/universal").catch(checkError)
-])
+  "@solidjs/h",
+  "@solidjs/h/jsx-runtime",
+  "@solidjs/h/jsx-dev-runtime",
+  "@solidjs/html",
+  "@solidjs/universal"
+];
+
+// The same entries through a CommonJS `require()`: there is no `require`
+// branch in any exports map, so this must land on the ESM files and load them
+// synchronously (Node >= 22.12). Failing here means a CJS host cannot load
+// that entry at all.
+const require = createRequire(import.meta.url);
+for (const specifier of specifiers) {
+  try {
+    require(specifier);
+  } catch (error) {
+    checkError(error);
+  }
+}
+
+Promise.all(specifiers.map(specifier => import(specifier).catch(checkError)))
   .then(() => {
-    console.log("ES Module import test passed.");
+    console.log("ES Module import + require(esm) test passed.");
   })
   .catch(error => {
     console.error(error);

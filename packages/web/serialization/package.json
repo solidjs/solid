@@ -1,20 +1,14 @@
 {
   "name": "@solidjs/web/serialization",
-  "main": "./dist/serialization.cjs",
+  "main": "./dist/serialization.js",
   "module": "./dist/serialization.js",
   "types": "./types/index.d.ts",
   "type": "module",
   "sideEffects": false,
   "exports": {
     ".": {
-      "import": {
-        "types": "./types/index.d.ts",
-        "default": "./dist/serialization.js"
-      },
-      "require": {
-        "types": "./types-cjs/index.d.cts",
-        "default": "./dist/serialization.cjs"
-      }
+      "types": "./types/index.d.ts",
+      "default": "./dist/serialization.js"
     }
   }
 }

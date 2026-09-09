@@ -33,10 +33,7 @@ const replaceFlags = (isDev, isObserve) =>
 
 const build = (name, isDev, isObserve) => ({
   input: "src/index.ts",
-  output: [
-    { file: `dist/${name}.cjs`, format: "cjs" },
-    { file: `dist/${name}.js`, format: "es" }
-  ],
+  output: { file: `dist/${name}.js`, format: "es" },
   external: ["solid-js"],
   plugins: [replaceFlags(isDev, isObserve)].concat(plugins)
 });

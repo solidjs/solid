@@ -89,20 +89,65 @@ describe("export conditions: dev/prod artifact pairing", () => {
     });
   });
 
-  test("CJS `require` pairs solid-js's server.dev.cjs with signals' node.dev.cjs", () => {
-    // The web server bundle externalizes solid-js, and solid-js's server
-    // bundle externalizes @solidjs/signals, so a CJS host resolves each in
-    // turn. The dev server artifact is only honest if the signals it requires
-    // is dev too — its `DEV` export is signals' object — so the `require`
-    // branch of signals needs its own `development` entry, and this pins
-    // both hops flipping together.
+  // A CJS host resolves through `require`, and there is no `require` branch
+  // anywhere in these exports maps: every package ships ESM only and relies on
+  // Node >= 22.12 loading ESM through `require()`. So the `require` walk must
+  // land on exactly the files `import` lands on, hop by hop — the web server
+  // bundle externalizes solid-js, and solid-js's server bundle externalizes
+  // @solidjs/signals, so the host resolves each in turn and a tier mismatch
+  // at any hop is a mixed build (a dev solid-js whose `DEV` export is signals'
+  // prod `undefined`, say).
+  function requireHops(conditions: string[]): string[] {
     const script =
       `const { createRequire } = require("node:module"); ` +
       `const r = createRequire(process.cwd() + "/"); ` +
+      `const web = r.resolve("@solidjs/web"); ` +
       `const solid = r.resolve("solid-js"); ` +
       `const signals = createRequire(solid).resolve("@solidjs/signals"); ` +
-      `const web = r.resolve("@solidjs/web"); ` +
       `process.stdout.write(JSON.stringify([web, solid, signals].map(p => p.replace(/^.*\\/packages\\//, ""))));`;
+    return JSON.parse(
+      execFileSync(process.execPath, [...conditions.map(c => `--conditions=${c}`), "-e", script], {
+        cwd: process.cwd(),
+        encoding: "utf8"
+      })
+    );
+  }
+
+  test("`require` walks web → solid-js → signals onto the same ESM files as `import`, per tier", () => {
+    expect(requireHops([])).toEqual([
+      "web/dist/server.js",
+      "solid/dist/server.js",
+      "signals/dist/prod/index.js"
+    ]);
+    expect(requireHops(["development"])).toEqual([
+      "web/dist/server.dev.js",
+      "solid/dist/server.dev.js",
+      "signals/dist/dev.js"
+    ]);
+    expect(requireHops(["observe"])).toEqual([
+      // web's server has no wiring yet, so it has no observe artifact.
+      "web/dist/server.js",
+      "solid/dist/server.observe.js",
+      "signals/dist/observe/index.js"
+    ]);
+  });
+
+  test("a CJS host actually loads the ESM server entries through require()", () => {
+    // Resolution agreeing is necessary, not sufficient: `require(esm)` throws
+    // ERR_REQUIRE_ASYNC_MODULE if any module in the graph has a top-level
+    // await. Load the whole chain the way a CJS server would and check the
+    // instance is shared with `import` — the same signals object on both
+    // sides, or a CJS host with one ESM dependency would run two cores.
+    const script =
+      `const web = require("@solidjs/web"); ` +
+      `const solid = require("solid-js"); ` +
+      `import("solid-js").then(esm => { ` +
+      `  process.stdout.write(JSON.stringify({ ` +
+      `    renders: typeof web.renderToString === "function", ` +
+      `    sameSolid: esm.createSignal === solid.createSignal, ` +
+      `    devIsDefined: solid.DEV !== undefined ` +
+      `  })); ` +
+      `});`;
     const run = (conditions: string[]) =>
       JSON.parse(
         execFileSync(
@@ -111,16 +156,8 @@ describe("export conditions: dev/prod artifact pairing", () => {
           { cwd: process.cwd(), encoding: "utf8" }
         )
       );
-    expect(run([])).toEqual([
-      "web/dist/server.cjs",
-      "solid/dist/server.cjs",
-      "signals/dist/node.cjs"
-    ]);
-    expect(run(["development"])).toEqual([
-      "web/dist/server.dev.cjs",
-      "solid/dist/server.dev.cjs",
-      "signals/dist/node.dev.cjs"
-    ]);
+    expect(run([])).toEqual({ renders: true, sameSolid: true, devIsDefined: false });
+    expect(run(["development"])).toEqual({ renders: true, sameSolid: true, devIsDefined: true });
   });
 
   test("`observe` selects the observe artifacts where wiring exists and falls through to prod elsewhere", () => {
@@ -157,23 +194,6 @@ describe("export conditions: dev/prod artifact pairing", () => {
     expect(resolveAll(["observe", "development"])).toEqual(resolveAll(["development"]));
   });
 
-  test("CJS `require` under `observe` pairs solid-js with signals' node.observe.cjs", () => {
-    const script =
-      `const { createRequire } = require("node:module"); ` +
-      `const r = createRequire(process.cwd() + "/"); ` +
-      `const solid = r.resolve("solid-js"); ` +
-      `const signals = createRequire(solid).resolve("@solidjs/signals"); ` +
-      `process.stdout.write(JSON.stringify([solid, signals].map(p => p.replace(/^.*\\/packages\\//, ""))));`;
-    expect(
-      JSON.parse(
-        execFileSync(process.execPath, ["--conditions=observe", "-e", script], {
-          cwd: process.cwd(),
-          encoding: "utf8"
-        })
-      )
-    ).toEqual(["solid/dist/server.observe.cjs", "signals/dist/node.observe.cjs"]);
-  });
-
   test("`solid-js/attribution` hands the engine tier to `@solidjs/signals/attribution`", () => {
     // solid-js's entry is one tier-less re-export; the engine it reaches is
     // decided at the signals hop by the SAME conditions that picked the
@@ -192,17 +212,17 @@ describe("export conditions: dev/prod artifact pairing", () => {
           { cwd: process.cwd(), encoding: "utf8" }
         )
       );
-    // `createRequire` resolves the `require` branch, so the signals half here
-    // pins the CJS engine artifacts; the ESM half is pinned by signals' own
-    // dist test.
-    expect(run([])).toEqual(["solid/dist/attribution.js", "signals/dist/node.attribution.cjs"]);
+    // The signals hop goes through `createRequire` on purpose: with no
+    // `require` branch in the exports map it must reach the same ESM engine
+    // an `import` would, per tier.
+    expect(run([])).toEqual(["solid/dist/attribution.js", "signals/dist/prod/attribution.js"]);
     expect(run(["observe"])).toEqual([
       "solid/dist/attribution.js",
-      "signals/dist/node.observe.attribution.cjs"
+      "signals/dist/observe/attribution.js"
     ]);
     expect(run(["development"])).toEqual([
       "solid/dist/attribution.js",
-      "signals/dist/node.dev.attribution.cjs"
+      "signals/dist/dev.attribution.js"
     ]);
     expect(run(["observe", "development"])).toEqual(run(["development"]));
   });
