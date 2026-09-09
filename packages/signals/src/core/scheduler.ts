@@ -918,10 +918,8 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
 
   // Observe-tier fan-out: this walk visits every subscriber edge anyway, so
   // the graph-size count is one local increment here and no field anywhere.
-  let fanOut = 0;
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const sub = s._sub;
-    if (__OBSERVE__) fanOut++;
     // A value-change notification is a new question for the subscriber: any
     // pending re-ask mark (refresh) it carried is superseded.
     if (clearReask) sub._flags &= ~REACTIVE_REASK;
@@ -951,7 +949,6 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
 
     enqueueSub(sub);
   }
-  if (__OBSERVE__ && fanOut >= GRAPH_SIZE_WARN_AT) noteFanOut(node, fanOut);
 }
 
 function commitPendingNode(n: Signal<any>): void {
