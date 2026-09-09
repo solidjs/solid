@@ -543,8 +543,8 @@ export function noteFanOut(node: Signal<any> | Computed<any>, count: number): vo
 
 /**
  * Observe-tier: a recompute pass of `node` tracked `count` distinct sources
- * (counted by `link()` on each first touch of the pass — see graph.ts).
- * Fires from GRAPH_SIZE_WARN_AT up, at the end of the pass that read them.
+ * (its trimmed dep list, walked once at the end of the pass — see recompute;
+ * no per-link work, no pass bracket). Fires from GRAPH_SIZE_WARN_AT up.
  */
 export function noteFanIn(node: Computed<any>, count: number): void {
   if (!shouldWarnGraphSize(node, count)) return;

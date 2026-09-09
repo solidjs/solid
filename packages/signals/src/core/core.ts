@@ -54,7 +54,7 @@ import {
   type Refreshable
 } from "./constants.js";
 import { NotReadyError } from "./error.js";
-import { beginFanInPass, dormantNodes, endFanInPass, link, trimStaleDeps } from "./graph.js";
+import { dormantNodes, link, trimStaleDeps } from "./graph.js";
 import {
   deleteFromHeap,
   enqueueSub,
@@ -69,6 +69,8 @@ import {
   clearSignals,
   DEV,
   emitDiagnostic,
+  GRAPH_SIZE_WARN_AT,
+  noteFanIn,
   reportDiagnostic,
   throwPendingUntrackedRead,
   warnStrictReadUntracked
@@ -282,9 +284,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   el._depGen++;
   el._flags = REACTIVE_RECOMPUTING_DEPS;
   el._time = clock;
-  // Observe-tier fan-in: the pass's distinct-dep count lives in one module
-  // counter (graph.ts), bracketed here so nested pulls don't disturb it.
-  const outerFanIn = __OBSERVE__ ? beginFanInPass() : 0;
   let value = el._pendingValue === NOT_PENDING ? el._value : el._pendingValue;
   let oldHeight = el._height;
   let missedWake = false;
@@ -405,11 +404,22 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     missedWake = (el._flags & REACTIVE_MISSED_WAKE) !== 0;
     el._flags = REACTIVE_NONE | (create ? el._flags & REACTIVE_SNAPSHOT_STALE : 0);
     context = oldcontext;
-    if (__OBSERVE__) endFanInPass(el, outerFanIn);
   }
 
   if (!el._x?._error) {
     trimStaleDeps(el);
+    // Observe-tier fan-in (HUGE_FAN_IN): with the stale tail trimmed, the dep
+    // list IS this pass's distinct sources — count it here rather than per
+    // link. A begin/end bracket around the pass plus a per-link increment
+    // measured -5.8% on createRenderEffects:create1to1 (CodSpeed, dev tier)
+    // and cost several points of the shape wins elsewhere; this walk is a
+    // fraction of the reads that built the list and keeps no module state,
+    // so nested pulls need no save/restore.
+    if (__OBSERVE__) {
+      let fanIn = 0;
+      for (let d = el._deps; d !== null; d = d._nextDep) fanIn++;
+      if (fanIn >= GRAPH_SIZE_WARN_AT) noteFanIn(el, fanIn);
+    }
     const compareValue = hasOverride
       ? unwrapOverride(el._x?._overrideValue)
       : el._pendingValue === NOT_PENDING

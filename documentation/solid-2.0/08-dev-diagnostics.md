@@ -289,7 +289,7 @@ Related: `WIDE_WRITE` (below) is the same finding from a much lower threshold, b
 
 **Message:** "Computation [name] tracked N sources. It will re-run when any of them change. …"
 
-One recompute pass tracked an unusually large number of distinct sources (same thresholds as `HUGE_FAN_OUT`; counted per pass as the computation reads, repeat reads of the same source excluded). This is the coarse-read signature — e.g. a helper that touches a whole store, or one memo derived from everything. Narrow the read or split the derivation so each computation tracks only what it needs.
+One recompute pass tracked an unusually large number of distinct sources (same thresholds as `HUGE_FAN_OUT`; the sources the pass actually tracked, counted once at the end of the pass — repeat reads of the same source excluded). This is the coarse-read signature — e.g. a helper that touches a whole store, or one memo derived from everything. Narrow the read or split the derivation so each computation tracks only what it needs.
 
 Related: `WIDE_SCOPE_DEPS` (below) fires at a much lower threshold, but only while the attribution engine is enabled — it names the offending sources. `HUGE_FAN_IN` is the always-on backstop for the pathological case.
 

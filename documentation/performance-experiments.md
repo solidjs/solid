@@ -1136,13 +1136,13 @@ Probe:
 
 Median results:
 
-| Benchmark | Baseline total | Variant total | Baseline script | Variant script | Baseline paint | Variant paint |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `01_run1k` | `36.3ms` | `35.7ms` | `5.1ms` | `5.0ms` | `30.7ms` | `30.0ms` |
-| `03_update10th1k_x16` | `19.5ms` | `20.4ms` | `2.2ms` | `2.0ms` | `15.0ms` | `15.1ms` |
-| `04_select1k` | `6.7ms` | `7.0ms` | `1.0ms` | `0.9ms` | `4.0ms` | `4.3ms` |
-| `07_create10k` | `365.2ms` | `362.7ms` | `51.0ms` | `50.2ms` | `302.4ms` | `300.1ms` |
-| `08_create1k-after1k_x2` | `41.8ms` | `42.8ms` | `5.1ms` | `5.0ms` | `35.3ms` | `36.4ms` |
+| Benchmark                | Baseline total | Variant total | Baseline script | Variant script | Baseline paint | Variant paint |
+| ------------------------ | -------------: | ------------: | --------------: | -------------: | -------------: | ------------: |
+| `01_run1k`               |       `36.3ms` |      `35.7ms` |         `5.1ms` |        `5.0ms` |       `30.7ms` |      `30.0ms` |
+| `03_update10th1k_x16`    |       `19.5ms` |      `20.4ms` |         `2.2ms` |        `2.0ms` |       `15.0ms` |      `15.1ms` |
+| `04_select1k`            |        `6.7ms` |       `7.0ms` |         `1.0ms` |        `0.9ms` |        `4.0ms` |       `4.3ms` |
+| `07_create10k`           |      `365.2ms` |     `362.7ms` |        `51.0ms` |       `50.2ms` |      `302.4ms` |     `300.1ms` |
+| `08_create1k-after1k_x2` |       `41.8ms` |      `42.8ms` |         `5.1ms` |        `5.0ms` |       `35.3ms` |      `36.4ms` |
 
 Focused geometric mean of variant / baseline:
 
@@ -1176,17 +1176,17 @@ Setup:
 
 CPU median script:
 
-| Benchmark | Vanilla | Solid 2 | Solid 1 | Svelte 5 | React Hooks |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `01_run1k` | `2.7ms` | `5.2ms` | `4.1ms` | `3.8ms` | `12.0ms` |
-| `02_replace1k` | `6.2ms` | `8.8ms` | `8.5ms` | `7.1ms` | `17.7ms` |
-| `03_update10th1k_x16` | `0.7ms` | `2.1ms` | `1.5ms` | `1.5ms` | `5.2ms` |
-| `04_select1k` | `0.4ms` | `0.8ms` | `0.7ms` | `0.9ms` | `2.3ms` |
-| `05_swap1k` | `0.4ms` | `1.9ms` | `1.3ms` | `1.4ms` | `26.3ms` |
-| `06_remove-one-1k` | `0.4ms` | `0.6ms` | `0.5ms` | `0.5ms` | `1.6ms` |
-| `07_create10k` | `29.4ms` | `49.9ms` | `43.3ms` | `42.5ms` | `229.4ms` |
-| `08_create1k-after1k_x2` | `2.7ms` | `4.9ms` | `3.9ms` | `3.8ms` | `10.2ms` |
-| `09_clear1k_x8` | `11.8ms` | `14.0ms` | `15.5ms` | `13.6ms` | `22.5ms` |
+| Benchmark                |  Vanilla |  Solid 2 |  Solid 1 | Svelte 5 | React Hooks |
+| ------------------------ | -------: | -------: | -------: | -------: | ----------: |
+| `01_run1k`               |  `2.7ms` |  `5.2ms` |  `4.1ms` |  `3.8ms` |    `12.0ms` |
+| `02_replace1k`           |  `6.2ms` |  `8.8ms` |  `8.5ms` |  `7.1ms` |    `17.7ms` |
+| `03_update10th1k_x16`    |  `0.7ms` |  `2.1ms` |  `1.5ms` |  `1.5ms` |     `5.2ms` |
+| `04_select1k`            |  `0.4ms` |  `0.8ms` |  `0.7ms` |  `0.9ms` |     `2.3ms` |
+| `05_swap1k`              |  `0.4ms` |  `1.9ms` |  `1.3ms` |  `1.4ms` |    `26.3ms` |
+| `06_remove-one-1k`       |  `0.4ms` |  `0.6ms` |  `0.5ms` |  `0.5ms` |     `1.6ms` |
+| `07_create10k`           | `29.4ms` | `49.9ms` | `43.3ms` | `42.5ms` |   `229.4ms` |
+| `08_create1k-after1k_x2` |  `2.7ms` |  `4.9ms` |  `3.9ms` |  `3.8ms` |    `10.2ms` |
+| `09_clear1k_x8`          | `11.8ms` | `14.0ms` | `15.5ms` | `13.6ms` |    `22.5ms` |
 
 CPU geometric means of factors vs Vanilla:
 
@@ -1202,13 +1202,13 @@ Relative to Solid 1:
 
 Memory median:
 
-| Benchmark | Vanilla | Solid 2 | Solid 1 | React Hooks |
-| --- | ---: | ---: | ---: | ---: |
-| `21_ready-memory` | `0.885MB` | `1.008MB` | `0.923MB` | `1.499MB` |
-| `22_run-memory` | `2.065MB` | `3.329MB` | `2.988MB` | `4.779MB` |
-| `23_update5-memory` | `2.208MB` | `3.437MB` | `3.111MB` | `5.255MB` |
-| `25_run-clear-memory` | `1.009MB` | `1.480MB` | `1.012MB` | `2.411MB` |
-| `26_run-10k-memory` | `12.428MB` | `21.547MB` | `20.431MB` | `30.970MB` |
+| Benchmark             |    Vanilla |    Solid 2 |    Solid 1 | React Hooks |
+| --------------------- | ---------: | ---------: | ---------: | ----------: |
+| `21_ready-memory`     |  `0.885MB` |  `1.008MB` |  `0.923MB` |   `1.499MB` |
+| `22_run-memory`       |  `2.065MB` |  `3.329MB` |  `2.988MB` |   `4.779MB` |
+| `23_update5-memory`   |  `2.208MB` |  `3.437MB` |  `3.111MB` |   `5.255MB` |
+| `25_run-clear-memory` |  `1.009MB` |  `1.480MB` |  `1.012MB` |   `2.411MB` |
+| `26_run-10k-memory`   | `12.428MB` | `21.547MB` | `20.431MB` |  `30.970MB` |
 
 Memory geometric means of factors vs Vanilla:
 
@@ -1515,14 +1515,14 @@ Probe:
 
 Median results:
 
-| Benchmark | Baseline total | Variant total | Baseline script | Variant script | Baseline paint | Variant paint |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `01_run1k` | `37.1ms` | `37.2ms` | `5.0ms` | `4.9ms` | `31.0ms` | `31.1ms` |
-| `03_update10th1k_x16` | `21.2ms` | `25.5ms` | `2.3ms` | `2.5ms` | `15.3ms` | `19.5ms` |
-| `05_swap1k` | `22.8ms` | `24.7ms` | `1.9ms` | `1.7ms` | `18.2ms` | `19.9ms` |
-| `07_create10k` | `371.9ms` | `368.1ms` | `50.4ms` | `49.4ms` | `305.5ms` | `305.4ms` |
-| `08_create1k-after1k_x2` | `43.8ms` | `43.1ms` | `5.1ms` | `4.9ms` | `36.9ms` | `36.5ms` |
-| `09_clear1k_x8` | `16.8ms` | `16.5ms` | `14.4ms` | `14.2ms` | `1.7ms` | `1.4ms` |
+| Benchmark                | Baseline total | Variant total | Baseline script | Variant script | Baseline paint | Variant paint |
+| ------------------------ | -------------: | ------------: | --------------: | -------------: | -------------: | ------------: |
+| `01_run1k`               |       `37.1ms` |      `37.2ms` |         `5.0ms` |        `4.9ms` |       `31.0ms` |      `31.1ms` |
+| `03_update10th1k_x16`    |       `21.2ms` |      `25.5ms` |         `2.3ms` |        `2.5ms` |       `15.3ms` |      `19.5ms` |
+| `05_swap1k`              |       `22.8ms` |      `24.7ms` |         `1.9ms` |        `1.7ms` |       `18.2ms` |      `19.9ms` |
+| `07_create10k`           |      `371.9ms` |     `368.1ms` |        `50.4ms` |       `49.4ms` |      `305.5ms` |     `305.4ms` |
+| `08_create1k-after1k_x2` |       `43.8ms` |      `43.1ms` |         `5.1ms` |        `4.9ms` |       `36.9ms` |      `36.5ms` |
+| `09_clear1k_x8`          |       `16.8ms` |      `16.5ms` |        `14.4ms` |       `14.2ms` |        `1.7ms` |       `1.4ms` |
 
 Focused geometric mean of variant / baseline:
 
@@ -1558,14 +1558,14 @@ Diagnostic probe:
 
 Median results:
 
-| Benchmark | Baseline total | Variant total | Baseline script | Variant script | Baseline paint | Variant paint |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `01_run1k` | `37.1ms` | `37.3ms` | `5.0ms` | `4.9ms` | `31.0ms` | `31.5ms` |
-| `03_update10th1k_x16` | `21.2ms` | `20.8ms` | `2.3ms` | `2.2ms` | `15.3ms` | `15.0ms` |
-| `05_swap1k` | `22.8ms` | `25.5ms` | `1.9ms` | `1.7ms` | `18.2ms` | `19.6ms` |
-| `07_create10k` | `371.9ms` | `361.9ms` | `50.4ms` | `49.0ms` | `305.5ms` | `301.2ms` |
-| `08_create1k-after1k_x2` | `43.8ms` | `42.0ms` | `5.1ms` | `4.9ms` | `36.9ms` | `35.7ms` |
-| `09_clear1k_x8` | `16.8ms` | `16.2ms` | `14.4ms` | `13.8ms` | `1.7ms` | `2.0ms` |
+| Benchmark                | Baseline total | Variant total | Baseline script | Variant script | Baseline paint | Variant paint |
+| ------------------------ | -------------: | ------------: | --------------: | -------------: | -------------: | ------------: |
+| `01_run1k`               |       `37.1ms` |      `37.3ms` |         `5.0ms` |        `4.9ms` |       `31.0ms` |      `31.5ms` |
+| `03_update10th1k_x16`    |       `21.2ms` |      `20.8ms` |         `2.3ms` |        `2.2ms` |       `15.3ms` |      `15.0ms` |
+| `05_swap1k`              |       `22.8ms` |      `25.5ms` |         `1.9ms` |        `1.7ms` |       `18.2ms` |      `19.6ms` |
+| `07_create10k`           |      `371.9ms` |     `361.9ms` |        `50.4ms` |       `49.0ms` |      `305.5ms` |     `301.2ms` |
+| `08_create1k-after1k_x2` |       `43.8ms` |      `42.0ms` |         `5.1ms` |        `4.9ms` |       `36.9ms` |      `35.7ms` |
+| `09_clear1k_x8`          |       `16.8ms` |      `16.2ms` |        `14.4ms` |       `13.8ms` |        `1.7ms` |       `2.0ms` |
 
 Focused geometric mean of variant / baseline:
 
@@ -1606,14 +1606,14 @@ Probe:
 
 Initial focused median results:
 
-| Benchmark | Baseline total | Variant total | Baseline script | Variant script | Baseline paint | Variant paint |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `01_run1k` | `37.1ms` | `36.7ms` | `5.0ms` | `5.0ms` | `31.0ms` | `31.1ms` |
-| `03_update10th1k_x16` | `21.2ms` | `23.1ms` | `2.3ms` | `2.5ms` | `15.3ms` | `17.6ms` |
-| `05_swap1k` | `22.8ms` | `24.0ms` | `1.9ms` | `2.1ms` | `18.2ms` | `19.4ms` |
-| `07_create10k` | `371.9ms` | `363.5ms` | `50.4ms` | `49.9ms` | `305.5ms` | `302.2ms` |
-| `08_create1k-after1k_x2` | `43.8ms` | `41.7ms` | `5.1ms` | `4.8ms` | `36.9ms` | `35.5ms` |
-| `09_clear1k_x8` | `16.8ms` | `16.3ms` | `14.4ms` | `13.7ms` | `1.7ms` | `1.8ms` |
+| Benchmark                | Baseline total | Variant total | Baseline script | Variant script | Baseline paint | Variant paint |
+| ------------------------ | -------------: | ------------: | --------------: | -------------: | -------------: | ------------: |
+| `01_run1k`               |       `37.1ms` |      `36.7ms` |         `5.0ms` |        `5.0ms` |       `31.0ms` |      `31.1ms` |
+| `03_update10th1k_x16`    |       `21.2ms` |      `23.1ms` |         `2.3ms` |        `2.5ms` |       `15.3ms` |      `17.6ms` |
+| `05_swap1k`              |       `22.8ms` |      `24.0ms` |         `1.9ms` |        `2.1ms` |       `18.2ms` |      `19.4ms` |
+| `07_create10k`           |      `371.9ms` |     `363.5ms` |        `50.4ms` |       `49.9ms` |      `305.5ms` |     `302.2ms` |
+| `08_create1k-after1k_x2` |       `43.8ms` |      `41.7ms` |         `5.1ms` |        `4.8ms` |       `36.9ms` |      `35.5ms` |
+| `09_clear1k_x8`          |       `16.8ms` |      `16.3ms` |        `14.4ms` |       `13.7ms` |        `1.7ms` |       `1.8ms` |
 
 Initial focused geometric mean of variant / baseline:
 
@@ -1622,10 +1622,10 @@ Initial focused geometric mean of variant / baseline:
 
 High-count `03`/`05` rerun:
 
-| Benchmark | Baseline total | Variant total | Baseline script | Variant script | Baseline paint | Variant paint |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `03_update10th1k_x16` | `21.7ms` | `21.1ms` | `2.1ms` | `2.3ms` | `16.1ms` | `15.7ms` |
-| `05_swap1k` | `24.1ms` | `23.9ms` | `1.8ms` | `1.9ms` | `19.4ms` | `19.6ms` |
+| Benchmark             | Baseline total | Variant total | Baseline script | Variant script | Baseline paint | Variant paint |
+| --------------------- | -------------: | ------------: | --------------: | -------------: | -------------: | ------------: |
+| `03_update10th1k_x16` |       `21.7ms` |      `21.1ms` |         `2.1ms` |        `2.3ms` |       `16.1ms` |      `15.7ms` |
+| `05_swap1k`           |       `24.1ms` |      `23.9ms` |         `1.8ms` |        `1.9ms` |       `19.4ms` |      `19.6ms` |
 
 Finding:
 
@@ -1655,14 +1655,14 @@ Diagnostic probe:
 
 Focused median results:
 
-| Benchmark | Baseline total | Variant total | Baseline script | Variant script | Baseline paint | Variant paint |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `01_run1k` | `37.1ms` | `36.5ms` | `5.0ms` | `4.9ms` | `31.0ms` | `30.8ms` |
-| `03_update10th1k_x16` | `21.2ms` | `20.9ms` | `2.3ms` | `2.0ms` | `15.3ms` | `14.9ms` |
-| `05_swap1k` | `22.8ms` | `22.3ms` | `1.9ms` | `1.4ms` | `18.2ms` | `18.0ms` |
-| `07_create10k` | `371.9ms` | `360.7ms` | `50.4ms` | `49.7ms` | `305.5ms` | `299.8ms` |
-| `08_create1k-after1k_x2` | `43.8ms` | `42.3ms` | `5.1ms` | `4.8ms` | `36.9ms` | `35.7ms` |
-| `09_clear1k_x8` | `16.8ms` | `16.1ms` | `14.4ms` | `13.7ms` | `1.7ms` | `1.8ms` |
+| Benchmark                | Baseline total | Variant total | Baseline script | Variant script | Baseline paint | Variant paint |
+| ------------------------ | -------------: | ------------: | --------------: | -------------: | -------------: | ------------: |
+| `01_run1k`               |       `37.1ms` |      `36.5ms` |         `5.0ms` |        `4.9ms` |       `31.0ms` |      `30.8ms` |
+| `03_update10th1k_x16`    |       `21.2ms` |      `20.9ms` |         `2.3ms` |        `2.0ms` |       `15.3ms` |      `14.9ms` |
+| `05_swap1k`              |       `22.8ms` |      `22.3ms` |         `1.9ms` |        `1.4ms` |       `18.2ms` |      `18.0ms` |
+| `07_create10k`           |      `371.9ms` |     `360.7ms` |        `50.4ms` |       `49.7ms` |      `305.5ms` |     `299.8ms` |
+| `08_create1k-after1k_x2` |       `43.8ms` |      `42.3ms` |         `5.1ms` |        `4.8ms` |       `36.9ms` |      `35.7ms` |
+| `09_clear1k_x8`          |       `16.8ms` |      `16.1ms` |        `14.4ms` |       `13.7ms` |        `1.7ms` |       `1.8ms` |
 
 Focused geometric mean of variant / baseline:
 
@@ -1672,10 +1672,10 @@ Focused geometric mean of variant / baseline:
 
 High-count `03`/`05` rerun:
 
-| Benchmark | Baseline total | Variant total | Baseline script | Variant script | Baseline paint | Variant paint |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `03_update10th1k_x16` | `21.7ms` | `22.4ms` | `2.1ms` | `2.3ms` | `16.1ms` | `16.2ms` |
-| `05_swap1k` | `24.1ms` | `24.7ms` | `1.8ms` | `1.8ms` | `19.4ms` | `20.3ms` |
+| Benchmark             | Baseline total | Variant total | Baseline script | Variant script | Baseline paint | Variant paint |
+| --------------------- | -------------: | ------------: | --------------: | -------------: | -------------: | ------------: |
+| `03_update10th1k_x16` |       `21.7ms` |      `22.4ms` |         `2.1ms` |        `2.3ms` |       `16.1ms` |      `16.2ms` |
+| `05_swap1k`           |       `24.1ms` |      `24.7ms` |         `1.8ms` |        `1.8ms` |       `19.4ms` |      `20.3ms` |
 
 Finding:
 
@@ -1705,14 +1705,14 @@ Follow-up lazy/invalid status-notifier probes:
 
 Inline lazy notifier focused median results:
 
-| Benchmark | Total | Script | Paint |
-| --- | ---: | ---: | ---: |
-| `01_run1k` | `36.9ms` | `4.9ms` | `31.3ms` |
-| `03_update10th1k_x16` | `23.2ms` | `2.5ms` | `17.6ms` |
-| `05_swap1k` | `28.6ms` | `2.1ms` | `21.7ms` |
-| `07_create10k` | `371.1ms` | `50.2ms` | `307.7ms` |
-| `08_create1k-after1k_x2` | `42.9ms` | `4.8ms` | `37.0ms` |
-| `09_clear1k_x8` | `17.1ms` | `14.5ms` | `1.8ms` |
+| Benchmark                |     Total |   Script |     Paint |
+| ------------------------ | --------: | -------: | --------: |
+| `01_run1k`               |  `36.9ms` |  `4.9ms` |  `31.3ms` |
+| `03_update10th1k_x16`    |  `23.2ms` |  `2.5ms` |  `17.6ms` |
+| `05_swap1k`              |  `28.6ms` |  `2.1ms` |  `21.7ms` |
+| `07_create10k`           | `371.1ms` | `50.2ms` | `307.7ms` |
+| `08_create1k-after1k_x2` |  `42.9ms` |  `4.8ms` |  `37.0ms` |
+| `09_clear1k_x8`          |  `17.1ms` | `14.5ms` |   `1.8ms` |
 
 - Then, without restoring the full baseline first, tried the invalid removal shape on top of the current
   changed-code context:
@@ -1722,14 +1722,14 @@ Inline lazy notifier focused median results:
 
 Invalid removal on current changed-code context:
 
-| Benchmark | Total | Script | Paint |
-| --- | ---: | ---: | ---: |
-| `01_run1k` | `37.4ms` | `4.9ms` | `31.6ms` |
-| `03_update10th1k_x16` | `23.9ms` | `2.2ms` | `17.4ms` |
-| `05_swap1k` | `24.6ms` | `1.6ms` | `20.1ms` |
-| `07_create10k` | `367.5ms` | `52.0ms` | `303.4ms` |
-| `08_create1k-after1k_x2` | `42.9ms` | `4.8ms` | `36.7ms` |
-| `09_clear1k_x8` | `16.6ms` | `14.2ms` | `1.6ms` |
+| Benchmark                |     Total |   Script |     Paint |
+| ------------------------ | --------: | -------: | --------: |
+| `01_run1k`               |  `37.4ms` |  `4.9ms` |  `31.6ms` |
+| `03_update10th1k_x16`    |  `23.9ms` |  `2.2ms` |  `17.4ms` |
+| `05_swap1k`              |  `24.6ms` |  `1.6ms` |  `20.1ms` |
+| `07_create10k`           | `367.5ms` | `52.0ms` | `303.4ms` |
+| `08_create1k-after1k_x2` |  `42.9ms` |  `4.8ms` |  `36.7ms` |
+| `09_clear1k_x8`          |  `16.6ms` | `14.2ms` |   `1.6ms` |
 
 Finding:
 
@@ -1765,14 +1765,14 @@ Rationale:
 
 Same-session median results:
 
-| Benchmark | Baseline total | Lazy runner total | Baseline script | Lazy runner script | Baseline paint | Lazy runner paint |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `01_run1k` | `36.8ms` | `37.4ms` | `4.9ms` | `4.9ms` | `31.3ms` | `31.7ms` |
-| `03_update10th1k_x16` | `21.2ms` | `23.5ms` | `2.3ms` | `2.3ms` | `15.5ms` | `16.9ms` |
-| `05_swap1k` | `26.3ms` | `27.1ms` | `1.8ms` | `1.8ms` | `20.3ms` | `20.9ms` |
-| `07_create10k` | `363.4ms` | `368.0ms` | `50.5ms` | `51.6ms` | `299.3ms` | `303.4ms` |
-| `08_create1k-after1k_x2` | `42.9ms` | `43.8ms` | `4.8ms` | `5.0ms` | `36.4ms` | `36.7ms` |
-| `09_clear1k_x8` | `17.1ms` | `16.0ms` | `14.4ms` | `13.6ms` | `2.1ms` | `1.8ms` |
+| Benchmark                | Baseline total | Lazy runner total | Baseline script | Lazy runner script | Baseline paint | Lazy runner paint |
+| ------------------------ | -------------: | ----------------: | --------------: | -----------------: | -------------: | ----------------: |
+| `01_run1k`               |       `36.8ms` |          `37.4ms` |         `4.9ms` |            `4.9ms` |       `31.3ms` |          `31.7ms` |
+| `03_update10th1k_x16`    |       `21.2ms` |          `23.5ms` |         `2.3ms` |            `2.3ms` |       `15.5ms` |          `16.9ms` |
+| `05_swap1k`              |       `26.3ms` |          `27.1ms` |         `1.8ms` |            `1.8ms` |       `20.3ms` |          `20.9ms` |
+| `07_create10k`           |      `363.4ms` |         `368.0ms` |        `50.5ms` |           `51.6ms` |      `299.3ms` |         `303.4ms` |
+| `08_create1k-after1k_x2` |       `42.9ms` |          `43.8ms` |         `4.8ms` |            `5.0ms` |       `36.4ms` |          `36.7ms` |
+| `09_clear1k_x8`          |       `17.1ms` |          `16.0ms` |        `14.4ms` |           `13.6ms` |        `2.1ms` |           `1.8ms` |
 
 Focused geometric mean of lazy runner / baseline:
 
@@ -1820,25 +1820,25 @@ Probe:
 
 Focused check:
 
-| Benchmark | Total | Script | Paint |
-| --- | ---: | ---: | ---: |
-| `03_update10th1k_x16` | `24.7ms` | `2.1ms` | `18.8ms` |
-| `07_create10k` | `369.3ms` | `52.1ms` | `304.7ms` |
-| `08_create1k-after1k_x2` | `43.7ms` | `5.1ms` | `36.8ms` |
+| Benchmark                |     Total |   Script |     Paint |
+| ------------------------ | --------: | -------: | --------: |
+| `03_update10th1k_x16`    |  `24.7ms` |  `2.1ms` |  `18.8ms` |
+| `07_create10k`           | `369.3ms` | `52.1ms` | `304.7ms` |
+| `08_create1k-after1k_x2` |  `43.7ms` |  `5.1ms` |  `36.8ms` |
 
 Full CPU rerun with reusable previous object:
 
-| Benchmark | Total | Script | Paint |
-| --- | ---: | ---: | ---: |
-| `01_run1k` | `38.0ms` | `5.2ms` | `31.4ms` |
-| `02_replace1k` | `40.9ms` | `8.8ms` | `31.6ms` |
-| `03_update10th1k_x16` | `24.0ms` | `2.3ms` | `17.2ms` |
-| `04_select1k` | `7.0ms` | `0.8ms` | `4.4ms` |
-| `05_swap1k` | `28.3ms` | `1.8ms` | `22.9ms` |
-| `06_remove-one-1k` | `20.0ms` | `0.6ms` | `17.7ms` |
-| `07_create10k` | `372.8ms` | `52.1ms` | `307.9ms` |
-| `08_create1k-after1k_x2` | `44.5ms` | `5.0ms` | `37.9ms` |
-| `09_clear1k_x8` | `17.6ms` | `14.6ms` | `1.9ms` |
+| Benchmark                |     Total |   Script |     Paint |
+| ------------------------ | --------: | -------: | --------: |
+| `01_run1k`               |  `38.0ms` |  `5.2ms` |  `31.4ms` |
+| `02_replace1k`           |  `40.9ms` |  `8.8ms` |  `31.6ms` |
+| `03_update10th1k_x16`    |  `24.0ms` |  `2.3ms` |  `17.2ms` |
+| `04_select1k`            |   `7.0ms` |  `0.8ms` |   `4.4ms` |
+| `05_swap1k`              |  `28.3ms` |  `1.8ms` |  `22.9ms` |
+| `06_remove-one-1k`       |  `20.0ms` |  `0.6ms` |  `17.7ms` |
+| `07_create10k`           | `372.8ms` | `52.1ms` | `307.9ms` |
+| `08_create1k-after1k_x2` |  `44.5ms` |  `5.0ms` |  `37.9ms` |
+| `09_clear1k_x8`          |  `17.6ms` | `14.6ms` |   `1.9ms` |
 
 Finding:
 
@@ -1860,13 +1860,13 @@ Same-session original vs reusable-object A/B:
   - Original: `37,351` bytes raw, `14,279` bytes gzip.
   - Reusable object: `37,373` bytes raw, `14,294` bytes gzip.
 
-| Benchmark | Original total | Reusable total | Original script | Reusable script | Original paint | Reusable paint |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `01_run1k` | `37.1ms` | `37.8ms` | `4.9ms` | `5.1ms` | `31.4ms` | `31.9ms` |
-| `02_replace1k` | `41.0ms` | `41.1ms` | `8.9ms` | `8.8ms` | `31.4ms` | `31.7ms` |
-| `03_update10th1k_x16` | `20.2ms` | `24.5ms` | `2.4ms` | `2.3ms` | `15.3ms` | `17.0ms` |
-| `07_create10k` | `367.8ms` | `370.5ms` | `50.7ms` | `52.5ms` | `304.9ms` | `305.8ms` |
-| `08_create1k-after1k_x2` | `44.1ms` | `43.8ms` | `5.0ms` | `5.0ms` | `37.6ms` | `37.3ms` |
+| Benchmark                | Original total | Reusable total | Original script | Reusable script | Original paint | Reusable paint |
+| ------------------------ | -------------: | -------------: | --------------: | --------------: | -------------: | -------------: |
+| `01_run1k`               |       `37.1ms` |       `37.8ms` |         `4.9ms` |         `5.1ms` |       `31.4ms` |       `31.9ms` |
+| `02_replace1k`           |       `41.0ms` |       `41.1ms` |         `8.9ms` |         `8.8ms` |       `31.4ms` |       `31.7ms` |
+| `03_update10th1k_x16`    |       `20.2ms` |       `24.5ms` |         `2.4ms` |         `2.3ms` |       `15.3ms` |       `17.0ms` |
+| `07_create10k`           |      `367.8ms` |      `370.5ms` |        `50.7ms` |        `52.5ms` |      `304.9ms` |      `305.8ms` |
+| `08_create1k-after1k_x2` |       `44.1ms` |       `43.8ms` |         `5.0ms` |         `5.0ms` |       `37.6ms` |       `37.3ms` |
 
 Finding:
 
@@ -1889,13 +1889,13 @@ Compact safe init-branch comparison:
 - Bundle size:
   - Compact safe: `37,324` bytes raw, `14,272` bytes gzip.
 
-| Benchmark | Compact total | Compact script | Compact paint |
-| --- | ---: | ---: | ---: |
-| `01_run1k` | `37.8ms` | `5.0ms` | `32.0ms` |
-| `02_replace1k` | `39.5ms` | `8.4ms` | `30.7ms` |
-| `03_update10th1k_x16` | `23.7ms` | `2.3ms` | `17.1ms` |
-| `07_create10k` | `369.3ms` | `50.9ms` | `306.6ms` |
-| `08_create1k-after1k_x2` | `44.6ms` | `4.9ms` | `37.6ms` |
+| Benchmark                | Compact total | Compact script | Compact paint |
+| ------------------------ | ------------: | -------------: | ------------: |
+| `01_run1k`               |      `37.8ms` |        `5.0ms` |      `32.0ms` |
+| `02_replace1k`           |      `39.5ms` |        `8.4ms` |      `30.7ms` |
+| `03_update10th1k_x16`    |      `23.7ms` |        `2.3ms` |      `17.1ms` |
+| `07_create10k`           |     `369.3ms` |       `50.9ms` |     `306.6ms` |
+| `08_create1k-after1k_x2` |      `44.6ms` |        `4.9ms` |      `37.6ms` |
 
 Finding:
 
@@ -1989,40 +1989,40 @@ Artifacts:
 
 Solid 2 phase totals:
 
-| Phase | Time | Calls |
-| --- | ---: | ---: |
-| `flush.total` | `6.1787ms` | `16` |
-| `setSignal.total` | `3.6408ms` | `1600` |
-| `flush.initialHeap` | `3.0263ms` | `16` |
-| `flush.renderEffects` | `3.0057ms` | `16` |
-| `queue.run.render` | `2.9943ms` | `16` |
-| `runQueue.render` | `2.9777ms` | `16` |
-| `effect.recompute` | `2.7277ms` | `1600` |
-| `renderEffect.run` | `2.6785ms` | `1600` |
-| `renderEffect.fn` | `2.1482ms` | `1600` |
-| `setSignal.insertSubs` | `1.3435ms` | `1600` |
-| `insertSubs.total` | `1.0642ms` | `3200` |
-| `effect.computeFn` | `0.8835ms` | `1600` |
-| `queue.enqueue.render` | `0.2743ms` | `1600` |
-| `setSignal.setterFn` | `0.2627ms` | `1600` |
+| Phase                    |       Time |  Calls |
+| ------------------------ | ---------: | -----: |
+| `flush.total`            | `6.1787ms` |   `16` |
+| `setSignal.total`        | `3.6408ms` | `1600` |
+| `flush.initialHeap`      | `3.0263ms` |   `16` |
+| `flush.renderEffects`    | `3.0057ms` |   `16` |
+| `queue.run.render`       | `2.9943ms` |   `16` |
+| `runQueue.render`        | `2.9777ms` |   `16` |
+| `effect.recompute`       | `2.7277ms` | `1600` |
+| `renderEffect.run`       | `2.6785ms` | `1600` |
+| `renderEffect.fn`        | `2.1482ms` | `1600` |
+| `setSignal.insertSubs`   | `1.3435ms` | `1600` |
+| `insertSubs.total`       | `1.0642ms` | `3200` |
+| `effect.computeFn`       | `0.8835ms` | `1600` |
+| `queue.enqueue.render`   | `0.2743ms` | `1600` |
+| `setSignal.setterFn`     | `0.2627ms` | `1600` |
 | `setSignal.queuePending` | `0.2620ms` | `1600` |
-| `setSignal.equals` | `0.2498ms` | `1600` |
-| `flush.commitPending` | `0.0820ms` | `16` |
+| `setSignal.equals`       | `0.2498ms` | `1600` |
+| `flush.commitPending`    | `0.0820ms` |   `16` |
 
 Solid 1 phase totals:
 
-| Phase | Time | Calls |
-| --- | ---: | ---: |
-| `runUpdates.total` | `11.5070ms` | `32` |
-| `batch.total` | `6.9507ms` | `16` |
-| `completeUpdates.total` | `4.6080ms` | `32` |
-| `runQueue.total` | `4.5440ms` | `48` |
-| `updateComputation.total` | `4.0023ms` | `1600` |
-| `renderEffect.run` | `3.2250ms` | `1600` |
-| `renderEffect.fn` | `2.6587ms` | `1600` |
-| `writeSignal.total` | `1.7168ms` | `1600` |
-| `writeSignal.notify` | `0.4335ms` | `1600` |
-| `writeSignal.equals` | `0.2565ms` | `1600` |
+| Phase                     |        Time |  Calls |
+| ------------------------- | ----------: | -----: |
+| `runUpdates.total`        | `11.5070ms` |   `32` |
+| `batch.total`             |  `6.9507ms` |   `16` |
+| `completeUpdates.total`   |  `4.6080ms` |   `32` |
+| `runQueue.total`          |  `4.5440ms` |   `48` |
+| `updateComputation.total` |  `4.0023ms` | `1600` |
+| `renderEffect.run`        |  `3.2250ms` | `1600` |
+| `renderEffect.fn`         |  `2.6587ms` | `1600` |
+| `writeSignal.total`       |  `1.7168ms` | `1600` |
+| `writeSignal.notify`      |  `0.4335ms` | `1600` |
+| `writeSignal.equals`      |  `0.2565ms` | `1600` |
 
 Interpretation:
 
@@ -2055,11 +2055,11 @@ Follow-up `insertSubs` breakdown:
 - Artifact: `documentation/solid-next-03-insert-subs-profile.json`
 - Same `03` x16 browser-click harness, 30 rounds.
 
-| Phase | Time | Calls |
-| --- | ---: | ---: |
-| `insertSubs.total` | `3.0433ms` | `3200` |
-| `insertSubs.iteration` | `1.2042ms` | `1600` |
-| `insertSubs.setup` | `0.4910ms` | `3200` |
+| Phase                   |       Time |  Calls |
+| ----------------------- | ---------: | -----: |
+| `insertSubs.total`      | `3.0433ms` | `3200` |
+| `insertSubs.iteration`  | `1.2042ms` | `1600` |
+| `insertSubs.setup`      | `0.4910ms` | `3200` |
 | `insertSubs.heapInsert` | `0.3385ms` | `1600` |
 
 Interpretation:
@@ -2092,11 +2092,11 @@ Probe:
 
 Focused results:
 
-| Benchmark | Total | Script | Paint |
-| --- | ---: | ---: | ---: |
-| `01_run1k` | `36.9ms` | `4.9ms` | `31.2ms` |
-| `03_update10th1k_x16` | `23.6ms` | `2.3ms` | `17.5ms` |
-| `07_create10k` | `365.7ms` | `50.0ms` | `304.0ms` |
+| Benchmark             |     Total |   Script |     Paint |
+| --------------------- | --------: | -------: | --------: |
+| `01_run1k`            |  `36.9ms` |  `4.9ms` |  `31.2ms` |
+| `03_update10th1k_x16` |  `23.6ms` |  `2.3ms` |  `17.5ms` |
+| `07_create10k`        | `365.7ms` | `50.0ms` | `304.0ms` |
 
 Finding:
 
@@ -2124,8 +2124,8 @@ Probe:
 
 Focused result:
 
-| Benchmark | Total | Script | Paint |
-| --- | ---: | ---: | ---: |
+| Benchmark             |    Total |  Script |    Paint |
+| --------------------- | -------: | ------: | -------: |
 | `03_update10th1k_x16` | `23.0ms` | `2.5ms` | `16.0ms` |
 
 Finding:
@@ -2154,13 +2154,13 @@ Rungs:
 
 Results:
 
-| Rung | Median | Mean | P95 |
-| --- | ---: | ---: | ---: |
-| `write-only` | `0.055ms` | `0.108ms` | `0.255ms` |
-| `empty-effect` | `0.845ms` | `0.776ms` | `0.940ms` |
+| Rung                  |    Median |      Mean |       P95 |
+| --------------------- | --------: | --------: | --------: |
+| `write-only`          | `0.055ms` | `0.108ms` | `0.255ms` |
+| `empty-effect`        | `0.845ms` | `0.776ms` | `0.940ms` |
 | `object-empty-effect` | `0.970ms` | `0.969ms` | `1.005ms` |
-| `equality-only` | `1.120ms` | `1.119ms` | `1.155ms` |
-| `dom` | `1.490ms` | `1.496ms` | `1.540ms` |
+| `equality-only`       | `1.120ms` | `1.119ms` | `1.155ms` |
+| `dom`                 | `1.490ms` | `1.496ms` | `1.540ms` |
 
 Interpretation:
 
@@ -2192,24 +2192,24 @@ Important caveat:
 
 Per-operation phase totals from the instrumented run:
 
-| Phase | Time/op | Calls/op |
-| --- | ---: | ---: |
-| `setSignal.total` | `9.955ms` | `1600` |
-| `flush.total` | `9.324ms` | `16` |
-| `flush.initialHeap` | `5.757ms` | `16` |
-| `effect.recompute` | `4.648ms` | `1600` |
-| `setSignal.insertSubs` | `3.761ms` | `1600` |
-| `flush.renderEffects` | `3.345ms` | `16` |
-| `queue.run.render` | `3.326ms` | `16` |
-| `runQueue.render` | `3.299ms` | `16` |
-| `insertSubs.total` | `2.811ms` | `3200` |
-| `renderEffect.run` | `2.367ms` | `1600` |
-| `effect.compute` | `1.017ms` | `1600` |
-| `setSignal.queuePending` | `0.905ms` | `1600` |
-| `setSignal.equals` | `0.821ms` | `1600` |
-| `insertSubs.heapInsert` | `0.672ms` | `1600` |
-| `renderEffect.fn` | `0.655ms` | `1600` |
-| `setSignal.setter` | `0.626ms` | `1600` |
+| Phase                    |   Time/op | Calls/op |
+| ------------------------ | --------: | -------: |
+| `setSignal.total`        | `9.955ms` |   `1600` |
+| `flush.total`            | `9.324ms` |     `16` |
+| `flush.initialHeap`      | `5.757ms` |     `16` |
+| `effect.recompute`       | `4.648ms` |   `1600` |
+| `setSignal.insertSubs`   | `3.761ms` |   `1600` |
+| `flush.renderEffects`    | `3.345ms` |     `16` |
+| `queue.run.render`       | `3.326ms` |     `16` |
+| `runQueue.render`        | `3.299ms` |     `16` |
+| `insertSubs.total`       | `2.811ms` |   `3200` |
+| `renderEffect.run`       | `2.367ms` |   `1600` |
+| `effect.compute`         | `1.017ms` |   `1600` |
+| `setSignal.queuePending` | `0.905ms` |   `1600` |
+| `setSignal.equals`       | `0.821ms` |   `1600` |
+| `insertSubs.heapInsert`  | `0.672ms` |   `1600` |
+| `renderEffect.fn`        | `0.655ms` |   `1600` |
+| `setSignal.setter`       | `0.626ms` |   `1600` |
 
 Interpretation:
 
@@ -2244,19 +2244,19 @@ Rungs:
 
 Results:
 
-| Rung | Solid 2 median | Solid 1 median | Delta |
-| --- | ---: | ---: | ---: |
-| `write-only` | `0.170ms` | `0.045ms` | `+0.125ms` |
-| `empty-effect` | `0.750ms` | `0.505ms` | `+0.245ms` |
-| `object-empty-effect` | `0.940ms` | `0.560ms` | `+0.380ms` |
-| `equality-only` | `1.085ms` | `0.580ms` | `+0.505ms` |
+| Rung                  | Solid 2 median | Solid 1 median |      Delta |
+| --------------------- | -------------: | -------------: | ---------: |
+| `write-only`          |      `0.170ms` |      `0.045ms` | `+0.125ms` |
+| `empty-effect`        |      `0.750ms` |      `0.505ms` | `+0.245ms` |
+| `object-empty-effect` |      `0.940ms` |      `0.560ms` | `+0.380ms` |
+| `equality-only`       |      `1.085ms` |      `0.580ms` | `+0.505ms` |
 
 Within-version increments:
 
-| Step | Solid 2 | Solid 1 |
-| --- | ---: | ---: |
-| `write-only` -> `empty-effect` | `+0.580ms` | `+0.460ms` |
-| `empty-effect` -> `object-empty-effect` | `+0.190ms` | `+0.055ms` |
+| Step                                     |    Solid 2 |    Solid 1 |
+| ---------------------------------------- | ---------: | ---------: |
+| `write-only` -> `empty-effect`           | `+0.580ms` | `+0.460ms` |
+| `empty-effect` -> `object-empty-effect`  | `+0.190ms` | `+0.055ms` |
 | `object-empty-effect` -> `equality-only` | `+0.145ms` | `+0.020ms` |
 
 Interpretation:
@@ -2291,20 +2291,20 @@ Goal:
 
 Median results:
 
-| Rung | Solid 2 | Solid 1 | R3 |
-| --- | ---: | ---: | ---: |
-| `write-only` | `0.170ms` | `0.050ms` | `0.080ms` |
-| `empty-effect` / eager computed | `0.825ms` | `0.445ms` | `0.300ms` |
+| Rung                                    |   Solid 2 |   Solid 1 |        R3 |
+| --------------------------------------- | --------: | --------: | --------: |
+| `write-only`                            | `0.170ms` | `0.050ms` | `0.080ms` |
+| `empty-effect` / eager computed         | `0.825ms` | `0.445ms` | `0.300ms` |
 | `object-empty-effect` / object computed | `1.020ms` | `0.515ms` | `0.405ms` |
-| `equality-only` | `1.075ms` | `0.485ms` | `0.360ms` |
+| `equality-only`                         | `1.075ms` | `0.485ms` | `0.360ms` |
 
 Within-version increments:
 
-| Step | Solid 2 | Solid 1 | R3 |
-| --- | ---: | ---: | ---: |
+| Step                    |    Solid 2 |    Solid 1 |         R3 |
+| ----------------------- | ---------: | ---------: | ---------: |
 | `write-only` -> `empty` | `+0.655ms` | `+0.395ms` | `+0.220ms` |
-| `empty` -> `object` | `+0.195ms` | `+0.070ms` | `+0.105ms` |
-| `object` -> `equality` | `+0.055ms` | `-0.030ms` | `-0.045ms` |
+| `empty` -> `object`     | `+0.195ms` | `+0.070ms` | `+0.105ms` |
+| `object` -> `equality`  | `+0.055ms` | `-0.030ms` | `-0.045ms` |
 
 Interpretation:
 
@@ -2332,12 +2332,12 @@ Goal:
 
 Median results:
 
-| Rung | Plain R3 | R3 solid-experiments |
-| --- | ---: | ---: |
-| `write-only` | `0.075ms` | `0.070ms` |
-| `empty` computed | `0.295ms` | `0.350ms` |
-| `object` computed | `0.395ms` | `0.455ms` |
-| `equality-only` | `0.350ms` | `0.410ms` |
+| Rung              |  Plain R3 | R3 solid-experiments |
+| ----------------- | --------: | -------------------: |
+| `write-only`      | `0.075ms` |            `0.070ms` |
+| `empty` computed  | `0.295ms` |            `0.350ms` |
+| `object` computed | `0.395ms` |            `0.455ms` |
+| `equality-only`   | `0.350ms` |            `0.410ms` |
 
 Interpretation:
 
@@ -2361,11 +2361,11 @@ Goal:
 
 Median results:
 
-| Rung | Solid 2 render effect | Solid 2 memo | R3 solid-experiments |
-| --- | ---: | ---: | ---: |
-| `empty` | `0.830ms` | `0.470ms` | `0.370ms` |
-| `object` | `0.995ms` | `0.680ms` | `0.465ms` |
-| `equality` | `1.035ms` | `0.520ms` | `0.415ms` |
+| Rung       | Solid 2 render effect | Solid 2 memo | R3 solid-experiments |
+| ---------- | --------------------: | -----------: | -------------------: |
+| `empty`    |             `0.830ms` |    `0.470ms` |            `0.370ms` |
+| `object`   |             `0.995ms` |    `0.680ms` |            `0.465ms` |
+| `equality` |             `1.035ms` |    `0.520ms` |            `0.415ms` |
 
 Interpretation:
 
@@ -2396,11 +2396,11 @@ Goal:
 
 Median results:
 
-| Rung | `createMemo` | `createTrackedEffect` | `createRenderEffect` | `createEffect` |
-| --- | ---: | ---: | ---: | ---: |
-| `empty` | `0.470ms` | `0.645ms` | `0.820ms` | `0.725ms` |
-| `object` | `0.695ms` | `0.670ms` | `0.955ms` | `0.880ms` |
-| `equality` | `0.540ms` | `0.755ms` | `1.055ms` | `0.995ms` |
+| Rung       | `createMemo` | `createTrackedEffect` | `createRenderEffect` | `createEffect` |
+| ---------- | -----------: | --------------------: | -------------------: | -------------: |
+| `empty`    |    `0.470ms` |             `0.645ms` |            `0.820ms` |      `0.725ms` |
+| `object`   |    `0.695ms` |             `0.670ms` |            `0.955ms` |      `0.880ms` |
+| `equality` |    `0.540ms` |             `0.755ms` |            `1.055ms` |      `0.995ms` |
 
 Interpretation:
 
@@ -2431,11 +2431,11 @@ Probe:
 
 Synthetic render-effect ladder result:
 
-| Rung | Specialized runner |
-| --- | ---: |
-| `empty` | `0.855ms` |
-| `object` | `0.955ms` |
-| `equality` | `1.045ms` |
+| Rung       | Specialized runner |
+| ---------- | -----------------: |
+| `empty`    |          `0.855ms` |
+| `object`   |          `0.955ms` |
+| `equality` |          `1.045ms` |
 
 Finding:
 
@@ -2519,16 +2519,16 @@ Probe:
 
 Median results (`solid-next`, 25 samples each, headless Chromium):
 
-| Benchmark | Metric | Baseline | Probe | Δ median | Δ% |
-| --- | --- | ---: | ---: | ---: | ---: |
-| `01_run1k` | total | `36.6ms` | `36.6ms` | `0` | `0%` |
-| `01_run1k` | script | `5.0ms` | `5.0ms` | `0` | `0%` |
-| `02_replace1k` | total | `40.0ms` | `40.0ms` | `0` | `0%` |
-| `02_replace1k` | script | `8.5ms` | `8.7ms` | `+0.2ms` | `+2.4%` |
-| `07_create10k` | total | `366.9ms` | `364.8ms` | `-2.1ms` | `-0.6%` |
-| `07_create10k` | script | `50.2ms` | `49.0ms` | `-1.2ms` | `-2.4%` |
-| `08_create1k-after1k_x2` | total | `42.5ms` | `42.2ms` | `-0.3ms` | `-0.7%` |
-| `08_create1k-after1k_x2` | script | `5.0ms` | `4.9ms` | `-0.1ms` | `-2%` |
+| Benchmark                | Metric |  Baseline |     Probe | Δ median |      Δ% |
+| ------------------------ | ------ | --------: | --------: | -------: | ------: |
+| `01_run1k`               | total  |  `36.6ms` |  `36.6ms` |      `0` |    `0%` |
+| `01_run1k`               | script |   `5.0ms` |   `5.0ms` |      `0` |    `0%` |
+| `02_replace1k`           | total  |  `40.0ms` |  `40.0ms` |      `0` |    `0%` |
+| `02_replace1k`           | script |   `8.5ms` |   `8.7ms` | `+0.2ms` | `+2.4%` |
+| `07_create10k`           | total  | `366.9ms` | `364.8ms` | `-2.1ms` | `-0.6%` |
+| `07_create10k`           | script |  `50.2ms` |  `49.0ms` | `-1.2ms` | `-2.4%` |
+| `08_create1k-after1k_x2` | total  |  `42.5ms` |  `42.2ms` | `-0.3ms` | `-0.7%` |
+| `08_create1k-after1k_x2` | script |   `5.0ms` |   `4.9ms` | `-0.1ms` |   `-2%` |
 
 Finding:
 
@@ -2566,26 +2566,26 @@ Probe:
 
 Median results (`solid-next`, 25 samples each, headless Chromium, full CPU suite):
 
-| Benchmark | Metric | Baseline | Probe | Δ median |
-| --- | --- | ---: | ---: | ---: |
-| `01_run1k` | total | `36.3` | `36.4` | `+0.1` |
-| `01_run1k` | script | `4.9` | `4.9` | `0` |
-| `02_replace1k` | total | `40.2` | `40.0` | `-0.2` |
-| `02_replace1k` | script | `8.5` | `8.4` | `-0.1` |
-| `03_update10th1k_x16` | total | `20.0` | `19.7` | `-0.3` |
-| `03_update10th1k_x16` | script | `2.3` | `2.2` | `-0.1` |
-| `04_select1k` | total | `5.4` | `5.1` | `-0.3` |
-| `04_select1k` | script | `0.9` | `0.8` | `-0.1` |
-| `05_swap1k` | total | `23.9` | `23.6` | `-0.3` |
-| `05_swap1k` | script | `1.8` | `1.8` | `0` |
-| `06_remove-one-1k` | total | `17.3` | `17.1` | `-0.2` |
-| `06_remove-one-1k` | script | `0.6` | `0.6` | `0` |
-| `07_create10k` | total | `367.0` | `366.2` | `-0.8` |
-| `07_create10k` | script | `50.2` | `49.2` | `-1.0` |
-| `08_create1k-after1k_x2` | total | `42.0` | `42.2` | `+0.2` |
-| `08_create1k-after1k_x2` | script | `4.9` | `4.9` | `0` |
-| `09_clear1k_x8` | total | `16.4` | `16.3` | `-0.1` |
-| `09_clear1k_x8` | script | `13.9` | `13.8` | `-0.1` |
+| Benchmark                | Metric | Baseline |   Probe | Δ median |
+| ------------------------ | ------ | -------: | ------: | -------: |
+| `01_run1k`               | total  |   `36.3` |  `36.4` |   `+0.1` |
+| `01_run1k`               | script |    `4.9` |   `4.9` |      `0` |
+| `02_replace1k`           | total  |   `40.2` |  `40.0` |   `-0.2` |
+| `02_replace1k`           | script |    `8.5` |   `8.4` |   `-0.1` |
+| `03_update10th1k_x16`    | total  |   `20.0` |  `19.7` |   `-0.3` |
+| `03_update10th1k_x16`    | script |    `2.3` |   `2.2` |   `-0.1` |
+| `04_select1k`            | total  |    `5.4` |   `5.1` |   `-0.3` |
+| `04_select1k`            | script |    `0.9` |   `0.8` |   `-0.1` |
+| `05_swap1k`              | total  |   `23.9` |  `23.6` |   `-0.3` |
+| `05_swap1k`              | script |    `1.8` |   `1.8` |      `0` |
+| `06_remove-one-1k`       | total  |   `17.3` |  `17.1` |   `-0.2` |
+| `06_remove-one-1k`       | script |    `0.6` |   `0.6` |      `0` |
+| `07_create10k`           | total  |  `367.0` | `366.2` |   `-0.8` |
+| `07_create10k`           | script |   `50.2` |  `49.2` |   `-1.0` |
+| `08_create1k-after1k_x2` | total  |   `42.0` |  `42.2` |   `+0.2` |
+| `08_create1k-after1k_x2` | script |    `4.9` |   `4.9` |      `0` |
+| `09_clear1k_x8`          | total  |   `16.4` |  `16.3` |   `-0.1` |
+| `09_clear1k_x8`          | script |   `13.9` |  `13.8` |   `-0.1` |
 
 Finding:
 
@@ -2634,26 +2634,26 @@ Allocation impact per render-effect lifecycle:
 Median results (`solid-next`, 25 samples each, headless Chromium, full CPU suite, on top of the shared-dispose
 change):
 
-| Benchmark | Metric | Baseline (shared-dispose) | Effect-shape probe | Δ median |
-| --- | --- | ---: | ---: | ---: |
-| `01_run1k` | total | `36.4` | `35.7` | `-0.7` |
-| `01_run1k` | script | `4.9` | `4.8` | `-0.1` |
-| `02_replace1k` | total | `40.0` | `40.0` | `0` |
-| `02_replace1k` | script | `8.4` | `8.4` | `0` |
-| `03_update10th1k_x16` | total | `19.7` | `21.1` | `+1.4` (paint noise; stddev `2.0ms`) |
-| `03_update10th1k_x16` | script | `2.2` | `2.2` | `0` |
-| `04_select1k` | total | `5.1` | `4.9` | `-0.2` |
-| `04_select1k` | script | `0.8` | `0.8` | `0` |
-| `05_swap1k` | total | `23.6` | `23.8` | `+0.2` |
-| `05_swap1k` | script | `1.8` | `1.8` | `0` |
-| `06_remove-one-1k` | total | `17.1` | `17.6` | `+0.5` (paint noise) |
-| `06_remove-one-1k` | script | `0.6` | `0.6` | `0` |
-| `07_create10k` | total | `366.2` | `364.7` | `-1.5` |
-| `07_create10k` | script | `49.2` | `47.7` | `-1.5` |
-| `08_create1k-after1k_x2` | total | `42.2` | `43.2` | `+1.0` (paint noise; stddev `1.9ms`) |
-| `08_create1k-after1k_x2` | script | `4.9` | `4.8` | `-0.1` |
-| `09_clear1k_x8` | total | `16.3` | `16.2` | `-0.1` |
-| `09_clear1k_x8` | script | `13.8` | `13.7` | `-0.1` |
+| Benchmark                | Metric | Baseline (shared-dispose) | Effect-shape probe |                             Δ median |
+| ------------------------ | ------ | ------------------------: | -----------------: | -----------------------------------: |
+| `01_run1k`               | total  |                    `36.4` |             `35.7` |                               `-0.7` |
+| `01_run1k`               | script |                     `4.9` |              `4.8` |                               `-0.1` |
+| `02_replace1k`           | total  |                    `40.0` |             `40.0` |                                  `0` |
+| `02_replace1k`           | script |                     `8.4` |              `8.4` |                                  `0` |
+| `03_update10th1k_x16`    | total  |                    `19.7` |             `21.1` | `+1.4` (paint noise; stddev `2.0ms`) |
+| `03_update10th1k_x16`    | script |                     `2.2` |              `2.2` |                                  `0` |
+| `04_select1k`            | total  |                     `5.1` |              `4.9` |                               `-0.2` |
+| `04_select1k`            | script |                     `0.8` |              `0.8` |                                  `0` |
+| `05_swap1k`              | total  |                    `23.6` |             `23.8` |                               `+0.2` |
+| `05_swap1k`              | script |                     `1.8` |              `1.8` |                                  `0` |
+| `06_remove-one-1k`       | total  |                    `17.1` |             `17.6` |                 `+0.5` (paint noise) |
+| `06_remove-one-1k`       | script |                     `0.6` |              `0.6` |                                  `0` |
+| `07_create10k`           | total  |                   `366.2` |            `364.7` |                               `-1.5` |
+| `07_create10k`           | script |                    `49.2` |             `47.7` |                               `-1.5` |
+| `08_create1k-after1k_x2` | total  |                    `42.2` |             `43.2` | `+1.0` (paint noise; stddev `1.9ms`) |
+| `08_create1k-after1k_x2` | script |                     `4.9` |              `4.8` |                               `-0.1` |
+| `09_clear1k_x8`          | total  |                    `16.3` |             `16.2` |                               `-0.1` |
+| `09_clear1k_x8`          | script |                    `13.8` |             `13.7` |                               `-0.1` |
 
 Compared to the **original** baseline (no probes), `07_create10k` script went from `50.2 → 47.7ms` (`-2.5ms`,
 ~`5%`) — combined effect of the shared-dispose probe and the effect-shape probe.
@@ -2678,54 +2678,54 @@ Captured after keeping the shared-`dispose` and effect-shape probes (and reverti
 
 CPU suite — total (median ms):
 
-| Benchmark | vanilla | solid 1 | solid 2 | svelte 5 | react hooks |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `01_run1k` | `35.7` | `37.6` | `37.7` | `36.9` | `44.0` |
-| `02_replace1k` | `42.2` | `41.6` | `42.3` | `39.9` | `53.0` |
-| `03_update10th1k_x16` | `19.6` | `19.0` | `22.8` | `20.3` | `27.5` |
-| `04_select1k` | `7.0` | `6.8` | `7.5` | `8.0` | `9.0` |
-| `05_swap1k` | `27.1` | `28.0` | `29.3` | `29.1` | `154.4` |
-| `06_remove-one-1k` | `18.0` | `19.7` | `19.5` | `20.2` | `21.1` |
-| `07_create10k` | `339.1` | `366.9` | `375.9` | `366.2` | `561.0` |
-| `08_create1k-after1k_x2` | `42.4` | `44.9` | `45.3` | `44.0` | `52.1` |
-| `09_clear1k_x8` | `15.6` | `18.3` | `17.4` | `17.3` | `26.1` |
+| Benchmark                | vanilla | solid 1 | solid 2 | svelte 5 | react hooks |
+| ------------------------ | ------: | ------: | ------: | -------: | ----------: |
+| `01_run1k`               |  `35.7` |  `37.6` |  `37.7` |   `36.9` |      `44.0` |
+| `02_replace1k`           |  `42.2` |  `41.6` |  `42.3` |   `39.9` |      `53.0` |
+| `03_update10th1k_x16`    |  `19.6` |  `19.0` |  `22.8` |   `20.3` |      `27.5` |
+| `04_select1k`            |   `7.0` |   `6.8` |   `7.5` |    `8.0` |       `9.0` |
+| `05_swap1k`              |  `27.1` |  `28.0` |  `29.3` |   `29.1` |     `154.4` |
+| `06_remove-one-1k`       |  `18.0` |  `19.7` |  `19.5` |   `20.2` |      `21.1` |
+| `07_create10k`           | `339.1` | `366.9` | `375.9` |  `366.2` |     `561.0` |
+| `08_create1k-after1k_x2` |  `42.4` |  `44.9` |  `45.3` |   `44.0` |      `52.1` |
+| `09_clear1k_x8`          |  `15.6` |  `18.3` |  `17.4` |   `17.3` |      `26.1` |
 
 CPU suite — script (median ms):
 
-| Benchmark | vanilla | solid 1 | solid 2 | svelte 5 | react hooks |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `01_run1k` | `2.7` | `4.0` | `4.9` | `3.8` | `11.8` |
-| `02_replace1k` | `6.6` | `8.4` | `8.9` | `7.2` | `17.9` |
-| `03_update10th1k_x16` | `0.9` | `1.4` | `2.0` | `1.4` | `5.8` |
-| `04_select1k` | `0.5` | `0.7` | `0.9` | `0.9` | `2.5` |
-| `05_swap1k` | `0.3` | `1.4` | `1.8` | `1.6` | `27.4` |
-| `06_remove-one-1k` | `0.4` | `0.6` | `0.9` | `0.6` | `1.6` |
-| `07_create10k` | `29.7` | `44.9` | `48.7` | `43.7` | `231.6` |
-| `08_create1k-after1k_x2` | `2.5` | `4.1` | `4.9` | `4.3` | `11.1` |
-| `09_clear1k_x8` | `12.4` | `15.7` | `14.6` | `14.6` | `23.4` |
+| Benchmark                | vanilla | solid 1 | solid 2 | svelte 5 | react hooks |
+| ------------------------ | ------: | ------: | ------: | -------: | ----------: |
+| `01_run1k`               |   `2.7` |   `4.0` |   `4.9` |    `3.8` |      `11.8` |
+| `02_replace1k`           |   `6.6` |   `8.4` |   `8.9` |    `7.2` |      `17.9` |
+| `03_update10th1k_x16`    |   `0.9` |   `1.4` |   `2.0` |    `1.4` |       `5.8` |
+| `04_select1k`            |   `0.5` |   `0.7` |   `0.9` |    `0.9` |       `2.5` |
+| `05_swap1k`              |   `0.3` |   `1.4` |   `1.8` |    `1.6` |      `27.4` |
+| `06_remove-one-1k`       |   `0.4` |   `0.6` |   `0.9` |    `0.6` |       `1.6` |
+| `07_create10k`           |  `29.7` |  `44.9` |  `48.7` |   `43.7` |     `231.6` |
+| `08_create1k-after1k_x2` |   `2.5` |   `4.1` |   `4.9` |    `4.3` |      `11.1` |
+| `09_clear1k_x8`          |  `12.4` |  `15.7` |  `14.6` |   `14.6` |      `23.4` |
 
 CPU suite — paint (median ms):
 
-| Benchmark | vanilla | solid 1 | solid 2 | svelte 5 | react hooks |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `01_run1k` | `32.3` | `32.9` | `32.0` | `32.2` | `31.6` |
-| `02_replace1k` | `34.8` | `32.5` | `32.5` | `31.6` | `33.8` |
-| `03_update10th1k_x16` | `15.9` | `15.1` | `16.8` | `16.1` | `18.2` |
-| `04_select1k` | `4.8` | `4.6` | `4.6` | `5.0` | `4.7` |
-| `05_swap1k` | `21.6` | `22.8` | `22.2` | `22.9` | `123.9` |
-| `06_remove-one-1k` | `15.9` | `17.0` | `16.5` | `17.4` | `17.4` |
-| `07_create10k` | `297.6` | `309.5` | `313.7` | `308.2` | `317.4` |
-| `08_create1k-after1k_x2` | `38.0` | `38.7` | `38.5` | `38.0` | `39.2` |
-| `09_clear1k_x8` | `1.8` | `1.4` | `1.9` | `1.9` | `1.8` |
+| Benchmark                | vanilla | solid 1 | solid 2 | svelte 5 | react hooks |
+| ------------------------ | ------: | ------: | ------: | -------: | ----------: |
+| `01_run1k`               |  `32.3` |  `32.9` |  `32.0` |   `32.2` |      `31.6` |
+| `02_replace1k`           |  `34.8` |  `32.5` |  `32.5` |   `31.6` |      `33.8` |
+| `03_update10th1k_x16`    |  `15.9` |  `15.1` |  `16.8` |   `16.1` |      `18.2` |
+| `04_select1k`            |   `4.8` |   `4.6` |   `4.6` |    `5.0` |       `4.7` |
+| `05_swap1k`              |  `21.6` |  `22.8` |  `22.2` |   `22.9` |     `123.9` |
+| `06_remove-one-1k`       |  `15.9` |  `17.0` |  `16.5` |   `17.4` |      `17.4` |
+| `07_create10k`           | `297.6` | `309.5` | `313.7` |  `308.2` |     `317.4` |
+| `08_create1k-after1k_x2` |  `38.0` |  `38.7` |  `38.5` |   `38.0` |      `39.2` |
+| `09_clear1k_x8`          |   `1.8` |   `1.4` |   `1.9` |    `1.9` |       `1.8` |
 
 Solid 2 memory benchmarks (median MB, 10 samples):
 
-| Benchmark | solid 2 |
-| --- | ---: |
-| `21_ready-memory` | `1.008` |
-| `22_run-memory` (after creating 1k rows) | `3.193` |
+| Benchmark                                        | solid 2 |
+| ------------------------------------------------ | ------: |
+| `21_ready-memory`                                | `1.008` |
+| `22_run-memory` (after creating 1k rows)         | `3.193` |
 | `23_update5-memory` (after 5 updates of 1k rows) | `3.309` |
-| `25_run-clear-memory` (after run + clear) | `1.499` |
+| `25_run-clear-memory` (after run + clear)        | `1.499` |
 
 Notable gaps versus Solid 1 (script):
 
@@ -2767,15 +2767,15 @@ Probe:
 Median results (`solid-next`, `25` samples each, headless Chromium, on top of the shared-dispose and effect-shape
 probes):
 
-| Benchmark | Metric | Baseline | Lifted | Δ median |
-| --- | --- | ---: | ---: | ---: |
-| `01_run1k` | total | `38.5` | `38.4` | `-0.1` |
-| `01_run1k` | script | `5.0` | `5.0` | `0` |
-| `07_create10k` | total | `376.8` | `376.7` | `-0.1` |
-| `07_create10k` | script | `49.0` | `49.1` | `+0.1` |
-| `07_create10k` | paint | `315.3` | `314.6` | `-0.7` |
-| `08_create1k-after1k_x2` | total | `45.1` | `45.1` | `0` |
-| `08_create1k-after1k_x2` | script | `4.8` | `4.8` | `0` |
+| Benchmark                | Metric | Baseline |  Lifted | Δ median |
+| ------------------------ | ------ | -------: | ------: | -------: |
+| `01_run1k`               | total  |   `38.5` |  `38.4` |   `-0.1` |
+| `01_run1k`               | script |    `5.0` |   `5.0` |      `0` |
+| `07_create10k`           | total  |  `376.8` | `376.7` |   `-0.1` |
+| `07_create10k`           | script |   `49.0` |  `49.1` |   `+0.1` |
+| `07_create10k`           | paint  |  `315.3` | `314.6` |   `-0.7` |
+| `08_create1k-after1k_x2` | total  |   `45.1` |  `45.1` |      `0` |
+| `08_create1k-after1k_x2` | script |    `4.8` |   `4.8` |      `0` |
 
 Script `stddev` was `~0.3ms` on `07_create10k` over the 25-sample window, so any change `<0.1ms` is noise.
 
@@ -2824,30 +2824,30 @@ maps `framework.effect → createMemo`, so all `update*`/`create*` tests are pur
 Compared kept-probes state (`current`) vs `git stash` of the kept-probes (`HEAD`) — `HEAD` here
 means `next` branch tip with the kept probes reverted. 5 runs each, median per test.
 
-| Test | HEAD median | CURR median | Δ | Δ % |
-| --- | ---: | ---: | ---: | ---: |
-| `createSignals` | `6.23` | `6.59` | `+0.36` | `+5.78%` |
-| `createComputations` | `153.56` | `150.22` | `-3.34` | `-2.18%` |
-| `create0to1` | `6.09` | `6.10` | `+0.01` | `+0.16%` |
-| `create1to1` | `37.57` | `36.27` | `-1.30` | `-3.46%` |
-| `create2to1` | `39.76` | `38.02` | `-1.74` | `-4.38%` |
-| `create4to1` | `5.45` | `5.35` | `-0.10` | `-1.83%` |
-| `create1000to1` | `3.53` | `3.42` | `-0.11` | `-3.12%` |
-| `create1to2` | `37.31` | `36.17` | `-1.14` | `-3.06%` |
-| `create1to4` | `8.58` | `8.61` | `+0.03` | `+0.35%` |
-| `create1to8` | `9.32` | `9.29` | `-0.03` | `-0.32%` |
-| `create1to1000` | `7.78` | `7.71` | `-0.07` | `-0.90%` |
-| `updateSignals` | `611.50` | `607.44` | `-4.06` | `-0.66%` |
-| `update1to1` | `43.59` | `43.31` | `-0.28` | `-0.64%` |
-| `update2to1` | `24.62` | `24.48` | `-0.14` | `-0.57%` |
-| `update4to1` | `15.26` | `15.18` | `-0.08` | `-0.52%` |
-| `update1000to1` | `6.73` | `6.95` | `+0.22` | `+3.27%` |
-| `update1to2` | `15.50` | `15.43` | `-0.07` | `-0.45%` |
-| `update1to4` | `24.32` | `24.31` | `-0.01` | `-0.04%` |
-| `update1to1000` | `480.75` | `480.18` | `-0.57` | `-0.12%` |
-| `diagnosticEmptyBatch` | `4.17` | `4.12` | `-0.05` | `-1.20%` |
-| `diagnosticWriteNoSubs` | `26.31` | `25.92` | `-0.39` | `-1.48%` |
-| `diagnosticWriteSameNoSubs` | `8.30` | `8.29` | `-0.01` | `-0.12%` |
+| Test                        | HEAD median | CURR median |       Δ |      Δ % |
+| --------------------------- | ----------: | ----------: | ------: | -------: |
+| `createSignals`             |      `6.23` |      `6.59` | `+0.36` | `+5.78%` |
+| `createComputations`        |    `153.56` |    `150.22` | `-3.34` | `-2.18%` |
+| `create0to1`                |      `6.09` |      `6.10` | `+0.01` | `+0.16%` |
+| `create1to1`                |     `37.57` |     `36.27` | `-1.30` | `-3.46%` |
+| `create2to1`                |     `39.76` |     `38.02` | `-1.74` | `-4.38%` |
+| `create4to1`                |      `5.45` |      `5.35` | `-0.10` | `-1.83%` |
+| `create1000to1`             |      `3.53` |      `3.42` | `-0.11` | `-3.12%` |
+| `create1to2`                |     `37.31` |     `36.17` | `-1.14` | `-3.06%` |
+| `create1to4`                |      `8.58` |      `8.61` | `+0.03` | `+0.35%` |
+| `create1to8`                |      `9.32` |      `9.29` | `-0.03` | `-0.32%` |
+| `create1to1000`             |      `7.78` |      `7.71` | `-0.07` | `-0.90%` |
+| `updateSignals`             |    `611.50` |    `607.44` | `-4.06` | `-0.66%` |
+| `update1to1`                |     `43.59` |     `43.31` | `-0.28` | `-0.64%` |
+| `update2to1`                |     `24.62` |     `24.48` | `-0.14` | `-0.57%` |
+| `update4to1`                |     `15.26` |     `15.18` | `-0.08` | `-0.52%` |
+| `update1000to1`             |      `6.73` |      `6.95` | `+0.22` | `+3.27%` |
+| `update1to2`                |     `15.50` |     `15.43` | `-0.07` | `-0.45%` |
+| `update1to4`                |     `24.32` |     `24.31` | `-0.01` | `-0.04%` |
+| `update1to1000`             |    `480.75` |    `480.18` | `-0.57` | `-0.12%` |
+| `diagnosticEmptyBatch`      |      `4.17` |      `4.12` | `-0.05` | `-1.20%` |
+| `diagnosticWriteNoSubs`     |     `26.31` |     `25.92` | `-0.39` | `-1.48%` |
+| `diagnosticWriteSameNoSubs` |      `8.30` |      `8.29` | `-0.01` | `-0.12%` |
 
 Findings:
 
@@ -2889,19 +2889,19 @@ Implementation:
 
 Median results (`solid-next`, count=25, headless Chromium):
 
-| Bench | Metric | Baseline | Cached `_run` | Δ |
-| --- | --- | ---: | ---: | ---: |
-| `01_run1k` | total | `36.3` | `37.7` | `+1.4` |
-| `01_run1k` | script | `4.9` | `5.0` | `+0.1` |
-| `01_run1k` | paint | `30.4` | `31.8` | `+1.4` |
-| `03_update10th1k_x16` | total | `19.1` | `23.2` / `19.8` | system noise |
-| `03_update10th1k_x16` | script | `2.2` | `2.2` / `2.1` | **`0`** |
-| `03_update10th1k_x16` | paint | `14.6` | `17.4` / `15.1` | system noise |
-| `07_create10k` | total | `361.4` | `375.7` / `368.9` | mixed |
-| `07_create10k` | script | `47.0` | `49.3` / `48.8` | **`+2`** |
-| `07_create10k` | paint | `303.4` | `313.5` / `307.0` | mixed |
-| `08_create1k-after1k_x2` | total | `42.8` | `42.7` | `-0.1` |
-| `08_create1k-after1k_x2` | script | `4.8` | `4.8` | `0` |
+| Bench                    | Metric | Baseline |     Cached `_run` |            Δ |
+| ------------------------ | ------ | -------: | ----------------: | -----------: |
+| `01_run1k`               | total  |   `36.3` |            `37.7` |       `+1.4` |
+| `01_run1k`               | script |    `4.9` |             `5.0` |       `+0.1` |
+| `01_run1k`               | paint  |   `30.4` |            `31.8` |       `+1.4` |
+| `03_update10th1k_x16`    | total  |   `19.1` |   `23.2` / `19.8` | system noise |
+| `03_update10th1k_x16`    | script |    `2.2` |     `2.2` / `2.1` |      **`0`** |
+| `03_update10th1k_x16`    | paint  |   `14.6` |   `17.4` / `15.1` | system noise |
+| `07_create10k`           | total  |  `361.4` | `375.7` / `368.9` |        mixed |
+| `07_create10k`           | script |   `47.0` |   `49.3` / `48.8` |     **`+2`** |
+| `07_create10k`           | paint  |  `303.4` | `313.5` / `307.0` |        mixed |
+| `08_create1k-after1k_x2` | total  |   `42.8` |            `42.7` |       `-0.1` |
+| `08_create1k-after1k_x2` | script |    `4.8` |             `4.8` |          `0` |
 
 Findings:
 
@@ -2913,10 +2913,10 @@ Findings:
   pays an unconditional closure allocation + `_run` field write at construction, even though
   most effects in this benchmark fire only once and never re-run.
 - The total/paint deltas (`+1-14ms` on `03`/`07`) are larger than the script delta but they
-  swing back and forth between adjacent runs of the *same* probed code, so they're system
+  swing back and forth between adjacent runs of the _same_ probed code, so they're system
   noise (background activity), not probe effect.
 
-User raised: *did you bind the closure lazily?* Lazy allocation (only allocate `_run` on the
+User raised: _did you bind the closure lazily?_ Lazy allocation (only allocate `_run` on the
 first re-enqueue) would drop the `07` regression to neutral but cannot improve `03` past
 neutral, because the scheduled `03` numbers already show no script benefit. There is no
 upside, only avoided downside.
@@ -2955,14 +2955,15 @@ Tests: all 686 solid-signals + 409 solid-js pass (1095 total).
 
 Median results (`solid-next`, count=25, headless Chromium, 3 back-to-back runs each):
 
-| Bench | Metric | Baseline (3-run median) | `createEffectNode` (3-run median) | Δ |
-| --- | --- | ---: | ---: | ---: |
-| `01_run1k` | script | `5.0` | `5.0` | `0` |
-| `03_update10th1k_x16` | script | `2.2` | `2.2` | `0` |
-| `07_create10k` | script | `48.6` | `47.2` | **`-1.4 (-2.9%)`** |
-| `08_create1k-after1k_x2` | script | `4.8` | `4.7` | `-0.1` |
+| Bench                    | Metric | Baseline (3-run median) | `createEffectNode` (3-run median) |                  Δ |
+| ------------------------ | ------ | ----------------------: | --------------------------------: | -----------------: |
+| `01_run1k`               | script |                   `5.0` |                             `5.0` |                `0` |
+| `03_update10th1k_x16`    | script |                   `2.2` |                             `2.2` |                `0` |
+| `07_create10k`           | script |                  `48.6` |                            `47.2` | **`-1.4 (-2.9%)`** |
+| `08_create1k-after1k_x2` | script |                   `4.8` |                             `4.7` |             `-0.1` |
 
 Per-run script medians for `07_create10k`:
+
 - Baseline: `47.0`, `48.7`, `48.6`
 - `createEffectNode`: `47.3`, `46.3`, `47.2`
 
@@ -2993,13 +2994,13 @@ Decision: kept. First measurable script win in the post-keep-probes session.
 
 Probes completed this session:
 
-| Probe | Result | Bundle Δ |
-| --- | --- | ---: |
-| Memo recompute regression audit (post effect-shape probe) | Pass — no regression | n/a |
-| `mapArray` lift `runWithOwner` out of per-row loops | Reverted (neutral) | (was +327) |
-| Cached `_run` (eager) | Reverted (neutral on `03`, hurt `07` `+2ms` script) | (was -43) |
-| Cached `_run` (lazy variant) | Skipped — `03` showed `0` benefit, no upside | n/a |
-| **Dedicated `createEffectNode()` shape** | **Kept — `-1.4ms` script on `07_create10k` (-2.9%)** | **+956** |
+| Probe                                                     | Result                                               |   Bundle Δ |
+| --------------------------------------------------------- | ---------------------------------------------------- | ---------: |
+| Memo recompute regression audit (post effect-shape probe) | Pass — no regression                                 |        n/a |
+| `mapArray` lift `runWithOwner` out of per-row loops       | Reverted (neutral)                                   | (was +327) |
+| Cached `_run` (eager)                                     | Reverted (neutral on `03`, hurt `07` `+2ms` script)  |  (was -43) |
+| Cached `_run` (lazy variant)                              | Skipped — `03` showed `0` benefit, no upside         |        n/a |
+| **Dedicated `createEffectNode()` shape**                  | **Kept — `-1.4ms` script on `07_create10k` (-2.9%)** |   **+956** |
 
 Cumulative state of kept probes (`packages/solid-signals/src/`):
 
@@ -3057,7 +3058,7 @@ Setup:
 - Instrumented `solid-signals` source with gated counters under
   `globalThis.__SOLID_PROBE__` (`{ enabled, setSignal, recompute, read, storeGet, runEffect }`).
 - Each instrumented function wraps its body in `try { … } finally { if (enabled)
-  { count++; total += now - entry } }` — inclusive timing.
+{ count++; total += now - entry } }` — inclusive timing.
 - Built `dist/prod.js`, rebuilt the keyed solid-next bench, ran a Node Playwright
   driver that:
   1. Opens the bench against the running local server.
@@ -3090,13 +3091,13 @@ upper bounds.
 
 Self-time approximation (subtract nested counted time from inclusive):
 
-| Function  | Self time ms | Notes |
-| --------- | -----------: | --- |
-| recompute |       ~1.97 | Inclusive `3.86` − reads `0.74` − storeGet `1.15`. Heap removal, child disposal, context save, equality, scheduling. |
-| runEffect |       ~2.26 | Effect-side fn: cleanup probe + DOM className/textContent writes. Mostly necessary user-triggered work. |
-| storeGet  |       ~0.49 | Inclusive `1.15` − nested `read 0.23`. Proxy trap dispatch + tracked-key lookup. |
-| setSignal |       ~0.78 | `insertSubs` + `schedule`. Already lean. |
-| read      |       ~0.23 | Already a hot leaf. |
+| Function  | Self time ms | Notes                                                                                                                |
+| --------- | -----------: | -------------------------------------------------------------------------------------------------------------------- |
+| recompute |        ~1.97 | Inclusive `3.86` − reads `0.74` − storeGet `1.15`. Heap removal, child disposal, context save, equality, scheduling. |
+| runEffect |        ~2.26 | Effect-side fn: cleanup probe + DOM className/textContent writes. Mostly necessary user-triggered work.              |
+| storeGet  |        ~0.49 | Inclusive `1.15` − nested `read 0.23`. Proxy trap dispatch + tracked-key lookup.                                     |
+| setSignal |        ~0.78 | `insertSubs` + `schedule`. Already lean.                                                                             |
+| read      |        ~0.23 | Already a hot leaf.                                                                                                  |
 
 Findings:
 
@@ -3154,7 +3155,7 @@ Background from the attribution probe:
 - For the bench's render-effect compute fn `({ e, t })`, both checks resolve to
   `false`, so we pay the untrack overhead twice with no functional outcome.
 - A proto-based fast path was attempted first (`Object.getPrototypeOf(result)
-  === Object.prototype || Array.isArray(result)`) but **rejected on
+=== Object.prototype || Array.isArray(result)`) but **rejected on
   correctness** — store proxies pass both checks (their `getPrototypeOf` trap
   returns the target's prototype, and `Array.isArray` returns `true` for
   array-target proxies), and the inline reads on a proxy with `tracking = true`
@@ -3180,12 +3181,12 @@ if (typeof result === "object" && result !== null) {
 
 Comparison: 3 sets × 5 runs each (15 values pooled), median of pooled values.
 
-| Bench                    | Baseline | Probe  |    Δ ms |     Δ % |
-| ------------------------ | -------: | -----: | ------: | ------: |
-| `01_run1k`               |    `5.0` |  `4.7` |  `-0.3` |   `-6%` |
-| `03_update10th1k_x16`    |    `2.3` |  `2.1` |  `-0.2` |   `-9%` |
-| `07_create10k`           |   `47.1` | `45.4` |  `-1.7` | `-3.6%` |
-| `08_create1k-after1k_x2` |    `4.9` |  `4.2` |  `-0.7` |  `-14%` |
+| Bench                    | Baseline |  Probe |   Δ ms |     Δ % |
+| ------------------------ | -------: | -----: | -----: | ------: |
+| `01_run1k`               |    `5.0` |  `4.7` | `-0.3` |   `-6%` |
+| `03_update10th1k_x16`    |    `2.3` |  `2.1` | `-0.2` |   `-9%` |
+| `07_create10k`           |   `47.1` | `45.4` | `-1.7` | `-3.6%` |
+| `08_create1k-after1k_x2` |    `4.9` |  `4.2` | `-0.7` |  `-14%` |
 
 The `07` win matches the per-call savings expectation: roughly `~150 ns` saved
 per recompute × `~10000` row creations ≈ `1.5 ms`. Same shape on every other
@@ -3231,7 +3232,7 @@ Setup:
   `signal`, `computed`, `createEffectNode`, `recompute`, `runEffect`,
   `untrack`, `handleAsync`, `mapArray`, and `updateKeyedMap` (the
   per-pass body of `mapArray`). Each counter records `{ count, total
-  (ms) }` with `try { … } finally { performance.now() } `; only
+(ms) }` with `try { … } finally { performance.now() } `; only
   recorded when `globalThis.__SOLID_PROBE__.enabled === true`.
 - Probe driver (`documentation/probe-01-attribution.cjs`, removed after
   the run): for each sample, fresh page load → reset every counter
@@ -3242,18 +3243,18 @@ Setup:
 
 Findings (median over 20 samples):
 
-| Probe site         | calls   | inclusive (ms) | per-call (μs) |
-| ------------------ | ------: | -------------: | ------------: |
-| `recompute`        | `1002`  |      `7.665`   |       `7.65`  |
-| `mapArrayPass`     |    `1`  |      `5.490`   |          —    |
-| `runEffect`        | `1001`  |      `1.235`   |       `1.23`  |
-| `handleAsync`      | `1002`  |      `0.640`   |       `0.64`  |
-| `createEffectNode` | `1000`  |      `0.255`   |       `0.26`  |
-| `untrack`          | `1002`  |      `0.240`   |       `0.24`  |
-| `createOwner`      | `1000`  |     `~0`       |     `<0.1`    |
-| `signal`           | `2000`  |     `~0`       |     `<0.1`    |
-| `computed`         |    `0`  |       `0`      |          —    |
-| `mapArray` factory |    `0`  |       `0`      |          —    |
+| Probe site         |  calls | inclusive (ms) | per-call (μs) |
+| ------------------ | -----: | -------------: | ------------: |
+| `recompute`        | `1002` |        `7.665` |        `7.65` |
+| `mapArrayPass`     |    `1` |        `5.490` |             — |
+| `runEffect`        | `1001` |        `1.235` |        `1.23` |
+| `handleAsync`      | `1002` |        `0.640` |        `0.64` |
+| `createEffectNode` | `1000` |        `0.255` |        `0.26` |
+| `untrack`          | `1002` |        `0.240` |        `0.24` |
+| `createOwner`      | `1000` |           `~0` |        `<0.1` |
+| `signal`           | `2000` |           `~0` |        `<0.1` |
+| `computed`         |    `0` |            `0` |             — |
+| `mapArray` factory |    `0` |            `0` |             — |
 
 Notes on counts:
 
@@ -3263,10 +3264,10 @@ Notes on counts:
   emits one grouped render-effect per row template — the
   `_$effect(…, { e, t })` payload).
 - `signal = 2000` → 1000 from `mapArray._rows[j] = signal(item, …)`
-  + 1000 from the store proxy's lazy per-key signal creation when each
-  row template reads `row.label` for the first time.
+  - 1000 from the store proxy's lazy per-key signal creation when each
+    row template reads `row.label` for the first time.
 - `recompute = 1002` → `1000 row effects` + `1 outer wrapping
-  render-effect` + `1 mapArray-internal computed`. Call tree:
+render-effect` + `1 mapArray-internal computed`. Call tree:
   `recompute(outer-render-effect)` → reads `mapArray()` accessor →
   `recompute(mapArray-computed)` → `updateKeyedMap()` (= the
   `mapArrayPass` site) → 1000× `runWithOwner(createOwner(), mapper)`
@@ -3286,7 +3287,7 @@ Inclusive/self attribution (rough, after accounting for the call tree):
 - Of that 5.49 ms, `~2.18 ms` is the sum of the 1000 row-effect
   `recompute(node, true)` calls (`recompute.total − mapArrayPass`
   approx, after subtracting the outer wrapping recompute's small
-  inclusive); the rest (`~3.3 ms`) is per-row work *outside*
+  inclusive); the rest (`~3.3 ms`) is per-row work _outside_
   `recompute`: `runWithOwner` setup, `createOwner`, `signal()`,
   the `mapper` closure, the row component fn, and the JSX
   template/DOM-creation calls (`_$template`, `_$insert`, `_$className`,
@@ -3316,7 +3317,7 @@ likely lives):
   framework-overhead vs. user compute fn (the JSX template body runs
   inside `_fn`, untimed).
 - The 2 non-row recomputes (`outer render-effect` + `mapArray-internal
-  computed`) are aggregated into the `1002`-count bucket, not separated.
+computed`) are aggregated into the `1002`-count bucket, not separated.
   Each of those is the bigger fixed-cost site, but the probe only sees
   the aggregate.
 - `<For>` setup work (the wrapping `createBoundary` + `createMemo` in
@@ -3410,12 +3411,12 @@ Comparison: 15 runs each via `webdriver-ts` Playwright runner, full
 trace (`script` is total Chrome-tracing JS-execution time inside the
 click→idle window).
 
-| Bench                    | Baseline (median) | `flush(fn)` (median) |  Δ med |   Δ mean |
-| ------------------------ | ----------------: | -------------------: | -----: | -------: |
-| `01_run1k`               |     `4.9 ± 0.09`  |        `4.8 ± 0.10`  | `−0.10` | `−0.07` |
-| `03_update10th1k_x16`    |     `2.1 ± 0.30`  |        `2.1 ± 0.19`  | ` 0.00` | `−0.01` |
-| `07_create10k`           |    `46.5 ± 1.11`  |       `46.4 ± 0.45`  | `−0.10` | `−0.35` |
-| `08_create1k-after1k_x2` |     `4.8 ± 0.13`  |        `4.8 ± 0.11`  | ` 0.00` | `−0.03` |
+| Bench                    | Baseline (median) | `flush(fn)` (median) |   Δ med |  Δ mean |
+| ------------------------ | ----------------: | -------------------: | ------: | ------: |
+| `01_run1k`               |      `4.9 ± 0.09` |         `4.8 ± 0.10` | `−0.10` | `−0.07` |
+| `03_update10th1k_x16`    |      `2.1 ± 0.30` |         `2.1 ± 0.19` | ` 0.00` | `−0.01` |
+| `07_create10k`           |     `46.5 ± 1.11` |        `46.4 ± 0.45` | `−0.10` | `−0.35` |
+| `08_create1k-after1k_x2` |      `4.8 ± 0.13` |         `4.8 ± 0.11` | ` 0.00` | `−0.03` |
 
 All deltas are within (or below) the per-bench stddev. **The microtask
 hop is not a measurable cost in this bench.**
@@ -3425,16 +3426,16 @@ Why the null result is consistent:
 - js-framework-benchmark's `script` metric is total V8 JS-execution time
   inside the click→idle window measured from Chrome tracing. Both the
   synchronous-handler path and the microtask-deferred path execute the
-  same work *inside the same window*, so they produce identical script
+  same work _inside the same window_, so they produce identical script
   totals.
 - The microtask hop's wall-time cost is sub-microsecond (V8's microtask
   infrastructure is heavily optimized; `queueMicrotask` → JS re-entry
   is `~1–10 μs`), well below the bench's `0.1 ms` reporting resolution.
 - The work itself does not change: same `setSignal`, same scheduler
-  notifications, same `recompute`/`runEffect` ordering. Only *when* the
-  queue drains shifts, not *what* drains.
+  notifications, same `recompute`/`runEffect` ordering. Only _when_ the
+  queue drains shifts, not _what_ drains.
 
-Implication for next probe: the gap to Solid 1 lives in the *work*
+Implication for next probe: the gap to Solid 1 lives in the _work_
 (creation, recompute body, DOM ops), not in scheduling. Don't chase
 scheduler/microtask wins here.
 
@@ -3450,8 +3451,8 @@ Reproduction (under one minute, one rebuild each):
 2. `cd frameworks/keyed/solid-next && npm run build-prod`.
 3. Start `server/`. Run focused benches:
    `cd webdriver-ts && node dist/benchmarkRunner.js --headless
-   --framework keyed/solid-next --benchmark 01_run1k 03_update10th1k_x16
-   07_create10k 08_create1k-after1k_x2 --runner playwright`.
+--framework keyed/solid-next --benchmark 01_run1k 03_update10th1k_x16
+07_create10k 08_create1k-after1k_x2 --runner playwright`.
 4. Save `webdriver-ts/results/`. Revert `main.jsx`. Rebuild. Re-run.
    Compare medians + means.
 
@@ -3481,10 +3482,10 @@ at all), 15 runs each:
 
 | Bench                    | Baseline (mean) | Upper-bound (mean) |    Δ mean |
 | ------------------------ | --------------: | -----------------: | --------: |
-| `01_run1k`               |          `4.87` |             `4.31` | `−0.56`   |
+| `01_run1k`               |          `4.87` |             `4.31` |   `−0.56` |
 | `03_update10th1k_x16`    |          `2.11` |             `2.38` | `+0.27` ¹ |
-| `07_create10k`           |         `46.86` |            `46.18` | `−0.68`   |
-| `08_create1k-after1k_x2` |          `4.80` |             `4.13` | `−0.67`   |
+| `07_create10k`           |         `46.86` |            `46.18` |   `−0.68` |
+| `08_create1k-after1k_x2` |          `4.80` |             `4.13` |   `−0.67` |
 
 ¹ `03_update10th1k_x16` regression is within stddev (`~0.3 ms`); the
 update path doesn't allocate new computeds, so there's no surface for
@@ -3534,7 +3535,8 @@ Implementation (3 packages, 1 new bit, ~10 LOC):
    const syncOptions = { sync: true };
    export const effect = (fn, effectFn, options) =>
      createRenderEffect(
-       fn, effectFn,
+       fn,
+       effectFn,
        options ? { transparent: true, sync: true, ...options } : transparentOptions
      );
    export const memo = fn => createMemo(() => fn(), syncOptions);
@@ -3558,12 +3560,12 @@ compute is sync).
 15 runs each via `webdriver-ts` Playwright runner, full trace, focused
 on the four CPU-bound benches.
 
-| Bench                    | Baseline (median / mean) | `CONFIG_SYNC` (median / mean) | Δ mean   |
-| ------------------------ | -----------------------: | ----------------------------: | -------: |
-| `01_run1k`               |    `4.9 / 4.87 ± 0.22`   |     `4.30 / 4.25 ± 0.20`      | `−0.62`  |
-| `03_update10th1k_x16`    |    `2.1 / 2.11 ± 0.30`   |     `2.10 / 2.10 ± 0.24`      | `−0.01`  |
-| `07_create10k`           |   `46.5 / 46.86 ± 1.11`  |    `47.00 / 46.83 ± 0.99`     | `−0.03`  |
-| `08_create1k-after1k_x2` |    `4.8 / 4.80 ± 0.13`   |     `3.90 / 4.00 ± 0.26`      | `−0.80`  |
+| Bench                    | Baseline (median / mean) | `CONFIG_SYNC` (median / mean) |  Δ mean |
+| ------------------------ | -----------------------: | ----------------------------: | ------: |
+| `01_run1k`               |      `4.9 / 4.87 ± 0.22` |          `4.30 / 4.25 ± 0.20` | `−0.62` |
+| `03_update10th1k_x16`    |      `2.1 / 2.11 ± 0.30` |          `2.10 / 2.10 ± 0.24` | `−0.01` |
+| `07_create10k`           |    `46.5 / 46.86 ± 1.11` |        `47.00 / 46.83 ± 0.99` | `−0.03` |
+| `08_create1k-after1k_x2` |      `4.8 / 4.80 ± 0.13` |          `3.90 / 4.00 ± 0.26` | `−0.80` |
 
 `01` and `08` deliver clear wins (≥2× stddev). `03` and `07` are
 within noise — `03`'s update path doesn't surface the optimization,
@@ -3572,12 +3574,12 @@ when most of the bench time is DOM construction outside `recompute`.
 
 Cumulative effect on `01_run1k` over the recent series of probes:
 
-| Phase                                                |  median (ms) | Δ vs Solid 1 (`~3.8`) |
-| ---------------------------------------------------- | -----------: | --------------------: |
-| pre-probes baseline                                  |       `~5.0` |              `+1.2`   |
-| dedicated `createEffectNode()` shape (kept)          |       `~4.9` |              `+1.1`   |
-| single-untrack `handleAsync` (kept)                  |       `~4.9` |              `+1.1` ¹ |
-| `CONFIG_SYNC` opt-in (kept) — this experiment        |       `4.30` |              `+0.5`   |
+| Phase                                         | median (ms) | Δ vs Solid 1 (`~3.8`) |
+| --------------------------------------------- | ----------: | --------------------: |
+| pre-probes baseline                           |      `~5.0` |                `+1.2` |
+| dedicated `createEffectNode()` shape (kept)   |      `~4.9` |                `+1.1` |
+| single-untrack `handleAsync` (kept)           |      `~4.9` |              `+1.1` ¹ |
+| `CONFIG_SYNC` opt-in (kept) — this experiment |      `4.30` |                `+0.5` |
 
 ¹ The single-untrack `handleAsync` probe was net-positive on `07` /
 `08` even though `01` didn't move much; logged as kept on its own
@@ -3596,7 +3598,7 @@ merits.
   `_$spread` / `_$style` / `_$classList` / `_$memo` invoke the
   `effect` / `memo` wrappers in `solid-web`. None of these emit
   bodies that return raw Promises — they consume Promises via
-  `flatten` / `normalize` *before* the value reaches the
+  `flatten` / `normalize` _before_ the value reaches the
   render-effect's reactivity layer. JSX expression children that
   resolve to Promises are still handled correctly by upstream
   computeds gated by `<Loading>` / `<Suspense>`.
@@ -3608,11 +3610,11 @@ public-facing async semantics.
 Reproduction (clean re-run from a baseline commit):
 
 1. Build: `pnpm --filter @solidjs/signals build && pnpm --filter
-   @solidjs/web build`.
+@solidjs/web build`.
 2. Bench rebuild: `cd .../keyed/solid-next && npm run build-prod`.
 3. `cd webdriver-ts && node dist/benchmarkRunner.js --headless
-   --framework keyed/solid-next --benchmark 01_run1k 03_update10th1k_x16
-   07_create10k 08_create1k-after1k_x2 --runner playwright`.
+--framework keyed/solid-next --benchmark 01_run1k 03_update10th1k_x16
+07_create10k 08_create1k-after1k_x2 --runner playwright`.
 4. Aggregate medians/means/stddev from `results/solid-next-…json`.
 
 ### Post-`CONFIG_SYNC` Full CPU Snapshot (2026-05-05)
@@ -3623,38 +3625,38 @@ via `webdriver-ts` Playwright runner, median (± stddev) and mean of
 the `script` metric (V8 JS-execution time inside the click→idle
 window from Chrome tracing).
 
-| Bench                    |  vanilla       |  solid 1       |  solid 2       |  svelte 5      |  react        |
-| ------------------------ | -------------: | -------------: | -------------: | -------------: | ------------: |
-| `01_run1k`               | `2.20 ± 0.08`  | `3.90 ± 0.21`  | `4.30 ± 0.20`  | `3.70 ± 0.23`  | `11.50 ± 0.71` |
-| `02_replace1k`           | `5.60 ± 0.40`  | `8.00 ± 0.43`  | `7.80 ± 0.49`  | `7.70 ± 0.09`  | `16.90 ± 0.86` |
-| `03_update10th1k_x16`    | `0.80 ± 0.30`  | `1.80 ± 0.30`  | `2.10 ± 0.28`  | `1.70 ± 0.35`  | `5.00 ± 0.68`  |
-| `04_select1k`            | `0.10 ± 0.27`  | `0.50 ± 0.34`  | `0.90 ± 0.28`  | `0.90 ± 0.26`  | `2.10 ± 0.32`  |
-| `05_swap1k`              | `0.10 ± 0.36`  | `1.30 ± 0.41`  | `1.90 ± 0.27`  | `1.40 ± 0.26`  | `25.40 ± 0.71` |
-| `06_remove-one-1k`       | `0.30 ± 0.14`  | `0.60 ± 0.06`  | `0.60 ± 0.06`  | `0.60 ± 0.08`  | `1.50 ± 0.20`  |
-| `07_create10k`           | `29.0 ± 1.27`  | `43.2 ± 0.51`  | `46.2 ± 1.24`  | `41.0 ± 1.20`  | `226.6 ± 1.20` |
-| `08_create1k-after1k_x2` | `2.80 ± 0.12`  | `4.00 ± 0.14`  | `4.10 ± 0.38`  | `3.90 ± 0.19`  | `9.00 ± 0.75`  |
-| `09_clear1k_x8`          | `11.6 ± 0.32`  | `15.1 ± 0.41`  | `14.2 ± 0.61`  | `14.0 ± 0.55`  | `21.8 ± 3.49`  |
+| Bench                    |       vanilla |       solid 1 |       solid 2 |      svelte 5 |          react |
+| ------------------------ | ------------: | ------------: | ------------: | ------------: | -------------: |
+| `01_run1k`               | `2.20 ± 0.08` | `3.90 ± 0.21` | `4.30 ± 0.20` | `3.70 ± 0.23` | `11.50 ± 0.71` |
+| `02_replace1k`           | `5.60 ± 0.40` | `8.00 ± 0.43` | `7.80 ± 0.49` | `7.70 ± 0.09` | `16.90 ± 0.86` |
+| `03_update10th1k_x16`    | `0.80 ± 0.30` | `1.80 ± 0.30` | `2.10 ± 0.28` | `1.70 ± 0.35` |  `5.00 ± 0.68` |
+| `04_select1k`            | `0.10 ± 0.27` | `0.50 ± 0.34` | `0.90 ± 0.28` | `0.90 ± 0.26` |  `2.10 ± 0.32` |
+| `05_swap1k`              | `0.10 ± 0.36` | `1.30 ± 0.41` | `1.90 ± 0.27` | `1.40 ± 0.26` | `25.40 ± 0.71` |
+| `06_remove-one-1k`       | `0.30 ± 0.14` | `0.60 ± 0.06` | `0.60 ± 0.06` | `0.60 ± 0.08` |  `1.50 ± 0.20` |
+| `07_create10k`           | `29.0 ± 1.27` | `43.2 ± 0.51` | `46.2 ± 1.24` | `41.0 ± 1.20` | `226.6 ± 1.20` |
+| `08_create1k-after1k_x2` | `2.80 ± 0.12` | `4.00 ± 0.14` | `4.10 ± 0.38` | `3.90 ± 0.19` |  `9.00 ± 0.75` |
+| `09_clear1k_x8`          | `11.6 ± 0.32` | `15.1 ± 0.41` | `14.2 ± 0.61` | `14.0 ± 0.55` |  `21.8 ± 3.49` |
 
 `total` (full click→idle wall time, includes paint) for the same runs:
 
-| Bench                    | vanilla |  solid 1 |  solid 2 | svelte 5 |   react |
-| ------------------------ | ------: | -------: | -------: | -------: | ------: |
-| `01_run1k`               |  `33.0` |   `35.5` |   `35.2` |   `35.4` |  `42.1` |
-| `02_replace1k`           |  `40.0` |   `40.1` |   `40.1` |   `40.6` |  `50.5` |
-| `03_update10th1k_x16`    |  `18.3` |   `19.8` |   `20.4` |   `19.6` |  `22.8` |
-| `04_select1k`            |   `4.3` |    `4.7` |    `5.3` |    `4.9` |   `7.6` |
-| `05_swap1k`              |  `20.6` |   `22.2` |   `23.0` |   `21.9` | `144.5` |
-| `06_remove-one-1k`       |  `15.6` |   `16.7` |   `16.6` |   `16.4` |  `18.4` |
-| `07_create10k`           | `326.4` |  `349.8` |  `353.9` |  `344.0` | `542.7` |
-| `08_create1k-after1k_x2` |  `40.0` |   `40.6` |   `39.8` |   `39.7` |  `44.5` |
-| `09_clear1k_x8`          |  `15.0` |   `17.2` |   `16.2` |   `16.4` |  `24.4` |
+| Bench                    | vanilla | solid 1 | solid 2 | svelte 5 |   react |
+| ------------------------ | ------: | ------: | ------: | -------: | ------: |
+| `01_run1k`               |  `33.0` |  `35.5` |  `35.2` |   `35.4` |  `42.1` |
+| `02_replace1k`           |  `40.0` |  `40.1` |  `40.1` |   `40.6` |  `50.5` |
+| `03_update10th1k_x16`    |  `18.3` |  `19.8` |  `20.4` |   `19.6` |  `22.8` |
+| `04_select1k`            |   `4.3` |   `4.7` |   `5.3` |    `4.9` |   `7.6` |
+| `05_swap1k`              |  `20.6` |  `22.2` |  `23.0` |   `21.9` | `144.5` |
+| `06_remove-one-1k`       |  `15.6` |  `16.7` |  `16.6` |   `16.4` |  `18.4` |
+| `07_create10k`           | `326.4` | `349.8` | `353.9` |  `344.0` | `542.7` |
+| `08_create1k-after1k_x2` |  `40.0` |  `40.6` |  `39.8` |   `39.7` |  `44.5` |
+| `09_clear1k_x8`          |  `15.0` |  `17.2` |  `16.2` |   `16.4` |  `24.4` |
 
 #### Solid 2 vs Solid 1 — gaps after this session
 
-| Bench                    | Solid 1 (med) | Solid 2 (med) | gap   | gap %  |
-| ------------------------ | ------------: | ------------: | ----: | -----: |
+| Bench                    | Solid 1 (med) | Solid 2 (med) |     gap |  gap % |
+| ------------------------ | ------------: | ------------: | ------: | -----: |
 | `01_run1k`               |        `3.90` |        `4.30` | `+0.40` | `+10%` |
-| `02_replace1k`           |        `8.00` |        `7.80` | `−0.20` | `−2%`  |
+| `02_replace1k`           |        `8.00` |        `7.80` | `−0.20` |  `−2%` |
 | `03_update10th1k_x16`    |        `1.80` |        `2.10` | `+0.30` | `+17%` |
 | `04_select1k`            |        `0.50` |        `0.90` | `+0.40` | `+80%` |
 | `05_swap1k`              |        `1.30` |        `1.90` | `+0.60` | `+46%` |
@@ -3675,14 +3677,14 @@ class binding, swap-driven re-tracking) before chasing.
 
 #### Solid 2 vs Svelte 5
 
-| Bench                    | Svelte 5 | Solid 2 | Δ      |
+| Bench                    | Svelte 5 | Solid 2 |      Δ |
 | ------------------------ | -------: | ------: | -----: |
 | `01_run1k`               |   `3.70` |  `4.30` | `+0.6` |
 | `02_replace1k`           |   `7.70` |  `7.80` | `+0.1` |
 | `03_update10th1k_x16`    |   `1.70` |  `2.10` | `+0.4` |
-| `04_select1k`            |   `0.90` |  `0.90` |   `0`  |
+| `04_select1k`            |   `0.90` |  `0.90` |    `0` |
 | `05_swap1k`              |   `1.40` |  `1.90` | `+0.5` |
-| `06_remove-one-1k`       |   `0.60` |  `0.60` |   `0`  |
+| `06_remove-one-1k`       |   `0.60` |  `0.60` |    `0` |
 | `07_create10k`           |  `41.00` | `46.20` | `+5.2` |
 | `08_create1k-after1k_x2` |   `3.90` |  `4.10` | `+0.2` |
 | `09_clear1k_x8`          |  `14.00` | `14.20` | `+0.2` |
@@ -3743,7 +3745,7 @@ single source of truth for async-shape detection:
 - **Dev:** the `__DEV__` guard collapses, so `CONFIG_SYNC` nodes flow
   through the full `handleAsync` path. The early return there handles
   sync values identically to non-sync nodes; the only branch that
-  changes behavior is the one that *would* have entered the async
+  changes behavior is the one that _would_ have entered the async
   bookkeeping path. At that point we emit:
 
   ```
@@ -3776,7 +3778,7 @@ Test coverage (`tests/diagnostics.test.ts`):
 #### 2. `flush(fn)` shape: drain at every level
 
 The previous implementation incremented a `syncDepth` counter for the
-duration of `fn` and only drained once the *outermost* `flush(fn)`
+duration of `fn` and only drained once the _outermost_ `flush(fn)`
 exited. Nested `flush(fn)` calls were silently held — the inner
 callback ran, returned, and any writes inside it sat on the queue
 until the outer flush completed.
@@ -3790,13 +3792,20 @@ The fix is a small reorder in `flush(fn)`:
 ```ts
 // before
 syncDepth++;
-try { return fn(); }
-finally { if (--syncDepth === 0) flush(); }
+try {
+  return fn();
+} finally {
+  if (--syncDepth === 0) flush();
+}
 
 // after
 syncDepth++;
-try { return fn(); }
-finally { flush(); syncDepth--; }
+try {
+  return fn();
+} finally {
+  flush();
+  syncDepth--;
+}
 ```
 
 Now every `flush(fn)` call drains at its own boundary. `syncDepth` is
@@ -3808,7 +3817,7 @@ drain loop instead of scheduling a redundant microtask. The outer
 Behavior change:
 
 - `flush(() => { setX(20); flush(() => setY(30)); })` — the inner
-  `flush` now *does* drain, so an effect tracking both signals fires
+  `flush` now _does_ drain, so an effect tracking both signals fires
   once at the inner boundary with `[20, 30]` rather than once at the
   outer boundary.
 - Top-level (non-nested) `flush(fn)` is unchanged.
@@ -3902,17 +3911,17 @@ batch contract is independent of `flush(fn)`'s internal shape.
 runs (old `flush(fn)` + old harness) and 4 final runs (new
 `flush(fn)` + new harness, run on Node):
 
-| Test                          | Baseline (med ms) | Final (med ms) |    Δ ms |    Δ % |
-| ----------------------------- | ----------------: | -------------: | ------: | -----: |
-| `updateSignals` (sum 7 tests) |          `615.50` |       `612.96` |  `−2.54`| `−0.4` |
-| `update1to1`                  |           `43.84` |        `42.80` |  `−1.04`| `−2.4` |
-| `update1to1000`               |          `485.42` |       `484.24` |  `−1.18`| `−0.2` |
-| `avoidablePropagation`        |          `175.08` |       `170.85` |  `−4.23`| `−2.4` |
-| `broadPropagation`            |          `249.12` |       `247.24` |  `−1.88`| `−0.8` |
-| `diamond`                     |          `201.60` |       `201.72` |   `0.12`| ` 0.1` |
-| `4-1000x12 - dyn5%`           |          `604.05` |       `616.45` | `+12.40`| `+2.1` |
-| `25-1000x5`                   |          `687.49` |       `680.94` |  `−6.55`| `−1.0` |
-| **TOTAL (34 tests)**          |        `4231.04`  |     `4226.26`  |  `−4.78`| `−0.1` |
+| Test                          | Baseline (med ms) | Final (med ms) |     Δ ms |    Δ % |
+| ----------------------------- | ----------------: | -------------: | -------: | -----: |
+| `updateSignals` (sum 7 tests) |          `615.50` |       `612.96` |  `−2.54` | `−0.4` |
+| `update1to1`                  |           `43.84` |        `42.80` |  `−1.04` | `−2.4` |
+| `update1to1000`               |          `485.42` |       `484.24` |  `−1.18` | `−0.2` |
+| `avoidablePropagation`        |          `175.08` |       `170.85` |  `−4.23` | `−2.4` |
+| `broadPropagation`            |          `249.12` |       `247.24` |  `−1.88` | `−0.8` |
+| `diamond`                     |          `201.60` |       `201.72` |   `0.12` | ` 0.1` |
+| `4-1000x12 - dyn5%`           |          `604.05` |       `616.45` | `+12.40` | `+2.1` |
+| `25-1000x5`                   |          `687.49` |       `680.94` |  `−6.55` | `−1.0` |
+| **TOTAL (34 tests)**          |         `4231.04` |      `4226.26` |  `−4.78` | `−0.1` |
 
 Wider-spread per-test deltas are sub-10ms benches with high relative
 noise (`create2to1` `+17 %` on a `7.79 → 9.15 ms` swing, `create1to2`
@@ -3934,11 +3943,12 @@ per-call allocation). Median across 3 runs vs the no-sync harness:
 
 Why the no-op? The `CONFIG_SYNC` fast path's value comes from
 skipping the `typeof result === "object" && result !== null` probe
-+ `handleAsync` frame when the compute fn returns an *object*
-(Promise, DOM node, etc.). All JSRB tests return numeric primitives,
-which the existing `!isAsyncResult` early-bail in `recompute`
-already handles without calling `handleAsync`. There's nothing for
-the sync gate to skip.
+
+- `handleAsync` frame when the compute fn returns an _object_
+  (Promise, DOM node, etc.). All JSRB tests return numeric primitives,
+  which the existing `!isAsyncResult` early-bail in `recompute`
+  already handles without calling `handleAsync`. There's nothing for
+  the sync gate to skip.
 
 This is exactly why `CONFIG_SYNC` paid off in
 `js-framework-benchmark` (`_$insert` returns DOM nodes — `typeof ==
@@ -3975,12 +3985,12 @@ counters give deterministic per-call totals.
 
 #### Results
 
-| Phase                  | Before (μs/iter, median) | After (μs/iter, median) |    Δ μs/iter |
-| ---------------------- | -----------------------: | ----------------------: | -----------: |
-| `disposeChildren` (top-level) | `683.5`           | `675.3`                 |  `−8.2`      |
-| `createOwner`          | `169.3`                  | `168.7`                 |  `−0.6`      |
-| `createEffectNode`     | `303.7`                  | `301.3`                 |  `−2.4`      |
-| `computed`             | `0.0` (none called)      | `0.0` (none called)     |  `0.0`       |
+| Phase                         | Before (μs/iter, median) | After (μs/iter, median) | Δ μs/iter |
+| ----------------------------- | -----------------------: | ----------------------: | --------: |
+| `disposeChildren` (top-level) |                  `683.5` |                 `675.3` |    `−8.2` |
+| `createOwner`                 |                  `169.3` |                 `168.7` |    `−0.6` |
+| `createEffectNode`            |                  `303.7` |                 `301.3` |    `−2.4` |
+| `computed`                    |      `0.0` (none called) |     `0.0` (none called) |     `0.0` |
 
 Across 30 iters the leak fix's added work nets out to **≈ −10 μs/iter**
 total — pure noise. The `disposeChildren` splice block and gate
@@ -4037,13 +4047,13 @@ Re-ran the JFB memory suite for `solid-next` after the
 parent chain` commit landed. Headless Chromium, `--count 10`,
 Playwright runner, median values.
 
-| Benchmark              | Baseline (post-keep, 10×) | Post-leak-fix (10×) |    Δ MB |     Δ % |
-| ---------------------- | -----------------------: | ------------------: | ------: | ------: |
-| `21_ready-memory`      |                  `1.008` |             `1.012` | `+0.004` | `+0.4%` |
-| `22_run-memory`        |                  `3.193` |             `3.200` | `+0.007` | `+0.2%` |
-| `23_update5-memory`    |                  `3.309` |             `3.225` | `−0.084` | `−2.5%` |
-| `25_run-clear-memory`  |                  `1.499` |             `1.398` | `−0.101` | `−6.7%` |
-| `26_run-10k-memory`    |                     (n/a) |            `20.446` |       — |       — |
+| Benchmark             | Baseline (post-keep, 10×) | Post-leak-fix (10×) |     Δ MB |     Δ % |
+| --------------------- | ------------------------: | ------------------: | -------: | ------: |
+| `21_ready-memory`     |                   `1.008` |             `1.012` | `+0.004` | `+0.4%` |
+| `22_run-memory`       |                   `3.193` |             `3.200` | `+0.007` | `+0.2%` |
+| `23_update5-memory`   |                   `3.309` |             `3.225` | `−0.084` | `−2.5%` |
+| `25_run-clear-memory` |                   `1.499` |             `1.398` | `−0.101` | `−6.7%` |
+| `26_run-10k-memory`   |                     (n/a) |            `20.446` |        — |       — |
 
 Stddev (post-fix run, 10 samples):
 
@@ -4094,7 +4104,7 @@ self-time.
   reconstruction of self/inclusive time, dumped both
   `*.cpuprofile.json` and a flat-by-self-time summary.
 - Total profile time: 4032 ms (Solid 2) vs 4093 ms (Solid 1) over
-  60 iters, i.e. Solid 2 was actually a hair *faster* in wall
+  60 iters, i.e. Solid 2 was actually a hair _faster_ in wall
   clock for this probe. The JFB script-time gap (Solid 2 9.10 ms vs
   Solid 1 7.80 ms) is therefore mostly inside V8 ScriptExecute
   events the sampling profile doesn't isolate, plus run-to-run
@@ -4105,30 +4115,30 @@ self-time.
 DOM API self-time (browser-internal, identical between Solid 1 and
 Solid 2 — they share `dom-expressions`):
 
-| frame                | self ms/iter |  calls/iter | what it is                                    |
-| -------------------- | -----------: | ----------: | --------------------------------------------- |
-| `remove`             |       `3.93` |      `1000` | `reconcileArrays` per-row `removeChild`       |
-| `cloneNode`          |       `0.92` |      `1000` | template clone for each new row               |
-| `insertBefore`       |       `0.75` |      `1000` | mount each new row                            |
-| attribute/text/event |     `~0.3-0.5` |   per-row | `setAttribute`, `data` writes, click bindings |
+| frame                | self ms/iter | calls/iter | what it is                                    |
+| -------------------- | -----------: | ---------: | --------------------------------------------- |
+| `remove`             |       `3.93` |     `1000` | `reconcileArrays` per-row `removeChild`       |
+| `cloneNode`          |       `0.92` |     `1000` | template clone for each new row               |
+| `insertBefore`       |       `0.75` |     `1000` | mount each new row                            |
+| attribute/text/event |   `~0.3-0.5` |    per-row | `setAttribute`, `data` writes, click bindings |
 
 That is `~5.5 ms` of inherent DOM cost — not optimizable in any
 framework using a per-row reconciler.
 
 Framework JS, top frames per iter (Solid 2):
 
-| frame                                 | self μs/iter |
-| ------------------------------------- | -----------: |
-| row factory closure (`main.js:2987`)  |        `550` |
-| inner effect compute closures         |        `210` |
-| `runWithOwner` (1000 per-row calls)   |        `111` |
-| `mapArray` reconcile body lambda      |        `115` |
-| `recompute`                           |         `45` |
-| `disposeChildren`                     |         `35` |
-| `createOwner`                         |         `21` |
-| `read`                                |         `20` |
-| `createEffectNode`                    |         `13` |
-| `flush` + `commitPendingNodes`        |         `12` |
+| frame                                | self μs/iter |
+| ------------------------------------ | -----------: |
+| row factory closure (`main.js:2987`) |        `550` |
+| inner effect compute closures        |        `210` |
+| `runWithOwner` (1000 per-row calls)  |        `111` |
+| `mapArray` reconcile body lambda     |        `115` |
+| `recompute`                          |         `45` |
+| `disposeChildren`                    |         `35` |
+| `createOwner`                        |         `21` |
+| `read`                               |         `20` |
+| `createEffectNode`                   |         `13` |
+| `flush` + `commitPendingNodes`       |         `12` |
 
 Sum of named framework frames: `~1.05 ms/iter`. The remaining
 `~2.5 ms/iter` of JS is in the long tail (anonymous closures,
@@ -4137,16 +4147,16 @@ script-execution events.
 
 #### Per-frame Solid 1 vs Solid 2 (μs/iter)
 
-| sub-area                           | Solid 1 (μs/iter)                          | Solid 2 (μs/iter)                                  |       Δ |
-| ---------------------------------- | -----------------------------------------: | -------------------------------------------------: | ------: |
-| Per-row scope wrap                 | `49.7` (createRoot + runUpdates)           | `111.2` (runWithOwner)                             | `+61.5` |
-| Owner alloc                        | `0` (folded into createRoot)               | `20.6` (createOwner)                               | `+20.6` |
-| Effect setup + initial recompute   | `32.4`                                     | `89.3` (recompute + effect + createEffectNode + runEffect) | `+56.9` |
-| Read primitive                     | `19.3` (readSignal)                        | `20.0` (read)                                      |  `+0.7` |
-| Dispose                            | `78.0` (cleanNode)                         | `34.4` (disposeChildren)                           | `−43.6` |
-| `untrack`                          | `62.4`                                     | `0.7`                                              | `−61.7` |
-| **Store traps `selected[rowId]`**  | **`0`**                                    | **`160.6`** (getNode `85` + unobserved `75.6`)     | `+160.6` |
-| `reconcileArrays`                  | `136.6`                                    | `134.7`                                            |  same   |
+| sub-area                          |                Solid 1 (μs/iter) |                                          Solid 2 (μs/iter) |        Δ |
+| --------------------------------- | -------------------------------: | ---------------------------------------------------------: | -------: |
+| Per-row scope wrap                | `49.7` (createRoot + runUpdates) |                                     `111.2` (runWithOwner) |  `+61.5` |
+| Owner alloc                       |     `0` (folded into createRoot) |                                       `20.6` (createOwner) |  `+20.6` |
+| Effect setup + initial recompute  |                           `32.4` | `89.3` (recompute + effect + createEffectNode + runEffect) |  `+56.9` |
+| Read primitive                    |              `19.3` (readSignal) |                                              `20.0` (read) |   `+0.7` |
+| Dispose                           |               `78.0` (cleanNode) |                                   `34.4` (disposeChildren) |  `−43.6` |
+| `untrack`                         |                           `62.4` |                                                      `0.7` |  `−61.7` |
+| **Store traps `selected[rowId]`** |                          **`0`** |             **`160.6`** (getNode `85` + unobserved `75.6`) | `+160.6` |
+| `reconcileArrays`                 |                          `136.6` |                                                    `134.7` |     same |
 
 Net: Solid 2 is `+~190 μs/iter` heavier in attributed framework JS.
 Solid 1 wins on dispose and untrack (the new core inherited those
@@ -4217,7 +4227,7 @@ Goal: assess whether the proposed `cleanChildren` fix in
 #### What the patch does
 
 Adds tracking of nodes that were previously inserted via
-`cleanChildren` so a subsequent `cleanChildren` on the *prior* parent
+`cleanChildren` so a subsequent `cleanChildren` on the _prior_ parent
 does not yank the node back out of its new home. Specifically:
 
 - Module-level `const moved = new Set(); let scheduled = false;`
@@ -4236,8 +4246,9 @@ moving a JSX child between two `<Show>` branches discarded it.
 The locally installed `dom-expressions@0.50.0-next.6` had already
 commented out the `parent = (multi && current[0] && current[0].parentNode) || parent`
 retarget line that PR #382 also removes — so only the `moved` Set
-+ microtask scheduling part needed porting to the current shape of
-`cleanChildren`.
+
+- microtask scheduling part needed porting to the current shape of
+  `cleanChildren`.
 
 #### Method
 
@@ -4253,17 +4264,17 @@ retarget line that PR #382 also removes — so only the `moved` Set
 
 #### Result
 
-| Bench                    |       baseline |        +PR 382 |        Δ |     σ-band |
-| ------------------------ | -------------: | -------------: | -------: | ---------: |
-| `01_run1k`               |  `4.10 ± 0.19` |  `4.65 ± 0.35` |  `+0.55` |     `1.6σ` |
-| `02_replace1k`           |  `9.10 ± 0.24` |  `8.60 ± 0.39` |  `−0.50` |     `1.3σ` |
-| `03_update10th1k_x16`    |  `2.30 ± 0.25` |  `2.00 ± 0.36` |  `−0.30` |     `0.8σ` |
-| `04_select1k`            |  `0.90 ± 0.23` |  `0.80 ± 0.15` |  `−0.10` |     `0.4σ` |
-| `05_swap1k`              |  `1.60 ± 0.37` |  `1.70 ± 0.23` |  `+0.10` |     `0.3σ` |
-| `06_remove-one-1k`       |  `0.60 ± 0.13` |  `0.60 ± 0.07` |   `0.00` |     `0.0σ` |
-| `07_create10k`           | `46.30 ± 1.68` | `46.65 ± 0.64` |  `+0.35` |     `0.2σ` |
-| `08_create1k-after1k_x2` |  `4.30 ± 0.14` |  `3.90 ± 0.18` |  `−0.40` |     `2.2σ` |
-| `09_clear1k_x8`          | `14.10 ± 0.33` | `14.25 ± 0.76` |  `+0.15` |     `0.2σ` |
+| Bench                    |       baseline |        +PR 382 |       Δ | σ-band |
+| ------------------------ | -------------: | -------------: | ------: | -----: |
+| `01_run1k`               |  `4.10 ± 0.19` |  `4.65 ± 0.35` | `+0.55` | `1.6σ` |
+| `02_replace1k`           |  `9.10 ± 0.24` |  `8.60 ± 0.39` | `−0.50` | `1.3σ` |
+| `03_update10th1k_x16`    |  `2.30 ± 0.25` |  `2.00 ± 0.36` | `−0.30` | `0.8σ` |
+| `04_select1k`            |  `0.90 ± 0.23` |  `0.80 ± 0.15` | `−0.10` | `0.4σ` |
+| `05_swap1k`              |  `1.60 ± 0.37` |  `1.70 ± 0.23` | `+0.10` | `0.3σ` |
+| `06_remove-one-1k`       |  `0.60 ± 0.13` |  `0.60 ± 0.07` |  `0.00` | `0.0σ` |
+| `07_create10k`           | `46.30 ± 1.68` | `46.65 ± 0.64` | `+0.35` | `0.2σ` |
+| `08_create1k-after1k_x2` |  `4.30 ± 0.14` |  `3.90 ± 0.18` | `−0.40` | `2.2σ` |
+| `09_clear1k_x8`          | `14.10 ± 0.33` | `14.25 ± 0.76` | `+0.15` | `0.2σ` |
 
 #### Read
 
@@ -4276,11 +4287,11 @@ exceeds `~2σ`, and signs go both ways:
   `08_create1k-after1k_x2` `−0.40` ms (2.2σ),
   `03_update10th1k_x16` `−0.30` ms (0.8σ).
 
-The benches that *don't* exercise `cleanChildren` at all on their
+The benches that _don't_ exercise `cleanChildren` at all on their
 hot paths (`02_replace1k`, `07_create10k`, `08_create1k-after1k_x2`
 all go through `reconcileArrays`, not `cleanChildren`) move
 randomly within their σ band, consistent with run variance.
-The benches that *do* exercise the patched path (`01_run1k`'s
+The benches that _do_ exercise the patched path (`01_run1k`'s
 initial mount, `09_clear1k_x8`'s clear) show the largest signed
 positive delta on `01_run1k` — `+0.55` ms / 1.6σ — which is
 plausible but inside the noise envelope of a single 10-rep run.
@@ -4351,12 +4362,12 @@ sum those medians as a single aggregate score (lower is better).
 
 Quick sweep at `i=3` across current and three snapshotted 2.0 builds in `dist/`:
 
-| build | sCU=off (sum-of-medians) | sCU=on |
-| --- | ---: | ---: |
-| `current` | `53.20 ms` | `67.40 ms` |
-| `main-prev` | `46.00 ms` | `54.00 ms` |
-| `main-s007` | `43.50 ms` | `49.10 ms` |
-| `main-s024` | `45.10 ms` | `49.90 ms` |
+| build       | sCU=off (sum-of-medians) |     sCU=on |
+| ----------- | -----------------------: | ---------: |
+| `current`   |               `53.20 ms` | `67.40 ms` |
+| `main-prev` |               `46.00 ms` | `54.00 ms` |
+| `main-s007` |               `43.50 ms` | `49.10 ms` |
+| `main-s024` |               `45.10 ms` | `49.90 ms` |
 
 `main-s007` is the strongest old 2.0 build under both modes, so that's the
 baseline current is being attributed against.
@@ -4374,10 +4385,10 @@ class on `<tr>` is intentionally kept static via `class={['TableRow', { active: 
 which is why those attribute-order shifts appear at all — the static class
 ends up in the template literal regardless of source order.
 
-| mode | builds | trace points | raw divergences | normalized divergences |
-| --- | --- | ---: | ---: | ---: |
-| `disableSCU=off` | `current` vs `main-s007` | `192` | `88` | `0` |
-| `disableSCU=on` | `current` vs `main-s007` | `192` | `~88` | `0` |
+| mode             | builds                   | trace points | raw divergences | normalized divergences |
+| ---------------- | ------------------------ | -----------: | --------------: | ---------------------: |
+| `disableSCU=off` | `current` vs `main-s007` |        `192` |            `88` |                    `0` |
+| `disableSCU=on`  | `current` vs `main-s007` |        `192` |           `~88` |                    `0` |
 
 All raw divergences were `<tr>` attribute-emit-order on the table groups; the
 tree groups (where the regression is concentrated) had zero divergences even
@@ -4389,26 +4400,26 @@ totals at `i=10` are real per-tick work, not one build short-cutting.
 
 Sum-of-medians totals:
 
-| mode | current | `main-s007` | Δ | Δ% |
-| --- | ---: | ---: | ---: | ---: |
-| sCU=off (server data) | `56.05 ms` | `45.95 ms` | `+10.10` | `+22.0%` |
-| sCU=on (component rendering) | `68.15 ms` | `50.35 ms` | `+17.80` | `+35.4%` |
+| mode                         |    current | `main-s007` |        Δ |       Δ% |
+| ---------------------------- | ---------: | ----------: | -------: | -------: |
+| sCU=off (server data)        | `56.05 ms` |  `45.95 ms` | `+10.10` | `+22.0%` |
+| sCU=on (component rendering) | `68.15 ms` |  `50.35 ms` | `+17.80` | `+35.4%` |
 
 The component-rendering mode is hit harder, which points at the per-component
 setup/render path more than the diff/reconcile path.
 
 #### Top per-test regressions, sCU=on (current − `main-s007`, ms)
 
-| test | current | `main-s007` | Δ ms | Δ % |
-| --- | ---: | ---: | ---: | ---: |
-| `tree/[10,10,10,10]/no_change` | `4.85` | `2.10` | `+2.75` | `+131%` |
-| `tree/[2,2,2,2,2,2,2,2,2,2]/render` | `8.95` | `6.85` | `+2.10` | `+31%` |
-| `tree/[50,10]/render` | `2.40` | `1.50` | `+0.90` | `+60%` |
-| `tree/[500]/render` | `2.80` | `1.95` | `+0.85` | `+44%` |
-| `tree/[10,50]/render` | `1.85` | `1.15` | `+0.70` | `+61%` |
-| `tree/[5,100]/render` | `1.75` | `1.10` | `+0.65` | `+59%` |
-| `table/[100,4]/render` | `0.95` | `0.60` | `+0.35` | `+58%` |
-| `tree/[500]/[reverse]` | `3.20` | `2.90` | `+0.30` | `+10%` |
+| test                                | current | `main-s007` |    Δ ms |     Δ % |
+| ----------------------------------- | ------: | ----------: | ------: | ------: |
+| `tree/[10,10,10,10]/no_change`      |  `4.85` |      `2.10` | `+2.75` | `+131%` |
+| `tree/[2,2,2,2,2,2,2,2,2,2]/render` |  `8.95` |      `6.85` | `+2.10` |  `+31%` |
+| `tree/[50,10]/render`               |  `2.40` |      `1.50` | `+0.90` |  `+60%` |
+| `tree/[500]/render`                 |  `2.80` |      `1.95` | `+0.85` |  `+44%` |
+| `tree/[10,50]/render`               |  `1.85` |      `1.15` | `+0.70` |  `+61%` |
+| `tree/[5,100]/render`               |  `1.75` |      `1.10` | `+0.65` |  `+59%` |
+| `table/[100,4]/render`              |  `0.95` |      `0.60` | `+0.35` |  `+58%` |
+| `tree/[500]/[reverse]`              |  `3.20` |      `2.90` | `+0.30` |  `+10%` |
 
 `tree/[10,10,10,10]/no_change` (10000 leaves, every component re-executed,
 no actual state change) on its own accounts for ~`2.75 / 17.80 ≈ 15%` of
@@ -4417,15 +4428,15 @@ diff and no data movement. That's the cleanest signal for attribution.
 
 #### Top per-test regressions, sCU=off (current − `main-s007`, ms)
 
-| test | current | `main-s007` | Δ ms | Δ % |
-| --- | ---: | ---: | ---: | ---: |
-| `tree/[2,2,2,2,2,2,2,2,2,2]/render` | `9.20` | `7.95` | `+1.25` | `+16%` |
-| `tree/[500]/render` | `3.05` | `2.10` | `+0.95` | `+45%` |
-| `tree/[10,50]/render` | `2.00` | `1.30` | `+0.70` | `+54%` |
-| `tree/[50,10]/render` | `2.45` | `1.80` | `+0.65` | `+36%` |
-| `tree/[5,100]/render` | `1.75` | `1.15` | `+0.60` | `+52%` |
-| `table/[100,4]/render` | `0.90` | `0.65` | `+0.25` | `+38%` |
-| `tree/[500]/[reverse]` | `3.15` | `3.00` | `+0.15` | `+5%` |
+| test                                | current | `main-s007` |    Δ ms |    Δ % |
+| ----------------------------------- | ------: | ----------: | ------: | -----: |
+| `tree/[2,2,2,2,2,2,2,2,2,2]/render` |  `9.20` |      `7.95` | `+1.25` | `+16%` |
+| `tree/[500]/render`                 |  `3.05` |      `2.10` | `+0.95` | `+45%` |
+| `tree/[10,50]/render`               |  `2.00` |      `1.30` | `+0.70` | `+54%` |
+| `tree/[50,10]/render`               |  `2.45` |      `1.80` | `+0.65` | `+36%` |
+| `tree/[5,100]/render`               |  `1.75` |      `1.15` | `+0.60` | `+52%` |
+| `table/[100,4]/render`              |  `0.90` |      `0.65` | `+0.25` | `+38%` |
+| `tree/[500]/[reverse]`              |  `3.15` |      `3.00` | `+0.15` |  `+5%` |
 
 #### Read
 
@@ -4450,40 +4461,40 @@ CDP CPU profile, 30 iterations, single test isolated via UIBench's
 
 ##### Top self-time frames (current build, baseline)
 
-| rank | self-ms | self-% | function |
-| ---: | ---: | ---: | --- |
-| 1 | `344.15` | `32.2%` | `applyState` |
-| 2 | `318.56` | `29.8%` | `(idle)` |
-| 3 | `215.10` | `20.1%` | `Executor._next` (harness) |
-| 4 |  `79.81` |  `7.5%` | `(program)` |
-| 5 |  `58.33` |  `5.5%` | `(garbage collector)` |
-| 6 |  `22.59` |  `2.1%` | `wrap` |
-| 7 |   `9.48` |  `0.9%` | `(anonymous)` |
-| 8 |   `5.12` |  `0.5%` | `i` (setSignal) |
+| rank |  self-ms |  self-% | function                   |
+| ---: | -------: | ------: | -------------------------- |
+|    1 | `344.15` | `32.2%` | `applyState`               |
+|    2 | `318.56` | `29.8%` | `(idle)`                   |
+|    3 | `215.10` | `20.1%` | `Executor._next` (harness) |
+|    4 |  `79.81` |  `7.5%` | `(program)`                |
+|    5 |  `58.33` |  `5.5%` | `(garbage collector)`      |
+|    6 |  `22.59` |  `2.1%` | `wrap`                     |
+|    7 |   `9.48` |  `0.9%` | `(anonymous)`              |
+|    8 |   `5.12` |  `0.5%` | `i` (setSignal)            |
 
 ##### Top self-time frames (`main-s007`, baseline)
 
-| rank | self-ms | self-% | function |
-| ---: | ---: | ---: | --- |
-| 1 | `535.04` | `50.6%` | `(idle)` |
-| 2 | `227.08` | `21.5%` | `Executor._next` (harness) |
-| 3 | `157.25` | `14.9%` | `K` (reconcile main) |
-| 4 |  `79.26` |  `7.5%` | `(program)` |
-| 5 |  `25.05` |  `2.4%` | `(garbage collector)` |
-| 6 |   `6.92` |  `0.7%` | `get` (proxy trap) |
-| 7 |   `6.33` |  `0.6%` | `n` (wrap) |
+| rank |  self-ms |  self-% | function                   |
+| ---: | -------: | ------: | -------------------------- |
+|    1 | `535.04` | `50.6%` | `(idle)`                   |
+|    2 | `227.08` | `21.5%` | `Executor._next` (harness) |
+|    3 | `157.25` | `14.9%` | `K` (reconcile main)       |
+|    4 |  `79.26` |  `7.5%` | `(program)`                |
+|    5 |  `25.05` |  `2.4%` | `(garbage collector)`      |
+|    6 |   `6.92` |  `0.7%` | `get` (proxy trap)         |
+|    7 |   `6.33` |  `0.6%` | `n` (wrap)                 |
 
 ##### Reconcile subtree comparison (inclusive, 30 iter)
 
-|  | current | `main-s007` | Δ |
-| --- | ---: | ---: | ---: |
-| `applyState` / `K` (inclusive subtree) | `3580 ms` | `1754 ms` | `+1826 ms` (`2.04×`) |
-| `applyState` / `K` (self) | `344 ms` | `157 ms` | `+187 ms` |
-| `wrap` calls from reconcile | `22.5 ms` | `6.2 ms` | `+16.3 ms` (`3.6×`) |
-| `get` (storeTraps) from reconcile | `1.6 ms` | `6.1 ms` | `−4.5 ms` |
-| GC | `58 ms` | `25 ms` | `+33 ms` |
+|                                        |   current | `main-s007` |                    Δ |
+| -------------------------------------- | --------: | ----------: | -------------------: |
+| `applyState` / `K` (inclusive subtree) | `3580 ms` |   `1754 ms` | `+1826 ms` (`2.04×`) |
+| `applyState` / `K` (self)              |  `344 ms` |    `157 ms` |            `+187 ms` |
+| `wrap` calls from reconcile            | `22.5 ms` |    `6.2 ms` |  `+16.3 ms` (`3.6×`) |
+| `get` (storeTraps) from reconcile      |  `1.6 ms` |    `6.1 ms` |            `−4.5 ms` |
+| GC                                     |   `58 ms` |     `25 ms` |             `+33 ms` |
 
-The proxy `get` trap is *less* hit from reconcile in current, ruling
+The proxy `get` trap is _less_ hit from reconcile in current, ruling
 the trap out as the regression source. The regression lives in the
 reconcile algorithm body itself plus `wrap` allocation pressure.
 
@@ -4515,12 +4526,12 @@ when `fastPath` is true. Slow path is unchanged.
 
 ##### Result
 
-| metric | baseline | after fix | Δ |
-| --- | ---: | ---: | ---: |
-| `applyState` self (30 iter) | `344 ms` | `250 ms` | `−94 ms` (`−27%`) |
-| reconcile inclusive subtree | `3580 ms` | `2620 ms` | `−960 ms` (`−27%`) |
-| `wrap` from reconcile | `22.5 ms` | `17.7 ms` | `−4.8 ms` |
-| GC | `58 ms` | `42 ms` | `−16 ms` |
+| metric                                               |  baseline | after fix |                   Δ |
+| ---------------------------------------------------- | --------: | --------: | ------------------: |
+| `applyState` self (30 iter)                          |  `344 ms` |  `250 ms` |   `−94 ms` (`−27%`) |
+| reconcile inclusive subtree                          | `3580 ms` | `2620 ms` |  `−960 ms` (`−27%`) |
+| `wrap` from reconcile                                | `22.5 ms` | `17.7 ms` |           `−4.8 ms` |
+| GC                                                   |   `58 ms` |   `42 ms` |            `−16 ms` |
 | `tree/[10,10,10,10]/no_change` median (i=10, sCU=on) | `4.85 ms` | `3.50 ms` | `−1.35 ms` (`−28%`) |
 
 `current` vs `main-s007` on the same test: `4.85` → `3.50` ms,
@@ -4567,12 +4578,12 @@ current via the same hash trace probe.
 Sum-of-medians, `i=10`, both modes, against current local
 (post Optimization #1):
 
-| build | era | sCU=off | sCU=on |
-| --- | --- | ---: | ---: |
-| `main-14` | Solid `0.14` (pre-1.0 baseline) | `34.85 ms` | `42.05 ms` |
-| `main-s007` | Solid 2.0 — early | `44.60 ms` | `50.10 ms` |
-| `current` | Solid 2.0 — local + Opt #1 | `51.25 ms` | `62.90 ms` |
-| `main-190` | Solid `1.9.0` | `82.40 ms` | `78.40 ms` |
+| build       | era                             |    sCU=off |     sCU=on |
+| ----------- | ------------------------------- | ---------: | ---------: |
+| `main-14`   | Solid `0.14` (pre-1.0 baseline) | `34.85 ms` | `42.05 ms` |
+| `main-s007` | Solid 2.0 — early               | `44.60 ms` | `50.10 ms` |
+| `current`   | Solid 2.0 — local + Opt #1      | `51.25 ms` | `62.90 ms` |
+| `main-190`  | Solid `1.9.0`                   | `82.40 ms` | `78.40 ms` |
 
 Reads:
 
@@ -4585,7 +4596,7 @@ Reads:
   recovered most of it; `main-s007` was within `28%` of `0.14` on
   sCU=off and within `19%` on sCU=on.
 - Current sits between `s007` and `1.9.0` — `+15%` over `s007` (the
-  recent regression we're investigating) and `~32% / 25%` *better*
+  recent regression we're investigating) and `~32% / 25%` _better_
   than `1.9.0`. So we're net ahead of Solid 1, but we've slipped
   inside the Solid 2 line.
 
@@ -4604,7 +4615,7 @@ has and 0.14 didn't, so we know which features are "feature cost"
 paid even when the feature is unused" (gating opportunity).
 
 **UIBench caveat:** the absolute `+170 ms` per-sweep delta against
-`main-14` measured below significantly *overstates* the real-world
+`main-14` measured below significantly _overstates_ the real-world
 delta because UIBench is the worst case for the **listened-paths
 diff** feature added in 2.0. Solid 2 only walks/diffs keys that a
 computation has actually read (`Object.keys(nodes)` rather than the
@@ -4618,7 +4629,7 @@ partly listened-paths feature cost on a benchmark where the feature
 can't help. Optimizations that touch the listened-paths machinery
 itself (e.g., walking `Object.keys(next)` instead of
 `Object.keys(nodes)`) are off-limits — they'd regress real-world
-behavior. Optimizations that touch *orthogonal* features (projection
+behavior. Optimizations that touch _orthogonal_ features (projection
 routing, optimistic dispatcher, transition checks) are fair game.
 
 #### Tier-1 — always paid on every signal read/write
@@ -4646,13 +4657,13 @@ hot paths. 0.14 had nothing equivalent.
    (`_transition`, `_overrideValue`, `_pendingValue !== NOT_PENDING`)
    and a 5-way branch for `currentValue`.
 4. **Snapshot capture check on every read** (`snapshotCaptureActive
-   && c._config & CONFIG_IN_SNAPSHOT_SCOPE`). Module-global flag plus
+&& c._config & CONFIG_IN_SNAPSHOT_SCOPE`). Module-global flag plus
    per-owner config bit — checked on every read inside any owner.
 5. **Bigger Signal instance shape**. 2.0 Signal has at least:
    `_value, _pendingValue, _overrideValue, _snapshotValue,
-   _pendingSignal, _latestValueComputed, _transition, _firewall,
-   _equals, _config, _flags, _statusFlags, _optimisticLane,
-   _overrideSinceLane, _time, _name, _fn?, _height?, …` — roughly
+_pendingSignal, _latestValueComputed, _transition, _firewall,
+_equals, _config, _flags, _statusFlags, _optimisticLane,
+_overrideSinceLane, _time, _name, _fn?, _height?, …` — roughly
    15-20 slots vs 0.14's ~5. Larger hidden classes, more GC pressure
    per signal allocation, more polymorphism risk on the proxy traps.
 6. **Store dispatcher overhead** in `applyState` — `target[STORE_OVERRIDE] || target[STORE_OPTIMISTIC_OVERRIDE]` check
@@ -4672,7 +4683,7 @@ Less frequent than per-signal-read, but still on every UIBench tick:
 - **Two-phase effect** (`effect(compute, effect)`): the compute
   function runs as a tracked computed, and a separate effect closure
   runs after. 0.14 had a single-callback effect. Extra closure call
-  + ownership setup per render-effect.
+  - ownership setup per render-effect.
 - **Hierarchical owner ID generation** for stable IDs across hot
   reloads / projections.
 - **Snapshot scope setup** when `CONFIG_IN_SNAPSHOT_SCOPE` is set on
@@ -4702,17 +4713,17 @@ Concrete actionable opportunities (ranked by hypothesized yield, all
 need profile validation):
 
 A. **No-features-active fast path in `setSignal`**: when
-   `activeTransition === null && currentOptimisticLane === null && el._transition === undefined && el._overrideValue === undefined && el._pendingSignal === undefined && el._latestValueComputed === undefined`,
-   bypass `_pendingValue` entirely — direct write + sub propagation.
-   Single bit-flag union of these conditions could collapse to one
-   check.
+`activeTransition === null && currentOptimisticLane === null && el._transition === undefined && el._overrideValue === undefined && el._pendingSignal === undefined && el._latestValueComputed === undefined`,
+bypass `_pendingValue` entirely — direct write + sub propagation.
+Single bit-flag union of these conditions could collapse to one
+check.
 B. **No-features-active fast path in `read`**: same idea — collapse
-   the 7 conditions into a single `unionFlags` field on the signal +
-   one global "any-feature-on" bit.
+the 7 conditions into a single `unionFlags` field on the signal +
+one global "any-feature-on" bit.
 C. **Lazy slot allocation on Signal**: most signals never need
-   `_overrideValue`, `_snapshotValue`, `_optimisticLane`, etc. Use a
-   side-table (WeakMap) for these so the base Signal stays narrow.
-   Reduces GC and hidden-class pressure.
+`_overrideValue`, `_snapshotValue`, `_optimisticLane`, etc. Use a
+side-table (WeakMap) for these so the base Signal stays narrow.
+Reduces GC and hidden-class pressure.
 
 (A) and (B) are pure runtime fast-paths — semantics unchanged, code
 shape preserved. (C) is invasive and high-risk; only worth pursuing
@@ -4723,28 +4734,28 @@ if (A)+(B) close most of the gap and we still want more.
 CDP CPU profile, scenario `tree/[10,10,10,10]/no_change`, sCU=on,
 i=30. Profiler running over the full sweep window (~1 s wall):
 
-| metric | current | `main-14` | delta |
-| --- | ---: | ---: | ---: |
-| total sampled CPU | `1037 ms` | `1032 ms` | parity (sweep window) |
-| idle | `521 ms` | `686 ms` | `+165 ms` idle in 14 |
-| **active CPU** | **`516 ms`** | **`346 ms`** | **`+170 ms`** in current |
-| GC | `37.2 ms` | `25.1 ms` | `+12.1 ms` |
-| harness | `180.3 ms` | `176.1 ms` | parity |
+| metric            |      current |    `main-14` |                    delta |
+| ----------------- | -----------: | -----------: | -----------------------: |
+| total sampled CPU |    `1037 ms` |    `1032 ms` |    parity (sweep window) |
+| idle              |     `521 ms` |     `686 ms` |     `+165 ms` idle in 14 |
+| **active CPU**    | **`516 ms`** | **`346 ms`** | **`+170 ms`** in current |
+| GC                |    `37.2 ms` |    `25.1 ms` |               `+12.1 ms` |
+| harness           |   `180.3 ms` |   `176.1 ms` |                   parity |
 
 So current does **+49 % more actual CPU work** per sweep on this
 scenario.
 
 App-side self-time (`≥ 1 ms`):
 
-| current | self ms | `main-14` | self ms |
-| --- | ---: | --- | ---: |
-| `applyStateFast` | `149.72` | `applyState` (single fn) | `80.59` |
-| `applyState` (dispatcher) | `53.33` | `(anonymous)` | `9.84` |
-| `wrap` | `17.24` | `isWrappable` | `0.91` |
-| `(anonymous)` | `7.93` | `createComputationNode` | `0.70` |
-| `i` (helper) | `4.48` | (none above 0.7 ms) | — |
-| `isWrappable` | `2.73` | | |
-| `get` (proxy trap) | `1.95` | | |
+| current                   |  self ms | `main-14`                | self ms |
+| ------------------------- | -------: | ------------------------ | ------: |
+| `applyStateFast`          | `149.72` | `applyState` (single fn) | `80.59` |
+| `applyState` (dispatcher) |  `53.33` | `(anonymous)`            |  `9.84` |
+| `wrap`                    |  `17.24` | `isWrappable`            |  `0.91` |
+| `(anonymous)`             |   `7.93` | `createComputationNode`  |  `0.70` |
+| `i` (helper)              |   `4.48` | (none above 0.7 ms)      |       — |
+| `isWrappable`             |   `2.73` |                          |         |
+| `get` (proxy trap)        |   `1.95` |                          |         |
 
 **Total app-side: `239 ms` (current) vs `92 ms` (`main-14`).** The
 gap is dominated by reconcile + wrap, which together account for
@@ -4764,7 +4775,7 @@ In rank-order by measured headroom on this benchmark:
 
 1. **Eliminate the `applyState` dispatcher for trees that contain
    neither a projection nor an optimistic store.** The dispatcher's
-   `53 ms` is *all* feature cost — `main-14` had a single
+   `53 ms` is _all_ feature cost — `main-14` had a single
    non-dispatched `applyState`. Approach: at top-level
    `reconcile()`, check `target[STORE_WRAP] || target[STORE_OPTIMISTIC_OVERRIDE]` once. If false, recurse
    through a no-check variant `applyStateFastNoOverrides` whose
@@ -4777,7 +4788,7 @@ In rank-order by measured headroom on this benchmark:
    WeakMap fallback path that `main-14` didn't have (it likely
    stamped `$PROXY` on the raw value directly). The `wrapPlain` idea
    is unsafe (projections need `STORE_WRAP` routing for child
-   targets), but a *root-level decision* on whether the tree contains
+   targets), but a _root-level decision_ on whether the tree contains
    projections is safe: same gating signal as (1). **Estimated yield
    ~10–15 ms over 30 iters (≈ 0.4 ms / iter).**
 3. **Investigate what's inside `applyStateFast` body that
@@ -4794,7 +4805,7 @@ In rank-order by measured headroom on this benchmark:
 
    **Critical caveat: a substantial portion of the
    `applyStateFast` body cost is the listened-paths machinery
-   itself, which is a Solid 2 *feature* not present in `main-14`.**
+   itself, which is a Solid 2 _feature_ not present in `main-14`.**
    The values branch walks `Object.keys(nodes)` (only keys with
    signal subscribers) instead of `Object.keys(next)` (all keys).
    In real-world scenarios — sync engines, server-pushed payloads,
@@ -4813,6 +4824,7 @@ In rank-order by measured headroom on this benchmark:
    STORE_NODE indirection per key) from "the feature itself"
    (walking only `nodes`, building `getAllKeys` for $TRACK). Only
    the former is fair game.
+
 4. **GC pressure: `+12 ms`**. Smaller than the above; comes from
    slightly larger Signal/Store instances. Below-threshold to chase
    directly.
@@ -4842,13 +4854,13 @@ passed.
 
 CDP profile of `tree/[10,10,10,10]/no_change` sCU=on, i=30:
 
-| function | pre-pristine | post-pristine | Δ |
-| --- | ---: | ---: | ---: |
-| `applyStateFast` body | `149.72 ms` | — | `-149.72` |
-| `applyState` (dispatcher) | `53.33 ms` | — | `-53.33` |
-| `applyStatePristine` (new) | — | `205.80 ms` | `+205.80` |
-| `wrap` | `17.24 ms` | `17.80 ms` | `+0.56` |
-| **app total** | **`239.12`** | **`241.60`** | **`+2.48`** |
+| function                   | pre-pristine | post-pristine |           Δ |
+| -------------------------- | -----------: | ------------: | ----------: |
+| `applyStateFast` body      |  `149.72 ms` |             — |   `-149.72` |
+| `applyState` (dispatcher)  |   `53.33 ms` |             — |    `-53.33` |
+| `applyStatePristine` (new) |            — |   `205.80 ms` |   `+205.80` |
+| `wrap`                     |   `17.24 ms` |    `17.80 ms` |     `+0.56` |
+| **app total**              | **`239.12`** |  **`241.60`** | **`+2.48`** |
 
 Net change: zero. The "savings" the pre-pristine profile suggested
 (`53 ms` of dispatcher self-time + reduced indirect call) were not
@@ -4863,10 +4875,10 @@ noise.
 
 Sweep confirmed (high variance, no signal):
 
-| mode | doc baseline (post-Opt #4) | post-pristine median | within-run gap to s007 |
-| --- | ---: | ---: | ---: |
-| sCU=off | `45.25` | `46.50–47.45` | `+2.55` to `+5.85` (was `+3.85`) |
-| sCU=on  | `58.45` | `64.50–64.80` | `+4.60` to `+9.50` (was `+4.65`) |
+| mode    | doc baseline (post-Opt #4) | post-pristine median |           within-run gap to s007 |
+| ------- | -------------------------: | -------------------: | -------------------------------: |
+| sCU=off |                    `45.25` |        `46.50–47.45` | `+2.55` to `+5.85` (was `+3.85`) |
+| sCU=on  |                    `58.45` |        `64.50–64.80` | `+4.60` to `+9.50` (was `+4.65`) |
 
 `s007` (precompiled, unchanged) drifted `2–6 ms` across runs from
 system load alone, so absolute deltas to baseline are partly noise.
@@ -4874,7 +4886,7 @@ Within-run gaps are consistent with "no measurable change".
 
 **Reverted.** Same outcome and root cause as the earlier failed
 inline-dispatch attempt (Opt #4 attempt) — the dispatcher pattern
-*as written* was already optimal for V8 once warmed up. Source-level
+_as written_ was already optimal for V8 once warmed up. Source-level
 inlining of dispatcher and body produces a wash because V8 already
 does the same merge at JIT.
 
@@ -4885,7 +4897,7 @@ some `N ms` to A's frame, that doesn't mean source-level merging A
 into B will save `N ms` — V8 may already have done that merge in
 machine code. The `53 ms` "dispatcher" line in the profile was such
 an attribution. To actually find recoverable cost, look for work
-that `main-14` *doesn't do at all* (different algorithm or absent
+that `main-14` _doesn't do at all_ (different algorithm or absent
 feature), not for restructuring of work that's already happening.
 
 This rules out (1) and (2) from the prior opportunity list as
@@ -4895,15 +4907,13 @@ remaining lever is (3) — body work inside `applyStateFast` that
 `main-14` simply doesn't do — and even that has the listened-paths
 caveat.
 
-
-
 Prior on where the cost has lived in past UIBench optimization passes
 (in priority order, from prior experience):
 
 1. **`reconcile()` internals** — traversal/diff cost when fresh data
    is cloned every iteration. Note: in sCU=on UIBench rebuilds tree
    identities on each tick, so reconcile sees "everything changed"
-   and the *cost-of-walking* is exposed even when the data shape is
+   and the _cost-of-walking_ is exposed even when the data shape is
    stable.
 2. **Store proxy `get` overhead** — every read in a component body
    (`props.data.children`, `n.id`, `n.container`, etc.) goes through
@@ -4965,11 +4975,11 @@ on the slow path.
 
 CPU profile delta (sCU=on, `tree/[10,10,10,10]/no_change`, `i=30`):
 
-| metric | pre-Opt #2 | post-Opt #2 | Δ |
-| --- | ---: | ---: | ---: |
+| metric            |  pre-Opt #2 | post-Opt #2 |        Δ |
+| ----------------- | ----------: | ----------: | -------: |
 | `applyState` self | `249.69 ms` | `232.06 ms` | `-17.63` |
-| GC | `42.47 ms` | `37.40 ms` | `-5.07` |
-| App + GC | `331.43 ms` | `305.07 ms` | `-26.36` |
+| GC                |  `42.47 ms` |  `37.40 ms` |  `-5.07` |
+| App + GC          | `331.43 ms` | `305.07 ms` | `-26.36` |
 
 Median wall-clock didn't move much (~1 ms) because most of the savings
 fell in initial render and steady-state GC pressure rather than the
@@ -5014,12 +5024,12 @@ correctness-preserving for projections / optimistic updates.
 
 CPU profile delta (sCU=on, `tree/[10,10,10,10]/no_change`, `i=30`):
 
-| metric | post-Opt #2 | post-Opt #3 | Δ | s007 |
-| --- | ---: | ---: | ---: | ---: |
+| metric                                      | post-Opt #2 | post-Opt #3 |       Δ |        s007 |
+| ------------------------------------------- | ----------: | ----------: | ------: | ----------: |
 | `applyState` total (dispatcher + fast/slow) | `232.06 ms` | `215.65 ms` | `-16.4` | `157.25 ms` |
-| `applyStateFast` body alone | n/a | `161.92 ms` | n/a | `157.25 ms` |
-| GC | `37.40 ms` | `29.39 ms` | `-8.0` | `25.05 ms` |
-| App + GC | `305.07 ms` | `284.08 ms` | `-21.0` | `209.67 ms` |
+| `applyStateFast` body alone                 |         n/a | `161.92 ms` |     n/a | `157.25 ms` |
+| GC                                          |  `37.40 ms` |  `29.39 ms` |  `-8.0` |  `25.05 ms` |
+| App + GC                                    | `305.07 ms` | `284.08 ms` | `-21.0` | `209.67 ms` |
 
 The fast body alone is now within `4.7 ms` of `s007` over `30` iters
 (`~3%`). The remaining `53.7 ms` of `applyState` self comes from the
@@ -5031,10 +5041,10 @@ on every recursion. That's the next budget if we want to push further.
 Sweep at `i=20` for both modes after rebuilding the full stack
 (`@solidjs/signals` → `solid-js` → `@solidjs/web` → `solid-uibench`):
 
-| mode | pre-Opts current | post-Opts current | `s007` | Δ gap | gap % now |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| sCU=off (server data) | `55.55 ms` | `49.85 ms` | `44.90 ms` | `-7.25` | `+11%` (was `+28%`) |
-| sCU=on (component) | `67.00 ms` | `60.00 ms` | `56.60 ms` | `-7.00` | `+6%` (was `+25%`) |
+| mode                  | pre-Opts current | post-Opts current |     `s007` |   Δ gap |           gap % now |
+| --------------------- | ---------------: | ----------------: | ---------: | ------: | ------------------: |
+| sCU=off (server data) |       `55.55 ms` |        `49.85 ms` | `44.90 ms` | `-7.25` | `+11%` (was `+28%`) |
+| sCU=on (component)    |       `67.00 ms` |        `60.00 ms` | `56.60 ms` | `-7.00` |  `+6%` (was `+25%`) |
 
 Both modes cut the gap by ~7 ms each, taking the regression vs `s007`
 down from `25-28%` to `6-11%`. The 18-package monorepo test suite
@@ -5071,7 +5081,7 @@ was that one less function frame per recursion would shave the
 `53.7 ms` dispatcher self-time.
 
 Result: net **negative**. Wall-clock went up `+2.95 ms` on sCU=on
-(`60.00 → 62.95`) and the proxy `get` trap self-time *grew* by
+(`60.00 → 62.95`) and the proxy `get` trap self-time _grew_ by
 `+3.4 ms`. The dispatcher's single inlined `[$TARGET]` trap call had
 better V8 inline-cache feedback than the same call distributed across
 multiple sites in `applyStateFast`. Reverted.
@@ -5110,14 +5120,14 @@ constructor at module-init breaks that contract.
 
 CPU profile delta (sCU=on, `tree/[10,10,10,10]/no_change`, `i=30`):
 
-| metric | post-Opt #3 | post-Opt #4 | Δ |
-| --- | ---: | ---: | ---: |
-| `applyStateFast` self | `161.92 ms` | `167.24 ms` | `+5.32` |
-| `applyState` (dispatcher) | `53.73 ms` | `48.50 ms` | `-5.23` |
-| `wrap` self | `19.27 ms` | `17.00 ms` | `-2.27` |
-| `isWrappable` self | `3.11 ms` | `1.96 ms` | `-1.15` |
-| GC | `29.39 ms` | `26.10 ms` | `-3.29` |
-| App + GC | `284.08 ms` | `275.33 ms` | `-8.75` |
+| metric                    | post-Opt #3 | post-Opt #4 |       Δ |
+| ------------------------- | ----------: | ----------: | ------: |
+| `applyStateFast` self     | `161.92 ms` | `167.24 ms` | `+5.32` |
+| `applyState` (dispatcher) |  `53.73 ms` |  `48.50 ms` | `-5.23` |
+| `wrap` self               |  `19.27 ms` |  `17.00 ms` | `-2.27` |
+| `isWrappable` self        |   `3.11 ms` |   `1.96 ms` | `-1.15` |
+| GC                        |  `29.39 ms` |  `26.10 ms` | `-3.29` |
+| App + GC                  | `284.08 ms` | `275.33 ms` | `-8.75` |
 
 Note GC has now dropped to `26.10 ms` — basically equal to `s007`'s
 `25.05 ms`. Allocation pressure is no longer a meaningful contributor.
@@ -5127,10 +5137,10 @@ Note GC has now dropped to `26.10 ms` — basically equal to `s007`'s
 Three independent `i=20` runs per build, sum-of-medians of medians
 (reduces both within-run and across-run noise):
 
-| mode | gap pre-Opts | post-Opts current | post-Opts `s007` | Δ ms | Δ % |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| sCU=off (server data) | `+22%` | `45.25 ms` | `41.40 ms` | `+3.85` | `+9.3%` |
-| sCU=on (component) | `+37%` | `58.45 ms` | `53.80 ms` | `+4.65` | `+8.6%` |
+| mode                  | gap pre-Opts | post-Opts current | post-Opts `s007` |    Δ ms |     Δ % |
+| --------------------- | -----------: | ----------------: | ---------------: | ------: | ------: |
+| sCU=off (server data) |       `+22%` |        `45.25 ms` |       `41.40 ms` | `+3.85` | `+9.3%` |
+| sCU=on (component)    |       `+37%` |        `58.45 ms` |       `53.80 ms` | `+4.65` | `+8.6%` |
 
 Cumulative wins from initial baseline (pre-Opt #2):
 
@@ -5171,10 +5181,10 @@ passed. So semantically the hoist is fine.
 Tier-2 measurement (3 runs each at `i=20`, then 3 more at `sCU=on` to
 control for variance):
 
-| mode | doc baseline (post-Opt #4) | post-hoist | Δ current | Δ s007 |
-| --- | ---: | ---: | ---: | ---: |
-| sCU=off | `45.25` / `41.40` | `47.65` / `43.75` | `+2.40` | `+2.35` |
-| sCU=on  | `58.45` / `53.80` | `61.10` / `54.65` | `+2.65` | `+0.85` |
+| mode    | doc baseline (post-Opt #4) |        post-hoist | Δ current |  Δ s007 |
+| ------- | -------------------------: | ----------------: | --------: | ------: |
+| sCU=off |          `45.25` / `41.40` | `47.65` / `43.75` |   `+2.40` | `+2.35` |
+| sCU=on  |          `58.45` / `53.80` | `61.10` / `54.65` |   `+2.65` | `+0.85` |
 
 `sCU=off`: current and `s007` drifted by the same amount → entirely
 system-load drift, hoist had no measurable effect.
@@ -5204,9 +5214,9 @@ worth the readability cost of caching. Reverted.
 Lesson: micro-optimizations targeting "duplicate property reads on a
 plain target" are low-yield in V8 — the JIT already specializes those
 into single-instruction loads after warmup, and the manual hoist can
-*shift* costs to entry time where they hurt the dominant code path.
+_shift_ costs to entry time where they hurt the dominant code path.
 For future work in this hot loop, prefer optimizations that
-*eliminate* work (fewer wraps, fewer signal sets) rather than
+_eliminate_ work (fewer wraps, fewer signal sets) rather than
 re-arrange existing reads.
 
 #### Considered and rejected: reconcile-only `wrapPlain`
@@ -5216,10 +5226,10 @@ call sites that drops `target?.[STORE_WRAP]` routing for monomorphic
 call-site shape. **This is unsafe.** Projections reconcile through
 `applyState` via `runProjectionComputed`'s
 `storeSetter(wrappedStore, reconcile(v, key))` (see
-`projection.ts:147`). After draft writes, only the *root* projection
+`projection.ts:147`). After draft writes, only the _root_ projection
 target has `STORE_OVERRIDE` populated; nested children route through
 the dispatcher's fast path. Those children's `wrap(child, target)`
-calls *must* walk through `target[STORE_WRAP]` so the projection's
+calls _must_ walk through `target[STORE_WRAP]` so the projection's
 `wrapper` (which sets `STORE_WRAP` / `STORE_LOOKUP` / `STORE_FIREWALL`
 on each newly created proxy) stays attached. A `wrapPlain` would
 re-wrap children via the default `storeTraps`, breaking:
@@ -5241,47 +5251,47 @@ User flagged these two UIBench scenarios as the worst per-test gaps to React in 
 
 ### Per-test medians
 
-| build | `tree/[2,2,2,2,2,2,2,2,2,2]/render` | `tree/[500]/[reverse]` |
-| --- | ---: | ---: |
-| `current` (all opts) | `~3.80 ms` | `~2.50 ms` |
-| `main-s007` | `~4.00 ms` | `~2.50 ms` |
-| `main-14` | `~2.20 ms` | `~0.90 ms` |
-| current vs `main-14` | `+73%` | `+178%` |
+| build                | `tree/[2,2,2,2,2,2,2,2,2,2]/render` | `tree/[500]/[reverse]` |
+| -------------------- | ----------------------------------: | ---------------------: |
+| `current` (all opts) |                          `~3.80 ms` |             `~2.50 ms` |
+| `main-s007`          |                          `~4.00 ms` |             `~2.50 ms` |
+| `main-14`            |                          `~2.20 ms` |             `~0.90 ms` |
+| current vs `main-14` |                              `+73%` |                `+178%` |
 
 Cross-check against full-suite (`i=10`):
 
-| build | render in-suite | reverse in-suite |
-| --- | ---: | ---: |
-| `current` | `5.75` | `2.95` |
-| `main-14` | `3.85` | `1.10` |
-| `main-s007` | `7.60` | `2.95` |
+| build       | render in-suite | reverse in-suite |
+| ----------- | --------------: | ---------------: |
+| `current`   |          `5.75` |           `2.95` |
+| `main-14`   |          `3.85` |           `1.10` |
+| `main-s007` |          `7.60` |           `2.95` |
 
-Ordering caveat partially confirmed: every build pays ~+50% on render and ~+15-25% on reverse when run in the suite vs. isolation (V8 IC poisoning across tests), but the *ratio* current/main-14 is preserved. So the regression is real and not an ordering artifact. Notably, `current` is ahead of `s007` on render (likely Opts #1-#4 paying off on the mount path) and tied on reverse.
+Ordering caveat partially confirmed: every build pays ~+50% on render and ~+15-25% on reverse when run in the suite vs. isolation (V8 IC poisoning across tests), but the _ratio_ current/main-14 is preserved. So the regression is real and not an ordering artifact. Notably, `current` is ahead of `s007` on render (likely Opts #1-#4 paying off on the mount path) and tied on reverse.
 
 ### `tree/[2,2,...,2]/render` — where is the time?
 
 Architectural cost. Categorizing top self-time CPU samples (sum across 30 iters, sCU=on):
 
-| function | `current` | `main-14` | Δ |
-| --- | ---: | ---: | ---: |
-| `cleanChildren` | `36.03 ms` | `33.30 ms` | +2.7 |
-| `(anonymous JSX)` | `14.79 ms` | `15.02 ms` | -0.2 |
-| signal `get` | `13.72 ms` | `4.38 ms` | **+9.3** |
-| `insertBefore` (native) | `11.23 ms` | `9.47 ms` | +1.8 |
-| `wrap` | `9.44 ms` | `0` (absent) | **+9.4** |
-| inner accessor `r` / `dynamicProp` | `7.00` | `5.36` | +1.6 |
-| `disposeChildren` / `cleanupNode` | `6.77` | `3.40` | +3.4 |
-| `children` | `6.62` | `3.14` | +2.5 |
-| `cloneNode` (native) | `6.01` | `7.83` | -1.8 |
-| `updateKeyedMap` / `each`/mapper | `4.89` | `4.32` + `1.64` = `5.96` | -1.1 |
-| `runWithOwner` | `3.73` | (absent) | **+3.7** |
-| `TreeNode` component fn | `3.38` | `1.07` | +2.3 |
-| `isWrappable` | `3.29` | (absent — no store proxy) | **+3.3** |
-| `getNode` | `2.33` | (absent) | +2.3 |
-| `recompute` | `2.21` | (absent) | +2.2 |
-| total app-side category | `143.30 ms` | `90.35 ms` | **+53 ms** |
+| function                           |   `current` |                 `main-14` |          Δ |
+| ---------------------------------- | ----------: | ------------------------: | ---------: |
+| `cleanChildren`                    |  `36.03 ms` |                `33.30 ms` |       +2.7 |
+| `(anonymous JSX)`                  |  `14.79 ms` |                `15.02 ms` |       -0.2 |
+| signal `get`                       |  `13.72 ms` |                 `4.38 ms` |   **+9.3** |
+| `insertBefore` (native)            |  `11.23 ms` |                 `9.47 ms` |       +1.8 |
+| `wrap`                             |   `9.44 ms` |              `0` (absent) |   **+9.4** |
+| inner accessor `r` / `dynamicProp` |      `7.00` |                    `5.36` |       +1.6 |
+| `disposeChildren` / `cleanupNode`  |      `6.77` |                    `3.40` |       +3.4 |
+| `children`                         |      `6.62` |                    `3.14` |       +2.5 |
+| `cloneNode` (native)               |      `6.01` |                    `7.83` |       -1.8 |
+| `updateKeyedMap` / `each`/mapper   |      `4.89` |  `4.32` + `1.64` = `5.96` |       -1.1 |
+| `runWithOwner`                     |      `3.73` |                  (absent) |   **+3.7** |
+| `TreeNode` component fn            |      `3.38` |                    `1.07` |       +2.3 |
+| `isWrappable`                      |      `3.29` | (absent — no store proxy) |   **+3.3** |
+| `getNode`                          |      `2.33` |                  (absent) |       +2.3 |
+| `recompute`                        |      `2.21` |                  (absent) |       +2.2 |
+| total app-side category            | `143.30 ms` |                `90.35 ms` | **+53 ms** |
 
-Roughly ~30 ms of the 53 ms gap is concentrated in the *new in 2.0* primitives — `wrap` (+9.4), signal `get` overhead from larger Signal shape (+9.3), `isWrappable` (+3.3), `runWithOwner` (+3.7), `getNode` (+2.3), `recompute` (+2.2). The remaining ~23 ms is spread across small per-component costs (deeper owner trees, larger TreeNode fn body, child management).
+Roughly ~30 ms of the 53 ms gap is concentrated in the _new in 2.0_ primitives — `wrap` (+9.4), signal `get` overhead from larger Signal shape (+9.3), `isWrappable` (+3.3), `runWithOwner` (+3.7), `getNode` (+2.3), `recompute` (+2.2). The remaining ~23 ms is spread across small per-component costs (deeper owner trees, larger TreeNode fn body, child management).
 
 This matches the documented architectural delta in the `Solid 2 → 0.14 architectural delta map` section. There is no single-fix optimization here; this is the cost of the override/snapshot/queue model. We've already clawed back some via Opts #1-#4 (current beats `s007` on this scenario by ~0.2 ms and is much closer to `main-14` than the naive starting point).
 
@@ -5289,12 +5299,12 @@ This matches the documented architectural delta in the `Solid 2 → 0.14 archite
 
 **Almost entirely in native `insertBefore`, not app code:**
 
-| category | `current` | `main-14` | Δ |
-| --- | ---: | ---: | ---: |
-| app code (signals + jsx + store) | `30.60 ms` | `18.42 ms` | +12.2 |
-| harness | `10.96` | `10.42` | +0.5 |
-| `(garbage collector)` | `7.85` | `6.72` | +1.1 |
-| **`insertBefore` (native)** | **`108.76 ms`** | **`33.28 ms`** | **+75.5** |
+| category                         |       `current` |      `main-14` |         Δ |
+| -------------------------------- | --------------: | -------------: | --------: |
+| app code (signals + jsx + store) |      `30.60 ms` |     `18.42 ms` |     +12.2 |
+| harness                          |         `10.96` |        `10.42` |      +0.5 |
+| `(garbage collector)`            |          `7.85` |         `6.72` |      +1.1 |
+| **`insertBefore` (native)**      | **`108.76 ms`** | **`33.28 ms`** | **+75.5** |
 
 The 75 ms regression in native `insertBefore` is the bulk of the 1.6 ms/iter gap.
 
@@ -5302,15 +5312,16 @@ The 75 ms regression in native `insertBefore` is the bulk of the 1.6 ms/iter gap
 
 Instrumented `Element.prototype.insertBefore`/`appendChild`/`remove`/`replaceChild` and ran the test for 10 iters:
 
-| build | `insertBefore` calls | `appendChild` | `remove` | `replaceChild` | total mutations |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `current` | `10631` | `8` | `3` | `6` | `10648` |
-| `main-s007` | `10631` | `8` | `3` | `6` | `10648` |
-| `main-14` | `10131` | `508` | `0` | `6` | `10645` |
+| build       | `insertBefore` calls | `appendChild` | `remove` | `replaceChild` | total mutations |
+| ----------- | -------------------: | ------------: | -------: | -------------: | --------------: |
+| `current`   |              `10631` |           `8` |      `3` |            `6` |         `10648` |
+| `main-s007` |              `10631` |           `8` |      `3` |            `6` |         `10648` |
+| `main-14`   |              `10131` |         `508` |      `0` |            `6` |         `10645` |
 
 **Total mutation count is identical (~10645).** main-14 just routes ~500 of them through `appendChild` instead of `insertBefore` (its swap-loop algorithm uses `appendChild(n)` when the target anchor is `null`, where udomdiff always uses `insertBefore(node, null)`).
 
 So per-call cost:
+
 - `current`: `108.76 ms / 10631 ≈ 10.2 µs/call`
 - `main-14`: `33.28 ms / 10131 ≈ 3.3 µs/call`
 
@@ -5323,14 +5334,15 @@ Verified the rendered DOM is byte-identical across builds (504 elements, identic
 The bundles use different `reconcileArrays` algorithms:
 
 - `main-14.js` uses an older swap-loop reconcile (`reconcileArrays(parent, ns, us)`) with explicit "swap forward" / "swap back" loops that for a perfect reverse do **one** `insertBefore`/`appendChild` per item with a single anchor point that walks toward the front.
-- `main.js` (current) and `main-s007.js` use **udomdiff** (`reconcileArrays(parentNode, a, b)`), which for a perfect reverse takes the "swap backward" branch: **two** `insertBefore` calls per loop iteration, each to a *different* anchor (sibling navigation via `.nextSibling`).
+- `main.js` (current) and `main-s007.js` use **udomdiff** (`reconcileArrays(parentNode, a, b)`), which for a perfect reverse takes the "swap backward" branch: **two** `insertBefore` calls per loop iteration, each to a _different_ anchor (sibling navigation via `.nextSibling`).
 
 Same final call count (~500), but udomdiff:
+
 1. Splits the work across 2× more native call sites (4 distinct `insertBefore` JS sites + 1 `replaceChild` site, vs. main-14's 2 `insertBefore` + 1 `appendChild`), giving each a smaller share of V8's inline-cache budget.
 2. Uses `.nextSibling` lookups inside the hot loop (not in main-14's algo).
 3. Distributes inserts across two non-adjacent anchors per iteration, which may defeat Blink's adjacency optimization for repeated mutations against the same anchor.
 
-This regression appeared *before* `s007` (s007 already has it) and was inherited by every Solid 2 build since. It is not a Solid signals/store regression. To verify, the next experiment is to swap the algorithm back in `dom-expressions/src/reconcile.js` and re-measure — that is a separate repo change, not a Solid change.
+This regression appeared _before_ `s007` (s007 already has it) and was inherited by every Solid 2 build since. It is not a Solid signals/store regression. To verify, the next experiment is to swap the algorithm back in `dom-expressions/src/reconcile.js` and re-measure — that is a separate repo change, not a Solid change.
 
 ### Bottom line
 
@@ -5339,7 +5351,7 @@ Recovering parity with `main-14` on these two tests is split into two independen
 1. **Render scenario (~+1.6 ms/iter)**: Tier-1 architectural cost of 2.0 (overrides, snapshots, larger Signal shape, owner scopes). No single-fix; would require revisiting feature trade-offs.
 2. **Reverse scenario (~+1.6 ms/iter)**: Almost entirely native `insertBefore` regression caused by the udomdiff algorithm in `dom-expressions`. Per-op cost is 3× the older swap-loop algorithm despite identical total op counts. Fix lives in `dom-expressions/packages/dom-expressions/src/reconcile.js`.
 
-The user's "ordering / correctness" caveat is partially borne out: in-suite numbers are inflated for every build, but the *ratio* of current to `main-14` is stable in isolation. So our gap is real, just measured differently in-suite vs. solo.
+The user's "ordering / correctness" caveat is partially borne out: in-suite numbers are inflated for every build, but the _ratio_ of current to `main-14` is stable in isolation. So our gap is real, just measured differently in-suite vs. solo.
 
 ### Experiment: swap udomdiff for main-14-era swap-loop reconcile
 
@@ -5357,11 +5369,11 @@ Rebuilt `solid-web` → rebuilt `solid-uibench`. All `18` Solid monorepo tasks p
 
 DOM-op signatures now match `main-14` byte-for-byte for `tree/[500]/[reverse]` over 10 iterations:
 
-| build | `insertBefore` | `appendChild` | `remove` | `replaceChild` |
-| --- | ---: | ---: | ---: | ---: |
-| current (old algo) | `10131` | `508` | `0` | `6` |
-| `main-14` | `10131` | `508` | `0` | `6` |
-| `main-s007` (udomdiff) | `10631` | `8` | `3` | `6` |
+| build                  | `insertBefore` | `appendChild` | `remove` | `replaceChild` |
+| ---------------------- | -------------: | ------------: | -------: | -------------: |
+| current (old algo)     |        `10131` |         `508` |      `0` |            `6` |
+| `main-14`              |        `10131` |         `508` |      `0` |            `6` |
+| `main-s007` (udomdiff) |        `10631` |           `8` |      `3` |            `6` |
 
 Identical mutation count and method distribution → algorithm produces equivalent DOM results to `main-14`.
 
@@ -5369,25 +5381,25 @@ Identical mutation count and method distribution → algorithm produces equivale
 
 i=10 full sweep (sum of medians, sCU=on, 96 tests):
 
-| build | total | Δ vs current(udomdiff) |
-| --- | ---: | ---: |
-| `current` (udomdiff) | `54.30 ms` | baseline |
-| `current` (swap-loop) | `48.60 ms` | **-5.70 ms (-10.5%)** |
-| `main-14` | `36.60 ms` | gap shrinks from `17.7` to `12.0 ms` |
+| build                 |      total |               Δ vs current(udomdiff) |
+| --------------------- | ---------: | -----------------------------------: |
+| `current` (udomdiff)  | `54.30 ms` |                             baseline |
+| `current` (swap-loop) | `48.60 ms` |                **-5.70 ms (-10.5%)** |
+| `main-14`             | `36.60 ms` | gap shrinks from `17.7` to `12.0 ms` |
 
 i=20 sweep targeted on reorder-heavy tree benchmarks:
 
-| test | current (old algo) | `main-14` | Δ | previous Δ (udomdiff) |
-| --- | ---: | ---: | ---: | ---: |
-| `tree/[500]/[reverse]` | `1.50` | `1.20` | `+25%` | `+178%` |
-| `tree/[500]/[kivi_worst_case]` | `1.50` | `1.20` | `+25%` | larger |
-| `tree/[500]/[react_worst_case]` | `0.70` | `0.50` | `+40%` | larger |
-| `tree/[500]/[virtual_dom_worst_case]` | `0.80` | `0.50` | `+60%` | larger |
-| `tree/[500]/[snabbdom_worst_case]` | `0.70` | `0.50` | `+40%` | larger |
-| `tree/[10,50]/[reverse]` | `0.70` | `0.60` | `+17%` | larger |
-| `tree/[5,100]/[reverse]` | `0.70` | `0.60` | `+17%` | larger |
-| `tree/[50,10]/[reverse]` | `0.90` | `0.70` | `+29%` | larger |
-| `tree/[2,2,...,2]/render` | `6.50` | `4.20` | `+55%` | `+55%` (unchanged — architectural) |
+| test                                  | current (old algo) | `main-14` |      Δ |              previous Δ (udomdiff) |
+| ------------------------------------- | -----------------: | --------: | -----: | ---------------------------------: |
+| `tree/[500]/[reverse]`                |             `1.50` |    `1.20` | `+25%` |                            `+178%` |
+| `tree/[500]/[kivi_worst_case]`        |             `1.50` |    `1.20` | `+25%` |                             larger |
+| `tree/[500]/[react_worst_case]`       |             `0.70` |    `0.50` | `+40%` |                             larger |
+| `tree/[500]/[virtual_dom_worst_case]` |             `0.80` |    `0.50` | `+60%` |                             larger |
+| `tree/[500]/[snabbdom_worst_case]`    |             `0.70` |    `0.50` | `+40%` |                             larger |
+| `tree/[10,50]/[reverse]`              |             `0.70` |    `0.60` | `+17%` |                             larger |
+| `tree/[5,100]/[reverse]`              |             `0.70` |    `0.60` | `+17%` |                             larger |
+| `tree/[50,10]/[reverse]`              |             `0.90` |    `0.70` | `+29%` |                             larger |
+| `tree/[2,2,...,2]/render`             |             `6.50` |    `4.20` | `+55%` | `+55%` (unchanged — architectural) |
 
 The remaining gaps on reorder benchmarks are now in the same `+25-40%` range as the rest of UIBench — meaning the udomdiff-specific regression is gone, and what's left is the architectural delta we already documented.
 
@@ -5431,6 +5443,7 @@ Hypothesis from the algorithm-swap finding: the per-call cost gap on reverse com
 Trigger condition is **unchanged** — exactly the same symmetric end-swap detection udomdiff has always used. So no false positives on patterns udomdiff used to fall through to the map fallback (rotate-right, replace-with-noise, etc). The walk loop only proceeds while the symmetric condition continues to hold (pure reverse, n-step end-swap), which is exactly the case udomdiff would have taken N-iterations of swap-backward to handle.
 
 Single-anchor walk semantics:
+
 - `anchor = a[aStart]` is captured once and never moves; every `insertBefore` targets the same DOM-position.
 - Each iteration moves the current back-of-old (`a[--aEnd]`) to before the anchor — exactly what stage0's "swap forward" loop does.
 - Loop exits when the array is consumed (`aStart >= aEnd - 1 || bStart >= bEnd`) or the symmetric condition no longer holds.
@@ -5442,11 +5455,11 @@ The walk also drops the `a[aEnd] = b[bEnd]` array mutation udomdiff did to track
 
 DOM-op signatures for `tree/[500]/[reverse]` over 10 iterations:
 
-| build | `insertBefore` | `appendChild` | `remove` | `replaceChild` | total |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| current (surgical) | `10611` | `8` | `3` | `6` | `10628` |
-| `main-s007` (vanilla udomdiff) | `10631` | `8` | `3` | `6` | `10648` |
-| `main-14` (stage0) | `10131` | `508` | `0` | `6` | `10645` |
+| build                          | `insertBefore` | `appendChild` | `remove` | `replaceChild` |   total |
+| ------------------------------ | -------------: | ------------: | -------: | -------------: | ------: |
+| current (surgical)             |        `10611` |           `8` |      `3` |            `6` | `10628` |
+| `main-s007` (vanilla udomdiff) |        `10631` |           `8` |      `3` |            `6` | `10648` |
+| `main-14` (stage0)             |        `10131` |         `508` |      `0` |            `6` | `10645` |
 
 Same total mutation count as both reference algorithms (10628 ≈ 10645 ≈ 10648 — the small differences are op-type splits, not extra/missing work). The surgical actually does **20 fewer `insertBefore`** calls than vanilla udomdiff over 10 iterations because the single-anchor walk avoids the no-op self-insert that udomdiff's symmetric swap-backward hits at the boundary (when `bEnd-1` equals the front-of-old that hasn't moved yet).
 
@@ -5454,14 +5467,14 @@ All 18 Solid monorepo tasks pass with fresh (non-cached) test runs.
 
 #### Performance impact (isolated, sCU=on, i=30, same power state, back-to-back A/B)
 
-| test | udomdiff | strict surgical | Δ |
-| --- | ---: | ---: | ---: |
-| `tree/[500]/[reverse]` | `2.60` | **`1.30`** | **`-1.30 ms (-50%)`** |
-| `tree/[2,2,...,2]/render` | `4.20` | `4.30` | `+0.10 (noise)` |
-| `tree/[500]/[react_worst_case]` | `0.60` | `0.60` | `0` |
-| `tree/[500]/[kivi_worst_case]` | `1.20` | `1.30` | `+0.10` |
-| `tree/[500]/[snabbdom_worst_case]` | `0.60` | `0.70` | `+0.10` |
-| `tree/[500]/[virtual_dom_worst_case]` | `0.60` | `0.60` | `0` |
+| test                                  | udomdiff | strict surgical |                     Δ |
+| ------------------------------------- | -------: | --------------: | --------------------: |
+| `tree/[500]/[reverse]`                |   `2.60` |      **`1.30`** | **`-1.30 ms (-50%)`** |
+| `tree/[2,2,...,2]/render`             |   `4.20` |          `4.30` |       `+0.10 (noise)` |
+| `tree/[500]/[react_worst_case]`       |   `0.60` |          `0.60` |                   `0` |
+| `tree/[500]/[kivi_worst_case]`        |   `1.20` |          `1.30` |               `+0.10` |
+| `tree/[500]/[snabbdom_worst_case]`    |   `0.60` |          `0.70` |               `+0.10` |
+| `tree/[500]/[virtual_dom_worst_case]` |   `0.60` |          `0.60` |                   `0` |
 
 Reverse drops from `+145%` over `main-14`'s `1.10 ms` to **`+18%`** — within the architectural-cost band that everything else sits in. Render and the worst_case scenarios show at most `+0.10 ms` (within run-to-run variance for these tests at this scale).
 
@@ -5469,11 +5482,11 @@ Reverse drops from `+145%` over `main-14`'s `1.10 ms` to **`+18%`** — within t
 
 The full algorithm swap recovered a similar magnitude on reverse (`2.50 → 1.10 ms`) but at the cost of `~553 bytes` of extra bundle and possible regressions on simple-case patterns. The surgical fix achieves `2.60 → 1.30 ms` on the same scenario (`-50%`) with **6 lines** of source change, **+4 lines** of bytes, and zero change to udomdiff's trigger conditions, fallback path, or external behavior outside the symmetric swap-backward case.
 
-| approach | reverse gain | bundle delta | risk |
-| --- | --- | --- | --- |
-| keep udomdiff | baseline | 0 | no | 
-| surgical (this) | `-50%` (matches stage0 within noise) | **+~50 bytes** | minimal — same trigger, equivalent DOM ops |
-| full stage0/ivi swap | `-58%` | `+~553 bytes` | unknown — different trigger + fallback paths |
+| approach             | reverse gain                         | bundle delta   | risk                                         |
+| -------------------- | ------------------------------------ | -------------- | -------------------------------------------- |
+| keep udomdiff        | baseline                             | 0              | no                                           |
+| surgical (this)      | `-50%` (matches stage0 within noise) | **+~50 bytes** | minimal — same trigger, equivalent DOM ops   |
+| full stage0/ivi swap | `-58%`                               | `+~553 bytes`  | unknown — different trigger + fallback paths |
 
 #### Status
 
@@ -5495,7 +5508,7 @@ Goal: validate Solid 2.0's competitive position on `js-framework-benchmark` afte
 #### Script-time medians (ms, lower better)
 
 | bench                    | solid-next | solid-1.x | react-hooks | svelte-5 | vanillajs |
-|--------------------------|-----------:|----------:|------------:|---------:|----------:|
+| ------------------------ | ---------: | --------: | ----------: | -------: | --------: |
 | `01_run1k`               |        5.3 |       3.9 |        11.7 |      5.3 |       2.6 |
 | `02_replace1k`           |        8.9 |       8.5 |        17.1 |      9.8 |       6.2 |
 | `03_update10th1k_x16`    |        2.3 |       1.6 |         5.8 |      1.8 |       0.8 |
@@ -5509,7 +5522,7 @@ Goal: validate Solid 2.0's competitive position on `js-framework-benchmark` afte
 #### Geometric mean (script time across all 9 benches)
 
 | framework             | geomean | ratio vs solid-next |
-|-----------------------|--------:|--------------------:|
+| --------------------- | ------: | ------------------: |
 | vanillajs (floor)     |    2.08 |              `0.50` |
 | **solid-1.x**         |    3.45 |              `0.83` |
 | **solid-next** (this) |    4.14 |              `1.00` |
@@ -5563,11 +5576,11 @@ Design preserved for future revisit (see `documentation/performance-experiments.
 
 Bundle sizes (post all optimizations through this session):
 
-| package                                 | size (gzipped est.) |
-|-----------------------------------------|--------------------:|
-| `solid-next` j-f-b entry                |       `36,300 B` raw |
-| `dom-expressions` reconcile delta       |          `+~50 B` |
-| `solid-signals` `applyStateFast` delta  |         `~+140 LOC` |
+| package                                | size (gzipped est.) |
+| -------------------------------------- | ------------------: |
+| `solid-next` j-f-b entry               |      `36,300 B` raw |
+| `dom-expressions` reconcile delta      |            `+~50 B` |
+| `solid-signals` `applyStateFast` delta |         `~+140 LOC` |
 
 ## SSR Lane: `isomorphic-ui-benchmarks`
 
@@ -5591,17 +5604,17 @@ Tier-2 anchor for the SSR/hydration lane. Sibling repo at `../isomorphic-ui-benc
 
 Two benchmarks, four frameworks. `solid` (1.x) is the northstar; `solid-next` is current 2.0; `react` and `inferno` are the lower- and middle-tier reference points.
 
-| bench (ops/sec, higher better) |     react |   inferno |   **solid 1.x** | **solid-next** |
-|--------------------------------|----------:|----------:|----------------:|---------------:|
-| `search-results`               |     3,222 |     4,680 |      **25,945** |      **6,797** |
-| `color-picker`                 |    18,611 |    36,455 |      **57,863** |     **14,049** |
+| bench (ops/sec, higher better) |  react | inferno | **solid 1.x** | **solid-next** |
+| ------------------------------ | -----: | ------: | ------------: | -------------: |
+| `search-results`               |  3,222 |   4,680 |    **25,945** |      **6,797** |
+| `color-picker`                 | 18,611 |  36,455 |    **57,863** |     **14,049** |
 
 Ratios (`solid-next` row baseline = `1.00`):
 
-| bench           | react vs next | inferno vs next | solid-1.x vs next |
-|-----------------|--------------:|----------------:|------------------:|
-| `search-results`|         `0.47`|           `0.69`|             `3.82`|
-| `color-picker`  |         `1.32`|           `2.59`|             `4.12`|
+| bench            | react vs next | inferno vs next | solid-1.x vs next |
+| ---------------- | ------------: | --------------: | ----------------: |
+| `search-results` |        `0.47` |          `0.69` |            `3.82` |
+| `color-picker`   |        `1.32` |          `2.59` |            `4.12` |
 
 ### Reading the spread
 
@@ -5629,8 +5642,8 @@ Fix landed in `packages/solid/src/server/signals.ts`:
 
 Per-bench (Benchmark.js medians):
 
-| bench (ops/sec)  | baseline | post-`sync: true` | delta |
-|------------------|---------:|------------------:|------:|
+| bench (ops/sec)  | baseline | post-`sync: true` |  delta |
+| ---------------- | -------: | ----------------: | -----: |
 | `search-results` |    6,797 |            10,195 | `+50%` |
 | `color-picker`   |   14,049 |            18,522 | `+32%` |
 
@@ -5653,8 +5666,8 @@ Same pass cleaned up `mapArray` and `repeat`: SSR is single-pass, so the upstrea
 
 Per-bench (Benchmark.js, median of 3 runs):
 
-| bench (ops/sec)  | post-`sync: true` | post-lean-owner | delta |
-|------------------|------------------:|----------------:|------:|
+| bench (ops/sec)  | post-`sync: true` | post-lean-owner |  delta |
+| ---------------- | ----------------: | --------------: | -----: |
 | `search-results` |            10,195 |          11,411 | `+12%` |
 | `color-picker`   |            18,522 |          22,483 | `+21%` |
 
@@ -5662,24 +5675,24 @@ Per-bench (Benchmark.js, median of 3 runs):
 
 Two-step total against the SSR Lane baseline:
 
-| bench (ops/sec)  | baseline | current | total delta |
-|------------------|---------:|--------:|------------:|
+| bench (ops/sec)  | baseline | current |      total delta |
+| ---------------- | -------: | ------: | ---------------: |
 | `search-results` |    6,797 |  11,411 | `+68%` / `1.68×` |
 | `color-picker`   |   14,049 |  22,483 | `+60%` / `1.60×` |
 
 Updated competitor / northstar position:
 
-| bench (ops/sec)  |  react |  inferno | **solid-next** | **solid 1.x** |
-|------------------|-------:|---------:|---------------:|--------------:|
-| `search-results` |  3,487 |    5,324 |     **11,411** |    **29,094** |
-| `color-picker`   | 18,318 |   36,739 |     **22,483** |    **58,881** |
+| bench (ops/sec)  |  react | inferno | **solid-next** | **solid 1.x** |
+| ---------------- | -----: | ------: | -------------: | ------------: |
+| `search-results` |  3,487 |   5,324 |     **11,411** |    **29,094** |
+| `color-picker`   | 18,318 |  36,739 |     **22,483** |    **58,881** |
 
 Ratios:
 
-| bench            | react vs next | inferno vs next | solid-1.x vs next |
-|------------------|--------------:|----------------:|------------------:|
-| `search-results` |         `0.31` (was `0.47`) |           `0.47` (was `0.69`) |             `2.55` (was `3.82`) |
-| `color-picker`   |         `0.81` (was `1.32`) |           `1.63` (was `2.59`) |             `2.62` (was `4.12`) |
+| bench            |       react vs next |     inferno vs next |   solid-1.x vs next |
+| ---------------- | ------------------: | ------------------: | ------------------: |
+| `search-results` | `0.31` (was `0.47`) | `0.47` (was `0.69`) | `2.55` (was `3.82`) |
+| `color-picker`   | `0.81` (was `1.32`) | `1.63` (was `2.59`) | `2.62` (was `4.12`) |
 
 `solid-next` now sits **above react on both benches** (was below on `color-picker`). 1.x → 2.0 gap closed by ~35-37%, roughly uniform across the two benches, consistent with the "the runtime itself is the bottleneck, not any specific component pattern" theory.
 
@@ -5704,8 +5717,8 @@ Refactored `resolveSSR` into a two-mode resolver in `dom-expressions/packages/do
 
 Streaming engine (`packages/solid/src/server/hydration.ts`) was updated to handle both shapes: the post-loop `ret.t[0]` access becomes `Array.isArray(ret.t) ? ret.t[0] : ret.t`, the `while (ret.p.length)` loop guards on `ret.p` existing, and `SSRTemplateObject` was widened to a union of the lean and heavy shapes.
 
-| bench (ops/sec) | pre-lazy | post-lazy | delta |
-|-----------------|---------:|----------:|------:|
+| bench (ops/sec) | pre-lazy | post-lazy |  delta |
+| --------------- | -------: | --------: | -----: |
 | `color-picker`  |   22,483 |    25,124 | `+12%` |
 
 ### Investigation 4: Pass-through `ssrRunInScope` + lazy owner capture at escalation
@@ -5724,12 +5737,12 @@ function ssrRunInScope(fn) {
 }
 ```
 
-For `color-picker` this fired once per row (133×): `1` array from `.map()` + `1` wrapper closure per hole. The wrapper preserves owner across async retry — *only relevant when a hole actually escalates*. Sync renders pay the wrap and never use it.
+For `color-picker` this fired once per row (133×): `1` array from `.map()` + `1` wrapper closure per hole. The wrapper preserves owner across async retry — _only relevant when a hole actually escalates_. Sync renders pay the wrap and never use it.
 
 Moved the wrap to `tryResolveString` in `dom-expressions/server.js`: when a function hole throws `NotReadyError`, capture `getOwner()` at that moment and wrap with `runWithOwner` before pushing to `result.h`. Required adding `runWithOwner` to the rxcore import. `ssrRunInScope` itself becomes a true identity function.
 
-| bench (ops/sec) | pre-passthrough | post-passthrough | delta |
-|-----------------|----------------:|-----------------:|------:|
+| bench (ops/sec) | pre-passthrough | post-passthrough |   delta |
+| --------------- | --------------: | ---------------: | ------: |
 | `color-picker`  |          25,124 |           27,500 | `+9.5%` |
 
 ### Investigation 5: `mapArray` / `repeat` inline `runWithOwner`
@@ -5737,7 +5750,12 @@ Moved the wrap to `tryResolveString` in `dom-expressions/server.js`: when a func
 The original mapArray loop wrapped each row in a fresh closure:
 
 ```js
-runWithOwner(o, () => mapFn(() => items[i], () => i))
+runWithOwner(o, () =>
+  mapFn(
+    () => items[i],
+    () => i
+  )
+);
 ```
 
 The outer `() => mapFn(...)` is an extra wrapper closure per row — V8 doesn't escape-analyze this away because `runWithOwner` actually receives it. Inlined `runWithOwner`'s push/pop directly into the loop, which deletes the wrapper:
@@ -5747,16 +5765,21 @@ for (let i = 0; i < len; i++) {
   currentOwner = parentOwner; // reset so createOwner attaches to memo, not previous row
   const o = createOwner();
   currentOwner = o;
-  s.push(mapFn(() => items[i], () => i));
+  s.push(
+    mapFn(
+      () => items[i],
+      () => i
+    )
+  );
 }
 ```
 
-The per-row `() => items[i]` and `() => i` accessors *cannot* be shared across iterations (tried this — `ssr-async > Async in For > async inside For iterations captured as holes` failed because async holes are replayed after the loop completes, with `curI` already at `len-1`).
+The per-row `() => items[i]` and `() => i` accessors _cannot_ be shared across iterations (tried this — `ssr-async > Async in For > async inside For iterations captured as holes` failed because async holes are replayed after the loop completes, with `curI` already at `len-1`).
 
 Same shape applied to `repeat`.
 
-| bench (ops/sec) | pre-inline | post-inline | delta |
-|-----------------|-----------:|------------:|------:|
+| bench (ops/sec) | pre-inline | post-inline |   delta |
+| --------------- | ---------: | ----------: | ------: |
 | `color-picker`  |     27,500 |      28,300 | `+2.9%` |
 
 ### Investigation 6: SSR owner pool
@@ -5772,8 +5795,8 @@ Added a render-spanning freelist in `packages/solid/src/server/signals.ts`:
 
 Steady-state owner allocation drops to `0` for renders below the pool cap.
 
-| bench (ops/sec) | pre-pool | post-pool | delta |
-|-----------------|---------:|----------:|------:|
+| bench (ops/sec) | pre-pool | post-pool |   delta |
+| --------------- | -------: | --------: | ------: |
 | `color-picker`  |   28,300 |    31,000 | `+9.5%` |
 
 ### Investigation 7: Inline `ssr()` (avoid rest-args allocation)
@@ -5789,10 +5812,15 @@ export function ssr(t) {
   for (let i = 1; i < len; i++) {
     const hole = arguments[i];
     const ht = typeof hole;
-    if (ht === "string") { /* inline string fast path */ }
-    else if (ht === "number") { /* inline */ }
-    else if (hole == null || ht === "boolean") { /* skip */ }
-    else { /* fall through to tryResolveString / escalation */ }
+    if (ht === "string") {
+      /* inline string fast path */
+    } else if (ht === "number") {
+      /* inline */
+    } else if (hole == null || ht === "boolean") {
+      /* skip */
+    } else {
+      /* fall through to tryResolveString / escalation */
+    }
     // ...
   }
   // ...
@@ -5801,8 +5829,8 @@ export function ssr(t) {
 
 The inline string/number/null/bool fast paths skip the `tryResolveString` function call for the typical "all-static-after-eval" hole shape. `resolveSSR` is removed (was the only caller).
 
-| bench (ops/sec) | pre-inline | post-inline | delta |
-|-----------------|-----------:|------------:|------:|
+| bench (ops/sec) | pre-inline | post-inline |         delta |
+| --------------- | ---------: | ----------: | ------------: |
 | `color-picker`  |     31,000 |      31,300 | noise (`+1%`) |
 
 V8 was already inlining the rest-args spread well; the visible win was small. The cleanup is still worth keeping for clarity / smaller bundle, but not a perf lever.
@@ -5825,7 +5853,12 @@ try {
   for (let i = 0, len = items.length; i < len; i++) {
     if (origId !== undefined) parent.id = formatChildId(origId, origChildCount + i);
     parent._childCount = 0;
-    s.push(mapFn(() => items[i], () => i));
+    s.push(
+      mapFn(
+        () => items[i],
+        () => i
+      )
+    );
   }
 } finally {
   parent.id = origId;
@@ -5837,8 +5870,8 @@ Hydration id parity is preserved: client `mapArray` allocates a row owner with i
 
 Why shared accessors aren't needed (and why per-row closures are still cheap): the row callback runs once per render. Sync `NotReadyError` from anywhere inside it propagates up through this `sync: true` createMemo (which doesn't latch) → out to the engine's hole replay → the **whole** `mapArray` reruns from scratch with fresh state. Async retries always live in their own nested owners (compiler-emitted memos, boundaries) whose ids and captured state are snapshotted at owner-creation time, so restoring `parent.id` afterwards doesn't disturb them.
 
-| bench (ops/sec) | pre | post | delta |
-|-----------------|----:|-----:|------:|
+| bench (ops/sec) |    pre |   post |    delta |
+| --------------- | -----: | -----: | -------: |
 | `color-picker`  | 31,300 | 36,100 | `+15.3%` |
 
 All `408` solid + `81` solid-web SSR/streaming + `13` hydration tests still pass.
@@ -5874,14 +5907,15 @@ function hoistExpression(path, results, expr, { group, post, skipWrap } = {}) {
 The temp-var pattern is intentional: an earlier attempt to inline arrow literals directly into `ssr()` args (skipping the temp var) regressed `color-picker` ~3% — the `ssr()` call site was megamorphizing on the mixed string/arrow argument shapes. Keeping each arg as a stable `_v$N` identifier preserves the IC.
 
 What's saved per element-with-dynamics:
+
 - 1 `ssrRunInScope` import + 1 dead function call site.
 - For multi-dynamic groupings: 1 throwaway array literal per render.
 - For single-dynamic groupings (the `<For>` row case): 0 indexing overhead (`_v$` directly instead of `_v$[0]`).
 
 All `118` dom-expressions transform tests pass after regenerating SSR fixtures.
 
-| bench (ops/sec) | pre | post | delta |
-|-----------------|----:|-----:|------:|
+| bench (ops/sec) |    pre |    post |  delta |
+| --------------- | -----: | ------: | -----: |
 | `color-picker`  | 36,100 | ~39,650 | `+10%` |
 
 ### Investigation 10: Compiler — drop `createComponent` from SSR emission
@@ -5901,10 +5935,10 @@ if (getConfig(path).generate === "ssr") {
 
 Bundle effect: `r-server` no longer needs to import `createComponent`, every `<Foo .../>` site loses one indirection. All `118` babel-plugin transform tests pass after fixture regen — SSR fixtures show direct calls (`Component({...})`, `_$For({...})`) where they previously had `_$createComponent(Component, {...})`.
 
-| bench (ops/sec) | pre | post (run 1) | post (run 2) | delta |
-|-----------------|----:|-------------:|-------------:|------:|
-| `color-picker`  | 39,650 | 37,478 | 37,421 | noise |
-| `inferno` (control) | 41,656 | 39,558 | 39,067 | also down `~6%` |
+| bench (ops/sec)     |    pre | post (run 1) | post (run 2) |           delta |
+| ------------------- | -----: | -----------: | -----------: | --------------: |
+| `color-picker`      | 39,650 |       37,478 |       37,421 |           noise |
+| `inferno` (control) | 41,656 |       39,558 |       39,067 | also down `~6%` |
 
 Both `solid-next` and `inferno` dropped `~5.6%` in the same session (likely thermal/machine-state noise). The **solid-next/inferno ratio is preserved** (`0.952` → `0.953`), so this is a wash on perf — V8 was already inlining the trivial `createComponent` wrapper in steady state.
 
@@ -5935,6 +5969,7 @@ function children(color, i) {
 ```
 
 Implementation:
+
 ```js
 const declarators = [...result.declarations, ...result.postDeclarations].filter(Boolean);
 if (!declarators.length) return ssrCall;
@@ -5943,9 +5978,7 @@ for (const d of declarators) path.scope.push({ id: d.id, kind: "var" });
 // Common case: JSX is the direct `return` argument — emit flat statements.
 if (t.isReturnStatement(path.parent) && path.parent.argument === path.node) {
   path.parentPath.insertBefore(
-    declarators.map(d =>
-      t.expressionStatement(t.assignmentExpression("=", d.id, d.init))
-    )
+    declarators.map(d => t.expressionStatement(t.assignmentExpression("=", d.id, d.init)))
   );
   return ssrCall;
 }
@@ -5964,14 +5997,15 @@ The `return`-position split-out is conditional-flow-safe: babel auto-wraps singl
 Why `var` is safe: function-scoped (not block-scoped, no TDZ), hoisted, each invocation of the surrounding function gets a fresh activation-record copy. Closures captured during one invocation hold the value object, not the variable slot — no aliasing across recursive/concurrent calls.
 
 What's saved per SSR template eval site:
+
 - 1 IIFE arrow closure allocation (per eval, per invocation of the surrounding function).
 - 1 function-call frame.
 - For per-row `<For>` bodies: ~133 closures/render in `color-picker`.
 
-| bench (ops/sec) | pre | post (run 1) | post (run 2) | delta |
-|-----------------|----:|-------------:|-------------:|------:|
-| `color-picker`  | 37,449 | 37,398 | 37,349 | noise |
-| `inferno` (control) | 39,313 | 38,028 | 37,612 | also down ~3% |
+| bench (ops/sec)     |    pre | post (run 1) | post (run 2) |         delta |
+| ------------------- | -----: | -----------: | -----------: | ------------: |
+| `color-picker`      | 37,449 |       37,398 |       37,349 |         noise |
+| `inferno` (control) | 39,313 |       38,028 |       37,612 | also down ~3% |
 
 Wash on real-benchmark perf — V8 efficiently inlines hot-path IIFEs after warmup. Profiled ops/sec (with `--prof` overhead) showed +16% though, suggesting the call-frame elimination is real, just dominated by faster work elsewhere in unprofiled steady state.
 
@@ -6009,6 +6043,7 @@ Two extensions vs the SSR version:
 1. **Mixed-shape statement list.** DOM `createTemplate` accumulates `result.decl` (a `var X = init` block), `result.exprs` (expression statements + occasional `var _ref$ = …` declarations from event handlers), `wrapDynamics(...)` output, and `result.postExprs`. The flatten loop walks this list, hoisting any simple-identifier declarators via `path.scope.push` (`var _el$, _ref$2;` at top of function/program), splitting their initializers into assignment statements, and passing other entries through unchanged.
 
 2. **Pattern declarators stay in place.** Hydratable mode emits `var [_el$, _co$] = _$getNextMarker(...)` from `getNextMarker`, where `d.id` is an `ArrayPattern`. Bare `var [a, b];` (no init) is invalid — destructuring patterns require an initializer. These declarators are kept as full `var [a, b] = init;` statements in the flat list (still function-scoped, just declared mid-block instead of at the top). Confirmed working in `__dom_hydratable_fixtures__/components/output.js`:
+
    ```js
    const template = props => {
      var _el$6, _el$9, _el$11, _el$13;                 // simple ids hoisted
@@ -6027,6 +6062,7 @@ Two extensions vs the SSR version:
    - `const/let/var x = <jsx/>;` — JSX is the entire variable initializer.
 
    Both lift safely to before the parent statement. The module-level `const template = <jsx/>;` form (very common in Universal/DOM tests + benchmarks) is now also flat — see `__universal_fixtures__/attributeExpressions/output.js`:
+
    ```js
    var _el$, _el$2, _el$3, …                           // hoisted to module top
    _el$ = _$createElement("div");                       // assignments at module scope
@@ -6039,10 +6075,10 @@ Two extensions vs the SSR version:
 
 All `118` dom-expressions transform tests pass after fixture regen across all 11 SSR/DOM/Universal/hydratable fixture directories.
 
-| bench (ops/sec) | run 1 | run 2 | run 3 | notes |
-|-----------------|------:|------:|------:|------|
-| `color-picker` solid-next | 37,914 | 43,769 | 44,020 | |
-| `color-picker` inferno    | —      | —      | 43,434 | ±13% variance |
+| bench (ops/sec)           |  run 1 |  run 2 |  run 3 | notes         |
+| ------------------------- | -----: | -----: | -----: | ------------- |
+| `color-picker` solid-next | 37,914 | 43,769 | 44,020 |               |
+| `color-picker` inferno    |      — |      — | 43,434 | ±13% variance |
 
 SSR bundle is identical to pre-Inv-12 (DOM+Universal changes don't affect the SSR-output path for this benchmark). The variance is run-to-run thermal/machine state. Net for this session: kept Inferno parity, output is significantly more readable across all three target modes.
 
@@ -6052,7 +6088,7 @@ Re-tested Investigation 9's "no temp vars" hypothesis with a clean baseline. The
 
 ```js
 function hoistExpression(path, results, expr) {
-  return expr;  // inline; was: emit `var _v$N = expr` and return identifier
+  return expr; // inline; was: emit `var _v$N = expr` and return identifier
 }
 ```
 
@@ -6075,14 +6111,14 @@ function children(color, i) {
 }
 ```
 
-**Ordering analysis confirmed correct.** JS evaluates function args left-to-right *before* the call, which exactly matches the side-effect order of the original sequential `_v$N = init` assignments. Nested component IDs / hydration scope are unaffected — the same components are invoked in the same positional order under the same parent owner.
+**Ordering analysis confirmed correct.** JS evaluates function args left-to-right _before_ the call, which exactly matches the side-effect order of the original sequential `_v$N = init` assignments. Nested component IDs / hydration scope are unaffected — the same components are invoked in the same positional order under the same parent owner.
 
 **Perf result on `color-picker` (2 runs each, same machine, back-to-back):**
 
-| state | run 1 | run 2 | inferno-ratio |
-|-------|------:|------:|-------------:|
-| Inv 12 (temp vars) | 37,368 | 37,036 | ~0.95 |
-| **Inv 13 (inlined)** | **36,467** | **35,468** | **~0.93** |
+| state                |      run 1 |      run 2 | inferno-ratio |
+| -------------------- | ---------: | ---------: | ------------: |
+| Inv 12 (temp vars)   |     37,368 |     37,036 |         ~0.95 |
+| **Inv 13 (inlined)** | **36,467** | **35,468** |     **~0.93** |
 
 `~3%` regression, reproducing Investigation 9's measurement. Inferno was rock-stable across both pairs (`±0.21–1.20%`), so this isn't thermal noise — it's a real cost from `ssr()`'s call-site IC moving from monomorphic-on-`Identifier` args to polymorphic-on-mixed-shape args.
 
@@ -6090,21 +6126,21 @@ function children(color, i) {
 
 ### Cumulative status (2026-05-07 — end of session)
 
-| bench (ops/sec) | baseline | current | total delta |
-|-----------------|---------:|--------:|------------:|
+| bench (ops/sec) | baseline | current |       total delta |
+| --------------- | -------: | ------: | ----------------: |
 | `color-picker`  |   14,049 |  39,650 | `+182%` / `2.82×` |
 
 Updated competitor / northstar position (3-run average, run-to-run variance ±5%):
 
-| bench (ops/sec) |  react |  inferno | **solid-next** | **solid 1.x** |
-|-----------------|-------:|---------:|---------------:|--------------:|
-| `color-picker`  | 20,720 |   41,656 |     **39,651** |    **61,514** |
+| bench (ops/sec) |  react | inferno | **solid-next** | **solid 1.x** |
+| --------------- | -----: | ------: | -------------: | ------------: |
+| `color-picker`  | 20,720 |  41,656 |     **39,651** |    **61,514** |
 
 Ratios:
 
-| bench           | react vs next | inferno vs next | solid-1.x vs next |
-|-----------------|--------------:|----------------:|------------------:|
-| `color-picker`  | `0.52` (was `0.81`) | `1.05` (was `1.63`) | `1.55` (was `2.62`) |
+| bench          |       react vs next |     inferno vs next |   solid-1.x vs next |
+| -------------- | ------------------: | ------------------: | ------------------: |
+| `color-picker` | `0.52` (was `0.81`) | `1.05` (was `1.63`) | `1.55` (was `2.62`) |
 
 **Inferno parity reached.** `solid-next` is within `5%` of Inferno on `color-picker` SSR — well within run-to-run noise (individual runs put us anywhere from `-6.5%` to `-1.6%`). solid-next is also `1.91×` ahead of React.
 
@@ -6118,19 +6154,19 @@ After Investigation 13, the CPU profile didn't surface an obvious next hotspot, 
 
 The profile showed `~75%` of per-render heap pressure on `color-picker` was infrastructure the app never uses:
 
-| % | site |
-|---|------|
-| 29.6% | `createAssetTracking` (Map/Set + closures) |
-| 28.1% | native `Map` and `Set` constructors |
+| %     | site                                                         |
+| ----- | ------------------------------------------------------------ |
+| 29.6% | `createAssetTracking` (Map/Set + closures)                   |
+| 28.1% | native `Map` and `Set` constructors                          |
 | 17.0% | `createSerializer` (seroval `Serializer` instance + plugins) |
 
 Built two lazy factories: `createLazySerializer(opts)` in `serializer.js` deferred `new Serializer({...})` until first `write()`; lazy `createAssetTracking` in `server.js` deferred Map/Set allocation until first write, with shared `EMPTY_MAP`/`EMPTY_SET` constants for read paths, and method-based mutation (`addEmittedAsset`, `addBoundaryStyle`) replacing direct map access in `registerAsset` and `propagateBoundaryStyles`.
 
 **Result on `color-picker`:**
 
-| state | run 1 | run 2 | run 3 |
-|-------|------:|------:|------:|
-| Inv 13 baseline | 39,650 |   —   |   —   |
+| state               |  run 1 |  run 2 |  run 3 |
+| ------------------- | -----: | -----: | -----: |
+| Inv 13 baseline     | 39,650 |      — |      — |
 | Inv 14 (lazy infra) | 37,407 | 38,428 | 36,943 |
 
 **No throughput change** (within run-to-run noise). The heap profile change was real — `createSerializer` and native `Map`/`Set` constructors disappeared as top allocators — but ops/sec didn't move.
@@ -6149,20 +6185,20 @@ What this measurement does tell us going forward:
 
 ### Investigation 15: `escape()` single-pass fast scan (2026-05-08)
 
-Built `cpu-prof-loop.cjs` (mirrors `heap-prof-loop.cjs` — connects `node:inspector` after warmup, `Profiler.start` / `Profiler.stop` so the profile contains *only* the steady-state loop) plus `analyze-cpu-prof.cjs` (sorts by self/total time per call frame). Ran 50k iters at 100µs sampling on `color-picker` solid-next.
+Built `cpu-prof-loop.cjs` (mirrors `heap-prof-loop.cjs` — connects `node:inspector` after warmup, `Profiler.start` / `Profiler.stop` so the profile contains _only_ the steady-state loop) plus `analyze-cpu-prof.cjs` (sorts by self/total time per call frame). Ran 50k iters at 100µs sampling on `color-picker` solid-next.
 
 **Top SELF-time hotspots (pre-fix, total wall 1410ms):**
 
-| % | self ms | site |
-|---|---:|---|
-| 19.8% | 279 | `escape` |
-| 17.2% | 242 | `For` row callback body |
-| 10.6% | 150 | `createSyncMemo.pull` (anon under `pull`) |
-| 9.5%  | 134 | `ssr()` |
-| 9.1%  | 129 | `tryResolveString` |
-| 7.0%  | 99  | `(garbage collector)` |
-| 5.3%  | 75  | `createMemo.sync` (mapArray memo body) |
-| 4.4%  | 62  | `formatChildId` |
+| %     | self ms | site                                      |
+| ----- | ------: | ----------------------------------------- |
+| 19.8% |     279 | `escape`                                  |
+| 17.2% |     242 | `For` row callback body                   |
+| 10.6% |     150 | `createSyncMemo.pull` (anon under `pull`) |
+| 9.5%  |     134 | `ssr()`                                   |
+| 9.1%  |     129 | `tryResolveString`                        |
+| 7.0%  |      99 | `(garbage collector)`                     |
+| 5.3%  |      75 | `createMemo.sync` (mapArray memo body)    |
+| 4.4%  |      62 | `formatChildId`                           |
 
 `escape()` was the cleanest single source: ~420 calls per render (140 names + 140 hex + 140-elem array recurse), each calling `s.indexOf(delim)` and `s.indexOf("&")` upfront before the no-escape early exit. That walked the whole string twice in the (vastly hot) "no special chars" case.
 
@@ -6178,31 +6214,33 @@ for (let i = 0; i < len; i++) {
 return s;
 ```
 
-Splitting into `escape()` + `escapeSlow()` keeps the hot function small enough that V8 inlines it into callers (we observed this in the post-fix profile — `escape`'s self-time *frame* shrank not just because the work shrank, but because the work moved up the stack into the caller, which is the optimal outcome).
+Splitting into `escape()` + `escapeSlow()` keeps the hot function small enough that V8 inlines it into callers (we observed this in the post-fix profile — `escape`'s self-time _frame_ shrank not just because the work shrank, but because the work moved up the stack into the caller, which is the optimal outcome).
 
 **Perf result on `color-picker` (3 runs, post-fix):**
 
-| | run 1 | run 2 | run 3 | avg |
-|---|------:|------:|------:|-----:|
-| pre-Inv 15  | 36,943 | 38,428 | 37,407 | 37,592 |
-| **post-Inv 15** | **39,234** | **38,637** | **39,158** | **39,010** |
-| inferno (same run) |   —    |   —    | 39,138 | ~39,138 |
+|                    |      run 1 |      run 2 |      run 3 |        avg |
+| ------------------ | ---------: | ---------: | ---------: | ---------: |
+| pre-Inv 15         |     36,943 |     38,428 |     37,407 |     37,592 |
+| **post-Inv 15**    | **39,234** | **38,637** | **39,158** | **39,010** |
+| inferno (same run) |          — |          — |     39,138 |    ~39,138 |
 
 `+3.8%` on a noisy bench (variance band ±5%), but the underlying CPU profile shows the cause cleanly:
 
-| % | site | pre | post | Δ |
-|---|------|---:|---:|---:|
-| `escape` self | 279ms | **82ms** | `−71%` |
-| `createMemo.sync` self | 75ms | 278ms | (attribution shift — escape inlined into caller) |
-| **total wall** | **1410ms** | **1320ms** | **`−6.4%`** |
+| %                      | site       |        pre |                                             post |   Δ |
+| ---------------------- | ---------- | ---------: | -----------------------------------------------: | --: |
+| `escape` self          | 279ms      |   **82ms** |                                           `−71%` |
+| `createMemo.sync` self | 75ms       |      278ms | (attribution shift — escape inlined into caller) |
+| **total wall**         | **1410ms** | **1320ms** |                                      **`−6.4%`** |
 
 Inferno parity reached on the bench: `solid-next` is at `~1.00×` Inferno (39,010 vs 39,138), within noise. Pulled across the line by a single localized change.
 
 **Tools added:**
+
 - `cpu-prof-loop.cjs` — steady-state CPU sampler via `node:inspector`.
 - `analyze-cpu-prof.cjs` — top self-time / total-time call frames from `.cpuprofile`.
 
 **Next CPU-profile targets** (per post-fix profile, in order of size + tractability):
+
 1. `tryResolveString` 8.1% self — reorder `Array.isArray(node)` / `node.h` / `Array.isArray(node.t)` checks; the `{ t: string }` no-hole case is the hot path and currently runs last.
 2. `formatChildId` 4.4% self — `id.toString(36) + String.fromCharCode + concat` per child. Could memoize per-owner prefix.
 3. `escape()` array branch — color-picker's `escape(For(...))` slices a 140-element array and recursively escapes each `{ t: string }`, all of which return as-is. Compiler signal that the array is already-safe could elide this entirely.
@@ -6212,27 +6250,27 @@ Inferno parity reached on the bench: `solid-next` is at `~1.00×` Inferno (39,01
 
 Restored `search-results` to the bench harness for a second look. Component shape is structurally different from `color-picker`: a flat 50-row list where each `<Item>` is its own component with `createSignal`, multiple dynamic JSX expressions, and a `memo()` wrap on a conditional ternary.
 
-| bench (ops/sec) |  react |  inferno | **solid-next** | **solid 1.x** |
-|-----------------|-------:|---------:|---------------:|--------------:|
-| `search-results` | 3,482 | 5,281 | **12,500** | **28,000** |
-| `color-picker`  | 18,050 | 36,393 | **38,868** | **55,929** |
+| bench (ops/sec)  |  react | inferno | **solid-next** | **solid 1.x** |
+| ---------------- | -----: | ------: | -------------: | ------------: |
+| `search-results` |  3,482 |   5,281 |     **12,500** |    **28,000** |
+| `color-picker`   | 18,050 |  36,393 |     **38,868** |    **55,929** |
 
 Solid-next is `2.4×` faster than React and `2.4×` faster than Inferno on `search-results`, but Solid 1.x is `2.2×` ahead — the largest remaining 1.x→2.0 gap.
 
 CPU profile (30k iters, 100µs sampling):
 
-| % self | site |
-|---:|---|
-| 14.9% | `Item` body |
-| 13.6% | `(garbage collector)` |
-| 11.5% | `_v$4` (compiler-emitted closure for one of the dynamic JSX exprs) |
-| 10.5% | `_v$2` |
-| 10.0% | `_v$5` |
-| 8.7%  | `tryResolveString` |
-| 7.1%  | `ssr` |
-| 3.8%  | `createOwner` (50× `_$memo()` ternary wraps) |
-| 2.7%  | `_v$6` |
-| 2.2%  | `createMemo.sync` (mapArray memo body) |
+| % self | site                                                               |
+| -----: | ------------------------------------------------------------------ |
+|  14.9% | `Item` body                                                        |
+|  13.6% | `(garbage collector)`                                              |
+|  11.5% | `_v$4` (compiler-emitted closure for one of the dynamic JSX exprs) |
+|  10.5% | `_v$2`                                                             |
+|  10.0% | `_v$5`                                                             |
+|   8.7% | `tryResolveString`                                                 |
+|   7.1% | `ssr`                                                              |
+|   3.8% | `createOwner` (50× `_$memo()` ternary wraps)                       |
+|   2.7% | `_v$6`                                                             |
+|   2.2% | `createMemo.sync` (mapArray memo body)                             |
 
 The dominant cost (`~38%` combined `_v$N` self-time) is the compiler's defensive-closure pattern for dynamic JSX expressions. Each `<Item>` allocates ~5 `() => …` closures that are walked + invoked by `tryResolveString`. Solid 1.x emits a single `ssr()` call with eagerly-computed args (no closures, no per-row owners on the conditional ternary) — that structural difference is most of the `2.2×` gap.
 
@@ -6262,19 +6300,19 @@ function pull(): T | undefined {
 
 Saves one closure allocation + one `runWithOwner` frame per pull. Hot for any compiler-emitted `_$memo()` (e.g. ternary wraps) and for every `mapArray`/`repeat` row callback memo, plus all internal control-flow primitives (Show, Switch, children, lazy outer).
 
-| bench (ops/sec, 2 runs) | pre-Inv 16 | post-Inv 16 | delta |
-|-------------------------|----------:|-----------:|------:|
-| `color-picker` | 39,010 | 38,855 / 38,881 | flat |
-| `search-results` | ~12,500 | 12,520 / 12,853 | flat |
+| bench (ops/sec, 2 runs) | pre-Inv 16 |     post-Inv 16 | delta |
+| ----------------------- | ---------: | --------------: | ----: |
+| `color-picker`          |     39,010 | 38,855 / 38,881 |  flat |
+| `search-results`        |    ~12,500 | 12,520 / 12,853 |  flat |
 
-Wall-time flat on both benches but the *structural* simplification is real:
+Wall-time flat on both benches but the _structural_ simplification is real:
 
-| frame | pre | post |
-|-------|----:|----:|
-| color-picker `(anon under pull)` self | 10.6% | gone |
-| color-picker `pull` self | ~5% | 14.3% |
-| search-results `(anon under pull)` self | not measured | gone |
-| search-results `pull` self | — | 1.5% |
+| frame                                   |          pre |  post |
+| --------------------------------------- | -----------: | ----: |
+| color-picker `(anon under pull)` self   |        10.6% |  gone |
+| color-picker `pull` self                |          ~5% | 14.3% |
+| search-results `(anon under pull)` self | not measured |  gone |
+| search-results `pull` self              |            — |  1.5% |
 
 Work that V8 was attributing to the inner arrow (`(anon)` frame) folds into `pull`'s self-time — same total, fewer call frames, fewer per-pull allocations. V8's escape analysis was already eliminating the `() => compute(value)` arrow allocation in steady state in many cases, which explains the flat wall-time. The inline removes the call-site fragility — pull stays monomorphic and inlinable into callers.
 
@@ -6305,7 +6343,7 @@ return _$ssr(_tmpl$, _g$, _g$, _g$, _g$, _g$, _g$, _v$7);
 
 `_$ssrGroup(fn, n)` tags `fn.$g = n` and returns it. The same identifier is repeated `n` times in the `ssr()` call so positional structure is preserved.
 
-**Runtime fast-path** in `ssr()` (placed at the *end* of the typeof chain — after `string`/`number`/`null`/`boolean` — so non-function holes never pay for the function check):
+**Runtime fast-path** in `ssr()` (placed at the _end_ of the typeof chain — after `string`/`number`/`null`/`boolean` — so non-function holes never pay for the function check):
 
 ```js
 } else if (ht === "function" && hole.$g) {
@@ -6324,21 +6362,21 @@ The `try/catch` lives in `ssrFirstGroupHit` (out of the hot loop) so the loop bo
 
 **Preflight (hand-edited bundles, 2 rounds, `solid-next/inferno` ratio):**
 
-| variant | search-results | color-picker |
-|---|---|---|
-| Sync-only proto, branch first | +12.9% | −1.9% (noise) |
-| NotReady-aware, branch first | gains held | **−3% regression** |
-| NotReady-aware, branch end-of-typeof | +13.6% | flat (+0.6%) |
-| Helper-pattern, branch end-of-typeof | +13.7% | flat (+0.3%) |
+| variant                              | search-results | color-picker       |
+| ------------------------------------ | -------------- | ------------------ |
+| Sync-only proto, branch first        | +12.9%         | −1.9% (noise)      |
+| NotReady-aware, branch first         | gains held     | **−3% regression** |
+| NotReady-aware, branch end-of-typeof | +13.6%         | flat (+0.6%)       |
+| Helper-pattern, branch end-of-typeof | +13.7%         | flat (+0.3%)       |
 
 The branch placement matters more than the keyword-vs-helper split: putting the function check first forces every non-function hole through one extra `typeof === "function"` evaluation, which `color-picker` (no groupings) measurably regresses on. End-of-typeof keeps the original cheap holes on their original path.
 
 **Real compiler results (after rebuilding bundles, 2 rounds):**
 
-| bench | round 1 ratio | round 2 ratio | avg | vs pre-Inv-17 baseline |
-|-------|-------------:|--------------:|----:|----------------------:|
-| `search-results` | 2.699 | 2.610 | **2.654** | `+15.4%` |
-| `color-picker`   | 1.046 | 1.041 | **1.044** | `+4.4%` (within noise) |
+| bench            | round 1 ratio | round 2 ratio |       avg | vs pre-Inv-17 baseline |
+| ---------------- | ------------: | ------------: | --------: | ---------------------: |
+| `search-results` |         2.699 |         2.610 | **2.654** |               `+15.4%` |
+| `color-picker`   |         1.046 |         1.041 | **1.044** | `+4.4%` (within noise) |
 
 `color-picker` stays flat — its bundle has no `ssrGroup` calls (no element has ≥2 contiguous dynamic attrs), and the new branch is gated by `hole.$g` so unrelated bundles only pay one extra typeof+property check on the cold path.
 
@@ -6366,15 +6404,15 @@ Reasoning: the default keyed row is not reactive inside the row callback. Requir
 
 Tier-2 DOM (`js-framework-benchmark`, focused CPU suite, `--count 5`, total medians):
 
-| bench | vanilla | solid 1.9.12 | solid-next |
-|-------|--------:|-------------:|-----------:|
-| `01_run1k` | 32.6 | 33.1 | 34.3 |
-| `02_replace1k` | 34.8 | 37.2 | 37.3 |
-| `03_update10th1k_x16` | 19.3 | 18.7 | 20.5 |
-| `05_swap1k` | 20.9 | 23.3 | 24.6 |
-| `07_create10k` | 330.3 | 353.1 | 356.6 |
-| `08_create1k-after1k_x2` | 37.7 | 39.4 | 39.0 |
-| `09_clear1k_x8` | 15.9 | 19.9 | 17.0 |
+| bench                    | vanilla | solid 1.9.12 | solid-next |
+| ------------------------ | ------: | -----------: | ---------: |
+| `01_run1k`               |    32.6 |         33.1 |       34.3 |
+| `02_replace1k`           |    34.8 |         37.2 |       37.3 |
+| `03_update10th1k_x16`    |    19.3 |         18.7 |       20.5 |
+| `05_swap1k`              |    20.9 |         23.3 |       24.6 |
+| `07_create10k`           |   330.3 |        353.1 |      356.6 |
+| `08_create1k-after1k_x2` |    37.7 |         39.4 |       39.0 |
+| `09_clear1k_x8`          |    15.9 |         19.9 |       17.0 |
 
 Reading:
 
@@ -6383,10 +6421,10 @@ Reading:
 
 Tier-2 SSR (`isomorphic-ui-benchmarks`, ops/sec):
 
-| bench | react | inferno | solid 1.x | solid-next |
-|-------|------:|--------:|----------:|-----------:|
-| `search-results` | 3,480 | 5,417 | 28,874 | 14,159 |
-| `color-picker` | 18,402 | 37,006 | 57,963 | 38,968 |
+| bench            |  react | inferno | solid 1.x | solid-next |
+| ---------------- | -----: | ------: | --------: | ---------: |
+| `search-results` |  3,480 |   5,417 |    28,874 |     14,159 |
+| `color-picker`   | 18,402 |  37,006 |    57,963 |     38,968 |
 
 Reading:
 
@@ -6396,16 +6434,16 @@ Reading:
 
 Tier-2 reconcile (`solid-uibench`, median sample time, lower better). Correct gold standard is Solid `0.14.0`, not Solid 1.9:
 
-| mode | group | solid-next | solid 0.14 |
-|------|-------|-----------:|-----------:|
-| sCU on | overall | 0.3 | 0.2 |
-| sCU on | table | 0.3 | 0.2 |
-| sCU on | anim | 0.2 | 0.2 |
-| sCU on | tree | 0.5 | 0.3 |
-| sCU off | overall | 0.4 | 0.3 |
-| sCU off | table | 0.3 | 0.2 |
-| sCU off | anim | 0.3 | 0.2 |
-| sCU off | tree | 0.6 | 0.4 |
+| mode    | group   | solid-next | solid 0.14 |
+| ------- | ------- | ---------: | ---------: |
+| sCU on  | overall |        0.3 |        0.2 |
+| sCU on  | table   |        0.3 |        0.2 |
+| sCU on  | anim    |        0.2 |        0.2 |
+| sCU on  | tree    |        0.5 |        0.3 |
+| sCU off | overall |        0.4 |        0.3 |
+| sCU off | table   |        0.3 |        0.2 |
+| sCU off | anim    |        0.3 |        0.2 |
+| sCU off | tree    |        0.6 |        0.4 |
 
 Reading:
 
@@ -6434,60 +6472,60 @@ Also profiled the Solid 1.x server bundles with the same driver for shape compar
 During setup found a benchmark typo in `benchmarks/search-results/solid-next/server.jsx`:
 
 ```js
-return renderToString(() => <App searchResultsData={res} />), { noScript: true };
+return (renderToString(() => <App searchResultsData={res} />), { noScript: true });
 ```
 
 This executed `renderToString` but returned the options object via comma operator. Fixed to pass options as the second argument. The competitive rerun stayed basically unchanged:
 
-| bench (ops/sec) | react | inferno | solid 1.x | solid-next |
-|-----------------|------:|--------:|----------:|-----------:|
-| `search-results` | 3,419 | 5,268 | 29,360 | 14,516 |
-| `color-picker` | 18,184 | 35,447 | 57,690 | 39,034 |
+| bench (ops/sec)  |  react | inferno | solid 1.x | solid-next |
+| ---------------- | -----: | ------: | --------: | ---------: |
+| `search-results` |  3,419 |   5,268 |    29,360 |     14,516 |
+| `color-picker`   | 18,184 |  35,447 |    57,690 |     39,034 |
 
 Direct-profile throughput:
 
-| bench | solid-next profile loop | solid 1.x profile loop |
-|-------|------------------------:|-----------------------:|
-| `color-picker` | 38,778 ops/sec | 56,462 ops/sec |
-| `search-results` | 14,209 ops/sec | 28,211 ops/sec |
+| bench            | solid-next profile loop | solid 1.x profile loop |
+| ---------------- | ----------------------: | ---------------------: |
+| `color-picker`   |          38,778 ops/sec |         56,462 ops/sec |
+| `search-results` |          14,209 ops/sec |         28,211 ops/sec |
 
 Top self-time frames, `solid-next`:
 
-| bench | frame | self % |
-|-------|-------|-------:|
-| `color-picker` | `createMemo.sync` | 29.8 |
-| `color-picker` | row `children` callback | 16.0 |
-| `color-picker` | `ssr` | 10.2 |
-| `color-picker` | `_v$4` dynamic closure | 8.7 |
-| `color-picker` | `tryResolveString` | 7.8 |
-| `color-picker` | `pull` | 7.0 |
-| `color-picker` | GC | 6.7 |
-| `color-picker` | `formatChildId` | 5.0 |
-| `search-results` | `escape` | 34.9 |
-| `search-results` | `ssr` | 15.1 |
-| `search-results` | GC | 10.2 |
-| `search-results` | `Item` | 8.6 |
-| `search-results` | `createMemo.sync` | 6.6 |
-| `search-results` | `createOwner` | 3.9 |
-| `search-results` | `tryResolveString` | 2.6 |
-| `search-results` | `pull` | 2.3 |
+| bench            | frame                   | self % |
+| ---------------- | ----------------------- | -----: |
+| `color-picker`   | `createMemo.sync`       |   29.8 |
+| `color-picker`   | row `children` callback |   16.0 |
+| `color-picker`   | `ssr`                   |   10.2 |
+| `color-picker`   | `_v$4` dynamic closure  |    8.7 |
+| `color-picker`   | `tryResolveString`      |    7.8 |
+| `color-picker`   | `pull`                  |    7.0 |
+| `color-picker`   | GC                      |    6.7 |
+| `color-picker`   | `formatChildId`         |    5.0 |
+| `search-results` | `escape`                |   34.9 |
+| `search-results` | `ssr`                   |   15.1 |
+| `search-results` | GC                      |   10.2 |
+| `search-results` | `Item`                  |    8.6 |
+| `search-results` | `createMemo.sync`       |    6.6 |
+| `search-results` | `createOwner`           |    3.9 |
+| `search-results` | `tryResolveString`      |    2.6 |
+| `search-results` | `pull`                  |    2.3 |
 
 Top self-time frames, Solid 1.x:
 
-| bench | frame | self % |
-|-------|-------|-------:|
-| `color-picker` | `escape` | 29.3 |
-| `color-picker` | `simpleMap` | 21.3 |
-| `color-picker` | `For` | 19.6 |
-| `color-picker` | row `children` callback | 7.5 |
-| `color-picker` | `App` | 6.4 |
-| `color-picker` | GC | 4.5 |
-| `search-results` | `escape` | 27.0 |
-| `search-results` | `Item` | 22.8 |
-| `search-results` | `createComponent` | 19.0 |
-| `search-results` | `simpleMap` | 6.3 |
-| `search-results` | GC | 4.0 |
-| `search-results` | `Index` | 3.5 |
+| bench            | frame                   | self % |
+| ---------------- | ----------------------- | -----: |
+| `color-picker`   | `escape`                |   29.3 |
+| `color-picker`   | `simpleMap`             |   21.3 |
+| `color-picker`   | `For`                   |   19.6 |
+| `color-picker`   | row `children` callback |    7.5 |
+| `color-picker`   | `App`                   |    6.4 |
+| `color-picker`   | GC                      |    4.5 |
+| `search-results` | `escape`                |   27.0 |
+| `search-results` | `Item`                  |   22.8 |
+| `search-results` | `createComponent`       |   19.0 |
+| `search-results` | `simpleMap`             |    6.3 |
+| `search-results` | GC                      |    4.0 |
+| `search-results` | `Index`                 |    3.5 |
 
 Read:
 
@@ -6513,9 +6551,9 @@ Goal: keep stacking unsafe/generated-bundle diagnostics until `solid-next/color-
 
 Baseline in direct render loops (`100k` renders, same output length `8948` chars/render):
 
-| state | ops/sec |
-|-------|--------:|
-| Solid 1.x | ~58-70k |
+| state           | ops/sec |
+| --------------- | ------: |
+| Solid 1.x       | ~58-70k |
 | Solid 2 current | ~38-39k |
 
 #### Step 1: Direct `mapArray` pull (source probe)
@@ -6524,10 +6562,10 @@ Changed SSR `mapArray` to skip the generic `createMemo({ sync: true })` wrapper 
 
 Competitive `isomorphic-ui-benchmarks` after rebuilding from source:
 
-| bench | solid 1.x | solid-next |
-|-------|----------:|-----------:|
-| `search-results` | 28,514 | 14,180 |
-| `color-picker` | 58,868 | 39,703 |
+| bench            | solid 1.x | solid-next |
+| ---------------- | --------: | ---------: |
+| `search-results` |    28,514 |     14,180 |
+| `color-picker`   |    58,868 |     39,703 |
 
 Read:
 
@@ -6550,10 +6588,10 @@ var _v$4 = ssrClassName("color" + (selectedColorIndex() === i() ? " selected" : 
 
 Direct loop:
 
-| state | ops/sec |
-|-------|--------:|
+| state                 | ops/sec |
+| --------------------- | ------: |
 | Solid 2 + eager class | ~46-49k |
-| Solid 1.x | ~58-59k |
+| Solid 1.x             | ~58-59k |
 
 Read:
 
@@ -6583,10 +6621,10 @@ for (...) out += nodes[i].t;
 
 Direct loop:
 
-| state | ops/sec |
-|-------|--------:|
+| state                            | ops/sec |
+| -------------------------------- | ------: |
 | Solid 2 + eager class + join For | ~52-54k |
-| Solid 1.x | ~65-70k |
+| Solid 1.x                        | ~65-70k |
 
 Read:
 
@@ -6603,10 +6641,10 @@ owner.id = formatChildId(origId, origChildCount + i);
 
 Direct loop:
 
-| state | ops/sec |
-|-------|--------:|
+| state                                        | ops/sec |
+| -------------------------------------------- | ------: |
 | Solid 2 + eager class + join For + no row id | ~59-60k |
-| Solid 1.x | ~58-59k |
+| Solid 1.x                                    | ~58-59k |
 
 Read:
 
@@ -6642,12 +6680,12 @@ Validation:
 
 Competitive `isomorphic-ui-benchmarks` after rebuilding `solid-next` with the patched runtime:
 
-| run | bench | react | inferno | solid 1.x | solid-next |
-|-----|-------|------:|--------:|----------:|-----------:|
-| 1 | `search-results` | 3,534 | 5,419 | 28,532 | 13,774 |
-| 1 | `color-picker` | 17,397 | 35,344 | 57,015 | 40,535 |
-| 2 | `search-results` | 3,495 | 5,122 | 23,195 | 14,100 |
-| 2 | `color-picker` | 17,520 | 37,347 | 59,133 | 40,583 |
+| run | bench            |  react | inferno | solid 1.x | solid-next |
+| --- | ---------------- | -----: | ------: | --------: | ---------: |
+| 1   | `search-results` |  3,534 |   5,419 |    28,532 |     13,774 |
+| 1   | `color-picker`   | 17,397 |  35,344 |    57,015 |     40,535 |
+| 2   | `search-results` |  3,495 |   5,122 |    23,195 |     14,100 |
+| 2   | `color-picker`   | 17,520 |  37,347 |    59,133 |     40,583 |
 
 Read:
 
@@ -6661,7 +6699,7 @@ Read:
 Follow-up to Investigation 20, Step 2. The unsafe eager-class diagnostic showed a large `color-picker` win by removing the generated function hole:
 
 ```js
-() => ssrClassName("color" + (selectedColorIndex() === i() ? " selected" : ""))
+() => ssrClassName("color" + (selectedColorIndex() === i() ? " selected" : ""));
 ```
 
 This probe keeps the function hole and async semantics, but adds a narrower success path in `ssr()`:
@@ -6681,12 +6719,12 @@ Validation:
 
 Competitive `isomorphic-ui-benchmarks` after rebuilding `solid-next` with both safe runtime fast paths:
 
-| run | bench | react | inferno | solid 1.x | solid-next |
-|-----|-------|------:|--------:|----------:|-----------:|
-| 1 | `search-results` | 3,478 | 5,415 | 29,806 | 14,582 |
-| 1 | `color-picker` | 17,969 | 37,558 | 56,740 | 42,562 |
-| 2 | `search-results` | 3,509 | 5,318 | 28,653 | 14,136 |
-| 2 | `color-picker` | 18,055 | 36,610 | 57,923 | 43,103 |
+| run | bench            |  react | inferno | solid 1.x | solid-next |
+| --- | ---------------- | -----: | ------: | --------: | ---------: |
+| 1   | `search-results` |  3,478 |   5,415 |    29,806 |     14,582 |
+| 1   | `color-picker`   | 17,969 |  37,558 |    56,740 |     42,562 |
+| 2   | `search-results` |  3,509 |   5,318 |    28,653 |     14,136 |
+| 2   | `color-picker`   | 18,055 |  36,610 |    57,923 |     43,103 |
 
 Read:
 
@@ -6710,19 +6748,18 @@ Validation:
 
 Competitive `isomorphic-ui-benchmarks` after rebuilding `solid-next` with the row-id cache plus the two prior safe `dom-expressions` fast paths:
 
-| run | bench | react | inferno | solid 1.x | solid-next |
-|-----|-------|------:|--------:|----------:|-----------:|
-| 1 | `search-results` | 3,526 | 5,346 | 29,357 | 14,802 |
-| 1 | `color-picker` | 18,067 | 37,362 | 58,531 | 41,564 |
-| 2 | `search-results` | 3,519 | 5,256 | 27,917 | 14,237 |
-| 2 | `color-picker` | 17,897 | 37,134 | 58,077 | 42,042 |
+| run | bench            |  react | inferno | solid 1.x | solid-next |
+| --- | ---------------- | -----: | ------: | --------: | ---------: |
+| 1   | `search-results` |  3,526 |   5,346 |    29,357 |     14,802 |
+| 1   | `color-picker`   | 18,067 |  37,362 |    58,531 |     41,564 |
+| 2   | `search-results` |  3,519 |   5,256 |    27,917 |     14,237 |
+| 2   | `color-picker`   | 17,897 |  37,134 |    58,077 |     42,042 |
 
 Read:
 
 - This shape is not a win. `search-results` remains noise, and `color-picker` regresses versus the prior safe runtime state (`~42.6-43.1k` without this cache).
 - The extra branch/counter/marker state in the hot loop appears to cost more than the saved generic `formatChildId` work.
 - Reverted the source probe. The safe runtime baseline remains Investigation 21 + 22, without this id-cache change.
-
 
 ## Store Rewrite Lane (2026-08-18): baselines at full functionality
 
@@ -6738,14 +6775,14 @@ dbmon SHALLOW row runs identical legacy code in both checkouts — it is a
 built-in noise control (measured 1.14x session skew for this pair; treat
 sub-15% Tier-1 deltas accordingly).
 
-| bench (mean) | legacy | next | ratio |
-|---|---|---|---|
-| reconcile read-once tree, 10 of ~12k paths subscribed | 0.87ms | 0.51ms | 0.59x |
-| tree reverse 1111 keyed | 4.55 | 4.19 | 0.92x |
-| tree shuffle 1111 keyed | 4.47 | 4.74 | 1.06x (rme ±9–11%) |
-| dbmon full tick deep | 121.4 | 133.4 | 1.10x |
-| dbmon partial tick deep | 126.2 | 137.7 | 1.09x |
-| dbmon shallow (control) | 66.2 | 75.2 | 1.14x |
+| bench (mean)                                          | legacy | next   | ratio              |
+| ----------------------------------------------------- | ------ | ------ | ------------------ |
+| reconcile read-once tree, 10 of ~12k paths subscribed | 0.87ms | 0.51ms | 0.59x              |
+| tree reverse 1111 keyed                               | 4.55   | 4.19   | 0.92x              |
+| tree shuffle 1111 keyed                               | 4.47   | 4.74   | 1.06x (rme ±9–11%) |
+| dbmon full tick deep                                  | 121.4  | 133.4  | 1.10x              |
+| dbmon partial tick deep                               | 126.2  | 137.7  | 1.09x              |
+| dbmon shallow (control)                               | 66.2   | 75.2   | 1.14x              |
 
 ### Tier-2 (browser)
 
@@ -6787,12 +6824,12 @@ comparisons for the transition period. Delete with the legacy modules.
 
 Results (time:4000, both variants same process):
 
-| bench | next | legacy | read |
-|---|---|---|---|
-| full tick mean | 187.0 | 190.7 | parity (0.98x) |
-| full tick min | 146.9 | 133.4 | 1.10x, GC-riddled (rme ±20%) |
-| partial mean | 148.9 | 134.4 | 1.11x (rme ±6–12%) |
-| partial min | 124.2 | 116.4 | 1.07x |
+| bench          | next  | legacy | read                         |
+| -------------- | ----- | ------ | ---------------------------- |
+| full tick mean | 187.0 | 190.7  | parity (0.98x)               |
+| full tick min  | 146.9 | 133.4  | 1.10x, GC-riddled (rme ±20%) |
+| partial mean   | 148.9 | 134.4  | 1.11x (rme ±6–12%)           |
+| partial min    | 124.2 | 116.4  | 1.07x                        |
 
 Verdict: full-tick parity reached in-process; partial holds a residual
 ~7–10% (borderline vs rme but consistently legacy-favored). Remaining
@@ -6801,7 +6838,7 @@ partial suspects: per-child adoption bookkeeping on value-identical rows
 even when every key ===-continues). Browser re-validation owed on a cool
 machine with the current build.
 
-### A/B corrected for __TEST__ machinery (benchmark mode)
+### A/B corrected for **TEST** machinery (benchmark mode)
 
 Discovery: default vitest runs define `__TEST__: true`, which makes next pay
 its invariant oracles (ingestedRaw WeakSet add PER ADOPTION, no-mutation
@@ -6811,11 +6848,11 @@ earlier A/B numbers overstated next's cost. `--mode benchmark` strips them
 
 Two benchmark-mode runs, same command minutes apart (means):
 
-| bench | run 1 | run 2 |
-|---|---|---|
+| bench                 | run 1                   | run 2               |
+| --------------------- | ----------------------- | ------------------- |
 | full tick next/legacy | 129.5/160.8 = **0.81x** | 139.8/132.0 = 1.06x |
-| partial next/legacy | 140.4/131.2 = 1.07x | 155.5/136.8 = 1.14x |
-| partial MINS | 115.5/114.8 = 1.01x | 128.7/117.5 = 1.10x |
+| partial next/legacy   | 140.4/131.2 = 1.07x     | 155.5/136.8 = 1.14x |
+| partial MINS          | 115.5/114.8 = 1.01x     | 128.7/117.5 = 1.10x |
 
 Verdict: full-tick oscillates AROUND parity (0.81–1.06x) — no measurable
 regression remains, and no stable win either; partial reads 1.0–1.14x.
@@ -6823,12 +6860,13 @@ Cross-run variance (bench order, GC epochs, end-of-day thermals) now
 exceeds the effect size even in-process. STOP MEASURING HERE. Definitive
 read = cool machine, first runs of the day, both A/B runs repeated 3x,
 report min-of-means per side. Measurement rule going forward: any
-next-vs-legacy claim must come from `--mode benchmark` (the __TEST__
+next-vs-legacy claim must come from `--mode benchmark` (the **TEST**
 asymmetry biases default-mode numbers against next).
 
 ### Read-path flattening + positional-prefix keyed walk (2026-08-18, midday)
 
 Two more single-loop changes (no forks):
+
 1. Trap read path: one `typeof key` gates all brand-symbol compares off the
    hot string path; the common serve case (existing plain node, unchained,
    tracked) is inlined in the trap — readNodeFast, no serveDataKey frame, no
@@ -6840,6 +6878,7 @@ Two more single-loop changes (no forks):
    never on aligned ticks (was: 1000-entry Map per tick).
 
 Browser (octane harness, alternating rounds, current build):
+
 - FULL tick: 1.02/1.08/1.15x pre-prefix → 1.10/1.04x post — parity band.
 - PARTIAL tick: was ~1.24x IN BOTH SWEEP ORDERS (the one order-robust
   regression) → 1.03x / 0.97x post-prefix — CLOSED.
@@ -7023,7 +7062,7 @@ What landed, against the cause list above:
   (`trackedEffect` relabels its computed's slot), so the `createEffect` /
   `createRenderEffect` / `createTrackedEffect` wrappers no longer spread a
   fresh options object per effect. Alternatives rejected: `...(flag ? {…} :
-  null)` leaves a `...false` spread in prod (rollup folds the conditional
+null)` leaves a `...false` spread in prod (rollup folds the conditional
   but not the spread element — and in fact one such spread was already
   sitting in prod's `createEffect`, removed here); `{…prod, _name}` clones
   and then transitions, which is the same cost as the write; the `_x`
@@ -7035,14 +7074,16 @@ What landed, against the cause list above:
 - **No edge counters.** `_subCount`/`_depCount` and `noteGraphLink` /
   `unnoteGraphLink` are gone. Fan-out is counted by the notify walk in
   `insertSubs` (one local increment in a loop that already visits every
-  edge); fan-in by `link()` bumping one module counter per first touch of
-  a pass, bracketed by `recompute`. `HUGE_FAN_OUT` / `HUGE_FAN_IN` therefore
+  edge); fan-in by one walk of the recompute's trimmed dep list at the end
+  of the pass (see the review addendum below — the first cut bracketed the
+  pass with a module counter bumped per first-touch link, and CodSpeed
+  priced that). `HUGE_FAN_OUT` / `HUGE_FAN_IN` therefore
   fire on the change / the recompute rather than the link, deduped through a
   `WeakMap` (once per node, again after +500). `WIDE_WRITE` counts the
   subscriber list itself on the write (engine-only walk) and hands over to
   `HUGE_FAN_OUT` at 2000.
 - **Prod byte-identical** modulo comments and the removed `...false ? {…} :
-  options` spread (`diff -w` of `dist/prod` before/after, comment lines
+options` spread (`diff -w` of `dist/prod` before/after, comment lines
   stripped: only that hunk).
 
 Re-measured with the pinned method (5 interleaved full-suite Node runs;
@@ -7050,22 +7091,22 @@ Re-measured with the pinned method (5 interleaved full-suite Node runs;
 higher than the first session's (other load), the tiers are interleaved so
 the comparison holds.
 
-| Node lane (ms, median of 5) |   prod | observe |   Δ % | as shipped Δ % |
-| --------------------------- | -----: | ------: | ----: | -------------: |
-| createSignals               |   8.30 |    8.34 | +0.5% |                |
-| createComputations          | 131.44 |  130.82 | −0.5% |         +24.5% |
-| create1to1000               |  18.34 |   16.66 | −9.2% |         +63.7% |
-| updateSignals               | 486.74 |  510.86 | +5.0% |          +3.4% |
-| update1to1000               | 380.95 |  386.55 | +1.5% |          +1.5% |
-| broadPropagation            | 184.70 |  190.10 | +2.9% |         +15.1% |
-| deepPropagation             |  69.46 |   72.52 | +4.4% |         +21.4% |
-| diamond                     | 148.75 |  147.98 | −0.5% |         +10.0% |
-| 4-1000x12 - dyn5%           | 429.06 |  515.49 | +20.1% |        +27.5% |
-| 25-1000x5                   | 526.01 |  608.27 | +15.6% |        +31.4% |
-| 3-5x500                     | 130.67 |  142.86 | +9.3% |         +26.3% |
-| **sum of medians (34)**     | **3305** | **3567** | **+7.9%** |    **+15.5%** |
+| Node lane (ms, median of 5) |     prod |  observe |       Δ % | as shipped Δ % |
+| --------------------------- | -------: | -------: | --------: | -------------: |
+| createSignals               |     8.30 |     8.34 |     +0.5% |                |
+| createComputations          |   131.44 |   130.82 |     −0.5% |         +24.5% |
+| create1to1000               |    18.34 |    16.66 |     −9.2% |         +63.7% |
+| updateSignals               |   486.74 |   510.86 |     +5.0% |          +3.4% |
+| update1to1000               |   380.95 |   386.55 |     +1.5% |          +1.5% |
+| broadPropagation            |   184.70 |   190.10 |     +2.9% |         +15.1% |
+| deepPropagation             |    69.46 |    72.52 |     +4.4% |         +21.4% |
+| diamond                     |   148.75 |   147.98 |     −0.5% |         +10.0% |
+| 4-1000x12 - dyn5%           |   429.06 |   515.49 |    +20.1% |         +27.5% |
+| 25-1000x5                   |   526.01 |   608.27 |    +15.6% |         +31.4% |
+| 3-5x500                     |   130.67 |   142.86 |     +9.3% |         +26.3% |
+| **sum of medians (34)**     | **3305** | **3567** | **+7.9%** |     **+15.5%** |
 
-Creation is at parity (the whole of the create* aggregate: −0.5%). The two
+Creation is at parity (the whole of the create\* aggregate: −0.5%). The two
 `dyn` tests still read +15–20% on medians but their per-run spread is
 wider than the gap (`4-1000x12` prod 416–522 vs observe 410–521;
 `25-1000x5` prod 477–566 vs observe 493–727) — minimums are at parity, so
@@ -7081,16 +7122,16 @@ swap places between runs (prod 4.29 / 8.14, observe 4.79 / 4.99), and
 `create1to4` flips to observe-faster; sub-10 ms tests in this suite cannot
 resolve a slot's worth of cost.
 
-| DOM lane (ms, per-click median, 30 iters) |   prod | observe |    Δ % | as shipped Δ % |
-| ----------------------------------------- | -----: | ------: | -----: | -------------: |
-| create 1k                                 |  2.730 |   2.808 |  +2.8% |          +8.5% |
-| replace 1k                                |  3.208 |   3.238 |  +0.9% |          +5.0% |
-| update every 10th                         |  0.160 |   0.160 |   0.0% |         +14.8% |
-| swap rows                                 |  0.525 |   0.525 |   0.0% |          +2.2% |
-| select row                                |  0.035 |   0.040 | +14.3% (5 µs) |   +16.7% |
-| remove row                                |  0.735 |   0.735 |   0.0% |          −0.8% |
-| create 10k                                | 26.605 |  26.810 |  +0.8% |          +0.7% |
-| **whole pass incl. GC**                   | **82.99** | **83.49** | **+0.6%** |  **+3.6%** |
+| DOM lane (ms, per-click median, 30 iters) |      prod |   observe |           Δ % | as shipped Δ % |
+| ----------------------------------------- | --------: | --------: | ------------: | -------------: |
+| create 1k                                 |     2.730 |     2.808 |         +2.8% |          +8.5% |
+| replace 1k                                |     3.208 |     3.238 |         +0.9% |          +5.0% |
+| update every 10th                         |     0.160 |     0.160 |          0.0% |         +14.8% |
+| swap rows                                 |     0.525 |     0.525 |          0.0% |          +2.2% |
+| select row                                |     0.035 |     0.040 | +14.3% (5 µs) |         +16.7% |
+| remove row                                |     0.735 |     0.735 |          0.0% |          −0.8% |
+| create 10k                                |    26.605 |    26.810 |         +0.8% |          +0.7% |
+| **whole pass incl. GC**                   | **82.99** | **83.49** |     **+0.6%** |      **+3.6%** |
 
 The DOM lane is at parity; the 5 µs on `select` is the per-interaction
 fixed cost (`withInteraction` + `describeEventTarget`), unchanged and at
@@ -7098,8 +7139,33 @@ the timer's resolution.
 
 Residual observe cost, by construction: one slot per node (two on
 signals), the `attrHooks !== null` guards on recompute/write/effect-run,
-the fan-in counter (a module increment per first-touch link and two calls
-per recompute), the fan-out increment per notified edge, and
+the fan-in walk over the dep list at the end of each recompute, the
+fan-out increment per notified edge, and
 `registerGraph`'s `getOwner()` + slot store per `createSignal`. Bundle:
 +1.7 KB gz on the JFB app (unchanged — the slots are code the observe
 build already carried as writes).
+
+### Review addendum — the fan-in bracket (2026-09-09, PR #3324)
+
+CodSpeed (simulation, dev tier, deterministic) priced the branch against
+`next` twice with the same result: five improvements from the shape fix
+(`updateSignals:update1to1` +28%, `createDispose:memoTree` +25%, the two
+store reconcile-tree benches +19-23%, `update1to1000` +8%) and one
+regression, `createRenderEffects:create1to1` **-5.8%**. Bisected with two
+scratch branches run through CodSpeed:
+
+| variant                                                         | create1to1 | update1to1 | memoTree |
+| --------------------------------------------------------------- | ---------: | ---------: | -------: |
+| PR as pushed                                                    |      -5.8% |     +28.0% |   +25.1% |
+| minus the fan-in bracket (`begin/endFanInPass` + `passFanIn++`) |  untouched |     +32.3% |   +31.7% |
+| minus fan-in AND fan-out counting (literals only)               |  untouched |     +32.4% |   +30.7% |
+
+The fan-out increment in `insertSubs` is free. The fan-in bracket — two
+cross-module calls per recompute plus a module-variable increment per
+first-touch link — was the whole regression and was also eating 4-6 points
+of the wins on the update and dispose benches (one dep per node in all of
+these, so it is the per-pass calls, not the increment). Replaced by one
+walk of `el._deps` after `trimStaleDeps` at the end of the pass: with the
+stale tail cut, that list _is_ the pass's distinct sources, so the count is
+exact, costs a fraction of the reads that built it, keeps no module state
+and needs no save/restore around nested pulls.

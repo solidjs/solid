@@ -18,8 +18,8 @@ cost +15% overall with creation tests 2–3× under polymorphic load.
   wrappers no longer spread a fresh options object per effect to inject one.
   A dist test pins observe's key set to prod's plus the slots.
 - Edge counters are gone. `HUGE_FAN_OUT` is counted by the notify walk a
-  committed change already makes over its subscribers, `HUGE_FAN_IN` by the
-  recompute pass over the sources it tracks (one module counter in `link()`).
+  committed change already makes over its subscribers, `HUGE_FAN_IN` by one
+  walk of the recompute's trimmed dep list at the end of the pass.
   Both therefore fire on the work — the change / the recompute — rather than
   on the link, once per node and again after +500 growth (a WeakMap, not a
   node field). `WIDE_WRITE` (engine) counts the subscriber list on the write
