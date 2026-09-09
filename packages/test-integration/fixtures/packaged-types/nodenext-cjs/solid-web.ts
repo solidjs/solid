@@ -2,8 +2,12 @@ import {} from "@solidjs/web";
 import {} from "@solidjs/web/jsx-runtime";
 import {} from "@solidjs/web/jsx-dev-runtime";
 import {} from "@solidjs/web/storage";
-// Note: @solidjs/web/server-functions, /serialization and /frames types are
-// not importable under NodeNext resolution without skipLibCheck — their type
-// chain reaches seroval, whose published .d.ts uses extensionless relative
-// imports (TS2834 under node16/nodenext). Upstream seroval limitation,
-// tracked separately; unrelated to this package's module format.
+import {} from "@solidjs/web/serialization";
+import {} from "@solidjs/web/serialization/decode";
+import {} from "@solidjs/web/server-functions";
+import {} from "@solidjs/web/server-functions/client";
+import {} from "@solidjs/web/server-functions/server";
+import {} from "@solidjs/web/server-functions/rich-args";
+import {} from "@solidjs/web/frames";
+import {} from "@solidjs/web/frames/client";
+import {} from "@solidjs/web/frames/server";

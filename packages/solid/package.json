@@ -125,7 +125,7 @@
   "dependencies": {
     "@solidjs/signals": "^2.0.0-rc.7",
     "csstype": "^3.1.0",
-    "seroval": "~1.5.4",
-    "seroval-plugins": "~1.5.4"
+    "seroval": "~1.6.7",
+    "seroval-plugins": "~1.6.7"
   }
 }
