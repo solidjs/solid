@@ -290,22 +290,44 @@ function disposeRootSelf(this: Root, self: boolean = true): void {
 export function createOwner(options?: { id?: string; transparent?: boolean }) {
   const parent = context;
   const transparent = options?.transparent ?? false;
-  const owner = {
-    id: inheritId(options, transparent, parent),
-    _config: transparent ? CONFIG_TRANSPARENT : 0,
-    _root: true,
-    _parentComputed: (parent as Root)?._root ? (parent as Root)._parentComputed : parent,
-    _firstChild: null,
-    _nextSibling: null,
-    _prevSibling: null,
-    _disposal: null,
-    _queue: parent?._queue ?? globalQueue,
-    _context: parent?._context || defaultContext,
-    _childCount: 0,
-    _x: null,
-    _parent: parent,
-    dispose: disposeRootSelf
-  } as Root;
+  // Prod and observe boilerplates (see core.ts computed()). The observe
+  // literal carries the `_name` slot the rendering layer fills with the
+  // component label (`owner._name = "<App>"`) — a slot, so labelling a root
+  // is a plain store rather than a shape fork between labelled and plain roots.
+  const owner = __OBSERVE__
+    ? ({
+        id: inheritId(options, transparent, parent),
+        _config: transparent ? CONFIG_TRANSPARENT : 0,
+        _root: true,
+        _parentComputed: (parent as Root)?._root ? (parent as Root)._parentComputed : parent,
+        _firstChild: null,
+        _nextSibling: null,
+        _prevSibling: null,
+        _disposal: null,
+        _queue: parent?._queue ?? globalQueue,
+        _context: parent?._context || defaultContext,
+        _childCount: 0,
+        _x: null,
+        _parent: parent,
+        dispose: disposeRootSelf,
+        _name: undefined as string | undefined
+      } as Root)
+    : ({
+        id: inheritId(options, transparent, parent),
+        _config: transparent ? CONFIG_TRANSPARENT : 0,
+        _root: true,
+        _parentComputed: (parent as Root)?._root ? (parent as Root)._parentComputed : parent,
+        _firstChild: null,
+        _nextSibling: null,
+        _prevSibling: null,
+        _disposal: null,
+        _queue: parent?._queue ?? globalQueue,
+        _context: parent?._context || defaultContext,
+        _childCount: 0,
+        _x: null,
+        _parent: parent,
+        dispose: disposeRootSelf
+      } as Root);
 
   if (__DEV__ && parent && parent._config & CONFIG_CHILDREN_FORBIDDEN) {
     emitDiagnostic({

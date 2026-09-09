@@ -152,6 +152,96 @@ describe("@solidjs/signals artifacts", () => {
   });
 });
 
+describe("@solidjs/signals node literals per tier", () => {
+  // Each node factory has two object literals — prod, and observe = prod plus
+  // its diagnostic slots (`_name`; `_owner` on signals) — selected at build
+  // time. The slots MUST be in the literal: written after construction they
+  // force a hidden-class transition and an out-of-object property on every
+  // node, which was the whole of the observe tier's measured creation
+  // overhead. Two hand-kept literals can drift, so this pins the invariant
+  // from the built trees: the observe literal's keys are exactly the prod
+  // literal's keys plus the slots, and the prod literal has no slot at all.
+  // Field names are mangled per tree (`_name` is reserved), so the
+  // comparison is by count and by the reserved name.
+  async function literalKeys(tier: "prod" | "observe") {
+    const core = (await import(`../dist/${tier}/core/core.js`)) as any;
+    const owner = (await import(`../dist/${tier}/core/owner.js`)) as any;
+    const { createRoot } = (await import(`../dist/${tier}/index.js`)) as any;
+    const keys: Record<string, string[]> = {};
+    createRoot((dispose: () => void) => {
+      keys.owner = Object.keys(owner.createOwner());
+      keys.signal = Object.keys(core.signal(0));
+      keys.slotSignal = Object.keys(core.slotSignal(0, () => false, {}, "k", false));
+      keys.computed = Object.keys(core.computed(() => 0));
+      keys.effect = Object.keys(
+        core.createEffectNode(
+          () => 0,
+          () => {},
+          undefined,
+          1,
+          undefined
+        )
+      );
+      dispose();
+    });
+    return keys;
+  }
+
+  test("observe literals are the prod literals plus their slots — never a write after", async () => {
+    const prod = await literalKeys("prod");
+    const observe = await literalKeys("observe");
+    const slots: Record<string, string[]> = {
+      owner: ["_name"],
+      signal: ["_name", "_owner"],
+      slotSignal: ["_name"],
+      computed: ["_name"],
+      effect: ["_name"]
+    };
+    for (const kind of Object.keys(slots)) {
+      expect(prod[kind], `${kind} prod literal carries a slot`).not.toContain("_name");
+      expect(observe[kind], `${kind} observe literal lacks its slot`).toContain("_name");
+      expect(observe[kind].length, `${kind} literals drifted`).toBe(
+        prod[kind].length + slots[kind].length
+      );
+    }
+    // The prod computed/effect literals sit under V8's in-object boundary
+    // (~39 fields, §12); the observe slot must not push either past it.
+    expect(observe.effect.length).toBeLessThanOrEqual(38);
+    expect(observe.computed.length).toBeLessThanOrEqual(38);
+  });
+
+  test("observe defaults land in the slot, not as a later write", async () => {
+    const observe = (await import("../dist/observe/index.js")) as any;
+    const core = (await import("../dist/observe/core/core.js")) as any;
+    // Default labels and a supplied name both come out of the same literal:
+    // the key set is identical either way.
+    const plain = core.computed(() => 0);
+    const named = core.computed(() => 0, { name: "n" });
+    expect(Object.keys(named)).toEqual(Object.keys(plain));
+    expect(plain._name).toBe("computed");
+    expect(named._name).toBe("n");
+    // The default effect label comes from the node kind, not from an options
+    // spread in the wrapper (which allocated per effect in observe).
+    let effectName: string | undefined;
+    let trackedName: string | undefined;
+    observe.createRoot((dispose: () => void) => {
+      observe.createEffect(
+        () => {
+          effectName = (observe.getOwner() as any)._name;
+        },
+        () => {}
+      );
+      observe.createTrackedEffect(() => {
+        trackedName = (observe.getOwner() as any)._name;
+      });
+      observe.flush();
+      dispose();
+    });
+    expect(effectName).toBe("effect");
+    expect(trackedName).toBe("trackedEffect");
+  });
+});
+
 describe("@solidjs/signals artifacts under require()", () => {
   // Node >= 22.12 loads ESM through `require()` synchronously. That is what
   // lets the package ship ESM only: a CJS host follows the same export

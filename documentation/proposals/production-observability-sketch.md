@@ -103,9 +103,11 @@ the sites survive the build. The surface is small and well-delineated:
   `effect.ts` 3 — effect run start/end). All outside `try` per the #2883 rule.
 - **Names**: 5 `_name` assignment sites (`core.ts` ×4, `store.ts` ×1) —
   needed for anything to be legible.
-- **Edge counters**: 2 sites (`graph.ts` `noteGraphLink` / `unnoteGraphLink`)
-  maintaining `_subCount`/`_depCount` — needed by `WIDE_WRITE` and the
-  always-on fan-out warnings.
+- **Edge counts**: none stored. Fan-out is counted by the notify walk
+  (`insertSubs`), fan-in by the recompute pass (`link()` into one module
+  counter) — the always-on graph-size warnings and `WIDE_WRITE` read those.
+  (An earlier draft kept live `_subCount`/`_depCount` fields per node; they
+  forked node shapes and were removed.)
 - **Web runtime (`@solidjs/web`)**: 3 `withInteraction` wrap sites
   (`attachDelegatedEvent`, and the two `addEvent` branches) behind
   `"_SOLID_DEV_"`.

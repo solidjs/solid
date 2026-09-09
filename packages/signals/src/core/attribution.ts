@@ -4,7 +4,7 @@ import {
   type InteractionRef
 } from "./attribution-hooks.js";
 import { $REFRESH, NOT_PENDING } from "./constants.js";
-import { emitDiagnostic, ownerPath, reportDiagnostic } from "./dev.js";
+import { emitDiagnostic, GRAPH_SIZE_WARN_AT, ownerPath, reportDiagnostic } from "./dev.js";
 import type { Transition } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
 
@@ -180,14 +180,11 @@ export interface AttributionOptions {
   /**
    * Written-fan-out warning: emit a diagnostic when a committed root
    * invalidation (write, refresh, async landing) reaches a node with at
-   * least this many subscribers (default 250). Complements the always-on
-   * HUGE_FAN_OUT graph-size warning, specced against it deliberately:
-   * HUGE_FAN_OUT fires at LINK time from GRAPH_SIZE_WARN_AT (2000) up —
-   * static structure so large it warns even if never written — while this
-   * fires at WRITE time from a much lower bar, because fan-out only costs
-   * anything when the node actually changes. Once per node, re-warning only
-   * on 2x subscriber growth, so the two never spam the same node. `false`
-   * disables.
+   * least this many subscribers (default 250). The lower-bar, opt-in sibling
+   * of the always-on HUGE_FAN_OUT graph-size warning, which fires on the
+   * same kind of write from GRAPH_SIZE_WARN_AT (2000) up; this one hands
+   * over to it there, so a write never carries both. Once per node,
+   * re-warning only on 2x subscriber growth. `false` disables.
    */
   wideWrites?: number | false;
   /**
@@ -520,15 +517,22 @@ export function formatOrigin(origin: ChangeOrigin): string {
 }
 
 /** Record a root change (setSignal / refresh / async landing) on the node. */
+/** Live subscriber count, walked on demand — the core keeps no counter. */
+function countSubscribers(node: Signal<any> | Computed<any>): number {
+  let n = 0;
+  for (let s = node._subs; s !== null; s = s._nextSub) n++;
+  return n;
+}
+
 /**
- * Written-fan-out warning — the write-time complement of the always-on
- * HUGE_FAN_OUT link-time warning (see dev.ts). Static fan-out that never
- * writes is harmless; a committed root invalidation reaching hundreds of
- * subscribers re-runs all of them this flush. Uses the dev-maintained
- * `_subCount` from the graph-size diagnostics — no core sites touched.
- * Once per node; re-warns only when the subscriber count has doubled since
- * the last warning, so it cannot spam alongside HUGE_FAN_OUT's own
- * 2000-and-up milestones.
+ * Written-fan-out warning — the engine's lower-bar sibling of the always-on
+ * HUGE_FAN_OUT (see dev.ts): a committed root invalidation reaching hundreds
+ * of subscribers re-runs all of them this flush. Counts the subscriber list
+ * itself (an engine-only walk, on the write; the core keeps no per-node
+ * count — a live `_subCount` was a post-construction field that forked node
+ * shapes). Once per node; re-warns only when the subscriber count has
+ * doubled since the last warning. Stops at GRAPH_SIZE_WARN_AT, where
+ * HUGE_FAN_OUT takes over, so the two never fire for the same write.
  */
 function checkWideWrite(
   node: Signal<any> | Computed<any>,
@@ -536,9 +540,10 @@ function checkWideWrite(
 ): void {
   const limit = options.wideWrites;
   if (typeof limit !== "number") return;
-  const subs = node._subCount ?? 0;
+  const subs = countSubscribers(node);
   const attributed = node as AttributedNode;
-  if (subs < limit || subs < (attributed._devWideWriteWarnedAt ?? 0) * 2) return;
+  if (subs < limit || subs >= GRAPH_SIZE_WARN_AT) return;
+  if (subs < (attributed._devWideWriteWarnedAt ?? 0) * 2) return;
   attributed._devWideWriteWarnedAt = subs;
   const verb =
     kind === "refresh" ? "refresh of" : kind === "async" ? "async landing on" : "write to";

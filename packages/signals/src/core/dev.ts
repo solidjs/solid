@@ -76,9 +76,9 @@ export type DiagnosticKind =
   /** Perceived responsiveness: the runtime behaved correctly but the user saw no feedback. */
   | "responsiveness";
 
-/** First warning when a node's live edge count reaches this size. */
+/** First warning when a change reaches (or a pass tracks) this many edges. */
 export const GRAPH_SIZE_WARN_AT = 2000;
-/** Repeat the warning at this interval after the first. */
+/** Re-warn once the count has grown by this much since the last warning. */
 export const GRAPH_SIZE_WARN_EVERY = 500;
 
 export interface DiagnosticEvent {
@@ -491,72 +491,81 @@ export function getObservers(node: Signal<any> | Computed<any>): Computed<any>[]
   return observers;
 }
 
-function shouldWarnGraphSize(count: number): boolean {
-  return count >= GRAPH_SIZE_WARN_AT && (count - GRAPH_SIZE_WARN_AT) % GRAPH_SIZE_WARN_EVERY === 0;
+/**
+ * Graph-size warnings are once per node, re-warning only when the count has
+ * grown by GRAPH_SIZE_WARN_EVERY since the last one — off-node, so the
+ * pathological handful of nodes that ever reach the threshold are the only
+ * ones that cost anything, and no node carries a bookkeeping field for it.
+ */
+const graphSizeWarnedAt = new WeakMap<object, number>();
+
+function shouldWarnGraphSize(node: object, count: number): boolean {
+  const last = graphSizeWarnedAt.get(node);
+  if (last !== undefined && count < last + GRAPH_SIZE_WARN_EVERY) return false;
+  graphSizeWarnedAt.set(node, count);
+  return true;
 }
 
 /**
- * Observe-tier: bump live edge counts after a new graph link and emit when a
- * node grows an unusually large fan-out (many subscribers on one source) or
- * fan-in (many sources on one computation). Repeat-reads that `link()`
- * dedupes never reach here. Always-on wherever the channel exists — unlike
- * the opt-in attribution engine, a graph-size pathology should surface
- * without asking. The counts also feed `WIDE_WRITE` in attribution.ts.
+ * Observe-tier: a committed change on `node` is about to re-run `count`
+ * subscribers (the notify walk in `insertSubs` counted them as it went —
+ * fan-out costs exactly one local increment in a loop that already visits
+ * every edge, and nothing at link time). Fires from GRAPH_SIZE_WARN_AT up,
+ * on the write rather than the link: a fan-out that is never written costs
+ * nothing, and one that is re-runs every subscriber this flush. Always-on
+ * wherever the channel exists — unlike the opt-in attribution engine, a
+ * graph-size pathology should surface without asking.
  */
-export function noteGraphLink(dep: Signal<any> | Computed<any>, sub: Computed<any>): void {
-  const fanOut = (dep._subCount = (dep._subCount || 0) + 1);
-  const fanIn = (sub._depCount = (sub._depCount || 0) + 1);
-  if (shouldWarnGraphSize(fanOut)) {
-    const name = dep._name;
-    const message =
-      `[HUGE_FAN_OUT] ${name ? `Signal "${name}"` : "A signal"} has ${fanOut} subscribers. ` +
-      `Each will re-run when it changes. If many independent computations read the same value ` +
-      `(for example every row of a list comparing against one selected id), prefer a per-key ` +
-      `store or projection so only the items whose result flipped update.`;
-    reportDiagnostic(
-      emitDiagnostic(
-        {
-          code: "HUGE_FAN_OUT",
-          kind: "graph",
-          severity: "warn",
-          message,
-          nodeName: name,
-          ownerId: (dep as Computed<any>).id,
-          ownerName: name,
-          data: { count: fanOut }
-        },
-        dep
-      )
-    );
-  }
-  if (shouldWarnGraphSize(fanIn)) {
-    const name = sub._name;
-    const message =
-      `[HUGE_FAN_IN] ${name ? `Computation "${name}"` : "A computation"} has ${fanIn} sources. ` +
-      `It will re-run when any of them change. Narrow the read or split the derivation so each ` +
-      `computation tracks only what it needs.`;
-    reportDiagnostic(
-      emitDiagnostic(
-        {
-          code: "HUGE_FAN_IN",
-          kind: "graph",
-          severity: "warn",
-          message,
-          nodeName: name,
-          ownerId: sub.id,
-          ownerName: name,
-          data: { count: fanIn }
-        },
-        sub
-      )
-    );
-  }
+export function noteFanOut(node: Signal<any> | Computed<any>, count: number): void {
+  if (!shouldWarnGraphSize(node, count)) return;
+  const name = node._name;
+  const message =
+    `[HUGE_FAN_OUT] ${name ? `Signal "${name}"` : "A signal"} changed with ${count} subscribers — ` +
+    `every one re-runs this flush. If many independent computations read the same value ` +
+    `(for example every row of a list comparing against one selected id), prefer a per-key ` +
+    `store or projection so only the items whose result flipped update.`;
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "HUGE_FAN_OUT",
+        kind: "graph",
+        severity: "warn",
+        message,
+        nodeName: name,
+        ownerId: (node as Computed<any>).id,
+        ownerName: name,
+        data: { count }
+      },
+      node
+    )
+  );
 }
 
-/** Observe-tier: drop live edge counts when a link is removed. */
-export function unnoteGraphLink(link: Link): void {
-  const dep = link._dep;
-  const sub = link._sub;
-  if (dep._subCount) dep._subCount--;
-  if (sub._depCount) sub._depCount--;
+/**
+ * Observe-tier: a recompute pass of `node` tracked `count` distinct sources
+ * (its trimmed dep list, walked once at the end of the pass — see recompute;
+ * no per-link work, no pass bracket). Fires from GRAPH_SIZE_WARN_AT up.
+ */
+export function noteFanIn(node: Computed<any>, count: number): void {
+  if (!shouldWarnGraphSize(node, count)) return;
+  const name = node._name;
+  const message =
+    `[HUGE_FAN_IN] ${name ? `Computation "${name}"` : "A computation"} tracked ${count} sources. ` +
+    `It will re-run when any of them change. Narrow the read or split the derivation so each ` +
+    `computation tracks only what it needs.`;
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "HUGE_FAN_IN",
+        kind: "graph",
+        severity: "warn",
+        message,
+        nodeName: name,
+        ownerId: node.id,
+        ownerName: name,
+        data: { count }
+      },
+      node
+    )
+  );
 }

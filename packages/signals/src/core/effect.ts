@@ -285,6 +285,9 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
   node._config = (node._config & ~CONFIG_AUTO_DISPOSE) | CONFIG_CHILDREN_FORBIDDEN;
   node._modified = true;
   node._type = EFFECT_TRACKED;
+  // Observe-tier label: the computed literal defaulted its `_name` slot to
+  // "computed"; relabel by kind (a store into the slot, not a new field).
+  if (__OBSERVE__ && options?.name === undefined) node._name = "trackedEffect";
   // Status dispatch rides the SHARED notifier (statusNotifierOf keys off
   // _type): its error arm is behavior-identical to the closure that used to
   // live here, without the per-node NodeExtension allocation.

@@ -512,7 +512,7 @@ export function createEffect<T>(
   }
   effect(compute as any, (effectFn as any).effect || effectFn, (effectFn as any).error, {
     user: true,
-    ...(__OBSERVE__ ? { ...options, name: options?.name ?? "effect" } : options)
+    ...options
   });
 }
 
@@ -550,12 +550,7 @@ export function createRenderEffect<T>(
   effectFn: EffectFunction<NoInfer<T>, T>,
   options?: EffectOptions
 ): void {
-  effect(
-    compute as any,
-    effectFn,
-    undefined,
-    __OBSERVE__ ? { ...options, name: options?.name ?? "effect" } : options
-  );
+  effect(compute as any, effectFn, undefined, options);
 }
 
 /**
@@ -607,10 +602,7 @@ export function createTrackedEffect(
   compute: () => void | (() => void),
   options?: BaseEffectOptions
 ): void {
-  trackedEffect(
-    compute,
-    __OBSERVE__ ? { ...options, name: options?.name ?? "trackedEffect" } : options
-  );
+  trackedEffect(compute, options);
 }
 
 /**
@@ -674,7 +666,7 @@ export function createReaction(
         },
         (effectFn as any).error,
         {
-          ...(__OBSERVE__ ? { ...options, name: options?.name ?? "effect" } : options),
+          ...options,
           user: true,
           defer: true
         }

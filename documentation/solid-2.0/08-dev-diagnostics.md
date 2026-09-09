@@ -277,19 +277,19 @@ The owner passed to `runWithOwner` has already been disposed. Any reactive primi
 
 #### `HUGE_FAN_OUT`
 
-**Message:** "Signal [name] has N subscribers. Each will re-run when it changes. …"
+**Message:** "Signal [name] changed with N subscribers — every one re-runs this flush. …"
 
-One source has grown an unusually large number of live subscribers (first warning at 2000, repeated every additional 500). This is the signature of many independent computations reading the same value — for example, every row of a list comparing itself against one `selectedId` signal. Prefer a per-key store or a projection so only the items whose result actually flipped re-run.
+A committed change (a write, a memo's new value, an async landing) reached an unusually large number of live subscribers (first warning at 2000; re-warns once the count has grown by another 500). This is the signature of many independent computations reading the same value — for example, every row of a list comparing itself against one `selectedId` signal. Prefer a per-key store or a projection so only the items whose result actually flipped re-run.
 
-Always on in dev; maintained by the graph's link/unlink operations, so the counts reflect live edges (disposed subscribers don't count against the threshold).
+Always on wherever the diagnostics channel exists (dev and observe tiers). The count is taken by the notification walk the change makes anyway, so it is the live subscriber list at that moment — disposed subscribers don't count — and the core keeps no per-node counter for it (a live edge count was a post-construction field on every node, and forked node shapes). Fires on the change, not on subscription: a fan-out that is never written costs nothing, and one that is re-runs every subscriber right then.
 
-Related: `WIDE_WRITE` (below) fires at **write** time from a much lower threshold, but only while the attribution engine is enabled — static fan-out that never writes is harmless, so the write-time check can afford to be far more sensitive. `HUGE_FAN_OUT` is the always-on backstop for structure large enough to warn about even if it never changes.
+Related: `WIDE_WRITE` (below) is the same finding from a much lower threshold, but only while the attribution engine is enabled; it hands over to `HUGE_FAN_OUT` at 2000, so one change never carries both.
 
 #### `HUGE_FAN_IN`
 
-**Message:** "Computation [name] has N sources. It will re-run when any of them change. …"
+**Message:** "Computation [name] tracked N sources. It will re-run when any of them change. …"
 
-One computation subscribes to an unusually large number of sources (same thresholds as `HUGE_FAN_OUT`). This is the coarse-read signature — e.g. a helper that touches a whole store, or one memo derived from everything. Narrow the read or split the derivation so each computation tracks only what it needs.
+One recompute pass tracked an unusually large number of distinct sources (same thresholds as `HUGE_FAN_OUT`; the sources the pass actually tracked, counted once at the end of the pass — repeat reads of the same source excluded). This is the coarse-read signature — e.g. a helper that touches a whole store, or one memo derived from everything. Narrow the read or split the derivation so each computation tracks only what it needs.
 
 Related: `WIDE_SCOPE_DEPS` (below) fires at a much lower threshold, but only while the attribution engine is enabled — it names the offending sources. `HUGE_FAN_IN` is the always-on backstop for the pathological case.
 
@@ -309,7 +309,7 @@ All three thresholds are configurable (or disable-able) through `enable()` optio
 
 A committed root invalidation — a signal or store write, a `refresh()`, or an async landing — reached a node with an unusually large number of live subscribers (default 250). Where the per-scope warnings above blame the _reader_, this one blames the _write_: it is the fan-out actually happening, priced at the moment it happens. The classic shape is many consumers asking keyed questions of one value (every row comparing against one selected id); the fix is inverting the subscription: keep the answer in a store used as a map keyed by id (`selected[row.id]` rather than `row.id === selectedId()`), so each consumer reads its own key and only the keys that flipped re-run; `createProjection` builds such a map when it is derived from other state.
 
-Attribution-engine only, like the trio above. Specced together with `HUGE_FAN_OUT` so the two never double-fire on one node: `HUGE_FAN_OUT` is always-on and fires at _link_ time from 2000 subscribers up — structure so large it warns even if never written — while `WIDE_WRITE` fires at _write_ time from a much lower bar, once per node, re-warning only after the subscriber count doubles. Unchanged writes never fire it (the source equality gate commits nothing and notifies no one). The check reads the same live `_subCount` the graph-size warnings maintain, so disposed subscribers don't count.
+Attribution-engine only, like the trio above. Specced together with `HUGE_FAN_OUT` so the two never double-fire on one change: `WIDE_WRITE` covers the range from its threshold up to 2000 subscribers, once per node, re-warning only after the subscriber count doubles; from 2000 up the always-on `HUGE_FAN_OUT` takes over. Unchanged writes never fire it (the source equality gate commits nothing and notifies no one). The engine counts the live subscriber list on the write, so disposed subscribers don't count.
 
 Threshold configurable (or disable-able) via `enable({ wideWrites })`.
 
@@ -453,8 +453,8 @@ Each `DiagnosticEvent` has:
 | `NO_OWNER_CLEANUP`               | warn      | lifecycle      | `onCleanup` called without owner                                                                                           |
 | `NO_OWNER_BOUNDARY`              | warn      | lifecycle      | Boundary created without owner                                                                                             |
 | `RUN_WITH_DISPOSED_OWNER`        | warn      | owner          | `runWithOwner` with disposed owner                                                                                         |
-| `HUGE_FAN_OUT`                   | warn      | graph          | One source reached 2000 live subscribers (always on)                                                                       |
-| `HUGE_FAN_IN`                    | warn      | graph          | One computation reached 2000 live sources (always on)                                                                      |
+| `HUGE_FAN_OUT`                   | warn      | graph          | One change reached 2000 live subscribers (always on)                                                                       |
+| `HUGE_FAN_IN`                    | warn      | graph          | One recompute tracked 2000 sources (always on)                                                                             |
 | `HOT_SCOPE_RERUNS`               | warn      | perf           | 120+ re-runs of one scope in 1s (attribution enabled)                                                                      |
 | `HOT_SCOPE_FANOUT`               | warn      | perf           | 5+/50+/500+ scopes hot from one root cause (attribution enabled)                                                           |
 | `HOT_SCOPE_TIME`                 | warn      | perf           | 8ms+ self-time in one scope in 1s (attribution enabled)                                                                    |

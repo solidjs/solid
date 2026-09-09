@@ -120,13 +120,19 @@ export interface NodeExtension {
 export interface RawSignal<T> {
   _subs: Link | null;
   _subsTail: Link | null;
-  /**
-   * DEV-only live subscriber count. Maintained by `link`/`unlinkSubs` for
-   * graph-size diagnostics; undefined in production.
-   */
-  _subCount?: number;
   _value: T;
+  /**
+   * Observe-tier label (`name` option, or the node kind: `signal`,
+   * `computed`, `effect`…). A slot in the observe/dev literals — never a
+   * post-construction write — and absent from the prod literals entirely.
+   */
   _name?: string;
+  /**
+   * Observe-tier: the owner in scope when a user-facing signal was created
+   * (`registerGraph`), so diagnostics about the signal get an owner path.
+   * A slot in the observe/dev `signal()` literal; absent from prod.
+   */
+  _owner?: Owner | null;
   _equals: false | ((a: T, b: T) => boolean);
   _config: number;
   _time: number;
@@ -166,16 +172,17 @@ export interface Owner {
   _prevSibling: Owner | null;
   /** Cold extension — see NodeExtension (owners use the zombie-pair slots). */
   _x: NodeExtension | null;
+  /**
+   * Observe-tier label: the `name` option, the node kind (`computed`,
+   * `effect`…), or the component label the rendering layer writes on a root
+   * (`<App>`). A slot in the observe/dev literals; absent from prod.
+   */
+  _name?: string;
 }
 
 export interface Computed<T> extends RawSignal<T>, Owner {
   _deps: Link | null;
   _depsTail: Link | null;
-  /**
-   * DEV-only live source count. Maintained by `link`/`unlinkSubs` for
-   * graph-size diagnostics; undefined in production.
-   */
-  _depCount?: number;
   /** Recompute-pass counter; bumped when dep revalidation starts. */
   _depGen: number;
   _flags: number;

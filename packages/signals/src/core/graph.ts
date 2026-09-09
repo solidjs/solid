@@ -7,7 +7,6 @@ import {
   STATUS_PENDING
 } from "./constants.js";
 import { slotUnobservedHook } from "./core.js";
-import { noteGraphLink, unnoteGraphLink } from "./dev.js";
 import { deleteFromHeap, queueFor } from "./heap.js";
 import { disposeChildren } from "./owner.js";
 import { bumpNotifyEpoch, dirtyQueue, zombieQueue } from "./scheduler.js";
@@ -15,7 +14,6 @@ import type { Computed, Link, Signal } from "./types.js";
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L100
 export function unlinkSubs(link: Link): Link | null {
-  if (__OBSERVE__) unnoteGraphLink(link);
   const dep = link._dep;
   const nextDep = link._nextDep;
   const nextSub = link._nextSub;
@@ -190,6 +188,4 @@ export function link(
 
   // New subscriber edge: staged-rewrite skips (§12d) must not miss it.
   bumpNotifyEpoch();
-
-  if (__OBSERVE__) noteGraphLink(dep, sub);
 }
