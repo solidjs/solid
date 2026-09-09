@@ -20,6 +20,7 @@ export {
   isWrappable,
   mapArray,
   merge,
+  mergeSources,
   omit,
   onCleanup,
   onSettled,

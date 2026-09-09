@@ -12,6 +12,7 @@ export type {
 export type { Merge, Omit } from "./utils.js";
 
 export { isWrappable, $TRACK, $PROXY, $TARGET } from "./store.js";
+export { mergeSources } from "./utils.js";
 
 import type { NoFn, ProjectionOptions, Store, StoreOptions, StoreSetter } from "./store.js";
 import type { Refreshable } from "../core/index.js";

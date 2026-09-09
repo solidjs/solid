@@ -80,6 +80,10 @@ function resolveSource(s: any) {
 }
 
 const $SOURCES = Symbol(__DEV__ ? "MERGE_SOURCE" : 0);
+/** @internal The flattened sources behind a `merge()` proxy, or undefined. */
+export function mergeSources(o: any): any[] | undefined {
+  return o != null && typeof o === "object" ? o[$SOURCES] : undefined;
+}
 /**
  * Merges multiple props-like objects into a single proxy that *preserves
  * reactivity*. Reads are forwarded to the right-most source that defines the
