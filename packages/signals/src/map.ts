@@ -208,8 +208,27 @@ function trySmallMove<Item, MappedItem>(
     if (dstPos.length === 32) return false;
     dstPos.push(j);
   }
-  // Pair destinations with displaced sources (unmatched = replacement or
-  // insertion → general path); leftovers dispose (dif < 0).
+  return commitSmallMove(data, newItems, newLen, srcPos, dstPos, runs);
+}
+
+/** PHASE 2 of the small-move path, in its OWN function so that a pass which
+ * only SCANS and bails (a full replace: the first structural pass of a page,
+ * typically) compiles nothing but the scan — V8 parses and compiles lazily
+ * per function, and cold `replace` measured +0.5 ms with both phases in one
+ * body. Pairs displaced sources with destinations (an unmatched destination
+ * is a replacement/insertion → general path), then commits: slice() the live
+ * arrays, copy shifted runs, patch displaced pairs, dispose leftovers. */
+function commitSmallMove<Item, MappedItem>(
+  data: MapData<Item, MappedItem>,
+  newItems: Item[],
+  newLen: number,
+  srcPos: number[],
+  dstPos: number[],
+  runs: number[]
+): boolean {
+  const oldItems = data._items;
+  let i: number;
+  let j: number;
   let consumed: boolean[] | undefined;
   if (dstPos.length !== 0) {
     consumed = new Array(srcPos.length);
@@ -395,10 +414,20 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
         newLen <= this._len &&
         end - start > 64 &&
         this._rows === undefined &&
-        this._indexes === undefined &&
-        trySmallMove(this, newItems as Item[], newLen, start)
-      )
-        return;
+        this._indexes === undefined
+      ) {
+        // PROBE before the scan: a small move keeps a mid-window item within
+        // ±32 of its old position; a REPLACE (all fresh items — the shape
+        // every page's first structural pass usually is) has it nowhere.
+        // ~65 compares, no allocation, and the scan function is never
+        // compiled for a replace (its cold first-call compile was the cost).
+        const m = start + ((newEnd - start) >> 1);
+        const probe = newItems[m];
+        const hi = Math.min(end, m + 32);
+        let k = Math.max(start, m - 32);
+        while (k <= hi && this._items[k] !== probe) k++;
+        if (k <= hi && trySmallMove(this, newItems as Item[], newLen, start)) return;
+      }
 
       const dif = newLen - this._len;
       const temp: MappedItem[] = new Array(newLen);
