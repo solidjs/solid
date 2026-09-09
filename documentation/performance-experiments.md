@@ -6853,3 +6853,253 @@ Status vs the no-regression bar: full and partial tick both in the
 alternating-measurement parity band (0.97–1.15x swings, centered ~1.05);
 sort/mount/unmount at parity or faster. Cool-machine confirmation still
 recommended for the record.
+
+## Observe Tier Lane (2026-09-09): prod vs observe runtime cost
+
+Question: what does the `observe` build tier (PR #3317 — wiring kept,
+checks stripped; attribution engine NOT imported) cost at runtime against
+`prod`, on both Tier-2 lanes? Scope is the shipped artifacts as a bundler
+resolves them (`dist/prod` vs `dist/observe` for signals; `observe` export
+condition end-to-end for the DOM app). Nothing here has the engine enabled
+— that is a separate, opt-in cost.
+
+Machine: Apple M5, Node v26.4.0, Chrome 153. Commit `8cfa2724` (`next`).
+
+### Method
+
+- **Node lane** — `js-reactivity-benchmark`, `solid-next` adapter, harness
+  import pointed at `packages/signals/dist/{prod,observe}/index.js` via a
+  `/tmp/jsrb-target` symlink and bundled once per tier with esbuild
+  (unminified). 5 full-suite runs per tier, interleaved prod/observe,
+  `node --expose-gc`. Medians below use runs 1, 2, 5 (3 and 4 overlapped
+  with build activity on the same machine; including them moves the total
+  by 0.2 pt). Numbers are ms per test.
+- **DOM lane** — a `js-framework-benchmark` `keyed/solid`-shaped app on
+  Solid 2 idioms (store rows, `createProjection` selection, keyed `<For>`),
+  built with Vite + `@solidjs/vite-plugin` twice: default conditions (prod)
+  and `resolve.conditions: ["observe"]`. Bundle: 21.5 KB gz prod vs
+  23.2 KB gz observe (+1.7 KB gz; matches the size-limit budget's +1.29 KB br).
+  Driven in headless Chrome (Playwright, `channel: "chrome"`) with the
+  whole scenario in ONE `page.evaluate`: synchronous `element.click()` per
+  op, a `window` bubble listener calling `flush()` after Solid's delegated
+  handler so each click is dispatch + `withInteraction` +
+  `describeEventTarget` + handler + propagation + DOM writes, timed with
+  `performance.now()` under COOP/COEP (5 µs resolution). Fresh page per
+  iteration, one warmup pass then one measured pass, tiers alternated,
+  30 iterations. Per-click medians.
+
+Two measurement traps found on the way, recorded so the next lane doesn't
+re-learn them:
+
+1. Anything timed across a task boundary after a click (rAF,
+   MessageChannel) quantizes to the ~16 ms vsync — Chrome aligns input
+   dispatch to the frame. Only a synchronous drain inside the click task
+   measures the script cost.
+2. A loop-mean per op is poisoned by GC placement: one ~3 ms pause lands
+   somewhere in every pass, and observe's slightly larger heap moved it
+   from the `swap` loop (prod) into the `update` loop (observe), reading as
+   "update 2× slower, swap 20% faster". Per-click medians fixed it.
+
+### Result 1 — Node lane, as shipped (`dist/observe`)
+
+| test                          |       prod |    observe |        Δ % |
+| ----------------------------- | ---------: | ---------: | ---------: |
+| createComputations            |      117.4 |      146.2 |     +24.5% |
+| create0to1                    |       12.7 |       17.1 |     +34.9% |
+| create4to1                    |        4.3 |       12.7 |      +193% |
+| create1to1000                 |       15.5 |       25.4 |     +63.7% |
+| create1to4                    |       16.0 |       21.4 |     +34.1% |
+| updateSignals                 |      470.1 |      485.9 |      +3.4% |
+| update1to1                    |       34.6 |       34.4 |      −0.6% |
+| update1to1000                 |      369.5 |      374.9 |      +1.5% |
+| broadPropagation              |      175.6 |      202.1 |     +15.1% |
+| deepPropagation               |       65.8 |       79.8 |     +21.4% |
+| diamond                       |      137.5 |      151.2 |     +10.0% |
+| 4-1000x12 - dyn5%             |      402.5 |      513.3 |     +27.5% |
+| 25-1000x5                     |      496.7 |      652.9 |     +31.4% |
+| 3-5x500                       |      129.7 |      163.7 |     +26.3% |
+| 6-100x15 - dyn50%             |      233.2 |      265.0 |     +13.7% |
+| **sum of medians (34 tests)** | **3181.9** | **3676.6** | **+15.5%** |
+
+Update-only tests are at parity (±3%). Creation and dynamic-graph tests
+are +15–65%, with `create4to1` an outlier at 3×.
+
+The outliers are a **suite-state** effect, not per-op cost: run alone
+(`TESTS=create4to1`), observe is 4.24 vs prod 3.76 (+13%), `create1to1000`
+18.3 vs 17.2 (+6%), `4-1000x12` 363.6 vs 362.0 (0%). `--trace-gc` shows
+the same GC count and retained heap for both tiers (≈985 vs 937 scavenges,
+5–6 MB retained), so it is not memory; it is hidden-class polymorphism that
+accumulates across the suite and lands on whichever test runs later.
+
+Cause, from the observe sites in `core.ts`/`dev.ts`/`graph.ts`: the tier
+adds fields to nodes **after** the literal — exactly the post-construction
+expandos the prod literals were shaped to avoid (`core.ts` "pre-shaped
+(were post-construction expandos)", "§12" in-object comment):
+
+- `_name` assigned after every computed/effect/signal/slot literal
+  (`core.ts` 672/763/871/939) — one transition per node type.
+- `_owner` assigned by `registerGraph` only for `createSignal` /
+  `createOptimisticSignal` nodes (`signals.ts` 373/1085) — Signal shape
+  forks into with/without-`_owner`.
+- `_subCount` / `_depCount` added lazily on first link by `noteGraphLink`
+  (`dev.ts` 506) — a further fork on both Signal and Computed, plus two
+  loads/stores and a `shouldWarnGraphSize` call on every `link()` and
+  `unlinkSubs()`.
+- `effect()` in `signals.ts` (515/557/612/677) spreads a fresh options
+  object per effect creation to inject the default name (`effect$1`
+  shows 25 ms self time in the DOM profile where prod's is inlined away).
+
+### Result 2 — DOM lane, as shipped
+
+| op                      | prod median | observe median |            Δ % |
+| ----------------------- | ----------: | -------------: | -------------: |
+| create 1k               |       2.407 |          2.612 |          +8.5% |
+| replace 1k              |       2.778 |          2.918 |          +5.0% |
+| update every 10th       |       0.135 |          0.155 | +14.8% (20 µs) |
+| swap rows               |       0.460 |          0.470 |          +2.2% |
+| select row              |       0.030 |          0.035 |  +16.7% (5 µs) |
+| remove row              |       0.645 |          0.640 |          −0.8% |
+| clear 1k                |       0.435 |          0.385 |         −11.5% |
+| create 10k              |       23.09 |          23.25 |          +0.7% |
+| clear 10k               |        3.06 |           2.99 |          −2.4% |
+| **whole pass incl. GC** |   **72.07** |      **74.68** |      **+3.6%** |
+
+DOM work dominates, so the same reactive overhead reads as +3.6% overall
+and +5–8% on creation. Per-interaction fixed cost (`withInteraction` +
+`describeEventTarget`) is within the 5 µs resolution on `select`.
+
+### Experiment — pre-shape the observe fields (scratch, reverted)
+
+Added `_name`, `_owner: null`, `_subCount: 0` (and `_depCount: 0` on
+computed/effect) to the four node literals in `core.ts`; then additionally
+stubbed the `noteGraphLink`/`unnoteGraphLink` calls in `graph.ts`. Rebuilt
+`dist/observe` only. Single full-suite run per variant, same-session prod
+rerun as the reference:
+
+|                            |  prod | observe as shipped | + pre-shaped fields | + no edge counters |
+| -------------------------- | ----: | -----------------: | ------------------: | -----------------: |
+| Node lane, sum of 34 tests |  3111 |        3733 (+20%) |        3342 (+7.4%) |       3281 (+5.5%) |
+| `create1to1000`            |  15.2 |               23.3 |                15.8 |               15.9 |
+| `createComputations`       | 116.8 |              150.4 |               122.1 |              123.8 |
+| `4-1000x12 - dyn5%`        | 400.8 |              519.7 |               468.4 |              436.2 |
+| `25-1000x5`                | 484.4 |              657.2 |               602.7 |              559.0 |
+| DOM lane, whole pass       | 71.90 |      74.68 (+3.6%) |                   — |      71.85 (−0.1%) |
+| DOM `create 1k`            | 2.397 |      2.612 (+8.5%) |                   — |      2.457 (+2.5%) |
+
+Pre-shaping alone removes two thirds of the Node-lane gap and all of the
+creation outliers; the edge counters are worth another ~2 pt on the
+dynamic-graph tests. Whole-suite CPU profile of the last variant vs prod:
++2.6% total, spread thinly (`read` +6%, `link` +5%) — no single hot
+observe function remains. The residual is the `attrHooks !== null` guards
+on `recompute`/`write` plus the extra literal slots.
+
+Caveat on the literal budget: the effect literal is 35 fields in prod; the
+experiment's +4 puts it at 39, the "§12" in-object boundary the comment
+warns about. The real change must not just append: candidates are folding
+`_subCount`/`_depCount` into one slot, moving `_name`/`_owner` into a
+single pre-allocated observe record, or reclaiming a slot elsewhere.
+Measure `create*` after.
+
+### Verdict
+
+- The `observe` tier as merged is **not** at prod parity: +15% on the
+  reactivity lane, +3.6% on a DOM app, with 2–3× creation outliers under
+  polymorphic load. Not shippable as "production-eligible" yet.
+- The cost is structural (node shape), not the hook calls; the fix is
+  mechanical and validated to bring the Node lane to ≈+5% and the DOM lane
+  to parity. Do it before measuring anything downstream (adapter,
+  sampling).
+- Method for the re-measure is pinned above: full-suite Node runs
+  (isolated tests hide the polymorphism), per-click medians in Chrome.
+
+### Fix — literal slots, no edge counters (`observe-perf` branch)
+
+What landed, against the cause list above:
+
+- **Slots, not writes.** Each node factory (`computed`, `createEffectNode`,
+  `signal`, `slotSignal`, `createOwner`) now has two object literals chosen
+  at build time by the observe flag: prod, and observe = prod plus `_name`
+  (`_owner` too on `signal`). Default labels come from the literal
+  (`trackedEffect` relabels its computed's slot), so the `createEffect` /
+  `createRenderEffect` / `createTrackedEffect` wrappers no longer spread a
+  fresh options object per effect. Alternatives rejected: `...(flag ? {…} :
+  null)` leaves a `...false` spread in prod (rollup folds the conditional
+  but not the spread element — and in fact one such spread was already
+  sitting in prod's `createEffect`, removed here); `{…prod, _name}` clones
+  and then transitions, which is the same cost as the write; the `_x`
+  extension would cost a 19-field allocation per named node / per
+  `createSignal`. Observe literal sizes: computed 30, effect 36, signal 16,
+  slot signal 20, owner 15 — all under the ~39 in-object boundary; a dist
+  test (`dist-artifacts.test.ts` "node literals per tier") pins observe's
+  key set to prod's plus the slots and the ≤38 bound.
+- **No edge counters.** `_subCount`/`_depCount` and `noteGraphLink` /
+  `unnoteGraphLink` are gone. Fan-out is counted by the notify walk in
+  `insertSubs` (one local increment in a loop that already visits every
+  edge); fan-in by `link()` bumping one module counter per first touch of
+  a pass, bracketed by `recompute`. `HUGE_FAN_OUT` / `HUGE_FAN_IN` therefore
+  fire on the change / the recompute rather than the link, deduped through a
+  `WeakMap` (once per node, again after +500). `WIDE_WRITE` counts the
+  subscriber list itself on the write (engine-only walk) and hands over to
+  `HUGE_FAN_OUT` at 2000.
+- **Prod byte-identical** modulo comments and the removed `...false ? {…} :
+  options` spread (`diff -w` of `dist/prod` before/after, comment lines
+  stripped: only that hunk).
+
+Re-measured with the pinned method (5 interleaved full-suite Node runs;
+30 DOM iterations, per-click medians). Same machine; absolute numbers are
+higher than the first session's (other load), the tiers are interleaved so
+the comparison holds.
+
+| Node lane (ms, median of 5) |   prod | observe |   Δ % | as shipped Δ % |
+| --------------------------- | -----: | ------: | ----: | -------------: |
+| createSignals               |   8.30 |    8.34 | +0.5% |                |
+| createComputations          | 131.44 |  130.82 | −0.5% |         +24.5% |
+| create1to1000               |  18.34 |   16.66 | −9.2% |         +63.7% |
+| updateSignals               | 486.74 |  510.86 | +5.0% |          +3.4% |
+| update1to1000               | 380.95 |  386.55 | +1.5% |          +1.5% |
+| broadPropagation            | 184.70 |  190.10 | +2.9% |         +15.1% |
+| deepPropagation             |  69.46 |   72.52 | +4.4% |         +21.4% |
+| diamond                     | 148.75 |  147.98 | −0.5% |         +10.0% |
+| 4-1000x12 - dyn5%           | 429.06 |  515.49 | +20.1% |        +27.5% |
+| 25-1000x5                   | 526.01 |  608.27 | +15.6% |        +31.4% |
+| 3-5x500                     | 130.67 |  142.86 | +9.3% |         +26.3% |
+| **sum of medians (34)**     | **3305** | **3567** | **+7.9%** |    **+15.5%** |
+
+Creation is at parity (the whole of the create* aggregate: −0.5%). The two
+`dyn` tests still read +15–20% on medians but their per-run spread is
+wider than the gap (`4-1000x12` prod 416–522 vs observe 410–521;
+`25-1000x5` prod 477–566 vs observe 493–727) — minimums are at parity, so
+this is run-to-run variance on the allocation-heavy tests, not a per-op
+cost; 5 runs are not enough to resolve it and the 7.9% total is an upper
+bound. `create4to1` reads 2× (4.7 vs 9.4 ms) in every run, including as
+shipped and in the scratch experiment: it is GC placement. The timed
+region allocates ~14 MB behind 100k pre-built signals, observe's signals
+are two slots larger, and the scavenge lands inside the window for one
+tier and outside for the other — deterministic per tier because `run()`
+GCs before each iteration. With `--max-semi-space-size=256` the two tiers
+swap places between runs (prod 4.29 / 8.14, observe 4.79 / 4.99), and
+`create1to4` flips to observe-faster; sub-10 ms tests in this suite cannot
+resolve a slot's worth of cost.
+
+| DOM lane (ms, per-click median, 30 iters) |   prod | observe |    Δ % | as shipped Δ % |
+| ----------------------------------------- | -----: | ------: | -----: | -------------: |
+| create 1k                                 |  2.730 |   2.808 |  +2.8% |          +8.5% |
+| replace 1k                                |  3.208 |   3.238 |  +0.9% |          +5.0% |
+| update every 10th                         |  0.160 |   0.160 |   0.0% |         +14.8% |
+| swap rows                                 |  0.525 |   0.525 |   0.0% |          +2.2% |
+| select row                                |  0.035 |   0.040 | +14.3% (5 µs) |   +16.7% |
+| remove row                                |  0.735 |   0.735 |   0.0% |          −0.8% |
+| create 10k                                | 26.605 |  26.810 |  +0.8% |          +0.7% |
+| **whole pass incl. GC**                   | **82.99** | **83.49** | **+0.6%** |  **+3.6%** |
+
+The DOM lane is at parity; the 5 µs on `select` is the per-interaction
+fixed cost (`withInteraction` + `describeEventTarget`), unchanged and at
+the timer's resolution.
+
+Residual observe cost, by construction: one slot per node (two on
+signals), the `attrHooks !== null` guards on recompute/write/effect-run,
+the fan-in counter (a module increment per first-touch link and two calls
+per recompute), the fan-out increment per notified edge, and
+`registerGraph`'s `getOwner()` + slot store per `createSignal`. Bundle:
++1.7 KB gz on the JFB app (unchanged — the slots are code the observe
+build already carried as writes).

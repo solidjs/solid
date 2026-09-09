@@ -27,7 +27,7 @@ import {
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { currentOptimisticLane, ext, slotUnobservedHook } from "./core.js";
-import { DEV, emitDiagnostic, reportDiagnostic } from "./dev.js";
+import { DEV, emitDiagnostic, GRAPH_SIZE_WARN_AT, noteFanOut, reportDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { sweepDormant } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
@@ -951,8 +951,12 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
     (cfg & CONFIG_HAS_SNAPSHOT) !== 0 && (node as any)._x?._snapshotValue !== undefined;
   const clearReask = reaskArmed;
 
+  // Observe-tier fan-out: this walk visits every subscriber edge anyway, so
+  // the graph-size count is one local increment here and no field anywhere.
+  let fanOut = 0;
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const sub = s._sub;
+    if (__OBSERVE__) fanOut++;
     // A value-change notification is a new question for the subscriber: any
     // pending re-ask mark (refresh) it carried is superseded.
     if (clearReask) sub._flags &= ~REACTIVE_REASK;
@@ -982,6 +986,7 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
 
     enqueueSub(sub);
   }
+  if (__OBSERVE__ && fanOut >= GRAPH_SIZE_WARN_AT) noteFanOut(node, fanOut);
 }
 
 function commitPendingNode(n: Signal<any>): void {
