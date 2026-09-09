@@ -137,7 +137,7 @@ const template6 = _$For({
 });
 const template7 = Child({ get children() {
 	return [_$ssr(_tmpl$5), _$memo(() => {
-		return _$escape(state.dynamic);
+		return state.dynamic;
 	})];
 } });
 const template8 = Child({ get children() {

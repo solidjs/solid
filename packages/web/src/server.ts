@@ -3925,10 +3925,16 @@ export function escape(s, attr) {
     if (!attr && Array.isArray(s)) {
       const joined = tryJoinPlainSSRArray(s);
       if (joined !== undefined) return joined;
+      const src = s;
       s = s.slice(); // avoids double escaping - https://github.com/ryansolid/dom-expressions/issues/393
       for (let i = 0; i < s.length; i++) s[i] = escape(s[i]);
+      // A frames slot range (`$slot`, frame-sink.ts) is an array; the tag
+      // must survive the copy or the resolver mints markers inside
+      // client-owned DOM.
+      if (src.$slot) s.$slot = true;
       return s;
     }
+    if (!attr && t === "function") return escapeLate(s);
     if (attr) {
       // Nullish and boolean values pass through so callers can omit the
       // attribute or emit it as a boolean attribute. Numbers can never
@@ -3949,6 +3955,37 @@ export function escape(s, attr) {
   const i = s.search(attr ? ESCAPE_ATTR : ESCAPE_CONTENT);
   if (i < 0) return s;
   return escapeSlow(s, attr, i);
+}
+
+/**
+ * `escape(x)` at a content hole means: everything reachable from `x` is
+ * unescaped content — strings, array items, and whatever a FUNCTION yields
+ * when the resolver finally calls it. Finished `{ t }` nodes pass through.
+ * The compiler emits `escape` only at template holes; component children,
+ * fragments and flow-control results are raw values, and the server flow
+ * controls (`Show`, `Switch`, `For`, `Dynamic`…) return memos so their
+ * hydration ids line up with the client. A memo reaching `escape` used to
+ * pass through by identity, so a string it later produced landed in the
+ * markup unescaped — `<Show when={s}>{s}</Show>` was an SSR XSS. The
+ * wrapper defers the escape to the call; it is the single point every
+ * resolver path (tree walk, `ssr()` holes, streaming retries via
+ * buildAsyncWrap) goes through, so none of them need to know.
+ *
+ * No double escaping: compiler thunks (`scope(() => escape(s))`) are hole
+ * arguments themselves and never pass through an outer `escape`; a wrapper
+ * reaching `escape` again is returned as is (`$esc`); `{ t }` nodes and
+ * numbers are untouched by `escape` at any depth. Live-hole tags the engine
+ * keys on ride along so a wrapped slot getter or boundary output is still
+ * recognised (buildAsyncWrap propagates the same set).
+ */
+function escapeLate(fn) {
+  if (fn.$esc) return fn;
+  const w = () => escape(fn());
+  w.$esc = true;
+  if (fn.$lhSkip) w.$lhSkip = true;
+  if (fn.$lhSuppress) w.$lhSuppress = true;
+  if (fn.$lhBinding) w.$lhBinding = fn.$lhBinding;
+  return w;
 }
 
 const ESCAPE_CONTENT = /[&<]/;

@@ -429,9 +429,8 @@ function escapeExpression(
     (expression as babelTypes.JSXElement & { wontEscape?: boolean }).wontEscape = true;
     return expression;
   } else if (t.isJSXFragment(expression) && fragmentWillSelfEscape(expression)) {
-    // The fragment will later be transformed into a runtime value the
-    // `escape` helper passes through unchanged — either a memoized
-    // accessor function or an `_$ssr(...)` SSRNode object (see
+    // The fragment will later be transformed into an `_$ssr(...)` SSRNode
+    // object the `escape` helper passes through unchanged (see
     // `fragmentWillSelfEscape`). Wrapping it in another `_$escape(...)`
     // here would be a guaranteed no-op, so leave the fragment in place
     // and let the later traversal emit the inner form directly.
@@ -459,25 +458,18 @@ function escapeTemplateQuasis(expression: babelTypes.TemplateLiteral, attr: bool
 // Predicts whether a JSXFragment AST will compile to a single runtime
 // value for which the outer `_$escape(...)` wrap is a no-op. Must stay
 // conservative: any shape this returns `true` for must, when later
-// transformed, produce a self-escaping (or escape-immune) runtime value.
-// When in doubt, return false so the outer `_$escape` wrap is kept.
+// transformed, produce an escape-immune runtime value. When in doubt,
+// return false so the outer `_$escape` wrap is kept.
 //
-// Recognized single-significant-child shapes:
-//   A. `<>{memberOrCall}</>` — a `JSXExpressionContainer` whose
-//      expression matches the top-level subset of
-//      `isDynamic({ checkMember: true })` (member access, call, tagged
-//      template, optional variants, `in` checks). `createTemplate`
-//      emits `_$memo(() => _$escape(expr))`; the memo returns a
-//      function accessor at runtime and `escape(fn)` is a pass-through.
-//      Nested-dynamic shapes (conditional/logical carrying dynamic
-//      sub-expressions) are excluded — confirming them needs the full
-//      `isDynamic` traversal and a missed optimization costs only one
-//      runtime no-op call.
-//   B. `<><native /></>` — a single native (non-component) JSXElement.
-//      `createTemplate` emits `_$ssr(_tmpl$N, …)`, which returns an
-//      SSRNode object; `escape(object)` is a pass-through.
+// The one recognized shape is `<><native /></>` — a single native
+// (non-component) JSXElement, whose `createTemplate` output is
+// `_$ssr(_tmpl$N, …)`: an SSRNode object `escape` passes through.
+//
+// A single expression child (`<>{x()}</>`) is NOT immune: it compiles to a
+// memo the runtime's `escape` defers into (a function's yield is content
+// like any other), so the hole must keep its wrap.
 function fragmentWillSelfEscape(fragment: babelTypes.JSXFragment): boolean {
-  let only: babelTypes.JSXElement | babelTypes.JSXExpressionContainer | null = null;
+  let only: babelTypes.JSXElement | null = null;
   for (const c of fragment.children) {
     if (t.isJSXText(c)) {
       if (trimWhitespace((c.extra?.raw as string | undefined) ?? "").length === 0) continue;
@@ -485,25 +477,10 @@ function fragmentWillSelfEscape(fragment: babelTypes.JSXFragment): boolean {
     }
     if (babelTypes.isJSXExpressionContainer(c) && babelTypes.isJSXEmptyExpression(c.expression))
       continue;
-    if (only !== null) return false;
-    if (babelTypes.isJSXElement(c) || babelTypes.isJSXExpressionContainer(c)) only = c;
-    else return false;
+    if (only !== null || !babelTypes.isJSXElement(c)) return false;
+    only = c;
   }
-  if (!only) return false;
-  if (babelTypes.isJSXExpressionContainer(only)) {
-    const expr = only.expression;
-    if (babelTypes.isJSXEmptyExpression(expr)) return false;
-    return (
-      t.isCallExpression(expr) ||
-      t.isOptionalCallExpression(expr) ||
-      t.isTaggedTemplateExpression(expr) ||
-      t.isMemberExpression(expr) ||
-      t.isOptionalMemberExpression(expr) ||
-      (babelTypes.isBinaryExpression(expr) && expr.operator === "in")
-    );
-  }
-  if (babelTypes.isJSXElement(only)) return !isComponent(getTagName(only));
-  return false;
+  return only !== null && !isComponent(getTagName(only));
 }
 
 function normalizeAttributes(path: BabelPath<babelTypes.JSXElement>): JSXAttributePath[] {

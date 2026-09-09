@@ -15,17 +15,17 @@ const multiStatic = [_$ssr(_tmpl$), _$ssr(_tmpl$2)];
 const multiExpression = [_$ssr(_tmpl$), inserted, _$ssr(_tmpl$2), "After"];
 const multiDynamic = [
   ((_v$ = () => _$ssrAttribute("id", _$escape(state.first, true))), _$ssr(_tmpl$3, _v$)),
-  _$memo(() => _$escape(state.inserted)),
+  _$memo(() => state.inserted),
   ((_v$2 = () => _$ssrAttribute("id", _$escape(state.last, true))), _$ssr(_tmpl$4, _v$2)),
   "After"
 ];
 const singleExpression = inserted;
-const singleDynamic = _$memo(() => _$escape(inserted()));
+const singleDynamic = _$memo(inserted);
 const firstStatic = [inserted, _$ssr(_tmpl$5)];
-const firstDynamic = [_$memo(() => _$escape(inserted())), _$ssr(_tmpl$5)];
+const firstDynamic = [_$memo(inserted), _$ssr(_tmpl$5)];
 const firstComponent = [Component({}), _$ssr(_tmpl$5)];
 const lastStatic = [_$ssr(_tmpl$5), inserted];
-const lastDynamic = [_$ssr(_tmpl$5), _$memo(() => _$escape(inserted()))];
+const lastDynamic = [_$ssr(_tmpl$5), _$memo(inserted)];
 const lastComponent = [_$ssr(_tmpl$5), Component({})];
 const spaces = [_$ssr(_tmpl$6), " ", _$ssr(_tmpl$7), " ", _$ssr(_tmpl$8)];
 const multiLineTrailing = [_$ssr(_tmpl$6), _$ssr(_tmpl$7), _$ssr(_tmpl$8)];

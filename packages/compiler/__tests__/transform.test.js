@@ -533,28 +533,38 @@ describe("@solidjs/compiler transform", () => {
     ).toThrow(/unknown renderer option `extra`/);
   });
 
-  it("does not HTML-escape a sole SSR component child; mixed children and element holes do", () => {
-    const sole = transform("const view = <Comp>{state.dynamic}</Comp>;", {
-      filename: "input.jsx",
-      moduleName: "r-server",
-      generate: "ssr"
-    });
-    expect(sole.code).toContain("return state.dynamic;");
-    expect(sole.code).not.toContain("_$escape(state.dynamic)");
+  it("SSR escapes at element holes only; component children (sole, mixed, fragments) are values", () => {
+    // Mirrors babel-plugin/test/defaults.spec.js: values flow to the hole
+    // that inserts them; that hole's `_$escape` covers strings, array items
+    // and what a function yields. Escaping the value too double-escapes.
+    const ssr = src =>
+      transform(src, { filename: "input.jsx", moduleName: "r-server", generate: "ssr" }).code;
 
-    const mixed = transform("const view = <Comp><div />{state.dynamic}</Comp>;", {
-      filename: "input.jsx",
-      moduleName: "r-server",
-      generate: "ssr"
-    });
-    expect(mixed.code).toContain("_$escape(state.dynamic)");
+    const sole = ssr("const view = <Comp>{state.dynamic}</Comp>;");
+    expect(sole).toContain("return state.dynamic;");
+    expect(sole).not.toContain("_$escape(");
 
-    const element = transform("const view = <div>{state.dynamic}</div>;", {
-      filename: "input.jsx",
-      moduleName: "r-server",
-      generate: "ssr"
-    });
-    expect(element.code).toContain("_$escape(state.dynamic)");
+    const mixed = ssr("const view = <Comp><div />{state.dynamic}</Comp>;");
+    expect(mixed).toMatch(/_\$memo\(\(\) => \{\s*return state\.dynamic;\s*\}\)/);
+    expect(mixed).not.toContain("_$escape(");
+
+    const fragment = ssr("const view = <>{state.dynamic}<div /></>;");
+    expect(fragment).toMatch(/_\$memo\(\(\) => \{\s*return state\.dynamic;\s*\}\)/);
+    expect(fragment).not.toContain("_$escape(");
+
+    const element = ssr("const view = <div>{state.dynamic}</div>;");
+    expect(element).toContain("_$escape(state.dynamic)");
+
+    // A single-expression fragment at a hole is a memo, not an escape-immune
+    // node: the hole keeps its wrap (the runtime defers into the memo).
+    const fragmentHole = ssr("const view = <div>{c ? <>{state.dynamic}</> : null}</div>;");
+    expect(fragmentHole).toMatch(
+      /_\$escape\(_\$memo\(\(\) => \{\s*return state\.dynamic;\s*\}\)\)/
+    );
+
+    // A single native element in a fragment is an `_$ssr` node — immune.
+    const elementFragmentHole = ssr("const view = <div>{c ? <><span /></> : null}</div>;");
+    expect(elementFragmentHole).toMatch(/c \? _\$ssr\(_tmpl\$2\) : _\$escape\(null\)/);
   });
 
   it("lowers static native JSX in SSR mode", () => {
