@@ -729,7 +729,12 @@ module.exports = [
     path: "csr-app.js",
     // Effect ownership on finalize re-entry (#3319, 2026-09-09): 14.30 KB -> 14.34 KB,
     // measured at 14.302. Core scheduler cost; see the core-floor note.
-    limit: "14.34 KB",
+    //
+    // Navigation origin frame (2026-09-09): 14.34 -> 14.40 KB, measured at
+    // 14.37. `OBSERVE.attribution.withOrigin` (the router-agnostic
+    // navigation seam, a twin of withInteraction) and the `flushEnd` hook
+    // site after flush()'s drain loop. Observe-only: prod folds both out.
+    limit: "14.40 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -745,7 +750,14 @@ module.exports = [
     path: "csr-app-attribution.js",
     // Contested-effect re-derivation (#3322, 2026-09-09): 24.00 -> 24.08 KB,
     // measured at 24.04. Core scheduler cost; see the core-floor note.
-    limit: "24.08 KB",
+    //
+    // Navigations (2026-09-09): 24.08 -> 24.90 KB, measured at 24.86. The
+    // engine's navigation records: the `navigation` origin kind and its
+    // formatting, one NavigationEvent per withOrigin frame settled through
+    // flushEnd / hold commit / supersession, `HoldEvent.origin` and the
+    // route-named SILENT_HOLD/LONG_HOLD actor, and the `feedback().navigations`
+    // fold. Engine-only cost; the observe tier above moved 30 B.
+    limit: "24.90 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

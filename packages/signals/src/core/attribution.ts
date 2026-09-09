@@ -1,7 +1,8 @@
 import {
   setAttributionHooks,
   type AttributionHooks,
-  type InteractionRef
+  type InteractionRef,
+  type OriginRef
 } from "./attribution-hooks.js";
 import { $REFRESH, NOT_PENDING } from "./constants.js";
 import { emitDiagnostic, GRAPH_SIZE_WARN_AT, ownerPath, reportDiagnostic } from "./dev.js";
@@ -50,21 +51,32 @@ export type ChangeKind = "write" | "derived" | "async" | "refresh";
  *   name, when it has one). Writes after an `await` (not a `yield`) run in a
  *   bare microtask and stamp `external` — the documented escape.
  * - `async` — an async landing (`name` = the node whose flight landed).
+ * - `navigation` — a router's navigation, declared via `withOrigin` around
+ *   the location write (`name` = the matched route pattern `/users/:id`;
+ *   `to`/`from` the concrete paths; `params` what the pattern bound; `at`
+ *   when it was requested). The router-agnostic seam: any router that wraps
+ *   its write gets navigations named by route in every hold, re-run and
+ *   verdict, with no per-router knowledge anywhere in the engine.
  * - `external` — none of the above: timers, sockets, promise callbacks, setup.
  *
  * `interaction` on a non-interaction frame is the user event the frame runs
  * under — an action started by a click, an effect whose run was caused by a
- * click's write, a landing whose flight a click started. It is what lets
- * every downstream cost be keyed by the interaction that paid for it.
+ * click's write, a landing whose flight a click started, a navigation a link
+ * click performed. It is what lets every downstream cost be keyed by the
+ * interaction that paid for it.
  */
 export interface ChangeOrigin {
-  kind: "interaction" | "effect" | "action" | "async" | "external";
+  kind: "interaction" | "effect" | "action" | "async" | "navigation" | "external";
   name?: string;
   target?: string;
   at?: number;
   interaction?: ChangeOrigin;
   /** `effect` only: the `RerunEvent.run` of the compute run this callback belongs to. */
   run?: number;
+  /** `navigation` only: concrete destination and departure paths, and the bound params. */
+  to?: string;
+  from?: string;
+  params?: Readonly<Record<string, string>>;
 }
 
 export interface ChangeRecord {
@@ -475,6 +487,12 @@ interface EffectFrameInfo {
 }
 const effectFrames = new WeakMap<ChangeOrigin, EffectFrameInfo>();
 
+/** The interaction the innermost open frame runs under, else the ambient one. */
+function enclosingInteraction(): ChangeOrigin | undefined {
+  const top = originFrames[originFrames.length - 1];
+  return (top !== undefined ? interactionOf(top) : undefined) ?? currentInteraction ?? undefined;
+}
+
 function pushFrame(
   kind: "effect" | "action",
   name: string | undefined,
@@ -493,14 +511,41 @@ function pushFrame(
   originFrames.push(frame);
 }
 
-function popFrame(kind: "effect" | "action") {
+function popFrame(kind: "effect" | "action" | "navigation") {
   // Frames are strictly nested; a mismatch means enable() landed mid-frame
   // (the opener never pushed) — leave the stack alone rather than pop a stranger.
   const top = originFrames[originFrames.length - 1];
   if (top !== undefined && top.kind === kind) originFrames.pop();
 }
 
-/** `click on button#next "Next →"`, `effect "syncTitle"`, `action "save"`, … */
+/**
+ * `withOrigin` opened a declared frame. The frame object IS the origin every
+ * write inside stamps, and the key the navigation record hangs off (see
+ * "Navigations" below), so a hold or re-run that later resolves a write's
+ * origin lands on the same record. It runs under the interaction of the frame
+ * it opened inside — a `navigate()` from an action step, whose ambient
+ * interaction is long gone but whose frame remembers it — else the ambient
+ * one (a link click's handler).
+ */
+function originStart(ref: OriginRef): void {
+  const frame: ChangeOrigin = { kind: ref.kind, at: ref.at ?? now() };
+  if (ref.name !== undefined) frame.name = ref.name;
+  if (ref.to !== undefined) frame.to = ref.to;
+  if (ref.from !== undefined) frame.from = ref.from;
+  if (ref.params !== undefined) frame.params = ref.params;
+  const under = enclosingInteraction();
+  if (under !== undefined) frame.interaction = under;
+  originFrames.push(frame);
+  openNavigation(frame);
+}
+
+function originEnd(): void {
+  const top = originFrames[originFrames.length - 1];
+  popFrame("navigation");
+  if (top !== undefined && top.kind === "navigation") closeNavigation(top);
+}
+
+/** `click on button#next "Next →"`, `effect "syncTitle"`, `action "save"`, `navigation to /users/:id`, … */
 export function formatOrigin(origin: ChangeOrigin): string {
   switch (origin.kind) {
     case "interaction":
@@ -511,6 +556,14 @@ export function formatOrigin(origin: ChangeOrigin): string {
       return `action${origin.name ? ` "${origin.name}"` : ""}`;
     case "async":
       return `async landing${origin.name ? ` on "${origin.name}"` : ""}`;
+    case "navigation": {
+      // The route pattern is the name consumers group by; the concrete path
+      // follows when it adds information.
+      const name = origin.name ?? origin.to;
+      if (name === undefined) return "navigation";
+      const concrete = origin.to !== undefined && origin.to !== name ? ` (${origin.to})` : "";
+      return `navigation to ${name}${concrete}`;
+    }
     default:
       return "outside the reactive system";
   }
@@ -581,7 +634,9 @@ function stampWrite(
   record.origin = kind === "async" ? asyncOrigin(node as Computed<any>) : currentOrigin();
   record.at = now();
   record.stack = captureStack();
+  const prior = (node as AttributedNode)._devChange;
   (node as AttributedNode)._devChange = record;
+  noteNavigationWrite(prior, record);
   if (kind === "write") trackEffectWrite(node, record, value);
   // stampWrite is the single funnel for committed root invalidations (sync
   // writes, refresh(), async landings), which makes it the one place the
@@ -955,16 +1010,28 @@ export interface Attribution {
    */
   holds(): readonly HoldEvent[];
   /**
+   * Every navigation a router declared via `withOrigin` since enable()
+   * (ring-buffered like history()), settled or not: what route, under which
+   * interaction, how many writes, and — once its writes are through — how
+   * long that took and how (`committed` in a plain drain, `held` behind
+   * route data with the HoldEvent attached, or `superseded` by a later
+   * navigation before it landed). Facts for any consumer that wants
+   * navigation spans named by route: no router integration needed.
+   */
+  navigations(): readonly NavigationEvent[];
+  /**
    * What the user waited on, folded from holds() and the interaction on each
    * re-run: `sources` ranks async sources by the silent time writes spent
    * held behind them (with which affordances answered, how often, and which
    * interactions were held); `interactions` ranks user events by the total
    * time they cost — re-run work caused (long-flush hazard) beside time held
    * (silent-hold hazard). Facts at every duration; SILENT_HOLD is the
-   * thresholded verdict. Two more tables round out the picture: `flights`
-   * counts each async source's flights and how many were abandoned before
-   * landing (the re-ask storm), and `fallbacks` measures how long each
-   * loading boundary showed its fallback and how often that was a flash.
+   * thresholded verdict. Three more tables round out the picture:
+   * `navigations` ranks routes by the time spent held navigating to them
+   * (folded from navigations()), `flights` counts each async source's
+   * flights and how many were abandoned before landing (the re-ask storm),
+   * and `fallbacks` measures how long each loading boundary showed its
+   * fallback and how often that was a flash.
    */
   feedback(): AttributionFeedbackTables;
   /**
@@ -1811,6 +1878,13 @@ export interface HoldEvent {
   tailMs: number;
   /** The user interaction whose writes were held, when the stamp is known. */
   interaction?: ChangeOrigin;
+  /**
+   * The declared unit of work the held writes belong to — the `navigation`
+   * a router described via `withOrigin` — when one is known. What names the
+   * hold by route (`navigation to /users/:id`) rather than by signal; the
+   * same object as `navigations()[].origin`, so the two join by identity.
+   */
+  origin?: ChangeOrigin;
   /** Flushes that ended with the hold still open. */
   flushes: number;
   /** Root signal writes staged behind the hold (the user's unanswered input). */
@@ -1903,6 +1977,9 @@ function holdState(t: Transition): HoldState {
 }
 
 function trackHoldStart(t: Transition): void {
+  // Navigations learn they are held regardless of hold tracking: their
+  // settle must wait for the transition either way (see flushEnd).
+  markNavigationsHeld(t);
   if (options.holds === false) return;
   const state = holdState(t);
   state.flushes++;
@@ -1928,13 +2005,19 @@ function trackHoldMerge(target: Transition, outgoing: Transition): void {
 
 function trackHoldSettled(t: Transition): void {
   const state = holdStates.get(t);
-  if (state === undefined) return;
+  if (state === undefined) {
+    // No hold was recorded (the transition completed in its first flush, or
+    // hold tracking is off): navigations staged in it still settle here.
+    settleNavigations(t, undefined);
+    return;
+  }
   holdStates.delete(t);
   // Root writes only: a memo in _pendingNodes is a derived hold, and the
   // question is whether the USER's input went unanswered.
   const heldWrites: HeldWrite[] = [];
   let subject: Signal<any> | null = null;
   let interaction: ChangeOrigin | undefined;
+  let origin: ChangeOrigin | undefined;
   let lastJoinAt = -Infinity;
   for (const node of t._pendingNodes) {
     if (typeof (node as Computed<any>)._fn === "function" || isCompanion(node)) continue;
@@ -1949,11 +2032,21 @@ function trackHoldSettled(t: Transition): void {
     const under = interactionOf(change.origin);
     if (under !== undefined && (interaction === undefined || under.at! < interaction.at!))
       interaction = under;
+    // The declared frame the writes belong to — earliest navigation, by the
+    // same reasoning.
+    if (
+      change.origin?.kind === "navigation" &&
+      (origin === undefined || change.origin.at! < origin.at!)
+    )
+      origin = change.origin;
     // Latest write: a signal written twice while held carries the later
     // stamp, so this is the user's final input, not their first.
     if (change.at !== undefined && change.at > lastJoinAt) lastJoinAt = change.at;
   }
-  if (heldWrites.length === 0) return;
+  if (heldWrites.length === 0) {
+    settleNavigations(t, undefined);
+    return;
+  }
   censusRegistrations(t, state);
   censusCompanions([...t._pendingNodes, ...state.blockers], state.acknowledgedBy);
   const end = now();
@@ -1974,8 +2067,10 @@ function trackHoldSettled(t: Transition): void {
     action: state.action
   };
   if (interaction !== undefined) event.interaction = interaction;
+  if (origin !== undefined) event.origin = origin;
   holdLog.push(event);
   if (holdLog.length > options.historyLimit) holdLog.shift();
+  settleNavigations(t, event);
   recordFeedbackHold(event);
   if (isSilentHold(event)) checkSilentHold(event, subject!);
   else checkLongHold(event, subject!);
@@ -2027,7 +2122,21 @@ function holdData(event: HoldEvent): Record<string, unknown> {
   };
   if (event.interaction !== undefined)
     data.interaction = { type: event.interaction.name, target: event.interaction.target };
+  if (event.origin?.kind === "navigation") data.navigation = navigationData(event.origin);
   return data;
+}
+
+/**
+ * Who the verdict sentence starts from: the interaction, with the navigation
+ * it performed in parentheses — `click on a.nav (navigation to /users/:id)`;
+ * the navigation alone when nothing user-dispatched is known (a redirect);
+ * empty when neither is.
+ */
+function holdActor(event: HoldEvent): string {
+  const via = event.origin !== undefined ? formatOrigin(event.origin) : "";
+  if (event.interaction !== undefined)
+    return `${formatOrigin(event.interaction)}${via ? ` (${via})` : ""}`;
+  return via;
 }
 
 function checkSilentHold(event: HoldEvent, subject: Signal<any>): void {
@@ -2037,9 +2146,10 @@ function checkSilentHold(event: HoldEvent, subject: Signal<any>): void {
   const ms = event.holdMs.toFixed(0);
   const writes = describeHeldWrites(event);
   const waitedOn = describeBlockers(event, "waiting on");
-  // With the interaction stamped the sentence starts from what the user did;
-  // without it, from the writes.
-  const who = event.interaction !== undefined ? `${formatOrigin(event.interaction)} ` : "";
+  // With the interaction (or navigation) stamped the sentence starts from
+  // what the user did; without it, from the writes.
+  const actor = holdActor(event);
+  const who = actor ? `${actor} ` : "";
   let message = event.action
     ? `[SILENT_HOLD] ${who}${who ? "started an action that" : "an action"} held ${writes} for ` +
       `${ms}ms${waitedOn} and the screen showed nothing for the whole round-trip: no optimistic ` +
@@ -2081,7 +2191,8 @@ function checkLongHold(event: HoldEvent, subject: Signal<any>): void {
   const tail = event.tailMs.toFixed(0);
   const writes = describeHeldWrites(event);
   const waitedOn = describeBlockers(event, "waiting on");
-  const who = event.interaction !== undefined ? `${formatOrigin(event.interaction)} ` : "";
+  const actor = holdActor(event);
+  const who = actor ? `${actor} ` : "";
   const answered =
     event.acknowledgedBy.length > 0
       ? `${event.acknowledgedBy.map(a => `"${a}"`).join(", ")} said it was pending`
@@ -2109,6 +2220,170 @@ function checkLongHold(event: HoldEvent, subject: Signal<any>): void {
     subject
   );
   if (severity === "warn") reportDiagnostic(entry);
+}
+
+// --- Navigations ------------------------------------------------------------------
+//
+// A navigation in Solid 2 is not a primitive: it is a plain write to the
+// location (reads pull the route's async, and the runtime holds the write
+// until the data is ready), so the engine already sees everything a
+// navigation costs — the hold, the re-runs, the blockers, the silence — with
+// one thing missing: that those writes WERE a navigation, and to which route.
+// `withOrigin({ kind: "navigation", … })` is where a router says so, around
+// its write; this section keeps one record per such frame and settles it
+// when the work it caused is done. Nothing here knows any router; the seam
+// is the frame, and the record is keyed by the frame object the writes
+// stamped, so a hold or a cause chain resolves back to it by identity.
+//
+// A record settles once, one of three ways: `committed` — its writes went
+// through in a drain no transition held (flushEnd is the instant the screen
+// had them); `held` — they waited in a transition, whose commit is the
+// instant (with the HoldEvent attached when hold tracking recorded one);
+// `superseded` — a later write to the same node replaced its record before
+// it landed (the user navigated again; the first never showed).
+
+export interface NavigationEvent {
+  /** The matched route pattern the router gave — `/users/:id`. */
+  name?: string;
+  to?: string;
+  from?: string;
+  params?: Readonly<Record<string, string>>;
+  /** When the navigation was requested (`performance.now()` clock). */
+  at: number;
+  /** The user interaction it ran under, when known — a link click. */
+  interaction?: ChangeOrigin;
+  /** Root writes the frame performed. */
+  writes: number;
+  /**
+   * Wall time from the request to settle: the end of the drain that committed
+   * its writes, or the commit of the hold they waited in. `undefined` while
+   * unsettled.
+   */
+  settledMs?: number;
+  outcome?: "committed" | "held" | "superseded";
+  /** The hold its writes waited in, when hold tracking recorded one. */
+  hold?: HoldEvent;
+  /**
+   * The frame object its writes were stamped with — `ChangeRecord.origin` on
+   * each, `HoldEvent.origin` on the hold. Join key, by identity.
+   */
+  origin: ChangeOrigin;
+}
+
+interface NavState {
+  event: NavigationEvent;
+  /** `originEnd` has fired. */
+  closed: boolean;
+  /** A flush parked its writes in a transition (`holdStart`). */
+  held: boolean;
+  /** `drainSeq` at its last write — a later drain committed it. */
+  writeDrain: number;
+}
+const navStates = new WeakMap<ChangeOrigin, NavState>();
+/** Opened, not yet settled. */
+const openNavs = new Set<NavState>();
+let navigationLog: NavigationEvent[] = [];
+/** Drains completed since enable() — the clock `writeDrain` reads. */
+let drainSeq = 0;
+
+function openNavigation(frame: ChangeOrigin): void {
+  const event: NavigationEvent = { at: frame.at!, writes: 0, origin: frame };
+  if (frame.name !== undefined) event.name = frame.name;
+  if (frame.to !== undefined) event.to = frame.to;
+  if (frame.from !== undefined) event.from = frame.from;
+  if (frame.params !== undefined) event.params = frame.params;
+  if (frame.interaction !== undefined) event.interaction = frame.interaction;
+  const state: NavState = { event, closed: false, held: false, writeDrain: drainSeq };
+  navStates.set(frame, state);
+  openNavs.add(state);
+  navigationLog.push(event);
+  if (navigationLog.length > options.historyLimit) navigationLog.shift();
+}
+
+function closeNavigation(frame: ChangeOrigin): void {
+  const state = navStates.get(frame);
+  if (state === undefined) return;
+  state.closed = true;
+  // Nothing to wait for: no write survived the equality gate (navigating to
+  // where we already are), or a drain inside the frame already committed
+  // them (`flush(() => setLocation(…))`) with no hold.
+  if (state.event.writes === 0 || (!state.held && drainSeq > state.writeDrain))
+    settleNavigation(state, "committed");
+}
+
+/** stampWrite: the record replacing `prior` on a node was just stamped. */
+function noteNavigationWrite(prior: ChangeRecord | undefined, record: ChangeRecord): void {
+  const origin = record.origin!;
+  if (origin.kind === "navigation") {
+    const state = navStates.get(origin);
+    if (state !== undefined) {
+      state.event.writes++;
+      state.writeDrain = drainSeq;
+    }
+  }
+  // The node now carries a different frame's record: whatever `prior`'s
+  // navigation was waiting to show on it will never land as that navigation.
+  const before = prior?.origin;
+  if (before !== undefined && before !== origin && before.kind === "navigation") {
+    const state = navStates.get(before);
+    if (state !== undefined && openNavs.has(state)) settleNavigation(state, "superseded");
+  }
+}
+
+/** holdStart: `t`'s staged writes are parked — their navigations settle with `t`. */
+function markNavigationsHeld(t: Transition): void {
+  if (openNavs.size === 0) return;
+  for (const node of t._pendingNodes) {
+    const origin = (node as AttributedNode)._devChange?.origin;
+    if (origin?.kind !== "navigation") continue;
+    const state = navStates.get(origin);
+    if (state !== undefined) state.held = true;
+  }
+}
+
+/** transitionSettled: `t` commits — the navigations whose writes it staged are done. */
+function settleNavigations(t: Transition, hold: HoldEvent | undefined): void {
+  if (openNavs.size === 0) return;
+  for (const node of t._pendingNodes) {
+    const origin = (node as AttributedNode)._devChange?.origin;
+    if (origin?.kind !== "navigation") continue;
+    const state = navStates.get(origin);
+    if (state === undefined || !openNavs.has(state)) continue;
+    // A navigation whose frame is still open when its transition commits
+    // (`until()` inside the frame) settles here too: its writes are through.
+    settleNavigation(state, state.held ? "held" : "committed", hold);
+  }
+}
+
+/** flushEnd: every open, closed, unheld navigation's writes just committed. */
+function trackFlushEnd(): void {
+  drainSeq++;
+  if (openNavs.size === 0) return;
+  for (const state of openNavs)
+    if (state.closed && !state.held) settleNavigation(state, "committed");
+}
+
+function settleNavigation(
+  state: NavState,
+  outcome: NonNullable<NavigationEvent["outcome"]>,
+  hold?: HoldEvent
+): void {
+  if (!openNavs.delete(state)) return;
+  const event = state.event;
+  event.settledMs = now() - event.at;
+  event.outcome = outcome;
+  if (hold !== undefined) event.hold = hold;
+  recordFeedbackNavigation(event);
+}
+
+/** The serializable face of a navigation origin for diagnostic `data`. */
+function navigationData(origin: ChangeOrigin): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+  if (origin.name !== undefined) data.name = origin.name;
+  if (origin.to !== undefined) data.to = origin.to;
+  if (origin.from !== undefined) data.from = origin.from;
+  if (origin.params !== undefined) data.params = origin.params;
+  return data;
 }
 
 // --- Feedback tables ----------------------------------------------------------
@@ -2209,6 +2484,27 @@ export interface FallbackStats {
   flashes: number;
 }
 
+/**
+ * Per route: what navigating to it cost, folded from settled
+ * `NavigationEvent`s — the route-level view a router integration used to
+ * have to build itself, from the runtime's own facts.
+ */
+export interface FeedbackNavigation {
+  /** The route pattern (`/users/:id`), or the concrete `to` when the router gave no pattern. */
+  name: string;
+  navigations: number;
+  /** Summed and worst request-to-settle time (ms) across settled navigations. */
+  settledMs: number;
+  worstMs: number;
+  /** Navigations whose writes waited in a hold, and the time they waited. */
+  held: number;
+  heldMs: number;
+  /** Held navigations the screen acknowledged nothing for — the SILENT_HOLD signature. */
+  silent: number;
+  /** Navigations overwritten by a later one before they landed. */
+  superseded: number;
+}
+
 interface SourceBucket {
   row: FeedbackSource;
   acks: Map<string, number>;
@@ -2222,6 +2518,7 @@ interface InteractionBucket {
 }
 const feedbackSources = new Map<string, SourceBucket>();
 const feedbackInteractions = new Map<string, InteractionBucket>();
+const feedbackNavigations = new Map<string, FeedbackNavigation>();
 const flightStats = new Map<Computed<any>, FlightStats>();
 interface FallbackBucket {
   row: FallbackStats;
@@ -2371,6 +2668,38 @@ function recordFeedbackHold(event: HoldEvent): void {
   }
 }
 
+function recordFeedbackNavigation(event: NavigationEvent): void {
+  const name = event.name ?? event.to;
+  if (name === undefined) return;
+  let row = feedbackNavigations.get(name);
+  if (row === undefined) {
+    row = {
+      name,
+      navigations: 0,
+      settledMs: 0,
+      worstMs: 0,
+      held: 0,
+      heldMs: 0,
+      silent: 0,
+      superseded: 0
+    };
+    feedbackNavigations.set(name, row);
+  }
+  row.navigations++;
+  if (event.outcome === "superseded") {
+    row.superseded++;
+    return;
+  }
+  const ms = event.settledMs!;
+  row.settledMs += ms;
+  if (ms > row.worstMs) row.worstMs = ms;
+  if (event.outcome === "held") {
+    row.held++;
+    row.heldMs += event.hold?.holdMs ?? ms;
+    if (event.hold !== undefined && isSilentHold(event.hold)) row.silent++;
+  }
+}
+
 function rankedCounts<K extends string>(
   counts: Map<string, number>,
   key: K
@@ -2383,6 +2712,8 @@ function rankedCounts<K extends string>(
 export interface AttributionFeedbackTables {
   sources: FeedbackSource[];
   interactions: FeedbackInteraction[];
+  /** Routes ranked by the time spent held navigating to them, then by total settle time. */
+  navigations: FeedbackNavigation[];
   /** Async sources ranked by abandoned flights, then by flights. */
   flights: FlightStats[];
   /** Loading boundaries ranked by flashes, then by time shown. */
@@ -2390,6 +2721,9 @@ export interface AttributionFeedbackTables {
 }
 
 function feedbackTables(): AttributionFeedbackTables {
+  const navigations = [...feedbackNavigations.values()]
+    .map(row => ({ ...row }))
+    .sort((a, b) => b.heldMs - a.heldMs || b.settledMs - a.settledMs);
   const flights = [...flightStats.values()]
     .map(row => ({ ...row }))
     .sort((a, b) => b.abandoned - a.abandoned || b.flights - a.flights);
@@ -2408,7 +2742,7 @@ function feedbackTables(): AttributionFeedbackTables {
   const interactions = [...feedbackInteractions.values()]
     .map(bucket => ({ ...bucket.row }))
     .sort((a, b) => b.heldMs + b.selfMs - (a.heldMs + a.selfMs));
-  return { sources, interactions, flights, fallbacks };
+  return { sources, interactions, navigations, flights, fallbacks };
 }
 
 // The engine's implementation of the core's dev hook points. Installed by
@@ -2420,6 +2754,11 @@ let asyncStartValue: unknown;
 const engineHooks: AttributionHooks = {
   interactionStart,
   interactionEnd,
+  originStart,
+  originEnd,
+  flushEnd() {
+    trackFlushEnd();
+  },
   recomputeStart(el, create) {
     frames.push({
       start: now(),
@@ -2582,6 +2921,10 @@ export const attribution: Attribution = {
     activeHold = null;
     feedbackSources.clear();
     feedbackInteractions.clear();
+    feedbackNavigations.clear();
+    navigationLog = [];
+    openNavs.clear();
+    drainSeq = 0;
     reportedCycles.clear();
     relays.clear();
     immutableReported.clear();
@@ -2605,6 +2948,10 @@ export const attribution: Attribution = {
     activeHold = null;
     feedbackSources.clear();
     feedbackInteractions.clear();
+    feedbackNavigations.clear();
+    navigationLog = [];
+    openNavs.clear();
+    drainSeq = 0;
     reportedCycles.clear();
     relays.clear();
     immutableReported.clear();
@@ -2644,6 +2991,9 @@ export const attribution: Attribution = {
   },
   holds() {
     return holdLog;
+  },
+  navigations() {
+    return navigationLog;
   },
   feedback() {
     return feedbackTables();

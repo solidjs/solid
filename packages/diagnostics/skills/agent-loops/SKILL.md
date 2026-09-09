@@ -125,10 +125,14 @@ fix through Loop 3) beside the time its writes spent held (`worstHoldMs`,
 `silentMs` — fix here). In browser captures the interaction is stamped by the
 web runtime; in-process, wrap the write in
 `OBSERVE.attribution.withInteraction({ type, target }, () => …)` so holds are
-measured from the event and keyed by it.
+measured from the event and keyed by it. A router that wraps its location
+write in `OBSERVE.attribution.withOrigin({ kind: "navigation", name, to, from, params }, () => …)`
+names holds by route as well — `SILENT_HOLD` then reads "click on a.nav
+(navigation to /users/:id) wrote …", and `feedback.navigations` /
+`attribution.navigations()` give the per-route view.
 
-Two more fact tables in `feedback` have no verdict of their own; read them
-when a scenario is slow without being silent:
+The remaining fact tables in `feedback` have no verdict of their own; read
+them when a scenario is slow without being silent:
 
 - `flights` — per async source, `flights`/`landed`/`abandoned`. A source that
   abandons most of its flights re-asks on every input change (search as you

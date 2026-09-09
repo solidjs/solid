@@ -409,6 +409,15 @@ same fold over holds and re-runs that `costs()` is over scopes and writes:
   `longHolds.infoMs`, acknowledged or not: the spinner is not the whole
   answer there — a `Loading` keyed with `on`, a preload, a cache, or a faster
   source is (see `LONG_HOLD`).
+- `navigations` — one row per route pattern (`/users/:id`), present when the
+  router declares its navigations via `OBSERVE.attribution.withOrigin`:
+  `navigations` settled, `settledMs`/`worstMs`, the `held` subset with
+  `heldMs` and how many were `silent`, and `superseded` (the user navigated
+  again before it landed). A route that is held and silent needs the
+  affordances above where the route's data renders; a route with many
+  superseded navigations is one users give up on — make its data fast or
+  preload it on hover/intent. `attribution.navigations()` lists each
+  navigation with its `outcome` and, when held, the `HoldEvent` itself.
 - `flights` — one row per async source: `flights` started, `landed`,
   `abandoned` (superseded by a newer flight before landing), `landedMs`,
   `worstMs`. A source with many abandoned flights is re-asking on every

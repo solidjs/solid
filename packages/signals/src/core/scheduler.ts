@@ -1279,6 +1279,10 @@ export function flush<T>(fn?: () => T): T | void {
   }
   if (halted) return;
   let count = 0;
+  // Attribution: whether this call drained anything, so `flushEnd` fires once
+  // per real drain and never for a no-op call. The declaration is dead in
+  // prod (its only write is behind __OBSERVE__) and rollup drops it.
+  let drained = false;
   // `flush()` is an explicit drain point, so it must also process an active
   // transition even if no microtask was scheduled for it yet.
   while (scheduled || activeTransition) {
@@ -1299,7 +1303,13 @@ export function flush<T>(fn?: () => T): T | void {
       );
     }
     globalQueue.flush();
+    if (__OBSERVE__) drained = true;
   }
+  // Outside every try in this function (see the rule in attribution-hooks.ts):
+  // the drain loop above is the one place all scheduled work funnels through,
+  // so this is the "committed and effects ran, or parked" instant for
+  // everything the loop processed.
+  if (__OBSERVE__ && drained && attrHooks !== null) attrHooks.flushEnd();
 }
 
 function runQueue(queue: QueueCallback[], type: number): void {
