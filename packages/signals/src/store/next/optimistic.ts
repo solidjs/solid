@@ -548,11 +548,19 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
     if (ft !== null) globalQueue.initTransition(ft);
   }
   const old = t.v;
+  // Compare RAWS on both sides (`nv` below is unwrapped already). A chained
+  // target's `old` is the inner store's proxy, whose reads hand back inner
+  // child PROXIES; the draft's clone holds the inner raws. Comparing the two
+  // as-is marked every untouched row changed, and the overlay then served
+  // each from an override as a fresh non-chained target — row identities
+  // churned for the life of the action and snapped back at settle (#3323).
   const visible = (key: PropertyKey, fallback: any): any => {
     const node = t.n?.[key as any];
-    return node !== undefined && hasActiveOverride(node)
-      ? unwrapOverride(node._x?._overrideValue)
-      : fallback;
+    return unwrapValue(
+      node !== undefined && hasActiveOverride(node)
+        ? unwrapOverride(node._x?._overrideValue)
+        : fallback
+    );
   };
   const visiblePresent = (key: PropertyKey): boolean => {
     const node = t.h?.[key as any];

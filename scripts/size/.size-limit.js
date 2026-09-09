@@ -332,7 +332,14 @@ module.exports = [
     // measured at 14.49. Core scheduler cost; see the core-floor note.
     // Effect ownership on finalize re-entry (#3319, 2026-09-09): 14.52 KB -> 14.60 KB,
     // measured at 14.559. Core scheduler cost; see the core-floor note.
-    limit: "14.60 KB",
+    // deep()/identity over chained views (#3323, 2026-09-09): 14.60 KB -> 14.70 KB,
+    // measured at 14.663. resolveChainedRaw (a chained target's pending-backing
+    // child resolves to the inner family's proxy — reachable from serveDataKey,
+    // so every store bundle carries it; chaining is not optimistic-only), the
+    // snapshot's wrapper redirect below chained families, and the ownKeys /
+    // getOwnPropertyDescriptor trap bodies extracted into visibleKeys /
+    // visibleDescriptor so the deep() walk shares them.
+    limit: "14.70 KB",
     modifyEsbuildConfig
   },
   {
@@ -650,7 +657,9 @@ module.exports = [
     // measured at 26.453. Core scheduler cost; see the core-floor note.
     // Effect ownership on finalize re-entry (#3319, 2026-09-09): 26.52 KB -> 26.60 KB,
     // measured at 26.558. Core scheduler cost; see the core-floor note.
-    limit: "26.60 KB",
+    // deep()/identity over chained views (#3323, 2026-09-09): 26.60 KB -> 26.70 KB,
+    // measured at 26.648. Store cost; see the createStore note.
+    limit: "26.70 KB",
     modifyEsbuildConfig
   },
   {

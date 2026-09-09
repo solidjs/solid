@@ -1546,6 +1546,31 @@ function nodeValue(node: Signal<any>, backing: any): any {
   return v === (FORCE as any) ? backing : v;
 }
 
+/** §7b: a chained target's child found as a RAW — from its pending backing
+ * (a cloneRaw of the inner proxy, whose descriptors yield the inner store's
+ * raws) or from the deep() walk's descriptor read through the chain — must
+ * resolve to the inner family's proxy for that object before this family
+ * wraps it, so the overlay serves the same chained targets as the settled
+ * state. Otherwise every row re-wrapped as a fresh non-chained target keyed
+ * by the raw: identities churned for the life of an optimistic action and
+ * snapped back at settle, and writes landed on those orphans while deep()'s
+ * witnesses sat on the chained targets (#3323). The inner family owns the
+ * raw iff it has served it or its backing holds that exact object at `key`;
+ * anything else is a draft's own replacement object — view-owned, correctly
+ * non-chained — and is returned as is. Recurses down further chains. */
+function resolveChainedRaw(target: StoreNextTarget, key: PropertyKey, v: object): any {
+  const innerT: StoreNextTarget = (target.v as any)[$TARGET];
+  if (innerT.ch) {
+    const iv = resolveChainedRaw(innerT, key, v);
+    return iv === v ? v : wrapNext(iv, innerT, key);
+  }
+  const owned = (innerT.fam?.map ?? storeNextLookup).get(v);
+  if (owned !== undefined) return owned.px;
+  if ((innerT.v[key as any] === v || innerT.pb?.[key as any] === v) && isWrappable(v))
+    return wrapNext(v, innerT, key);
+  return v;
+}
+
 /** Serve an own data key: node-first when a node exists (pending visibility,
  * holds, lanes ride the node); backing otherwise. Chained backings (§7b: the
  * backing IS another store's proxy) serve the read-through value — the outer
@@ -1613,6 +1638,8 @@ function serveDataKey(
   }
   // Shallow stores serve data raw; store-proxy slots get boundary wrappers.
   if (target.s) return serveShallow(target, key, v);
+  if (target.ch && !chained && v !== null && typeof v === "object" && v[$TARGET] === undefined)
+    v = resolveChainedRaw(target, key, v);
   if (node !== undefined) {
     // Wrap cache (see getNode): only wrappables are ever cached, so a hit
     // skips isWrappable too — pointer-compare replaces both checks.
@@ -1879,66 +1906,11 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (pendingCheckActive) witnessAffectsMark(target as any);
     if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
     if (!inDraft(target) && getObserver() !== null) readNode(getKeySetNode(target));
-    const src = readSource(target);
-    let keys: (string | symbol)[];
-    if (target.ovl && src === target.pb) {
-      // Overlay merge (#3044): committed keys in their order, then this
-      // batch's NEW keys, minus deletes.
-      keys = Reflect.ownKeys(target.v);
-      const del = target.del;
-      if (del !== null && del.size !== 0) keys = keys.filter(key => !del.has(key));
-      for (const key of Reflect.ownKeys(src)) {
-        if (!hasOwn.call(target.v, key)) keys.push(key);
-      }
-    } else keys = Reflect.ownKeys(src);
-    // Optimistic membership overlay: presence-node overrides add/remove keys
-    // (per-transaction lifecycle rides the nodes — §6, FINDING-2's fix).
-    // Draft reads before the first write overlay too (pb, once created, is
-    // seeded with the view). Authoritative-view reads (until()'s predicate,
-    // truth-author drafts) skip the overlay.
-    if (
-      !authoritativeServe() &&
-      target.fam?.opt &&
-      target.h !== null &&
-      (!inDraft(target) || draftSeesOverrides(target))
-    ) {
-      let set: Set<PropertyKey> | null = null;
-      for (const key of Reflect.ownKeys(target.h)) {
-        const node = target.h[key as any];
-        if (!hasActiveOverride(node)) continue;
-        set ??= new Set(keys);
-        if (unwrapOverride(node._x?._overrideValue)) set.add(key);
-        else set.delete(key);
-      }
-      if (set !== null) return [...set] as (string | symbol)[];
-    }
-    return keys;
+    return visibleKeys(target, readSource(target));
   },
 
   getOwnPropertyDescriptor(target, key) {
-    const srcD = readSource(target);
-    let desc = Object.getOwnPropertyDescriptor(srcD, key);
-    // Overlay (#3044): unwritten keys live on the committed backing;
-    // deleted keys are absent from the pending view.
-    if (target.ovl && srcD === target.pb) {
-      if (target.del !== null && target.del.has(key)) return undefined;
-      if (desc === undefined) desc = Object.getOwnPropertyDescriptor(target.v, key);
-    }
-    if (!authoritativeServe() && target.fam?.opt && !inDraft(target)) {
-      const node = target.h?.[key as any];
-      if (node !== undefined && hasActiveOverride(node)) {
-        if (!unwrapOverride(node._x?._overrideValue)) return undefined; // opt delete
-        if (desc === undefined) {
-          const vn = target.n?.[key as any];
-          return {
-            value: vn !== undefined ? nodeValue(vn, undefined) : undefined,
-            writable: true,
-            enumerable: true,
-            configurable: true
-          };
-        }
-      }
-    }
+    const desc = visibleDescriptor(target, readSource(target), key);
     if (desc === undefined) return undefined;
     // Array targets carry a real non-configurable `length` the proxy
     // invariant forces us to report faithfully; everything else reports
@@ -2158,6 +2130,82 @@ export function storeHasOptimisticFamily(proxy: any): boolean {
   return t !== undefined && t.fam?.opt === true;
 }
 
+// ---------------------------------------------------------------------------
+// visibility: what a reader sees on a record — ONE rule for the ownKeys /
+// getOwnPropertyDescriptor traps and the deep() walk (#3323). The walk used
+// to re-derive the trap rules over raw backings and missed each new one in
+// turn (the #3044 overlay merge, then #3323's chain, then optimistic presence
+// and value overrides); sharing the body makes parity structural.
+
+/** Keys visible on `target` served from `src` (= readSource(target)): the
+ * pending-overlay merge (#3044) and, on optimistic families, presence-node
+ * overrides (§6, FINDING-2's fix). Draft reads before the first write overlay
+ * too (pb, once created, is seeded with the view). Authoritative-view reads
+ * (until()'s predicate, truth-author drafts) skip the overlay. */
+function visibleKeys(target: StoreNextTarget, src: Record<PropertyKey, any>): (string | symbol)[] {
+  let keys: (string | symbol)[];
+  if (target.ovl && src === target.pb) {
+    // Overlay merge (#3044): committed keys in their order, then this
+    // batch's NEW keys, minus deletes.
+    keys = Reflect.ownKeys(target.v);
+    const del = target.del;
+    if (del !== null && del.size !== 0) keys = keys.filter(key => !del.has(key));
+    for (const key of Reflect.ownKeys(src)) {
+      if (!hasOwn.call(target.v, key)) keys.push(key);
+    }
+  } else keys = Reflect.ownKeys(src);
+  if (
+    !authoritativeServe() &&
+    target.fam?.opt &&
+    target.h !== null &&
+    (!inDraft(target) || draftSeesOverrides(target))
+  ) {
+    let set: Set<PropertyKey> | null = null;
+    for (const key of Reflect.ownKeys(target.h)) {
+      const node = target.h[key as any];
+      if (!hasActiveOverride(node)) continue;
+      set ??= new Set(keys);
+      if (unwrapOverride(node._x?._overrideValue)) set.add(key);
+      else set.delete(key);
+    }
+    if (set !== null) return [...set] as (string | symbol)[];
+  }
+  return keys;
+}
+
+/** The data/accessor descriptor visible for `key` on `target` served from
+ * `src`: overlay (#3044 — unwritten keys live on the committed backing,
+ * deleted keys are absent) and optimistic presence overrides (an opt delete
+ * hides the key; an opt add synthesizes a data descriptor from the value
+ * node). `configurable` is the trap's concern (proxy invariant). */
+function visibleDescriptor(
+  target: StoreNextTarget,
+  src: Record<PropertyKey, any>,
+  key: PropertyKey
+): PropertyDescriptor | undefined {
+  let desc = Object.getOwnPropertyDescriptor(src, key);
+  if (target.ovl && src === target.pb) {
+    if (target.del !== null && target.del.has(key)) return undefined;
+    if (desc === undefined) desc = Object.getOwnPropertyDescriptor(target.v, key);
+  }
+  if (!authoritativeServe() && target.fam?.opt && !inDraft(target)) {
+    const node = target.h?.[key as any];
+    if (node !== undefined && hasActiveOverride(node)) {
+      if (!unwrapOverride(node._x?._overrideValue)) return undefined; // opt delete
+      if (desc === undefined) {
+        const vn = target.n?.[key as any];
+        return {
+          value: vn !== undefined ? nodeValue(vn, undefined) : undefined,
+          writable: true,
+          enumerable: true,
+          configurable: true
+        };
+      }
+    }
+  }
+  return desc;
+}
+
 /** Tracking deep snapshot (`deep()` for next targets): subscribes to the
  * key-set and deep-witness node at every reachable level, then returns the
  * plain view. Shared references and cycles handled via the visited set. */
@@ -2170,49 +2218,72 @@ export function deepNext<T>(value: T): T {
   // in per-key nodes, and it walks TARGETS directly — no per-child proxy
   // round-trip (wrapNext → proxy → $TARGET trap) on the re-walk every
   // effect run performs.
+  // Resolve `child` (a raw or a stored proxy found under `t`) to the target
+  // that `t`'s family serves for it — created on first visit, as the get trap
+  // would. Undefined = leaf (unwrappable or raw-marked).
+  const childTarget = (
+    t: StoreNextTarget,
+    child: object,
+    key: PropertyKey
+  ): StoreNextTarget | undefined => {
+    const map = t.fam?.map ?? storeNextLookup;
+    let ct: StoreNextTarget | undefined = map.get(child);
+    if (ct === undefined) {
+      if (!isWrappable(child)) return undefined;
+      wrapNext(child, t, key);
+      // Stored proxies (chained slots) that this family passes through
+      // resolve to their own target.
+      ct = map.get(child) ?? (child as any)[$TARGET];
+    }
+    return ct;
+  };
   const walkT = (t: StoreNextTarget): void => {
     const src = readSource(t);
     if (visited.has(src)) return;
     visited.add(src);
     readNode(getKeySetNode(t));
     readNode(getDeepNode(t));
-    const map = t.fam?.map ?? storeNextLookup;
-    // Overlay pending backings chain to the committed object (#3044): their
-    // OWN keys are only this batch's writes. A bare ownKeys walk mid-flush
-    // (effects recompute before the fold commits) missed every untouched
-    // child, so the re-subscribing effect dropped those records from its
-    // dependency set — later child edits never notified it (#3283). Merge
-    // committed keys, minus deletes, exactly as the ownKeys trap does.
-    let keys = Reflect.ownKeys(src);
-    if (t.ovl && src === t.pb) {
-      const merged = Reflect.ownKeys(t.v);
-      const del = t.del;
-      const filtered =
-        del !== null && del.size !== 0 ? merged.filter(key => !del.has(key)) : merged;
-      for (const key of keys) {
-        if (!hasOwn.call(t.v, key)) filtered.push(key);
-      }
-      keys = filtered;
+    // Chained backing (§7b): the committed backing IS another store's proxy.
+    // Writes to the inner store bump the INNER record's witnesses; this
+    // target's k/dk hear only its own family's writes (optimistic overrides).
+    // Read through the whole chain — the $TRACK trap's rule (#2864 / R21)
+    // applied to deep() (#3323). From `t.v`, not `src`: a pending backing is a
+    // raw clone and would hide the chain. Non-chained targets pay one flag.
+    for (let it = t; it.ch; ) {
+      it = (it.v as any)[$TARGET];
+      readNode(getKeySetNode(it));
+      readNode(getDeepNode(it));
     }
-    for (const key of keys) {
-      const desc =
-        Object.getOwnPropertyDescriptor(src, key) ?? Object.getOwnPropertyDescriptor(t.v, key);
+    // Keys and children exactly as the traps serve them — the overlay merge
+    // (#3044/#3283: a bare ownKeys over a pending backing mid-flush dropped
+    // every untouched child from the re-subscribing effect's dependencies)
+    // and optimistic presence overrides (a row added under a held action
+    // lives in `h`/`n`, not the committed backing; the walk never reached its
+    // record, so deep() was deaf to every write on it until settle).
+    const opt = t.fam?.opt === true;
+    for (const key of visibleKeys(t, src)) {
+      const desc = visibleDescriptor(t, src, key);
       if (desc === undefined) continue;
       if (desc.get || desc.set) {
         t.a = true;
         continue; // accessors track through their own reads when invoked
       }
-      const child = desc.value;
-      if (child === null || typeof child !== "object") continue;
-      // Stored proxies (chained slots) resolve through their own target;
-      // raw children through the family map, created on first visit.
-      let ct: StoreNextTarget | undefined = (child as any)[$TARGET] ?? map.get(child);
-      if (ct === undefined) {
-        if (!isWrappable(child)) continue;
-        wrapNext(child, t, key);
-        ct = map.get(child);
-        if (ct === undefined) continue; // raw-marked: leaf by contract
+      let child = desc.value;
+      // An active value override on an optimistic node shadows the backing's
+      // child (an optimistic replacement `d[i] = {...}`) — follow what reads
+      // serve, as nodeValue's leading arm does.
+      if (opt) {
+        const vn = t.n?.[key as any];
+        if (vn !== undefined && hasActiveOverride(vn) && !authoritativeServe())
+          child = unwrapOverride(vn._x!._overrideValue);
       }
+      if (child === null || typeof child !== "object") continue;
+      // Through a chain the descriptor yields the INNERMOST raw: resolve it to
+      // the inner family's proxy so this level wraps the chained `view[i]` the
+      // get trap serves, never a fresh non-chained wrapper of the base raw.
+      if (t.ch && (child as any)[$TARGET] === undefined) child = resolveChainedRaw(t, key, child);
+      const ct = childTarget(t, child, key);
+      if (ct === undefined) continue; // raw-marked: leaf by contract
       walkT(ct);
     }
   };
@@ -2244,11 +2315,22 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreNextFamily |
   // encountered and compose their views over the resolved base, innermost
   // outward.
   let optOwners: StoreNextTarget[] | null = null;
-  for (;;) {
-    let t: StoreNextTarget | undefined = src?.[$TARGET]?.v !== undefined ? src[$TARGET] : undefined;
+  for (let entry = true; ; entry = false) {
+    const viaProxy = src?.[$TARGET]?.v !== undefined;
+    let t: StoreNextTarget | undefined = viaProxy ? src[$TARGET] : undefined;
     if (t === undefined && fam !== null) t = fam.map.get(src);
     if (t === undefined) t = storeNextLookup.get(src);
     if (t === undefined) break;
+    // Entering a level from a RAW below a chained family: the raw resolves to
+    // the INNER store's target, but this family's wrapper for it — keyed by
+    // the inner proxy, §7b — is where the outer overrides live. Start from
+    // the wrapper so they compose (#3323: a nested optimistic write on a view
+    // row was served by reads but missing from deep()/snapshot()). Entry only:
+    // the descent then runs wrapper → inner → raw and terminates.
+    if (entry && !viaProxy && fam !== null && t.fam !== fam) {
+      const outer = fam.map.get(t.px);
+      if (outer !== undefined) t = outer;
+    }
     if (t.fam !== null) fam = t.fam;
     if (t.fam?.opt === true) (optOwners ??= []).push(t);
     // The shared visibility decision (#3147): the speculative peek serves

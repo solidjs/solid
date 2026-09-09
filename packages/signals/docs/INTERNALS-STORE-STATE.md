@@ -344,6 +344,35 @@ raw object. Mechanics:
 - **Structural chaining** (#2864, core R21): outer `ownKeys`/`$TRACK` reads
   likewise read through to the inner key-set node — chaining is the same
   read-through rule, not a special case.
+- **`deep()` through a chain** (#3323): the walk subscribes every inner
+  record's key-set AND deep-witness node along the chain (from `t.v`, not
+  `readSource` — a pending backing is a raw clone and would hide the chain),
+  and resolves children via `resolveChainedRaw` to the chained wrapper the
+  get trap serves, never a fresh raw-keyed one. Base writes bump the inner
+  witnesses, so a `deep(view)` subscriber hears them exactly as per-key
+  readers do (the reader-families-agree rule).
+- **One visibility rule** (#3323): `visibleKeys` / `visibleDescriptor` are
+  the bodies of the `ownKeys` / `getOwnPropertyDescriptor` traps AND what
+  the `deep()` walk enumerates. The walk used to re-derive the trap rules
+  over raw backings and missed each new one (the #3044 overlay merge, the
+  chain, optimistic presence/value overrides — a row added under a held
+  action lives in `h`/`n`, so its record was never walked and `deep()` was
+  deaf to every write on it until settle). Parity is now structural.
+- **Chained pending backings keep identity** (#3323): `ensurePB` on a
+  chained target clones the inner *proxy*, whose descriptors yield the
+  inner store's raws. Two rules keep the overlay serving the same chained
+  targets as the settled state: (1) `serveDataKey` (and the walk) pass a
+  raw the inner family owns — already served, or held by the inner backing
+  at that key — through `resolveChainedRaw` to the inner proxy before
+  wrapping; a raw the inner does not own is a draft's replacement object and
+  stays view-owned/non-chained. (2) `notifyOptimisticWrites` diffs
+  `unwrapValue`d values on both sides — `old = t.v` is the inner proxy whose
+  reads return inner child *proxies*, and comparing those to the clone's
+  raws marked every untouched row changed, so the overlay served each from
+  an override as a fresh non-chained target (row identities churned for the
+  life of the action and snapped back at settle). `snapshotWalk`, entering a
+  level from a raw below a chained family, starts from that family's wrapper
+  (keyed by the inner proxy) so outer overrides below the root compose.
 - **Lane masking = shadow + dynamic dependencies** (core R36 zero-churn): a
   lane value on an outer property node shadows read-through. Subscribers
   re-run once on the hold write, rebuild dependencies against the lane value

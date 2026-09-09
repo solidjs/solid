@@ -231,6 +231,9 @@ describe("@solidjs/signals artifacts under require()", () => {
       // Any `await` at brace depth zero. Cheap and conservative: the engine
       // and core have no async functions at module scope, so a match is a
       // real top-level await, not a false positive from an inner body.
+      // Comments are skipped: the observe/dev tiers keep them, and an
+      // apostrophe in a module-scope docblock would otherwise open a phantom
+      // string and derail the depth count.
       let depth = 0;
       let inString: string | null = null;
       let tla = false;
@@ -239,6 +242,16 @@ describe("@solidjs/signals artifacts under require()", () => {
         if (inString) {
           if (c === "\\") i++;
           else if (c === inString) inString = null;
+          continue;
+        }
+        if (c === "/" && code[i + 1] === "/") {
+          const nl = code.indexOf("\n", i);
+          i = nl === -1 ? code.length : nl;
+          continue;
+        }
+        if (c === "/" && code[i + 1] === "*") {
+          const end = code.indexOf("*/", i + 2);
+          i = end === -1 ? code.length : end + 1;
           continue;
         }
         if (c === '"' || c === "'" || c === "`") inString = c;
