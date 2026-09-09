@@ -27,6 +27,7 @@ export type {
   HeldWrite,
   HoldEvent,
   NavigationEvent,
+  NavigationHop,
   RerunEvent,
   ScopeCost,
   WaterfallRecord,

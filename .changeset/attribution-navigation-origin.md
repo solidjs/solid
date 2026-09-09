@@ -11,4 +11,8 @@ A navigation in Solid 2 is a plain write to the location; the runtime already se
 - keeps one `NavigationEvent` per frame (`attribution.navigations()`), settled exactly once as `committed` (a plain drain took the writes), `held` (with the `HoldEvent` attached), or `superseded` (a later write replaced them before they landed);
 - folds settled navigations per route into `feedback().navigations`.
 
+The ref is read late on purpose. `name`/`to`/`params` are re-read from the object when the navigation settles, so a router whose match is coarse at write time (a lazy route subtree resolving inside the hold) assigns the exact pattern onto the same object and every consumer reads it — no second API. A redirect is declared with `redirect: n` (the hop depth routers already track) and folds onto the pending navigation instead of opening one: one record, timed from the user's request, the abandoned destination kept in `NavigationEvent.redirects`, `feedback().navigations[].redirected` counting them, and `formatOrigin` reading `navigation to /login (redirected from /users/42)`.
+
+Hold census fix: a `latest()`/`isPending()` companion now counts as acknowledgement only when an effect reads it, through however many memos. Memos compute eagerly, so a router's internal `createMemo(() => isPending(location))` used to clear `SILENT_HOLD` for every navigation whether or not anything rendered it.
+
 One new core hook, `flushEnd`, fires once per `flush()` drain so the engine has the "committed and effects ran" instant for writes no transition held. Prod builds are unchanged (the hook site folds out; only the inert attribution twin gained the new empty queries).

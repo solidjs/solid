@@ -771,7 +771,14 @@ module.exports = [
     // flushEnd / hold commit / supersession, `HoldEvent.origin` and the
     // route-named SILENT_HOLD/LONG_HOLD actor, and the `feedback().navigations`
     // fold. Engine-only cost; the observe tier above moved 30 B.
-    limit: "24.90 KB",
+    //
+    // Redirects + late-bound refs + census fix (2026-09-09): 24.90 -> 25.20 KB,
+    // measured at 25.16. Redirect hops folding onto the pending navigation
+    // (`NavigationEvent.redirects`, the "redirected from" formatting), the
+    // ref re-read at settle, and the hold census requiring a companion to
+    // reach an effect rather than any subscriber. Engine-only; the observe
+    // tier above did not move.
+    limit: "25.20 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

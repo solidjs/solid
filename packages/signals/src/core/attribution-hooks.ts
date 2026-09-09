@@ -185,6 +185,13 @@ export interface InteractionRef {
  * the engine keys the work the write causes — the hold behind route data,
  * the re-runs, the verdicts — to this record, and names it by the
  * parametrized route so occurrences fold together.
+ *
+ * The engine keeps the object and reads `name`, `to` and `params` again when
+ * the navigation settles (and when a hold on it is judged), so a router whose
+ * match is not final at write time — a lazy route subtree that resolves inside
+ * the hold — may describe coarsely (`/admin/*`) and assign the exact pattern
+ * and params onto the same object once it knows them. `from` and `at` are
+ * read once, when the frame opens.
  */
 export interface NavigationRef {
   kind: "navigation";
@@ -198,6 +205,15 @@ export interface NavigationRef {
   params?: Readonly<Record<string, string>>;
   /** When the navigation was requested on the `performance.now()` clock; defaults to now. */
   at?: number;
+  /**
+   * `>= 1`: this frame is the Nth redirect hop of the navigation still
+   * pending — a guard or loader sent it elsewhere before it landed — not a
+   * new navigation. The engine folds it onto that pending record: the record
+   * keeps the user's request time and interaction, its destination becomes
+   * this one, and the abandoned destination is kept in `redirects`. Without
+   * a pending navigation to fold onto it opens a navigation of its own.
+   */
+  redirect?: number;
 }
 
 /**

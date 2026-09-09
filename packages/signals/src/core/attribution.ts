@@ -528,15 +528,23 @@ function popFrame(kind: "effect" | "action" | "navigation") {
  * one (a link click's handler).
  */
 function originStart(ref: OriginRef): void {
+  // A redirect hop re-enters the pending navigation's frame — the same object,
+  // so its writes stamp the same origin and replace the pending write without
+  // superseding it (see "Navigations").
+  if (ref.redirect !== undefined && ref.redirect > 0) {
+    const pending = lastOpenNavigation();
+    if (pending !== undefined) {
+      redirectNavigation(pending, ref);
+      originFrames.push(pending.event.origin);
+      return;
+    }
+  }
   const frame: ChangeOrigin = { kind: ref.kind, at: ref.at ?? now() };
-  if (ref.name !== undefined) frame.name = ref.name;
-  if (ref.to !== undefined) frame.to = ref.to;
   if (ref.from !== undefined) frame.from = ref.from;
-  if (ref.params !== undefined) frame.params = ref.params;
   const under = enclosingInteraction();
   if (under !== undefined) frame.interaction = under;
   originFrames.push(frame);
-  openNavigation(frame);
+  openNavigation(frame, ref);
 }
 
 function originEnd(): void {
@@ -558,11 +566,18 @@ export function formatOrigin(origin: ChangeOrigin): string {
       return `async landing${origin.name ? ` on "${origin.name}"` : ""}`;
     case "navigation": {
       // The route pattern is the name consumers group by; the concrete path
-      // follows when it adds information.
+      // follows when it adds information, then the destinations a redirect
+      // chain abandoned on the way.
       const name = origin.name ?? origin.to;
       if (name === undefined) return "navigation";
-      const concrete = origin.to !== undefined && origin.to !== name ? ` (${origin.to})` : "";
-      return `navigation to ${name}${concrete}`;
+      const notes: string[] = [];
+      if (origin.to !== undefined && origin.to !== name) notes.push(origin.to);
+      const redirects = navStates.get(origin)?.event.redirects;
+      if (redirects !== undefined)
+        notes.push(
+          `redirected from ${redirects.map(hop => hop.to ?? hop.name ?? "?").join(" → ")}`
+        );
+      return `navigation to ${name}${notes.length > 0 ? ` (${notes.join(", ")})` : ""}`;
     }
     default:
       return "outside the reactive system";
@@ -1935,19 +1950,44 @@ function censusRegistrations(t: Transition, state: HoldState): void {
 }
 
 const HOLD_CENSUS_CAP = 10_000;
-/** Companions with live readers, anywhere downstream of the hold's nodes. */
+
+/**
+ * Does anything that paints read `companion` — an effect, through however many
+ * memos? A subscriber alone is not acknowledgement: memos compute eagerly, so a
+ * router's `createMemo(() => isPending(location))` subscribes to the companion
+ * whether or not the app ever renders the memo. Only an effect is the screen.
+ */
+function reachesEffect(companion: Signal<any> | Computed<any>, budget: { left: number }): boolean {
+  const seen = new Set<Signal<any> | Computed<any>>([companion]);
+  const stack: (Signal<any> | Computed<any>)[] = [companion];
+  while (stack.length > 0 && budget.left-- > 0) {
+    const node = stack.pop()!;
+    for (let s = node._subs; s !== null; s = s._nextSub) {
+      const sub = s._sub;
+      if ((sub as { _type?: number })._type) return true;
+      if (!seen.has(sub)) {
+        seen.add(sub);
+        stack.push(sub);
+      }
+    }
+  }
+  return false;
+}
+
+/** Companions an effect reads, anywhere downstream of the hold's nodes. */
 function censusCompanions(roots: Iterable<Signal<any> | Computed<any>>, out: Set<string>): void {
   const visited = new Set<Signal<any> | Computed<any>>();
   const stack: (Signal<any> | Computed<any>)[] = [...roots];
+  const budget = { left: HOLD_CENSUS_CAP };
   while (stack.length > 0 && visited.size < HOLD_CENSUS_CAP) {
     const node = stack.pop()!;
     if (visited.has(node)) continue;
     visited.add(node);
     const x = node._x;
     if (x) {
-      if (x._pendingSignal !== undefined && x._pendingSignal._subs !== null)
+      if (x._pendingSignal !== undefined && reachesEffect(x._pendingSignal, budget))
         out.add(`isPending:${nodeName(node)}`);
-      if (x._latestValueComputed !== undefined && x._latestValueComputed._subs !== null)
+      if (x._latestValueComputed !== undefined && reachesEffect(x._latestValueComputed, budget))
         out.add(`latest:${nodeName(node)}`);
       for (
         let child: Signal<any> | null = (x as { _child?: Signal<any> | null })._child ?? null;
@@ -2241,9 +2281,28 @@ function checkLongHold(event: HoldEvent, subject: Signal<any>): void {
 // instant (with the HoldEvent attached when hold tracking recorded one);
 // `superseded` — a later write to the same node replaced its record before
 // it landed (the user navigated again; the first never showed).
+//
+// Two things about the frame are deliberately late-bound. The router's ref is
+// kept and re-read when the record settles (and when a hold on it is judged),
+// so a match that was coarse at write time — a lazy subtree resolving inside
+// the hold — can be refined onto the same object with no second API. And a
+// redirect hop (`ref.redirect >= 1`) re-enters the pending navigation's frame
+// object rather than opening one: its write replaces the pending one with the
+// same origin, so nothing is superseded, the record keeps the user's request
+// time and interaction, and its destination moves to the hop's while the
+// abandoned one is kept in `redirects`.
+
+/** A destination a navigation abandoned when a redirect sent it elsewhere. */
+export interface NavigationHop {
+  name?: string;
+  to?: string;
+  params?: Readonly<Record<string, string>>;
+  /** When the redirect away from it was declared (`performance.now()` clock). */
+  at: number;
+}
 
 export interface NavigationEvent {
-  /** The matched route pattern the router gave — `/users/:id`. */
+  /** The matched route pattern the router gave — `/users/:id`. After a redirect, the final one. */
   name?: string;
   to?: string;
   from?: string;
@@ -2252,8 +2311,10 @@ export interface NavigationEvent {
   at: number;
   /** The user interaction it ran under, when known — a link click. */
   interaction?: ChangeOrigin;
-  /** Root writes the frame performed. */
+  /** Root writes the frame performed, redirect hops included. */
   writes: number;
+  /** Destinations abandoned along the way, in order — present only when a redirect occurred. */
+  redirects?: NavigationHop[];
   /**
    * Wall time from the request to settle: the end of the drain that committed
    * its writes, or the commit of the hold they waited in. `undefined` while
@@ -2272,8 +2333,10 @@ export interface NavigationEvent {
 
 interface NavState {
   event: NavigationEvent;
-  /** `originEnd` has fired. */
-  closed: boolean;
+  /** The router's description — re-read at settle (see `syncNavigation`). A redirect replaces it. */
+  ref: OriginRef;
+  /** Frames on the stack for this navigation: the opener's, plus a nested redirect hop's. */
+  open: number;
   /** A flush parked its writes in a transition (`holdStart`). */
   held: boolean;
   /** `drainSeq` at its last write — a later drain committed it. */
@@ -2286,24 +2349,67 @@ let navigationLog: NavigationEvent[] = [];
 /** Drains completed since enable() — the clock `writeDrain` reads. */
 let drainSeq = 0;
 
-function openNavigation(frame: ChangeOrigin): void {
+/**
+ * Copy what the router currently says onto the frame (what writes stamped —
+ * `formatOrigin` reads it) and the event. Called when the frame opens, when a
+ * redirect re-describes it, and when the record settles, so a description
+ * refined during the hold is what every consumer ends up reading.
+ */
+function syncNavigation(state: NavState): void {
+  const { event, ref } = state;
+  const frame = event.origin;
+  if (ref.name === undefined) {
+    delete frame.name;
+    delete event.name;
+  } else frame.name = event.name = ref.name;
+  if (ref.to === undefined) {
+    delete frame.to;
+    delete event.to;
+  } else frame.to = event.to = ref.to;
+  if (ref.params === undefined) {
+    delete frame.params;
+    delete event.params;
+  } else frame.params = event.params = ref.params;
+}
+
+function openNavigation(frame: ChangeOrigin, ref: OriginRef): void {
   const event: NavigationEvent = { at: frame.at!, writes: 0, origin: frame };
-  if (frame.name !== undefined) event.name = frame.name;
-  if (frame.to !== undefined) event.to = frame.to;
   if (frame.from !== undefined) event.from = frame.from;
-  if (frame.params !== undefined) event.params = frame.params;
   if (frame.interaction !== undefined) event.interaction = frame.interaction;
-  const state: NavState = { event, closed: false, held: false, writeDrain: drainSeq };
+  const state: NavState = { event, ref, open: 1, held: false, writeDrain: drainSeq };
+  syncNavigation(state);
   navStates.set(frame, state);
   openNavs.add(state);
   navigationLog.push(event);
   if (navigationLog.length > options.historyLimit) navigationLog.shift();
 }
 
+/** The navigation a redirect hop folds onto: the most recently opened one still pending. */
+function lastOpenNavigation(): NavState | undefined {
+  let last: NavState | undefined;
+  for (const state of openNavs) last = state;
+  return last;
+}
+
+/** A redirect re-describes `state`: the current destination becomes a hop it abandoned. */
+function redirectNavigation(state: NavState, ref: OriginRef): void {
+  const event = state.event;
+  // As the router last described the destination being left behind.
+  syncNavigation(state);
+  const hop: NavigationHop = { at: ref.at ?? now() };
+  if (event.name !== undefined) hop.name = event.name;
+  if (event.to !== undefined) hop.to = event.to;
+  if (event.params !== undefined) hop.params = event.params;
+  (event.redirects ??= []).push(hop);
+  state.ref = ref;
+  state.open++;
+  syncNavigation(state);
+}
+
 function closeNavigation(frame: ChangeOrigin): void {
   const state = navStates.get(frame);
-  if (state === undefined) return;
-  state.closed = true;
+  if (state === undefined || --state.open > 0) return;
+  syncNavigation(state);
   // Nothing to wait for: no write survived the equality gate (navigating to
   // where we already are), or a drain inside the frame already committed
   // them (`flush(() => setLocation(…))`) with no hold.
@@ -2360,7 +2466,7 @@ function trackFlushEnd(): void {
   drainSeq++;
   if (openNavs.size === 0) return;
   for (const state of openNavs)
-    if (state.closed && !state.held) settleNavigation(state, "committed");
+    if (state.open === 0 && !state.held) settleNavigation(state, "committed");
 }
 
 function settleNavigation(
@@ -2369,6 +2475,7 @@ function settleNavigation(
   hold?: HoldEvent
 ): void {
   if (!openNavs.delete(state)) return;
+  syncNavigation(state);
   const event = state.event;
   event.settledMs = now() - event.at;
   event.outcome = outcome;
@@ -2503,6 +2610,8 @@ export interface FeedbackNavigation {
   silent: number;
   /** Navigations overwritten by a later one before they landed. */
   superseded: number;
+  /** Navigations a redirect sent elsewhere on the way (keyed by where they ended up). */
+  redirected: number;
 }
 
 interface SourceBucket {
@@ -2681,11 +2790,13 @@ function recordFeedbackNavigation(event: NavigationEvent): void {
       held: 0,
       heldMs: 0,
       silent: 0,
-      superseded: 0
+      superseded: 0,
+      redirected: 0
     };
     feedbackNavigations.set(name, row);
   }
   row.navigations++;
+  if (event.redirects !== undefined) row.redirected++;
   if (event.outcome === "superseded") {
     row.superseded++;
     return;

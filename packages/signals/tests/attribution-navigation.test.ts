@@ -21,6 +21,8 @@ import {
   createRoot,
   createSignal,
   flush,
+  isPending,
+  latest,
   OBSERVE
 } from "../src/index.js";
 import type { NavigationRef } from "../src/index.js";
@@ -408,6 +410,45 @@ describe("navigations() — one settled record per frame", () => {
     expect(row.worstMs).toBeGreaterThan(0);
   });
 
+  it("re-reads the ref at settle, so a coarse lazy match refined during the hold is what lands", async () => {
+    const { runs, silent } = arm();
+    const app = routedApp();
+    flush();
+    app.resolve("a");
+    await until(() => app.shown.includes("a@/users"), "initial load");
+
+    // The router only knows the lazy subtree's mount at write time.
+    const ref: NavigationRef = { kind: "navigation", name: "/admin/*", to: "/admin/users/42" };
+    OBSERVE!.attribution.withInteraction(CLICK, () =>
+      OBSERVE!.attribution.withOrigin(ref, () => app.setLocation("/admin/users/42"))
+    );
+    flush();
+    const [nav] = attribution.navigations();
+    expect(nav.name).toBe("/admin/*");
+    expect(nav.params).toBeUndefined();
+    // The subtree resolves inside the hold; the router fills in the exact match.
+    await wait(10);
+    ref.name = "/admin/users/:id";
+    ref.params = { id: "42" };
+    app.resolve("b");
+    await until(() => app.shown.includes("b@/admin/users/42"), "the held page to land");
+
+    expect(nav.outcome).toBe("held");
+    expect(nav).toMatchObject({ name: "/admin/users/:id", params: { id: "42" } });
+    // The frame the writes stamped was updated in place: cause chains, the
+    // hold's verdict and the feedback row all read the refined name.
+    const run = runs.filter(r => r.nodeName === "page").at(-1)!;
+    expect(run.causes[0].origin).toBe(nav.origin);
+    expect(attribution.formatOrigin(nav.origin)).toBe(
+      "navigation to /admin/users/:id (/admin/users/42)"
+    );
+    expect(silent[0].message).toContain("(navigation to /admin/users/:id (/admin/users/42))");
+    expect(silent[0].data).toMatchObject({
+      navigation: { name: "/admin/users/:id", params: { id: "42" } }
+    });
+    expect(attribution.feedback().navigations[0].name).toBe("/admin/users/:id");
+  });
+
   it("clears its records on disable() and enable()", () => {
     arm();
     const [, setLocation] = createSignal("/a", { name: "location" });
@@ -421,5 +462,213 @@ describe("navigations() — one settled record per frame", () => {
     arm();
     expect(attribution.navigations()).toEqual([]);
     expect(attribution.feedback().navigations).toEqual([]);
+  });
+});
+
+describe("redirects — one navigation, several destinations", () => {
+  const LOGIN: NavigationRef = { kind: "navigation", name: "/login", to: "/login", redirect: 1 };
+
+  it("folds a redirect hop onto the pending navigation instead of superseding it", async () => {
+    const { silent } = arm();
+    const app = routedApp();
+    flush();
+    app.resolve("a");
+    await until(() => app.shown.includes("a@/users"), "initial load");
+
+    const before = performance.now();
+    OBSERVE!.attribution.withInteraction(CLICK, () =>
+      OBSERVE!.attribution.withOrigin(NAV, () => app.setLocation("/users/42"))
+    );
+    flush();
+    await wait(10);
+    // The guard behind /users/:id sends the user to /login — the click is long
+    // gone, and the router knows only that a navigation is pending.
+    const hopAt = performance.now();
+    OBSERVE!.attribution.withOrigin(LOGIN, () => app.setLocation("/login"));
+    flush();
+    expect(attribution.navigations()).toHaveLength(1);
+    const [nav] = attribution.navigations();
+    expect(nav.outcome).toBeUndefined();
+    await wait(10);
+    app.resolve("b");
+    await until(() => app.shown.includes("b@/login"), "the redirect target to land");
+
+    expect(attribution.navigations()).toHaveLength(1);
+    expect(nav).toMatchObject({
+      name: "/login",
+      to: "/login",
+      from: "/users",
+      writes: 2,
+      outcome: "held",
+      interaction: { kind: "interaction", name: "click" }
+    });
+    expect(nav.params).toBeUndefined();
+    expect(nav.redirects).toEqual([
+      { name: "/users/:id", to: "/users/42", params: { id: "42" }, at: expect.any(Number) }
+    ]);
+    expect(nav.redirects![0].at).toBeGreaterThanOrEqual(hopAt);
+    // Timing runs from the user's request, not the hop.
+    expect(nav.at).toBeGreaterThanOrEqual(before);
+    expect(nav.at).toBeLessThan(hopAt);
+    expect(nav.settledMs).toBeGreaterThanOrEqual(20);
+    // One hold, joined by identity, named by the whole chain.
+    const [hold] = attribution.holds();
+    expect(nav.hold).toBe(hold);
+    expect(hold.origin).toBe(nav.origin);
+    expect(attribution.formatOrigin(nav.origin)).toBe(
+      "navigation to /login (redirected from /users/42)"
+    );
+    expect(silent).toHaveLength(1);
+    expect(silent[0].message).toContain(
+      `[SILENT_HOLD] click on a.nav "Alice" (navigation to /login (redirected from /users/42)) wrote "location"`
+    );
+    expect(silent[0].data).toMatchObject({ navigation: { name: "/login", to: "/login" } });
+    expect(attribution.feedback().navigations).toEqual([
+      expect.objectContaining({
+        name: "/login",
+        navigations: 1,
+        held: 1,
+        redirected: 1,
+        superseded: 0
+      })
+    ]);
+  });
+
+  it("chains successive hops in order", async () => {
+    arm();
+    const app = routedApp();
+    flush();
+    app.resolve("a");
+    await until(() => app.shown.includes("a@/users"), "initial load");
+
+    OBSERVE!.attribution.withOrigin(NAV, () => app.setLocation("/users/42"));
+    flush();
+    OBSERVE!.attribution.withOrigin(LOGIN, () => app.setLocation("/login"));
+    flush();
+    OBSERVE!.attribution.withOrigin(
+      { kind: "navigation", name: "/sso", to: "/sso?next=%2Flogin", redirect: 2 },
+      () => app.setLocation("/sso?next=%2Flogin")
+    );
+    flush();
+    app.resolve("b");
+    await until(() => app.shown.includes("b@/sso?next=%2Flogin"), "the final target to land");
+
+    const [nav] = attribution.navigations();
+    expect(attribution.navigations()).toHaveLength(1);
+    expect(nav).toMatchObject({ name: "/sso", writes: 3, outcome: "held" });
+    expect(nav.redirects!.map(h => h.to)).toEqual(["/users/42", "/login"]);
+    expect(attribution.formatOrigin(nav.origin)).toBe(
+      "navigation to /sso (/sso?next=%2Flogin, redirected from /users/42 → /login)"
+    );
+  });
+
+  it("handles a synchronous redirect nested inside the opening frame", () => {
+    const { runs } = arm();
+    const [location, setLocation] = createSignal("/", { name: "location" });
+    createRoot(() => createEffect(location, () => {}, { name: "reader" }));
+    flush();
+    OBSERVE!.attribution.withInteraction(CLICK, () =>
+      OBSERVE!.attribution.withOrigin(
+        { kind: "navigation", name: "/", to: "/", from: "/start" },
+        () => {
+          setLocation("/home");
+          // A guard reading the pending location redirects before the frame closes.
+          OBSERVE!.attribution.withOrigin(
+            { kind: "navigation", name: "/dashboard", to: "/dashboard", redirect: 1 },
+            () => setLocation("/dashboard")
+          );
+        }
+      )
+    );
+    const [nav] = attribution.navigations();
+    // Neither close settled it early: the outer frame was still open.
+    expect(nav.outcome).toBeUndefined();
+    flush();
+    expect(attribution.navigations()).toHaveLength(1);
+    expect(nav).toMatchObject({
+      name: "/dashboard",
+      from: "/start",
+      writes: 2,
+      outcome: "committed",
+      redirects: [{ name: "/", to: "/" }]
+    });
+    const run = runs.filter(r => r.nodeName === "reader").at(-1)!;
+    expect(run.causes[0].origin).toBe(nav.origin);
+    expect(run.interaction).toMatchObject({ name: "click" });
+  });
+
+  it("opens a navigation of its own when nothing is pending to fold onto", () => {
+    arm();
+    const [location, setLocation] = createSignal("/", { name: "location" });
+    createRoot(() => createEffect(location, () => {}, { name: "reader" }));
+    flush();
+    OBSERVE!.attribution.withOrigin(LOGIN, () => setLocation("/login"));
+    flush();
+    const [nav] = attribution.navigations();
+    expect(nav).toMatchObject({ name: "/login", writes: 1, outcome: "committed" });
+    expect(nav.redirects).toBeUndefined();
+    expect(attribution.feedback().navigations[0].redirected).toBe(0);
+  });
+});
+
+describe("hold census — a router's own reads are not acknowledgement", () => {
+  /**
+   * Solid Router-shaped: the router reads `latest(source)` imperatively when
+   * navigating (to learn the pending target's depth) and exposes memos over
+   * `isPending(source)` / `latest(source)` that only matter if the app
+   * renders them. None of that is the screen saying "loading".
+   */
+  function routerShaped() {
+    const app = routedApp();
+    const pendingNavigation = createMemo(() =>
+      isPending(app.location) ? latest(app.location) : undefined
+    );
+    const navigate = (to: string, ref: NavigationRef) => {
+      // Imperative read, as navigateFromRoute does to pick up redirect depth.
+      void latest(app.location);
+      OBSERVE!.attribution.withOrigin(ref, () => app.setLocation(to));
+    };
+    return { ...app, pendingNavigation, navigate };
+  }
+
+  it("reads SILENT_HOLD, not latestOnly, when nothing renders the router's pending state", async () => {
+    const { silent } = arm();
+    const r = routerShaped();
+    flush();
+    r.resolve("a");
+    await until(() => r.shown.includes("a@/users"), "initial load");
+
+    r.navigate("/users/42", NAV);
+    flush();
+    await wait(10);
+    r.resolve("b");
+    await until(() => r.shown.includes("b@/users/42"), "the held page to land");
+
+    const [hold] = attribution.holds();
+    expect(hold.acknowledgedBy).toEqual([]);
+    expect(silent).toHaveLength(1);
+    const [source] = attribution.feedback().sources;
+    expect(source).toMatchObject({ holds: 1, silent: 1, latestOnly: 0 });
+    expect(attribution.feedback().navigations[0]).toMatchObject({ held: 1, silent: 1 });
+  });
+
+  it("is acknowledged once the app renders the router's pending state", async () => {
+    const { silent } = arm();
+    const r = routerShaped();
+    createRoot(() => createRenderEffect(r.pendingNavigation, () => {}, { name: "routingBar" }));
+    flush();
+    r.resolve("a");
+    await until(() => r.shown.includes("a@/users"), "initial load");
+
+    r.navigate("/users/42", NAV);
+    flush();
+    await wait(10);
+    r.resolve("b");
+    await until(() => r.shown.includes("b@/users/42"), "the held page to land");
+
+    const [hold] = attribution.holds();
+    expect(hold.acknowledgedBy).toContain("isPending:location");
+    expect(silent).toHaveLength(0);
+    expect(attribution.feedback().navigations[0]).toMatchObject({ held: 1, silent: 0 });
   });
 });
