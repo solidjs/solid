@@ -590,6 +590,10 @@ export function createRevealOrder<T>(
   });
 }
 
+function isIterable(value: any): value is Iterable<any> {
+  return value != null && typeof value === "object" && typeof value[Symbol.iterator] === "function";
+}
+
 /**
  * Resolves a children value to its renderable form: unwraps zero-arg functions
  * (accessors), recursively flattens arrays, and optionally skips
@@ -640,6 +644,19 @@ export function flatten(
     }
     return results;
   }
+
+  if (isIterable(children)) {
+    const results: any[] = [];
+    if (flattenArray(Array.from(children), results, options)) {
+      return () => {
+        const nested: any[] = [];
+        flattenArray(results, nested, { ...options, doNotUnwrap: false });
+        return nested;
+      };
+    }
+    return results;
+  }
+
   return children;
 }
 
@@ -668,6 +685,8 @@ function flattenArray(
         // still needs the resolving wrapper even when a later sibling
         // fragment contains no functions (#3133).
         needsUnwrap = flattenArray(child, results, options) || needsUnwrap;
+      } else if (isIterable(child)) {
+        needsUnwrap = flattenArray(Array.from(child), results, options) || needsUnwrap;
       } else if (
         options?.skipNonRendered &&
         (child == null || child === true || child === false || child === "")
