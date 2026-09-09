@@ -10,6 +10,7 @@ import {
   sharedConfig,
   untrack,
   merge as mergeProps,
+  $PROXY,
   flatten,
   createMemo,
   flush,
@@ -750,6 +751,55 @@ export function style(node, value, prev) {
       applied[s] = v;
     }
   }
+}
+
+/** Compiler-emitted primitive; not for hand-written code. @internal
+ *
+ * Read an object-valued `style` / `class` binding ONE layer deep, TRACKED, in
+ * the compute half of its effect. (Not solid-js's `snapshot()`, which is a
+ * deep, untracked structural copy.) `style()` and `className()` enumerate their object in the
+ * effect's untracked commit phase, so a proxy-backed object (a store
+ * sub-object, merged props) was identity-reactive only: in-place key
+ * mutations never re-applied and every leaf read tripped
+ * STRICT_READ_UNTRACKED in dev. The compiler wraps the compute value of a
+ * non-inline `style={expr}` / `class={expr}` in this; spread() applies it to
+ * those two keys as it copies. Inline literals never get here — they compile
+ * per property. Identity passthrough for strings and plain objects (a fresh
+ * literal is already the compute's own); a proxy is copied with ONE
+ * `ownKeys` trap (its own trap keeps the key set tracked) plus one tracked
+ * read per key; arrays are re-mapped only if an element is a proxy. */
+export function readShallow(value: unknown): unknown;
+export function readShallow(value) {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) {
+    let out = null;
+    for (let i = 0; i < value.length; i++) {
+      const v = value[i];
+      const sv = readShallow(v);
+      if (sv !== v && out === null) out = value.slice(0, i);
+      if (out !== null) out.push(sv);
+    }
+    return out === null ? value : out;
+  }
+  if (value[$PROXY] !== value) return value;
+  const keys = ownKeys(value);
+  const out = {};
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (typeof k === "string") out[k] = value[k];
+  }
+  return out;
+}
+
+// The own keys of a spread/style source for a one-layer copy. For a proxy
+// (merge/omit/`{...props}`, store records) ONE `ownKeys` trap: the trap keeps
+// the key set tracked, and the enumerability check `for…in` would run — a
+// `getOwnPropertyDescriptor` trap per key, allocating a descriptor plus a
+// getter closure, then AGAIN for `hasOwn` — never happens. `Object.keys` for a
+// plain object is exactly the own-enumerable set `for…in` + `hasOwn` yielded.
+// Callers skip symbol keys.
+function ownKeys(o: object): (string | symbol)[] {
+  return o[$PROXY] === o ? Reflect.ownKeys(o) : Object.keys(o);
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function setStyleProperty(node: Element, name: string, value: any): void;
 
@@ -791,10 +841,13 @@ export function spread(node, props, skipChildren) {
     () => {
       const source = get();
       const newProps = {};
-      for (const prop in source) {
-        if (!hasOwn.call(source, prop)) continue;
-        if (prop === "children" || prop === "ref") continue;
-        newProps[prop] = source[prop];
+      const keys = ownKeys(source);
+      for (let i = 0; i < keys.length; i++) {
+        const prop = keys[i];
+        if (typeof prop !== "string" || prop === "children" || prop === "ref") continue;
+        const v = source[prop];
+        // Object-valued style/class are read HERE, tracked (see readShallow()).
+        newProps[prop] = prop === "style" || prop === "class" ? readShallow(v) : v;
       }
       return newProps;
     },
