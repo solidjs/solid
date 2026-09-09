@@ -448,6 +448,15 @@ export interface HandleServerFunctionOptions {
    * Builds the request event a call runs under (default: bare
    * `{ request, locals: {} }`). Integrations supply their richer event
    * (cookies, response helpers, platform handles).
+   *
+   * `request` is a standards-shaped `Request` — url, method, headers,
+   * signal, readable body — and nothing more. Enforcing `bodySizeLimit`
+   * puts the runtime between the host's stream and the decoder, so the
+   * object handed here may be one the runtime rebuilt; host-specific
+   * fields on the inbound object (`request.cf`, srvx's `runtime`, `ip`,
+   * `waitUntil`) are not carried. The host has its own request in closure
+   * when it calls the handler: read platform handles there and put them on
+   * the event (`locals`) rather than through `request`.
    */
   createEvent?(request: Request): ServerFunctionEvent;
   /**
@@ -3214,6 +3223,10 @@ export function handleServerFunctionRequest(
  * Options:
  * - `createEvent(request)`: builds the request event (default: bare
  *   `{ request, locals: {} }`). Integrations supply their richer event.
+ *   `request` is standards-shaped only — it may be a rebuilt `Request`
+ *   (body-size enforcement), so host-specific fields on the inbound object
+ *   are not carried; hosts read those from their own request and put them
+ *   on the event.
  * - `provideEvent(event, fn)`: overrides the configured provider per call.
  * - `wrapInvocation(run, context)`: wraps the function execution itself —
  *   the per-invocation seam for framework policies (per-function
