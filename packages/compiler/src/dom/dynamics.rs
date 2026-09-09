@@ -23,13 +23,13 @@ pub(crate) struct DynamicSlot<'a> {
 }
 
 impl<'a> AstDomTransform<'a, '_> {
-    /// Port of Babel's `wrapSnapshot` (dom/template.ts): a non-inline
+    /// Port of Babel's `wrapReadShallow` (dom/template.ts): a non-inline
     /// object-valued `style` / `class` binding is read in the TRACKED half of
-    /// its effect through `_$snapshot(value)` — `style()`/`className()`
+    /// its effect through `_$readShallow(value)` — `style()`/`className()`
     /// enumerate their object in the untracked commit phase, so a proxy value
     /// (a store sub-object, merged props) would be identity-reactive only.
     /// Skipped when the expression is provably a string or a fresh literal.
-    fn wrap_snapshot(&mut self, span: Span, key: &str, value: Expression<'a>) -> Expression<'a> {
+    fn wrap_read_shallow(&mut self, span: Span, key: &str, value: Expression<'a>) -> Expression<'a> {
         if key != "class" && key != "style" {
             return value;
         }
@@ -52,8 +52,8 @@ impl<'a> AstDomTransform<'a, '_> {
         if literal {
             return value;
         }
-        self.template_state.uses_snapshot = true;
-        self.call_identifier(span, "_$snapshot", vec![value])
+        self.template_state.uses_read_shallow = true;
+        self.call_identifier(span, "_$readShallow", vec![value])
     }
 
     /// Port of Babel's `wrapDynamics` (dom/template.ts): one dynamic binding
@@ -83,7 +83,7 @@ impl<'a> AstDomTransform<'a, '_> {
                 slot.value
             };
 
-            let value = self.wrap_snapshot(span, &slot.key, value);
+            let value = self.wrap_read_shallow(span, &slot.key, value);
             let getter = wrap_for_effect(self, span, value);
             let elem = self.identifier_expression(span, &slot.elem);
             let value_ident = self.identifier_expression(span, "_v$");
@@ -135,7 +135,7 @@ impl<'a> AstDomTransform<'a, '_> {
             } else {
                 slot.value
             };
-            let value = self.wrap_snapshot(slot_span, &slot.key, value);
+            let value = self.wrap_read_shallow(slot_span, &slot.key, value);
             value_props.push(self.object_property(slot_span, &prop_name, value));
 
             let elem = self.identifier_expression(slot_span, &slot.elem);

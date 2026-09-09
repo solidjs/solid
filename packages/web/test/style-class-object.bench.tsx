@@ -9,11 +9,11 @@
 // elements, each iteration re-applying every element once:
 //
 //   plain     — a fresh plain object per update (a signal of objects): the
-//               common case; must stay allocation-free through snapshot().
+//               common case; must stay allocation-free through readShallow().
 //   store     — the binding's value is a STORE sub-object, replaced per update
-//               (identity change): pays snapshot's proxy copy + per-key tracking.
+//               (identity change): pays readShallow's proxy copy + per-key tracking.
 //   in-place  — the store sub-object is mutated per update: only reactive
-//               through the tracked snapshot (identity-only tracking never
+//               through the tracked readShallow (identity-only tracking never
 //               re-applied these).
 
 import { afterAll, bench } from "vitest";

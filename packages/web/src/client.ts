@@ -755,8 +755,9 @@ export function style(node, value, prev) {
 
 /** Compiler-emitted primitive; not for hand-written code. @internal
  *
- * Snapshot an object-valued `style` / `class` binding in the TRACKED half of
- * its effect. `style()` and `className()` enumerate their object in the
+ * Read an object-valued `style` / `class` binding ONE layer deep, TRACKED, in
+ * the compute half of its effect. (Not solid-js's `snapshot()`, which is a
+ * deep, untracked structural copy.) `style()` and `className()` enumerate their object in the
  * effect's untracked commit phase, so a proxy-backed object (a store
  * sub-object, merged props) was identity-reactive only: in-place key
  * mutations never re-applied and every leaf read tripped
@@ -767,14 +768,14 @@ export function style(node, value, prev) {
  * literal is already the compute's own); a proxy is copied with ONE
  * `ownKeys` trap (its own trap keeps the key set tracked) plus one tracked
  * read per key; arrays are re-mapped only if an element is a proxy. */
-export function snapshot(value: unknown): unknown;
-export function snapshot(value) {
+export function readShallow(value: unknown): unknown;
+export function readShallow(value) {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) {
     let out = null;
     for (let i = 0; i < value.length; i++) {
       const v = value[i];
-      const sv = snapshot(v);
+      const sv = readShallow(v);
       if (sv !== v && out === null) out = value.slice(0, i);
       if (out !== null) out.push(sv);
     }
@@ -833,8 +834,8 @@ export function spread(node, props, skipChildren) {
         if (!hasOwn.call(source, prop)) continue;
         if (prop === "children" || prop === "ref") continue;
         const v = source[prop];
-        // Object-valued style/class are read HERE, tracked (see snapshot()).
-        newProps[prop] = prop === "style" || prop === "class" ? snapshot(v) : v;
+        // Object-valued style/class are read HERE, tracked (see readShallow()).
+        newProps[prop] = prop === "style" || prop === "class" ? readShallow(v) : v;
       }
       return newProps;
     },

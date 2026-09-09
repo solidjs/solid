@@ -1,7 +1,7 @@
 import { template as _$template } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
-import { snapshot as _$snapshot } from "r-dom";
+import { readShallow as _$readShallow } from "r-dom";
 import { className as _$className } from "r-dom";
 import { effect as _$effect } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<ul><li>Apple`);
@@ -17,7 +17,7 @@ var _el$3 = _el$2.firstChild;
 _$insert(_el$3, () => {
 	return item.text;
 });
-_$effect(() => _$snapshot(item.cls), (_v$, _$p) => {
+_$effect(() => _$readShallow(item.cls), (_v$, _$p) => {
 	_$className(_el$3, _v$, _$p);
 });
 const dynamicKey = _el$2;

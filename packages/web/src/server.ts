@@ -5055,7 +5055,7 @@ export {
   notSup as runHydrationEvents,
   notSup as ref,
   notSup as setStyleProperty,
-  notSup as snapshot,
+  notSup as readShallow,
   notSup as acquireAsset
 };
 

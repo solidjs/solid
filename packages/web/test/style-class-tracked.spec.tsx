@@ -4,13 +4,13 @@
  *
  * Object-valued `style` / `class` bindings whose value is a PROXY (a store
  * sub-object, merged props) are read in the tracked half of their effect via
- * the compiler-emitted `snapshot()`: in-place key mutations re-apply, and no
+ * the compiler-emitted `readShallow()`: in-place key mutations re-apply, and no
  * leaf read happens in the untracked commit phase (no STRICT_READ_UNTRACKED).
  * Inline literals compile per property and never get here; plain objects and
- * strings pass through `snapshot()` by identity.
+ * strings pass through `readShallow()` by identity.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { render, snapshot } from "@solidjs/web";
+import { render, readShallow } from "@solidjs/web";
 import { createSignal, createStore, flush, merge } from "solid-js";
 
 let warn: ReturnType<typeof vi.spyOn>;
@@ -151,19 +151,19 @@ describe("spread carrying style/class objects", () => {
   });
 });
 
-describe("snapshot()", () => {
+describe("readShallow()", () => {
   test("identity passthrough for strings, plain objects and proxy-free arrays", () => {
     const o = { a: 1 };
     const arr = ["a", { b: true }];
-    expect(snapshot("x")).toBe("x");
-    expect(snapshot(null)).toBe(null);
-    expect(snapshot(o)).toBe(o);
-    expect(snapshot(arr)).toBe(arr);
+    expect(readShallow("x")).toBe("x");
+    expect(readShallow(null)).toBe(null);
+    expect(readShallow(o)).toBe(o);
+    expect(readShallow(arr)).toBe(arr);
   });
 
   test("copies a store proxy's own string keys into a plain object", () => {
     const [state] = createStore<{ s: Record<string, string> }>({ s: { a: "1", b: "2" } });
-    const copy = snapshot(state.s) as any;
+    const copy = readShallow(state.s) as any;
     expect(copy).not.toBe(state.s);
     expect(copy).toEqual({ a: "1", b: "2" });
     expect(Object.getPrototypeOf(copy)).toBe(Object.prototype);
@@ -172,7 +172,7 @@ describe("snapshot()", () => {
   test("re-maps an array only when an element is a proxy", () => {
     const [state] = createStore<{ s: Record<string, boolean> }>({ s: { a: true } });
     const arr = ["k", state.s];
-    const out = snapshot(arr) as any[];
+    const out = readShallow(arr) as any[];
     expect(out).not.toBe(arr);
     expect(out[0]).toBe("k");
     expect(out[1]).toEqual({ a: true });

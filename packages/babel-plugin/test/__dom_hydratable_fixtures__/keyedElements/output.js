@@ -1,7 +1,7 @@
 import { template as _$template } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { className as _$className } from "r-dom";
-import { snapshot as _$snapshot } from "r-dom";
+import { readShallow as _$readShallow } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { getNextElement as _$getNextElement } from "r-dom";
@@ -17,7 +17,7 @@ var _el$2 = _$getNextElement(_tmpl$2),
   _el$3 = _el$2.firstChild;
 _$insert(_el$3, () => item.text);
 _$effect(
-  () => _$snapshot(item.cls),
+  () => _$readShallow(item.cls),
   (_v$, _$p) => {
     _$className(_el$3, _v$, _$p);
   }

@@ -145,12 +145,12 @@ function registerTemplate(path: NodePath, results: TransformResult) {
 }
 
 /** A non-inline object-valued `style` / `class` binding is read in the TRACKED
- * half of its effect through `snapshot()`: `style()`/`className()` enumerate
+ * half of its effect through `readShallow()`: `style()`/`className()` enumerate
  * their object in the untracked commit phase, so a proxy value (a store
  * sub-object, merged props) would be identity-reactive only. Skipped when the
- * expression is provably a string or a fresh literal (`snapshot` would pass
+ * expression is provably a string or a fresh literal (`readShallow` would pass
  * those through anyway; the call is what's saved). */
-function wrapSnapshot(path: NodePath, key: string, value: t.Expression): t.Expression {
+function wrapReadShallow(path: NodePath, key: string, value: t.Expression): t.Expression {
   if (key !== "class" && key !== "style") return value;
   if (
     t.isStringLiteral(value) ||
@@ -165,7 +165,7 @@ function wrapSnapshot(path: NodePath, key: string, value: t.Expression): t.Expre
   )
     return value;
   return t.callExpression(
-    registerImportMethod(path, "snapshot", getRendererConfig(path, "dom").moduleName),
+    registerImportMethod(path, "readShallow", getRendererConfig(path, "dom").moduleName),
     [value]
   );
 }
@@ -193,7 +193,7 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
     const newValue = t.identifier("_v$");
     return t.expressionStatement(
       t.callExpression(effectWrapperId, [
-        wrapForEffect(wrapSnapshot(path, dynamics[0].key, dynamics[0].value)),
+        wrapForEffect(wrapReadShallow(path, dynamics[0].key, dynamics[0].value)),
         t.arrowFunctionExpression(
           prevValue ? [newValue, prevValue] : [newValue],
           t.blockStatement([
@@ -228,7 +228,7 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
     }
 
     properties.push(propIdent);
-    values.push(t.objectProperty(propIdent, wrapSnapshot(path, key, value)));
+    values.push(t.objectProperty(propIdent, wrapReadShallow(path, key, value)));
 
     if (key === "class" || key === "style" || isStatefulDOMProperty(tagName, key)) {
       statements.push(
