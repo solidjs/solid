@@ -64,10 +64,11 @@ Browser-safe stubs that log errors if server APIs are accidentally used in brows
 ## Build Outputs
 
 - `dist/web.js` — production browser
-- `dist/web.dev.js` — development browser (with `_SOLID_DEV_` enabled)
+- `dist/web.observe.js` — observe-tier browser (`observe` export condition; `_SOLID_OBSERVE_` on, `_SOLID_DEV_` off — interaction provenance wiring kept, checks folded)
+- `dist/web.dev.js` — development browser (both flags on)
 - `dist/server.js` — production server (Node/Deno/Worker)
 - `dist/server.dev.js` — development server (`development` export condition, nested under `node`/`worker`/`deno`)
 
-Every dev artifact is `<entry>.dev.{js,cjs}` beside its prod `<entry>.{js,cjs}` — the same rule for `frames/`, `server-functions/`, and the other packages. Dev-ness is a build mode, not an entry.
+Every dev artifact is `<entry>.dev.{js,cjs}` beside its prod `<entry>.{js,cjs}` — the same rule for `frames/`, `server-functions/`, and the other packages. Observe artifacts are `<entry>.observe.{js,cjs}` and exist only for entries that contain wiring (here: the browser entry); entries without wiring fall through to prod under `observe`. Tier-ness is a build mode, not an entry. Gate a site on `"_SOLID_OBSERVE_"` when production observability needs it (labels, attribution hooks), on `"_SOLID_DEV_"` when only a developer at a console does. See `documentation/plans/observe-tier-plan.md`.
 
 Rollup with Babel for JSX transformation, `@rollup/plugin-replace` for dev/prod flags.

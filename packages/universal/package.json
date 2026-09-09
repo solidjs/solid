@@ -36,6 +36,16 @@
           "default": "./dist/universal.dev.cjs"
         }
       },
+      "observe": {
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/universal.observe.js"
+        },
+        "require": {
+          "types": "./types-cjs/index.d.cts",
+          "default": "./dist/universal.observe.cjs"
+        }
+      },
       "import": {
         "types": "./types/index.d.ts",
         "default": "./dist/universal.js"

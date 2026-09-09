@@ -30,7 +30,14 @@ export {
   enableExternalSource,
   resetErrorHalt
 } from "./core/index.js";
-import { DEV as _DEV, type Dev } from "./core/index.js";
+import { DEV as _DEV, OBSERVE as _OBSERVE, type Dev, type Observe } from "./core/index.js";
+/**
+ * Observe tier (diagnostics channel, attribution hook slot + interaction
+ * frame): dev and observe builds. The attribution engine itself is the
+ * `@solidjs/signals/attribution` entry.
+ */
+export const OBSERVE: Observe | undefined = __OBSERVE__ ? _OBSERVE : undefined;
+/** Dev tier (devtools hooks, graph traversal, console reporting): dev builds only. */
 export const DEV: Dev | undefined = __DEV__ ? _DEV : undefined;
 export type {
   Owner,
@@ -41,14 +48,20 @@ export type {
   ExternalSource,
   ExternalSourceConfig,
   Refreshable,
+  AttributionHooks,
+  AttributionSlot,
+  InteractionRef,
   Dev,
+  Observe,
   DevHooks,
   DiagnosticCapture,
   DiagnosticCode,
   DiagnosticEvent,
   DiagnosticKind,
+  DiagnosticListener,
   Diagnostics,
-  DiagnosticSeverity
+  DiagnosticSeverity,
+  DiagnosticSubject
 } from "./core/index.js";
 export {
   createSignal,

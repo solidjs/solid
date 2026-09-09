@@ -1,4 +1,4 @@
-import { DEV as _DEV, type Dev } from "@solidjs/signals";
+import { DEV as _DEV, OBSERVE as _OBSERVE, type Dev, type Observe } from "@solidjs/signals";
 
 // From mock signals (same exports that index.ts pulls from @solidjs/signals)
 export {
@@ -128,11 +128,14 @@ export function materializeContainerTrace(marker: unknown): unknown {
   return marker;
 }
 
-// Dev — same shape as the client entry. `"_SOLID_DEV_"` is replaced per build
-// (dist/server.dev.* → true, dist/server.* → false), so the dev artifact
-// exposes @solidjs/signals' DEV object — its `diagnostics` channel is the bus
-// server-side dev findings report through — and prod exports `undefined`.
-// The server reimplements reactivity, so `DEV.attribution`/graph helpers
-// have nothing to introspect here; the channel is what's shared.
+// Observe / dev — same shape as the client entry. Both literals are replaced
+// per build (dist/server.dev.* → both true, dist/server.* → both false; a
+// server.observe.* arrives with the first server wiring site), so the dev
+// artifact exposes @solidjs/signals' OBSERVE object — its `diagnostics`
+// channel is the bus server-side findings report through — and prod exports
+// `undefined`. The server reimplements reactivity, so attribution and the
+// graph helpers have nothing to introspect here; the channel is what's shared.
 const IS_DEV = "_SOLID_DEV_" as string | boolean;
+const IS_OBSERVE = "_SOLID_OBSERVE_" as string | boolean;
+export const OBSERVE: Observe | undefined = IS_OBSERVE ? _OBSERVE : undefined;
 export const DEV: Dev | undefined = IS_DEV ? _DEV : undefined;

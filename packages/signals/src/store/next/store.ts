@@ -287,7 +287,7 @@ export function getNode(
     // "signal". Gated on the engine being installed — node creation is
     // the hottest store path, and the disabled cost must stay one null
     // check (nodes created before enable() stay generically named).
-    if (__DEV__ && attrHooks !== null) (created as any)._name = "store." + String(key);
+    if (__OBSERVE__ && attrHooks !== null) (created as any)._name = "store." + String(key);
     // Optimistic families: arm the override slot — setSignal routes armed
     // nodes through the core engine (lanes, ownership, reverts all native).
     if (target.fam?.opt) {
@@ -1016,7 +1016,7 @@ function notifyWrites(t: StoreNextTarget): void {
   // `select` regressed 2x on this).
   const writtenKeys =
     wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
-  if (__DEV__ && attrHooks !== null) reportReplacedContainers(t, old, pb, writtenKeys);
+  if (__OBSERVE__ && attrHooks !== null) reportReplacedContainers(t, old, pb, writtenKeys);
   if (nodes !== null) {
     const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(nodes);
     for (const key of keys) {
@@ -2114,7 +2114,7 @@ export function createStoreNext<T extends Record<PropertyKey, any>>(
     ((proxy as any)[$TARGET] as StoreNextTarget).s = true;
     markRawIngest(initialValue);
   }
-  if (__DEV__) registerGraph(proxy, getOwner());
+  if (__OBSERVE__) registerGraph(proxy, getOwner());
   const setter: SetStoreNextFunction<T> = fn => storeSetterNext(proxy, fn);
   return [proxy, setter];
 }

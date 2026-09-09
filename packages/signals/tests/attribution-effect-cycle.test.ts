@@ -5,20 +5,21 @@
  * however many memos, and across other effects that relay the write.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { attribution } from "../src/attribution.js";
 import {
   createEffect,
   createMemo,
   createRoot,
   createSignal,
-  DEV,
   flush,
-  untrack
+  untrack,
+  OBSERVE
 } from "../src/index.js";
 import type { RerunEvent } from "../src/core/attribution.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 
 afterEach(() => {
-  DEV!.attribution.disable();
+  attribution.disable();
   flush();
   vi.restoreAllMocks();
 });
@@ -26,9 +27,9 @@ afterEach(() => {
 function arm() {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "info").mockImplementation(() => {});
-  DEV!.attribution.enable({ log: false, hotRuns: false, hotTime: false, waterfalls: false });
+  attribution.enable({ log: false, hotRuns: false, hotTime: false, waterfalls: false });
   const cycles: DiagnosticEvent[] = [];
-  DEV!.diagnostics.subscribe(e => {
+  OBSERVE!.diagnostics.subscribe(e => {
     if (e.code === "EFFECT_WRITES_OWN_SOURCE") cycles.push(e);
   });
   return cycles;
@@ -220,7 +221,7 @@ describe("EFFECT_WRITES_OWN_SOURCE", () => {
   it("stamps effect-origin writes with the run whose effect phase made them", () => {
     arm();
     const runs: RerunEvent[] = [];
-    DEV!.attribution.subscribe(e => runs.push(e));
+    attribution.subscribe(e => runs.push(e));
     const [n, setN] = createSignal(0, { name: "n" });
     const [out, setOut] = createSignal(0, { name: "out" });
     createRoot(() => {

@@ -1,9 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createEffect, createMemo, createRoot, createSignal, DEV, flush } from "../src/index.js";
+import { attribution } from "../src/attribution.js";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+  OBSERVE
+} from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 
 afterEach(() => {
-  DEV!.attribution.disable();
+  attribution.disable();
   flush();
   vi.restoreAllMocks();
 });
@@ -11,9 +19,9 @@ afterEach(() => {
 /** Enable quietly and capture UNSTABLE_MEMO_OUTPUT diagnostics. */
 function captureUnstable(unstableMemos: number | false = 4) {
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  DEV!.attribution.enable({ log: false, hotRuns: false, hotTime: false, unstableMemos });
+  attribution.enable({ log: false, hotRuns: false, hotTime: false, unstableMemos });
   const events: DiagnosticEvent[] = [];
-  DEV!.diagnostics.subscribe(e => {
+  OBSERVE!.diagnostics.subscribe(e => {
     if (e.code === "UNSTABLE_MEMO_OUTPUT") events.push(e);
   });
   return events;

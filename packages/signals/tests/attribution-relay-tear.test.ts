@@ -7,11 +7,19 @@
  * are message modifiers, and a repeated identity copy warns on its own.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createEffect, createMemo, createRoot, createSignal, DEV, flush } from "../src/index.js";
+import { attribution } from "../src/attribution.js";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+  OBSERVE
+} from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 
 afterEach(() => {
-  DEV!.attribution.disable();
+  attribution.disable();
   flush();
   vi.restoreAllMocks();
 });
@@ -19,9 +27,9 @@ afterEach(() => {
 function arm() {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "info").mockImplementation(() => {});
-  DEV!.attribution.enable({ log: false, hotRuns: false, hotTime: false, waterfalls: false });
+  attribution.enable({ log: false, hotRuns: false, hotTime: false, waterfalls: false });
   const tears: DiagnosticEvent[] = [];
-  DEV!.diagnostics.subscribe(e => {
+  OBSERVE!.diagnostics.subscribe(e => {
     if (e.code === "EFFECT_RELAY_TEAR") tears.push(e);
   });
   return tears;

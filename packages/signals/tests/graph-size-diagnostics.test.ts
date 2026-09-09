@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createEffect, createRoot, createSignal, DEV, flush } from "../src/index.js";
+import { createEffect, createRoot, createSignal, flush, OBSERVE } from "../src/index.js";
 import { GRAPH_SIZE_WARN_AT, GRAPH_SIZE_WARN_EVERY } from "../src/core/dev.js";
 
 afterEach(() => {
@@ -8,7 +8,7 @@ afterEach(() => {
 });
 
 function captureGraphEvents() {
-  const capture = DEV!.diagnostics.capture();
+  const capture = OBSERVE!.diagnostics.capture();
   return {
     events: () => capture.events.filter(e => e.code === "HUGE_FAN_OUT" || e.code === "HUGE_FAN_IN"),
     stop: () => capture.stop()

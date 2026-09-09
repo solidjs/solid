@@ -220,7 +220,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // still holds the previous run's links (the subscriptions that could have
   // triggered this run, and the baseline for the engine's subscription diff).
   let devChanged = false;
-  if (__DEV__ && attrHooks !== null) attrHooks.recomputeStart(el, create);
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.recomputeStart(el, create);
   if (!create) {
     if (el._transition && (!isEffect || activeTransition) && activeTransition !== el._transition)
       globalQueue.initTransition(el._transition);
@@ -423,7 +423,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
 
     // A committed derived change becomes a cause for this node's subscribers,
     // chaining their attribution through this node to the root write.
-    if (__DEV__ && attrHooks !== null) {
+    if (__OBSERVE__ && attrHooks !== null) {
       devChanged = valueChanged && !el._x?._error;
       if (devChanged && !isEffect && !create) attrHooks.derivedChanged(el);
     }
@@ -544,7 +544,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // recompute (optimistic lane, transition replay, transition-held commit)
   // from a plain committed one — the engine must not blame overlay runs as
   // waste or double-count them against plain aggregates.
-  if (__DEV__ && attrHooks !== null)
+  if (__OBSERVE__ && attrHooks !== null)
     attrHooks.recomputeEnd(
       el,
       create,
@@ -669,7 +669,7 @@ export function computed<T>(
     // allocation spills to a backing store and creation cost ~4x's).
     _x: null
   } as Computed<T>;
-  if (__DEV__) (self as any)._name = options?.name ?? "computed";
+  if (__OBSERVE__) (self as any)._name = options?.name ?? "computed";
   if (options?.unobserved) (ext(self) as NodeExtension)._unobserved = options.unobserved;
   setupComputedNode(self, options);
   return self;
@@ -760,7 +760,7 @@ export function createEffectNode<T>(
     _type: type,
     _x: null
   } as any;
-  if (__DEV__) self._name = options?.name ?? "effect";
+  if (__OBSERVE__) self._name = options?.name ?? "effect";
   // Effects dispatch status through the SHARED notifier (statusNotifierOf,
   // keyed off _type) — storing it per node forced a full NodeExtension
   // allocation on EVERY effect at creation (an alloc + 19 field stores,
@@ -868,10 +868,8 @@ export function signal<T>(
     _notifiedAt: -1,
     _x: null
   };
-  if (__DEV__) {
-    (s as any)._name = options?.name ?? "signal";
-    (s as any)._internal = !!firewall;
-  }
+  if (__OBSERVE__) (s as any)._name = options?.name ?? "signal";
+  if (__DEV__) (s as any)._internal = !!firewall;
   if (options?.unobserved) ext(s as any)._unobserved = options.unobserved;
   if (firewall) {
     ext(firewall)._child = s as FirewallSignal<unknown>;
@@ -938,10 +936,8 @@ export function slotSignal<T>(
     px: undefined,
     pxv: undefined
   };
-  if (__DEV__) {
-    (s as any)._name = "signal";
-    (s as any)._internal = !!firewall;
-  }
+  if (__OBSERVE__) (s as any)._name = "signal";
+  if (__DEV__) (s as any)._internal = !!firewall;
   if (firewall) {
     ext(firewall)._child = s as unknown as FirewallSignal<unknown>;
     firewall._config |= CONFIG_FW_CHILDREN;
@@ -1442,7 +1438,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   if (!valueChanged) return v;
 
   // Attribution hook: this committed write is where a re-run chain begins.
-  if (__DEV__ && attrHooks !== null) attrHooks.write(el, currentValue, v);
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.write(el, currentValue, v);
 
   const wasStaged = el._pendingValue !== NOT_PENDING;
   if (!wasStaged) queuePendingNode(el);
@@ -1620,7 +1616,7 @@ export function markRefresh(node: Computed<any>): void {
     node._flags = (node._flags & ~REACTIVE_CHECK) | REACTIVE_DIRTY;
     // A refresh() self-invalidation is a root cause too — the target's next
     // run has no changed dep to point at, so it points here instead.
-    if (__DEV__ && attrHooks !== null) attrHooks.refreshed(node);
+    if (__OBSERVE__ && attrHooks !== null) attrHooks.refreshed(node);
     insertIntoHeap(node, queueFor(node));
     schedule();
   }

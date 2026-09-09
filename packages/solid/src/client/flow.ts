@@ -1,4 +1,4 @@
-import { children, IS_DEV } from "../client/core.js";
+import { children, IS_DEV, IS_OBSERVE } from "../client/core.js";
 import {
   createMemo,
   untrack,
@@ -88,7 +88,7 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
     "fallback" in props
       ? { keyed: props.keyed, fallback: () => props.fallback }
       : { keyed: props.keyed };
-  if (IS_DEV) options.name = "<For>";
+  if (IS_OBSERVE) options.name = "<For>";
   const owner = getOwner();
   let mapped: (() => any) | undefined;
   const create = () =>
@@ -135,7 +135,7 @@ export function Repeat<T extends SolidElement>(props: {
     name?: string;
   } = "fallback" in props ? { fallback: () => props.fallback } : {};
   options.from = () => props.from;
-  if (IS_DEV) options.name = "<Repeat>";
+  if (IS_OBSERVE) options.name = "<Repeat>";
   return repeat(
     () => props.count,
     index => (typeof props.children === "function" ? props.children(index) : props.children),
@@ -197,7 +197,7 @@ export function Show<T>(props: {
   // the user's reactive expression flows through `handleAsync`.
   const conditionValue = createMemo<T | undefined | null | boolean>(
     () => props.when,
-    IS_DEV ? { name: "condition value" } : undefined
+    IS_OBSERVE ? { name: "condition value" } : undefined
   );
   // `condition` and the outer value memo only consume `conditionValue()` and
   // pick a child / fallback. Their bodies are statically synchronous (they
@@ -207,7 +207,7 @@ export function Show<T>(props: {
     ? conditionValue
     : createMemo(
         conditionValue,
-        IS_DEV
+        IS_OBSERVE
           ? {
               equals: (a, b) => !a === !b,
               name: "condition",
@@ -236,7 +236,7 @@ export function Show<T>(props: {
       }
       return props.fallback;
     },
-    IS_DEV ? { name: "value", sync: true } : { sync: true }
+    IS_OBSERVE ? { name: "value", sync: true } : { sync: true }
   ) as unknown as SolidElement;
 }
 
@@ -279,14 +279,14 @@ export function Switch(props: { fallback?: SolidElement; children: SolidElement 
         // Per-match `mp.when` is user input — keep async-shape aware.
         const conditionValue = createMemo(
           () => (prevFunc() ? undefined : mp.when),
-          IS_DEV ? { name: "condition value" } : undefined
+          IS_OBSERVE ? { name: "condition value" } : undefined
         );
         // Stale-protection wrapper. Body is sync; just normalises identity.
         const condition = mp.keyed
           ? conditionValue
           : createMemo(
               conditionValue,
-              IS_DEV
+              IS_OBSERVE
                 ? {
                     equals: (a, b) => !a === !b,
                     name: "condition",
@@ -325,7 +325,7 @@ export function Switch(props: { fallback?: SolidElement; children: SolidElement 
             )
         : child;
     },
-    IS_DEV ? { name: "eval conditions", sync: true } : { sync: true }
+    IS_OBSERVE ? { name: "eval conditions", sync: true } : { sync: true }
   ) as unknown as SolidElement;
 }
 

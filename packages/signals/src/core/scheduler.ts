@@ -220,7 +220,7 @@ function createBatch(): Transition {
 }
 
 function mergeTransitionState(target: Transition, outgoing: Transition): void {
-  if (__DEV__ && attrHooks !== null) attrHooks.transitionMerged(target, outgoing);
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.transitionMerged(target, outgoing);
   outgoing._done = target;
   target._actions.push(...outgoing._actions);
   for (const lane of activeLanes) if (lane._transition === outgoing) lane._transition = target;
@@ -485,7 +485,7 @@ export class Queue implements IQueue {
   stashQueues(stub: QueueStub): void {
     // Attribution hook: the parking transition's lane effects have run; its
     // queues are being stashed. Root call only (children recurse below).
-    if (__DEV__ && attrHooks !== null && (this as Queue) === globalQueue) attrHooks.holdEnd();
+    if (__OBSERVE__ && attrHooks !== null && (this as Queue) === globalQueue) attrHooks.holdEnd();
     stub._queues[0].push(...this._queues[0]);
     stub._queues[1].push(...this._queues[1]);
     this._queues = [[], []];
@@ -1256,7 +1256,7 @@ function transitionComplete(transition: Transition): boolean {
   if (transition._done) return true;
   if (transition._actions.length) {
     // A live action parks the transaction regardless of async state.
-    if (__DEV__ && attrHooks !== null) attrHooks.holdStart(transition);
+    if (__OBSERVE__ && attrHooks !== null) attrHooks.holdStart(transition);
     return false;
   }
   let done = true;
@@ -1287,7 +1287,7 @@ function transitionComplete(transition: Transition): boolean {
   // runs the lane effects, then stashes; `holdEnd` fires from stashQueues).
   // Fired here rather than at flush()'s call site because that site is inside
   // a `try` (see the rule in attribution-hooks.ts).
-  if (__DEV__ && attrHooks !== null)
+  if (__OBSERVE__ && attrHooks !== null)
     done ? attrHooks.transitionSettled(transition) : attrHooks.holdStart(transition);
   done && (transition._done = true);
   return done;

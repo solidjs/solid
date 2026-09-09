@@ -5,18 +5,19 @@
 // renderer-owned effect gets a stable "renderer ..." fallback (dev only —
 // the "_SOLID_DEV_" constant folds the fallbacks out of production builds).
 import * as r from "./custom.js";
-import { DEV, createRoot, createSignal, flush } from "solid-js";
+import { createRoot, createSignal, flush } from "solid-js";
+import { attribution } from "solid-js/attribution";
 
 /** Enable attribution quietly and collect every rerun event. */
 function collect() {
-  DEV.attribution.enable({ log: false });
+  attribution.enable({ log: false });
   const events = [];
-  DEV.attribution.subscribe(e => events.push(e));
+  attribution.subscribe(e => events.push(e));
   return events;
 }
 
 afterEach(() => {
-  DEV.attribution.disable();
+  attribution.disable();
   flush();
 });
 

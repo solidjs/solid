@@ -30,7 +30,7 @@ In a browser, a report about a compiled JSX binding effect (an attribute,
 class, style, or insert) also carries the element it writes as a second
 console argument — hover to highlight it on the page, click to jump to it in
 the Elements panel. That is the fastest way from a `HOT_SCOPE_*` warning to
-"which row on screen." Why-chains (`DEV.attribution.enable()`) print as
+"which row on screen." Why-chains (`attribution.enable()` from `solid-js/attribution`) print as
 collapsed console groups: one headline per run, the causes inside.
 
 The first report of each code ends with a footer pointing here — the
@@ -226,7 +226,7 @@ re-runs on every upstream change. Return stable references or pass an
 Async flights ran in sequence when they might have run in parallel: each
 named flight provably could not start until the previous one resolved, and
 each took real time (the per-link durations are in the message/data). Read
-the chain from `DEV.attribution.waterfalls()` if you need more than the
+the chain from `attribution.waterfalls()` if you need more than the
 warning shows. Repairs, in order of preference:
 
 1. If a later request does not need the earlier response, derive both from
@@ -237,7 +237,7 @@ warning shows. Repairs, in order of preference:
    preloaders, hover preloads) or join the requests server-side.
 3. False positive only if the work was ALREADY started by a layer the graph
    cannot see (a preloader or request cache handing out wrapper promises):
-   that layer should call `DEV.attribution.markFlight(promise, startedAt)`
+   that layer should call `attribution.markFlight(promise, startedAt)` (from `solid-js/attribution`)
    on what it hands out; the chain then breaks on origin proof. Depth-2
    chains are `info` severity for exactly this reason — treat them as leads,
    not verdicts.
@@ -351,7 +351,7 @@ Thresholds sit at the strict end of the band on purpose: the engine measures
 to the commit, not the paint, so every number is a floor on what the user
 saw. From `holds.infoMs` (default 100ms — past "feels instant") the event is
 `info`-severity, structured channel only; from `holds.warnMs` (default 200ms —
-the INP "good" ceiling) it reaches the console. `DEV.attribution.holds()`
+the INP "good" ceiling) it reaches the console. `attribution.holds()`
 lists every hold (acknowledged or not) with what was held, what blocked it,
 and which affordances answered it. When the silent hold's tail also crossed
 the long-hold threshold (`data.long: true`) the message carries the
@@ -385,7 +385,7 @@ that keeps taking input (typing) is judged by each wait, not by the sum.
 `feedback().sources[].long`/`longMs` counts these at the table level,
 acknowledged or not.
 
-### Where to start: `DEV.attribution.feedback()`
+### Where to start: `attribution.feedback()`
 
 Before chasing individual `SILENT_HOLD` events, read the ranked tables — the
 same fold over holds and re-runs that `costs()` is over scopes and writes:

@@ -38,6 +38,16 @@
             "default": "./dist/server.dev.cjs"
           }
         },
+        "observe": {
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/server.observe.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/server.observe.cjs"
+          }
+        },
         "import": {
           "types": "./types/index.d.ts",
           "default": "./dist/server.js"
@@ -56,6 +66,16 @@
           "require": {
             "types": "./types-cjs/index.d.cts",
             "default": "./dist/solid.dev.cjs"
+          }
+        },
+        "observe": {
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/solid.observe.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/solid.observe.cjs"
           }
         },
         "import": {
@@ -78,6 +98,16 @@
             "default": "./dist/server.dev.cjs"
           }
         },
+        "observe": {
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/server.observe.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/server.observe.cjs"
+          }
+        },
         "import": {
           "types": "./types/index.d.ts",
           "default": "./dist/server.js"
@@ -98,6 +128,16 @@
             "default": "./dist/server.dev.cjs"
           }
         },
+        "observe": {
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/server.observe.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/server.observe.cjs"
+          }
+        },
         "import": {
           "types": "./types/index.d.ts",
           "default": "./dist/server.js"
@@ -115,6 +155,16 @@
         "require": {
           "types": "./types-cjs/index.d.cts",
           "default": "./dist/solid.dev.cjs"
+        }
+      },
+      "observe": {
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/solid.observe.js"
+        },
+        "require": {
+          "types": "./types-cjs/index.d.cts",
+          "default": "./dist/solid.observe.cjs"
         }
       },
       "import": {
@@ -144,6 +194,16 @@
       "require": {
         "types": "./types-cjs/refresh/index.d.cts",
         "default": "./dist/refresh.cjs"
+      }
+    },
+    "./attribution": {
+      "import": {
+        "types": "./types/attribution.d.ts",
+        "default": "./dist/attribution.js"
+      },
+      "require": {
+        "types": "./types-cjs/attribution.d.cts",
+        "default": "./dist/attribution.cjs"
       }
     },
     "./package.json": "./package.json"

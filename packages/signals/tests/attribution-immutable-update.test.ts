@@ -5,20 +5,21 @@
  * reconcile() are not.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createStore, DEV, flush, reconcile } from "../src/index.js";
+import { attribution } from "../src/attribution.js";
+import { createStore, flush, reconcile, OBSERVE } from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 
 afterEach(() => {
-  DEV!.attribution.disable();
+  attribution.disable();
   flush();
   vi.restoreAllMocks();
 });
 
 function arm() {
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  DEV!.attribution.enable({ log: false });
+  attribution.enable({ log: false });
   const hits: DiagnosticEvent[] = [];
-  DEV!.diagnostics.subscribe(e => {
+  OBSERVE!.diagnostics.subscribe(e => {
     if (e.code === "IMMUTABLE_UPDATE_IN_STORE") hits.push(e);
   });
   return hits;

@@ -2,22 +2,30 @@ import type { Transition } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
 
 /**
- * Dev-only observability hook points for the reactive core.
+ * Observe-tier hook points for the reactive core.
  *
  * Core's obligation is to call these with true facts at the moments they
  * happen; ALL attribution semantics (stamps, cause chains, timings, warnings)
- * live in the engine that installs them (attribution.ts — same pattern as the
- * GlobalQueue._* feature slots). `attrHooks` is null unless an engine is
- * installed, so the disabled cost is one null check per site, and prod builds
- * fold every site out behind __DEV__.
+ * live in the engine that installs them — `@solidjs/signals/attribution`, a
+ * separate entry so an observe build that never enables it never ships it
+ * (same pattern as the GlobalQueue._* feature slots). `attrHooks` is null
+ * unless an engine is installed, so the disabled cost is one null check per
+ * site, and prod builds fold every site out behind __OBSERVE__.
  *
  * IMPORTANT for implementers of call sites: a hook call must never sit inside
  * a `try` block — rollup's tryCatchDeoptimization retains functions referenced
- * inside `try` even behind a folded __DEV__ guard, which re-couples the dev
+ * inside `try` even behind a folded __OBSERVE__ guard, which re-couples the
  * engine into prod bundles (#2883 harness). Set a local flag inside the try
  * and call the hook after the catch.
  */
 export interface AttributionHooks {
+  /**
+   * `withInteraction` opened a user-interaction frame: root writes until the
+   * matching `interactionEnd` were performed by the handler of `ref`. Frames
+   * nest strictly (synchronous dispatch), so the engine keeps a stack.
+   */
+  interactionStart(ref: InteractionRef): void;
+  interactionEnd(): void;
   /**
    * A recompute is starting; `el._deps` still holds the previous run's links.
    * Always paired with `recomputeEnd` (recompute has no early returns).
@@ -144,8 +152,44 @@ export interface AttributionHooks {
   boundaryFallback(boundary: object, tree: Computed<any> | undefined, shown: boolean): void;
 }
 
+/** A user interaction, as a rendering runtime describes it to `withInteraction`. */
+export interface InteractionRef {
+  /** Event type — `click`, `keydown`, `input`… */
+  type: string;
+  /** The element hit, e.g. `button#next "Next →"`. */
+  target?: string;
+  /** Dispatch time on the `performance.now()` clock; defaults to now. */
+  at?: number;
+}
+
 export let attrHooks: AttributionHooks | null = null;
 
 export function setAttributionHooks(hooks: AttributionHooks | null): void {
   attrHooks = hooks;
+}
+
+/**
+ * Run `fn` as the handler of a user interaction: every root write it performs
+ * (and every action step, effect or flight the write causes) is attributed to
+ * `ref` by whichever engine is installed. The web runtime wraps event
+ * dispatch in this; custom renderers and test harnesses call it themselves.
+ * With no engine installed it is `fn()` — the wiring, not the engine, so it
+ * lives in core and is reachable as `OBSERVE.attribution.withInteraction`.
+ *
+ * The `finally` is deliberate and safe under the try rule above: this
+ * function is referenced only from the `OBSERVE` object, which prod builds
+ * fold to `undefined`, so nothing retains it there.
+ */
+export function withInteraction<T>(ref: InteractionRef, fn: () => T): T {
+  // Pin the engine for the frame: a handler that disables it mid-way must
+  // still close the frame it opened (the engine tolerates a close after
+  // disable()), and one that enables it mid-way opened no frame to close.
+  const hooks = attrHooks;
+  if (hooks === null) return fn();
+  hooks.interactionStart(ref);
+  try {
+    return fn();
+  } finally {
+    hooks.interactionEnd();
+  }
 }

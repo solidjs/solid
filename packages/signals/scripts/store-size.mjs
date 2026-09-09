@@ -13,6 +13,7 @@ import { writeFileSync } from "node:fs";
 
 const DEFINE = {
   __DEV__: "false",
+  __OBSERVE__: "false",
   __TEST__: "false",
   "globalThis.__DEV__": "false"
 };

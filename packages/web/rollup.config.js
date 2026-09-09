@@ -48,12 +48,20 @@ const plugins = [
   })
 ];
 
-const replaceDev = isDev =>
+// Two literals, three tiers (mirrors solid-js and @solidjs/signals):
+//   dev      "_SOLID_DEV_" true   "_SOLID_OBSERVE_" true   (*.dev.*)
+//   observe  "_SOLID_DEV_" false  "_SOLID_OBSERVE_" true   (*.observe.*)
+//   prod     both false                                    (default)
+// Every build replaces both; an unreplaced literal is truthy and takes the
+// dev branch in production (#2982).
+const replaceFlags = (isDev, isObserve) =>
   replace({
     '"_SOLID_DEV_"': isDev,
+    '"_SOLID_OBSERVE_"': isObserve,
     preventAssignment: true,
     delimiters: ["", ""]
   });
+const replaceDev = isDev => replaceFlags(isDev, isDev);
 
 // Build-time regression guard for the frames client entry: the emitted
 // chunk must still contain its transport half. `responseHandler` is the
@@ -130,6 +138,26 @@ export default [
     ],
     external: ["solid-js"],
     plugins: [replaceDev(false)].concat(plugins)
+  },
+  {
+    // Observe client build (`observe` condition under `browser`): the three
+    // interaction-provenance wraps in src/client.ts survive so attribution can
+    // stamp root writes with the event that caused them; every dev-only check
+    // folds out. The only client entry with wiring — frames, server-functions
+    // and storage have none and fall through to prod under `observe`.
+    input: "src/index.ts",
+    output: [
+      {
+        file: "dist/web.observe.cjs",
+        format: "cjs"
+      },
+      {
+        file: "dist/web.observe.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js"],
+    plugins: [replaceFlags(false, true)].concat(plugins)
   },
   {
     // Prod server build — the default node/worker/deno artifact for the main

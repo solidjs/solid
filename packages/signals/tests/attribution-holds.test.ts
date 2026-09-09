@@ -11,6 +11,7 @@
  * refreshes (no root write) are never judged.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { attribution } from "../src/attribution.js";
 import {
   action,
   createMemo,
@@ -18,15 +19,15 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
-  DEV,
   flush,
   isPending,
-  latest
+  latest,
+  OBSERVE
 } from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 
 afterEach(() => {
-  DEV!.attribution.disable();
+  attribution.disable();
   flush();
   vi.restoreAllMocks();
 });
@@ -50,7 +51,7 @@ const NEVER: Tiers = { infoMs: 60_000, warnMs: 60_000 };
 function arm(holds: Tiers = { infoMs: 0, warnMs: 0 }, longHolds: Tiers = NEVER) {
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "info").mockImplementation(() => {});
-  DEV!.attribution.enable({
+  attribution.enable({
     log: false,
     hotRuns: false,
     hotTime: false,
@@ -60,7 +61,7 @@ function arm(holds: Tiers = { infoMs: 0, warnMs: 0 }, longHolds: Tiers = NEVER) 
   });
   const events: DiagnosticEvent[] = [];
   const longEvents: DiagnosticEvent[] = [];
-  DEV!.diagnostics.subscribe(e => {
+  OBSERVE!.diagnostics.subscribe(e => {
     if (e.code === "SILENT_HOLD") events.push(e);
     if (e.code === "LONG_HOLD") longEvents.push(e);
   });
@@ -127,7 +128,7 @@ describe("SILENT_HOLD", () => {
     expect(e.message).toContain("latest(page)");
     expect(warn).toHaveBeenCalledTimes(1);
 
-    const holds = DEV!.attribution.holds();
+    const holds = attribution.holds();
     expect(holds).toHaveLength(1);
     expect(holds[0]).toMatchObject({
       heldWrites: [{ name: "page", prev: "1", value: "2" }],
@@ -149,7 +150,7 @@ describe("SILENT_HOLD", () => {
     feed.resolve("a");
     await until(() => feed.shown.includes("a-p1"), "initial load");
     expect(events).toHaveLength(0);
-    expect(DEV!.attribution.holds()).toHaveLength(0);
+    expect(attribution.holds()).toHaveLength(0);
   });
 
   it("is cleared by an isPending() reader on the blocker", async () => {
@@ -178,7 +179,7 @@ describe("SILENT_HOLD", () => {
     await until(() => feed.shown.includes("b-p2"), "the held page to land");
 
     expect(events).toHaveLength(0);
-    const [hold] = DEV!.attribution.holds();
+    const [hold] = attribution.holds();
     expect(hold.acknowledgedBy).toContain("isPending:posts");
     expect(hold.paintedDuringHold).toBeGreaterThan(0); // the spinner effect ran while parked
   });
@@ -206,7 +207,7 @@ describe("SILENT_HOLD", () => {
     await until(() => feed.shown.includes("B-P2"), "the held page to land");
 
     expect(events).toHaveLength(0);
-    expect(DEV!.attribution.holds()[0].acknowledgedBy).toContain("isPending:upper");
+    expect(attribution.holds()[0].acknowledgedBy).toContain("isPending:upper");
   });
 
   it("is cleared by a latest() reader on the held write", async () => {
@@ -235,7 +236,7 @@ describe("SILENT_HOLD", () => {
     await until(() => feed.shown.includes("b-p2"), "the held page to land");
 
     expect(events).toHaveLength(0);
-    expect(DEV!.attribution.holds()[0].acknowledgedBy).toContain("latest:page");
+    expect(attribution.holds()[0].acknowledgedBy).toContain("latest:page");
   });
 
   it("is cleared by an optimistic value written alongside", async () => {
@@ -262,7 +263,7 @@ describe("SILENT_HOLD", () => {
     await until(() => feed.shown.includes("b-p2"), "the held page to land");
 
     expect(events).toHaveLength(0);
-    expect(DEV!.attribution.holds()[0].acknowledgedBy).toContain("optimistic:saving");
+    expect(attribution.holds()[0].acknowledgedBy).toContain("optimistic:saving");
   });
 
   it("tiers by duration: below infoMs nothing, between info and warn an advisory", async () => {
@@ -278,7 +279,7 @@ describe("SILENT_HOLD", () => {
     flush();
     feed.resolve("b");
     await until(() => feed.shown.includes("b-p2"), "fast page");
-    expect(DEV!.attribution.holds()).toHaveLength(1);
+    expect(attribution.holds()).toHaveLength(1);
     expect(events).toHaveLength(0);
 
     // Slow round-trip: advisory only — structured event, no console.
@@ -287,7 +288,7 @@ describe("SILENT_HOLD", () => {
     await wait(40);
     feed.resolve("c");
     await until(() => feed.shown.includes("c-p3"), "slow page");
-    expect(DEV!.attribution.holds()).toHaveLength(2);
+    expect(attribution.holds()).toHaveLength(2);
     expect(events).toHaveLength(1);
     expect(events[0].severity).toBe("info");
     expect(warn).not.toHaveBeenCalled();
@@ -306,7 +307,7 @@ describe("SILENT_HOLD", () => {
     feed.resolve("b");
     await until(() => feed.shown.includes("b-p2"), "the held page to land");
     expect(events).toHaveLength(0);
-    expect(DEV!.attribution.holds()).toHaveLength(0);
+    expect(attribution.holds()).toHaveLength(0);
   });
 
   it("reports an action's plain writes with the optimistic repair", async () => {
@@ -336,7 +337,7 @@ describe("SILENT_HOLD", () => {
     expect(events[0].data).toMatchObject({ heldWrites: ["title"], action: true });
     expect(events[0].message).toContain("an action held");
     expect(events[0].message).toContain("createOptimistic");
-    expect(DEV!.attribution.holds()[0]).toMatchObject({
+    expect(attribution.holds()[0]).toMatchObject({
       action: true,
       heldWrites: [{ name: "title", prev: '"draft"', value: '"saved"' }]
     });
@@ -365,7 +366,7 @@ describe("SILENT_HOLD", () => {
     await until(() => name() === "saved", "the action to commit");
 
     expect(events).toHaveLength(0);
-    expect(DEV!.attribution.holds()[0].acknowledgedBy).toContain("optimistic:pendingTitle");
+    expect(attribution.holds()[0].acknowledgedBy).toContain("optimistic:pendingTitle");
   });
 });
 
@@ -386,7 +387,7 @@ describe("what can paint while held", () => {
     await until(() => feed.shown.includes("a-p1"), "initial load");
 
     // The whole batch is one transaction: the flag waits with the page.
-    DEV!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () => {
+    OBSERVE!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () => {
       feed.setPage(2);
       setSaving(true);
     });
@@ -397,7 +398,7 @@ describe("what can paint while held", () => {
     await until(() => feed.shown.includes("b-p2"), "the held page to land");
 
     expect(events).toHaveLength(1);
-    const [hold] = DEV!.attribution.holds();
+    const [hold] = attribution.holds();
     expect(hold.paintedDuringHold).toBe(0);
     expect(hold.heldWrites.map(w => w.name).sort()).toEqual(["page", "saving"]);
     expect(hold.interaction).toMatchObject({ kind: "interaction", name: "click" });
@@ -418,7 +419,9 @@ describe("what can paint while held", () => {
     feed.resolve("a");
     await until(() => feed.shown.includes("a-p1"), "initial load");
 
-    DEV!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () => feed.setPage(2));
+    OBSERVE!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () =>
+      feed.setPage(2)
+    );
     setTick(1); // a timer, say — same flush, no relation to the click
     flush();
     expect(ticks).toEqual([0]);
@@ -427,7 +430,7 @@ describe("what can paint while held", () => {
     await until(() => feed.shown.includes("b-p2"), "the held page to land");
 
     expect(events).toHaveLength(1);
-    expect(DEV!.attribution.holds()[0].paintedDuringHold).toBe(0);
+    expect(attribution.holds()[0].paintedDuringHold).toBe(0);
   });
 });
 
@@ -447,7 +450,9 @@ describe("LONG_HOLD", () => {
     feed.resolve("a");
     await until(() => feed.shown.includes("a-p1"), "initial load");
 
-    DEV!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () => feed.setPage(2));
+    OBSERVE!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () =>
+      feed.setPage(2)
+    );
     flush();
     await wait(40);
     feed.resolve("b");
@@ -519,16 +524,20 @@ describe("LONG_HOLD", () => {
     await until(() => feed.shown.includes("a-p1"), "initial load");
 
     // Typing: page 2, a long pause, page 3, a short pause, land.
-    DEV!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () => feed.setPage(2));
+    OBSERVE!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () =>
+      feed.setPage(2)
+    );
     flush();
     await wait(60);
-    DEV!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () => feed.setPage(3));
+    OBSERVE!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () =>
+      feed.setPage(3)
+    );
     flush();
     await wait(10);
     feed.resolve("c");
     await until(() => feed.shown.includes("c-p3"), "the final page to land");
 
-    const [hold] = DEV!.attribution.holds();
+    const [hold] = attribution.holds();
     // holdMs reaches back to the first parked flush even though "page" now
     // carries only the second click's record.
     expect(hold.holdMs).toBeGreaterThanOrEqual(70);
@@ -597,6 +606,6 @@ describe("LONG_HOLD", () => {
     feed.resolve("b");
     await until(() => feed.shown.includes("b-p2"), "the held page to land");
     expect(longEvents).toHaveLength(0);
-    expect(DEV!.attribution.holds()[0].tailMs).toBeGreaterThanOrEqual(30);
+    expect(attribution.holds()[0].tailMs).toBeGreaterThanOrEqual(30);
   });
 });

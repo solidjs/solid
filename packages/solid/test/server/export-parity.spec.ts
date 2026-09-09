@@ -15,15 +15,16 @@ describe("Export parity: server mirrors client", () => {
     expect(missingFromServer).toEqual([]);
   });
 
-  test("all function exports are functions (DEV is the same signals object as the client's)", () => {
+  test("all function exports are functions (DEV/OBSERVE are the same signals objects as the client's)", () => {
     for (const [key, value] of Object.entries(server)) {
-      if (key === "DEV") {
-        // Both entries gate on `"_SOLID_DEV_"` (truthy here — source, not
-        // dist) and re-export @solidjs/signals' DEV, so the server's dev
-        // diagnostics channel IS the client's. dist/server.js exports
-        // `undefined`; the dist artifact specs pin that.
+      if (key === "DEV" || key === "OBSERVE") {
+        // Both entries gate on the `"_SOLID_DEV_"`/`"_SOLID_OBSERVE_"`
+        // literals (truthy here — source, not dist) and re-export
+        // @solidjs/signals' objects, so the server's diagnostics channel IS
+        // the client's. dist/server.js exports `undefined` for both; the dist
+        // artifact specs pin that per tier.
         expect(value).toBeDefined();
-        expect(value).toBe(client.DEV);
+        expect(value).toBe((client as any)[key]);
         continue;
       }
       if (typeof (client as any)[key] === "function") {

@@ -10,11 +10,19 @@
  * acknowledged as the residual blind spot otherwise (depth-2 => info).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createEffect, createMemo, createRoot, createSignal, DEV, flush } from "../src/index.js";
+import { attribution } from "../src/attribution.js";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+  OBSERVE
+} from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 
 afterEach(() => {
-  DEV!.attribution.disable();
+  attribution.disable();
   flush();
   vi.restoreAllMocks();
 });
@@ -43,14 +51,14 @@ async function until(cond: () => boolean, what: string, timeout = 5000) {
 function arm(minFlightMs = 5) {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "info").mockImplementation(() => {});
-  DEV!.attribution.enable({
+  attribution.enable({
     log: false,
     hotRuns: false,
     hotTime: false,
     waterfalls: { minFlightMs }
   });
   const events: DiagnosticEvent[] = [];
-  DEV!.diagnostics.subscribe(e => {
+  OBSERVE!.diagnostics.subscribe(e => {
     if (e.code === "ASYNC_WATERFALL") events.push(e);
   });
   return events;
@@ -87,7 +95,7 @@ describe("ASYNC_WATERFALL", () => {
     expect(events[0].data!.sequentialMs as number).toBeGreaterThanOrEqual(25);
 
     // The fact surface has it too.
-    const chains = DEV!.attribution.waterfalls();
+    const chains = attribution.waterfalls();
     expect(chains.some(c => c.chain.map(l => l.name).join(">") === "story>author")).toBe(true);
     void setId;
   });
@@ -118,7 +126,7 @@ describe("ASYNC_WATERFALL", () => {
     // Route preloader shape: the author request is kicked off at navigation
     // time, in parallel with story. The memo later picks up the SAME promise.
     const preloadedAuthor = sleep(30, "author-preloaded");
-    DEV!.attribution.markFlight(preloadedAuthor);
+    attribution.markFlight(preloadedAuthor);
 
     const story = createMemo(() => sleep(15, "story"), { name: "story" });
     const author = createMemo(
@@ -145,7 +153,7 @@ describe("ASYNC_WATERFALL", () => {
 
     expect(events).toHaveLength(0);
     // Not even recorded as a chain fact — the origin test broke the link.
-    expect(DEV!.attribution.waterfalls()).toHaveLength(0);
+    expect(attribution.waterfalls()).toHaveLength(0);
   });
 
   it("does not flag an already-settled cached dependent (duration gate)", async () => {

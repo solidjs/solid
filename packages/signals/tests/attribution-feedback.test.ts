@@ -10,6 +10,7 @@
  * work beside time held. Every hold counts, at any duration.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { attribution } from "../src/attribution.js";
 import {
   action,
   createLoadingBoundary,
@@ -18,14 +19,14 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
-  DEV,
   flush,
   isPending,
-  latest
+  latest,
+  OBSERVE
 } from "../src/index.js";
 
 afterEach(() => {
-  DEV!.attribution.disable();
+  attribution.disable();
   flush();
   vi.restoreAllMocks();
 });
@@ -45,7 +46,7 @@ function arm() {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "info").mockImplementation(() => {});
   // Verdict thresholds far away: feedback() must count holds SILENT_HOLD never judged.
-  DEV!.attribution.enable({
+  attribution.enable({
     log: false,
     hotRuns: false,
     hotTime: false,
@@ -95,7 +96,7 @@ function pagedFeed(name = "posts") {
 describe("feedback()", () => {
   it("starts empty and counts every hold, not only the ones past the verdict thresholds", async () => {
     arm();
-    expect(DEV!.attribution.feedback()).toEqual({
+    expect(attribution.feedback()).toEqual({
       sources: [],
       interactions: [],
       flights: [],
@@ -106,12 +107,12 @@ describe("feedback()", () => {
     flush();
     await feed.load("a"); // initial load: no root write, never a hold
 
-    expect(DEV!.attribution.feedback().sources).toEqual([]);
+    expect(attribution.feedback().sources).toEqual([]);
     feed.setPage(2);
     flush();
     await feed.load("b");
 
-    const { sources } = DEV!.attribution.feedback();
+    const { sources } = attribution.feedback();
     expect(sources).toHaveLength(1);
     expect(sources[0]).toMatchObject({
       sources: ["posts"],
@@ -161,7 +162,7 @@ describe("feedback()", () => {
     flush();
     await feed.load("d");
 
-    const [row] = DEV!.attribution.feedback().sources;
+    const [row] = attribution.feedback().sources;
     expect(row).toMatchObject({ sources: ["posts"], holds: 3, silent: 1 });
     expect(row.acknowledgedBy).toEqual([{ by: "isPending:posts", holds: 2 }]);
     expect(row.silentMs).toBeLessThan(row.heldMs);
@@ -187,7 +188,7 @@ describe("feedback()", () => {
     flush();
     await feed.load("b");
 
-    const [row] = DEV!.attribution.feedback().sources;
+    const [row] = attribution.feedback().sources;
     expect(row).toMatchObject({ holds: 1, silent: 0, latestOnly: 1 });
     expect(row.acknowledgedBy).toEqual([{ by: "latest:postsPage", holds: 1 }]);
   });
@@ -199,19 +200,21 @@ describe("feedback()", () => {
     flush();
     await feed.load("a");
 
-    DEV!.attribution.withInteraction({ ...CLICK, at: performance.now() - 40 }, () =>
+    OBSERVE!.attribution.withInteraction({ ...CLICK, at: performance.now() - 40 }, () =>
       feed.setPage(2)
     );
     flush();
     await feed.load("b");
-    DEV!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () => feed.setPage(3));
+    OBSERVE!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () =>
+      feed.setPage(3)
+    );
     flush();
     await feed.load("c");
-    DEV!.attribution.withInteraction({ ...KEY, at: performance.now() }, () => feed.setPage(4));
+    OBSERVE!.attribution.withInteraction({ ...KEY, at: performance.now() }, () => feed.setPage(4));
     flush();
     await feed.load("d");
 
-    const { sources, interactions } = DEV!.attribution.feedback();
+    const { sources, interactions } = attribution.feedback();
     expect(sources[0].interactions).toEqual([
       { interaction: 'click on button#next "Next →"', holds: 2 },
       { interaction: 'keydown on input#search ""', holds: 1 }
@@ -240,14 +243,14 @@ describe("feedback()", () => {
       createRenderEffect(m, () => {}, { name: "m-reader" });
     });
     flush();
-    DEV!.attribution.withInteraction({ type: "input", target: "input#a" }, () => setM(1));
+    OBSERVE!.attribution.withInteraction({ type: "input", target: "input#a" }, () => setM(1));
     flush();
-    DEV!.attribution.withInteraction({ type: "click", target: "button#b" }, () => setN(1));
+    OBSERVE!.attribution.withInteraction({ type: "click", target: "button#b" }, () => setN(1));
     flush();
-    DEV!.attribution.withInteraction({ type: "click", target: "button#b" }, () => setN(2));
+    OBSERVE!.attribution.withInteraction({ type: "click", target: "button#b" }, () => setN(2));
     flush();
 
-    const { sources, interactions } = DEV!.attribution.feedback();
+    const { sources, interactions } = attribution.feedback();
     expect(sources).toEqual([]);
     expect(interactions).toHaveLength(2);
     // Rows are ranked by measured time (heldMs + selfMs); ten trivial runs
@@ -323,7 +326,7 @@ describe("feedback()", () => {
     await done;
     await until(() => title() === "saved", "the action to commit");
 
-    const { sources } = DEV!.attribution.feedback();
+    const { sources } = attribution.feedback();
     const keys = sources.map(s => s.sources.join("+"));
     expect(keys).toContain("comments+posts");
     expect(keys).toContain("");
@@ -341,10 +344,10 @@ describe("feedback()", () => {
     feed.setPage(2);
     flush();
     await feed.load("b");
-    expect(DEV!.attribution.feedback().sources).toHaveLength(1);
-    DEV!.attribution.disable();
+    expect(attribution.feedback().sources).toHaveLength(1);
+    attribution.disable();
     arm();
-    expect(DEV!.attribution.feedback()).toEqual({
+    expect(attribution.feedback()).toEqual({
       sources: [],
       interactions: [],
       flights: [],
@@ -356,7 +359,7 @@ describe("feedback()", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "info").mockImplementation(() => {});
     // longHolds.infoMs 0: every hold is "long"; warnMs far away keeps the console quiet.
-    DEV!.attribution.enable({
+    attribution.enable({
       log: false,
       hotRuns: false,
       hotTime: false,
@@ -378,17 +381,17 @@ describe("feedback()", () => {
     feed.setPage(2);
     flush();
     await feed.load("b");
-    const [row] = DEV!.attribution.feedback().sources;
+    const [row] = attribution.feedback().sources;
     expect(row).toMatchObject({ holds: 1, silent: 0, long: 1 });
     // One write: the tail is the whole hold.
-    const [hold] = DEV!.attribution.holds();
+    const [hold] = attribution.holds();
     expect(row.longMs).toBe(hold.tailMs);
     expect(hold.tailMs).toBeLessThanOrEqual(hold.holdMs);
   });
 
   it("does not count a hold as long when longHolds is off", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    DEV!.attribution.enable({
+    attribution.enable({
       log: false,
       hotRuns: false,
       hotTime: false,
@@ -403,7 +406,11 @@ describe("feedback()", () => {
     feed.setPage(2);
     flush();
     await feed.load("b");
-    expect(DEV!.attribution.feedback().sources[0]).toMatchObject({ holds: 1, long: 0, longMs: 0 });
+    expect(attribution.feedback().sources[0]).toMatchObject({
+      holds: 1,
+      long: 0,
+      longMs: 0
+    });
   });
 
   it("counts each source's flights and the ones abandoned before landing", async () => {
@@ -412,7 +419,7 @@ describe("feedback()", () => {
     createRoot(() => feed.reading());
     flush();
     await feed.load("a");
-    expect(DEV!.attribution.feedback().flights).toEqual([
+    expect(attribution.feedback().flights).toEqual([
       {
         source: "posts",
         flights: 1,
@@ -428,7 +435,7 @@ describe("feedback()", () => {
     feed.setPage(3);
     flush();
     await feed.load("c");
-    const [row] = DEV!.attribution.feedback().flights;
+    const [row] = attribution.feedback().flights;
     expect(row).toMatchObject({ source: "posts", flights: 3, landed: 2, abandoned: 1 });
     expect(row.worstMs).toBeGreaterThan(0);
     expect(row.landedMs).toBeGreaterThanOrEqual(row.worstMs);
@@ -453,12 +460,12 @@ describe("feedback()", () => {
     });
     flush();
     expect(shown).toEqual(["loading…"]);
-    let [row] = DEV!.attribution.feedback().fallbacks;
+    let [row] = attribution.feedback().fallbacks;
     expect(row).toMatchObject({ boundary: "boundary", shows: 1, shownMs: 0, flashes: 0 });
     await wait(20);
     feed.resolve("a");
     await until(() => shown.includes("a-p1"), "content");
-    [row] = DEV!.attribution.feedback().fallbacks;
+    [row] = attribution.feedback().fallbacks;
     expect(row.shows).toBe(1);
     expect(row.shownMs).toBeGreaterThanOrEqual(15);
     expect(row.worstMs).toBe(row.shownMs);

@@ -123,6 +123,90 @@ describe("export conditions: dev/prod artifact pairing", () => {
     ]);
   });
 
+  test("`observe` selects the observe artifacts where wiring exists and falls through to prod elsewhere", () => {
+    // The observe tier is a build flavor only for entries that contain
+    // wiring (labels, attribution hook sites): solid-js (client and server),
+    // @solidjs/web's client, @solidjs/universal, and @solidjs/signals. Frames
+    // and server-functions have none, so under `observe` they must resolve to
+    // their PROD artifacts — never dev (dev would re-enable the checks).
+    expect(resolveAll(["browser", "observe"])).toEqual({
+      "solid-js": "solid/dist/solid.observe.js",
+      "@solidjs/web": "web/dist/web.observe.js",
+      "@solidjs/web/frames": "web/frames/dist/client.js",
+      "@solidjs/web/frames/server": "web/frames/dist/server.js",
+      "@solidjs/web/server-functions": "web/server-functions/dist/client.js"
+    });
+    expect(resolveAll(["observe"])).toEqual({
+      // solid-js's server has a server.observe.* so `OBSERVE` agrees with
+      // signals' in one process; web's server has no wiring yet.
+      "solid-js": "solid/dist/server.observe.js",
+      "@solidjs/web": "web/dist/server.js",
+      "@solidjs/web/frames": "web/frames/dist/server.js",
+      "@solidjs/web/frames/server": "web/frames/dist/server.js",
+      "@solidjs/web/server-functions": "web/server-functions/dist/server.js"
+    });
+  });
+
+  test("`development` wins over `observe` when both are present (dev is a superset of observe)", () => {
+    // A dev server that also sets `observe` must still get the checks;
+    // `development` is listed before `observe` in every exports map, and
+    // Node resolves conditions in key order.
+    expect(resolveAll(["browser", "observe", "development"])).toEqual(
+      resolveAll(["browser", "development"])
+    );
+    expect(resolveAll(["observe", "development"])).toEqual(resolveAll(["development"]));
+  });
+
+  test("CJS `require` under `observe` pairs solid-js with signals' node.observe.cjs", () => {
+    const script =
+      `const { createRequire } = require("node:module"); ` +
+      `const r = createRequire(process.cwd() + "/"); ` +
+      `const solid = r.resolve("solid-js"); ` +
+      `const signals = createRequire(solid).resolve("@solidjs/signals"); ` +
+      `process.stdout.write(JSON.stringify([solid, signals].map(p => p.replace(/^.*\\/packages\\//, ""))));`;
+    expect(
+      JSON.parse(
+        execFileSync(process.execPath, ["--conditions=observe", "-e", script], {
+          cwd: process.cwd(),
+          encoding: "utf8"
+        })
+      )
+    ).toEqual(["solid/dist/server.observe.cjs", "signals/dist/node.observe.cjs"]);
+  });
+
+  test("`solid-js/attribution` hands the engine tier to `@solidjs/signals/attribution`", () => {
+    // solid-js's entry is one tier-less re-export; the engine it reaches is
+    // decided at the signals hop by the SAME conditions that picked the
+    // solid-js runtime, so an observe runtime always meets the real engine
+    // and a prod runtime the inert one. Two hops, one process, one instance.
+    const script =
+      `const solid = import.meta.resolve("solid-js/attribution"); ` +
+      `const { createRequire } = await import("node:module"); ` +
+      `const signals = createRequire(solid).resolve("@solidjs/signals/attribution"); ` +
+      `process.stdout.write(JSON.stringify([solid, signals].map(p => p.replace(/^.*\\/packages\\//, ""))));`;
+    const run = (conditions: string[]) =>
+      JSON.parse(
+        execFileSync(
+          process.execPath,
+          [...conditions.map(c => `--conditions=${c}`), "--input-type=module", "-e", script],
+          { cwd: process.cwd(), encoding: "utf8" }
+        )
+      );
+    // `createRequire` resolves the `require` branch, so the signals half here
+    // pins the CJS engine artifacts; the ESM half is pinned by signals' own
+    // dist test.
+    expect(run([])).toEqual(["solid/dist/attribution.js", "signals/dist/node.attribution.cjs"]);
+    expect(run(["observe"])).toEqual([
+      "solid/dist/attribution.js",
+      "signals/dist/node.observe.attribution.cjs"
+    ]);
+    expect(run(["development"])).toEqual([
+      "solid/dist/attribution.js",
+      "signals/dist/node.dev.attribution.cjs"
+    ]);
+    expect(run(["observe", "development"])).toEqual(run(["development"]));
+  });
+
   test("worker and deno conditions carry the same dev/prod pairing as node", () => {
     // Node always adds its own `node` condition; passing `worker`/`deno` on top
     // exercises those keys' nesting (they precede `node` in every exports map

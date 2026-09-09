@@ -331,7 +331,7 @@ export class CollectionQueue extends Queue {
         this._sources.add(source);
         if (wasEmpty) {
           setSignal(this._disabled, true);
-          if (__DEV__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
+          if (__OBSERVE__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
             attrHooks.boundaryFallback(this, this._tree, true);
         }
         if (this._collectionType & STATUS_ERROR) {
@@ -369,7 +369,7 @@ export class CollectionQueue extends Queue {
       }
       if (!this._pending) {
         setSignal(this._disabled, false);
-        if (__DEV__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
+        if (__OBSERVE__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
           attrHooks.boundaryFallback(this, this._tree, false);
         if (this._onFn) {
           try {

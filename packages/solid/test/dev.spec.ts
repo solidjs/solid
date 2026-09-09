@@ -22,7 +22,7 @@ afterEach(() => {
   }
 });
 
-describe("devComponent metadata", () => {
+describe("observedComponent metadata", () => {
   test("createComponent sets consolidated _component object on owner", () => {
     createRoot(() => {
       const props = { greeting: "hello" };
@@ -86,7 +86,7 @@ describe("devComponent metadata", () => {
 
 describe("effect cleanup ordering through the dev component wrapper", () => {
   // Effect-returned cleanups fire at the effect node's structural position
-  // (unwind order). The transparent devComponent root adds a nesting level at
+  // (unwind order). The transparent observedComponent root adds a nesting level at
   // the same position, so DFS unwind order relative to siblings is identical
   // with and without the wrapper — dev matches prod for the idiomatic 2.0
   // cleanup form. (Raw onCleanup in a component body still lands on the
@@ -134,7 +134,7 @@ describe("effect cleanup ordering through the dev component wrapper", () => {
 });
 
 describe("$DEVCOMP marking", () => {
-  test("devComponent marks component function with $DEVCOMP", () => {
+  test("observedComponent marks component function with $DEVCOMP in dev", () => {
     createRoot(() => {
       function TestComp() {
         return null;

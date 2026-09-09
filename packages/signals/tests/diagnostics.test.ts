@@ -6,7 +6,6 @@ import {
   createRoot,
   createSignal,
   createTrackedEffect,
-  DEV,
   flush,
   getOwner,
   onCleanup,
@@ -14,7 +13,9 @@ import {
   refresh,
   resetErrorHalt,
   runWithOwner,
-  untrack
+  untrack,
+  DEV,
+  OBSERVE
 } from "../src/index.js";
 import { emitDiagnostic, ownerPath, reportDiagnostic } from "../src/core/dev.js";
 
@@ -29,7 +30,7 @@ describe("diagnostics", () => {
   it("supports subscribe for strict-read warnings", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const events: any[] = [];
-    const unsubscribe = DEV!.diagnostics.subscribe(event => events.push(event));
+    const unsubscribe = OBSERVE!.diagnostics.subscribe(event => events.push(event));
 
     createRoot(() => {
       const [count] = createSignal(1, { name: "count" });
@@ -47,7 +48,7 @@ describe("diagnostics", () => {
 
   it("supports capture buffers", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
 
     onCleanup(() => {});
 
@@ -64,7 +65,7 @@ describe("diagnostics", () => {
   });
 
   it("emits diagnostics before owned-scope signal write errors", () => {
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
 
     createRoot(() => {
       const [count, setCount] = createSignal(0, { name: "count" });
@@ -84,7 +85,7 @@ describe("diagnostics", () => {
   });
 
   it("emits diagnostics before owned-scope refresh errors", () => {
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
 
     createRoot(() => {
       const target = createMemo(() => 1, { name: "target" });
@@ -105,7 +106,7 @@ describe("diagnostics", () => {
 
   it("emits diagnostics for effects created without an owner", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
 
     createEffect(
       () => 1,
@@ -121,7 +122,7 @@ describe("diagnostics", () => {
 
   it("emits diagnostics for boundaries created without an owner", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
 
     const read = createLoadingBoundary(
       () => "ready",
@@ -138,7 +139,7 @@ describe("diagnostics", () => {
 
   it("emits diagnostics for disposed owners passed to runWithOwner", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
     let owner = null as ReturnType<typeof getOwner>;
 
     const dispose = createRoot(dispose => {
@@ -156,7 +157,7 @@ describe("diagnostics", () => {
   });
 
   it("emits diagnostics before forbidden cleanup-scope errors", () => {
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
 
     createRoot(() => {
       createTrackedEffect(() => {
@@ -175,7 +176,7 @@ describe("diagnostics", () => {
   });
 
   it("emits a diagnostic and throws when onSettled returns a cleanup in an unowned scope", () => {
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
 
     onSettled(() => () => {});
     expect(() => flush()).toThrow(/\[SETTLED_CLEANUP_UNOWNED\]/);
@@ -188,7 +189,7 @@ describe("diagnostics", () => {
   });
 
   it("emits a diagnostic and throws when createEffect is called without an effect function", () => {
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
 
     createRoot(() => {
       expect(() => createEffect(() => 1)).toThrow(
@@ -204,7 +205,7 @@ describe("diagnostics", () => {
   });
 
   it("emits a diagnostic before throwing on reactive primitive creation in a forbidden scope", () => {
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
 
     createRoot(() => {
       createTrackedEffect(() => {
@@ -223,7 +224,7 @@ describe("diagnostics", () => {
   });
 
   it("emits a diagnostic when a sync: true memo returns a Promise", () => {
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
 
     expect(() =>
       createRoot(() => {
@@ -240,7 +241,7 @@ describe("diagnostics", () => {
   });
 
   it("emits a diagnostic when a sync: true memo returns an AsyncIterable", () => {
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
 
     async function* gen() {
       yield 1;
@@ -260,7 +261,7 @@ describe("diagnostics", () => {
   });
 
   it("does not flag plain objects from sync: true memos", () => {
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
 
     createRoot(() => {
       const m = createMemo(() => ({ value: 1 }), { sync: true });
@@ -274,7 +275,7 @@ describe("diagnostics", () => {
 
 describe("diagnostics console footer", () => {
   afterEach(() => {
-    DEV!.diagnostics.setConsoleFooter(undefined);
+    DEV!.setConsoleFooter(undefined);
   });
 
   const warnTexts = (warn: { mock: { calls: unknown[][] } }) =>
@@ -282,7 +283,7 @@ describe("diagnostics console footer", () => {
 
   it("folds the footer into the first reported console entry of each code — one entry per finding", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    DEV!.diagnostics.setConsoleFooter(event => `footer:${event.code}`);
+    DEV!.setConsoleFooter(event => `footer:${event.code}`);
 
     reportDiagnostic(
       emitDiagnostic({
@@ -316,7 +317,7 @@ describe("diagnostics console footer", () => {
 
   it("defers the footer to a follow-up line only for thrown (unreported) errors", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    DEV!.diagnostics.setConsoleFooter(event => `footer:${event.code}`);
+    DEV!.setConsoleFooter(event => `footer:${event.code}`);
 
     // A throw site: emits, then throws the message — never reports.
     emitDiagnostic({
@@ -335,7 +336,7 @@ describe("diagnostics console footer", () => {
   it("does not double-print when a reported error's microtask runs after the report", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    DEV!.diagnostics.setConsoleFooter(event => `footer:${event.code}`);
+    DEV!.setConsoleFooter(event => `footer:${event.code}`);
 
     reportDiagnostic(
       emitDiagnostic({
@@ -355,7 +356,7 @@ describe("diagnostics console footer", () => {
 
   it("suppresses the footer when the callback returns undefined", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    DEV!.diagnostics.setConsoleFooter(() => undefined);
+    DEV!.setConsoleFooter(() => undefined);
 
     reportDiagnostic(
       emitDiagnostic({
@@ -372,7 +373,7 @@ describe("diagnostics console footer", () => {
 
   it("re-registering resets the once-per-code memory", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    DEV!.diagnostics.setConsoleFooter(() => "footer:first");
+    DEV!.setConsoleFooter(() => "footer:first");
     reportDiagnostic(
       emitDiagnostic({
         code: "STRICT_READ_UNTRACKED",
@@ -381,7 +382,7 @@ describe("diagnostics console footer", () => {
         message: "one"
       })
     );
-    DEV!.diagnostics.setConsoleFooter(() => "footer:second");
+    DEV!.setConsoleFooter(() => "footer:second");
     reportDiagnostic(
       emitDiagnostic({
         code: "STRICT_READ_UNTRACKED",
@@ -397,7 +398,7 @@ describe("diagnostics console footer", () => {
 });
 
 describe("diagnostics owner path", () => {
-  // Stand-in for solid-js's devComponent, which labels each component root.
+  // Stand-in for solid-js's observedComponent, which labels each component root.
   const nameOwner = (name: string) => ((getOwner() as any)._name = name);
 
   it("walks from a computation up through named owners, root first, skipping unnamed roots", () => {

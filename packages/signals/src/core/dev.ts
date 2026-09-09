@@ -1,4 +1,10 @@
-import { attribution, type Attribution } from "./attribution.js";
+import {
+  attrHooks,
+  setAttributionHooks,
+  withInteraction,
+  type AttributionHooks,
+  type InteractionRef
+} from "./attribution-hooks.js";
 // Cycle note: core.ts imports this module; we read its live `context` binding
 // only at call time (emitDiagnostic's default subject), never during module
 // evaluation, so the cycle is inert — same shape as the attribution.ts edge.
@@ -108,6 +114,75 @@ export interface Diagnostics {
   subscribe(listener: DiagnosticListener): () => void;
   capture(): DiagnosticCapture;
   /**
+   * Records an event on the channel from outside the reactive core — a host
+   * runtime reporting its own findings (hydration mismatches, server render
+   * faults) so consumers see one stream. `subject` locates it like the
+   * internal sites do; a host whose owners are not signals' owners passes
+   * `ownerPath` on the event instead and it is used as-is.
+   */
+  emit(
+    event: Omit<DiagnosticEvent, "sequence">,
+    subject?: DiagnosticSubject | null
+  ): DiagnosticEvent;
+}
+
+/**
+ * The core's side of attribution: the hook slot an engine installs into, and
+ * the interaction frame the rendering runtime opens around event dispatch.
+ * The engine itself — "why did this run", costs, holds, feedback — is
+ * `@solidjs/signals/attribution`, a separate entry so an observe build pays
+ * for it only when something imports it.
+ */
+export interface AttributionSlot {
+  /**
+   * Installs `hooks` as the engine the core reports facts to (`null`
+   * uninstalls). One engine at a time; the built-in engine's `enable()` calls
+   * this, and an external consumer (devtools) may install its own instead.
+   */
+  install(hooks: AttributionHooks | null): void;
+  /** The installed engine's hooks, or `null` when none is installed. */
+  readonly installed: AttributionHooks | null;
+  /**
+   * Run `fn` as a user interaction's handler: root writes inside stamp it as
+   * their origin, and actions/effects/flights it causes carry it. The web
+   * runtime wraps every event dispatch in this; custom renderers and test
+   * harnesses call it themselves. `fn()` when no engine is installed.
+   */
+  withInteraction<T>(ref: InteractionRef, fn: () => T): T;
+}
+
+/**
+ * The observe tier: the structured channel and the attribution wiring —
+ * everything a production observability consumer needs, and nothing that
+ * assumes a developer at a console. Present in dev and observe builds
+ * (`__OBSERVE__`); `undefined` in prod.
+ */
+export interface Observe {
+  diagnostics: Diagnostics;
+  /** The attribution hook slot and interaction frame — see `AttributionSlot`. */
+  attribution: AttributionSlot;
+  /**
+   * The live node an emitted event was about, when the emitter knew it.
+   * Events are serializable records and never carry the node; consumers that
+   * run in-process (devtools, the console reporter) look it up here.
+   */
+  subjectOf(event: DiagnosticEvent): DiagnosticSubject | undefined;
+}
+
+/**
+ * The dev tier: devtools hooks, graph traversal, and the console face of the
+ * diagnostics channel. Present only in dev builds (`__DEV__`).
+ */
+export interface Dev {
+  hooks: DevHooks;
+  getChildren: typeof getChildren;
+  getSignals: typeof getSignals;
+  getParent: typeof getParent;
+  getSources: typeof getSources;
+  getObservers: typeof getObservers;
+  /** Console face of an emitted event — see `reportDiagnostic`. */
+  report(entry: DiagnosticEvent): void;
+  /**
    * Registers a console footer appended to the first console report of
    * each diagnostic code — a discovery pointer to deeper guidance (e.g.
    * solid-js registers its shipped repair skill). Reported events carry
@@ -119,17 +194,11 @@ export interface Diagnostics {
   setConsoleFooter(footer: ((event: DiagnosticEvent) => string | undefined) | undefined): void;
 }
 
-export interface Dev {
-  hooks: DevHooks;
-  diagnostics: Diagnostics;
-  /** "Why did this run" re-run attribution — see attribution.ts. */
-  attribution: Attribution;
-  getChildren: typeof getChildren;
-  getSignals: typeof getSignals;
-  getParent: typeof getParent;
-  getSources: typeof getSources;
-  getObservers: typeof getObservers;
-}
+// A dev build without the wiring is a build whose checks emit into a channel
+// nobody can subscribe to. Fail at module init rather than at the first
+// silently dropped finding.
+if (__DEV__ && !__OBSERVE__)
+  throw new Error("@solidjs/signals: __DEV__ requires __OBSERVE__ (dev is a superset of observe)");
 
 const hooks: DevHooks = {};
 const diagnosticListeners = new Set<DiagnosticListener>();
@@ -143,9 +212,8 @@ const diagnostics: Diagnostics = {
     diagnosticListeners.add(listener);
     return () => diagnosticListeners.delete(listener);
   },
-  setConsoleFooter(footer) {
-    consoleFooter = footer;
-    footeredCodes.clear();
+  emit(event, subject = null) {
+    return emitDiagnostic(event, subject);
   },
   capture() {
     const events: DiagnosticEvent[] = [];
@@ -165,21 +233,37 @@ const diagnostics: Diagnostics = {
   }
 };
 
+const attributionSlot: AttributionSlot = {
+  install: setAttributionHooks,
+  get installed() {
+    return attrHooks;
+  },
+  withInteraction
+};
+
+export const OBSERVE: Observe = __OBSERVE__
+  ? {
+      diagnostics,
+      attribution: attributionSlot,
+      subjectOf(event) {
+        return eventSubjects.get(event);
+      }
+    }
+  : (undefined as unknown as Observe);
+
 export const DEV: Dev = __DEV__
   ? {
       hooks,
-      diagnostics,
-      // Getter: attribution.ts imports emitDiagnostic back from this module,
-      // so when attribution.ts evaluates first the `attribution` binding is
-      // still uninitialized here — defer the read to access time.
-      get attribution() {
-        return attribution;
-      },
       getChildren,
       getSignals,
       getParent,
       getSources,
-      getObservers
+      getObservers,
+      report: reportDiagnostic,
+      setConsoleFooter(footer) {
+        consoleFooter = footer;
+        footeredCodes.clear();
+      }
     }
   : (undefined as unknown as Dev);
 
@@ -231,18 +315,22 @@ export function ownerPath(subject: DiagnosticSubject | null | undefined): string
  * default (right for the synchronous rule checks — they fire inside the
  * scope that misbehaved); pass the node for scheduler-time findings whose
  * ambient context is the flush, or `null` for events that have no location
- * by nature. Console output is a separate step — see `reportDiagnostic`.
+ * by nature. An `ownerPath` already on the event wins over the subject walk
+ * (hosts whose owners are not signals' owners compute their own). Console
+ * output is a separate, dev-tier step — see `reportDiagnostic`.
  */
 export function emitDiagnostic(
-  event: Omit<DiagnosticEvent, "sequence" | "ownerPath">,
+  event: Omit<DiagnosticEvent, "sequence">,
   subject: DiagnosticSubject | null | undefined = context
 ): DiagnosticEvent {
   const entry: DiagnosticEvent = {
     sequence: ++diagnosticSequence,
     ...event
   };
-  const path = ownerPath(subject);
-  if (path) entry.ownerPath = path;
+  if (entry.ownerPath === undefined) {
+    const path = ownerPath(subject);
+    if (path) entry.ownerPath = path;
+  }
   if (subject) eventSubjects.set(entry, subject);
   for (const listener of diagnosticListeners) listener(entry);
   for (const capture of diagnosticCaptures) capture.push(entry);
@@ -252,8 +340,8 @@ export function emitDiagnostic(
   // the once-per-code slot synchronously first, so this finds it taken and
   // stays silent — one console entry per finding. Advisory (`info`) events
   // are structured-channel only and get no footer: nothing on the console
-  // for it to follow.
-  if (entry.severity === "error" && consoleFooter && !footeredCodes.has(entry.code)) {
+  // for it to follow. Dev-tier: the footer is console guidance.
+  if (__DEV__ && entry.severity === "error" && consoleFooter && !footeredCodes.has(entry.code)) {
     queueMicrotask(() => {
       const footer = takeFooter(entry);
       if (footer) console.warn(footer);
@@ -286,9 +374,12 @@ const eventSubjects = new WeakMap<DiagnosticEvent, DiagnosticSubject>();
  * second console argument (hover highlights it, click jumps to Elements).
  * Severity picks the console method. Call sites report the entry
  * `emitDiagnostic` returned so the structured and console channels never
- * disagree.
+ * disagree. Dev-tier: in an observe build this is a no-op, so wiring paths
+ * that both emit and report (graph-size warnings) reach the channel only —
+ * production observability never writes to the console.
  */
 export function reportDiagnostic(entry: DiagnosticEvent): void {
+  if (!__DEV__) return;
   let text = entry.message;
   if (entry.ownerPath) text += `\n  in ${entry.ownerPath.join(" › ")}`;
   const footer = takeFooter(entry);
@@ -340,13 +431,20 @@ export function warnStrictReadUntracked(
   );
 }
 
+/**
+ * Observe-tier: stamp a signal with its creating owner so `ownerPath` can
+ * locate signal subjects. The per-owner `_signals` list and the devtools
+ * `onGraph` hook are dev-tier — the observe build pays one property write.
+ */
 export function registerGraph(value: any, owner: Owner | null): void {
   (value as any)._owner = owner;
-  if (owner) {
-    if (!(owner as any)._signals) (owner as any)._signals = [];
-    (owner as any)._signals.push(value);
+  if (__DEV__) {
+    if (owner) {
+      if (!(owner as any)._signals) (owner as any)._signals = [];
+      (owner as any)._signals.push(value);
+    }
+    DEV.hooks.onGraph?.(value, owner);
   }
-  DEV.hooks.onGraph?.(value, owner);
 }
 
 export function clearSignals(node: Owner): void {
@@ -398,11 +496,12 @@ function shouldWarnGraphSize(count: number): boolean {
 }
 
 /**
- * DEV-only: bump live edge counts after a new graph link and warn when a
+ * Observe-tier: bump live edge counts after a new graph link and emit when a
  * node grows an unusually large fan-out (many subscribers on one source) or
  * fan-in (many sources on one computation). Repeat-reads that `link()`
- * dedupes never reach here. Always-on in dev — unlike the opt-in attribution
- * engine, a graph-size pathology should surface without asking.
+ * dedupes never reach here. Always-on wherever the channel exists — unlike
+ * the opt-in attribution engine, a graph-size pathology should surface
+ * without asking. The counts also feed `WIDE_WRITE` in attribution.ts.
  */
 export function noteGraphLink(dep: Signal<any> | Computed<any>, sub: Computed<any>): void {
   const fanOut = (dep._subCount = (dep._subCount || 0) + 1);
@@ -454,7 +553,7 @@ export function noteGraphLink(dep: Signal<any> | Computed<any>, sub: Computed<an
   }
 }
 
-/** DEV-only: drop live edge counts when a link is removed. */
+/** Observe-tier: drop live edge counts when a link is removed. */
 export function unnoteGraphLink(link: Link): void {
   const dep = link._dep;
   const sub = link._sub;

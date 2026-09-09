@@ -5,20 +5,21 @@
  * not.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createMemo, createRoot, createSignal, DEV, flush, mapArray } from "../src/index.js";
+import { attribution } from "../src/attribution.js";
+import { createMemo, createRoot, createSignal, flush, mapArray, OBSERVE } from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 
 afterEach(() => {
-  DEV!.attribution.disable();
+  attribution.disable();
   flush();
   vi.restoreAllMocks();
 });
 
 function arm() {
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  DEV!.attribution.enable({ log: false });
+  attribution.enable({ log: false });
   const hits: DiagnosticEvent[] = [];
-  DEV!.diagnostics.subscribe(e => {
+  OBSERVE!.diagnostics.subscribe(e => {
     if (e.code === "UNSTABLE_LIST_IDENTITY") hits.push(e);
   });
   return hits;

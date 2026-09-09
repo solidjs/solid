@@ -45,12 +45,15 @@ function compileRuntime(source, compiler, generate) {
     : compileOxc(source, `${generate}-runtime`, options, ".tsrx");
 }
 
-// The runtime bundle is prod: `__DEV__` (signals) is a `define` below, but
-// solid-js / @solidjs/web gate dev code on the `"_SOLID_DEV_"` string literal
-// that rollup's replace plugin rewrites at build time — esbuild `define` can't
+// The runtime bundle is prod: `__DEV__` / `__OBSERVE__` (signals) are
+// `define`s below, but solid-js / @solidjs/web gate dev code and observe
+// wiring on the `"_SOLID_DEV_"` / `"_SOLID_OBSERVE_"` string literals that
+// rollup's replace plugin rewrites at build time — esbuild `define` can't
 // reach a string literal, so a source-text replace mirrors the build here.
 // Without it the bundle is half dev (web's dev event wrapper runs) and half
-// prod (signals' `DEV` export is undefined) and the first click throws.
+// prod (signals' `DEV` export is undefined) and the first click throws. Every
+// flag the runtime packages gate on must be listed in BOTH places: a flag the
+// define misses is a ReferenceError at first use.
 const workspaceSourceRoots = ["solid", "web", "signals"].map(
   name => path.join(repoRoot, "packages", name, "src") + path.sep
 );
@@ -77,6 +80,7 @@ async function loadRuntimeModule(code, generate) {
     write: false,
     define: {
       __DEV__: "false",
+      __OBSERVE__: "false",
       __TEST__: "false"
     },
     plugins: [
@@ -89,7 +93,10 @@ async function loadRuntimeModule(code, generate) {
           esbuild.onLoad({ filter: /\.ts$/ }, args => {
             if (!workspaceSourceRoots.some(root => args.path.startsWith(root))) return;
             return {
-              contents: fs.readFileSync(args.path, "utf8").replaceAll('"_SOLID_DEV_"', "false"),
+              contents: fs
+                .readFileSync(args.path, "utf8")
+                .replaceAll('"_SOLID_DEV_"', "false")
+                .replaceAll('"_SOLID_OBSERVE_"', "false"),
               loader: "ts"
             };
           });
@@ -98,12 +105,32 @@ async function loadRuntimeModule(code, generate) {
     ]
   });
 
+  const bundle = result.outputFiles[0].text;
+
+  // A build flag neither list above knows about survives into the bundle and
+  // fails at first use as a ReferenceError deep in the runtime (rc.7's
+  // `__OBSERVE__`). Name it here instead. `__PURE__` / `__NO_SIDE_EFFECTS__`
+  // are annotations esbuild keeps, not flags.
+  const unreplaced = [
+    ...new Set(
+      [...bundle.matchAll(/\b__[A-Z]+__\b|"_SOLID_[A-Z]+_"/g)]
+        .map(m => m[0])
+        .filter(flag => flag !== "__PURE__" && flag !== "__NO_SIDE_EFFECTS__")
+    )
+  ];
+  if (unreplaced.length) {
+    throw new Error(
+      `Runtime bundle still carries build flag(s) ${unreplaced.join(", ")}: add each to ` +
+        "the esbuild `define` (identifier form) and the onLoad replace (string form) above."
+    );
+  }
+
   // Each generated module bundles an isolated runtime copy. Reset the dev
   // duplicate-instance sentinel so running Babel and Oxc side by side does
   // not produce a false warning.
   delete globalThis.Solid$$;
   const runtimeModule = { exports: {} };
-  new Function("require", "module", "exports", result.outputFiles[0].text)(
+  new Function("require", "module", "exports", bundle)(
     require,
     runtimeModule,
     runtimeModule.exports

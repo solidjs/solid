@@ -339,7 +339,7 @@ describe("transparent owners", () => {
     expect(childB).toEqual("1");
   });
 
-  it("should produce identical IDs with and without a transparent wrapper (devComponent scenario)", () => {
+  it("should produce identical IDs with and without a transparent wrapper (observedComponent scenario)", () => {
     const idsWithout: string[] = [];
     const idsWith: string[] = [];
 

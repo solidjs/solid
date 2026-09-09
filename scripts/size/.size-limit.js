@@ -11,6 +11,22 @@ const alias = {
 };
 const modifyEsbuildConfig = config => ({ ...config, alias });
 
+// Observe tier (documentation/plans/observe-tier-plan.md): the artifacts the
+// `observe` export condition selects — wiring kept (attribution hook sites,
+// owner labels, edge counters, the diagnostics channel), checks folded. Its
+// scenario measures what a production observability build ships; the prod
+// scenarios above it must not move because of the tier's existence.
+// Subpath aliases are listed first: esbuild's alias matches by prefix, and
+// the bare `solid-js` entry would otherwise swallow `solid-js/attribution`.
+const observeAlias = {
+  "solid-js/attribution": "../../packages/solid/dist/attribution.js",
+  "@solidjs/signals/attribution": "../../packages/signals/dist/observe/attribution.js",
+  "solid-js": "../../packages/solid/dist/solid.observe.js",
+  "@solidjs/web": "../../packages/web/dist/web.observe.js",
+  "@solidjs/signals": "../../packages/signals/dist/observe/index.js"
+};
+const observeEsbuildConfig = config => ({ ...config, alias: observeAlias });
+
 // The frames scenario measures the EAGER graph a server-component consumer
 // ships: the frames client entry plus the server-function transport it
 // carries. `@solidjs/web/serialization` (the seroval codec, ~13 KB gz) is
@@ -639,6 +655,38 @@ module.exports = [
     // hydrating ones. Ratchet on next so the branch is green again.
     limit: "13.01 KB",
     modifyEsbuildConfig
+  },
+  {
+    name: "app: CSR, observe tier (same app on the `observe` artifacts)",
+    // The CSR scenario resolved through the `observe` condition. The delta
+    // against the prod CSR scenario is the tier's retained cost.
+    //
+    // Introduction (2026-09-08): 14.20 KB measured against prod CSR's 12.91
+    // — +1.29 KB. That is the wiring itself: ~40 null-checked hook call
+    // sites, `_name` labels on owners and computations, live edge counters
+    // with the two always-on graph-size warnings (HUGE_FAN_OUT/IN text
+    // included), the diagnostics channel (subscribe/capture/emit/ownerPath),
+    // the interaction frame, and solid-js's per-component labelled root.
+    // An earlier draft of the tier measured 23.79 KB because the engine was
+    // referenced statically from `OBSERVE.attribution`; it now lives behind
+    // `@solidjs/signals/attribution` and is charged by the scenario below.
+    path: "csr-app.js",
+    limit: "14.30 KB",
+    modifyEsbuildConfig: observeEsbuildConfig
+  },
+  {
+    name: "app: CSR, observe tier + attribution engine enabled",
+    // The observe CSR scenario plus `solid-js/attribution` imported and
+    // enabled. The delta against the scenario above is the engine — the
+    // cost an observe consumer pays only when it turns attribution on.
+    //
+    // Introduction (2026-09-08): 23.91 KB, i.e. the engine is 9.7 KB brotli.
+    // Its record types still carry live nodes (`RerunEvent.node`) and its
+    // formatters ride along with `enable()`; slimming both is the follow-up
+    // in documentation/plans/observe-tier-plan.md.
+    path: "csr-app-attribution.js",
+    limit: "24.00 KB",
+    modifyEsbuildConfig: observeEsbuildConfig
   },
   {
     name: "frames: eager client consumer (frames client + transport, lazy codec)",

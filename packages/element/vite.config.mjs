@@ -14,6 +14,7 @@ export default defineConfig({
   plugins: [solidPlugin({ compiler })],
   define: {
     __DEV__: "true",
+    __OBSERVE__: "true",
     __TEST__: "true"
   },
   test: {

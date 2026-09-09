@@ -1,5 +1,5 @@
 import { untrack, createMemo } from "@solidjs/signals";
-import { $DEVCOMP, IS_DEV, devComponent } from "../client/core.js";
+import { $DEVCOMP, IS_DEV, IS_OBSERVE, observedComponent } from "../client/core.js";
 import { _lazyHydrationLookup, sharedConfig } from "./hydration.js";
 import type { Element as SolidElement } from "../types.js";
 
@@ -75,7 +75,7 @@ export function createComponent<T extends Record<string, any>>(
   Comp: Component<T>,
   props: T
 ): SolidElement {
-  if (IS_DEV) return devComponent(Comp, props || ({} as T));
+  if (IS_OBSERVE) return observedComponent(Comp, props || ({} as T));
   return untrack(() => Comp(props || ({} as T)));
 }
 
