@@ -83,6 +83,7 @@ import {
   activeTransition,
   armReaskClear,
   clock,
+  contestEffect,
   dirtyQueue,
   globalQueue,
   GlobalQueue,
@@ -437,11 +438,19 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       (el as any)._modified = !el._x?._error;
       // Reuse one bound runner per effect — runEffect no-ops on a stale
       // `_modified`, so re-enqueueing the same function is harmless.
-      if (!create)
+      if (!create) {
         el._queue.enqueue(
           isEffect,
           ((el as any)._boundRunEffect ??= GlobalQueue._runEffect.bind(null, el))
         );
+        // Effects don't entangle transactions (a shared effect is not shared
+        // state), yet they have one value slot: when this write replaces a
+        // value a live transaction computed and still owes a run for, that
+        // view is gone — contestEffect records the effect so the owed commit
+        // re-derives it against the committed world before running it
+        // (#3322).
+        if ((el as any)._valueTransition !== activeTransition) contestEffect(el);
+      }
     }
 
     if (el._x?._error) {
@@ -758,6 +767,7 @@ export function createEffectNode<T>(
     _errorFn: errorFn,
     _cleanup: undefined as (() => void) | undefined,
     _type: type,
+    _valueTransition: null,
     _x: null
   } as any;
   if (__OBSERVE__) self._name = options?.name ?? "effect";
@@ -1115,8 +1125,17 @@ export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
   // committed visibility: like the effect half of createEffect and event
   // handlers, effect-phase code never observes its own unsettled write — the
   // write lands in the same flush's continuation (#3006).
+  // A stale reader (render effect) recomputing with no transaction active is
+  // mainline: a write staged by a live transaction (`_transition` stamped —
+  // ambient staging never is) stays masked until that transaction's reveal,
+  // the same rule the slow path applies (#3322). Without it a zombie
+  // recompute, or a commit-time re-derive of a contested effect, published
+  // another transaction's uncommitted value.
   return (
-    !c || el._pendingValue === NOT_PENDING || c._config & CONFIG_CHILDREN_FORBIDDEN
+    !c ||
+    el._pendingValue === NOT_PENDING ||
+    c._config & CONFIG_CHILDREN_FORBIDDEN ||
+    (stale && el._transition !== null)
       ? el._value
       : el._pendingValue
   ) as T;
@@ -1155,9 +1174,13 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     (!__DEV__ || !strictRead)
   ) {
     if (c && tracking) link(el, c as Computed<any>);
-    // Committed visibility for children-forbidden readers — see readNodeFast.
+    // Committed visibility for children-forbidden readers and for stale
+    // readers of a foreign transaction's staged write — see readNodeFast.
     return (
-      !c || el._pendingValue === NOT_PENDING || c._config & CONFIG_CHILDREN_FORBIDDEN
+      !c ||
+      el._pendingValue === NOT_PENDING ||
+      c._config & CONFIG_CHILDREN_FORBIDDEN ||
+      (stale && el._transition !== null)
         ? el._value
         : el._pendingValue
     ) as T;

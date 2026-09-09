@@ -193,6 +193,11 @@ export interface Transition {
   // signal's committed value through the entanglement gate. At commit they
   // get rescheduled so they re-run with the new committed view.
   _gatedSubs: Set<Computed<any>>;
+  /** Effects whose single value slot was written under this transaction AND
+   * another live one (#3322). Re-dirtied at commit, ahead of the effect
+   * phase, so the run publishes a value derived from the committed world
+   * rather than whichever transaction's staged view wrote last. */
+  _contested: Computed<any>[] | null;
 }
 
 /**
@@ -215,8 +220,31 @@ function createBatch(): Transition {
     _actions: [],
     _queueStash: { _queues: [[], []], _children: [] },
     _done: false,
-    _gatedSubs: new Set()
+    _gatedSubs: new Set(),
+    _contested: null
   };
+}
+
+/**
+ * recompute() is committing an effect value under a different transaction
+ * (`activeTransition`, null = mainline) than the one that produced the
+ * previous value (`_valueTransition`) (#3322). Effects are not shared state,
+ * so this must not merge the two — instead each commit recomputes the effect
+ * against its own committed world (see Transition._contested). The previous
+ * owner always needs it if still live: its commit is silent (staging already
+ * notified) and the value it computed is gone. The new owner needs it too,
+ * for the same reason, unless it is mainline — mainline publishes what it
+ * computes. A previous owner that was mainline, or already committed, left
+ * nothing to protect.
+ */
+export function contestEffect(el: any): void {
+  let prev: Transition | null = el._valueTransition;
+  el._valueTransition = activeTransition;
+  if (prev === null) return;
+  prev = currentTransition(prev);
+  if (prev === activeTransition || prev._done) return;
+  (prev._contested ??= []).push(el);
+  if (activeTransition !== null) (activeTransition._contested ??= []).push(el);
 }
 
 function mergeTransitionState(target: Transition, outgoing: Transition): void {
@@ -248,6 +276,7 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
   }
   if (__DEV__) endAsyncReporterWrites();
   for (const sub of outgoing._gatedSubs) target._gatedSubs.add(sub);
+  if (outgoing._contested) (target._contested ??= []).push(...outgoing._contested);
 }
 
 /**
@@ -1035,6 +1064,14 @@ export function finalizePureQueue(
   const resolvePending = !incomplete;
   if (resolvePending) commitPendingNodes();
   if (!incomplete && globalQueue._children.length) checkBoundaryChildren(globalQueue);
+  // Contested effects (#3322) re-derive from the world this commit just
+  // produced. Ahead of the heap run — not the post-heap gated replay — so
+  // the recompute and the effect phase land in this same pass and the value
+  // the other transaction wrote into the slot is never published.
+  // (No clear: a completed transition is never finalized again.)
+  if (completingTransition?._contested)
+    for (const el of completingTransition._contested)
+      if (!(el._flags & REACTIVE_DISPOSED)) enqueueSub(el);
   const ranHeap = dirtyQueue._max >= dirtyQueue._min;
   if (ranHeap) runHeap(dirtyQueue, GlobalQueue._update);
   if (resolvePending) {

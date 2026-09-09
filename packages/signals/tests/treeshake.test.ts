@@ -147,7 +147,18 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // tracked special case in enqueueSub is deleted; GlobalQueue._update
     // gains a four-line branch that hands a tracked node's callback to the
     // user queue instead of recomputing it. Measured at 21,461 post-change.
-    expect(minifiedBytes).toBeLessThan(21_600);
+    // CONSCIOUS BUMP (2026-09-09): +~242B for contested-effect re-derivation
+    // (#3322) — effects have one value slot and do not entangle
+    // transactions, so a second live transaction (or mainline) recomputing a
+    // shared effect overwrote a value the first still owed a run for, and
+    // the silent commit then published it. Effect._valueTransition stamps
+    // the owner, contestEffect records the effect on the owed transaction(s),
+    // finalizePureQueue re-dirties them ahead of the heap run; the signal
+    // fast path in read() gains the stale-reader mask for foreign staged
+    // writes the slow path already had. Core-retained by necessity: the
+    // clobber happens in recompute and the fix is the commit ordering itself.
+    // Measured at 21,765 post-change.
+    expect(minifiedBytes).toBeLessThan(21_900);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

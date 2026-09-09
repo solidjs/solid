@@ -28,7 +28,8 @@ import {
   resetUnhandledAsync,
   schedule,
   setTrackedQueueCallback,
-  setEffectCallback
+  setEffectCallback,
+  type Transition
 } from "./scheduler.js";
 import type { Computed, NodeOptions, Owner } from "./types.js";
 
@@ -39,6 +40,11 @@ export interface Effect<T> extends Computed<T>, Owner {
   _prevValue: T | undefined;
   _type: number;
   _boundRunEffect?: () => void;
+  /** The transaction whose staged view produced `_value` (null = committed
+   * view). Effects have one value slot and do not entangle transactions, so
+   * a second transaction recomputing the same effect overwrites a value the
+   * first one still owes a run for; see contestEffect (#3322). */
+  _valueTransition: Transition | null;
 }
 
 /**
