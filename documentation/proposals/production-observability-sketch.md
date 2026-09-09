@@ -10,7 +10,7 @@ Related work this builds on (all dev-only today):
 
 - `next`: `packages/signals/src/core/attribution.ts` (engine),
   `attribution-hooks.ts` (the core's hook surface), `dev.ts`
-  (`DEV.diagnostics`, `DiagnosticEvent`), `packages/diagnostics/` (artifact,
+  (`OBSERVE.diagnostics`, `DiagnosticEvent`), `packages/diagnostics/` (artifact,
   budgets, assertions).
 - `diagnostics-expansion` branch (in flight, not yet on `next`): write
   provenance (`ChangeOrigin`, `InteractionRef`, `withInteraction`), transition

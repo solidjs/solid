@@ -1,14 +1,16 @@
-import { setAttributionHooks, type AttributionHooks } from "./attribution-hooks.js";
+import {
+  setAttributionHooks,
+  type AttributionHooks,
+  type InteractionRef
+} from "./attribution-hooks.js";
 import { $REFRESH, NOT_PENDING } from "./constants.js";
-// Cycle note: dev.ts imports this module for the `attribution` object, and we
-// import its hoisted emitDiagnostic back — safe (only called at runtime) and
-// treeshake-neutral (dev.ts is already reachable from the core).
 import { emitDiagnostic, ownerPath, reportDiagnostic } from "./dev.js";
 import type { Transition } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
 
 /**
- * Dev-mode "why did this run" attribution.
+ * "Why did this run" attribution — the engine behind
+ * `@solidjs/signals/attribution`.
  *
  * The runtime already knows the full dependency set of every scope; this
  * module surfaces it. Every value commit stamps its node with a ChangeRecord
@@ -23,11 +25,13 @@ import type { Computed, Signal } from "./types.js";
  *
  * This module is the attribution ENGINE: all semantics live here, and it is
  * decoupled from the core. `enable()` installs it into the core's narrow
- * dev-only hook points (attribution-hooks.ts); core's only obligation is to
- * call those hooks with true facts. Disabled cost is one null check per hook
- * site; prod builds fold the sites out entirely. The same hook surface is the
- * intended substrate for external consumers (devtools) — one mechanism, two
- * front-ends.
+ * observe-tier hook points (attribution-hooks.ts); core's only obligation is
+ * to call those hooks with true facts. Disabled cost is one null check per
+ * hook site; prod builds fold the sites out entirely. Nothing in the core
+ * imports this module — it is reachable only through the package's
+ * `./attribution` entry, so an observe build that never imports it never
+ * ships it. The same hook surface is the intended substrate for external
+ * consumers (devtools) — one mechanism, two front-ends.
  */
 
 export type ChangeKind = "write" | "derived" | "async" | "refresh";
@@ -61,16 +65,6 @@ export interface ChangeOrigin {
   interaction?: ChangeOrigin;
   /** `effect` only: the `RerunEvent.run` of the compute run this callback belongs to. */
   run?: number;
-}
-
-/** A user interaction, as the web runtime describes it to `withInteraction`. */
-export interface InteractionRef {
-  /** Event type — `click`, `keydown`, `input`… */
-  type: string;
-  /** The element hit, e.g. `button#next "Next →"`. */
-  target?: string;
-  /** Dispatch time on the `performance.now()` clock; defaults to now. */
-  at?: number;
 }
 
 export interface ChangeRecord {
@@ -425,11 +419,25 @@ const originFrames: ChangeOrigin[] = [];
 /** Per action invocation (keyed by its iterator): the interaction its first step ran under. */
 const actionInteractions = new WeakMap<object, ChangeOrigin | undefined>();
 /**
- * Set by `withInteraction` for the duration of a handler. Lives outside the
- * enable/disable lifecycle on purpose: the web runtime marks dispatch whether
- * or not an engine is listening, and enable() mid-handler must see the mark.
+ * The interaction frame the core's `withInteraction` opened (via the
+ * `interactionStart`/`interactionEnd` hooks) for the duration of a handler.
+ * Frames nest strictly, so the enclosing one is kept on a stack to restore.
+ * The core pins the engine per frame: an `interactionEnd` can arrive after
+ * `disable()` cleared the stack, so popping an empty stack is tolerated.
  */
 let currentInteraction: ChangeOrigin | null = null;
+const interactionStack: (ChangeOrigin | null)[] = [];
+
+function interactionStart(ref: InteractionRef): void {
+  interactionStack.push(currentInteraction);
+  const origin: ChangeOrigin = { kind: "interaction", name: ref.type, at: ref.at ?? now() };
+  if (ref.target) origin.target = ref.target;
+  currentInteraction = origin;
+}
+
+function interactionEnd(): void {
+  currentInteraction = interactionStack.length ? interactionStack.pop()! : null;
+}
 
 /** The interaction an origin runs under (itself, when it is one). */
 function interactionOf(origin: ChangeOrigin | undefined): ChangeOrigin | undefined {
@@ -493,24 +501,6 @@ function popFrame(kind: "effect" | "action") {
   // (the opener never pushed) — leave the stack alone rather than pop a stranger.
   const top = originFrames[originFrames.length - 1];
   if (top !== undefined && top.kind === kind) originFrames.pop();
-}
-
-/**
- * Run `fn` as the handler of a user interaction: every root write it performs
- * (and every action step or effect the write causes) carries the interaction
- * as provenance. The web runtime wraps event dispatch in this; it is dev-only
- * and safe to call with no engine enabled.
- */
-export function withInteraction<T>(ref: InteractionRef, fn: () => T): T {
-  const prev = currentInteraction;
-  const origin: ChangeOrigin = { kind: "interaction", name: ref.type, at: ref.at ?? now() };
-  if (ref.target) origin.target = ref.target;
-  currentInteraction = origin;
-  try {
-    return fn();
-  } finally {
-    currentInteraction = prev;
-  }
 }
 
 /** `click on button#next "Next →"`, `effect "syncTitle"`, `action "save"`, … */
@@ -981,16 +971,9 @@ export interface Attribution {
    * is then judged against the real start — work already in the air when its
    * upstream landed is parallel, never a waterfall link. Callable while
    * attribution is disabled (marks made at navigation time must survive a
-   * later enable()). Dev-only, like the whole DEV surface.
+   * later enable()).
    */
   markFlight(flight: object, startedAt?: number): void;
-  /**
-   * Run `fn` as a user interaction's handler: root writes inside stamp it as
-   * their origin, and actions/effects/flights it causes carry it. The web
-   * runtime wraps every event dispatch in this; custom renderers and test
-   * harnesses call it themselves. Callable while attribution is disabled.
-   */
-  withInteraction: typeof withInteraction;
   format: typeof formatRerun;
   formatOrigin: typeof formatOrigin;
 }
@@ -1760,7 +1743,8 @@ function checkWaterfall(el: Computed<any>, chain: FlightLink[], ms: number): voi
     `response, derive both from the same inputs so they start together; if the ` +
     `dependency is intrinsic, preload the dependent data or join the requests ` +
     `server-side. If this work WAS already started elsewhere (a preloader or request ` +
-    `cache), have that layer stamp its promises with DEV.attribution.markFlight().`;
+    `cache), have that layer stamp its promises with attribution.markFlight() ` +
+    `from "@solidjs/signals/attribution".`;
   // Depth 2 is advisory-only (structured consumers see it; the console does
   // not): a 2-chain can be an intrinsic data dependency or an unmarked
   // preload. A 3+ chain that survived the origin test is near-certainly
@@ -2429,6 +2413,8 @@ let asyncStartSeq = 0;
 let asyncStartTime = 0;
 let asyncStartValue: unknown;
 const engineHooks: AttributionHooks = {
+  interactionStart,
+  interactionEnd,
   recomputeStart(el, create) {
     frames.push({
       start: now(),
@@ -2597,6 +2583,8 @@ export const attribution: Attribution = {
     flightStats.clear();
     fallbackStats.clear();
     originFrames.length = 0;
+    interactionStack.length = 0;
+    currentInteraction = null;
     hotCauses.clear();
     setAttributionHooks(engineHooks);
   },
@@ -2618,6 +2606,8 @@ export const attribution: Attribution = {
     flightStats.clear();
     fallbackStats.clear();
     originFrames.length = 0;
+    interactionStack.length = 0;
+    currentInteraction = null;
     hotCauses.clear();
     setAttributionHooks(null);
   },
@@ -2659,7 +2649,6 @@ export const attribution: Attribution = {
     const existing = flightOrigins.get(flight);
     if (existing === undefined || startedAt < existing) flightOrigins.set(flight, startedAt);
   },
-  withInteraction,
   format: formatRerun,
   formatOrigin
 };

@@ -13,7 +13,7 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
-  DEV,
+  OBSERVE,
   flush,
   isPending
 } from "@solidjs/signals";
@@ -91,7 +91,7 @@ async function capturePageTurn(withBusyIndicator: boolean, holdFor = 20) {
   await feed.load("a");
   const { artifact } = await captureArtifact(
     async () => {
-      DEV!.attribution.withInteraction({ type: "click", target: 'button#next "Next →"' }, () =>
+      OBSERVE!.attribution.withInteraction({ type: "click", target: 'button#next "Next →"' }, () =>
         feed.setPage(2)
       );
       flush();

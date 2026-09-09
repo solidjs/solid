@@ -16,7 +16,7 @@ import {
   enableHydration,
   enforceLoadingBoundary,
   resetErrorHalt,
-  DEV
+  OBSERVE
 } from "solid-js";
 import { effect, memo, tagElement } from "./render.js";
 
@@ -379,14 +379,14 @@ export function unregisterDelegatedContainer(container, owner = container) {
 
 function attachDelegatedEvent(name, container, state) {
   if (state.handlers.has(name)) return;
-  const handler = "_SOLID_DEV_"
+  const handler = "_SOLID_OBSERVE_"
     ? e => dispatchAsInteraction(e, () => eventHandler(e, container, state))
     : e => eventHandler(e, container, state);
   state.handlers.set(name, handler);
   container.addEventListener(name, handler);
 }
 
-// === Interaction provenance (dev) ===
+// === Interaction provenance (observe tier) ===
 //
 // Delegated events — every INP-relevant type: click, input, keydown,
 // pointer*… — reach user code through the dispatch above, and runtime-attached
@@ -413,7 +413,7 @@ function describeEventTarget(target) {
 }
 
 function dispatchAsInteraction(e, fn) {
-  return DEV.attribution.withInteraction(
+  return OBSERVE.attribution.withInteraction(
     { type: e.type, target: describeEventTarget(e.target) },
     fn
   );
@@ -674,7 +674,7 @@ export function addEvent(node, name, handler, delegate) {
   }
   if (Array.isArray(handler)) {
     const handlerFn = handler[0];
-    const listener = "_SOLID_DEV_"
+    const listener = "_SOLID_OBSERVE_"
       ? e => dispatchAsInteraction(e, () => handlerFn.call(node, handler[1], e))
       : e => handlerFn.call(node, handler[1], e);
     // Keep authored identity on this attachment's wrapper, never on the
@@ -683,9 +683,9 @@ export function addEvent(node, name, handler, delegate) {
     node.addEventListener(name, listener);
     return listener;
   }
-  if ("_SOLID_DEV_" && typeof handler === "function") {
-    // Dev wraps plain function listeners for provenance; the wrapper is what
-    // the caller gets back, so removal by the returned identity still works.
+  if ("_SOLID_OBSERVE_" && typeof handler === "function") {
+    // Observe/dev wrap plain function listeners for provenance; the wrapper is
+    // what the caller gets back, so removal by the returned identity still works.
     // Listener objects keep their identity (their options object rides along
     // on the attach call and must match on removal).
     const listener = e => dispatchAsInteraction(e, () => handler.call(node, e));

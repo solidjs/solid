@@ -11,8 +11,13 @@ import type { Accessor, EffectOptions } from "@solidjs/signals";
 import type { ArrayElement, Element as SolidElement } from "../types.js";
 import { FlowComponent, FlowProps } from "./component.js";
 
-// replaced during build
+// Replaced during build. Two tiers (see @solidjs/signals globals.d.ts):
+// IS_DEV gates checks (strict-read labels, dev-only errors, devtools brands);
+// IS_OBSERVE gates wiring (owner labels that feed `ownerPath` and
+// attribution). Dev builds set both; observe builds set only IS_OBSERVE;
+// prod neither. IS_DEV implies IS_OBSERVE.
 export const IS_DEV = "_SOLID_DEV_" as string | boolean;
+export const IS_OBSERVE = "_SOLID_OBSERVE_" as string | boolean;
 /**
  * Brand symbol marking dev-built components for `solid-devtools` /
  * AI-readiness instrumentation. Internal cross-package wiring.
@@ -176,7 +181,7 @@ export function children(fn: Accessor<SolidElement>): ChildrenReturn {
   // can throw NotReadyError, but that propagates regardless of `sync`.
   const memo = createMemo(
     () => flatten(c()),
-    IS_DEV ? { name: "children", lazy: true, sync: true } : { lazy: true, sync: true }
+    IS_OBSERVE ? { name: "children", lazy: true, sync: true } : { lazy: true, sync: true }
   ) as unknown as ChildrenReturn;
   memo.toArray = () => {
     const v = memo();
@@ -185,12 +190,19 @@ export function children(fn: Accessor<SolidElement>): ChildrenReturn {
   return memo;
 }
 
-// Dev
-export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
+/**
+ * Observe/dev component wrapper: runs the component inside a transparent
+ * root that carries its label, so the owner tree reads as the component
+ * tree. Observe tier: the root and its `_name` — what `ownerPath` and
+ * attribution need (`["<App>", "<TodoRow>", "effect"]`). Dev tier adds the
+ * non-function check, the devtools `_component` record and `$DEVCOMP` brand,
+ * and the strict-read label. The prod build never calls this.
+ */
+export function observedComponent<P, V>(Comp: (props: P) => V, props: P): V {
   // A JSX tag whose component resolved to a non-function otherwise surfaces
   // as `Cannot read properties of undefined (reading 'name')` from inside the
   // dev build — a framework-shaped stack for an app-shaped mistake (#3005).
-  if (typeof Comp !== "function") {
+  if (IS_DEV && typeof Comp !== "function") {
     throw new Error(
       `createComponent: expected a component function but got ${
         Comp === null ? "null" : typeof Comp
@@ -201,18 +213,22 @@ export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
   return createRoot(
     () => {
       const owner: any = getOwner();
-      owner._component = {
-        fn: Comp,
-        props,
-        name: Comp.name
-      };
       // The component root carries its label as `_name`, the same field the
-      // signals dev layer reads for owner names — so diagnostics locate scopes
-      // by component (`ownerPath: ["<App>", "<TodoRow>", "effect"]`) and an
-      // owned-scope write in a component body reports "(in <TodoRow>)".
+      // signals observe layer reads for owner names (reserved from property
+      // mangling there for exactly this write) — so diagnostics locate scopes
+      // by component and an owned-scope write in a component body reports
+      // "(in <TodoRow>)".
       owner._name = label;
-      Object.assign(Comp, { [$DEVCOMP]: true });
-      return untrack(() => Comp(props), IS_DEV && label);
+      if (IS_DEV) {
+        owner._component = {
+          fn: Comp,
+          props,
+          name: Comp.name
+        };
+        Object.assign(Comp, { [$DEVCOMP]: true });
+        return untrack(() => Comp(props), label);
+      }
+      return untrack(() => Comp(props));
     },
     { transparent: true }
   );

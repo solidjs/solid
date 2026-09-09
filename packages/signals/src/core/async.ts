@@ -352,7 +352,7 @@ export function handleAsync<T>(
   // flattened combinations — is announced exactly once, while the recompute
   // frame that caused it is still on the engine's stack. Not inside a try
   // (#2883 — see attribution-hooks.ts).
-  if (__DEV__ && attrHooks !== null) attrHooks.flightStart(el, result as object);
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.flightStart(el, result as object);
   let syncValue: T;
 
   // Settle-time transition re-entry. The loading rail is invisible to
@@ -447,7 +447,7 @@ export function handleAsync<T>(
     // Attribution hook: lets the engine snapshot state before the landing
     // branches, so it can tell whether the plain path's setSignal committed a
     // change (and only then classify it as an async landing).
-    if (__DEV__ && attrHooks !== null) attrHooks.asyncStart(el);
+    if (__OBSERVE__ && attrHooks !== null) attrHooks.asyncStart(el);
     if (setter) {
       try {
         setter(value);
@@ -478,7 +478,7 @@ export function handleAsync<T>(
       // re-show an unchanged view — the revert is the notification point.
       GlobalQueue._syncCompanions?.(el, value);
       if (!hasActiveOverride(el)) {
-        if (__DEV__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, true);
+        if (__OBSERVE__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, true);
         insertSubs(el);
       } else if (el._config & CONFIG_AUTHORITATIVE_OBSERVED) {
         // A17 silence is stated over ordinary readers; an authoritative-view
@@ -521,7 +521,7 @@ export function handleAsync<T>(
       // the commit branch leaves prod residue (#2883). The engine instead
       // detects whether this landing committed by comparing the node against
       // its asyncStart snapshot (see attribution.ts).
-      if (__DEV__ && attrHooks !== null) attrHooks.asyncEnd(el, prevValue, value, true);
+      if (__OBSERVE__ && attrHooks !== null) attrHooks.asyncEnd(el, prevValue, value, true);
     } else {
       try {
         setSignal(el, () => value);
@@ -534,7 +534,7 @@ export function handleAsync<T>(
       // hook already saw any committed change — direct=false lets the engine
       // reclassify that write as an async landing iff it actually committed.
       // Outside the try (#2883 — see attribution-hooks.ts).
-      if (__DEV__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, false);
+      if (__OBSERVE__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, false);
     }
     // First real answer landing: the window closes when the answer becomes
     // OBSERVABLE. A direct commit is observable now; a transition-held write

@@ -311,7 +311,7 @@ export function createOptimisticStoreNext<T extends object = {}>(
     };
     let nodeOptions: { name?: string; loadingValue?: void } | undefined;
     if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
-    if (__DEV__ && options?.name) nodeOptions = { ...nodeOptions, name: options.name };
+    if (__OBSERVE__ && options?.name) nodeOptions = { ...nodeOptions, name: options.name };
     const node = computed(() => {
       const self = getOwner() as Computed<void>;
       try {

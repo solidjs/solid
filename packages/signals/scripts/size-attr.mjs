@@ -8,7 +8,7 @@ const res = await build({
   minify: true,
   write: false,
   metafile: true,
-  define: { __DEV__: "false", __TEST__: "false" },
+  define: { __DEV__: "false", __OBSERVE__: "false", __TEST__: "false" },
   treeShaking: true,
   logLevel: "silent"
 });

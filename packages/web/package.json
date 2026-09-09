@@ -73,6 +73,16 @@
             "default": "./dist/web.dev.cjs"
           }
         },
+        "observe": {
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/web.observe.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/web.observe.cjs"
+          }
+        },
         "import": {
           "types": "./types/index.d.ts",
           "default": "./dist/web.js"
@@ -130,6 +140,16 @@
         "require": {
           "types": "./types-cjs/index.d.cts",
           "default": "./dist/web.dev.cjs"
+        }
+      },
+      "observe": {
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/web.observe.js"
+        },
+        "require": {
+          "types": "./types-cjs/index.d.cts",
+          "default": "./dist/web.observe.cjs"
         }
       },
       "import": {

@@ -157,6 +157,16 @@ false`), `exports-server-conditions.spec.tsx`; solid
 
 Decision: **reuse `@solidjs/signals`'s channel, do not fork it.**
 
+> **Update 2026-09-08.** `observe-tier-plan.md` PR A landed between P0 and
+> P1 and renames what the bullets below refer to: the channel is
+> `OBSERVE.diagnostics` (`OBSERVE` exists in dev and observe builds); the
+> console face is `DEV.report` / `DEV.setConsoleFooter` (dev only); the server
+> gates wiring on the `"_SOLID_OBSERVE_"` literal and checks on
+> `"_SOLID_DEV_"`; `emit` accepts an explicit `ownerPath`, so the server
+> labels its own owners without signals walking `SSROwner._parent`.
+> `dist/server.observe.*` already exists (exporting a live `OBSERVE`); P1
+> gives it content. Read `DEV.diagnostics` below as `OBSERVE.diagnostics`.
+
 - The server facade imports `DEV` (and the `emitDiagnostic` /
   `DiagnosticEvent` types) from `@solidjs/signals`, every use behind
   `"_SOLID_DEV_"` so the prod server build folds it out and never touches

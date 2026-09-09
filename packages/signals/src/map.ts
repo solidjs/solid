@@ -99,7 +99,7 @@ export function mapArray<Item, MappedItem>(
   };
   const node = computed(
     updateKeyedMap.bind(data as MapData<unknown, unknown>),
-    __DEV__ && options?.name ? { name: options.name } : undefined
+    __OBSERVE__ && options?.name ? { name: options.name } : undefined
   );
   // Untracked reads inside the internal owner resolve via _parentComputed; routing
   // them through node lets store-proxy lookups see pending writes (not stale _value).
@@ -278,7 +278,7 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
           newIndices.set(key, j);
         } else {
           (removed ??= []).push(this._nodes[i]);
-          if (__DEV__ && attrHooks !== null) (removedItems ??= []).push(item);
+          if (__OBSERVE__ && attrHooks !== null) (removedItems ??= []).push(item);
         }
       }
 
@@ -287,7 +287,7 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
         for (j = start; j <= newEnd; j++) {
           if (tempNodes[j] !== undefined) continue;
           (created ??= []).push((tempNodes[j] = createOwner()));
-          if (__DEV__ && attrHooks !== null) (createdItems ??= []).push(newItems[j]);
+          if (__OBSERVE__ && attrHooks !== null) (createdItems ??= []).push(newItems[j]);
           temp[j] = runWithOwner<MappedItem>(tempNodes[j], mapper)!;
         }
       } catch (err) {
@@ -328,7 +328,12 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
       // save a copy of the mapped items for the next update
       this._items = newItems.slice(0);
       if (removed) for (i = 0; i < removed.length; i++) removed[i].dispose();
-      if (__DEV__ && attrHooks !== null && removedItems !== undefined && createdItems !== undefined)
+      if (
+        __OBSERVE__ &&
+        attrHooks !== null &&
+        removedItems !== undefined &&
+        createdItems !== undefined
+      )
         attrHooks.listChurn(
           this._owner._parentComputed!,
           removedItems,

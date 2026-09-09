@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { attribution } from "../src/attribution.js";
 import {
   createEffect,
   createMemo,
@@ -6,23 +7,23 @@ import {
   createRoot,
   createSignal,
   createStore,
-  DEV,
   flush,
-  refresh
+  refresh,
+  OBSERVE
 } from "../src/index.js";
 import type { AttributionOptions, RerunEvent } from "../src/core/attribution.js";
 
 afterEach(() => {
-  DEV!.attribution.disable();
+  attribution.disable();
   flush();
   vi.restoreAllMocks();
 });
 
 /** Enable quietly and collect every rerun event. */
 function collect(opts?: AttributionOptions): RerunEvent[] {
-  DEV!.attribution.enable({ log: false, ...opts });
+  attribution.enable({ log: false, ...opts });
   const events: RerunEvent[] = [];
-  DEV!.attribution.subscribe(e => events.push(e));
+  attribution.subscribe(e => events.push(e));
   return events;
 }
 
@@ -181,7 +182,7 @@ describe("why-did-this-run attribution", () => {
     setN(2);
     flush();
 
-    const runs = DEV!.attribution.why(doubled);
+    const runs = attribution.why(doubled);
     expect(runs.length).toBeGreaterThanOrEqual(1);
     expect(runs.every(e => e.nodeName === "doubled")).toBe(true);
   });
@@ -202,7 +203,7 @@ describe("why-did-this-run attribution", () => {
     setN(2);
     flush();
 
-    const text = DEV!.attribution.format(events.find(e => e.nodeName === "title-effect")!);
+    const text = attribution.format(events.find(e => e.nodeName === "title-effect")!);
     expect(text).toContain('effect "title-effect" ran');
     expect(text).toContain('memo "label" changed');
     expect(text).toContain('signal "notifications" write');
@@ -230,7 +231,7 @@ describe("why-did-this-run attribution", () => {
     expect(run.depsAdded).toEqual(["b"]);
     expect(run.depsRemoved).toEqual(["a"]);
     expect(run.depCount).toBe(2); // flag + b
-    expect(DEV!.attribution.format(run)).toContain('deps changed: +"b" -"a" (2 total)');
+    expect(attribution.format(run)).toContain('deps changed: +"b" -"a" (2 total)');
 
     // A run with an unchanged dep set reports no diff.
     setFlag(true);
@@ -239,7 +240,7 @@ describe("why-did-this-run attribution", () => {
     flush();
     const last = events.filter(e => e.nodeName === "branchy").at(-1)!;
     expect(last.depsAdded).toEqual(["b"]);
-    expect(DEV!.attribution.subscriptions(run.node)).toEqual(["flag", "b"]);
+    expect(attribution.subscriptions(run.node)).toEqual(["flag", "b"]);
   });
 
   it("warns on hot scopes, once per window", () => {
@@ -258,7 +259,7 @@ describe("why-did-this-run attribution", () => {
     // instrumented CI runs (coverage) can exceed it, adding a HOT_SCOPE_TIME
     // warn that breaks the exact console counts below.
     collect({ hotRuns: { count: 3, windowMs: 60_000 }, wideDeps: false, hotTime: false });
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
     for (let i = 1; i <= 5; i++) {
       setN(i);
       flush();
@@ -293,7 +294,7 @@ describe("why-did-this-run attribution", () => {
       wideWrites: false,
       hotTime: false
     });
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
     for (let i = 1; i <= 4; i++) {
       setN(i);
       flush();
@@ -327,7 +328,7 @@ describe("why-did-this-run attribution", () => {
 
     // hotTime disabled — see the hot-scopes test above.
     collect({ wideDeps: 4, hotRuns: false, hotTime: false });
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
     setBump(1);
     flush();
     setBump(2); // still 6 deps — under the 1.5x re-warn bar
@@ -347,7 +348,7 @@ describe("why-did-this-run attribution", () => {
 
     // hotTime disabled — see the hot-scopes test above.
     collect({ wideDeps: 4, hotRuns: false, hotTime: false });
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
     const wide = createMemo(() => signals.reduce((sum, [get]) => sum + get(), 0), {
       name: "born-wide"
     });
@@ -417,7 +418,7 @@ describe("why-did-this-run attribution", () => {
     expect(memoRun.changed).toBe(true);
     expect(effectRun.selfMs).toBeLessThan(memoRun.selfMs);
 
-    const { scopes, writes } = DEV!.attribution.costs();
+    const { scopes, writes } = attribution.costs();
     expect(scopes[0].name).toBe("slow-memo"); // ranked by self-time
     expect(scopes[0].selfMs).toBeGreaterThanOrEqual(5);
     expect(scopes[0].wastedMs).toBe(0); // value changed — not waste
@@ -454,7 +455,7 @@ describe("why-did-this-run attribution", () => {
     setN(2); // memo re-runs, produces the same value — pure waste
     flush();
 
-    const { scopes } = DEV!.attribution.costs();
+    const { scopes } = attribution.costs();
     const wasteful = scopes.find(s => s.name === "wasteful")!;
     expect(wasteful.wastedMs).toBeGreaterThanOrEqual(4);
     expect(wasteful.wastedMs).toBe(wasteful.selfMs);
@@ -485,7 +486,7 @@ describe("why-did-this-run attribution", () => {
     const [wasted, real] = events.filter(e => e.nodeName === "row-class");
     expect(wasted.changed).toBe(false);
     expect(real.changed).toBe(true);
-    const { scopes } = DEV!.attribution.costs();
+    const { scopes } = attribution.costs();
     const scope = scopes.find(s => s.name === "row-class")!;
     expect(scope.wastedMs).toBeGreaterThanOrEqual(0);
     expect(scope.wastedMs).toBe(wasted.selfMs);
@@ -512,7 +513,7 @@ describe("why-did-this-run attribution", () => {
 
     const run = events.find(e => e.nodeName === "void-effect")!;
     expect(run.changed).toBe(true);
-    const { scopes } = DEV!.attribution.costs();
+    const { scopes } = attribution.costs();
     expect(scopes.find(s => s.name === "void-effect")!.wastedMs).toBe(0);
   });
 
@@ -536,7 +537,7 @@ describe("why-did-this-run attribution", () => {
     flush();
 
     collect({ hotRuns: false, hotTime: { budgetMs: 5, windowMs: 60_000 } });
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
     setN(1);
     flush();
     setN(2); // still inside the window — warned once, then muted
@@ -577,7 +578,7 @@ describe("why-did-this-run attribution", () => {
     // Every run under the optimistic write is tagged as overlay work.
     for (const run of runs) expect(run.phase).not.toBe("plain");
 
-    const { scopes } = DEV!.attribution.costs();
+    const { scopes } = attribution.costs();
     const scope = scopes.find(s => s.name === "opt-effect")!;
     expect(scope.overlayMs).toBeGreaterThan(0);
     expect(scope.wastedMs).toBe(0); // overlay runs are never waste
@@ -615,10 +616,10 @@ describe("why-did-this-run attribution", () => {
     );
     flush();
     const events: RerunEvent[] = [];
-    DEV!.attribution.subscribe(e => events.push(e));
+    attribution.subscribe(e => events.push(e));
     setN(1);
     flush();
     expect(events).toHaveLength(0);
-    expect(DEV!.attribution.history()).toHaveLength(0);
+    expect(attribution.history()).toHaveLength(0);
   });
 });

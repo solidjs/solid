@@ -34,7 +34,7 @@ async function bundleFixture(code: string): Promise<{
   const result = (await build({
     configFile: false,
     logLevel: "silent",
-    define: { __DEV__: "false", __TEST__: "false" },
+    define: { __DEV__: "false", __OBSERVE__: "false", __TEST__: "false" },
     resolve: { alias: { sigsrc: join(SRC, "index.ts") } },
     build: {
       write: false,

@@ -6,7 +6,7 @@
 
 Solid 2.0 introduces a structured diagnostics system that catches common mistakes at development time. Every diagnostic has a code, severity (`error`, `warn`, or `info`), and actionable message. Errors throw and halt execution; warnings log to the console; `info` events are advisory leads that reach only the structured channel. All diagnostics are stripped from production builds via `_SOLID_DEV_` / `__DEV__` guards.
 
-Diagnostics can also be programmatically observed via `DEV.diagnostics.subscribe()` and `DEV.diagnostics.capture()` for tooling and testing. The `@solidjs/diagnostics` package builds an agent-facing harness on that channel (captured artifacts, budgets, Vitest matchers, a browser bridge); the `reactivity-diagnostics` skill shipped in `solid-js` maps every code to its repair.
+Diagnostics can also be programmatically observed via `OBSERVE.diagnostics.subscribe()` and `OBSERVE.diagnostics.capture()` for tooling and testing. The `@solidjs/diagnostics` package builds an agent-facing harness on that channel (captured artifacts, budgets, Vitest matchers, a browser bridge); the `reactivity-diagnostics` skill shipped in `solid-js` maps every code to its repair.
 
 ## Console addressability
 
@@ -15,7 +15,7 @@ Every console report is one entry built for a human to act on:
 - The message, with the code in brackets and the repair in the text.
 - An `in` line naming the owners enclosing the subject, root first — component roots as `<Name>`, computations by their `name` option or the `effect`/`computed` default (`in <App> › <TodoList> › <TodoRow> › effect`). The same chain is `event.ownerPath` on the structured event.
 - For a compiled JSX binding effect (attribute, class, style, property, spread, insert), the element it writes as a second console argument — hover highlights it on the page, click jumps to it in the Elements panel. The web runtime tags binding effects with their element in dev; the core prints whatever the subject knows.
-- The first report of each code ends with a footer registered by `solid-js` (`DEV.diagnostics.setConsoleFooter`): the installed repair skill path (`node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md`) and the same file's stable GitHub URL anchored to the code's section. Perf, graph, and responsiveness codes add a second line pointing at `DEV.attribution.enable()` and the `agent-loops` skill in `@solidjs/diagnostics`.
+- The first report of each code ends with a footer registered by `solid-js` (`DEV.setConsoleFooter`): the installed repair skill path (`node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md`) and the same file's stable GitHub URL anchored to the code's section. Perf, graph, and responsiveness codes add a second line pointing at `attribution.enable()` from `solid-js/attribution` and the `agent-loops` skill in `@solidjs/diagnostics`.
 
 Attribution's own output (`[why-run]` chains) prints as collapsed console groups — one headline per re-run, the cause chain and dependency delta inside.
 
@@ -295,7 +295,7 @@ Related: `WIDE_SCOPE_DEPS` (below) fires at a much lower threshold, but only whi
 
 #### `HOT_SCOPE_RERUNS`, `HOT_SCOPE_TIME`, `WIDE_SCOPE_DEPS`
 
-Perf-kind warnings emitted by the **attribution engine** — they only fire while `DEV.attribution.enable()` is active (see the next section). Defaults:
+Perf-kind warnings emitted by the **attribution engine** — they only fire while the attribution engine (`solid-js/attribution`) is enabled (see the next section). Defaults:
 
 - `HOT_SCOPE_RERUNS`: one scope re-ran 120+ times within 1000ms (above animation-frame cadence, so a legitimate rAF-driven scope doesn't cry wolf). The message names the most recent cause chain. When many scopes go hot from the _same_ root cause (a selection write re-running every row), only the first warns per-node; the rest fold into `HOT_SCOPE_FANOUT` (below) so one culprit can't bury the console in victim warnings.
 - `HOT_SCOPE_TIME`: one scope's summed self-time exceeded 8ms within 1000ms — half a frame in one scope. Catches the few-but-expensive runs that counts miss.
@@ -323,9 +323,9 @@ The per-cause aggregate of `HOT_SCOPE_RERUNS`. Hot-scope warnings blame the vict
 
 **Message:** "N sequential async flights — 'story' (120ms) → 'author' (80ms) — 200ms serialized: each began only after the previous resolved. …"
 
-Attribution-engine only. An async flight (a promise or async iterable entering the system) formed a sequential chain behind an upstream flight. A chain link is asserted only on double proof: the flight's recompute was **caused** by the upstream's landing (graph causality — create runs inherit the enclosing recompute's causes, which covers boundary reveals and lazy first pulls), and the flight's **origin** post-dates the upstream's landing. Origin is the earliest provable start of the work: a `DEV.attribution.markFlight(promise, startedAt)` stamp (preloaders and request caches declaring their kickoff), first-seen object identity, else registration time — so preloaded work already in the air alongside its upstream is parallel and never chains.
+Attribution-engine only. An async flight (a promise or async iterable entering the system) formed a sequential chain behind an upstream flight. A chain link is asserted only on double proof: the flight's recompute was **caused** by the upstream's landing (graph causality — create runs inherit the enclosing recompute's causes, which covers boundary reveals and lazy first pulls), and the flight's **origin** post-dates the upstream's landing. Origin is the earliest provable start of the work: an `attribution.markFlight(promise, startedAt)` stamp (preloaders and request caches declaring their kickoff), first-seen object identity, else registration time — so preloaded work already in the air alongside its upstream is parallel and never chains.
 
-The verdict is duration-gated (each link ≥ `waterfalls.minFlightMs`, default 50ms — a settled cache hit resolves fast and never warns). Depth-2 chains emit at `info` severity on the structured channel only: a dependent fetch is sometimes intrinsic, and an _unmarked_ external preload is indistinguishable from a real waterfall, so the console stays quiet. Depth-3+ escalates to a console `warn`. Once per node, re-warning only when the chain grows. Every graph-provable chain — warned or not — is queryable via `DEV.attribution.waterfalls()`.
+The verdict is duration-gated (each link ≥ `waterfalls.minFlightMs`, default 50ms — a settled cache hit resolves fast and never warns). Depth-2 chains emit at `info` severity on the structured channel only: a dependent fetch is sometimes intrinsic, and an _unmarked_ external preload is indistinguishable from a real waterfall, so the console stays quiet. Depth-3+ escalates to a console `warn`. Once per node, re-warning only when the chain grows. Every graph-provable chain — warned or not — is queryable via `attribution.waterfalls()`.
 
 If a preloading layer hands out wrapper promises (e.g. `.then()` chains over a cached flight), it must call `markFlight` on the wrapper it returns, with the original kickoff time — wrapping defeats identity tracking otherwise.
 
@@ -383,7 +383,7 @@ Thresholds sit at the strict end of the published bands on purpose. The engine m
 
 A signal/store write (or an action's writes) was held because a downstream async source went pending, and for the whole hold no acknowledgement was observed: no subscribed `isPending()` or `latest()` companion on the held graph, no optimistic overlay, no `affects()` declaration, and no lane effect painted while the hold was open. (Mainline effects are stashed while a hold is open, so the only effects that _can_ paint are readers of optimistic values and companions — the screen changing in response to the hold. An unrelated effect cannot clear the verdict; it waits with everything else. A `Loading` boundary that has not revealed yet is a different answer — the read never holds, the fallback shows.) Holds shorter than `holds.infoMs` (default 100ms — RAIL's "feels instant" ceiling) are recorded silently; from `infoMs` the hold emits `info`; from `holds.warnMs` (default 200ms — the INP "good" ceiling) it warns. When the silent hold is also long (below) the message carries the boundary repair and `data.long` is `true`; one hold is one report.
 
-The hold is attributed to its opening interaction when the web runtime can stamp it (`click`, `keydown`, `input` on the element hit), to the effect or action that made the write otherwise. `holdMs` runs from the interaction's dispatch or the first parked flush, whichever is earlier. Every hold — reported or not — is queryable via `DEV.attribution.holds()`.
+The hold is attributed to its opening interaction when the web runtime can stamp it (`click`, `keydown`, `input` on the element hit), to the effect or action that made the write otherwise. `holdMs` runs from the interaction's dispatch or the first parked flush, whichever is earlier. Every hold — reported or not — is queryable via `attribution.holds()`.
 
 #### `LONG_HOLD`
 
@@ -395,27 +395,27 @@ The design point: a hold is the stale-while-revalidate tool, right when the old 
 
 ## Programmatic diagnostics API
 
-In dev mode, `DEV.diagnostics` provides two methods for tooling:
+In dev mode, `OBSERVE.diagnostics` provides two methods for tooling:
 
-### `DEV.diagnostics.subscribe(listener)`
+### `OBSERVE.diagnostics.subscribe(listener)`
 
 Registers a callback that fires for every diagnostic event. Returns an unsubscribe function.
 
 ```js
-import { DEV } from "solid-js";
+import { OBSERVE } from "solid-js";
 
-const unsub = DEV.diagnostics.subscribe(event => {
+const unsub = OBSERVE.diagnostics.subscribe(event => {
   console.log(`[${event.severity}] ${event.code}: ${event.message}`);
 });
 // later: unsub();
 ```
 
-### `DEV.diagnostics.capture()`
+### `OBSERVE.diagnostics.capture()`
 
 Returns a capture object for collecting diagnostics in a scoped region (useful in tests).
 
 ```js
-const capture = DEV.diagnostics.capture();
+const capture = OBSERVE.diagnostics.capture();
 
 // ... code that may emit diagnostics ...
 
@@ -471,7 +471,7 @@ Each `DiagnosticEvent` has:
 
 ## Run attribution — "why did this run"
 
-Beyond the always-on diagnostics above, dev builds ship an opt-in **attribution engine** that explains every re-run. The runtime already knows the full dependency graph; enabling attribution stamps each value commit with a change record (a write, an async landing, a `refresh()` invalidation, or a derived change chaining back to its causes), so each re-run reports the chain down to the originating write:
+Beyond the always-on diagnostics above, dev and observe builds ship an opt-in **attribution engine** that explains every re-run. The runtime already knows the full dependency graph; enabling attribution stamps each value commit with a change record (a write, an async landing, a `refresh()` invalidation, or a derived change chaining back to its causes), so each re-run reports the chain down to the originating write:
 
 ```
 [why-run] effect "docTitle" ran (run 4)
@@ -479,12 +479,14 @@ Beyond the always-on diagnostics above, dev builds ship an opt-in **attribution 
     ← signal "notifications" write (#5) 2 → 3
 ```
 
-### API (`DEV.attribution`)
+The engine is its own entry, `solid-js/attribution` (re-exporting `@solidjs/signals/attribution`), so a build that never imports it never ships it: the runtime carries only the hook slot the engine installs into (`OBSERVE.attribution.install`) and the interaction frame the web runtime opens around event dispatch (`OBSERVE.attribution.withInteraction`). The import is legal in every tier — the prod tier resolves an inert engine with the same surface, so app code needs no per-tier guard.
+
+### API (`solid-js/attribution`)
 
 ```js
-import { DEV } from "solid-js";
+import { attribution } from "solid-js/attribution";
 
-DEV.attribution.enable({
+attribution.enable({
   log: true,          // pretty-print each re-run (default true)
   stacks: false,      // capture write stacks — slow (default false)
   historyLimit: 200,  // ring buffer size
@@ -498,24 +500,29 @@ DEV.attribution.enable({
   longHolds: { infoMs: 500, warnMs: 1000 }    // or false
 });
 
-DEV.attribution.history();          // ring buffer of RerunEvents
-DEV.attribution.why(someMemo);      // re-run history for one node
-DEV.attribution.subscriptions(fn);  // current dep names of one scope
-DEV.attribution.costs();            // { scopes, writes } ranked cost tables
-DEV.attribution.waterfalls();       // graph-provable sequential flight chains
-DEV.attribution.holds();            // every hold, acknowledged or not
-DEV.attribution.feedback();         // responsiveness tables (below)
-DEV.attribution.subscribe(fn);      // live RerunEvent feed
-DEV.attribution.disable();
+attribution.history();          // ring buffer of RerunEvents
+attribution.why(someMemo);      // re-run history for one node
+attribution.subscriptions(fn);  // current dep names of one scope
+attribution.costs();            // { scopes, writes } ranked cost tables
+attribution.waterfalls();       // graph-provable sequential flight chains
+attribution.holds();            // every hold, acknowledged or not
+attribution.feedback();         // responsiveness tables (below)
+attribution.subscribe(fn);      // live RerunEvent feed
+attribution.disable();
 
 // Callable anytime (even while disabled): preloaders/caches declare the true
 // kickoff of promises they hand out, so dependents that pick them up later
 // are never misread as waterfalls.
-DEV.attribution.markFlight(promise, startedAt?);
+attribution.markFlight(promise, startedAt?);
 
-// Web runtime: stamp the writes made synchronously inside `fn` with a user
-// interaction. Compiled event bindings do this for every handler.
-DEV.attribution.withInteraction({ type: "click", target: 'button#next "Next →"' }, fn);
+// Runtime side (`OBSERVE`, present in dev and observe builds): stamp the
+// writes made synchronously inside `fn` with a user interaction. Compiled
+// event bindings do this for every handler; custom renderers and test
+// harnesses call it themselves. `fn()` when no engine is enabled.
+import { OBSERVE } from "solid-js";
+OBSERVE.attribution.withInteraction({ type: "click", target: 'button#next "Next →"' }, fn);
+// An external engine (devtools) installs into the same slot the built-in
+// one uses: OBSERVE.attribution.install(hooks) / .installed.
 ```
 
 `costs()` aggregates since `enable()`: `scopes` ranked by self-time with `wastedMs` (time in runs whose value didn't change — the equality cutoff absorbed them), and `writes` ranked by the total downstream re-run time each root write caused. Overlay work (optimistic-lane and held runs — `phase: "optimistic" | "held"`) is accounted separately as `overlayMs` and never blamed as waste.

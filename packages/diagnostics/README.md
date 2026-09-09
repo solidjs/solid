@@ -34,7 +34,7 @@ artifact.attribution; // { reruns, costs, holds, feedback } — who re-ran, why,
 
 `attribution.holds` lists every hold the scenario caused — a write that landed on async work and stayed staged until the data settled — with what was held, what blocked it, how long the user waited (measured from the interaction when the web runtime stamped one), and which affordances acknowledged it (`isPending:posts`, `latest:page`, `optimistic:todos`, `affects:list`) or none. `attribution.feedback` folds those into ranked tables: `sources` (per async source: holds, silent ms, acknowledged-by counts, long holds (tail past the long-hold threshold), the interactions held), `interactions` (per user event: re-run work caused beside time held — the two INP hazards on one row), `flights` (per async source: flights started, landed, and abandoned before landing — the re-ask storm) and `fallbacks` (per loading boundary: time its fallback was shown, and how often that was a sub-150ms flash).
 
-Options: `scenario` labels the artifact, `attribution: false` captures diagnostics only, and an options object is passed through to `DEV.attribution.enable()`. `artifactToJSONL(artifact)` emits line-oriented output for offline or agent-side analysis.
+Options: `scenario` labels the artifact, `attribution: false` captures diagnostics only, and an options object is passed through to the engine's `enable()` (`@solidjs/signals/attribution`). `artifactToJSONL(artifact)` emits line-oriented output for offline or agent-side analysis.
 
 ## Assertions and budgets
 

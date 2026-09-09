@@ -4,11 +4,11 @@ import {
   createOptimisticStore,
   createRoot,
   createStore,
-  DEV,
   flush,
   isPending,
   refresh,
-  untrack
+  untrack,
+  OBSERVE
 } from "../src/index.js";
 import { NotReadyError } from "../src/core/error.js";
 
@@ -261,7 +261,7 @@ describe("uninitialized derived stores never leak the seed (#2897)", () => {
 describe("thenable probe on a store proxy in a strict-read scope", () => {
   it("await refresh(store) on a derived store emits no strict-read diagnostic", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
     let fetches = 0;
     let dispose!: () => void;
     let list!: { id: number }[];
@@ -296,7 +296,7 @@ describe("thenable probe on a store proxy in a strict-read scope", () => {
 
   it("Promise.resolve(store) in a component body neither warns nor rejects", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
     let dispose!: () => void;
     let p!: Promise<unknown>;
     let control!: number;
@@ -322,7 +322,7 @@ describe("thenable probe on a store proxy in a strict-read scope", () => {
 
   it("thenable probe on a refetching derived store does not throw the pending error", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
     let dispose!: () => void;
     let list!: { id: number }[];
     let fetches = 0;

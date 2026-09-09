@@ -124,7 +124,7 @@ event, the synchronous re-run work one dispatch caused (`worstDispatchMs` —
 fix through Loop 3) beside the time its writes spent held (`worstHoldMs`,
 `silentMs` — fix here). In browser captures the interaction is stamped by the
 web runtime; in-process, wrap the write in
-`DEV.attribution.withInteraction({ type, target }, () => …)` so holds are
+`OBSERVE.attribution.withInteraction({ type, target }, () => …)` so holds are
 measured from the event and keyed by it.
 
 Two more fact tables in `feedback` have no verdict of their own; read them

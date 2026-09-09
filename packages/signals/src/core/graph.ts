@@ -15,7 +15,7 @@ import type { Computed, Link, Signal } from "./types.js";
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L100
 export function unlinkSubs(link: Link): Link | null {
-  if (__DEV__) unnoteGraphLink(link);
+  if (__OBSERVE__) unnoteGraphLink(link);
   const dep = link._dep;
   const nextDep = link._nextDep;
   const nextSub = link._nextSub;
@@ -191,5 +191,5 @@ export function link(
   // New subscriber edge: staged-rewrite skips (§12d) must not miss it.
   bumpNotifyEpoch();
 
-  if (__DEV__) noteGraphLink(dep, sub);
+  if (__OBSERVE__) noteGraphLink(dep, sub);
 }

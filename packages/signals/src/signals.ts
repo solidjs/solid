@@ -370,7 +370,7 @@ export function createSignal<T>(
     ];
   }
   const node = signal<T>(first as any, second as SignalOptions<T>);
-  if (__DEV__) registerGraph(node, getOwner());
+  if (__OBSERVE__) registerGraph(node, getOwner());
   return [accessor<T>(node), setSignal.bind(null, node as any) as Setter<T | undefined>];
 }
 
@@ -512,7 +512,7 @@ export function createEffect<T>(
   }
   effect(compute as any, (effectFn as any).effect || effectFn, (effectFn as any).error, {
     user: true,
-    ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
+    ...(__OBSERVE__ ? { ...options, name: options?.name ?? "effect" } : options)
   });
 }
 
@@ -554,7 +554,7 @@ export function createRenderEffect<T>(
     compute as any,
     effectFn,
     undefined,
-    __DEV__ ? { ...options, name: options?.name ?? "effect" } : options
+    __OBSERVE__ ? { ...options, name: options?.name ?? "effect" } : options
   );
 }
 
@@ -609,7 +609,7 @@ export function createTrackedEffect(
 ): void {
   trackedEffect(
     compute,
-    __DEV__ ? { ...options, name: options?.name ?? "trackedEffect" } : options
+    __OBSERVE__ ? { ...options, name: options?.name ?? "trackedEffect" } : options
   );
 }
 
@@ -674,7 +674,7 @@ export function createReaction(
         },
         (effectFn as any).error,
         {
-          ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options),
+          ...(__OBSERVE__ ? { ...options, name: options?.name ?? "effect" } : options),
           user: true,
           defer: true
         }
@@ -1082,7 +1082,7 @@ export function createOptimistic<T>(
     ];
   }
   const node = optimisticSignal<T>(first as any, second as SignalOptions<T>);
-  if (__DEV__) registerGraph(node, getOwner());
+  if (__OBSERVE__) registerGraph(node, getOwner());
   return [
     accessor<T | undefined>(node),
     setSignal.bind(null, node as any) as Setter<T | undefined>
@@ -1186,7 +1186,7 @@ export function createOptimistic<T>(
 export function onSettled(callback: () => void | (() => void)): void {
   const owner = getOwner();
   owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN)
-    ? trackedEffect(() => untrack(callback), __DEV__ ? { name: "onSettled" } : undefined)
+    ? trackedEffect(() => untrack(callback), __OBSERVE__ ? { name: "onSettled" } : undefined)
     : globalQueue.enqueue(EFFECT_USER, () => {
         // Unowned, out-of-band fire (no owner, or a children-forbidden one this
         // one-shot must not bind to): a returned cleanup has no lifecycle to

@@ -4,7 +4,8 @@
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { render } from "@solidjs/web";
-import { createSignal, DEV, flush } from "solid-js";
+import { createSignal, flush } from "solid-js";
+import { attribution } from "solid-js/attribution";
 
 /**
  * Binding effects the compiler emits are tagged (dev only) with the element
@@ -13,7 +14,7 @@ import { createSignal, DEV, flush } from "solid-js";
  */
 
 afterEach(() => {
-  DEV!.attribution.disable();
+  attribution.disable();
   flush();
   vi.restoreAllMocks();
 });
@@ -21,7 +22,7 @@ afterEach(() => {
 describe("diagnostic element references", () => {
   test("a hot binding effect's warning carries the element it writes", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    DEV!.attribution.enable({
+    attribution.enable({
       log: false,
       hotRuns: { count: 5, windowMs: 60_000 },
       hotTime: false,
@@ -33,7 +34,7 @@ describe("diagnostic element references", () => {
     const dispose = render(() => <div id="target" class={cls()} />, container);
     flush();
     const nodes: any[] = [];
-    DEV!.attribution.subscribe(e => nodes.push(e.node));
+    attribution.subscribe(e => nodes.push(e.node));
 
     for (let i = 0; i < 6; i++) {
       setCls(`c${i}`);

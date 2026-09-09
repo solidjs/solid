@@ -9,35 +9,36 @@
  * one render effect per row binding.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { attribution } from "../src/attribution.js";
 import {
   createEffect,
   createMemo,
   createRoot,
   createSignal,
   createStore,
-  DEV,
-  flush
+  flush,
+  OBSERVE
 } from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 import type { RerunEvent } from "../src/core/attribution.js";
 
 afterEach(() => {
-  DEV!.attribution.disable();
+  attribution.disable();
   flush();
   vi.restoreAllMocks();
 });
 
-function arm(opts: Parameters<typeof DEV.attribution.enable>[0] = {}) {
+function arm(opts: Parameters<typeof attribution.enable>[0] = {}) {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "log").mockImplementation(() => {});
   // These benchmark-shaped scenarios evaluate structural attribution. Keep
   // the independent wall-clock detector out: coverage and runner contention
   // can legitimately push a fine-grained scope over its default 8ms budget.
-  DEV!.attribution.enable({ log: false, hotTime: false, ...opts });
+  attribution.enable({ log: false, hotTime: false, ...opts });
   const diagnostics: DiagnosticEvent[] = [];
-  DEV!.diagnostics.subscribe(e => diagnostics.push(e));
+  OBSERVE!.diagnostics.subscribe(e => diagnostics.push(e));
   const reruns: RerunEvent[] = [];
-  DEV!.attribution.subscribe(e => reruns.push(e));
+  attribution.subscribe(e => reruns.push(e));
   return { diagnostics, reruns };
 }
 
@@ -84,14 +85,14 @@ describe("JSFB select-row (naive: every row reads the selected signal)", () => {
     expect(reruns).toHaveLength(2000);
     const unchanged = reruns.filter(r => !r.changed).length;
     expect(unchanged).toBeGreaterThanOrEqual(1996);
-    const { scopes } = DEV!.attribution.costs();
+    const { scopes } = attribution.costs();
     const wastedTotal = scopes
       .filter(s => s.name.endsWith(".class"))
       .reduce((sum, s) => sum + s.wastedMs, 0);
     expect(wastedTotal).toBeGreaterThan(0);
 
     // The write-cost table ranks selectedId as the top root cause.
-    const { writes } = DEV!.attribution.costs();
+    const { writes } = attribution.costs();
     expect(writes[0].name).toBe("selectedId");
     expect(writes[0].runs).toBe(2000);
 

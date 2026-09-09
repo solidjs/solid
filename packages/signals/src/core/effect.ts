@@ -207,7 +207,7 @@ function runEffect(node: Effect<any>): void {
   }
   // Outside the try (see the rule in attribution-hooks.ts). Reached whether or
   // not the callback threw — a throw that escapes the catch above halts.
-  if (__DEV__ && attrHooks !== null) attrHooks.effectRunEnd(node);
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.effectRunEnd(node);
 }
 
 GlobalQueue._runEffect = runEffect as (el: Computed<unknown>) => void;

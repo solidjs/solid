@@ -1,25 +1,25 @@
 import { describe, expect, test } from "vitest";
 import { createRoot, getOwner, createMemo, untrack } from "@solidjs/signals";
-import { devComponent } from "../src/client/core.js";
+import { observedComponent } from "../src/client/core.js";
 
 /**
  * ID Parity Tests
  *
- * Verify that dev-mode wrappers (devComponent) produce the same owner IDs
+ * Verify that dev-mode wrappers (observedComponent) produce the same owner IDs
  * as production code (no wrapper). This is critical for SSR/hydration: the
  * server runs without wrappers, the client runs with them in dev mode.
  * Transparent owners make the wrappers invisible to the ID scheme.
  */
 
-describe("ID Parity: devComponent transparent wrapper", () => {
-  test("devComponent produces same child IDs as direct call", () => {
+describe("ID Parity: observedComponent transparent wrapper", () => {
+  test("observedComponent produces same child IDs as direct call", () => {
     const idsWithWrapper: string[] = [];
     const idsWithoutWrapper: string[] = [];
 
-    // With devComponent (dev mode, transparent wrapper)
+    // With observedComponent (dev mode, transparent wrapper)
     createRoot(
       () => {
-        devComponent(() => {
+        observedComponent(() => {
           const a = createMemo(() => {
             idsWithWrapper.push(getOwner()!.id!);
             return "a";
@@ -65,13 +65,13 @@ describe("ID Parity: devComponent transparent wrapper", () => {
     expect(idsWithWrapper.length).toBe(2);
   });
 
-  test("devComponent does not shift sibling IDs", () => {
+  test("observedComponent does not shift sibling IDs", () => {
     const ids: string[] = [];
 
     createRoot(
       () => {
-        // Component wrapped in devComponent
-        devComponent(() => {
+        // Component wrapped in observedComponent
+        observedComponent(() => {
           const cm = createMemo(() => {
             ids.push("comp-memo:" + getOwner()!.id!);
             return "x";
@@ -80,7 +80,7 @@ describe("ID Parity: devComponent transparent wrapper", () => {
           return undefined as any;
         }, {} as any);
 
-        // Sibling memo created after the devComponent
+        // Sibling memo created after the observedComponent
         createMemo(() => {
           ids.push("sibling:" + getOwner()!.id!);
           return "y";
@@ -96,15 +96,15 @@ describe("ID Parity: devComponent transparent wrapper", () => {
     expect(ids).toContain("sibling:t1");
   });
 
-  test("nested devComponent wrappers produce correct IDs", () => {
+  test("nested observedComponent wrappers produce correct IDs", () => {
     const ids: string[] = [];
 
     createRoot(
       () => {
-        devComponent(() => {
+        observedComponent(() => {
           ids.push("outer-owner:" + getOwner()!.id!);
 
-          devComponent(() => {
+          observedComponent(() => {
             const m = createMemo(() => {
               ids.push("inner-memo:" + getOwner()!.id!);
               return "nested";
@@ -118,7 +118,7 @@ describe("ID Parity: devComponent transparent wrapper", () => {
       { id: "t" }
     );
 
-    // The transparent devComponent root has id = parent's id ("t")
+    // The transparent observedComponent root has id = parent's id ("t")
     // Inner memo should get id from the root's counter (delegated through transparent wrappers)
     expect(ids).toContain("outer-owner:t");
     expect(ids).toContain("inner-memo:t0");
@@ -145,12 +145,12 @@ describe("ID Parity: devComponent transparent wrapper", () => {
       { id: "t" }
     );
 
-    // Client dev-style: wrapped in devComponent
+    // Client dev-style: wrapped in observedComponent
     createRoot(
       () => {
-        clientIds.push(devComponent(MyComp, { label: "A" }) as any);
-        clientIds.push(devComponent(MyComp, { label: "B" }) as any);
-        clientIds.push(devComponent(MyComp, { label: "C" }) as any);
+        clientIds.push(observedComponent(MyComp, { label: "A" }) as any);
+        clientIds.push(observedComponent(MyComp, { label: "B" }) as any);
+        clientIds.push(observedComponent(MyComp, { label: "C" }) as any);
       },
       { id: "t" }
     );
@@ -268,7 +268,7 @@ describe("ID Parity: ternary conditional memos", () => {
     expect(ids).toContain("sibling:t2");
   });
 
-  test("ternary IDs match between direct call and devComponent", () => {
+  test("ternary IDs match between direct call and observedComponent", () => {
     const serverIds: string[] = [];
     const clientIds: string[] = [];
 
@@ -289,10 +289,10 @@ describe("ID Parity: ternary conditional memos", () => {
       { id: "t" }
     );
 
-    // Client dev-style: devComponent wrapper
+    // Client dev-style: observedComponent wrapper
     createRoot(
       () => {
-        clientIds.push(devComponent(MyComp, {} as any) as any);
+        clientIds.push(observedComponent(MyComp, {} as any) as any);
       },
       { id: "t" }
     );
@@ -379,7 +379,7 @@ describe("ID Parity: ternary conditional memos", () => {
     expect(ids).toContain("sibling:t0");
   });
 
-  test("ternary inside component child with devComponent parity", () => {
+  test("ternary inside component child with observedComponent parity", () => {
     const serverIds: string[] = [];
     const clientIds: string[] = [];
 
@@ -403,8 +403,8 @@ describe("ID Parity: ternary conditional memos", () => {
 
     createRoot(
       () => {
-        clientIds.push(devComponent(Parent, {} as any) as any);
-        clientIds.push(devComponent(Parent, {} as any) as any);
+        clientIds.push(observedComponent(Parent, {} as any) as any);
+        clientIds.push(observedComponent(Parent, {} as any) as any);
       },
       { id: "t" }
     );

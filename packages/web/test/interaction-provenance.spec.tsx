@@ -4,7 +4,8 @@
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { render } from "@solidjs/web";
-import { createEffect, createSignal, DEV, flush } from "solid-js";
+import { createEffect, createSignal, flush } from "solid-js";
+import { attribution } from "solid-js/attribution";
 
 /**
  * Every JSX event reaches user code through the web runtime's two dispatch
@@ -14,14 +15,14 @@ import { createEffect, createSignal, DEV, flush } from "solid-js";
  */
 
 afterEach(() => {
-  DEV!.attribution.disable();
+  attribution.disable();
   flush();
   vi.restoreAllMocks();
 });
 
 function arm() {
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  DEV!.attribution.enable({ log: false, hotRuns: false, hotTime: false, waterfalls: false });
+  attribution.enable({ log: false, hotRuns: false, hotTime: false, waterfalls: false });
 }
 
 describe("interaction provenance", () => {
@@ -40,7 +41,7 @@ describe("interaction provenance", () => {
       );
     }, container);
     flush();
-    DEV!.attribution.subscribe(e => {
+    attribution.subscribe(e => {
       if (e.nodeName === "reader") latest = e;
     });
 
@@ -79,7 +80,7 @@ describe("interaction provenance", () => {
       );
     }, container);
     flush();
-    DEV!.attribution.subscribe(e => {
+    attribution.subscribe(e => {
       if (e.nodeName === "reader") seen.push(e.causes[0].origin);
     });
 
@@ -107,7 +108,7 @@ describe("interaction provenance", () => {
       return <input name="search" onInput={e => setQ(e.currentTarget.value)} />;
     }, container);
     flush();
-    DEV!.attribution.subscribe(e => {
+    attribution.subscribe(e => {
       if (e.nodeName === "reader") origin = e.causes[0].origin;
     });
     const input = container.querySelector("input")!;

@@ -3,10 +3,10 @@ import {
   createMemo,
   createRoot,
   createSignal,
-  DEV,
   flush,
   getOwner,
-  type SourceAccessor
+  type SourceAccessor,
+  OBSERVE
 } from "../src/index.js";
 
 function deferred<T>() {
@@ -23,7 +23,7 @@ async function settle() {
 
 function captureDiagnosticCodes(): () => string[] {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
-  const capture = DEV!.diagnostics.capture();
+  const capture = OBSERVE!.diagnostics.capture();
   return () => {
     const codes = capture.stop().map(event => event.code);
     error.mockRestore();

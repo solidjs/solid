@@ -10,6 +10,7 @@
  * re-runs, holds — can be keyed by what the user did.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { attribution } from "../src/attribution.js";
 import {
   action,
   createEffect,
@@ -17,14 +18,14 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
-  DEV,
-  flush
+  flush,
+  OBSERVE
 } from "../src/index.js";
 import type { ChangeOrigin, RerunEvent } from "../src/core/attribution.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 
 afterEach(() => {
-  DEV!.attribution.disable();
+  attribution.disable();
   flush();
   vi.restoreAllMocks();
 });
@@ -43,9 +44,9 @@ async function until(cond: () => boolean, what: string, timeout = 5000) {
 function arm() {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "info").mockImplementation(() => {});
-  DEV!.attribution.enable({ log: false, hotRuns: false, hotTime: false, waterfalls: false });
+  attribution.enable({ log: false, hotRuns: false, hotTime: false, waterfalls: false });
   const runs: RerunEvent[] = [];
-  DEV!.attribution.subscribe(e => runs.push(e));
+  attribution.subscribe(e => runs.push(e));
   return runs;
 }
 
@@ -64,7 +65,7 @@ describe("write provenance", () => {
     flush();
     const cause = rootCause(runs, "reader");
     expect(cause.origin).toEqual({ kind: "external" });
-    expect(DEV!.attribution.format(runs.at(-1)!)).not.toContain("—");
+    expect(attribution.format(runs.at(-1)!)).not.toContain("—");
   });
 
   it("stamps writes inside withInteraction with the interaction", () => {
@@ -73,7 +74,7 @@ describe("write provenance", () => {
     createRoot(() => createEffect(n, () => {}, { name: "reader" }));
     flush();
     const before = performance.now();
-    DEV!.attribution.withInteraction(CLICK, () => setN(1));
+    OBSERVE!.attribution.withInteraction(CLICK, () => setN(1));
     flush();
     const cause = rootCause(runs, "reader");
     expect(cause.origin).toMatchObject({
@@ -84,8 +85,8 @@ describe("write provenance", () => {
     expect(cause.origin!.at).toBeGreaterThanOrEqual(before);
     const run = runs.at(-1)!;
     expect(run.interaction).toBe(cause.origin);
-    expect(DEV!.attribution.format(run)).toContain(`n" write (#`);
-    expect(DEV!.attribution.format(run)).toContain(`— click on button#next "Next →"`);
+    expect(attribution.format(run)).toContain(`n" write (#`);
+    expect(attribution.format(run)).toContain(`— click on button#next "Next →"`);
   });
 
   it("stamps an effect's writes with the effect, under the interaction that caused its run", () => {
@@ -103,7 +104,7 @@ describe("write provenance", () => {
       createEffect(copy, () => {}, { name: "reader" });
     });
     flush();
-    DEV!.attribution.withInteraction(CLICK, () => setN(1));
+    OBSERVE!.attribution.withInteraction(CLICK, () => setN(1));
     flush();
     const cause = rootCause(runs, "reader");
     expect(cause.origin).toMatchObject({
@@ -111,7 +112,7 @@ describe("write provenance", () => {
       name: "sync",
       interaction: { kind: "interaction", name: "click" }
     });
-    expect(DEV!.attribution.format(runs.at(-1)!)).toContain(
+    expect(attribution.format(runs.at(-1)!)).toContain(
       `— effect "sync" (under click on button#next "Next →")`
     );
     // The reader's run traces to the click through the relay.
@@ -133,7 +134,7 @@ describe("write provenance", () => {
       yield new Promise<void>(r => (release = r));
       setB(2);
     });
-    const done = DEV!.attribution.withInteraction(CLICK, () => saveAction());
+    const done = OBSERVE!.attribution.withInteraction(CLICK, () => saveAction());
     await wait(5);
     release();
     await done;
@@ -202,7 +203,7 @@ describe("write provenance", () => {
     expect(rootCause(runs, "feed").origin).toMatchObject({ kind: "async", name: "posts" });
     expect(rootCause(runs, "feed").origin!.interaction).toBeUndefined();
 
-    DEV!.attribution.withInteraction(CLICK, () => setPage(2));
+    OBSERVE!.attribution.withInteraction(CLICK, () => setPage(2));
     flush();
     resolve("b");
     await until(() => shown.includes("b-p2"), "the click's page to land");
@@ -221,10 +222,10 @@ describe("holds carry their interaction", () => {
   it("measures the hold from the interaction and names it in SILENT_HOLD", async () => {
     arm();
     const events: DiagnosticEvent[] = [];
-    DEV!.diagnostics.subscribe(e => {
+    OBSERVE!.diagnostics.subscribe(e => {
       if (e.code === "SILENT_HOLD") events.push(e);
     });
-    DEV!.attribution.enable({
+    attribution.enable({
       log: false,
       hotRuns: false,
       hotTime: false,
@@ -257,12 +258,12 @@ describe("holds carry their interaction", () => {
     // An interaction dispatched a while ago (input delay, handler work…):
     // the user has been waiting since THEN, not since the flush parked.
     const at = performance.now() - 1000;
-    DEV!.attribution.withInteraction({ ...CLICK, at }, () => setPage(2));
+    OBSERVE!.attribution.withInteraction({ ...CLICK, at }, () => setPage(2));
     flush();
     resolve("b");
     await until(() => shown.includes("b-p2"), "the held page to land");
 
-    const [hold] = DEV!.attribution.holds();
+    const [hold] = attribution.holds();
     expect(hold.interaction).toMatchObject({ kind: "interaction", name: "click", at });
     expect(hold.holdMs).toBeGreaterThanOrEqual(1000);
     expect(hold.heldWrites[0].origin).toBe(hold.interaction);

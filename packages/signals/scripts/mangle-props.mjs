@@ -7,10 +7,12 @@
  * options, so `_pendingValue` could mangle to different names in different
  * modules and break cross-module member access at runtime (#2883).
  *
- * Flat single-file bundles are self-contained consistency domains, so each
- * argument (directory tree or single file) gets its own nameCache.
+ * Each argument is one consistency domain with its own nameCache: a directory
+ * tree, a single file, or a comma-separated group of files — the code-split
+ * flat builds (`node.cjs,node.attribution.cjs,node-shared.cjs`) are three
+ * files that share one module graph and must mangle as one.
  *
- * Usage: node scripts/mangle-props.mjs <dist-dir-or-file> [<dist-dir-or-file> ...]
+ * Usage: node scripts/mangle-props.mjs <dir|file|file,file,...> [...]
  */
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -29,9 +31,11 @@ function walk(dir) {
   return files;
 }
 
+const domain = arg => arg.split(",").flatMap(walk);
+
 for (const dir of process.argv.slice(2)) {
   const nameCache = {};
-  for (const file of walk(dir)) {
+  for (const file of domain(dir)) {
     const code = readFileSync(file, "utf8");
     const result = await minify(code, {
       compress: false,
@@ -40,7 +44,12 @@ for (const dir of process.argv.slice(2)) {
         keep_classnames: true,
         keep_fnames: true,
         module: false,
-        properties: { regex: /^_/ }
+        // `_name` is the one cross-package field: solid-js writes the
+        // component label onto signals' owners (`owner._name = "<App>"`) and
+        // `ownerPath` reads it. Mangling it in the observe tree would put the
+        // write and the read on different properties. Every other `_` field
+        // is private to this package.
+        properties: { regex: /^_/, reserved: ["_name"] }
       },
       // preserve_annotations: terser consumes /*@__PURE__*/ during parse and
       // only re-emits it when asked — without this the prod tree loses the
@@ -49,5 +58,5 @@ for (const dir of process.argv.slice(2)) {
     });
     writeFileSync(file, result.code);
   }
-  console.log(`mangled _-props across ${walk(dir).length} files in ${dir}`);
+  console.log(`mangled _-props across ${domain(dir).length} files in ${dir}`);
 }

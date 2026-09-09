@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { DEV } from "../src/index.js";
+import { OBSERVE } from "../src/index.js";
 import { settlePendingSource } from "../src/core/async.js";
 import { NOT_PENDING, STATUS_UNINITIALIZED } from "../src/core/constants.js";
 import type { Computed } from "../src/core/core.js";
@@ -27,7 +27,7 @@ function captureCodes(run: () => void): string[] {
   // The error-severity diagnostic also prints via console.error; silence it
   // so the suite output stays clean.
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
-  const capture = DEV!.diagnostics.capture();
+  const capture = OBSERVE!.diagnostics.capture();
   try {
     run();
     return capture.stop().map(event => event.code);
