@@ -1,4 +1,5 @@
 import { template as _$template } from "r-dom";
+import { snapshot as _$snapshot } from "r-dom";
 import { className as _$className } from "r-dom";
 import { effect as _$effect } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<div class=b>static static`);
@@ -12,7 +13,7 @@ const dynamicClass = () => "dyn";
 const flag = true;
 const t1 = _tmpl$();
 var _el$2 = _tmpl$2();
-_$effect(() => dynamicClass(), (_v$, _$p) => {
+_$effect(() => _$snapshot(dynamicClass()), (_v$, _$p) => {
 	_$className(_el$2, _v$, _$p);
 });
 const t2 = _el$2;

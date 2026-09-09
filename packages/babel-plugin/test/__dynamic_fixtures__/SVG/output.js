@@ -5,6 +5,7 @@ import { spread as _$spread } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { className as _$className } from "r-dom";
+import { snapshot as _$snapshot } from "r-dom";
 import { effect as _$effect } from "r-custom";
 var _tmpl$ = /*#__PURE__*/ _$template(
     `<svg width=400 height=180><rect stroke-width=2 x=50 y=20 rx=20 ry=20 width=150 height=150 style=fill:red;stroke:black;stroke-width:5;opacity:0.5></rect><linearGradient gradientTransform=rotate(25)><stop offset=0%>`
@@ -21,7 +22,7 @@ var _el$2 = _tmpl$2(),
   _el$3 = _el$2.firstChild;
 _$effect(
   () => ({
-    e: state.name,
+    e: _$snapshot(state.name),
     t: state.width,
     a: state.x,
     o: state.y,

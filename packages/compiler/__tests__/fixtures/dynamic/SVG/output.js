@@ -2,6 +2,7 @@ import { template as _$template } from "r-dom";
 import { createComponent as _$createComponent } from "r-custom";
 import { spread as _$spread } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
+import { snapshot as _$snapshot } from "r-dom";
 import { className as _$className } from "r-dom";
 import { effect as _$effect } from "r-custom";
 import { setAttribute as _$setAttribute } from "r-dom";
@@ -17,7 +18,7 @@ var _el$2 = _tmpl$2();
 var _el$3 = _el$2.firstChild;
 _$effect(() => {
 	return {
-		e: state.name,
+		e: _$snapshot(state.name),
 		t: state.width,
 		a: state.x,
 		o: state.y,

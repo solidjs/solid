@@ -6,6 +6,7 @@ import { insert as _$insert } from "r-dom";
 import { memo as _$memo } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
 import { style as _$style } from "r-dom";
+import { snapshot as _$snapshot } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { effect as _$effect } from "r-dom";
@@ -182,7 +183,7 @@ const template5 = _tmpl$5();
 var _el$10 = _tmpl$4();
 _el$10.textContent = "Hi";
 _$effect(
-  () => someStyle(),
+  () => _$snapshot(someStyle()),
   (_v$, _$p) => {
     _$style(_el$10, _v$, _$p);
   }
@@ -377,7 +378,7 @@ const template33 = [
   (() => {
     var _el$43 = _tmpl$19();
     _$effect(
-      () => styles.button,
+      () => _$snapshot(styles.button),
       (_v$, _$p) => {
         _$className(_el$43, _v$, _$p);
       }
@@ -387,7 +388,7 @@ const template33 = [
   (() => {
     var _el$44 = _tmpl$19();
     _$effect(
-      () => styles["foo--bar"],
+      () => _$snapshot(styles["foo--bar"]),
       (_v$, _$p) => {
         _$className(_el$44, _v$, _$p);
       }
@@ -397,7 +398,7 @@ const template33 = [
   (() => {
     var _el$45 = _tmpl$19();
     _$effect(
-      () => styles.foo.bar,
+      () => _$snapshot(styles.foo.bar),
       (_v$, _$p) => {
         _$className(_el$45, _v$, _$p);
       }
@@ -407,7 +408,7 @@ const template33 = [
   (() => {
     var _el$46 = _tmpl$19();
     _$effect(
-      () => styles[foo()],
+      () => _$snapshot(styles[foo()]),
       (_v$, _$p) => {
         _$className(_el$46, _v$, _$p);
       }
@@ -656,7 +657,7 @@ _$style(_el$100, /* @static */ styleProp.style);
 const template85 = _el$100;
 var _el$101 = _tmpl$4();
 _$effect(
-  () => styleProp.style,
+  () => _$snapshot(styleProp.style),
   (_v$, _$p) => {
     _$style(_el$101, _v$, _$p);
   }
@@ -671,8 +672,8 @@ _$insert(_el$102, count);
 _$effect(
   () => ({
     e: count(),
-    t: style,
-    a: style
+    t: _$snapshot(style),
+    a: _$snapshot(style)
   }),
   ({ e, t, a }, _p$) => {
     e !== _p$?.e && _$setAttribute(_el$102, "aria-label", e);
@@ -778,7 +779,7 @@ _$effect(
 const template94 = _el$118;
 var _el$119 = _tmpl$4();
 _$effect(
-  () => ["todo", props.active],
+  () => _$snapshot(["todo", props.active]),
   (_v$, _$p) => {
     _$className(_el$119, _v$, _$p);
   }
@@ -808,13 +809,14 @@ _$effect(
 const template97 = _el$121;
 var _el$122 = _tmpl$4();
 _$effect(
-  () => [
-    "todo",
-    {
-      active: isActive()
-    },
-    props.extra
-  ],
+  () =>
+    _$snapshot([
+      "todo",
+      {
+        active: isActive()
+      },
+      props.extra
+    ]),
   (_v$, _$p) => {
     _$className(_el$122, _v$, _$p);
   }
