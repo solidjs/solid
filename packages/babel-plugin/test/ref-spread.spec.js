@@ -1,5 +1,12 @@
 const babel = require("@babel/core");
+const fs = require("fs");
+const path = require("path");
 const plugin = require("../index");
+
+const coveragePragmasFixture = fs.readFileSync(
+  path.join(__dirname, "__shared_fixtures__", "coveragePragmas", "code.js"),
+  "utf8"
+);
 
 function compile(code, generate = "ssr", hydratable = true) {
   return babel.transformSync(code, {
@@ -11,6 +18,14 @@ function compile(code, generate = "ssr", hydratable = true) {
 }
 
 describe("intrinsic ref and spread sources", () => {
+  test.each(["istanbul", "c8"])(
+    "preserves a %s ignore comment for a generated children getter",
+    tool => {
+      const output = compile(coveragePragmasFixture, "dom");
+      expect(output).toMatch(new RegExp(`/\\* ${tool} ignore next \\*/\\s*get children\\(\\)`));
+    }
+  );
+
   test.each([
     ["a spread", "const view = <div {...attrs()} />;"],
     [
