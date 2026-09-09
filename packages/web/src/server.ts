@@ -3580,12 +3580,20 @@ export function ssrElement(tag, props, children, needsId) {
   let result = `<${tag}${hk} `;
   for (let i = 0; i < keys.length; i++) {
     const prop = keys[i];
-    const value = props[prop];
+    // Every branch reads `props[prop]` itself, and only when it will use it.
+    // On a spread these are compiled getters: `children` builds the child
+    // element and consumes hydration ids as it goes. Reading it more than
+    // once — or at all when JSX children already own the slot — burns ids
+    // the client never allocates, and every element after it hydrates
+    // against the wrong node (#3313). Keep the general read below the two
+    // early-outs.
+    //
     // The compiler moves static textarea values into children, but an
     // element with a spread is serialized here instead. Keep the runtime
     // path equivalent: textarea value/defaultValue are its text content,
-    // never HTML attributes.
+    // never HTML attributes (#3286).
     if (tag === "textarea" && (prop === "value" || prop === "defaultValue")) {
+      const value = props[prop];
       if (value !== null) children = escape(value);
       continue;
     }
@@ -3597,6 +3605,7 @@ export function ssrElement(tag, props, children, needsId) {
             : escape(props[prop]);
       continue;
     }
+    const value = props[prop];
     if (prop === "style") {
       result += `style="${ssrStyle(value)}"`;
     } else if (prop === "class") {
