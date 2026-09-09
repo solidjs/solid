@@ -140,6 +140,13 @@ const pureOptions = { ownedWrite: true };
  * dispose leftover sources (dif < 0). Unmatched destinations (replacements,
  * insertions) bail with nothing staged. Kept OUT of updateKeyedMap:
  * inlining deoptimized the general path (JIT function-size budget). */
+/** Dev-only engagement counter (tests prove the fast path actually ran). */
+let smallMoveHits = 0;
+/** @internal */
+export function __smallMoveHits(): number {
+  return smallMoveHits;
+}
+
 function trySmallMove<Item, MappedItem>(
   data: MapData<Item, MappedItem>,
   newItems: Item[],
@@ -245,7 +252,24 @@ function commitSmallMove<Item, MappedItem>(
       dstPos[j] = (dstPos[j] << 6) | found; // pack pairing (found < 32)
     }
   }
+  // DUPLICATES: the general path pairs equal identities by OCCURRENCE ORDER
+  // (the chained index map). Displaced↔displaced pairing above is ascending
+  // on both sides, so it agrees; but an aligned run was matched by POSITION,
+  // and if a displaced identity also occurs inside a run the two algorithms
+  // can hand different occurrences different owners (row-local state moves;
+  // a shrink could dispose the wrong one). Decline that case — general path.
+  if (srcPos.length !== 0 || dstPos.length !== 0) {
+    const displaced = new Set<Item>();
+    for (i = 0; i < srcPos.length; i++) displaced.add(oldItems[srcPos[i]]);
+    for (j = 0; j < dstPos.length; j++) displaced.add(newItems[dstPos[j] >> 6]);
+    for (let r = 0; r < runs.length; r += 3) {
+      const ro = runs[r];
+      for (let a = 0, n = runs[r + 2]; a < n; a++)
+        if (displaced.has(oldItems[ro + a])) return false;
+    }
+  }
   // PHASE 2: commit.
+  if (__DEV__) smallMoveHits++;
   const oldMappings = data._mappings;
   const oldNodes = data._nodes;
   const mappings = oldMappings.slice(0, newLen);

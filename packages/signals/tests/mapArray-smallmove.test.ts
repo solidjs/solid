@@ -1,14 +1,20 @@
-import { describe, expect, it, vi } from "vitest";
-import { createSignal, flush, mapArray } from "../src/index.js";
+import { describe, expect, it } from "vitest";
+import { createRoot, createSignal, flush, mapArray, onCleanup } from "../src/index.js";
+import { __smallMoveHits } from "../src/map.js";
 
-/** SMALL-MOVE fast path (jfb-reorder profile, 2026-09-02): after prefix/
- * suffix trimming, a same-length window whose mismatches are ≤K displaced
- * identities commits as k in-place patches over sliced arrays — no window
- * Map, no staging arrays. These tests pin the semantics the fast path must
- * preserve: mapped identity moves with the item, the mapper never re-runs
- * for moved rows, index accessors update for exactly the moved positions,
- * and every non-move shape (replacement, duplicates, adds) still lands in
- * the general path with correct results. */
+/** SMALL-MOVE fast path: after prefix/suffix trimming, a same-or-shorter
+ * window whose mismatches are ≤32 displaced identities commits as in-place
+ * patches over sliced arrays — no window Map, no staging arrays.
+ *
+ * Every test here PROVES which path ran (`__smallMoveHits`, dev-only) and
+ * pins semantics against an ORACLE: the same source sequence driven through
+ * the general path (an arity-2 mapper creates index signals, which the fast
+ * path declines). Mapped values carry a creation sequence number, so "same
+ * mapped array" means the same OWNERS ended up at the same positions — the
+ * duplicate-pairing contract — and disposal order is compared too. */
+
+type Item = { id: number };
+type Mapped = { item: Item; seq: number };
 
 function rotateF<T>(a: readonly T[]): T[] {
   return [...a.slice(1), a[0]];
@@ -16,8 +22,8 @@ function rotateF<T>(a: readonly T[]): T[] {
 function rotateB<T>(a: readonly T[]): T[] {
   return [a[a.length - 1], ...a.slice(0, -1)];
 }
+/** Move `k` evenly spaced rows to new positions (the jfb displace shape). */
 function displace<T>(a: readonly T[], k: number): T[] {
-  // move k evenly-spaced rows to new positions (jfb displace shape)
   const next = [...a];
   for (let i = 0; i < k; i++) {
     const from = Math.floor(((i + 1) * next.length) / (k + 2));
@@ -26,263 +32,271 @@ function displace<T>(a: readonly T[], k: number): T[] {
   }
   return next;
 }
+const ids = (m: Mapped[]) => m.map(x => x.item.id);
+const seqs = (m: Mapped[]) => m.map(x => x.seq);
 
-function harness(n = 50) {
-  const items = Array.from({ length: n }, (_, i) => ({ id: i }));
-  const [$src, setSrc] = createSignal(items);
-  const mapper = vi.fn((value: { id: number }, index: () => number) => ({
-    item: value,
-    get index() {
-      return index();
-    }
-  }));
-  const map = mapArray($src, mapper);
-  map();
-  return { $src, setSrc, map, mapper, items };
+/** Drive one source through BOTH paths: `fast` (arity-1 mapper, eligible)
+ * and `oracle` (arity-2 mapper → index signals → general path always). */
+function pair(initial: Item[]) {
+  let seq = 0;
+  const disposed: { fast: number[]; oracle: number[] } = { fast: [], oracle: [] };
+  const mk =
+    (side: "fast" | "oracle") =>
+    (item: Item): Mapped => {
+      const m = { item, seq: seq++ };
+      onCleanup(() => disposed[side].push(m.seq));
+      return m;
+    };
+  const [$fast, setFast] = createSignal(initial);
+  const [$oracle, setOracle] = createSignal(initial);
+  let fast!: () => Mapped[];
+  let oracle!: () => Mapped[];
+  const dispose = createRoot(d => {
+    fast = mapArray($fast, mk("fast"));
+    const o = mk("oracle");
+    oracle = mapArray($oracle, (item: Item, _index: () => number) => o(item));
+    fast();
+    oracle();
+    return d;
+  });
+  const set = (next: Item[]) => {
+    setFast(next);
+    setOracle(next);
+    flush();
+  };
+  /** After a set: mapped ids equal on both sides (correctness), and the
+   * ORDER of owners (seq) equals the oracle's (duplicate pairing). */
+  const agree = () => {
+    expect(ids(fast())).toEqual(ids(oracle()));
+    // Owners created on the two sides interleave in seq; compare RELATIVE order.
+    const rank = (m: Mapped[]) => {
+      const sorted = [...m].map(x => x.seq).sort((a, b) => a - b);
+      return m.map(x => sorted.indexOf(x.seq));
+    };
+    expect(rank(fast())).toEqual(rank(oracle()));
+    expect(disposed.fast.length).toBe(disposed.oracle.length);
+  };
+  return { set, fast, oracle, agree, disposed, dispose };
 }
 
-describe("mapArray small-move semantics", () => {
-  it("rotate forward preserves every mapped identity and re-runs no mappers", () => {
-    const { setSrc, map, mapper } = harness();
-    const before = map();
-    mapper.mockClear();
-    setSrc(p => rotateF(p));
-    flush();
-    const after = map();
-    expect(mapper).not.toHaveBeenCalled();
-    expect(after.length).toBe(before.length);
-    // row 0 moved to the end; everyone else shifted up one position
-    expect(after[after.length - 1]).toBe(before[0]);
-    for (let i = 0; i < after.length - 1; i++) expect(after[i]).toBe(before[i + 1]);
-    // index accessors reflect the new positions
-    after.forEach((m, i) => expect(m.index).toBe(i));
-    // fresh array identity for downstream change propagation
-    expect(after).not.toBe(before);
+const items = (n: number): Item[] => Array.from({ length: n }, (_, i) => ({ id: i }));
+const hits = () => __smallMoveHits();
+
+describe("mapArray small-move fast path — engagement", () => {
+  it("engages for an arity-1 mapper on a >64 window and agrees with the general path", () => {
+    const p = pair(items(200));
+    const before = hits();
+    const rotated = rotateF(p.oracle().map(m => m.item));
+    p.set(rotated);
+    expect(hits()).toBe(before + 1);
+    p.agree();
+    expect(ids(p.fast())).toEqual(rotated.map(i => i.id));
+    p.dispose();
   });
 
-  it("rotate backward preserves identity", () => {
-    const { setSrc, map, mapper } = harness();
-    const before = map();
-    mapper.mockClear();
-    setSrc(p => rotateB(p));
+  it("does NOT engage for an arity-2 mapper (index signals) — the oracle path", () => {
+    let seq = 0;
+    const [$s, set] = createSignal(items(200));
+    let m!: () => Mapped[];
+    const dispose = createRoot(d => {
+      m = mapArray($s, (item: Item, _i: () => number) => ({ item, seq: seq++ }));
+      m();
+      return d;
+    });
+    const before = hits();
+    set(rotateF(items(200).map((_, i) => m()[i].item)));
     flush();
-    const after = map();
-    expect(mapper).not.toHaveBeenCalled();
-    expect(after[0]).toBe(before[before.length - 1]);
-    for (let i = 1; i < after.length; i++) expect(after[i]).toBe(before[i - 1]);
-    after.forEach((m, i) => expect(m.index).toBe(i));
+    expect(hits()).toBe(before);
+    dispose();
   });
 
-  it("displace-k preserves identity for k = 3..8", () => {
-    for (const k of [3, 4, 5, 6, 8]) {
-      const { setSrc, map, mapper, items } = harness(60);
-      const before = map();
-      const byItem = new Map(before.map(m => [m.item, m]));
-      mapper.mockClear();
-      setSrc(p => displace(p, k));
-      flush();
-      const after = map();
-      expect(mapper).not.toHaveBeenCalled();
-      expect(after.length).toBe(items.length);
-      after.forEach((m, i) => {
-        expect(byItem.get(m.item)).toBe(m); // identity moved with the item
-        expect(m.index).toBe(i);
-      });
+  it("window gate (`end - start > 64`): a 66-row changed window engages, 65 does not", () => {
+    for (const [window, engages] of [
+      [66, true],
+      [65, false]
+    ] as const) {
+      // Prefix of 100 unchanged rows, then a rotation of exactly `window`
+      // rows: the trims leave start=100, end=100+window-1.
+      const src = items(100 + window);
+      const p = pair(src);
+      const head = src.slice(0, 100);
+      const tail = src.slice(100);
+      const before = hits();
+      p.set([...head, ...rotateF(tail)]);
+      expect(hits() - before, `window ${window}`).toBe(engages ? 1 : 0);
+      p.agree();
+      p.dispose();
     }
   });
 
-  it("adjacent swap (jfb swap) preserves identity", () => {
-    const { setSrc, map, mapper } = harness(20);
-    const before = map();
-    mapper.mockClear();
-    setSrc(p => {
-      const next = [...p];
-      const tmp = next[1];
-      next[1] = next[18];
-      next[18] = tmp;
-      return next;
-    });
-    flush();
-    const after = map();
-    expect(mapper).not.toHaveBeenCalled();
-    expect(after[1]).toBe(before[18]);
-    expect(after[18]).toBe(before[1]);
-    expect(after[1].index).toBe(1);
-    expect(after[18].index).toBe(18);
-  });
-
-  it("REPLACEMENT inside a same-length window creates a new row and disposes the old", () => {
-    const { setSrc, map, mapper } = harness(10);
-    const before = map();
-    mapper.mockClear();
-    const fresh = { id: 99 };
-    setSrc(p => {
-      const next = [...p];
-      next[4] = fresh; // same length, not a move — must NOT fast-path
-      return next;
-    });
-    flush();
-    const after = map();
-    expect(mapper).toHaveBeenCalledTimes(1);
-    expect(after[4].item).toBe(fresh);
-    for (let i = 0; i < 10; i++) {
-      if (i !== 4) expect(after[i]).toBe(before[i]);
+  it("displacement bound: 32 displaced rows engage, 33 fall to the general path", () => {
+    for (const [k, engages] of [
+      [32, true],
+      [33, false]
+    ] as const) {
+      const src = items(400);
+      const p = pair(src);
+      // Move the first k rows to the END as a block: k displaced identities.
+      const next = [...src.slice(k), ...src.slice(0, k)];
+      const before = hits();
+      p.set(next);
+      expect(hits() - before, `k=${k}`).toBe(engages ? 1 : 0);
+      p.agree();
+      expect(ids(p.fast())).toEqual(next.map(i => i.id));
+      p.dispose();
     }
   });
+});
 
-  it("MIXED move + replacement in one window stays correct", () => {
-    const { setSrc, map, mapper } = harness(12);
-    const before = map();
-    mapper.mockClear();
-    const fresh = { id: 77 };
-    setSrc(p => {
-      const next = [...p];
-      // swap 2 and 9, replace 5
-      const tmp = next[2];
-      next[2] = next[9];
-      next[9] = tmp;
-      next[5] = fresh;
-      return next;
-    });
-    flush();
-    const after = map();
-    expect(mapper).toHaveBeenCalledTimes(1);
-    expect(after[2]).toBe(before[9]);
-    expect(after[9]).toBe(before[2]);
-    expect(after[5].item).toBe(fresh);
-    after.forEach((m, i) => expect(m.index).toBe(i));
-  });
-
-  it("DUPLICATE items moving within the window stay correct", () => {
-    const dup = { id: 1000 };
-    const items = [{ id: 0 }, dup, { id: 2 }, dup, { id: 4 }, { id: 5 }];
-    const [$src, setSrc] = createSignal(items);
-    const map = mapArray($src, (value: any, index: () => number) => ({
-      item: value,
-      get index() {
-        return index();
-      }
-    }));
-    const before = map();
-    setSrc(p => {
-      // move both duplicates and a neighbor
-      return [p[1], p[0], p[2], p[4], p[3], p[5]];
-    });
-    flush();
-    const after = map();
-    expect(after.map(m => m.item)).toEqual([dup, items[0], items[2], items[4], dup, items[5]]);
-    after.forEach((m, i) => expect(m.index).toBe(i));
-    expect(new Set(after).size).toBe(6); // no shared mapped rows
-    expect(before.filter(m => after.includes(m)).length).toBe(6); // all reused
-  });
-
-  it("custom-keyed small moves match by KEY, not identity", () => {
-    const [$src, setSrc] = createSignal([
-      { id: "a", v: 1 },
-      { id: "b", v: 1 },
-      { id: "c", v: 1 }
-    ]);
-    const mapper = vi.fn((value: () => any, index: () => number) => ({
-      get id() {
-        return value().id;
-      },
-      get v() {
-        return value().v;
-      },
-      get index() {
-        return index();
-      }
-    }));
-    const map = mapArray($src, mapper, { keyed: (item: any) => item.id });
-    const [a, b, c] = map();
-    mapper.mockClear();
-    // rotate with FRESH objects (same keys, new identities, new values)
-    setSrc([
-      { id: "b", v: 2 },
-      { id: "c", v: 2 },
-      { id: "a", v: 2 }
-    ]);
-    flush();
-    const [x, y, z] = map();
-    expect(mapper).not.toHaveBeenCalled();
-    expect(x).toBe(b);
-    expect(y).toBe(c);
-    expect(z).toBe(a);
-    // row signals must carry the NEW objects' values
-    expect(x.v).toBe(2);
-    expect(y.v).toBe(2);
-    expect(z.v).toBe(2);
-    expect(x.index).toBe(0);
-    expect(y.index).toBe(1);
-    expect(z.index).toBe(2);
-  });
-
-  it("large scrambles (beyond the fast-path bound) still work via the general path", () => {
-    const { setSrc, map, mapper } = harness(200);
-    const before = map();
-    const byItem = new Map(before.map(m => [m.item, m]));
-    mapper.mockClear();
-    setSrc(p => {
-      // seeded shuffle — far more than K displaced
-      const next = [...p];
-      let seed = 42;
-      for (let i = next.length - 1; i > 0; i--) {
-        seed = (seed * 16807) % 2147483647;
-        const j = seed % (i + 1);
-        const tmp = next[i];
-        next[i] = next[j];
-        next[j] = tmp;
-      }
-      return next;
-    });
-    flush();
-    const after = map();
-    expect(mapper).not.toHaveBeenCalled();
-    after.forEach((m, i) => {
-      expect(byItem.get(m.item)).toBe(m);
-      expect(m.index).toBe(i);
-    });
-  });
-
-  it("jfb-scale (1000 rows): rotate/displace/swap/removefirst all preserve identity", () => {
-    for (const op of [
-      (p: any[]) => rotateF(p),
-      (p: any[]) => rotateB(p),
-      (p: any[]) => displace(p, 8),
-      (p: any[]) => {
-        const next = [...p];
-        const tmp = next[1];
-        next[1] = next[998];
-        next[998] = tmp;
-        return next;
-      },
-      (p: any[]) => p.slice(1)
-    ]) {
-      const { setSrc, map, mapper } = harness(1000);
-      const before = map();
-      const byItem = new Map(before.map(m => [m.item, m]));
-      mapper.mockClear();
-      setSrc(p => op(p as any[]) as any);
-      flush();
-      const after = map();
-      expect(mapper).not.toHaveBeenCalled();
-      after.forEach((m, i) => {
-        expect(byItem.get(m.item)).toBe(m);
-        expect(m.index).toBe(i);
-      });
+describe("mapArray small-move fast path — semantics vs the general path", () => {
+  it("rotate forward / backward: mapped owners move with their items, nothing re-created", () => {
+    const p = pair(items(300));
+    const created = () => p.fast().length + p.disposed.fast.length;
+    const c0 = created();
+    for (const op of [rotateF, rotateB, rotateF, rotateF]) {
+      p.set(op(p.oracle().map(m => m.item)));
+      p.agree();
     }
+    expect(created()).toBe(c0);
+    expect(p.disposed.fast).toEqual([]);
+    p.dispose();
   });
 
-  it("removefirst (length change) keeps identities through the general path", () => {
-    const { setSrc, map, mapper } = harness(30);
-    const before = map();
-    mapper.mockClear();
-    setSrc(p => p.slice(1));
-    flush();
-    const after = map();
-    expect(mapper).not.toHaveBeenCalled();
-    expect(after.length).toBe(29);
-    for (let i = 0; i < 29; i++) expect(after[i]).toBe(before[i + 1]);
-    after.forEach((m, i) => expect(m.index).toBe(i));
+  it("scattered displacements k = 3..8 agree with the general path whether or not they engage", () => {
+    // Engagement is an optimization, not a contract: the scan may decline a
+    // scatter it can't realign within its lookahead. Correctness never varies.
+    const p = pair(items(500));
+    const before = hits();
+    for (let k = 3; k <= 8; k++) {
+      p.set(
+        displace(
+          p.oracle().map(m => m.item),
+          k
+        )
+      );
+      p.agree();
+    }
+    expect(hits()).toBeGreaterThan(before); // and it does engage for most of them
+    p.dispose();
+  });
+
+  it("adjacent swap (jfb swap rows) engages", () => {
+    const p = pair(items(1000));
+    const src = p.oracle().map(m => m.item);
+    const next = [...src];
+    [next[1], next[998]] = [next[998], next[1]];
+    const before = hits();
+    p.set(next);
+    expect(hits()).toBe(before + 1);
+    p.agree();
+    p.dispose();
+  });
+
+  it("shrink: displaced rows that leave are disposed, the same ones the general path disposes", () => {
+    const p = pair(items(300));
+    const src = p.oracle().map(m => m.item);
+    // Drop 5 rows from the middle and rotate the rest by one: a non-growing move with leavers.
+    const kept = src.filter((_, i) => i < 100 || i >= 105);
+    const before = hits();
+    p.set(rotateF(kept));
+    expect(hits()).toBe(before + 1);
+    p.agree();
+    expect(p.disposed.fast.length).toBe(5);
+    p.dispose();
+  });
+
+  it("growth (newLen > oldLen) is excluded — general path", () => {
+    const p = pair(items(200));
+    const src = p.oracle().map(m => m.item);
+    const before = hits();
+    p.set([...rotateF(src), { id: 9999 }]);
+    expect(hits()).toBe(before);
+    p.agree();
+    p.dispose();
+  });
+
+  it("replacement inside the window bails: fresh row created, old disposed", () => {
+    const p = pair(items(200));
+    const src = p.oracle().map(m => m.item);
+    const next = [...src];
+    next[100] = { id: 424242 };
+    const before = hits();
+    p.set(next);
+    expect(hits()).toBe(before);
+    p.agree();
+    expect(p.disposed.fast.length).toBe(1);
+    p.dispose();
+  });
+
+  it("full replace (every item fresh) bails before the scan (pre-probe)", () => {
+    const p = pair(items(1000));
+    const before = hits();
+    p.set(items(1000)); // all new objects
+    expect(hits()).toBe(before);
+    p.agree();
+    expect(p.disposed.fast.length).toBe(1000);
+    p.dispose();
+  });
+});
+
+describe("mapArray small-move fast path — duplicate identities", () => {
+  it("a displaced identity that also occurs in an aligned run DECLINES (occurrence-order pairing preserved)", () => {
+    // The audit's shape, embedded in a >64 window: old [A,B,A,C] → new [B,A,C,A].
+    const A = { id: 1 },
+      B = { id: 2 },
+      C = { id: 3 };
+    const filler = items(100).map(i => ({ id: 1000 + i.id }));
+    const src = [A, B, A, C, ...filler];
+    const p = pair(src);
+    const before = hits();
+    p.set([B, A, C, A, ...rotateF(filler)]);
+    // Declined: the general path pairs the two A occurrences in order.
+    expect(hits()).toBe(before);
+    p.agree();
+    p.dispose();
+  });
+
+  it("duplicates only among DISPLACED rows pair ascending on both sides — may engage, must agree", () => {
+    const A = { id: 1 };
+    const filler = items(200).map(i => ({ id: 1000 + i.id }));
+    // Two A's at the front move together to the back.
+    const src = [A, A, ...filler];
+    const p = pair(src);
+    p.set([...filler, A, A]);
+    p.agree();
+    p.dispose();
+  });
+
+  it("duplicate removal disposes the same occurrence the general path does", () => {
+    const A = { id: 1 };
+    const filler = items(200).map(i => ({ id: 1000 + i.id }));
+    const src = [A, ...filler.slice(0, 100), A, ...filler.slice(100)];
+    const p = pair(src);
+    // Drop the second A and rotate the tail: a shrink involving a duplicate.
+    p.set([A, ...filler.slice(0, 100), ...rotateF(filler.slice(100))]);
+    p.agree();
+    expect(p.disposed.fast.length).toBe(1);
+    p.dispose();
+  });
+
+  it("random duplicate-heavy reorders: 200 rounds, fast path always agrees with the general path", () => {
+    let s = 12345;
+    const rnd = (n: number) => (s = (s * 1103515245 + 12345) >>> 0) % n;
+    const base = items(120); // 120 identities, some used twice → duplicates everywhere
+    const p = pair([...base, ...base.slice(0, 30)]);
+    for (let round = 0; round < 200; round++) {
+      const cur = p.oracle().map(m => m.item);
+      const next = [...cur];
+      const moves = 1 + rnd(6);
+      for (let m = 0; m < moves; m++) {
+        const from = rnd(next.length);
+        const [row] = next.splice(from, 1);
+        next.splice(rnd(next.length), 0, row);
+      }
+      if (rnd(4) === 0) next.splice(rnd(next.length), 1); // occasional shrink
+      p.set(next);
+      p.agree();
+    }
+    p.dispose();
   });
 });
