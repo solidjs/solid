@@ -229,7 +229,12 @@ describe("store twins of the lane-authority fixes (#3335/#3334/#3330/#3331)", ()
     expect(isPending(() => state.d)).toBe(false);
   });
 
-  it("#3334 twin: a reader switching onto an in-flight derived STORE leaf holds on the flight, never shows the pre-flight value", async () => {
+  it("#3334 twin: a reader switching onto an in-flight derived STORE leaf whose inputs are unpublished shows the committed value, then the landing", async () => {
+    // Twin of stale-read-uninitialized-cross-transition's initialized-memo
+    // control: the derive's input (`a`) is held in T1, so the leaf's committed
+    // "v0" is coherent with the frame — the reader shows it without
+    // entangling and re-derives at T1's commit. The reveal HOLDS only when the
+    // flight's inputs are already visible (spec-async-semantics, #3305/#3334).
     const [a, setA] = createSignal(0);
     const [pick, setPick] = createSignal(0);
     const gate = deferred();
@@ -268,12 +273,11 @@ describe("store twins of the lane-authority fixes (#3335/#3334/#3330/#3331)", ()
     flush();
     setPick(1);
     flush();
-    expect(out).toEqual(["other"]);
-    expect(pick()).toBe(0);
+    expect(out).toEqual(["other", "v0"]);
+    expect(pick()).toBe(1);
     gate.resolve();
     await settle();
-    expect(out).toEqual(["other", "v1"]);
-    expect(pick()).toBe(1);
+    expect(out).toEqual(["other", "v0", "v1"]);
   });
 
   describe("adoptions under a live transaction hold — plain, derived, optimistic", () => {

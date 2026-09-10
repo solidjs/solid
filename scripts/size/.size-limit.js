@@ -194,7 +194,22 @@ module.exports = [
     // GlobalQueue._promoteOverride); the floor pays the slot's initializer,
     // the arm and the hook slot — +52 B raw (22,279 -> 22,331). The install
     // itself (promoteOverride/installOverride) rides the optimistic module.
-    limit: "8.32 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 8.29 ->
+    // 8.51 KB, measured at 8482 B. Core-retained seams of the lane fixes:
+    // read()'s override arm (superseded-node selection hook), the reveal
+    // carve-out gated on input visibility (three bit tests, one lane hook,
+    // `heldFromStale` recording late readers for the commit replay),
+    // commitPendingNode marking a still-pending node's inputs published,
+    // recompute's stale-recording drop, runEffect's lane-less owner gate,
+    // the provenance carrier (`origin`) captured per flight and re-armed at
+    // the landing, INV-11's compare-slot term, setSignal's authoritative
+    // store-landing dispatch, the contested re-derive deferred past a
+    // reverting settle. The decision logic (supersession, provenance
+    // comparison, lane demotion, replay gating, the landing) lives in
+    // optimistic.ts and shakes out of this floor. In-package floor 22,252 ->
+    // 22,737.
+    limit: "8.51 KB",
     modifyEsbuildConfig
   },
   {
@@ -427,6 +442,14 @@ module.exports = [
     // ownership stamp (#3367/#3368: scan grade, spread arm, overlay gate,
     // `$OWNER` lookups and trap guards) — `next` moved 14.83 -> 15.06 KB on
     // the same; this branch's delta over `next` is unchanged (~370 B).
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 14.91 ->
+    // 15.29 KB, measured at 15262 B. The core seams (see the core floor note)
+    // plus the store twins: held adoption under a live transaction on
+    // optimistic families (`heldMaskView`, `stageHeldAdoptions`),
+    // `notifyOptimisticWrites` judging against the view readers see, and
+    // the authoritative landing on an override-covered node dispatching to
+    // the engine.
     limit: "15.42 KB",
     modifyEsbuildConfig
   },
@@ -526,7 +549,16 @@ module.exports = [
     // Rebased on `next` @ 6bf2bf85 (2026-09-11): 10.47 -> 10.50 KB, measured at
     // 10484 B (was 10462). `next`'s #3350 in-place heap marking and #3351
     // `_prevChild` on the core literals; `next` moved 10.27 -> 10.32 KB.
-    limit: "10.50 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 10.40 ->
+    // 10.85 KB, measured at 10822 B. The core seams (see the core floor note)
+    // plus the engine they dispatch to, which this scenario retains:
+    // override supersession with action provenance (`supersedeOverride`,
+    // `supersededRead`, the same-value stamp renewal), the authoritative
+    // store landing (`landOnOverride`), the per-node merged-lane hold
+    // (`laneHeld` over `waitingTransition`), `laneLive`, and the
+    // lane-routed settle entering the waiting transaction.
+    limit: "10.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -605,7 +637,11 @@ module.exports = [
     // Rebased on `next` @ 6bf2bf85 (2026-09-11): 11.06 -> 11.10 KB, measured at
     // 11062 B (was 11058). Brotli noise from `next`'s #3350/#3351 core bytes;
     // `next` moved 10.92 -> 10.96 KB.
-    limit: "11.10 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 11.05 ->
+    // 11.27 KB, measured at 11242 B — the core seams (see the core floor note)
+    // and, where the app retains lanes, the engine they dispatch to.
+    limit: "11.27 KB",
     modifyEsbuildConfig
   },
   {
@@ -699,7 +735,11 @@ module.exports = [
     // Rebased on `next` @ 4935c7dd (2026-09-11): 18.48 -> 18.52 KB, measured at
     // 18484 B (was 18451). No stores in this scenario; brotli layout across
     // the shared core after `next`'s #3367/#3368 (the CSR twin moved +7 B).
-    limit: "18.52 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 18.42 ->
+    // 18.65 KB, measured at 18628 B — the core seams (see the core floor note)
+    // and, where the app retains lanes, the engine they dispatch to.
+    limit: "18.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -847,7 +887,15 @@ module.exports = [
     // Rebased on `next` @ 4935c7dd (2026-09-11): 27.90 -> 28.15 KB, measured at
     // 28112 B (was 27894). `next`'s #3367/#3368 createStore arm (see that
     // note); `next` moved 27.48 -> 27.66 KB on the same.
-    limit: "28.15 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 27.56 ->
+    // 28.16 KB, measured at 28138 B. The core seams (see the core floor note)
+    // plus the store twins: held adoption under a live transaction on
+    // optimistic families (`heldMaskView`, `stageHeldAdoptions`),
+    // `notifyOptimisticWrites` judging against the view readers see, and
+    // the authoritative landing on an override-covered node dispatching to
+    // the engine.
+    limit: "28.16 KB",
     modifyEsbuildConfig
   },
   {
@@ -911,7 +959,11 @@ module.exports = [
     // truncating `length =` when nothing is queued, and plain nodes skip the
     // override probe. +27 B raw in the floor; the rest is brotli reordering
     // from the code motion.
-    limit: "13.87 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 13.84 ->
+    // 14.03 KB, measured at 14009 B — the core seams (see the core floor note)
+    // and, where the app retains lanes, the engine they dispatch to.
+    limit: "14.03 KB",
     modifyEsbuildConfig
   },
   {
@@ -963,7 +1015,11 @@ module.exports = [
     //
     // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 15.08 -> 15.23 KB,
     // measured at 15205 B — the core write-path change (see the core floor note).
-    limit: "15.23 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 15.23 ->
+    // 15.49 KB, measured at 15461 B — the core seams (see the core floor note)
+    // and, where the app retains lanes, the engine they dispatch to.
+    limit: "15.49 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -1039,7 +1095,11 @@ module.exports = [
     // Rebased on `next` @ 6bf2bf85 (2026-09-11): 26.75 -> 26.80 KB, measured at
     // 26772 B (was 26734). `next`'s #3350 in-place heap marking under the
     // attribution build; `next` moved 26.65 -> 26.68 KB.
-    limit: "26.80 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 26.75 ->
+    // 26.99 KB, measured at 26968 B — the core seams (see the core floor note)
+    // and, where the app retains lanes, the engine they dispatch to.
+    limit: "26.99 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

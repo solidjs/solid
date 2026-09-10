@@ -1,6 +1,7 @@
 import {
   CONFIG_CHILD_COMPANIONS,
   CONFIG_AUTO_DISPOSE,
+  CONFIG_INPUTS_PUBLISHED,
   CONFIG_SYNC,
   EFFECT_TRACKED,
   EFFECT_USER,
@@ -863,6 +864,10 @@ export function notifyStatus(
   if (!blockStatus) {
     if (status === STATUS_PENDING && pendingSource) {
       addPendingSource(el, pendingSource);
+      // A fresh flight from a settled state starts with its inputs unpublished
+      // (a replacement flight while still pending keeps the mark: the first
+      // flight's committed inputs are still the frame).
+      if (!(el._statusFlags & STATUS_PENDING)) el._config &= ~CONFIG_INPUTS_PUBLISHED;
       el._statusFlags = STATUS_PENDING | (el._statusFlags & STATUS_UNINITIALIZED);
       // Preserve the current source on this propagation so render-effect notification
       // can register every distinct pending source with the transition.

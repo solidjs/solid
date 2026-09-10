@@ -95,10 +95,15 @@ function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)
     !el._equals(currentValue, v);
   if (!valueChanged) {
     // Same-value write with an active override still entangles the current
-    // action's transition — the hold must outlast all overlapping actions.
+    // action's transition — the hold must outlast all overlapping actions —
+    // and renews the override's PROVENANCE: the newer action re-asks the
+    // question, so an older action's answer arriving later is stale to it
+    // too (#3331; a same-value re-prediction otherwise let the first
+    // action's slow source supersede and restart the downstream flight).
     if (hasOverride) {
       const transition = resolveTransition(el as any);
       if (transition && activeTransition !== transition) globalQueue.initTransition(transition);
+      if (origin > el._x!._overrideStamp) el._x!._overrideStamp = origin;
     }
     return v;
   }
@@ -402,6 +407,19 @@ function laneSuspends(owner: OptimisticNode): boolean {
 }
 
 /**
+ * read()'s reveal carve-out asks whether a pending node is routed through a
+ * LIVE lane: a lane-derived flight's inputs are already revealed through the
+ * lane (the override, or latest()'s fresh value), so a stale reader of another
+ * transaction must hold on the flight rather than show the node's committed
+ * value beside them (#3334). Exact, not sticky: `resolveLane` clears a lane
+ * reference the engine has since retired, so a node that was once lane-routed
+ * and is now pending under a plain hold is judged by that hold alone.
+ */
+function laneLive(el: Computed<any>): boolean {
+  return resolveLane(el) !== undefined;
+}
+
+/**
  * read()'s entanglement gate: a reader recomputing under an optimistic lane
  * that reads a pending mid-transition write sees the committed value; the sub
  * is recorded for replay at commit.
@@ -555,6 +573,7 @@ export function installOptimisticEngine(): void {
   GlobalQueue._landOnOverride = landOnOverride;
   GlobalQueue._gatedRead = gatedRead;
   GlobalQueue._laneSuspends = laneSuspends;
+  GlobalQueue._laneLive = laneLive;
   GlobalQueue._laneReadsCommitted = laneReadsCommitted;
   GlobalQueue._recomputeLane = recomputeLane;
   GlobalQueue._laneAsyncPending = laneAsyncPending;
