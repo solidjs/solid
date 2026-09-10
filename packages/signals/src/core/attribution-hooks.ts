@@ -218,25 +218,6 @@ export interface NavigationRef {
    * a pending navigation to fold onto it opens a navigation of its own.
    */
   redirect?: number;
-  /**
-   * The router's own completion, for routers that run an async pipeline the
-   * reactive graph does not hold — loaders awaited in the router's core,
-   * matches published only when they resolve. The engine judges a
-   * navigation settled when its writes are through; with `until` it also
-   * waits for this to settle (resolve or reject), so `settledMs` covers the
-   * router's wait and an interaction that performed the navigation stays
-   * open with it. Superseded navigations settle at once regardless.
-   *
-   * While the record is open, `withOrigin` with this SAME object re-enters
-   * it: the publish the router performs when its pipeline resolves stamps
-   * the same frame, so the hold the destination waits in, its blockers and
-   * re-runs land on this record rather than on a nameless one. Open the
-   * frame around the location write with `until`; re-enter it around the
-   * publish. The record settles once, when both are done — the promise
-   * settled and the last phase's writes through — with the outcome the
-   * phases earned together (`held` if any was) and the last hold.
-   */
-  until?: PromiseLike<unknown>;
 }
 
 /**

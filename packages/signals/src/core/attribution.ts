@@ -589,17 +589,6 @@ function popFrame(kind: "effect" | "action" | "navigation") {
  * one (a link click's handler).
  */
 function originStart(ref: OriginRef): void {
-  // The same ref object again while its navigation is still open: the router
-  // came back to publish after a pipeline the graph did not hold (see
-  // "Navigations" — re-entry). The frame is the same object, so these writes
-  // stamp the same origin and the hold they wait in lands on the same record.
-  const reentered = navByRef.get(ref);
-  if (reentered !== undefined && openNavs.has(reentered)) {
-    reentered.open++;
-    syncNavigation(reentered);
-    originFrames.push(reentered.event.origin);
-    return;
-  }
   // A redirect hop re-enters the pending navigation's frame — the same object,
   // so its writes stamp the same origin and replace the pending write without
   // superseding it (see "Navigations").
@@ -2461,17 +2450,13 @@ function checkLongHold(event: HoldEvent, subject: Signal<any>): void {
 // time and interaction, and its destination moves to the hop's while the
 // abandoned one is kept in `redirects`.
 //
-// Routers whose pipeline the graph does not hold (loaders awaited in the
-// router's core, matches published only when they resolve) are covered by two
-// pieces that only work together. `ref.until` keeps the record open past the
-// drain that committed the location write — otherwise the engine has no way
-// to know the router is coming back — and RE-ENTRY (`withOrigin` with the
-// same ref object while the record is open) lets the publish stamp the same
-// frame, so the hold the destination waits in attaches to this record instead
-// of opening a nameless one. Each phase's writes earn a verdict; the record
-// settles once, when both are done — the promise settled and the last
-// phase's writes through — with the outcome the phases earned together
-// (held if any phase was) and the last hold.
+// The seam assumes the graph holds the whole navigation: the write that lands
+// the destination is the one the frame wraps, and everything it waits for is
+// async the destination reads. A router that awaits part of its pipeline
+// outside the graph (loaders resolved in its core before it publishes) wraps
+// the publish instead, passing `at` from the user's request — the record then
+// covers the write that actually showed, and the router-side wait is the
+// router's to report.
 
 /** A destination a navigation abandoned when a redirect sent it elsewhere. */
 export interface NavigationHop {
@@ -2522,14 +2507,8 @@ interface NavState {
   held: boolean;
   /** `drainSeq` at its last write — a later drain committed it. */
   writeDrain: number;
-  /** `ref.until` promises (the opener's, each redirect hop's) not yet settled. */
-  awaiting: number;
-  /** The verdict the writes earned while `awaiting > 0` — applied when the last promise settles. */
-  deferred?: { outcome: NonNullable<NavigationEvent["outcome"]>; hold: HoldEvent | undefined };
 }
 const navStates = new WeakMap<ChangeOrigin, NavState>();
-/** Re-entry: the router's ref objects (the opener's, each hop's) → the navigation they describe. */
-const navByRef = new WeakMap<OriginRef, NavState>();
 /** Opened, not yet settled. */
 const openNavs = new Set<NavState>();
 let navigationLog: NavigationEvent[] = [];
@@ -2568,35 +2547,14 @@ function openNavigation(frame: ChangeOrigin, ref: OriginRef): void {
     ref,
     open: 1,
     held: false,
-    writeDrain: drainSeq,
-    awaiting: 0
+    writeDrain: drainSeq
   };
   syncNavigation(state);
   navStates.set(frame, state);
-  navByRef.set(ref, state);
   openNavs.add(state);
   navigationLog.push(event);
   if (navigationLog.length > options.historyLimit) navigationLog.shift();
   noteInteractionNavigation(event);
-  awaitNavigation(state, ref);
-}
-
-/**
- * `ref.until`: the router's own completion. The writes' settle is deferred
- * until every such promise (the opener's and each redirect hop's) has
- * settled; rejection counts — the navigation is over either way.
- */
-function awaitNavigation(state: NavState, ref: OriginRef): void {
-  const until = ref.until;
-  if (until === undefined) return;
-  state.awaiting++;
-  const done = () => {
-    if (--state.awaiting > 0 || state.deferred === undefined) return;
-    const { outcome, hold } = state.deferred;
-    state.deferred = undefined;
-    settleNavigation(state, outcome, hold);
-  };
-  until.then(done, done);
 }
 
 /** The navigation a redirect hop folds onto: the most recently opened one still pending. */
@@ -2617,10 +2575,8 @@ function redirectNavigation(state: NavState, ref: OriginRef): void {
   if (event.params !== undefined) hop.params = event.params;
   (event.redirects ??= []).push(hop);
   state.ref = ref;
-  navByRef.set(ref, state);
   state.open++;
   syncNavigation(state);
-  awaitNavigation(state, ref);
 }
 
 function closeNavigation(frame: ChangeOrigin): void {
@@ -2692,23 +2648,7 @@ function settleNavigation(
   hold?: HoldEvent
 ): void {
   if (!openNavs.has(state)) return;
-  // The writes are through but the router is not: park the verdict for its
-  // `until`. Superseded is final and waits for nothing.
-  if (state.awaiting > 0 && outcome !== "superseded") {
-    // Whatever hold these writes waited in has committed; the record is open
-    // for the router only, so a re-entered phase's drain is judged afresh.
-    state.held = false;
-    const parked = state.deferred;
-    if (parked === undefined) state.deferred = { outcome, hold };
-    else if (outcome === "held") {
-      // Phases fold: held is never downgraded, the last hold wins.
-      parked.outcome = "held";
-      parked.hold = hold ?? parked.hold;
-    }
-    return;
-  }
   openNavs.delete(state);
-  state.deferred = undefined;
   syncNavigation(state);
   const event = state.event;
   event.settledMs = now() - event.at;
@@ -2740,8 +2680,8 @@ function settleNavigation(
 // transition held (the last such drain's `flushEnd` is the instant); `held`
 // — at least one of its writes waited in a transition (the last hold's commit
 // is the instant, each HoldEvent attached). A navigation the frame performed
-// is attached too and must settle before the interaction does — a router's
-// `until` keeps both open. Runs are counted while the record is open:
+// is attached too and must settle before the interaction does. Runs are
+// counted while the record is open:
 // re-runs whose cause chain reaches the frame, plus computations CREATED in
 // those runs or in the frame's flushes (a create run has no causes, so it
 // inherits the interaction of the run or effect callback building it).
