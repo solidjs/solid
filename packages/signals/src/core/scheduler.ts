@@ -398,10 +398,20 @@ export function haltReactivity(cause?: unknown): void {
       message
     });
   }
-  // Log the cause here too: callers rethrow it, but a creation-time throw
+  // Surface the cause here too: callers rethrow it, but a creation-time throw
   // unwinds through ancestor recomputes that convert it to status instead of
   // surfacing it (#2884), so the rethrow alone cannot guarantee visibility.
-  cause === undefined ? console.error(message) : console.error(message, cause);
+  // Where the platform has one, hand the cause to its uncaught-error channel
+  // (`reportError` → `error` event → window.onerror / error monitoring): a
+  // halt that only reaches console.error leaves a page that LOOKS alive with
+  // nothing an app or its telemetry can act on (#3338 — an uncaught throw
+  // during the hydration render). The rethrow may reach the top as well in
+  // the non-swallowed cases; a duplicate report beats a silent one.
+  if (cause === undefined) console.error(message);
+  else if (typeof reportError === "function") {
+    console.error(message);
+    reportError(cause);
+  } else console.error(message, cause);
 }
 
 // Logs on the first write after a halt so a frozen interaction is traceable.

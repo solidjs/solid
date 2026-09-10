@@ -1884,9 +1884,26 @@ export function hydrate(code, element, options = {}) {
           // (lazy components have no module). Fall back to a fresh client
           // render replacing the server markup — lazy's own import() gets to
           // retry through normal channels — instead of a silently dead page.
-          console.error("Hydration module preload failed, falling back to client render:", err);
+          // A document root has no such fallback: the shell (<html>/<head>/
+          // <body>) cannot be client-created, and rendering the document tree
+          // fresh dies deep in the walk with an unrelated "Hydration Mismatch"
+          // (#3338). Abandon hydration explicitly instead — the server markup
+          // stays — and hand the failure to the platform's uncaught-error
+          // channel (window.onerror / error monitoring) with its real cause,
+          // the same way an uncaught reactive error is reported.
           sharedConfig.hydrating = false;
           sharedConfig.registry = undefined;
+          if (element.nodeType === 9) {
+            const error = new Error(
+              "Hydration module preload failed for a document root; a document shell cannot be " +
+                "client-rendered, so hydration was abandoned and the page is not interactive. " +
+                `Cause: ${err && err.message ? err.message : err}`,
+              { cause: err }
+            );
+            typeof reportError === "function" ? reportError(error) : console.error(error);
+            return;
+          }
+          console.error("Hydration module preload failed, falling back to client render:", err);
           disposer = render(code, element, [...element.childNodes], options);
         }
       );

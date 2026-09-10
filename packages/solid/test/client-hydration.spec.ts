@@ -2929,14 +2929,26 @@ describe("lazy() hydration-aware rendering", () => {
       "/assets/Missing.js"
     );
 
+    let thrown: any;
     expect(() => {
       createRoot(
         () => {
-          LazyComp({ name: "World" });
+          try {
+            LazyComp({ name: "World" });
+          } catch (e) {
+            thrown = e;
+            throw e;
+          }
         },
         { id: "t" }
       );
     }).toThrow(/not preloaded/);
+    // #3338: the miss means the server serialized no client entry for this
+    // id — point at the server-side cause. Root-level lazy() needs no
+    // boundary, so the message must not send people to add one.
+    expect(thrown.message).toMatch(/server serialized no client entry/);
+    expect(thrown.message).toMatch(/Asset manifest returned no client assets for module/);
+    expect(thrown.message).not.toMatch(/Loading boundary/);
   });
 
   test("lazy without moduleUrl always uses async path during hydration", () => {
