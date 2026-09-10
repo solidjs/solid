@@ -201,9 +201,13 @@ export interface NavigationRef {
   to?: string;
   /** Concrete path being left. */
   from?: string;
-  /** Route params the pattern bound — `{ id: "42" }`. */
-  params?: Readonly<Record<string, string>>;
-  /** When the navigation was requested on the `performance.now()` clock; defaults to now. */
+  /** Route params the pattern bound — `{ id: "42" }` (optional params unbound: `undefined`). */
+  params?: Readonly<Record<string, string | undefined>>;
+  /**
+   * When the navigation was requested on the `performance.now()` clock;
+   * defaults to now. A router whose request predates the write (loaders
+   * awaited before the location moves) passes its own start here.
+   */
   at?: number;
   /**
    * `>= 1`: this frame is the Nth redirect hop of the navigation still

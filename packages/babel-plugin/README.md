@@ -120,6 +120,20 @@ Source syntax frontend. `"auto"` routes `.tsrx` files through the TSRX frontend 
 
 Emit hydratable markers.
 
+### dev
+
+- Type: `boolean`
+- Default: `false`
+
+Development output. With `hydratable`, emits the hydration walk validation helpers.
+
+### componentNames
+
+- Type: `boolean`
+- Default: `false`
+
+DOM output only. Emit the tag as written in source as a third `createComponent` argument — `<Home />` compiles to `createComponent(Home, props, "Home")`, `<Ui.Button />` to `"Ui.Button"` — so the dev and observe runtimes label each component's owner (`<Home>` in diagnostic `ownerPath`s and attribution chains) even after a minifier renames the function or a `lazy()`/HMR wrapper hides it. The production runtime ignores the argument; SSR and universal output are unaffected. `@solidjs/vite-plugin` turns this on for its dev and `observe` postures.
+
 ### delegateEvents
 
 - Type: `boolean`

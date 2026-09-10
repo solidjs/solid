@@ -5,7 +5,15 @@ import {
   type OriginRef
 } from "./attribution-hooks.js";
 import { $REFRESH, NOT_PENDING } from "./constants.js";
-import { emitDiagnostic, GRAPH_SIZE_WARN_AT, ownerPath, reportDiagnostic } from "./dev.js";
+import {
+  anyExcluded,
+  emitDiagnostic,
+  GRAPH_SIZE_WARN_AT,
+  isExcluded,
+  isSuppressed,
+  ownerPath,
+  reportDiagnostic
+} from "./dev.js";
 import type { Transition } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
 
@@ -76,7 +84,7 @@ export interface ChangeOrigin {
   /** `navigation` only: concrete destination and departure paths, and the bound params. */
   to?: string;
   from?: string;
-  params?: Readonly<Record<string, string>>;
+  params?: Readonly<Record<string, string | undefined>>;
 }
 
 export interface ChangeRecord {
@@ -100,6 +108,8 @@ export interface ChangeRecord {
 export interface RerunEvent {
   /** Global monotonic run sequence. */
   run: number;
+  /** When the run started (`performance.now()` clock). */
+  at: number;
   /** How many times this node has re-run since attribution was enabled. */
   nodeRuns: number;
   nodeKind: "effect" | "memo";
@@ -273,6 +283,20 @@ interface AttributedNode {
   /** Consecutive effect-phase writes that copied the writing effect's compute output. */
   _devCopyRuns?: number;
   _devCopyFrom?: number;
+  /** Cached `OBSERVE.isExcluded` verdict — owners never move, so it holds for the node's life. */
+  _devExcluded?: boolean;
+}
+
+/**
+ * Under an owner the observer marked as its own (`OBSERVE.exclude`): the
+ * engine records nothing about the node. Cached per node once any exclusion
+ * exists; before that the answer is a flag read.
+ */
+function excludedNode(el: Computed<any>): boolean {
+  if (!anyExcluded()) return false;
+  const node = el as AttributedNode;
+  if (node._devExcluded === undefined) node._devExcluded = isExcluded(el);
+  return node._devExcluded;
 }
 
 let attributionActive = false;
@@ -293,8 +317,36 @@ const defaultOptions = {
   longHolds: { infoMs: 500, warnMs: 1000 } as { infoMs: number; warnMs: number } | false
 };
 let options: typeof defaultOptions = { ...defaultOptions };
-const listeners = new Set<(event: RerunEvent) => void>();
 let history: RerunEvent[] = [];
+
+/**
+ * The records the engine delivers, by `subscribe(type, …)` name. Every one is
+ * delivered synchronously at the moment it is complete — a re-run when its
+ * recompute ends, an interaction / hold / navigation when it settles — so a
+ * consumer never polls the ring buffers to learn that something finished.
+ */
+export interface AttributionRecords {
+  rerun: RerunEvent;
+  interaction: InteractionEvent;
+  hold: HoldEvent;
+  navigation: NavigationEvent;
+}
+export type AttributionRecordType = keyof AttributionRecords;
+type RecordListeners = {
+  [K in AttributionRecordType]: Set<(record: AttributionRecords[K]) => void>;
+};
+const recordListeners: RecordListeners = {
+  rerun: new Set(),
+  interaction: new Set(),
+  hold: new Set(),
+  navigation: new Set()
+};
+function emitRecord<K extends AttributionRecordType>(type: K, record: AttributionRecords[K]): void {
+  for (const listener of recordListeners[type]) listener(record);
+}
+function clearListeners(): void {
+  for (const type in recordListeners) recordListeners[type as AttributionRecordType].clear();
+}
 
 const now: () => number =
   typeof performance !== "undefined" ? () => performance.now() : () => Date.now();
@@ -310,6 +362,12 @@ interface RunFrame {
   prevDeps: unknown[] | null;
   /** Committed value before this run — baseline for the unstable-output check. */
   prevValue: unknown;
+  /**
+   * The interaction this run works for: traced through `causes` for a re-run;
+   * inherited from the run (or effect callback) building it for a create run,
+   * which has no causes of its own.
+   */
+  interaction: ChangeOrigin | undefined;
 }
 const frames: RunFrame[] = [];
 
@@ -442,10 +500,13 @@ function interactionStart(ref: InteractionRef): void {
   const origin: ChangeOrigin = { kind: "interaction", name: ref.type, at: ref.at ?? now() };
   if (ref.target) origin.target = ref.target;
   currentInteraction = origin;
+  openInteraction(origin);
 }
 
 function interactionEnd(): void {
+  const closing = currentInteraction;
   currentInteraction = interactionStack.length ? interactionStack.pop()! : null;
+  if (closing !== null) closeInteraction(closing);
 }
 
 /** The interaction an origin runs under (itself, when it is one). */
@@ -652,6 +713,7 @@ function stampWrite(
   const prior = (node as AttributedNode)._devChange;
   (node as AttributedNode)._devChange = record;
   noteNavigationWrite(prior, record);
+  noteInteractionWrite(record.origin);
   if (kind === "write") trackEffectWrite(node, record, value);
   // stampWrite is the single funnel for committed root invalidations (sync
   // writes, refresh(), async landings), which makes it the one place the
@@ -886,15 +948,24 @@ function checkHotTime(el: Computed<any>, event: RerunEvent): void {
 
 function recordRerun(
   el: Computed<any>,
-  causes: ChangeRecord[],
-  prevDeps: unknown[],
+  frame: RunFrame,
   timing: { selfMs: number; totalMs: number },
   changed: boolean,
   phase: "plain" | "held" | "optimistic",
   held: boolean
 ): void {
+  const causes = frame.causes!;
+  const prevDeps = frame.prevDeps!;
   const node = el as AttributedNode;
   const prevCauses = node._devRunCauses;
+  if (excludedNode(el)) {
+    // The observer's own computation: keep the per-node bookkeeping its
+    // effect phase reads (see effectRunStart) and record nothing.
+    node._devRunInteraction = frame.interaction;
+    node._devRunSeq = undefined;
+    node._devRunCauses = causes;
+    return;
+  }
   // Subscription diff: `prevDeps` was captured at run entry; `_deps` now
   // holds the fresh set. A changed set is the "helper edit changed distant
   // call sites" signal — surfaced per-event and in the console format.
@@ -907,6 +978,7 @@ function recordRerun(
   for (const d of prevDeps) if (!newSet.has(d)) depsRemoved.push(nodeName(d as Signal<any>));
   const event: RerunEvent = {
     run: ++runSeq,
+    at: frame.start,
     nodeRuns: (node._devRunCount = (node._devRunCount ?? 0) + 1),
     nodeKind: (el as { _type?: number })._type ? "effect" : "memo",
     nodeName: nodeName(el),
@@ -921,7 +993,7 @@ function recordRerun(
     phase,
     held
   };
-  const interaction = interactionIn(causes);
+  const interaction = frame.interaction;
   if (interaction !== undefined) event.interaction = interaction;
   // The effect phase runs later in the flush with no cause list of its own:
   // it inherits this run's interaction and is joined to this run's causes
@@ -933,12 +1005,13 @@ function recordRerun(
   if (history.length > options.historyLimit) history.shift();
   recordCosts(event);
   recordFeedbackRun(event);
+  noteInteractionRun(interaction, timing.selfMs, false);
   if (event.nodeKind === "effect") checkEffectCycle(el, causes);
   checkRelayTear(el, causes, prevCauses);
   checkHotRuns(el, event);
   checkHotTime(el, event);
   checkDepWidth(el);
-  for (const listener of listeners) listener(event);
+  emitRecord("rerun", event);
   if (options.log) logRerun(event);
 }
 
@@ -998,7 +1071,18 @@ function logRerun(event: RerunEvent): void {
 export interface Attribution {
   enable(opts?: AttributionOptions): void;
   disable(): void;
+  /**
+   * Deliver records as they complete — see `AttributionRecords`. The bare
+   * form is `subscribe("rerun", …)`. Records are the same objects the ring
+   * buffers hold (`history()`, `interactions()`, `holds()`, `navigations()`),
+   * delivered synchronously from the engine, so a listener must not write
+   * signals. All subscriptions are dropped by `disable()`.
+   */
   subscribe(listener: (event: RerunEvent) => void): () => void;
+  subscribe<K extends AttributionRecordType>(
+    type: K,
+    listener: (record: AttributionRecords[K]) => void
+  ): () => void;
   history(): readonly RerunEvent[];
   /** Re-run history for one node — pass a memo/effect accessor or raw node. */
   why(target: unknown): RerunEvent[];
@@ -1034,6 +1118,16 @@ export interface Attribution {
    * navigation spans named by route: no router integration needed.
    */
   navigations(): readonly NavigationEvent[];
+  /**
+   * Every user interaction a runtime declared via `withInteraction` since
+   * enable() (ring-buffered like history()), settled or not: what was
+   * dispatched, when, what it wrote, the re-runs and creations it caused,
+   * the holds its writes waited in and the navigations it performed — and,
+   * once all of that is through, how long the person waited (`settledMs`)
+   * and how it ended (`idle` / `committed` / `held`). The per-dispatch
+   * record `feedback().interactions` folds by name.
+   */
+  interactions(): readonly InteractionEvent[];
   /**
    * What the user waited on, folded from holds() and the interaction on each
    * re-run: `sources` ranks async sources by the silent time writes spent
@@ -1541,7 +1635,6 @@ function checkImmutableUpdate(
   if (isArray && Math.abs(prevTotal - total) > Math.max(1, total >> 2)) return;
   // At least half the leaves carried over unchanged, and at least one did.
   if (same === 0 || same * 2 < total) return;
-  immutableReported.add(path);
   const changed = total - same;
   const shape = isArray ? "array" : "object";
   const repair = isArray
@@ -1555,16 +1648,19 @@ function checkImmutableUpdate(
     `tracks ${isArray ? "items" : "leaves"}; a new container makes every reader of "${path}" ` +
     `re-run for the ${changed === 1 ? "one that" : "few that"} moved. Instead, ${repair}. For ` +
     `data arriving from outside (a fetch result), merge it with reconcile(data, key)(${path}).`;
-  reportDiagnostic(
-    emitDiagnostic({
-      code: "IMMUTABLE_UPDATE_IN_STORE",
-      kind: "perf",
-      severity: "warn",
-      message,
-      nodeName: path,
-      data: { path, shape, total, unchanged: same, changed }
-    })
-  );
+  const entry = emitDiagnostic({
+    code: "IMMUTABLE_UPDATE_IN_STORE",
+    kind: "perf",
+    severity: "warn",
+    message,
+    nodeName: path,
+    data: { path, shape, total, unchanged: same, changed }
+  });
+  // Paths are not unique across stores: a write under an excluded owner
+  // (an adapter's own "store.list") must not spend the app's once-per-path slot.
+  if (isSuppressed(entry)) return;
+  immutableReported.add(path);
+  reportDiagnostic(entry);
 }
 
 // --- Unstable list identity -----------------------------------------------------
@@ -1880,10 +1976,13 @@ export interface HeldWrite {
 }
 export interface HoldEvent {
   /**
-   * Wall time the user waited: from the interaction that performed the held
-   * writes when one is known (`interaction.at`) or the first flush that
-   * parked them, whichever is earlier, to the commit.
+   * When the wait began (`performance.now()` clock): the interaction that
+   * performed the held writes when one is known (`interaction.at`) or the
+   * first flush that parked them, whichever is earlier. `at + holdMs` is the
+   * commit.
    */
+  at: number;
+  /** Wall time the user waited: `at` to the commit. */
   holdMs: number;
   /**
    * The quiescent tail: from the LAST held write to join (the user's final
@@ -1907,11 +2006,12 @@ export interface HoldEvent {
   /** Async nodes the hold waited on (union across its parked flushes). */
   blockers: string[];
   /**
-   * Feedback the graph provably rendered for this hold, as `"<kind>:<node>"`
-   * — `isPending:posts`, `latest:page`, `optimistic:todos`, `affects:list`.
-   * Empty and `paintedDuringHold === 0` is the SILENT_HOLD signature.
+   * Feedback the graph provably rendered for this hold — an `isPending()`
+   * reader, a `latest()` shadow, an optimistic value, an `affects()` mark —
+   * one entry per affordance, in the order found. Empty and
+   * `paintedDuringHold === 0` is the SILENT_HOLD signature.
    */
-  acknowledgedBy: string[];
+  acknowledgements: Acknowledgement[];
   /**
    * Effect callbacks that ran inside the hold's parked flushes. Mainline
    * effects are stashed while a hold is open, so these are lane effects —
@@ -1924,11 +2024,28 @@ export interface HoldEvent {
   action: boolean;
 }
 
+/**
+ * One way the screen acknowledged a hold. `reader` is where it was painted —
+ * the owner path of the first effect the census found reading the
+ * affordance (`["<App>", "<Feed>", "effect"]`), so a consumer can say WHICH
+ * screen answered, not only that one did. Absent when the affordance was
+ * registered but the census found no reader through the graph (an optimistic
+ * store: its readers are proxy traps, not nodes). `feedback()` ranks
+ * acknowledgements by `kind:source` (`isPending:posts`).
+ */
+export interface Acknowledgement {
+  kind: "isPending" | "latest" | "optimistic" | "affects";
+  /** The node the affordance hangs on — the async source for `isPending`/`latest`, the optimistic/affected node otherwise. */
+  source: string;
+  reader?: string[];
+}
+
 interface HoldState {
   start: number;
   flushes: number;
   blockers: Set<Computed<any>>;
-  acknowledgedBy: Set<string>;
+  /** Keyed by `kind:source`, in the order found. */
+  acknowledgements: Map<string, Acknowledgement>;
   painted: number;
   action: boolean;
 }
@@ -1941,41 +2058,67 @@ function isCompanion(node: Signal<any> | Computed<any>): boolean {
   return !!node._x && node._x._parentSource !== undefined;
 }
 
-function censusRegistrations(t: Transition, state: HoldState): void {
-  for (const node of t._optimisticNodes)
-    if (!isCompanion(node)) state.acknowledgedBy.add(`optimistic:${nodeName(node)}`);
-  for (const store of t._optimisticStores)
-    state.acknowledgedBy.add(`optimistic:${(store as { _name?: string })?._name ?? "store"}`);
-  for (const node of t._affectsNodes) state.acknowledgedBy.add(`affects:${nodeName(node)}`);
+const HOLD_CENSUS_CAP = 10_000;
+
+function acknowledge(
+  state: HoldState,
+  kind: Acknowledgement["kind"],
+  source: string,
+  reader: Computed<any> | null
+): void {
+  const key = `${kind}:${source}`;
+  const existing = state.acknowledgements.get(key);
+  const path = reader !== null ? ownerPath(reader) : undefined;
+  // A later census (a merged transition, the settle pass) may find the
+  // reader an earlier one missed.
+  if (existing === undefined)
+    state.acknowledgements.set(
+      key,
+      path !== undefined ? { kind, source, reader: path } : { kind, source }
+    );
+  else if (path !== undefined) existing.reader ??= path;
 }
 
-const HOLD_CENSUS_CAP = 10_000;
+function censusRegistrations(t: Transition, state: HoldState): void {
+  const budget = { left: HOLD_CENSUS_CAP };
+  for (const node of t._optimisticNodes)
+    if (!isCompanion(node))
+      acknowledge(state, "optimistic", nodeName(node), reachesEffect(node, budget));
+  for (const store of t._optimisticStores)
+    acknowledge(state, "optimistic", (store as { _name?: string })?._name ?? "store", null);
+  for (const node of t._affectsNodes)
+    acknowledge(state, "affects", nodeName(node), reachesEffect(node, budget));
+}
 
 /**
  * Does anything that paints read `companion` — an effect, through however many
  * memos? A subscriber alone is not acknowledgement: memos compute eagerly, so a
  * router's `createMemo(() => isPending(location))` subscribes to the companion
  * whether or not the app ever renders the memo. Only an effect is the screen.
+ * Returns the first effect found (the reader), or null.
  */
-function reachesEffect(companion: Signal<any> | Computed<any>, budget: { left: number }): boolean {
+function reachesEffect(
+  companion: Signal<any> | Computed<any>,
+  budget: { left: number }
+): Computed<any> | null {
   const seen = new Set<Signal<any> | Computed<any>>([companion]);
   const stack: (Signal<any> | Computed<any>)[] = [companion];
   while (stack.length > 0 && budget.left-- > 0) {
     const node = stack.pop()!;
     for (let s = node._subs; s !== null; s = s._nextSub) {
       const sub = s._sub;
-      if ((sub as { _type?: number })._type) return true;
+      if ((sub as { _type?: number })._type) return sub;
       if (!seen.has(sub)) {
         seen.add(sub);
         stack.push(sub);
       }
     }
   }
-  return false;
+  return null;
 }
 
 /** Companions an effect reads, anywhere downstream of the hold's nodes. */
-function censusCompanions(roots: Iterable<Signal<any> | Computed<any>>, out: Set<string>): void {
+function censusCompanions(roots: Iterable<Signal<any> | Computed<any>>, state: HoldState): void {
   const visited = new Set<Signal<any> | Computed<any>>();
   const stack: (Signal<any> | Computed<any>)[] = [...roots];
   const budget = { left: HOLD_CENSUS_CAP };
@@ -1985,10 +2128,14 @@ function censusCompanions(roots: Iterable<Signal<any> | Computed<any>>, out: Set
     visited.add(node);
     const x = node._x;
     if (x) {
-      if (x._pendingSignal !== undefined && reachesEffect(x._pendingSignal, budget))
-        out.add(`isPending:${nodeName(node)}`);
-      if (x._latestValueComputed !== undefined && reachesEffect(x._latestValueComputed, budget))
-        out.add(`latest:${nodeName(node)}`);
+      let reader: Computed<any> | null;
+      if (x._pendingSignal !== undefined && (reader = reachesEffect(x._pendingSignal, budget)))
+        acknowledge(state, "isPending", nodeName(node), reader);
+      if (
+        x._latestValueComputed !== undefined &&
+        (reader = reachesEffect(x._latestValueComputed, budget))
+      )
+        acknowledge(state, "latest", nodeName(node), reader);
       for (
         let child: Signal<any> | null = (x as { _child?: Signal<any> | null })._child ?? null;
         child !== null;
@@ -2007,7 +2154,7 @@ function holdState(t: Transition): HoldState {
       start: now(),
       flushes: 0,
       blockers: new Set(),
-      acknowledgedBy: new Set(),
+      acknowledgements: new Map(),
       painted: 0,
       action: false
     };
@@ -2017,9 +2164,10 @@ function holdState(t: Transition): HoldState {
 }
 
 function trackHoldStart(t: Transition): void {
-  // Navigations learn they are held regardless of hold tracking: their
-  // settle must wait for the transition either way (see flushEnd).
+  // Navigations and interactions learn they are held regardless of hold
+  // tracking: their settle must wait for the transition either way (see flushEnd).
   markNavigationsHeld(t);
+  markInteractionsHeld(t);
   if (options.holds === false) return;
   const state = holdState(t);
   state.flushes++;
@@ -2031,6 +2179,7 @@ function trackHoldStart(t: Transition): void {
 }
 
 function trackHoldMerge(target: Transition, outgoing: Transition): void {
+  mergeInteractionsHeld(target, outgoing);
   const from = holdStates.get(outgoing);
   if (from === undefined) return;
   holdStates.delete(outgoing);
@@ -2040,15 +2189,18 @@ function trackHoldMerge(target: Transition, outgoing: Transition): void {
   into.painted += from.painted;
   into.action ||= from.action;
   for (const b of from.blockers) into.blockers.add(b);
-  for (const a of from.acknowledgedBy) into.acknowledgedBy.add(a);
+  for (const [key, a] of from.acknowledgements)
+    if (!into.acknowledgements.has(key)) into.acknowledgements.set(key, a);
 }
 
 function trackHoldSettled(t: Transition): void {
   const state = holdStates.get(t);
   if (state === undefined) {
     // No hold was recorded (the transition completed in its first flush, or
-    // hold tracking is off): navigations staged in it still settle here.
+    // hold tracking is off): navigations and interactions staged in it still
+    // settle here.
     settleNavigations(t, undefined);
+    settleInteractionsHeld(t, undefined);
     return;
   }
   holdStates.delete(t);
@@ -2085,24 +2237,26 @@ function trackHoldSettled(t: Transition): void {
   }
   if (heldWrites.length === 0) {
     settleNavigations(t, undefined);
+    settleInteractionsHeld(t, undefined);
     return;
   }
   censusRegistrations(t, state);
-  censusCompanions([...t._pendingNodes, ...state.blockers], state.acknowledgedBy);
+  censusCompanions([...t._pendingNodes, ...state.blockers], state);
   const end = now();
   // The hold began no later than its first parked flush; an interaction stamp
   // reaches further back (dispatch). A node rewritten mid-hold keeps only its
   // latest record, so the surviving interaction may be a later one — the
   // flush clock keeps the first wait from being forgotten.
-  const holdMs =
-    end - Math.min(state.start, interaction !== undefined ? interaction.at! : Infinity);
+  const at = Math.min(state.start, interaction !== undefined ? interaction.at! : Infinity);
+  const holdMs = end - at;
   const event: HoldEvent = {
+    at,
     holdMs,
     tailMs: lastJoinAt === -Infinity ? holdMs : Math.min(holdMs, end - lastJoinAt),
     flushes: state.flushes,
     heldWrites,
     blockers: [...state.blockers].map(nodeName),
-    acknowledgedBy: [...state.acknowledgedBy],
+    acknowledgements: [...state.acknowledgements.values()],
     paintedDuringHold: state.painted,
     action: state.action
   };
@@ -2110,7 +2264,11 @@ function trackHoldSettled(t: Transition): void {
   if (origin !== undefined) event.origin = origin;
   holdLog.push(event);
   if (holdLog.length > options.historyLimit) holdLog.shift();
+  // Bottom-up delivery: the hold, then the navigations it held, then the
+  // interactions those belong to — each record complete when its parent is.
+  emitRecord("hold", event);
   settleNavigations(t, event);
+  settleInteractionsHeld(t, event);
   recordFeedbackHold(event);
   if (isSilentHold(event)) checkSilentHold(event, subject!);
   else checkLongHold(event, subject!);
@@ -2234,8 +2392,8 @@ function checkLongHold(event: HoldEvent, subject: Signal<any>): void {
   const actor = holdActor(event);
   const who = actor ? `${actor} ` : "";
   const answered =
-    event.acknowledgedBy.length > 0
-      ? `${event.acknowledgedBy.map(a => `"${a}"`).join(", ")} said it was pending`
+    event.acknowledgements.length > 0
+      ? `${event.acknowledgements.map(a => `"${a.kind}:${a.source}"`).join(", ")} said it was pending`
       : `an effect painted meanwhile`;
   const sinceLast =
     event.tailMs < event.holdMs - 1
@@ -2247,7 +2405,7 @@ function checkLongHold(event: HoldEvent, subject: Signal<any>): void {
     `the point where "loading" over stale content reads as broken. ${boundaryRepair(event)}`;
   const severity = event.tailMs >= cfg.warnMs ? "warn" : "info";
   const data = holdData(event);
-  data.acknowledgedBy = event.acknowledgedBy;
+  data.acknowledgements = event.acknowledgements;
   const entry = emitDiagnostic(
     {
       code: "LONG_HOLD",
@@ -2291,12 +2449,20 @@ function checkLongHold(event: HoldEvent, subject: Signal<any>): void {
 // same origin, so nothing is superseded, the record keeps the user's request
 // time and interaction, and its destination moves to the hop's while the
 // abandoned one is kept in `redirects`.
+//
+// The seam assumes the graph holds the whole navigation: the write that lands
+// the destination is the one the frame wraps, and everything it waits for is
+// async the destination reads. A router that awaits part of its pipeline
+// outside the graph (loaders resolved in its core before it publishes) wraps
+// the publish instead, passing `at` from the user's request — the record then
+// covers the write that actually showed, and the router-side wait is the
+// router's to report.
 
 /** A destination a navigation abandoned when a redirect sent it elsewhere. */
 export interface NavigationHop {
   name?: string;
   to?: string;
-  params?: Readonly<Record<string, string>>;
+  params?: Readonly<Record<string, string | undefined>>;
   /** When the redirect away from it was declared (`performance.now()` clock). */
   at: number;
 }
@@ -2306,7 +2472,7 @@ export interface NavigationEvent {
   name?: string;
   to?: string;
   from?: string;
-  params?: Readonly<Record<string, string>>;
+  params?: Readonly<Record<string, string | undefined>>;
   /** When the navigation was requested (`performance.now()` clock). */
   at: number;
   /** The user interaction it ran under, when known — a link click. */
@@ -2376,12 +2542,19 @@ function openNavigation(frame: ChangeOrigin, ref: OriginRef): void {
   const event: NavigationEvent = { at: frame.at!, writes: 0, origin: frame };
   if (frame.from !== undefined) event.from = frame.from;
   if (frame.interaction !== undefined) event.interaction = frame.interaction;
-  const state: NavState = { event, ref, open: 1, held: false, writeDrain: drainSeq };
+  const state: NavState = {
+    event,
+    ref,
+    open: 1,
+    held: false,
+    writeDrain: drainSeq
+  };
   syncNavigation(state);
   navStates.set(frame, state);
   openNavs.add(state);
   navigationLog.push(event);
   if (navigationLog.length > options.historyLimit) navigationLog.shift();
+  noteInteractionNavigation(event);
 }
 
 /** The navigation a redirect hop folds onto: the most recently opened one still pending. */
@@ -2461,12 +2634,12 @@ function settleNavigations(t: Transition, hold: HoldEvent | undefined): void {
   }
 }
 
-/** flushEnd: every open, closed, unheld navigation's writes just committed. */
+/** flushEnd: every open, closed, unheld navigation's (and interaction's) writes just committed. */
 function trackFlushEnd(): void {
   drainSeq++;
-  if (openNavs.size === 0) return;
   for (const state of openNavs)
     if (state.open === 0 && !state.held) settleNavigation(state, "committed");
+  for (const state of openInteractions) maybeSettleInteraction(state);
 }
 
 function settleNavigation(
@@ -2474,13 +2647,207 @@ function settleNavigation(
   outcome: NonNullable<NavigationEvent["outcome"]>,
   hold?: HoldEvent
 ): void {
-  if (!openNavs.delete(state)) return;
+  if (!openNavs.has(state)) return;
+  openNavs.delete(state);
   syncNavigation(state);
   const event = state.event;
   event.settledMs = now() - event.at;
   event.outcome = outcome;
   if (hold !== undefined) event.hold = hold;
   recordFeedbackNavigation(event);
+  emitRecord("navigation", event);
+  // The interaction that performed it may have been waiting only on this.
+  const under = openInteractionOf(event.interaction);
+  if (under !== undefined) maybeSettleInteraction(under);
+}
+
+// --- Interactions -----------------------------------------------------------------
+//
+// The interaction is the unit a person experiences: one click, and everything
+// it cost until the screen had the answer. The engine already keys every
+// downstream fact to the interaction frame — writes stamp it, re-runs trace to
+// it through their causes, holds and navigations carry it — but each of those
+// is a piece; `feedback().interactions` folds them by interaction NAME (every
+// click on the same button is one row), and nothing gave one record per
+// dispatch with a start, an end and the pieces attached. This section keeps
+// that record and settles it once its work is done, so a consumer building a
+// span per interaction (an APM adapter) neither infers the end from an idle
+// gap nor sums quantized per-run times to approximate the wall clock.
+//
+// A record settles once, by the same drain clock navigations use: `idle` —
+// the handler performed no root write (nothing to wait for; settles when the
+// frame closes); `committed` — its writes went through in drains no
+// transition held (the last such drain's `flushEnd` is the instant); `held`
+// — at least one of its writes waited in a transition (the last hold's commit
+// is the instant, each HoldEvent attached). A navigation the frame performed
+// is attached too and must settle before the interaction does. Runs are
+// counted while the record is open:
+// re-runs whose cause chain reaches the frame, plus computations CREATED in
+// those runs or in the frame's flushes (a create run has no causes, so it
+// inherits the interaction of the run or effect callback building it).
+
+export interface InteractionEvent {
+  /** Event type — `click`, `keydown`, `input`… */
+  name: string;
+  /** The element hit, as the runtime described it — `button#next "Next →"`. */
+  target?: string;
+  /** Dispatch time (`performance.now()` clock). */
+  at: number;
+  /** Wall time of the handler itself, dispatch to return. */
+  handlerMs: number;
+  /** Root writes attributed to the frame: the handler's, and those of frames it opened (a navigation). */
+  writes: number;
+  /** Re-runs traced back to this interaction while the record was open. */
+  runs: number;
+  /** Computations created in those runs or in the frame's flushes (the "create 1,000 rows" work). */
+  created: number;
+  /** Summed self-time of `runs` and `created` (ms). Quantized per run; `settledMs` is the wall clock. */
+  runMs: number;
+  /** Holds its writes waited in, in settle order. */
+  holds: HoldEvent[];
+  /** Navigations performed under it, in open order. */
+  navigations: NavigationEvent[];
+  /**
+   * Dispatch to settle: the handler's return when it wrote nothing, the end of
+   * the drain that committed its writes, or the commit of the last hold they
+   * waited in — whichever came last. `undefined` while unsettled.
+   */
+  settledMs?: number;
+  outcome?: "idle" | "committed" | "held";
+  /**
+   * The frame object every downstream fact carries — `ChangeOrigin.interaction`
+   * on writes and frames, `RerunEvent.interaction`, `HoldEvent.interaction`,
+   * `NavigationEvent.interaction`. Join key, by identity.
+   */
+  origin: ChangeOrigin;
+}
+
+interface InteractionState {
+  event: InteractionEvent;
+  /** The frame is still on the stack (handler running). */
+  open: boolean;
+  /** `drainSeq` at its last write — a later drain committed it. */
+  writeDrain: number;
+  /** Transitions currently holding at least one of its writes. */
+  heldIn: Set<Transition>;
+  /** A flush parked its writes at some point (hold tracking on or off). */
+  held: boolean;
+}
+const interactionStates = new WeakMap<ChangeOrigin, InteractionState>();
+/** Opened, not yet settled. */
+const openInteractions = new Set<InteractionState>();
+let interactionLog: InteractionEvent[] = [];
+
+function openInteraction(frame: ChangeOrigin): void {
+  const event: InteractionEvent = {
+    name: frame.name!,
+    at: frame.at!,
+    handlerMs: 0,
+    writes: 0,
+    runs: 0,
+    created: 0,
+    runMs: 0,
+    holds: [],
+    navigations: [],
+    origin: frame
+  };
+  if (frame.target !== undefined) event.target = frame.target;
+  const state: InteractionState = {
+    event,
+    open: true,
+    writeDrain: drainSeq,
+    heldIn: new Set(),
+    held: false
+  };
+  interactionStates.set(frame, state);
+  openInteractions.add(state);
+  interactionLog.push(event);
+  if (interactionLog.length > options.historyLimit) interactionLog.shift();
+}
+
+/** interactionEnd: the handler returned. */
+function closeInteraction(frame: ChangeOrigin): void {
+  const state = interactionStates.get(frame);
+  if (state === undefined) return;
+  state.open = false;
+  const end = now();
+  state.event.handlerMs = end - state.event.at;
+  maybeSettleInteraction(state, end);
+}
+
+/** The open record a frame runs under, if any. */
+function openInteractionOf(origin: ChangeOrigin | undefined): InteractionState | undefined {
+  const interaction = interactionOf(origin);
+  if (interaction === undefined) return undefined;
+  const state = interactionStates.get(interaction);
+  return state !== undefined && openInteractions.has(state) ? state : undefined;
+}
+
+/** stampWrite: a root write stamped `origin`. */
+function noteInteractionWrite(origin: ChangeOrigin): void {
+  const state = openInteractionOf(origin);
+  if (state === undefined) return;
+  state.event.writes++;
+  state.writeDrain = drainSeq;
+}
+
+/** recordRerun / a create run: work attributed to the interaction. */
+function noteInteractionRun(
+  interaction: ChangeOrigin | undefined,
+  selfMs: number,
+  created: boolean
+): void {
+  const state = openInteractionOf(interaction);
+  if (state === undefined) return;
+  state.event[created ? "created" : "runs"]++;
+  state.event.runMs += selfMs;
+}
+
+/** openNavigation: a navigation frame opened under the interaction. */
+function noteInteractionNavigation(event: NavigationEvent): void {
+  const state = openInteractionOf(event.interaction);
+  if (state !== undefined) state.event.navigations.push(event);
+}
+
+/** holdStart: `t` parked writes — the interactions that performed them wait for `t`. */
+function markInteractionsHeld(t: Transition): void {
+  if (openInteractions.size === 0) return;
+  for (const node of t._pendingNodes) {
+    const state = openInteractionOf((node as AttributedNode)._devChange?.origin);
+    if (state !== undefined) {
+      state.heldIn.add(t);
+      state.held = true;
+    }
+  }
+}
+
+/** transitionMerged: whoever waited for `outgoing` now waits for `target`. */
+function mergeInteractionsHeld(target: Transition, outgoing: Transition): void {
+  for (const state of openInteractions) if (state.heldIn.delete(outgoing)) state.heldIn.add(target);
+}
+
+/** transitionSettled: `t` committed — its holders' writes are through. */
+function settleInteractionsHeld(t: Transition, hold: HoldEvent | undefined): void {
+  if (openInteractions.size === 0) return;
+  for (const state of openInteractions) {
+    if (!state.heldIn.delete(t)) continue;
+    if (hold !== undefined) state.event.holds.push(hold);
+    maybeSettleInteraction(state);
+  }
+}
+
+function maybeSettleInteraction(state: InteractionState, end: number = now()): void {
+  const event = state.event;
+  if (state.open || state.heldIn.size > 0) return;
+  // A drain must have committed the last write (the handler's, or a redirect
+  // hop's after the click's own drain) — the handler returning is not the
+  // screen having it.
+  if (event.writes > 0 && drainSeq <= state.writeDrain) return;
+  for (const nav of event.navigations) if (nav.outcome === undefined) return;
+  openInteractions.delete(state);
+  event.settledMs = end - event.at;
+  event.outcome = event.writes === 0 ? "idle" : state.held ? "held" : "committed";
+  emitRecord("interaction", event);
 }
 
 /** The serializable face of a navigation origin for diagnostic `data`. */
@@ -2677,7 +3044,7 @@ function trackFallback(boundary: object, tree: Computed<any> | undefined, shown:
 
 /** No affordance answered and nothing painted while held. */
 function isSilentHold(event: HoldEvent): boolean {
-  return event.paintedDuringHold === 0 && event.acknowledgedBy.length === 0;
+  return event.paintedDuringHold === 0 && event.acknowledgements.length === 0;
 }
 
 function interactionBucket(interaction: ChangeOrigin): InteractionBucket {
@@ -2755,8 +3122,8 @@ function recordFeedbackHold(event: HoldEvent): void {
     row.silent++;
     row.silentMs += event.holdMs;
   } else if (
-    event.acknowledgedBy.length > 0 &&
-    event.acknowledgedBy.every(by => by.startsWith("latest:"))
+    event.acknowledgements.length > 0 &&
+    event.acknowledgements.every(a => a.kind === "latest")
   )
     row.latestOnly++;
   if (isLongHold(event)) {
@@ -2764,7 +3131,10 @@ function recordFeedbackHold(event: HoldEvent): void {
     row.longMs += event.tailMs;
   }
   if (event.action) row.actions++;
-  for (const by of event.acknowledgedBy) bucket.acks.set(by, (bucket.acks.get(by) ?? 0) + 1);
+  for (const a of event.acknowledgements) {
+    const by = `${a.kind}:${a.source}`;
+    bucket.acks.set(by, (bucket.acks.get(by) ?? 0) + 1);
+  }
   for (const w of event.heldWrites) bucket.writes.add(w.name);
   if (event.interaction !== undefined) {
     const key = formatOrigin(event.interaction);
@@ -2871,14 +3241,24 @@ const engineHooks: AttributionHooks = {
     trackFlushEnd();
   },
   recomputeStart(el, create) {
+    const causes = create ? null : collectCauses(el);
     frames.push({
       start: now(),
       childMs: 0,
-      causes: create ? null : collectCauses(el),
+      causes,
       prevDeps: create ? null : captureDeps(el),
       // Mirror recompute's own prev-value resolution: an earlier run in the
       // same flush may still be holding in _pendingValue.
-      prevValue: el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value
+      prevValue: el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value,
+      // A create run inherits the interaction of whatever is building it: the
+      // enclosing recompute (a parent's fn creating children) or, at the top
+      // of the recompute stack, the effect callback / handler frame.
+      interaction:
+        causes !== null
+          ? interactionIn(causes)
+          : frames.length > 0
+            ? frames[frames.length - 1].interaction
+            : enclosingInteraction()
     });
   },
   derivedChanged(el) {
@@ -2924,16 +3304,19 @@ const engineHooks: AttributionHooks = {
     if (frame.causes !== null)
       recordRerun(
         el,
-        frame.causes,
-        frame.prevDeps!,
+        frame,
         { selfMs, totalMs },
         changed,
         optimistic ? "optimistic" : transition ? "held" : "plain",
         held
       );
-    // Creation runs still get the wide-scope check: a memo can be born with
-    // its coarse-read problem already in place.
-    else checkDepWidth(el);
+    else if (!excludedNode(el)) {
+      // Creation runs still get the wide-scope check: a memo can be born with
+      // its coarse-read problem already in place — and their time is charged
+      // to the interaction building them (the interaction record's `created`).
+      checkDepWidth(el);
+      noteInteractionRun(frame.interaction, selfMs, true);
+    }
     markSeen(el);
   },
   write(el, prev, value) {
@@ -3035,6 +3418,8 @@ export const attribution: Attribution = {
     feedbackNavigations.clear();
     navigationLog = [];
     openNavs.clear();
+    interactionLog = [];
+    openInteractions.clear();
     drainSeq = 0;
     reportedCycles.clear();
     relays.clear();
@@ -3049,7 +3434,7 @@ export const attribution: Attribution = {
   },
   disable() {
     attributionActive = false;
-    listeners.clear();
+    clearListeners();
     history = [];
     frames.length = 0;
     scopeCosts.clear();
@@ -3062,6 +3447,8 @@ export const attribution: Attribution = {
     feedbackNavigations.clear();
     navigationLog = [];
     openNavs.clear();
+    interactionLog = [];
+    openInteractions.clear();
     drainSeq = 0;
     reportedCycles.clear();
     relays.clear();
@@ -3074,9 +3461,17 @@ export const attribution: Attribution = {
     hotCauses.clear();
     setAttributionHooks(null);
   },
-  subscribe(listener) {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
+  subscribe(
+    typeOrListener: AttributionRecordType | ((event: RerunEvent) => void),
+    listener?: (record: never) => void
+  ) {
+    const type = typeof typeOrListener === "string" ? typeOrListener : "rerun";
+    const fn = (typeof typeOrListener === "string" ? listener! : typeOrListener) as (
+      record: never
+    ) => void;
+    const set = recordListeners[type] as Set<(record: never) => void>;
+    set.add(fn);
+    return () => set.delete(fn);
   },
   history() {
     return history;
@@ -3105,6 +3500,9 @@ export const attribution: Attribution = {
   },
   navigations() {
     return navigationLog;
+  },
+  interactions() {
+    return interactionLog;
   },
   feedback() {
     return feedbackTables();

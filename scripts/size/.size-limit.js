@@ -559,7 +559,13 @@ module.exports = [
     // console-only; ~20 B is hydrate() refusing the client-render fallback
     // at a document root (`nodeType === 9` -> report the preload failure and
     // stop). All diagnostic prose is dev-gated; prod ships terse strings.
-    limit: "17.72 KB",
+    //
+    // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 17.72 KB ->
+    // 18.34 KB, measured at 18.29 on the rebased tree (+600 B over 17.69).
+    // Scan + commit as two functions (a replace compiles only the scan)
+    // plus a 65-compare pre-probe in updateKeyedMap; identity-keyed mode
+    // only. Lands in every scenario that bundles <For>.
+    limit: "18.34 KB",
     modifyEsbuildConfig
   },
   {
@@ -668,7 +674,10 @@ module.exports = [
     // measured at 26.558. Core scheduler cost; see the core-floor note.
     // deep()/identity over chained views (#3323, 2026-09-09): 26.60 KB -> 26.70 KB,
     // measured at 26.648. Store cost; see the createStore note.
-    limit: "26.70 KB",
+    // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 26.70 KB ->
+    // 27.34 KB, measured at 27.29 on the rebased tree (+600 B over 26.69).
+    // See the hydrating (no stores) note; same cost, every <For> scenario.
+    limit: "27.34 KB",
     modifyEsbuildConfig
   },
   {
@@ -718,7 +727,10 @@ module.exports = [
     // measured at 13.00. Core scheduler cost; see the core-floor note.
     // Effect ownership on finalize re-entry (#3319, 2026-09-09): 13.04 KB -> 13.08 KB,
     // measured at 13.048. Core scheduler cost; see the core-floor note.
-    limit: "13.08 KB",
+    // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 13.08 KB ->
+    // 13.75 KB, measured at 13.70 on the rebased tree (+630 B over 13.07).
+    // See the hydrating (no stores) note; same cost, every <For> scenario.
+    limit: "13.75 KB",
     modifyEsbuildConfig
   },
   {
@@ -752,7 +764,22 @@ module.exports = [
     // router-agnostic navigation seam, a twin of withInteraction) and the
     // `flushEnd` hook site after flush()'s drain loop. Observe-only: prod
     // folds both out.
-    limit: "14.44 KB",
+    // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 14.44 KB ->
+    // 15.04 KB, measured at 14.99 on the rebased tree (+610 B over 14.38).
+    // See the hydrating (no stores) note; same cost, every <For> scenario.
+    //
+    // Excluded owners (2026-09-10): measured at 14.43 on top of 14.38, still
+    // under the ratchet. `OBSERVE.exclude`/`isExcluded` (the observer's own
+    // subtree) and the owner-chain check in emitDiagnostic. Observe-only.
+    //
+    // Shape freeze (#3349, rebased 2026-09-10): 15.04 -> 15.08 KB, measured
+    // at 15.03 on the rebased tree (+40 B over #3227's 14.99). No code this
+    // scenario ships changed beyond exclude/isExcluded; dropping
+    // `NavigationRef.until` from the engine (not bundled here) shifted the
+    // build-wide property-mangler map, renaming one core slot in the shared
+    // chunks, and the new name compresses worse. Mangler noise, not cost —
+    // the pre-mangle bundle is byte-identical.
+    limit: "15.08 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -793,7 +820,31 @@ module.exports = [
     // change as the hydrating scenario, compressing worse on the observe
     // tier's layout; the observe CSR scenario above did not move. Nothing
     // engine-side changed.
-    limit: "25.26 KB",
+    //
+    // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 25.26 KB ->
+    // 25.87 KB, measured at 25.82 on the rebased tree (+600 B over 25.22).
+    // See the hydrating (no stores) note; same cost, every <For> scenario.
+    //
+    // Shape freeze (#3349, rebased 2026-09-10): 25.87 -> 26.65 KB, measured
+    // at 26.60 on the rebased tree (+780 B over #3227's 25.82; the PR's own
+    // base measured 25.22 -> 25.98). One InteractionEvent per
+    // withInteraction dispatch settled
+    // through the same drain/hold clock as navigations (runs, created, holds
+    // and navigations attached), the typed record channel (`subscribe(type)`),
+    // `RerunEvent.at`/`HoldEvent.at`, `HoldEvent.acknowledgements` (the
+    // structured face, with the reader's owner path) replacing the
+    // `acknowledgedBy` strings, and the excluded-node check. Engine-only;
+    // the observe tier above moved 50 B for `OBSERVE.exclude`/`isExcluded`
+    // and the suppression check in emitDiagnostic. A golf pass measured the
+    // dedup helpers (a shared reset, a shared ledger open) as brotli
+    // negatives — the duplicated blocks were already back-references — and
+    // kept only the collapses that shrank the compressed output. A draft
+    // carried `NavigationRef.until` with same-ref re-entry (160 B) for
+    // routers that await loaders outside the graph; dropped before landing
+    // in favour of one rule for every router — wrap the write whose landing
+    // is the destination showing, pass `at` — with the loader wait itself
+    // being router work (see 08-dev-diagnostics.md, Navigations).
+    limit: "26.65 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

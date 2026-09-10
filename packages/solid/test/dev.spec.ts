@@ -47,6 +47,31 @@ describe("observedComponent metadata", () => {
     });
   });
 
+  test("compiler-emitted name labels the owner over Comp.name", () => {
+    createRoot(() => {
+      // Stands in for a minified or wrapped component whose function name no
+      // longer matches the tag — the `componentNames` argument wins.
+      createComponent(
+        function a(p: any) {
+          const owner = getOwner() as any;
+          expect(owner._name).toBe("<Home>");
+          expect(owner._component.name).toBe("Home");
+          return null;
+        },
+        {},
+        "Home"
+      );
+      createComponent(
+        function Fallback(p: any) {
+          expect((getOwner() as any)._name).toBe("<Fallback>");
+          return null;
+        },
+        {},
+        undefined
+      );
+    });
+  });
+
   test("component owner is transparent (does not shift IDs)", () => {
     const idsWithWrapper: string[] = [];
     const idsWithoutWrapper: string[] = [];

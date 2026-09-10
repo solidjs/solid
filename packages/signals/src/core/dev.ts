@@ -178,6 +178,21 @@ export interface Observe {
    * run in-process (devtools, the console reporter) look it up here.
    */
   subjectOf(event: DiagnosticEvent): DiagnosticSubject | undefined;
+  /**
+   * Marks `owner`'s subtree as the observer's own. A consumer that renders
+   * inside the app it watches — an APM adapter's panel, devtools — would
+   * otherwise see its own effects, stores and holds reported as findings about
+   * the app. Under an excluded owner: diagnostics whose subject sits in the
+   * subtree are neither delivered nor reported (the entry is still built, so
+   * a site that throws its message still throws), and the attribution engine
+   * records no runs for its computations. Mark the root as it is created
+   * (`createRoot(() => { OBSERVE.exclude(getOwner()!); … })`) and perform
+   * writes from outside the graph under it (`runWithOwner`), so the writer's
+   * context is excluded too. Irrevocable for the owner's lifetime.
+   */
+  exclude(owner: Owner): void;
+  /** Whether `subject` sits under an excluded owner (itself included). */
+  isExcluded(subject: DiagnosticSubject | null | undefined): boolean;
 }
 
 /**
@@ -259,9 +274,43 @@ export const OBSERVE: Observe = __OBSERVE__
       attribution: attributionSlot,
       subjectOf(event) {
         return eventSubjects.get(event);
-      }
+      },
+      exclude(owner) {
+        excludedOwners.add(owner);
+        hasExclusions = true;
+      },
+      isExcluded
     }
   : (undefined as unknown as Observe);
+
+// --- Excluded owners ---------------------------------------------------------------
+//
+// An observer that lives inside the observed app (an adapter's panel,
+// devtools) marks its root; both channels check the subject's owner chain —
+// the same walk `ownerPath` already makes — and stay silent under it. The
+// flag short-circuits the walk for the common case of no exclusions.
+const excludedOwners = new WeakSet<Owner>();
+let hasExclusions = false;
+/** Events built for an excluded subject: never delivered, never reported. */
+const suppressedEvents = new WeakSet<DiagnosticEvent>();
+
+export function isExcluded(subject: DiagnosticSubject | null | undefined): boolean {
+  if (!hasExclusions || !subject) return false;
+  let owner: Owner | null =
+    "_parent" in subject ? (subject as Owner) : (((subject as any)._owner as Owner | null) ?? null);
+  for (; owner !== null; owner = owner._parent) if (excludedOwners.has(owner)) return true;
+  return false;
+}
+
+/** For engines that cache the verdict per node: is anything excluded at all? */
+export function anyExcluded(): boolean {
+  return hasExclusions;
+}
+
+/** Was `entry` built for an excluded subject? Once-per-key reporters must not spend their slot on it. */
+export function isSuppressed(entry: DiagnosticEvent): boolean {
+  return suppressedEvents.has(entry);
+}
 
 export const DEV: Dev = __DEV__
   ? {
@@ -339,6 +388,12 @@ export function emitDiagnostic(
     sequence: ++diagnosticSequence,
     ...event
   };
+  // The observer's own subtree: build the entry (the caller may throw its
+  // message) but tell nobody.
+  if (isExcluded(subject)) {
+    suppressedEvents.add(entry);
+    return entry;
+  }
   if (entry.ownerPath === undefined) {
     const path = ownerPath(subject);
     if (path) entry.ownerPath = path;
@@ -391,7 +446,7 @@ const eventSubjects = new WeakMap<DiagnosticEvent, DiagnosticSubject>();
  * production observability never writes to the console.
  */
 export function reportDiagnostic(entry: DiagnosticEvent): void {
-  if (!__DEV__) return;
+  if (!__DEV__ || suppressedEvents.has(entry)) return;
   let text = entry.message;
   if (entry.ownerPath) text += `\n  in ${entry.ownerPath.join(" › ")}`;
   const footer = takeFooter(entry);

@@ -39,7 +39,7 @@ causality off structure rather than inferring it:
 "syncTitle"`, `action "save"`, an async landing, or `external` — with nested
   frames inheriting the interaction.
 - **Per hold**: a write parked behind async, measured from the user's event,
-  with a _proof_ of whether the screen acknowledged it (`acknowledgedBy`,
+  with a _proof_ of whether the screen acknowledged it (`acknowledgements`,
   `paintedDuringHold`). `SILENT_HOLD` is a responsiveness verdict no RUM tool
   has.
 - **Verdicts with prescribed repairs**: `ASYNC_WATERFALL` (graph-proven

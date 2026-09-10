@@ -23,6 +23,7 @@ export const attribution: Attribution = {
   waterfalls: () => EMPTY,
   holds: () => EMPTY,
   navigations: () => EMPTY,
+  interactions: () => EMPTY,
   feedback: () => ({ sources: [], interactions: [], navigations: [], flights: [], fallbacks: [] }),
   markFlight: noop,
   format: () => "",
@@ -30,9 +31,12 @@ export const attribution: Attribution = {
 };
 
 export type {
+  Acknowledgement,
   Attribution,
   AttributionFeedbackTables,
   AttributionOptions,
+  AttributionRecords,
+  AttributionRecordType,
   ChangeKind,
   ChangeOrigin,
   ChangeRecord,
@@ -44,6 +48,7 @@ export type {
   FlightStats,
   HeldWrite,
   HoldEvent,
+  InteractionEvent,
   NavigationEvent,
   NavigationHop,
   RerunEvent,

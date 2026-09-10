@@ -194,6 +194,9 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
             DomTransformConfig {
                 hydratable: dom.hydratable,
                 dev: dom.dev,
+                // Babel gates `componentNames` on `generate === "dom"`, so the
+                // dynamic renderer's DOM subtree never emits labels.
+                component_names: false,
                 context_to_custom_elements: dom.context_to_custom_elements,
                 delegate_events: dom.delegate_events,
                 delegated_events: dom.delegated_events,
