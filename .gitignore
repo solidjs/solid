@@ -3,20 +3,14 @@ dist/
 lib/
 # ...but an example's source tree may legitimately have one (src/lib/api.ts).
 !examples/*/src/lib/
-.vscode/
 .cursor/*
 !.cursor/rules/
-.idea/
 coverage/
 types/
 types-cjs/
 packages/babel-plugin/index.js
-.DS_Store
 .turbo/
 .pnpm-store/
 .types-build/
 
-# vscode devcontainers see issues #419 and #421 for context
-/.devcontainer.json
-/devcontainer
 packages/test-integration/tests/fixtures/downloaded/
