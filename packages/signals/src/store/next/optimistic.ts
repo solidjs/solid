@@ -69,6 +69,7 @@ import {
   getKeySetNode,
   getNode,
   hasActiveOverride,
+  heldMaskView,
   runAuthoritative,
   stagedTruthPB,
   storeSetterNext,
@@ -551,7 +552,15 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
     const ft = liveTransition(declared);
     if (ft !== null) globalQueue.initTransition(ft);
   }
-  const old = t.v;
+  // The write is judged against what ordinary readers SEE, not against the
+  // committed backing slot: under an adoption hold (#3074) `t.v` is already
+  // the truth a live transaction is holding, and an optimistic write equal
+  // to it compared as a no-op — no override, no lane, and the screen kept
+  // the pre-hold value until the transaction committed (#3330's store
+  // twin: `s.v = 1` after a `yield` while the derive had already staged
+  // `v: 1`). Signal parity: the override reveals on its lane now, with its
+  // derivations; the held truth reveals on the transaction's schedule.
+  const old = heldMaskView(t) ?? t.v;
   // Compare RAWS on both sides (`nv` below is unwrapped already). A chained
   // target's `old` is the inner store's proxy, whose reads hand back inner
   // child PROXIES; the draft's clone holds the inner raws. Comparing the two

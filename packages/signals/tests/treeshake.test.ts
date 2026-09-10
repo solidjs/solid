@@ -219,7 +219,7 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // difference is how the merged core minifies). Measured at 22,381;
     // budget 22,400 -> 22,450 for headroom.
     //
-    // NOTE (2026-09-10, no bump): +~155B for the lane-authority fixes
+    // CONSCIOUS BUMP (2026-09-10): +~160B for the lane-authority fixes
     // (#3335, #3334, #3331, #3330). Reveal-hold: read()'s pending branch
     // drops the stale/foreign-transaction carve-out (-), asyncWrite's
     // settleTransition routes a lane-owned landing to the waiting transaction
@@ -234,13 +234,34 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // recompute's compare-slot select. Supersession provenance: the scheduler
     // carries the running action's sequence (`origin` + setter, cleared at
     // the end of flush()), handleAsync captures it per flight and asyncWrite
-    // re-arms it for the landing's propagation. Core-retained by necessity:
-    // read visibility, the landing branch, the effect gate, and the
-    // provenance carrier are the seams themselves; the decision logic
-    // (equality, ordering, provenance comparison, lane demotion, value
-    // selection, replay gating) lives in optimistic.ts and shakes out.
-    // MEASURE_PLACEHOLDER
-    expect(minifiedBytes).toBeLessThan(22_600);
+    // re-arms it for the landing's propagation. On the A28 write path the
+    // landing's supersession decision runs at the write's promotion
+    // (promoteUnflushed's override arm hands the node to the hook, still
+    // under the flight's provenance — the landing flushes synchronously).
+    // Core-retained by necessity: read visibility, the landing branch, the
+    // effect gate, and the provenance carrier are the seams themselves; the
+    // decision logic (equality, ordering, provenance comparison, lane
+    // demotion, value selection, replay gating) lives in optimistic.ts and
+    // shakes out. Store twins (#3330/#3331): setSignal's
+    // CONFIG_OPTIMISTIC dispatch gains the authoritative-write case — an
+    // override test plus one engine hook call (`_landOnOverride`, one
+    // GlobalQueue slot); the landing itself (staging, companions,
+    // supersession) lives in optimistic.ts and shakes out (+15 B). The
+    // stale-reader term of read()'s three value selections becomes
+    // `heldFromStale`: a reader served the committed value of a node another
+    // live transaction staged is recorded for that transaction's commit
+    // replay unless the transaction computed it — the commit is silent, and
+    // a reader that linked after the staging walk otherwise never learns of
+    // the reveal (+111 B; the record is core-retained because the read
+    // visibility seam is). A settle that reverts optimism re-derives its
+    // contested effects (#3322) after the revert, not ahead of the heap run
+    // (~+40 B, finalizePureQueue): between commitPendingNodes and
+    // _resolveOptimistic the truth is committed but the overrides still
+    // display, and a re-derive there composed the two (the #3164 tear —
+    // surfaced by deep() over an optimistic store whose held adoption was
+    // eagerly visible to the committing transaction's own readers). Measured
+    // at 22,638; 12 bytes of headroom.
+    expect(minifiedBytes).toBeLessThan(22_650);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

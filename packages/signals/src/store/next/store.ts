@@ -56,8 +56,8 @@ import {
   insertSubs,
   type Transition
 } from "../../core/scheduler.js";
-import { getObserver, getOwner } from "../../core/owner.js";
 import { devTrackHeldPending } from "../../core/invariants.js";
+import { getObserver, getOwner } from "../../core/owner.js";
 import {
   projectionWriteActive,
   schedule,
@@ -272,10 +272,23 @@ export function getNode(
   const nodes = (target.n ??= Object.create(null));
   let node: Signal<any> | undefined = nodes[key];
   if (node === undefined) {
-    // A node born under a held fold is born as if it had always existed
-    // (#3336): committed value, the held write staged (see stageHeldKey).
-    const held = heldFoldTransition(target);
-    if (held !== null) current = (target.v as any)[key];
+    // Born holding (#3336, and its #3330 store twin): a key first read while
+    // a live transaction holds this target is created as if it had existed
+    // when the hold was notified — committed value, the held value staged
+    // under the transaction (stageHeldKey). Two kinds of hold, one rule:
+    //  - a held FOLD (pb): a setter's write to an unobserved key landed only
+    //    in the pending backing; committed is `v[key]`, staged is `pb[key]`
+    //    (undefined for a deleted key);
+    //  - a held ADOPTION (ht, adoptPB): the adopted value already swapped
+    //    into `v`; committed is the held view `hv[key]`, staged is `v[key]`.
+    //    Its held-adoption notification (stageHeldAdoptions) ran before the
+    //    node existed and the drain has nothing left to say.
+    // Without this the node was born from whichever view its first reader
+    // saw and never learned the other.
+    const fold = heldFoldTransition(target);
+    let held = heldAdoptionTransition(target);
+    if (held !== null) current = (target.hv as any)[key];
+    else if ((held = fold) !== null) current = (target.v as any)[key];
     // Create-floor diet: slotSignal bakes the whole node into one literal —
     // no options object, no equals/unobserved closures, no NodeExtension,
     // no post-construction expandos (acc + the wrap cache px/pxv are
@@ -312,7 +325,16 @@ export function getNode(
     // A node born inside a live mark's identity scope inherits the mark
     // (the declaration walk could only cover nodes existing then).
     if (key !== $AFFECTS && affectsScopesLive()) inheritAffectsMarks(created, target.v, key);
-    if (held !== null) stageHeldKey(created, target, key, held);
+    if (held !== null)
+      stageHeldKey(
+        created,
+        fold !== null
+          ? target.del !== null && target.del.has(key)
+            ? undefined
+            : (target.pb as any)[key]
+          : (target.v as any)[key],
+        held
+      );
     nodes[key] = node;
     target.nc++;
     markDescendants(target);
@@ -378,6 +400,14 @@ function foreignHold(txn: Transition): boolean {
   );
 }
 
+/** The live transaction holding an adoption on `target` (adoptPB's `ht`;
+ * a latest()-pull PLAIN_HOLD is not a transaction), else null. */
+function heldAdoptionTransition(target: StoreNextTarget): Transition | null {
+  if (target.ht === null || target.ht === PLAIN_HOLD || heldMaskView(target) === null) return null;
+  const txn = currentTransition(target.ht);
+  return txn._done === false ? txn : null;
+}
+
 /**
  * Materialization under a hold (#3336). A setter's write to an UNOBSERVED
  * key lands only in the pending backing — there is no node to stage, and the
@@ -391,19 +421,13 @@ function foreignHold(txn: Transition): boolean {
  * key before the hold: the leak in #3336's store variant — the render effect
  * read the held write on the key nothing had subscribed to (`pb` served
  * straight to an owner-context reader) and committed on the key a memo had.
- * Stage the pending backing's value as the holding transaction's write —
- * directly, not through setSignal: it is not a new write (it flushed with
- * the setter's batch, A28) and it walks no subscriber (the node has none
- * yet). Transition-stamped now, as `runFolded` does — no parked-flush pass
- * will stamp it.
+ * Stage `nv` (the held value for the key — see getNode for which view it
+ * comes from) as the holding transaction's write — directly, not through
+ * setSignal: it is not a new write (it flushed with the setter's batch,
+ * A28) and it walks no subscriber (the node has none yet). Transition-
+ * stamped now, as `runFolded` does — no parked-flush pass will stamp it.
  */
-function stageHeldKey(
-  node: Signal<any>,
-  target: StoreNextTarget,
-  key: PropertyKey,
-  txn: Transition
-): void {
-  const nv = target.del !== null && target.del.has(key) ? undefined : (target.pb as any)[key];
+function stageHeldKey(node: Signal<any>, nv: any, txn: Transition): void {
   if (slotNodeEquals.call(node, node._value, nv)) return;
   node._pendingValue = nv;
   node._transition = txn;
@@ -714,7 +738,7 @@ let latestPullActive = false;
  * while the hold is live, and lazily clears a hold whose transition has
  * committed (transitions merge — resolve through currentTransition, same as
  * foldHeld's node stamps). */
-function heldMaskView(t: StoreNextTarget): Record<PropertyKey, any> | null {
+export function heldMaskView(t: StoreNextTarget): Record<PropertyKey, any> | null {
   const ht = t.ht;
   if (ht === null) return null;
   if (ht !== PLAIN_HOLD && currentTransition(ht)?._done === true) return (t.ht = t.hv = null);
@@ -751,20 +775,26 @@ export function adoptPB(
       if (target.ovl) materializePB(target);
       target.ab = target.pb;
     } else target.ab ??= foldOlds.get(target)!;
-    // #3074/#3075: a projection recompute deriving from uncommitted inputs
-    // swaps the backing SPECULATIVELY — committed-visibility readers must
-    // keep the pre-hold view until the hold resolves (a source held by a
-    // live transition, or a latest()-pull ahead of the flush). Post-await
-    // landings (write-override) stay immediately visible — landed truth —
-    // and clear any hold; optimistic families ride the lane machinery.
-    if (target.fam?.opt !== true) {
-      if (getWriteOverride()) {
-        target.ht = target.hv = null;
-      } else if (activeTransition !== null || latestPullActive) {
-        if (heldMaskView(target) === null) target.hv = target.v;
-        target.ht = activeTransition ?? PLAIN_HOLD;
-      }
-    }
+  }
+  // #3074/#3075: a projection recompute deriving from uncommitted inputs
+  // swaps the backing SPECULATIVELY — committed-visibility readers must
+  // keep the pre-hold view until the hold resolves (a source held by a
+  // live transition, or a latest()-pull ahead of the flush). Post-await
+  // landings (write-override) stay immediately visible — landed truth —
+  // and clear any hold. Optimistic families hold too (#3330 store twin):
+  // their tentative edits ride the lane machinery, but a sync derive
+  // adopting under a transaction is held TRUTH like any projection's —
+  // unheld, handlers read it early and an optimistic write equal to it
+  // compared as a no-op against the swapped-in backing. A plain store's
+  // reconcile inside an action holds the same way: its nodes stage under the
+  // transaction (the inline notify), and the backing must not show handlers
+  // and stale readers what the tracked read masks (signal parity, #3336).
+  if (getWriteOverride()) {
+    target.ht = target.hv = null;
+  } else if (activeTransition !== null || (!eager && latestPullActive)) {
+    if (heldMaskView(target) === null) target.hv = target.v;
+    target.ht = activeTransition ?? PLAIN_HOLD;
+    if (!eager && activeTransition !== null) heldAdoptions.add(target);
   }
   target.pb = null;
   // Overlay and accessor-scan state describe the OUTGOING backing — a
@@ -1523,6 +1553,36 @@ function draftServe(target: StoreNextTarget, proxy: any): any {
 
 /** Targets written during the current (outermost) setter — notified at exit. */
 const pendingNotify = new Set<StoreNextTarget>();
+
+/** Targets adopted under a live transaction this setter (adoptPB set a
+ * transaction hold) — their nodes are notified at the outermost exit. */
+const heldAdoptions = new Set<StoreNextTarget>();
+
+/**
+ * Write-time notification for a transaction-held adoption (#3330 store twin;
+ * the setter path's notifyWrites twin for adoptions). A projection's fold
+ * normally notifies its nodes at the drain — and the drain of a batch parked
+ * in a live transaction is the transaction's COMMIT, so the nodes took the
+ * adopted values as fresh writes at commit time: every subscriber was
+ * re-marked and re-ran against a frame the lane had already published (a
+ * third `v=1 d=2`), where a signal's write had staged at write time and
+ * promoted silently. Staging here, inside the transaction's batch, makes the
+ * two paths one: the nodes carry transition-stamped `_pendingValue`s, their
+ * subscribers recompute in this flush and park with the transaction, and the
+ * commit promotes without re-notifying. `ab` moves to the adopted backing —
+ * the view the nodes were last told (#3296) — so the drain has nothing left
+ * to say and only path-copies.
+ */
+function stageHeldAdoptions(): void {
+  const staged = [...heldAdoptions];
+  heldAdoptions.clear();
+  for (const t of staged) {
+    const base = t.ab;
+    if (base === null || base === t.v) continue;
+    notifyFold(t, base, t.v);
+    t.ab = t.v;
+  }
+}
 
 const UNSAFE_KEYS = new Set<PropertyKey>(["__proto__", "prototype", "constructor"]);
 
@@ -2292,6 +2352,7 @@ export function storeSetterNext<T>(proxy: T, fn: (draft: T) => T | void, guard =
       adoptPB(target, unwrapValue(result));
     }
   }
+  if (writing === 0 && heldAdoptions.size) stageHeldAdoptions();
 }
 
 // Affects integration: the legacy affects machinery reads next targets
