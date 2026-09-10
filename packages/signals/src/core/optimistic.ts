@@ -266,8 +266,14 @@ function laneReadsCommitted(el: OptimisticNode, owner: OptimisticNode, c: Comput
     // already settled (laneAsyncSettled keeps _optimisticLane) served its
     // committed value to a reader that never re-ran after the landing, so a
     // pending-gated branch stayed one value behind permanently (#3041
-    // follow-up). Record the reader under the same replay contract.
-    if (el._pendingValue !== NOT_PENDING)
+    // follow-up). Record the reader under the same replay contract — when
+    // the commit will actually change what it read: a staged value equal to
+    // the committed one (a lane recompute already published it, INV-11)
+    // promotes to the same view, and a replay would only re-run effects
+    // against an unchanged frame (#3330). An override-covered node's revert
+    // notifies its own subscribers when the truth differs (resolveOptimistic
+    // Nodes), so the reader is recorded only for the staged-vs-committed gap.
+    if (el._pendingValue !== NOT_PENDING && el._pendingValue !== el._value)
       (activeTransition ?? globalQueue._batch)._gatedSubs.add(c);
     return true;
   }

@@ -46,6 +46,7 @@ Semantics of the `(_pendingValue, _overrideValue)` pair for an optimistic node
 - `_parentLane`: companion nodes (`_pendingSignal`/`_latestValueComputed`) get _child_ lanes that intentionally do **not** merge with the parent (`assignOrMergeLane` parent/child carve-out) so `isPending` effects can flush before the parent's async settles.
 - Lane lifecycle: created on optimistic write → nodes join via `insertSubs(node, true)` → `assignOrMergeLane` → lane-routed effects run when the lane is not held (`runLaneEffects` → `laneHeld`) → cleaned up by `cleanupCompletedLanes` when the owning transition completes (or when orphaned, `_transition === null`).
 - `_pendingAsync` add/delete sites: added in `recompute`'s async catch under a lane (core.ts ~264), removed on async resolution (`asyncWrite`, async.ts ~214) and on lane-corrected recompute (core.ts ~254). The set records the async the lane _owns_, not what holds it.
+- Replay gating (#3330): `laneReadsCommitted` hands a lane reader the committed `_value` of a staged node and records the reader in the batch's `_gatedSubs` for a re-run at commit — only when `_pendingValue !== _value`. A lane recompute that already published the value (INV-11) leaves the two equal; recording the reader anyway replayed its effects against an unchanged frame.
 - Hold rule (`laneHeld`, #3289; per-node lookup #3335): a lane is held iff some `_pendingAsync` node is in the `_asyncReporters` of **any live transaction** (`waitingTransition(node) !== null`) — i.e. a render effect observed it pending and no boundary consumed the status (INV-3, the one registration site). Not "its transaction's": lanes merge across transactions (#2912) and the merged root's transaction recorded only one member's observations. Same rule as `transitionComplete`: unrendered async and fallback-caught async hold nothing. The two facts arrive in either order (a node created by the lane's own reveal is observed first and stamped on a later re-ask), which is why the hold is a predicate over both records rather than a registration.
 
 ## 3. Transitions (`scheduler.ts`)
@@ -124,6 +125,17 @@ Confidence: **high** = implementation self-consistency, assert now.
   carried an `affects()` mark has `_affectsCount === 0` — every registration
   was released by exactly one settle/flush-end. A leaked count would latch a
   verdict `true` forever (the declared-motion analogue of the INV-9 latch).
+- **INV-11 (high, structural — pinned, not asserted)** A recompute's equality
+  gate compares the new result against the slot it is about to publish to:
+  the override for an override-covered node, `_value` for a lane (OPT-dirty)
+  direct commit, `_pendingValue` for a transaction-staged run. "Unchanged" is
+  a statement about what the publishing view will show, so comparing against
+  a different view produces torn frames: #3330 compared a lane recompute
+  against a `_pendingValue` an earlier action write had staged, called the
+  identical result unchanged, and revealed the override without its
+  derivation. Pinned in `tests/spec-async-semantics.test.ts` (A17, #3330);
+  not a runtime assertion because the publishing slot is decided inside the
+  same branch that compares.
 
 Rejected for assertion (state space too dynamic, would need semantic rulings):
 whether `_optimisticLane` must always resolve to a live lane (stale lanes are
