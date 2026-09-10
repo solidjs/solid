@@ -1316,6 +1316,91 @@ describe("A18 (was B4): an override's lifetime is bound to its own async source,
       expect(isPending(double)).toBe(false);
     });
 
+    // Same-value twin (review on #3347): the newer action predicts the SAME
+    // value as the older one. The write takes the same-value fast path — no
+    // new override, the transaction entangles — and must still renew the
+    // override's provenance: the user re-asked the question, so the older
+    // action's answer is stale to it exactly as with a differing guess. It
+    // used to keep the older stamp, and A's slow source then superseded a
+    // 5 the user had just re-confirmed: a corrective downstream refetch and a
+    // pending flip for nothing.
+    it("provenance: a same-value re-prediction by a newer action renews the override's provenance", async () => {
+      const resolveUp: Array<(v: number) => void> = [];
+      const flights: Array<{ n: number; resolve: () => void }> = [];
+      const pendingLog: boolean[] = [];
+      let upstream!: SourceAccessor<number>;
+      let double!: SourceAccessor<number>;
+      let asyncMemo!: SourceAccessor<string>;
+      let setDouble!: (v: number) => void;
+      createRoot(() => {
+        upstream = createMemo(() => new Promise<number>(r => resolveUp.push(r)));
+        [double, setDouble] = createOptimistic(() => upstream());
+        asyncMemo = createMemo(() => {
+          const n = double();
+          return new Promise<string>(resolve =>
+            flights.push({ n, resolve: () => resolve(`${n} async`) })
+          );
+        });
+        createRenderEffect(
+          () => [double(), asyncMemo(), isPending(asyncMemo)] as const,
+          () => {}
+        );
+        createRenderEffect(
+          () => isPending(asyncMemo),
+          p => void pendingLog.push(p)
+        );
+      });
+      flush();
+      resolveUp.shift()!(0);
+      await settle();
+      flights.shift()!.resolve();
+      await settle();
+      pendingLog.length = 0;
+
+      const releases: Array<() => void> = [];
+      const select = action(function* (guess: number) {
+        setDouble(guess);
+        yield new Promise<void>(r => releases.push(r));
+        refresh(upstream);
+      });
+
+      const a = select(5);
+      flush();
+      const b = select(5); // same value: fast path
+      flush();
+      expect(flights.map(f => f.n)).toEqual([5]);
+      flights.shift()!.resolve();
+      await settle();
+      expect([double(), isPending(asyncMemo)]).toEqual([5, false]);
+      pendingLog.length = 0;
+
+      // Action A (older) completes: its refetch answers 2 ≠ the displayed 5.
+      // B re-asked for 5 — A's answer is a stale question: held silently.
+      releases[0]();
+      await settle();
+      expect(resolveUp).toHaveLength(1);
+      resolveUp.shift()!(2);
+      await settle();
+      expect(flights).toEqual([]); // no downstream refetch for 2
+      expect(latest(double)).toBe(5); // not superseded
+      expect(isPending(asyncMemo)).toBe(false);
+      expect(pendingLog).toEqual([]);
+
+      // Action B (the override's own) completes: its answer supersedes.
+      releases[1]();
+      await settle();
+      expect(resolveUp).toHaveLength(1);
+      resolveUp.shift()!(6);
+      await settle();
+      expect(flights.map(f => f.n)).toEqual([6]);
+      expect(latest(double)).toBe(6);
+      flights.shift()!.resolve();
+      await a;
+      await b;
+      await settle();
+      expect([double(), isPending(asyncMemo)]).toEqual([6, false]);
+    });
+
     it("no downstream async: a differing arrival corrects at the landing (simple graph, unchanged)", async () => {
       const [value, setValue] = createSignal(0);
       const doubleFetch = deferredFetcher((v: number) => v * 2);

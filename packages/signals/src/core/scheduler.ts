@@ -13,6 +13,7 @@ import {
   CONFIG_HAS_COMPANIONS,
   CONFIG_HAS_LANE,
   CONFIG_HAS_SNAPSHOT,
+  CONFIG_INPUTS_PUBLISHED,
   CONFIG_SLOT_NODE,
   REACTIVE_IN_HEAP_HEIGHT,
   REACTIVE_MANUAL_WRITE,
@@ -607,6 +608,11 @@ export class GlobalQueue extends Queue {
     | ((el: Signal<any>, owner: OptimisticNode, c: Computed<any>) => boolean)
     | null = null;
   static _laneSuspends: ((owner: OptimisticNode) => boolean) | null = null;
+  /** Is the node routed through a LIVE lane (`resolveLane`)? read()'s reveal
+   * carve-out asks before showing a foreign-held pending node's committed
+   * value: a lane-derived flight's inputs are already revealed through the
+   * lane (#3334). Gated on CONFIG_HAS_LANE, which only the engine sets. */
+  static _laneLive: ((el: Computed<any>) => boolean) | null = null;
   static _laneReadsCommitted:
     | ((el: OptimisticNode, owner: OptimisticNode, c: Computed<any>) => boolean)
     | null = null;
@@ -1041,6 +1047,10 @@ function commitPendingNode(n: Signal<any>): void {
   c._loading = false;
   c._flags! &= ~REACTIVE_MANUAL_WRITE;
   if (!(c._statusFlags! & STATUS_PENDING)) c._statusFlags! &= ~STATUS_UNINITIALIZED;
+  // A flight this commit leaves in the air (unobserved, or observed only by
+  // a boundary) now has PUBLISHED inputs: its committed value is stale
+  // against the frame. read()'s reveal carve-out keys on the mark (#3305).
+  else n._config |= CONFIG_INPUTS_PUBLISHED;
   if (c._x != null && (c._x._pendingFirstChild !== null || c._x._pendingDisposal !== null))
     GlobalQueue._dispose(c as Computed<unknown>, false, true);
   if (n._config & CONFIG_HAS_COMPANIONS) GlobalQueue._snapCompanions!(n);

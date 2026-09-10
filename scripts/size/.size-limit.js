@@ -168,7 +168,22 @@ module.exports = [
     // tiers) plus linkFirewallChild/unlinkFirewallChild: a projection leaf the
     // unobserved sweep drops now leaves the chain in O(1) instead of being
     // retained (with its last value) for the projection's lifetime.
-    limit: "8.22 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 8.29 ->
+    // 8.51 KB, measured at 8482 B. Core-retained seams of the lane fixes:
+    // read()'s override arm (superseded-node selection hook), the reveal
+    // carve-out gated on input visibility (three bit tests, one lane hook,
+    // `heldFromStale` recording late readers for the commit replay),
+    // commitPendingNode marking a still-pending node's inputs published,
+    // recompute's stale-recording drop, runEffect's lane-less owner gate,
+    // the provenance carrier (`origin`) captured per flight and re-armed at
+    // the landing, INV-11's compare-slot term, setSignal's authoritative
+    // store-landing dispatch, the contested re-derive deferred past a
+    // reverting settle. The decision logic (supersession, provenance
+    // comparison, lane demotion, replay gating, the landing) lives in
+    // optimistic.ts and shakes out of this floor. In-package floor 22,252 ->
+    // 22,737.
+    limit: "8.51 KB",
     modifyEsbuildConfig
   },
   {
@@ -366,7 +381,15 @@ module.exports = [
     // of two weak-collection registrations per draft: the stamp-first
     // lookup helper, the stamp filter in the ownKeys trap / snapshot /
     // membership diff / key walks, and the trap guards. 340 -> ~178 ns.
-    limit: "15.06 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 14.91 ->
+    // 15.29 KB, measured at 15262 B. The core seams (see the core floor note)
+    // plus the store twins: held adoption under a live transaction on
+    // optimistic families (`heldMaskView`, `stageHeldAdoptions`),
+    // `notifyOptimisticWrites` judging against the view readers see, and
+    // the authoritative landing on an override-covered node dispatching to
+    // the engine.
+    limit: "15.42 KB",
     modifyEsbuildConfig
   },
   {
@@ -450,7 +473,16 @@ module.exports = [
     // measured at 10.237. Core scheduler cost; see the core-floor note.
     // Firewall child chain doubly linked (#3351, 2026-09-10): 10.27 -> 10.32 KB,
     // measured at 10.272. Core cost; see the core-floor note.
-    limit: "10.32 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 10.40 ->
+    // 10.85 KB, measured at 10822 B. The core seams (see the core floor note)
+    // plus the engine they dispatch to, which this scenario retains:
+    // override supersession with action provenance (`supersedeOverride`,
+    // `supersededRead`, the same-value stamp renewal), the authoritative
+    // store landing (`landOnOverride`), the per-node merged-lane hold
+    // (`laneHeld` over `waitingTransition`), `laneLive`, and the
+    // lane-routed settle entering the waiting transaction.
+    limit: "10.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -518,7 +550,11 @@ module.exports = [
     // DIRTY test markNode already performs); createStore and isPending
     // scenarios both shrank on the same build, so the +29 B here is brotli
     // layout drift, not retained code.
-    limit: "10.96 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 11.05 ->
+    // 11.27 KB, measured at 11242 B — the core seams (see the core floor note)
+    // and, where the app retains lanes, the engine they dispatch to.
+    limit: "11.27 KB",
     modifyEsbuildConfig
   },
   {
@@ -600,7 +636,11 @@ module.exports = [
     // Scan + commit as two functions (a replace compiles only the scan)
     // plus a 65-compare pre-probe in updateKeyedMap; identity-keyed mode
     // only. Lands in every scenario that bundles <For>.
-    limit: "18.34 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 18.42 ->
+    // 18.65 KB, measured at 18628 B — the core seams (see the core floor note)
+    // and, where the app retains lanes, the engine they dispatch to.
+    limit: "18.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -719,7 +759,15 @@ module.exports = [
     // measured at 27.518 (was 27.391). The createStore arm; see that note.
     // Ownership stamp (#3360 part two, 2026-09-10): 27.57 -> 27.66 KB,
     // measured at 27.608 (was 27.518). The createStore arm; see that note.
-    limit: "27.66 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 27.56 ->
+    // 28.16 KB, measured at 28138 B. The core seams (see the core floor note)
+    // plus the store twins: held adoption under a live transaction on
+    // optimistic families (`heldMaskView`, `stageHeldAdoptions`),
+    // `notifyOptimisticWrites` judging against the view readers see, and
+    // the authoritative landing on an override-covered node dispatching to
+    // the engine.
+    limit: "28.16 KB",
     modifyEsbuildConfig
   },
   {
@@ -772,7 +820,11 @@ module.exports = [
     // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 13.08 KB ->
     // 13.75 KB, measured at 13.70 on the rebased tree (+630 B over 13.07).
     // See the hydrating (no stores) note; same cost, every <For> scenario.
-    limit: "13.75 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 13.84 ->
+    // 14.03 KB, measured at 14009 B — the core seams (see the core floor note)
+    // and, where the app retains lanes, the engine they dispatch to.
+    limit: "14.03 KB",
     modifyEsbuildConfig
   },
   {
@@ -821,7 +873,11 @@ module.exports = [
     // build-wide property-mangler map, renaming one core slot in the shared
     // chunks, and the new name compresses worse. Mangler noise, not cost —
     // the pre-mangle bundle is byte-identical.
-    limit: "15.08 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 15.23 ->
+    // 15.49 KB, measured at 15461 B — the core seams (see the core floor note)
+    // and, where the app retains lanes, the engine they dispatch to.
+    limit: "15.49 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -890,7 +946,11 @@ module.exports = [
     // measured at 26.652 against next's 26.598. The insertIntoHeap change is
     // a one-call swap that dropped a flag test; the CSR observe scenario on
     // the same artifacts did not move, so this is brotli layout drift.
-    limit: "26.68 KB",
+    //
+    // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 26.75 ->
+    // 26.99 KB, measured at 26968 B — the core seams (see the core floor note)
+    // and, where the app retains lanes, the engine they dispatch to.
+    limit: "26.99 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

@@ -97,15 +97,15 @@ describe("stale reader of an uninitialized memo held by another transition", () 
     expect(outC).toEqual(["bar0", "bar1"]);
   });
 
-  it("holds the reveal on the initialized memo's flight and settles with it (A15, #3305, #3334)", async () => {
-    // The reader's new dependency has a committed value, but that value is
-    // stale against the flight already in the air. A reveal that discovers
-    // an in-flight async joins the transition the flight blocks and settles
-    // as one unit with it (A15) — it never shows the pre-flight value. This
-    // pin used to expect the opposite ("show committed, no entanglement"):
-    // that carve-out keyed on the node's transaction stamp, which is
-    // pending-node bookkeeping and says nothing about whether the flight's
-    // inputs are already on screen (#3305 committed, #3334 lane-revealed).
+  it("shows the committed value (no entanglement) when the held memo is initialized and its inputs are unpublished", async () => {
+    // Control: the reader's new dependency already has a committed value,
+    // and that value is coherent with the frame — the flight's input (`a`)
+    // is itself held in T1, still 0 on screen. Parallel transactions: the
+    // reader shows "v0", the transactions stay independent, and the reader
+    // re-derives at T1's commit (`heldFromStale` records it). The carve-out
+    // is refused only when the flight's inputs are already visible — committed
+    // by a batch that left the flight in the air (#3305) or lane-revealed
+    // (#3334) — see spec-async-semantics for those pins.
     const [a, setA] = createSignal(0);
     const [pick, setPick] = createSignal(0);
     const gate = deferred<void>();
@@ -142,14 +142,13 @@ describe("stale reader of an uninitialized memo held by another transition", () 
     resolveNow = false;
     setA(1); // T1: shared goes pending (in flight) holding "v0".
     flush();
-    setPick(1); // T2: reader switches onto shared — holds on the flight, never shows "v0".
+    setPick(1); // T2: reader switches onto shared — shows committed "v0", no suspend.
     flush();
-    expect(out).toEqual(["other"]);
-    expect(pick()).toBe(0);
+    expect(out).toEqual(["other", "v0"]);
+    expect(pick()).toBe(1);
 
     gate.resolve();
     await settle();
-    expect(out).toEqual(["other", "v1"]);
-    expect(pick()).toBe(1);
+    expect(out).toEqual(["other", "v0", "v1"]);
   });
 });

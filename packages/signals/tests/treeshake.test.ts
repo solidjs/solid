@@ -210,8 +210,19 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // display, and a re-derive there composed the two (the #3164 tear —
     // surfaced by deep() over an optimistic store whose held adoption was
     // eagerly visible to the committing transaction's own readers). Measured
-    // at 22,638; 12 bytes of headroom.
-    expect(minifiedBytes).toBeLessThan(22_650);
+    // at 22,638.
+    // CONSCIOUS BUMP (2026-09-10, review on #3347): +99 B. The reveal
+    // carve-out returns, gated on input visibility (A15 reveal corollary,
+    // re-ruled): read()'s pending branch tests three node bits
+    // (uninitialized, CONFIG_INPUTS_PUBLISHED, CONFIG_HAS_LANE → one engine
+    // hook call, `_laneLive`) before `heldFromStale` serves the committed
+    // value and records the reader; commitPendingNode's computed branch marks
+    // a still-pending node's inputs published, notifyStatus clears the mark
+    // on a fresh flight; recompute drops an effect's stale replay recording
+    // when it recomputes under the recording transaction (one Set.delete).
+    // The lane predicate itself (`resolveLane`) shakes out. Measured at
+    // 22,737; 13 bytes of headroom.
+    expect(minifiedBytes).toBeLessThan(22_750);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

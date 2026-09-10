@@ -134,6 +134,18 @@ export const CONFIG_SLOT_NODE = 1 << 18;
  * write (a new override re-masks) and by the revert. */
 export const CONFIG_OVERRIDE_SUPERSEDED = 1 << 19;
 
+/** In-flight async node whose inputs were PUBLISHED while it was pending: a
+ * batch or transaction committed with the node still `STATUS_PENDING` (an
+ * unobserved flight, #3305), so the inputs are on screen and the node's
+ * committed `_value` is stale against them. Governs read()'s reveal
+ * carve-out: a stale (render) reader in some OTHER transaction may show a
+ * foreign-held pending node's committed value — parallel transactions, no
+ * entanglement — only while that value is coherent with the visible frame,
+ * i.e. while the flight's inputs are themselves held (unpublished) and not
+ * lane-revealed. Set by `commitPendingNodes`; cleared when the node next
+ * enters pending fresh (a new flight from a settled state). */
+export const CONFIG_INPUTS_PUBLISHED = 1 << 21;
+
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
 export const STATUS_ERROR = 1 << 1;

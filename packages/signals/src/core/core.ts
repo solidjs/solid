@@ -21,6 +21,7 @@ import {
   CONFIG_HAS_COMPANIONS,
   CONFIG_HAS_LANE,
   CONFIG_HAS_SNAPSHOT,
+  CONFIG_INPUTS_PUBLISHED,
   CONFIG_NO_SNAPSHOT,
   CONFIG_OPTIMISTIC,
   CONFIG_OVERRIDE_SUPERSEDED,
@@ -327,6 +328,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   const isStaleEffect = isEffect && isEffect !== EFFECT_USER;
   const prevStale = stale;
   if (isStaleEffect) stale = true;
+  // An effect recorded for this transaction's commit replay (it once read a
+  // node the transaction held and showed the committed value) and now
+  // recomputing UNDER the transaction sees its staged view: the value this
+  // run produces is applied by the commit itself, and the stale recording
+  // would publish the frame a second time. Drop it; the reads below re-record
+  // if they are served the committed view again (a lane's committed read).
+  if (isEffect && activeTransition !== null && activeTransition._gatedSubs.size)
+    activeTransition._gatedSubs.delete(el);
   try {
     if (!__DEV__ && el._config & CONFIG_SYNC) {
       value = el._fn(value);
@@ -1465,16 +1474,32 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
 
   if (owner._statusFlags & STATUS_PENDING) {
-    // A render reader landing on a pending node throws, whichever transaction
-    // the node is stamped with: the reveal that discovered the flight holds on
-    // it (A15 — observed async settles as one unit; #3305). A stale reader
-    // used to carve out nodes pending in ANOTHER transition and show their
-    // committed value instead, on the theory that the stamp meant the
-    // transaction also held the node's inputs. It does not: the stamp is
-    // pending-node bookkeeping, and the inputs may already be on screen —
-    // committed (#3305), lane-revealed (#3334), or held only by a reveal that
-    // itself waits on this flight — so the committed value tears the frame.
-    if (c) {
+    // A reader landing on a pending node throws — the reveal that discovered
+    // the flight holds on it (A15: observed async settles as one unit) — with
+    // one carve-out: a stale (render) reader of a node pending in some OTHER
+    // transaction keeps showing the node's committed value, no entanglement
+    // (parallel transactions; the reader is recorded for that transaction's
+    // commit replay, `heldFromStale`). The carve-out is sound only while the
+    // committed value is coherent with the visible frame, i.e. while the
+    // flight's inputs are themselves unpublished: the stamp alone does not
+    // say so (it is pending-node bookkeeping), so it is refused when the
+    // inputs are on screen — committed by a batch that left the flight in
+    // the air (CONFIG_INPUTS_PUBLISHED, #3305) or revealed through a lane
+    // (optimistic / latest, #3334) — and the reader holds instead. An
+    // UNINITIALIZED node has no committed value to show and holds too
+    // (firewall-backed store reads always did; plain memos since the #3043
+    // port): falling through served `undefined` as if settled and stranded
+    // the reader outside both transactions, so it never re-ran.
+    if (
+      c &&
+      !(
+        stale &&
+        !(owner._statusFlags & STATUS_UNINITIALIZED) &&
+        !(owner._config & CONFIG_INPUTS_PUBLISHED) &&
+        !(owner._config & CONFIG_HAS_LANE && GlobalQueue._laneLive!(owner as Computed<any>)) &&
+        heldFromStale(owner, c as Computed<any>)
+      )
+    ) {
       if (__DEV__ && c && c._config & CONFIG_CHILDREN_FORBIDDEN) {
         const message =
           "[PENDING_ASYNC_FORBIDDEN_SCOPE] Reading a pending async value inside createTrackedEffect or onSettled will throw. " +
@@ -1503,19 +1528,6 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         if (!tracking && el !== c) link(el, c as Computed<any>);
         throw owner._x?._error;
       }
-    } else if (c && owner._statusFlags & STATUS_UNINITIALIZED) {
-      // A stale (render) reader of a node held pending in ANOTHER transition
-      // normally keeps showing the node's committed value instead of
-      // entangling the two transactions — but an uninitialized node has no
-      // committed value to show. Suspend on it (firewall-backed store reads
-      // always took this branch; plain memos now do too): the reader
-      // registers as a reporter of that source, and its pending-node stamp
-      // ties it to the active transaction, so the two transactions merge
-      // when the source settles. Falling through served `undefined` as if
-      // settled and stranded the reader outside both transactions, so it
-      // never re-ran when either landed (#3043 port).
-      if (!tracking && el !== c) link(el, c as Computed<any>);
-      throw owner._x?._error;
     } else if (!c && owner._statusFlags & STATUS_UNINITIALIZED) {
       throw owner._x?._error;
     }
