@@ -12,9 +12,12 @@
  */
 export { attribution } from "./core/attribution.js";
 export type {
+  Acknowledgement,
   Attribution,
   AttributionFeedbackTables,
   AttributionOptions,
+  AttributionRecords,
+  AttributionRecordType,
   ChangeKind,
   ChangeOrigin,
   ChangeRecord,
@@ -26,6 +29,7 @@ export type {
   FlightStats,
   HeldWrite,
   HoldEvent,
+  InteractionEvent,
   NavigationEvent,
   NavigationHop,
   RerunEvent,

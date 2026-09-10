@@ -171,7 +171,7 @@ export interface SilentHoldOptions {
 
 /** No acknowledgment rendered and nothing painted while held — the SILENT_HOLD signature. */
 function isSilent(hold: HoldEvent): boolean {
-  return hold.acknowledgedBy.length === 0 && hold.paintedDuringHold === 0;
+  return hold.acknowledgements.length === 0 && hold.paintedDuringHold === 0;
 }
 
 function describeInteraction(origin: ChangeOrigin | undefined): string | undefined {
@@ -187,7 +187,7 @@ function holdEvidence(hold: HoldEvent) {
     interaction: describeInteraction(hold.interaction),
     heldWrites: hold.heldWrites.map(write => write.name),
     blockers: hold.blockers,
-    acknowledgedBy: hold.acknowledgedBy,
+    acknowledgements: hold.acknowledgements,
     paintedDuringHold: hold.paintedDuringHold,
     action: hold.action
   };

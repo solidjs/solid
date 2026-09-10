@@ -107,13 +107,13 @@ async function capturePageTurn(withBusyIndicator: boolean, holdFor = 20) {
 describe("artifact — responsiveness evidence", () => {
   it("carries the holds and the feedback tables", async () => {
     const artifact = await capturePageTurn(false);
-    expect(artifact.formatVersion).toBe(3);
+    expect(artifact.formatVersion).toBe(4);
     const { holds, feedback } = artifact.attribution!;
     expect(holds).toHaveLength(1);
     expect(holds[0]).toMatchObject({
       heldWrites: [{ name: "page", prev: "1", value: "2" }],
       blockers: ["posts"],
-      acknowledgedBy: [],
+      acknowledgements: [],
       paintedDuringHold: 0,
       action: false,
       interaction: { kind: "interaction", name: "click", target: 'button#next "Next →"' }
@@ -160,13 +160,15 @@ describe("expectNoSilentHolds", () => {
       interaction: 'click on button#next "Next →"',
       heldWrites: ["page"],
       blockers: ["posts"],
-      acknowledgedBy: []
+      acknowledgements: []
     });
   });
 
   it("passes once an affordance answers the hold", async () => {
     const artifact = await capturePageTurn(true);
-    expect(artifact.attribution!.holds[0].acknowledgedBy).toEqual(["isPending:posts"]);
+    expect(artifact.attribution!.holds[0].acknowledgements).toMatchObject([
+      { kind: "isPending", source: "posts" }
+    ]);
     expectNoSilentHolds(artifact);
     expect(artifact.attribution!.feedback.sources[0]).toMatchObject({
       silent: 0,

@@ -645,7 +645,7 @@ describe("hold census — a router's own reads are not acknowledgement", () => {
     await until(() => r.shown.includes("b@/users/42"), "the held page to land");
 
     const [hold] = attribution.holds();
-    expect(hold.acknowledgedBy).toEqual([]);
+    expect(hold.acknowledgements).toEqual([]);
     expect(silent).toHaveLength(1);
     const [source] = attribution.feedback().sources;
     expect(source).toMatchObject({ holds: 1, silent: 1, latestOnly: 0 });
@@ -667,8 +667,34 @@ describe("hold census — a router's own reads are not acknowledgement", () => {
     await until(() => r.shown.includes("b@/users/42"), "the held page to land");
 
     const [hold] = attribution.holds();
-    expect(hold.acknowledgedBy).toContain("isPending:location");
+    expect(hold.acknowledgements).toContainEqual(
+      expect.objectContaining({ kind: "isPending", source: "location" })
+    );
     expect(silent).toHaveLength(0);
     expect(attribution.feedback().navigations[0]).toMatchObject({ held: 1, silent: 0 });
+  });
+});
+
+describe("at — a router whose request predates the write it wraps", () => {
+  it("spans from the router's request time, not the write", async () => {
+    arm();
+    const app = routedApp();
+    flush();
+    app.resolve("a");
+    await until(() => app.shown.includes("a@/users"), "initial load");
+    // The router awaited its own pipeline first; the publish is the write it
+    // wraps, with the user's request time carried in.
+    const requested = performance.now();
+    await wait(10);
+    OBSERVE!.attribution.withOrigin({ ...NAV, at: requested }, () => app.setLocation("/users/42"));
+    flush();
+    const [nav] = attribution.navigations();
+    expect(nav.at).toBe(requested);
+    expect(nav.origin.at).toBe(requested);
+    app.resolve("b");
+    await until(() => app.shown.includes("b@/users/42"), "the held page to land");
+    expect(nav.outcome).toBe("held");
+    expect(nav.settledMs).toBeGreaterThanOrEqual(10);
+    expect(nav.hold!.origin).toBe(nav.origin);
   });
 });

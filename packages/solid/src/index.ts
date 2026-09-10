@@ -149,6 +149,41 @@ import { IS_DEV, IS_OBSERVE } from "./client/core.js";
 import { DEV as _DEV, OBSERVE as _OBSERVE, type Dev, type Observe } from "@solidjs/signals";
 export const OBSERVE: Observe | undefined = IS_OBSERVE ? _OBSERVE : undefined;
 export const DEV: Dev | undefined = IS_DEV ? _DEV : undefined;
+// The types a runtime, router or observability adapter names when it talks to
+// the tiers: the refs it hands `withInteraction`/`withOrigin`, the channel's
+// event, and the records the attribution engine delivers. Here so the code
+// that reaches for `OBSERVE.attribution.withOrigin` finds `NavigationRef`
+// beside it; the engine's full surface stays on `solid-js/attribution`.
+export type {
+  Dev,
+  Observe,
+  AttributionHooks,
+  AttributionSlot,
+  InteractionRef,
+  NavigationRef,
+  OriginRef,
+  Diagnostics,
+  DiagnosticCapture,
+  DiagnosticCode,
+  DiagnosticEvent,
+  DiagnosticKind,
+  DiagnosticListener,
+  DiagnosticSeverity,
+  DiagnosticSubject
+} from "@solidjs/signals";
+export type {
+  Acknowledgement,
+  AttributionRecords,
+  AttributionRecordType,
+  ChangeOrigin,
+  ChangeRecord,
+  HeldWrite,
+  HoldEvent,
+  InteractionEvent,
+  NavigationEvent,
+  NavigationHop,
+  RerunEvent
+} from "@solidjs/signals/attribution";
 
 // handle multiple instance check
 declare global {

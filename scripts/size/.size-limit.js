@@ -767,7 +767,19 @@ module.exports = [
     // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 14.44 KB ->
     // 15.04 KB, measured at 14.99 on the rebased tree (+610 B over 14.38).
     // See the hydrating (no stores) note; same cost, every <For> scenario.
-    limit: "15.04 KB",
+    //
+    // Excluded owners (2026-09-10): measured at 14.43 on top of 14.38, still
+    // under the ratchet. `OBSERVE.exclude`/`isExcluded` (the observer's own
+    // subtree) and the owner-chain check in emitDiagnostic. Observe-only.
+    //
+    // Shape freeze (#3349, rebased 2026-09-10): 15.04 -> 15.08 KB, measured
+    // at 15.03 on the rebased tree (+40 B over #3227's 14.99). No code this
+    // scenario ships changed beyond exclude/isExcluded; dropping
+    // `NavigationRef.until` from the engine (not bundled here) shifted the
+    // build-wide property-mangler map, renaming one core slot in the shared
+    // chunks, and the new name compresses worse. Mangler noise, not cost —
+    // the pre-mangle bundle is byte-identical.
+    limit: "15.08 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -812,7 +824,27 @@ module.exports = [
     // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 25.26 KB ->
     // 25.87 KB, measured at 25.82 on the rebased tree (+600 B over 25.22).
     // See the hydrating (no stores) note; same cost, every <For> scenario.
-    limit: "25.87 KB",
+    //
+    // Shape freeze (#3349, rebased 2026-09-10): 25.87 -> 26.65 KB, measured
+    // at 26.60 on the rebased tree (+780 B over #3227's 25.82; the PR's own
+    // base measured 25.22 -> 25.98). One InteractionEvent per
+    // withInteraction dispatch settled
+    // through the same drain/hold clock as navigations (runs, created, holds
+    // and navigations attached), the typed record channel (`subscribe(type)`),
+    // `RerunEvent.at`/`HoldEvent.at`, `HoldEvent.acknowledgements` (the
+    // structured face, with the reader's owner path) replacing the
+    // `acknowledgedBy` strings, and the excluded-node check. Engine-only;
+    // the observe tier above moved 50 B for `OBSERVE.exclude`/`isExcluded`
+    // and the suppression check in emitDiagnostic. A golf pass measured the
+    // dedup helpers (a shared reset, a shared ledger open) as brotli
+    // negatives — the duplicated blocks were already back-references — and
+    // kept only the collapses that shrank the compressed output. A draft
+    // carried `NavigationRef.until` with same-ref re-entry (160 B) for
+    // routers that await loaders outside the graph; dropped before landing
+    // in favour of one rule for every router — wrap the write whose landing
+    // is the destination showing, pass `at` — with the loader wait itself
+    // being router work (see 08-dev-diagnostics.md, Navigations).
+    limit: "26.65 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
