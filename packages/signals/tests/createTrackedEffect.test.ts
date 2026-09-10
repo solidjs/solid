@@ -454,13 +454,14 @@ describe("wakes ride the heap (#3291)", () => {
     expect(seen.slice(2).sort()).toEqual(["E:2", "T:2"]);
   });
 
-  // Known limitation, unchanged by the heap route: a tracked effect subscribes
-  // in the effect phase, so a write landing EARLIER in the same pass to a
-  // signal it has not read yet is neither visible (committed-visibility read)
-  // nor subscribed. User effects do not have this gap because their compute
-  // subscribes at creation and reads staged values. Pinned so a change here
-  // is deliberate.
-  it("first run after a same-pass write to a not-yet-read signal does not see it (documented gap)", () => {
+  // A tracked effect subscribes in the effect phase. A write landing EARLIER
+  // in the same pass to a signal it has not read yet is not visible to that
+  // run (it reads the flushed world), but writes become visible at flush:
+  // the write is promoted at the next round to whoever is subscribed by
+  // then, so the effect re-runs with it. (Before deferral this was a
+  // documented gap — the eager walk happened before the subscription
+  // existed and the effect never saw the write.)
+  it("first run after a same-pass write to a not-yet-read signal re-runs with it at the next round", () => {
     const [s, setS] = createSignal(0);
     const seen: number[] = [];
     createRoot(() => {
@@ -476,6 +477,6 @@ describe("wakes ride the heap (#3291)", () => {
     });
     flush();
     expect(s()).toBe(1);
-    expect(seen).toEqual([0]);
+    expect(seen).toEqual([0, 1]);
   });
 });

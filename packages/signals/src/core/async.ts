@@ -32,6 +32,7 @@ import {
   GlobalQueue,
   globalQueue,
   insertSubs,
+  markUnflushed,
   queuePendingNode,
   schedule,
   zombieQueue
@@ -466,33 +467,24 @@ export function handleAsync<T>(
       // (A17 — every reader sees the override); the revert reveals whatever
       // has committed by then, so corrections reveal atomically with their
       // transition rather than escaping it.
-      if (el._pendingValue === NOT_PENDING) queuePendingNode(el);
+      const prevStaged = el._pendingValue;
+      if (prevStaged === NOT_PENDING) queuePendingNode(el);
       el._pendingValue = value;
       if (__DEV__) devTrackHeldPending(el);
+      if (__OBSERVE__ && attrHooks !== null && !hasActiveOverride(el))
+        attrHooks.asyncEnd(el, undefined, value, true);
+      el._time = clock;
       // The hold is a companion-visible write like any other (A13/A19): the
       // clearStatus() above computed its verdict before the hold existed, so
       // isPending must re-derive (the value is not final until commit — V1)
-      // and latest() must see the fresh in-flight value (V2). Subscribers are
-      // only notified when the hold is visible to them: under an active
-      // override every reader sees the override (A17), so waking subs would
-      // re-show an unchanged view — the revert is the notification point.
-      GlobalQueue._syncCompanions?.(el, value);
-      if (!hasActiveOverride(el)) {
-        if (__OBSERVE__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, true);
-        insertSubs(el);
-      } else if (el._config & CONFIG_AUTHORITATIVE_OBSERVED) {
-        // A17 silence is stated over ordinary readers; an authoritative-view
-        // reader (until()'s predicate) observed this node PAST its override
-        // and is waiting for exactly this staged truth. Without the wake the
-        // hold deadlocks: the landing waits on the transaction, the
-        // transaction on the action, the action on an until() that was never
-        // re-notified (#3164). Same selective wake as the equal-landing
-        // branch in recompute(). Optional call: the bit implies the
-        // optimistic engine WAS consulted, but the hook only installs with
-        // it — a bare-core build must not crash here.
-        GlobalQueue._notifyAuthoritativeObservers?.(el);
-      }
-      el._time = clock;
+      // and latest() must see the fresh in-flight value (V2). Writes become
+      // visible at flush: the landing defers both to its promotion, like the
+      // plain-memo landing through setSignal (markUnflushed); promotion
+      // notifies subscribers only when the hold is visible to them (under an
+      // active override every reader sees the override, A17 — the revert is
+      // the notification point).
+      markUnflushed(el, prevStaged);
+      schedule();
     } else if (lane) {
       // Route through lane's effect queue for independent flushing
       const isEffect = (el as any)._type;

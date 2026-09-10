@@ -47,6 +47,7 @@ import {
   REACTIVE_REASK,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SNAPSHOT_STALE,
+  CONFIG_UNFLUSHED,
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
@@ -80,8 +81,6 @@ import { devTrackHeldPending } from "./invariants.js";
 import { cleanup, disposeChildren, inheritId, markDisposal } from "./owner.js";
 import type { Transition } from "./scheduler.js";
 import {
-  notifyEpoch,
-  bumpNotifyEpoch,
   reaskArmed,
   activeTransition,
   armReaskClear,
@@ -95,6 +94,9 @@ import {
   queuePendingNode,
   runInTransition,
   schedule,
+  markUnflushed,
+  promoteUnflushed,
+  unflushedCursor,
   zombieQueue
 } from "./scheduler.js";
 import type {
@@ -217,8 +219,6 @@ export function clearSnapshots(): void {
 }
 
 export function recompute(el: Computed<any>, create: boolean = false): void {
-  // §12d: any recompute can clean a marked subscriber — invalidate skips.
-  bumpNotifyEpoch();
   const isEffect = (el as any)._type;
   // Attribution hook: fired before this run touches the dep list — `_deps`
   // still holds the previous run's links (the subscriptions that could have
@@ -326,6 +326,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   const isStaleEffect = isEffect && isEffect !== EFFECT_USER;
   const prevStale = stale;
   if (isStaleEffect) stale = true;
+  // Writes this run issues (a firewall staging its leaves, a boundary's
+  // status signal) are part of this pass: promoted at the tail below, in
+  // this run's posture (context, lane, RECOMPUTING_DEPS still set).
+  const unflushedFrom = unflushedCursor();
   try {
     if (!__DEV__ && el._config & CONFIG_SYNC) {
       value = el._fn(value);
@@ -392,6 +396,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       if (reaskChanged) GlobalQueue._repollVerdicts!(el);
     }
   } finally {
+    promoteUnflushed(unflushedFrom);
     tracking = prevTracking;
     latestReadActive = prevLatestRead;
     if (__DEV__) strictRead = prevStrictRead;
@@ -711,7 +716,6 @@ export function computed<T>(
         _time: clock,
         _pendingValue: NOT_PENDING,
         _transition: null,
-        _notifiedAt: -1,
         _loading: loading,
         _x: null,
         _name: options?.name ?? "computed"
@@ -750,7 +754,6 @@ export function computed<T>(
         _time: clock,
         _pendingValue: NOT_PENDING,
         _transition: null,
-        _notifiedAt: -1,
         _loading: loading,
         // Cold machinery (async/transition/optimistic/verdict slots) lives one
         // hop away in the lazily-allocated extension — the core literal MUST
@@ -774,6 +777,7 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _optimisticLane: undefined,
     _pendingSignal: undefined,
     _latestValueComputed: undefined,
+    _flushedStaged: NOT_PENDING,
     _parentSource: undefined,
     _affectsCount: 0,
     _inFlight: null,
@@ -844,7 +848,6 @@ export function createEffectNode<T>(
         _time: clock,
         _pendingValue: NOT_PENDING,
         _transition: null,
-        _notifiedAt: -1,
         _loading: false,
         _modified: false,
         _prevValue: undefined as T | undefined,
@@ -888,7 +891,6 @@ export function createEffectNode<T>(
         _time: clock,
         _pendingValue: NOT_PENDING,
         _transition: null,
-        _notifiedAt: -1,
         _loading: false,
         _modified: false,
         _prevValue: undefined as T | undefined,
@@ -1004,7 +1006,6 @@ export function signal<T>(
         _prevChild: null,
         _pendingValue: NOT_PENDING,
         _transition: null,
-        _notifiedAt: -1,
         _x: null,
         _name: options?.name ?? "signal",
         _owner: null as Owner | null
@@ -1028,7 +1029,6 @@ export function signal<T>(
         // typed error-retry gating); _fn/_statusFlags read falsy-identically as
         // missing properties on the shared paths (undefined masks to 0).
         _transition: null,
-        _notifiedAt: -1,
         _x: null
       };
   if (__DEV__) (s as any)._internal = !!firewall;
@@ -1118,7 +1118,6 @@ export function slotSignal<T>(
         _prevChild: null,
         _pendingValue: NOT_PENDING,
         _transition: null,
-        _notifiedAt: -1,
         _x: null,
         _host: host,
         _key: key,
@@ -1139,7 +1138,6 @@ export function slotSignal<T>(
         _prevChild: null,
         _pendingValue: NOT_PENDING,
         _transition: null,
-        _notifiedAt: -1,
         _x: null,
         // Slot backrefs: what the equals/unobserved closures used to capture.
         _host: host,
@@ -1303,6 +1301,19 @@ export function installAuthoritativeRead(): void {
     GlobalQueue._notifyAuthoritativeObservers = notifyAuthoritativeObservers;
 }
 
+/**
+ * Value selection for a node carrying an unflushed write (CONFIG_UNFLUSHED):
+ * writes become visible at flush, so a tracked reader running between the
+ * write and its flush — a computation created in the same tick, a companion's
+ * first compute — sees the FLUSHED world: the staged value the node was
+ * holding, else committed. It is re-marked when the write flushes
+ * (promoteUnflushed's re-walk), so it never goes stale on it.
+ */
+function unflushedView<T>(el: Signal<T> | Computed<T>): T {
+  const staged = el._x?._flushedStaged;
+  return (staged !== undefined && staged !== NOT_PENDING ? staged : el._value) as T;
+}
+
 export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
   if (
     latestReadActive ||
@@ -1336,7 +1347,9 @@ export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
     (stale && el._transition !== null)
       ? el._value
-      : el._pendingValue
+      : el._config & CONFIG_UNFLUSHED
+        ? unflushedView(el)
+        : el._pendingValue
   ) as T;
 }
 
@@ -1381,7 +1394,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       c._config & CONFIG_CHILDREN_FORBIDDEN ||
       (stale && el._transition !== null)
         ? el._value
-        : el._pendingValue
+        : el._config & CONFIG_UNFLUSHED
+          ? unflushedView(el)
+          : el._pendingValue
     ) as T;
   }
 
@@ -1557,7 +1572,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       !latestReadActive &&
       !((c as Computed<any>)._config & CONFIG_AUTHORITATIVE_READ))
       ? el._value
-      : (el._pendingValue as T);
+      : el._config & CONFIG_UNFLUSHED
+        ? unflushedView(el)
+        : (el._pendingValue as T);
   // Record that this isPending() probe observed the fresh pending value, so
   // the probe doesn't pair "pending" with the new value (#2831).
   if (pendingCheckActive) GlobalQueue._recordFresh!(el, value);
@@ -1666,27 +1683,15 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   if (!wasStaged) queuePendingNode(el);
   el._pendingValue = v;
   if (__DEV__) devTrackHeldPending(el);
-
-  // syncCompanions only pokes _pendingSignal/_latestValueComputed — with
-  // neither companion present the call is a guaranteed no-op (companions are
-  // only ever created, never removed, and creating one installs the hook and
-  // sets CONFIG_HAS_COMPANIONS — one masked read replaces two optional-field
-  // probes on every write).
-  el._config & CONFIG_HAS_COMPANIONS &&
-    GlobalQueue._syncCompanions !== null &&
-    GlobalQueue._syncCompanions(el, v);
-
   // _time is a computed-only slot (§12e): writing it on a signal would fork
   // the lean shape. Every read site is computed-typed.
   if ((el as any)._fn !== undefined) el._time = clock;
-  // Staged-rewrite fast path (§12d): a re-write to a node whose subscribers
-  // were already walked — and where nothing has recomputed or linked since
-  // (epoch) — re-stages the value and stops. The walk is idempotent (subs
-  // marked, heap entries flag-guarded, effects queued once); lane and reask
-  // contexts change what a walk MEANS, so they always walk.
-  if (wasStaged && el._notifiedAt === notifyEpoch && currentOptimisticLane === null && !reaskArmed)
-    return v;
-  insertSubs(el);
+
+  // Writes become visible at flush (markUnflushed): the companion sync and
+  // the subscriber walk run when the write is promoted — at the next flush's
+  // top, or at the tail of the recompute that issued it. Repeated writes to
+  // one node before then walk once.
+  markUnflushed(el, wasStaged ? currentValue : NOT_PENDING);
   schedule();
   return v;
 }

@@ -173,7 +173,25 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // to where lanes live (optimistic.ts ORs LANE_RUN into the run `type`,
     // as does effect()'s creation-time immediate run). contestEffect inlined
     // into its single call site in recompute. Measured at 21,890 post-change.
-    expect(minifiedBytes).toBeLessThan(22_050);
+    // CONSCIOUS BUMP (2026-09-09): +~316B net for "writes become visible at
+    // flush" — ONE write path: every staging write marks its node UNFLUSHED
+    // and defers BOTH remaining halves of the write, the companion sync and
+    // the subscriber walk, to promotion (markUnflushed / promoteUnflushed,
+    // CONFIG_UNFLUSHED, the `_flushedStaged` ext slot for a held node
+    // rewritten in the same tick, and the flushed-view arm at read()'s three
+    // value selections). Consumers promote: the flush top, a recompute's
+    // tail (its own writes, by cursor), and the in-flush steps a heap run
+    // follows — no "is this a machinery write?" heuristic at the write site.
+    // One rule replaces per-channel answers: latest(), isPending(), and
+    // tracked reads of a same-tick computation all see the flushed world, so
+    // nothing derives from a write before its flush. Core-retained by
+    // necessity: it is the write path. Paid for in part by deleting §12d
+    // (the `_notifiedAt` signal field, the notify epoch bumped on every
+    // recompute and link, and setSignal's staged-rewrite skip, ~-90B) —
+    // deferral makes repeated same-tick writes walk once without it — and by
+    // deleting latestRead's #2922 mid-tick pull and #3104 probe suspension
+    // (verdict layer, not in this floor). Measured at 22,252 post-change (rebased on #3324 two-tier literals).
+    expect(minifiedBytes).toBeLessThan(22_350);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

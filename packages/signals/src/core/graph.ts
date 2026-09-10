@@ -9,7 +9,7 @@ import {
 import { slotUnobservedHook } from "./core.js";
 import { deleteFromHeap, queueFor } from "./heap.js";
 import { disposeChildren } from "./owner.js";
-import { bumpNotifyEpoch, dirtyQueue, zombieQueue } from "./scheduler.js";
+import { dirtyQueue, zombieQueue } from "./scheduler.js";
 import type { Computed, Link, Signal } from "./types.js";
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L100
@@ -186,6 +186,4 @@ export function link(
   if (prevSub !== null) prevSub._nextSub = newLink;
   else dep._subs = newLink;
 
-  // New subscriber edge: staged-rewrite skips (§12d) must not miss it.
-  bumpNotifyEpoch();
 }
