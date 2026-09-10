@@ -983,7 +983,24 @@ function bindDeferredBody(value, scope) {
   return value;
 }
 
-const REGISTRATIONS = new Map();
+// The dispatch registry is PROCESS state, not module state: it rides
+// registered symbols on globalThis, like the RPC seam it is reached through
+// (registry.ts `provideServerFunctionRPC`, first write wins). Under
+// `vite dev` this module is inlined into the SSR module runner, and an edit
+// to any module without a hot boundary makes the runner "program reload":
+// every module — this one included — is evaluated again into a fresh
+// instance, while the seam keeps handing integrations the FIRST instance's
+// `GET`. With per-instance maps a router's `query()` re-declared its reads
+// into the dead instance and dispatch, imported through the runner,
+// consulted the live one: after the first edit every declared read
+// answered 405 (#3346). One process, one registry: a grant made through
+// any copy's `GET` is the grant every copy's dispatch sees, and a rebind
+// revokes it (#3129) in the same maps the re-declaration re-grants it.
+function processState<T>(key: string, create: () => T): T {
+  const slot = Symbol.for(key);
+  return globalThis[slot] || (globalThis[slot] = create());
+}
+const REGISTRATIONS = processState("solid.ServerFunctionRegistrations", () => new Map());
 // Declared-method bookkeeping keyed by function id (internal, not public
 // API): the server half of `GET` records entries here so the HTTP handler
 // can gate GET dispatch — a GET request to a function that never declared
@@ -992,11 +1009,14 @@ const REGISTRATIONS = new Map();
 // "GET" (#3237): what a declaration asserts is safe is a function, and
 // dispatch is reached by an id, so the grant carries the one thing that
 // can tell them apart later (see `declaresRead` and `GET`).
-const METHODS = new Map();
+const METHODS = processState("solid.ServerFunctionMethods", () => new Map());
 // Which registered function a reference NAMES, so a declaration made about
 // the reference can be recorded against the binding it was made about
 // rather than against its id alone (see `GET`).
-const REFERENCE_BINDINGS = new WeakMap();
+const REFERENCE_BINDINGS = processState(
+  "solid.ServerFunctionReferenceBindings",
+  () => new WeakMap()
+);
 
 // Whether the id's CURRENT binding is the function a `GET()` grant was made
 // to — the one question both dispatch gates ask (#3237): the method gate
