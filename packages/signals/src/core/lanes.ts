@@ -3,6 +3,7 @@ import { ext } from "./core.js";
 import {
   activeTransition,
   currentTransition,
+  waitingTransition,
   type QueueCallback,
   type Transition
 } from "./scheduler.js";
@@ -90,18 +91,23 @@ export function findLane(lane: OptimisticLane): OptimisticLane {
 
 /**
  * Is the lane held? `_pendingAsync` records the async the lane OWNS (derived
- * under it); the transaction's reporter map records the async a render effect
+ * under it); a transaction's reporter map records the async a render effect
  * OBSERVED pending with no boundary taking it (INV-3, the one registration
  * site). A hold needs both — the same rule the transaction itself uses, so a
  * memo nobody renders, or one a fallback-showing boundary caught, cannot tear
  * a frame and holds nothing (#3289). An orphan lane has no observation record
  * and never holds.
+ *
+ * The observation is looked up per NODE, in whichever live transaction
+ * recorded it — not in this lane's transaction. Lanes merge across
+ * transactions (#2912: ownership never travels through lanes), so after a
+ * merge the root's transaction holds the observations of only one member;
+ * the async the other member's transaction observed must hold the merged
+ * reveal just the same (A15 for lanes, #3335).
  */
 export function laneHeld(lane: OptimisticLane): boolean {
-  const t = lane._transition;
-  if (t)
-    for (const node of lane._pendingAsync)
-      if (currentTransition(t)._asyncReporters.has(node)) return true;
+  if (!lane._transition) return false;
+  for (const node of lane._pendingAsync) if (waitingTransition(node) !== null) return true;
   return false;
 }
 
