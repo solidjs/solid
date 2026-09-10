@@ -23,6 +23,10 @@ import { createMemo } from "solid-js";
 // them landed in the markup raw: `<Show when={s}>{s}</Show>` was an XSS.
 // The fix is in `escape` alone (a deferred-escape wrapper), not in the flow
 // controls, so these cases pin the resolver paths, not each control.
+//
+// Function-valued children are cast to `any`: the JSX types don't admit them,
+// but the runtime reaches them (untyped props, `any`), which is exactly why
+// their yield needs escaping coverage.
 
 const XSS = `x <script>alert(1)</script> y & A > B "q"`;
 const ESCAPED = `x &lt;script>alert(1)&lt;/script> y &amp; A > B "q"`;
@@ -145,13 +149,13 @@ describe("SSR escaping of values a function yields", () => {
           </div>
         )
       ],
-      ["user memo child", () => <div>{createMemo(() => XSS)}</div>],
-      ["thunk child", () => <div>{() => XSS}</div>],
+      ["user memo child", () => <div>{createMemo(() => XSS) as any}</div>],
+      ["thunk child", () => <div>{(() => XSS) as any}</div>],
       [
         "component returning a thunk",
         () => (
           <div>
-            <Dynamic component={() => () => XSS} />
+            <Dynamic component={(() => () => XSS) as any} />
           </div>
         )
       ]
@@ -196,7 +200,7 @@ describe("no double escaping", () => {
         "thunk hole in element in Show",
         () => (
           <Show when={true}>
-            <p>{() => s}</p>
+            <p>{(() => s) as any}</p>
           </Show>
         )
       ],
