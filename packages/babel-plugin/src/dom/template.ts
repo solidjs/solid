@@ -83,7 +83,10 @@ export function appendTemplates(path: NodePath<t.Program>, templates: TemplateRe
       raw: escapeStringForTemplate(templateText)
     };
 
-    const flag = template.isWrapped ? 2 : template.isImportNode ? 1 : null;
+    const flag =
+      (template.isImportNode ? 1 : 0) |
+      (template.isWrapped ? 2 : 0) |
+      (template.isMultiRoot ? 4 : 0);
 
     return t.variableDeclarator(
       template.id,
@@ -121,6 +124,7 @@ function registerTemplate(path: NodePath, results: TransformResult) {
           templateWithClosingTags: results.templateWithClosingTags as string,
           isImportNode: results.isImportNode,
           isWrapped: results.isWrapped,
+          isMultiRoot: results.isMultiRoot,
           renderer: "dom",
           // templates dedupe on markup, so the FIRST site carries the blame
           // for a validate failure (#3099) — good enough: every site with

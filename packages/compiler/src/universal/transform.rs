@@ -1836,6 +1836,17 @@ impl<'a> crate::shared::mode_lower::ModeLower<'a> for AstUniversalTransform<'a, 
         Ok(self.setup_iife(element.span, setup, value))
     }
 
+    fn lower_static_fragment_run(
+        &mut self,
+        children: &[JSXChild<'a>],
+        start: usize,
+    ) -> Result<Option<(usize, Expression<'a>)>> {
+        let Some(dom) = &mut self.dynamic_dom else {
+            return Ok(None);
+        };
+        dom.lower_static_fragment_run(children, start)
+    }
+
     fn memo_wrap_dynamic_child(&mut self, span: Span, thunk: Expression<'a>) -> Expression<'a> {
         memo_wrap_thunk(self, span, thunk)
     }
