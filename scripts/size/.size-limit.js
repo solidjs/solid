@@ -185,6 +185,16 @@ module.exports = [
     // comparison, lane demotion, replay gating, the landing) lives in
     // optimistic.ts and shakes out of this floor. In-package floor 22,252 ->
     // 22,737.
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 8.18 -> 8.29 KB,
+    // measured at 8268 B. One write path: every staging write marks the node
+    // UNFLUSHED and defers its companion sync and subscriber walk to the
+    // flush (`markUnflushed`/`promoteUnflushed`, `unflushedView` for the
+    // setter's own updater and `latest()`); the notify-epoch machinery it
+    // replaces is deleted. Lazily created companions and store keys first
+    // read under a hold are born holding, and every store read channel
+    // answers like read() (`heldFromReader`/`foreignHold`). Core-retained by
+    // nature: the write path IS the seam. In-package floor 21,936 -> 22,252.
     limit: "8.40 KB",
     modifyEsbuildConfig
   },
@@ -393,6 +403,12 @@ module.exports = [
     // `notifyOptimisticWrites` judging against the view readers see, and
     // the authoritative landing on an override-covered node dispatching to
     // the engine.
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 14.70 -> 14.91 KB,
+    // measured at 14884 B. The core write-path change above plus the store
+    // half of #3336: a key first read under a held adoption or fold is born
+    // holding (`stageHeldKey`), and the store's read channels (`in`, keys,
+    // deep witness, `nodeValue`) apply read()'s foreign-transaction rule.
     limit: "15.35 KB",
     modifyEsbuildConfig
   },
@@ -488,6 +504,9 @@ module.exports = [
     // store landing (`landOnOverride`), the per-node merged-lane hold
     // (`laneHeld` over `waitingTransition`), `laneLive`, and the
     // lane-routed settle entering the waiting transaction.
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 10.27 -> 10.40 KB,
+    // measured at 10372 B — the core write-path change (see the core floor note).
     limit: "10.70 KB",
     modifyEsbuildConfig
   },
@@ -562,6 +581,9 @@ module.exports = [
     // at 11121 B against `next`'s 10924 (+197 B) — the core seams (see the
     // core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 10.92 -> 11.05 KB,
+    // measured at 11028 B — the core write-path change (see the core floor note).
     limit: "11.15 KB",
     modifyEsbuildConfig
   },
@@ -650,6 +672,9 @@ module.exports = [
     // at 18529 B against `next`'s 18295 (+234 B) — the core seams (see the
     // core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 18.34 -> 18.42 KB,
+    // measured at 18397 B — the core write-path change (see the core floor note).
     limit: "18.56 KB",
     modifyEsbuildConfig
   },
@@ -779,6 +804,12 @@ module.exports = [
     // `notifyOptimisticWrites` judging against the view readers see, and
     // the authoritative landing on an override-covered node dispatching to
     // the engine.
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 27.34 -> 27.56 KB,
+    // measured at 27534 B. The core write-path change above plus the store
+    // half of #3336: a key first read under a held adoption or fold is born
+    // holding (`stageHeldKey`), and the store's read channels (`in`, keys,
+    // deep witness, `nodeValue`) apply read()'s foreign-transaction rule.
     limit: "28.24 KB",
     modifyEsbuildConfig
   },
@@ -838,6 +869,9 @@ module.exports = [
     // at 13921 B against `next`'s 13738 (+183 B) — the core seams (see the
     // core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 13.75 -> 13.84 KB,
+    // measured at 13820 B — the core write-path change (see the core floor note).
     limit: "13.95 KB",
     modifyEsbuildConfig
   },
@@ -893,6 +927,9 @@ module.exports = [
     // at 15269 B against `next`'s 15037 (+232 B) — the core seams (see the
     // core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 15.08 -> 15.23 KB,
+    // measured at 15205 B — the core write-path change (see the core floor note).
     limit: "15.30 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
@@ -968,6 +1005,9 @@ module.exports = [
     // at 26819 B against `next`'s 26652 (+167 B) — the core seams (see the
     // core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 26.65 -> 26.75 KB,
+    // measured at 26727 B — the core write-path change (see the core floor note).
     limit: "26.85 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
