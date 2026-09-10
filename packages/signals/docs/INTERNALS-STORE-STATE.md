@@ -170,6 +170,29 @@ there is nothing to diff.)
   record until flush commit — carries no subscriptions, discarded at fold.)
 - **(high)** A node is created by: first tracked read, first has/keys tracking,
   any transition/optimistic write, projection write to an observed property.
+- **(high)** A data node created while the target's pending backing is held
+  by a live transaction (the #3089 `foldBatches` stamp; plain and projection
+  families, outside the draft) is born as if it had always existed: committed
+  value, the backing's value staged as that transaction's write
+  (`stageHeldKey` — transition-stamped, no subscriber walk, not `UNFLUSHED`:
+  the write already flushed with its setter). The first tracked read serves
+  through the node like every later read, so whether a key was materialized
+  before the hold is unobservable (#3336). Optimistic families hold at the
+  backing instead (`heldTruthMasked`) and are excluded.
+- **(high)** The backing-level visibility decision carries core read()'s
+  committed clause (`(stale && el._transition !== null && activeTransition !== el._transition) → _value`):
+  while a live FOREIGN transaction holds the pending backing
+  (`liveFoldTransition`, `foreignHold`), a stale (render) reader and an
+  owner-less reader see committed through every channel — untracked reads,
+  `in`, `Object.keys`, `deep()`/`snapshot()`, the adoption hold view
+  (`heldFromReader`; `readSource`, `pendingBackingVisible`, `nodeValue`). A
+  stale reader the holding transaction itself recomputes (its run is the
+  transaction's to apply) sees the staged world, as it sees `_pendingValue`
+  in core — otherwise it composes its view, and its deep() subscriptions,
+  from the pre-hold backing and never re-derives at the silent commit.
+  Non-stale owner-context readers keep speculation, as in core; a pending
+  backing with no transaction (same-tick plain write) keeps the snapshot
+  peek (#3336).
 - **(high)** After every flush with no active lanes: for every materialized
   node, node's committed view === raw value (single-home coherence).
 - **(medium)** Disposal of a store tears down only materialized nodes

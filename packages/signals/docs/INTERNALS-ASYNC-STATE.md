@@ -68,6 +68,7 @@ Every path that produces a value for a node must maintain the companions via
 1. `setSignal` — direct write (line ~1033).
 2. `asyncWrite` — async resolution, four branches: setter / override-active / lane-routed / plain `setSignal` fallback.
 3. `recompute` — transition-held sync derivation (line ~334, `activeTransition || el._transition` guard).
+4. Companion creation — `getLatestValueComputed` / `getPendingSignal` backfill a companion created after the owner's state was already produced (`backfillCompanion`). The backfill is the write of the transaction holding that state (`runAsTransitionBatch(el._transition, …)`), not of the ambient window the creating read runs in: written ambiently, the override registered in the reader's batch and reverted at that flush's round end while the hold was still on (#3336). A hold with no transaction stays ambient.
 
 Comparator (`_equals`) errors on any of these paths are node errors, routed
 through `notifyStatus(STATUS_ERROR)` `[ruled — #2837]`. `setSignal` checks
