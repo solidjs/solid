@@ -34,6 +34,7 @@ import {
   insertSubs,
   queuePendingNode,
   schedule,
+  waitingTransition,
   zombieQueue
 } from "./scheduler.js";
 import type { Computed, FirewallSignal, Link } from "./types.js";
@@ -366,7 +367,15 @@ export function handleAsync<T>(
   // keeps transition scheduling; initialized (value-holding) pending settles
   // are the transaction's reveal machinery and always re-enter.
   const settleTransition = () => {
-    const transition = resolveTransition(el as any);
+    let transition = resolveTransition(el as any);
+    // A lane-routed node's landing is revealed by its lane, ahead of the
+    // transaction that owns the lane (whose own commit is only the override's
+    // confirm/revert). Entering that owner here would fold every transaction
+    // waiting on this flight into it at the landing — a reveal that
+    // discovered the flight (#3305) would then wait on the owner's action
+    // instead of on the flight (#3334). Enter the waiter: the transaction
+    // whose blocker this landing clears.
+    if (el._x?._optimisticLane) transition = waitingTransition(el) ?? transition;
     if (
       transition &&
       el._statusFlags & STATUS_UNINITIALIZED &&

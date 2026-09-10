@@ -1,8 +1,10 @@
-// A stale (render) reader that lands on an async memo which is pending in a
-// DIFFERENT transition normally keeps showing that memo's committed value
-// (no entanglement). An UNINITIALIZED memo has no committed value to show:
-// falling through served `undefined` as if settled and left the reader
-// stamped into neither transaction, so it never re-ran when either landed.
+// A (render) reader that lands on an async memo which is pending in a
+// DIFFERENT transition suspends on it and its reveal settles with that
+// flight (A15; #3305, #3334). An UNINITIALIZED memo was the first shape
+// where the old "show the committed value, no entanglement" carve-out broke:
+// it has no committed value to show, so falling through served `undefined`
+// as if settled and left the reader stamped into neither transaction, so it
+// never re-ran when either landed.
 //
 //   effA: a -> memo("foo" + a)          setA(1) opens T1 (memo foo1 in flight)
 //   effB: b -> memo("foo" + b)          setB(1) opens T2; effB now reads foo1,
@@ -95,9 +97,15 @@ describe("stale reader of an uninitialized memo held by another transition", () 
     expect(outC).toEqual(["bar0", "bar1"]);
   });
 
-  it("still shows the committed value (no entanglement) when the held memo is initialized", async () => {
-    // Control: the reader's new dependency already has a committed value, so
-    // the stale-read rule applies and the transitions stay independent.
+  it("holds the reveal on the initialized memo's flight and settles with it (A15, #3305, #3334)", async () => {
+    // The reader's new dependency has a committed value, but that value is
+    // stale against the flight already in the air. A reveal that discovers
+    // an in-flight async joins the transition the flight blocks and settles
+    // as one unit with it (A15) — it never shows the pre-flight value. This
+    // pin used to expect the opposite ("show committed, no entanglement"):
+    // that carve-out keyed on the node's transaction stamp, which is
+    // pending-node bookkeeping and says nothing about whether the flight's
+    // inputs are already on screen (#3305 committed, #3334 lane-revealed).
     const [a, setA] = createSignal(0);
     const [pick, setPick] = createSignal(0);
     const gate = deferred<void>();
@@ -134,12 +142,14 @@ describe("stale reader of an uninitialized memo held by another transition", () 
     resolveNow = false;
     setA(1); // T1: shared goes pending (in flight) holding "v0".
     flush();
-    setPick(1); // T2: reader switches onto shared — shows committed "v0", no suspend.
+    setPick(1); // T2: reader switches onto shared — holds on the flight, never shows "v0".
     flush();
-    expect(out).toEqual(["other", "v0"]);
+    expect(out).toEqual(["other"]);
+    expect(pick()).toBe(0);
 
     gate.resolve();
     await settle();
-    expect(out).toEqual(["other", "v0", "v1"]);
+    expect(out).toEqual(["other", "v1"]);
+    expect(pick()).toBe(1);
   });
 });

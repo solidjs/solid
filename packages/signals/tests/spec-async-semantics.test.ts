@@ -283,6 +283,188 @@ describe("A15 (was B3): overlapping transitions settle as one unit", () => {
     }
   );
 
+  // #3334 — the flight the reveal discovers is lane-owned: the optimistic (or
+  // latest) value revealed through its lane ahead of the transaction that
+  // owns it, and that transaction stays open (a live action). The reveal
+  // joins the transition whose blocker the flight is and completes when the
+  // flight lands — it must not fold into the lane's owning transaction,
+  // whose commit is only the override's confirm/revert. Same timing as the
+  // plain-signal case above; the owning transaction's lifetime is irrelevant.
+  it.each(["optimistic", "latest"] as const)(
+    "holds a reveal of an existing LANE flight until the flight lands, not until the lane's transaction completes (%s, #3334)",
+    async kind => {
+      const [show, setShow] = createSignal(false);
+      const fetcher = deferredFetcher(v => v);
+      let release!: () => void;
+      const hold = new Promise<void>(r => (release = r));
+      let get!: () => number;
+      let write!: (v: number) => Promise<unknown>;
+      let valueLine: number | undefined;
+      let showLine: readonly [boolean, boolean] | undefined;
+      let slot: number | string | undefined;
+      let dispose!: () => void;
+
+      createRoot(d => {
+        dispose = d;
+        if (kind === "optimistic") {
+          const [b, setB] = createOptimistic(0);
+          get = b;
+          const act = action(function* (v: number) {
+            setB(v);
+            yield hold;
+          });
+          write = v => act(v);
+        } else {
+          const [c, setC] = createSignal(0);
+          get = () => latest(c);
+          const act = action(function* (v: number) {
+            setC(v);
+            yield hold;
+          });
+          write = v => act(v);
+        }
+        const details = createMemo(() => fetcher.fetch(get()));
+        createRenderEffect(get, v => {
+          valueLine = v;
+        });
+        createRenderEffect(
+          () => [show(), isPending(show)] as const,
+          v => {
+            showLine = v;
+          }
+        );
+        createRenderEffect(
+          () => (show() ? details() : "hidden"),
+          v => {
+            slot = v;
+          }
+        );
+      });
+
+      try {
+        flush();
+        fetcher.resolveAll();
+        await settle();
+        expect([valueLine, showLine, slot]).toEqual([0, [false, false], "hidden"]);
+
+        // The lane reveals the value at once; its flight (details) is in the
+        // air but unobserved, so nothing holds.
+        const done = write(1);
+        await settle();
+        expect([valueLine, showLine, slot]).toEqual([1, [false, false], "hidden"]);
+
+        // The reveal discovers the flight started in the earlier flush: held,
+        // exactly as for a plain signal.
+        setShow(true);
+        flush();
+        expect([valueLine, showLine, slot]).toEqual([1, [false, true], "hidden"]);
+        expect(show()).toBe(false);
+
+        // The flight lands. The lane's owning transaction is still open (the
+        // action has not finished) — the reveal does not wait for it.
+        fetcher.resolveAll();
+        await settle();
+        expect([valueLine, showLine, slot]).toEqual([1, [true, false], 1]);
+        expect(show()).toBe(true);
+
+        release();
+        await done;
+        await settle();
+      } finally {
+        dispose();
+      }
+    }
+  );
+
+  // Two reveals, in separate flushes, discovering the same flight: each holds
+  // on it and both complete at the landing (they settle as one unit). The
+  // second reveal finds the flight already observed — and its source already
+  // stamped by the first reveal's transaction — which must not turn it into a
+  // "show the committed value" read (#3305 with a plain signal, #3334 with a
+  // lane-owned flight).
+  it.each(["signal", "optimistic"] as const)(
+    "holds every reveal that discovers the same flight; all complete at the landing (%s)",
+    async kind => {
+      const [show1, setShow1] = createSignal(false);
+      const [show2, setShow2] = createSignal(false);
+      const fetcher = deferredFetcher(v => v);
+      let release!: () => void;
+      const hold = new Promise<void>(r => (release = r));
+      let get!: () => number;
+      let write!: (v: number) => Promise<unknown> | void;
+      const frames: unknown[] = [];
+      let dispose!: () => void;
+
+      createRoot(d => {
+        dispose = d;
+        if (kind === "optimistic") {
+          const [b, setB] = createOptimistic(0);
+          get = b;
+          const act = action(function* (v: number) {
+            setB(v);
+            yield hold;
+          });
+          write = v => act(v);
+        } else {
+          const [c, setC] = createSignal(0);
+          get = c;
+          write = v => setC(v);
+        }
+        const details = createMemo(() => fetcher.fetch(get()));
+        createRenderEffect(
+          () => (show1() ? details() : "h1"),
+          v => void frames.push(["1", v, isPending(show1)])
+        );
+        createRenderEffect(
+          () => (show2() ? details() : "h2"),
+          v => void frames.push(["2", v, isPending(show2)])
+        );
+        createRenderEffect(get, v => void frames.push(["value", v]));
+      });
+
+      try {
+        flush();
+        fetcher.resolveAll();
+        await settle();
+        frames.length = 0;
+
+        const done = write(1);
+        await settle();
+        expect(frames).toEqual([["value", 1]]);
+        frames.length = 0;
+
+        setShow1(true);
+        flush();
+        setShow2(true);
+        flush();
+        expect(frames).toEqual([]);
+        expect([show1(), show2()]).toEqual([false, false]);
+
+        fetcher.resolveAll();
+        await settle();
+        expect([show1(), show2()]).toEqual([true, true]);
+        // No frame ever shows a revealed panel with the pre-flight value 0.
+        // (With a lane-owned flight, the lane's own landing pass first
+        // re-applies each panel under the lane's committed view — `show` still
+        // false there, so the same "hidden" value it already showed — before
+        // the reveal commits; `laneReadsCommitted` records it for replay at
+        // commit. Redundant, consistent, and not what this pin is about.)
+        const revealed = frames.filter(f => typeof (f as unknown[])[1] === "number");
+        expect(revealed).toEqual([
+          ["1", 1, false],
+          ["2", 1, false]
+        ]);
+        expect(frames.filter(f => (f as unknown[])[1] === 0)).toEqual([]);
+
+        release();
+        await done;
+        await settle();
+      } finally {
+        dispose();
+      }
+    }
+  );
+
   it.each(["new", "reset"])(
     "lets a %s loading boundary catch an existing flight without holding the reveal",
     async mode => {
