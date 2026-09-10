@@ -339,7 +339,15 @@ module.exports = [
     // snapshot's wrapper redirect below chained families, and the ownKeys /
     // getOwnPropertyDescriptor trap bodies extracted into visibleKeys /
     // visibleDescriptor so the deep() walk shares them.
-    limit: "14.70 KB",
+    // Projection root writes on the overlay path (#3352, 2026-09-10): 14.70 ->
+    // 14.75 KB, measured at 14.696 (was 14.654; brotli layout swung equivalent
+    // variants 14.658–14.700). ensurePB's overlay
+    // eligibility widens to non-optimistic families (chained backings stay on
+    // the clone), the overlay flatten is a shared helper the write-override
+    // landing now calls instead of swapping the backing, and privatizeCommitted
+    // CASes the parent slot (a pre-existing overlay bug: a child flatten
+    // resurrected a slot the parent's earlier fold had replaced or deleted).
+    limit: "14.75 KB",
     modifyEsbuildConfig
   },
   {
