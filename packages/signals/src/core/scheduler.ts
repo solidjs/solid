@@ -1399,6 +1399,20 @@ export function currentTransition(transition: Transition) {
   return transition;
 }
 
+/**
+ * The live transition blocked on `source` — the one whose render reader
+ * observed it pending (INV-3 records the observation in whichever transaction
+ * was active when the reader was notified). The observation is a fact about
+ * the node, so a hold check must not assume it was recorded in the transaction
+ * it happens to hold — lanes merge across transactions (#2912), and a merged
+ * root's transaction knows nothing of the async its members' transactions
+ * observed (#3335). Null when nobody is waiting.
+ */
+export function waitingTransition(source: Computed<any>): Transition | null {
+  for (const t of transitions) if (t._asyncReporters.has(source)) return t;
+  return null;
+}
+
 export function setActiveTransition(transition: Transition | null) {
   activeTransition = transition;
 }
