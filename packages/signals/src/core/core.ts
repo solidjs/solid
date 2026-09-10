@@ -1422,7 +1422,16 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
 
   if (owner._statusFlags & STATUS_PENDING) {
-    if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
+    // A render reader landing on a pending node throws, whichever transaction
+    // the node is stamped with: the reveal that discovered the flight holds on
+    // it (A15 — observed async settles as one unit; #3305). A stale reader
+    // used to carve out nodes pending in ANOTHER transition and show their
+    // committed value instead, on the theory that the stamp meant the
+    // transaction also held the node's inputs. It does not: the stamp is
+    // pending-node bookkeeping, and the inputs may already be on screen —
+    // committed (#3305), lane-revealed (#3334), or held only by a reveal that
+    // itself waits on this flight — so the committed value tears the frame.
+    if (c) {
       if (__DEV__ && c && c._config & CONFIG_CHILDREN_FORBIDDEN) {
         const message =
           "[PENDING_ASYNC_FORBIDDEN_SCOPE] Reading a pending async value inside createTrackedEffect or onSettled will throw. " +
