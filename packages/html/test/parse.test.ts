@@ -525,6 +525,22 @@ describe("Specialized Element AST", () => {
       ]
     });
   });
+
+  it("comments: braced comment ignored", () => {
+    const ast = jsx`<div>{/* a comment */}hello</div>`;
+
+    expect(ast).toEqual({
+      type: ROOT_NODE,
+      children: [
+        {
+          type: ELEMENT_NODE,
+          name: "div",
+          props: [],
+          children: [{ type: TEXT_NODE, value: "hello" }]
+        }
+      ]
+    });
+  });
 });
 
 describe("Dynamic Component Tags", () => {

@@ -880,6 +880,30 @@ describe("Tagged JSX Integration Tests", () => {
       });
     });
 
+    describe("Comments", () => {
+      it("ignores HTML comments in templates", () => {
+        const container = document.createElement("div");
+        createRoot(() => {
+          container.append(html`<div><!-- ignored -->content</div>`);
+        });
+        expect(container.innerHTML).toBe("<div>content</div>");
+      });
+
+      it("ignores braced comments in templates", () => {
+        const container = document.createElement("div");
+        createRoot(() => {
+          container.append(html`<div><!-- ignored -->{/* also ignored */}content</div>`);
+        });
+        expect(container.innerHTML).toBe("<div>content</div>");
+      });
+
+      it("ignores braced comments between elements", () => {
+        const div = html`<div />
+          <span />{/* comment */}`;
+        expect(div.length).toBe(2);
+      });
+    });
+
     describe("List and Table Rendering", () => {
       it("renders table with dynamic rows and cells", () =>
         createRoot(dispose => {
