@@ -58,11 +58,21 @@ function mount(N: number) {
 
 describe("heap marking stays incremental across mid-tick pulls", () => {
   it("mounting rows with a per-row user effect is linear in N (#3350)", () => {
-    mount(200); // warm
-    // The quadratic regime measured ~760ms at 8000 rows here (4× per 2× N);
-    // the linear one ~35ms. Leave room for shared CI runners while keeping
-    // the O(N²) regime far above the tripwire.
-    expect(mount(8000)).toBeLessThan(250);
+    // Relative tripwire: absolute wall-clock bounds do not survive the
+    // coverage-instrumented CI job (12× slower than a local run). Compare 8×
+    // the rows within one process instead — linear scaling lands near 8×,
+    // the quadratic regime near 64×. Best-of-k tames JIT/GC noise at the
+    // small end. Measured locally: ~10× fixed (3 → 30 ms), ~50× on next
+    // (17 → 850 ms).
+    const best = (N: number, k: number) => {
+      let ms = Infinity;
+      for (let i = 0; i < k; i++) ms = Math.min(ms, mount(N));
+      return ms;
+    };
+    best(1000, 2); // warm
+    const small = best(1000, 3);
+    const large = best(8000, 2);
+    expect(large / small).toBeLessThan(24);
   });
 
   it("a write landing between two mid-tick pulls is visible through a memo chain in the same pass", () => {
