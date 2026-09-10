@@ -1,5 +1,4 @@
 import {
-  CONFIG_AUTHORITATIVE_OBSERVED,
   CONFIG_CHILD_COMPANIONS,
   CONFIG_AUTO_DISPOSE,
   CONFIG_SYNC,
@@ -32,8 +31,10 @@ import {
   GlobalQueue,
   globalQueue,
   insertSubs,
+  origin,
   queuePendingNode,
   schedule,
+  setOrigin,
   waitingTransition,
   zombieQueue
 } from "./scheduler.js";
@@ -348,6 +349,11 @@ export function handleAsync<T>(
   // fired _flightTeardown. A future non-recompute registration path must
   // release it here before overwriting _inFlight.
   ext(el)._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
+  // Provenance of the question this flight asks (#3331): the action whose
+  // window is registering it, or the flight whose landing is. Its landings
+  // propagate under it (asyncWrite) so an override downstream can tell a
+  // stale answer from its own.
+  const flightOrigin = origin;
   // Attribution hook: a new flight is registered. Fired here (not in the
   // branches below) so every flight shape — plain thenable, iterator, the
   // flattened combinations — is announced exactly once, while the recompute
@@ -439,6 +445,9 @@ export function handleAsync<T>(
     // skip this stale async result — the upcoming flush will recompute the node
     // with the new value, creating a fresh Promise that supersedes this one.
     if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY)) return;
+    // The landing propagates under the flight's provenance (#3331) — through
+    // the flush below, which clears it.
+    setOrigin(flightOrigin);
     settleTransition();
     const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
     // Captured before clearStatus wipes it: a quiet re-ask's landing may be
@@ -490,7 +499,12 @@ export function handleAsync<T>(
       // plain-memo landing through setSignal (markUnflushed); promotion
       // notifies subscribers only when the hold is visible to them (under an
       // active override every reader sees the override, A17 — the revert is
-      // the notification point).
+      // the notification point), and under an override hands the landing to
+      // the engine's supersedeOverride (A18 supersession, #3331): own-source
+      // truth that differs from the override ends the optimism for the graph
+      // now, a matching arrival wakes only an authoritative-view reader
+      // (#3164). The promotion runs at the top of the flush below, still
+      // under this flight's provenance.
       markUnflushed(el, prevStaged);
       schedule();
     } else if (lane) {

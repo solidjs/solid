@@ -75,6 +75,16 @@ export interface NodeExtension {
    * layer's STORE_OPTIMISTIC_OWNERS stamps (#2899). `null` = ambient write.
    */
   _overrideOwner: Transition | null | undefined;
+  /** `clock` at the active override's write. A sync recompute in the same
+   * tick derives from inputs that predate the override and does not
+   * supersede it (A18 supersession ordering, #3331). */
+  _overrideTime: number;
+  /** Provenance of the active override's write: the scheduler's `origin` (the
+   * asking action's invocation sequence; 0 = mainline). An arriving answer
+   * whose flight an older action issued asked a question the override has
+   * since changed: it holds to commit instead of superseding (A18
+   * supersession provenance, #3331). */
+  _overrideStamp: number;
   _optimisticLane: OptimisticLane | undefined;
   _pendingSignal: Signal<boolean> | undefined; // Lazy signal for isPending()
   _latestValueComputed: Computed<any> | undefined; // Lazy computed for latest()

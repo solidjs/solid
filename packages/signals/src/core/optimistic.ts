@@ -24,8 +24,11 @@ import {
   REACTIVE_OPTIMISTIC_DIRTY,
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
-  CONFIG_HAS_LANE
+  CONFIG_AUTHORITATIVE_OBSERVED,
+  CONFIG_HAS_LANE,
+  CONFIG_OVERRIDE_SUPERSEDED
 } from "./constants.js";
+import { attrHooks } from "./attribution-hooks.js";
 import { currentOptimisticLane, latestReadActive, stale, ext, markUnflushed } from "./core.js";
 import { NotReadyError } from "./error.js";
 import { devCheckMergedLaneEmpty, devTrackOptimistic } from "./invariants.js";
@@ -47,6 +50,7 @@ import {
   GlobalQueue,
   globalQueue,
   insertSubs,
+  origin,
   schedule,
   type QueueCallback,
   type Transition
@@ -108,10 +112,16 @@ function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)
   // joint root). resolveTransition prefers this over the lane's _transition,
   // which a shared subscriber can merge across transactions (#2912).
   ext(el)._overrideOwner = activeTransition;
+  ext(el)._overrideTime = clock;
+  // Provenance: the action asking. An answer an OLDER action's flight brings
+  // back is a stale question and holds silently to commit (#3331).
+  ext(el)._overrideStamp = origin;
 
   const lane = getOrCreateLane(el as Signal<any>);
   ext(el)._optimisticLane = lane;
-  el._config |= CONFIG_HAS_LANE;
+  // A fresh override re-masks: whatever truth is staged, this write is the
+  // value for the graph again until the source answers it (#3331).
+  el._config = (el._config | CONFIG_HAS_LANE) & ~CONFIG_OVERRIDE_SUPERSEDED;
 
   // Literal undefined must not land raw: the slot doubles as the optimistic
   // brand, and erasing it makes the write invisible and routes follow-up
@@ -200,7 +210,12 @@ function resolveOptimisticNodes(nodes: OptimisticNode[]): void {
       (node as any)._statusFlags &= ~STATUS_UNINITIALIZED;
     const prevOverride = node._x?._overrideValue;
     ext(node)._overrideValue = NOT_PENDING;
-    if (prevOverride !== NOT_PENDING && node._value !== unwrapOverride(prevOverride))
+    // A superseded override's subscribers already re-derived from the truth
+    // when it arrived (#3331) — the drop changes nothing they read. Everyone
+    // else learns of the correction here: this drop IS their notification.
+    const superseded = (node._config & CONFIG_OVERRIDE_SUPERSEDED) !== 0;
+    node._config &= ~CONFIG_OVERRIDE_SUPERSEDED;
+    if (!superseded && prevOverride !== NOT_PENDING && node._value !== unwrapOverride(prevOverride))
       insertSubs(node, true);
     node._transition = null;
     if (node._x !== null) node._x._overrideOwner = null;
@@ -217,6 +232,83 @@ function resolveOptimisticNodes(nodes: OptimisticNode[]): void {
       GlobalQueue._snapCompanions!(owner);
   }
   nodes.splice(0, len);
+}
+
+/**
+ * A18 supersession (#3331): the node's own source arrived with a value that
+ * differs from its active override. "Knowing otherwise" ends the optimism for
+ * the graph at once: the override stays only as the DISPLAYED value (untracked
+ * reads, the applied frame) until the owning transaction commits, while
+ * tracked readers see the staged truth and re-derive from it as that
+ * transaction's held work — so async downstream restarts now, not at the
+ * revert (no waterfall).
+ *
+ * The lane's job for this node is over: a lane applies an optimistic view
+ * ahead of its transaction, and there is no optimistic view left — the
+ * corrected cascade is plain transaction-held work (staged memos, effect runs
+ * in the stashable queues). Demote the node and every cascade member that
+ * rides this lane; the caller then notifies on the plain channel. Runners the
+ * lane still holds for demoted effects (the optimistic frame that never got to
+ * apply) defer to the regular queue in runEffect. In a lane merged with a
+ * still-optimistic source, members shared with that source lose their lane
+ * too and simply wait for the transaction — less optimistic, never torn.
+ *
+ * A later arrival EQUAL to the override (an earlier action's answer superseded
+ * this one's; now this one's answer confirms it) ends the supersession: the
+ * graph re-derives from the override, which is the truth again. Notifies the
+ * subscribers in both cases. A plain matching confirmation (no supersession
+ * in force) is A17-silent for ordinary subscribers and wakes only an
+ * authoritative-view reader (until()'s predicate, refresh()'s waiter) that
+ * observed this node past its override — "authoritative arrival equal to the
+ * override" is exactly the acknowledgment it waits for (#3164, #3303). The
+ * wake hook is installed by the setters of that bit; optional here because
+ * the bit only implies the optimistic engine was consulted.
+ */
+function supersedeOverride(el: OptimisticNode, value: unknown): void {
+  const differs = !el._equals || !el._equals(value, unwrapOverride(el._x!._overrideValue));
+  if (!differs) {
+    if (!(el._config & CONFIG_OVERRIDE_SUPERSEDED)) {
+      if (el._config & CONFIG_AUTHORITATIVE_OBSERVED)
+        GlobalQueue._notifyAuthoritativeObservers?.(el);
+      return;
+    }
+    el._config &= ~CONFIG_OVERRIDE_SUPERSEDED;
+  } else {
+    // Provenance (#3331): an answer brought back by an OLDER action than the
+    // one that wrote this override answers a question the user has since
+    // changed. It is staged like any other landing and reveals if it is
+    // still the truth when the transaction commits, but it does not move the
+    // graph now — a slow source must not leak back in over a newer intent.
+    // 0 is mainline (no action): always the current question.
+    if (origin && origin < el._x!._overrideStamp) return;
+    el._config |= CONFIG_OVERRIDE_SUPERSEDED;
+    const lane = el._x?._optimisticLane;
+    if (lane) {
+      const root = findLane(lane);
+      const stack: OptimisticNode[] = [el];
+      while (stack.length) {
+        const n = stack.pop()!;
+        const l = n._x?._optimisticLane;
+        if (!l || findLane(l) !== root) continue;
+        n._x!._optimisticLane = undefined;
+        root._pendingAsync.delete(n as Computed<any>);
+        for (let s = n._subs; s !== null; s = s._nextSub) stack.push(s._sub);
+      }
+    }
+  }
+  if (__OBSERVE__ && attrHooks !== null)
+    attrHooks.asyncEnd(el as Computed<any>, undefined, value, true);
+  insertSubs(el);
+}
+
+/** read()'s value for a tracked reader of a superseded node: the staged truth,
+ * or the displayed override for a stale (render) reader of some OTHER
+ * transaction — the same visibility a foreign transaction's staged write has. */
+function supersededRead(el: OptimisticNode): unknown {
+  return el._pendingValue !== NOT_PENDING &&
+    !(stale && el._transition && activeTransition !== el._transition)
+    ? el._pendingValue
+    : unwrapOverride(el._x?._overrideValue);
 }
 
 function runQueue(queue: QueueCallback[], type: number): void {
@@ -429,6 +521,8 @@ export function installOptimisticEngine(): void {
   GlobalQueue._transitionBlocked = transitionBlocked;
   GlobalQueue._cleanupLanes = cleanupCompletedLanes;
   GlobalQueue._runLaneEffects = runLaneEffects;
+  GlobalQueue._supersedeOverride = supersedeOverride;
+  GlobalQueue._supersededRead = supersededRead;
   GlobalQueue._gatedRead = gatedRead;
   GlobalQueue._laneSuspends = laneSuspends;
   GlobalQueue._laneReadsCommitted = laneReadsCommitted;

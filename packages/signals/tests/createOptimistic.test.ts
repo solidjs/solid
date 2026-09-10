@@ -3156,10 +3156,15 @@ describe("createOptimistic", () => {
       expect(pendingVals.at(-1)).toBe(false);
 
       // ACTION 1: News -> Finance
+      // One resolver per action: the second click must not orphan the first
+      // action's continuation (an unresumed action holds the merged
+      // transaction open forever, and every "final state" assertion below
+      // would pass vacuously against the frozen override).
+      const resolveUpdates: Array<() => void> = [];
       const handleSelect = action(function* (cat: string) {
         setOptimistic(cat);
         yield new Promise<void>(r => {
-          resolveUpdate = r;
+          resolveUpdates.push(r);
         });
         refresh(userCategory);
       });
@@ -3202,24 +3207,32 @@ describe("createOptimistic", () => {
 
       // Now complete action 1's background work
       dbCategory = "Finance";
-      resolveUpdate!();
+      resolveUpdates[0]();
       await Promise.resolve();
       flush();
       resolveCategory!("Finance");
       await Promise.resolve();
       flush();
-      resolveDetails!(items["Finance"]);
-      await Promise.resolve();
-      flush();
-
-      // After action 1 completes, should still show Sports (action 2 override)
+      // A18 supersession provenance (#3331): the source answered "Finance" ≠
+      // the displayed "Sports", but the flight that brought it was action 1's
+      // — an OLDER question than the "Sports" override. A slow source does
+      // not leak back in over a newer intent: the answer is staged for the
+      // commit and nothing moves. details keeps Sports, no refetch, no
+      // pending flip.
       expect(optimistic()).toBe("Sports");
+      expect(isPending(details)).toBe(false);
+      expect(pendingRuns.at(-1)).toBe(false);
+      expect(selectedVals.at(-1)).toBe("Sports");
+      expect(detailVals.at(-1)).toEqual(["Live Scores"]);
 
       // Complete action 2's background work
       dbCategory = "Sports";
-      resolveUpdate!();
+      resolveUpdates[1]();
       await Promise.resolve();
       flush();
+      // Action 2's own answer: "Sports" confirms the override and the
+      // transaction can commit. (details never refetched — the resolver is
+      // the already-settled Sports fetch.)
       resolveCategory!("Sports");
       await Promise.resolve();
       flush();
@@ -3229,7 +3242,12 @@ describe("createOptimistic", () => {
 
       // Final state: Sports
       expect(optimistic()).toBe("Sports");
+      expect(latest(optimistic)).toBe("Sports");
       expect(selectedVals.at(-1)).toBe("Sports");
+      expect(detailVals.at(-1)).toEqual(["Live Scores"]);
+      // Finance details were shown once (action 1's own reveal) and never
+      // refetched: the stale answer never moved the graph.
+      expect(detailVals.filter(v => v[0] === "Stock Ticker")).toHaveLength(1);
       expect(pendingRuns.at(-1)).toBe(false);
     });
   });

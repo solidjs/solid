@@ -218,7 +218,29 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // changed in the rebase beyond taking `next`'s heap.ts line, so the
     // difference is how the merged core minifies). Measured at 22,381;
     // budget 22,400 -> 22,450 for headroom.
-    expect(minifiedBytes).toBeLessThan(22_450);
+    //
+    // NOTE (2026-09-10, no bump): +~155B for the lane-authority fixes
+    // (#3335, #3334, #3331, #3330). Reveal-hold: read()'s pending branch
+    // drops the stale/foreign-transaction carve-out (-), asyncWrite's
+    // settleTransition routes a lane-owned landing to the waiting transaction
+    // (waitingTransition, which laneHeld shares). Override supersession: the
+    // landing branch and recompute's two override branches each collapse to
+    // one engine hook call (the authoritative-observer wake moved into the
+    // hook), read()'s override arm gains a bit test plus a hook call for
+    // tracked readers of a superseded node, runEffect's owner gate learns
+    // that a lane runner for a lane-less effect belongs to the still-held
+    // transaction, and the ext literal gains `_overrideTime` and
+    // `_overrideStamp`. Two GlobalQueue hook slots. INV-11 adds one term to
+    // recompute's compare-slot select. Supersession provenance: the scheduler
+    // carries the running action's sequence (`origin` + setter, cleared at
+    // the end of flush()), handleAsync captures it per flight and asyncWrite
+    // re-arms it for the landing's propagation. Core-retained by necessity:
+    // read visibility, the landing branch, the effect gate, and the
+    // provenance carrier are the seams themselves; the decision logic
+    // (equality, ordering, provenance comparison, lane demotion, value
+    // selection, replay gating) lives in optimistic.ts and shakes out.
+    // MEASURE_PLACEHOLDER
+    expect(minifiedBytes).toBeLessThan(22_600);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

@@ -23,6 +23,7 @@ import {
   CONFIG_HAS_SNAPSHOT,
   CONFIG_NO_SNAPSHOT,
   CONFIG_OPTIMISTIC,
+  CONFIG_OVERRIDE_SUPERSEDED,
   CONFIG_OWNED_WRITE,
   CONFIG_SLOT_NODE,
   CONFIG_SYNC,
@@ -556,6 +557,19 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         (!hasOverride || isOptimisticDirty || el._x?._overrideValue !== prevVisible)
       )
         insertSubs(el, isOptimisticDirty || hasOverride);
+      // A18 supersession, sync twin of asyncWrite's override branch (#3331):
+      // this pass published truth that differs from the override (the gate
+      // compared against it) into the transaction-held slot. Whether the
+      // source is this node's own async or an upstream node it derives from
+      // synchronously makes no difference — "the source recomputed". The
+      // override stays displayed until the commit; the graph moves to the
+      // staged truth now (plain channel, lane demoted). Ordering: "a new
+      // value from the source" postdates the override — an override written
+      // in this same tick (optimisticWrite stamps `_overrideTime`) is the
+      // newer intent over whatever this pass derives from the batch's staged
+      // inputs, and is not superseded by it.
+      else if (hasOverride && !isOptimisticDirty && el._x!._overrideTime !== clock)
+        GlobalQueue._supersedeOverride!(el, value);
     } else if (hasOverride) {
       // Unchanged value (equals the override) recomputed while the override
       // is active: _value may still be stale, so hold the authoritative value
@@ -564,13 +578,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._pendingValue = value;
       if (__DEV__) devTrackHeldPending(el);
       if (wasLoading) el._loading = true; // see the held branch above (#2990)
-      // An authoritative-view reader (until()'s predicate, refresh()'s waiter)
-      // observed this node past its override — and "authoritative arrival
-      // equal to the override" is exactly the acknowledgment it waits for.
-      // Wake those readers only; A17 silence holds for every ordinary
-      // subscriber. (Hook installed by both setters of the gating bit, #3303.)
-      if (el._config & CONFIG_AUTHORITATIVE_OBSERVED)
-        GlobalQueue._notifyAuthoritativeObservers!(el);
+      // A confirmation after a supersession restores the override as the
+      // graph's value and notifies; a plain confirmation wakes only an
+      // authoritative-view reader (until()'s predicate, refresh()'s waiter)
+      // that observed this node past its override — "authoritative arrival
+      // equal to the override" is exactly the acknowledgment it waits for;
+      // A17 silence holds for every ordinary subscriber. Both live in the
+      // engine's supersedeOverride.
+      GlobalQueue._supersedeOverride!(el, value);
     } else if (el._height != oldHeight) {
       for (let s = el._subs; s !== null; s = s._nextSub) {
         insertIntoHeapHeight(s._sub, queueFor(s._sub));
@@ -779,6 +794,8 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
   return (el._x ??= {
     _overrideValue: undefined,
     _overrideOwner: undefined,
+    _overrideTime: 0,
+    _overrideStamp: 0,
     _optimisticLane: undefined,
     _pendingSignal: undefined,
     _latestValueComputed: undefined,
@@ -1541,8 +1558,16 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // authoritative — optimism never lives there); the sticky mark makes the
     // A17-silent "landing equals override" paths notify this node's subs so
     // the reader re-runs when truth arrives.
-    if (!(c && c._config & CONFIG_AUTHORITATIVE_READ))
+    if (!(c && c._config & CONFIG_AUTHORITATIVE_READ)) {
+      // A18 supersession (#3331): the node's own source answered with a
+      // DIFFERENT value. The optimism is over for the graph — a tracked
+      // reader sees the staged truth — while the override remains the
+      // DISPLAYED value for untracked reads (and for a stale reader of some
+      // other transaction). The selection lives with the engine.
+      if (c && el._config & CONFIG_OVERRIDE_SUPERSEDED)
+        return GlobalQueue._supersededRead!(el) as T;
       return unwrapOverride<T>(el._x?._overrideValue);
+    }
     el._config |= CONFIG_AUTHORITATIVE_OBSERVED;
   }
 
@@ -1689,15 +1714,22 @@ export function promoteUnflushed(from: number = 0): void {
     // finalize's commitPendingNodes ran) — the walk is still owed.
     if (node._config & CONFIG_HAS_COMPANIONS && sync !== null)
       sync(node, node._pendingValue === NOT_PENDING ? node._value : node._pendingValue);
-    // Same wake rule as the eager landing (asyncWrite): under an active
-    // override every reader sees the override (A17), so the hold is not
-    // visible to them and the revert is their notification — only an
-    // authoritative-view reader (until()'s predicate) waiting on the staged
-    // truth is woken (#3164). Only CONFIG_OPTIMISTIC nodes carry an
-    // override slot (see constants.ts): plain nodes skip the probe.
+    // Under an active override every reader sees the override (A17), so the
+    // hold is not visible to them and the revert is their notification. The
+    // engine decides what the arrival means for the override (A18
+    // supersession, #3331): own-source truth that differs ends the optimism
+    // for the graph now (plain channel, lane demoted); a matching arrival is
+    // silent except to an authoritative-view reader (until()'s predicate)
+    // waiting on exactly this staged truth (#3164). The hook is installed
+    // with the engine, which an active override implies. Only
+    // CONFIG_OPTIMISTIC nodes carry an override slot (see constants.ts):
+    // plain nodes skip the probe.
     if (!(node._config & CONFIG_OPTIMISTIC) || !hasActiveOverride(node)) insertSubs(node);
-    else if (node._config & CONFIG_AUTHORITATIVE_OBSERVED)
-      GlobalQueue._notifyAuthoritativeObservers?.(node);
+    else
+      GlobalQueue._supersedeOverride!(
+        node,
+        node._pendingValue === NOT_PENDING ? node._value : node._pendingValue
+      );
   }
   unflushedNodes.length = from;
 }

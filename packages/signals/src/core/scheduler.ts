@@ -623,6 +623,20 @@ export class GlobalQueue extends Queue {
    * the gate holds (#3303). */
   static _notifyAuthoritativeObservers: ((el: Signal<any> | Computed<any>) => void) | null = null;
   static _laneAsyncSettled: ((el: Computed<any>) => void) | null = null;
+  /** A18 supersession (#3331): own-source truth `value` landed under an active
+   * override. The engine decides whether the graph re-derives — the value
+   * differs from the override and is not a stale (older-action) answer (mark
+   * the node, demote its lane cascade, notify), or returns to it after an
+   * earlier differing arrival (clear the mark, notify) — and owns the
+   * authoritative-observer wake for a silent confirm. Installed with the
+   * optimistic engine; only reachable on a node that has an override. */
+  static _supersedeOverride: ((el: Signal<any> | Computed<any>, value: unknown) => void) | null =
+    null;
+  /** read()'s value for a TRACKED reader of a superseded node (#3331): the
+   * staged truth, unless the reader is a stale (render) reader of another
+   * transaction — then the displayed override, as it keeps a foreign
+   * transaction's committed value over its staged write. */
+  static _supersededRead: ((el: Signal<any> | Computed<any>) => unknown) | null = null;
   static _trackOptimisticStore: ((store: any) => void) | null = null;
   flush() {
     if (this._running) return;
@@ -924,6 +938,26 @@ let lastStagedNodeName: string | null = null;
 export let reaskArmed = false;
 export function armReaskClear(): void {
   reaskArmed = true;
+}
+
+/** Provenance of the work currently running (A18 supersession, #3331): the
+ * invocation sequence of the action whose ambient window this is — set by
+ * action() for each slice; the flush that ends the window clears it — or,
+ * inside an async landing, the sequence captured when that flight was
+ * registered (asyncWrite sets it for the landing's synchronous propagation,
+ * so a sync recompute downstream of the landing — an optimistic wrapper over
+ * the async source — derives under the flight's provenance, and flights it
+ * registers inherit it). 0 is mainline: no action, always the current
+ * question. An override stamps this at its write (`_overrideStamp`); an
+ * answer whose flight an OLDER action issued is a stale question the user
+ * has since changed — it holds silently to commit instead of superseding. A
+ * slow source must not leak back in over a newer intent. Transactions merge,
+ * so the transition object cannot say WHICH action asked; this can. */
+export let origin = 0;
+export function setOrigin(seq: number): number {
+  const prev = origin;
+  origin = seq;
+  return prev;
 }
 
 export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolean = false): void {
@@ -1318,6 +1352,9 @@ export function flush<T>(fn?: () => T): T | void {
     globalQueue.flush();
     if (__OBSERVE__) drained = true;
   }
+  // Provenance ends with the drain: every ambient window (an action's first
+  // slice, a landing's propagation) runs to this flush.
+  origin = 0;
   // Outside every try in this function (see the rule in attribution-hooks.ts):
   // the drain loop above is the one place all scheduled work funnels through,
   // so this is the "committed and effects ran, or parked" instant for
