@@ -52,6 +52,7 @@ import {
   dirtyQueue,
   GlobalQueue,
   insertSubs,
+  runAsTransitionBatch,
   schedule,
   zombieQueue,
   type Transition
@@ -107,10 +108,36 @@ function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
     el._config |= CONFIG_HAS_COMPANIONS;
     markFirewallChildCompanions(el);
     ext(ps)._parentSource = el;
-    if (computePendingState(el)) setSignal(ps, true);
+    if (computePendingState(el)) backfillCompanion(el, ps, true);
     if (__DEV__) devTrackCompanionOwner(el);
   }
   return ps;
+}
+
+/**
+ * A lazily created companion's first write mirrors state the owner already
+ * carries — a held write, a pending verdict. The companion is created
+ * wherever the first latest()/isPending() read happens to run, but the write
+ * belongs to whatever HOLDS that state: written in the ambient window (a
+ * mainline render effect's flush), the override would register in the ambient
+ * batch and revert when that flush's round ends — the shadow re-derived from
+ * the committed view, the verdict flipped false — while the owner's hold was
+ * still on (#3336: "spooky action at a distance", A and B differing only in
+ * whether a companion existed before the hold). A companion created lazily
+ * must answer as if it had always existed: its backfill is registered with the
+ * owner's transaction, exactly where the sync path (syncCompanions at the
+ * transaction's flush) would have put it, and lives and reverts with it. A
+ * hold with no transaction (a pending async, a same-flush staged write) is
+ * ambient and the write stays ambient.
+ */
+function backfillCompanion(
+  el: Signal<any> | Computed<any>,
+  companion: Signal<any> | Computed<any>,
+  value: unknown
+): void {
+  const transition = el._transition;
+  if (transition) runAsTransitionBatch(transition, () => setSignal(companion, value));
+  else setSignal(companion, value);
 }
 
 function collectPendingSources(el: Signal<any> | Computed<any>): void {
@@ -383,7 +410,7 @@ function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
     // FLUSHED staged value: an unflushed rewrite is not yet anyone's world,
     // and the flush that processes it pushes it here (promoteUnflushed).
     const staged = flushedStaged(el);
-    if (staged !== NOT_PENDING && !hasActiveOverride(el)) setSignal(lvc, staged as T);
+    if (staged !== NOT_PENDING && !hasActiveOverride(el)) backfillCompanion(el, lvc, staged);
     if (__DEV__) devTrackCompanionOwner(el);
     setContextInternal(prevContext);
     setPendingCheckActive(prevCheck);
