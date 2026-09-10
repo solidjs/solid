@@ -1,0 +1,5 @@
+---
+"@solidjs/signals": patch
+---
+
+An optimistic override is superseded the moment its source recomputes the node with a different value — its own async landing, or a sync recompute driven by an upstream change (`createOptimistic(() => asyncMemo())`): tracked derivations (memos, downstream async) recompute from the arrived truth immediately as held transaction work, instead of waiting for the override's own downstream flight to finish first — so the correction no longer takes two sequential round-trips (#3331). The override remains the displayed value for untracked reads and the applied frame until the transaction commits; `latest()` returns the arrived value and `isPending()` is `true` while they differ. An equal landing confirms silently. Only the override's own question or a newer one supersedes: when two rapid actions overlap on one node, the older action's late answer is held to the commit without moving the graph — a slow source does not leak back in over the user's latest intent.

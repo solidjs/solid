@@ -160,11 +160,18 @@ function runEffect(node: Effect<any>, type: number): void {
   // Mainline-owned runs (null) apply now. Lanes are exempt by design (they
   // apply their own effects ahead of their transaction — the optimistic view)
   // and mark their runs with LANE_RUN.
+  //
+  // Lane exemption has one exception (#3331): a lane runner for an effect that
+  // no longer rides a lane — its optimistic source was superseded, so the lane
+  // has no optimistic view left to apply, and the value this effect now
+  // carries (or will, once its plain recompute lands) belongs to the still-held
+  // transaction. Hand the run to the regular queue, where the transaction's
+  // gate stashes it with the owner. Lane-less runners with no live owner
+  // (reverts, wake-only lanes) apply now.
   if (
-    activeTransition !== null &&
-    !(type & LANE_RUN) &&
     node._valueTransition !== null &&
-    !currentTransition(node._valueTransition)._done
+    !currentTransition(node._valueTransition)._done &&
+    (type & LANE_RUN ? !node._x?._optimisticLane : activeTransition !== null)
   ) {
     node._queue.enqueue(node._type, node._boundRunEffect!);
     return;
