@@ -24,6 +24,11 @@ pub struct TransformOptions {
     pub generate: Option<String>,
     pub hydratable: Option<bool>,
     pub dev: Option<bool>,
+    /// Babel's `componentNames`: emit the source tag name as a third
+    /// `createComponent` argument (`createComponent(Home, props, "Home")`) so
+    /// dev/observe runtimes can label owners after minification. DOM output
+    /// only; the production runtime ignores the argument.
+    pub component_names: Option<bool>,
     pub source_map: Option<bool>,
     pub context_to_custom_elements: Option<bool>,
     pub delegate_events: Option<bool>,

@@ -197,8 +197,12 @@ export function children(fn: Accessor<SolidElement>): ChildrenReturn {
  * attribution need (`["<App>", "<TodoRow>", "effect"]`). Dev tier adds the
  * non-function check, the devtools `_component` record and `$DEVCOMP` brand,
  * and the strict-read label. The prod build never calls this.
+ *
+ * `name` is the source tag the compiler emitted under `componentNames`; it
+ * wins over `Comp.name`, which a minifier rewrites and a `lazy()` or HMR
+ * wrapper hides.
  */
-export function observedComponent<P, V>(Comp: (props: P) => V, props: P): V {
+export function observedComponent<P, V>(Comp: (props: P) => V, props: P, name?: string): V {
   // A JSX tag whose component resolved to a non-function otherwise surfaces
   // as `Cannot read properties of undefined (reading 'name')` from inside the
   // dev build — a framework-shaped stack for an app-shaped mistake (#3005).
@@ -209,7 +213,8 @@ export function observedComponent<P, V>(Comp: (props: P) => V, props: P): V {
       }. A JSX tag resolved to a non-function value — check the import: a missing or misnamed export resolves to undefined.`
     );
   }
-  const label = `<${Comp.name || "Anonymous"}>`;
+  name ||= Comp.name;
+  const label = `<${name || "Anonymous"}>`;
   return createRoot(
     () => {
       const owner: any = getOwner();
@@ -223,7 +228,7 @@ export function observedComponent<P, V>(Comp: (props: P) => V, props: P): V {
         owner._component = {
           fn: Comp,
           props,
-          name: Comp.name
+          name
         };
         Object.assign(Comp, { [$DEVCOMP]: true });
         return untrack(() => Comp(props), label);

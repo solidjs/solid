@@ -70,12 +70,19 @@ export type Ref<T> = T | ((val: T) => void) | undefined | Ref<T>[];
  * inside the component body don't subscribe the parent computation. Compiled
  * JSX uses this internally; manual calls are rarely needed unless authoring a
  * custom JSX factory or renderer.
+ *
+ * @param name the tag as written in source (`"Home"`, `"Ui.Button"`), emitted
+ *   by the compiler's `componentNames` option. Dev and observe builds label
+ *   the component's owner with it — `Comp.name` is whatever the minifier left
+ *   — so diagnostics and attribution paths read `<Home>` in production
+ *   bundles. The production build ignores it.
  */
 export function createComponent<T extends Record<string, any>>(
   Comp: Component<T>,
-  props: T
+  props: T,
+  name?: string
 ): SolidElement {
-  if (IS_OBSERVE) return observedComponent(Comp, props || ({} as T));
+  if (IS_OBSERVE) return observedComponent(Comp, props || ({} as T), name);
   return untrack(() => Comp(props || ({} as T)));
 }
 

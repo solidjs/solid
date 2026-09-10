@@ -64,7 +64,8 @@ export type Ref<T> = T | ((val: T) => void);
  */
 export function createComponent<T extends Record<string, any>>(
   Comp: Component<T>,
-  props: T
+  props: T,
+  _name?: string
 ): SolidElement {
   return Comp(props || ({} as T));
 }

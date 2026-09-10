@@ -105,6 +105,13 @@ function getTargetFunctionParent(path: NodePath, parent: FunctionParentScope): F
   return current;
 }
 
+/**
+ * JSX tag identifiers `transformThis` rewrote from `this` to the `_self$`
+ * capture, so `componentNames` can label `<this.Row />` by its source text
+ * rather than the generated uid.
+ */
+export const thisTagIdentifiers = new WeakSet<t.JSXIdentifier>();
+
 export function transformThis(path: NodePath): (node: t.Expression) => t.Expression {
   const parent = path.scope.getFunctionParent();
   let thisId: t.Identifier | undefined, inserted: boolean | undefined;
@@ -125,7 +132,9 @@ export function transformThis(path: NodePath): (node: t.Expression) => t.Express
         const current = getTargetFunctionParent(path, parent);
         if (current === parent) {
           thisId || (thisId = path.scope.generateUidIdentifier("self$"));
-          source.replaceWith(t.jsxIdentifier(thisId!.name));
+          const selfTag = t.jsxIdentifier(thisId!.name);
+          thisTagIdentifiers.add(selfTag);
+          source.replaceWith(selfTag);
 
           if (path.node.closingElement) {
             path.node.closingElement.name = path.node.openingElement.name;
