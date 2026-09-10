@@ -634,6 +634,14 @@ export class GlobalQueue extends Queue {
    * transaction — then the displayed override, as it keeps a foreign
    * transaction's committed value over its staged write. */
   static _supersededRead: ((el: Signal<any> | Computed<any>) => unknown) | null = null;
+  /** setSignal's authoritative (projection-write) landing on an override-
+   * covered node (#3331 store twin): stage the truth for its transaction's
+   * commit whatever its relation to the committed value — a landing equal to
+   * committed still differs from the override — then _supersedeOverride
+   * decides. Installed with the optimistic engine; only reachable on a node
+   * that has an override. */
+  static _landOnOverride: (<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)) => T) | null =
+    null;
   static _trackOptimisticStore: ((store: any) => void) | null = null;
   flush() {
     if (this._running) return;
@@ -1109,9 +1117,16 @@ export function finalizePureQueue(
   // the recompute and the effect phase land in this same pass and the value
   // the other transaction wrote into the slot is never published.
   // (No clear: a completed transition is never finalized again.)
-  if (completingTransition?._contested)
-    for (const el of completingTransition._contested)
-      if (!(el._flags & REACTIVE_DISPOSED)) enqueueSub(el);
+  // A transaction whose settle reverts optimism re-derives them post-revert
+  // instead (below, with the gated replay): between commitPendingNodes and
+  // _resolveOptimistic the truth is committed but the overrides still
+  // display, and a re-derive here would compose the two — the #3164 tear,
+  // one window later. The slot meanwhile holds the frame that is on screen.
+  const contested = completingTransition?._contested;
+  const revertsOptimism =
+    resolvePending && (completingTransition ?? finalizingBatch)._optimisticNodes.length !== 0;
+  if (contested && !revertsOptimism)
+    for (const el of contested) if (!(el._flags & REACTIVE_DISPOSED)) enqueueSub(el);
   const ranHeap = dirtyQueue._max >= dirtyQueue._min;
   if (ranHeap) runHeap(dirtyQueue, GlobalQueue._update);
   if (resolvePending) {
@@ -1131,6 +1146,10 @@ export function finalizePureQueue(
     // Optimistic reversion: a non-empty batch means _optimisticWrite ran,
     // which installed the engine's hooks.
     if (batch._optimisticNodes.length) GlobalQueue._resolveOptimistic!(batch._optimisticNodes);
+    if (contested && revertsOptimism) {
+      for (const el of contested) if (!(el._flags & REACTIVE_DISPOSED)) enqueueSub(el);
+      schedule();
+    }
     // Replay entanglement: subs recorded by the read-time gate get rescheduled
     // so they re-run with the now-committed values visible. The ambient batch
     // replays too — laneReadsCommitted records readers whose committed-view

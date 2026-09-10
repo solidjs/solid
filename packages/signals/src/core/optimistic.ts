@@ -31,7 +31,7 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { currentOptimisticLane, latestReadActive, stale, ext } from "./core.js";
 import { NotReadyError } from "./error.js";
-import { devCheckMergedLaneEmpty, devTrackOptimistic } from "./invariants.js";
+import { devCheckMergedLaneEmpty, devTrackHeldPending, devTrackOptimistic } from "./invariants.js";
 import {
   activeLanes,
   assignOrMergeLane,
@@ -51,6 +51,7 @@ import {
   globalQueue,
   insertSubs,
   origin,
+  queuePendingNode,
   schedule,
   type QueueCallback,
   type Transition
@@ -252,14 +253,42 @@ function supersedeOverride(el: OptimisticNode, value: unknown): void {
   insertSubs(el);
 }
 
-/** read()'s value for a tracked reader of a superseded node: the staged truth,
- * or the displayed override for a stale (render) reader of some OTHER
- * transaction — the same visibility a foreign transaction's staged write has. */
+/** read()'s value for a tracked reader of a superseded node: the truth —
+ * staged, or already committed (a mainline landing commits at the head of
+ * its flush, ahead of the heap run, and the override drops only at the
+ * batch's end; in between the graph must not fall back to the override it
+ * has left) — or the displayed override for a stale (render) reader of some
+ * OTHER transaction, the same visibility a foreign transaction's staged
+ * write has. */
 function supersededRead(el: OptimisticNode): unknown {
-  return el._pendingValue !== NOT_PENDING &&
-    !(stale && el._transition && activeTransition !== el._transition)
-    ? el._pendingValue
-    : unwrapOverride(el._x?._overrideValue);
+  if (stale && el._transition && activeTransition !== el._transition)
+    return unwrapOverride(el._x?._overrideValue);
+  return el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
+}
+
+/**
+ * An authoritative store landing on an override-covered node — a derived
+ * optimistic store's own truth arriving over a tentative edit through the
+ * projection-write channel (setSignal under projectionWriteActive). The
+ * store twin of asyncWrite's override branch: the truth stages for its
+ * transaction's commit whatever its relation to the committed value (a
+ * landing equal to committed still differs from the override), companions
+ * learn of it, and supersedeOverride decides the rest — A18 supersession with
+ * action provenance, or an A17-silent confirmation (#3331). Before this the
+ * landing took setSignal's plain path: a differing truth staged silently
+ * under the override and the graph never moved until the commit.
+ */
+function landOnOverride<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
+  const currentValue = el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T);
+  if (typeof v === "function") v = (v as (prev: T) => T)(currentValue);
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.write(el, currentValue, v);
+  if (el._pendingValue === NOT_PENDING) queuePendingNode(el);
+  el._pendingValue = v;
+  if (__DEV__) devTrackHeldPending(el);
+  GlobalQueue._syncCompanions?.(el, v);
+  supersedeOverride(el as OptimisticNode, v);
+  schedule();
+  return v;
 }
 
 function runQueue(queue: QueueCallback[], type: number): void {
@@ -473,6 +502,7 @@ export function installOptimisticEngine(): void {
   GlobalQueue._runLaneEffects = runLaneEffects;
   GlobalQueue._supersedeOverride = supersedeOverride;
   GlobalQueue._supersededRead = supersededRead;
+  GlobalQueue._landOnOverride = landOnOverride;
   GlobalQueue._gatedRead = gatedRead;
   GlobalQueue._laneSuspends = laneSuspends;
   GlobalQueue._laneReadsCommitted = laneReadsCommitted;

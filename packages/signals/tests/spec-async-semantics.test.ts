@@ -2077,3 +2077,92 @@ describe("V1–V5: verdicts in and after the blocked-merged window (fixed 2026-0
     expect(isPending(data)).toBe(false);
   });
 });
+
+// A transaction's commit is silent: the staging walk was the notification, and
+// every subscriber it marked recomputed under the transaction and parked. A
+// reader that links to a held node AFTER that walk — an effect created during
+// the hold, a memo first pulled under it — is served the committed value
+// (stale-reader rule) and would never hear of the reveal. read() records such
+// a reader for the transaction's commit replay (the `_gatedSubs` contract
+// lanes use); the transaction's own effects are not recorded — they re-derive
+// on their own (parked run / contested re-derive, #3322) and a replay would
+// publish the frame twice. Surfaced by the #3330 store twin (a store key first
+// read under a held adoption), but a plain signal shows it as well.
+describe("a reader that links to a held node during the hold re-derives at the commit", () => {
+  const tick = () => new Promise<void>(r => setTimeout(r, 0));
+  const drain = async () => {
+    for (let i = 0; i < 6; i++) await tick();
+    flush();
+  };
+
+  it("a render effect created while an action holds a signal write: committed now, the truth at the commit", async () => {
+    const [s, setS] = createSignal(0);
+    const early: number[] = [];
+    createRoot(() => {
+      createRenderEffect(
+        () => s(),
+        v => {
+          early.push(v);
+        }
+      );
+    });
+    flush();
+    let release!: () => void;
+    const run = action(function* () {
+      setS(1);
+      yield new Promise<void>(r => (release = r));
+    });
+    const done = run();
+    await drain();
+    const late: number[] = [];
+    createRoot(() => {
+      createRenderEffect(
+        () => s(),
+        v => {
+          late.push(v);
+        }
+      );
+    });
+    flush();
+    expect(early).toEqual([0]);
+    expect(late).toEqual([0]);
+    release();
+    await done;
+    await drain();
+    expect(early).toEqual([0, 1]);
+    expect(late).toEqual([0, 1]);
+    expect(s()).toBe(1);
+  });
+
+  it("the transaction's own effect is not replayed: one frame per reveal", async () => {
+    const [a, setA] = createSignal(0);
+    const [b, setB] = createSignal(0);
+    const log: string[] = [];
+    createRoot(() => {
+      createRenderEffect(
+        () => `${a()}:${b()}`,
+        v => {
+          log.push(v);
+        }
+      );
+    });
+    flush();
+    let release!: () => void;
+    const run = action(function* () {
+      setA(1);
+      yield new Promise<void>(r => (release = r));
+    });
+    const done = run();
+    await drain();
+    // A mainline write mid-hold re-runs the effect as a stale reader of the
+    // held `a` (masked to 0) — it is the transaction's own effect and
+    // re-derives at the commit through the contested path, not a replay.
+    setB(1);
+    flush();
+    expect(log).toEqual(["0:0", "0:1"]);
+    release();
+    await done;
+    await drain();
+    expect(log).toEqual(["0:0", "0:1", "1:1"]);
+  });
+});

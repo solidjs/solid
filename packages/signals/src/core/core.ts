@@ -1326,6 +1326,26 @@ export function installAuthoritativeRead(): void {
     GlobalQueue._notifyAuthoritativeObservers = notifyAuthoritativeObservers;
 }
 
+/**
+ * Stale-reader term of the value selections below: a render effect reading a
+ * node some OTHER live transaction has staged sees the committed value. The
+ * commit is silent — the staging walk was the notification — so a reader
+ * that linked AFTER that walk (an effect created during the hold, a store
+ * key first read under it) would show the old value past the reveal: record
+ * it for the transaction's commit replay (the `_gatedSubs` contract lanes
+ * already use). An effect the transaction itself computed re-derives at its
+ * commit on its own (parked run, or the contested re-derive, #3322) and is
+ * not recorded — replaying it too would publish the frame twice.
+ */
+function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boolean {
+  const t = el._transition;
+  if (t === null || t === activeTransition) return false;
+  const txn = currentTransition(t);
+  const vt: Transition | null | undefined = (c as any)._valueTransition;
+  if (vt == null || currentTransition(vt) !== txn) txn._gatedSubs.add(c);
+  return true;
+}
+
 export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
   if (
     latestReadActive ||
@@ -1357,7 +1377,7 @@ export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
     !c ||
     el._pendingValue === NOT_PENDING ||
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
-    (stale && el._transition !== null)
+    (stale && heldFromStale(el, c as Computed<any>))
       ? el._value
       : el._pendingValue
   ) as T;
@@ -1402,7 +1422,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       !c ||
       el._pendingValue === NOT_PENDING ||
       c._config & CONFIG_CHILDREN_FORBIDDEN ||
-      (stale && el._transition !== null)
+      (stale && heldFromStale(el, c as Computed<any>))
         ? el._value
         : el._pendingValue
     ) as T;
@@ -1584,7 +1604,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       GlobalQueue._laneReadsCommitted!(el, owner, c as Computed<any>)) ||
     el._pendingValue === NOT_PENDING ||
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
-    (stale && el._transition && activeTransition !== el._transition) ||
+    (stale && heldFromStale(el, c as Computed<any>)) ||
     // A17 for HELD truth (#3164, see CONFIG_HELD_TRUTH): staged confirming
     // truth — fold-staged onto an armed family, or entangle-stolen by an
     // awaited until() — is masked from ordinary readers until its
@@ -1684,8 +1704,13 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // _overrideValue slot (flagged by CONFIG_OPTIMISTIC — a masked read of the
   // always-present config instead of a missing-property probe), and every
   // module that installs one installs the engine first.
-  if (el._config & CONFIG_OPTIMISTIC && !projectionWriteActive)
-    return GlobalQueue._optimisticWrite!(el, v);
+  if (el._config & CONFIG_OPTIMISTIC) {
+    if (!projectionWriteActive) return GlobalQueue._optimisticWrite!(el, v);
+    // An authoritative store landing on an override-covered node: the store
+    // twin of asyncWrite's override branch, decided by the engine (#3331).
+    const o = el._x?._overrideValue;
+    if (o !== undefined && o !== NOT_PENDING) return GlobalQueue._landOnOverride!(el, v);
+  }
 
   const currentValue = el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T);
 
