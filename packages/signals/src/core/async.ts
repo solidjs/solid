@@ -33,6 +33,7 @@ import {
   globalQueue,
   insertSubs,
   origin,
+  markUnflushed,
   queuePendingNode,
   schedule,
   setOrigin,
@@ -485,32 +486,29 @@ export function handleAsync<T>(
       // (A17 — every reader sees the override); the revert reveals whatever
       // has committed by then, so corrections reveal atomically with their
       // transition rather than escaping it.
-      if (el._pendingValue === NOT_PENDING) queuePendingNode(el);
+      const prevStaged = el._pendingValue;
+      if (prevStaged === NOT_PENDING) queuePendingNode(el);
       el._pendingValue = value;
       if (__DEV__) devTrackHeldPending(el);
+      if (__OBSERVE__ && attrHooks !== null && !hasActiveOverride(el))
+        attrHooks.asyncEnd(el, undefined, value, true);
+      el._time = clock;
       // The hold is a companion-visible write like any other (A13/A19): the
       // clearStatus() above computed its verdict before the hold existed, so
       // isPending must re-derive (the value is not final until commit — V1)
-      // and latest() must see the fresh in-flight value (V2). Subscribers are
-      // only notified when the hold is visible to them: under an active
-      // override every reader sees the override (A17), so waking subs would
-      // re-show an unchanged view — the revert is the notification point.
-      // Under an override the landing is handed to the engine's
-      // supersedeOverride (A18 supersession, #3331): own-source truth that
-      // differs from the override ends the optimism for the graph now (plain
-      // channel, lane demoted); a matching arrival is silent except to an
-      // authoritative-view reader (until()'s predicate) waiting on exactly
-      // this staged truth (#3164 — without the wake the hold deadlocks: the
-      // landing waits on the transaction, the transaction on the action, the
-      // action on an until() never re-notified). The hook is installed with
-      // the engine, which an active override implies. The propagation runs
-      // under this flight's provenance (setOrigin above).
-      GlobalQueue._syncCompanions?.(el, value);
-      if (!hasActiveOverride(el)) {
-        if (__OBSERVE__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, true);
-        insertSubs(el);
-      } else GlobalQueue._supersedeOverride!(el, value);
-      el._time = clock;
+      // and latest() must see the fresh in-flight value (V2). Writes become
+      // visible at flush: the landing defers both to its promotion, like the
+      // plain-memo landing through setSignal (markUnflushed); promotion
+      // notifies subscribers only when the hold is visible to them (under an
+      // active override every reader sees the override, A17 — the revert is
+      // the notification point), and under an override hands the landing to
+      // the engine's supersedeOverride (A18 supersession, #3331): own-source
+      // truth that differs from the override ends the optimism for the graph
+      // now, a matching arrival wakes only an authoritative-view reader
+      // (#3164). The promotion runs at the top of the flush below, still
+      // under this flight's provenance.
+      markUnflushed(el, prevStaged);
+      schedule();
     } else if (lane) {
       // Route through lane's effect queue for independent flushing
       const isEffect = (el as any)._type;
