@@ -11,6 +11,7 @@ import {
   untrack,
   merge as mergeProps,
   $PROXY,
+  mergeSources,
   flatten,
   createMemo,
   flush,
@@ -767,20 +768,12 @@ export function style(node, value, prev) {
  * per property. Identity passthrough for strings and plain objects (a fresh
  * literal is already the compute's own); a proxy is copied with ONE
  * `ownKeys` trap (its own trap keeps the key set tracked) plus one tracked
- * read per key; arrays are re-mapped only if an element is a proxy. */
+ * read per key; a clsx-style class array is re-mapped element-wise (className
+ * allocates for an array anyway; measured at parity). */
 export function readShallow(value: unknown): unknown;
 export function readShallow(value) {
   if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) {
-    let out = null;
-    for (let i = 0; i < value.length; i++) {
-      const v = value[i];
-      const sv = readShallow(v);
-      if (sv !== v && out === null) out = value.slice(0, i);
-      if (out !== null) out.push(sv);
-    }
-    return out === null ? value : out;
-  }
+  if (Array.isArray(value)) return value.map(readShallow);
   if (value[$PROXY] !== value) return value;
   const keys = ownKeys(value);
   const out = {};
@@ -841,19 +834,40 @@ export function spread(node, props, skipChildren) {
     () => {
       const source = get();
       const newProps = {};
-      const keys = ownKeys(source);
-      for (let i = 0; i < keys.length; i++) {
-        const prop = keys[i];
-        if (typeof prop !== "string" || prop === "children" || prop === "ref") continue;
-        const v = source[prop];
-        // Object-valued style/class are read HERE, tracked (see readShallow()).
-        newProps[prop] = prop === "style" || prop === "class" ? readShallow(v) : v;
-      }
+      // A merge() proxy is read through its SOURCES, not through the proxy: a
+      // spread mixed with other attributes compiles to
+      // `spread(el, merge(statics, () => rest))`, and going through the proxy
+      // costs merge's `keys()` (a Set plus an own-enumerable scan of every
+      // source) and then, per key, a right-to-left `in` walk of the sources.
+      // The union of own string keys with later sources overriding earlier
+      // — Object.assign order, merge's own contract — is all a spread needs.
+      // omit() is not a merge: it stays a proxy and is enumerated through its
+      // own filtering trap.
+      const sources = mergeSources(source);
+      if (sources !== undefined) {
+        for (let i = 0; i < sources.length; i++) {
+          let s = sources[i];
+          if (typeof s === "function") s = s();
+          if (s != null) collectProps(newProps, s);
+        }
+      } else collectProps(newProps, source);
       return newProps;
     },
     props => assign(node, props, true, prevProps, true)
   );
   return prevProps;
+}
+
+// One layer of a spread source into `out`: own string keys, children/ref
+// excluded, object-valued style/class read HERE, tracked (see readShallow()).
+function collectProps(out, s) {
+  const keys = ownKeys(s);
+  for (let i = 0; i < keys.length; i++) {
+    const prop = keys[i];
+    if (typeof prop !== "string" || prop === "children" || prop === "ref") continue;
+    const v = s[prop];
+    out[prop] = prop === "style" || prop === "class" ? readShallow(v) : v;
+  }
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function dynamicProperty(props: unknown, key: string): unknown;
 
