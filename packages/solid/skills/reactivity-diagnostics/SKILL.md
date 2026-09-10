@@ -93,6 +93,16 @@ in the same flush's continuation. If you truly need a drain afterwards,
 defer it: `queueMicrotask(() => flush())`. Usually the right fix is deleting
 the call.
 
+### FLUSH_IN_ACTION
+
+`flush()` was called inside an action body (the synchronous slice between
+`yield`s). Thrown in DEV; in prod the drain is skipped. An action's writes are
+held by its transaction until the action settles, so a flush can't reveal them
+— imperative reads in the body seeing committed (pre-action) values is the
+intended semantics, not staleness to work around. Draining there would also
+detach the writes that follow from the transaction, committing them mid-action.
+Delete the call; observe results after the action resolves.
+
 ## Ownership/lifecycle mistakes (leaks)
 
 ### NO_OWNER_EFFECT / NO_OWNER_BOUNDARY

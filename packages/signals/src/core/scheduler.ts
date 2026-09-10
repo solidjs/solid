@@ -87,6 +87,15 @@ let haltNotified = false;
 let syncDepth = 0;
 export let projectionWriteActive = false;
 let inTrackedQueueCallback = false;
+/** > 0 while an action's generator body is on the stack (the synchronous
+ * slice between yields). Maintained by action.ts around `it.next()`. */
+export let actionStepDepth = 0;
+export function enterActionStep(): void {
+  actionStepDepth++;
+}
+export function exitActionStep(): void {
+  actionStepDepth--;
+}
 
 let _enforceLoadingBoundary = false;
 export let _hitUnhandledAsync = false;
@@ -1206,6 +1215,24 @@ let currentBatch = globalQueue._batch;
 export function flush(): void;
 export function flush<T>(fn: () => T): T;
 export function flush<T>(fn?: () => T): T | void {
+  // Inside an action body the drain is incoherent (#3333): the action's
+  // writes are held by its transaction until it settles, so a drain can't
+  // reveal them — and the loop below only exits once `activeTransition` is
+  // null, so it would PARK the transaction mid-slice and every write after it
+  // in the body would land as a plain, committed write. The reporter's
+  // "leading flush()" workaround was exactly that leak. Prod: run `fn` if
+  // given (its writes stay in the transaction) and skip the drain.
+  if (actionStepDepth > 0) {
+    if (__DEV__) {
+      throw new Error(
+        "[FLUSH_IN_ACTION] flush() inside an action body is not allowed. An action's writes are held in its " +
+          "transaction and commit when the action settles: flush() cannot reveal them, and draining here would " +
+          "detach the writes that follow from the transaction. Remove the flush(); to observe the result, read " +
+          "after the action resolves."
+      );
+    }
+    return fn ? fn() : undefined;
+  }
   if (fn) {
     syncDepth++;
     try {

@@ -1,6 +1,9 @@
 import {
+  actionStepDepth,
   activeTransition,
   currentTransition,
+  enterActionStep,
+  exitActionStep,
   flush,
   globalQueue,
   schedule,
@@ -19,7 +22,11 @@ const ACTION_CALLED_IN_OWNED_SCOPE_MESSAGE =
 function restoreTransition<T>(transition: Transition, fn: () => T): T {
   globalQueue.initTransition(transition);
   const result = fn();
-  flush();
+  // A nested action resuming synchronously (its body yielded a non-thenable)
+  // runs this inside the OUTER action's slice: draining here would park the
+  // shared transaction and detach the outer body's remaining writes (the
+  // flush() rule, scheduler.ts). The outer step's own return drains.
+  if (actionStepDepth === 0) flush();
   return result;
 }
 
@@ -139,12 +146,17 @@ export function action<Args extends any[], Y, R>(
         // action's. Both sites sit outside the try (attribution-hooks.ts).
         if (__OBSERVE__ && attrHooks !== null)
           attrHooks.actionStepStart(it, genFn.name || undefined);
+        // The body is on the stack between these brackets: flush() is
+        // refused inside (FLUSH_IN_ACTION, scheduler.ts).
+        enterActionStep();
         try {
           r = err ? it.throw!(v) : it.next(v);
         } catch (e) {
+          exitActionStep();
           if (__OBSERVE__ && attrHooks !== null) attrHooks.actionStepEnd(it);
           return done(undefined, e, true);
         }
+        exitActionStep();
         if (__OBSERVE__ && attrHooks !== null) attrHooks.actionStepEnd(it);
         // A rejected iterator result (async generators) means the error already
         // escaped the generator body — it is completed, and throwing back in
