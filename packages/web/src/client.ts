@@ -768,20 +768,12 @@ export function style(node, value, prev) {
  * per property. Identity passthrough for strings and plain objects (a fresh
  * literal is already the compute's own); a proxy is copied with ONE
  * `ownKeys` trap (its own trap keeps the key set tracked) plus one tracked
- * read per key; arrays are re-mapped only if an element is a proxy. */
+ * read per key; a clsx-style class array is re-mapped element-wise (className
+ * allocates for an array anyway; measured at parity). */
 export function readShallow(value: unknown): unknown;
 export function readShallow(value) {
   if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) {
-    let out = null;
-    for (let i = 0; i < value.length; i++) {
-      const v = value[i];
-      const sv = readShallow(v);
-      if (sv !== v && out === null) out = value.slice(0, i);
-      if (out !== null) out.push(sv);
-    }
-    return out === null ? value : out;
-  }
+  if (Array.isArray(value)) return value.map(readShallow);
   if (value[$PROXY] !== value) return value;
   const keys = ownKeys(value);
   const out = {};
