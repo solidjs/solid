@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { createRoot, createSignal, flush, mapArray, onCleanup } from "../src/index.js";
 import { __smallMoveHits } from "../src/map.js";
 
+declare const __DEV__: boolean;
+
 /** SMALL-MOVE fast path: after prefix/suffix trimming, a same-or-shorter
  * window whose mismatches are ≤32 displaced identities commits as in-place
  * patches over sliced arrays — no window Map, no staging arrays.
@@ -82,7 +84,10 @@ function pair(initial: Item[]) {
 const items = (n: number): Item[] => Array.from({ length: n }, (_, i) => ({ id: i }));
 const hits = () => __smallMoveHits();
 
-describe("mapArray small-move fast path — engagement", () => {
+// The counter only increments under __DEV__; on the prod tier
+// (`SIGNALS_TIER=prod`) engagement cannot be observed, so only the oracle
+// (semantics) suites below run there.
+describe.skipIf(!__DEV__)("mapArray small-move fast path — engagement", () => {
   it("engages for an arity-1 mapper on a >64 window and agrees with the general path", () => {
     const p = pair(items(200));
     const before = hits();
@@ -176,7 +181,7 @@ describe("mapArray small-move fast path — semantics vs the general path", () =
       );
       p.agree();
     }
-    expect(hits()).toBeGreaterThan(before); // and it does engage for most of them
+    if (__DEV__) expect(hits()).toBeGreaterThan(before); // and it does engage for most of them
     p.dispose();
   });
 
@@ -187,7 +192,7 @@ describe("mapArray small-move fast path — semantics vs the general path", () =
     [next[1], next[998]] = [next[998], next[1]];
     const before = hits();
     p.set(next);
-    expect(hits()).toBe(before + 1);
+    if (__DEV__) expect(hits()).toBe(before + 1);
     p.agree();
     p.dispose();
   });
@@ -199,7 +204,7 @@ describe("mapArray small-move fast path — semantics vs the general path", () =
     const kept = src.filter((_, i) => i < 100 || i >= 105);
     const before = hits();
     p.set(rotateF(kept));
-    expect(hits()).toBe(before + 1);
+    if (__DEV__) expect(hits()).toBe(before + 1);
     p.agree();
     expect(p.disposed.fast.length).toBe(5);
     p.dispose();
@@ -210,7 +215,7 @@ describe("mapArray small-move fast path — semantics vs the general path", () =
     const src = p.oracle().map(m => m.item);
     const before = hits();
     p.set([...rotateF(src), { id: 9999 }]);
-    expect(hits()).toBe(before);
+    if (__DEV__) expect(hits()).toBe(before);
     p.agree();
     p.dispose();
   });
@@ -222,7 +227,7 @@ describe("mapArray small-move fast path — semantics vs the general path", () =
     next[100] = { id: 424242 };
     const before = hits();
     p.set(next);
-    expect(hits()).toBe(before);
+    if (__DEV__) expect(hits()).toBe(before);
     p.agree();
     expect(p.disposed.fast.length).toBe(1);
     p.dispose();
@@ -232,7 +237,7 @@ describe("mapArray small-move fast path — semantics vs the general path", () =
     const p = pair(items(1000));
     const before = hits();
     p.set(items(1000)); // all new objects
-    expect(hits()).toBe(before);
+    if (__DEV__) expect(hits()).toBe(before);
     p.agree();
     expect(p.disposed.fast.length).toBe(1000);
     p.dispose();
@@ -251,7 +256,7 @@ describe("mapArray small-move fast path — duplicate identities", () => {
     const before = hits();
     p.set([B, A, C, A, ...rotateF(filler)]);
     // Declined: the general path pairs the two A occurrences in order.
-    expect(hits()).toBe(before);
+    if (__DEV__) expect(hits()).toBe(before);
     p.agree();
     p.dispose();
   });
