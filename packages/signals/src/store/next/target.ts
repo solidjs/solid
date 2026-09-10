@@ -112,7 +112,9 @@ export interface StoreNextTarget {
    * (`Object.create(v)` — own keys are this batch's writes, everything else
    * reads through). O(written) per flush instead of O(container) clones
    * (#3044); commit flattens own keys onto an owned committed backing in
-   * place. Only plain-data non-array non-family containers qualify;
+   * place. Plain-data non-array containers qualify, including projection
+   * and derived-store families (#3352); optimistic families, chained
+   * backings, and accessor containers keep the descriptor clone.
    * `materializePB` downgrades to the clone path when a consumer needs a
    * real container (reconcile, draft escape). */
   ovl: boolean;

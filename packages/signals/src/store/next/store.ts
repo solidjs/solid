@@ -497,13 +497,20 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
   }
   if (activeTransition !== null) foldBatches.set(target, activeTransition);
   if (pb === null) {
-    // Prototype-chain overlay (#3044): plain-data non-array containers
-    // outside projection/optimistic families open drafts in O(1) — own keys
-    // are the writes, reads fall through to committed. Everything else
-    // (arrays: splice/length semantics; families: seeding/revert machinery;
-    // accessor containers: live getters) keeps the descriptor clone.
+    // Prototype-chain overlay (#3044): plain-data non-array containers open
+    // drafts in O(1) — own keys are the writes, reads fall through to
+    // committed. Projection and derived-store families take it too (#3352:
+    // a derive touching one root key of a wide keyed record paid an
+    // O(keys) clone per recompute). Everything else keeps the descriptor
+    // clone: arrays (splice/length semantics), OPTIMISTIC families (the
+    // view-seeding below writes and deletes on the draft container, and the
+    // tentative discard/truth-park hand whole backings around), chained
+    // backings (the committed layer is another store's proxy — an overlay
+    // would route every read-through into its traps), accessor containers
+    // (live getters).
     if (
-      target.fam === null &&
+      !target.fam?.opt &&
+      !target.ch &&
       !Array.isArray(target.v) &&
       (target.sc ? !target.a : scanAccessorsOnce(target))
     ) {
@@ -707,7 +714,14 @@ function privatizeCommitted(target: StoreNextTarget): void {
   if (target.u) {
     privatizeCommitted(target.u);
     devAssertNeverUserMutation(target.u.v);
-    target.u.v[parentSlotKey(target, before)] = target.v;
+    // CAS, same as drainFolds' path copy: re-point the parent slot only
+    // while it still holds the raw we cloned. A parent that folded EARLIER
+    // in this drain may have replaced or deleted this slot (the same batch
+    // wrote the child and then `parent.row = fresh` / `parent.length = 0`)
+    // — an unconditional write resurrected the dropped child over it.
+    const pv = target.u.v;
+    const slot = parentSlotKey(target, before);
+    if (pv[slot] === before) pv[slot] = target.v;
   }
 }
 
@@ -725,6 +739,25 @@ function parentSlotKey(target: StoreNextTarget, expected: unknown): PropertyKey 
   if (at === -1) return pk;
   target.pk = at;
   return at;
+}
+
+/** Overlay commit (#3044): apply the batch's writes onto an OWNED committed
+ * backing in place — O(written), not O(container). Unowned backings
+ * privatize first (clone once, parents re-slotted) — the never-mutate-user-
+ * data contract holds. Shared by the deferred fold (drainFolds) and the
+ * projection landing's immediate commit (notifyWrites). */
+function flattenOverlay(t: StoreNextTarget, pb: Record<PropertyKey, any>): void {
+  privatizeCommitted(t);
+  const v = t.v;
+  for (const key of Reflect.ownKeys(pb)) copyOwn(v, pb, key);
+  if (t.del !== null) {
+    for (const key of t.del) delete (v as any)[key];
+    t.del = null;
+  }
+  (t.fam?.map ?? storeNextLookup).delete(pb);
+  t.pb = null;
+  t.ovl = false;
+  t.wk = null; // written-keys window closes with the commit
 }
 
 function drainFolds(): void {
@@ -782,24 +815,11 @@ function drainFolds(): void {
         continue;
       }
       if (t.ovl) {
-        // Overlay flatten (#3044): apply this batch's writes onto an OWNED
-        // committed backing in place — O(written), not O(container). The
-        // backing keeps its identity, so the `t.v === old` gate below skips
-        // path copying (the parent slot already points here) and the
-        // adopted-notify (setter notifications happened at write time).
-        // Unowned backings privatize first (clone once, parents re-slotted)
-        // — the never-mutate-user-data contract holds.
-        privatizeCommitted(t);
-        const v = t.v;
-        for (const key of Reflect.ownKeys(pb)) copyOwn(v, pb, key);
-        if (t.del !== null) {
-          for (const key of t.del) delete (v as any)[key];
-          t.del = null;
-        }
-        (t.fam?.map ?? storeNextLookup).delete(pb);
-        t.pb = null;
-        t.ovl = false;
-        t.wk = null; // written-keys window closes with the fold commit
+        // Overlay flatten (#3044): the backing keeps its identity, so the
+        // `t.v === old` gate below skips path copying (the parent slot
+        // already points here) and the adopted-notify (setter notifications
+        // happened at write time).
+        flattenOverlay(t, pb);
       } else if (t.v !== old) {
         // Privatized mid-batch (#3271): an earlier fold in this drain
         // path-copied THROUGH this target — privatizeCommitted cloned the
@@ -1112,6 +1132,10 @@ function notifyWrites(t: StoreNextTarget): void {
     // Landed truth (post-await write-override): immediately visible to every
     // reader — any staged held view is superseded.
     if (t.ht !== null) t.ht = t.hv = null;
+    // Overlay landing (#3352): flatten in place — identity-stable, and
+    // privatizeCommitted re-slots the parent itself when it has to clone an
+    // unowned seed, so no path copy is needed.
+    if (t.ovl) return flattenOverlay(t, pb);
     const oldBacking = t.v;
     t.pb = null;
     t.v = pb;

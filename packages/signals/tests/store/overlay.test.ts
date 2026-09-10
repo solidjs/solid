@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { createEffect, createRoot, createStore, flush, snapshot } from "../../src/index.js";
+import {
+  createEffect,
+  createRoot,
+  createStore,
+  deep,
+  flush,
+  snapshot,
+  untrack
+} from "../../src/index.js";
 
 /**
  * Prototype-overlay pending backings (#3044): plain-data object drafts open
@@ -183,5 +191,41 @@ describe("overlay pending backings (#3044)", () => {
     flush();
     expect(reads).toEqual([1, 7]);
     expect(keys).toBe(1);
+  });
+
+  // The overlay flatten privatizes the child's committed backing and
+  // re-slots it into the parent. When the PARENT folded earlier in the same
+  // drain (queued first) and that batch also replaced or deleted the child's
+  // slot, the re-slot must not write over the parent's fold — it resurrected
+  // the dropped child (found via the #3352 derived-store variant).
+  it("child flatten does not resurrect a slot the parent's fold replaced", () => {
+    const [store, setStore] = createStore<{ x: number; row: { id: number; selected: boolean } }>({
+      x: 0,
+      row: { id: 1, selected: true }
+    });
+    createRoot(() => untrack(() => deep(store)));
+    setStore(s => {
+      s.x = 1; // parent queued first
+      s.row.selected = false; // child overlay
+      s.row = { id: 2, selected: true }; // slot replaced at the parent
+    });
+    flush();
+    expect(snapshot(store)).toEqual({ x: 1, row: { id: 2, selected: true } });
+  });
+
+  it("child flatten does not resurrect a slot the parent's fold deleted", () => {
+    const [store, setStore] = createStore<{ x: number; row?: { id: number; selected: boolean } }>({
+      x: 0,
+      row: { id: 1, selected: true }
+    });
+    createRoot(() => untrack(() => deep(store)));
+    setStore(s => {
+      s.x = 1;
+      s.row!.selected = false;
+      delete s.row;
+    });
+    flush();
+    expect(snapshot(store)).toEqual({ x: 1 });
+    expect("row" in store).toBe(false);
   });
 });
