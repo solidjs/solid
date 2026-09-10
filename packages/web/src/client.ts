@@ -1894,13 +1894,14 @@ export function hydrate(code, element, options = {}) {
           sharedConfig.hydrating = false;
           sharedConfig.registry = undefined;
           if (element.nodeType === 9) {
-            const error = new Error(
-              "Hydration module preload failed for a document root; a document shell cannot be " +
-                "client-rendered, so hydration was abandoned and the page is not interactive. " +
-                `Cause: ${err && err.message ? err.message : err}`,
-              { cause: err }
-            );
-            typeof reportError === "function" ? reportError(error) : console.error(error);
+            // The preload failure itself is what monitoring needs (which chunk,
+            // why); the framing is dev-only so prod ships no wrapper Error.
+            if ("_SOLID_DEV_")
+              console.error(
+                "Hydration module preload failed for a document root; a document shell cannot " +
+                  "be client-rendered, so hydration was abandoned and the page is not interactive."
+              );
+            (globalThis.reportError || console.error)(err);
             return;
           }
           console.error("Hydration module preload failed, falling back to client render:", err);
