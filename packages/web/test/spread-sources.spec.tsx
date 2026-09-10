@@ -141,6 +141,20 @@ describe("style() with an object", () => {
     m.dispose();
   });
 
+  test("merge()'s PLAIN-object form mutated after merging: own writes win over the sources", () => {
+    // @solidjs/html builds props as `props = merge(props, spread)` and then
+    // keeps assigning props onto the result. Plain sources produce merge's
+    // plain-object form, which records $SOURCES too — the spread must read
+    // the object, not the stale sources.
+    const props: any = merge({ class: "base", id: "base-id" }, { class: "override" });
+    props.id = "final-id";
+    props.class = "final";
+    const m = mount(() => <div {...props} />);
+    expect(m.el().className).toBe("final");
+    expect(m.el().id).toBe("final-id");
+    m.dispose();
+  });
+
   test("plain object with inherited enumerable props: only OWN properties apply", () => {
     const base = { color: "blue" };
     const obj = Object.create(base);
