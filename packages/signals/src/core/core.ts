@@ -1001,6 +1001,7 @@ export function signal<T>(
         _time: clock,
         _firewall: firewall,
         _nextChild: firewall?._x?._child || null,
+        _prevChild: null,
         _pendingValue: NOT_PENDING,
         _transition: null,
         _notifiedAt: -1,
@@ -1019,6 +1020,7 @@ export function signal<T>(
         _time: clock,
         _firewall: firewall,
         _nextChild: firewall?._x?._child || null,
+        _prevChild: null,
         _pendingValue: NOT_PENDING,
         // Signal-literal diet (§12e): NO _time/_fn/_statusFlags slots. Stores
         // materialize one signal per touched leaf, so signal bytes are store
@@ -1031,10 +1033,7 @@ export function signal<T>(
       };
   if (__DEV__) (s as any)._internal = !!firewall;
   if (options?.unobserved) ext(s as any)._unobserved = options.unobserved;
-  if (firewall) {
-    ext(firewall)._child = s as FirewallSignal<unknown>;
-    firewall._config |= CONFIG_FW_CHILDREN;
-  }
+  if (firewall) linkFirewallChild(firewall, s as FirewallSignal<unknown>);
   if (
     snapshotCaptureActive &&
     !(s._config & CONFIG_NO_SNAPSHOT) &&
@@ -1067,6 +1066,35 @@ export function setSlotUnobserved(fn: (node: Signal<any>) => void): void {
   slotUnobservedHook = fn;
 }
 
+/** Push a new node onto its firewall's child chain (the literal already
+ * points `_nextChild` at the old head). Doubly linked so a released leaf
+ * unlinks in O(1) — the chain is walked per mark of the projection and
+ * would otherwise grow by one node per leaf ever read (#3351). */
+function linkFirewallChild(firewall: Computed<unknown>, s: FirewallSignal<unknown>): void {
+  const head = s._nextChild;
+  if (head !== null) head._prevChild = s;
+  ext(firewall)._child = s;
+  firewall._config |= CONFIG_FW_CHILDREN;
+}
+
+/** Release a firewall child the store no longer addresses (unobserved sweep
+ * dropped it from its target's cache): unlink it from the chain so the
+ * projection stops retaining it and its last value. The node keeps its own
+ * `_nextChild` so a walk that is mid-chain on it still terminates. Nodes in
+ * `_companionChildren` stay there — companions are permanent by contract
+ * and snap through that set, not the chain. */
+export function unlinkFirewallChild(node: Signal<any>): void {
+  const n = node as FirewallSignal<any>;
+  const fw = n._firewall;
+  if (!fw) return;
+  const prev = n._prevChild;
+  const next = n._nextChild;
+  if (prev !== null) prev._nextChild = next;
+  else if (fw._x!._child === n) fw._x!._child = next;
+  if (next !== null) next._prevChild = prev;
+  n._prevChild = null;
+}
+
 export function slotSignal<T>(
   v: T,
   equals: (a: T, b: T) => boolean,
@@ -1087,6 +1115,7 @@ export function slotSignal<T>(
         _time: clock,
         _firewall: firewall,
         _nextChild: firewall?._x?._child || null,
+        _prevChild: null,
         _pendingValue: NOT_PENDING,
         _transition: null,
         _notifiedAt: -1,
@@ -1107,6 +1136,7 @@ export function slotSignal<T>(
         _time: clock,
         _firewall: firewall,
         _nextChild: firewall?._x?._child || null,
+        _prevChild: null,
         _pendingValue: NOT_PENDING,
         _transition: null,
         _notifiedAt: -1,
@@ -1120,10 +1150,7 @@ export function slotSignal<T>(
         pxv: undefined
       };
   if (__DEV__) (s as any)._internal = !!firewall;
-  if (firewall) {
-    ext(firewall)._child = s as unknown as FirewallSignal<unknown>;
-    firewall._config |= CONFIG_FW_CHILDREN;
-  }
+  if (firewall) linkFirewallChild(firewall, s as unknown as FirewallSignal<unknown>);
   if (snapshotCaptureActive && !((firewall?._statusFlags ?? 0) & STATUS_PENDING)) {
     ext(s as any)._snapshotValue = v === undefined ? NO_SNAPSHOT : v;
     (s as any)._config |= CONFIG_HAS_SNAPSHOT;

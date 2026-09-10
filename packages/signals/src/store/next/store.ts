@@ -44,6 +44,7 @@ import {
   setSlotUnobserved,
   signal,
   slotSignal,
+  unlinkFirewallChild,
   untrack,
   ext
 } from "../../core/core.js";
@@ -245,6 +246,10 @@ setSlotUnobserved((node: any): void => {
   if (t.n && t.n[key as any] === node) {
     delete t.n[key as any];
     t.nc--;
+    // Projection leaves also leave the firewall child chain (#3351): a
+    // dropped node is unreachable through the store — a fresh read makes a
+    // fresh node — so the chain would only retain it and its last value.
+    unlinkFirewallChild(node);
   }
 });
 
@@ -325,7 +330,10 @@ export function getHasNode(
         equals: isEqual,
         unobserved() {
           if ((created as any)._x?._affectsCount) return;
-          if (target.h && target.h[key] === created) delete target.h[key];
+          if (target.h && target.h[key] === created) {
+            delete target.h[key];
+            unlinkFirewallChild(created);
+          }
         }
       },
       (target.fam?.node as any) ?? undefined
@@ -350,7 +358,10 @@ export function getKeySetNode(target: StoreNextTarget): Signal<number> {
       {
         equals: false,
         unobserved() {
-          if (target.k === created) target.k = null;
+          if (target.k === created) {
+            target.k = null;
+            unlinkFirewallChild(created);
+          }
         }
       },
       (target.fam?.node as any) ?? undefined
@@ -374,7 +385,10 @@ function getDeepNode(target: StoreNextTarget): Signal<number> {
       {
         equals: false,
         unobserved() {
-          if (target.dk === created) target.dk = null;
+          if (target.dk === created) {
+            target.dk = null;
+            unlinkFirewallChild(created);
+          }
         }
       },
       (target.fam?.node as any) ?? undefined
