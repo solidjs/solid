@@ -246,6 +246,7 @@ fn core_options(options: TransformOptions) -> Result<CompileOptions> {
         hydratable: options.hydratable.unwrap_or(false),
         server_components: options.server_components.unwrap_or(false),
         dev: options.dev.unwrap_or(false),
+        component_names: options.component_names.unwrap_or(false),
         source_map: options.source_map.unwrap_or(false),
         context_to_custom_elements: options.context_to_custom_elements.unwrap_or(true),
         delegate_events: options.delegate_events.unwrap_or(true),

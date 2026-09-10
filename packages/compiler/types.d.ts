@@ -12,6 +12,13 @@ export interface TransformOptions {
   generate?: "dom" | "ssr" | "universal" | "dynamic";
   hydratable?: boolean;
   dev?: boolean;
+  /**
+   * Emit the source tag name as a third `createComponent` argument
+   * (`createComponent(Home, props, "Home")`) so dev/observe runtimes can
+   * label owners after minification renames the function. DOM output only;
+   * the production runtime ignores the argument.
+   */
+  componentNames?: boolean;
   sourceMap?: boolean;
   contextToCustomElements?: boolean;
   delegateEvents?: boolean;

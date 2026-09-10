@@ -84,6 +84,9 @@ pub struct CompileOptions {
     /// SSR-only: behavior-claim (`_bnd`) marker emission for server components.
     pub server_components: bool,
     pub dev: bool,
+    /// DOM-only: emit the source tag name as `createComponent`'s third
+    /// argument for dev/observe owner labels.
+    pub component_names: bool,
     pub source_map: bool,
     pub context_to_custom_elements: bool,
     pub delegate_events: bool,
@@ -113,6 +116,7 @@ impl Default for CompileOptions {
             hydratable: false,
             server_components: false,
             dev: false,
+            component_names: false,
             source_map: false,
             context_to_custom_elements: true,
             delegate_events: true,
@@ -413,6 +417,7 @@ fn dom_transform_config(options: &CompileOptions, built_ins: Vec<String>) -> Dom
     DomTransformConfig {
         hydratable: options.hydratable,
         dev: options.dev,
+        component_names: options.component_names,
         context_to_custom_elements: options.context_to_custom_elements,
         delegate_events: options.delegate_events,
         delegated_events: options.delegated_events.clone(),

@@ -261,6 +261,7 @@ const nativeOptionKeys = new Set([
   "generate",
   "hydratable",
   "dev",
+  "componentNames",
   "sourceMap",
   "contextToCustomElements",
   "delegateEvents",

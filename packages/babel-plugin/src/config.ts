@@ -16,6 +16,11 @@ export interface PluginConfig {
   generate: "dom" | "ssr" | "universal" | "dynamic";
   hydratable: boolean;
   dev: boolean;
+  /** Emit the source tag name as a third `createComponent` argument
+   * (`createComponent(Home, props, "Home")`) so dev/observe runtimes can
+   * label owners after minification renames the function. DOM output only;
+   * the production runtime ignores the argument. */
+  componentNames: boolean;
   delegateEvents: boolean;
   delegatedEvents: string[];
   builtIns: string[];
@@ -41,6 +46,7 @@ const config: PluginConfig = {
   generate: "dom",
   hydratable: false,
   dev: false,
+  componentNames: false,
   delegateEvents: true,
   delegatedEvents: [],
   builtIns: [

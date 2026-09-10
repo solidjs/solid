@@ -9,7 +9,7 @@ import {
   transformCondition,
   convertJSXIdentifier
 } from "./utils";
-import { transformNode, getCreateTemplate } from "./transform";
+import { transformNode, getCreateTemplate, thisTagIdentifiers } from "./transform";
 import type { PluginConfig } from "../config";
 import type { BabelPath, JSXNode, TransformResult } from "../types";
 
@@ -59,11 +59,24 @@ function convertComponentIdentifier(
   return t.stringLiteral(`${node.namespace.name}:${node.name.name}`);
 }
 
+/**
+ * The tag as written in source (`Home`, `Ui.Button`, `this.Row`) — the label
+ * `componentNames` emits. Read before `convertComponentIdentifier` since that
+ * retypes the JSX identifier nodes in place.
+ */
+function jsxTagName(node: t.JSXIdentifier | t.JSXMemberExpression | t.JSXNamespacedName): string {
+  if (t.isJSXIdentifier(node)) return thisTagIdentifiers.has(node) ? "this" : node.name;
+  if (t.isJSXMemberExpression(node))
+    return `${jsxTagName(node.object)}.${jsxTagName(node.property)}`;
+  return `${node.namespace.name}:${node.name.name}`;
+}
+
 export default function transformComponent(
   path: BabelPath<t.JSXElement>
 ): ComponentTransformResult {
   let exprs: Array<t.Expression | t.Statement> = [],
     config = getConfig(path),
+    tagName = jsxTagName(path.node.openingElement.name),
     tagId = convertComponentIdentifier(path.node.openingElement.name),
     props: t.Expression[] = [],
     runningObject: Array<t.ObjectProperty | t.ObjectMethod> = [],
@@ -332,13 +345,20 @@ export default function transformComponent(
     props = [t.callExpression(registerImportMethod(path, "mergeProps"), props)];
   }
   const componentArgs = [tagId, props[0]];
+  // `componentNames` carries the source tag name into the call so the
+  // dev/observe runtimes can label the owner after minification renames the
+  // function. DOM output only: SSR inlines the call below and the universal
+  // renderer's `createComponent` is user code with a two-argument contract.
+  if (config.componentNames && config.generate === "dom") {
+    componentArgs.push(t.stringLiteral(tagName));
+  }
   // SSR's `createComponent` is literally `Comp(props || {})`. Since the
   // compiler always emits a real `props[0]` object expression above (see the
   // `props.push(t.objectExpression(runningObject))` line), the `|| {}` fallback
   // never fires in compiled output. Inline to a direct `Comp(props)` call to
   // drop one function-call frame per component invocation. (DOM/dev modes
   // keep the wrapper since it does real work — `untrack`, dev metadata.)
-  if (getConfig(path).generate === "ssr") {
+  if (config.generate === "ssr") {
     exprs.push(t.callExpression(tagId, [props[0]]));
   } else {
     exprs.push(t.callExpression(registerImportMethod(path, "createComponent"), componentArgs));
