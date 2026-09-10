@@ -772,6 +772,117 @@ describe("A17 (was C4): an active override is THE value — every reader, until 
     expect(derivedLog).toEqual(["derived(99)", "derived(20)"]);
   });
 
+  // #3330 (INV-11): a lane recompute publishes to `_value` — the lane's own
+  // reveal — so its change detection compares against `_value`, not against a
+  // `_pendingValue` some transaction staged earlier. Here the action stages
+  // `serverValue = 1` first (so `doubled` already HOLDS 2 for the commit) and
+  // only later writes the override; the lane's recompute of `doubled` also
+  // yields 2, which "equals" the held value but not the screen's 0. Before
+  // the fix the lane called it unchanged and revealed `value = 1` beside
+  // `doubled = 0` — a torn frame — until the action's commit caught up.
+  it("a derivation of the override reveals with it even when the transaction already holds the same result (#3330)", async () => {
+    const tick = () => new Promise<void>(r => setTimeout(r, 0));
+    const drain = async () => {
+      for (let i = 0; i < 6; i++) await tick();
+      flush();
+    };
+    const [serverValue, setServerValue] = createSignal(0);
+    const log: string[] = [];
+    let release!: () => void;
+    let releaseEnd!: () => void;
+    let value!: SourceAccessor<number>;
+    let setOptimistic!: (v: number) => void;
+    createRoot(() => {
+      [value, setOptimistic] = createOptimistic(serverValue);
+      const doubled = createMemo(() => value() * 2);
+      createRenderEffect(
+        () => `v=${value()} d=${doubled()}`,
+        s => {
+          log.push(s);
+        }
+      );
+    });
+    flush();
+    expect(log).toEqual(["v=0 d=0"]);
+
+    const run = action(function* () {
+      setServerValue(1);
+      yield new Promise<void>(r => (release = r));
+      setOptimistic(1);
+      yield new Promise<void>(r => (releaseEnd = r));
+    });
+    const done = run();
+    await drain();
+    // Transaction held: the staged truth (and its staged derivation) is
+    // invisible.
+    expect(log).toEqual(["v=0 d=0"]);
+
+    release();
+    await drain();
+    // The override reveals on its lane WITH its derivation — one frame.
+    expect(log).toEqual(["v=0 d=0", "v=1 d=2"]);
+
+    releaseEnd();
+    await done;
+    await drain();
+    // The commit changes nothing the effect read (the lane already published
+    // `doubled`'s value, so its staged copy promotes to the same view) and so
+    // does not replay it (laneReadsCommitted records only a real
+    // staged-vs-committed gap). One frame per change, never a torn one.
+    expect(log).toEqual(["v=0 d=0", "v=1 d=2"]);
+    expect(value()).toBe(1);
+    expect(isPending(value)).toBe(false);
+  });
+
+  // Companion to the above: skipping the replay is per value. When the lane
+  // later publishes a DIFFERENT frame, the commit still restores and applies
+  // the transaction's frame over the optimistic one.
+  it("a later lane frame differs: the commit re-applies the transaction's frame", async () => {
+    const tick = () => new Promise<void>(r => setTimeout(r, 0));
+    const drain = async () => {
+      for (let i = 0; i < 6; i++) await tick();
+      flush();
+    };
+    const [serverValue, setServerValue] = createSignal(0);
+    const log: string[] = [];
+    let release!: () => void;
+    let value!: SourceAccessor<number>;
+    let setOptimistic!: (v: number) => void;
+    createRoot(() => {
+      [value, setOptimistic] = createOptimistic(serverValue);
+      const doubled = createMemo(() => value() * 2);
+      createRenderEffect(
+        () => `v=${value()} d=${doubled()}`,
+        s => {
+          log.push(s);
+        }
+      );
+    });
+    flush();
+    log.length = 0;
+
+    const run = action(function* () {
+      setServerValue(1);
+      yield new Promise<void>(r => (release = r));
+      setOptimistic(1); // lane applies the frame the transaction already holds
+      yield Promise.resolve();
+      setOptimistic(5); // lane applies a different frame; the mark clears
+      yield new Promise<void>(r => (release = r));
+    });
+    const done = run();
+    await drain();
+    release();
+    await drain();
+    expect(log).toEqual(["v=1 d=2", "v=5 d=10"]);
+
+    release();
+    await done;
+    await drain();
+    // Commit: the override reverts and the transaction's frame is back.
+    expect(value()).toBe(1);
+    expect(log.at(-1)).toBe("v=1 d=2");
+  });
+
   it("simple graph: override visible ambiently until its own fetch settles", async () => {
     const [id, setId] = createSignal(1);
     const fetcher = deferredFetcher((t: number) => t * 10);

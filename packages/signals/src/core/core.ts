@@ -424,9 +424,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       for (let d = el._deps; d !== null; d = d._nextDep) fanIn++;
       if (fanIn >= GRAPH_SIZE_WARN_AT) noteFanIn(el, fanIn);
     }
+    // INV-11 (#3330): the equality gate compares against the slot this run
+    // publishes to. An override-covered node publishes the override; a lane
+    // recompute (OPT-dirty) direct-commits `_value` — the lane's own reveal
+    // schedule — so a transaction-held `_pendingValue` that already equals
+    // the new result is not "unchanged": the screen still shows `_value`.
+    // Only a transaction-staged run compares against `_pendingValue`.
     const compareValue = hasOverride
       ? unwrapOverride(el._x?._overrideValue)
-      : el._pendingValue === NOT_PENDING
+      : isOptimisticDirty || el._pendingValue === NOT_PENDING
         ? el._value
         : el._pendingValue;
     let valueChanged = false;
