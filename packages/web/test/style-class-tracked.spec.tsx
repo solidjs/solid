@@ -152,13 +152,16 @@ describe("spread carrying style/class objects", () => {
 });
 
 describe("readShallow()", () => {
-  test("identity passthrough for strings, plain objects and proxy-free arrays", () => {
+  test("identity passthrough for strings and plain objects; arrays re-mapped element-wise", () => {
     const o = { a: 1 };
-    const arr = ["a", { b: true }];
+    const arr = ["a", o];
     expect(readShallow("x")).toBe("x");
     expect(readShallow(null)).toBe(null);
     expect(readShallow(o)).toBe(o);
-    expect(readShallow(arr)).toBe(arr);
+    const mapped = readShallow(arr) as any[];
+    expect(mapped).not.toBe(arr);
+    expect(mapped).toEqual(["a", o]);
+    expect(mapped[1]).toBe(o);
   });
 
   test("copies a store proxy's own string keys into a plain object", () => {

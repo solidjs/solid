@@ -80,6 +80,15 @@ function resolveSource(s: any) {
 }
 
 const $SOURCES = Symbol(__DEV__ ? "MERGE_SOURCE" : 0);
+/** @internal The flattened sources behind a `merge()` PROXY, or undefined.
+ * Only the proxy form: its writes are no-ops, so the sources are the whole
+ * truth. merge()'s plain-object form also records `$SOURCES` (so nested
+ * merges flatten), but it is a real object callers may mutate afterwards
+ * (html's tagged templates assign props after spreading) — those own writes
+ * live on the object, not in the sources, so it must be read directly. */
+export function mergeSources(o: any): any[] | undefined {
+  return o != null && o[$PROXY] === o ? o[$SOURCES] : undefined;
+}
 /**
  * Merges multiple props-like objects into a single proxy that *preserves
  * reactivity*. Reads are forwarded to the right-most source that defines the

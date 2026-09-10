@@ -47,7 +47,7 @@
   },
   "scripts": {
     "build": "npm-run-all -nl build:clean types:copy build:js",
-    "build:clean": "rimraf dist/ coverage/ /jsx-runtime/dist",
+    "build:clean": "rimraf dist/ coverage/ jsx-runtime/dist/",
     "build:js": "rollup -c",
     "types": "npm-run-all -nl types:clean types:copy types:h types:jsx",
     "types:clean": "rimraf types/",

@@ -550,7 +550,22 @@ module.exports = [
     // the unified-For design owns structure — reclaiming the insert $ll seam and core emission bytes.
     // Contested-effect re-derivation (#3322, 2026-09-09): 17.61 -> 17.68 KB,
     // measured at 17.613. Core scheduler cost; see the core-floor note.
-    limit: "17.68 KB",
+    //
+    // Halt -> reportError + document-root preload abandon (#3338, 2026-09-10):
+    // 17.68 -> 17.72 KB, measured at 17.69 (+50 B over the pre-#3338 17.64).
+    // ~20 B is haltReactivity handing the cause to `reportError` so a
+    // creation-time throw that ancestors fold to status (the manifest-miss
+    // lazy() failure) still reaches window.onerror / telemetry instead of
+    // console-only; ~20 B is hydrate() refusing the client-render fallback
+    // at a document root (`nodeType === 9` -> report the preload failure and
+    // stop). All diagnostic prose is dev-gated; prod ships terse strings.
+    //
+    // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 17.72 KB ->
+    // 18.34 KB, measured at 18.29 on the rebased tree (+600 B over 17.69).
+    // Scan + commit as two functions (a replace compiles only the scan)
+    // plus a 65-compare pre-probe in updateKeyedMap; identity-keyed mode
+    // only. Lands in every scenario that bundles <For>.
+    limit: "18.34 KB",
     modifyEsbuildConfig
   },
   {
@@ -659,7 +674,10 @@ module.exports = [
     // measured at 26.558. Core scheduler cost; see the core-floor note.
     // deep()/identity over chained views (#3323, 2026-09-09): 26.60 KB -> 26.70 KB,
     // measured at 26.648. Store cost; see the createStore note.
-    limit: "26.70 KB",
+    // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 26.70 KB ->
+    // 27.34 KB, measured at 27.29 on the rebased tree (+600 B over 26.69).
+    // See the hydrating (no stores) note; same cost, every <For> scenario.
+    limit: "27.34 KB",
     modifyEsbuildConfig
   },
   {
@@ -709,7 +727,10 @@ module.exports = [
     // measured at 13.00. Core scheduler cost; see the core-floor note.
     // Effect ownership on finalize re-entry (#3319, 2026-09-09): 13.04 KB -> 13.08 KB,
     // measured at 13.048. Core scheduler cost; see the core-floor note.
-    limit: "13.08 KB",
+    // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 13.08 KB ->
+    // 13.75 KB, measured at 13.70 on the rebased tree (+630 B over 13.07).
+    // See the hydrating (no stores) note; same cost, every <For> scenario.
+    limit: "13.75 KB",
     modifyEsbuildConfig
   },
   {
@@ -743,7 +764,10 @@ module.exports = [
     // router-agnostic navigation seam, a twin of withInteraction) and the
     // `flushEnd` hook site after flush()'s drain loop. Observe-only: prod
     // folds both out.
-    limit: "14.44 KB",
+    // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 14.44 KB ->
+    // 15.04 KB, measured at 14.99 on the rebased tree (+610 B over 14.38).
+    // See the hydrating (no stores) note; same cost, every <For> scenario.
+    limit: "15.04 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -778,7 +802,17 @@ module.exports = [
     // ref re-read at settle, and the hold census requiring a companion to
     // reach an effect rather than any subscriber. Engine-only; the observe
     // tier above did not move.
-    limit: "25.20 KB",
+    //
+    // Halt -> reportError (#3338, 2026-09-10): 25.20 -> 25.26 KB, measured at
+    // 25.22 (+60 B over the pre-#3338 25.16). The same ~20 B haltReactivity
+    // change as the hydrating scenario, compressing worse on the observe
+    // tier's layout; the observe CSR scenario above did not move. Nothing
+    // engine-side changed.
+    //
+    // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 25.26 KB ->
+    // 25.87 KB, measured at 25.82 on the rebased tree (+600 B over 25.22).
+    // See the hydrating (no stores) note; same cost, every <For> scenario.
+    limit: "25.87 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

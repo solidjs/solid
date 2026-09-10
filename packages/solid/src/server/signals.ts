@@ -80,10 +80,12 @@ import {
   $PROXY,
   isWrappable,
   merge as signalMerge,
+  mergeSources,
   NotReadyError,
   NoOwnerError,
   ContextNotFoundError
 } from "@solidjs/signals";
+export { mergeSources };
 
 import type {
   Accessor,
