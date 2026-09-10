@@ -6,9 +6,10 @@
  * client render of the tree. For a DOCUMENT root there is no such fallback —
  * the shell cannot be client-created — and the old path died deep in the walk
  * with an unrelated "Hydration Mismatch … key: undefined" as an unhandled
- * rejection, leaving a page that looked hydrated and was dead. The failure is
- * now reported explicitly, with its cause, through the platform's
- * uncaught-error channel (reportError; console.error where absent).
+ * rejection, leaving a page that looked hydrated and was dead. The preload
+ * failure is now handed, as-is, to the platform's uncaught-error channel
+ * (reportError; console.error where absent) — that is the error monitoring
+ * needs — with a dev-only console.error explaining why hydration stopped.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { flush } from "solid-js";
@@ -63,14 +64,12 @@ describe("hydrate(): failed module preload at a document root (#3338)", () => {
     expect(rejections).toEqual([]);
     // Server markup stays in place.
     expect(document.body.textContent).toBe("server");
-    // One explicit report through the platform channel, carrying the cause.
-    expect(reported).toHaveLength(1);
-    const err = reported[0] as Error & { cause?: unknown };
-    expect(err.message).toMatch(/preload failed for a document root/);
-    expect(err.message).toMatch(/cannot be client-rendered/);
-    expect(err.message).toContain(cause.message);
-    expect(err.cause).toBe(cause);
-    expect(error).not.toHaveBeenCalled();
+    // The preload failure itself goes through the platform channel, unwrapped.
+    expect(reported).toEqual([cause]);
+    // Dev-only framing of why hydration stopped; nothing else logged.
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(String(error.mock.calls[0][0])).toMatch(/preload failed for a document root/);
+    expect(String(error.mock.calls[0][0])).toMatch(/cannot be client-rendered/);
     dispose();
   });
 
@@ -84,10 +83,10 @@ describe("hydrate(): failed module preload at a document root (#3338)", () => {
     await sleep(20);
     flush();
 
-    expect(error).toHaveBeenCalledTimes(1);
-    const err = error.mock.calls[0][0] as Error;
-    expect(err).toBeInstanceOf(Error);
-    expect(err.message).toMatch(/preload failed for a document root/);
+    // Dev framing, then the failure itself on the fallback channel.
+    expect(error).toHaveBeenCalledTimes(2);
+    expect(String(error.mock.calls[0][0])).toMatch(/preload failed for a document root/);
+    expect(error.mock.calls[1][0]).toBe(cause);
     expect(document.body.textContent).toBe("server");
     dispose();
   });

@@ -1253,14 +1253,18 @@ function lazyHydrationLookup<T>(
     // server never filed a client entry under this id, or filed it under a
     // different one. It is NOT a missing Loading boundary: root-level lazy()
     // preloads through the root module map (#3338 was misdiagnosed from the
-    // previous wording of this message).
+    // previous wording of this message). The throw is unconditional; only the
+    // diagnosis is dev-only — prose in a prod string is paid for by every
+    // hydrating app (size gate, #2883).
     throw new Error(
-      `lazy() module "${moduleUrl}" (hydration id "${key}") was not preloaded before ` +
-        "hydration: the server serialized no client entry for it. Check the server log for " +
-        '"Asset manifest returned no client assets for module" — the manifest passed to ' +
-        "renderToStream/renderToString did not answer for this moduleUrl (a key that does not " +
-        "match the client manifest, or a manifest built for different output). If the server " +
-        "did register it, the server and client hydration id namespaces are misaligned."
+      `lazy() module "${moduleUrl}" (hydration id "${key}") was not preloaded before hydration` +
+        (IS_DEV
+          ? ": the server serialized no client entry for it. Check the server log for " +
+            '"Asset manifest returned no client assets for module" — the manifest passed to ' +
+            "renderToStream/renderToString did not answer for this moduleUrl (a key that does not " +
+            "match the client manifest, or a manifest built for different output). If the server " +
+            "did register it, the server and client hydration id namespaces are misaligned."
+          : ".")
     );
   }
   return comp as (() => T) | undefined;

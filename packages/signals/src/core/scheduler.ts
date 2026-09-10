@@ -407,11 +407,9 @@ export function haltReactivity(cause?: unknown): void {
   // nothing an app or its telemetry can act on (#3338 — an uncaught throw
   // during the hydration render). The rethrow may reach the top as well in
   // the non-swallowed cases; a duplicate report beats a silent one.
-  if (cause === undefined) console.error(message);
-  else if (typeof reportError === "function") {
-    console.error(message);
-    reportError(cause);
-  } else console.error(message, cause);
+  const report = cause !== undefined && globalThis.reportError;
+  report || cause === undefined ? console.error(message) : console.error(message, cause);
+  report && report(cause);
 }
 
 // Logs on the first write after a halt so a frozen interaction is traceable.

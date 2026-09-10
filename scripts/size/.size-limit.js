@@ -550,7 +550,16 @@ module.exports = [
     // the unified-For design owns structure — reclaiming the insert $ll seam and core emission bytes.
     // Contested-effect re-derivation (#3322, 2026-09-09): 17.61 -> 17.68 KB,
     // measured at 17.613. Core scheduler cost; see the core-floor note.
-    limit: "17.68 KB",
+    //
+    // Halt -> reportError + document-root preload abandon (#3338, 2026-09-10):
+    // 17.68 -> 17.72 KB, measured at 17.69 (+50 B over the pre-#3338 17.64).
+    // ~20 B is haltReactivity handing the cause to `reportError` so a
+    // creation-time throw that ancestors fold to status (the manifest-miss
+    // lazy() failure) still reaches window.onerror / telemetry instead of
+    // console-only; ~20 B is hydrate() refusing the client-render fallback
+    // at a document root (`nodeType === 9` -> report the preload failure and
+    // stop). All diagnostic prose is dev-gated; prod ships terse strings.
+    limit: "17.72 KB",
     modifyEsbuildConfig
   },
   {
@@ -778,7 +787,13 @@ module.exports = [
     // ref re-read at settle, and the hold census requiring a companion to
     // reach an effect rather than any subscriber. Engine-only; the observe
     // tier above did not move.
-    limit: "25.20 KB",
+    //
+    // Halt -> reportError (#3338, 2026-09-10): 25.20 -> 25.26 KB, measured at
+    // 25.22 (+60 B over the pre-#3338 25.16). The same ~20 B haltReactivity
+    // change as the hydrating scenario, compressing worse on the observe
+    // tier's layout; the observe CSR scenario above did not move. Nothing
+    // engine-side changed.
+    limit: "25.26 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
