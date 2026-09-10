@@ -767,6 +767,10 @@ module.exports = [
     // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 14.44 KB ->
     // 15.04 KB, measured at 14.99 on the rebased tree (+610 B over 14.38).
     // See the hydrating (no stores) note; same cost, every <For> scenario.
+    //
+    // Excluded owners (2026-09-10): measured at 14.43 on top of 14.38, still
+    // under the ratchet. `OBSERVE.exclude`/`isExcluded` (the observer's own
+    // subtree) and the owner-chain check in emitDiagnostic. Observe-only.
     limit: "15.04 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
@@ -812,7 +816,22 @@ module.exports = [
     // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 25.26 KB ->
     // 25.87 KB, measured at 25.82 on the rebased tree (+600 B over 25.22).
     // See the hydrating (no stores) note; same cost, every <For> scenario.
-    limit: "25.87 KB",
+    //
+    // Shape freeze (2026-09-10): 25.26 -> 26.18 KB, measured at 26.14 on top
+    // of 25.22. One InteractionEvent per withInteraction dispatch settled
+    // through the same drain/hold clock as navigations (runs, created, holds
+    // and navigations attached), the typed record channel (`subscribe(type)`),
+    // `RerunEvent.at`/`HoldEvent.at`, `HoldEvent.acknowledgements` (the
+    // structured face, with the reader's owner path) replacing the
+    // `acknowledgedBy` strings, `NavigationRef.until` with same-ref re-entry
+    // (the router's publish stamps the navigation it opened, so the swap's
+    // hold lands on that record), and the excluded-node check. Engine-only;
+    // the observe tier above moved 50 B for `OBSERVE.exclude`/`isExcluded`
+    // and the suppression check in emitDiagnostic. A golf pass measured the
+    // dedup helpers (a shared reset, a shared ledger open) as brotli
+    // negatives — the duplicated blocks were already back-references — and
+    // kept only the collapses that shrank the compressed output.
+    limit: "26.18 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

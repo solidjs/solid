@@ -25,6 +25,10 @@ import {
   OBSERVE
 } from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
+import type { HoldEvent } from "../src/core/attribution.js";
+
+/** The affordances as `kind:source`, the way `feedback()` ranks them. */
+const acks = (hold: HoldEvent) => hold.acknowledgements.map(a => `${a.kind}:${a.source}`);
 
 afterEach(() => {
   attribution.disable();
@@ -133,7 +137,7 @@ describe("SILENT_HOLD", () => {
     expect(holds[0]).toMatchObject({
       heldWrites: [{ name: "page", prev: "1", value: "2" }],
       blockers: ["posts"],
-      acknowledgedBy: [],
+      acknowledgements: [],
       paintedDuringHold: 0,
       action: false
     });
@@ -180,8 +184,54 @@ describe("SILENT_HOLD", () => {
 
     expect(events).toHaveLength(0);
     const [hold] = attribution.holds();
-    expect(hold.acknowledgedBy).toContain("isPending:posts");
+    expect(acks(hold)).toContain("isPending:posts");
     expect(hold.paintedDuringHold).toBeGreaterThan(0); // the spinner effect ran while parked
+    // The structured face names WHERE it was painted: the reader's owner path.
+    expect(hold.acknowledgements).toEqual([
+      { kind: "isPending", source: "posts", reader: ["spinner"] }
+    ]);
+    // Absolute time: the wait began at the write's flush and ended at the commit.
+    expect(hold.at + hold.holdMs).toBeLessThanOrEqual(performance.now());
+  });
+
+  it("names the reader of an optimistic value", async () => {
+    const { events } = arm();
+    const feed = pagedFeed();
+    const [pending, setPending] = createOptimistic(false, { name: "saving" });
+    const seen: boolean[] = [];
+    createRoot(() => {
+      feed.reading();
+      createRenderEffect(
+        pending,
+        v => {
+          seen.push(v);
+        },
+        { name: "savingIndicator" }
+      );
+    });
+    flush();
+    feed.resolve("a");
+    await until(() => feed.shown.includes("a-p1"), "initial load");
+
+    const save = action(function* save() {
+      setPending(true);
+      feed.setPage(2);
+      yield;
+    });
+    save();
+    flush();
+    expect(seen.at(-1)).toBe(true);
+    await wait(10);
+    feed.resolve("b");
+    await until(() => feed.shown.includes("b-p2"), "the held page to land");
+
+    expect(events).toHaveLength(0);
+    const [hold] = attribution.holds();
+    expect(hold.acknowledgements).toContainEqual({
+      kind: "optimistic",
+      source: "saving",
+      reader: ["savingIndicator"]
+    });
   });
 
   it("is cleared by an isPending() reader on a memo DERIVED from the blocker", async () => {
@@ -207,7 +257,7 @@ describe("SILENT_HOLD", () => {
     await until(() => feed.shown.includes("B-P2"), "the held page to land");
 
     expect(events).toHaveLength(0);
-    expect(attribution.holds()[0].acknowledgedBy).toContain("isPending:upper");
+    expect(acks(attribution.holds()[0])).toContain("isPending:upper");
   });
 
   it("is cleared by a latest() reader on the held write", async () => {
@@ -236,7 +286,7 @@ describe("SILENT_HOLD", () => {
     await until(() => feed.shown.includes("b-p2"), "the held page to land");
 
     expect(events).toHaveLength(0);
-    expect(attribution.holds()[0].acknowledgedBy).toContain("latest:page");
+    expect(acks(attribution.holds()[0])).toContain("latest:page");
   });
 
   it("is cleared by an optimistic value written alongside", async () => {
@@ -263,7 +313,7 @@ describe("SILENT_HOLD", () => {
     await until(() => feed.shown.includes("b-p2"), "the held page to land");
 
     expect(events).toHaveLength(0);
-    expect(attribution.holds()[0].acknowledgedBy).toContain("optimistic:saving");
+    expect(acks(attribution.holds()[0])).toContain("optimistic:saving");
   });
 
   it("tiers by duration: below infoMs nothing, between info and warn an advisory", async () => {
@@ -366,7 +416,7 @@ describe("SILENT_HOLD", () => {
     await until(() => name() === "saved", "the action to commit");
 
     expect(events).toHaveLength(0);
-    expect(attribution.holds()[0].acknowledgedBy).toContain("optimistic:pendingTitle");
+    expect(acks(attribution.holds()[0])).toContain("optimistic:pendingTitle");
   });
 });
 
@@ -471,7 +521,7 @@ describe("LONG_HOLD", () => {
     expect(e.data).toMatchObject({
       heldWrites: ["page"],
       blockers: ["posts"],
-      acknowledgedBy: ["isPending:posts"]
+      acknowledgements: [{ kind: "isPending", source: "posts" }]
     });
     expect((e.data as { tailMs: number }).tailMs).toBeGreaterThanOrEqual(30);
     expect(warn).toHaveBeenCalledTimes(1);

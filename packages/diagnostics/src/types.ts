@@ -45,10 +45,13 @@ export interface ArtifactAttribution {
  * assertions, budget files, JSONL egress, agent consumption.
  *
  * Format history: v1 carried `attribution.{reruns, costs}`; v2 adds
- * `attribution.{holds, feedback}` (responsiveness evidence).
+ * `attribution.{holds, feedback}` (responsiveness evidence); v3 adds
+ * `HoldEvent.tailMs`, the `long`/`longMs` feedback columns and the `held`
+ * rerun phase (LONG_HOLD); v4 drops `HoldEvent.acknowledgedBy` (the
+ * `"kind:source"` strings) for the structured `acknowledgements`.
  */
 export interface DiagnosticsArtifact {
-  formatVersion: 3;
+  formatVersion: 4;
   /** Human/agent-readable label for the captured scenario. */
   scenario?: string;
   capturedAt: string;

@@ -1,6 +1,6 @@
 import type { DiagnosticsArtifact } from "./types.js";
 
-export const ARTIFACT_FORMAT_VERSION = 3 as const;
+export const ARTIFACT_FORMAT_VERSION = 4 as const;
 
 /** Pretty JSON for humans and for checked-in golden files. */
 export function serializeArtifact(artifact: DiagnosticsArtifact): string {

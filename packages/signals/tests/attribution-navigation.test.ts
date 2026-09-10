@@ -645,7 +645,7 @@ describe("hold census — a router's own reads are not acknowledgement", () => {
     await until(() => r.shown.includes("b@/users/42"), "the held page to land");
 
     const [hold] = attribution.holds();
-    expect(hold.acknowledgedBy).toEqual([]);
+    expect(hold.acknowledgements).toEqual([]);
     expect(silent).toHaveLength(1);
     const [source] = attribution.feedback().sources;
     expect(source).toMatchObject({ holds: 1, silent: 1, latestOnly: 0 });
@@ -667,8 +667,239 @@ describe("hold census — a router's own reads are not acknowledgement", () => {
     await until(() => r.shown.includes("b@/users/42"), "the held page to land");
 
     const [hold] = attribution.holds();
-    expect(hold.acknowledgedBy).toContain("isPending:location");
+    expect(hold.acknowledgements).toContainEqual(
+      expect.objectContaining({ kind: "isPending", source: "location" })
+    );
     expect(silent).toHaveLength(0);
     expect(attribution.feedback().navigations[0]).toMatchObject({ held: 1, silent: 0 });
+  });
+});
+
+describe("until — a router that owns its own async pipeline", () => {
+  it("keeps a committed navigation open until the router's promise settles", async () => {
+    arm();
+    const [location, setLocation] = createSignal("/users", { name: "location" });
+    createRoot(() => createEffect(location, () => {}, { name: "reader" }));
+    flush();
+    let done!: () => void;
+    const loaders = new Promise<void>(r => (done = r));
+    const settled: string[] = [];
+    attribution.subscribe("navigation", n => settled.push(n.name!));
+    OBSERVE!.attribution.withInteraction(CLICK, () =>
+      OBSERVE!.attribution.withOrigin({ ...NAV, until: loaders }, () => setLocation("/users/42"))
+    );
+    flush();
+    // The write is through; the router is not.
+    const [nav] = attribution.navigations();
+    expect(nav.outcome).toBeUndefined();
+    expect(settled).toEqual([]);
+    // The interaction that performed it waits with it.
+    const [click] = attribution.interactions();
+    expect(click.outcome).toBeUndefined();
+    await wait(10);
+    done();
+    await until(() => nav.outcome !== undefined, "the router to finish");
+    expect(nav.outcome).toBe("committed");
+    expect(nav.settledMs).toBeGreaterThanOrEqual(10);
+    expect(settled).toEqual(["/users/:id"]);
+    expect(click.outcome).toBe("committed");
+    expect(click.settledMs).toBeGreaterThanOrEqual(nav.settledMs!);
+  });
+
+  it("settles on rejection too, and keeps a held verdict earned while waiting", async () => {
+    arm();
+    const app = routedApp();
+    flush();
+    app.resolve("a");
+    await until(() => app.shown.includes("a@/users"), "initial load");
+    let fail!: (e: unknown) => void;
+    const loaders = new Promise<void>((_, r) => (fail = r));
+    OBSERVE!.attribution.withOrigin({ ...NAV, until: loaders }, () => app.setLocation("/users/42"));
+    flush();
+    const [nav] = attribution.navigations();
+    app.resolve("b");
+    await until(() => app.shown.includes("b@/users/42"), "the held page to land");
+    // Held writes committed; the verdict is parked behind the router.
+    expect(nav.outcome).toBeUndefined();
+    expect(attribution.holds()).toHaveLength(1);
+    fail(new Error("loader failed"));
+    await until(() => nav.outcome !== undefined, "the router to give up");
+    expect(nav.outcome).toBe("held");
+    expect(nav.hold).toBe(attribution.holds()[0]);
+  });
+
+  it("does not hold back a superseded navigation", () => {
+    arm();
+    const [location, setLocation] = createSignal("/users", { name: "location" });
+    createRoot(() => createEffect(location, () => {}, { name: "reader" }));
+    flush();
+    const never = new Promise<void>(() => {});
+    OBSERVE!.attribution.withOrigin({ ...NAV, until: never }, () => setLocation("/users/42"));
+    OBSERVE!.attribution.withOrigin(
+      { kind: "navigation", name: "/users/:id", to: "/users/7" },
+      () => setLocation("/users/7")
+    );
+    flush();
+    const [first, second] = attribution.navigations();
+    expect(first.outcome).toBe("superseded");
+    expect(second.outcome).toBe("committed");
+  });
+});
+
+describe("re-entry — the router publishes into the navigation it opened", () => {
+  /**
+   * A TanStack-shaped router: the location moves at once (a plain write the
+   * graph does not hold), the router awaits its loaders itself, then
+   * publishes the matches — whose page reads async, so the swap is held.
+   */
+  function pipelinedApp() {
+    const [location, setLocation] = createSignal("/users", { name: "location" });
+    const [matches, setMatches] = createSignal("/users", { name: "matches" });
+    let resolve: ((v: string) => void) | null = null;
+    const page = createMemo(
+      () => {
+        const m = matches();
+        return new Promise<string>(r => (resolve = v => r(`${v}@${m}`)));
+      },
+      { name: "page" }
+    );
+    const shown: string[] = [];
+    createRoot(() => {
+      createEffect(location, () => {}, { name: "activeLink" });
+      createRenderEffect(page, v => void shown.push(v), { name: "view" });
+    });
+    return { setLocation, setMatches, shown, resolve: (v: string) => resolve!(v) };
+  }
+
+  it("attaches the publish's hold to the record the location write opened", async () => {
+    const { runs } = arm();
+    const app = pipelinedApp();
+    flush();
+    app.resolve("a");
+    await until(() => app.shown.includes("a@/users"), "initial load");
+    let done!: () => void;
+    const loaders = new Promise<void>(r => (done = r));
+    const ref: NavigationRef = { ...NAV, until: loaders };
+    const settled: string[] = [];
+    attribution.subscribe("navigation", n => settled.push(n.outcome!));
+    OBSERVE!.attribution.withInteraction(CLICK, () =>
+      OBSERVE!.attribution.withOrigin(ref, () => app.setLocation("/users/42"))
+    );
+    flush();
+    // Phase 1 is through (the link re-ran); the router is loading.
+    expect(attribution.navigations()).toHaveLength(1);
+    const [nav] = attribution.navigations();
+    expect(nav.outcome).toBeUndefined();
+    expect(nav.writes).toBe(1);
+    await wait(10);
+    // Phase 2: the publish, in a later task with no interaction of its own.
+    OBSERVE!.attribution.withOrigin(ref, () => app.setMatches("/users/42"));
+    flush();
+    // Same record, not a second one; the swap is held under the same frame.
+    expect(attribution.navigations()).toHaveLength(1);
+    expect(nav.writes).toBe(2);
+    expect(nav.outcome).toBeUndefined();
+    app.resolve("b");
+    await until(() => app.shown.includes("b@/users/42"), "the held page to land");
+    const [hold] = attribution.holds();
+    expect(hold.origin).toBe(nav.origin);
+    expect(hold.interaction).toBe(nav.interaction);
+    const swapAt = performance.now();
+    // Still the router's call; the verdict is parked.
+    expect(nav.outcome).toBeUndefined();
+    await wait(20);
+    done();
+    await until(() => nav.outcome !== undefined, "the router to finish");
+    expect(nav.outcome).toBe("held");
+    expect(nav.hold).toBe(hold);
+    // Settled when the router was: after the swap, not at phase 1's drain.
+    expect(nav.at + nav.settledMs!).toBeGreaterThanOrEqual(swapAt + 20);
+    expect(settled).toEqual(["held"]);
+    // The re-run the publish caused traces to the click through the frame.
+    const view = runs.filter(r => r.nodeName === "view" && r.changed).at(-1);
+    expect(view?.interaction).toBe(nav.interaction);
+    // The interaction settled with its navigation.
+    const [click] = attribution.interactions();
+    expect(click.outcome).toBe("held");
+    expect(click.navigations).toEqual([nav]);
+  });
+
+  it("keeps a held verdict when a later phase commits plainly", async () => {
+    arm();
+    const app = routedApp();
+    const [status, setStatus] = createSignal("idle", { name: "status" });
+    createRoot(() => createEffect(status, () => {}, { name: "statusReader" }));
+    flush();
+    app.resolve("a");
+    await until(() => app.shown.includes("a@/users"), "initial load");
+    let done!: () => void;
+    const ref: NavigationRef = { ...NAV, until: new Promise<void>(r => (done = r)) };
+    // Phase 1 is the held one here.
+    OBSERVE!.attribution.withOrigin(ref, () => app.setLocation("/users/42"));
+    flush();
+    const [nav] = attribution.navigations();
+    app.resolve("b");
+    await until(() => app.shown.includes("b@/users/42"), "the held page to land");
+    const swapAt = performance.now();
+    await wait(10);
+    // Phase 2: a plain write no transition holds.
+    OBSERVE!.attribution.withOrigin(ref, () => setStatus("resolved"));
+    flush();
+    expect(nav.writes).toBe(2);
+    done();
+    await until(() => nav.outcome !== undefined, "the router to finish");
+    expect(nav.outcome).toBe("held");
+    expect(nav.hold).toBe(attribution.holds()[0]);
+    expect(nav.at + nav.settledMs!).toBeGreaterThanOrEqual(swapAt + 10);
+  });
+
+  it("opens a new navigation when the ref's record has already settled", () => {
+    arm();
+    const [location, setLocation] = createSignal("/users", { name: "location" });
+    createRoot(() => createEffect(location, () => {}, { name: "reader" }));
+    flush();
+    // No `until`: the record settles at the drain, and the ref is spent.
+    const ref: NavigationRef = { ...NAV };
+    OBSERVE!.attribution.withOrigin(ref, () => setLocation("/users/42"));
+    flush();
+    OBSERVE!.attribution.withOrigin(ref, () => setLocation("/users/43"));
+    flush();
+    const navs = attribution.navigations();
+    expect(navs).toHaveLength(2);
+    expect(navs.map(n => n.outcome)).toEqual(["committed", "committed"]);
+    expect(navs[0].origin).not.toBe(navs[1].origin);
+  });
+
+  it("re-enters through a redirect hop's ref too", async () => {
+    arm();
+    const app = routedApp();
+    flush();
+    app.resolve("a");
+    await until(() => app.shown.includes("a@/users"), "initial load");
+    let done!: () => void;
+    const loaders = new Promise<void>(r => (done = r));
+    OBSERVE!.attribution.withOrigin({ ...NAV, until: loaders }, () => app.setLocation("/users/42"));
+    flush();
+    const hop: NavigationRef = {
+      kind: "navigation",
+      name: "/login",
+      to: "/login",
+      redirect: 1
+    };
+    OBSERVE!.attribution.withOrigin(hop, () => app.setLocation("/login"));
+    flush();
+    // The hop's own ref names the same record.
+    OBSERVE!.attribution.withOrigin(hop, () => app.setLocation("/login?fresh"));
+    flush();
+    expect(attribution.navigations()).toHaveLength(1);
+    const [nav] = attribution.navigations();
+    expect(nav.writes).toBe(3);
+    expect(nav.redirects).toHaveLength(1);
+    app.resolve("b");
+    await until(() => app.shown.includes("b@/login?fresh"), "the target to land");
+    done();
+    await until(() => nav.outcome !== undefined, "the router to finish");
+    expect(nav.outcome).toBe("held");
+    expect(nav.name).toBe("/login");
   });
 });

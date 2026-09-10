@@ -383,7 +383,7 @@ Thresholds sit at the strict end of the published bands on purpose. The engine m
 
 A signal/store write (or an action's writes) was held because a downstream async source went pending, and for the whole hold no acknowledgement was observed: no `isPending()` or `latest()` companion on the held graph that an effect reads (through however many memos — a memo alone is not the screen, so a router's internal `createMemo(() => isPending(location))` counts only once something renders it), no optimistic overlay, no `affects()` declaration, and no lane effect painted while the hold was open. (Mainline effects are stashed while a hold is open, so the only effects that _can_ paint are readers of optimistic values and companions — the screen changing in response to the hold. An unrelated effect cannot clear the verdict; it waits with everything else. A `Loading` boundary that has not revealed yet is a different answer — the read never holds, the fallback shows.) Holds shorter than `holds.infoMs` (default 100ms — RAIL's "feels instant" ceiling) are recorded silently; from `infoMs` the hold emits `info`; from `holds.warnMs` (default 200ms — the INP "good" ceiling) it warns. When the silent hold is also long (below) the message carries the boundary repair and `data.long` is `true`; one hold is one report.
 
-The hold is attributed to its opening interaction when the web runtime can stamp it (`click`, `keydown`, `input` on the element hit), to the effect or action that made the write otherwise. When the held write was a router's navigation declared via `withOrigin`, the hold also carries that `origin` and the message names the route — "[click on a.nav (navigation to /users/:id)] wrote [location] …" — with `data.navigation` giving the pattern, paths and params. `holdMs` runs from the interaction's dispatch or the first parked flush, whichever is earlier. Every hold — reported or not — is queryable via `attribution.holds()`.
+The hold is attributed to its opening interaction when the web runtime can stamp it (`click`, `keydown`, `input` on the element hit), to the effect or action that made the write otherwise. When the held write was a router's navigation declared via `withOrigin`, the hold also carries that `origin` and the message names the route — "[click on a.nav (navigation to /users/:id)] wrote [location] …" — with `data.navigation` giving the pattern, paths and params. `holdMs` runs from the interaction's dispatch or the first parked flush, whichever is earlier (`at` is that instant). Every hold — reported or not — is queryable via `attribution.holds()`; each carries what acknowledged it as `acknowledgements: [{ kind: "isPending", source: "posts", reader: ["<App>", "<Feed>", "spinner"] }]`, where `reader` is the owner path of the effect the census found painting the affordance — which screen answered, not only that one did. `feedback().sources[].acknowledgedBy` ranks them by `kind:source`.
 
 #### `LONG_HOLD`
 
@@ -507,8 +507,10 @@ attribution.costs();            // { scopes, writes } ranked cost tables
 attribution.waterfalls();       // graph-provable sequential flight chains
 attribution.holds();            // every hold, acknowledged or not
 attribution.navigations();      // every declared navigation, settled or not (below)
+attribution.interactions();     // every user interaction, settled or not (below)
 attribution.feedback();         // responsiveness tables (below)
-attribution.subscribe(fn);      // live RerunEvent feed
+attribution.subscribe(fn);      // live RerunEvent feed — same as subscribe("rerun", fn)
+attribution.subscribe("interaction" | "hold" | "navigation", fn); // each record as it settles
 attribution.disable();
 
 // Callable anytime (even while disabled): preloaders/caches declare the true
@@ -533,7 +535,17 @@ OBSERVE
   : setLocation(to);
 // An external engine (devtools) installs into the same slot the built-in
 // one uses: OBSERVE.attribution.install(hooks) / .installed.
+// An observer that renders inside the app it watches (an APM adapter's
+// panel, devtools) marks its own root so neither channel reports it.
+createRoot(() => {
+  OBSERVE?.exclude(getOwner());
+  /* panel */
+});
 ```
+
+**Records and clocks.** Everything the engine hands out — `RerunEvent`, `InteractionEvent`, `HoldEvent`, `NavigationEvent` — is a record with an absolute `at` on the `performance.now()` clock (`RerunEvent.at` the run's start, `HoldEvent.at` the start of the wait, `NavigationEvent.at`/`InteractionEvent.at` the request/dispatch) plus durations from it (`holdMs`, `settledMs`, `selfMs`). Epoch time for an exporter is `performance.timeOrigin + at` (milliseconds). Without cross-origin isolation the browser quantizes `performance.now()` to 100µs, so a single run's `selfMs` is often `0`; the per-interaction `settledMs` is the wall-clock number to report. Records carry live graph references (`RerunEvent.node`) and the frame objects that join them (`origin`, `interaction`) — the same object across records, so join by identity, not by name. `subscribe(type, listener)` delivers each record synchronously at the moment it is complete (a re-run at recompute end; an interaction, hold or navigation when it settles), bottom-up: a hold before the navigation it held, before the interaction that performed it. A listener runs inside the engine and must not write signals; hand work off to a microtask.
+
+**Excluding the observer.** `OBSERVE.exclude(owner)` marks an owner subtree as the observer's own: diagnostics whose subject sits under it are built (a throwing site still throws) but never delivered or printed, and the attribution engine records no run for its computations, charges none of them to an interaction, and does not spend a once-per-key slot (`IMMUTABLE_UPDATE_IN_STORE`'s per-path memory) on them. Mark the root as it is created, and make writes from outside the graph under it (`runWithOwner(owner, () => setPanel(…))`) so the writer's context is excluded too. `OBSERVE.isExcluded(subject)` answers the question for any owner or node.
 
 `costs()` aggregates since `enable()`: `scopes` ranked by self-time with `wastedMs` (time in runs whose value didn't change — the equality cutoff absorbed them), and `writes` ranked by the total downstream re-run time each root write caused. Overlay work (optimistic-lane and held runs — `phase: "optimistic" | "held"`) is accounted separately as `overlayMs` and never blamed as waste.
 
@@ -566,10 +578,25 @@ Two things about the frame are read late, on purpose:
 
 - **The ref is re-read at settle.** The engine keeps the object passed to `withOrigin` and copies `name`, `to` and `params` from it again when the navigation settles (and when a hold on it is judged). A router whose match is not final at write time — a lazy route subtree that resolves inside the hold — describes coarsely (`/admin/*`), then assigns the exact pattern and params onto the same object once it knows them; the settled record, the hold's verdict and the feedback row all read the refined name. `from` and `at` are read once, when the frame opens.
 - **A redirect is a hop, not a new navigation.** A router declares a redirect with `redirect: n` (`n >= 1`, the hop depth it already tracks). The engine re-enters the pending navigation's frame instead of opening one: the hop's write replaces the pending one with the same origin, so nothing is superseded; the record keeps the user's request time and interaction, so `settledMs` runs from the click, not the hop; the abandoned destination moves to `redirects`. With no pending navigation to fold onto, a `redirect` frame opens a navigation of its own.
+- **A router that owns its own async pipeline hands over its completion.** Solid Router's navigation is a location write whose downstream the runtime holds until route data lands, so "writes through" is "navigation done". A router that awaits loaders in its own core (TanStack Router's load transaction: the location moves at once, matches are published only when the loaders resolve) passes `until: promise` on the ref — the engine then waits for it (resolve or reject) as well as for the writes, so `settledMs` covers the router's wait and the interaction that performed the navigation stays open with it. Superseded navigations settle at once regardless of `until`. A router whose request predates its first write passes `at: startedAt` (its own request time, on the `performance.now()` clock) so the span starts at the click rather than at the write. `params` values may be `undefined` (an optional segment left unbound).
+- **A router re-enters its navigation to publish.** While the record is open, `withOrigin` with the _same ref object_ re-enters it instead of opening a new navigation (or superseding the first). The publish the router performs when its pipeline resolves — the matches write, in a later task with no interaction of its own — then stamps the same frame: the hold the destination waits in, its blockers and re-runs all land on this record, under the click that started it, rather than on a nameless one. Open the frame around the location write with `until`; re-enter it around the publish. The record settles once, when the promise has settled and the last phase's writes are through, with the outcome the phases earned together (`held` if any phase was) and the last hold. A redirect hop's ref re-enters the same record too. Without `until` the first frame's record settles at its drain, and the same ref afterwards opens a navigation of its own.
 
 A navigation that changed nothing (no write survived the equality gate) settles at once with `writes: 0`. `formatOrigin` renders the kind as `navigation to /users/:id (/users/42)` — after a redirect, `navigation to /login (redirected from /users/42)` — and cause chains under a click read `— navigation to /users/:id (under click on a.nav "Alice")`. `feedback().navigations` folds settled events per route (the final one, after redirects).
 
 Known gap: handlers bound through the runtime (delegated events, and non-literal `on*` expressions that route through `addEvent`) are stamped; a _literal_ function handler compiles to a bare `addEventListener` and is not, so its writes read as `external` until the compiler wraps them too.
+
+### Interactions (`interactions()`)
+
+The interaction is the unit a person experiences: one click, and everything it cost until the screen had the answer. Every downstream fact is already keyed to the interaction frame — writes stamp it, re-runs trace to it through their causes, holds and navigations carry it — and `feedback().interactions` folds those by interaction _name_. `interactions()` keeps one `InteractionEvent` per dispatch instead, with a start, an end, and the pieces attached, so a consumer building a span per interaction (an APM adapter) neither infers the end from an idle gap nor sums quantized per-run times to approximate the wall clock:
+
+- `name`, `target`, `at` — what the runtime described to `withInteraction`; `handlerMs` — the handler itself, dispatch to return.
+- `writes` — root writes attributed to the frame: the handler's, and those of frames it opened (a navigation).
+- `runs` and `created` — re-runs traced back to it, and computations _created_ in those runs or in its flushes (the "create 1,000 rows" work, which no `RerunEvent` describes); `runMs` sums the self-time of both.
+- `holds` — the `HoldEvent`s its writes waited in; `navigations` — the `NavigationEvent`s performed under it. The same objects as in `holds()`/`navigations()`.
+- `settledMs` and `outcome`, once everything is through: `idle` (the handler wrote nothing — settles as the frame closes), `committed` (its writes went through in drains no transition held — settles at the end of the last such drain), `held` (at least one write waited in a transition — settles at the last hold's commit). A navigation under it must settle first, so a router's `until` keeps both open.
+- `origin` — the frame object every downstream record carries as `interaction`; join by identity.
+
+Runs are counted while the record is open; an async landing the interaction caused that arrives after its writes committed (a fetch behind a `Loading` boundary that showed its fallback) is attributed to it on the `RerunEvent` but is not the interaction's wait — the boundary answered.
 
 ### Responsiveness tables (`feedback()`)
 
