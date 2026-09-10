@@ -502,7 +502,13 @@ module.exports = [
     // measured at 10.82. Core scheduler cost; see the core-floor note.
     // Effect ownership on finalize re-entry (#3319, 2026-09-09): 10.85 KB -> 10.92 KB,
     // measured at 10.883. Core scheduler cost; see the core-floor note.
-    limit: "10.92 KB",
+    // Incremental heap marking (#3350, 2026-09-10): 10.92 -> 10.96 KB,
+    // measured at 10.924 against next's 10.895. A one-call swap in
+    // insertIntoHeap (`heap._marked = false` -> `markNode(n)`, dropping the
+    // DIRTY test markNode already performs); createStore and isPending
+    // scenarios both shrank on the same build, so the +29 B here is brotli
+    // layout drift, not retained code.
+    limit: "10.96 KB",
     modifyEsbuildConfig
   },
   {
@@ -866,7 +872,11 @@ module.exports = [
     // in favour of one rule for every router — wrap the write whose landing
     // is the destination showing, pass `at` — with the loader wait itself
     // being router work (see 08-dev-diagnostics.md, Navigations).
-    limit: "26.65 KB",
+    // Incremental heap marking (#3350, 2026-09-10): 26.65 -> 26.68 KB,
+    // measured at 26.652 against next's 26.598. The insertIntoHeap change is
+    // a one-call swap that dropped a flag test; the CSR observe scenario on
+    // the same artifacts did not move, so this is brotli layout drift.
+    limit: "26.68 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

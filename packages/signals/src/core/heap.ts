@@ -70,12 +70,17 @@ export function insertIntoHeap(n: Computed<any>, heap: Heap) {
     n._flags = (flags & ~(REACTIVE_CHECK | REACTIVE_DIRTY)) | REACTIVE_DIRTY | REACTIVE_IN_HEAP;
   } else {
     n._flags = flags | REACTIVE_IN_HEAP;
-    // An unmarked node entering a marked heap invalidates the markHeap memo:
-    // `_marked` is only reset by runHeap, so a write between two mid-tick
-    // pulls (read-time markHeap + updateIfNecessary) would otherwise leave
-    // this node unmarked and every downstream pull stale until the next
-    // flush (#2922: the second `latest()` returned the first write's value).
-    if (heap._marked && !(flags & REACTIVE_DIRTY)) heap._marked = false;
+    // An unmarked node entering an already-marked heap is marked on the
+    // spot, keeping the markHeap memo valid. `_marked` is only reset by
+    // runHeap, so a write between two mid-tick pulls (read-time markHeap +
+    // updateIfNecessary) would otherwise leave this node unmarked and every
+    // downstream pull stale until the next flush (#2922: the second
+    // `latest()` returned the first write's value). Invalidating the memo
+    // instead re-walked the WHOLE heap on the next pull — with N effects
+    // parked in the heap for a synchronous mount (each row writing a ref
+    // signal its effect subscribes to), mounting N rows was O(N²) (#3350).
+    // markNode's own guard skips an already-DIRTY node.
+    if (heap._marked) markNode(n);
   }
   if (!(flags & REACTIVE_IN_HEAP_HEIGHT)) actualInsertIntoHeap(n, heap);
 }
