@@ -168,7 +168,17 @@ module.exports = [
     // tiers) plus linkFirewallChild/unlinkFirewallChild: a projection leaf the
     // unobserved sweep drops now leaves the chain in O(1) instead of being
     // retained (with its last value) for the projection's lifetime.
-    limit: "8.22 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 8.18 -> 8.29 KB,
+    // measured at 8268 B. One write path: every staging write marks the node
+    // UNFLUSHED and defers its companion sync and subscriber walk to the
+    // flush (`markUnflushed`/`promoteUnflushed`, `unflushedView` for the
+    // setter's own updater and `latest()`); the notify-epoch machinery it
+    // replaces is deleted. Lazily created companions and store keys first
+    // read under a hold are born holding, and every store read channel
+    // answers like read() (`heldFromReader`/`foreignHold`). Core-retained by
+    // nature: the write path IS the seam. In-package floor 21,936 -> 22,252.
+    limit: "8.29 KB",
     modifyEsbuildConfig
   },
   {
@@ -366,6 +376,12 @@ module.exports = [
     // of two weak-collection registrations per draft: the stamp-first
     // lookup helper, the stamp filter in the ownKeys trap / snapshot /
     // membership diff / key walks, and the trap guards. 340 -> ~178 ns.
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 14.70 -> 14.91 KB,
+    // measured at 14884 B. The core write-path change above plus the store
+    // half of #3336: a key first read under a held adoption or fold is born
+    // holding (`stageHeldKey`), and the store's read channels (`in`, keys,
+    // deep witness, `nodeValue`) apply read()'s foreign-transaction rule.
     limit: "15.06 KB",
     modifyEsbuildConfig
   },
@@ -450,7 +466,10 @@ module.exports = [
     // measured at 10.237. Core scheduler cost; see the core-floor note.
     // Firewall child chain doubly linked (#3351, 2026-09-10): 10.27 -> 10.32 KB,
     // measured at 10.272. Core cost; see the core-floor note.
-    limit: "10.32 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 10.27 -> 10.40 KB,
+    // measured at 10372 B — the core write-path change (see the core floor note).
+    limit: "10.40 KB",
     modifyEsbuildConfig
   },
   {
@@ -518,7 +537,10 @@ module.exports = [
     // DIRTY test markNode already performs); createStore and isPending
     // scenarios both shrank on the same build, so the +29 B here is brotli
     // layout drift, not retained code.
-    limit: "10.96 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 10.92 -> 11.05 KB,
+    // measured at 11028 B — the core write-path change (see the core floor note).
+    limit: "11.05 KB",
     modifyEsbuildConfig
   },
   {
@@ -600,7 +622,10 @@ module.exports = [
     // Scan + commit as two functions (a replace compiles only the scan)
     // plus a 65-compare pre-probe in updateKeyedMap; identity-keyed mode
     // only. Lands in every scenario that bundles <For>.
-    limit: "18.34 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 18.34 -> 18.42 KB,
+    // measured at 18397 B — the core write-path change (see the core floor note).
+    limit: "18.42 KB",
     modifyEsbuildConfig
   },
   {
@@ -719,6 +744,12 @@ module.exports = [
     // measured at 27.518 (was 27.391). The createStore arm; see that note.
     // Ownership stamp (#3360 part two, 2026-09-10): 27.57 -> 27.66 KB,
     // measured at 27.608 (was 27.518). The createStore arm; see that note.
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 27.34 -> 27.56 KB,
+    // measured at 27534 B. The core write-path change above plus the store
+    // half of #3336: a key first read under a held adoption or fold is born
+    // holding (`stageHeldKey`), and the store's read channels (`in`, keys,
+    // deep witness, `nodeValue`) apply read()'s foreign-transaction rule.
     limit: "27.66 KB",
     modifyEsbuildConfig
   },
@@ -772,7 +803,10 @@ module.exports = [
     // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 13.08 KB ->
     // 13.75 KB, measured at 13.70 on the rebased tree (+630 B over 13.07).
     // See the hydrating (no stores) note; same cost, every <For> scenario.
-    limit: "13.75 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 13.75 -> 13.84 KB,
+    // measured at 13820 B — the core write-path change (see the core floor note).
+    limit: "13.84 KB",
     modifyEsbuildConfig
   },
   {
@@ -821,7 +855,10 @@ module.exports = [
     // build-wide property-mangler map, renaming one core slot in the shared
     // chunks, and the new name compresses worse. Mangler noise, not cost —
     // the pre-mangle bundle is byte-identical.
-    limit: "15.08 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 15.08 -> 15.23 KB,
+    // measured at 15205 B — the core write-path change (see the core floor note).
+    limit: "15.23 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -890,7 +927,10 @@ module.exports = [
     // measured at 26.652 against next's 26.598. The insertIntoHeap change is
     // a one-call swap that dropped a flag test; the CSR observe scenario on
     // the same artifacts did not move, so this is brotli layout drift.
-    limit: "26.68 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 26.65 -> 26.75 KB,
+    // measured at 26727 B — the core write-path change (see the core floor note).
+    limit: "26.75 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
