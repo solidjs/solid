@@ -152,7 +152,10 @@ export interface RawSignal<T> {
 
 export interface FirewallSignal<T> extends RawSignal<T> {
   _firewall: Computed<any>;
+  /** Doubly-linked child chain on the firewall's extension (`_x._child` is
+   * the head): released leaves unlink in O(1) (#3351). */
   _nextChild: FirewallSignal<unknown> | null;
+  _prevChild: FirewallSignal<unknown> | null;
 }
 
 export type Signal<T> = RawSignal<T> | FirewallSignal<T>;

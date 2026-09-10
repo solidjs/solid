@@ -163,7 +163,12 @@ module.exports = [
     // alternative (park the whole flush) measured +70 B but left the write
     // that caused the flush readable while its own render stayed stale.
     // Lanes are exempt by construction (they never enter the ordinary queue).
-    limit: "8.18 KB",
+    // Firewall child chain doubly linked (#3351, 2026-09-10): 8.18 -> 8.22 KB,
+    // measured at 8.181 (was 8.152). `_prevChild` on the signal literals (both
+    // tiers) plus linkFirewallChild/unlinkFirewallChild: a projection leaf the
+    // unobserved sweep drops now leaves the chain in O(1) instead of being
+    // retained (with its last value) for the projection's lifetime.
+    limit: "8.22 KB",
     modifyEsbuildConfig
   },
   {
@@ -347,7 +352,11 @@ module.exports = [
     // landing now calls instead of swapping the backing, and privatizeCommitted
     // CASes the parent slot (a pre-existing overlay bug: a child flatten
     // resurrected a slot the parent's earlier fold had replaced or deleted).
-    limit: "14.75 KB",
+    // Firewall child chain doubly linked (#3351, 2026-09-10): 14.75 -> 14.83 KB,
+    // measured at 14.776 (was 14.696). The core-floor arm plus the slot-node
+    // literal's `_prevChild` and the unlink calls in the four unobserved
+    // hooks (value, presence, key-set, deep witness).
+    limit: "14.83 KB",
     modifyEsbuildConfig
   },
   {
@@ -429,7 +438,9 @@ module.exports = [
     // measured at 10.14. Core scheduler cost; see the core-floor note.
     // Effect ownership on finalize re-entry (#3319, 2026-09-09): 10.17 KB -> 10.27 KB,
     // measured at 10.237. Core scheduler cost; see the core-floor note.
-    limit: "10.27 KB",
+    // Firewall child chain doubly linked (#3351, 2026-09-10): 10.27 -> 10.32 KB,
+    // measured at 10.272. Core cost; see the core-floor note.
+    limit: "10.32 KB",
     modifyEsbuildConfig
   },
   {
@@ -685,7 +696,10 @@ module.exports = [
     // mapArray SMALL-MOVE fast path (#3227, rebased 2026-09-10): 26.70 KB ->
     // 27.34 KB, measured at 27.29 on the rebased tree (+600 B over 26.69).
     // See the hydrating (no stores) note; same cost, every <For> scenario.
-    limit: "27.34 KB",
+    // Firewall child chain doubly linked (#3351, 2026-09-10): 27.34 -> 27.48 KB,
+    // measured at 27.430 (was 27.273; +80 B of it is the createStore arm, the
+    // rest brotli layout across the store family bundle). See the createStore note.
+    limit: "27.48 KB",
     modifyEsbuildConfig
   },
   {
