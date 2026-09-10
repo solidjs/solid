@@ -99,6 +99,7 @@ describe("feedback()", () => {
     expect(attribution.feedback()).toEqual({
       sources: [],
       interactions: [],
+      navigations: [],
       flights: [],
       fallbacks: []
     });
@@ -350,6 +351,7 @@ describe("feedback()", () => {
     expect(attribution.feedback()).toEqual({
       sources: [],
       interactions: [],
+      navigations: [],
       flights: [],
       fallbacks: []
     });

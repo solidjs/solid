@@ -381,9 +381,9 @@ Thresholds sit at the strict end of the published bands on purpose. The engine m
 - "[click on button#save] wrote [signal] ; the write was held 640ms waiting on [fetch user] and the screen showed nothing for the wait: no `isPending()`/`latest()` reader downstream, no optimistic value, no `affects()` mark, and no effect ran while it was held — the interaction was dead for 640ms. …"
 - "[click on button#save] started an action that held [writes] for 640ms … Pair the action with a `createOptimistic`/`createOptimisticStore` write for the expected result, or read `isPending()` where the result renders."
 
-A signal/store write (or an action's writes) was held because a downstream async source went pending, and for the whole hold no acknowledgement was observed: no subscribed `isPending()` or `latest()` companion on the held graph, no optimistic overlay, no `affects()` declaration, and no lane effect painted while the hold was open. (Mainline effects are stashed while a hold is open, so the only effects that _can_ paint are readers of optimistic values and companions — the screen changing in response to the hold. An unrelated effect cannot clear the verdict; it waits with everything else. A `Loading` boundary that has not revealed yet is a different answer — the read never holds, the fallback shows.) Holds shorter than `holds.infoMs` (default 100ms — RAIL's "feels instant" ceiling) are recorded silently; from `infoMs` the hold emits `info`; from `holds.warnMs` (default 200ms — the INP "good" ceiling) it warns. When the silent hold is also long (below) the message carries the boundary repair and `data.long` is `true`; one hold is one report.
+A signal/store write (or an action's writes) was held because a downstream async source went pending, and for the whole hold no acknowledgement was observed: no `isPending()` or `latest()` companion on the held graph that an effect reads (through however many memos — a memo alone is not the screen, so a router's internal `createMemo(() => isPending(location))` counts only once something renders it), no optimistic overlay, no `affects()` declaration, and no lane effect painted while the hold was open. (Mainline effects are stashed while a hold is open, so the only effects that _can_ paint are readers of optimistic values and companions — the screen changing in response to the hold. An unrelated effect cannot clear the verdict; it waits with everything else. A `Loading` boundary that has not revealed yet is a different answer — the read never holds, the fallback shows.) Holds shorter than `holds.infoMs` (default 100ms — RAIL's "feels instant" ceiling) are recorded silently; from `infoMs` the hold emits `info`; from `holds.warnMs` (default 200ms — the INP "good" ceiling) it warns. When the silent hold is also long (below) the message carries the boundary repair and `data.long` is `true`; one hold is one report.
 
-The hold is attributed to its opening interaction when the web runtime can stamp it (`click`, `keydown`, `input` on the element hit), to the effect or action that made the write otherwise. `holdMs` runs from the interaction's dispatch or the first parked flush, whichever is earlier. Every hold — reported or not — is queryable via `attribution.holds()`.
+The hold is attributed to its opening interaction when the web runtime can stamp it (`click`, `keydown`, `input` on the element hit), to the effect or action that made the write otherwise. When the held write was a router's navigation declared via `withOrigin`, the hold also carries that `origin` and the message names the route — "[click on a.nav (navigation to /users/:id)] wrote [location] …" — with `data.navigation` giving the pattern, paths and params. `holdMs` runs from the interaction's dispatch or the first parked flush, whichever is earlier. Every hold — reported or not — is queryable via `attribution.holds()`.
 
 #### `LONG_HOLD`
 
@@ -479,7 +479,7 @@ Beyond the always-on diagnostics above, dev and observe builds ship an opt-in **
     ← signal "notifications" write (#5) 2 → 3
 ```
 
-The engine is its own entry, `solid-js/attribution` (re-exporting `@solidjs/signals/attribution`), so a build that never imports it never ships it: the runtime carries only the hook slot the engine installs into (`OBSERVE.attribution.install`) and the interaction frame the web runtime opens around event dispatch (`OBSERVE.attribution.withInteraction`). The import is legal in every tier — the prod tier resolves an inert engine with the same surface, so app code needs no per-tier guard.
+The engine is its own entry, `solid-js/attribution` (re-exporting `@solidjs/signals/attribution`), so a build that never imports it never ships it: the runtime carries only the hook slot the engine installs into (`OBSERVE.attribution.install`) and the two declared frames — the interaction frame the web runtime opens around event dispatch (`OBSERVE.attribution.withInteraction`) and the origin frame a router opens around its navigation write (`OBSERVE.attribution.withOrigin`). The import is legal in every tier — the prod tier resolves an inert engine with the same surface, so app code needs no per-tier guard.
 
 ### API (`solid-js/attribution`)
 
@@ -506,6 +506,7 @@ attribution.subscriptions(fn);  // current dep names of one scope
 attribution.costs();            // { scopes, writes } ranked cost tables
 attribution.waterfalls();       // graph-provable sequential flight chains
 attribution.holds();            // every hold, acknowledged or not
+attribution.navigations();      // every declared navigation, settled or not (below)
 attribution.feedback();         // responsiveness tables (below)
 attribution.subscribe(fn);      // live RerunEvent feed
 attribution.disable();
@@ -521,6 +522,15 @@ attribution.markFlight(promise, startedAt?);
 // harnesses call it themselves. `fn()` when no engine is enabled.
 import { OBSERVE } from "solid-js";
 OBSERVE.attribution.withInteraction({ type: "click", target: 'button#next "Next →"' }, fn);
+// A router declares a navigation around its location write — match eagerly,
+// describe by the parametrized route, then write. This is the only
+// router-specific line anywhere; the engine knows no router.
+OBSERVE
+  ? OBSERVE.attribution.withOrigin(
+      { kind: "navigation", name: "/users/:id", to, from, params: match.params },
+      () => setLocation(to)
+    )
+  : setLocation(to);
 // An external engine (devtools) installs into the same slot the built-in
 // one uses: OBSERVE.attribution.install(hooks) / .installed.
 ```
@@ -537,9 +547,27 @@ Every root `ChangeRecord` carries an `origin` describing the imperative frame th
 | `effect`      | An effect callback (`name`, and the `run` of the compute run it belongs to)                      |
 | `action`      | An `action()` body (`name`); an `interaction` field carries the event that invoked it            |
 | `async`       | An async landing — the value arrived from a promise or iterable                                  |
+| `navigation`  | A router's navigation declared via `withOrigin` (`name` = route pattern, `to`, `from`, `params`) |
 | `external`    | Nothing enclosing was known (module scope, a timer, a foreign callback)                          |
 
 Effect- and action-origin writes resolve through the record of the run they belong to, so `RerunEvent.interaction` names the user interaction a re-run ultimately traces to, however many effects relayed it. Writes made after an `await` inside an action's body have left the action's synchronous frame; they are stamped `async`, which is what makes their escape from the transaction visible.
+
+### Navigations (`navigations()`)
+
+A navigation in Solid 2 is a plain write to the location — reads pull the route's async and the runtime holds the write until the data is ready — so the engine already sees everything a navigation costs. What it cannot see is that the writes _were_ a navigation, and to which route. `OBSERVE.attribution.withOrigin({ kind: "navigation", … }, fn)` is where a router says so, around its write; every router (or hand-rolled one) adds that one call, and nothing else anywhere is router-specific. From it the engine keeps one `NavigationEvent` per frame:
+
+- `name`, `to`, `from`, `params`, `at` — what the router described; `interaction` — the link click (or other event) it ran under, when known, including through an action step (`navigate()` after a `yield`).
+- `writes` — root writes the frame performed, redirect hops included.
+- `settledMs` and `outcome`, once its writes are through: `committed` (a plain drain took them — settle is the end of that drain, the instant the screen had them), `held` (they waited in a transition — settle is its commit, and `hold` carries the `HoldEvent` when hold tracking recorded one), or `superseded` (a later write to the same node replaced them before they landed — the user navigated again).
+- `redirects` — present when a guard or loader sent the navigation elsewhere before it landed: the destinations abandoned along the way, in order, each with the time the redirect away from it was declared. `name`/`to`/`params` are then the final destination.
+- `origin` — the frame object the writes were stamped with, the same object as `ChangeRecord.origin` on each write and `HoldEvent.origin` on the hold, so records join by identity.
+
+Two things about the frame are read late, on purpose:
+
+- **The ref is re-read at settle.** The engine keeps the object passed to `withOrigin` and copies `name`, `to` and `params` from it again when the navigation settles (and when a hold on it is judged). A router whose match is not final at write time — a lazy route subtree that resolves inside the hold — describes coarsely (`/admin/*`), then assigns the exact pattern and params onto the same object once it knows them; the settled record, the hold's verdict and the feedback row all read the refined name. `from` and `at` are read once, when the frame opens.
+- **A redirect is a hop, not a new navigation.** A router declares a redirect with `redirect: n` (`n >= 1`, the hop depth it already tracks). The engine re-enters the pending navigation's frame instead of opening one: the hop's write replaces the pending one with the same origin, so nothing is superseded; the record keeps the user's request time and interaction, so `settledMs` runs from the click, not the hop; the abandoned destination moves to `redirects`. With no pending navigation to fold onto, a `redirect` frame opens a navigation of its own.
+
+A navigation that changed nothing (no write survived the equality gate) settles at once with `writes: 0`. `formatOrigin` renders the kind as `navigation to /users/:id (/users/42)` — after a redirect, `navigation to /login (redirected from /users/42)` — and cause chains under a click read `— navigation to /users/:id (under click on a.nav "Alice")`. `feedback().navigations` folds settled events per route (the final one, after redirects).
 
 Known gap: handlers bound through the runtime (delegated events, and non-literal `on*` expressions that route through `addEvent`) are stamped; a _literal_ function handler compiles to a bare `addEventListener` and is not, so its writes read as `external` until the compiler wraps them too.
 
@@ -549,6 +577,7 @@ Known gap: handlers bound through the runtime (delegated events, and non-literal
 
 - `sources`: per set of async sources waited on, `holds`, `heldMs`/`worstMs`, the `silent` subset (no acknowledgement at any duration) with its `silentMs`, `latestOnly` (the only acknowledgement was a `latest()` shadow — the input showed, nothing said "loading"), `long`/`longMs` (holds whose tail reached `longHolds.infoMs`, acknowledged or not — the `LONG_HOLD` shape; `longMs` sums the tails), `acknowledgedBy` ranked by affordance (`isPending:`, `latest:`, `optimistic:`, `affects:` prefixed with the node), the `interactions` and root `writes` that were held, and how many holds an `action` opened or joined.
 - `interactions`: per opening interaction (`click on button#next "Next →"`), `dispatches` folded together, the re-`runs` traced back to it with summed `selfMs` and `worstDispatchMs` (the long-flush hazard) beside `holds`, `heldMs`, `silentMs`, and `worstHoldMs` (the silent-hold hazard) — the two INP failure modes as columns of one row.
+- `navigations`: per route pattern (`/users/:id`), `navigations` settled, summed `settledMs` and `worstMs`, the `held` subset with its `heldMs` and how many of those were `silent`, `superseded` — navigations the user moved on from before they landed — and `redirected` — navigations a guard or loader sent elsewhere on the way (keyed by where they ended up). The route-level view a router integration used to build itself, from the runtime's own facts.
 - `flights`: per async source, flights started, `landed` (with `landedMs`/`worstMs`) and `abandoned` — superseded before landing. A high abandon count is the request-per-keystroke signature.
 - `fallbacks`: per `Loading` boundary, `shows`, total `shownMs`, `worstMs`, and `flashes` — fallbacks shown under 150ms, the loading-flash shape.
 

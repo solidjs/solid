@@ -27,6 +27,23 @@ export interface AttributionHooks {
   interactionStart(ref: InteractionRef): void;
   interactionEnd(): void;
   /**
+   * `withOrigin` opened a declared-origin frame: root writes until the
+   * matching `originEnd` are the unit of work `ref` describes (a router's
+   * navigation). Nests inside an interaction frame — a link click that
+   * navigates — or stands alone (a redirect from an action, a programmatic
+   * `navigate()`). Frames nest strictly, so the engine keeps a stack.
+   */
+  originStart(ref: OriginRef): void;
+  originEnd(): void;
+  /**
+   * A `flush()` drain finished: every batch it processed either committed
+   * (its effects have run) or was parked in a held transition (`holdStart`
+   * fired for it). Fires once per drain, after the loop — not per batch, and
+   * not for a `flush()` call that found nothing to do. Gives the engine the
+   * "committed, screen updated" instant for writes no transition ever held.
+   */
+  flushEnd(): void;
+  /**
    * A recompute is starting; `el._deps` still holds the previous run's links.
    * Always paired with `recomputeEnd` (recompute has no early returns).
    */
@@ -162,6 +179,51 @@ export interface InteractionRef {
   at?: number;
 }
 
+/**
+ * A navigation, as a router describes it to `withOrigin` around the location
+ * write it is about to perform. Match eagerly and describe before writing:
+ * the engine keys the work the write causes — the hold behind route data,
+ * the re-runs, the verdicts — to this record, and names it by the
+ * parametrized route so occurrences fold together.
+ *
+ * The engine keeps the object and reads `name`, `to` and `params` again when
+ * the navigation settles (and when a hold on it is judged), so a router whose
+ * match is not final at write time — a lazy route subtree that resolves inside
+ * the hold — may describe coarsely (`/admin/*`) and assign the exact pattern
+ * and params onto the same object once it knows them. `from` and `at` are
+ * read once, when the frame opens.
+ */
+export interface NavigationRef {
+  kind: "navigation";
+  /** The matched route pattern — `/users/:id`. The name every consumer groups by. */
+  name?: string;
+  /** Concrete destination path. */
+  to?: string;
+  /** Concrete path being left. */
+  from?: string;
+  /** Route params the pattern bound — `{ id: "42" }`. */
+  params?: Readonly<Record<string, string>>;
+  /** When the navigation was requested on the `performance.now()` clock; defaults to now. */
+  at?: number;
+  /**
+   * `>= 1`: this frame is the Nth redirect hop of the navigation still
+   * pending — a guard or loader sent it elsewhere before it landed — not a
+   * new navigation. The engine folds it onto that pending record: the record
+   * keeps the user's request time and interaction, its destination becomes
+   * this one, and the abandoned destination is kept in `redirects`. Without
+   * a pending navigation to fold onto it opens a navigation of its own.
+   */
+  redirect?: number;
+}
+
+/**
+ * What `withOrigin` accepts: a declared unit of work whose writes the engine
+ * should attribute as a whole. A discriminated union so kinds can be added
+ * (a form submission, a tab switch) without the seam changing shape; the
+ * engine knows `navigation` today.
+ */
+export type OriginRef = NavigationRef;
+
 export let attrHooks: AttributionHooks | null = null;
 
 export function setAttributionHooks(hooks: AttributionHooks | null): void {
@@ -191,5 +253,34 @@ export function withInteraction<T>(ref: InteractionRef, fn: () => T): T {
     return fn();
   } finally {
     hooks.interactionEnd();
+  }
+}
+
+/**
+ * Run `fn` as a declared unit of work — a router's navigation: every root
+ * write it performs is attributed to `ref` (and, through it, to the enclosing
+ * interaction when there is one), so the hold those writes wait in, the
+ * re-runs they cause and the verdicts on them all carry the route's name
+ * instead of a bare signal's. Same contract as `withInteraction`: the wiring,
+ * not the engine; `fn()` with no engine installed. Reachable as
+ * `OBSERVE.attribution.withOrigin`.
+ *
+ * ```ts
+ * OBSERVE
+ *   ? OBSERVE.attribution.withOrigin(
+ *       { kind: "navigation", name: match.pattern, to, from, params: match.params },
+ *       () => setLocation(to)
+ *     )
+ *   : setLocation(to);
+ * ```
+ */
+export function withOrigin<T>(ref: OriginRef, fn: () => T): T {
+  const hooks = attrHooks;
+  if (hooks === null) return fn();
+  hooks.originStart(ref);
+  try {
+    return fn();
+  } finally {
+    hooks.originEnd();
   }
 }

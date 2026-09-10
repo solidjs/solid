@@ -2,8 +2,10 @@ import {
   attrHooks,
   setAttributionHooks,
   withInteraction,
+  withOrigin,
   type AttributionHooks,
-  type InteractionRef
+  type InteractionRef,
+  type OriginRef
 } from "./attribution-hooks.js";
 // Cycle note: core.ts imports this module; we read its live `context` binding
 // only at call time (emitDiagnostic's default subject), never during module
@@ -149,6 +151,15 @@ export interface AttributionSlot {
    * harnesses call it themselves. `fn()` when no engine is installed.
    */
   withInteraction<T>(ref: InteractionRef, fn: () => T): T;
+  /**
+   * Run `fn` as a declared unit of work — a router's navigation, described
+   * by the parametrized route it matched: root writes inside are attributed
+   * to it (under the enclosing interaction, if any), so the hold behind the
+   * route's data, the re-runs and the verdicts carry the route's name. Any
+   * router calls this around its location write; nothing else is
+   * router-specific. `fn()` when no engine is installed.
+   */
+  withOrigin<T>(ref: OriginRef, fn: () => T): T;
 }
 
 /**
@@ -238,7 +249,8 @@ const attributionSlot: AttributionSlot = {
   get installed() {
     return attrHooks;
   },
-  withInteraction
+  withInteraction,
+  withOrigin
 };
 
 export const OBSERVE: Observe = __OBSERVE__

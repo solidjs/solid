@@ -20,14 +20,17 @@ export type {
   ChangeRecord,
   FallbackStats,
   FeedbackInteraction,
+  FeedbackNavigation,
   FeedbackSource,
   FlightLink,
   FlightStats,
   HeldWrite,
   HoldEvent,
+  NavigationEvent,
+  NavigationHop,
   RerunEvent,
   ScopeCost,
   WaterfallRecord,
   WriteCost
 } from "./core/attribution.js";
-export type { InteractionRef } from "./core/attribution-hooks.js";
+export type { InteractionRef, NavigationRef, OriginRef } from "./core/attribution-hooks.js";
