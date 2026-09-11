@@ -173,8 +173,13 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // to where lanes live (optimistic.ts ORs LANE_RUN into the run `type`,
     // as does effect()'s creation-time immediate run). contestEffect inlined
     // into its single call site in recompute. Measured at 21,890 post-change.
-    // CONSCIOUS BUMP (2026-09-10): +~160B for the lane-authority fixes
-    // (#3335, #3334, #3331, #3330). Reveal-hold: read()'s pending branch
+    // (`next` @ 4935c7dd measures 21,994 after #3350/#3351.)
+    //
+    // CONSCIOUS BUMP (2026-09-11, lane authority on `next`): +463 B over
+    // `next`'s 21,994 for the lane-authority fixes (#3335, #3334, #3331,
+    // #3330, the A15 re-rule; ported from #3347, which sat on #3337's A28
+    // write path — here the landing branch dispatches eagerly, as `next`
+    // does). Reveal-hold: read()'s pending branch
     // drops the stale/foreign-transaction carve-out (-), asyncWrite's
     // settleTransition routes a lane-owned landing to the waiting transaction
     // (waitingTransition, which laneHeld shares). Override supersession: the
@@ -196,22 +201,20 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // CONFIG_OPTIMISTIC dispatch gains the authoritative-write case — an
     // override test plus one engine hook call (`_landOnOverride`, one
     // GlobalQueue slot); the landing itself (staging, companions,
-    // supersession) lives in optimistic.ts and shakes out (+15 B). The
+    // supersession) lives in optimistic.ts and shakes out. The
     // stale-reader term of read()'s three value selections becomes
     // `heldFromStale`: a reader served the committed value of a node another
     // live transaction staged is recorded for that transaction's commit
     // replay unless the transaction computed it — the commit is silent, and
     // a reader that linked after the staging walk otherwise never learns of
-    // the reveal (+111 B; the record is core-retained because the read
-    // visibility seam is). A settle that reverts optimism re-derives its
-    // contested effects (#3322) after the revert, not ahead of the heap run
-    // (~+40 B, finalizePureQueue): between commitPendingNodes and
-    // _resolveOptimistic the truth is committed but the overrides still
-    // display, and a re-derive there composed the two (the #3164 tear —
-    // surfaced by deep() over an optimistic store whose held adoption was
-    // eagerly visible to the committing transaction's own readers). Measured
-    // at 22,638.
-    // CONSCIOUS BUMP (2026-09-10, review on #3347): +99 B. The reveal
+    // the reveal (the record is core-retained because the read visibility
+    // seam is). A settle that reverts optimism re-derives its contested
+    // effects (#3322) after the revert, not ahead of the heap run
+    // (finalizePureQueue): between commitPendingNodes and _resolveOptimistic
+    // the truth is committed but the overrides still display, and a
+    // re-derive there composed the two (the #3164 tear — surfaced by deep()
+    // over an optimistic store whose held adoption was eagerly visible to
+    // the committing transaction's own readers). A15 re-rule: the reveal
     // carve-out returns, gated on input visibility (A15 reveal corollary,
     // re-ruled): read()'s pending branch tests three node bits
     // (uninitialized, CONFIG_INPUTS_PUBLISHED, CONFIG_HAS_LANE → one engine
@@ -220,9 +223,10 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // a still-pending node's inputs published, notifyStatus clears the mark
     // on a fresh flight; recompute drops an effect's stale replay recording
     // when it recomputes under the recording transaction (one Set.delete).
-    // The lane predicate itself (`resolveLane`) shakes out. Measured at
-    // 22,737; 13 bytes of headroom.
-    expect(minifiedBytes).toBeLessThan(22_750);
+    // The lane predicate itself (`resolveLane`) shakes out. On the #3337
+    // stack the same fixes measured +485 B (22,381 -> 22,866). Measured at
+    // 22,457; 43 bytes of headroom.
+    expect(minifiedBytes).toBeLessThan(22_500);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {
