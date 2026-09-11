@@ -2,7 +2,7 @@ import { getObserver, type Signal } from "../core/index.js";
 import { ext } from "../core/core.js";
 import type { Refreshable } from "../core/index.js";
 import { GlobalQueue } from "../core/scheduler.js";
-import { storeNextLookup } from "./next/target.js";
+import { $OWNER, lookupTarget as lookupNextTarget, type StoreNextFamily } from "./next/target.js";
 
 /** A reactive view of a store's value. Update it through the paired `StoreSetter`. */
 export type Store<T> = T;
@@ -112,14 +112,10 @@ export type NotWrappable =
   | undefined
   | SolidStore.Unwrappable[keyof SolidStore.Unwrappable];
 
-function lookupTarget(value: any, lookup?: WeakMap<any, any>): StoreNode | undefined {
-  // Family maps (projections/optimistic) map raw -> target; the global next
-  // lookup maps raw -> target too. Proxies resolve through $TARGET directly.
-  if (lookup !== undefined) {
-    const p = lookup.get(value);
-    if (p !== undefined) return p[$TARGET] ?? p;
-  }
-  return storeNextLookup.get(value) as any;
+function lookupTarget(value: any, fam: StoreNextFamily | null | undefined): StoreNode | undefined {
+  // Family registrations (projections/optimistic) first, then the global
+  // next lookup. Proxies resolve through $TARGET directly.
+  return ((fam ? lookupNextTarget(value, fam) : undefined) ?? lookupNextTarget(value, null)) as any;
 }
 // Values marked raw never acquire a proxy identity: wrap() serves them as-is
 // everywhere — deep stores hold them as leaf values replaced by reference.
@@ -163,7 +159,7 @@ export function markRawOne(v: any) {
     // wrapping it in their own family, and their writes landed in the
     // upstream store's override layer (#2932).
     if (v[$TARGET] !== undefined) return;
-    if (__DEV__ && storeNextLookup.has(v))
+    if (__DEV__ && lookupNextTarget(v, null) !== undefined)
       throw new Error(
         "shallow store: an ingested record is already tracked as a deep store — one value cannot present both wrapped and raw"
       );
@@ -319,14 +315,14 @@ function walkAffectsScope(
   value: any,
   entry: AffectsScope,
   found: DataNode[],
-  lookup: WeakMap<any, any> | undefined,
+  fam: StoreNextFamily | null | undefined,
   // Cycle guard, fresh per declaration: the scope itself can't serve — a
   // re-declaration on the same carrier unions into a scope that already
   // holds the root, and must still descend to pick up records added since.
   visited: Set<object>
 ): void {
   if (!isWrappable(value)) return;
-  const target: StoreNode | undefined = value[$TARGET] || lookupTarget(value, lookup);
+  const target: StoreNode | undefined = value[$TARGET] || lookupTarget(value, fam);
   // Next targets: walk the pending backing when present (a draft's writes are
   // in motion too) and cover BOTH identities in the scope.
   let raw = target ? ((target as any).pb ?? target[STORE_VALUE]) : value;
@@ -346,28 +342,30 @@ function walkAffectsScope(
     // scope must mark them like any property node.
     if ((target as any).k) found.push((target as any).k);
     if ((target as any).dk) found.push((target as any).dk);
-    // Carry the effective lookup into untouched descendants (family maps for
-    // projections/optimistic stores; the global next lookup otherwise).
-    lookup = (target as any).fam?.map ?? lookup ?? storeNextLookup;
+    // Carry the effective family into untouched descendants (projections/
+    // optimistic stores register children under their family).
+    fam = (target as any).fam ?? fam;
   }
   // Overlays are gone (next has no layer): raw enumeration; the optimistic
   // view composition above already folded armed-node membership/values in.
   if (Array.isArray(raw)) {
     for (let i = 0, len = raw.length; i < len; i++) {
-      walkAffectsScope(raw[i], entry, found, lookup, visited);
+      walkAffectsScope(raw[i], entry, found, fam, visited);
     }
     const symbols = Object.getOwnPropertySymbols(raw);
     for (let i = 0, l = symbols.length; i < l; i++) {
+      if (symbols[i] === $OWNER) continue;
       const desc = Object.getOwnPropertyDescriptor(raw, symbols[i]);
       if (!desc || desc.get) continue;
-      walkAffectsScope(desc.value, entry, found, lookup, visited);
+      walkAffectsScope(desc.value, entry, found, fam, visited);
     }
   } else {
     const keys = Reflect.ownKeys(raw);
     for (let i = 0, l = keys.length; i < l; i++) {
+      if (keys[i] === $OWNER) continue;
       const desc = Object.getOwnPropertyDescriptor(raw, keys[i]);
       if (!desc || desc.get) continue;
-      walkAffectsScope(desc.value, entry, found, lookup, visited);
+      walkAffectsScope(desc.value, entry, found, fam, visited);
     }
   }
 }
@@ -451,7 +449,7 @@ export function getStoreAffectsNodes(target: StoreNode, key?: PropertyKey): Data
     let entry = affectsScopes.get(carrier);
     if (!entry) affectsScopes.set(carrier, (entry = { scope: new Set(), inherited: [] }));
     const result = [carrier];
-    walkAffectsScope(target[$PROXY], entry, result, (target as any).fam?.map, new Set());
+    walkAffectsScope(target[$PROXY], entry, result, (target as any).fam, new Set());
     return result;
   }
   const node = (target as any).n?.[key] ?? nextAffectsNodeResolver!(target, key);

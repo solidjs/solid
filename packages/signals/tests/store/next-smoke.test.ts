@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { createEffect, createRoot, flush } from "../../src/index.js";
 import { createStoreNext } from "../../src/store/next/store.js";
-import { ownedRaw, storeNextLookup } from "../../src/store/next/target.js";
+import { isOwned, storeNextLookup } from "../../src/store/next/target.js";
 
 describe("store-next increment 1", () => {
   it("wraps, tracks per-property, and batches like signals", () => {
@@ -89,7 +89,7 @@ describe("store-next increment 1", () => {
 
     // Backing privatized (owned), original still resolves to the same proxy.
     expect(storeNextLookup.get(source)).toBeDefined();
-    expect(ownedRaw.has(storeNextLookup.get(source)!.v)).toBe(true);
+    expect(isOwned(storeNextLookup.get(source)!.v)).toBe(true);
     expect(storeNextLookup.get(source)!.v).not.toBe(source);
     expect(storeNextLookup.get(source)!.px).toBe(s);
   });

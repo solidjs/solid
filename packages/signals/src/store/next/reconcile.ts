@@ -40,7 +40,9 @@ import {
   unwrapValue
 } from "./store.js";
 import {
-  ownedRaw,
+  $OWNER,
+  isOwned,
+  lookupTarget,
   storeNextLookup,
   type StoreNextFamily,
   type StoreNextTarget,
@@ -96,7 +98,10 @@ export function reconcileNextState(
       // across an entity change even when their own keys align (proj R7).
       // Displaced-raw unregistration (proj R10): the outgoing raw stops
       // resolving to this proxy; re-handed later it wraps fresh.
-      (t.fam?.map ?? storeNextLookup).delete(t.pb ?? t.v);
+      const out = t.pb ?? t.v;
+      if (isOwned(out))
+        delete (out as any)[$OWNER]; // disown: wraps fresh if re-handed
+      else (t.fam?.map ?? storeNextLookup).delete(out);
       adoptPB(t, incoming);
       return;
     }
@@ -116,7 +121,7 @@ export function reconcileNextState(
 function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj = false): void {
   const prev = t.pb ?? t.v;
   // The sound identity skip (O7): same reference AND we never diverged it.
-  if (incoming === prev && !ownedRaw.has(prev)) return;
+  if (incoming === prev && !isOwned(prev)) return;
   const fam = t.fam;
   // §6b (R28): the diff's previous-arrangement baseline is the LANE VIEW —
   // optimistic rows must be visible to key matching so a landing carrying the
@@ -181,7 +186,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
           break; // misaligned: fall to the keyed remainder below
         // Identity skip inline (FINDING-1 guard), then descend the pair.
         if (
-          (pvRaw !== nv || (nv !== null && typeof nv === "object" && ownedRaw.has(nv))) &&
+          (pvRaw !== nv || (nv !== null && typeof nv === "object" && isOwned(nv))) &&
           nv !== null &&
           typeof nv === "object"
         )
@@ -319,7 +324,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
       const isObj = nv !== null && typeof nv === "object";
       if (
         ov === nv &&
-        (!isObj || !ownedRaw.has(nv)) &&
+        (!isObj || !isOwned(nv)) &&
         (nodes === null || nodes[k] === undefined || !hasAccessorFlag(nodes[k]))
       ) {
         if (nodes !== null && nodes[k] !== undefined) nodesHit++;
@@ -345,6 +350,7 @@ function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj
     const syms = Object.getOwnPropertySymbols(incoming);
     for (let i = 0; i < syms.length; i++) {
       const k = syms[i];
+      if (k === $OWNER) continue;
       const nv = (incoming as any)[k];
       if (!shallow && nv !== null && typeof nv === "object")
         descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
@@ -396,7 +402,7 @@ function descend(
   // wrappables acquire targets; rawValues never wrap) — one WeakMap get
   // replaces isWrappable(pv) + isRawValue(pv), and a miss prunes untracked
   // subtrees before any further checks.
-  const ct = (fam?.map ?? storeNextLookup).get(pv);
+  const ct = lookupTarget(pv, fam);
   if (ct === undefined) return; // nothing proxied below this pair
   // The NEW side still validates fully: a frozen/platform/markRaw'd incoming
   // value is a leaf for reconcile — replaced by reference, never recursed

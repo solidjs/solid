@@ -90,8 +90,10 @@ import {
 import {
   devAssertNeverUserMutation,
   ingestedRaw,
+  isOwned,
+  lookupTarget,
   markDescendants,
-  ownedRaw,
+  $OWNER,
   storeNextLookup,
   type StoreNextFamily,
   type StoreNextTarget,
@@ -185,7 +187,7 @@ function createTarget(
   // proxy off looked-up targets as a field.
   (t as any)[$PROXY] = t.px;
   (fam?.map ?? storeNextLookup).set(value, t);
-  if (__TEST__ && ingestedRaw && !ownedRaw.has(value)) ingestedRaw.add(value);
+  if (__TEST__ && ingestedRaw && !isOwned(value)) ingestedRaw.add(value);
   return t;
 }
 
@@ -198,7 +200,7 @@ export function wrapNext<T extends Record<PropertyKey, any>>(
   // markRaw'd values never wrap through ANY store (R42; sticky raw-marking
   // is one half of the never-both-wrapped-and-raw invariant, RUL-12).
   if (rawValuesUsed && isRawValue(value)) return value;
-  const existing = (fam?.map ?? storeNextLookup).get(value);
+  const existing = lookupTarget(value, fam);
   if (existing !== undefined) return existing.px;
   const t: StoreNextTarget | undefined = (value as any)[$TARGET];
   if (t !== undefined && t.px === value) {
@@ -313,9 +315,8 @@ export function getNode(
 
 function sameLogicalSlot(target: StoreNextTarget, a: any, b: any): boolean {
   if (a === null || typeof a !== "object" || b === null || typeof b !== "object") return false;
-  const map = target.fam?.map ?? storeNextLookup;
-  const at = map.get(a);
-  return at !== undefined && at === map.get(b);
+  const at = lookupTarget(a, target.fam);
+  return at !== undefined && at === lookupTarget(b, target.fam);
 }
 
 export function getHasNode(
@@ -420,15 +421,18 @@ export function bumpDeep(t: StoreNextTarget): void {
 const foldOlds = new Map<StoreNextTarget, Record<PropertyKey, any>>();
 let hookInstalled = false;
 
-function cloneRaw(source: Record<PropertyKey, any>, t?: StoreNextTarget): Record<PropertyKey, any> {
+/** Shallow-clone `source` as a backing OWNED by `t` (stamped `$OWNER`, see
+ * target.ts). Callers always pass their own committed backing as `source`. */
+function cloneRaw(source: Record<PropertyKey, any>, t: StoreNextTarget): Record<PropertyKey, any> {
   // Plain-data fast path (#3360): a scanned `Object.prototype` container
   // whose own keys are all enumerable data clones by spread — the same
   // result as the descriptor walk below (own enumerable string+symbol keys,
-  // normalized writable+configurable), at ~1/50th the cost. Callers always
-  // pass their own committed backing as `source`.
-  if (t) {
-    t.sc || scanAccessorsOnce(t);
-    if (t.sc === 2) return { ...source };
+  // normalized writable+configurable), at ~1/50th the cost.
+  t.sc || scanAccessorsOnce(t);
+  if (t.sc === 2) {
+    const clone = { ...source };
+    (clone as any)[$OWNER] = t;
+    return clone;
   }
   // Descriptor-preserving shallow clone (R29: installed getters stay live;
   // ruled 2026-08-17: frozen sources clone unfrozen — theirs stays frozen).
@@ -442,11 +446,13 @@ function cloneRaw(source: Record<PropertyKey, any>, t?: StoreNextTarget): Record
     if (key === "length" && Array.isArray(source)) continue;
     d.configurable = true;
     if (!d.get && !d.set) d.writable = true;
-    else if (t) t.a = true;
+    else t.a = true;
   }
-  return Array.isArray(source)
+  const clone = Array.isArray(source)
     ? (Object.defineProperties([], descs) as any)
     : Object.create(Object.getPrototypeOf(source), descs);
+  clone[$OWNER] = t;
+  return clone;
 }
 
 /** Copy own `key` from `from` onto `to`. A plain data slot (enumerable,
@@ -504,10 +510,6 @@ export function materializePB(target: StoreNextTarget): void {
     for (const key of target.del) delete (clone as any)[key];
     target.del = null;
   }
-  const map = target.fam?.map ?? storeNextLookup;
-  map.delete(proto);
-  ownedRaw.add(clone);
-  map.set(clone, target);
   target.pb = clone;
   target.ovl = false;
 }
@@ -563,8 +565,10 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
       !Array.isArray(v) &&
       (target.sc !== 0 ? !target.a : scanAccessorsOnce(target)) &&
       target.kc > OVERLAY_MIN_KEYS &&
-      ownedRaw.has(v)
+      isOwned(v)
     ) {
+      // Inherits `v`'s $OWNER stamp — the overlay resolves and reads as
+      // owned without a registration of its own.
       pb = target.pb = Object.create(v) as Record<PropertyKey, any>;
       target.ovl = true;
     } else pb = target.pb = cloneRaw(v, target);
@@ -592,8 +596,6 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
         }
       }
     }
-    ownedRaw.add(pb);
-    (target.fam?.map ?? storeNextLookup).set(pb, target);
     queueFold(target);
   }
   return pb;
@@ -681,8 +683,13 @@ export function adoptPB(
   target.wk = null; // adoption supersedes staged trap writes
   target.v = incoming;
   target.ch = (incoming as any)[$TARGET] !== undefined;
-  (target.fam?.map ?? storeNextLookup).set(incoming, target);
-  if (__TEST__ && ingestedRaw && !ownedRaw.has(incoming)) ingestedRaw.add(incoming);
+  // An adoptee we own within this family (a draft aliasing one of the
+  // family's own backings) re-stamps to its new owner — the stamp is the
+  // family's registration for it; everything else registers in the map.
+  const owner: StoreNextTarget | undefined = (incoming as any)[$OWNER];
+  if (owner !== undefined && owner.fam === target.fam) (incoming as any)[$OWNER] = target;
+  else (target.fam?.map ?? storeNextLookup).set(incoming, target);
+  if (__TEST__ && ingestedRaw && !isOwned(incoming)) ingestedRaw.add(incoming);
 }
 
 /** Sentinel for `t.wk`: the written-keys bound is unusable this batch (an
@@ -750,16 +757,9 @@ function draftSeesOverrides(target: StoreNextTarget): boolean {
 
 /** Committed-time privatization for parent-chain slot updates (path copying). */
 function privatizeCommitted(target: StoreNextTarget): void {
-  if (ownedRaw.has(target.v)) return;
+  if (isOwned(target.v)) return;
   const before = target.v;
   const clone = cloneRaw(before, target);
-  ownedRaw.add(clone);
-  // Register in the target's OWN registration map (#3284): family targets
-  // (derived stores, projections, optimistic) resolve children through
-  // fam.map — a clone parked only in the global lookup makes the next parent
-  // read miss, wrap a fresh target, and orphan every node (subscribers) on
-  // this one.
-  (target.fam?.map ?? storeNextLookup).set(clone, target);
   target.v = clone;
   target.ch = false;
   if (target.u) {
@@ -810,7 +810,6 @@ function flattenOverlay(t: StoreNextTarget, pb: Record<PropertyKey, any>): void 
     for (const key of t.del) delete (v as any)[key];
     t.del = null;
   }
-  (t.fam?.map ?? storeNextLookup).delete(pb);
   t.pb = null;
   t.ovl = false;
   t.wk = null; // written-keys window closes with the commit
@@ -915,7 +914,6 @@ function drainFolds(): void {
             if (!hasOwn.call(pb, key)) delete (v as any)[key];
           }
         }
-        (t.fam?.map ?? storeNextLookup).delete(pb);
         t.pb = null;
         t.wk = null; // written-keys window closes with the fold commit
       } else {
@@ -972,7 +970,7 @@ function reportReplacedContainers(
   const keys = writtenKeys ?? Reflect.ownKeys(pb);
   const isArray = Array.isArray(pb);
   for (const key of keys) {
-    if (isArray && key === "length") continue;
+    if ((isArray && key === "length") || key === $OWNER) continue;
     if (t.del !== null && t.del.has(key)) continue;
     const ov = unwrapValue(old[key as any]);
     const nv = unwrapValue(pb[key as any]);
@@ -1064,13 +1062,13 @@ function notifyWrites(t: StoreNextTarget): void {
     if (t.ovl) materializePB(t);
     pb = t.pb!;
     for (const key of Reflect.ownKeys(pb)) {
-      if (Array.isArray(pb) && key === "length") continue;
+      if ((Array.isArray(pb) && key === "length") || key === $OWNER) continue;
       const ov = old[key as any];
       const nv = pb[key as any];
       if (!isEqual(ov, nv)) DEV.hooks.onStoreNodeUpdate(t.px, key, nv, ov);
     }
     for (const key of Reflect.ownKeys(old)) {
-      if (key in pb) continue;
+      if (key in pb || key === $OWNER) continue;
       DEV.hooks.onStoreNodeUpdate(t.px, key, undefined, old[key as any]);
     }
   }
@@ -1139,6 +1137,7 @@ function notifyWrites(t: StoreNextTarget): void {
     if (t.del !== null && t.del.size !== 0) bumpDeep(t);
     else
       for (const key of writtenKeys ?? Reflect.ownKeys(pb)) {
+        if (key === $OWNER) continue;
         const nv = pb[key as any];
         const ov = old[key as any];
         if (nv !== null && typeof nv === "object" ? !targetsEqual(ov, nv) : !isEqual(ov, nv)) {
@@ -1213,9 +1212,9 @@ const FORCE: unique symbol = Symbol();
 /** Same logical slot: both values resolve to one (re-pointed) child target —
  * adoption preserved identity, so the slot did not change (R9). */
 export function targetsEqual(ov: any, nv: any): boolean {
-  if (ov === null || typeof ov !== "object") return false;
-  const ot = storeNextLookup.get(ov);
-  return ot !== undefined && ot === storeNextLookup.get(nv);
+  if (ov === null || typeof ov !== "object" || nv === null || typeof nv !== "object") return false;
+  const ot = lookupTarget(ov, null);
+  return ot !== undefined && ot === lookupTarget(nv, null);
 }
 
 export function arrayStructureChanged(old: any[], neu: any[]): boolean {
@@ -1233,8 +1232,9 @@ export function membershipChanged(
   neu: Record<PropertyKey, any>
 ): boolean {
   const nk = Reflect.ownKeys(neu);
-  if (Reflect.ownKeys(old).length !== nk.length) return true;
-  for (const key of nk) if (!(key in old)) return true;
+  // The $OWNER stamp is not membership: an owned side counts one key more.
+  if (Reflect.ownKeys(old).length - +isOwned(old) !== nk.length - +isOwned(neu)) return true;
+  for (const key of nk) if (key !== $OWNER && !(key in old)) return true;
   return false;
 }
 
@@ -1645,7 +1645,7 @@ function resolveChainedRaw(target: StoreNextTarget, key: PropertyKey, v: object)
     const iv = resolveChainedRaw(innerT, key, v);
     return iv === v ? v : wrapNext(iv, innerT, key);
   }
-  const owned = (innerT.fam?.map ?? storeNextLookup).get(v);
+  const owned = lookupTarget(v, innerT.fam);
   if (owned !== undefined) return owned.px;
   if ((innerT.v[key as any] === v || innerT.pb?.[key as any] === v) && isWrappable(v))
     return wrapNext(v, innerT, key);
@@ -1785,6 +1785,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (typeof key !== "string") {
       if (key === $TARGET) return target;
       if (key === $PROXY) return receiver;
+      if (key === $OWNER) return undefined; // ownership stamp: never a user key
       // refresh()/isPending resolve the projection computed through $REFRESH.
       if (key === $REFRESH) return target.fam?.node ?? undefined;
       if (key === $TRACK) {
@@ -1957,6 +1958,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
 
   has(target, key) {
     if (key === $TARGET || key === $PROXY || key === $TRACK) return true;
+    if (key === $OWNER) return false;
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
     if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
     const src = readSource(target);
@@ -1991,6 +1993,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
   },
 
   getOwnPropertyDescriptor(target, key) {
+    if (key === $OWNER) return undefined;
     const desc = visibleDescriptor(target, readSource(target), key);
     if (desc === undefined) return undefined;
     // Array targets carry a real non-configurable `length` the proxy
@@ -2169,7 +2172,7 @@ export function createStoreNext<T extends Record<PropertyKey, any>>(
   if (shallow && __DEV__) {
     // Never both deep-wrapped and raw (R41/R44): a value already tracked as
     // a DEEP store cannot be ingested shallow.
-    const existing = storeNextLookup.get(initialValue);
+    const existing = lookupTarget(initialValue, null);
     if (existing !== undefined && !(existing as any).s)
       throw new Error("createStore({ shallow }): value is already tracked as a deep store");
     if ((initialValue as any)[$TARGET])
@@ -2248,6 +2251,14 @@ function visibleKeys(target: StoreNextTarget, src: Record<PropertyKey, any>): (s
       if (!hasOwn.call(target.v, key)) keys.push(key);
     }
   } else keys = Reflect.ownKeys(src);
+  // Drop the $OWNER stamp (owned backings carry it as an own enumerable
+  // symbol). Symbols enumerate last, so the scan stops at the first string.
+  for (let i = keys.length - 1; i >= 0 && typeof keys[i] === "symbol"; i--) {
+    if (keys[i] === $OWNER) {
+      keys.splice(i, 1);
+      break;
+    }
+  }
   if (
     !authoritativeServe() &&
     target.fam?.opt &&
@@ -2320,14 +2331,13 @@ export function deepNext<T>(value: T): T {
     child: object,
     key: PropertyKey
   ): StoreNextTarget | undefined => {
-    const map = t.fam?.map ?? storeNextLookup;
-    let ct: StoreNextTarget | undefined = map.get(child);
+    let ct: StoreNextTarget | undefined = lookupTarget(child, t.fam);
     if (ct === undefined) {
       if (!isWrappable(child)) return undefined;
       wrapNext(child, t, key);
       // Stored proxies (chained slots) that this family passes through
       // resolve to their own target.
-      ct = map.get(child) ?? (child as any)[$TARGET];
+      ct = lookupTarget(child, t.fam) ?? (child as any)[$TARGET];
     }
     return ct;
   };
@@ -2412,8 +2422,8 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreNextFamily |
   for (let entry = true; ; entry = false) {
     const viaProxy = src?.[$TARGET]?.v !== undefined;
     let t: StoreNextTarget | undefined = viaProxy ? src[$TARGET] : undefined;
-    if (t === undefined && fam !== null) t = fam.map.get(src);
-    if (t === undefined) t = storeNextLookup.get(src);
+    if (t === undefined && fam !== null) t = lookupTarget(src, fam);
+    if (t === undefined) t = lookupTarget(src, null);
     if (t === undefined) break;
     // Entering a level from a RAW below a chained family: the raw resolves to
     // the INNER store's target, but this family's wrapper for it — keyed by
@@ -2453,7 +2463,7 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreNextFamily |
       const copy: any = isArr ? [] : Object.create(Object.getPrototypeOf(view));
       seen.set(src, copy);
       for (const key of Reflect.ownKeys(view)) {
-        if (isArr && key === "length") continue;
+        if ((isArr && key === "length") || key === $OWNER) continue;
         const cv = (view as any)[key];
         copy[key] = cv !== null && typeof cv === "object" ? snapshotWalk(cv, seen, fam) : cv;
       }
@@ -2468,12 +2478,12 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreNextFamily |
   // subtrees "unmodified relative to source"): non-enumerable symbols are
   // excluded (recon-snap R29), and the copy registers BEFORE descent so
   // cycles keep identity (FINDING-3).
-  if (ownedRaw.has(src)) {
+  if (isOwned(src)) {
     const isArr = Array.isArray(src);
     const copy: any = isArr ? [] : Object.create(Object.getPrototypeOf(src));
     seen.set(src, copy);
     for (const key of Reflect.ownKeys(src)) {
-      if (isArr && key === "length") continue;
+      if ((isArr && key === "length") || key === $OWNER) continue;
       const desc = Object.getOwnPropertyDescriptor(src, key)!;
       if (typeof key === "symbol" && !desc.enumerable) continue;
       if (desc.get || desc.set) {

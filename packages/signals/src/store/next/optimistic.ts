@@ -78,7 +78,7 @@ import {
 // Cycle with reconcile.js is benign: the binding resolves at call time (the
 // optimistic write), long after both modules initialize.
 import { sameKey } from "./reconcile.js";
-import { setOptHooks, storeNextLookup } from "./target.js";
+import { $OWNER, lookupTarget, setOptHooks } from "./target.js";
 type KeyFn = (item: any) => any;
 import { isRawValue, isWrappable, rawValuesUsed, setNextOptimisticViewResolver } from "../store.js";
 import type { StoreNextFamily, StoreNextTarget } from "./target.js";
@@ -501,7 +501,7 @@ function stagedApply(cur: any, incoming: any, keyFn: KeyFn | null): void {
   // Object merge; also the degenerate root-kind-change shape (arrays accept
   // keyed writes/deletes, so a wholesale restatement still lands staged).
   for (const k of Reflect.ownKeys(incoming)) {
-    if (curArr && k === "length") continue;
+    if ((curArr && k === "length") || k === $OWNER) continue;
     const nv = (incoming as any)[k];
     const pv = unwrapValue(cur[k]);
     if (pv === nv) continue;
@@ -522,7 +522,7 @@ function stagedApply(cur: any, incoming: any, keyFn: KeyFn | null): void {
     }
   }
   for (const k of Reflect.ownKeys(cur)) {
-    if ((curArr && k === "length") || k in incoming) continue;
+    if ((curArr && k === "length") || k === $OWNER || k in incoming) continue;
     delete cur[k];
   }
 }
@@ -571,7 +571,7 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
   let structural = false;
   const isArr = Array.isArray(pb);
   for (const key of Reflect.ownKeys(pb)) {
-    if (isArr && key === "length") continue;
+    if ((isArr && key === "length") || key === $OWNER) continue;
     const nv = unwrapValue(pb[key as any]);
     if (!visiblePresent(key)) {
       // Optimistic add: value node + presence node + membership bump.
@@ -587,7 +587,7 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
     }
   }
   for (const key of Reflect.ownKeys(old)) {
-    if (isArr && key === "length") continue;
+    if ((isArr && key === "length") || key === $OWNER) continue;
     if (key in pb || !visiblePresent(key)) continue;
     // Optimistic delete: node reads undefined, presence flips, membership bumps.
     setSignal(getNode(t, key, old[key as any]), () => undefined);
@@ -654,7 +654,7 @@ export function optimisticView(
 function applyTentative(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null): void {
   const base = t.pb ?? t.v;
   const view = optimisticView(t, base);
-  const map = t.fam!.map;
+  const fam = t.fam!;
   const isArr = Array.isArray(incoming);
   if (Array.isArray(view) !== isArr) return; // kind change at root: flat overrides below
   const pairs: Array<[StoreNextTarget, any]> = [];
@@ -662,7 +662,7 @@ function applyTentative(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null):
   if (isArr) pbLike = [...(incoming as any[])];
   else {
     pbLike = {};
-    for (const k of Reflect.ownKeys(incoming)) pbLike[k] = (incoming as any)[k];
+    for (const k of Reflect.ownKeys(incoming)) if (k !== $OWNER) pbLike[k] = (incoming as any)[k];
   }
   const match = (pv: any, nv: any): StoreNextTarget | null => {
     if (!isWrappable(pv) || !isWrappable(nv)) return null;
@@ -675,7 +675,7 @@ function applyTentative(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null):
       // channel — NaN keys are self-equal.
       if (pk !== undefined && nk !== undefined && !sameKey(pk, nk)) return null;
     }
-    return map.get(unwrapValue(pv)) ?? null;
+    return lookupTarget(unwrapValue(pv), fam) ?? null;
   };
   if (isArr) {
     const viewRows = view as any[];
@@ -724,6 +724,7 @@ function applyTentative(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null):
     }
   } else {
     for (const k of Reflect.ownKeys(incoming)) {
+      if (k === $OWNER) continue;
       const pv = unwrapValue((view as any)[k]);
       const nv = (incoming as any)[k];
       const ct = match(pv, nv);

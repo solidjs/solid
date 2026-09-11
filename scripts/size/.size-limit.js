@@ -361,7 +361,12 @@ module.exports = [
     // the target, the spread arm in cloneRaw, the width/ownership gate on
     // the overlay, and the bare-assignment arms in the set trap and
     // flatten. Buys 1.85x on per-write cost (629 -> 340 ns steady state).
-    limit: "14.97 KB",
+    // Ownership stamp (#3360 part two, 2026-09-10): 14.97 -> 15.06 KB,
+    // measured at 15.012 (was 14.921). Owned backings carry `$OWNER` instead
+    // of two weak-collection registrations per draft: the stamp-first
+    // lookup helper, the stamp filter in the ownKeys trap / snapshot /
+    // membership diff / key walks, and the trap guards. 340 -> ~178 ns.
+    limit: "15.06 KB",
     modifyEsbuildConfig
   },
   {
@@ -712,7 +717,9 @@ module.exports = [
     // rest brotli layout across the store family bundle). See the createStore note.
     // Narrow-store write floor (#3360, 2026-09-10): 27.48 -> 27.57 KB,
     // measured at 27.518 (was 27.391). The createStore arm; see that note.
-    limit: "27.57 KB",
+    // Ownership stamp (#3360 part two, 2026-09-10): 27.57 -> 27.66 KB,
+    // measured at 27.608 (was 27.518). The createStore arm; see that note.
+    limit: "27.66 KB",
     modifyEsbuildConfig
   },
   {

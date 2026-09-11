@@ -147,21 +147,48 @@ export interface StoreNextTarget {
 }
 
 /**
- * Ownership (first cut, decision 2026-08-16d): one WeakSet of store-owned
- * backings serving both the production identity-skip guard and the __TEST__
- * no-mutation oracle.
+ * Ownership stamp (#3360): every backing the store ALLOCATES (CoW clones,
+ * privatized committed backings) carries its owning target under this
+ * enumerable symbol. One property write replaces the two weak-collection
+ * registrations (ownership set + raw→target map) a fresh object used to pay
+ * per draft — V8's identity-hash + ephemeron cost dominated the one-key
+ * write floor. Enumerable so a spread copy (the plain-data clone path) stays
+ * on the fast path and carries the stamp along.
+ *
+ * Owned backings are never user-reachable (`snapshot` copies them, the traps
+ * hide the key), so every raw key walk in the store must skip `$OWNER`, and
+ * ownership is answered by `isOwned` — a user object never carries it.
+ * Overlay drafts (`Object.create(v)` over an owned `v`) inherit the stamp.
  */
-export const ownedRaw = new WeakSet<object>();
+export const $OWNER: unique symbol = Symbol(__DEV__ ? "STORE_OWNER" : 0);
 
-/** raw → target. The only raw-keyed lookup; boundary mechanism (O8). */
+/** raw → target for UNOWNED backings (user-ingested, adopted); owned
+ * backings resolve through their `$OWNER` stamp. Boundary mechanism (O8). */
 export const storeNextLookup = new WeakMap<object, StoreNextTarget>();
+
+/** A backing the store allocated and may mutate in place. */
+export function isOwned(raw: object): boolean {
+  return (raw as any)[$OWNER] !== undefined;
+}
+
+/** raw → target within a family (`null` = plain stores / the global map).
+ * The stamp answers for backings owned by a target OF THAT FAMILY; anything
+ * else (user objects, adoptees, another family's backings the family
+ * re-registered for its own wrapper) resolves through the family's map. */
+export function lookupTarget(
+  raw: object,
+  fam: StoreNextFamily | null
+): StoreNextTarget | undefined {
+  const owner: StoreNextTarget | undefined = (raw as any)[$OWNER];
+  return owner !== undefined && owner.fam === fam ? owner : (fam?.map ?? storeNextLookup).get(raw);
+}
 
 /** __TEST__ oracle: every object ingested from a user (never mutate). */
 export const ingestedRaw: WeakSet<object> | null = __DEV__ ? new WeakSet<object>() : null;
 
 export function devAssertNeverUserMutation(target: object): void {
   if (!__TEST__ || !ingestedRaw) return;
-  if (ingestedRaw.has(target) && !ownedRaw.has(target)) {
+  if (ingestedRaw.has(target) && !isOwned(target)) {
     throw new Error(
       "[STORE-NEXT INV] write path mutated a user-provided (non-owned) object — CoW privatization was bypassed"
     );
