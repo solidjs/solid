@@ -272,7 +272,10 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // when it recomputes under the recording transaction (one Set.delete).
     // The lane predicate itself (`resolveLane`) shakes out. Measured at
     // 22,737; 13 bytes of headroom.
-    expect(minifiedBytes).toBeLessThan(22_750);
+    // Rebased on #3337's hot-path fix (+27 B) and A28 for optimistic writes
+    // (+52 B) — the two bumps noted above, arriving from the base branch.
+    // Measured at 22,816.
+    expect(minifiedBytes).toBeLessThan(22_900);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

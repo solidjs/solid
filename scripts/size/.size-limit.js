@@ -209,7 +209,12 @@ module.exports = [
     // comparison, lane demotion, replay gating, the landing) lives in
     // optimistic.ts and shakes out of this floor. In-package floor 22,252 ->
     // 22,737.
-    limit: "8.51 KB",
+    //
+    // Rebased on #3337 @ 50225d04 (2026-09-10): 8.51 -> 8.54 KB, measured at
+    // 8531 B. The base branch's promotion hot-path fix (+27 B raw) and A28
+    // for optimistic writes (+52 B raw) arriving under the lane-authority
+    // seams; see those notes on #3337.
+    limit: "8.54 KB",
     modifyEsbuildConfig
   },
   {
@@ -450,6 +455,11 @@ module.exports = [
     // `notifyOptimisticWrites` judging against the view readers see, and
     // the authoritative landing on an override-covered node dispatching to
     // the engine.
+    //
+    // Rebased on #3337 @ 50225d04 (2026-09-10): 15.29 -> 15.34 KB, measured at
+    // 15335 B. The base branch's promotion hot-path fix (+27 B raw) and A28
+    // for optimistic writes (+52 B raw) arriving under the lane-authority
+    // seams; see those notes on #3337.
     limit: "15.42 KB",
     modifyEsbuildConfig
   },
@@ -558,7 +568,12 @@ module.exports = [
     // store landing (`landOnOverride`), the per-node merged-lane hold
     // (`laneHeld` over `waitingTransition`), `laneLive`, and the
     // lane-routed settle entering the waiting transaction.
-    limit: "10.85 KB",
+    //
+    // Rebased on #3337 @ 50225d04 (2026-09-10): 10.85 -> 10.93 KB, measured at
+    // 10926 B. The base branch's promotion hot-path fix (+27 B raw) and A28
+    // for optimistic writes (+52 B raw) arriving under the lane-authority
+    // seams; see those notes on #3337.
+    limit: "10.93 KB",
     modifyEsbuildConfig
   },
   {
@@ -739,7 +754,12 @@ module.exports = [
     // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 18.42 ->
     // 18.65 KB, measured at 18628 B — the core seams (see the core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
-    limit: "18.65 KB",
+    //
+    // Rebased on #3337 @ 50225d04 (2026-09-10): 18.65 -> 18.71 KB, measured at
+    // 18702 B. The base branch's promotion hot-path fix (+27 B raw) and A28
+    // for optimistic writes (+52 B raw) arriving under the lane-authority
+    // seams; see those notes on #3337.
+    limit: "18.71 KB",
     modifyEsbuildConfig
   },
   {
@@ -895,7 +915,12 @@ module.exports = [
     // `notifyOptimisticWrites` judging against the view readers see, and
     // the authoritative landing on an override-covered node dispatching to
     // the engine.
-    limit: "28.16 KB",
+    //
+    // Rebased on #3337 @ 50225d04 (2026-09-10): 28.16 -> 28.30 KB, measured at
+    // 28299 B. The base branch's promotion hot-path fix (+27 B raw) and A28
+    // for optimistic writes (+52 B raw) arriving under the lane-authority
+    // seams; see those notes on #3337.
+    limit: "28.30 KB",
     modifyEsbuildConfig
   },
   {
@@ -963,7 +988,12 @@ module.exports = [
     // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 13.84 ->
     // 14.03 KB, measured at 14009 B — the core seams (see the core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
-    limit: "14.03 KB",
+    //
+    // Rebased on #3337 @ 50225d04 (2026-09-10): 14.03 -> 14.09 KB, measured at
+    // 14087 B. The base branch's promotion hot-path fix (+27 B raw) and A28
+    // for optimistic writes (+52 B raw) arriving under the lane-authority
+    // seams; see those notes on #3337.
+    limit: "14.09 KB",
     modifyEsbuildConfig
   },
   {
