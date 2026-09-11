@@ -1,5 +1,4 @@
 import {
-  CONFIG_AUTHORITATIVE_OBSERVED,
   CONFIG_AUTHORITATIVE_READ,
   CONFIG_HELD_TRUTH,
   CONFIG_IN_SNAPSHOT_SCOPE,
@@ -22,13 +21,12 @@ import {
   REACTIVE_REASK,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SNAPSHOT_STALE,
-  CONFIG_UNFLUSHED,
   REACTIVE_ZOMBIE,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { currentOptimisticLane, ext, slotUnobservedHook } from "./core.js";
+import { currentOptimisticLane, ext, promoteUnflushed, slotUnobservedHook } from "./core.js";
 import { DEV, emitDiagnostic, GRAPH_SIZE_WARN_AT, noteFanOut, reportDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { sweepDormant } from "./graph.js";
@@ -910,84 +908,6 @@ export class GlobalQueue extends Queue {
 export function queuePendingNode(node: Signal<any>): void {
   if (__DEV__) lastStagedNodeName = (node as any)._name ?? null;
   currentBatch._pendingNodes.push(node);
-}
-
-/**
- * Nodes carrying an unflushed write (CONFIG_UNFLUSHED), in write order.
- * There is ONE write path — every staging write lands here — and the
- * consumers promote: `promoteUnflushed` runs wherever a heap pass is about
- * to compute against the writes issued since the last promotion. The top of
- * a flush (the tick's imperative writes), the tail of a recompute (its own
- * writes, by cursor), and inside a flush after each commit-hook / boundary
- * sweep step that a heap run follows — so a write and the derivation it
- * dirties land in the same clock cycle, which the clock-gated re-asks
- * (an errored source's retry) key on.
- */
-let unflushedNodes: Array<Signal<any> | Computed<any>> = [];
-
-/** The unflushed list's current length — recompute's cursor for
- * `promoteUnflushed(from)` (writes issued during a recompute belong to it). */
-export function unflushedCursor(): number {
-  return unflushedNodes.length;
-}
-
-/**
- * Writes become visible at flush. Every staging write calls this after
- * setting `_pendingValue`, with the staged value it replaced (`prevStaged`,
- * NOT_PENDING if none): the write is UNFLUSHED — both of its remaining
- * halves, the companion sync and the subscriber walk, are deferred to
- * `promoteUnflushed`. Imperative writes (handler, action body, async
- * landing) are promoted at the top of the next flush; writes issued inside
- * a recompute (a boundary's status signal, a firewall staging its leaves)
- * are promoted at that recompute's tail, so they are part of its pass
- * whether it runs in a flush or as a lazy init. With no walk, nothing
- * downstream is dirty before the flush, so a mid-tick pull cannot derive
- * from an imperative write; and the tick's first write to a HELD node
- * stashes the flushed staged value it overwrites so latest() and isPending()
- * keep serving the flushed world until the rewrite flushes.
- */
-export function markUnflushed(el: Signal<any> | Computed<any>, prevStaged: unknown): void {
-  if (el._config & CONFIG_UNFLUSHED) return;
-  el._config |= CONFIG_UNFLUSHED;
-  if (prevStaged !== NOT_PENDING) ext(el)._flushedStaged = prevStaged;
-  unflushedNodes.push(el);
-}
-
-/**
- * Unflushed writes from list position `from` on become the world in
- * progress. For each node, clear the mark and the stashed flushed-staged
- * value, then perform the write's deferred halves in the classic order —
- * push the value into the companions (the latest() shadow, an optimistic
- * node, so latest() readers wake on its lane ahead of a held transaction;
- * the isPending() verdict), then walk the subscribers. At the top of a flush
- * (`from` 0) this runs before runHeap so everything marked computes in THIS
- * pass — a subscriber that linked in between (a computation created in the
- * same tick read the flushed view) is marked by the walk like any other. At
- * a recompute's tail it promotes only that recompute's own writes.
- */
-export function promoteUnflushed(from: number = 0): void {
-  const sync = GlobalQueue._syncCompanions;
-  // A companion sync is itself a write (the pendingSignal, the shadow) and
-  // lands on the list mid-promotion: the loop bound is live so it is
-  // promoted in the same pass; the list is truncated once nothing new arrives.
-  for (let i = from; i < unflushedNodes.length; i++) {
-    const node = unflushedNodes[i];
-    node._config &= ~CONFIG_UNFLUSHED;
-    if (node._x !== null) node._x._flushedStaged = NOT_PENDING;
-    // The write may already have committed (a sweep's write staged before
-    // finalize's commitPendingNodes ran) — the walk is still owed.
-    if (node._config & CONFIG_HAS_COMPANIONS && sync !== null)
-      sync(node, node._pendingValue === NOT_PENDING ? node._value : node._pendingValue);
-    // Same wake rule as the eager landing (asyncWrite): under an active
-    // override every reader sees the override (A17), so the hold is not
-    // visible to them and the revert is their notification — only an
-    // authoritative-view reader (until()'s predicate) waiting on the staged
-    // truth is woken (#3164).
-    if (!hasActiveOverride(node)) insertSubs(node);
-    else if (node._config & CONFIG_AUTHORITATIVE_OBSERVED)
-      GlobalQueue._notifyAuthoritativeObservers?.(node);
-  }
-  unflushedNodes.length = from;
 }
 
 // Dev-only attribution for the flush loop guard (#3140): when the guard

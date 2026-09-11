@@ -15,7 +15,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { context, setSignal, untrack, ext, statusNotifierOf } from "./core.js";
+import { context, setSignal, untrack, ext, statusNotifierOf, markUnflushed } from "./core.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { emitDiagnostic } from "./dev.js";
 import { NotReadyError, StatusError } from "./error.js";
@@ -32,7 +32,6 @@ import {
   GlobalQueue,
   globalQueue,
   insertSubs,
-  markUnflushed,
   queuePendingNode,
   schedule,
   zombieQueue

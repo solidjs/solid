@@ -65,7 +65,7 @@ import {
   markNode,
   queueFor
 } from "./heap.js";
-import { type OptimisticLane } from "./lanes.js";
+import { hasActiveOverride, type OptimisticLane } from "./lanes.js";
 import {
   clearSignals,
   DEV,
@@ -94,9 +94,6 @@ import {
   queuePendingNode,
   runInTransition,
   schedule,
-  markUnflushed,
-  promoteUnflushed,
-  unflushedCursor,
   zombieQueue
 } from "./scheduler.js";
 import type {
@@ -328,8 +325,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   if (isStaleEffect) stale = true;
   // Writes this run issues (a firewall staging its leaves, a boundary's
   // status signal) are part of this pass: promoted at the tail below, in
-  // this run's posture (context, lane, RECOMPUTING_DEPS still set).
-  const unflushedFrom = unflushedCursor();
+  // this run's posture (context, lane, RECOMPUTING_DEPS still set). Local
+  // length reads: this is the hottest function in the library, and the
+  // common case (a run that wrote nothing) must cost one comparison.
+  const unflushedFrom = unflushedNodes.length;
   try {
     if (!__DEV__ && el._config & CONFIG_SYNC) {
       value = el._fn(value);
@@ -396,7 +395,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       if (reaskChanged) GlobalQueue._repollVerdicts!(el);
     }
   } finally {
-    promoteUnflushed(unflushedFrom);
+    if (unflushedNodes.length !== unflushedFrom) promoteUnflushed(unflushedFrom);
     tracking = prevTracking;
     latestReadActive = prevLatestRead;
     if (__DEV__) strictRead = prevStrictRead;
@@ -1596,6 +1595,84 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     schedule();
   }
   return value;
+}
+
+/**
+ * Nodes carrying an unflushed write (CONFIG_UNFLUSHED), in write order.
+ * There is ONE write path — every staging write lands here — and the
+ * consumers promote: `promoteUnflushed` runs wherever a heap pass is about
+ * to compute against the writes issued since the last promotion. The top of
+ * a flush (the tick's imperative writes), the tail of a recompute (its own
+ * writes, by cursor), and inside a flush after each commit-hook / boundary
+ * sweep step that a heap run follows — so a write and the derivation it
+ * dirties land in the same clock cycle, which the clock-gated re-asks
+ * (an errored source's retry) key on.
+ */
+const unflushedNodes: Array<Signal<any> | Computed<any>> = [];
+
+/**
+ * Writes become visible at flush. Every staging write calls this after
+ * setting `_pendingValue`, with the staged value it replaced (`prevStaged`,
+ * NOT_PENDING if none): the write is UNFLUSHED — both of its remaining
+ * halves, the companion sync and the subscriber walk, are deferred to
+ * `promoteUnflushed`. Imperative writes (handler, action body, async
+ * landing) are promoted at the top of the next flush; writes issued inside
+ * a recompute (a boundary's status signal, a firewall staging its leaves)
+ * are promoted at that recompute's tail, so they are part of its pass
+ * whether it runs in a flush or as a lazy init. With no walk, nothing
+ * downstream is dirty before the flush, so a mid-tick pull cannot derive
+ * from an imperative write; and the tick's first write to a HELD node
+ * stashes the flushed staged value it overwrites so latest() and isPending()
+ * keep serving the flushed world until the rewrite flushes.
+ */
+export function markUnflushed(el: Signal<any> | Computed<any>, prevStaged: unknown): void {
+  if (el._config & CONFIG_UNFLUSHED) return;
+  el._config |= CONFIG_UNFLUSHED;
+  if (prevStaged !== NOT_PENDING) ext(el)._flushedStaged = prevStaged;
+  unflushedNodes.push(el);
+}
+
+/**
+ * Unflushed writes from list position `from` on become the world in
+ * progress. For each node, clear the mark and the stashed flushed-staged
+ * value, then perform the write's deferred halves in the classic order —
+ * push the value into the companions (the latest() shadow, an optimistic
+ * node, so latest() readers wake on its lane ahead of a held transaction;
+ * the isPending() verdict), then walk the subscribers. At the top of a flush
+ * (`from` 0) this runs before runHeap so everything marked computes in THIS
+ * pass — a subscriber that linked in between (a computation created in the
+ * same tick read the flushed view) is marked by the walk like any other. At
+ * a recompute's tail it promotes only that recompute's own writes.
+ */
+export function promoteUnflushed(from: number = 0): void {
+  // Callers check the list first (recompute compares lengths locally); the
+  // guard here covers the flush sites. The truncating `length =` below is a
+  // runtime call V8 does not inline — paying it once per recompute with an
+  // empty list cost update1to1 ~25% (CodSpeed on #3337).
+  if (unflushedNodes.length === from) return;
+  const sync = GlobalQueue._syncCompanions;
+  // A companion sync is itself a write (the pendingSignal, the shadow) and
+  // lands on the list mid-promotion: the loop bound is live so it is
+  // promoted in the same pass; the list is truncated once nothing new arrives.
+  for (let i = from; i < unflushedNodes.length; i++) {
+    const node = unflushedNodes[i];
+    node._config &= ~CONFIG_UNFLUSHED;
+    if (node._x !== null) node._x._flushedStaged = NOT_PENDING;
+    // The write may already have committed (a sweep's write staged before
+    // finalize's commitPendingNodes ran) — the walk is still owed.
+    if (node._config & CONFIG_HAS_COMPANIONS && sync !== null)
+      sync(node, node._pendingValue === NOT_PENDING ? node._value : node._pendingValue);
+    // Same wake rule as the eager landing (asyncWrite): under an active
+    // override every reader sees the override (A17), so the hold is not
+    // visible to them and the revert is their notification — only an
+    // authoritative-view reader (until()'s predicate) waiting on the staged
+    // truth is woken (#3164). Only CONFIG_OPTIMISTIC nodes carry an
+    // override slot (see constants.ts): plain nodes skip the probe.
+    if (!(node._config & CONFIG_OPTIMISTIC) || !hasActiveOverride(node)) insertSubs(node);
+    else if (node._config & CONFIG_AUTHORITATIVE_OBSERVED)
+      GlobalQueue._notifyAuthoritativeObservers?.(node);
+  }
+  unflushedNodes.length = from;
 }
 
 /**
