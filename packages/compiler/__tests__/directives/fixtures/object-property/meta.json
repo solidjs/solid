@@ -2,13 +2,13 @@
   "valid": true,
   "functions": [
     {
-      "id": "saveRecord-32e00052",
-      "name": "saveRecord",
+      "id": "handlers.save-32e00052",
+      "name": "handlers.save",
       "exports": []
     },
     {
-      "id": "handlers-32e00052",
-      "name": "handlers",
+      "id": "handlers.drop-32e00052",
+      "name": "handlers.drop",
       "exports": []
     }
   ]

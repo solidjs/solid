@@ -2,8 +2,8 @@
   "valid": true,
   "functions": [
     {
-      "id": "inner-cb5f8b97",
-      "name": "inner",
+      "id": "helper.inner-cb5f8b97",
+      "name": "helper.inner",
       "exports": []
     },
     {

@@ -6,8 +6,9 @@
 //!
 //! The runtime ABI is frozen: `registerServerReference(id, fn)` on the
 //! server, `createServerReference(id)` proxies on the client, and the
-//! `<name>-<xxhash32(relative path)>` ID format shared by both builds
-//! (identity-keyed, not positional — solidjs/solid#3109).
+//! `<name>-<xxhash32(relative path)>` ID format shared by both builds. The
+//! name is the function's dotted binding path, so ids are keyed on identity
+//! rather than position (solidjs/solid#3109).
 
 mod dce;
 mod transform;
@@ -63,7 +64,8 @@ pub struct TransformDirectivesOptions {
 pub struct ServerFunctionMeta {
     /// The wire ID (`<name>-<hash>[-<ordinal>]`).
     pub id: String,
-    /// The descriptive source name (`anonymous` when none applies).
+    /// The dotted binding path that names the function, such as
+    /// `handlers.save`. `anonymous` when no enclosing binding applies.
     pub name: String,
     /// Export names bound to this function (module-level directives only;
     /// empty for function-level extractions).

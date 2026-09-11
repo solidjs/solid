@@ -227,16 +227,27 @@ impl<'a> DirectivesTransform<'a> {
         }
     }
 
-    /// The wire id: `<name>-<hash>`, with a trailing ordinal only when the
-    /// same descriptive name recurs in one file (several `anonymous`
-    /// closures, shadowed bindings). Keyed on identity — file plus name —
-    /// rather than position, so appending, deleting, or reordering functions
-    /// never re-points an address another build already handed out
-    /// (solidjs/solid#3109); a removed or renamed function becomes a clean
-    /// 404 instead of a wrong dispatch. Identical in development and
-    /// production so both exercise the same addresses. The name is a JS
-    /// identifier (never contains `-`), so the hash is always
-    /// `split('-')[1]` for consumers mapping ids back to files.
+    /// The wire id: `<name>-<hash>`. The name is the function's dotted
+    /// binding path, so two same-named functions in sibling scopes are two
+    /// different names (`makeA.submit`, `makeB.submit`) rather than one name
+    /// and a counter.
+    ///
+    /// The id is keyed on identity, file plus path, not on position.
+    /// Appending, deleting, or reordering functions never re-points an
+    /// address another build already handed out (solidjs/solid#3109). A
+    /// removed or renamed function becomes a clean 404 instead of a wrong
+    /// dispatch.
+    ///
+    /// A trailing ordinal is the last resort, for two functions that share
+    /// one path. That only happens when neither has a name of its own and
+    /// they sit in the same container, such as two inline callbacks. The
+    /// ordinal is positional, so adding a third sibling callback ahead of
+    /// them does move their ids.
+    ///
+    /// Ids are identical in development and production, so both exercise the
+    /// same addresses. Path segments are JS identifiers joined by `.` and
+    /// never contain `-`, so the hash is always `split('-')[1]` for
+    /// consumers mapping ids back to files.
     fn create_id(&mut self, name: &str) -> String {
         self.count += 1;
         let seen = self
@@ -628,7 +639,7 @@ impl<'a> DirectivesTransform<'a> {
             transform: self,
             top_index: 0,
             insertions: Vec::new(),
-            name_stack: Vec::new(),
+            name_path: Vec::new(),
         };
         visitor.visit_program(program);
         let insertions = std::mem::take(&mut visitor.insertions);
@@ -763,12 +774,49 @@ struct FunctionLevelVisitor<'ctx, 'a> {
     /// `getRootStatementPath` insertion anchor.
     top_index: usize,
     insertions: Vec<(usize, Statement<'a>)>,
-    /// Nearest-binding names for `getDescriptiveName` (variable declarators
-    /// with identifier ids; named function expressions use their own id).
-    name_stack: Vec<String>,
+    /// Enclosing binding names, outermost first: the dotted path that names
+    /// an extracted function. Every named container on the way down
+    /// contributes a segment (variable declarators, object property keys,
+    /// class names, class member keys), so two same-named functions in
+    /// sibling scopes get distinct names instead of sharing one and being
+    /// told apart by a positional ordinal.
+    name_path: Vec<String>,
+}
+
+/// Path segments must be JS identifiers: the wire id is
+/// `<name>-<hash>[-<ordinal>]`, so a segment carrying a `-` would break
+/// `id.split("-")[1]` for every consumer that reads the file hash back out,
+/// and a `.` would look like a segment boundary. A computed or string key
+/// that is not identifier-shaped contributes no segment rather than a
+/// mangled one. Non-ASCII identifiers are ordinary JS names and are kept;
+/// the id is percent-encoded into the request url by the runtime.
+fn identifier_segment(name: &str) -> Option<String> {
+    let mut chars = name.chars();
+    let first = chars.next()?;
+    if !(first.is_alphabetic() || first == '_' || first == '$') {
+        return None;
+    }
+    if !chars.all(|c| c.is_alphanumeric() || c == '_' || c == '$') {
+        return None;
+    }
+    Some(name.to_string())
 }
 
 impl<'a> FunctionLevelVisitor<'_, 'a> {
+    /// Walks `walk` with `segment` appended to the name path, restoring the
+    /// path afterwards. A `None` segment (a destructuring pattern, a computed
+    /// key) contributes nothing and leaves the path as it was.
+    fn with_segment(&mut self, segment: Option<String>, walk: impl FnOnce(&mut Self)) {
+        let pushed = segment.is_some();
+        if let Some(segment) = segment {
+            self.name_path.push(segment);
+        }
+        walk(self);
+        if pushed {
+            self.name_path.pop();
+        }
+    }
+
     fn body_has_directive(&self, body: &oxc_ast::ast::FunctionBody<'a>) -> bool {
         body.directives
             .iter()
@@ -817,9 +865,16 @@ impl<'a> FunctionLevelVisitor<'_, 'a> {
             }
             _ => unreachable!("shape checked above"),
         }
-        let name = own_name
-            .or_else(|| self.name_stack.last().cloned())
-            .unwrap_or_else(|| "anonymous".to_string());
+        // The enclosing path names the function. A function expression's own
+        // name is the fallback for a function with no named container at all
+        // (`register(function handler() {})`); when a path exists it already
+        // identifies the position, and appending the label too would only add
+        // a second name for the same thing.
+        let name = if self.name_path.is_empty() {
+            own_name.unwrap_or_else(|| "anonymous".to_string())
+        } else {
+            self.name_path.join(".")
+        };
         let top_index = self.top_index;
         let mut insertions = std::mem::take(&mut self.insertions);
         self.transform
@@ -838,16 +893,48 @@ impl<'a> VisitMut<'a> for FunctionLevelVisitor<'_, 'a> {
     }
 
     fn visit_variable_declarator(&mut self, declarator: &mut oxc_ast::ast::VariableDeclarator<'a>) {
-        let pushed = if let BindingPattern::BindingIdentifier(id) = &declarator.id {
-            self.name_stack.push(id.name.to_string());
-            true
-        } else {
-            false
+        let segment = match &declarator.id {
+            BindingPattern::BindingIdentifier(id) => identifier_segment(&id.name),
+            _ => None,
         };
-        walk_mut::walk_variable_declarator(self, declarator);
-        if pushed {
-            self.name_stack.pop();
-        }
+        self.with_segment(segment, |visitor| {
+            walk_mut::walk_variable_declarator(visitor, declarator);
+        });
+    }
+
+    /// `class Api { save = async () => {} }` names its field `Api.save`.
+    fn visit_class(&mut self, class: &mut oxc_ast::ast::Class<'a>) {
+        let segment = class
+            .id
+            .as_ref()
+            .and_then(|id| identifier_segment(&id.name));
+        self.with_segment(segment, |visitor| {
+            walk_mut::walk_class(visitor, class);
+        });
+    }
+
+    fn visit_property_definition(
+        &mut self,
+        property: &mut oxc_ast::ast::PropertyDefinition<'a>,
+    ) {
+        let segment = static_key_segment(&property.key);
+        self.with_segment(segment, |visitor| {
+            walk_mut::walk_property_definition(visitor, property);
+        });
+    }
+
+    fn visit_method_definition(&mut self, method: &mut oxc_ast::ast::MethodDefinition<'a>) {
+        let segment = static_key_segment(&method.key);
+        self.with_segment(segment, |visitor| {
+            walk_mut::walk_method_definition(visitor, method);
+        });
+    }
+
+    fn visit_accessor_property(&mut self, property: &mut oxc_ast::ast::AccessorProperty<'a>) {
+        let segment = static_key_segment(&property.key);
+        self.with_segment(segment, |visitor| {
+            walk_mut::walk_accessor_property(visitor, property);
+        });
     }
 
     fn visit_expression(&mut self, expression: &mut Expression<'a>) {
@@ -861,22 +948,38 @@ impl<'a> VisitMut<'a> for FunctionLevelVisitor<'_, 'a> {
     /// which the directive plugin does not visit — only plain
     /// function-valued properties (`{ foo: function () {} }`) are eligible.
     fn visit_object_property(&mut self, property: &mut oxc_ast::ast::ObjectProperty<'a>) {
-        if property.method || property.kind != oxc_ast::ast::PropertyKind::Init {
-            walk_mut::walk_property_key(self, &mut property.key);
+        let segment = static_key_segment(&property.key);
+        // A computed key is an expression in the enclosing scope, not inside
+        // the property, so it is walked before the segment is pushed.
+        walk_mut::walk_property_key(self, &mut property.key);
+        let is_method = property.method || property.kind != oxc_ast::ast::PropertyKind::Init;
+        self.with_segment(segment, |visitor| {
+            if !is_method {
+                visitor.visit_expression(&mut property.value);
+                return;
+            }
+            // A method's own body is never transformed, so descend past it
+            // instead of offering it to `visit_expression`.
             match &mut property.value {
                 Expression::FunctionExpression(function) => {
                     walk_mut::walk_function(
-                        self,
+                        visitor,
                         function,
                         oxc_syntax::scope::ScopeFlags::Function,
                     );
                 }
-                other => walk_mut::walk_expression(self, other),
+                other => walk_mut::walk_expression(visitor, other),
             }
-            return;
-        }
-        walk_mut::walk_object_property(self, property);
+        });
     }
+}
+
+/// The identifier-shaped name of a static property key, if it has one.
+/// Computed keys and string keys that are not identifiers contribute no path
+/// segment.
+fn static_key_segment(key: &oxc_ast::ast::PropertyKey<'_>) -> Option<String> {
+    key.static_name()
+        .and_then(|name| identifier_segment(name.as_ref()))
 }
 
 // --- Top-level binding tracing (module-level path) ----------------------------

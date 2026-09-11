@@ -136,9 +136,11 @@ function normalize(code) {
 }
 
 // Function IDs embedded in compiled output (`<name>-<hash>` with a trailing
-// ordinal for repeated names; identical in both envs).
+// ordinal for repeated names; identical in both envs). The name is a dotted
+// path of identifiers (`handlers.save`), so dots are part of it and dashes
+// never are.
 function extractIds(code) {
-  const matches = code.match(/"[A-Za-z0-9_$]+-[0-9a-f]{1,8}(?:-\d+)?"/g) || [];
+  const matches = code.match(/"[A-Za-z0-9_$]+(?:\.[A-Za-z0-9_$]+)*-[0-9a-f]{1,8}(?:-\d+)?"/g) || [];
   return [...new Set(matches.map(entry => entry.slice(1, -1)))].sort();
 }
 
