@@ -448,7 +448,13 @@ module.exports = [
     // literal's `_prevChild`, four unobserved-hook unlink calls) and #3352's
     // overlay path for projection/derived roots landing under the A28 write
     // seams; `next` itself moved 14.70 -> 14.83 KB on these.
-    limit: "15.35 KB",
+    //
+    // Rebased on `next` @ 4935c7dd (2026-09-11): 15.15 -> 15.42 KB, measured at
+    // 15384 B (was 15120). `next`'s #3360 narrow-store write floor and
+    // ownership stamp (#3367/#3368: scan grade, spread arm, overlay gate,
+    // `$OWNER` lookups and trap guards) — `next` moved 14.83 -> 15.06 KB on
+    // the same; this branch's delta over `next` is unchanged (~370 B).
+    limit: "15.42 KB",
     modifyEsbuildConfig
   },
   {
@@ -739,6 +745,10 @@ module.exports = [
     // 2026-09-10): 18.42 -> 18.48 KB, measured at 18476 B (was 18418) — the
     // core floor's slot + promote arm, compressing worse on this layout
     // (the CSR twin below moved -10 B).
+    //
+    // Rebased on `next` @ 4935c7dd (2026-09-11): 18.48 -> 18.52 KB, measured at
+    // 18484 B (was 18451). No stores in this scenario; brotli layout across
+    // the shared core after `next`'s #3367/#3368 (the CSR twin moved +7 B).
     limit: "18.56 KB",
     modifyEsbuildConfig
   },
@@ -893,6 +903,10 @@ module.exports = [
     // 27894 B (was 27753). `next`'s #3351 firewall-chain unlinking (+80 B of
     // it in the createStore arm, per its own note) and #3352's overlay path
     // for projection roots; `next` moved 27.34 -> 27.48 KB on these.
+    //
+    // Rebased on `next` @ 4935c7dd (2026-09-11): 27.90 -> 28.15 KB, measured at
+    // 28112 B (was 27894). `next`'s #3367/#3368 createStore arm (see that
+    // note); `next` moved 27.48 -> 27.66 KB on the same.
     limit: "28.24 KB",
     modifyEsbuildConfig
   },
