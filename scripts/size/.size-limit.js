@@ -415,7 +415,13 @@ module.exports = [
     // always-retained trap code; the sites that only optimistic families
     // reach (ensurePB seeding, notifyOptimisticWrites, optimisticView) ride
     // the optimistic module.
-    limit: "15.06 KB",
+    //
+    // Rebased on `next` @ 6bf2bf85 (2026-09-11): 15.03 -> 15.15 KB, measured at
+    // 15120 B (was 15029). `next`'s #3351 firewall-chain unlinking (the slot
+    // literal's `_prevChild`, four unobserved-hook unlink calls) and #3352's
+    // overlay path for projection/derived roots landing under the A28 write
+    // seams; `next` itself moved 14.70 -> 14.83 KB on these.
+    limit: "15.15 KB",
     modifyEsbuildConfig
   },
   {
@@ -510,7 +516,11 @@ module.exports = [
     // for its updater, parks user writes and installs companion writes
     // eagerly (`_parentSource`), and promoteOverride/installOverride are the
     // split-out flush half.
-    limit: "10.47 KB",
+    //
+    // Rebased on `next` @ 6bf2bf85 (2026-09-11): 10.47 -> 10.50 KB, measured at
+    // 10484 B (was 10462). `next`'s #3350 in-place heap marking and #3351
+    // `_prevChild` on the core literals; `next` moved 10.27 -> 10.32 KB.
+    limit: "10.50 KB",
     modifyEsbuildConfig
   },
   {
@@ -585,7 +595,11 @@ module.exports = [
     // Optimistic writes visible at flush (A28 for overrides, #3337,
     // 2026-09-10): 11.05 -> 11.06 KB, measured at 11058 B (was 11040) — the
     // core floor's slot + promote arm (see that note).
-    limit: "11.06 KB",
+    //
+    // Rebased on `next` @ 6bf2bf85 (2026-09-11): 11.06 -> 11.10 KB, measured at
+    // 11062 B (was 11058). Brotli noise from `next`'s #3350/#3351 core bytes;
+    // `next` moved 10.92 -> 10.96 KB.
+    limit: "11.10 KB",
     modifyEsbuildConfig
   },
   {
@@ -814,7 +828,12 @@ module.exports = [
     // scenario retains every store family, so it pays the core bytes, the
     // optimistic module's parked-write halves (see the isPending/latest
     // note) and the store draft view (see the createStore note).
-    limit: "27.76 KB",
+    //
+    // Rebased on `next` @ 6bf2bf85 (2026-09-11): 27.76 -> 27.90 KB, measured at
+    // 27894 B (was 27753). `next`'s #3351 firewall-chain unlinking (+80 B of
+    // it in the createStore arm, per its own note) and #3352's overlay path
+    // for projection roots; `next` moved 27.34 -> 27.48 KB on these.
+    limit: "27.90 KB",
     modifyEsbuildConfig
   },
   {
@@ -1002,7 +1021,11 @@ module.exports = [
     //
     // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 26.65 -> 26.75 KB,
     // measured at 26727 B — the core write-path change (see the core floor note).
-    limit: "26.75 KB",
+    //
+    // Rebased on `next` @ 6bf2bf85 (2026-09-11): 26.75 -> 26.80 KB, measured at
+    // 26772 B (was 26734). `next`'s #3350 in-place heap marking under the
+    // attribution build; `next` moved 26.65 -> 26.68 KB.
+    limit: "26.80 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
