@@ -3,30 +3,14 @@ dist/
 lib/
 # ...but an example's source tree may legitimately have one (src/lib/api.ts).
 !examples/*/src/lib/
-.vscode/
 .cursor/*
 !.cursor/rules/
-.idea/
 coverage/
 types/
 types-cjs/
 packages/babel-plugin/index.js
-.DS_Store
 .turbo/
 .pnpm-store/
 .types-build/
 
-packages/solid/src/jsx.d.ts
-packages/solid-web/src/jsx.d.ts
-packages/solid-web/src/jsx-properties.d.ts
-packages/solid-h/jsx-runtime/src/jsx.d.ts
-packages/solid-h/jsx-runtime/src/jsx-properties.d.ts
-packages/solid/web/server/server.d.ts
-packages/solid/web/src/client.d.ts
-packages/solid/universal/src/universal.d.ts
-
-# vscode devcontainers see issues #419 and #421 for context
-/.devcontainer.json
-/devcontainer
-packages/solid-web/test/harness/__artifacts__/
 packages/test-integration/tests/fixtures/downloaded/
