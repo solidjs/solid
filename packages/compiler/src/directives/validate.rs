@@ -25,12 +25,16 @@
 //! and so does any `function` or class nested inside the server function, so
 //! those are left alone.
 //!
+//! The pass also rejects the directive in a position the transform never
+//! extracts. A method, a getter, or a setter keeps its directive and keeps
+//! running wherever it is called, browser included, so a directive there is
+//! silently doing nothing. That is reported rather than ignored.
+//!
 //! Module-level directives are unaffected (the whole module runs on the
 //! server, so its closures are intact); the caller skips this pass for them.
-//! Eligibility mirrors the transform exactly: functions the transform would
-//! never extract (object/class methods, getters/setters) are not validated,
-//! and directives nested inside an already-extracted server function are
-//! ignored just like the transform ignores them.
+//! Eligibility otherwise mirrors the transform exactly, and directives
+//! nested inside an already-extracted server function are ignored just like
+//! the transform ignores them.
 
 use oxc_ast::ast::{Expression, Program, PropertyKind};
 use oxc_ast_visit::{Visit, walk};
@@ -65,7 +69,7 @@ pub(crate) fn validate_captures(
     validator.visit_program(program);
 
     match validator.error {
-        Some(error) => Err(format_error(error, code, filename)),
+        Some(error) => Err(format_error(error, code, filename, directive)),
         None => Ok(()),
     }
 }
@@ -81,6 +85,9 @@ enum CaptureError {
     /// `this` or `arguments`, taken from an enclosing function because the
     /// server function is an arrow. There is no declaration to point at.
     Implicit { name: Implicit, span: Span },
+    /// The directive sits on a method, getter, or setter, which the
+    /// transform never extracts.
+    Method { name: String, span: Span },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -111,7 +118,7 @@ impl Implicit {
     }
 }
 
-fn format_error(error: CaptureError, code: &str, filename: &str) -> String {
+fn format_error(error: CaptureError, code: &str, filename: &str, directive: &str) -> String {
     match error {
         CaptureError::Binding {
             name,
@@ -141,6 +148,14 @@ fn format_error(error: CaptureError, code: &str, filename: &str) -> String {
                  {explanation}.",
                 implicit = name.name(),
                 explanation = name.explanation(),
+            )
+        }
+        CaptureError::Method { name, span } => {
+            let (line, column) = line_column(code, span.start);
+            format!(
+                "{filename}:{line}:{column}: a \"{directive}\" directive has no effect on a method: \
+                 {name} is not extracted, so its body would still run wherever it is called, \
+                 including in the browser. Assign a function to a property instead.",
             )
         }
     }
@@ -215,6 +230,28 @@ impl CaptureValidator<'_> {
             return;
         }
         self.error = Some(CaptureError::Implicit { name, span });
+    }
+
+    /// Reports a directive sitting on a method, getter, or setter. Skipped
+    /// inside an already-extracted server function: that whole body ships to
+    /// the server, so a directive within it changes nothing.
+    fn check_method_directive(
+        &mut self,
+        body: Option<&oxc_ast::ast::FunctionBody<'_>>,
+        key: &oxc_ast::ast::PropertyKey<'_>,
+        span: Span,
+    ) {
+        if self.error.is_some() || self.server_scope.is_some() {
+            return;
+        }
+        if !body.is_some_and(|body| self.body_has_directive(body)) {
+            return;
+        }
+        let name = key
+            .static_name()
+            .map(|name| format!("`{name}`"))
+            .unwrap_or_else(|| "this method".to_string());
+        self.error = Some(CaptureError::Method { name, span });
     }
 
     fn check_reference(&mut self, identifier: &oxc_ast::ast::IdentifierReference<'_>) {
@@ -348,11 +385,21 @@ impl<'a> Visit<'a> for CaptureValidator<'_> {
         self.check_implicit(Implicit::This, this.span);
     }
 
-    /// Same carve-out as the transform: `{ foo() {} }` object methods (and
-    /// getters/setters) are never extracted, so their directives are not
-    /// validated — but nested eligible functions inside them still are.
+    /// `{ foo() {} }` object methods and `{ get x() {} }` accessors are
+    /// never extracted by the transform, so a directive on one is reported.
+    /// Nested eligible functions inside them are still validated.
     fn visit_object_property(&mut self, property: &oxc_ast::ast::ObjectProperty<'a>) {
         if property.method || property.kind != PropertyKind::Init {
+            if let Expression::FunctionExpression(function) = &property.value {
+                self.check_method_directive(
+                    function.body.as_deref(),
+                    &property.key,
+                    property.span,
+                );
+            }
+            if self.error.is_some() {
+                return;
+            }
             self.visit_property_key(&property.key);
             match &property.value {
                 Expression::FunctionExpression(function) => {
@@ -369,5 +416,15 @@ impl<'a> Visit<'a> for CaptureValidator<'_> {
             return;
         }
         walk::walk_object_property(self, property);
+    }
+
+    /// Class methods, constructors, getters and setters are never extracted
+    /// either.
+    fn visit_method_definition(&mut self, method: &oxc_ast::ast::MethodDefinition<'a>) {
+        self.check_method_directive(method.value.body.as_deref(), &method.key, method.span);
+        if self.error.is_some() {
+            return;
+        }
+        walk::walk_method_definition(self, method);
     }
 }
