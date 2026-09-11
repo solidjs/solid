@@ -142,7 +142,7 @@ const handleClick = () => {
 };
 ```
 
-#### Cannot create nested primitives in forbidden scope
+#### `PRIMITIVE_IN_FORBIDDEN_SCOPE`
 
 **Message:** "Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled"
 
@@ -197,6 +197,54 @@ Calling `flush()` from inside `createTrackedEffect` or `onSettled` would cause r
 **Message:** "Potential Infinite Loop Detected."
 
 The flush cycle exceeded 100,000 iterations. This usually means a reactive write triggers a re-read that triggers another write, endlessly.
+
+#### `ACTION_CALLED_IN_OWNED_SCOPE`
+
+**Message:** "Calling an action inside an owned scope (component, computation) is not allowed. Call it from an event handler or another imperative scope."
+
+An `action()` was invoked from a component body or a computation. Actions are imperative transactions; start them from an event handler, an effect callback, or another imperative scope.
+
+#### `MISSING_EFFECT_FN`
+
+**Message:** "createEffect requires both a compute function and an effect function. Use `createEffect(() => signal(), value => doWork(value))`. …"
+
+`createEffect` was called with one function. There is no single-argument overload: a derived value is `createMemo`, a one-shot side effect is a plain call.
+
+#### `SYNC_NODE_RECEIVED_ASYNC`
+
+**Message:** "A computed/effect created with `sync: true` returned a Promise. The value would be stored as-is and never awaited in production; remove `sync: true` to use async-aware behavior, or unwrap the value before returning."
+
+A `sync: true` computation returned a thenable or async iterable. Sync nodes store what they return; the async machinery never sees it.
+
+#### `INVALID_REFRESH_TARGET`
+
+**Message:** "refresh() expects a Solid source accessor or refreshable store. Pass the original source target, not a wrapper function or derived property read."
+
+`refresh()` was handed something that does not resolve to a source node — a wrapper arrow, a derived read, a plain value.
+
+#### `INVALID_AFFECTS_TARGET`
+
+**Messages:** "affects() takes a single optional key — extra keys are not a path. …" / "affects() keys are only valid on store targets. An accessor is a single slot — pass it alone, or target the store record that owns the property."
+
+`affects()` was given a key path, or a key on an accessor. Mark one slot per call: `affects(record, key)` on a store record, `affects(accessor)` alone.
+
+#### `SETTLE_WALK_UNINITIALIZED_SOURCE`
+
+**Message:** "settlePendingSource was called on a source that never produced a value. Settling parked readers requires truth to reveal — an uninitialized source waking its dependents serves them its initial face instead of settled data."
+
+Internal consistency check on the async settle walk (see `packages/signals/docs/INTERNALS-ASYNC-STATE.md`). Reported, not thrown, in dev; a failure means the runtime contradicted itself, not that app code misbehaved — file it.
+
+#### `REACTIVITY_HALTED`
+
+**Message:** "An uncaught error halted the reactive system. No further updates will be processed. Handle errors with createErrorBoundary/<Errored> or treat this as a crash."
+
+A user error escaped every boundary and the scheduler stopped for good: app state is undefined at that point, so nothing limps on with a half-applied update. Emitted once, on the structured channel and to `console.error`; where the platform has `reportError`, the cause is handed to it as well, so `window.onerror` / error monitoring sees a halt that would otherwise leave a page that looks alive (a throw during the hydration render, #3338). The first write after a halt logs "Update ignored: the reactive system was halted" (once) and does nothing. Production halts the same way — the bare `[REACTIVITY_HALTED]` to `console.error`, the cause to `reportError` — without the structured event. An observability adapter should treat this code as a crash signal.
+
+#### `INVARIANT_VIOLATION`
+
+**Message:** "[INVARIANT_VIOLATION] <name>: <message>"
+
+A dev-mode internal consistency check failed (`data.invariant` names it; the catalog is in `packages/signals/docs/INTERNALS-ASYNC-STATE.md`). Thrown under `__TEST__` so the suite treats any violation as a hard failure; reported in dev builds so apps degrade instead of crashing. Like `SETTLE_WALK_UNINITIALIZED_SOURCE`, it means the runtime contradicted itself — file it with the reproduction.
 
 ### Warnings (console.warn in dev)
 
@@ -274,6 +322,12 @@ A `Loading` or `Errored` boundary was created without a parent owner.
 **Message:** "runWithOwner called with a disposed owner. Children created inside will never be disposed."
 
 The owner passed to `runWithOwner` has already been disposed. Any reactive primitives created inside will leak.
+
+#### `FLUSH_IN_EFFECT_CALLBACK`
+
+**Message:** "flush() called from inside an effect callback is a no-op: the flush that runs effects is already in progress. Writes made here are processed in the same flush's continuation; to force a drain afterwards, defer it: queueMicrotask(() => flush())."
+
+`flush()` from an effect callback does nothing — the drain that is running the effect will pick up its writes. (From `createTrackedEffect`/`onSettled` the same call throws instead; see "`flush()` inside forbidden scope" above.)
 
 #### `HUGE_FAN_OUT`
 
@@ -395,7 +449,7 @@ The design point: a hold is the stale-while-revalidate tool, right when the old 
 
 ## Programmatic diagnostics API
 
-In dev mode, `OBSERVE.diagnostics` provides two methods for tooling:
+In dev and observe builds, `OBSERVE.diagnostics` provides two methods for tooling (and `OBSERVE.exclude`/`isExcluded`, described under attribution, mark an observer's own subtree so neither channel reports it):
 
 ### `OBSERVE.diagnostics.subscribe(listener)`
 
@@ -425,49 +479,59 @@ const events = capture.stop();
 
 Each `DiagnosticEvent` has:
 
-| Field       | Type                          | Description                                                                                                                  |
-| ----------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `sequence`  | `number`                      | Monotonically increasing counter                                                                                             |
-| `code`      | `DiagnosticCode`              | Machine-readable code (e.g. `"STRICT_READ_UNTRACKED"`)                                                                       |
-| `kind`      | `DiagnosticKind`              | Category: `"strict-read"`, `"async"`, `"write"`, `"lifecycle"`, `"owner"`, `"perf"`, `"graph"`, `"responsiveness"`           |
-| `severity`  | `"info" \| "warn" \| "error"` | `error` throws, `warn` logs; `info` is advisory (structured channel only — budget/assertion consumers should not fail on it) |
-| `message`   | `string`                      | Human-readable message                                                                                                       |
-| `ownerId`   | `string?`                     | ID of the reactive owner where the diagnostic occurred                                                                       |
-| `ownerName` | `string?`                     | Debug name of the owner                                                                                                      |
-| `ownerPath` | `string[]?`                   | Owner chain root-first (`["<App>", "<TodoRow>", "effect"]`) — the console's `in` line                                        |
-| `nodeName`  | `string?`                     | Debug name of the signal/node involved                                                                                       |
-| `data`      | `object?`                     | Additional context                                                                                                           |
+| Field       | Type                          | Description                                                                                                                   |
+| ----------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `sequence`  | `number`                      | Monotonically increasing counter                                                                                              |
+| `code`      | `DiagnosticCode`              | Machine-readable code (e.g. `"STRICT_READ_UNTRACKED"`)                                                                        |
+| `kind`      | `DiagnosticKind`              | Category: `"strict-read"`, `"async"`, `"write"`, `"lifecycle"`, `"owner"`, `"error"`, `"perf"`, `"graph"`, `"responsiveness"` |
+| `severity`  | `"info" \| "warn" \| "error"` | `error` throws, `warn` logs; `info` is advisory (structured channel only — budget/assertion consumers should not fail on it)  |
+| `message`   | `string`                      | Human-readable message                                                                                                        |
+| `ownerId`   | `string?`                     | ID of the reactive owner where the diagnostic occurred                                                                        |
+| `ownerName` | `string?`                     | Debug name of the owner                                                                                                       |
+| `ownerPath` | `string[]?`                   | Owner chain root-first (`["<App>", "<TodoRow>", "effect"]`) — the console's `in` line                                         |
+| `nodeName`  | `string?`                     | Debug name of the signal/node involved                                                                                        |
+| `data`      | `object?`                     | Additional context                                                                                                            |
 
 ## Diagnostic codes (quick reference)
 
-| Code                             | Severity  | Category       | Trigger                                                                                                                    |
-| -------------------------------- | --------- | -------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `REACTIVE_WRITE_IN_OWNED_SCOPE`  | error     | write          | Reactive write/invalidation inside component/computation                                                                   |
-| `PENDING_ASYNC_UNTRACKED_READ`   | error     | async          | Reading pending async outside tracking scope                                                                               |
-| `ASYNC_OUTSIDE_LOADING_BOUNDARY` | warn      | async          | Async computation outside Loading boundary (non-halting; root mount is deferred)                                           |
-| `CLEANUP_IN_FORBIDDEN_SCOPE`     | error     | lifecycle      | `onCleanup` inside trackedEffect/onSettled                                                                                 |
-| `SETTLED_CLEANUP_UNOWNED`        | error     | lifecycle      | `onSettled` returned a cleanup in an unowned (out-of-band) scope                                                           |
-| `STRICT_READ_UNTRACKED`          | warn      | strict-read    | Untracked reactive read in component/effect body                                                                           |
-| `PENDING_ASYNC_FORBIDDEN_SCOPE`  | warn      | async          | Pending async read in trackedEffect/onSettled                                                                              |
-| `NO_OWNER_EFFECT`                | warn      | lifecycle      | Effect created without reactive owner                                                                                      |
-| `NO_OWNER_CLEANUP`               | warn      | lifecycle      | `onCleanup` called without owner                                                                                           |
-| `NO_OWNER_BOUNDARY`              | warn      | lifecycle      | Boundary created without owner                                                                                             |
-| `RUN_WITH_DISPOSED_OWNER`        | warn      | owner          | `runWithOwner` with disposed owner                                                                                         |
-| `HUGE_FAN_OUT`                   | warn      | graph          | One change reached 2000 live subscribers (always on)                                                                       |
-| `HUGE_FAN_IN`                    | warn      | graph          | One recompute tracked 2000 sources (always on)                                                                             |
-| `HOT_SCOPE_RERUNS`               | warn      | perf           | 120+ re-runs of one scope in 1s (attribution enabled)                                                                      |
-| `HOT_SCOPE_FANOUT`               | warn      | perf           | 5+/50+/500+ scopes hot from one root cause (attribution enabled)                                                           |
-| `HOT_SCOPE_TIME`                 | warn      | perf           | 8ms+ self-time in one scope in 1s (attribution enabled)                                                                    |
-| `WIDE_SCOPE_DEPS`                | warn      | perf           | Scope subscribed to 30+ sources (attribution enabled)                                                                      |
-| `WIDE_WRITE`                     | warn      | perf           | Committed write reached 250+ subscribers (attribution enabled)                                                             |
-| `ASYNC_WATERFALL`                | info/warn | perf           | 2+/3+ origin-proven sequential async flights (attribution enabled)                                                         |
-| `UNSTABLE_MEMO_OUTPUT`           | warn      | perf           | Memo returned a new-but-equivalent container 4+ runs running (attribution enabled)                                         |
-| `EFFECT_WRITES_OWN_SOURCE`       | info/warn | perf           | Effect's write provably feeds back into its own inputs; `info` for multi-effect rings (attribution enabled)                |
-| `EFFECT_RELAY_TEAR`              | info/warn | perf           | Reader ran twice for one root change because an effect relayed it; `warn` when derivable or repeated (attribution enabled) |
-| `IMMUTABLE_UPDATE_IN_STORE`      | warn      | perf           | Store container replaced by a mostly-identical copy (attribution enabled)                                                  |
-| `UNSTABLE_LIST_IDENTITY`         | warn      | perf           | `mapArray`/`For` recreated rows for equivalent items (attribution enabled)                                                 |
-| `SILENT_HOLD`                    | info/warn | responsiveness | Write held 100ms+/200ms+ by pending async with no on-screen acknowledgement (attribution enabled)                          |
-| `LONG_HOLD`                      | info/warn | responsiveness | Acknowledged hold whose tail (last input → commit) ran 500ms+/1000ms+ (attribution enabled)                                |
+| Code                               | Severity  | Category       | Trigger                                                                                                                    |
+| ---------------------------------- | --------- | -------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `REACTIVE_WRITE_IN_OWNED_SCOPE`    | error     | write          | Reactive write/invalidation inside component/computation                                                                   |
+| `PENDING_ASYNC_UNTRACKED_READ`     | error     | async          | Reading pending async outside tracking scope                                                                               |
+| `ASYNC_OUTSIDE_LOADING_BOUNDARY`   | warn      | async          | Async computation outside Loading boundary (non-halting; root mount is deferred)                                           |
+| `CLEANUP_IN_FORBIDDEN_SCOPE`       | error     | lifecycle      | `onCleanup` inside trackedEffect/onSettled                                                                                 |
+| `SETTLED_CLEANUP_UNOWNED`          | error     | lifecycle      | `onSettled` returned a cleanup in an unowned (out-of-band) scope                                                           |
+| `PRIMITIVE_IN_FORBIDDEN_SCOPE`     | error     | lifecycle      | Reactive primitive created inside trackedEffect/onSettled                                                                  |
+| `ACTION_CALLED_IN_OWNED_SCOPE`     | error     | write          | `action()` invoked from a component body or computation                                                                    |
+| `MISSING_EFFECT_FN`                | error     | lifecycle      | `createEffect` called without the effect function                                                                          |
+| `SYNC_NODE_RECEIVED_ASYNC`         | error     | lifecycle      | `sync: true` computation returned a Promise / AsyncIterable                                                                |
+| `INVALID_REFRESH_TARGET`           | error     | write          | `refresh()` target is not a source accessor or refreshable store                                                           |
+| `INVALID_AFFECTS_TARGET`           | error     | write          | `affects()` given a key path, or a key on an accessor                                                                      |
+| `REACTIVITY_HALTED`                | error     | error          | Uncaught error escaped every boundary; scheduling stopped (reported, cause to `reportError`)                               |
+| `INVARIANT_VIOLATION`              | error     | error          | Internal consistency check failed (throws under `__TEST__`, reported in dev)                                               |
+| `SETTLE_WALK_UNINITIALIZED_SOURCE` | error     | lifecycle      | Internal: settle walk reached a source that never produced a value (reported)                                              |
+| `STRICT_READ_UNTRACKED`            | warn      | strict-read    | Untracked reactive read in component/effect body                                                                           |
+| `PENDING_ASYNC_FORBIDDEN_SCOPE`    | warn      | async          | Pending async read in trackedEffect/onSettled                                                                              |
+| `NO_OWNER_EFFECT`                  | warn      | lifecycle      | Effect created without reactive owner                                                                                      |
+| `NO_OWNER_CLEANUP`                 | warn      | lifecycle      | `onCleanup` called without owner                                                                                           |
+| `NO_OWNER_BOUNDARY`                | warn      | lifecycle      | Boundary created without owner                                                                                             |
+| `RUN_WITH_DISPOSED_OWNER`          | warn      | owner          | `runWithOwner` with disposed owner                                                                                         |
+| `FLUSH_IN_EFFECT_CALLBACK`         | warn      | lifecycle      | `flush()` from an effect callback (no-op; the drain is already running)                                                    |
+| `HUGE_FAN_OUT`                     | warn      | graph          | One change reached 2000 live subscribers (always on)                                                                       |
+| `HUGE_FAN_IN`                      | warn      | graph          | One recompute tracked 2000 sources (always on)                                                                             |
+| `HOT_SCOPE_RERUNS`                 | warn      | perf           | 120+ re-runs of one scope in 1s (attribution enabled)                                                                      |
+| `HOT_SCOPE_FANOUT`                 | warn      | perf           | 5+/50+/500+ scopes hot from one root cause (attribution enabled)                                                           |
+| `HOT_SCOPE_TIME`                   | warn      | perf           | 8ms+ self-time in one scope in 1s (attribution enabled)                                                                    |
+| `WIDE_SCOPE_DEPS`                  | warn      | perf           | Scope subscribed to 30+ sources (attribution enabled)                                                                      |
+| `WIDE_WRITE`                       | warn      | perf           | Committed write reached 250+ subscribers (attribution enabled)                                                             |
+| `ASYNC_WATERFALL`                  | info/warn | perf           | 2+/3+ origin-proven sequential async flights (attribution enabled)                                                         |
+| `UNSTABLE_MEMO_OUTPUT`             | warn      | perf           | Memo returned a new-but-equivalent container 4+ runs running (attribution enabled)                                         |
+| `EFFECT_WRITES_OWN_SOURCE`         | info/warn | perf           | Effect's write provably feeds back into its own inputs; `info` for multi-effect rings (attribution enabled)                |
+| `EFFECT_RELAY_TEAR`                | info/warn | perf           | Reader ran twice for one root change because an effect relayed it; `warn` when derivable or repeated (attribution enabled) |
+| `IMMUTABLE_UPDATE_IN_STORE`        | warn      | perf           | Store container replaced by a mostly-identical copy (attribution enabled)                                                  |
+| `UNSTABLE_LIST_IDENTITY`           | warn      | perf           | `mapArray`/`For` recreated rows for equivalent items (attribution enabled)                                                 |
+| `SILENT_HOLD`                      | info/warn | responsiveness | Write held 100ms+/200ms+ by pending async with no on-screen acknowledgement (attribution enabled)                          |
+| `LONG_HOLD`                        | info/warn | responsiveness | Acknowledged hold whose tail (last input → commit) ran 500ms+/1000ms+ (attribution enabled)                                |
 
 ## Run attribution — "why did this run"
 
@@ -578,7 +642,7 @@ Two things about the frame are read late, on purpose:
 
 - **The ref is re-read at settle.** The engine keeps the object passed to `withOrigin` and copies `name`, `to` and `params` from it again when the navigation settles (and when a hold on it is judged). A router whose match is not final at write time — a lazy route subtree that resolves inside the hold — describes coarsely (`/admin/*`), then assigns the exact pattern and params onto the same object once it knows them; the settled record, the hold's verdict and the feedback row all read the refined name. `from` and `at` are read once, when the frame opens.
 - **A redirect is a hop, not a new navigation.** A router declares a redirect with `redirect: n` (`n >= 1`, the hop depth it already tracks). The engine re-enters the pending navigation's frame instead of opening one: the hop's write replaces the pending one with the same origin, so nothing is superseded; the record keeps the user's request time and interaction, so `settledMs` runs from the click, not the hop; the abandoned destination moves to `redirects`. With no pending navigation to fold onto, a `redirect` frame opens a navigation of its own.
-- **One rule for every router: wrap the write whose landing is the destination showing.** Solid Router's navigation is a location write whose downstream the runtime holds until route data lands, so "writes through" is "navigation done" and the frame goes around that write. A router that awaits part of its pipeline outside the graph (TanStack Router's load transaction: the location moves at once, matches are published only when the loaders resolve) wraps the _publish_ instead, and passes `at: startedAt` — the user's request time, on the `performance.now()` clock — so the span starts at the click rather than at the write. The engine has no router-specific seam beyond that: a navigation the router abandons before it publishes is the router's to report, and the wait it owns is inside `settledMs` only through `at`. (Making the loader wait itself part of the transition, so the location write is the one to wrap, is router work — see the Solid 2 TanStack adapter.) `params` values may be `undefined` (an optional segment left unbound).
+- **One rule for every router: wrap the write whose landing is the destination showing.** Solid Router's navigation is a location write whose downstream the runtime holds until route data lands, so "writes through" is "navigation done" and the frame goes around that write. A router that awaits part of its pipeline outside the graph (TanStack Router's load transaction: the location moves at once, matches are published only when the loaders resolve) wraps the _publish_ instead, and passes `at: startedAt` — the user's request time, on the `performance.now()` clock — so the span starts at the click rather than at the write. The engine has no router-specific seam beyond that: a navigation the router abandons before it publishes is the router's to report, and the wait it owns is inside `settledMs` only through `at`. (Making the loader wait itself part of the transition, so the location write is the one to wrap, is router work — planned for the Solid 2 TanStack adapter, not yet done.) `params` values may be `undefined` (an optional segment left unbound).
 
 A navigation that changed nothing (no write survived the equality gate) settles at once with `writes: 0`. `formatOrigin` renders the kind as `navigation to /users/:id (/users/42)` — after a redirect, `navigation to /login (redirected from /users/42)` — and cause chains under a click read `— navigation to /users/:id (under click on a.nav "Alice")`. `feedback().navigations` folds settled events per route (the final one, after redirects).
 
