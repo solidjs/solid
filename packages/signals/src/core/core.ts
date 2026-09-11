@@ -606,8 +606,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // (el._x?._error re-set), so this only runs on a genuinely clean recovery.
     if (!valueChanged && !el._x?._error) {
       if (outgoingError !== undefined) settleErroredDependents(el, outgoingError);
+      // Self-registration (this node's own superseded flight) is the #3181
+      // sweep's business below — retiring it here too would walk twice.
       if (outgoingPendingSources)
-        for (const source of outgoingPendingSources) settlePendingSource(el, source);
+        for (const source of outgoingPendingSources)
+          if (source !== el) settlePendingSource(el, source);
     }
 
     // #3181: a synchronous settle supersedes the old landing callback, so

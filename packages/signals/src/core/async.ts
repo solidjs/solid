@@ -249,7 +249,11 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
   const settle = (node: Computed<any>) => {
     if (visited.has(node)) return;
     // A conditional dropped this source, but another dependency can still
-    // carry it. Only retire pending state inherited through the recovered branch.
+    // carry it. Only retire pending state inherited through the recovered
+    // branch. Deliberately NOT marked visited on this early return: the
+    // carrying dependency may itself be a later branch of this same walk
+    // (two unchanged memos converging), and its visit must be free to
+    // re-examine this node once that branch has retired the source.
     if (source !== el && retryReaches(node, source)) return;
     if (!removePendingSource(node, source)) return;
     visited.add(node);

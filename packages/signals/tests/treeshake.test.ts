@@ -226,8 +226,9 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // The lane predicate itself (`resolveLane`) shakes out. On the #3337
     // stack the same fixes measured +485 B (22,381 -> 22,866). Measured at
     // 22,457; 43 bytes of headroom.
-    // Conditional pending recovery adds 184 B over next at b5bd6fba
-    // (22,457 → 22,641 B), including the alternate dependency path guard.
+    // Conditional pending recovery adds 191 B over next at b5bd6fba
+    // (22,457 → 22,648 B), including the alternate dependency path guard
+    // and the self-source skip that leaves the #3181 sweep as the one walk.
     expect(minifiedBytes).toBeLessThan(22_700);
   });
 
