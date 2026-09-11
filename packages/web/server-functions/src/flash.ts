@@ -128,7 +128,18 @@ export function encodeFlashCookie(url, result, input, thrown) {
 }
 
 function flashCookie(payload) {
-  return serializeCookie(FLASH_COOKIE, JSON.stringify(payload), { secure: true, httpOnly: true });
+  // `path` and `secure` are required by the `__Host-` prefix. See the note on
+  // FLASH_COOKIE for why the prefix is used. They are set here rather than
+  // left to a default so the requirement is visible at the call site.
+  // `SameSite=Lax` is set for the same reason. Browsers disagree on what an
+  // omitted value means, and the cookie only has to survive the handler's own
+  // redirect, which is a top-level same-site navigation.
+  return serializeCookie(FLASH_COOKIE, JSON.stringify(payload), {
+    path: "/",
+    secure: true,
+    httpOnly: true,
+    sameSite: "lax"
+  });
 }
 
 // The browser ceiling is 4096 bytes of `name=value` (RFC 6265bis §5.6);
@@ -159,8 +170,14 @@ export function decodeFlashCookie(cookieHeader) {
   if (!match) return;
   try {
     const payload = JSON.parse(match);
-    if (!payload || !payload.result) return;
-    const result = payload.error ? new Error(payload.result) : payload.result;
+    // Checked on shape, not on whether the result is truthy. A call that
+    // returned `false`, `0`, `""`, or `null` is still a submission, and a
+    // truthiness check reported those as nothing submitted. That makes a user
+    // retry a mutation that already committed.
+    // `url` is the field the encoder always writes, so it identifies the
+    // payload as ours.
+    if (!payload || typeof payload !== "object" || typeof payload.url !== "string") return;
+    const result = payload.error ? new Error(String(payload.result)) : payload.result;
     const submission = {
       input: Array.isArray(payload.input) ? payload.input.map(decodeInputValue) : [],
       url: payload.url,

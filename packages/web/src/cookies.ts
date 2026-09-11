@@ -165,8 +165,16 @@ function assertServableCookie(name: string, options: CookieOptions): void {
 // the transport + codec, which a router-only app never ships. The codec
 // that fills and decodes the cookie is server-only and stays behind the
 // server-functions server entry (server-functions/flash.js).
-export const FLASH_COOKIE = "flash";
+//
+// The `__Host-` prefix is required, not cosmetic. Nothing authenticates the
+// payload, and signing it would need a deployment secret this runtime has no
+// channel for. The prefix gets the same protection from the browser instead.
+// Browsers refuse a `__Host-` cookie that carries `Domain`, and `Domain` is
+// what would let a sibling subdomain set this cookie for the app and forge a
+// successful submission outcome.
+export const FLASH_COOKIE = "__Host-flash";
 
+// The name has no regular-expression metacharacter, so it interpolates as is.
 const FLASH_MATCHER = new RegExp(`(?:^|;\\s*)${FLASH_COOKIE}=([^;]+)`);
 
 /** Whether a Cookie header carries a flash cookie (readable or not). */
@@ -182,5 +190,14 @@ export function matchFlashCookie(cookieHeader: string | null): string | undefine
 
 /** The Set-Cookie value clearing the flash cookie after it has been read. */
 export function clearFlashCookie(): string {
-  return `${FLASH_COOKIE}=; Max-Age=0; Path=/`;
+  // A deletion must meet the `__Host-` rules too. Otherwise the browser
+  // rejects it and the outcome is sent on every later request.
+  // Built with `serializeCookie` so the dev assert checks this shape as well.
+  return serializeCookie(FLASH_COOKIE, "", {
+    maxAge: 0,
+    path: "/",
+    secure: true,
+    httpOnly: true,
+    sameSite: "lax"
+  });
 }
