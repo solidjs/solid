@@ -21,7 +21,7 @@ use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_parser::{ParseOptions, Parser};
 
 use crate::config::source_type_for_filename;
-use transform::{DirectivesTransform, Env, ImportDef, ImportKind, Mode};
+use transform::{DirectivesTransform, Env, ImportDef, ImportKind, Mode, UnsupportedExport};
 
 const DEFAULT_RUNTIME: &str = "@solidjs/web/server-functions";
 
@@ -147,12 +147,19 @@ pub fn transform_directives(
         &allocator,
         mode,
         env,
-        directive,
+        directive.clone(),
         hash,
         import_def(options.register.as_ref(), "registerServerReference"),
         import_def(options.create.as_ref(), "createServerReference"),
     );
-    pass.run(&mut program);
+    if let Err(unsupported) = pass.run(&mut program) {
+        return Err(Error::from_reason(format_unsupported_export(
+            unsupported,
+            &code,
+            filename,
+            &directive,
+        )));
+    }
 
     let valid = pass.valid;
     let functions = pass
@@ -208,6 +215,28 @@ pub fn transform_directives(
         valid,
         functions,
     })
+}
+
+/// The message for an export a module-level directive cannot register. The
+/// client build of such a module is rebuilt from its server-function exports
+/// alone, so an export the pass cannot trace would be missing from the
+/// browser bundle while the server build still has it. That used to compile
+/// and fail later as a missing-export error with nothing pointing back here.
+fn format_unsupported_export(
+    unsupported: UnsupportedExport,
+    code: &str,
+    filename: &str,
+    directive: &str,
+) -> String {
+    let (line, column) = validate::line_column(code, unsupported.span.start);
+    format!(
+        "{filename}:{line}:{column}: a \"{directive}\" module can only export server \
+         functions: `{name}` {clause}. The client build of this module is rebuilt from \
+         its server-function exports alone, so this export would be missing from it. {hint}",
+        name = unsupported.name,
+        clause = unsupported.reason.clause(),
+        hint = unsupported.reason.hint(),
+    )
 }
 
 fn import_def(option: Option<&DirectiveImportOption>, default_name: &str) -> ImportDef {

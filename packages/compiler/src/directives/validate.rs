@@ -162,7 +162,7 @@ fn format_error(error: CaptureError, code: &str, filename: &str, directive: &str
 }
 
 /// 1-based line/column for a byte offset.
-fn line_column(code: &str, offset: u32) -> (usize, usize) {
+pub(crate) fn line_column(code: &str, offset: u32) -> (usize, usize) {
     let offset = (offset as usize).min(code.len());
     let before = &code[..offset];
     let line = before.matches('\n').count() + 1;
