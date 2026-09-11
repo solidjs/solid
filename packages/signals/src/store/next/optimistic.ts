@@ -108,7 +108,10 @@ function installNextBlockedHalf(): void {
     applyTentative,
     retainsOptimism: transitionHoldsOptimism
   });
-  setNextOptimisticViewResolver((t: StoreNextTarget, raw: any) => optimisticView(t, raw));
+  // The declaration walk is a writer channel: `affects(record)` after a
+  // same-tick optimistic push covers the pushed row (A28(5) — the walk reads
+  // the tick's parked writes ahead of the flushed overrides, as a draft does).
+  setNextOptimisticViewResolver((t: StoreNextTarget, raw: any) => optimisticView(t, raw, true));
   // Scheduler flush tails call _clearOptimisticStores whenever tracked
   // stores exist; next has no layer to clear — reverts are engine-native —
   // so the hook only empties the batch set.

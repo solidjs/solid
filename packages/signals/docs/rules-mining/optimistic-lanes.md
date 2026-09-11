@@ -9,7 +9,7 @@ Scope note: CO contains **no store-form tests** — it is entirely the signal/co
 **R1.** `createOptimistic(value | fn)` returns `[accessor, setter]`; the accessor returns the initial or computed value; the setter accepts a value or an updater function.
 - Evidence: CO — "should store and return value on read", "should update signal via update function and revert on flush"
 
-**R2.** ~~An optimistic write is synchronously visible to direct reads before any flush — inside the action body, outside it, and outside any reactive context.~~ **Superseded 2026-09-10 by A28(5)** (SPEC-ASYNC-SEMANTICS.md): an optimistic write becomes the active override at the flush that carries it; before that, only the setter's own updater (and a store draft) sees it. The cited tests were re-expected in place.
+**R2.** ~~An optimistic write is synchronously visible to direct reads before any flush — inside the action body, outside it, and outside any reactive context.~~ **Superseded 2026-09-10 by A28(5)** (SPEC-ASYNC-SEMANTICS.md): an optimistic write becomes the active override at the flush that carries it; before that, only the writer channels — the setter's own updater, a store draft, the `affects()` declaration walk — see it. The cited tests were re-expected in place.
 - Evidence: CO — "should update signal via setter and revert on flush", "reading outside reactive context…", "rapid user actions: multiple selections before first resolves"
 
 **R3.** The setter's updater receives the current *visible* (optimistic-if-overridden) value, never the committed value; a plain setter on the underlying source during a transition composes on the transition's *pending* value. The two compose independently.

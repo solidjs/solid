@@ -607,9 +607,10 @@ describe("affects — the declaration verb", () => {
     const send = action(function* () {
       setState(s => {
         s.messages.push({ text: "new", status: "sending" });
-        // A28: the pushed row is not readable through `state` until the flush
-        // carries the write, so a row born in this write is declared on the
-        // draft — the writer's channel, which composes on its own writes.
+        // A28: `state.messages[1]` is undefined until the flush carries the
+        // push, so the slot form names the row on the draft (a keyless
+        // `affects(state.messages)` would cover it — the walk is a writer
+        // channel — but here only `status` should pend).
         affects(s.messages[1], "status");
       });
       yield new Promise<void>(r => (resolveSend = r));
@@ -905,10 +906,6 @@ describe("affects — captured proxies (#2882)", () => {
       setState(s => {
         s.rows.push({ name: "c", tags: { primary: "z" } });
       });
-      // A28: the push is visible once a flush has carried it — after the
-      // yield, not before (a same-tick declaration would snapshot the
-      // pre-push view; see "not visible at declaration time" below).
-      yield Promise.resolve();
       affects(state); // second mark while the first is live: must re-snapshot
       yield new Promise<void>(r => (resolveSecond = r));
     });
@@ -918,10 +915,7 @@ describe("affects — captured proxies (#2882)", () => {
     const doneSecond = second();
     flush();
     const added = state.rows[2];
-    expect(added.name).toBe("c"); // the flush carried the push…
-    expect(isPending(() => added.name)).toBe(false); // …the second declaration has not run yet
-    await tick();
-    flush();
+    expect(added.name).toBe("c");
     expect(isPending(() => added.name)).toBe(true); // in the second declaration's scope
 
     resolveFirst();
@@ -942,11 +936,10 @@ describe("affects — captured proxies (#2882)", () => {
     expect(() => (affects as any)(state, "rows", "length")).toThrow(/single optional key/);
   });
 
-  // A28: an optimistic write is visible at flush, to every channel — the
-  // declaration walk included. A record pushed in the same tick is not in
-  // the flushed view the walk snapshots; the writer declares it on the
-  // draft instead (the writer's channel composes on its own writes).
-  it("a record written in the same tick is not visible at declaration time", async () => {
+  // A28(5): the optimistic write is not readable through `state` until the
+  // flush carries it, but the declaration walk is a writer channel — tagging
+  // the parent covers the whole record, the row this tick pushed included.
+  it("optimistically written records are covered by a same-tick affects(parent)", async () => {
     const [state, setState] = createOptimisticStore<{ rows: Row[] }>({ rows: seedRows() });
 
     let resolveIt!: () => void;
@@ -954,23 +947,28 @@ describe("affects — captured proxies (#2882)", () => {
       setState(s => {
         s.rows.push({ name: "c", tags: { primary: "z" } });
       });
-      affects(state); // declared after the write, before any flush: snapshots the pre-push view
+      expect(state.rows.length).toBe(2); // the push is not visible to readers yet…
+      affects(state); // …but the walk reads the tick's parked writes
       yield new Promise<void>(r => (resolveIt = r));
     });
 
     const done = act();
     flush();
     const added = state.rows[2];
-    expect(added.name).toBe("c"); // the flush carried the push…
-    expect(isPending(() => state.rows[0].name)).toBe(true); // …the seeded rows are in scope…
-    expect(isPending(() => added.name)).toBe(false); // …the unflushed one was not
+    expect(added.name).toBe("c");
+    expect(isPending(() => state.rows[0].name)).toBe(true);
+    expect(isPending(() => added.name)).toBe(true);
+    expect(isPending(() => added.tags.primary)).toBe(true);
 
     resolveIt();
     await done;
     flush();
     expect(isPending(() => state.rows[0].name)).toBe(false);
+    expect(isPending(() => added.name)).toBe(false);
   });
 
+  // The slot form names a record: a row born in this tick's write is not
+  // readable through `state`, so it is named on the draft.
   it("a record written in the same tick is covered when declared on the draft", async () => {
     const [state, setState] = createOptimisticStore<{ rows: Row[] }>({ rows: seedRows() });
 
