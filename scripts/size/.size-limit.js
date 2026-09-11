@@ -185,7 +185,14 @@ module.exports = [
     // comparison, lane demotion, replay gating, the landing) lives in
     // optimistic.ts and shakes out of this floor. In-package floor 22,252 ->
     // 22,737.
-    limit: "8.40 KB",
+    //
+    // Conditional pending recovery (#3371, 2026-09-11): a memo that drops
+    // a pending source and recovers to an unchanged value retires that
+    // source from the dependents it orphaned (settlePendingSource takes a
+    // `source`; retryReaches is core-retained as the alternate-path
+    // guard). +191 B minified in the in-package floor (22,457 -> 22,648);
+    // measured here at 8428 B against the 8.40 KB cap.
+    limit: "8.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -488,7 +495,14 @@ module.exports = [
     // store landing (`landOnOverride`), the per-node merged-lane hold
     // (`laneHeld` over `waitingTransition`), `laneLive`, and the
     // lane-routed settle entering the waiting transaction.
-    limit: "10.70 KB",
+    //
+    // Conditional pending recovery (#3371, 2026-09-11): a memo that drops
+    // a pending source and recovers to an unchanged value retires that
+    // source from the dependents it orphaned (settlePendingSource takes a
+    // `source`; retryReaches is core-retained as the alternate-path
+    // guard). +191 B minified in the in-package floor (22,457 -> 22,648);
+    // measured here at 10713 B against the 10.70 KB cap.
+    limit: "10.75 KB",
     modifyEsbuildConfig
   },
   {
@@ -650,7 +664,14 @@ module.exports = [
     // at 18529 B against `next`'s 18295 (+234 B) — the core seams (see the
     // core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
-    limit: "18.56 KB",
+    //
+    // Conditional pending recovery (#3371, 2026-09-11): a memo that drops
+    // a pending source and recovers to an unchanged value retires that
+    // source from the dependents it orphaned (settlePendingSource takes a
+    // `source`; retryReaches is core-retained as the alternate-path
+    // guard). +191 B minified in the in-package floor (22,457 -> 22,648);
+    // measured here at 18622 B against the 18.56 KB cap.
+    limit: "18.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -779,7 +800,14 @@ module.exports = [
     // `notifyOptimisticWrites` judging against the view readers see, and
     // the authoritative landing on an override-covered node dispatching to
     // the engine.
-    limit: "28.24 KB",
+    //
+    // Conditional pending recovery (#3371, 2026-09-11): a memo that drops
+    // a pending source and recovers to an unchanged value retires that
+    // source from the dependents it orphaned (settlePendingSource takes a
+    // `source`; retryReaches is core-retained as the alternate-path
+    // guard). +191 B minified in the in-package floor (22,457 -> 22,648);
+    // measured here at 28268 B against the 28.24 KB cap.
+    limit: "28.30 KB",
     modifyEsbuildConfig
   },
   {
@@ -838,7 +866,14 @@ module.exports = [
     // at 13921 B against `next`'s 13738 (+183 B) — the core seams (see the
     // core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
-    limit: "13.95 KB",
+    //
+    // Conditional pending recovery (#3371, 2026-09-11): a memo that drops
+    // a pending source and recovers to an unchanged value retires that
+    // source from the dependents it orphaned (settlePendingSource takes a
+    // `source`; retryReaches is core-retained as the alternate-path
+    // guard). +191 B minified in the in-package floor (22,457 -> 22,648);
+    // measured here at 13975 B against the 13.95 KB cap.
+    limit: "14.00 KB",
     modifyEsbuildConfig
   },
   {
@@ -893,7 +928,14 @@ module.exports = [
     // at 15269 B against `next`'s 15037 (+232 B) — the core seams (see the
     // core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
-    limit: "15.30 KB",
+    //
+    // Conditional pending recovery (#3371, 2026-09-11): a memo that drops
+    // a pending source and recovers to an unchanged value retires that
+    // source from the dependents it orphaned (settlePendingSource takes a
+    // `source`; retryReaches is core-retained as the alternate-path
+    // guard). +191 B minified in the in-package floor (22,457 -> 22,648);
+    // measured here at 15371 B against the 15.30 KB cap.
+    limit: "15.40 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -968,7 +1010,14 @@ module.exports = [
     // at 26819 B against `next`'s 26652 (+167 B) — the core seams (see the
     // core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
-    limit: "26.85 KB",
+    //
+    // Conditional pending recovery (#3371, 2026-09-11): a memo that drops
+    // a pending source and recovers to an unchanged value retires that
+    // source from the dependents it orphaned (settlePendingSource takes a
+    // `source`; retryReaches is core-retained as the alternate-path
+    // guard). +191 B minified in the in-package floor (22,457 -> 22,648);
+    // measured here at 26888 B against the 26.85 KB cap.
+    limit: "26.92 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
