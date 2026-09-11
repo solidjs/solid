@@ -920,7 +920,13 @@ module.exports = [
     // 28299 B. The base branch's promotion hot-path fix (+27 B raw) and A28
     // for optimistic writes (+52 B raw) arriving under the lane-authority
     // seams; see those notes on #3337.
-    limit: "28.30 KB",
+    //
+    // Rebased on #3337 @ 05bcc711 (2026-09-10): 28.30 -> 28.35 KB, measured at
+    // 28344 B. The affects() declaration walk composing the tick's optimistic
+    // writes (`optimisticView(t, raw, true)`) — a one-argument change whose
+    // brotli fallout lands here, on the branch already carrying the store
+    // twins that touch the same seam.
+    limit: "28.35 KB",
     modifyEsbuildConfig
   },
   {
