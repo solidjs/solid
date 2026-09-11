@@ -460,7 +460,11 @@ module.exports = [
     // 15335 B. The base branch's promotion hot-path fix (+27 B raw) and A28
     // for optimistic writes (+52 B raw) arriving under the lane-authority
     // seams; see those notes on #3337.
-    limit: "15.42 KB",
+    //
+    // Rebased on #3337 @ 451f0879 (on `next` @ 6bf2bf85, 2026-09-11): 15.34 ->
+    // 15.45 KB, measured at 15401 B (was 15335). `next`'s #3351/#3352 store
+    // bytes (see #3337's note) under the lane-authority store twins.
+    limit: "15.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -573,7 +577,11 @@ module.exports = [
     // 10926 B. The base branch's promotion hot-path fix (+27 B raw) and A28
     // for optimistic writes (+52 B raw) arriving under the lane-authority
     // seams; see those notes on #3337.
-    limit: "10.93 KB",
+    //
+    // Rebased on #3337 @ 451f0879 (on `next` @ 6bf2bf85, 2026-09-11): 10.93 ->
+    // 10.98 KB, measured at 10949 B (was 10926). `next`'s #3350/#3351 core
+    // bytes (see #3337's note) under the lane engine this scenario retains.
+    limit: "10.98 KB",
     modifyEsbuildConfig
   },
   {
@@ -656,7 +664,11 @@ module.exports = [
     // Lane authority (#3335, #3334, #3330, #3331; #3347, 2026-09-10): 11.05 ->
     // 11.27 KB, measured at 11242 B — the core seams (see the core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
-    limit: "11.27 KB",
+    //
+    // Rebased on #3337 @ 451f0879 (on `next` @ 6bf2bf85, 2026-09-11): 11.27 ->
+    // 11.32 KB, measured at 11292 B (was 11242). `next`'s #3350/#3351 core
+    // bytes (see #3337's note).
+    limit: "11.32 KB",
     modifyEsbuildConfig
   },
   {
@@ -926,7 +938,11 @@ module.exports = [
     // writes (`optimisticView(t, raw, true)`) — a one-argument change whose
     // brotli fallout lands here, on the branch already carrying the store
     // twins that touch the same seam.
-    limit: "28.35 KB",
+    //
+    // Rebased on #3337 @ 451f0879 (on `next` @ 6bf2bf85, 2026-09-11): 28.35 ->
+    // 28.50 KB, measured at 28444 B (was 28344). `next`'s #3351/#3352 store
+    // bytes and #3350 core bytes (see #3337's note) under the store twins.
+    limit: "28.50 KB",
     modifyEsbuildConfig
   },
   {
@@ -999,7 +1015,11 @@ module.exports = [
     // 14087 B. The base branch's promotion hot-path fix (+27 B raw) and A28
     // for optimistic writes (+52 B raw) arriving under the lane-authority
     // seams; see those notes on #3337.
-    limit: "14.09 KB",
+    //
+    // Rebased on #3337 @ 451f0879 (on `next` @ 6bf2bf85, 2026-09-11): 14.09 ->
+    // 14.15 KB, measured at 14118 B (was 14087). `next`'s #3350/#3351 core
+    // bytes (see #3337's note); #3337 itself stayed under its cap here.
+    limit: "14.15 KB",
     modifyEsbuildConfig
   },
   {

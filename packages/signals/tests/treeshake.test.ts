@@ -275,7 +275,11 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // Rebased on #3337's hot-path fix (+27 B) and A28 for optimistic writes
     // (+52 B) — the two bumps noted above, arriving from the base branch.
     // Measured at 22,816.
-    expect(minifiedBytes).toBeLessThan(22_900);
+    //
+    // NOTE (2026-09-11, rebased on #3337 @ 451f0879, on `next` @ 6bf2bf85):
+    // +50 B, `next`'s #3350/#3351 (see #3337's note above). Measured at
+    // 22,866; budget 22,900 -> 22,950 for headroom.
+    expect(minifiedBytes).toBeLessThan(22_950);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {
