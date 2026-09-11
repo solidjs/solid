@@ -1,5 +1,56 @@
 # @solidjs/compiler
 
+## 2.0.0-rc.8
+
+### Patch Changes
+
+- 01ac18c: Compiler `componentNames` option: component owner labels that survive minification. With the flag on, DOM output carries the tag as written in source as a third `createComponent` argument — `<Home />` compiles to `createComponent(Home, props, "Home")`, `<Ui.Button />` to `"Ui.Button"`, `<this.Row />` to `"this.Row"` — and the dev and observe runtimes label the component's owner with it (`<Home>` in diagnostic `ownerPath`s, attribution chains, and the devtools `_component.name`), falling back to `Comp.name` as before. Until now an observe-tier production bundle reported hot scopes and holds under whatever the minifier left of the function name (`<Xt> › <Kn>`), and a `lazy()` or HMR wrapper hid the tag name even in dev. Off by default and byte-identical output when off; SSR (which inlines the call) and universal output never emit it; the production `createComponent` ignores the argument. Both compilers implement it in parity (shared fixtures, cross-mode ratchet). `@solidjs/vite-plugin` enables it for the dev and `observe` postures.
+- 8366e09: A `"use server"` function declaration nested inside another function is now extracted like any other server function.
+  - Previously the directive on a nested declaration was silently ignored: the body shipped to the client and ran there, while captures from the enclosing function were still rejected at compile time.
+  - The declaration is hoisted to a `const` at the top of its block, so calling it before its source position still works.
+  - Its id follows the binding path, such as `outer.inner`.
+
+- 7d985b6: Fix SSR XSS: strings yielded by flow-control memos rendered unescaped
+
+  `<Show when={s}>{s}</Show>`, `<For>{v => v}</For>`, `<Dynamic component={() => s} />`,
+  `<Switch>/<Match>`, boundary fallbacks and any component that returns a string through a
+  memo rendered that string raw on the server. The server flow controls return memos for
+  hydration-id alignment; `escape()` passed functions through by identity, and the resolver
+  appended whatever they later produced without escaping.
+
+  One rule now: `escape(x)` at a hole covers everything reachable from `x` — strings, array
+  items, and what a function yields when the resolver calls it (a deferred-escape wrapper).
+  Finished `{ t }` nodes pass through. `Loading` escapes its content the way it already
+  escaped its fallback. The compilers stop wrapping fragment / mixed component children in
+  `_$escape` (they are values; escaping them too double-escaped through
+  `<Comp>{props.children}</Comp>`), and a single-expression fragment at a hole keeps the
+  hole's wrap. Live-hole tags ride the wrapper and `$slot` survives the array copy, so
+  frames behave as before.
+
+- a181e4d: A `"use server"` directive on a method, getter, or setter is now a compile error instead of being silently ignored.
+  - Those forms are never extracted, so the body kept running wherever it was called, browser included.
+  - Covers object literal methods and accessors, and class methods, accessors, and constructors.
+  - Assign a function to a property instead, which the pass does extract.
+
+- 6bf2bf8: An arrow marked `"use server"` that reads `this` or `arguments` is now a compile error instead of silently breaking at runtime.
+  - The arrow is extracted to module top level, where `this` is undefined and `arguments` does not exist.
+  - A marked `function` is unaffected, and so is any `function` or class nested inside the server function.
+
+- bb905db: A module-level `"use server"` module that exports something other than a server function is now a compile error instead of producing a client build with the export missing.
+  - Covers re-exports, `export *`, class and enum exports, destructured exports, and exports declared without an initializer.
+  - The message names the export, its position, and what to do instead.
+  - Type-only and `declare` exports are erased and stay allowed.
+
+- c0299bf: Server-function ids now name a function by its binding path, so two same-named functions no longer share one id.
+  - `makeA`'s `submit` becomes `makeA.submit-<hash>` instead of `submit-<hash>`.
+  - Adding a same-named function no longer re-points the ids of the existing ones.
+  - Ids for functions in objects and classes pick up those names too, such as `handlers.save`.
+  - A named function contributes its own name as well, so `register(function saveHandler() {})` inside `wire` is `wire.saveHandler` rather than sharing an ordinal with its siblings.
+
+- ab4c40c: Object-valued `style` / `class` bindings are read in the TRACKED half of their effect. `style()` and `className()` enumerate their object in the effect's untracked commit phase, so a proxy value — a store sub-object (`style={state.style}`, `class={row.classes}`), merged props, anything arriving through a spread — was identity-reactive only: in-place key mutations never re-applied, and every leaf read tripped `STRICT_READ_UNTRACKED` in dev. Both compilers now wrap the compute value of a non-inline `style={expr}` / `class={expr}` in a new compiler primitive, `readShallow()`, and `spread()` applies it to those two keys as it copies. `readShallow` is an identity passthrough for strings, plain objects and proxy-free arrays (a fresh literal is already the compute's own — the common case pays a `typeof`); a proxy is copied with one `ownKeys` trap (its own trap keeps the key set tracked) plus one tracked read per key; arrays are re-mapped only when an element is a proxy. Inline literals are untouched — they already compile per property. Provably-string expressions (string/template literals, concatenation) and literal objects/arrays skip the wrap at compile time. New Tier-1 bench `style-class-object`: plain-object rows at parity; store-backed rows go from identity-only (and, in dev, ~97 ms per 500 elements of diagnostics) to per-key reactive at ~3.5 ms. Octane svg-dashboard (prod build, store-backed style/attrs through spread): mount at parity, style_spread_pulse −6%, select_toggle −7%.
+
+  `spread()` shares the same enumeration: its compute half copied the source with `for…in` + `hasOwn`, which on a proxy source (`merge()`/`omit()`, `{...props}` in a component, store records — nearly every spread) is an `ownKeys` trap plus two `getOwnPropertyDescriptor` traps per key, each allocating a descriptor and a getter closure. It now takes the key set from one `Reflect.ownKeys` trap (the trap keeps the key set tracked) and reads each string key once; plain sources use `Object.keys`, the exact own-enumerable set the old loop yielded. New Tier-1 bench `spread-enumerate` (500 elements, 8 keys): `merge(static, reactive)` 376 → 537 ops/s (+43%), store record 253 → 415 ops/s (+64%), plain object at parity.
+
 ## 2.0.0-rc.7
 
 ### Patch Changes

@@ -1,5 +1,37 @@
 # @solidjs/html
 
+## 2.0.0-rc.8
+
+### Patch Changes
+
+- a1ed7f3: Support `{/* ... */}` style comments in tagged JSX templates, in addition to `<!-- ... -->` HTML comments. They are skipped at tokenize time, can contain template expressions, and may span string chunks.
+- a39415c: **Breaking:** all runtime packages are ESM only and declare `engines.node >= 22.12`.
+
+  Every `.cjs` artifact, every `require` branch in the exports maps, and the `types-cjs/` declaration mirrors are gone. Node 22.12+ loads ESM through `require()` natively, so a CommonJS host resolves the same files through the same export conditions it always did (`browser`, `node`, `development`, `observe`, …) — there is one module graph per tier rather than two to keep in step. `main` now points at the ESM server entry.
+
+  For consumers:
+  - ESM apps, Vite, Vitest, Bun, Deno, workers: no change.
+  - CommonJS Node apps: require Node 22.12 or later. `require("solid-js")` keeps working.
+  - TypeScript CommonJS projects: use `module: "NodeNext"` (TS 5.8+), which type-checks `require()` of ESM packages; `module: "Node16"` will report TS1479.
+  - Jest: needs Node 22.12+ for `require(esm)`; any preset that maps specifiers to `.cjs` paths (as `solid-jest` does for Solid 1.x) has nothing to map to and must be updated.
+
+  `@solidjs/signals` drops its flat `dist/node*.cjs` builds; its ESM entries (`dist/prod/`, `dist/observe/`, `dist/dev.js`) are the only ones. `@solidjs/babel-plugin` and `@solidjs/compiler` (build-time tooling loaded by Babel/Node) are unchanged.
+
+- Updated dependencies [711b557]
+- Updated dependencies [9e6c867]
+- Updated dependencies [7d985b6]
+- Updated dependencies [3b4db21]
+- Updated dependencies [ded39d2]
+- Updated dependencies [fe3ab92]
+- Updated dependencies [1807f7f]
+- Updated dependencies [a71e42e]
+- Updated dependencies [a39415c]
+- Updated dependencies [8cfa272]
+- Updated dependencies [839c05e]
+- Updated dependencies [4e730a9]
+- Updated dependencies [ab4c40c]
+  - @solidjs/web@2.0.0-rc.8
+
 ## 2.0.0-rc.7
 
 ### Patch Changes

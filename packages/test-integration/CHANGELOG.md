@@ -1,5 +1,53 @@
 # test-integration
 
+## 2.0.0-rc.8
+
+### Patch Changes
+
+- Updated dependencies [21c5460]
+- Updated dependencies [01ac18c]
+- Updated dependencies [711b557]
+- Updated dependencies [9e6c867]
+- Updated dependencies [1354a53]
+- Updated dependencies [ae0ec3f]
+- Updated dependencies [1c9e9e7]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [7d985b6]
+- Updated dependencies [3b4db21]
+- Updated dependencies [ded39d2]
+- Updated dependencies [05725e8]
+- Updated dependencies [27aee36]
+- Updated dependencies [a1ed7f3]
+- Updated dependencies [fe3ab92]
+- Updated dependencies [51c201f]
+- Updated dependencies [2fa7539]
+- Updated dependencies [0961d97]
+- Updated dependencies [1807f7f]
+- Updated dependencies [645ec0d]
+- Updated dependencies [12c3be9]
+- Updated dependencies [a71e42e]
+- Updated dependencies [3a5fe8c]
+- Updated dependencies [a39415c]
+- Updated dependencies [8cfa272]
+- Updated dependencies [dd1d4ed]
+- Updated dependencies [839c05e]
+- Updated dependencies [4e730a9]
+- Updated dependencies [4935c7d]
+- Updated dependencies [0f14430]
+- Updated dependencies [ab4c40c]
+  - @solidjs/signals@2.0.0-rc.8
+  - @solidjs/babel-plugin@2.0.0-rc.8
+  - solid-js@2.0.0-rc.8
+  - @solidjs/web@2.0.0-rc.8
+  - @solidjs/html@2.0.0-rc.8
+  - @solidjs/universal@2.0.0-rc.8
+  - @solidjs/h@2.0.0-rc.8
+
 ## 2.0.0-rc.7
 
 ### Patch Changes

@@ -1,5 +1,27 @@
 # solid-element
 
+## 2.0.0-rc.8
+
+### Patch Changes
+
+- Updated dependencies [01ac18c]
+- Updated dependencies [711b557]
+- Updated dependencies [9e6c867]
+- Updated dependencies [7d985b6]
+- Updated dependencies [3b4db21]
+- Updated dependencies [ded39d2]
+- Updated dependencies [fe3ab92]
+- Updated dependencies [0961d97]
+- Updated dependencies [1807f7f]
+- Updated dependencies [a71e42e]
+- Updated dependencies [a39415c]
+- Updated dependencies [8cfa272]
+- Updated dependencies [839c05e]
+- Updated dependencies [4e730a9]
+- Updated dependencies [ab4c40c]
+  - solid-js@2.0.0-rc.8
+  - @solidjs/web@2.0.0-rc.8
+
 ## 2.0.0-rc.7
 
 ### Patch Changes
