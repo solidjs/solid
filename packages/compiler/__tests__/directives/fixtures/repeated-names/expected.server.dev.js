@@ -1,15 +1,15 @@
 import { createServerReference as createServerReference_1 } from "@solidjs/web/server-functions";
 import { registerServerReference as registerServerReference_1 } from "@solidjs/web/server-functions";
-const serverFunction_1 = registerServerReference_1("submit-f3b916ee", async data => {
+const serverFunction_1 = registerServerReference_1("makePublishSaver.submit-f3b916ee", async data => {
   return ["publish", data];
-}, "submit");
+}, "makePublishSaver.submit");
 const makePublishSaver = function makePublishSaver() {
   const submit = createServerReference_1(serverFunction_1);
   return submit;
 };
-const serverFunction_2 = registerServerReference_1("submit-f3b916ee-1", async data => {
+const serverFunction_2 = registerServerReference_1("makeDraftSaver.submit-f3b916ee", async data => {
   return ["draft", data];
-}, "submit");
+}, "makeDraftSaver.submit");
 const makeDraftSaver = function makeDraftSaver() {
   const submit = createServerReference_1(serverFunction_2);
   return submit;

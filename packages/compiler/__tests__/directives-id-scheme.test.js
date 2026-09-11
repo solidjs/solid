@@ -167,7 +167,7 @@ describe("the wire id scheme, differentially", () => {
     ]);
   });
 
-  it("suffixes an ordinal only when a name recurs, in visit order", () => {
+  it("names a function by its enclosing binding path", () => {
     const source = `
       export function makeA() {
         const submit = async data => {
@@ -185,14 +185,150 @@ describe("the wire id scheme, differentially", () => {
       }
     `;
     const hash = hashHex("src/forms.js");
-    // Post-bubble program order: top-level function declarations are
-    // hoisted in reverse source order (the frozen Babel reference's
-    // behavior — see the repeated-names fixture), so makeB's submit takes
-    // the bare id. This assignment IS the wire contract; a traversal
-    // change that flips it re-points deployed addresses.
+    // Two `submit`s in sibling scopes are two different names, so neither
+    // needs an ordinal to tell them apart. Reported in post-bubble program
+    // order: top-level function declarations hoist in reverse source order
+    // (the frozen Babel reference's behavior, see the repeated-names
+    // fixture), which now moves the reporting order without moving an id.
     expect(ids(source, { filename: "/project/src/forms.js", root: "/project" })).toEqual([
-      `submit-${hash}`,
-      `submit-${hash}-1`
+      `makeB.submit-${hash}`,
+      `makeA.submit-${hash}`
+    ]);
+  });
+
+  it("does not move an existing id when a same-named function is added", () => {
+    // The defect the path fixes: with a bare `submit` name, the ordinal was
+    // a visit-order counter, so appending a third `submit` renumbered the
+    // two already deployed and a stale client dispatched to the wrong
+    // function with a 200 (solidjs/solid#3109).
+    const before = `
+      export function makeA() {
+        const submit = async () => { "use server"; return "a"; };
+        return submit;
+      }
+      export function makeB() {
+        const submit = async () => { "use server"; return "b"; };
+        return submit;
+      }
+    `;
+    const after = `${before}
+      export function makeC() {
+        const submit = async () => { "use server"; return "c"; };
+        return submit;
+      }
+    `;
+    const options = { filename: "/project/src/forms.js", root: "/project" };
+    const hash = hashHex("src/forms.js");
+    for (const id of [`makeA.submit-${hash}`, `makeB.submit-${hash}`]) {
+      expect(ids(before, options)).toContain(id);
+      expect(ids(after, options)).toContain(id);
+    }
+    expect(ids(after, options)).toContain(`makeC.submit-${hash}`);
+  });
+
+  it("takes a path segment from every named container on the way down", () => {
+    const source = `
+      export const handlers = {
+        save: async () => { "use server"; return "save"; },
+        drop: async () => { "use server"; return "drop"; }
+      };
+      export class Api {
+        refresh = async () => { "use server"; return "refresh"; };
+      }
+    `;
+    const hash = hashHex("src/containers.js");
+    expect(
+      ids(source, { filename: "/project/src/containers.js", root: "/project" }).sort()
+    ).toEqual([`handlers.save-${hash}`, `handlers.drop-${hash}`, `Api.refresh-${hash}`].sort());
+  });
+
+  it("keeps non-ascii binding names in the path", () => {
+    const source = `
+      export const café = async () => { "use server"; return 1; };
+    `;
+    const hash = hashHex("src/menu.js");
+    expect(ids(source, { filename: "/project/src/menu.js", root: "/project" })).toEqual([
+      `café-${hash}`
+    ]);
+  });
+
+  it("drops a path segment for a key that is not an identifier", () => {
+    // A dash in a segment would break `id.split("-")[1]`, so the key
+    // contributes nothing and the container alone names the function.
+    const source = `
+      export const handlers = {
+        "run-now": async () => { "use server"; return 1; }
+      };
+    `;
+    const hash = hashHex("src/keys.js");
+    expect(ids(source, { filename: "/project/src/keys.js", root: "/project" })).toEqual([
+      `handlers-${hash}`
+    ]);
+  });
+
+  it("takes a segment from a named function expression that has no binding of its own", () => {
+    // Passed straight to a call, the function's own name is the only thing
+    // that tells it apart from its sibling. Dropping it in favour of the
+    // container alone would put both back on a positional ordinal.
+    const source = `
+      export function wire() {
+        register(function saveHandler() { "use server"; return 1; });
+        register(function dropHandler() { "use server"; return 2; });
+      }
+    `;
+    const hash = hashHex("src/named.js");
+    expect(ids(source, { filename: "/project/src/named.js", root: "/project" })).toEqual([
+      `wire.saveHandler-${hash}`,
+      `wire.dropHandler-${hash}`
+    ]);
+  });
+
+  it("does not repeat a function name that matches the binding it is assigned to", () => {
+    // `const submit = function submit() {}` is one name, not two. Bubbled
+    // top-level declarations take this shape, so `makeA` stays `makeA`.
+    const source = `
+      export function makeA() {
+        const submit = function submit() { "use server"; return 1; };
+        return submit;
+      }
+    `;
+    const hash = hashHex("src/same.js");
+    expect(ids(source, { filename: "/project/src/same.js", root: "/project" })).toEqual([
+      `makeA.submit-${hash}`
+    ]);
+  });
+
+  it("takes a segment from a nested function declaration", () => {
+    // Declarations nested inside another function are not bubbled into a
+    // `const`, so the function itself has to contribute the segment, or two
+    // same-named arrows in sibling declarations collide on `outer.s`.
+    const source = `
+      export function outer() {
+        function a() { const s = async () => { "use server"; return 1; }; return s; }
+        function b() { const s = async () => { "use server"; return 2; }; return s; }
+        return [a(), b()];
+      }
+    `;
+    const hash = hashHex("src/decl.js");
+    expect(ids(source, { filename: "/project/src/decl.js", root: "/project" })).toEqual([
+      `outer.a.s-${hash}`,
+      `outer.b.s-${hash}`
+    ]);
+  });
+
+  it("still suffixes an ordinal when two functions share one path", () => {
+    // Two anonymous callbacks in the same scope have no name to tell them
+    // apart, so the positional ordinal remains the last resort.
+    const source = `
+      export function wire() {
+        on("a", async () => { "use server"; return 1; });
+        on("b", async () => { "use server"; return 2; });
+      }
+    `;
+    const hash = hashHex("src/wire.js");
+    expect(ids(source, { filename: "/project/src/wire.js", root: "/project" })).toEqual([
+      `wire-${hash}`,
+      `wire-${hash}-1`
     ]);
   });
 

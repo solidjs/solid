@@ -2,13 +2,13 @@
   "valid": true,
   "functions": [
     {
-      "id": "submit-f3b916ee",
-      "name": "submit",
+      "id": "makePublishSaver.submit-f3b916ee",
+      "name": "makePublishSaver.submit",
       "exports": []
     },
     {
-      "id": "submit-f3b916ee-1",
-      "name": "submit",
+      "id": "makeDraftSaver.submit-f3b916ee",
+      "name": "makeDraftSaver.submit",
       "exports": []
     }
   ]

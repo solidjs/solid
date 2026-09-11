@@ -138,8 +138,12 @@ export interface TransformDirectivesOptions {
 
 /** One extracted server function, for building a bundler manifest. */
 export interface ServerFunctionMeta {
-  /** The wire ID (`<hash>-<count>[-<name>]`). */
+  /** The wire ID (`<name>-<hash>[-<ordinal>]`). */
   id: string;
+  /**
+   * The dotted binding path that names the function, such as
+   * `handlers.save`. `anonymous` when no enclosing binding applies.
+   */
   name: string;
   /** Export names bound to this function (module-level directives only). */
   exports: string[];

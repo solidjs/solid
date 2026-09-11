@@ -1,8 +1,8 @@
 import { createServerReference as createServerReference_1 } from "@solidjs/web/server-functions";
 import { registerServerReference as registerServerReference_1 } from "@solidjs/web/server-functions";
-const serverFunction_1 = registerServerReference_1("inner-cb5f8b97", () => {
+const serverFunction_1 = registerServerReference_1("helper.inner-cb5f8b97", () => {
   return 1;
-}, "inner");
+}, "helper.inner");
 const helper = function helper() {
   const inner = createServerReference_1(serverFunction_1);
   return inner;

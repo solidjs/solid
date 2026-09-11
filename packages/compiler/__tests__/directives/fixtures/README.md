@@ -25,15 +25,19 @@ transform, with the diff reviewed as part of that change.
 ## Function IDs are a wire contract
 
 The `<name>-<xxhash32(root-relative path)>[-<ordinal>]` ids baked into these
-fixtures are not cosmetic output: they are baked into client bundles, server
+fixtures are not cosmetic output. They are baked into client bundles, server
 manifests, rendered form-action urls and shared-cache keys, and a deployed
-tab holds the previous build's ids across a deploy (solidjs/solid#3109,
-#3120). A regeneration that changes any id is a **protocol change** — it
-re-points or orphans addresses another build already handed out — and must
-be reviewed as one, never waved through as fixture churn. The ordinal
-suffix is assigned in the order the transform visits functions (post-bubble
-program order, pinned by the `repeated-names` fixture), so a traversal
-change re-points same-name ids even when nothing about the scheme changed.
-`directives-id-scheme.test.js` guards the derivation differentially, with
-an independent hash implementation; it must never be updated in the same
-breath as a fixture regeneration without understanding why both moved.
+tab holds the previous build's ids across a deploy (solidjs/solid#3109 and
+solidjs/solid#3120). A regeneration that changes any id is a protocol
+change. It
+re-points or orphans addresses another build already handed out, so it must
+be reviewed as one and never waved through as fixture churn.
+
+The name is the function's dotted binding path, such as `handlers.save` (the
+`object-property` fixture) or `makeDraftSaver.submit` (`repeated-names`).
+Anything that changes how the path is built changes ids. The ordinal suffix
+is the last resort for two functions that share one path, and it is assigned
+in the order the transform visits functions, which is post-bubble program
+order. `directives-id-scheme.test.js` guards the derivation differentially,
+with an independent hash implementation. It must never be updated in the
+same breath as a fixture regeneration without understanding why both moved.

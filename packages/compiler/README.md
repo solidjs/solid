@@ -157,7 +157,7 @@ A function-level directive only works where the pass can extract the function: a
 
 A module-level `"use server"` module can only export server functions. Its client build is rebuilt from those exports alone, so anything else would be missing from the browser bundle. Re-exports, `export *`, class and enum exports, destructured exports, and exports declared without an initializer are compile errors naming the export and its position. Type-only and `declare` exports are erased and are fine.
 
-The runtime module defaults to `@solidjs/web/server-functions`. Function IDs use `xxhash32(root-relative path)-<count>` (name-suffixed with `env: "development"`). There are also experimental `transformLazy` and `transformRefresh` passes.
+The runtime module defaults to `@solidjs/web/server-functions`. Function IDs are `<name>-<xxhash32(root-relative path)>`, the same in every env. The name is the function's dotted binding path, such as `handlers.save`, built from every named container on the way down (variable bindings, property keys, class names, class members, and named functions), so an id identifies a function by where it is bound rather than by its position in the file. Adding, removing, or reordering functions does not move the ids of the others. There are also experimental `transformLazy` and `transformRefresh` passes.
 
 ## Rust compiler core
 
