@@ -7,6 +7,7 @@ import { insert as _$insert } from "r-dom";
 import { memo as _$memo } from "r-custom";
 import { addEvent as _$addEvent } from "r-dom";
 import { style as _$style } from "r-dom";
+import { readShallow as _$readShallow } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { effect as _$effect } from "r-custom";
@@ -172,7 +173,7 @@ const template5 = _tmpl$5();
 var _el$10 = _tmpl$4();
 _el$10.textContent = "Hi";
 _$effect(
-  () => someStyle(),
+  () => _$readShallow(someStyle()),
   (_v$, _$p) => {
     _$style(_el$10, _v$, _$p);
   }
@@ -367,7 +368,7 @@ const template33 = [
   (() => {
     var _el$43 = _tmpl$19();
     _$effect(
-      () => styles.button,
+      () => _$readShallow(styles.button),
       (_v$, _$p) => {
         _$className(_el$43, _v$, _$p);
       }
@@ -377,7 +378,7 @@ const template33 = [
   (() => {
     var _el$44 = _tmpl$19();
     _$effect(
-      () => styles["foo--bar"],
+      () => _$readShallow(styles["foo--bar"]),
       (_v$, _$p) => {
         _$className(_el$44, _v$, _$p);
       }
@@ -387,7 +388,7 @@ const template33 = [
   (() => {
     var _el$45 = _tmpl$19();
     _$effect(
-      () => styles.foo.bar,
+      () => _$readShallow(styles.foo.bar),
       (_v$, _$p) => {
         _$className(_el$45, _v$, _$p);
       }
@@ -397,7 +398,7 @@ const template33 = [
   (() => {
     var _el$46 = _tmpl$19();
     _$effect(
-      () => styles[foo()],
+      () => _$readShallow(styles[foo()]),
       (_v$, _$p) => {
         _$className(_el$46, _v$, _$p);
       }
@@ -658,7 +659,7 @@ _$style(_el$105, /* @static */ styleProp.style);
 const template85 = _el$105;
 var _el$106 = _tmpl$4();
 _$effect(
-  () => styleProp.style,
+  () => _$readShallow(styleProp.style),
   (_v$, _$p) => {
     _$style(_el$106, _v$, _$p);
   }
@@ -673,8 +674,8 @@ _$insert(_el$107, count);
 _$effect(
   () => ({
     e: count(),
-    t: style,
-    a: style
+    t: _$readShallow(style),
+    a: _$readShallow(style)
   }),
   ({ e, t, a }, _p$) => {
     e !== _p$?.e && _$setAttribute(_el$107, "aria-label", e);

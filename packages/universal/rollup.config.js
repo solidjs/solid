@@ -20,42 +20,26 @@ const plugins = [
   })
 ];
 
-const replaceDev = isDev =>
+// Two literals, three tiers (mirrors solid-js): dev sets both, observe sets
+// only "_SOLID_OBSERVE_" (the renderer-effect labels survive, checks fold),
+// prod neither. Both must be replaced in every build.
+const replaceFlags = (isDev, isObserve) =>
   replace({
     '"_SOLID_DEV_"': isDev,
+    '"_SOLID_OBSERVE_"': isObserve,
     preventAssignment: true,
     delimiters: ["", ""]
   });
 
+const build = (name, isDev, isObserve) => ({
+  input: "src/index.ts",
+  output: { file: `dist/${name}.js`, format: "es" },
+  external: ["solid-js"],
+  plugins: [replaceFlags(isDev, isObserve)].concat(plugins)
+});
+
 export default [
-  {
-    input: "src/index.ts",
-    output: [
-      {
-        file: "dist/universal.cjs",
-        format: "cjs"
-      },
-      {
-        file: "dist/universal.js",
-        format: "es"
-      }
-    ],
-    external: ["solid-js"],
-    plugins: [replaceDev(false)].concat(plugins)
-  },
-  {
-    input: "src/index.ts",
-    output: [
-      {
-        file: "dist/dev.cjs",
-        format: "cjs"
-      },
-      {
-        file: "dist/dev.js",
-        format: "es"
-      }
-    ],
-    external: ["solid-js"],
-    plugins: [replaceDev(true)].concat(plugins)
-  }
+  build("universal", false, false),
+  build("universal.observe", false, true),
+  build("universal.dev", true, true)
 ];

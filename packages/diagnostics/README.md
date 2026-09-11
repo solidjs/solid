@@ -29,10 +29,12 @@ const { artifact } = await captureArtifact(
 );
 
 artifact.diagnostics; // DiagnosticEvent[] — coded anti-pattern events
-artifact.attribution; // { reruns, costs } — who re-ran, why, and what it cost
+artifact.attribution; // { reruns, costs, holds, feedback } — who re-ran, why, what it cost, what the user waited on
 ```
 
-Options: `scenario` labels the artifact, `attribution: false` captures diagnostics only, and an options object is passed through to `DEV.attribution.enable()`. `artifactToJSONL(artifact)` emits line-oriented output for offline or agent-side analysis.
+`attribution.holds` lists every hold the scenario caused — a write that landed on async work and stayed staged until the data settled — with what was held, what blocked it, how long the user waited (measured from the interaction when the web runtime stamped one), and which affordances acknowledged it (`isPending:posts`, `latest:page`, `optimistic:todos`, `affects:list`) or none. `attribution.feedback` folds those into ranked tables: `sources` (per async source: holds, silent ms, acknowledged-by counts, long holds (tail past the long-hold threshold), the interactions held), `interactions` (per user event: re-run work caused beside time held — the two INP hazards on one row), `flights` (per async source: flights started, landed, and abandoned before landing — the re-ask storm) and `fallbacks` (per loading boundary: time its fallback was shown, and how often that was a sub-150ms flash).
+
+Options: `scenario` labels the artifact, `attribution: false` captures diagnostics only, and an options object is passed through to the engine's `enable()` (`@solidjs/signals/attribution`). `artifactToJSONL(artifact)` emits line-oriented output for offline or agent-side analysis.
 
 ## Assertions and budgets
 
@@ -43,23 +45,32 @@ import {
   expectNoDiagnostics, // no anti-pattern events (allow list supported)
   expectDiagnostic, // a specific code was (or was expected to be) emitted
   expectRerunBudget, // no more than N re-runs, filterable by scope name
-  expectNoWaste // no re-runs whose recompute produced an unchanged value
+  expectNoWaste, // no re-runs whose recompute produced an unchanged value
+  expectNoSilentHolds, // every hold was acknowledged on screen (optional tolerance in ms)
+  expectHoldBudget // no hold, acknowledged or not, outlasted N ms
 } from "@solidjs/diagnostics";
 
 expectNoDiagnostics(artifact);
-expectRerunBudget(artifact, 2, { name: "doubled" });
+expectRerunBudget(artifact, 2, { scope: "doubled" });
 expectNoWaste(artifact);
+expectNoSilentHolds(artifact);
 ```
 
-Budgets make the same limits declarative and checked-in. A `ScenarioBudget` bounds diagnostics, re-runs (total or per-scope), and waste for a named scenario; `assertBudgetFile` validates a whole file of them:
+`expectNoSilentHolds` is the responsiveness gate: a hold with no `isPending()`/`latest()` reader, no optimistic value, no `affects()` mark, and nothing painted while it lasted is time the user's input was dead. Its failure names the interaction, the held write, and the blocker; the repair is always to add feedback, never to remove the hold.
+
+Budgets make the same limits declarative and checked-in. A `ScenarioBudget` bounds diagnostics, re-runs (total or per-scope), waste, and holds for a named scenario; `assertBudgetFile` validates a whole file of them:
 
 ```json
 {
+  "formatVersion": 1,
   "scenarios": {
     "counter-update": {
-      "maxDiagnostics": 0,
-      "maxReruns": { "doubled": 1 },
-      "allowWaste": false
+      "allow": [],
+      "maxReruns": 2,
+      "maxWastedRuns": 0,
+      "scopes": { "doubled": 1 },
+      "maxSilentHoldMs": 0,
+      "maxHoldMs": 500
     }
   }
 }
@@ -72,8 +83,10 @@ Importing `@solidjs/diagnostics/vitest` (e.g. from a `setupFiles` entry) registe
 ```ts
 expect(artifact).toHaveNoDiagnostics();
 expect(artifact).toHaveDiagnostic("STRICT_READ_UNTRACKED");
-expect(artifact).toStayWithinRerunBudget(2, { name: "doubled" });
+expect(artifact).toStayWithinRerunBudget(2, { scope: "doubled" });
 expect(artifact).toHaveNoWaste();
+expect(artifact).toHaveNoSilentHolds();
+expect(artifact).toStayWithinHoldBudget(500);
 expect(artifact).toStayWithinBudget(budget);
 ```
 
@@ -101,7 +114,7 @@ const { artifact } = await captureBrowserArtifact(
 );
 ```
 
-The bridge also answers live queries against an open session — `whyDidRun(name)` returns the recorded re-runs of one scope, and `costs()` returns the running cost tables without closing the capture.
+The bridge also answers live queries against an open session without closing it — `whyDidRun(name)` returns the recorded re-runs of one scope, `costs()` the running cost tables, `holds()` the holds so far, and `feedback()` the ranked feedback tables.
 
 ## Dev-server endpoint
 

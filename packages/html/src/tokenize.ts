@@ -95,6 +95,7 @@ const STATE_RAW_TEXT = 2;
 const STATE_COMMENT = 3;
 const STATE_LINE_COMMENT = 4;
 const STATE_BLOCK_COMMENT = 5;
+const STATE_BRACED_COMMENT = 6;
 
 export const tokenize = (
   strings: TemplateStringsArray | string[],
@@ -115,7 +116,18 @@ export const tokenize = (
         case STATE_TEXT: {
           lastTagName = "";
           const nextTag = str.indexOf("<", cursor);
-          if (nextTag === -1) {
+          const nextBracedComment = str.indexOf("{/*", cursor);
+          const nextComment =
+            nextBracedComment !== -1 && (nextTag === -1 || nextBracedComment < nextTag)
+              ? nextBracedComment
+              : -1;
+
+          if (nextComment !== -1) {
+            if (nextComment > cursor)
+              tokens.push({ type: TEXT_TOKEN, value: str.slice(cursor, nextComment) });
+            state = STATE_BRACED_COMMENT;
+            cursor = nextComment + 3;
+          } else if (nextTag === -1) {
             if (cursor < len) tokens.push({ type: TEXT_TOKEN, value: str.slice(cursor) });
             cursor = len;
           } else {
@@ -231,17 +243,25 @@ export const tokenize = (
           break;
         }
         case STATE_COMMENT:
+        case STATE_BRACED_COMMENT:
         case STATE_LINE_COMMENT:
         case STATE_BLOCK_COMMENT: {
           const commentEnd =
-            state === STATE_LINE_COMMENT ? "\n" : state === STATE_BLOCK_COMMENT ? "*/" : "-->";
+            state === STATE_LINE_COMMENT
+              ? "\n"
+              : state === STATE_BLOCK_COMMENT
+                ? "*/"
+                : state === STATE_BRACED_COMMENT
+                  ? "*/}"
+                  : "-->";
           const commentEndIndex = str.indexOf(commentEnd, cursor);
 
           if (commentEndIndex === -1) {
             // If we don't find the closer in this string chunk, consume the rest and stay in the comment.
             cursor = len;
           } else {
-            state = state === STATE_COMMENT ? STATE_TEXT : STATE_TAG;
+            state =
+              state === STATE_COMMENT || state === STATE_BRACED_COMMENT ? STATE_TEXT : STATE_TAG;
             cursor = commentEndIndex + commentEnd.length;
           }
           break;

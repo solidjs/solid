@@ -3,8 +3,17 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
-import { createRoot, createSignal, Component, createStore, flush, Show, Loading } from "solid-js";
-import { Dynamic, dynamic, type IntrinsicElement, type JSX } from "@solidjs/web";
+import {
+  createRoot,
+  createSignal,
+  createTrackedEffect,
+  Component,
+  createStore,
+  flush,
+  Show,
+  Loading
+} from "solid-js";
+import { Dynamic, dynamic, Portal, type IntrinsicElement, type JSX } from "../src/index.js";
 
 describe("Testing Dynamic control flow", () => {
   let div!: HTMLDivElement, disposer: () => void;
@@ -62,61 +71,50 @@ describe("Testing Dynamic control flow", () => {
   });
 });
 
-describe("Dynamic ambiguous SVG tags (#3187)", () => {
-  let disposer!: () => void;
-
-  afterEach(() => disposer());
-
-  test("creates ambiguous SVG tags in the SVG namespace", () => {
-    let svg!: SVGSVGElement;
-
-    createRoot(dispose => {
-      disposer = dispose;
-      <svg ref={svg}>
-        <a id="static" href="#target" />
-        <Dynamic component="a" id="dynamic" href="#target" />
-      </svg>;
-    });
-    flush();
-
-    const staticAnchor = svg.querySelector("#static")!;
-    const dynamicAnchor = svg.querySelector("#dynamic")!;
-
-    expect(staticAnchor.namespaceURI).toBe("http://www.w3.org/2000/svg");
-    expect(dynamicAnchor.namespaceURI).toBe("http://www.w3.org/2000/svg");
+describe("Dynamic intrinsic elements are created eagerly (#3291)", () => {
+  // Pins the render semantics #3187 briefly changed: a string-component
+  // Dynamic IS an element at component creation — refs fire then, on both
+  // the CSR and hydration paths — not a thunk materialized by the consuming
+  // insert. Deferring creation moved ref writes into the render phase of the
+  // flush for Dynamic-in-Portal and broke every createTrackedEffect reader
+  // (Kobalte poppers). The ambiguous-SVG-tag namespace for Dynamic (#3187)
+  // is an accepted limitation, as in 1.x; use a static element.
+  let disposer: (() => void) | undefined;
+  afterEach(() => {
+    disposer?.();
+    disposer = undefined;
   });
 
-  test("creates ambiguous tags inside foreignObject in the HTML namespace", () => {
-    let svg!: SVGSVGElement;
-
+  test("the memo resolves to the element itself, and the ref fires during creation", () => {
+    let refAtCreation: Element | undefined;
+    let returned: unknown;
     createRoot(dispose => {
       disposer = dispose;
-      <svg ref={svg}>
-        <foreignObject>
-          <Dynamic component="a" id="html-anchor" href="#target" />
-        </foreignObject>
-      </svg>;
+      returned = <Dynamic component="div" ref={(el: HTMLDivElement) => (refAtCreation = el)} />;
+      // Synchronous: no insert, no flush.
+      expect(refAtCreation).toBeInstanceOf(HTMLDivElement);
     });
-    flush();
-
-    const anchor = svg.querySelector("#html-anchor")!;
-    expect(anchor.namespaceURI).toBe("http://www.w3.org/1999/xhtml");
+    // The component's memo yields the element — not a thunk for insert to pull.
+    expect(typeof returned).toBe("function");
+    expect((returned as () => unknown)()).toBe(refAtCreation);
   });
 
-  test("creates ambiguous tags outside SVG in the HTML namespace", () => {
-    let div!: HTMLDivElement;
-
+  test("a signal written from a Dynamic ref inside a Portal wakes a tracked effect", () => {
+    const Wrapper = (props: Record<string, unknown>) => <Dynamic {...props} component="div" />;
+    const [el, setEl] = createSignal<HTMLElement>();
+    const seen: boolean[] = [];
     createRoot(dispose => {
       disposer = dispose;
-      <div ref={div}>
-        <Dynamic component="a" id="plain" href="#target" />
-      </div>;
+      createTrackedEffect(() => {
+        seen.push(!!el());
+      });
+      <Portal>
+        <Wrapper ref={setEl} />
+      </Portal>;
     });
     flush();
-
-    const anchor = div.querySelector("#plain")!;
-    expect(anchor.namespaceURI).toBe("http://www.w3.org/1999/xhtml");
-    expect(anchor).toBeInstanceOf(HTMLAnchorElement);
+    expect(el()).toBeInstanceOf(HTMLDivElement);
+    expect(seen).toContain(true);
   });
 });
 

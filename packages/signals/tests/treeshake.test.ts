@@ -34,7 +34,7 @@ async function bundleFixture(code: string): Promise<{
   const result = (await build({
     configFile: false,
     logLevel: "silent",
-    define: { __DEV__: "false", __TEST__: "false" },
+    define: { __DEV__: "false", __OBSERVE__: "false", __TEST__: "false" },
     resolve: { alias: { sigsrc: join(SRC, "index.ts") } },
     build: {
       write: false,
@@ -143,7 +143,37 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // (entangleConfirmingTransitions/stealEntangledCargo, the store fold)
     // still shake out with until()/createOptimisticStore. Measured at
     // 21,536 post-change (with the #3181 bump above).
-    expect(minifiedBytes).toBeLessThan(21_600);
+    // Tracked-effect wakes ride the heap (#3291, 2026-09-06): -75 B. The
+    // tracked special case in enqueueSub is deleted; GlobalQueue._update
+    // gains a four-line branch that hands a tracked node's callback to the
+    // user queue instead of recomputing it. Measured at 21,461 post-change.
+    // CONSCIOUS BUMP (2026-09-09): +~242B for contested-effect re-derivation
+    // (#3322) — effects have one value slot and do not entangle
+    // transactions, so a second live transaction (or mainline) recomputing a
+    // shared effect overwrote a value the first still owed a run for, and
+    // the silent commit then published it. Effect._valueTransition stamps
+    // the owner, recompute records the effect on the owed transaction(s),
+    // finalizePureQueue re-dirties them ahead of the heap run; the signal
+    // fast path in read() gains the stale-reader mask for foreign staged
+    // writes the slow path already had. Core-retained by necessity: the
+    // clobber happens in recompute and the fix is the commit ordering itself.
+    // Measured at 21,765 post-change.
+    // CONSCIOUS BUMP (2026-09-09): +~166B for effect ownership on finalize
+    // re-entry (#3319) — finalizePureQueue captures the batch it started
+    // with and does not commit/revert one an entered transaction adopted
+    // (while a completing transaction still settles its own separate
+    // containers), and runEffect leaves runs owned by a still-held
+    // transaction queued for the next gate when the flush's finalize entered
+    // one, applying only what was computed mainline. The coarse alternative
+    // (park the whole flush) is ~70B but splits reads from the DOM for the
+    // write that caused the flush. Measured at 21,931 post-change.
+    // GOLF (2026-09-09): -41B. The #3319 `parkHeldOwners` flag was set from
+    // `activeTransition !== null` at the very point the ordinary runs start,
+    // so runEffect reads activeTransition directly; the lane exemption moved
+    // to where lanes live (optimistic.ts ORs LANE_RUN into the run `type`,
+    // as does effect()'s creation-time immediate run). contestEffect inlined
+    // into its single call site in recompute. Measured at 21,890 post-change.
+    expect(minifiedBytes).toBeLessThan(22_050);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

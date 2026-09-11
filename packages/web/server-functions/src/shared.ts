@@ -729,23 +729,24 @@ const JSON_SAFE_DEPTH_LIMIT = 4096;
 // never collide with user data.
 const EXIT = {}; /**
  * Whether a value survives a `JSON.stringify` round trip faithfully: JSON
- * primitives (finite numbers only), arrays, and plain objects. Anything
- * else — Dates, Maps, typed arrays, undefined (bare or as a property),
- * NaN, class instances, cyclic structures — needs the codec. Never throws:
- * cycles and pathological depth answer `false`. Both peers negotiate the
- * wire format with this guard: the client for argument lists, the server
- * for results.
+ * primitives (numbers `JSON.stringify` spells faithfully only), arrays,
+ * and plain objects. Anything else — Dates, Maps, typed arrays, undefined
+ * (bare or as a property), NaN, `-0`, class instances, cyclic structures —
+ * needs the codec. Never throws: cycles and pathological depth answer
+ * `false`. Both peers negotiate the wire format with this guard: the
+ * client for argument lists, the server for results.
  */
 export function isJSONSafe(value: unknown): boolean;
 
 /**
  * Whether a value survives a `JSON.stringify` round trip faithfully: JSON
- * primitives (finite numbers only), arrays, and plain objects. Anything
- * else — Dates, Maps, typed arrays, undefined (bare or as a property),
- * NaN, class instances, cyclic structures — needs the codec. Both peers
- * negotiate with this same guard: the client for argument lists (see
- * client.js), the server for results (see server.js encodeResult) — so
- * the codec rides the wire exactly when a value actually needs it.
+ * primitives (numbers `JSON.stringify` spells faithfully only), arrays,
+ * and plain objects. Anything else — Dates, Maps, typed arrays, undefined
+ * (bare or as a property), NaN, `-0`, class instances, cyclic structures —
+ * needs the codec. Both peers negotiate with this same guard: the client
+ * for argument lists (see client.js), the server for results (see
+ * server.js encodeResult) — so the codec rides the wire exactly when a
+ * value actually needs it.
  *
  * Traversal is iterative on an explicit stack with an ancestor set: the
  * old recursive walk overflowed on cycles (forever) and on deep nesting
@@ -769,7 +770,14 @@ export function isJSONSafe(value) {
     const t = typeof v;
     if (t === "string" || t === "boolean") continue;
     if (t === "number") {
-      if (!Number.isFinite(v)) return false;
+      // A signed zero belongs with NaN and the infinities, not with the
+      // finite numbers: `JSON.stringify(-0)` is `"0"`, so the fast path
+      // would carry it and silently flatten the sign — the same class of
+      // quiet corruption the branches below refuse (`undefined` read back
+      // as `null`, a sparse hole read back as `null`). The codec spells it
+      // exactly (seroval has a constant for it), so `-0` rides the codec
+      // like every other number stringify cannot spell (#3253).
+      if (!Number.isFinite(v) || Object.is(v, -0)) return false;
       continue;
     }
     if (t !== "object") return false;
@@ -884,6 +892,14 @@ export function getHeadersAndBody(body) {
  * the client runtime). The inverse of `getHeadersAndBody` + the serialized
  * stream. Resolves undefined for bodies without a recognized encoding.
  *
+ * CONSUMES `source`: the body is read where it lies, not from a clone
+ * (#3244). A tee branch nobody reads queues every byte that passes through
+ * the branch somebody does — one abandoned clone costs the whole payload in
+ * memory and defeats the backpressure/cancellation discipline of the read
+ * that owns the real body. The caller that still needs its own copy hands
+ * over one: that is exactly what `decodeResponse`, the integration-facing
+ * entry, does.
+ *
  * Transport building block; use `decodeResponse` from integration code.
  * @internal
  */
@@ -900,31 +916,30 @@ export function extractBody(
 export async function extractBody(source, codecOptions) {
   const contentType = source.headers.get("content-type");
   const format = source.headers.get(BODY_FORMAT_HEADER);
-  const clone = source.clone();
 
   switch (true) {
     case format === BodyFormat.Serialized:
-      return await deserializeStream(clone, codecOptions);
+      return await deserializeStream(source, codecOptions);
     case format === BodyFormat.Json:
-      return JSON.parse(await clone.text());
+      return JSON.parse(await source.text());
     case format === BodyFormat.String:
-      return await clone.text();
+      return await source.text();
     case format === BodyFormat.File: {
-      const formData = await clone.formData();
+      const formData = await source.formData();
       return formData.get(FILE_FORM_KEY);
     }
     case format === BodyFormat.FormData:
     case contentType && contentType.startsWith("multipart/form-data"):
-      return await clone.formData();
+      return await source.formData();
     case format === BodyFormat.URLSearchParams:
     case contentType && contentType.startsWith("application/x-www-form-urlencoded"):
-      return new URLSearchParams(await clone.text());
+      return new URLSearchParams(await source.text());
     case format === BodyFormat.Blob:
-      return await clone.blob();
+      return await source.blob();
     case format === BodyFormat.ArrayBuffer:
-      return await clone.arrayBuffer();
+      return await source.arrayBuffer();
     case format === BodyFormat.Uint8Array:
-      return new Uint8Array(await clone.arrayBuffer());
+      return new Uint8Array(await source.arrayBuffer());
   }
 
   return undefined;
@@ -1261,7 +1276,15 @@ export function decodeResponse<T = unknown>(
  */
 export async function decodeResponse(response, codecOptions) {
   if (!response.body) return undefined;
-  return await extractBody(response, codecOptions === undefined ? codecConfig.codec : codecOptions);
+  // The clone lives HERE, at the entry whose contract promises it: an
+  // integration hands over a response it still owns, and this branch is
+  // READ in full. The transport, which owns the body it opened, calls
+  // `extractBody` directly — a clone there buys nothing and costs the whole
+  // payload in a tee branch nobody reads (#3244).
+  return await extractBody(
+    response.clone(),
+    codecOptions === undefined ? codecConfig.codec : codecOptions
+  );
 } /**
  * `decodeResponse` plus the single-flight envelope split: when the response
  * carries the single-flight header the decoded `{ value, data }` payload is

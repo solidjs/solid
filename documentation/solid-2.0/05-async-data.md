@@ -118,6 +118,8 @@ const user = createMemo(() => fetchUser(userId()));
 const latestUserId = () => latest(userId);
 ```
 
+`latest()` escapes the *transaction*, not its own lane. Readers of `latest(x)` render ahead of the transition that holds `x`, but they reveal together with any *rendered* async derived from `latest(x)` — the same rule every lane follows, and the same rule the transaction itself follows: async holds when a render effect reads it and no `Loading` boundary catches it. So a `latest()` view is never shown beside a half-computed derivation of itself, while a derivation nobody renders, or one inside a `Loading` that shows its fallback, holds nothing (there is no frame to tear). Routing several rendered async computations through the same `latest(x)` makes them one lane that reveals when the slowest settles; derive with the plain read (`x()` inside the async memo — it is held by the transition anyway) when the display should not wait for it.
+
 ### `resolve(fn)` (wait for a reactive expression to settle)
 
 `resolve(fn)` returns a Promise that resolves once the reactive expression `fn` produces a settled (non-pending) value. It cannot be called inside a reactive scope (it only resolves the current value and does not track updates).

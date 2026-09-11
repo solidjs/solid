@@ -174,10 +174,7 @@ const template6 = _$For({
 });
 const template7 = Child({
   get children() {
-    return [
-      ((_v$14 = _$ssrHydrationKey()), _$ssr(_tmpl$5, _v$14)),
-      _$memo(() => _$escape(state.dynamic))
-    ];
+    return [((_v$14 = _$ssrHydrationKey()), _$ssr(_tmpl$5, _v$14)), _$memo(() => state.dynamic)];
   }
 });
 const template8 = Child({

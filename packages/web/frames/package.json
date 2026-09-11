@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/web/frames",
-  "main": "./dist/server.cjs",
+  "main": "./dist/server.js",
   "module": "./dist/server.js",
   "types": "../types/frames/server.d.ts",
   "type": "module",
@@ -8,23 +8,15 @@
   "exports": {
     ".": {
       "browser": {
-        "import": {
-          "types": "../types/frames/client.d.ts",
-          "default": "./dist/client.js"
-        },
-        "require": {
-          "types": "../types-cjs/frames/client.d.cts",
-          "default": "./dist/client.cjs"
-        }
+        "types": "../types/frames/client.d.ts",
+        "default": "./dist/client.js"
       },
-      "import": {
+      "development": {
         "types": "../types/frames/server.d.ts",
-        "default": "./dist/server.js"
+        "default": "./dist/server.dev.js"
       },
-      "require": {
-        "types": "../types-cjs/frames/server.d.cts",
-        "default": "./dist/server.cjs"
-      }
+      "types": "../types/frames/server.d.ts",
+      "default": "./dist/server.js"
     }
   }
 }

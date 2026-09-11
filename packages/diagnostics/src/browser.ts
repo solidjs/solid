@@ -8,11 +8,14 @@
  * `@solidjs/signals` instance. Import it from your dev entry (or let the
  * vite plugin inject it) and call `installDiagnosticsBridge()`.
  */
-import { DEV, flush } from "@solidjs/signals";
+import { OBSERVE, flush } from "@solidjs/signals";
+import { attribution as engine } from "@solidjs/signals/attribution";
 import type {
   AttributionCosts,
+  AttributionFeedback,
   AttributionOptions,
   DiagnosticsArtifact,
+  HoldEvent,
   RerunEvent,
   RerunRecord
 } from "./types.js";
@@ -39,6 +42,10 @@ export interface DiagnosticsBridge {
   whyDidRun(name: string): RerunRecord[];
   /** Cost tables of the open session so far, without closing it. */
   costs(): AttributionCosts;
+  /** Transition holds the open session has recorded so far. */
+  holds(): HoldEvent[];
+  /** Feedback tables (what the user waited on) of the open session so far. */
+  feedback(): AttributionFeedback;
 }
 
 /**
@@ -64,15 +71,15 @@ function toSerializable<T>(value: T): T {
 export function installDiagnosticsBridge(
   target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>
 ): DiagnosticsBridge {
-  if (!DEV) {
+  if (!OBSERVE) {
     throw new Error(
-      "@solidjs/diagnostics/browser requires a development build of @solidjs/signals: " +
-        "the DEV export is undefined in production builds."
+      "@solidjs/diagnostics/browser requires a development or observe build of @solidjs/signals: " +
+        "the OBSERVE export is undefined in production builds."
     );
   }
 
   interface Session {
-    capture: ReturnType<NonNullable<typeof DEV>["diagnostics"]["capture"]>;
+    capture: ReturnType<NonNullable<typeof OBSERVE>["diagnostics"]["capture"]>;
     useAttribution: boolean;
     startedAt: Date;
     start: number;
@@ -86,13 +93,13 @@ export function installDiagnosticsBridge(
       }
       const attributionOption = options.attribution ?? true;
       const useAttribution = attributionOption !== false;
-      const capture = DEV!.diagnostics.capture();
+      const capture = OBSERVE!.diagnostics.capture();
       if (useAttribution) {
         const opts: AttributionOptions =
           typeof attributionOption === "object"
             ? { log: false, ...attributionOption }
             : { log: false };
-        DEV!.attribution.enable(opts);
+        engine.enable(opts);
       }
       session = { capture, useAttribution, startedAt: new Date(), start: performance.now() };
     },
@@ -107,12 +114,12 @@ export function installDiagnosticsBridge(
       let attribution: DiagnosticsArtifact["attribution"] = null;
       if (active.useAttribution) {
         attribution = {
-          reruns: DEV!.attribution
-            .history()
-            .map(({ node: _node, ...record }: RerunEvent) => record),
-          costs: DEV!.attribution.costs()
+          reruns: engine.history().map(({ node: _node, ...record }: RerunEvent) => record),
+          costs: engine.costs(),
+          holds: [...engine.holds()],
+          feedback: engine.feedback()
         };
-        DEV!.attribution.disable();
+        engine.disable();
       }
       const events = active.capture.stop();
       return toSerializable({
@@ -128,7 +135,7 @@ export function installDiagnosticsBridge(
     whyDidRun(name) {
       requireAttributionSession("whyDidRun");
       return toSerializable(
-        DEV!.attribution
+        engine
           .history()
           .filter(event => event.nodeName === name)
           .map(({ node: _node, ...record }: RerunEvent) => record)
@@ -136,7 +143,15 @@ export function installDiagnosticsBridge(
     },
     costs() {
       requireAttributionSession("costs");
-      return toSerializable(DEV!.attribution.costs());
+      return toSerializable(engine.costs());
+    },
+    holds() {
+      requireAttributionSession("holds");
+      return toSerializable([...engine.holds()]);
+    },
+    feedback() {
+      requireAttributionSession("feedback");
+      return toSerializable(engine.feedback());
     }
   };
 

@@ -1,11 +1,12 @@
 import {
   CONFIG_AUTO_DISPOSE,
+  CONFIG_SLOT_NODE,
   REACTIVE_DISPOSED,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_ZOMBIE,
   STATUS_PENDING
 } from "./constants.js";
-import { noteGraphLink, unnoteGraphLink } from "./dev.js";
+import { slotUnobservedHook } from "./core.js";
 import { deleteFromHeap, queueFor } from "./heap.js";
 import { disposeChildren } from "./owner.js";
 import { bumpNotifyEpoch, dirtyQueue, zombieQueue } from "./scheduler.js";
@@ -13,7 +14,6 @@ import type { Computed, Link, Signal } from "./types.js";
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L100
 export function unlinkSubs(link: Link): Link | null {
-  if (__DEV__) unnoteGraphLink(link);
   const dep = link._dep;
   const nextDep = link._nextDep;
   const nextSub = link._nextSub;
@@ -25,7 +25,10 @@ export function unlinkSubs(link: Link): Link | null {
   else {
     dep._subs = nextSub;
     if (nextSub === null) {
-      dep._x?._unobserved?.();
+      // Slot nodes (store leaves) dispatch to the ONE shared hook — no
+      // per-node unobserved closure, no NodeExtension to hold it.
+      if (dep._config & CONFIG_SLOT_NODE) slotUnobservedHook(dep as Signal<any>);
+      else dep._x?._unobserved?.();
       // No more subscribers; only tear down if CONFIG_AUTO_DISPOSE is set.
       // A pending node is exempt: its in-flight async work (or the
       // transition holding it) is an observer — tearing down would orphan
@@ -185,6 +188,4 @@ export function link(
 
   // New subscriber edge: staged-rewrite skips (§12d) must not miss it.
   bumpNotifyEpoch();
-
-  if (__DEV__) noteGraphLink(dep, sub);
 }

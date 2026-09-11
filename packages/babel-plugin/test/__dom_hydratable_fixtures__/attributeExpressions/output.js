@@ -6,6 +6,7 @@ import { insert as _$insert } from "r-dom";
 import { memo as _$memo } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
 import { style as _$style } from "r-dom";
+import { readShallow as _$readShallow } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { effect as _$effect } from "r-dom";
@@ -182,7 +183,7 @@ const template5 = _$getNextElement(_tmpl$5);
 var _el$10 = _$getNextElement(_tmpl$4);
 _$setProperty(_el$10, "textContent", "Hi");
 _$effect(
-  () => someStyle(),
+  () => _$readShallow(someStyle()),
   (_v$, _$p) => {
     _$style(_el$10, _v$, _$p);
   }
@@ -394,7 +395,7 @@ const template33 = [
   (() => {
     var _el$47 = _$getNextElement(_tmpl$19);
     _$effect(
-      () => styles.button,
+      () => _$readShallow(styles.button),
       (_v$, _$p) => {
         _$className(_el$47, _v$, _$p);
       }
@@ -404,7 +405,7 @@ const template33 = [
   (() => {
     var _el$48 = _$getNextElement(_tmpl$19);
     _$effect(
-      () => styles["foo--bar"],
+      () => _$readShallow(styles["foo--bar"]),
       (_v$, _$p) => {
         _$className(_el$48, _v$, _$p);
       }
@@ -414,7 +415,7 @@ const template33 = [
   (() => {
     var _el$49 = _$getNextElement(_tmpl$19);
     _$effect(
-      () => styles.foo.bar,
+      () => _$readShallow(styles.foo.bar),
       (_v$, _$p) => {
         _$className(_el$49, _v$, _$p);
       }
@@ -424,7 +425,7 @@ const template33 = [
   (() => {
     var _el$50 = _$getNextElement(_tmpl$19);
     _$effect(
-      () => styles[foo()],
+      () => _$readShallow(styles[foo()]),
       (_v$, _$p) => {
         _$className(_el$50, _v$, _$p);
       }
@@ -678,7 +679,7 @@ _$style(_el$104, /* @static */ styleProp.style);
 const template85 = _el$104;
 var _el$105 = _$getNextElement(_tmpl$4);
 _$effect(
-  () => styleProp.style,
+  () => _$readShallow(styleProp.style),
   (_v$, _$p) => {
     _$style(_el$105, _v$, _$p);
   }
@@ -696,8 +697,8 @@ _$insert(
 _$effect(
   () => ({
     e: count(),
-    t: style,
-    a: style
+    t: _$readShallow(style),
+    a: _$readShallow(style)
   }),
   ({ e, t, a }, _p$) => {
     e !== _p$?.e && _$setAttribute(_el$106, "aria-label", e);
@@ -731,7 +732,7 @@ _$effect(
 const template90 = _el$109;
 var _el$110 = _$getNextElement(_tmpl$4);
 _$effect(
-  () => ["todo", props.active],
+  () => _$readShallow(["todo", props.active]),
   (_v$, _$p) => {
     _$className(_el$110, _v$, _$p);
   }
@@ -761,13 +762,14 @@ _$effect(
 const template93 = _el$112;
 var _el$113 = _$getNextElement(_tmpl$4);
 _$effect(
-  () => [
-    "todo",
-    {
-      active: isActive()
-    },
-    props.extra
-  ],
+  () =>
+    _$readShallow([
+      "todo",
+      {
+        active: isActive()
+      },
+      props.extra
+    ]),
   (_v$, _$p) => {
     _$className(_el$113, _v$, _$p);
   }

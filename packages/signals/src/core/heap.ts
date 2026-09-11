@@ -1,8 +1,6 @@
 import { ext } from "./core.js";
 import {
   CONFIG_FW_CHILDREN,
-  EFFECT_TRACKED,
-  EFFECT_USER,
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
   REACTIVE_IN_HEAP,
@@ -20,19 +18,13 @@ export function queueFor(n: Computed<any>): Heap {
 }
 
 /**
- * Schedule one subscriber to re-run on the next flush: tracked effects bypass
- * the heap and go directly to their effect queue; everything else is inserted
- * into its own (zombie-flag-routed) heap with the `_min` cursor pulled down.
+ * Schedule one subscriber to re-run on the next flush: inserted into its own
+ * (zombie-flag-routed) heap with the `_min` cursor pulled down. Tracked
+ * effects ride the heap too — the heap visit is their (empty) compute phase,
+ * which hands the callback to the user queue once the pass has committed
+ * (see GlobalQueue._update, #3291).
  */
 export function enqueueSub(node: Computed<any>): void {
-  if ((node as any)._type === EFFECT_TRACKED) {
-    const tracked = node as any;
-    if (!tracked._modified) {
-      tracked._modified = true;
-      tracked._queue.enqueue(EFFECT_USER, tracked._run);
-    }
-    return;
-  }
   const queue = queueFor(node);
   if (queue._min > node._height) queue._min = node._height;
   insertIntoHeap(node, queue);
@@ -78,12 +70,17 @@ export function insertIntoHeap(n: Computed<any>, heap: Heap) {
     n._flags = (flags & ~(REACTIVE_CHECK | REACTIVE_DIRTY)) | REACTIVE_DIRTY | REACTIVE_IN_HEAP;
   } else {
     n._flags = flags | REACTIVE_IN_HEAP;
-    // An unmarked node entering a marked heap invalidates the markHeap memo:
-    // `_marked` is only reset by runHeap, so a write between two mid-tick
-    // pulls (read-time markHeap + updateIfNecessary) would otherwise leave
-    // this node unmarked and every downstream pull stale until the next
-    // flush (#2922: the second `latest()` returned the first write's value).
-    if (heap._marked && !(flags & REACTIVE_DIRTY)) heap._marked = false;
+    // An unmarked node entering an already-marked heap is marked on the
+    // spot, keeping the markHeap memo valid. `_marked` is only reset by
+    // runHeap, so a write between two mid-tick pulls (read-time markHeap +
+    // updateIfNecessary) would otherwise leave this node unmarked and every
+    // downstream pull stale until the next flush (#2922: the second
+    // `latest()` returned the first write's value). Invalidating the memo
+    // instead re-walked the WHOLE heap on the next pull — with N effects
+    // parked in the heap for a synchronous mount (each row writing a ref
+    // signal its effect subscribes to), mounting N rows was O(N²) (#3350).
+    // markNode's own guard skips an already-DIRTY node.
+    if (heap._marked) markNode(n);
   }
   if (!(flags & REACTIVE_IN_HEAP_HEIGHT)) actualInsertIntoHeap(n, heap);
 }

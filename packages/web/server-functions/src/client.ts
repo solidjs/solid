@@ -21,10 +21,12 @@ import {
   UNKNOWN_HEADER,
   configureServerFunctionsCodec,
   decodeResponse,
+  extractBody,
   getFlightDataConsumer,
   getFlightDataSourceIds,
   getHeadersAndBody,
   getServerFunctionMetadata,
+  getServerFunctionsCodec,
   isJSONSafe,
   isServerFunction,
   parseServerFunctionAddress,
@@ -713,7 +715,13 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
       .map(source => [source, getFlightDataConsumer(source)])
       .filter(([, consumer]) => consumer);
     if (consumers.length > 0) {
-      const payload = await decodeResponse(response);
+      // Decoded from the response ITSELF: the transport owns this body, the
+      // consumers' contract says it arrives consumed (`FlightDataContext`),
+      // and a clone would tee the whole envelope into a branch nobody reads
+      // (#3244).
+      const payload = response.body
+        ? await extractBody(response, getServerFunctionsCodec())
+        : undefined;
       // Sequential, awaited delivery: caches are seeded before the caller
       // sees the value, whichever source they subscribe through.
       for (const [source, consumer] of consumers) {
@@ -778,7 +786,12 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
     );
   }
 
-  const result = await decodeResponse(response.clone());
+  // Decoded from the response ITSELF, not a clone (#3244). The transport
+  // owns this body — every road that hands it to somebody else has already
+  // returned above — so a clone would only tee it into a branch nobody
+  // reads, which queues the whole payload for the life of the read.
+  // `decodeResponse` keeps its clone for integrations, who still own theirs.
+  const result = response.body ? await extractBody(response, getServerFunctionsCodec()) : undefined;
   if (failed) {
     throw serverFunctionFailure(response, result);
   }

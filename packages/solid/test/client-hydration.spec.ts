@@ -2219,7 +2219,7 @@ describe("live-branded sources — automatic takeover", () => {
 
   // A live transport call: constructs its iterable synchronously (no wire
   // activity until pulled), branded. Each iteration is its own "connection".
-  function makeLiveSource(value: string, connections: { count: number }) {
+  function makeLiveSource<T>(value: T, connections: { count: number }) {
     return {
       [LIVE]: true,
       [Symbol.asyncIterator]() {
@@ -2264,6 +2264,61 @@ describe("live-branded sources — automatic takeover", () => {
     await new Promise(r => setTimeout(r, 10));
     flush();
     expect(result()).toBe("live-current");
+  });
+
+  test("store consumers adopt the serialized value, then reconnect after hydration", async () => {
+    startHydration({
+      t0: { v: { value: "server-projection" }, s: 1 },
+      t1: { v: { value: "server-store" }, s: 1 },
+      t2: { v: { value: "server-optimistic" }, s: 1 }
+    });
+
+    const projectionConnections = { count: 0 };
+    const storeConnections = { count: 0 };
+    const optimisticConnections = { count: 0 };
+    let projection: any;
+    let store: any;
+    let optimistic: any;
+
+    createRoot(
+      () => {
+        projection = createProjection(
+          () => makeLiveSource({ value: "live-projection" }, projectionConnections) as any,
+          { value: "seed" }
+        );
+        [store] = createStore(
+          () => makeLiveSource({ value: "live-store" }, storeConnections) as any,
+          { value: "seed" }
+        );
+        [optimistic] = createOptimisticStore(
+          () => makeLiveSource({ value: "live-optimistic" }, optimisticConnections) as any,
+          { value: "seed" }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(projection.value).toBe("server-projection");
+    expect(store.value).toBe("server-store");
+    expect(optimistic.value).toBe("server-optimistic");
+    // The adoption trace opens each source under mocked transport so it can
+    // discover dependencies and the live brand without network activity.
+    expect(projectionConnections.count).toBe(1);
+    expect(storeConnections.count).toBe(1);
+    expect(optimisticConnections.count).toBe(1);
+
+    stopHydration();
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+
+    expect(projection.value).toBe("live-projection");
+    expect(store.value).toBe("live-store");
+    expect(optimistic.value).toBe("live-optimistic");
+    expect(projectionConnections.count).toBe(2);
+    expect(storeConnections.count).toBe(2);
+    expect(optimisticConnections.count).toBe(2);
   });
 
   test("unbranded computes keep adopt-and-latch semantics — no takeover", async () => {
@@ -2874,14 +2929,26 @@ describe("lazy() hydration-aware rendering", () => {
       "/assets/Missing.js"
     );
 
+    let thrown: any;
     expect(() => {
       createRoot(
         () => {
-          LazyComp({ name: "World" });
+          try {
+            LazyComp({ name: "World" });
+          } catch (e) {
+            thrown = e;
+            throw e;
+          }
         },
         { id: "t" }
       );
     }).toThrow(/not preloaded/);
+    // #3338: the miss means the server serialized no client entry for this
+    // id — point at the server-side cause. Root-level lazy() needs no
+    // boundary, so the message must not send people to add one.
+    expect(thrown.message).toMatch(/server serialized no client entry/);
+    expect(thrown.message).toMatch(/Asset manifest returned no client assets for module/);
+    expect(thrown.message).not.toMatch(/Loading boundary/);
   });
 
   test("lazy without moduleUrl always uses async path during hydration", () => {

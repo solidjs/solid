@@ -4,8 +4,8 @@ import type { Refreshable } from "../core/index.js";
 import { GlobalQueue } from "../core/scheduler.js";
 import { storeNextLookup } from "./next/target.js";
 
-/** A read-only view of a store's value as seen by consumers. Mutate it via the paired `StoreSetter`. */
-export type Store<T> = Readonly<T>;
+/** A reactive view of a store's value. Update it through the paired `StoreSetter`. */
+export type Store<T> = T;
 /**
  * A store setter. The callback receives a writable **draft** of the store.
  *
@@ -18,25 +18,30 @@ export type Store<T> = Readonly<T>;
  *
  * The setter does **not** perform keyed reconciliation. If you need surviving
  * items to keep their store identity across full-array replacement, use the
- * projection form — `createStore(fn, seed, { key })` or `createProjection` —
- * whose derive function reconciles its return by `options.key`.
+ * projection form — `createStore(fn, seed, { key })` or
+ * `createProjection(fn, seed, { key })` — whose derive function reconciles
+ * its return by `options.key`.
  */
 export type StoreSetter<T> = (fn: (state: T) => T | void) => void;
-/** Tuple returned by the plain `createStore(initialValue)` form. */
+/** Tuple returned by the plain `createStore(initialValue, options?)` form. */
 export type StoreReturn<T> = [get: Store<T>, set: StoreSetter<T>];
 /** Tuple returned by the derived `createStore(fn, seed, options?)` form. */
 export type ProjectionStoreReturn<T> = [get: Refreshable<Store<T>>, set: StoreSetter<T>];
-/** Base options for store primitives. */
+/** Options shared by all store primitives. */
 export interface StoreOptions {
   /** Debug name (dev mode only) */
   name?: string;
+  /** Single-layer store: root keys reactive, values raw records replaced by reference */
+  shallow?: boolean;
 }
-/** Options for derived/projected stores created with `createStore(fn)`, `createProjection`, or `createOptimisticStore(fn)`. */
+/**
+ * Options for derived/projected stores created with
+ * `createStore(fn, seed, options?)`, `createProjection(fn, seed, options?)`,
+ * or `createOptimisticStore(fn, seed, options?)`.
+ */
 export interface ProjectionOptions extends StoreOptions {
   /** Key property name or function for reconciliation identity; `null` merges positionally */
   key?: string | ((item: NonNullable<any>) => any) | null;
-  /** Single-layer store: root keys reactive, values raw records replaced by reference */
-  shallow?: boolean;
   /**
    * Treat the seed as commit #0: the store is born committed with the seed's
    * contents, shown until the derive's first real answer lands. While that
@@ -235,13 +240,6 @@ function ownEnumerableSymbols(o: object): symbol[] {
     if (Object.prototype.propertyIsEnumerable.call(o, symbol)) result.push(symbol);
   }
   return result;
-}
-
-// Plain-object variant that keeps Object.keys() as the fast path and only pays
-// descriptor checks for symbols. Do not use this on store proxies: splitting
-// strings/symbols would invoke their ownKeys trap twice.
-function ownEnumerableKeysPlain(o: object): (string | symbol)[] {
-  return (Object.keys(o) as (string | symbol)[]).concat(ownEnumerableSymbols(o));
 }
 
 /**

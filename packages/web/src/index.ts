@@ -1,6 +1,5 @@
 import {
   getNextElement,
-  getInsertionParent,
   insert,
   spread,
   SVGElements,
@@ -239,6 +238,10 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
  * propagates as `NotReadyError` through the surrounding reactive scope, so
  * async swaps compose with `<Loading>` boundaries the same way as `lazy`.
  *
+ * During SSR a pending source streams in behind its boundary by default. Pass
+ * `{ deferStream: true }` to hold the document's first flush until it settles
+ * (the same option `createMemo` takes); the client ignores it.
+ *
  * @example
  * ```tsx
  * // `source` can return either a custom Component or a native tag
@@ -266,8 +269,19 @@ function bindingOf(value: any): { component: Function; address: string } | undef
   );
 }
 
+export interface DynamicOptions {
+  /**
+   * SSR only: hold the document's first flush until the source settles, so
+   * the resolved component renders into the shell instead of streaming in
+   * behind its boundary's fallback. Same meaning as `createMemo`'s
+   * `deferStream`. Ignored on the client.
+   */
+  deferStream?: boolean;
+}
+
 export function dynamic<T extends ValidComponent>(
-  source: () => T | Promise<T> | null | undefined | false
+  source: () => T | Promise<T> | null | undefined | false,
+  _options?: DynamicOptions
 ): Component<ComponentProps<T>> {
   // `prev` threads into the resolution so a source switching server-component
   // calls of the same function DELIVERS instead of swapping: the memo keeps
@@ -349,34 +363,15 @@ export function dynamic<T extends ValidComponent>(
           return untrack(() => (component as Function)(props));
         }
 
-        case "string": {
-          if (sharedConfig.hydrating) {
-            const el = getNextElement();
-            spread(el, props);
-            return el;
-          }
-          // Defer creation to first pull: the element materializes inside
-          // the insert() that renders it, where the live insertion parent
-          // resolves the namespace for tags that exist in both HTML and SVG
-          // (#3187). This memo is eager (it runs during createComponent,
-          // before any insert), so creating here would always default the
-          // ambiguous tags to the HTML namespace. Ownership is captured so
-          // spread's effects still belong to this memo's scope.
-          const owner = getOwner();
-          let el: Element | undefined;
-          return (() => {
-            if (!el) {
-              runWithOwner(owner, () => {
-                el = createElement(
-                  component as string,
-                  untrack(() => (props as any).is)
-                );
-                spread(el, props);
-              });
-            }
-            return el;
-          }) as unknown as JSX.Element;
-        }
+        case "string":
+          const el = sharedConfig.hydrating
+            ? getNextElement()
+            : createElement(
+                component as string,
+                untrack(() => (props as any).is)
+              );
+          spread(el, props);
+          return el;
 
         default:
           break;
@@ -405,29 +400,14 @@ export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.E
   return createComponent(Comp, omit(props, "component") as ComponentProps<T>);
 }
 
-// Tag names that exist in both HTML and SVG, deliberately excluded from
-// SVGElements (see constants.ts). The parser resolves their namespace from
-// the surrounding markup in static templates; dynamic creation resolves it
-// from the live insertion parent instead (#3187).
-const AmbiguousSVGElements = /*#__PURE__*/ new Set(["a", "script", "style", "title"]);
-
 function createElement(tagName: string, is = undefined): HTMLElement | SVGElement | MathMLElement {
-  if (SVGElements.has(tagName)) return document.createElementNS(Namespaces.svg, tagName) as any;
-  if (MathMLElements.has(tagName))
-    return document.createElementNS(Namespaces.mathml, tagName) as any;
-  if (AmbiguousSVGElements.has(tagName)) {
-    // An ambiguous tag created while inserting into SVG content belongs to
-    // the SVG namespace — except inside <foreignObject>, whose children are
-    // HTML content, mirroring how the parser reads server-rendered markup.
-    const parent = getInsertionParent() as Element | undefined;
-    if (
-      parent &&
-      parent.namespaceURI === Namespaces.svg &&
-      (parent as Element).localName !== "foreignObject"
-    )
-      return document.createElementNS(Namespaces.svg, tagName) as any;
-  }
-  return document.createElement(tagName, { is });
+  return (
+    SVGElements.has(tagName)
+      ? document.createElementNS(Namespaces.svg, tagName)
+      : MathMLElements.has(tagName)
+        ? document.createElementNS(Namespaces.mathml, tagName)
+        : document.createElement(tagName, { is })
+  ) as HTMLElement | SVGElement | MathMLElement;
 }
 
 function loadClientOnly<T>(
@@ -557,9 +537,10 @@ export function clientOnly<T extends Component<any>>(
  * `event.response` status at write time and restores it when the owning
  * scope is disposed — so a boundary that errored, declared a status, and
  * then recovered retracts its write instead of stomping a status a
- * surviving part of the tree legitimately set. Once the integration marks
- * the response head `committed` (head derived/sent), writes and
- * retractions are no-ops.
+ * surviving part of the tree legitimately set. Once the response head is
+ * `committed` (head derived/sent — the shell flush of a piped
+ * `renderToStream`, the completion of an awaited one, `createSSRResponse`
+ * for a `renderToString` result), writes and retractions are no-ops.
  */
 export function httpStatus(_code: number, _text?: string): void {}
 
@@ -578,7 +559,9 @@ export function httpStatus(_code: number, _text?: string): void {}
  * Retraction semantics (server): the header's prior value is snapshotted at
  * write time and restored when the owning scope is disposed (deleted if
  * there was none) — a boundary that errors or recovers retracts its writes.
- * Once the integration marks the response head `committed` (head
- * derived/sent), writes and retractions are no-ops.
+ * Once the response head is `committed` (head derived/sent — the shell
+ * flush of a piped `renderToStream`, the completion of an awaited one,
+ * `createSSRResponse` for a `renderToString` result), writes and
+ * retractions are no-ops.
  */
 export function httpHeader(_name: string, _value: string, _options?: { append?: boolean }): void {}

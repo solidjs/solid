@@ -6,10 +6,10 @@
 
 use html5ever::tendril::TendrilSink;
 use html5ever::{
-    ParseOpts, QualName, local_name, ns, parse_fragment, serialize,
+    ParseOpts, QualName, local_name, ns, parse_document, parse_fragment, serialize,
     serialize::{SerializeOpts, TraversalScope},
 };
-use markup5ever_rcdom::{RcDom, SerializableHandle};
+use markup5ever_rcdom::{Handle, NodeData, RcDom, SerializableHandle};
 
 pub(crate) struct InvalidMarkup {
     /// The normalized input (tags + `#text` placeholders).
@@ -65,12 +65,75 @@ pub(crate) fn is_invalid_markup(html: &str) -> Option<InvalidMarkup> {
         _ => {}
     }
 
-    let browser = inner_html(&html);
+    // A document shell (`<html>`/`<head>`/`<body>` root) can never round-trip
+    // a body-context fragment parse — the parser strips those wrappers no
+    // matter how well-formed the markup is — so it is parsed as a DOCUMENT
+    // instead and the shell element serialized back out (#3259). The same
+    // "used in the right place" assumption the synthetic `<table>` makes for
+    // table partials: a shell template is hydrated against a real document,
+    // not client-created. Restructuring inside the shell still mismatches —
+    // an implied `<head>`, flow content hoisted out of `<head>`, a `<p>`
+    // split in `<body>` — so the #3099 guarantee holds for markup a browser
+    // would actually rebuild.
+    let shell_tag = ["html", "head", "body"]
+        .into_iter()
+        .find(|tag| html.starts_with(&format!("<{tag}>")));
+
+    let browser = match shell_tag {
+        Some(tag) => document_shell(&html, tag),
+        None => inner_html(&html),
+    };
 
     if html.to_lowercase() != browser.to_lowercase() {
         return Some(InvalidMarkup { html, browser });
     }
     None
+}
+
+/// Parses `html` as a full document and serializes the shell element (`tag`)
+/// back out, wrappers included — the document-context counterpart of
+/// `inner_html` for `<html>`/`<head>`/`<body>` roots (#3259).
+fn document_shell(html: &str, tag: &str) -> String {
+    let dom = parse_document(RcDom::default(), ParseOpts::default()).one(html);
+
+    fn find_element(node: &Handle, tag: &str) -> Option<Handle> {
+        node.children.borrow().iter().find_map(|child| {
+            if let NodeData::Element { name, .. } = &child.data {
+                if name.local.as_ref() == tag {
+                    return Some(child.clone());
+                }
+            }
+            None
+        })
+    }
+
+    let Some(html_element) = find_element(&dom.document, "html") else {
+        return String::new();
+    };
+    let shell = if tag == "html" {
+        html_element
+    } else {
+        let Some(element) = find_element(&html_element, tag) else {
+            return String::new();
+        };
+        element
+    };
+
+    let mut output = Vec::new();
+    let handle = SerializableHandle::from(shell);
+    if serialize(
+        &mut output,
+        &handle,
+        SerializeOpts {
+            traversal_scope: TraversalScope::IncludeNode,
+            ..SerializeOpts::default()
+        },
+    )
+    .is_err()
+    {
+        return String::new();
+    }
+    String::from_utf8_lossy(&output).into_owned()
 }
 
 /// Parses `html` as if assigned to a `<body>` element's `innerHTML` and
@@ -173,4 +236,59 @@ fn fix_lt_escapes(html: &str) -> String {
     }
     output.push_str(&html[cursor..]);
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_invalid_markup;
+
+    // Document shells validate in the document context (#3259): a
+    // well-formed shell passes, and only markup a browser would actually
+    // rebuild still fails — mirroring the Babel plugin's
+    // `validate-document-shell.spec.js`.
+
+    #[test]
+    fn well_formed_html_shell_passes() {
+        assert!(
+            is_invalid_markup(
+                "<html><head><title>App</title></head><body><div>App</div></body></html>"
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn head_and_body_roots_pass() {
+        assert!(is_invalid_markup("<head><title>App</title></head>").is_none());
+        assert!(is_invalid_markup("<body><div>App</div></body>").is_none());
+    }
+
+    #[test]
+    fn shell_missing_head_fails() {
+        assert!(is_invalid_markup("<html><body><div>App</div></body></html>").is_some());
+    }
+
+    #[test]
+    fn flow_content_in_head_fails() {
+        assert!(
+            is_invalid_markup("<html><head><div>oops</div></head><body>App</body></html>")
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn p_split_inside_shell_body_fails() {
+        assert!(
+            is_invalid_markup(
+                "<html><head><title>App</title></head><body><p>a<div>b</div></p></body></html>"
+            )
+            .is_some()
+        );
+    }
+
+    #[test]
+    fn ordinary_markup_still_validates_in_body_context() {
+        assert!(is_invalid_markup("<div><span>#text</span></div>").is_none());
+        assert!(is_invalid_markup("<p>a<div>b</div></p>").is_some());
+    }
 }

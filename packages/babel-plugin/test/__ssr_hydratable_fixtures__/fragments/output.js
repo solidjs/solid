@@ -45,25 +45,19 @@ const multiDynamic = [
   ((_v$5 = _$ssrHydrationKey()),
   (_v$6 = () => _$ssrAttribute("id", _$escape(state.first, true))),
   _$ssr(_tmpl$3, _v$5, _v$6)),
-  _$memo(() => _$escape(state.inserted)),
+  _$memo(() => state.inserted),
   ((_v$7 = _$ssrHydrationKey()),
   (_v$8 = () => _$ssrAttribute("id", _$escape(state.last, true))),
   _$ssr(_tmpl$4, _v$7, _v$8)),
   "After"
 ];
 const singleExpression = inserted;
-const singleDynamic = _$memo(() => _$escape(inserted()));
+const singleDynamic = _$memo(inserted);
 const firstStatic = [inserted, ((_v$9 = _$ssrHydrationKey()), _$ssr(_tmpl$5, _v$9))];
-const firstDynamic = [
-  _$memo(() => _$escape(inserted())),
-  ((_v$0 = _$ssrHydrationKey()), _$ssr(_tmpl$5, _v$0))
-];
+const firstDynamic = [_$memo(inserted), ((_v$0 = _$ssrHydrationKey()), _$ssr(_tmpl$5, _v$0))];
 const firstComponent = [Component({}), ((_v$1 = _$ssrHydrationKey()), _$ssr(_tmpl$5, _v$1))];
 const lastStatic = [((_v$10 = _$ssrHydrationKey()), _$ssr(_tmpl$5, _v$10)), inserted];
-const lastDynamic = [
-  ((_v$11 = _$ssrHydrationKey()), _$ssr(_tmpl$5, _v$11)),
-  _$memo(() => _$escape(inserted()))
-];
+const lastDynamic = [((_v$11 = _$ssrHydrationKey()), _$ssr(_tmpl$5, _v$11)), _$memo(inserted)];
 const lastComponent = [((_v$12 = _$ssrHydrationKey()), _$ssr(_tmpl$5, _v$12)), Component({})];
 const spaces = [
   ((_v$13 = _$ssrHydrationKey()), _$ssr(_tmpl$6, _v$13)),

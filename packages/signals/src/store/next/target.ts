@@ -102,13 +102,19 @@ export interface StoreNextTarget {
   /** Accessor scan performed (scan-once on first trap read; adopted data is
    * not rescanned — legacy-parity behavior). */
   sc: boolean;
-  /** Backing was swapped by adoption this batch (fold diff-notifies it). */
-  adopted: boolean;
+  /** Adoption diff base, non-null when the backing was swapped by adoption
+   * this batch: the view the nodes were LAST TOLD — the pre-batch committed
+   * backing, or the draft's pending backing when a draft preceded the
+   * adoption (its setter-exit notifications already moved the nodes, #3296).
+   * The deferred fold diffs incoming against this, never against committed. */
+  ab: Record<PropertyKey, any> | null;
   /** Pending backing is a prototype-chain OVERLAY of the committed backing
    * (`Object.create(v)` — own keys are this batch's writes, everything else
    * reads through). O(written) per flush instead of O(container) clones
    * (#3044); commit flattens own keys onto an owned committed backing in
-   * place. Only plain-data non-array non-family containers qualify;
+   * place. Plain-data non-array containers qualify, including projection
+   * and derived-store families (#3352); optimistic families, chained
+   * backings, and accessor containers keep the descriptor clone.
    * `materializePB` downgrades to the clone path when a consumer needs a
    * real container (reconcile, draft escape). */
   ovl: boolean;

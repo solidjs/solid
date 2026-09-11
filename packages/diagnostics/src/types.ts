@@ -1,19 +1,29 @@
-import type { Dev, DiagnosticEvent } from "@solidjs/signals";
+import type { DiagnosticEvent } from "@solidjs/signals";
+import type { Attribution, HoldEvent, RerunEvent } from "@solidjs/signals/attribution";
 
 /**
- * The attribution surface and its record types are not exported from the
- * signals index (only `Dev` is), so we derive them structurally. This keeps
- * the harness zero-footprint on the signals export surface while staying
- * type-locked to it: if attribution's shape changes, these break at compile
- * time here rather than silently at runtime.
+ * The engine's record types, re-exported from `@solidjs/signals/attribution`
+ * by name where it exports them and derived structurally where it does not,
+ * so the harness stays type-locked to the engine: if a shape changes, these
+ * break at compile time here rather than silently at runtime.
  */
-export type Attribution = Dev["attribution"];
-export type AttributionOptions = NonNullable<Parameters<Attribution["enable"]>[0]>;
-export type RerunEvent = ReturnType<Attribution["history"]>[number];
+export type {
+  Attribution,
+  AttributionOptions,
+  RerunEvent,
+  ScopeCost,
+  WriteCost,
+  ChangeRecord,
+  ChangeOrigin,
+  /** A settled hold that staged a root write — already serializable (no live nodes). */
+  HoldEvent,
+  FeedbackSource,
+  FeedbackInteraction,
+  FlightStats,
+  FallbackStats
+} from "@solidjs/signals/attribution";
 export type AttributionCosts = ReturnType<Attribution["costs"]>;
-export type ScopeCost = AttributionCosts["scopes"][number];
-export type WriteCost = AttributionCosts["writes"][number];
-export type ChangeRecord = RerunEvent["causes"][number];
+export type AttributionFeedback = ReturnType<Attribution["feedback"]>;
 
 /**
  * A serializable projection of RerunEvent: everything except the live `node`
@@ -24,14 +34,24 @@ export type RerunRecord = Omit<RerunEvent, "node">;
 export interface ArtifactAttribution {
   reruns: RerunRecord[];
   costs: AttributionCosts;
+  /** Every hold that staged a root write — what the user waited on. */
+  holds: HoldEvent[];
+  /** The ranked feedback tables folded from `holds` and the re-runs' interactions. */
+  feedback: AttributionFeedback;
 }
 
 /**
  * The unit of exchange between a captured run and everything downstream:
  * assertions, budget files, JSONL egress, agent consumption.
+ *
+ * Format history: v1 carried `attribution.{reruns, costs}`; v2 adds
+ * `attribution.{holds, feedback}` (responsiveness evidence); v3 adds
+ * `HoldEvent.tailMs`, the `long`/`longMs` feedback columns and the `held`
+ * rerun phase (LONG_HOLD); v4 drops `HoldEvent.acknowledgedBy` (the
+ * `"kind:source"` strings) for the structured `acknowledgements`.
  */
 export interface DiagnosticsArtifact {
-  formatVersion: 1;
+  formatVersion: 4;
   /** Human/agent-readable label for the captured scenario. */
   scenario?: string;
   capturedAt: string;

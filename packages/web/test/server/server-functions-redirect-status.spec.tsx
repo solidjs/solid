@@ -35,10 +35,13 @@ const RequestContext = Symbol.for("solid.RequestContext");
 
 beforeAll(() => {
   (globalThis as any)[RequestContext] = new AsyncLocalStorage();
+  // the flash codec is encrypted (#3239); the no-JS assertions need a key
+  (globalThis as any).__SOLID_SECRET__ = "redirect-status-spec-key";
 });
 
 afterAll(() => {
   delete (globalThis as any)[RequestContext];
+  delete (globalThis as any).__SOLID_SECRET__;
 });
 
 function scripted(id: string) {

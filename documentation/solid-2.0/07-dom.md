@@ -85,6 +85,14 @@ Multiple refs (or directives) can be applied by passing an array:
 <button ref={[autofocus, tooltip({ content: "Save" })]} />
 ```
 
+Arrays compose **callbacks**: at runtime each entry is flattened and called with the element. The bare-variable form (`let el; <div ref={el} />`, where the compiler assigns the element to `el`) is a compile-time rewrite of the single `ref` value only — it does not reach inside arrays, which are ordinary values and need not be inlined. A variable placed in an array is never assigned; use a callback instead:
+
+```jsx
+let el;
+<div ref={[el]} />; // el stays undefined
+<div ref={[node => (el = node), autofocus]} />; // assigned
+```
+
 #### Two-phase directive factories (owned setup, unowned application)
 
 The recommended directive pattern is **two-phase**, similar in spirit to “split effects” (compute phase vs apply phase):

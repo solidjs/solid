@@ -52,7 +52,7 @@ describe("reconcile re-send identity (O7)", () => {
     expect(seen).toEqual([1, 99, 1]);
   });
 
-  // FINDING-1 (rules-mining/FINDINGS.md): failed on the legacy store —
+  // FINDING-1 (docs/rules-mining/FINDINGS.md): failed on the legacy store —
   // applyStateFast's `next === previous` early-return skipped the diff while
   // a committed node held a diverged value. FIXED by the rewrite's ownership
   // guard (`incoming === backing && !owned(backing)`); flipped to plain `it`

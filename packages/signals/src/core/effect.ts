@@ -4,6 +4,7 @@ import {
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
+  LANE_RUN,
   REACTIVE_DISPOSED,
   STATUS_ERROR,
   STATUS_PENDING
@@ -17,15 +18,21 @@ import {
   ext,
   setEffectStatusNotify
 } from "./core.js";
-import { emitDiagnostic } from "./dev.js";
+import { attrHooks } from "./attribution-hooks.js";
+import { emitDiagnostic, reportDiagnostic } from "./dev.js";
 import { StatusError, unwrapStatusError } from "./error.js";
+import { enqueueSub } from "./heap.js";
 import {
   _hitUnhandledAsync,
+  activeTransition,
+  currentTransition,
   GlobalQueue,
   haltReactivity,
   resetUnhandledAsync,
+  schedule,
   setTrackedQueueCallback,
-  setEffectCallback
+  setEffectCallback,
+  type Transition
 } from "./scheduler.js";
 import type { Computed, NodeOptions, Owner } from "./types.js";
 
@@ -35,7 +42,13 @@ export interface Effect<T> extends Computed<T>, Owner {
   _modified: boolean;
   _prevValue: T | undefined;
   _type: number;
-  _boundRunEffect?: () => void;
+  _boundRunEffect?: (type: number) => void;
+  /** The transaction whose staged view produced `_value` (null = committed
+   * view). Effects have one value slot and do not entangle transactions, so
+   * a second transaction recomputing the same effect overwrites a value the
+   * first one still owes a run for; see the contested-effect arm of recompute
+   * (#3322). */
+  _valueTransition: Transition | null;
 }
 
 /**
@@ -61,20 +74,24 @@ export function effect<T>(
   !options?.defer &&
     (node._type === EFFECT_USER || options?.schedule
       ? node._queue.enqueue(node._type, runEffect.bind(null, node))
-      : runEffect(node));
+      : runEffect(node, LANE_RUN));
   if (__DEV__ && !node._parent) {
     const message =
       "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed";
-    emitDiagnostic({
-      code: "NO_OWNER_EFFECT",
-      kind: "lifecycle",
-      severity: "warn",
-      message,
-      ownerId: node.id,
-      ownerName: node._name,
-      data: { effectType: "effect" }
-    });
-    console.warn(message);
+    reportDiagnostic(
+      emitDiagnostic(
+        {
+          code: "NO_OWNER_EFFECT",
+          kind: "lifecycle",
+          severity: "warn",
+          message,
+          ownerId: node.id,
+          ownerName: node._name,
+          data: { effectType: "effect" }
+        },
+        node
+      )
+    );
   }
 }
 
@@ -106,30 +123,52 @@ function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): vo
     }
   } else if (this._type === EFFECT_RENDER) {
     this._queue.notify(this, STATUS_PENDING | STATUS_ERROR, actualStatus, actualError);
-    if (__DEV__ && _hitUnhandledAsync) {
+    if (__DEV__ && _hitUnhandledAsync && resetUnhandledAsync()) {
       // Async without a `Loading` ancestor is legal (the mount defers), so this
       // is a consistent FYI — an `Errored` above must not swallow it. The old
       // STATUS_ERROR re-notify here dated from when enforcement routed the
       // pending to the error boundary; that both suppressed the warning and
-      // showed the error fallback in dev only (#2822).
-      resetUnhandledAsync();
+      // showed the error fallback in dev only (#2822). Reported once per
+      // mount (resetUnhandledAsync gates), located at the first pending
+      // effect's owner path.
       const message =
         "[ASYNC_OUTSIDE_LOADING_BOUNDARY] An async value was read outside a Loading boundary. The root mount will be deferred until all pending async settles.";
-      emitDiagnostic({
-        code: "ASYNC_OUTSIDE_LOADING_BOUNDARY",
-        kind: "async",
-        severity: "warn",
-        message,
-        ownerId: this.id,
-        ownerName: this._name
-      });
-      console.warn(message);
+      reportDiagnostic(
+        emitDiagnostic(
+          {
+            code: "ASYNC_OUTSIDE_LOADING_BOUNDARY",
+            kind: "async",
+            severity: "warn",
+            message,
+            ownerId: this.id,
+            ownerName: this._name
+          },
+          this
+        )
+      );
     }
   }
 }
 
-function runEffect(node: Effect<any>): void {
+function runEffect(node: Effect<any>, type: number): void {
   if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
+  // Ownership (#3319): a value computed under a transaction is applied by that
+  // transaction's commit. The ordinary effect phase runs with a transaction
+  // active only when the flush's finalize ENTERED one (every other path parks
+  // or settles first): leave a run owned by a still-held transaction queued —
+  // `_modified` stays set — and the next gate stashes it with the owner.
+  // Mainline-owned runs (null) apply now. Lanes are exempt by design (they
+  // apply their own effects ahead of their transaction — the optimistic view)
+  // and mark their runs with LANE_RUN.
+  if (
+    activeTransition !== null &&
+    !(type & LANE_RUN) &&
+    node._valueTransition !== null &&
+    !currentTransition(node._valueTransition)._done
+  ) {
+    node._queue.enqueue(node._type, node._boundRunEffect!);
+    return;
+  }
   // Error arm (#2840), user effects only: a compute-phase error that is still
   // the node's settled state at effect time runs the bundle's error handler in
   // this same imperative, writable scope. Unwrap the StatusError used for
@@ -164,6 +203,7 @@ function runEffect(node: Effect<any>): void {
   if (__DEV__) {
     prevStrictRead = setStrictRead("an effect callback");
     setEffectCallback(true);
+    if (attrHooks !== null) attrHooks.effectRunStart(node);
   }
   const prevCleanup = node._cleanup;
   node._cleanup = undefined;
@@ -192,6 +232,9 @@ function runEffect(node: Effect<any>): void {
     node._prevValue = node._value;
     node._modified = false;
   }
+  // Outside the try (see the rule in attribution-hooks.ts). Reached whether or
+  // not the callback threw — a throw that escapes the catch above halts.
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.effectRunEnd(node);
 }
 
 GlobalQueue._runEffect = runEffect as (el: Computed<unknown>) => void;
@@ -209,6 +252,9 @@ export interface TrackedEffect extends Computed<void> {
  */
 export function trackedEffect(fn: () => void | (() => void), options?: NodeOptions<any>): void {
   const run = () => {
+    // `_modified` is NOT redundant with the heap: the heap dedups within a
+    // pass, but a held transition's passes each enqueue `_run` into the same
+    // user queue, and this gate is what collapses them into one run at commit.
     if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
     if (__DEV__) setTrackedQueueCallback(true);
     try {
@@ -239,25 +285,36 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
   node._config = (node._config & ~CONFIG_AUTO_DISPOSE) | CONFIG_CHILDREN_FORBIDDEN;
   node._modified = true;
   node._type = EFFECT_TRACKED;
+  // Observe-tier label: the computed literal defaulted its `_name` slot to
+  // "computed"; relabel by kind (a store into the slot, not a new field).
+  if (__OBSERVE__ && options?.name === undefined) node._name = "trackedEffect";
   // Status dispatch rides the SHARED notifier (statusNotifierOf keys off
   // _type): its error arm is behavior-identical to the closure that used to
   // live here, without the per-node NodeExtension allocation.
   node._run = run;
-  node._queue.enqueue(EFFECT_USER, run);
+  // The first run rides the heap like every wake (GlobalQueue._update), so a
+  // tracked effect created inside a render-effect callback runs after that
+  // pass's staged writes commit, not before.
+  enqueueSub(node);
+  schedule();
 
   if (__DEV__ && !node._parent) {
     const message =
       "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed";
-    emitDiagnostic({
-      code: "NO_OWNER_EFFECT",
-      kind: "lifecycle",
-      severity: "warn",
-      message,
-      ownerId: node.id,
-      ownerName: node._name,
-      data: { effectType: "trackedEffect" }
-    });
-    console.warn(message);
+    reportDiagnostic(
+      emitDiagnostic(
+        {
+          code: "NO_OWNER_EFFECT",
+          kind: "lifecycle",
+          severity: "warn",
+          message,
+          ownerId: node.id,
+          ownerName: node._name,
+          data: { effectType: "trackedEffect" }
+        },
+        node
+      )
+    );
   }
 }
 

@@ -48,12 +48,20 @@ const plugins = [
   })
 ];
 
-const replaceDev = isDev =>
+// Two literals, three tiers (mirrors solid-js and @solidjs/signals):
+//   dev      "_SOLID_DEV_" true   "_SOLID_OBSERVE_" true   (*.dev.*)
+//   observe  "_SOLID_DEV_" false  "_SOLID_OBSERVE_" true   (*.observe.*)
+//   prod     both false                                    (default)
+// Every build replaces both; an unreplaced literal is truthy and takes the
+// dev branch in production (#2982).
+const replaceFlags = (isDev, isObserve) =>
   replace({
     '"_SOLID_DEV_"': isDev,
+    '"_SOLID_OBSERVE_"': isObserve,
     preventAssignment: true,
     delimiters: ["", ""]
   });
+const replaceDev = isDev => replaceFlags(isDev, isDev);
 
 // Build-time regression guard for the frames client entry: the emitted
 // chunk must still contain its transport half. `responseHandler` is the
@@ -118,88 +126,65 @@ const assertFramesClientTransport = {
 export default [
   {
     input: "src/index.ts",
-    output: [
-      {
-        file: "dist/web.cjs",
-        format: "cjs"
-      },
-      {
-        file: "dist/web.js",
-        format: "es"
-      }
-    ],
+    output: { file: "dist/web.js", format: "es" },
     external: ["solid-js"],
     plugins: [replaceDev(false)].concat(plugins)
   },
   {
-    // Prod build — the only node/worker/deno artifact for the main entry
-    // (SSR builds are production by convention; the server entry hard-codes
-    // isDev false). `_SOLID_DEV_` must strip to false here: without the
-    // replace, babel constant-folds the truthy "_SOLID_DEV_" string literal and
-    // the artifact permanently takes the DEV branch of every gate — most
-    // damaging the committed-stub header guard, which is spec'd to throw in
-    // dev but console.error + no-op in prod, so the shipped bundle turned a
-    // late header write into a crashed production request (#2982). Guarded
+    // Observe client build (`observe` condition under `browser`): the three
+    // interaction-provenance wraps in src/client.ts survive so attribution can
+    // stamp root writes with the event that caused them; every dev-only check
+    // folds out. The only client entry with wiring — frames, server-functions
+    // and storage have none and fall through to prod under `observe`.
+    input: "src/index.ts",
+    output: { file: "dist/web.observe.js", format: "es" },
+    external: ["solid-js"],
+    plugins: [replaceFlags(false, true)].concat(plugins)
+  },
+  {
+    // Prod server build — the default node/worker/deno artifact for the main
+    // entry. `_SOLID_DEV_` must strip to false here: without the replace, babel
+    // constant-folds the truthy "_SOLID_DEV_" string literal and the artifact
+    // permanently takes the DEV branch of every gate — most damaging the
+    // committed-stub header guard, which is spec'd to throw in dev but
+    // console.error + no-op in prod, so the shipped bundle turned a late
+    // header write into a crashed production request (#2982). Guarded
     // behaviorally by test/server/dist-server-artifact.spec.tsx (a string
     // scan can't catch this: the folding erases the marker either way).
     input: "src/index.server.ts",
-    output: [
-      {
-        file: "dist/server.cjs",
-        format: "cjs"
-      },
-      {
-        file: "dist/server.js",
-        format: "es"
-      }
-    ],
+    output: { file: "dist/server.js", format: "es" },
     external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
     plugins: [replaceDev(false)].concat(plugins)
   },
   {
+    // Dev server build (`development` condition nested under node/worker/deno
+    // in package.json — nested because top-level `node` would match first).
+    // Until this existed the 26 `_SOLID_DEV_` gates in src/server.ts (head and
+    // preload descriptor validation, useHead warnings, the late-header throw)
+    // were stripped from the only server artifact and never ran outside the
+    // test suite. Same shape as server-functions/dist/server.dev below.
+    // Guarded by test/server/dist-server-dev-artifact.spec.tsx: the dev
+    // artifact must THROW on a late header write where prod reports and drops.
+    input: "src/index.server.ts",
+    output: { file: "dist/server.dev.js", format: "es" },
+    external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
+    plugins: [replaceDev(true)].concat(plugins)
+  },
+  {
     input: "src/index.ts",
-    output: [
-      {
-        file: "dist/dev.cjs",
-        format: "cjs"
-      },
-      {
-        file: "dist/dev.js",
-        format: "es"
-      }
-    ],
+    output: { file: "dist/web.dev.js", format: "es" },
     external: ["solid-js"],
     plugins: [replaceDev(true)].concat(plugins)
   },
   {
     input: "storage/src/index.ts",
-    output: [
-      {
-        file: "storage/dist/storage.cjs",
-        format: "cjs",
-        exports: "auto"
-      },
-      {
-        file: "storage/dist/storage.js",
-        format: "es"
-      }
-    ],
+    output: { file: "storage/dist/storage.js", format: "es" },
     external: ["@solidjs/web"],
     plugins
   },
   {
     input: "serialization/src/serializer.ts",
-    output: [
-      {
-        file: "serialization/dist/serialization.cjs",
-        format: "cjs",
-        exports: "auto"
-      },
-      {
-        file: "serialization/dist/serialization.js",
-        format: "es"
-      }
-    ],
+    output: { file: "serialization/dist/serialization.js", format: "es" },
     external: ["seroval", "seroval-plugins/web"],
     plugins
   },
@@ -209,33 +194,13 @@ export default [
     // never rides into a browser that only reads. The full entry above
     // still carries everything (its serializer.js re-exports this module).
     input: "serialization/src/serializer-decode.ts",
-    output: [
-      {
-        file: "serialization/dist/decode.cjs",
-        format: "cjs",
-        exports: "auto"
-      },
-      {
-        file: "serialization/dist/decode.js",
-        format: "es"
-      }
-    ],
+    output: { file: "serialization/dist/decode.js", format: "es" },
     external: ["seroval", "seroval-plugins/web"],
     plugins
   },
   {
     input: "server-functions/src/client.ts",
-    output: [
-      {
-        file: "server-functions/dist/client.cjs",
-        format: "cjs",
-        exports: "auto"
-      },
-      {
-        file: "server-functions/dist/client.js",
-        format: "es"
-      }
-    ],
+    output: { file: "server-functions/dist/client.js", format: "es" },
     external: ["seroval", "seroval-plugins/web"],
     plugins
   },
@@ -245,17 +210,7 @@ export default [
     // externalizeSharedClient), so the dist carries only enableRichArguments
     // and pulls the serializer write half through the shared instance.
     input: "server-functions/src/rich-args.ts",
-    output: [
-      {
-        file: "server-functions/dist/rich-args.cjs",
-        format: "cjs",
-        exports: "auto"
-      },
-      {
-        file: "server-functions/dist/rich-args.js",
-        format: "es"
-      }
-    ],
+    output: { file: "server-functions/dist/rich-args.js", format: "es" },
     external: ["@solidjs/web/server-functions/client", "seroval", "seroval-plugins/web"],
     plugins: [externalizeSharedClient].concat(plugins)
   },
@@ -265,17 +220,7 @@ export default [
     // become a generic Error) and its dev-only diagnostic bodies. This is
     // the default resolution — plain node, production bundles.
     input: "server-functions/src/server.ts",
-    output: [
-      {
-        file: "server-functions/dist/server.cjs",
-        format: "cjs",
-        exports: "auto"
-      },
-      {
-        file: "server-functions/dist/server.js",
-        format: "es"
-      }
-    ],
+    output: { file: "server-functions/dist/server.js", format: "es" },
     external: ["solid-js", "seroval", "seroval-plugins/web"],
     plugins: [replaceDev(false)].concat(plugins)
   },
@@ -285,17 +230,7 @@ export default [
     // and the handler's diagnostic bodies for DX and the dev toolbar —
     // mirroring the frames client's dev/prod split.
     input: "server-functions/src/server.ts",
-    output: [
-      {
-        file: "server-functions/dist/server.dev.cjs",
-        format: "cjs",
-        exports: "auto"
-      },
-      {
-        file: "server-functions/dist/server.dev.js",
-        format: "es"
-      }
-    ],
+    output: { file: "server-functions/dist/server.dev.js", format: "es" },
     external: ["solid-js", "seroval", "seroval-plugins/web"],
     plugins: [replaceDev(true)].concat(plugins)
   },
@@ -315,17 +250,7 @@ export default [
   // The server half bundles the frame sink and its SSR pipeline.
   {
     input: "frames/src/client.ts",
-    output: [
-      {
-        file: "frames/dist/client.cjs",
-        format: "cjs",
-        exports: "auto"
-      },
-      {
-        file: "frames/dist/client.js",
-        format: "es"
-      }
-    ],
+    output: { file: "frames/dist/client.js", format: "es" },
     external: [
       "solid-js",
       "@solidjs/web",
@@ -348,17 +273,7 @@ export default [
     // Dev build (`development` export condition): keeps the frame runtime's
     // `_SOLID_DEV_` diagnostics for marker-corruption / CDN-strip debugging.
     input: "frames/src/client.ts",
-    output: [
-      {
-        file: "frames/dist/client.dev.cjs",
-        format: "cjs",
-        exports: "auto"
-      },
-      {
-        file: "frames/dist/client.dev.js",
-        format: "es"
-      }
-    ],
+    output: { file: "frames/dist/client.dev.js", format: "es" },
     external: [
       "solid-js",
       "@solidjs/web",
@@ -377,18 +292,18 @@ export default [
     // without the replace babel folds the truthy literal into the dev branch
     // — same build-mode bug as #2982, dev-only noise shipped in prod here.
     input: "frames/src/server.ts",
-    output: [
-      {
-        file: "frames/dist/server.cjs",
-        format: "cjs",
-        exports: "auto"
-      },
-      {
-        file: "frames/dist/server.js",
-        format: "es"
-      }
-    ],
+    output: { file: "frames/dist/server.js", format: "es" },
     external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
     plugins: [replaceDev(false)].concat(plugins)
+  },
+  {
+    // Dev server build for frames (`development` nested under node/worker/deno
+    // in the `./frames` export and the `./frames/server` subpath). Keeps the
+    // bundled SSR pipeline's `_SOLID_DEV_` gates live in dev SSR, matching the
+    // main dist/server.dev entry above.
+    input: "frames/src/server.ts",
+    output: { file: "frames/dist/server.dev.js", format: "es" },
+    external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
+    plugins: [replaceDev(true)].concat(plugins)
   }
 ];

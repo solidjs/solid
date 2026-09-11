@@ -169,6 +169,12 @@ The `<Dynamic component={...}>` JSX wrapper from 1.x still exists and is unchang
 
 `source` may return a `Promise<Component | string | undefined>`. The factory composes with `Loading` / `Errored` through the normal `NotReadyError` flow — no separate suspense primitive or user-side `await`.
 
+Under SSR a pending source streams in behind its boundary by default — a source is data of unknown cost (a server component call, say). Pass `{ deferStream: true }` to hold the document's first flush until it settles, the same option `createMemo` takes ([RFC 05](05-async-data.md)); the client ignores it. This is the one place `dynamic` and `lazy` differ: a `lazy()` module load is code, not data, and always holds the shell — the shell cannot decide it has discovered all async until the segment's code has run — while the boundary still owns whatever async that code then discovers.
+
+```jsx
+const Page = dynamic(() => loadPageComponent(params.id), { deferStream: true });
+```
+
 #### Notes
 
 - The source evaluation is shared across all mounted instances of the returned component, so using one `dynamic(...)` in many places doesn't duplicate work.

@@ -33,6 +33,7 @@ import {
   type SignalOptions,
   type SourceAccessor,
   type Store,
+  type StoreOptions,
   type StoreSetter,
   type RevealOrder,
   createOwner,
@@ -417,7 +418,16 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options
   if (latchedOnce.has(o)) {
     if (options?.ssrSource !== "hybrid") armLiveTakeover();
   } else latchedOnce.add(o);
-  return readHydratedValue(sharedConfig.load!(o.id!), () => subFetch(compute, prev), options);
+  return readHydratedValue(
+    sharedConfig.load!(o.id!),
+    () => {
+      const traced = subFetch(compute, prev);
+      if (options?.ssrSource !== "hybrid" && traced != null && traced[LIVE_SOURCE])
+        armLiveTakeover();
+      return traced;
+    },
+    options
+  );
 }
 
 /**
@@ -1054,28 +1064,7 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
   const aiResult = hydrateSignalFromAsyncIterable(coreFn, fn, options);
   if (aiResult !== null) return aiResult;
 
-  // readSerializedOrCompute inlined with live detection: the adoption path
-  // already trace-runs the compute (dependency tracking); if that run
-  // returns a live-branded iterable, the serialized value is only the t=0
-  // face — arm the takeover so hydration end re-runs the compute for real
-  // (reconnect). Non-live computes keep exactly the old semantics.
-  return coreFn((prev: any) => {
-    const o = getOwner()!;
-    if (sharedConfig.done || !sharedConfig.has!(o.id!)) return fn(prev);
-    // Same divergence guard as readSerializedOrCompute: a re-entry while
-    // latched means a dependency changed mid-stream — arm the takeover so
-    // the change commits at hydration end instead of being lost.
-    if (latchedOnce.has(o)) armLiveTakeover();
-    else latchedOnce.add(o);
-    let traced: any;
-    const value = readHydratedValue(
-      sharedConfig.load!(o.id!),
-      () => (traced = subFetch(fn, prev)),
-      options
-    );
-    if (traced != null && traced[LIVE_SOURCE]) armLiveTakeover();
-    return value;
-  }, options);
+  return coreFn((prev: any) => readSerializedOrCompute(fn, prev, options), options);
 }
 
 function hydratedCreateMemo(compute: any, options?: any) {
@@ -1260,10 +1249,22 @@ function lazyHydrationLookup<T>(
   }
   if (!comp && moduleUrl) {
     // moduleUrl present means the bundler transform ran, so the server
-    // must have registered this position. A miss is a broken preload.
+    // must have registered this position. A miss is a broken preload — the
+    // server never filed a client entry under this id, or filed it under a
+    // different one. It is NOT a missing Loading boundary: root-level lazy()
+    // preloads through the root module map (#3338 was misdiagnosed from the
+    // previous wording of this message). The throw is unconditional; only the
+    // diagnosis is dev-only — prose in a prod string is paid for by every
+    // hydrating app (size gate, #2883).
     throw new Error(
-      `lazy() module "${moduleUrl}" (hydration id "${key}") was not preloaded before ` +
-        "hydration. Ensure it is inside a Loading boundary."
+      `lazy() module "${moduleUrl}" (hydration id "${key}") was not preloaded before hydration` +
+        (IS_DEV
+          ? ": the server serialized no client entry for it. Check the server log for " +
+            '"Asset manifest returned no client assets for module" — the manifest passed to ' +
+            "renderToStream/renderToString did not answer for this moduleUrl (a key that does not " +
+            "match the client manifest, or a manifest built for different output). If the server " +
+            "did register it, the server and client hydration id namespaces are misaligned."
+          : ".")
     );
   }
   return comp as (() => T) | undefined;
@@ -1604,7 +1605,7 @@ export const createOptimistic: {
  */
 export const createProjection: <T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  initialValue: Partial<T> | Store<NoFn<T>>,
+  seed: Partial<T> | Store<NoFn<T>>,
   options?: HydrationProjectionOptions
 ) => Refreshable<Store<T>> = ((...args: any[]) => {
   // `hydrating` can only be true once enableHydration() installed the
@@ -1637,7 +1638,7 @@ type NoFn<T> = T extends Function ? never : T;
  * `filter`. The setter does **not** do keyed reconciliation; for
  * that, use the derived/projection form (or `createProjection`).
  *
- * - **Plain form** — `createStore(initialValue)`: wraps a value in a
+ * - **Plain form** — `createStore(initialValue, options?)`: wraps a value in a
  *   reactive proxy.
  * - **Derived form** — `createStore(fn, seed, options?)`: a
  *   *projection store* whose contents are computed by `fn(draft)`.
@@ -1678,12 +1679,12 @@ type NoFn<T> = T extends Function ? never : T;
  */
 export const createStore: {
   <T extends object = {}>(
-    store: NoFn<T> | Store<NoFn<T>>,
-    options?: { name?: string; shallow?: boolean }
+    initialValue: NoFn<T> | Store<NoFn<T>>,
+    options?: StoreOptions
   ): [get: Store<T>, set: StoreSetter<T>];
   <T extends object = {}>(
-    fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-    store: NoFn<T> | Store<NoFn<T>>,
+    fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+    seed: Partial<T> | Store<NoFn<T>>,
     options?: HydrationProjectionOptions
   ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 } = ((...args: any[]) => {
@@ -1703,12 +1704,12 @@ export const createStore: {
  * Use this for optimistic UI on collection-shaped data. For
  * single-value optimistic state, prefer `createOptimistic`.
  *
- * - **Plain form** — `createOptimisticStore(initialValue)`.
+ * - **Plain form** — `createOptimisticStore(initialValue, options?)`.
  * - **Derived form** — `createOptimisticStore(fn, seed, options?)`:
  *   a projection store whose authoritative value is recomputed by
  *   `fn` and whose optimistic overlay reverts after each transition.
  *
- * `options.key` defaults to `"id"`; specify it only when your data
+ * In the derived form, `options.key` defaults to `"id"`; specify it only when your data
  * uses a different identity field (e.g. `{ key: "uuid" }` or
  * `{ key: t => t.slug }`). Restating the default just adds noise.
  *
@@ -1741,10 +1742,13 @@ export const createStore: {
  * @returns `[store: Store<T>, setStore: StoreSetter<T>]`
  */
 export const createOptimisticStore: {
-  <T extends object = {}>(store: NoFn<T> | Store<NoFn<T>>): [get: Store<T>, set: StoreSetter<T>];
   <T extends object = {}>(
-    fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-    store: NoFn<T> | Store<NoFn<T>>,
+    initialValue: NoFn<T> | Store<NoFn<T>>,
+    options?: StoreOptions
+  ): [get: Store<T>, set: StoreSetter<T>];
+  <T extends object = {}>(
+    fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+    seed: Partial<T> | Store<NoFn<T>>,
     options?: HydrationProjectionOptions
   ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 } = ((...args: any[]) => {

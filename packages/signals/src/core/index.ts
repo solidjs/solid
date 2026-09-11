@@ -67,15 +67,26 @@ export {
   type IQueue,
   type QueueCallback
 } from "./scheduler.js";
+export type {
+  AttributionHooks,
+  InteractionRef,
+  NavigationRef,
+  OriginRef
+} from "./attribution-hooks.js";
 export {
   DEV,
+  OBSERVE,
+  type AttributionSlot,
   type Dev,
+  type Observe,
   type DevHooks,
   type DiagnosticCapture,
   type DiagnosticCode,
   type DiagnosticEvent,
   type DiagnosticKind,
+  type DiagnosticListener,
   type Diagnostics,
-  type DiagnosticSeverity
+  type DiagnosticSeverity,
+  type DiagnosticSubject
 } from "./dev.js";
 export * from "./constants.js";

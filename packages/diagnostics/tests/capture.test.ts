@@ -24,7 +24,7 @@ describe("captureArtifact — diagnostics channel", () => {
       { scenario: "orphan effect", attribution: deterministicAttribution }
     );
 
-    expect(artifact.formatVersion).toBe(1);
+    expect(artifact.formatVersion).toBe(4);
     expect(artifact.scenario).toBe("orphan effect");
     expectDiagnostic(artifact, "NO_OWNER_EFFECT");
     expect(() => expectNoDiagnostics(artifact)).toThrow(DiagnosticsAssertionError);

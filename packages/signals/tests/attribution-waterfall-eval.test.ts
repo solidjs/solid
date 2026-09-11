@@ -10,11 +10,19 @@
  * acknowledged as the residual blind spot otherwise (depth-2 => info).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createEffect, createMemo, createRoot, createSignal, DEV, flush } from "../src/index.js";
+import { attribution } from "../src/attribution.js";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+  OBSERVE
+} from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 
 afterEach(() => {
-  DEV!.attribution.disable();
+  attribution.disable();
   flush();
   vi.restoreAllMocks();
 });
@@ -22,17 +30,35 @@ afterEach(() => {
 const sleep = <T>(ms: number, v: T) => new Promise<T>(r => setTimeout(() => r(v), ms));
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+/**
+ * Deadline-poll a condition instead of sleeping a fixed interval: the sleeps
+ * above are real timers, and fixed waits raced them on loaded CI runners
+ * (three flake incidents on docs-only commits). Positive expectations poll
+ * until their event exists; negative expectations poll until the terminal
+ * flight has provably LANDED (observed via the reading effect), then assert
+ * absence after one more settle turn.
+ */
+async function until(cond: () => boolean, what: string, timeout = 5000) {
+  const start = Date.now();
+  for (;;) {
+    flush();
+    if (cond()) return;
+    if (Date.now() - start > timeout) throw new Error(`timed out waiting for ${what}`);
+    await wait(5);
+  }
+}
+
 function arm(minFlightMs = 5) {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "info").mockImplementation(() => {});
-  DEV!.attribution.enable({
+  attribution.enable({
     log: false,
     hotRuns: false,
     hotTime: false,
     waterfalls: { minFlightMs }
   });
   const events: DiagnosticEvent[] = [];
-  DEV!.diagnostics.subscribe(e => {
+  OBSERVE!.diagnostics.subscribe(e => {
     if (e.code === "ASYNC_WATERFALL") events.push(e);
   });
   return events;
@@ -60,8 +86,7 @@ describe("ASYNC_WATERFALL", () => {
       )
     );
     flush();
-    await wait(40);
-    flush();
+    await until(() => events.length >= 1, "the story->author advisory");
 
     expect(events).toHaveLength(1);
     expect(events[0].severity).toBe("info"); // depth 2: advisory, not accusatory
@@ -70,7 +95,7 @@ describe("ASYNC_WATERFALL", () => {
     expect(events[0].data!.sequentialMs as number).toBeGreaterThanOrEqual(25);
 
     // The fact surface has it too.
-    const chains = DEV!.attribution.waterfalls();
+    const chains = attribution.waterfalls();
     expect(chains.some(c => c.chain.map(l => l.name).join(">") === "story>author")).toBe(true);
     void setId;
   });
@@ -88,8 +113,7 @@ describe("ASYNC_WATERFALL", () => {
       )
     );
     flush();
-    await wait(55);
-    flush();
+    await until(() => events.some(e => e.severity === "warn"), "the depth-3 warn escalation");
 
     const worst = events.at(-1)!;
     expect(worst.severity).toBe("warn");
@@ -102,7 +126,7 @@ describe("ASYNC_WATERFALL", () => {
     // Route preloader shape: the author request is kicked off at navigation
     // time, in parallel with story. The memo later picks up the SAME promise.
     const preloadedAuthor = sleep(30, "author-preloaded");
-    DEV!.attribution.markFlight(preloadedAuthor);
+    attribution.markFlight(preloadedAuthor);
 
     const story = createMemo(() => sleep(15, "story"), { name: "story" });
     const author = createMemo(
@@ -112,25 +136,32 @@ describe("ASYNC_WATERFALL", () => {
       },
       { name: "author" }
     );
+    let landed: unknown;
     createRoot(() =>
       createEffect(
         () => author(),
-        () => {},
+        v => {
+          landed = v;
+        },
         { name: "page" }
       )
     );
     flush();
-    await wait(45);
+    await until(() => landed === "author-preloaded", "the preloaded author landing");
+    await wait(10); // one extra settle turn: a late advisory would fire here
     flush();
 
     expect(events).toHaveLength(0);
     // Not even recorded as a chain fact — the origin test broke the link.
-    expect(DEV!.attribution.waterfalls()).toHaveLength(0);
+    expect(attribution.waterfalls()).toHaveLength(0);
   });
 
   it("does not flag an already-settled cached dependent (duration gate)", async () => {
-    const events = arm(5);
-    const story = createMemo(() => sleep(15, "story"), { name: "story" });
+    // Both links must each clear the gate for a verdict. The gate sits far
+    // above what a resolved promise's landing can take on a loaded CI runner
+    // (a 5ms gate flaked there), and story sits far above the gate.
+    const events = arm(40);
+    const story = createMemo(() => sleep(100, "story"), { name: "story" });
     const author = createMemo(
       () => {
         story();
@@ -138,15 +169,19 @@ describe("ASYNC_WATERFALL", () => {
       },
       { name: "author" }
     );
+    let landed: unknown;
     createRoot(() =>
       createEffect(
         () => author(),
-        () => {},
+        v => {
+          landed = v;
+        },
         { name: "page" }
       )
     );
     flush();
-    await wait(30);
+    await until(() => landed === "author-cached", "the cached author landing");
+    await wait(10); // one extra settle turn: a late advisory would fire here
     flush();
 
     expect(events).toHaveLength(0);
@@ -176,15 +211,19 @@ describe("ASYNC_WATERFALL", () => {
       },
       { name: "dependent" }
     );
+    let landed: unknown;
     createRoot(() =>
       createEffect(
         () => dependent(),
-        () => {},
+        v => {
+          landed = v;
+        },
         { name: "page" }
       )
     );
     flush();
-    await wait(45);
+    await until(() => landed === "shared", "the shared promise landing");
+    await wait(10); // one extra settle turn: a late advisory would fire here
     flush();
 
     expect(events).toHaveLength(0);
@@ -210,8 +249,7 @@ describe("ASYNC_WATERFALL", () => {
       );
     });
     flush();
-    await wait(45);
-    flush();
+    await until(() => events.length >= 2, "both sibling advisories");
 
     // Each dependent chains to root (two depth-2 advisories) but no chain
     // contains both siblings — they ran in parallel.
@@ -242,8 +280,7 @@ describe("ASYNC_WATERFALL", () => {
       )
     );
     flush();
-    await wait(60);
-    flush();
+    await until(() => events.some(e => e.severity === "warn"), "the serialized-diamond warn");
 
     const worst = events.find(e => e.severity === "warn");
     expect(worst).toBeDefined();
@@ -272,8 +309,10 @@ describe("ASYNC_WATERFALL", () => {
       )
     );
     flush();
-    await wait(45);
-    flush();
+    await until(
+      () => events.some(e => e.nodeName === "child-data"),
+      "the nested create-run advisory"
+    );
 
     const childEvent = events.find(e => e.nodeName === "child-data");
     expect(childEvent).toBeDefined();

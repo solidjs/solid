@@ -291,102 +291,102 @@ const template33 = Comp({ get children() {
 } });
 const template34 = simple ? good : bad;
 const template35 = _$memo(() => {
-	return _$escape(simple ? good() : bad);
+	return simple ? good() : bad;
 });
 const template35a = _$memo(() => {
-	return _$escape(simple ? good.good : bad);
+	return simple ? good.good : bad;
 });
 const template36 = _$memo(() => {
-	return _$escape(_$memo(() => {
+	return _$memo(() => {
 		return !!state.dynamic;
-	})() ? good() : bad);
+	})() ? good() : bad;
 });
 const template36a = _$memo(() => {
-	return _$escape(_$memo(() => {
+	return _$memo(() => {
 		return !!state.dynamic;
-	})() ? good.good : bad);
+	})() ? good.good : bad;
 });
 const template37 = _$memo(() => {
-	return _$escape(_$memo(() => {
+	return _$memo(() => {
 		return !!state.dynamic;
-	})() ? good() : state.dynamic);
+	})() ? good() : state.dynamic;
 });
 const template37a = _$memo(() => {
-	return _$escape(_$memo(() => {
+	return _$memo(() => {
 		return !!state.dynamic;
-	})() ? good.good : state.dynamic);
+	})() ? good.good : state.dynamic;
 });
 const template38 = _$memo(() => {
-	return _$escape(_$memo(() => {
+	return _$memo(() => {
 		return state.count > 5;
 	})() ? _$memo(() => {
 		return !!state.dynamic;
-	})() ? best : good() : bad);
+	})() ? best : good() : bad;
 });
 const template38a = _$memo(() => {
-	return _$escape(_$memo(() => {
+	return _$memo(() => {
 		return state.count > 5;
 	})() ? _$memo(() => {
 		return !!state.dynamic;
-	})() ? best : good.good : bad);
+	})() ? best : good.good : bad;
 });
 const template39 = _$memo(() => {
-	return _$escape(_$memo(() => {
+	return _$memo(() => {
 		return !!(state.dynamic && state.something);
-	})() ? good() : state.dynamic && state.something);
+	})() ? good() : state.dynamic && state.something;
 });
 const template39a = _$memo(() => {
-	return _$escape(_$memo(() => {
+	return _$memo(() => {
 		return !!(state.dynamic && state.something);
-	})() ? good.good : state.dynamic && state.something);
+	})() ? good.good : state.dynamic && state.something;
 });
 const template40 = _$memo(() => {
-	return _$escape((_$memo(() => {
+	return (_$memo(() => {
 		return !!state.dynamic;
-	})() ? good() : state.dynamic) || bad);
+	})() ? good() : state.dynamic) || bad;
 });
 const template40a = _$memo(() => {
-	return _$escape((_$memo(() => {
+	return (_$memo(() => {
 		return !!state.dynamic;
-	})() ? good.good : state.dynamic) || bad);
+	})() ? good.good : state.dynamic) || bad;
 });
 const template41 = _$memo(() => {
-	return _$escape(_$memo(() => {
+	return _$memo(() => {
 		return !!state.a;
 	})() ? "a" : _$memo(() => {
 		return !!state.b;
-	})() ? "b" : state.c ? "c" : "fallback");
+	})() ? "b" : state.c ? "c" : "fallback";
 });
 const template42 = _$memo(() => {
-	return _$escape(_$memo(() => {
+	return _$memo(() => {
 		return !!state.a;
 	})() ? a() : _$memo(() => {
 		return !!state.b;
-	})() ? b() : state.c ? "c" : "fallback");
+	})() ? b() : state.c ? "c" : "fallback";
 });
 const template42a = _$memo(() => {
-	return _$escape(_$memo(() => {
+	return _$memo(() => {
 		return !!state.a;
 	})() ? a.a : _$memo(() => {
 		return !!state.b;
-	})() ? b.b : state.c ? "c" : "fallback");
+	})() ? b.b : state.c ? "c" : "fallback";
 });
 const template43 = _$memo(() => {
 	var _v$59;
-	return _$escape(_$memo(() => {
+	return _$memo(() => {
 		return !!obj1.prop;
 	})() ? _$memo(() => {
 		return !!obj2.prop;
-	})() ? (_v$59 = _$ssrHydrationKey(), _$ssr(_tmpl$2, _v$59)) : [] : []);
+	})() ? (_v$59 = _$ssrHydrationKey(), _$ssr(_tmpl$2, _v$59)) : [] : [];
 });
 // statically boolean left: memo value IS the expression value, logical form kept
 const template77 = _$memo(() => {
-	return _$escape(_$memo(() => {
+	return _$memo(() => {
 		return state.count > 5;
-	})() && good());
+	})() && good();
 });
 const template77a = _$memo(() => {
-	return _$escape(_$memo(() => {
+	return _$memo(() => {
 		return !state.hidden;
-	})() && good.good);
+	})() && good.good;
 });

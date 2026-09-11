@@ -22,32 +22,13 @@ const plugins = [
 export default [
   {
     input: "src/index.ts",
-    output: [
-      {
-        file: "dist/h.cjs",
-        format: "cjs",
-        exports: "auto"
-      },
-      {
-        file: "dist/h.js",
-        format: "es"
-      }
-    ],
+    output: { file: "dist/h.js", format: "es" },
     external: ["@solidjs/web"],
     plugins
   },
   {
     input: "jsx-runtime/src/index.ts",
-    output: [
-      {
-        file: "jsx-runtime/dist/jsx.cjs",
-        format: "cjs"
-      },
-      {
-        file: "jsx-runtime/dist/jsx.js",
-        format: "es"
-      }
-    ],
+    output: { file: "jsx-runtime/dist/jsx.js", format: "es" },
     external: ["@solidjs/h"],
     plugins
   }

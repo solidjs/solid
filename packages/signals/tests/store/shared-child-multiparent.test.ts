@@ -66,7 +66,7 @@ describe("shared child reachable via two parents", () => {
     expect(node.name).toBe("n");
   });
 
-  // FINDING-3 (rules-mining/FINDINGS.md): failed on the legacy store — the
+  // FINDING-3 (docs/rules-mining/FINDINGS.md): failed on the legacy store — the
   // copy routine registered copies AFTER descending, breaking cycle identity
   // for written cyclic objects. FIXED by the rewrite's snapshot walk (owned
   // copies register before descent); flipped to plain `it` 2026-08-18.

@@ -10,14 +10,17 @@ import {
   sharedConfig,
   untrack,
   merge as mergeProps,
+  $PROXY,
+  mergeSources,
   flatten,
   createMemo,
   flush,
   enableHydration,
   enforceLoadingBoundary,
-  resetErrorHalt
+  resetErrorHalt,
+  OBSERVE
 } from "solid-js";
-import { effect, memo } from "./render.js";
+import { effect, memo, tagElement } from "./render.js";
 
 import { JSX } from "../jsx/jsx.js";
 
@@ -134,6 +137,8 @@ import {
   resourceIdentity,
   replaceableIdentity,
   resolveHead,
+  RESOURCE_QUALIFIERS,
+  qualifierValue,
   STYLESHEET_FETCH_META
 } from "./head.js";
 export {
@@ -277,6 +282,18 @@ function create(html, bypassGuard, flag) {
     throw new Error(
       "Failed attempt to create new DOM elements during hydration. Check that the libraries you are using support hydration."
     );
+  // A document shell cannot be client-created: `<template>` contents parsing
+  // ignores `<html>`/`<head>`/`<body>` start tags, so the markup would be
+  // silently flattened and the emitted walk would bind the wrong nodes. The
+  // validator deliberately accepts well-formed shells (#3259) because they
+  // are legitimate under hydration — the failure belongs here, at the actual
+  // broken act, not on every module that imports the component.
+  if ("_SOLID_DEV_" && /^<(html|head|body)[\s>]/i.test(html))
+    throw new Error(
+      "Document shell templates (<html>, <head>, <body>) cannot be client-created: " +
+        "a <template> parse strips those tags. Render this component through hydrate(), " +
+        "where the document shell already exists."
+    );
   const t = document.createElement("template");
   t.innerHTML = html;
   return flag === 2 ? t.content.firstChild.firstChild : t.content.firstChild;
@@ -364,9 +381,44 @@ export function unregisterDelegatedContainer(container, owner = container) {
 
 function attachDelegatedEvent(name, container, state) {
   if (state.handlers.has(name)) return;
-  const handler = e => eventHandler(e, container, state);
+  const handler = "_SOLID_OBSERVE_"
+    ? e => dispatchAsInteraction(e, () => eventHandler(e, container, state))
+    : e => eventHandler(e, container, state);
   state.handlers.set(name, handler);
   container.addEventListener(name, handler);
+}
+
+// === Interaction provenance (observe tier) ===
+//
+// Delegated events — every INP-relevant type: click, input, keydown,
+// pointer*… — reach user code through the dispatch above, and runtime-attached
+// direct handlers (spreads, non-literal handler expressions) through addEvent.
+// Wrapping those two in the signals attribution engine's `withInteraction`
+// stamps every root write a handler performs with the event that caused it
+// (`click on button#next "Next →"`) — what turns a transition hold or a hot
+// scope into a per-interaction number. Not covered: non-delegated events
+// whose handler is a literal function (the compiler emits a bare
+// `addEventListener` for those) and hand-written `ref`-based listeners.
+
+/** `button#next "Next →"`, `input[name=q]`, `a "Docs"` — what the user hit. */
+function describeEventTarget(target) {
+  if (!target || typeof target.tagName !== "string") return undefined;
+  const tag = target.tagName.toLowerCase();
+  let out = tag;
+  if (target.id) out += `#${target.id}`;
+  else if (typeof target.name === "string" && target.name) out += `[name=${target.name}]`;
+  if (tag !== "input" && tag !== "textarea" && tag !== "select") {
+    const text = (target.textContent || "").trim().replace(/\s+/g, " ");
+    if (text) out += ` "${text.length > 30 ? text.slice(0, 29) + "…" : text}"`;
+  }
+  return out;
+}
+
+function dispatchAsInteraction(e, fn) {
+  return OBSERVE.attribution.withInteraction(
+    { type: e.type, target: describeEventTarget(e.target) },
+    fn
+  );
 } /** Event-delegation plumbing (Portal/custom-root wiring). Integration plumbing. @internal */
 export function getDelegatedRoot(node: MountableElement): MountableElement | undefined;
 
@@ -389,6 +441,7 @@ function findOwner(target, state) {
 export function setProperty(node: Element, name: string, value: any): void;
 
 export function setProperty(node, name, value) {
+  if ("_SOLID_DEV_") tagElement(node);
   if (isHydrating(node)) return;
   // Stateful DOM properties (DOMWithState) route through here in hydratable
   // builds so the claim pass adopts pre-hydration user state instead of
@@ -516,6 +569,7 @@ export function claimElement(node) {
 export function setAttribute(node: Element, name: string, value: string): void;
 
 export function setAttribute(node, name, value) {
+  if ("_SOLID_DEV_") tagElement(node);
   if (isHydrating(node)) return;
   const selectMultiple = name === "multiple" && node.localName === "select";
   if (value == null || value === false) node.removeAttribute(name);
@@ -544,6 +598,7 @@ export function setAttribute(node, name, value) {
 export function setAttributeNS(node: Element, namespace: string, name: string, value: string): void;
 
 export function setAttributeNS(node, namespace, name, value) {
+  if ("_SOLID_DEV_") tagElement(node);
   if (isHydrating(node)) return;
   // removeAttributeNS takes the local name; setAttributeNS accepts the qualified form.
   if (value == null || value === false)
@@ -553,6 +608,7 @@ export function setAttributeNS(node, namespace, name, value) {
 export function className(node: Element, value: JSX.ClassValue, prev?: JSX.ClassValue): void;
 
 export function className(node, value, prev) {
+  if ("_SOLID_DEV_") tagElement(node);
   // Numbers stringify like the compiler's static output (`class={1}`
   // inlines as `class="1"` in the template) so static and dynamic forms of
   // the same ClassValue behave identically (#3189).
@@ -620,10 +676,21 @@ export function addEvent(node, name, handler, delegate) {
   }
   if (Array.isArray(handler)) {
     const handlerFn = handler[0];
-    const listener = e => handlerFn.call(node, handler[1], e);
+    const listener = "_SOLID_OBSERVE_"
+      ? e => dispatchAsInteraction(e, () => handlerFn.call(node, handler[1], e))
+      : e => handlerFn.call(node, handler[1], e);
     // Keep authored identity on this attachment's wrapper, never on the
     // shared element where another spread/root/direct listener could replace it.
     listener[$$EVENT_TUPLE] = handler;
+    node.addEventListener(name, listener);
+    return listener;
+  }
+  if ("_SOLID_OBSERVE_" && typeof handler === "function") {
+    // Observe/dev wrap plain function listeners for provenance; the wrapper is
+    // what the caller gets back, so removal by the returned identity still works.
+    // Listener objects keep their identity (their options object rides along
+    // on the attach call and must match on removal).
+    const listener = e => dispatchAsInteraction(e, () => handler.call(node, e));
     node.addEventListener(name, listener);
     return listener;
   }
@@ -637,6 +704,7 @@ export function style(
 ): void;
 
 export function style(node, value, prev) {
+  if ("_SOLID_DEV_") tagElement(node);
   // Hydration is a claim pass: the server-rendered inline style stays
   // authoritative, consistent with class/attribute bindings (#3180). The
   // first post-hydration update diffs against the hydration-time value
@@ -684,10 +752,52 @@ export function style(node, value, prev) {
       applied[s] = v;
     }
   }
+}
+
+/** Compiler-emitted primitive; not for hand-written code. @internal
+ *
+ * Read an object-valued `style` / `class` binding ONE layer deep, TRACKED, in
+ * the compute half of its effect. (Not solid-js's `snapshot()`, which is a
+ * deep, untracked structural copy.) `style()` and `className()` enumerate their object in the
+ * effect's untracked commit phase, so a proxy-backed object (a store
+ * sub-object, merged props) was identity-reactive only: in-place key
+ * mutations never re-applied and every leaf read tripped
+ * STRICT_READ_UNTRACKED in dev. The compiler wraps the compute value of a
+ * non-inline `style={expr}` / `class={expr}` in this; spread() applies it to
+ * those two keys as it copies. Inline literals never get here — they compile
+ * per property. Identity passthrough for strings and plain objects (a fresh
+ * literal is already the compute's own); a proxy is copied with ONE
+ * `ownKeys` trap (its own trap keeps the key set tracked) plus one tracked
+ * read per key; a clsx-style class array is re-mapped element-wise (className
+ * allocates for an array anyway; measured at parity). */
+export function readShallow(value: unknown): unknown;
+export function readShallow(value) {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(readShallow);
+  if (value[$PROXY] !== value) return value;
+  const keys = ownKeys(value);
+  const out = {};
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (typeof k === "string") out[k] = value[k];
+  }
+  return out;
+}
+
+// The own keys of a spread/style source for a one-layer copy. For a proxy
+// (merge/omit/`{...props}`, store records) ONE `ownKeys` trap: the trap keeps
+// the key set tracked, and the enumerability check `for…in` would run — a
+// `getOwnPropertyDescriptor` trap per key, allocating a descriptor plus a
+// getter closure, then AGAIN for `hasOwn` — never happens. `Object.keys` for a
+// plain object is exactly the own-enumerable set `for…in` + `hasOwn` yielded.
+// Callers skip symbol keys.
+function ownKeys(o: object): (string | symbol)[] {
+  return o[$PROXY] === o ? Reflect.ownKeys(o) : Object.keys(o);
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function setStyleProperty(node: Element, name: string, value: any): void;
 
 export function setStyleProperty(node, name, value) {
+  if ("_SOLID_DEV_") tagElement(node);
   // Same hydration adoption contract as style() (#3180): the compiled
   // per-property effect dedupes against the previous compute value, so the
   // first actual change after hydration writes through.
@@ -697,13 +807,16 @@ export function setStyleProperty(node, name, value) {
 export function spread<T>(node: Element, accessor: T, skipChildren?: Boolean): void;
 
 // TODO: make this better
-export function spread(node, props = {}, skipChildren) {
+export function spread(node, props, skipChildren) {
   const prevProps = {};
   // A lone reactive spread compiles to its accessor directly: merging one
   // source is pure overhead, and the mergeProps memo would consume a
   // hydration id the server-side fast path never allocates (#3105). The
-  // accessor resolves inside each tracking scope instead.
-  const get = typeof props === "function" ? props : () => props;
+  // accessor resolves inside each tracking scope instead. A nullish source
+  // (`{...props()}` where the optional props are absent, or no source at all)
+  // is an empty spread: attributes applied by the previous value are removed,
+  // nothing throws (#3297).
+  const get = () => (typeof props === "function" ? props() : props) ?? {};
   if (!skipChildren)
     insert(node, () => {
       const source = get();
@@ -721,16 +834,40 @@ export function spread(node, props = {}, skipChildren) {
     () => {
       const source = get();
       const newProps = {};
-      for (const prop in source) {
-        if (!hasOwn.call(source, prop)) continue;
-        if (prop === "children" || prop === "ref") continue;
-        newProps[prop] = source[prop];
-      }
+      // A merge() proxy is read through its SOURCES, not through the proxy: a
+      // spread mixed with other attributes compiles to
+      // `spread(el, merge(statics, () => rest))`, and going through the proxy
+      // costs merge's `keys()` (a Set plus an own-enumerable scan of every
+      // source) and then, per key, a right-to-left `in` walk of the sources.
+      // The union of own string keys with later sources overriding earlier
+      // — Object.assign order, merge's own contract — is all a spread needs.
+      // omit() is not a merge: it stays a proxy and is enumerated through its
+      // own filtering trap.
+      const sources = mergeSources(source);
+      if (sources !== undefined) {
+        for (let i = 0; i < sources.length; i++) {
+          let s = sources[i];
+          if (typeof s === "function") s = s();
+          if (s != null) collectProps(newProps, s);
+        }
+      } else collectProps(newProps, source);
       return newProps;
     },
     props => assign(node, props, true, prevProps, true)
   );
   return prevProps;
+}
+
+// One layer of a spread source into `out`: own string keys, children/ref
+// excluded, object-valued style/class read HERE, tracked (see readShallow()).
+function collectProps(out, s) {
+  const keys = ownKeys(s);
+  for (let i = 0; i < keys.length; i++) {
+    const prop = keys[i];
+    if (typeof prop !== "string" || prop === "children" || prop === "ref") continue;
+    const v = s[prop];
+    out[prop] = prop === "style" || prop === "class" ? readShallow(v) : v;
+  }
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function dynamicProperty(props: unknown, key: string): unknown;
 
@@ -774,32 +911,6 @@ export function scope(fn) {
 }
 
 const SCOPE_OPTIONS = { scope: true };
-
-// The element an insert() is currently evaluating content for. Dynamic
-// intrinsic elements are created lazily inside the memo that insert() pulls
-// during its compute, so this is live exactly when createElement (index.ts)
-// needs a namespace hint for tags that exist in both HTML and SVG/MathML
-// (`a`, `script`, `style`, `title`) — the parser resolves those from the
-// surrounding markup for static templates, and this is the runtime
-// equivalent (#3187). Best-effort: content evaluated outside an insert
-// (e.g. an eager `children()` helper) falls back to the HTML namespace.
-let insertionParent =
-  null; /** Namespace hint for dynamically created intrinsic elements. @internal */
-export function getInsertionParent(): Node | undefined;
-
-export function getInsertionParent() {
-  return insertionParent;
-}
-
-function withInsertionParent(parent, fn) {
-  const prev = insertionParent;
-  insertionParent = parent;
-  try {
-    return fn();
-  } finally {
-    insertionParent = prev;
-  }
-}
 
 // Hydration-time behaviors reached from the hot insert/event paths, installed
 // by hydrate() so client-only bundles shake the implementations. Call sites
@@ -916,7 +1027,7 @@ export function insert(parent, accessor, marker, initial, options) {
   if (multi && !initial) initial = [];
   if (hydrationRt !== null) initial = hydrationRt.claimInitial(parent, multi, initial);
   if (typeof accessor !== "function") {
-    accessor = withInsertionParent(parent, () => normalize(accessor, initial, multi, true));
+    accessor = normalize(accessor, initial, multi, true);
     if (typeof accessor !== "function") {
       insertExpression(parent, accessor, initial, marker);
       host && tagHost(accessor, host);
@@ -932,12 +1043,12 @@ export function insert(parent, accessor, marker, initial, options) {
   effect(
     prev => {
       if (hydrationRt !== null) current = hydrationRt.reclaimRegion(current, parent, marker);
-      const value = withInsertionParent(parent, () => normalize(accessor(), current, multi, true));
+      const value = normalize(accessor(), current, multi, true);
       if (typeof value !== "function") return value;
       effect(
         () => (
           hydrationRt !== null && (current = hydrationRt.reclaimRegion(current, parent, marker)),
-          withInsertionParent(parent, () => normalize(value, current, multi))
+          normalize(value, current, multi)
         ),
         inner => {
           current = insertExpression(parent, inner, current, marker);
@@ -968,6 +1079,7 @@ export function assign(
 ): void;
 
 export function assign(node, props, skipChildren, prevProps = {}, skipRef = false) {
+  if ("_SOLID_DEV_") tagElement(node);
   const nodeName = node.nodeName;
   props || (props = {});
   for (const prop in prevProps) {
@@ -1019,10 +1131,25 @@ function assetEntryKey(descriptor) {
 
 // Attribute-compared lookup (instead of an attribute selector) so href/id
 // values never need selector escaping.
-function findAssetElement(selector, attr, value) {
+// `qualifiers` narrows a match to the same request: two preloads sharing an
+// href still differ if their destination, CORS mode or source set differ, so
+// adopting across them would drop a link the server meant to emit. Both sides
+// go through `qualifierValue`, the same canonicalization the identity uses —
+// a server-emitted `crossorigin=""` and an authored `crossorigin="anonymous"`
+// are one request, so adoption must see them as one.
+function findAssetElement(selector, attr, value, qualifiers) {
   const nodes = document.querySelectorAll(selector);
-  for (let i = 0; i < nodes.length; i++) {
-    if (nodes[i].getAttribute(attr) === value) return nodes[i];
+  outer: for (let i = 0; i < nodes.length; i++) {
+    if (nodes[i].getAttribute(attr) !== value) continue;
+    if (!qualifiers) return nodes[i];
+    for (let q = 0; q < RESOURCE_QUALIFIERS.length; q++) {
+      const name = RESOURCE_QUALIFIERS[q];
+      if (
+        qualifierValue(name, qualifiers[name]) !== qualifierValue(name, nodes[i].getAttribute(name))
+      )
+        continue outer;
+    }
+    return nodes[i];
   }
   return null;
 }
@@ -1431,10 +1558,15 @@ function mountHeadResource(tag, props) {
   headMountedResources.add(identity);
   const url = props.href || props.src;
   let el = null;
-  if (url != null) {
-    // Adopt a server-emitted element for the same resource. `rel` values are
-    // constrained to the resource set, so embedding in a selector is safe.
-    if (tag === "link") el = findAssetElement(`link[rel="${props.rel}"]`, "href", url);
+  // Adopt a server-emitted element for the same resource. `rel` values are
+  // constrained to the resource set, so embedding in a selector is safe.
+  // A responsive image preload legitimately has no href — the source set is
+  // the request — so it matches on a null href plus the identity qualifiers,
+  // the same rule the frame client applies.
+  if (tag === "link" && url == null && typeof props.imagesrcset === "string")
+    el = findAssetElement(`link[rel="${props.rel}"]`, "href", null, props);
+  else if (url != null) {
+    if (tag === "link") el = findAssetElement(`link[rel="${props.rel}"]`, "href", url, props);
     else if (tag === "script") el = findAssetElement("script[src]", "src", url);
     else el = findAssetElement("style[href]", "href", url);
   }
@@ -1752,9 +1884,27 @@ export function hydrate(code, element, options = {}) {
           // (lazy components have no module). Fall back to a fresh client
           // render replacing the server markup — lazy's own import() gets to
           // retry through normal channels — instead of a silently dead page.
-          console.error("Hydration module preload failed, falling back to client render:", err);
+          // A document root has no such fallback: the shell (<html>/<head>/
+          // <body>) cannot be client-created, and rendering the document tree
+          // fresh dies deep in the walk with an unrelated "Hydration Mismatch"
+          // (#3338). Abandon hydration explicitly instead — the server markup
+          // stays — and hand the failure to the platform's uncaught-error
+          // channel (window.onerror / error monitoring) with its real cause,
+          // the same way an uncaught reactive error is reported.
           sharedConfig.hydrating = false;
           sharedConfig.registry = undefined;
+          if (element.nodeType === 9) {
+            // The preload failure itself is what monitoring needs (which chunk,
+            // why); the framing is dev-only so prod ships no wrapper Error.
+            if ("_SOLID_DEV_")
+              console.error(
+                "Hydration module preload failed for a document root; a document shell cannot " +
+                  "be client-rendered, so hydration was abandoned and the page is not interactive."
+              );
+            (globalThis.reportError || console.error)(err);
+            return;
+          }
+          console.error("Hydration module preload failed, falling back to client render:", err);
           disposer = render(code, element, [...element.childNodes], options);
         }
       );
@@ -2164,6 +2314,7 @@ function eventHandler(e, container, state) {
 }
 
 function insertExpression(parent, value, current, marker) {
+  if ("_SOLID_DEV_") tagElement(parent);
   if (hydrationRt !== null && isHydrating(parent)) {
     // A hydrating render is a claim pass, not a mutation pass — but the
     // caller's `current` bookkeeping must stay HONEST about what the DOM

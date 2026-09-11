@@ -24,6 +24,7 @@ import {
   CONFIG_NO_SNAPSHOT,
   CONFIG_OPTIMISTIC,
   CONFIG_OWNED_WRITE,
+  CONFIG_SLOT_NODE,
   CONFIG_SYNC,
   CONFIG_TRANSPARENT,
   defaultContext,
@@ -68,12 +69,16 @@ import {
   clearSignals,
   DEV,
   emitDiagnostic,
+  GRAPH_SIZE_WARN_AT,
+  noteFanIn,
+  reportDiagnostic,
   throwPendingUntrackedRead,
   warnStrictReadUntracked
 } from "./dev.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { cleanup, disposeChildren, inheritId, markDisposal } from "./owner.js";
+import type { Transition } from "./scheduler.js";
 import {
   notifyEpoch,
   bumpNotifyEpoch,
@@ -81,6 +86,7 @@ import {
   activeTransition,
   armReaskClear,
   clock,
+  currentTransition,
   dirtyQueue,
   globalQueue,
   GlobalQueue,
@@ -103,7 +109,21 @@ import type {
   Signal
 } from "./types.js";
 
-GlobalQueue._update = recompute;
+// The heap's per-node step. A tracked effect's heap visit is its compute
+// phase — empty, like a user effect whose compute reads nothing — and hands
+// the callback to the user queue. Routing the wake through the heap, rather
+// than straight into the queue at notify time, is what orders the run after
+// the commit regardless of which phase the write came from: a write in a
+// render-effect callback stages its value for the next pass, but a wake pushed
+// directly into the user queue ran in the SAME pass, read the old value, and
+// nothing re-notified it when the value landed (#3291).
+GlobalQueue._update = el => {
+  if ((el as any)._type === EFFECT_TRACKED) {
+    deleteFromHeap(el, queueFor(el));
+    (el as any)._modified = true;
+    el._queue.enqueue(EFFECT_USER, (el as any)._run);
+  } else recompute(el);
+};
 GlobalQueue._dispose = disposeChildren;
 
 export const PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE =
@@ -204,7 +224,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // still holds the previous run's links (the subscriptions that could have
   // triggered this run, and the baseline for the engine's subscription diff).
   let devChanged = false;
-  if (__DEV__ && attrHooks !== null) attrHooks.recomputeStart(el, create);
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.recomputeStart(el, create);
   if (!create) {
     if (el._transition && (!isEffect || activeTransition) && activeTransition !== el._transition)
       globalQueue.initTransition(el._transition);
@@ -388,6 +408,18 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
 
   if (!el._x?._error) {
     trimStaleDeps(el);
+    // Observe-tier fan-in (HUGE_FAN_IN): with the stale tail trimmed, the dep
+    // list IS this pass's distinct sources — count it here rather than per
+    // link. A begin/end bracket around the pass plus a per-link increment
+    // measured -5.8% on createRenderEffects:create1to1 (CodSpeed, dev tier)
+    // and cost several points of the shape wins elsewhere; this walk is a
+    // fraction of the reads that built the list and keeps no module state,
+    // so nested pulls need no save/restore.
+    if (__OBSERVE__) {
+      let fanIn = 0;
+      for (let d = el._deps; d !== null; d = d._nextDep) fanIn++;
+      if (fanIn >= GRAPH_SIZE_WARN_AT) noteFanIn(el, fanIn);
+    }
     const compareValue = hasOverride
       ? unwrapOverride(el._x?._overrideValue)
       : el._pendingValue === NOT_PENDING
@@ -407,7 +439,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
 
     // A committed derived change becomes a cause for this node's subscribers,
     // chaining their attribution through this node to the root write.
-    if (__DEV__ && attrHooks !== null) {
+    if (__OBSERVE__ && attrHooks !== null) {
       devChanged = valueChanged && !el._x?._error;
       if (devChanged && !isEffect && !create) attrHooks.derivedChanged(el);
     }
@@ -421,11 +453,37 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       (el as any)._modified = !el._x?._error;
       // Reuse one bound runner per effect — runEffect no-ops on a stale
       // `_modified`, so re-enqueueing the same function is harmless.
-      if (!create)
+      if (!create) {
         el._queue.enqueue(
           isEffect,
           ((el as any)._boundRunEffect ??= GlobalQueue._runEffect.bind(null, el))
         );
+        // Contested effect (#3322). Effects don't entangle transactions (a
+        // shared effect is not shared state), yet they have one value slot:
+        // when this write commits under a different transaction
+        // (`activeTransition`, null = mainline) than the one that produced the
+        // previous value (`_valueTransition`), that view is gone. Rather than
+        // merge the two, each commit re-derives the effect against its own
+        // committed world (Transition._contested, re-dirtied by
+        // finalizePureQueue ahead of the heap run). The previous owner always
+        // needs it if still live: its commit is silent (staging already
+        // notified) and the value it computed is gone. The new owner needs it
+        // too, for the same reason, unless it is mainline — mainline publishes
+        // what it computes. A previous owner that was mainline, or already
+        // committed, left nothing to protect.
+        let prev: Transition | null = (el as any)._valueTransition;
+        if (prev !== activeTransition) {
+          (el as any)._valueTransition = activeTransition;
+          if (
+            prev !== null &&
+            (prev = currentTransition(prev)) !== activeTransition &&
+            !prev._done
+          ) {
+            (prev._contested ??= []).push(el);
+            if (activeTransition !== null) (activeTransition._contested ??= []).push(el);
+          }
+        }
+      }
     }
 
     if (el._x?._error) {
@@ -496,11 +554,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._pendingValue = value;
       if (__DEV__) devTrackHeldPending(el);
       if (wasLoading) el._loading = true; // see the held branch above (#2990)
-      // A authoritative-view reader (until()) observed this node past its
-      // override — and "authoritative arrival equal to the override" is
-      // exactly the acknowledgment it waits for. Wake those readers only;
-      // A17 silence holds for every ordinary subscriber. (Hook installed by
-      // until(), the only setter of the gating bit.)
+      // An authoritative-view reader (until()'s predicate, refresh()'s waiter)
+      // observed this node past its override — and "authoritative arrival
+      // equal to the override" is exactly the acknowledgment it waits for.
+      // Wake those readers only; A17 silence holds for every ordinary
+      // subscriber. (Hook installed by both setters of the gating bit, #3303.)
       if (el._config & CONFIG_AUTHORITATIVE_OBSERVED)
         GlobalQueue._notifyAuthoritativeObservers!(el);
     } else if (el._height != oldHeight) {
@@ -528,7 +586,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // recompute (optimistic lane, transition replay, transition-held commit)
   // from a plain committed one — the engine must not blame overlay runs as
   // waste or double-count them against plain aggregates.
-  if (__DEV__ && attrHooks !== null)
+  if (__OBSERVE__ && attrHooks !== null)
     attrHooks.recomputeEnd(
       el,
       create,
@@ -611,49 +669,95 @@ export function computed<T>(
   // `T | undefined` node is a real commit #0. The typeof guard tolerates
   // non-object option values that older call shapes force through `as any`.
   const loading = options !== null && typeof options === "object" && "loadingValue" in options;
-  const self: Computed<T> = {
-    id: inheritId(options, transparent, context),
-    _config:
-      (transparent ? CONFIG_TRANSPARENT : 0) |
-      (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
-      (!context || options?.lazy ? CONFIG_AUTO_DISPOSE : 0) |
-      (options?.sync ? CONFIG_SYNC : 0) |
-      (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0) |
-      (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
-    _equals: options?.equals ?? isEqual,
-    _disposal: null,
-    _queue: context?._queue ?? globalQueue,
-    _context: context?._context ?? defaultContext,
-    _childCount: 0,
-    _fn: fn,
-    _value: (loading ? options!.loadingValue : undefined) as T,
-    _height: 0,
-    _nextHeap: undefined,
-    _prevHeap: null as any,
-    _deps: null,
-    _depsTail: null,
-    _depGen: 0,
-    _subs: null,
-    _subsTail: null,
-    _parent: context,
-    _nextSibling: null,
-    _prevSibling: null,
-    _firstChild: null,
-    _flags: options?.lazy ? REACTIVE_LAZY : REACTIVE_NONE,
-    // A loadingValue node is born committed: commit #0 is already in _value.
-    _statusFlags: loading ? 0 : STATUS_UNINITIALIZED,
-    _time: clock,
-    _pendingValue: NOT_PENDING,
-    _transition: null,
-    _notifiedAt: -1,
-    _loading: loading,
-    // Cold machinery (async/transition/optimistic/verdict slots) lives one
-    // hop away in the lazily-allocated extension — the core literal MUST
-    // stay under V8's in-object boundary (§12: past ~39 fields every
-    // allocation spills to a backing store and creation cost ~4x's).
-    _x: null
-  } as Computed<T>;
-  if (__DEV__) (self as any)._name = options?.name ?? "computed";
+  // Two literals, one per tier, selected at build time (the observe flag is
+  // a literal after replacement; the untaken branch is dead code). The observe
+  // literal is the prod literal plus its `_name` slot — a slot in the
+  // boilerplate, because a post-construction `self._name = …` forces a
+  // hidden-class transition and an out-of-object property store on EVERY node
+  // (measured: the whole of the observe tier's creation overhead). Keep the
+  // two in sync — the dist artifact test pins observe's key set to prod's
+  // plus `_name`.
+  const self: Computed<T> = __OBSERVE__
+    ? ({
+        id: inheritId(options, transparent, context),
+        _config:
+          (transparent ? CONFIG_TRANSPARENT : 0) |
+          (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
+          (!context || options?.lazy ? CONFIG_AUTO_DISPOSE : 0) |
+          (options?.sync ? CONFIG_SYNC : 0) |
+          (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0) |
+          (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
+        _equals: options?.equals ?? isEqual,
+        _disposal: null,
+        _queue: context?._queue ?? globalQueue,
+        _context: context?._context ?? defaultContext,
+        _childCount: 0,
+        _fn: fn,
+        _value: (loading ? options!.loadingValue : undefined) as T,
+        _height: 0,
+        _nextHeap: undefined,
+        _prevHeap: null as any,
+        _deps: null,
+        _depsTail: null,
+        _depGen: 0,
+        _subs: null,
+        _subsTail: null,
+        _parent: context,
+        _nextSibling: null,
+        _prevSibling: null,
+        _firstChild: null,
+        _flags: options?.lazy ? REACTIVE_LAZY : REACTIVE_NONE,
+        _statusFlags: loading ? 0 : STATUS_UNINITIALIZED,
+        _time: clock,
+        _pendingValue: NOT_PENDING,
+        _transition: null,
+        _notifiedAt: -1,
+        _loading: loading,
+        _x: null,
+        _name: options?.name ?? "computed"
+      } as Computed<T>)
+    : ({
+        id: inheritId(options, transparent, context),
+        _config:
+          (transparent ? CONFIG_TRANSPARENT : 0) |
+          (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
+          (!context || options?.lazy ? CONFIG_AUTO_DISPOSE : 0) |
+          (options?.sync ? CONFIG_SYNC : 0) |
+          (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0) |
+          (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
+        _equals: options?.equals ?? isEqual,
+        _disposal: null,
+        _queue: context?._queue ?? globalQueue,
+        _context: context?._context ?? defaultContext,
+        _childCount: 0,
+        _fn: fn,
+        _value: (loading ? options!.loadingValue : undefined) as T,
+        _height: 0,
+        _nextHeap: undefined,
+        _prevHeap: null as any,
+        _deps: null,
+        _depsTail: null,
+        _depGen: 0,
+        _subs: null,
+        _subsTail: null,
+        _parent: context,
+        _nextSibling: null,
+        _prevSibling: null,
+        _firstChild: null,
+        _flags: options?.lazy ? REACTIVE_LAZY : REACTIVE_NONE,
+        // A loadingValue node is born committed: commit #0 is already in _value.
+        _statusFlags: loading ? 0 : STATUS_UNINITIALIZED,
+        _time: clock,
+        _pendingValue: NOT_PENDING,
+        _transition: null,
+        _notifiedAt: -1,
+        _loading: loading,
+        // Cold machinery (async/transition/optimistic/verdict slots) lives one
+        // hop away in the lazily-allocated extension — the core literal MUST
+        // stay under V8's in-object boundary (§12: past ~39 fields every
+        // allocation spills to a backing store and creation cost ~4x's).
+        _x: null
+      } as Computed<T>);
   if (options?.unobserved) (ext(self) as NodeExtension)._unobserved = options.unobserved;
   setupComputedNode(self, options);
   return self;
@@ -702,49 +806,99 @@ export function createEffectNode<T>(
   options: NodeOptions<T> | undefined
 ): any {
   const transparent = options?.transparent ?? false;
-  const self = {
-    id: inheritId(options, transparent, context),
-    _config:
-      (transparent ? CONFIG_TRANSPARENT : 0) |
-      (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
-      (options?.sync ? CONFIG_SYNC : 0) |
-      (options?._extraConfig ?? 0) |
-      (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
-    _equals: false as unknown as Computed<T>["_equals"],
-    _disposal: null,
-    _queue: context?._queue ?? globalQueue,
-    _context: context?._context ?? defaultContext,
-    _childCount: 0,
-    _fn: fn,
-    _value: undefined as T,
-    _height: 0,
-    _nextHeap: undefined,
-    _prevHeap: null as any,
-    _deps: null,
-    _depsTail: null,
-    _depGen: 0,
-    _subs: null,
-    _subsTail: null,
-    _parent: context,
-    _nextSibling: null,
-    _prevSibling: null,
-    _firstChild: null,
-    _flags: REACTIVE_LAZY,
-    _statusFlags: STATUS_UNINITIALIZED,
-    _time: clock,
-    _pendingValue: NOT_PENDING,
-    _transition: null,
-    _notifiedAt: -1,
-    _loading: false,
-    _modified: false,
-    _prevValue: undefined as T | undefined,
-    _effectFn: effectFn,
-    _errorFn: errorFn,
-    _cleanup: undefined as (() => void) | undefined,
-    _type: type,
-    _x: null
-  } as any;
-  if (__DEV__) self._name = options?.name ?? "effect";
+  // Prod and observe boilerplates — see computed() for why the observe tier
+  // gets its `_name` as a literal slot rather than a write after the fact.
+  // The default label is the node kind (tracked effects relabel their computed
+  // in trackedEffect); the wrappers in signals.ts no longer spread a name into
+  // the options to get it.
+  const self = __OBSERVE__
+    ? ({
+        id: inheritId(options, transparent, context),
+        _config:
+          (transparent ? CONFIG_TRANSPARENT : 0) |
+          (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
+          (options?.sync ? CONFIG_SYNC : 0) |
+          (options?._extraConfig ?? 0) |
+          (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
+        _equals: false as unknown as Computed<T>["_equals"],
+        _disposal: null,
+        _queue: context?._queue ?? globalQueue,
+        _context: context?._context ?? defaultContext,
+        _childCount: 0,
+        _fn: fn,
+        _value: undefined as T,
+        _height: 0,
+        _nextHeap: undefined,
+        _prevHeap: null as any,
+        _deps: null,
+        _depsTail: null,
+        _depGen: 0,
+        _subs: null,
+        _subsTail: null,
+        _parent: context,
+        _nextSibling: null,
+        _prevSibling: null,
+        _firstChild: null,
+        _flags: REACTIVE_LAZY,
+        _statusFlags: STATUS_UNINITIALIZED,
+        _time: clock,
+        _pendingValue: NOT_PENDING,
+        _transition: null,
+        _notifiedAt: -1,
+        _loading: false,
+        _modified: false,
+        _prevValue: undefined as T | undefined,
+        _effectFn: effectFn,
+        _errorFn: errorFn,
+        _cleanup: undefined as (() => void) | undefined,
+        _type: type,
+        _valueTransition: null,
+        _x: null,
+        _name: options?.name ?? "effect"
+      } as any)
+    : ({
+        id: inheritId(options, transparent, context),
+        _config:
+          (transparent ? CONFIG_TRANSPARENT : 0) |
+          (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
+          (options?.sync ? CONFIG_SYNC : 0) |
+          (options?._extraConfig ?? 0) |
+          (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
+        _equals: false as unknown as Computed<T>["_equals"],
+        _disposal: null,
+        _queue: context?._queue ?? globalQueue,
+        _context: context?._context ?? defaultContext,
+        _childCount: 0,
+        _fn: fn,
+        _value: undefined as T,
+        _height: 0,
+        _nextHeap: undefined,
+        _prevHeap: null as any,
+        _deps: null,
+        _depsTail: null,
+        _depGen: 0,
+        _subs: null,
+        _subsTail: null,
+        _parent: context,
+        _nextSibling: null,
+        _prevSibling: null,
+        _firstChild: null,
+        _flags: REACTIVE_LAZY,
+        _statusFlags: STATUS_UNINITIALIZED,
+        _time: clock,
+        _pendingValue: NOT_PENDING,
+        _transition: null,
+        _notifiedAt: -1,
+        _loading: false,
+        _modified: false,
+        _prevValue: undefined as T | undefined,
+        _effectFn: effectFn,
+        _errorFn: errorFn,
+        _cleanup: undefined as (() => void) | undefined,
+        _type: type,
+        _valueTransition: null,
+        _x: null
+      } as any);
   // Effects dispatch status through the SHARED notifier (statusNotifierOf,
   // keyed off _type) — storing it per node forced a full NodeExtension
   // allocation on EVERY effect at creation (an alloc + 19 field stores,
@@ -831,36 +985,55 @@ export function signal<T>(
   options?: NodeOptions<T>,
   firewall: Computed<unknown> | null = null
 ): Signal<T> {
-  const s = {
-    _equals: options?.equals ?? isEqual,
-    _config:
-      (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
-      (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0),
-    _value: v,
-    _subs: null,
-    _subsTail: null,
-    _time: clock,
-    _firewall: firewall,
-    _nextChild: firewall?._x?._child || null,
-    _pendingValue: NOT_PENDING,
-    // Signal-literal diet (§12e): NO _time/_fn/_statusFlags slots. Stores
-    // materialize one signal per touched leaf, so signal bytes are store
-    // bytes. _time is write-only on signals (every read site is computed-
-    // typed error-retry gating); _fn/_statusFlags read falsy-identically as
-    // missing properties on the shared paths (undefined masks to 0).
-    _transition: null,
-    _notifiedAt: -1,
-    _x: null
-  };
-  if (__DEV__) {
-    (s as any)._name = options?.name ?? "signal";
-    (s as any)._internal = !!firewall;
-  }
+  // Prod and observe boilerplates — see computed(). The observe literal adds
+  // `_name` and `_owner` (the creating owner, stamped by registerGraph for
+  // createSignal nodes so ownerPath can locate signal subjects; null here,
+  // and staying null on internal signals — one shape either way).
+  const s = __OBSERVE__
+    ? {
+        _equals: options?.equals ?? isEqual,
+        _config:
+          (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
+          (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0),
+        _value: v,
+        _subs: null,
+        _subsTail: null,
+        _time: clock,
+        _firewall: firewall,
+        _nextChild: firewall?._x?._child || null,
+        _prevChild: null,
+        _pendingValue: NOT_PENDING,
+        _transition: null,
+        _notifiedAt: -1,
+        _x: null,
+        _name: options?.name ?? "signal",
+        _owner: null as Owner | null
+      }
+    : {
+        _equals: options?.equals ?? isEqual,
+        _config:
+          (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
+          (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0),
+        _value: v,
+        _subs: null,
+        _subsTail: null,
+        _time: clock,
+        _firewall: firewall,
+        _nextChild: firewall?._x?._child || null,
+        _prevChild: null,
+        _pendingValue: NOT_PENDING,
+        // Signal-literal diet (§12e): NO _time/_fn/_statusFlags slots. Stores
+        // materialize one signal per touched leaf, so signal bytes are store
+        // bytes. _time is write-only on signals (every read site is computed-
+        // typed error-retry gating); _fn/_statusFlags read falsy-identically as
+        // missing properties on the shared paths (undefined masks to 0).
+        _transition: null,
+        _notifiedAt: -1,
+        _x: null
+      };
+  if (__DEV__) (s as any)._internal = !!firewall;
   if (options?.unobserved) ext(s as any)._unobserved = options.unobserved;
-  if (firewall) {
-    ext(firewall)._child = s as FirewallSignal<unknown>;
-    firewall._config |= CONFIG_FW_CHILDREN;
-  }
+  if (firewall) linkFirewallChild(firewall, s as FirewallSignal<unknown>);
   if (
     snapshotCaptureActive &&
     !(s._config & CONFIG_NO_SNAPSHOT) &&
@@ -871,6 +1044,119 @@ export function signal<T>(
     snapshotSources!.add(s);
   }
   return s as Signal<T>;
+}
+
+// ---------------------------------------------------------------------------
+// SLOT SIGNALS (store leaves) — the create-floor diet. Store mounts
+// materialize one signal per touched leaf (~13 × rows on dbmon), so per-node
+// allocations are mount bytes: the generic path costs an options object, an
+// equals closure, an unobserved closure, a NodeExtension to hold it, and
+// three post-construction expandos (acc/px/pxv → hidden-class transitions).
+// slotSignal bakes everything into ONE literal: `_host`/`_key` backrefs
+// replace the closures (equals is a method call — `this` is the node; the
+// unobserved sweep dispatches CONFIG_SLOT_NODE to one shared hook), and the
+// store's wrap-cache fields are pre-shaped.
+
+/** The shared slot-node unobserved handler — a live binding read directly by
+ * the sweep sites (no wrapper frame, no null check: a CONFIG_SLOT_NODE node
+ * existing implies the store module loaded and registered the hook). */
+export let slotUnobservedHook: (node: Signal<any>) => void;
+/** Install the shared slot-node unobserved handler (store module, once). */
+export function setSlotUnobserved(fn: (node: Signal<any>) => void): void {
+  slotUnobservedHook = fn;
+}
+
+/** Push a new node onto its firewall's child chain (the literal already
+ * points `_nextChild` at the old head). Doubly linked so a released leaf
+ * unlinks in O(1) — the chain is walked per mark of the projection and
+ * would otherwise grow by one node per leaf ever read (#3351). */
+function linkFirewallChild(firewall: Computed<unknown>, s: FirewallSignal<unknown>): void {
+  const head = s._nextChild;
+  if (head !== null) head._prevChild = s;
+  ext(firewall)._child = s;
+  firewall._config |= CONFIG_FW_CHILDREN;
+}
+
+/** Release a firewall child the store no longer addresses (unobserved sweep
+ * dropped it from its target's cache): unlink it from the chain so the
+ * projection stops retaining it and its last value. The node keeps its own
+ * `_nextChild` so a walk that is mid-chain on it still terminates. Nodes in
+ * `_companionChildren` stay there — companions are permanent by contract
+ * and snap through that set, not the chain. */
+export function unlinkFirewallChild(node: Signal<any>): void {
+  const n = node as FirewallSignal<any>;
+  const fw = n._firewall;
+  if (!fw) return;
+  const prev = n._prevChild;
+  const next = n._nextChild;
+  if (prev !== null) prev._nextChild = next;
+  else if (fw._x!._child === n) fw._x!._child = next;
+  if (next !== null) next._prevChild = prev;
+  n._prevChild = null;
+}
+
+export function slotSignal<T>(
+  v: T,
+  equals: (a: T, b: T) => boolean,
+  host: object,
+  key: PropertyKey,
+  acc: boolean,
+  firewall: Computed<unknown> | null = null
+): Signal<T> {
+  // Prod and observe boilerplates — see computed(). The store relabels the
+  // observe slot (`store.<key>`) when the attribution engine is installed.
+  const s = __OBSERVE__
+    ? {
+        _equals: equals,
+        _config: CONFIG_OWNED_WRITE | CONFIG_SLOT_NODE,
+        _value: v,
+        _subs: null,
+        _subsTail: null,
+        _time: clock,
+        _firewall: firewall,
+        _nextChild: firewall?._x?._child || null,
+        _prevChild: null,
+        _pendingValue: NOT_PENDING,
+        _transition: null,
+        _notifiedAt: -1,
+        _x: null,
+        _host: host,
+        _key: key,
+        acc,
+        px: undefined,
+        pxv: undefined,
+        _name: "signal"
+      }
+    : {
+        _equals: equals,
+        _config: CONFIG_OWNED_WRITE | CONFIG_SLOT_NODE,
+        _value: v,
+        _subs: null,
+        _subsTail: null,
+        _time: clock,
+        _firewall: firewall,
+        _nextChild: firewall?._x?._child || null,
+        _prevChild: null,
+        _pendingValue: NOT_PENDING,
+        _transition: null,
+        _notifiedAt: -1,
+        _x: null,
+        // Slot backrefs: what the equals/unobserved closures used to capture.
+        _host: host,
+        _key: key,
+        // Store read-path caches, pre-shaped (were post-construction expandos).
+        acc,
+        px: undefined,
+        pxv: undefined
+      };
+  if (__DEV__) (s as any)._internal = !!firewall;
+  if (firewall) linkFirewallChild(firewall, s as unknown as FirewallSignal<unknown>);
+  if (snapshotCaptureActive && !((firewall?._statusFlags ?? 0) & STATUS_PENDING)) {
+    ext(s as any)._snapshotValue = v === undefined ? NO_SNAPSHOT : v;
+    (s as any)._config |= CONFIG_HAS_SNAPSHOT;
+    snapshotSources!.add(s);
+  }
+  return s as unknown as Signal<T>;
 }
 
 export function optimisticSignal<T>(v: T, options?: NodeOptions<T>): Signal<T> {
@@ -1007,9 +1293,11 @@ export function notifyAuthoritativeObservers(el: Signal<any> | Computed<any>): v
   schedule();
 }
 
-/** Installs the until() machinery hook. Idempotent; called by until() before
- * any authoritative-view read happens (same late-binding contract as the
- * optimistic engine). */
+/** Installs the authoritative-reader wakeup hook. Idempotent; called by every
+ * creator of a CONFIG_AUTHORITATIVE_READ computation — until() and refresh() —
+ * before its first read (same late-binding contract as the optimistic engine;
+ * the gating bit is only ever set by such a read, so the `!` call sites are
+ * safe once every setter installs, #3303). */
 export function installAuthoritativeRead(): void {
   if (GlobalQueue._notifyAuthoritativeObservers === null)
     GlobalQueue._notifyAuthoritativeObservers = notifyAuthoritativeObservers;
@@ -1036,8 +1324,17 @@ export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
   // committed visibility: like the effect half of createEffect and event
   // handlers, effect-phase code never observes its own unsettled write — the
   // write lands in the same flush's continuation (#3006).
+  // A stale reader (render effect) recomputing with no transaction active is
+  // mainline: a write staged by a live transaction (`_transition` stamped —
+  // ambient staging never is) stays masked until that transaction's reveal,
+  // the same rule the slow path applies (#3322). Without it a zombie
+  // recompute, or a commit-time re-derive of a contested effect, published
+  // another transaction's uncommitted value.
   return (
-    !c || el._pendingValue === NOT_PENDING || c._config & CONFIG_CHILDREN_FORBIDDEN
+    !c ||
+    el._pendingValue === NOT_PENDING ||
+    c._config & CONFIG_CHILDREN_FORBIDDEN ||
+    (stale && el._transition !== null)
       ? el._value
       : el._pendingValue
   ) as T;
@@ -1076,9 +1373,13 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     (!__DEV__ || !strictRead)
   ) {
     if (c && tracking) link(el, c as Computed<any>);
-    // Committed visibility for children-forbidden readers — see readNodeFast.
+    // Committed visibility for children-forbidden readers and for stale
+    // readers of a foreign transaction's staged write — see readNodeFast.
     return (
-      !c || el._pendingValue === NOT_PENDING || c._config & CONFIG_CHILDREN_FORBIDDEN
+      !c ||
+      el._pendingValue === NOT_PENDING ||
+      c._config & CONFIG_CHILDREN_FORBIDDEN ||
+      (stale && el._transition !== null)
         ? el._value
         : el._pendingValue
     ) as T;
@@ -1126,20 +1427,26 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         const message =
           "[PENDING_ASYNC_FORBIDDEN_SCOPE] Reading a pending async value inside createTrackedEffect or onSettled will throw. " +
           "Use createEffect instead which supports async-aware reactivity.";
-        emitDiagnostic({
-          code: "PENDING_ASYNC_FORBIDDEN_SCOPE",
-          kind: "async",
-          severity: "warn",
-          message,
-          ownerId: c.id,
-          ownerName: (c as any)._name,
-          nodeName: (owner as any)?._name
-        });
-        console.warn(message);
+        reportDiagnostic(
+          emitDiagnostic(
+            {
+              code: "PENDING_ASYNC_FORBIDDEN_SCOPE",
+              kind: "async",
+              severity: "warn",
+              message,
+              ownerId: c.id,
+              ownerName: (c as any)._name,
+              nodeName: (owner as any)?._name
+            },
+            c
+          )
+        );
       }
       // Per-lane suspension lives with the engine (a non-null lane implies it
       // is installed): under a lane, only same-lane pending async without an
-      // active override throws.
+      // active override throws — plus uninitialized sources regardless of
+      // lane (#3276); that check rides laneSuspends so floor bundles don't
+      // pay for it.
       if (currentOptimisticLane === null || GlobalQueue._laneSuspends!(owner)) {
         if (!tracking && el !== c) link(el, c as Computed<any>);
         throw owner._x?._error;
@@ -1353,7 +1660,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   if (!valueChanged) return v;
 
   // Attribution hook: this committed write is where a re-run chain begins.
-  if (__DEV__ && attrHooks !== null) attrHooks.write(el, currentValue, v);
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.write(el, currentValue, v);
 
   const wasStaged = el._pendingValue !== NOT_PENDING;
   if (!wasStaged) queuePendingNode(el);
@@ -1436,15 +1743,19 @@ export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
   if (__DEV__ && owner && (owner as any)._flags & REACTIVE_DISPOSED) {
     const message =
       "[RUN_WITH_DISPOSED_OWNER] runWithOwner called with a disposed owner. Children created inside will never be disposed.";
-    emitDiagnostic({
-      code: "RUN_WITH_DISPOSED_OWNER",
-      kind: "owner",
-      severity: "warn",
-      message,
-      ownerId: owner.id,
-      ownerName: (owner as any)._name
-    });
-    console.warn(message);
+    reportDiagnostic(
+      emitDiagnostic(
+        {
+          code: "RUN_WITH_DISPOSED_OWNER",
+          kind: "owner",
+          severity: "warn",
+          message,
+          ownerId: owner.id,
+          ownerName: (owner as any)._name
+        },
+        owner
+      )
+    );
   }
   const oldContext = context;
   const prevTracking = tracking;
@@ -1504,8 +1815,14 @@ export function markRefresh(node: Computed<any>): void {
       // for the rest of the transaction (#3026).
       if (node._manualWriteTime === clock) return;
       node._flags &= ~REACTIVE_MANUAL_WRITE;
-      // No REASK below: the batch carries a manual value change, so the
-      // recompute is not a quiet re-ask of an unchanged question.
+      // The lift falls through to the re-ask classification below. The held
+      // write's value change already rides the transaction; the refetch it
+      // asks for is the same question with unchanged inputs. Skipping the
+      // mark here classified that refetch as a NEW question, which pends
+      // every leaf (3.1) — an action doing setStore + yield + refresh(store)
+      // lit up every sibling row, and affects() could not narrow it (a mark
+      // only turns pending on). Same-question motion stays silent (3.4);
+      // the written slot and any declared mark carry the pending instead.
     }
     // A refresh with no value-change dirt already queued is a re-ask of the
     // same question: mark it so the recompute classifies any resulting
@@ -1514,14 +1831,14 @@ export function markRefresh(node: Computed<any>): void {
     // REACTIVE_IN_HEAP counts as dirt: insertSubs schedules subscribers by
     // heap insertion alone (no DIRTY/CHECK flag), so a same-batch value
     // change followed by refresh() must not be laundered into a quiet re-ask.
-    else if (!(node._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_IN_HEAP))) {
+    if (!(node._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_IN_HEAP))) {
       node._flags |= REACTIVE_REASK;
       armReaskClear();
     }
     node._flags = (node._flags & ~REACTIVE_CHECK) | REACTIVE_DIRTY;
     // A refresh() self-invalidation is a root cause too — the target's next
     // run has no changed dep to point at, so it points here instead.
-    if (__DEV__ && attrHooks !== null) attrHooks.refreshed(node);
+    if (__OBSERVE__ && attrHooks !== null) attrHooks.refreshed(node);
     insertIntoHeap(node, queueFor(node));
     schedule();
   }

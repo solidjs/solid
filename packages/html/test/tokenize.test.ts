@@ -1016,4 +1016,42 @@ describe("comments handling", () => {
       { type: CLOSE_TAG_TOKEN }
     ]);
   });
+
+  it("should not tokenize braced comments", () => {
+    const tokens = tokenizeTemplate`<div>{/* This is a comment */}</div>`;
+    expect(tokens).toEqual([
+      { type: OPEN_TAG_TOKEN },
+      { type: IDENTIFIER_TOKEN, value: "div" },
+      { type: CLOSE_TAG_TOKEN },
+      { type: OPEN_TAG_TOKEN },
+      { type: SLASH_TOKEN },
+      { type: IDENTIFIER_TOKEN, value: "div" },
+      { type: CLOSE_TAG_TOKEN }
+    ]);
+  });
+
+  it("should handle braced comments with expressions inside", () => {
+    const value = "test";
+    const tokens = tokenizeTemplate`{/* Comment with ${value} inside */} next`;
+    expect(tokens).toEqual([{ type: TEXT_TOKEN, value: " next" }]);
+  });
+
+  it("should treat text containing just braces as text, not comment", () => {
+    const tokens = tokenizeTemplate`{ color: red; } object`;
+    expect(tokens).toEqual([{ type: TEXT_TOKEN, value: "{ color: red; } object" }]);
+  });
+
+  it("should handle braced comments between tags", () => {
+    const tokens = tokenizeTemplate`<a/>{/* comment */}<b/>`;
+    expect(tokens).toEqual([
+      { type: OPEN_TAG_TOKEN },
+      { type: IDENTIFIER_TOKEN, value: "a" },
+      { type: SLASH_TOKEN },
+      { type: CLOSE_TAG_TOKEN },
+      { type: OPEN_TAG_TOKEN },
+      { type: IDENTIFIER_TOKEN, value: "b" },
+      { type: SLASH_TOKEN },
+      { type: CLOSE_TAG_TOKEN }
+    ]);
+  });
 });

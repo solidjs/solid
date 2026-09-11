@@ -7,9 +7,8 @@ function Fragment(props: { children: JSX.Element }) {
 }
 
 // Explicit return annotation keeps tsc from inlining `import("../../types/hyperscript").HyperElement`
-// in the emitted .d.ts. `sync-dual-types.mjs` rewrites `.d.ts` -> `.d.cts` extensions but does not
-// remap the `types/` <-> `types-cjs/` directory, so a cross-folder inferred reference would break
-// Node16 CJS type resolution from `@solidjs/h/jsx-runtime`'s CJS export.
+// in the emitted .d.ts; the public type is `JSX.Element`, not a relative path into the parent
+// package's declaration folder.
 function jsx(type: any, props: any): JSX.Element {
   return h(type, props) as unknown as JSX.Element;
 }

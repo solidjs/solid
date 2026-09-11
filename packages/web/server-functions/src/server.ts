@@ -21,7 +21,7 @@ import {
 } from "../../src/response.js";
 import { COMPOSED_BODY_FRAMING, isHttpNavigationTarget } from "../../src/constants.js";
 import { RequestContext, commitEventResponse, getRequestEvent } from "../../src/server.js";
-import { encodeFlashCookie } from "./flash.js";
+import { encodeFlashCookie, setFlashSecret } from "./flash.js";
 import {
   BODY_FORMAT_HEADER,
   BodyFormat,
@@ -378,6 +378,25 @@ export interface ServerFunctionsServerConfig {
    * @default 1000
    */
   maxArguments?: number;
+  /**
+   * The DEPLOYMENT SECRET: one value per deployment, from which any feature
+   * that needs a key derives its own (domain-separated, so per-purpose keys
+   * share no material). Today one feature does — the no-JS flash cookie
+   * (#3239): the flash carries the submitted form input — whatever the user
+   * typed — so its payload is always AES-GCM encrypted; it never rides the
+   * wire or rests in the cookie jar as plaintext. Every instance that can
+   * serve the render after a form post must share the secret (behind a load
+   * balancer, a per-instance secret would silently lose outcomes), so there
+   * is no generated fallback here: when this is not set, the secret falls
+   * back to the one the Solid bundler plugin injects into the server build
+   * (a fresh value per build), and with neither present the outcome is
+   * simply not flashed — the form post still redirects cleanly, and dev
+   * builds warn once. Any non-empty string works; rotating it (or
+   * redeploying with the plugin's value) invalidates in-flight flashes,
+   * which are 60-second one-shot cookies — the next render reads "no
+   * flash".
+   */
+  secret?: string;
 }
 
 /**
@@ -429,6 +448,15 @@ export interface HandleServerFunctionOptions {
    * Builds the request event a call runs under (default: bare
    * `{ request, locals: {} }`). Integrations supply their richer event
    * (cookies, response helpers, platform handles).
+   *
+   * `request` is a standards-shaped `Request` — url, method, headers,
+   * signal, readable body — and nothing more. Enforcing `bodySizeLimit`
+   * puts the runtime between the host's stream and the decoder, so the
+   * object handed here may be one the runtime rebuilt; host-specific
+   * fields on the inbound object (`request.cf`, srvx's `runtime`, `ip`,
+   * `waitUntil`) are not carried. The host has its own request in closure
+   * when it calls the handler: read platform handles there and put them on
+   * the event (`locals`) rather than through `request`.
    */
   createEvent?(request: Request): ServerFunctionEvent;
   /**
@@ -439,8 +467,13 @@ export interface HandleServerFunctionOptions {
   /**
    * Overrides the configured per-invocation wrap for this handler — same
    * contract as the `wrapInvocation` config option (see
-   * `WrapInvocationHook`), except it only applies to HTTP dispatch (a
-   * per-request option can't see direct SSR calls).
+   * `WrapInvocationHook`), except it is ENTRY-ONLY: it wraps exactly the
+   * invocation the request addressed. Nested direct server-function calls
+   * made by the dispatched body are not re-wrapped by it — they consult
+   * only the configured hook, which is ambient and wraps every direct call
+   * (a per-request option can't see direct SSR calls). Policy that must
+   * cover every hop belongs on `configureServerFunctionsServer`'s
+   * `wrapInvocation`, not here.
    */
   wrapInvocation?: WrapInvocationHook;
   /**
@@ -589,7 +622,8 @@ export function configureServerFunctionsServer({
   csrf,
   codec,
   bodySizeLimit,
-  maxArguments
+  maxArguments,
+  secret
 } = {}) {
   if (provideEvent !== undefined) config.provideEvent = provideEvent;
   if (wrapInvocation !== undefined) config.wrapInvocation = wrapInvocation;
@@ -603,6 +637,8 @@ export function configureServerFunctionsServer({
   if (codec !== undefined) configureServerFunctionsCodec(codec);
   if (bodySizeLimit !== undefined) config.bodySizeLimit = bodySizeLimit;
   if (maxArguments !== undefined) config.maxArguments = maxArguments;
+  // the flash codec owns the key (flash.js) — the option just names it
+  if (secret !== undefined) setFlashSecret(secret);
 }
 
 // Named flight-data collectors, keyed by source id. The unnamed
@@ -648,6 +684,24 @@ export function registerFlightDataSource(source, hook) {
   };
 }
 
+// A wrap that is not a function cannot wrap (#3238): `null`, `false`, an
+// options bag in the wrong slot — each used to fail in the quietest
+// available direction (falsy values silently took per-invocation policy —
+// auth, logging — off the call; truthy non-functions threw a bare
+// "not a function" out of the middle of dispatch, attributed to nothing).
+// An invalid value is a configuration error, refused loudly at the point
+// the hook is resolved for an invocation, on both dispatch roads.
+// `undefined` stays the one spelling of absence.
+function resolveWrapInvocation(hook) {
+  if (hook === undefined || typeof hook === "function") return hook;
+  throw new Error(
+    `Invalid wrapInvocation: expected a function, received ${
+      hook === null ? "null" : typeof hook
+    }. A hook that is not callable cannot wrap the call - configure a function, or leave ` +
+      `wrapInvocation undefined.`
+  );
+}
+
 function provideEvent(event, fn) {
   if (config.provideEvent) return config.provideEvent(event, fn);
   // Fall back to the AsyncLocalStorage instance provideRequestEvent parks on
@@ -659,12 +713,211 @@ function provideEvent(event, fn) {
   );
 }
 
+// The two ways a hand-written provideEvent breaks the call it is scoping,
+// in the words both dispatch legs answer with.
+const PROVIDE_EVENT_TWICE =
+  "provideEvent invoked the server function callback more than once: a second invocation " +
+  "would commit the call's side effects twice. The hook must call fn exactly once and return " +
+  "its result.";
+const PROVIDE_EVENT_NEVER =
+  "provideEvent returned without invoking the server function callback: the call would have " +
+  "answered as a void success without running the function. The hook must call fn exactly once " +
+  "and return its result.";
+
+// provideEvent's contract — run the callback, once, with `event` visible to
+// getRequestEvent() — enforced rather than assumed (#3172): every way a
+// hand-written hook gets it wrong otherwise answers as an ordinary success.
+// The hook is one object an adapter installs once, so a hook broken in
+// either direction is broken for every call the process makes — which is
+// why the guard belongs to the hook contract and not to one dispatch leg
+// (#3246): HTTP dispatch and the direct SSR call both enter through here.
+//
+// A second invocation is refused BEFORE the body runs again (a retry
+// wrapper or a misplaced await double-committed a mutation, silently), and
+// the count is re-checked once the hook has returned, so swallowing the
+// in-flight refusal cannot turn it back into a success. Zero invocations
+// is the other violation: a void result a caller cannot tell from a
+// function that returned nothing.
+//
+// The re-check waits for a promised result and is otherwise synchronous —
+// that is what keeps the direct leg transparent (a synchronous function
+// called during a render still returns its value, not a promise) while
+// still catching a hook that only defers its invocation.
+function provideEventOnce(provide, event, run) {
+  let invocations = 0;
+  const settle = () => {
+    if (invocations !== 1)
+      throw new Error(invocations === 0 ? PROVIDE_EVENT_NEVER : PROVIDE_EVENT_TWICE);
+  };
+  const result = provide(event, () => {
+    // thrown synchronously, never as a rejected promise: the second
+    // execution must not START, and a hook that ignores the return must not
+    // mint an unobserved rejection
+    if (++invocations > 1) throw new Error(PROVIDE_EVENT_TWICE);
+    return run();
+  });
+  const promised = nativePromise(result);
+  if (promised) {
+    return promised.then(value => {
+      settle();
+      return value;
+    });
+  }
+  settle();
+  return result;
+}
+
 // Calling a generator only allocates it; calling a stream's reader is what
 // runs its pull. A request scope around the function CALL therefore does not
 // own either body. Bind each deferred operation to the event explicitly so
 // direct SSR calls keep their per-call event after the proxy has returned.
 // Non-deferred values pass through by identity and synchronously.
+//
+// A body one CONTAINER down is driven by the consumer exactly the same way:
+// `return { rows: cursor() }` is the shape the codec road's guard walk
+// descends into for this very reason, and until this road descended too,
+// #3222's harm survived intact for it (#3241) — the body ran under the
+// RENDER's ambient event instead of the per-call copy #3156 made for it, so
+// two concurrent direct calls read and wrote each other's request state,
+// and the render's own locals were mutated by a call that should not have
+// been able to reach them. The carriers descended are PLAIN OBJECTS and
+// ARRAYS only, and the user's returned containers are never written into:
+// a carrier holding deferred work is handed to the caller as a shallow
+// rebuild (same prototype, same descriptors) with the bound wrappers in the
+// deferred slots — mirroring how the codec road applies the wrapping in its
+// rebuilt shells. Set/Map members, class instances, and frozen or
+// non-writable slots are out of the carrier set and keep their authored,
+// unbound bodies.
 function scopeDeferredResult(value, scope) {
+  const bound = bindDeferredBody(value, scope);
+  if (bound !== value || value === null || typeof value !== "object") return bound;
+  return scopeDeferredContents(value, scope);
+}
+
+/** One carrier mid-walk on the direct road's descent. Module-private, so a
+ * user value can never satisfy the driver's `instanceof` dispatch. */
+class ScopeFrame {
+  constructor(value, next, keys, descriptors) {
+    this.value = value;
+    this.next = next;
+    this.keys = keys;
+    this.descriptors = descriptors;
+    this.i = 0;
+    this.changed = false;
+  }
+}
+
+/** Resolve one nested value for the direct road's carrier descent: leaves,
+ * already-walked entries and deferred bodies answer immediately; a plain
+ * object or array answers a frame for the driver, its shallow-rebuilt shell
+ * pre-registered so cycles resolve to the shell being built. */
+function enterScopeCarrier(value, state) {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return value;
+  if (state.seen.has(value)) {
+    state.cyclic.add(value);
+    return state.seen.get(value);
+  }
+  const bound = bindDeferredBody(value, state.scope);
+  if (bound !== value) {
+    state.seen.set(value, bound);
+    return bound;
+  }
+  if (typeof value !== "object") return value;
+  // Frozen carriers (and every slot of one) are out of the carrier set:
+  // rebuilding around them would hand the caller a shape the author sealed.
+  if (Array.isArray(value)) {
+    if (Object.isFrozen(value)) {
+      state.seen.set(value, value);
+      return value;
+    }
+    const next = value.slice();
+    state.seen.set(value, next);
+    return new ScopeFrame(value, next, null, null);
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if ((prototype !== Object.prototype && prototype !== null) || Object.isFrozen(value)) {
+    state.seen.set(value, value);
+    return value;
+  }
+  // The shell carries the original descriptors whole — hidden slots,
+  // accessors and non-writable data stay exactly as authored (accessors are
+  // the caller's to invoke, non-writable slots are out of the carrier set);
+  // only writable enumerable data slots are candidates for binding.
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const next = Object.create(prototype, descriptors);
+  state.seen.set(value, next);
+  return new ScopeFrame(value, next, Object.keys(value), descriptors);
+}
+
+// The descent is ITERATIVE for the same reason the codec road's walk is
+// (#3160): a deep-but-legal result must not overflow the stack and surface
+// as a phantom error. The driver mirrors guardFailures' frame loop.
+function scopeDeferredContents(root, scope) {
+  const state = { seen: new Map(), cyclic: new Set(), scope };
+  const entered = enterScopeCarrier(root, state);
+  if (!(entered instanceof ScopeFrame)) return entered;
+  const stack = [entered];
+  let delivered = NOTHING;
+  for (;;) {
+    const top = stack[stack.length - 1];
+    const length = top.keys ? top.keys.length : top.value.length;
+    let pushed = null;
+    while (top.i < length) {
+      const i = top.i;
+      let original;
+      let writable = true;
+      if (top.keys) {
+        const descriptor = top.descriptors[top.keys[i]];
+        // accessors are not invoked, and non-writable slots keep their
+        // authored value (out of the carrier set) — both already ride the
+        // shell's copied descriptors
+        writable = "value" in descriptor && descriptor.writable === true;
+        original = writable ? descriptor.value : undefined;
+      } else {
+        original = top.value[i];
+      }
+      if (!writable) {
+        top.i++;
+        continue;
+      }
+      let bound;
+      if (delivered !== NOTHING) {
+        bound = delivered;
+        delivered = NOTHING;
+      } else {
+        bound = enterScopeCarrier(original, state);
+        if (bound instanceof ScopeFrame) {
+          pushed = bound;
+          break;
+        }
+      }
+      if (bound !== original) {
+        if (top.keys) top.next[top.keys[i]] = bound;
+        else top.next[i] = bound;
+        top.changed = true;
+      }
+      top.i++;
+    }
+    if (pushed !== null) {
+      stack.push(pushed);
+      continue;
+    }
+    stack.pop();
+    // a rebuild stands if anything below changed, or if a cycle already
+    // took the shell; otherwise the caller keeps the author's container
+    let out;
+    if (top.changed || state.cyclic.has(top.value)) {
+      out = top.next;
+    } else {
+      state.seen.set(top.value, top.value);
+      out = top.value;
+    }
+    if (stack.length === 0) return out;
+    delivered = out;
+  }
+}
+
+function bindDeferredBody(value, scope) {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return value;
 
   const promised = scope(() => nativePromise(value));
@@ -730,12 +983,55 @@ function scopeDeferredResult(value, scope) {
   return value;
 }
 
-const REGISTRATIONS = new Map();
+// The dispatch registry is PROCESS state, not module state: it rides
+// registered symbols on globalThis, like the RPC seam it is reached through
+// (registry.ts `provideServerFunctionRPC`, first write wins). Under
+// `vite dev` this module is inlined into the SSR module runner, and an edit
+// to any module without a hot boundary makes the runner "program reload":
+// every module — this one included — is evaluated again into a fresh
+// instance, while the seam keeps handing integrations the FIRST instance's
+// `GET`. With per-instance maps a router's `query()` re-declared its reads
+// into the dead instance and dispatch, imported through the runner,
+// consulted the live one: after the first edit every declared read
+// answered 405 (#3346). One process, one registry: a grant made through
+// any copy's `GET` is the grant every copy's dispatch sees, and a rebind
+// revokes it (#3129) in the same maps the re-declaration re-grants it.
+function processState<T>(key: string, create: () => T): T {
+  const slot = Symbol.for(key);
+  return globalThis[slot] || (globalThis[slot] = create());
+}
+const REGISTRATIONS = processState("solid.ServerFunctionRegistrations", () => new Map());
 // Declared-method bookkeeping keyed by function id (internal, not public
 // API): the server half of `GET` records entries here so the HTTP handler
 // can gate GET dispatch — a GET request to a function that never declared
-// it answers 405. Declaring GET grants GET without revoking POST.
-const METHODS = new Map();
+// it answers 405. Declaring GET grants GET without revoking POST. The
+// entry is the FUNCTION the grant was made about, not the bare word
+// "GET" (#3237): what a declaration asserts is safe is a function, and
+// dispatch is reached by an id, so the grant carries the one thing that
+// can tell them apart later (see `declaresRead` and `GET`).
+const METHODS = processState("solid.ServerFunctionMethods", () => new Map());
+// Which registered function a reference NAMES, so a declaration made about
+// the reference can be recorded against the binding it was made about
+// rather than against its id alone (see `GET`).
+const REFERENCE_BINDINGS = processState(
+  "solid.ServerFunctionReferenceBindings",
+  () => new WeakMap()
+);
+
+// Whether the id's CURRENT binding is the function a `GET()` grant was made
+// to — the one question both dispatch gates ask (#3237): the method gate
+// itself, and the 405 `Allow` advertisement, which must not promise a read
+// the gate would refuse. A grant made about a function must never govern
+// another one, in either interleaving: the id rebound after the declaration
+// (#3129, dropped eagerly at rebind below) or already rebound before it
+// (the grant then names a binding this id does not have). Neither is a
+// declared read — a stale or unverifiable grant fails CLOSED, so such a
+// call is gated exactly like a function that never declared GET: 405,
+// origin gate on.
+function declaresRead(id) {
+  const granted = METHODS.get(id);
+  return granted !== undefined && granted === REGISTRATIONS.get(id);
+}
 // In-flight invocation state, keyed by the request event the call runs
 // under — the derived event a direct SSR call creates, or the handler's own
 // event for HTTP dispatch. Deliberately NOT `event.locals`: locals is
@@ -928,16 +1224,21 @@ export function createServerReference({ id, fn, name }) {
       INVOCATIONS.set(evt, { id });
       evt.serverOnly = true;
       const scope = run => provideEvent(evt, run);
-      let result = provideEvent(evt, () => {
+      // Per-invocation wrap (see configureServerFunctionsServer): direct
+      // SSR calls run through the same policy as HTTP dispatch, so
+      // per-function middleware built on it can't be bypassed by calling
+      // the function during a render. Resolved — and validated (#3238) —
+      // per invocation, before the body can run.
+      const wrap = resolveWrapInvocation(config.wrapInvocation);
+      // Exactly-once is enforced on this leg too (#3246, see
+      // provideEventOnce): a broken hook used to double-commit or skip the
+      // body silently during a render, where there is no status line to
+      // notice it by.
+      let result = provideEventOnce(provideEvent, evt, () => {
         const run = () => fn.apply(thisArg, args);
-        // Per-invocation wrap (see configureServerFunctionsServer): direct
-        // SSR calls run through the same policy as HTTP dispatch, so
-        // per-function middleware built on it can't be bypassed by calling
-        // the function during a render. The wrapper must return run()'s
-        // value (this path stays synchronous for synchronous functions).
-        return config.wrapInvocation
-          ? config.wrapInvocation(run, { id, args, event: evt, direct: true })
-          : run();
+        // The wrapper must return run()'s value (this path stays
+        // synchronous for synchronous functions).
+        return wrap ? wrap(run, { id, args, event: evt, direct: true }) : run();
       });
       // A generator or stream body runs when the caller pulls it, after the
       // call-time scope above has gone. Bind the WRAPPER'S result (not merely
@@ -959,6 +1260,8 @@ export function createServerReference({ id, fn, name }) {
         : result;
     }
   });
+  // the reference names this binding (see `GET`)
+  REFERENCE_BINDINGS.set(proxy, fn);
   return proxy;
 } /**
  * Declares a server function callable over HTTP GET. The server half is
@@ -1017,7 +1320,9 @@ export function GET<A extends readonly any[], R>(
  * The declaration is about the FUNCTION, not the id: registering a
  * different function under the same id revokes it (#3129), and the new
  * function's own `GET()` — which module order runs right after the
- * re-registration — is what re-grants it.
+ * re-registration — is what re-grants it. A declaration that names a
+ * binding the id no longer has grants nothing, for the same reason
+ * (#3237).
  *
  * Wrap the reference at its declaration; the compiler round-trips the call
  * in both builds:
@@ -1033,9 +1338,68 @@ export function GET(fn) {
   if (!isServerFunction(fn) || typeof fn.id !== "string") {
     throw new Error("GET expects a server function reference");
   }
-  METHODS.set(fn.id, "GET");
-  // the declaration itself is a metadata write like any other
-  return withMeta(fn, { method: "GET" });
+  const id = fn.id;
+  // The grant is recorded as the FUNCTION it was granted about (#3237): a
+  // declaration is made ABOUT a function, so it may reach dispatch only
+  // while the id still names that function (see `declaresRead`). The
+  // binding is the one the reference itself wraps when this module built
+  // it; a reference built elsewhere names no binding we can verify, so the
+  // grant falls back to the live registration — same-module declaration
+  // order (register, then declare) makes that the declared function.
+  const binding = REFERENCE_BINDINGS.has(fn) ? REFERENCE_BINDINGS.get(fn) : REGISTRATIONS.get(id);
+  const existing = METHODS.get(id);
+  if (existing !== undefined && existing !== binding) {
+    // This declaration would CHANGE an existing grant's binding — an id
+    // collision between two live references. Never rebind silently: the
+    // grant is a safety assertion the new function did not sign.
+    if (DEV) {
+      throw new Error(
+        `GET() would rebind the existing grant for server function "${id}" to a different ` +
+          `function. A GET declaration is made about a function, not an id - two references ` +
+          `sharing one id cannot both hold it. Give the functions distinct ids, or drop the ` +
+          `stale declaration.`
+      );
+    }
+    // prod: fail closed — neither function keeps the read grant
+    METHODS.delete(id);
+    return fn;
+  }
+  METHODS.set(id, binding);
+  // the declaration records itself on the metadata channel
+  const reference = withMeta(fn, { method: "GET" });
+  guardDeclaredMethod(getServerFunctionMetadata(reference), id);
+  return reference;
+}
+
+// `withMeta(fn, { method })` writes only the metadata channel — it can
+// never grant or revoke the wire's GET dispatch, so on a granted reference
+// an accepted write would leave the two disagreeing: the reference reads
+// back as POST while a cross-site GET still executes the function (#3237).
+// The declaration's own metadata slot therefore refuses divergent writes in
+// dev, and in prod fails closed — the wire grant dies with the declaration
+// the metadata no longer reports. Not general `withMeta({ method })`
+// support: the guard exists only to keep an existing grant and its report
+// from being changed out from under each other.
+function guardDeclaredMethod(metadata, id) {
+  let declared = metadata.method;
+  Object.defineProperty(metadata, "method", {
+    configurable: true,
+    enumerable: true,
+    get: () => declared,
+    set(next) {
+      if (next === declared) return;
+      if (DEV) {
+        throw new Error(
+          `withMeta({ method }) cannot change the GET() declaration of server function ` +
+            `"${id}". The method is declaration-scoped: it was granted about the function ` +
+            `by GET(fn), and a metadata write cannot re-shape the wire grant.`
+        );
+      }
+      // prod: fail closed — revoke the grant the metadata now contradicts
+      METHODS.delete(id);
+      declared = next;
+    }
+  });
 } /**
  * Declares a value-shaped live source: a server function returning an async
  * iterable whose yields are successive VALUES of one logical query, with
@@ -1221,13 +1585,14 @@ function stripUnsafeArgumentKeys(value) {
 }
 
 /**
- * Buffers a POST body that declared no length (chunked transfer), refusing
- * once it runs past the limit — a declared length is enforced by the HTTP
- * server's own framing and is checked against the limit before this runs.
- * The original body is read, not a clone: cancellation must tear down the
- * upload source rather than one branch of a tee (#3219). On success the
- * consumed body is replaced so the ordinary decoder can still read it.
- * Returns that replacement Request, or `null` past the limit.
+ * Buffers a POST body, refusing once it runs past the limit. Every body a
+ * capped route accepts is read through here — a declaration is checked
+ * against the limit before this runs, but a declaration under it is not
+ * evidence of anything (#3236), so the count is taken on the bytes that
+ * arrive. The original body is read, not a clone: cancellation must tear
+ * down the upload source rather than one branch of a tee (#3219). Returns
+ * the bytes that arrived, or `null` past the limit; `withBufferedBody` puts
+ * them back in front of the ordinary decoder.
  */
 async function bufferBodyWithin(request, limit) {
   const reader = request.body.getReader();
@@ -1268,7 +1633,49 @@ async function bufferBodyWithin(request, limit) {
     body.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new Request(request, { body });
+  return body;
+}
+
+/**
+ * The consumed request with its buffered bytes back in front of the
+ * ordinary decoder. Assembled from the request's parts rather than
+ * `new Request(request, { body })`: the copy constructor reaches into the
+ * source's internal state, and a host adapter's request need not have any.
+ * srvx (Nitro's server layer) hands out a lazy `NodeRequest` that only
+ * wears `Request.prototype` — `instanceof` says Request, the native
+ * constructor never ran — so undici threw on the private slot and every
+ * POST under Nitro came back 400 (#3311). The parts the runtime reads are
+ * url, method, headers and signal, and any adapter has to serve those to
+ * get this far; the fetch-only fields the copy also carried (mode,
+ * credentials, cache) mean nothing on an inbound request.
+ */
+function withBufferedBody(request, body) {
+  return new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    signal: request.signal,
+    body
+  });
+}
+
+// Every tag the decode switch has a case for, derived from `BodyFormat`
+// itself so the two can never drift: a tag added there is accepted here the
+// same day, and a tag from anywhere else is not.
+const KNOWN_BODY_FORMATS = new Set(Object.values(BodyFormat));
+
+// Brands the unknown-tag refusal so dispatch's malformed-arguments 400 can
+// surface ITS message in development: version skew has a recovery (redeploy
+// or reload) that "malformed arguments" does not point anyone at.
+const FORMAT_SKEW = Symbol("solid.serverFunction.formatSkew");
+
+function unknownFormatError(tag) {
+  const error = new TypeError(
+    `Server function body carries an unrecognized ${BODY_FORMAT_HEADER} tag ("${tag}"): the ` +
+      "caller encodes a newer wire format than this build can decode (version skew), or an " +
+      "intermediary duplicated the header. The body was refused rather than reinterpreted."
+  );
+  error[FORMAT_SKEW] = true;
+  return error;
 }
 
 async function parseArguments(request, url, scripted, codec) {
@@ -1313,7 +1720,28 @@ async function parseArguments(request, url, scripted, codec) {
     parsed.push(url.searchParams);
   }
   if (request.method === "POST" && request.body !== null) {
-    const decoded = await extractBody(request.clone(), codec);
+    // The tag names the encoding, so a tag this build has no case for is
+    // refused BEFORE the decode switch runs (#3245): `extractBody`'s
+    // content-type sniffing branches (there for form posts that never saw
+    // the client runtime) match regardless of the tag, so an unknown tag
+    // over a form content-type used to be silently reinterpreted as the
+    // form — the function ran on an argument shaped nothing like what the
+    // caller encoded, and committed under a 200. The two ordinary ways in
+    // are version skew (a `BodyFormat` past `Void` from a newer peer) and
+    // a duplicated header, which `Headers.get` joins into the single
+    // unknown value `"8, 9"`. An untagged body keeps the sniffing — that
+    // is what it is for.
+    if (bodyFormat !== null && !KNOWN_BODY_FORMATS.has(bodyFormat)) {
+      throw unknownFormatError(bodyFormat);
+    }
+    // The one deliberate tee on this road: the decoder consumes the body it
+    // is handed (#3244 — `extractBody` reads its source, never a clone of
+    // it), and the clone is what it gets, so the app can still read the
+    // original through `event.request`. Every path below reads this branch:
+    // a matched decode consumes it, and the fall-through hands it to the
+    // empty-body inspection instead of minting a second clone.
+    const body = request.clone();
+    const decoded = await extractBody(body, codec);
     // Both argument-array encodings: codec-framed and plain JSON. The
     // framed codec enforces its own depth cap during decode; bare JSON
     // must not be the uncapped alternative (#3119). Either way the payload
@@ -1331,17 +1759,19 @@ async function parseArguments(request, url, scripted, codec) {
       // stream even when the POST had no payload. The Fetch body is then
       // non-null, but there is still no argument to decode (#3214). Inspect
       // the bytes rather than trusting Content-Length: an adapter or proxy
-      // can preserve a stale zero while supplying a non-empty stream.
-      if (bodyFormat === null && (await request.clone().arrayBuffer()).byteLength === 0) {
+      // can preserve a stale zero while supplying a non-empty stream. The
+      // fall-through read nothing, so the decode's own clone is still whole
+      // — inspect that branch rather than teeing the request again.
+      if (bodyFormat === null && (await body.arrayBuffer()).byteLength === 0) {
         return parsed;
       }
-      // The decode switch fell through: the format tag — or its duplicate-
-      // header comma join, which `Headers` produces silently — names no
-      // encoding this runtime has. Refusing is the point: substituting
-      // `undefined` for the body calls the function on an argument it was
-      // never sent, and the mutation commits and answers 200 (#3130). The
-      // throw lands on dispatch's malformed-arguments 400, the same answer
-      // a single unusable tag already earned from the codec.
+      // The decode switch fell through on a tag it does know (`Void` on a
+      // request leg) or an untagged body no sniff matched. Refusing is the
+      // point: substituting `undefined` for the body calls the function on
+      // an argument it was never sent, and the mutation commits and answers
+      // 200 (#3130). Unknown tags were already refused above (#3245), so
+      // this is the everything-else answer, landing on the same
+      // malformed-arguments 400.
       throw new TypeError("Server function body carries no usable encoding");
     }
     parsed.push(decoded);
@@ -1398,15 +1828,22 @@ async function foldFlightData(hooks, event, headers, outcome, context = {}) {
       context
     );
     if (transformed !== undefined) {
+      // Ownership BEFORE the first stamp (#3234, completing #3155): nothing
+      // in the hook's contract says the Response is freshly built, and a
+      // policy that memoizes its body would otherwise accumulate every
+      // caller's session cookies permanently — the thrown path's tail copies
+      // for exactly this reason, but only after these writes have already
+      // landed on the shared object.
+      const owned = ownResponse(transformed);
       // Headers accumulated during the call (the mutation's cookies, an
       // envelope's metadata) belong on whatever body carries the outcome.
-      for (const cookie of headers.getSetCookie()) transformed.headers.append("Set-Cookie", cookie);
+      for (const cookie of headers.getSetCookie()) owned.headers.append("Set-Cookie", cookie);
       headers.forEach((value, key) => {
-        if (key !== "set-cookie" && !transformed.headers.has(key)) {
-          transformed.headers.set(key, value);
+        if (key !== "set-cookie" && !owned.headers.has(key)) {
+          owned.headers.set(key, value);
         }
       });
-      return transformed;
+      return owned;
     }
   }
   // A void mutation's envelope omits the `value` key rather than carrying
@@ -1720,7 +2157,7 @@ function warnScripted304(functionId) {
  */
 export function createNoJSHandler(
   options?: NoJSHandlerOptions
-): (result: unknown, request: Request, args: unknown[], thrown?: boolean) => Response;
+): (result: unknown, request: Request, args: unknown[], thrown?: boolean) => Promise<Response>;
 
 /**
  * Builds the `handleNoJS` implementation for the no-JS form convention: a
@@ -1734,7 +2171,7 @@ export function createNoJSHandler(
  * including direct HTTP ones.
  */
 export function createNoJSHandler({ base = "" } = {}) {
-  return function handleNoJS(result, request, args, thrown) {
+  return async function handleNoJS(result, request, args, thrown) {
     const url = new URL(request.url);
     // an unusable referer (no-referrer policy, garbage) still beats leaving
     // the browser sitting on the server function endpoint
@@ -1767,12 +2204,30 @@ export function createNoJSHandler({ base = "" } = {}) {
       headers = new Headers({ Location: back });
     }
     // Responses carry their meaning in their metadata; anything else flashes
-    // the outcome for the next render to read.
-    if (result && !(result instanceof Response)) {
-      headers.append(
-        "Set-Cookie",
-        encodeFlashCookie(url.pathname + url.search, result, args, thrown)
-      );
+    // the outcome for the next render to read — decided by shape, never by
+    // the value's truthiness: `0`, `false`, `""` and `null` are ordinary
+    // outcomes a committed mutation must report (#3248). `undefined` writes
+    // no cookie, unchanged pending a product ruling on the bare-return case.
+    // The encoder answers null when no storable cookie exists for the
+    // outcome (a caller-chosen url alone past the cookie ceiling, #3249):
+    // the redirect then goes out plain — never an oversized cookie the
+    // browser discards whole, never a truncated identifier.
+    //
+    // The flash records the UNBOUND base — the request's pathname, which
+    // for a server function is `<endpoint>/<id>` — never the query. A
+    // `.with()`-bound form's action url carries `?args=…`, and integrations
+    // match submissions against the action's unbound base (the router's
+    // `s.url === fn.base`): a flash url wearing the binding would store,
+    // decode, and then match nothing. The scripted road records the same
+    // shape — the base as `url`, the bound arguments prepended to `input` —
+    // and the argument parser's `?args` prepend already gives `args` that
+    // input shape here (#3239).
+    if (result !== undefined && !(result instanceof Response)) {
+      // Encrypted (#3239), hence async; null when the outcome cannot fit
+      // (#3249) or no key is configured — either way the redirect goes out
+      // plain.
+      const flash = await encodeFlashCookie(url.pathname, result, args, thrown);
+      if (flash !== null) headers.append("Set-Cookie", flash);
     }
     return new Response(null, { status, headers });
   };
@@ -2164,8 +2619,17 @@ function enterGuard(value, state) {
     return new Frame(SET, value, next, [...value], null);
   }
 
+  // Errors descend too (#3235): seroval encodes an Error's own enumerable
+  // properties like any other object's, and `Object.assign(new Error(...),
+  // { rows })` is the ordinary shape of a domain failure carrying its
+  // context — so a channel under an Error carrier rode the wire unguarded.
+  // The rebuild below keeps the carrier's prototype and its own descriptors
+  // (message and stack are own data properties), so the author's Error —
+  // subclass identity included — is what the codec encodes. Other foreign
+  // prototypes stay untouched: their own properties are not ours to rebuild
+  // (private fields, getters, invariants).
   const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
+  if (prototype !== Object.prototype && prototype !== null && !(value instanceof Error)) {
     state.seen.set(value, value);
     return value;
   }
@@ -2185,9 +2649,27 @@ function enterGuard(value, state) {
   }
   const next = Object.create(prototype, descriptors);
   state.seen.set(value, next);
-  // The codec reads enumerable string properties; hidden accessors must stay
-  // hidden without being invoked merely because another slot needs guarding.
-  return new Frame(OBJECT, value, next, Object.keys(value), descriptors);
+  // Walk what the codec will encode — the guard's whole contract is that
+  // every slot seroval emits is a slot it descended. For a plain object that
+  // is the enumerable string keys, and hidden accessors must stay hidden
+  // without being invoked merely because another slot needs guarding. But
+  // seroval encodes an Error's own properties through `getOwnPropertyNames`,
+  // enumerable or not — so a failure channel under a NON-enumerable own DATA
+  // slot (a rejected promise parked on `cause`, non-enumerable by spec since
+  // ES2022; `AggregateError.errors`; any `defineProperty` context) rode the
+  // wire unwalked: unsanitized, and unowned (#3268). Descend the Error's
+  // hidden data slots too. Hidden ACCESSORS stay the codec's read
+  // (47995412's ruling, pinned in server-functions-error-carrier-guard):
+  // walking one would turn its throw into a guard-time 500 where the codec
+  // fails in-band on the committed 200. (message/stack/name come along and
+  // guard to themselves — a no-op on strings.)
+  const children = !(value instanceof Error)
+    ? Object.keys(value)
+    : Object.getOwnPropertyNames(value).filter(key => {
+        const descriptor = descriptors[key];
+        return descriptor.enumerable || "value" in descriptor;
+      });
+  return new Frame(OBJECT, value, next, children, descriptors);
 }
 
 /** A rebuild stands if anything below changed, or if a cycle already took it. */
@@ -2761,6 +3243,10 @@ export function handleServerFunctionRequest(
  * Options:
  * - `createEvent(request)`: builds the request event (default: bare
  *   `{ request, locals: {} }`). Integrations supply their richer event.
+ *   `request` is standards-shaped only — it may be a rebuilt `Request`
+ *   (body-size enforcement), so host-specific fields on the inbound object
+ *   are not carried; hosts read those from their own request and put them
+ *   on the event.
  * - `provideEvent(event, fn)`: overrides the configured provider per call.
  * - `wrapInvocation(run, context)`: wraps the function execution itself —
  *   the per-invocation seam for framework policies (per-function
@@ -2769,9 +3255,12 @@ export function handleServerFunctionRequest(
  *   (`getServerFunctionInvocation()` answers before, during and after
  *   `run()`); the context carries `{ id, args, event, request, direct }`.
  *   Must return (or resolve to) `run()`'s result — replacing it replaces
- *   the function's result. The configured hook (see
- *   `configureServerFunctionsServer`) also wraps direct SSR calls, where
- *   `context.direct` is `true` and `request` is absent.
+ *   the function's result. The per-request option is ENTRY-ONLY: it wraps
+ *   the invocation the request addressed, and nested direct calls made by
+ *   the dispatched body are not re-wrapped by it. The configured hook (see
+ *   `configureServerFunctionsServer`) is ambient instead: it also wraps
+ *   direct SSR calls — nested ones included — where `context.direct` is
+ *   `true` and `request` is absent.
  * - `transformResult(event, result, context)`: observes/replaces the result
  *   before encoding — the extension point for response metadata policies.
  *   The context carries the call's identity (`id`, parsed `args`) alongside
@@ -2827,9 +3316,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // CDNs that ignore Vary, poisons) the shared-cache entries the GET helper
   // exists to enable (#3071). State-changing dispatch (POST) stays gated.
   const declaredRead =
-    (method === "GET" || method === "HEAD") &&
-    functionId !== null &&
-    METHODS.get(functionId) === "GET";
+    (method === "GET" || method === "HEAD") && functionId !== null && declaresRead(functionId);
   const csrf = options.csrf !== undefined ? options.csrf : config.csrf;
   // The skip is `GET()`'s safety contract at work (see its notes and
   // #3114); `protectDeclaredReads` is the opt-in for deployments that
@@ -2906,7 +3393,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
       DEV ? `Method not allowed for server function: ${functionId}` : null,
       {
         status: 405,
-        headers: { Allow: METHODS.get(functionId) === "GET" ? "POST, GET, HEAD" : "POST" }
+        headers: { Allow: declaresRead(functionId) ? "POST, GET, HEAD" : "POST" }
       }
     );
     return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
@@ -2914,11 +3401,10 @@ export async function handleServerFunctionRequest(request, options = {}) {
 
   // The argument payload is buffered and decoded before dispatch, so its
   // cost is paid before application code can decline it — bound it before
-  // paying (#3115). A CONFORMING declared Content-Length is trusted (the
-  // HTTP server's framing enforces it); a body without one — or with a
-  // declaration that isn't a plain digit string (#3153) — is buffered under
-  // the cap. The `?args=` encoding is the same payload on a different road,
-  // so it gets the same ceiling.
+  // paying (#3115). A declared Content-Length is evidence, never proof: an
+  // over-declaration is refused before a byte is read, and the bound itself
+  // is measured on the bytes that ARRIVE. The `?args=` encoding is the same
+  // payload on a different road, so it gets the same ceiling.
   const bodySizeLimit =
     options.bodySizeLimit !== undefined ? options.bodySizeLimit : config.bodySizeLimit;
   const argsEncoding = url.searchParams.get("args");
@@ -2930,14 +3416,21 @@ export async function handleServerFunctionRequest(request, options = {}) {
     return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
   }
   if (method === "POST" && request.body !== null && bodySizeLimit !== Infinity) {
-    // Trust only a CONFORMING declaration — digits, per RFC 9110 §8.6. The
-    // bare Number() parse lost that information: Number("-1") is -1, which
-    // is neither `> limit` nor falsy, so a negative declaration satisfied
-    // NEITHER guard and the body streamed into the decoder uncapped
-    // (#3153). A stock node:http parser refuses it first, but an adapter
-    // that builds the Request itself, or a rewriting proxy, delivers it
-    // here — anything non-conforming now routes through the bounded buffer
-    // alongside the undeclared bodies.
+    // The one thing a declaration is good for: a CONFORMING one — digits,
+    // per RFC 9110 §8.6 (the bare Number() parse lost that: Number("-1")
+    // is -1, which satisfied NEITHER guard and streamed uncapped, #3153) —
+    // that is already over the limit says the peer intends to send too
+    // much, so refuse before paying for a byte. That is the whole of the
+    // trust. Believing a declaration in the other direction, to SKIP the
+    // counting read, believed the same header from the same untrusted
+    // producer #3153 ruled must not be believed: `Content-Length: 10` on a
+    // 2 MiB body dispatched the whole 2 MiB (#3236). A stock node:http
+    // parser frames the body BY the declaration and would truncate it
+    // first, but an adapter that builds the Request itself, or a rewriting
+    // proxy, delivers it here. So every capped body goes through the
+    // counting read, and the read's signal/reader coupling (#3217/#3218)
+    // now covers the conforming-declaration POST every browser sends, not
+    // just chunked uploads.
     const raw = request.headers.get("content-length");
     const declared = raw !== null && /^\d+$/.test(raw) ? Number(raw) : NaN;
     if (declared > bodySizeLimit) {
@@ -2947,34 +3440,29 @@ export async function handleServerFunctionRequest(request, options = {}) {
       );
       return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
     }
-    if (!(declared > 0)) {
-      let bounded;
-      try {
-        bounded = await bufferBodyWithin(request, bodySizeLimit);
-      } catch {
-        // A failed or aborted upload is an incomplete argument encoding,
-        // not a handler failure. Match the decoder's malformed-body answer
-        // instead of rejecting out of dispatch (#3217).
-        const response = new Response(DEV ? "Malformed server function arguments" : null, {
-          status: 400
-        });
-        return finalizeTransportResponse(
-          protectsRequest ? withCSRFVary(response) : response,
-          method
-        );
-      }
-      if (bounded === null) {
-        const response = new Response(
-          DEV ? "Server function request body exceeds the configured bodySizeLimit" : null,
-          { status: 413 }
-        );
-        return finalizeTransportResponse(
-          protectsRequest ? withCSRFVary(response) : response,
-          method
-        );
-      }
-      request = bounded;
+    let buffered;
+    try {
+      buffered = await bufferBodyWithin(request, bodySizeLimit);
+    } catch {
+      // A failed or aborted upload is an incomplete argument encoding,
+      // not a handler failure. Match the decoder's malformed-body answer
+      // instead of rejecting out of dispatch (#3217). Only the READ sits
+      // under this answer: putting the bytes back is the runtime's own
+      // step, and answering its failure as the caller's malformed
+      // arguments pointed every Nitro user at their payload (#3311).
+      const response = new Response(DEV ? "Malformed server function arguments" : null, {
+        status: 400
+      });
+      return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
     }
+    if (buffered === null) {
+      const response = new Response(
+        DEV ? "Server function request body exceeds the configured bodySizeLimit" : null,
+        { status: 413 }
+      );
+      return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+    }
+    request = withBufferedBody(request, buffered);
   }
 
   // An async createEvent is out of contract (the type is synchronous), but
@@ -3027,8 +3515,12 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // configured transform (frames installs itself here once, server-wide).
   const transformResult =
     options.transformResult !== undefined ? options.transformResult : config.transformResult;
-  const wrapInvocation =
-    options.wrapInvocation !== undefined ? options.wrapInvocation : config.wrapInvocation;
+  // Resolved and validated per invocation (#3238): a non-function,
+  // non-undefined value is a configuration error and refuses the request
+  // loudly, never a silent unhooking.
+  const wrapInvocation = resolveWrapInvocation(
+    options.wrapInvocation !== undefined ? options.wrapInvocation : config.wrapInvocation
+  );
   const transformFlightResult =
     options.transformFlightResult !== undefined
       ? options.transformFlightResult
@@ -3086,8 +3578,12 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // honoring it from anyone else hands a curl one shared-cache poisoning.
   const flightHeader =
     scripted && method === "POST" ? request.headers.get(SINGLE_FLIGHT_HEADER) : null;
+  // The list is a set (one consumer per source id on the client, one slice
+  // per id in the envelope), so a repeated id is deduped first-seen-order at
+  // entry — the caller-controlled list must not choose how many times the
+  // most expensive per-request work runs (#3251).
   const flightHooks = flightHeader
-    ? flightHeader.split(",").flatMap(source => {
+    ? [...new Set(flightHeader.split(","))].flatMap(source => {
         const hook = source === "true" ? flightHook : flightSources.get(source);
         return hook ? [[source, hook]] : [];
       })
@@ -3097,13 +3593,17 @@ export async function handleServerFunctionRequest(request, options = {}) {
   let parsed;
   try {
     parsed = await parseArguments(request, url, scripted, codec);
-  } catch {
+  } catch (error) {
     // A query that is not the encoding it claims to be is a malformed
     // request, not a failing call: 400 keeps it out of the function's error
-    // channel, and answers the same way for every caller of that url.
-    const response = new Response(DEV ? "Malformed server function arguments" : null, {
-      status: 400
-    });
+    // channel, and answers the same way for every caller of that url. The
+    // unknown-tag refusal carries its own development message: version skew
+    // has a recovery (redeploy, reload) worth naming (#3245).
+    const skewed = error !== null && typeof error === "object" && error[FORMAT_SKEW] === true;
+    const response = new Response(
+      DEV ? (skewed ? error.message : "Malformed server function arguments") : null,
+      { status: 400 }
+    );
     return refuseCommitted(response);
   }
 
@@ -3143,20 +3643,11 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // `event.response.headers` during a server function reach the wire.
   const dispatch = async () => {
     try {
-      // provideEvent's contract — run the callback, once, with `event`
-      // visible to getRequestEvent() — is enforced rather than assumed
-      // (#3172): every way a hand-written hook gets it wrong used to answer
-      // a successful-looking 200. The two data-integrity violations are
-      // counted here at the seam: a second invocation is refused BEFORE the
-      // function body runs again (a retry wrapper or a misplaced await
-      // double-committed a mutation under a 200, silently), and a hook that
-      // never invoked the callback must not resolve as a void success a
-      // caller cannot distinguish from a function that returned nothing.
-      // Both land on dispatch's catch — a sanitized 500 in production, the
-      // hook named in development — and the count is re-checked after the
-      // hook returns, so swallowing the in-flight refusal does not turn it
-      // back into a 200.
-      let invocations = 0;
+      // provideEvent's invocation contract is enforced, not assumed (#3172)
+      // — by the same guard the direct SSR call enters through, so a hook
+      // broken in either direction fails on whichever leg meets it (see
+      // provideEventOnce, #3246). Both violations land on dispatch's catch:
+      // a sanitized 500 in production, the hook named in development.
       const invokeOnce = async () => {
         // Identity is established BEFORE the wrapper runs, so
         // getServerFunctionInvocation() answers throughout the wrap — code
@@ -3167,30 +3658,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
           ? wrapInvocation(run, { id: functionId, args: parsed, event, request, direct: false })
           : run();
       };
-      let result = await provide(event, () => {
-        if (++invocations > 1) {
-          // thrown synchronously, never as a rejected promise: the second
-          // execution must not START, and a hook that ignores the return
-          // must not mint an unobserved rejection
-          throw new Error(
-            "provideEvent invoked the server function callback more than once: a second " +
-              "invocation would commit the call's side effects twice. The hook must call " +
-              "fn exactly once and return its result."
-          );
-        }
-        return invokeOnce();
-      });
-      if (invocations !== 1) {
-        throw new Error(
-          invocations === 0
-            ? "provideEvent returned without invoking the server function callback: the call " +
-                "would have answered as a void success without running the function. The hook " +
-                "must call fn exactly once and return its result."
-            : "provideEvent invoked the server function callback more than once: a second " +
-                "invocation would commit the call's side effects twice. The hook must call " +
-                "fn exactly once and return its result."
-        );
-      }
+      let result = await provideEventOnce(provide, event, invokeOnce);
 
       if (transformResult) {
         result = await transformResult(event, result, flightContext);
@@ -3276,8 +3744,16 @@ export async function handleServerFunctionRequest(request, options = {}) {
         // handler reads redirect metadata off its argument — hand it the
         // envelope's response when the value is empty, matching what the
         // thrown path passes (#3096: a returned redirect envelope must
-        // navigate a form post too).
-        if (handleNoJS) return handleNoJS(result ?? metadata, request, parsed);
+        // navigate a form post too). Structural, not `??`: with no metadata
+        // to prefer, a returned `null` passes through as the outcome it is
+        // rather than eroding to `undefined` on the way to the flash (#3248).
+        if (handleNoJS) {
+          return handleNoJS(
+            result == null && metadata !== undefined ? metadata : result,
+            request,
+            parsed
+          );
+        }
         if (result instanceof Response) return result;
         // the envelope's status forwards for unscripted callers too — this
         // used to hardcode 200 where the thrown path forwarded it (#3096)
@@ -3317,19 +3793,32 @@ export async function handleServerFunctionRequest(request, options = {}) {
         // thrown envelopes keep the author's status above.
         return encodeResult(safe, headers, 500, codec, request.signal, scope);
       };
-      if (x instanceof Response || isResponseEnvelope(x)) {
-        if (transformResult) {
-          try {
-            x = await transformResult(event, x, { ...flightContext, thrown: true });
-          } catch (hookError) {
-            // Same hook, same failure, same containment as the return path
-            // (#3171): there a throwing transformResult lands in this catch
-            // as a plain error and answers a sanitized 500. Uncontained here,
-            // it escaped the handler entirely — no status, no event stub,
-            // the host adapter left to improvise.
-            return respondThrown(hookError);
-          }
+      // The result policy sees EVERY outcome, which is what `context.thrown`
+      // is for (#3247): a thrown Error or a thrown string is the failure
+      // shape an error-mapping or audit policy is written for, and it used
+      // to be the one shape the hook never saw — the hook ran inside the
+      // branch below, so it met every success and every failure an author
+      // had already shaped by hand, and none of the failures that happen TO
+      // the app. Hoisted here it runs once for the whole thrown path, and
+      // the tail is chosen by the shape the policy settled on, exactly as on
+      // the return path: mapping an internal error to a wire shape works by
+      // returning a Response/envelope. What the hook hands back is not
+      // privileged — a plain value still answers through `respondThrown`,
+      // sanitized unless branded safe, so meeting the raw error is not a
+      // road for it onto the wire.
+      if (transformResult) {
+        try {
+          x = await transformResult(event, x, { ...flightContext, thrown: true });
+        } catch (hookError) {
+          // Same hook, same failure, same containment as the return path
+          // (#3171): there a throwing transformResult lands in this catch
+          // as a plain error and answers a sanitized 500. Uncontained here,
+          // it escaped the handler entirely — no status, no event stub,
+          // the host adapter left to improvise.
+          return respondThrown(hookError);
         }
+      }
+      if (x instanceof Response || isResponseEnvelope(x)) {
         let status = 200;
         let metadata;
         if (isResponseEnvelope(x)) {

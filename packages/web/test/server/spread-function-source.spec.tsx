@@ -3,6 +3,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { renderToString, Dynamic, mergeProps, ssrElement } from "@solidjs/web";
+import { createSignal } from "solid-js";
 
 // Regression (#2815): SSR dropped props whose spread source is a function.
 // The compiler passes spread sources lazily (`mergeProps({...static}, fn)`).
@@ -30,6 +31,45 @@ describe("SSR spread with function source (#2815)", () => {
     const html = renderToString(() => <div id="y" {...(() => ({ "data-x": "1" }))()} />);
     expect(html).toContain('data-x="1"');
     expect(html).toContain('id="y"');
+  });
+
+  test("textarea value from props merged around a spread becomes text content (#3286)", () => {
+    const value = () => "something";
+    const html = renderToString(() => <textarea {...{ "data-x": "x" }} value={value()} />);
+
+    expect(html).toMatch(/data-x="x"\s*>something<\/textarea>/);
+    expect(html).not.toContain(' value="something"');
+  });
+
+  test("textarea value supplied by a spread becomes text content (#3286)", () => {
+    const html = renderToString(() => <textarea {...{ "data-x": "x", value: "something" }} />);
+
+    expect(html).toMatch(/data-x="x"\s*>something<\/textarea>/);
+    expect(html).not.toContain(' value="something"');
+  });
+
+  test("textarea value before a spread remains text content (#3286)", () => {
+    const html = renderToString(() => <textarea value="something" {...{ "data-x": "x" }} />);
+
+    expect(html).toMatch(/data-x="x"\s*>something<\/textarea>/);
+    expect(html).not.toContain(' value="something"');
+  });
+
+  test("textarea defaultValue supplied by a spread becomes text content (#3286)", () => {
+    const html = renderToString(() => (
+      <textarea {...{ "data-x": "x", defaultValue: "something" }} />
+    ));
+
+    expect(html).toMatch(/data-x="x"\s*>something<\/textarea>/);
+    expect(html).not.toContain(' defaultValue="something"');
+  });
+
+  test("a lone spread whose source is null or undefined is an empty spread (#3297)", () => {
+    const [absent] = createSignal<{ value: string } | null>(null);
+    const bare = /^<input(\s_hk=\d+)?\s*\/?>$/;
+    expect(renderToString(() => <input {...absent()} />)).toMatch(bare);
+    expect(renderToString(() => <input {...(undefined as any)} />)).toMatch(bare);
+    expect(renderToString(() => ssrElement("input", () => null, undefined, false))).toMatch(bare);
   });
 
   test("Dynamic routes spreads through mergeProps", () => {

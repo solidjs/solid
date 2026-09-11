@@ -100,7 +100,7 @@ function createProxy<P extends Record<string, any>>(
         { name: refreshName, transparent: true }
       ) as unknown as SolidElement;
     }
-    // No $DEVCOMP brand means the source never went through devComponent, so
+    // No $DEVCOMP brand means the source never went through observedComponent, so
     // this is a plain function call (e.g. a context provider called directly),
     // not a tracked component render.
     return s(props);

@@ -55,7 +55,7 @@ same as the rest of the fixed group.
 ### P0 — Harness core (days)
 
 - `withDiagnostics(scenario)` fixture: wraps a scenario in
-  `DEV.diagnostics.capture()` + attribution enable; emits a JSONL artifact
+  `OBSERVE.diagnostics.capture()` + attribution enable; emits a JSONL artifact
   (diagnostics + rerun events + costs summary).
 - Assertion helpers: `expectNoDiagnostics(opts)`, `expectRunBudget(label, { maxRuns, maxWastedMs, maxDeps })`, `expectNoWaste()`.
 - Vitest adapter.

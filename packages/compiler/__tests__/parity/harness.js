@@ -92,6 +92,16 @@ const modes = {
       contextToCustomElements: true
     }
   },
+  "dom-component-names": {
+    fixtureDir: "__dom_component_names_fixtures__",
+    options: {
+      moduleName: "r-dom",
+      builtIns: ["For", "Show"],
+      generate: "dom",
+      componentNames: true,
+      contextToCustomElements: true
+    }
+  },
   "dom-no-inline-styles": {
     fixtureDir: "__dom_no_inline_styles_fixtures__",
     options: {
@@ -495,8 +505,21 @@ function normalize(code) {
 
 // Compiles a fixture with both compilers and returns normalized outputs plus
 // raw outputs. Throws with a labeled error if either compiler rejects input.
+// A fixture directory may carry an `options.json` that Babel's fixture runner
+// layers over the suite options (e.g. a `generate: "ssr"` case inside a
+// dom-mode suite proving an option is inert there); mirror that here.
+// `fixtureOutputExt` is a runner-only key (snapshot file extension), not a
+// plugin option — the native compiler rejects unknown keys.
+function fixtureOptions(mode, fixture) {
+  const file = path.join(babelTestDir, modes[mode].fixtureDir, fixture, "options.json");
+  if (!fs.existsSync(file)) return modes[mode].options;
+  const { fixtureOutputExt: _ext, ...overrides } = JSON.parse(fs.readFileSync(file, "utf8"));
+  return { ...modes[mode].options, ...overrides };
+}
+
 function compareFixture(mode, fixture) {
-  const { options, extension = ".jsx" } = modes[mode];
+  const { extension = ".jsx" } = modes[mode];
+  const options = fixtureOptions(mode, fixture);
   const source = readFixtureSource(mode, fixture);
   let babelRaw, oxcRaw;
   try {

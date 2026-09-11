@@ -166,12 +166,13 @@ function assertServableCookie(name: string, options: CookieOptions): void {
 // that fills and decodes the cookie is server-only and stays behind the
 // server-functions server entry (server-functions/flash.js).
 //
-// The `__Host-` prefix is required, not cosmetic. Nothing authenticates the
-// payload, and signing it would need a deployment secret this runtime has no
-// channel for. The prefix gets the same protection from the browser instead.
-// Browsers refuse a `__Host-` cookie that carries `Domain`, and `Domain` is
-// what would let a sibling subdomain set this cookie for the app and forge a
-// successful submission outcome.
+// The `__Host-` prefix keeps a sibling host out of the jar slot. Encryption
+// (#3239) already makes the payload unforgeable, so the prefix is not what
+// protects the contents. What it protects is delivery: without it any
+// subdomain can set `flash` for this host with `Domain=`, and a planted value
+// clobbers the real outcome. That decodes as no flash, so the user loses the
+// confirmation for a mutation that already committed and retries it, which is
+// the failure #3137 and #3249 exist to prevent.
 export const FLASH_COOKIE = "__Host-flash";
 
 // The name has no regular-expression metacharacter, so it interpolates as is.
@@ -191,7 +192,7 @@ export function matchFlashCookie(cookieHeader: string | null): string | undefine
 /** The Set-Cookie value clearing the flash cookie after it has been read. */
 export function clearFlashCookie(): string {
   // A deletion must meet the `__Host-` rules too. Otherwise the browser
-  // rejects it and the outcome is sent on every later request.
+  // rejects it and the cookie is sent on every later request until it expires.
   // Built with `serializeCookie` so the dev assert checks this shape as well.
   return serializeCookie(FLASH_COOKIE, "", {
     maxAge: 0,

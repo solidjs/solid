@@ -236,59 +236,43 @@ const template33a = Comp({
   }
 });
 const template34 = simple ? good : bad;
-const template35 = _$memo(() => _$escape(simple ? good() : bad));
-const template35a = _$memo(() => _$escape(simple ? good.good : bad));
-const template36 = _$memo(() => _$escape(_$memo(() => !!state.dynamic)() ? good() : bad));
-const template36a = _$memo(() => _$escape(_$memo(() => !!state.dynamic)() ? good.good : bad));
-const template37 = _$memo(() => _$escape(_$memo(() => !!state.dynamic)() ? good() : state.dynamic));
-const template37a = _$memo(() =>
-  _$escape(_$memo(() => !!state.dynamic)() ? good.good : state.dynamic)
-);
+const template35 = _$memo(() => (simple ? good() : bad));
+const template35a = _$memo(() => (simple ? good.good : bad));
+const template36 = _$memo(() => (_$memo(() => !!state.dynamic)() ? good() : bad));
+const template36a = _$memo(() => (_$memo(() => !!state.dynamic)() ? good.good : bad));
+const template37 = _$memo(() => (_$memo(() => !!state.dynamic)() ? good() : state.dynamic));
+const template37a = _$memo(() => (_$memo(() => !!state.dynamic)() ? good.good : state.dynamic));
 const template38 = _$memo(() =>
-  _$escape(
-    _$memo(() => state.count > 5)() ? (_$memo(() => !!state.dynamic)() ? best : good()) : bad
-  )
+  _$memo(() => state.count > 5)() ? (_$memo(() => !!state.dynamic)() ? best : good()) : bad
 );
 const template38a = _$memo(() =>
-  _$escape(
-    _$memo(() => state.count > 5)() ? (_$memo(() => !!state.dynamic)() ? best : good.good) : bad.bad
-  )
+  _$memo(() => state.count > 5)() ? (_$memo(() => !!state.dynamic)() ? best : good.good) : bad.bad
 );
 const template39 = _$memo(() =>
-  _$escape(
-    _$memo(() => !!(state.dynamic && state.something))() ? good() : state.dynamic && state.something
-  )
+  _$memo(() => !!(state.dynamic && state.something))() ? good() : state.dynamic && state.something
 );
-const template40 = _$memo(() =>
-  _$escape((_$memo(() => !!state.dynamic)() ? good() : state.dynamic) || bad)
-);
-const template40a = _$memo(() =>
-  _$escape((_$memo(() => !!state.dynamic)() ? good.good : state.dynamic) || bad)
+const template40 = _$memo(() => (_$memo(() => !!state.dynamic)() ? good() : state.dynamic) || bad);
+const template40a = _$memo(
+  () => (_$memo(() => !!state.dynamic)() ? good.good : state.dynamic) || bad
 );
 const template41 = _$memo(() =>
-  _$escape(
-    _$memo(() => !!state.a)() ? "a" : _$memo(() => !!state.b)() ? "b" : state.c ? "c" : "fallback"
-  )
+  _$memo(() => !!state.a)() ? "a" : _$memo(() => !!state.b)() ? "b" : state.c ? "c" : "fallback"
 );
 const template42 = _$memo(() =>
-  _$escape(
-    _$memo(() => !!state.a)() ? a() : _$memo(() => !!state.b)() ? b() : state.c ? "c" : "fallback"
-  )
+  _$memo(() => !!state.a)() ? a() : _$memo(() => !!state.b)() ? b() : state.c ? "c" : "fallback"
 );
 const template42a = _$memo(() =>
-  _$escape(
-    _$memo(() => !!state.a)() ? a.a : _$memo(() => !!state.b)() ? b.b : state.c ? "c" : "fallback"
-  )
+  _$memo(() => !!state.a)() ? a.a : _$memo(() => !!state.b)() ? b.b : state.c ? "c" : "fallback"
 );
 const template43 = _$memo(() =>
-  _$escape(_$memo(() => !!obj1.prop)() ? (_$memo(() => !!obj2.prop)() ? _$ssr(_tmpl$2) : []) : [])
+  _$memo(() => !!obj1.prop)() ? (_$memo(() => !!obj2.prop)() ? _$ssr(_tmpl$2) : []) : []
 );
 
 // single-significant-child fragment in element slot — outer _$escape wrap
 // is skipped because the fragment compiles to a self-escaping form.
-var _v$29 = cond && _$memo(() => _$escape(state.text));
+var _v$29 = cond && _$escape(_$memo(() => state.text));
 const template44 = _$ssr(_tmpl$, _v$29);
-var _v$30 = cond ? _$memo(() => _$escape(state.a)) : _$memo(() => _$escape(state.b));
+var _v$30 = cond ? _$escape(_$memo(() => state.a)) : _$escape(_$memo(() => state.b));
 const template45 = _$ssr(_tmpl$, _v$30);
 var _v$31 = cond && _$ssr(_tmpl$3);
 const template46 = _$ssr(_tmpl$, _v$31);
@@ -302,9 +286,9 @@ const template48 = _$ssr(_tmpl$, _v$33);
 
 // mixed fragment content keeps the outer wrap — predicate is conservative
 // and only skips when exactly one significant child is provably safe.
-var _v$34 = cond && _$escape(["hello ", _$memo(() => _$escape(state.text))]);
+var _v$34 = cond && _$escape(["hello ", _$memo(() => state.text)]);
 const template49 = _$ssr(_tmpl$, _v$34);
 
 // statically boolean left: memo value IS the expression value, logical form kept
-const template77 = _$memo(() => _$escape(_$memo(() => state.count > 5)() && good()));
-const template77a = _$memo(() => _$escape(_$memo(() => !state.hidden)() && good.good));
+const template77 = _$memo(() => _$memo(() => state.count > 5)() && good());
+const template77a = _$memo(() => _$memo(() => !state.hidden)() && good.good);

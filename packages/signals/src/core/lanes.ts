@@ -89,6 +89,23 @@ export function findLane(lane: OptimisticLane): OptimisticLane {
 }
 
 /**
+ * Is the lane held? `_pendingAsync` records the async the lane OWNS (derived
+ * under it); the transaction's reporter map records the async a render effect
+ * OBSERVED pending with no boundary taking it (INV-3, the one registration
+ * site). A hold needs both — the same rule the transaction itself uses, so a
+ * memo nobody renders, or one a fallback-showing boundary caught, cannot tear
+ * a frame and holds nothing (#3289). An orphan lane has no observation record
+ * and never holds.
+ */
+export function laneHeld(lane: OptimisticLane): boolean {
+  const t = lane._transition;
+  if (t)
+    for (const node of lane._pendingAsync)
+      if (currentTransition(t)._asyncReporters.has(node)) return true;
+  return false;
+}
+
+/**
  * Merge two lanes when their dependency graphs overlap.
  */
 export function mergeLanes(lane1: OptimisticLane, lane2: OptimisticLane): OptimisticLane {

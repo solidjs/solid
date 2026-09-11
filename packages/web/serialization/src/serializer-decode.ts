@@ -303,8 +303,51 @@ export function createJSONDeserializer(options?: JSONCodecOptions): <T>(node: Se
 export function createJSONDeserializer(options) {
   const refs = new Map();
   const resolved = resolveCodecOptions(options);
+  // How many `refs` entries `ownDecodedPromises` has already claimed.
+  // seroval never reassigns a ref id (a second write throws "Conflicted ref
+  // id"), so the map only ever grows and iterates in insertion order:
+  // skipping the entries already claimed keeps the sweep amortized O(1) per
+  // decoded node rather than O(refs) on every chunk of a long stream.
+  let owned = 0;
+  // Takes ownership of every promise this decoder has just minted (#3232).
+  //
+  // A decoded payload is a peer's bytes, and a rejected promise it decodes
+  // to is a rejection nobody is holding: the value goes on to be a server
+  // function argument, or a slot in a decoded result, and ordinary code does
+  // not await a slot it never expected to be a promise. Under Node's default
+  // policy that ends the process — so the decoder keeps a fallback owner on
+  // what it mints, exactly as the encode side does for the promises IT mints
+  // (`guardedPromise` + `.catch(() => {})`, server.ts, #3216). This changes
+  // nothing for a real consumer: the promise still rejects for whoever
+  // awaits it; only the "nobody at all" case is covered.
+  //
+  // It runs at the MINT, not at `abort`, because seroval has two promise
+  // spellings and only one is still pending when a stream ends. The
+  // constructor pair (`{p, s, f}` under the special-reference id, the bare
+  // promise under its own) settles from a later chunk — which can arrive
+  // while OTHER values keep the stream open, turns before the end-of-stream
+  // sweep runs. The atomic promise node (seroval type 12) settles
+  // SYNCHRONOUSLY inside the `fromCrossJSON` call that reads it, so no later
+  // hook can reach it before Node reports the rejection. Both spellings put
+  // the bare promise in `refs`, so claiming promises here covers both with
+  // one guard.
+  function ownDecodedPromises() {
+    if (refs.size === owned) return;
+    let index = 0;
+    for (const value of refs.values()) {
+      if (index++ < owned) continue;
+      if (value instanceof Promise) value.then(undefined, () => {});
+    }
+    owned = refs.size;
+  }
   function deserializeJSONChunk(node) {
-    return fromCrossJSON(node, { refs, ...resolved });
+    try {
+      return fromCrossJSON(node, { refs, ...resolved });
+    } finally {
+      // `finally`: a chunk that throws part-way through (a malformed node, a
+      // depth-limit refusal) has already minted whatever it minted.
+      ownDecodedPromises();
+    }
   }
   /**
    * Fails every value still waiting on chunks that will never arrive. The
@@ -313,9 +356,20 @@ export function createJSONDeserializer(options) {
    * — the promise under one id, its resolver under the special-reference id
    * next to it). Both settle idempotently — throwing into a completed stream
    * and rejecting a resolved promise are no-ops — so the sweep is safe to
-   * run on normal end-of-stream too. The defusing handler on `p` keeps a
-   * rejection nobody awaited (a pending promise the app never touched) from
-   * surfacing as an unhandled rejection.
+   * run on normal end-of-stream too.
+   *
+   * The rejection this leg induces normally has a fallback owner already,
+   * put there by `ownDecodedPromises` when the chunk that minted the promise
+   * was read — but that claims only `refs` entries that are themselves
+   * `instanceof Promise`, and seroval can leave a `{p, s, f}` deferred in
+   * `refs` whose `.p` never became its own entry:
+   * `deserializePromiseConstructor` registers the deferred (under the
+   * special-reference id) BEFORE the bare promise (under its own id), so a
+   * collision or malformed id on the second registration throws with the
+   * deferred already in `refs` and its `.p` owned by nobody (#3267). So this
+   * leg owns `.p` itself before rejecting it — belt-and-suspenders alongside
+   * `ownDecodedPromises`, closing every promise the sweep touches regardless
+   * of how it entered `refs`.
    */
   deserializeJSONChunk.abort = function abort(error) {
     for (const value of refs.values()) {

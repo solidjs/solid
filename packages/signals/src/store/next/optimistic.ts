@@ -27,6 +27,7 @@ import {
   CONFIG_OPTIMISTIC,
   NOT_PENDING,
   STATUS_PENDING,
+  STATUS_UNINITIALIZED,
   unwrapOverride
 } from "../../core/constants.js";
 import {
@@ -36,6 +37,7 @@ import {
   isEqual,
   setSignal,
   type Computed,
+  type Refreshable,
   type Signal
 } from "../../core/index.js";
 import {
@@ -55,6 +57,7 @@ import {
   type NoFn,
   type ProjectionOptions,
   type Store,
+  type StoreOptions,
   type StoreSetter
 } from "../store.js";
 import { runProjectionComputedNext } from "./projection.js";
@@ -176,9 +179,18 @@ function familyHasLiveOverrides(fam: { overlaid?: Set<any> }): boolean {
 }
 
 export function createOptimisticStoreNext<T extends object = {}>(
-  first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
-  second?: NoFn<T> | Store<NoFn<T>>,
+  initialValue: NoFn<T> | Store<NoFn<T>>,
+  options?: StoreOptions
+): [get: Store<T>, set: StoreSetter<T>];
+export function createOptimisticStoreNext<T extends object = {}>(
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed: Partial<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createOptimisticStoreNext<T extends object = {}>(
+  first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
+  second?: Partial<T> | NoFn<T> | Store<NoFn<T>> | StoreOptions,
+  third?: ProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   // Engine first (armed nodes need optimisticWrite installed before any
   // node exists), then the next-shape hooks.
@@ -186,7 +198,7 @@ export function createOptimisticStoreNext<T extends object = {}>(
   installNextBlockedHalf();
 
   const derived = typeof first === "function";
-  if (!derived && options === undefined) options = second as ProjectionOptions | undefined;
+  const options = (derived ? third : second) as ProjectionOptions | undefined;
   const initialValue = (derived ? second : first) as T;
 
   const fam: StoreNextFamily = {
@@ -277,7 +289,16 @@ export function createOptimisticStoreNext<T extends object = {}>(
         if (!self._loading) fam.ft = null;
         return;
       }
-      if (self._loading) return;
+      // First flight (#3146 carve-out): nothing has ever committed, so there
+      // is no truth to keep on screen and no optimistic state to protect. An
+      // uninitialized ask suspends its readers into their Loading boundary
+      // exactly like a plain derived store's first flight — declaring a
+      // transaction here instead held the ROOT MOUNT (render()'s scheduled
+      // insert rides transitions) until the fetch landed, so the boundary's
+      // fallback never showed and the whole page stayed blank. The loading
+      // window (#2933) already declares nothing for the same reason; once
+      // the first truth lands, every refetch flight declares as before.
+      if (self._loading || self._statusFlags & STATUS_UNINITIALIZED) return;
       let txn = activeTransition;
       if (txn === null) globalQueue.initTransition((txn = createTransition()));
       fam.ft = txn;
@@ -290,7 +311,7 @@ export function createOptimisticStoreNext<T extends object = {}>(
     };
     let nodeOptions: { name?: string; loadingValue?: void } | undefined;
     if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
-    if (__DEV__ && options?.name) nodeOptions = { ...nodeOptions, name: options.name };
+    if (__OBSERVE__ && options?.name) nodeOptions = { ...nodeOptions, name: options.name };
     const node = computed(() => {
       const self = getOwner() as Computed<void>;
       try {
@@ -527,11 +548,19 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
     if (ft !== null) globalQueue.initTransition(ft);
   }
   const old = t.v;
+  // Compare RAWS on both sides (`nv` below is unwrapped already). A chained
+  // target's `old` is the inner store's proxy, whose reads hand back inner
+  // child PROXIES; the draft's clone holds the inner raws. Comparing the two
+  // as-is marked every untouched row changed, and the overlay then served
+  // each from an override as a fresh non-chained target — row identities
+  // churned for the life of the action and snapped back at settle (#3323).
   const visible = (key: PropertyKey, fallback: any): any => {
     const node = t.n?.[key as any];
-    return node !== undefined && hasActiveOverride(node)
-      ? unwrapOverride(node._x?._overrideValue)
-      : fallback;
+    return unwrapValue(
+      node !== undefined && hasActiveOverride(node)
+        ? unwrapOverride(node._x?._overrideValue)
+        : fallback
+    );
   };
   const visiblePresent = (key: PropertyKey): boolean => {
     const node = t.h?.[key as any];
@@ -629,7 +658,12 @@ function applyTentative(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null):
   const isArr = Array.isArray(incoming);
   if (Array.isArray(view) !== isArr) return; // kind change at root: flat overrides below
   const pairs: Array<[StoreNextTarget, any]> = [];
-  const pbLike: any = isArr ? [...(incoming as any[])] : shallowWithSymbols(incoming);
+  let pbLike: any;
+  if (isArr) pbLike = [...(incoming as any[])];
+  else {
+    pbLike = {};
+    for (const k of Reflect.ownKeys(incoming)) pbLike[k] = (incoming as any)[k];
+  }
   const match = (pv: any, nv: any): StoreNextTarget | null => {
     if (!isWrappable(pv) || !isWrappable(nv)) return null;
     if (rawValuesUsed && (isRawValue(pv) || isRawValue(nv))) return null;
@@ -707,10 +741,4 @@ function applyTentative(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null):
   t.pb = priorPB;
   for (let i = 0; i < pairs.length; i++)
     applyTentative(pairs[i][0], unwrapValue(pairs[i][1]), keyFn);
-}
-
-function shallowWithSymbols(src: any): any {
-  const out: any = {};
-  for (const k of Reflect.ownKeys(src)) out[k] = src[k];
-  return out;
 }

@@ -1,5 +1,5 @@
 /**
- * SPEC TESTS — see packages/signals/SPEC-ASYNC-SEMANTICS.md.
+ * SPEC TESTS — see packages/signals/docs/SPEC-ASYNC-SEMANTICS.md.
  *
  * These pin *ruled* semantics (Tier A). Changing an expectation here requires
  * a design decision recorded in the spec document — never "update
@@ -198,6 +198,145 @@ describe("A15 (was B3): overlapping transitions settle as one unit", () => {
   // a *shared* reader join one transition and settle together; writes on
   // fully disjoint graphs keep independent transitions and settle
   // independently. Both halves are the spec.
+  it.each([
+    { child: false, boundary: false },
+    { child: false, boundary: true },
+    { child: true, boundary: false },
+    { child: true, boundary: true }
+  ])(
+    "holds a reveal of an existing async flight (child=$child, boundary=$boundary)",
+    async ({ child, boundary }) => {
+      const [value, setValue] = createSignal(0);
+      const [show, setShow] = createSignal(false);
+      const fetcher = deferredFetcher(v => v);
+      let valueLine: readonly [number, boolean] | undefined;
+      let showLine: readonly [boolean, boolean] | undefined;
+      let slot: number | string | undefined;
+      const childLog: number[] = [];
+      let dispose!: () => void;
+
+      createRoot(d => {
+        dispose = d;
+        const details = createMemo(() => fetcher.fetch(value()));
+        createRenderEffect(
+          () => [value(), isPending(value)] as const,
+          v => {
+            valueLine = v;
+          }
+        );
+        createRenderEffect(
+          () => [show(), isPending(show)] as const,
+          v => {
+            showLine = v;
+          }
+        );
+        const content = () => {
+          if (!show()) return "hidden";
+          if (!child) return details();
+          createRenderEffect(details, v => {
+            childLog.push(v);
+          });
+          return "shown";
+        };
+        const read = boundary ? createLoadingBoundary(content, () => "loading") : content;
+        createRenderEffect(read, v => {
+          slot = v;
+        });
+      });
+
+      try {
+        flush();
+        expect([valueLine, showLine, slot]).toEqual([[0, false], [false, false], "hidden"]);
+
+        // Cover both a never-resolved source and a refetch after a previous reveal.
+        for (const next of [1, 2]) {
+          setShow(false);
+          flush();
+          setValue(next);
+          flush();
+          expect([valueLine, showLine, slot]).toEqual([[next, false], [false, false], "hidden"]);
+          const previousChildCount = childLog.length;
+
+          // The flight started in the earlier flush, not during this reveal.
+          setShow(true);
+          flush();
+          expect([valueLine, showLine, slot]).toEqual([[next, false], [false, true], "hidden"]);
+          expect(show()).toBe(false);
+          expect(isPending(value)).toBe(false);
+          expect(isPending(show)).toBe(true);
+          expect(childLog).toHaveLength(previousChildCount);
+
+          fetcher.resolveAll();
+          await settle();
+          expect([valueLine, showLine, slot]).toEqual([
+            [next, false],
+            [true, false],
+            child ? "shown" : next
+          ]);
+          expect(show()).toBe(true);
+          expect(isPending(show)).toBe(false);
+          if (child) expect(childLog[childLog.length - 1]).toBe(next);
+        }
+      } finally {
+        dispose();
+      }
+    }
+  );
+
+  it.each(["new", "reset"])(
+    "lets a %s loading boundary catch an existing flight without holding the reveal",
+    async mode => {
+      const [value, setValue] = createSignal(0);
+      const [show, setShow] = createSignal(false);
+      const fetcher = deferredFetcher(v => v);
+      let showLine: readonly [boolean, boolean] | undefined;
+      let slot: number | string | undefined;
+      let dispose!: () => void;
+
+      createRoot(d => {
+        dispose = d;
+        const details = createMemo(() => fetcher.fetch(value()));
+        createRenderEffect(
+          () => [show(), isPending(show)] as const,
+          v => {
+            showLine = v;
+          }
+        );
+        const read =
+          mode === "reset"
+            ? createLoadingBoundary(
+                () => (show() ? details() : "hidden"),
+                () => "loading",
+                { on: show }
+              )
+            : () => (show() ? createLoadingBoundary(details, () => "loading")() : "hidden");
+        createRenderEffect(read, v => {
+          slot = v;
+        });
+      });
+
+      try {
+        flush();
+        expect([showLine, slot]).toEqual([[false, false], "hidden"]);
+        setValue(1);
+        flush();
+        expect(value()).toBe(1);
+
+        setShow(true);
+        flush();
+        expect([showLine, slot]).toEqual([[true, false], "loading"]);
+        expect(show()).toBe(true);
+        expect(isPending(show)).toBe(false);
+
+        fetcher.resolveAll();
+        await settle();
+        expect([showLine, slot]).toEqual([[true, false], 1]);
+      } finally {
+        dispose();
+      }
+    }
+  );
+
   it("a shared reader forces one settle point: nothing commits until both asyncs resolve", async () => {
     const [a, setA] = createSignal(1);
     const [b, setB] = createSignal(1);

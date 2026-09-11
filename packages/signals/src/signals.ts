@@ -28,7 +28,7 @@ import {
   trackedEffect,
   untrack
 } from "./core/index.js";
-import { emitDiagnostic, registerGraph } from "./core/dev.js";
+import { emitDiagnostic, registerGraph, reportDiagnostic } from "./core/dev.js";
 import { installOptimisticEngine } from "./core/optimistic.js";
 import {
   activeTransition,
@@ -82,13 +82,14 @@ export function onCleanup(fn: Disposable): Disposable {
     if (!owner) {
       const message =
         "[NO_OWNER_CLEANUP] onCleanup called outside a reactive context will never be run";
-      emitDiagnostic({
-        code: "NO_OWNER_CLEANUP",
-        kind: "lifecycle",
-        severity: "warn",
-        message
-      });
-      console.warn(message);
+      reportDiagnostic(
+        emitDiagnostic({
+          code: "NO_OWNER_CLEANUP",
+          kind: "lifecycle",
+          severity: "warn",
+          message
+        })
+      );
     } else if (owner._config & CONFIG_CHILDREN_FORBIDDEN) {
       const message =
         "[CLEANUP_IN_FORBIDDEN_SCOPE] Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead";
@@ -369,7 +370,7 @@ export function createSignal<T>(
     ];
   }
   const node = signal<T>(first as any, second as SignalOptions<T>);
-  if (__DEV__) registerGraph(node, getOwner());
+  if (__OBSERVE__) registerGraph(node, getOwner());
   return [accessor<T>(node), setSignal.bind(null, node as any) as Setter<T | undefined>];
 }
 
@@ -511,7 +512,7 @@ export function createEffect<T>(
   }
   effect(compute as any, (effectFn as any).effect || effectFn, (effectFn as any).error, {
     user: true,
-    ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
+    ...options
   });
 }
 
@@ -549,17 +550,22 @@ export function createRenderEffect<T>(
   effectFn: EffectFunction<NoInfer<T>, T>,
   options?: EffectOptions
 ): void {
-  effect(
-    compute as any,
-    effectFn,
-    undefined,
-    __DEV__ ? { ...options, name: options?.name ?? "effect" } : options
-  );
+  effect(compute as any, effectFn, undefined, options);
 }
 
 /**
  * Creates a tracked reactive effect where dependency tracking and side effects happen
  * in the same scope.
+ *
+ * @deprecated Do not use in new code. For a side effect that follows reactive
+ * state, use `createEffect(compute, effect)` — it separates tracking from the
+ * side effect, knows its dependencies before it runs, and participates in
+ * async and transitions. For one-time DOM work after render (measuring,
+ * attaching third-party widgets to a ref), use `onSettled`. Tracking from
+ * inside the effect phase — the only thing this primitive adds — is retained
+ * solely to ease 1.x migration: it runs beside user-effect callbacks after
+ * values commit, never holds a transition, and cannot observe a write staged
+ * earlier in the same flush by a signal it has not read yet.
  *
  * WARNING: Because tracking and effects happen in the same scope, this primitive
  * may run multiple times for a single change or show tearing (reading inconsistent
@@ -596,10 +602,7 @@ export function createTrackedEffect(
   compute: () => void | (() => void),
   options?: BaseEffectOptions
 ): void {
-  trackedEffect(
-    compute,
-    __DEV__ ? { ...options, name: options?.name ?? "trackedEffect" } : options
-  );
+  trackedEffect(compute, options);
 }
 
 /**
@@ -663,7 +666,7 @@ export function createReaction(
         },
         (effectFn as any).error,
         {
-          ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options),
+          ...options,
           user: true,
           defer: true
         }
@@ -822,6 +825,13 @@ export function refresh<T>(
   // own eager compute is untouched: created after a refresh it still settles
   // stale-while-revalidate (#2930) — its contract is "first settled value",
   // not "next quiescent state".
+  //
+  // An authoritative reader is woken through a late-bound hook when the truth
+  // lands EQUAL to a standing override (the A17-silent path). Every setter of
+  // that reader bit must install it — until() does, and this waiter is the
+  // other one (#3303: refresh of an optimistic in an app that never called
+  // until() dereferenced the null hook).
+  installAuthoritativeRead();
   markRefresh(node);
   const promise = new Promise<any>((res, rej) => {
     queueMicrotask(() => {
@@ -1064,7 +1074,7 @@ export function createOptimistic<T>(
     ];
   }
   const node = optimisticSignal<T>(first as any, second as SignalOptions<T>);
-  if (__DEV__) registerGraph(node, getOwner());
+  if (__OBSERVE__) registerGraph(node, getOwner());
   return [
     accessor<T | undefined>(node),
     setSignal.bind(null, node as any) as Setter<T | undefined>
@@ -1168,7 +1178,7 @@ export function createOptimistic<T>(
 export function onSettled(callback: () => void | (() => void)): void {
   const owner = getOwner();
   owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN)
-    ? createTrackedEffect(() => untrack(callback), __DEV__ ? { name: "onSettled" } : undefined)
+    ? trackedEffect(() => untrack(callback), __OBSERVE__ ? { name: "onSettled" } : undefined)
     : globalQueue.enqueue(EFFECT_USER, () => {
         // Unowned, out-of-band fire (no owner, or a children-forbidden one this
         // one-shot must not bind to): a returned cleanup has no lifecycle to

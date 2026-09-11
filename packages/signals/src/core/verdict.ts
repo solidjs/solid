@@ -42,7 +42,7 @@ import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
 import { enqueueSub, insertIntoHeap, markHeap, queueFor } from "./heap.js";
 import { devTrackCompanionOwner, InvariantHooks } from "./invariants.js";
-import { assignOrMergeLane, findLane, hasActiveOverride } from "./lanes.js";
+import { assignOrMergeLane, findLane, hasActiveOverride, laneHeld } from "./lanes.js";
 import { installOptimisticEngine } from "./optimistic.js";
 import {
   activeAffectsMarks,
@@ -171,11 +171,6 @@ function markWalk(
   return false;
 }
 
-/** Gated entry: apps with no live mark pay one integer compare. */
-function markCovered(el: Signal<any> | Computed<any>): boolean {
-  return activeAffectsMarks !== 0 && markWalk(el, new Set());
-}
-
 function quietPending(el: Computed<any>): boolean {
   if (el._x?._pendingSources) {
     for (const source of el._x._pendingSources) if (!source._x?._reask) return false;
@@ -205,7 +200,8 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
   // Mark coverage is transitive by dep-graph reachability: a latest() shadow
   // reaches its owner (and a store leaf its firewall) through its own deps,
   // so the one walk covers direct marks, derivation, and companion chains.
-  if (markCovered(el)) return true;
+  // Gated: apps with no live mark pay one integer compare.
+  if (activeAffectsMarks !== 0 && markWalk(el, new Set())) return true;
   const firewall = (el as FirewallSignal<any>)._firewall;
   if (el._x?._parentSource) {
     const parentNode = el._x?._parentSource as FirewallSignal<any>;
@@ -442,7 +438,7 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
   if (stale && currentOptimisticLane && pendingComputed._x?._optimisticLane) {
     const pcLane = findLane(pendingComputed._x?._optimisticLane);
     const curLane = findLane(currentOptimisticLane);
-    if (pcLane !== curLane && pcLane._pendingAsync.size > 0) {
+    if (pcLane !== curLane && laneHeld(pcLane)) {
       return visibleValue;
     }
   }

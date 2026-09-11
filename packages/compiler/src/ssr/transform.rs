@@ -1143,12 +1143,12 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     } else {
                         expression
                     };
-                    // Sole component children are values, not HTML: the
-                    // callee's own insert/SSR sites escape. Mixed children
-                    // (`wrap`) take the fragment path (`_$memo(() =>
-                    // _$escape(...))`) because the array can concatenate as
-                    // markup. A stale snapshot used to wrap the sole-child
-                    // case too; that double-escaped through
+                    // Component children are values, not HTML: the callee's
+                    // own insert/SSR sites escape (a hole's `_$escape` covers
+                    // strings, array items and what a function yields). Mixed
+                    // children (`wrap`) take the fragment path — a bare
+                    // `_$memo(() => ...)` for hydration-id alignment, never
+                    // an escape: that double-escaped through
                     // `<Comp>{props.children}</Comp>`.
                     // memoWrapper: false + multiple children: Babel's
                     // `transformComponentChildren` strips the thunk down to
@@ -1612,14 +1612,19 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     /// hostile strings can't concatenate raw into the SSR output). Nested JSX
     /// stays raw — the deferred pass lowers it inside the generated accessor
     /// and hoists its temp vars there, matching Babel's re-traversal order.
+    /// Fragment / mixed component children are VALUES: the hole that
+    /// eventually inserts them escapes everything reachable from the value,
+    /// including what this memo yields when the resolver calls it. No
+    /// `_$escape` here — it would double-escape through
+    /// `<Comp>{props.children}</Comp>`. The memo is for hydration-id
+    /// alignment with the client (Babel's `createTemplate`, `wrap === true`).
     fn memo_wrap_fragment_child(&mut self, span: Span, value: Expression<'a>) -> Expression<'a> {
         if self.memo_wrapper.is_none() {
             return value;
         }
-        let wrapped = self.wrap_fragment_child_with_escape(span, value);
         self.uses_memo = true;
         let local = self.memo_wrapper_local();
-        self.helper_call(span, &local, vec![wrapped])
+        self.helper_call(span, &local, vec![value])
     }
 
     fn ssr_template(
@@ -2819,38 +2824,6 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         Expression::ArrowFunctionExpression(self.ast().alloc(arrow))
     }
 
-    /// Babel's `wrapFragmentChildWithEscape`: rewrites an accessor arrow so
-    /// its returned value passes through `_$escape`, or wraps opaque values
-    /// in `() => _$escape(value())`.
-    fn wrap_fragment_child_with_escape(
-        &mut self,
-        span: Span,
-        value: Expression<'a>,
-    ) -> Expression<'a> {
-        let unwrappable = matches!(
-            &value,
-            Expression::ArrowFunctionExpression(arrow)
-                if arrow.params.items.is_empty()
-                    && (arrow.is_expression()
-                        || arrow.get_function_body().is_some_and(|body| {
-                            body.statements.len() == 1
-                                && matches!(
-                                    body.statements.first(),
-                                    Some(Statement::ReturnStatement(_))
-                                )
-                        }))
-        );
-        if unwrappable {
-            let body = self.unwrap_expression_arrow(value);
-            let escaped = self.escape_expression(span, body);
-            self.arrow_return_expression(span, escaped)
-        } else {
-            let call = self.call_expression(span, value, std::vec::Vec::new());
-            let escaped = self.escape_expression(span, call);
-            self.arrow_return_expression(span, escaped)
-        }
-    }
-
     fn helper_call(
         &self,
         span: Span,
@@ -3281,9 +3254,11 @@ fn is_literal_expression(value: &Expression<'_>) -> bool {
 
 /// Port of Babel's `fragmentWillSelfEscape`: predicts whether a fragment
 /// compiles to a single runtime value for which an outer `_$escape(...)`
-/// wrap is a guaranteed no-op (memo accessor or `_$ssr` node).
+/// wrap is a guaranteed no-op. The one such shape is `<><native /></>`,
+/// which compiles to an `_$ssr` node. A single expression child compiles
+/// to a memo the runtime's `escape` defers into, so its hole keeps the wrap.
 fn fragment_will_self_escape(fragment: &JSXFragment<'_>) -> bool {
-    let mut only: Option<&JSXChild<'_>> = None;
+    let mut only: Option<&JSXElement<'_>> = None;
     for child in &fragment.children {
         match child {
             JSXChild::Text(text) => {
@@ -3297,34 +3272,16 @@ fn fragment_will_self_escape(fragment: &JSXFragment<'_>) -> bool {
             {
                 continue;
             }
-            JSXChild::Element(_) | JSXChild::ExpressionContainer(_) => {
+            JSXChild::Element(element) => {
                 if only.is_some() {
                     return false;
                 }
-                only = Some(child);
+                only = Some(element);
             }
             _ => return false,
         }
     }
-    match only {
-        Some(JSXChild::ExpressionContainer(container)) => {
-            matches!(
-                &container.expression,
-                JSXExpression::CallExpression(_)
-                    | JSXExpression::TaggedTemplateExpression(_)
-                    | JSXExpression::StaticMemberExpression(_)
-                    | JSXExpression::ComputedMemberExpression(_)
-                    | JSXExpression::PrivateFieldExpression(_)
-                    | JSXExpression::ChainExpression(_)
-            ) || matches!(
-                &container.expression,
-                JSXExpression::BinaryExpression(binary)
-                    if binary.operator == oxc_ast::ast::BinaryOperator::In
-            )
-        }
-        Some(JSXChild::Element(element)) => !is_component_name(&element.opening_element.name),
-        _ => false,
-    }
+    only.is_some_and(|element| !is_component_name(&element.opening_element.name))
 }
 
 /// Records the spans of JSX elements in statement position — direct `return`

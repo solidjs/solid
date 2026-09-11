@@ -6,12 +6,22 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   define: {
     __DEV__: "true",
+    __OBSERVE__: "true",
     __TEST__: "true"
   },
   resolve: {
-    alias: {
-      "@solidjs/signals": fileURLToPath(new URL("../signals/src/index.ts", import.meta.url))
-    }
+    // Array form: entries match in order, and the bare package alias would
+    // otherwise swallow the `/attribution` subpath as a prefix match.
+    alias: [
+      {
+        find: "@solidjs/signals/attribution",
+        replacement: fileURLToPath(new URL("../signals/src/attribution.ts", import.meta.url))
+      },
+      {
+        find: "@solidjs/signals",
+        replacement: fileURLToPath(new URL("../signals/src/index.ts", import.meta.url))
+      }
+    ]
   },
   test: {
     globals: true,

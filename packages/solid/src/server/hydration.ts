@@ -198,7 +198,9 @@ function ssrLoadingBoundary(
     retryPromise = undefined;
     return runLoadingPhase(() => {
       try {
-        return ctx.resolve(fn());
+        // The boundary is an insertion root: its content never passes a
+        // compiled `escape` hole, so escape here — same as the fallback path.
+        return ctx.resolve(ctx.escape(fn()));
       } catch (err) {
         if (err instanceof NotReadyError) {
           retryPromise = (err as any).source as Promise<any>;

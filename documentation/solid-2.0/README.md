@@ -23,7 +23,7 @@ The RFCs below are **deep dives** on specific topic areas. Over time, it’s exp
 | 05  | [Async data](05-async-data.md)                                                         | Async in computations, isPending, latest, Loading `on` prop, transitions, ssrSource/deferStream  |
 | 06  | [Actions and optimistic](06-actions-optimistic.md)                                     | action (generator), createOptimistic / createOptimisticStore                                     |
 | 07  | [DOM](07-dom.md)                                                                       | HTML standards, class, booleans                                                                  |
-| 08  | [Dev-mode diagnostics](08-dev-diagnostics.md)                                          | All dev warnings/errors, diagnostic codes, programmatic API                                      |
+| 08  | [Dev-mode diagnostics](08-dev-diagnostics.md)                                          | Dev warnings/errors, diagnostic codes, attribution engine, responsiveness, programmatic API       |
 | 09  | [TypeScript and JSX ownership](09-typescript-jsx.md)                                   | Renderer-owned JSX namespaces, `jsxImportSource`, and core renderable types                      |
 | 10  | [Server functions](10-server-functions.md)                                             | `"use server"` runtime, response helpers, single-flight, GET/metadata/prepareRequest, validation |
 | 11  | [Server components (experimental)](11-server-components.md)                           | Functions returned from server functions; `dynamic` is the API; single-copy frame streams        |

@@ -161,6 +161,29 @@ describe("a failure escaping through the result graph", () => {
     expect(body).toContain("Internal Server Error");
   });
 
+  it("is sanitized when the channel hides under an Error's non-enumerable slot (#3268)", async () => {
+    // The #3235 guard descends Error carriers, but walked them with
+    // `Object.keys` while seroval encodes an Error's own props through
+    // `getOwnPropertyNames`. A failure channel parked on a NON-enumerable
+    // slot — `cause` is non-enumerable by spec, and the ordinary place a
+    // wrapped driver error puts its context — was therefore encoded but
+    // never walked, so its rejection reason rode the wire verbatim under a
+    // committed 200 (and, unowned, could take the process down).
+    registerServerFunction("graph-failure-error-cause", async () => {
+      const carrier = new Error("query failed");
+      Object.defineProperty(carrier, "cause", {
+        value: Promise.reject(databaseError()),
+        enumerable: false,
+        configurable: true
+      });
+      return { failure: carrier };
+    });
+
+    const body = await wireBody("graph-failure-error-cause");
+    for (const secret of SECRETS) expect(body).not.toContain(secret);
+    expect(body).toContain("Internal Server Error");
+  });
+
   it("keeps an error the author branded as intentional", async () => {
     registerServerFunction("graph-failure-safe", async function* () {
       yield { page: 1 };

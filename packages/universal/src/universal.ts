@@ -29,7 +29,7 @@ export interface RendererOptions<NodeType> {
 /**
  * Options for renderer-owned reactive effects (#3063). Custom renderers and
  * their compiled output can label the render effects created for dynamic
- * inserts and spreads, so dev diagnostics (`DEV.attribution`) can correlate
+ * inserts and spreads, so dev diagnostics (`OBSERVE.attribution`) can correlate
  * a signal write → application computation → renderer effect → output
  * mutation chain end-to-end. Only meaningful to development diagnostics;
  * production ignores the name.
@@ -90,12 +90,15 @@ const effect = (fn, effectFn, options) =>
   );
 const memo = fn => createMemo(() => fn(), syncOptions);
 
-// Renderer-owned effects get stable fallback names so dev diagnostics can
-// attribute updates flowing through renderer output (#3063); callers override
-// them via the trailing RendererEffectOptions argument. `"_SOLID_DEV_"` is
-// replaced at build time, so production folds this back to `options`.
+// Renderer-owned effects get stable fallback names so diagnostics and
+// attribution can locate updates flowing through renderer output (#3063);
+// callers override them via the trailing RendererEffectOptions argument.
+// Observe-tier wiring: `"_SOLID_OBSERVE_"` is replaced at build time (true in
+// dev and observe builds), so production folds this back to `options`.
 const named = (options, fallback) =>
-  "_SOLID_DEV_" && (!options || options.name == null) ? { ...options, name: fallback } : options;
+  "_SOLID_OBSERVE_" && (!options || options.name == null)
+    ? { ...options, name: fallback }
+    : options;
 
 const INNER_OWNED = {};
 export function createRenderer<NodeType>(options: RendererOptions<NodeType>): Renderer<NodeType>;
@@ -430,7 +433,7 @@ export function createRenderer({
               mounted = collectMounted(element, value);
             }
           };
-          if ("_SOLID_DEV_") renderOptions.name = "renderer render";
+          if ("_SOLID_OBSERVE_") renderOptions.name = "renderer render";
           insert(element, () => tree, undefined, undefined, renderOptions);
         });
         // Drain the queued mount so the no-async path is attached by return.

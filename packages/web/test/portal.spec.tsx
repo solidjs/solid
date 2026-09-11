@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test, vi } from "vitest";
-import { createSignal, flush, Show, DEV } from "solid-js";
+import { createSignal, flush, Show, OBSERVE } from "solid-js";
 import { render, Portal } from "@solidjs/web";
 
 describe("Testing a simple Portal", () => {
@@ -412,7 +412,7 @@ describe("Testing Portal insert effect ownership (#2758)", () => {
     const mount = document.createElement("div");
     const [key, setKey] = createSignal(1);
 
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
     const disposer = render(
       () => (
         <Portal mount={mount}>
@@ -467,7 +467,7 @@ describe("Testing Portal insert effect ownership (#2758)", () => {
     const [mount, setMount] = createSignal(mountA);
     const [key, setKey] = createSignal(1);
 
-    const capture = DEV!.diagnostics.capture();
+    const capture = OBSERVE!.diagnostics.capture();
     const disposer = render(
       () => (
         <Portal mount={mount()}>

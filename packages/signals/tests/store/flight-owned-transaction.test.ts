@@ -13,10 +13,13 @@
 import { expect, test } from "vitest";
 import {
   createEffect,
+  createLoadingBoundary,
   createOptimisticStore,
   createRoot,
   createSignal,
-  flush
+  createStore,
+  flush,
+  isPending
 } from "../../src/index.js";
 import type { Store } from "../../src/store.js";
 
@@ -136,5 +139,115 @@ test("#3146: per-yield landings still reveal on arrival under the flight-owned t
   flush();
   expect(views.at(-1)).toEqual(["one", "two", "three"]);
   dispose();
+  flush();
+});
+
+// The FIRST flight is the carve-out: nothing has committed yet, so there is
+// no truth to keep on screen and no optimistic state to protect. Declaring
+// the owned transaction for the uninitialized ask held every
+// transition-riding consumer — render()'s scheduled root insert included —
+// until the fetch landed: the page stayed blank and the Loading boundary's
+// fallback never showed, while createStore(fn, seed) and
+// createOptimistic(fn, seed) in the same spot showed it. A first flight
+// declares nothing, like the loading window (#2933); refetch flights
+// (initialized) declare exactly as the tests above pin.
+type Resolver = (items: string[]) => void;
+
+function boundaryHarness(make: (dep: () => number, resolvers: Resolver[]) => { items: string[] }) {
+  const resolvers: Resolver[] = [];
+  let setDep!: (v: number) => void;
+  let result: unknown = "never-ran";
+  let store!: { items: string[] };
+  let dispose!: () => void;
+  createRoot(d => {
+    dispose = d;
+    const [dep, _setDep] = createSignal(0);
+    setDep = _setDep;
+    store = make(dep, resolvers);
+    const boundary = createLoadingBoundary(
+      () => store.items.join(","),
+      () => "loading"
+    );
+    // A USER effect, like render()'s scheduled root insert: its apply is
+    // stashed by an open transition until that transition settles.
+    createEffect(
+      () => boundary(),
+      v => {
+        result = v;
+      }
+    );
+  });
+  return {
+    resolvers,
+    setDep,
+    get result() {
+      return result;
+    },
+    get store() {
+      return store;
+    },
+    dispose
+  };
+}
+
+test("#3146 carve-out: the first flight shows the boundary fallback; the refetch keeps content", async () => {
+  const h = boundaryHarness((dep, resolvers) => {
+    const [store] = createOptimisticStore<{ items: string[] }>(
+      async () => {
+        dep();
+        const items = await new Promise<string[]>(r => resolvers.push(r));
+        return { items };
+      },
+      { items: [] }
+    );
+    return store;
+  });
+  flush();
+  // The boundary's effect must APPLY on the initial flush (not be stashed
+  // by a flight transaction) and show the fallback.
+  expect(h.result).toBe("loading");
+
+  h.resolvers[0](["A"]);
+  await tick();
+  flush();
+  expect(h.result).toBe("A");
+
+  // Refetch: stale-while-revalidate — content stays, isPending flips.
+  h.setDep(1);
+  flush();
+  await tick();
+  expect(h.result).toBe("A");
+  expect(isPending(() => h.store.items.length)).toBe(true);
+
+  h.resolvers[1](["A", "B"]);
+  await tick();
+  flush();
+  await tick();
+  flush();
+  expect(h.result).toBe("A,B");
+  expect(isPending(() => h.store.items.length)).toBe(false);
+  h.dispose();
+  flush();
+});
+
+test("#3146 carve-out control: createStore(fn, seed) first flight shows the same fallback", async () => {
+  const h = boundaryHarness((dep, resolvers) => {
+    const [store] = createStore<{ items: string[] }>(
+      async () => {
+        dep();
+        const items = await new Promise<string[]>(r => resolvers.push(r));
+        return { items };
+      },
+      { items: [] }
+    );
+    return store;
+  });
+  flush();
+  expect(h.result).toBe("loading");
+  h.resolvers[0](["A"]);
+  await tick();
+  flush();
+  expect(h.result).toBe("A");
+  h.dispose();
   flush();
 });

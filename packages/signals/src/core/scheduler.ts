@@ -13,6 +13,7 @@ import {
   CONFIG_HAS_COMPANIONS,
   CONFIG_HAS_LANE,
   CONFIG_HAS_SNAPSHOT,
+  CONFIG_SLOT_NODE,
   REACTIVE_IN_HEAP_HEIGHT,
   REACTIVE_MANUAL_WRITE,
   REACTIVE_MISSED_WAKE,
@@ -24,8 +25,9 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
-import { currentOptimisticLane, ext } from "./core.js";
-import { DEV, emitDiagnostic } from "./dev.js";
+import { attrHooks } from "./attribution-hooks.js";
+import { currentOptimisticLane, ext, slotUnobservedHook } from "./core.js";
+import { DEV, emitDiagnostic, GRAPH_SIZE_WARN_AT, noteFanOut, reportDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { sweepDormant } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
@@ -85,9 +87,22 @@ let haltNotified = false;
 let syncDepth = 0;
 export let projectionWriteActive = false;
 let inTrackedQueueCallback = false;
+/** > 0 while an action's generator body is on the stack (the synchronous
+ * slice between yields). Maintained by action.ts around `it.next()`. */
+export let actionStepDepth = 0;
+export function enterActionStep(): void {
+  actionStepDepth++;
+}
+export function exitActionStep(): void {
+  actionStepDepth--;
+}
 
 let _enforceLoadingBoundary = false;
 export let _hitUnhandledAsync = false;
+// Once per enforcement window: the ASYNC_OUTSIDE_LOADING_BOUNDARY finding is a
+// fact about the MOUNT ("the root mount will be deferred"), not about each
+// pending render effect — N async siblings at mount used to produce N copies.
+let _reportedUnhandledAsync = false;
 
 // Store property nodes that were created solely to carry a pending write (no
 // subscribers at write time). Swept after each flush that commits pending
@@ -122,11 +137,19 @@ function sweepTransientStoreNodes(): void {
     // unmarked node for the same property).
     if (node._x?._affectsCount) continue;
     transientStoreNodes.delete(node);
-    node._x?._unobserved?.();
+    if (node._config & CONFIG_SLOT_NODE) slotUnobservedHook(node);
+    else node._x?._unobserved?.();
   }
 }
-export function resetUnhandledAsync(): void {
+/**
+ * Consume the unhandled-async hit. Returns whether this is the first report
+ * of the current enforcement window — the caller warns only then.
+ */
+export function resetUnhandledAsync(): boolean {
   _hitUnhandledAsync = false;
+  if (_reportedUnhandledAsync) return false;
+  _reportedUnhandledAsync = true;
+  return true;
 }
 /**
  * Toggles the dev-mode "must be inside a `<Loading>` boundary" enforcement
@@ -138,6 +161,7 @@ export function resetUnhandledAsync(): void {
  */
 export function enforceLoadingBoundary(enabled: boolean): void {
   _enforceLoadingBoundary = enabled;
+  if (enabled) _reportedUnhandledAsync = false;
 }
 
 export function setProjectionWriteActive(value: boolean) {
@@ -178,6 +202,11 @@ export interface Transition {
   // signal's committed value through the entanglement gate. At commit they
   // get rescheduled so they re-run with the new committed view.
   _gatedSubs: Set<Computed<any>>;
+  /** Effects whose single value slot was written under this transaction AND
+   * another live one (#3322). Re-dirtied at commit, ahead of the effect
+   * phase, so the run publishes a value derived from the committed world
+   * rather than whichever transaction's staged view wrote last. */
+  _contested: Computed<any>[] | null;
 }
 
 /**
@@ -200,11 +229,13 @@ function createBatch(): Transition {
     _actions: [],
     _queueStash: { _queues: [[], []], _children: [] },
     _done: false,
-    _gatedSubs: new Set()
+    _gatedSubs: new Set(),
+    _contested: null
   };
 }
 
 function mergeTransitionState(target: Transition, outgoing: Transition): void {
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.transitionMerged(target, outgoing);
   outgoing._done = target;
   target._actions.push(...outgoing._actions);
   for (const lane of activeLanes) if (lane._transition === outgoing) lane._transition = target;
@@ -232,6 +263,7 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
   }
   if (__DEV__) endAsyncReporterWrites();
   for (const sub of outgoing._gatedSubs) target._gatedSubs.add(sub);
+  if (outgoing._contested) (target._contested ??= []).push(...outgoing._contested);
 }
 
 /**
@@ -366,10 +398,18 @@ export function haltReactivity(cause?: unknown): void {
       message
     });
   }
-  // Log the cause here too: callers rethrow it, but a creation-time throw
+  // Surface the cause here too: callers rethrow it, but a creation-time throw
   // unwinds through ancestor recomputes that convert it to status instead of
   // surfacing it (#2884), so the rethrow alone cannot guarantee visibility.
-  cause === undefined ? console.error(message) : console.error(message, cause);
+  // Where the platform has one, hand the cause to its uncaught-error channel
+  // (`reportError` → `error` event → window.onerror / error monitoring): a
+  // halt that only reaches console.error leaves a page that LOOKS alive with
+  // nothing an app or its telemetry can act on (#3338 — an uncaught throw
+  // during the hydration render). The rethrow may reach the top as well in
+  // the non-swallowed cases; a duplicate report beats a silent one.
+  const report = cause !== undefined && globalThis.reportError;
+  report || cause === undefined ? console.error(message) : console.error(message, cause);
+  report && report(cause);
 }
 
 // Logs on the first write after a halt so a frozen interaction is traceable.
@@ -467,6 +507,9 @@ export class Queue implements IQueue {
     schedule();
   }
   stashQueues(stub: QueueStub): void {
+    // Attribution hook: the parking transition's lane effects have run; its
+    // queues are being stashed. Root call only (children recurse below).
+    if (__OBSERVE__ && attrHooks !== null && (this as Queue) === globalQueue) attrHooks.holdEnd();
     stub._queues[0].push(...this._queues[0]);
     stub._queues[1].push(...this._queues[1]);
     this._queues = [[], []];
@@ -571,9 +614,10 @@ export class GlobalQueue extends Queue {
     | ((el: Computed<any>, own: boolean) => OptimisticLane | null | false)
     | null = null;
   static _laneAsyncPending: ((el: Computed<any>) => void) | null = null;
-  /** Authoritative-view reader wakeup (until()): installed at first until() call.
-   * Call sites are gated by CONFIG_AUTHORITATIVE_OBSERVED, which only until()'s
-   * carve-out read can set, so `!` invocations are safe once the gate holds. */
+  /** Authoritative-view reader wakeup: installed by until() and refresh() before
+   * their first read. Call sites are gated by CONFIG_AUTHORITATIVE_OBSERVED, which
+   * only such a reader's carve-out read can set, so `!` invocations are safe once
+   * the gate holds (#3303). */
   static _notifyAuthoritativeObservers: ((el: Signal<any> | Computed<any>) => void) | null = null;
   static _laneAsyncSettled: ((el: Computed<any>) => void) | null = null;
   static _trackOptimisticStore: ((store: any) => void) | null = null;
@@ -693,8 +737,13 @@ export class GlobalQueue extends Queue {
         }
       }
       clock++;
-      // Check if finalization added items to the heap (from optimistic reversion)
-      scheduled = dirtyQueue._max >= dirtyQueue._min;
+      // Check if finalization added items to the heap (from optimistic reversion).
+      // Finalization may also have ENTERED a transaction (a commit hook, boundary
+      // sweep or recompute wrote a node it owns): effects computed under it
+      // since are its to apply, not this flush's — runEffect leaves them queued
+      // and the next pass parks them with it (#3319). Everything computed
+      // mainline applies now.
+      scheduled = dirtyQueue._max >= dirtyQueue._min || activeTransition !== null;
       // Run lane effects first (for ready lanes), then regular effects
       activeLanes.size && GlobalQueue._runLaneEffects!(EFFECT_RENDER);
       this.run(EFFECT_RENDER);
@@ -729,25 +778,36 @@ export class GlobalQueue extends Queue {
     // Only track async if the boundary is propagating STATUS_PENDING (not caught by boundary)
     if (mask & STATUS_PENDING) {
       if (flags & STATUS_PENDING) {
-        const actualError = error !== undefined ? error : node._x?._error;
+        // Callers pass either nothing or this node's own `_x._error`, so `??`
+        // is exact (a null error falls back to the same null).
+        const actualError = error ?? node._x?._error;
         // A visibility-only mark notification (the affects() boundary
         // channel) updates display state on its way up but must be invisible
         // to completion accounting BY CONSTRUCTION: it never registers a
         // reporter and never counts toward the loading-boundary diagnostic.
         if ((actualError as NotReadyError)?._markVisual) return true;
-        if (activeTransition && actualError) {
-          const source = (actualError as NotReadyError).source;
-          // The one sanctioned registration site (INV-3): async blockers only
-          // enter the transition from queue notification.
-          if (__DEV__) beginAsyncReporterWrites();
-          let reporters = activeTransition._asyncReporters.get(source);
-          if (!reporters) activeTransition._asyncReporters.set(source, (reporters = new Set()));
-          if (__DEV__) endAsyncReporterWrites();
-          const prevSize = reporters.size;
-          reporters.add(node);
-          if (reporters.size !== prevSize) {
-            schedule();
-            GlobalQueue._wakeSuppressedProbes?.(activeTransition);
+        if (actualError) {
+          // A reveal can discover a flight started in an earlier flush. Hold
+          // the staged writes with that reader (A15), even if the reader is
+          // new. Fresh/reset loading boundaries consume pending before it
+          // reaches here. A reader already parked in a transition must not
+          // open a second one.
+          if (!activeTransition && !node._transition && currentBatch._pendingNodes.length)
+            this.initTransition();
+          if (activeTransition) {
+            const source = (actualError as NotReadyError).source;
+            // The one sanctioned registration site (INV-3): async blockers only
+            // enter the transition from queue notification.
+            if (__DEV__) beginAsyncReporterWrites();
+            let reporters = activeTransition._asyncReporters.get(source);
+            if (!reporters) activeTransition._asyncReporters.set(source, (reporters = new Set()));
+            if (__DEV__) endAsyncReporterWrites();
+            const prevSize = reporters.size;
+            reporters.add(node);
+            if (reporters.size !== prevSize) {
+              schedule();
+              GlobalQueue._wakeSuppressedProbes?.(activeTransition);
+            }
           }
         }
         if (__DEV__ && _enforceLoadingBoundary) _hitUnhandledAsync = true;
@@ -774,6 +834,11 @@ export class GlobalQueue extends Queue {
     } else if (transition) {
       const outgoing = activeTransition;
       mergeTransitionState(transition, outgoing);
+      // Effects the outgoing transaction parked belong to the surviving one
+      // now: back onto the live queue, where this flush parks them under
+      // `transition` or runs them at its completion. The outgoing stash is
+      // never read again — the transaction is dead (#3310).
+      this.restoreQueues(outgoing._queueStash);
       transitions.delete(outgoing);
       activeTransition = transition;
     }
@@ -868,8 +933,12 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
     (cfg & CONFIG_HAS_SNAPSHOT) !== 0 && (node as any)._x?._snapshotValue !== undefined;
   const clearReask = reaskArmed;
 
+  // Observe-tier fan-out: this walk visits every subscriber edge anyway, so
+  // the graph-size count is one local increment here and no field anywhere.
+  let fanOut = 0;
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const sub = s._sub;
+    if (__OBSERVE__) fanOut++;
     // A value-change notification is a new question for the subscriber: any
     // pending re-ask mark (refresh) it carried is superseded.
     if (clearReask) sub._flags &= ~REACTIVE_REASK;
@@ -899,6 +968,7 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
 
     enqueueSub(sub);
   }
+  if (__OBSERVE__ && fanOut >= GRAPH_SIZE_WARN_AT) noteFanOut(node, fanOut);
 }
 
 function commitPendingNode(n: Signal<any>): void {
@@ -996,15 +1066,34 @@ export function finalizePureQueue(
 ) {
   // For incomplete transitions, skip pending resolution and optimistic reversion
   // For completing transitions or no-transition, resolve pending and revert optimistic
+  const finalizingBatch = currentBatch;
   const resolvePending = !incomplete;
   if (resolvePending) commitPendingNodes();
   if (!incomplete && globalQueue._children.length) checkBoundaryChildren(globalQueue);
+  // Contested effects (#3322) re-derive from the world this commit just
+  // produced. Ahead of the heap run — not the post-heap gated replay — so
+  // the recompute and the effect phase land in this same pass and the value
+  // the other transaction wrote into the slot is never published.
+  // (No clear: a completed transition is never finalized again.)
+  if (completingTransition?._contested)
+    for (const el of completingTransition._contested)
+      if (!(el._flags & REACTIVE_DISPOSED)) enqueueSub(el);
   const ranHeap = dirtyQueue._max >= dirtyQueue._min;
   if (ranHeap) runHeap(dirtyQueue, GlobalQueue._update);
   if (resolvePending) {
-    if (ranHeap) commitPendingNodes();
+    // Boundary checks, commit hooks and recomputes can enter a transaction,
+    // which adopts the batch this finalize was settling: nothing batch-derived
+    // may be committed or reverted here — the entered transaction owns it now
+    // (#3319). A completing transaction's OWN containers are a different
+    // matter: when the ambient batch was separate from it (the #2916 shape),
+    // adoption never touched them and it must still settle them; when the
+    // batch WAS the completing transaction, adoption re-stamped its contents
+    // into the entered one and there is nothing left to settle.
+    if (currentBatch !== finalizingBatch) {
+      if (completingTransition === null || completingTransition === finalizingBatch) return;
+    } else if (ranHeap) commitPendingNodes();
     // The settling batch: the completing transaction's, or the ambient one.
-    const batch = completingTransition ?? globalQueue._batch;
+    const batch = completingTransition ?? finalizingBatch;
     // Optimistic reversion: a non-empty batch means _optimisticWrite ran,
     // which installed the engine's hooks.
     if (batch._optimisticNodes.length) GlobalQueue._resolveOptimistic!(batch._optimisticNodes);
@@ -1134,6 +1223,24 @@ let currentBatch = globalQueue._batch;
 export function flush(): void;
 export function flush<T>(fn: () => T): T;
 export function flush<T>(fn?: () => T): T | void {
+  // Inside an action body the drain is incoherent (#3333): the action's
+  // writes are held by its transaction until it settles, so a drain can't
+  // reveal them — and the loop below only exits once `activeTransition` is
+  // null, so it would PARK the transaction mid-slice and every write after it
+  // in the body would land as a plain, committed write. The reporter's
+  // "leading flush()" workaround was exactly that leak. Prod: run `fn` if
+  // given (its writes stay in the transaction) and skip the drain.
+  if (actionStepDepth > 0) {
+    if (__DEV__) {
+      throw new Error(
+        "[FLUSH_IN_ACTION] flush() inside an action body is not allowed. An action's writes are held in its " +
+          "transaction and commit when the action settles: flush() cannot reveal them, and draining here would " +
+          "detach the writes that follow from the transaction. Remove the flush(); to observe the result, read " +
+          "after the action resolves."
+      );
+    }
+    return fn ? fn() : undefined;
+  }
   if (fn) {
     syncDepth++;
     try {
@@ -1159,18 +1266,23 @@ export function flush<T>(fn?: () => T): T | void {
       const message =
         "[FLUSH_IN_EFFECT_CALLBACK] flush() called from inside an effect callback is a no-op: the flush that runs effects is already in progress. " +
         "Writes made here are processed in the same flush's continuation; to force a drain afterwards, defer it: queueMicrotask(() => flush()).";
-      emitDiagnostic({
-        code: "FLUSH_IN_EFFECT_CALLBACK",
-        kind: "lifecycle",
-        severity: "warn",
-        message
-      });
-      console.warn(message);
+      reportDiagnostic(
+        emitDiagnostic({
+          code: "FLUSH_IN_EFFECT_CALLBACK",
+          kind: "lifecycle",
+          severity: "warn",
+          message
+        })
+      );
     }
     return;
   }
   if (halted) return;
   let count = 0;
+  // Attribution: whether this call drained anything, so `flushEnd` fires once
+  // per real drain and never for a no-op call. The declaration is dead in
+  // prod (its only write is behind __OBSERVE__) and rollup drops it.
+  let drained = false;
   // `flush()` is an explicit drain point, so it must also process an active
   // transition even if no microtask was scheduled for it yet.
   while (scheduled || activeTransition) {
@@ -1191,7 +1303,13 @@ export function flush<T>(fn?: () => T): T | void {
       );
     }
     globalQueue.flush();
+    if (__OBSERVE__) drained = true;
   }
+  // Outside every try in this function (see the rule in attribution-hooks.ts):
+  // the drain loop above is the one place all scheduled work funnels through,
+  // so this is the "committed and effects ran, or parked" instant for
+  // everything the loop processed.
+  if (__OBSERVE__ && drained && attrHooks !== null) attrHooks.flushEnd();
 }
 
 function runQueue(queue: QueueCallback[], type: number): void {
@@ -1217,7 +1335,11 @@ function reporterBlocksSource(reporter: Computed<any>, source: Computed<any>): b
 
 function transitionComplete(transition: Transition): boolean {
   if (transition._done) return true;
-  if (transition._actions.length) return false;
+  if (transition._actions.length) {
+    // A live action parks the transaction regardless of async state.
+    if (__OBSERVE__ && attrHooks !== null) attrHooks.holdStart(transition);
+    return false;
+  }
   let done = true;
   for (const [source, reporters] of transition._asyncReporters) {
     let hasLive = false;
@@ -1241,6 +1363,13 @@ function transitionComplete(transition: Transition): boolean {
   // blockage"); the hook's loops over _optimisticNodes/_optimisticStores are
   // no-ops when the transition holds neither, so no pre-check is needed.
   if (done && GlobalQueue._transitionBlocked?.(transition)) done = false;
+  // Attribution hook: this verdict is the fork between settling (held writes
+  // commit next — `_pendingNodes` still lists them) and parking (the flush
+  // runs the lane effects, then stashes; `holdEnd` fires from stashQueues).
+  // Fired here rather than at flush()'s call site because that site is inside
+  // a `try` (see the rule in attribution-hooks.ts).
+  if (__OBSERVE__ && attrHooks !== null)
+    done ? attrHooks.transitionSettled(transition) : attrHooks.holdStart(transition);
   done && (transition._done = true);
   return done;
 }

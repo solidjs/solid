@@ -16,11 +16,13 @@
  */
 import { expect, test } from "vitest";
 import {
+  action,
   createEffect,
   createOptimisticStore,
   createRoot,
   createSignal,
-  flush
+  flush,
+  refresh
 } from "../src/index.js";
 
 const tick = () => new Promise(r => setTimeout(r, 0));
@@ -187,4 +189,95 @@ test("#2951: bare write on a derived store with settled truth keeps flash semant
   flush();
   expect(views.at(-1)).toEqual(["A"]);
   dispose();
+});
+
+// The compose half, one landing later: three votes in flight as actions
+// (optimistic `votes++`, server confirm, `refresh(store)`). When the first
+// vote's truth lands while the second is still retained, the landing is
+// staged into the retaining transaction and the second vote's increment is
+// replayed over it. A THIRD click's draft then read the staged truth WITHOUT
+// that replayed override (draft reads composed overrides only while no
+// pending backing existed — ensurePB's hand-off reseeds from the view on
+// the first write, but `votes++` reads first): base 1, wrote 2, and the
+// override landed on the value already displayed — the click was invisible
+// and the count stuck until truth caught up.
+test("#2951 compose half: an increment made after a sibling landing still stacks on the retained increment", async () => {
+  type Row = { id: number; votes: number };
+  const db: Row[] = [{ id: 1, votes: 0 }];
+  const fetches: Array<() => void> = [];
+  const getList = () => new Promise<Row[]>(res => fetches.push(() => res(structuredClone(db))));
+  const confirms: Array<() => void> = [];
+  const addVote = () =>
+    new Promise<void>(res =>
+      confirms.push(() => {
+        db[0].votes++;
+        res();
+      })
+    );
+  const views: number[] = [];
+  let list!: Row[];
+  let vote!: () => unknown;
+  let dispose!: () => void;
+  createRoot(d => {
+    dispose = d;
+    let setList!: (fn: (l: Row[]) => void) => void;
+    [list, setList] = createOptimisticStore<Row[]>(() => getList(), []);
+    vote = action(function* () {
+      setList(l => {
+        l[0].votes++;
+      });
+      yield addVote();
+      refresh(list as any);
+    });
+    createEffect(
+      () => list[0]?.votes,
+      v => {
+        views.push(v);
+      }
+    );
+  });
+  flush();
+  fetches.shift()!();
+  await tick();
+  flush();
+  const settle = async () => {
+    await tick();
+    flush();
+    await tick();
+    flush();
+  };
+
+  vote(); // A
+  await settle();
+  vote(); // B
+  await settle();
+  expect(list[0].votes).toBe(2);
+
+  confirms.shift()!(); // A confirmed → A refreshes
+  await settle();
+  fetches.shift()!(); // A's truth (1) lands; B still in flight, its +1 replays
+  await settle();
+  expect(list[0].votes).toBe(2);
+
+  vote(); // C: must stack on B's retained increment, not on the staged truth
+  await settle();
+  expect(list[0].votes).toBe(3);
+
+  confirms.shift()!();
+  await settle();
+  fetches.shift()!(); // B's truth (2) lands; C's +1 replays
+  await settle();
+  expect(list[0].votes).toBe(3);
+
+  confirms.shift()!();
+  await settle();
+  fetches.shift()!(); // C's truth (3) lands
+  await settle();
+  expect(list[0].votes).toBe(3);
+  // Every visible value is monotonic — no click ever reads back a smaller
+  // count (equal-value re-runs at a landing's override → committed swap are
+  // fine).
+  expect(views.filter((v, i) => i === 0 || v !== views[i - 1])).toEqual([0, 1, 2, 3]);
+  dispose();
+  flush();
 });

@@ -1,17 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { attribution } from "../src/attribution.js";
 import {
   createEffect,
   createMemo,
   createRoot,
   createSignal,
-  DEV,
   flush,
-  refresh
+  refresh,
+  OBSERVE
 } from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 
 afterEach(() => {
-  DEV!.attribution.disable();
+  attribution.disable();
   flush();
   vi.restoreAllMocks();
 });
@@ -19,9 +20,9 @@ afterEach(() => {
 /** Enable quietly and capture WIDE_WRITE diagnostics. */
 function captureWideWrites(wideWrites: number | false = 250) {
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  DEV!.attribution.enable({ log: false, hotRuns: false, hotTime: false, wideWrites });
+  attribution.enable({ log: false, hotRuns: false, hotTime: false, wideWrites });
   const events: DiagnosticEvent[] = [];
-  DEV!.diagnostics.subscribe(e => {
+  OBSERVE!.diagnostics.subscribe(e => {
     if (e.code === "WIDE_WRITE") events.push(e);
   });
   return events;
@@ -50,7 +51,9 @@ describe("WIDE_WRITE", () => {
     expect(events).toHaveLength(1);
     expect(events[0].nodeName).toBe("selectedId");
     expect(events[0].data).toMatchObject({ subscribers: 30, write: "write" });
-    expect(events[0].message).toContain("createSelector or createProjection");
+    // The repair must name an API 2.0 ships (#3304).
+    expect(events[0].message).toContain("store used as a map keyed by id");
+    expect(events[0].message).not.toContain("createSelector");
   });
 
   it("re-warns only after the subscriber count doubles", () => {

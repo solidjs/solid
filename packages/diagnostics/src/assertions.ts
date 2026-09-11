@@ -1,4 +1,11 @@
-import type { DiagnosticCode, DiagnosticsArtifact, RerunRecord } from "./types.js";
+import type {
+  ArtifactAttribution,
+  ChangeOrigin,
+  DiagnosticCode,
+  DiagnosticsArtifact,
+  HoldEvent,
+  RerunRecord
+} from "./types.js";
 
 /**
  * Assertion failures carry the offending records so a test reporter (or an
@@ -61,14 +68,21 @@ export function expectDiagnostic(
   }
 }
 
-function requireAttribution(artifact: DiagnosticsArtifact, caller: string): RerunRecord[] {
+function requireAttributionData(
+  artifact: DiagnosticsArtifact,
+  caller: string
+): ArtifactAttribution {
   if (!artifact.attribution) {
     throw new DiagnosticsAssertionError(
       `${caller} requires attribution data, but the artifact was captured with attribution disabled.`,
       []
     );
   }
-  return artifact.attribution.reruns;
+  return artifact.attribution;
+}
+
+function requireAttribution(artifact: DiagnosticsArtifact, caller: string): RerunRecord[] {
+  return requireAttributionData(artifact, caller).reruns;
 }
 
 export interface RerunBudgetOptions {
@@ -142,6 +156,101 @@ export function expectNoWaste(
         selfMs: rerun.selfMs,
         causes: rerun.causes.map(cause => cause.name)
       }))
+    );
+  }
+}
+
+export interface SilentHoldOptions {
+  /**
+   * A silent hold shorter than this is tolerated (default 0: every silent
+   * hold fails). The engine's `holds.infoMs`/`warnMs` (100/200ms) are the
+   * console's numbers; this is the budget's.
+   */
+  maxSilentMs?: number;
+}
+
+/** No acknowledgment rendered and nothing painted while held — the SILENT_HOLD signature. */
+function isSilent(hold: HoldEvent): boolean {
+  return hold.acknowledgements.length === 0 && hold.paintedDuringHold === 0;
+}
+
+function describeInteraction(origin: ChangeOrigin | undefined): string | undefined {
+  if (origin === undefined) return undefined;
+  return `${origin.name} on ${origin.target ?? "an element"}`;
+}
+
+/** The shape a hold takes in assertion evidence: what was held, behind what, for how long, for whom. */
+function holdEvidence(hold: HoldEvent) {
+  return {
+    holdMs: Math.round(hold.holdMs),
+    tailMs: Math.round(hold.tailMs),
+    interaction: describeInteraction(hold.interaction),
+    heldWrites: hold.heldWrites.map(write => write.name),
+    blockers: hold.blockers,
+    acknowledgements: hold.acknowledgements,
+    paintedDuringHold: hold.paintedDuringHold,
+    action: hold.action
+  };
+}
+
+/**
+ * The responsiveness gate: every hold the scenario caused was
+ * acknowledged on screen — an `isPending()`/`latest()` reader downstream of
+ * the held write or its blocker, an optimistic value, an `affects()` mark, or
+ * at least an effect that painted while it was held. A hold that had none of
+ * those is time the user's input was dead. The repair is always to add the
+ * feedback, never to remove the hold (see the reactivity-diagnostics skill,
+ * SILENT_HOLD).
+ */
+export function expectNoSilentHolds(
+  artifact: DiagnosticsArtifact,
+  options: SilentHoldOptions = {}
+): void {
+  const { holds } = requireAttributionData(artifact, "expectNoSilentHolds");
+  const maxMs = options.maxSilentMs ?? 0;
+  const silent = holds.filter(hold => isSilent(hold) && hold.holdMs > maxMs);
+  if (silent.length > 0) {
+    const worst = Math.max(...silent.map(hold => hold.holdMs));
+    throw new DiagnosticsAssertionError(
+      `Expected no silent holds${maxMs > 0 ? ` over ${maxMs}ms` : ""} but attribution recorded ` +
+        `${silent.length} (worst ${worst.toFixed(0)}ms) — a held write the screen never ` +
+        `acknowledged. Read isPending() on the blocker, latest() on the held write, or write an ` +
+        `optimistic value; do not move the write off the async path:`,
+      silent.map(holdEvidence)
+    );
+  }
+}
+
+export interface HoldBudgetOptions {
+  /** Only count holds whose blockers include this source (exact name or pattern). */
+  source?: string | RegExp;
+}
+
+/**
+ * The latency gate on holds: no hold — acknowledged or not — outlasted `maxMs`.
+ * Acknowledgment makes a wait honest; it does not make it short. Use this for
+ * the data path (a mocked source that should settle within the budget), and
+ * `expectNoSilentHolds` for the feedback path.
+ */
+export function expectHoldBudget(
+  artifact: DiagnosticsArtifact,
+  maxMs: number,
+  options: HoldBudgetOptions = {}
+): void {
+  let { holds } = requireAttributionData(artifact, "expectHoldBudget");
+  if (options.source !== undefined) {
+    const source = options.source;
+    holds = holds.filter(hold =>
+      hold.blockers.some(name => (typeof source === "string" ? name === source : source.test(name)))
+    );
+  }
+  const over = holds.filter(hold => hold.holdMs > maxMs);
+  if (over.length > 0) {
+    throw new DiagnosticsAssertionError(
+      `Expected every hold${
+        options.source !== undefined ? ` on ${String(options.source)}` : ""
+      } to settle within ${maxMs}ms but ${over.length} did not:`,
+      over.map(holdEvidence)
     );
   }
 }

@@ -7,6 +7,14 @@ alwaysApply: true
 
 This is a foundational library laying groundwork for the future. "Good enough" is never acceptable.
 
+## Questions are not instructions
+
+When the user's message is a question, an opinion, a reaction, or thinking out loud ("is this right?", "seems complicated", "I wouldn't mind if…", "do you know what that is?"), the deliverable is an answer. Do not edit files, run tests that mutate state, commit, or push in that turn — even if the answer makes the next step obvious. Propose the step and stop.
+
+Act only on an imperative from the user ("do it", "ok", "go", "fix it", "commit"). An "ok" applies to the specific proposal it answers, not to follow-on work discovered afterward.
+
+Commits and pushes always require an explicit ask in the user's latest message. Otherwise stage and report.
+
 ## Approach
 
 - **Never take shortcuts.** If a plan calls for a fundamentally different architecture, implement it differently — don't rename the existing one and call it new.

@@ -51,6 +51,37 @@ describe("uncaught effect errors halt the reactive system", () => {
     expect(seenC).toEqual([]);
   });
 
+  // #3338: a creation-time throw is converted to status by ancestor recomputes
+  // and never reaches the top, so console.error was the only trace of a halt.
+  // Where the platform has an uncaught-error channel, the cause goes through it.
+  it("hands the cause to reportError where the platform provides one", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const reported: unknown[] = [];
+    (globalThis as any).reportError = (e: unknown) => reported.push(e);
+    try {
+      const boom = new Error("boom");
+      const [a, setA] = createSignal(0);
+      createRoot(() => {
+        createEffect(a, v => {
+          if (v === 1) throw boom;
+        });
+      });
+      flush();
+      expect(() => {
+        setA(1);
+        flush();
+      }).toThrow("boom");
+      expect(reported).toEqual([boom]);
+      // The halt notice itself still logs (the tests above key on it), but the
+      // cause is not double-logged next to it.
+      const halt = error.mock.calls.filter(args => /REACTIVITY_HALTED/.test(String(args[0])));
+      expect(halt).toHaveLength(1);
+      expect(halt[0]).toHaveLength(1);
+    } finally {
+      delete (globalThis as any).reportError;
+    }
+  });
+
   it("flush() after a halt is a no-op rather than a throw", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const [a, setA] = createSignal(0);

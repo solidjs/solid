@@ -1,4 +1,5 @@
-import { DEV, flush } from "@solidjs/signals";
+import { OBSERVE, flush } from "@solidjs/signals";
+import { attribution as engine } from "@solidjs/signals/attribution";
 import { ARTIFACT_FORMAT_VERSION } from "./artifact.js";
 import type { AttributionOptions, DiagnosticsArtifact, RerunEvent, RerunRecord } from "./types.js";
 
@@ -8,7 +9,8 @@ export interface CaptureOptions {
   /**
    * Attribution posture for this capture. `true` (default) enables it with
    * console logging off; `false` captures diagnostics only; an options
-   * object is passed through to `DEV.attribution.enable()`.
+   * object is passed through to the engine's `enable()`
+   * (`@solidjs/signals/attribution`).
    */
   attribution?: boolean | AttributionOptions;
   /**
@@ -38,10 +40,10 @@ export async function captureArtifact<T>(
   scenario: () => T | Promise<T>,
   options: CaptureOptions = {}
 ): Promise<CaptureResult<T>> {
-  if (!DEV) {
+  if (!OBSERVE) {
     throw new Error(
-      "@solidjs/diagnostics requires a development build of @solidjs/signals: " +
-        "the DEV export is undefined in production builds, so there are no " +
+      "@solidjs/diagnostics requires a development or observe build of @solidjs/signals: " +
+        "the OBSERVE export is undefined in production builds, so there are no " +
         "diagnostic or attribution channels to capture."
     );
   }
@@ -49,12 +51,12 @@ export async function captureArtifact<T>(
   const attributionOption = options.attribution ?? true;
   const useAttribution = attributionOption !== false;
 
-  const capture = DEV.diagnostics.capture();
+  const capture = OBSERVE.diagnostics.capture();
   if (useAttribution) {
     // Default log:false — the artifact is the output, not the console.
     const opts: AttributionOptions =
       typeof attributionOption === "object" ? { log: false, ...attributionOption } : { log: false };
-    DEV.attribution.enable(opts);
+    engine.enable(opts);
   }
 
   const startedAt = new Date();
@@ -66,13 +68,15 @@ export async function captureArtifact<T>(
     result = await scenario();
     if (options.autoFlush !== false) flush();
   } finally {
-    // Read history/costs before disable(): aggregates reset on disable.
+    // Read every table before disable(): aggregates reset on disable.
     if (useAttribution) {
       attribution = {
-        reruns: DEV.attribution.history().map(toRerunRecord),
-        costs: DEV.attribution.costs()
+        reruns: engine.history().map(toRerunRecord),
+        costs: engine.costs(),
+        holds: [...engine.holds()],
+        feedback: engine.feedback()
       };
-      DEV.attribution.disable();
+      engine.disable();
     }
     events = capture.stop();
   }

@@ -23,7 +23,7 @@ const multiDynamic = [
 		return _$ssrAttribute("id", _$escape(state.first, true));
 	}, _$ssr(_tmpl$3, _v$)),
 	_$memo(() => {
-		return _$escape(state.inserted);
+		return state.inserted;
 	}),
 	(_v$2 = () => {
 		return _$ssrAttribute("id", _$escape(state.last, true));
@@ -31,18 +31,12 @@ const multiDynamic = [
 	"After"
 ];
 const singleExpression = inserted;
-const singleDynamic = _$memo(() => {
-	return _$escape(inserted());
-});
+const singleDynamic = _$memo(inserted);
 const firstStatic = [inserted, _$ssr(_tmpl$5)];
-const firstDynamic = [_$memo(() => {
-	return _$escape(inserted());
-}), _$ssr(_tmpl$5)];
+const firstDynamic = [_$memo(inserted), _$ssr(_tmpl$5)];
 const firstComponent = [Component({}), _$ssr(_tmpl$5)];
 const lastStatic = [_$ssr(_tmpl$5), inserted];
-const lastDynamic = [_$ssr(_tmpl$5), _$memo(() => {
-	return _$escape(inserted());
-})];
+const lastDynamic = [_$ssr(_tmpl$5), _$memo(inserted)];
 const lastComponent = [_$ssr(_tmpl$5), Component({})];
 const spaces = [
 	_$ssr(_tmpl$6),

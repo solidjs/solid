@@ -1,4 +1,16 @@
-import { attribution, type Attribution } from "./attribution.js";
+import {
+  attrHooks,
+  setAttributionHooks,
+  withInteraction,
+  withOrigin,
+  type AttributionHooks,
+  type InteractionRef,
+  type OriginRef
+} from "./attribution-hooks.js";
+// Cycle note: core.ts imports this module; we read its live `context` binding
+// only at call time (emitDiagnostic's default subject), never during module
+// evaluation, so the cycle is inert — same shape as the attribution.ts edge.
+import { context } from "./core.js";
 import type { Computed, Link, Owner, Signal } from "./types.js";
 
 export interface DevHooks {
@@ -46,7 +58,13 @@ export type DiagnosticCode =
   | "UNSTABLE_MEMO_OUTPUT"
   | "WIDE_WRITE"
   | "ASYNC_WATERFALL"
-  | "HOT_SCOPE_FANOUT";
+  | "HOT_SCOPE_FANOUT"
+  | "SILENT_HOLD"
+  | "LONG_HOLD"
+  | "EFFECT_WRITES_OWN_SOURCE"
+  | "EFFECT_RELAY_TEAR"
+  | "IMMUTABLE_UPDATE_IN_STORE"
+  | "UNSTABLE_LIST_IDENTITY";
 
 export type DiagnosticKind =
   | "strict-read"
@@ -56,11 +74,13 @@ export type DiagnosticKind =
   | "owner"
   | "error"
   | "perf"
-  | "graph";
+  | "graph"
+  /** Perceived responsiveness: the runtime behaved correctly but the user saw no feedback. */
+  | "responsiveness";
 
-/** First warning when a node's live edge count reaches this size. */
+/** First warning when a change reaches (or a pass tracks) this many edges. */
 export const GRAPH_SIZE_WARN_AT = 2000;
-/** Repeat the warning at this interval after the first. */
+/** Re-warn once the count has grown by this much since the last warning. */
 export const GRAPH_SIZE_WARN_EVERY = 500;
 
 export interface DiagnosticEvent {
@@ -72,6 +92,15 @@ export interface DiagnosticEvent {
   ownerId?: string;
   ownerName?: string;
   nodeName?: string;
+  /**
+   * Root-first chain of named owners enclosing the subject of the event —
+   * component roots as `<Name>`, computations by their `name` option (or
+   * the `effect`/`computed` default) — e.g. `["<App>", "<TodoRow>", "effect"]`.
+   * Unnamed owners (plain roots) are skipped. Absent when the subject has no
+   * named owner at all (a top-level scope, or an unowned primitive — which
+   * is usually the finding itself).
+   */
+  ownerPath?: string[];
   data?: Record<string, unknown>;
 }
 
@@ -87,26 +116,115 @@ export interface Diagnostics {
   subscribe(listener: DiagnosticListener): () => void;
   capture(): DiagnosticCapture;
   /**
-   * Registers a console footer printed after the first console report of
-   * each diagnostic code — a discovery pointer to deeper guidance (e.g.
-   * solid-js registers its shipped repair skill). Returning undefined for
-   * an event suppresses the footer. Passing undefined unregisters and
-   * resets the once-per-code memory.
+   * Records an event on the channel from outside the reactive core — a host
+   * runtime reporting its own findings (hydration mismatches, server render
+   * faults) so consumers see one stream. `subject` locates it like the
+   * internal sites do; a host whose owners are not signals' owners passes
+   * `ownerPath` on the event instead and it is used as-is.
    */
-  setConsoleFooter(footer: ((event: DiagnosticEvent) => string | undefined) | undefined): void;
+  emit(
+    event: Omit<DiagnosticEvent, "sequence">,
+    subject?: DiagnosticSubject | null
+  ): DiagnosticEvent;
 }
 
+/**
+ * The core's side of attribution: the hook slot an engine installs into, and
+ * the interaction frame the rendering runtime opens around event dispatch.
+ * The engine itself — "why did this run", costs, holds, feedback — is
+ * `@solidjs/signals/attribution`, a separate entry so an observe build pays
+ * for it only when something imports it.
+ */
+export interface AttributionSlot {
+  /**
+   * Installs `hooks` as the engine the core reports facts to (`null`
+   * uninstalls). One engine at a time; the built-in engine's `enable()` calls
+   * this, and an external consumer (devtools) may install its own instead.
+   */
+  install(hooks: AttributionHooks | null): void;
+  /** The installed engine's hooks, or `null` when none is installed. */
+  readonly installed: AttributionHooks | null;
+  /**
+   * Run `fn` as a user interaction's handler: root writes inside stamp it as
+   * their origin, and actions/effects/flights it causes carry it. The web
+   * runtime wraps every event dispatch in this; custom renderers and test
+   * harnesses call it themselves. `fn()` when no engine is installed.
+   */
+  withInteraction<T>(ref: InteractionRef, fn: () => T): T;
+  /**
+   * Run `fn` as a declared unit of work — a router's navigation, described
+   * by the parametrized route it matched: root writes inside are attributed
+   * to it (under the enclosing interaction, if any), so the hold behind the
+   * route's data, the re-runs and the verdicts carry the route's name. Any
+   * router calls this around its location write; nothing else is
+   * router-specific. `fn()` when no engine is installed.
+   */
+  withOrigin<T>(ref: OriginRef, fn: () => T): T;
+}
+
+/**
+ * The observe tier: the structured channel and the attribution wiring —
+ * everything a production observability consumer needs, and nothing that
+ * assumes a developer at a console. Present in dev and observe builds
+ * (`__OBSERVE__`); `undefined` in prod.
+ */
+export interface Observe {
+  diagnostics: Diagnostics;
+  /** The attribution hook slot and interaction frame — see `AttributionSlot`. */
+  attribution: AttributionSlot;
+  /**
+   * The live node an emitted event was about, when the emitter knew it.
+   * Events are serializable records and never carry the node; consumers that
+   * run in-process (devtools, the console reporter) look it up here.
+   */
+  subjectOf(event: DiagnosticEvent): DiagnosticSubject | undefined;
+  /**
+   * Marks `owner`'s subtree as the observer's own. A consumer that renders
+   * inside the app it watches — an APM adapter's panel, devtools — would
+   * otherwise see its own effects, stores and holds reported as findings about
+   * the app. Under an excluded owner: diagnostics whose subject sits in the
+   * subtree are neither delivered nor reported (the entry is still built, so
+   * a site that throws its message still throws), and the attribution engine
+   * records no runs for its computations. Mark the root as it is created
+   * (`createRoot(() => { OBSERVE.exclude(getOwner()!); … })`) and perform
+   * writes from outside the graph under it (`runWithOwner`), so the writer's
+   * context is excluded too. Irrevocable for the owner's lifetime.
+   */
+  exclude(owner: Owner): void;
+  /** Whether `subject` sits under an excluded owner (itself included). */
+  isExcluded(subject: DiagnosticSubject | null | undefined): boolean;
+}
+
+/**
+ * The dev tier: devtools hooks, graph traversal, and the console face of the
+ * diagnostics channel. Present only in dev builds (`__DEV__`).
+ */
 export interface Dev {
   hooks: DevHooks;
-  diagnostics: Diagnostics;
-  /** "Why did this run" re-run attribution — see attribution.ts. */
-  attribution: Attribution;
   getChildren: typeof getChildren;
   getSignals: typeof getSignals;
   getParent: typeof getParent;
   getSources: typeof getSources;
   getObservers: typeof getObservers;
+  /** Console face of an emitted event — see `reportDiagnostic`. */
+  report(entry: DiagnosticEvent): void;
+  /**
+   * Registers a console footer appended to the first console report of
+   * each diagnostic code — a discovery pointer to deeper guidance (e.g.
+   * solid-js registers its shipped repair skill). Reported events carry
+   * it as trailing lines of the same console entry; events that surface as
+   * a thrown error instead get it as a follow-up line. Returning undefined
+   * for an event suppresses the footer. Passing undefined unregisters and
+   * resets the once-per-code memory.
+   */
+  setConsoleFooter(footer: ((event: DiagnosticEvent) => string | undefined) | undefined): void;
 }
+
+// A dev build without the wiring is a build whose checks emit into a channel
+// nobody can subscribe to. Fail at module init rather than at the first
+// silently dropped finding.
+if (__DEV__ && !__OBSERVE__)
+  throw new Error("@solidjs/signals: __DEV__ requires __OBSERVE__ (dev is a superset of observe)");
 
 const hooks: DevHooks = {};
 const diagnosticListeners = new Set<DiagnosticListener>();
@@ -120,9 +238,8 @@ const diagnostics: Diagnostics = {
     diagnosticListeners.add(listener);
     return () => diagnosticListeners.delete(listener);
   },
-  setConsoleFooter(footer) {
-    consoleFooter = footer;
-    footeredCodes.clear();
+  emit(event, subject = null) {
+    return emitDiagnostic(event, subject);
   },
   capture() {
     const events: DiagnosticEvent[] = [];
@@ -142,21 +259,72 @@ const diagnostics: Diagnostics = {
   }
 };
 
+const attributionSlot: AttributionSlot = {
+  install: setAttributionHooks,
+  get installed() {
+    return attrHooks;
+  },
+  withInteraction,
+  withOrigin
+};
+
+export const OBSERVE: Observe = __OBSERVE__
+  ? {
+      diagnostics,
+      attribution: attributionSlot,
+      subjectOf(event) {
+        return eventSubjects.get(event);
+      },
+      exclude(owner) {
+        excludedOwners.add(owner);
+        hasExclusions = true;
+      },
+      isExcluded
+    }
+  : (undefined as unknown as Observe);
+
+// --- Excluded owners ---------------------------------------------------------------
+//
+// An observer that lives inside the observed app (an adapter's panel,
+// devtools) marks its root; both channels check the subject's owner chain —
+// the same walk `ownerPath` already makes — and stay silent under it. The
+// flag short-circuits the walk for the common case of no exclusions.
+const excludedOwners = new WeakSet<Owner>();
+let hasExclusions = false;
+/** Events built for an excluded subject: never delivered, never reported. */
+const suppressedEvents = new WeakSet<DiagnosticEvent>();
+
+export function isExcluded(subject: DiagnosticSubject | null | undefined): boolean {
+  if (!hasExclusions || !subject) return false;
+  let owner: Owner | null =
+    "_parent" in subject ? (subject as Owner) : (((subject as any)._owner as Owner | null) ?? null);
+  for (; owner !== null; owner = owner._parent) if (excludedOwners.has(owner)) return true;
+  return false;
+}
+
+/** For engines that cache the verdict per node: is anything excluded at all? */
+export function anyExcluded(): boolean {
+  return hasExclusions;
+}
+
+/** Was `entry` built for an excluded subject? Once-per-key reporters must not spend their slot on it. */
+export function isSuppressed(entry: DiagnosticEvent): boolean {
+  return suppressedEvents.has(entry);
+}
+
 export const DEV: Dev = __DEV__
   ? {
       hooks,
-      diagnostics,
-      // Getter: attribution.ts imports emitDiagnostic back from this module,
-      // so when attribution.ts evaluates first the `attribution` binding is
-      // still uninitialized here — defer the read to access time.
-      get attribution() {
-        return attribution;
-      },
       getChildren,
       getSignals,
       getParent,
       getSources,
-      getObservers
+      getObservers,
+      report: reportDiagnostic,
+      setConsoleFooter(footer) {
+        consoleFooter = footer;
+        footeredCodes.clear();
+      }
     }
   : (undefined as unknown as Dev);
 
@@ -170,7 +338,7 @@ export const DEV: Dev = __DEV__
 export function assertInvariant(condition: boolean, name: string, message: string): void {
   if (!__DEV__ || condition) return;
   const full = `[INVARIANT_VIOLATION] ${name}: ${message}`;
-  emitDiagnostic({
+  const entry = emitDiagnostic({
     code: "INVARIANT_VIOLATION",
     kind: "error",
     severity: "error",
@@ -178,24 +346,114 @@ export function assertInvariant(condition: boolean, name: string, message: strin
     data: { invariant: name }
   });
   if (typeof __TEST__ !== "undefined" && __TEST__) throw new Error(full);
-  console.error(full);
+  reportDiagnostic(entry);
 }
 
-export function emitDiagnostic(event: Omit<DiagnosticEvent, "sequence">): DiagnosticEvent {
+/** Anything a diagnostic can be about: an owner (root, computed, effect) or a signal. */
+export type DiagnosticSubject = Owner | Signal<any> | Computed<any>;
+
+/**
+ * Root-first names of the owners enclosing `subject` (inclusive when the
+ * subject is itself a named owner). Signals hop to their registering owner
+ * (`_owner`, set by registerGraph). Unnamed owners are skipped so the path
+ * reads as the component tree plus the scope: `<App> › <TodoRow> › effect`.
+ */
+export function ownerPath(subject: DiagnosticSubject | null | undefined): string[] | undefined {
+  if (!subject) return undefined;
+  let owner: Owner | null =
+    "_parent" in subject ? (subject as Owner) : (((subject as any)._owner as Owner | null) ?? null);
+  const path: string[] = [];
+  for (; owner !== null; owner = owner._parent) {
+    const name = (owner as any)._name;
+    if (typeof name === "string" && name.length) path.push(name);
+  }
+  return path.length ? path.reverse() : undefined;
+}
+
+/**
+ * Records a diagnostic on the structured channel (listeners, captures) and
+ * returns the entry. `subject` locates it: the current reactive `context` by
+ * default (right for the synchronous rule checks — they fire inside the
+ * scope that misbehaved); pass the node for scheduler-time findings whose
+ * ambient context is the flush, or `null` for events that have no location
+ * by nature. An `ownerPath` already on the event wins over the subject walk
+ * (hosts whose owners are not signals' owners compute their own). Console
+ * output is a separate, dev-tier step — see `reportDiagnostic`.
+ */
+export function emitDiagnostic(
+  event: Omit<DiagnosticEvent, "sequence">,
+  subject: DiagnosticSubject | null | undefined = context
+): DiagnosticEvent {
   const entry: DiagnosticEvent = {
     sequence: ++diagnosticSequence,
     ...event
   };
+  // The observer's own subtree: build the entry (the caller may throw its
+  // message) but tell nobody.
+  if (isExcluded(subject)) {
+    suppressedEvents.add(entry);
+    return entry;
+  }
+  if (entry.ownerPath === undefined) {
+    const path = ownerPath(subject);
+    if (path) entry.ownerPath = path;
+  }
+  if (subject) eventSubjects.set(entry, subject);
   for (const listener of diagnosticListeners) listener(entry);
   for (const capture of diagnosticCaptures) capture.push(entry);
-  if (consoleFooter && !footeredCodes.has(entry.code)) {
-    footeredCodes.add(entry.code);
-    const footer = consoleFooter(entry);
-    // Call sites console.warn/error their message after emitDiagnostic
-    // returns; a microtask lands the footer right below that report.
-    if (footer) queueMicrotask(() => console.warn(footer));
+  // Footer for events that never reach reportDiagnostic because the call site
+  // throws the message instead (every such site is severity "error"): a
+  // microtask lands it below the thrown error. Sites that DO report consume
+  // the once-per-code slot synchronously first, so this finds it taken and
+  // stays silent — one console entry per finding. Advisory (`info`) events
+  // are structured-channel only and get no footer: nothing on the console
+  // for it to follow. Dev-tier: the footer is console guidance.
+  if (__DEV__ && entry.severity === "error" && consoleFooter && !footeredCodes.has(entry.code)) {
+    queueMicrotask(() => {
+      const footer = takeFooter(entry);
+      if (footer) console.warn(footer);
+    });
   }
   return entry;
+}
+
+/** The once-per-code footer text, consuming the slot. Undefined if taken or unregistered. */
+function takeFooter(entry: DiagnosticEvent): string | undefined {
+  if (!consoleFooter || footeredCodes.has(entry.code)) return undefined;
+  footeredCodes.add(entry.code);
+  return consoleFooter(entry);
+}
+
+/**
+ * The subject each emitted event was about, for the console step: events are
+ * serializable records and cannot carry the node, but the console can show
+ * what the node knows — a rendering runtime may stamp a binding effect with
+ * the DOM element it writes (`_devElement`), and a live element reference
+ * beside the message is the most addressable pointer a console can print.
+ */
+const eventSubjects = new WeakMap<DiagnosticEvent, DiagnosticSubject>();
+
+/**
+ * The console face of a diagnostic — ONE entry per finding: the message, the
+ * owner path (`in <App> › <TodoRow> › effect`) so a human can locate it, the
+ * once-per-code footer as trailing lines, and — when the subject is a
+ * binding effect the rendering runtime tagged — the element it writes, as a
+ * second console argument (hover highlights it, click jumps to Elements).
+ * Severity picks the console method. Call sites report the entry
+ * `emitDiagnostic` returned so the structured and console channels never
+ * disagree. Dev-tier: in an observe build this is a no-op, so wiring paths
+ * that both emit and report (graph-size warnings) reach the channel only —
+ * production observability never writes to the console.
+ */
+export function reportDiagnostic(entry: DiagnosticEvent): void {
+  if (!__DEV__ || suppressedEvents.has(entry)) return;
+  let text = entry.message;
+  if (entry.ownerPath) text += `\n  in ${entry.ownerPath.join(" › ")}`;
+  const footer = takeFooter(entry);
+  if (footer) text += `\n${footer}`;
+  const element = (eventSubjects.get(entry) as { _devElement?: object } | undefined)?._devElement;
+  const args = element !== undefined ? [text, element] : [text];
+  entry.severity === "error" ? console.error(...args) : console.warn(...args);
 }
 
 /**
@@ -205,7 +463,7 @@ export function emitDiagnostic(event: Omit<DiagnosticEvent, "sequence">): Diagno
  */
 export function throwPendingUntrackedRead(
   strictReadLabel: string,
-  fields?: Partial<Omit<DiagnosticEvent, "sequence" | "data">>
+  fields?: Partial<Omit<DiagnosticEvent, "sequence" | "data" | "ownerPath">>
 ): never {
   const message =
     `[PENDING_ASYNC_UNTRACKED_READ] Reading a pending async value directly in ${strictReadLabel}. ` +
@@ -223,29 +481,37 @@ export function throwPendingUntrackedRead(
 
 export function warnStrictReadUntracked(
   strictReadLabel: string,
-  fields?: Partial<Omit<DiagnosticEvent, "sequence">>
+  fields?: Partial<Omit<DiagnosticEvent, "sequence" | "ownerPath">>
 ): void {
   const message =
     `[STRICT_READ_UNTRACKED] Reactive value read directly in ${strictReadLabel} will not update. ` +
     `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`;
-  emitDiagnostic({
-    code: "STRICT_READ_UNTRACKED",
-    kind: "strict-read",
-    severity: "warn",
-    message,
-    data: { strictRead: strictReadLabel },
-    ...fields
-  });
-  console.warn(message);
+  reportDiagnostic(
+    emitDiagnostic({
+      code: "STRICT_READ_UNTRACKED",
+      kind: "strict-read",
+      severity: "warn",
+      message,
+      data: { strictRead: strictReadLabel },
+      ...fields
+    })
+  );
 }
 
+/**
+ * Observe-tier: stamp a signal with its creating owner so `ownerPath` can
+ * locate signal subjects. The per-owner `_signals` list and the devtools
+ * `onGraph` hook are dev-tier — the observe build pays one property write.
+ */
 export function registerGraph(value: any, owner: Owner | null): void {
   (value as any)._owner = owner;
-  if (owner) {
-    if (!(owner as any)._signals) (owner as any)._signals = [];
-    (owner as any)._signals.push(value);
+  if (__DEV__) {
+    if (owner) {
+      if (!(owner as any)._signals) (owner as any)._signals = [];
+      (owner as any)._signals.push(value);
+    }
+    DEV.hooks.onGraph?.(value, owner);
   }
-  DEV.hooks.onGraph?.(value, owner);
 }
 
 export function clearSignals(node: Owner): void {
@@ -292,63 +558,81 @@ export function getObservers(node: Signal<any> | Computed<any>): Computed<any>[]
   return observers;
 }
 
-function shouldWarnGraphSize(count: number): boolean {
-  return count >= GRAPH_SIZE_WARN_AT && (count - GRAPH_SIZE_WARN_AT) % GRAPH_SIZE_WARN_EVERY === 0;
+/**
+ * Graph-size warnings are once per node, re-warning only when the count has
+ * grown by GRAPH_SIZE_WARN_EVERY since the last one — off-node, so the
+ * pathological handful of nodes that ever reach the threshold are the only
+ * ones that cost anything, and no node carries a bookkeeping field for it.
+ */
+const graphSizeWarnedAt = new WeakMap<object, number>();
+
+function shouldWarnGraphSize(node: object, count: number): boolean {
+  const last = graphSizeWarnedAt.get(node);
+  if (last !== undefined && count < last + GRAPH_SIZE_WARN_EVERY) return false;
+  graphSizeWarnedAt.set(node, count);
+  return true;
 }
 
 /**
- * DEV-only: bump live edge counts after a new graph link and warn when a
- * node grows an unusually large fan-out (many subscribers on one source) or
- * fan-in (many sources on one computation). Repeat-reads that `link()`
- * dedupes never reach here. Always-on in dev — unlike the opt-in attribution
- * engine, a graph-size pathology should surface without asking.
+ * Observe-tier: a committed change on `node` is about to re-run `count`
+ * subscribers (the notify walk in `insertSubs` counted them as it went —
+ * fan-out costs exactly one local increment in a loop that already visits
+ * every edge, and nothing at link time). Fires from GRAPH_SIZE_WARN_AT up,
+ * on the write rather than the link: a fan-out that is never written costs
+ * nothing, and one that is re-runs every subscriber this flush. Always-on
+ * wherever the channel exists — unlike the opt-in attribution engine, a
+ * graph-size pathology should surface without asking.
  */
-export function noteGraphLink(dep: Signal<any> | Computed<any>, sub: Computed<any>): void {
-  const fanOut = (dep._subCount = (dep._subCount || 0) + 1);
-  const fanIn = (sub._depCount = (sub._depCount || 0) + 1);
-  if (shouldWarnGraphSize(fanOut)) {
-    const name = dep._name;
-    const message =
-      `[HUGE_FAN_OUT] ${name ? `Signal "${name}"` : "A signal"} has ${fanOut} subscribers. ` +
-      `Each will re-run when it changes. If many independent computations read the same value ` +
-      `(for example every row of a list comparing against one selected id), prefer a per-key ` +
-      `store or projection so only the items whose result flipped update.`;
-    emitDiagnostic({
-      code: "HUGE_FAN_OUT",
-      kind: "graph",
-      severity: "warn",
-      message,
-      nodeName: name,
-      ownerId: (dep as Computed<any>).id,
-      ownerName: name,
-      data: { count: fanOut }
-    });
-    console.warn(message);
-  }
-  if (shouldWarnGraphSize(fanIn)) {
-    const name = sub._name;
-    const message =
-      `[HUGE_FAN_IN] ${name ? `Computation "${name}"` : "A computation"} has ${fanIn} sources. ` +
-      `It will re-run when any of them change. Narrow the read or split the derivation so each ` +
-      `computation tracks only what it needs.`;
-    emitDiagnostic({
-      code: "HUGE_FAN_IN",
-      kind: "graph",
-      severity: "warn",
-      message,
-      nodeName: name,
-      ownerId: sub.id,
-      ownerName: name,
-      data: { count: fanIn }
-    });
-    console.warn(message);
-  }
+export function noteFanOut(node: Signal<any> | Computed<any>, count: number): void {
+  if (!shouldWarnGraphSize(node, count)) return;
+  const name = node._name;
+  const message =
+    `[HUGE_FAN_OUT] ${name ? `Signal "${name}"` : "A signal"} changed with ${count} subscribers — ` +
+    `every one re-runs this flush. If many independent computations read the same value ` +
+    `(for example every row of a list comparing against one selected id), prefer a per-key ` +
+    `store or projection so only the items whose result flipped update.`;
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "HUGE_FAN_OUT",
+        kind: "graph",
+        severity: "warn",
+        message,
+        nodeName: name,
+        ownerId: (node as Computed<any>).id,
+        ownerName: name,
+        data: { count }
+      },
+      node
+    )
+  );
 }
 
-/** DEV-only: drop live edge counts when a link is removed. */
-export function unnoteGraphLink(link: Link): void {
-  const dep = link._dep;
-  const sub = link._sub;
-  if (dep._subCount) dep._subCount--;
-  if (sub._depCount) sub._depCount--;
+/**
+ * Observe-tier: a recompute pass of `node` tracked `count` distinct sources
+ * (its trimmed dep list, walked once at the end of the pass — see recompute;
+ * no per-link work, no pass bracket). Fires from GRAPH_SIZE_WARN_AT up.
+ */
+export function noteFanIn(node: Computed<any>, count: number): void {
+  if (!shouldWarnGraphSize(node, count)) return;
+  const name = node._name;
+  const message =
+    `[HUGE_FAN_IN] ${name ? `Computation "${name}"` : "A computation"} tracked ${count} sources. ` +
+    `It will re-run when any of them change. Narrow the read or split the derivation so each ` +
+    `computation tracks only what it needs.`;
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "HUGE_FAN_IN",
+        kind: "graph",
+        severity: "warn",
+        message,
+        nodeName: name,
+        ownerId: node.id,
+        ownerName: name,
+        data: { count }
+      },
+      node
+    )
+  );
 }

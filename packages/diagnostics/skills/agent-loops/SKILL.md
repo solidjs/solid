@@ -6,7 +6,7 @@ timing and waste accounting). This package captures both into one
 serializable artifact. Use it to verify claims about reactive code instead
 of inferring them from reading it.
 
-There are three loops. Each takes the same fixture:
+There are four loops. Each takes the same fixture:
 
 ```ts
 import { captureArtifact } from "@solidjs/diagnostics";
@@ -46,7 +46,8 @@ assertBudget(artifact, {
   allow: [], // tolerated diagnostic codes
   maxReruns: 2, // total re-run cardinality for the scenario
   maxWastedRuns: 0, // unchanged recomputes (plain, non-held)
-  scopes: { TodoRow: 1 } // per-scope caps; "/regex/" keys also work
+  scopes: { TodoRow: 1 }, // per-scope caps; "/regex/" keys also work
+  maxSilentHoldMs: 0 // every hold the interaction caused was acknowledged on screen
 });
 ```
 
@@ -75,9 +76,84 @@ causality:
 
 Start from the top of the cost tables. The usual repairs: a missing memo
 boundary (waste), an unstable memo output (fan-out amplifier), a wide read
-that should be split, or a hot value that needs `createSelector`/projection
-inversion. Re-capture after each change and diff the rerun counts — the
+that should be split, or a hot value that should be inverted into a store
+used as a map keyed by id. Re-capture after each change and diff the rerun counts — the
 artifact is the before/after evidence.
+
+## Loop 4 — Responsiveness (the click did something, visibly)
+
+Solid holds a write that lands on async work until the data settles, so the
+screen never tears. That is correct — and from the user's side the click did
+nothing until the data came back unless something on screen acknowledged the
+wait. Agents systematically skip the affordances that do this (`isPending`,
+`latest`, `createOptimistic`); this loop makes the omission a test failure.
+
+Set `maxSilentHoldMs: 0` on every scenario that is a user interaction, or
+assert directly:
+
+```ts
+import { expectNoSilentHolds } from "@solidjs/diagnostics";
+expectNoSilentHolds(artifact); // fails with the hold: interaction, held write, blocker, duration
+```
+
+When it fails, read `artifact.attribution.feedback.sources` first — the
+ranked table of what users waited on: per async source, how many holds, how
+many silent, `acknowledgedBy` (which affordance answered, in how many holds),
+and which interactions were held. A source acknowledged in some holds and
+silent in others means the affordance exists on one screen and is missing on
+another; add it where the silent holds happen. Then repair by shape, in this
+order:
+
+1. **Show the wait** — read `isPending(() => blocker())` (the blocker is
+   named in the failure) in the affected UI and render a busy state.
+2. **Reveal the input** — `latest(heldSource)` shows the new value of the
+   held write (page number, filter, query) immediately while data catches up.
+3. **Predict the outcome** — `createOptimistic`/`createOptimisticStore`
+   written alongside the real write (or inside the action) shows the expected
+   result now and reverts on failure. For actions this is the primary repair.
+
+Anti-repair: never make the assertion pass by moving the write off the async
+path, wrapping it in `untrack`, or splitting the read so the write "commits
+faster". That trades a hold for a torn screen and is the bug the hold exists
+to prevent. `expectHoldBudget(artifact, ms)` is the separate latency gate —
+acknowledged or not, no hold may outlast it — for mocked sources that should
+settle within a known time.
+
+`artifact.attribution.feedback.interactions` is the INP-shaped view: per user
+event, the synchronous re-run work one dispatch caused (`worstDispatchMs` —
+fix through Loop 3) beside the time its writes spent held (`worstHoldMs`,
+`silentMs` — fix here). In browser captures the interaction is stamped by the
+web runtime; in-process, wrap the write in
+`OBSERVE.attribution.withInteraction({ type, target }, () => …)` so holds are
+measured from the event and keyed by it. A router that wraps its location
+write in `OBSERVE.attribution.withOrigin({ kind: "navigation", name, to, from, params }, () => …)`
+names holds by route as well — `SILENT_HOLD` then reads "click on a.nav
+(navigation to /users/:id) wrote …", and `feedback.navigations` /
+`attribution.navigations()` give the per-route view. A redirect declared
+with `redirect: n` folds onto the pending navigation (one record, timed from
+the click, the abandoned destination in `redirects`) rather than superseding it.
+
+The remaining fact tables in `feedback` have no verdict of their own; read
+them when a scenario is slow without being silent:
+
+- `flights` — per async source, `flights`/`landed`/`abandoned`. A source that
+  abandons most of its flights re-asks on every input change (search as you
+  type); put a debounced or equality-gated derivation between the input and
+  the fetch. `long`/`longMs` on a `sources` row is the sibling fact: the
+  hold's tail (last input → commit) ran past the long-hold threshold,
+  acknowledged or not — the `LONG_HOLD` shape. A spinner over stale content
+  is not the answer at that length: key a `Loading` boundary with `on` so the
+  fallback shows, or preload/cache so the wait never gets there.
+- `fallbacks` — per loading boundary, `shows`/`shownMs`/`flashes`. A flash
+  (under 150ms) is a spinner that appeared and vanished; preload, cache, or
+  lift the fetch above the boundary. Do not add artificial delay.
+
+Loop 4's structural siblings live in Loop 2's diagnostics list:
+`EFFECT_RELAY_TEAR` (derived state via effect — a reader ran twice for one
+write, the first frame inconsistent; make it a memo), `IMMUTABLE_UPDATE_IN_STORE`
+(spread-copy store writes — mutate the draft or `reconcile`), and
+`UNSTABLE_LIST_IDENTITY` (a list rebuilt for equivalent records — key by a
+stable field or `reconcile`). Each names its repair in the message.
 
 ## Practical rules
 
@@ -88,8 +164,8 @@ artifact is the before/after evidence.
    scenario is a single user-visible action (one click, one keystroke, one
    landing async value).
 3. **Egress for offline analysis.** `artifactToJSONL(artifact)` emits one
-   JSON record per line (`meta`, `diagnostic`, `rerun`, `costs`) — grep it,
-   diff it between runs, attach it to a report.
+   JSON record per line (`meta`, `diagnostic`, `rerun`, `costs`, `hold`,
+   `feedback`) — grep it, diff it between runs, attach it to a report.
 4. **Dev builds only.** `captureArtifact` throws where the `DEV` export is
    stripped. Run under Vitest or a dev server.
 5. **Browser capture uses the same artifact.** For real pages, import
@@ -107,6 +183,7 @@ curl -X POST localhost:3000/__solid/diagnostics -d '{"method":"begin"}'
 # ...interact with the app in the browser...
 curl -X POST localhost:3000/__solid/diagnostics -d '{"method":"whyDidRun","params":{"name":"TodoRow"}}'
 curl -X POST localhost:3000/__solid/diagnostics -d '{"method":"costs"}'
+curl -X POST localhost:3000/__solid/diagnostics -d '{"method":"feedback"}'
 curl -X POST localhost:3000/__solid/diagnostics -d '{"method":"end"}'
 ```
 
