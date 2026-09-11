@@ -464,7 +464,12 @@ module.exports = [
     // Rebased on #3337 @ 451f0879 (on `next` @ 6bf2bf85, 2026-09-11): 15.34 ->
     // 15.45 KB, measured at 15401 B (was 15335). `next`'s #3351/#3352 store
     // bytes (see #3337's note) under the lane-authority store twins.
-    limit: "15.45 KB",
+    //
+    // Rebased on #3337 @ 027fda24 (on `next` @ 4935c7dd, 2026-09-11): 15.45 ->
+    // 15.72 KB, measured at 15678 B (was 15401). `next`'s #3367/#3368
+    // narrow-store write floor and `$OWNER` stamp (see #3337's note) under
+    // the store twins.
+    limit: "15.72 KB",
     modifyEsbuildConfig
   },
   {
@@ -942,7 +947,11 @@ module.exports = [
     // Rebased on #3337 @ 451f0879 (on `next` @ 6bf2bf85, 2026-09-11): 28.35 ->
     // 28.50 KB, measured at 28444 B (was 28344). `next`'s #3351/#3352 store
     // bytes and #3350 core bytes (see #3337's note) under the store twins.
-    limit: "28.50 KB",
+    //
+    // Rebased on #3337 @ 027fda24 (on `next` @ 4935c7dd, 2026-09-11): 28.50 ->
+    // 28.66 KB, measured at 28620 B (was 28444). `next`'s #3367/#3368
+    // createStore arm (see that note).
+    limit: "28.66 KB",
     modifyEsbuildConfig
   },
   {
