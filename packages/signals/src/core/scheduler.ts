@@ -27,7 +27,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { currentOptimisticLane, ext, slotUnobservedHook } from "./core.js";
+import { currentOptimisticLane, ext, promoteUnflushed, slotUnobservedHook } from "./core.js";
 import { DEV, emitDiagnostic, GRAPH_SIZE_WARN_AT, noteFanOut, reportDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { sweepDormant } from "./graph.js";
@@ -596,6 +596,9 @@ export class GlobalQueue extends Queue {
   // once the gate holds.
   static _optimisticWrite: (<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)) => T) | null =
     null;
+  /** Installs an optimistic write's pending override at its promotion
+   * (promoteUnflushed) — the deferred half of _optimisticWrite. */
+  static _promoteOverride: ((el: Signal<any> | Computed<any>) => void) | null = null;
   static _resolveOptimistic: ((nodes: OptimisticNode[]) => void) | null = null;
   static _transitionBlocked: ((transition: Transition) => boolean) | null = null;
   static _cleanupLanes: ((completingTransition: Transition | null) => void) | null = null;
@@ -651,6 +654,10 @@ export class GlobalQueue extends Queue {
   static _trackOptimisticStore: ((store: any) => void) | null = null;
   flush() {
     if (this._running) return;
+    // The tick's imperative writes become this flush's world. Before the
+    // fast-drain check: syncing a companion may create optimistic state that
+    // rules the fast path out.
+    promoteUnflushed();
     // Fast drain: nothing in flight but plain pending commits — no dirty
     // computeds, no queued effects, no child queues, no transitions/lanes/
     // optimistic state. Commit and go; anything a commit hook schedules
@@ -672,6 +679,9 @@ export class GlobalQueue extends Queue {
         // recomputed (matching the old inline dispose-on-read counts).
         sweepDormant();
         commitPendingNodes();
+        // Writes the commit hooks issued belong to this round (see the
+        // promotion before the full path's clock++ below).
+        promoteUnflushed();
       } finally {
         this._running = false;
       }
@@ -721,6 +731,8 @@ export class GlobalQueue extends Queue {
             GlobalQueue._runLaneEffects!(EFFECT_USER);
           }
 
+          // Lane-effect writes belong to this round, ahead of the stash.
+          promoteUnflushed();
           this.stashQueues(stashedTransition._queueStash);
           clock++;
           // A kept ambient batch may hold pending nodes (#2916): stay
@@ -755,6 +767,9 @@ export class GlobalQueue extends Queue {
       } else {
         if (canUseSimpleSyncFlush(this)) {
           commitPendingNodes();
+          // The commit hooks' writes (store folds) are the world this heap
+          // run computes — same rule as finalizePureQueue.
+          promoteUnflushed();
           if (dirtyQueue._max >= dirtyQueue._min) {
             runHeap(dirtyQueue, GlobalQueue._update);
             commitPendingNodes();
@@ -764,6 +779,11 @@ export class GlobalQueue extends Queue {
           finalizePureQueue();
         }
       }
+      // Writes issued during this round outside a recompute (effects, commit
+      // hooks, boundary sweeps) are promoted before the clock advances: a
+      // read they dirty runs in the same cycle their cause landed in, which
+      // is what the clock-gated retries (an errored source's re-ask) key on.
+      promoteUnflushed();
       clock++;
       // Check if finalization added items to the heap (from optimistic reversion).
       // Finalization may also have ENTERED a transaction (a commit hook, boundary
@@ -930,14 +950,6 @@ let lastStagedNodeName: string | null = null;
 // REACTIVE_REASK) so the hot notification loop skips the per-subscriber flag
 // clear entirely in apps that never refresh.
 export let reaskArmed = false;
-/** §12d: bumped by every recompute and every new subscriber edge. A node's
- * staged-rewrite skip is sound only while NOTHING recomputed or linked since
- * its last notify — a mid-batch pull can clean a marked subscriber, and a
- * skipped re-write would leave it stale. */
-export let notifyEpoch = 0;
-export function bumpNotifyEpoch(): void {
-  notifyEpoch++;
-}
 export function armReaskClear(): void {
   reaskArmed = true;
 }
@@ -963,9 +975,6 @@ export function setOrigin(seq: number): number {
 }
 
 export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolean = false): void {
-  // §12d: stamp before walking — setSignal's staged-rewrite fast path skips
-  // the next walk for this node while the epoch holds (marking is idempotent).
-  node._notifiedAt = notifyEpoch;
   // Get source lane: prefer node's own lane over current context
   // This is important for isPending signals which need their own lane to flush immediately
   // Presence bits gate the optional-slot probes (see constants.ts): one
@@ -1137,6 +1146,10 @@ export function finalizePureQueue(
     resolvePending && (completingTransition ?? finalizingBatch)._optimisticNodes.length !== 0;
   if (contested && !revertsOptimism)
     for (const el of contested) if (!(el._flags & REACTIVE_DISPOSED)) enqueueSub(el);
+  // The commit hooks' and the boundary sweep's writes are the world this
+  // heap run computes (a boundary re-enabled by the sweep reveals in the
+  // same cycle its source settled in).
+  promoteUnflushed();
   const ranHeap = dirtyQueue._max >= dirtyQueue._min;
   if (ranHeap) runHeap(dirtyQueue, GlobalQueue._update);
   if (resolvePending) {

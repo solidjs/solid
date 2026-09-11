@@ -203,7 +203,7 @@ export function devAssertNeverUserMutation(target: object): void {
  * the optimistic channel entirely. */
 export interface OptStoreHooks {
   notifyOptimisticWrites(t: any, pb: Record<PropertyKey, any>): void;
-  optimisticView(t: any, src: Record<PropertyKey, any>): Record<PropertyKey, any>;
+  optimisticView(t: any, src: Record<PropertyKey, any>, draft?: boolean): Record<PropertyKey, any>;
   applyTentative(t: any, incoming: any, keyFn: ((item: any) => any) | null): void;
   /** #3164 fold: does this live transaction still retain optimism (armed
    * nodes or tracked stores)? Backs the held-truth masks in next/store.ts so

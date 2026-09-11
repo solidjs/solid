@@ -181,15 +181,27 @@ describe("createStore shallow", () => {
     // children served raw
     expect((state as any)[0]).toBe(rows[0]);
     const optimisticRow = { id: 0, count: 777, queries: [{ elapsed: 0 }] };
+    const seen: any[] = [];
+    createRoot(() => {
+      createEffect(
+        () => (state as any)[0],
+        v => {
+          seen.push(v);
+        }
+      );
+    });
+    flush();
     setState((s: any) => {
       s[0] = optimisticRow;
     });
-    // staged: visible immediately (tentative)
-    expect((state as any)[0]).toBe(optimisticRow);
+    // A28: staged but unflushed — the flush carries it
+    expect((state as any)[0]).toBe(rows[0]);
     expect(rows[0].count).toBe(0);
-    // ambient (non-action) optimistic writes auto-revert at flush end,
-    // re-reading the untouched raw base row — the boundary contract holds.
+    // The flush shows the replacement (raw, tentative); ambient (non-action)
+    // optimistic writes auto-revert at flush end, re-reading the untouched
+    // raw base row — the boundary contract holds.
     flush();
+    expect(seen).toEqual([rows[0], optimisticRow, rows[0]]);
     expect((state as any)[0]).toBe(rows[0]);
     expect(rows[0].count).toBe(0);
   });

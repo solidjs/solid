@@ -436,12 +436,25 @@ describe("new questions pend and cannot be silenced (the foos bug, fixed without
 describe("plain optimistic stores (no source)", () => {
   it("writes display and revert without ever pending", () => {
     const [state, setState] = createOptimisticStore({ count: 0 });
+    const seen: number[] = [];
+    createRoot(() =>
+      createRenderEffect(
+        () => state.count,
+        v => {
+          seen.push(v);
+        }
+      )
+    );
+    flush();
     setState(s => {
       s.count++;
     });
-    expect(state.count).toBe(1);
+    // A28: unflushed — readers see the flushed value, and nothing is pending
+    expect(state.count).toBe(0);
     expect(isPending(() => state.count)).toBe(false);
     flush();
+    // The flush displayed the write, then reverted the ambient override
+    expect(seen).toEqual([0, 1, 0]);
     expect(state.count).toBe(0);
     expect(isPending(() => state.count)).toBe(false);
   });
@@ -594,8 +607,12 @@ describe("affects — the declaration verb", () => {
     const send = action(function* () {
       setState(s => {
         s.messages.push({ text: "new", status: "sending" });
+        // A28: `state.messages[1]` is undefined until the flush carries the
+        // push, so the slot form names the row on the draft (a keyless
+        // `affects(state.messages)` would cover it — the walk is a writer
+        // channel — but here only `status` should pend).
+        affects(s.messages[1], "status");
       });
-      affects(state.messages[1], "status");
       yield new Promise<void>(r => (resolveSend = r));
     });
 
@@ -898,6 +915,7 @@ describe("affects — captured proxies (#2882)", () => {
     const doneSecond = second();
     flush();
     const added = state.rows[2];
+    expect(added.name).toBe("c");
     expect(isPending(() => added.name)).toBe(true); // in the second declaration's scope
 
     resolveFirst();
@@ -918,7 +936,10 @@ describe("affects — captured proxies (#2882)", () => {
     expect(() => (affects as any)(state, "rows", "length")).toThrow(/single optional key/);
   });
 
-  it("optimistically written records visible at declaration time are covered", async () => {
+  // A28(5): the optimistic write is not readable through `state` until the
+  // flush carries it, but the declaration walk is a writer channel — tagging
+  // the parent covers the whole record, the row this tick pushed included.
+  it("optimistically written records are covered by a same-tick affects(parent)", async () => {
     const [state, setState] = createOptimisticStore<{ rows: Row[] }>({ rows: seedRows() });
 
     let resolveIt!: () => void;
@@ -926,7 +947,37 @@ describe("affects — captured proxies (#2882)", () => {
       setState(s => {
         s.rows.push({ name: "c", tags: { primary: "z" } });
       });
-      affects(state); // declared AFTER the write: the walk must read through overlays
+      expect(state.rows.length).toBe(2); // the push is not visible to readers yet…
+      affects(state); // …but the walk reads the tick's parked writes
+      yield new Promise<void>(r => (resolveIt = r));
+    });
+
+    const done = act();
+    flush();
+    const added = state.rows[2];
+    expect(added.name).toBe("c");
+    expect(isPending(() => state.rows[0].name)).toBe(true);
+    expect(isPending(() => added.name)).toBe(true);
+    expect(isPending(() => added.tags.primary)).toBe(true);
+
+    resolveIt();
+    await done;
+    flush();
+    expect(isPending(() => state.rows[0].name)).toBe(false);
+    expect(isPending(() => added.name)).toBe(false);
+  });
+
+  // The slot form names a record: a row born in this tick's write is not
+  // readable through `state`, so it is named on the draft.
+  it("a record written in the same tick is covered when declared on the draft", async () => {
+    const [state, setState] = createOptimisticStore<{ rows: Row[] }>({ rows: seedRows() });
+
+    let resolveIt!: () => void;
+    const act = action(function* () {
+      setState(s => {
+        s.rows.push({ name: "c", tags: { primary: "z" } });
+        affects(s.rows[2]); // the draft row: the same target the flush will serve
+      });
       yield new Promise<void>(r => (resolveIt = r));
     });
 
@@ -935,6 +986,8 @@ describe("affects — captured proxies (#2882)", () => {
     const added = state.rows[2];
     expect(added.name).toBe("c");
     expect(isPending(() => added.name)).toBe(true);
+    expect(isPending(() => added.tags.primary)).toBe(true);
+    expect(isPending(() => state.rows[0].name)).toBe(false); // siblings stay crisp
 
     resolveIt();
     await done;

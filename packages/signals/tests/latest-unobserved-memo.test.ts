@@ -52,8 +52,11 @@ it("latest(m); m(); write — recomputes on every click (#2927 case B)", () => {
 });
 
 it("orderings stay consistent without explicit flushes (#2927)", () => {
-  // Reads happen before the write within each click, so the recompute for a
-  // write lands on the NEXT click's reads — a one-click lag, never a stall.
+  // Writes become visible at flush: with no flush between clicks, neither a
+  // plain read nor a latest() read derives from the queued writes, so the memo
+  // does not recompute at all — identically in both orderings. (Under the
+  // former mid-tick pull each click's latest() recomputed it once.) The
+  // flush at the end lands the writes and the memo runs once more.
   const a = setup();
   const b = setup();
   for (let i = 0; i < 4; i++) {
@@ -66,6 +69,9 @@ it("orderings stay consistent without explicit flushes (#2927)", () => {
     b.write();
 
     expect(a.runs()).toBe(b.runs());
-    expect(a.runs()).toBe(Math.max(1, i + 1));
+    expect(a.runs()).toBe(1);
   }
+  flush();
+  expect(a.runs()).toBe(2);
+  expect(b.runs()).toBe(2);
 });

@@ -6,6 +6,18 @@
 > Revisit only on perf evidence, and weigh against pull-time commit
 > validation (the Alien Signals approach), which would obsolete this.
 > Behavior verified reproducible in 2.0; approach agreed, not started.
+>
+> **Update 2026-09-10 (A28, #3337):** the deferral this design rests on has
+> landed for a different reason — writes become visible at flush, so every
+> staging write marks its node unflushed and the subscriber walk runs at
+> promotion (`markUnflushed`/`promoteUnflushed`). Coalescing falls out of it
+> (repeated same-tick writes walk once). The round-one table below is stale
+> in one row: optimistic writes no longer stay eager — a user's write parks in
+> `_pendingOverride` and installs at promotion (A28(5)); only engine
+> companions install eagerly. Revert elision is the piece still open: at
+> promotion, a node whose pending value equals the value the last flush left
+> could skip its walk (one `_equals` per written node — gate it on a rewrite
+> bit so the common single-write path pays nothing).
 
 ## The feature
 

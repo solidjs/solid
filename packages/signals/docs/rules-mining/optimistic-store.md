@@ -4,7 +4,7 @@ Source suites: `tests/store/createOptimisticStore.test.ts`, `tests/optimistic-st
 
 ## A. Visibility
 
-**R1 — Synchronous universal visibility.** An optimistic write is visible to every reader immediately at write time, before any flush: tracked, untracked, inside the action body, outside any reactive context, and subsequent setter drafts.
+**R1 — ~~Synchronous universal visibility.~~** ~~An optimistic write is visible to every reader immediately at write time, before any flush: tracked, untracked, inside the action body, outside any reactive context, and subsequent setter drafts.~~ **Superseded 2026-09-10 by A28(5)** (SPEC-ASYNC-SEMANTICS.md): visible to every reader at the flush that carries it. The one surviving clause is "subsequent setter drafts" — the draft is the writer's channel and composes on the tick's parked writes (`draftOverride`), as does the `affects()` declaration walk. The cited tests were re-expected in place.
 - createOptimisticStore — "should update store via setter and revert on flush", "should show optimistic value when read outside reactive context"; refetch-hold draft assertion.
 
 **R2 — Drafts compose on the live optimistic view.** Each setter draft reads through all prior optimistic state (same tick, across ticks, across separate actions/refetches).

@@ -226,7 +226,65 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // The lane predicate itself (`resolveLane`) shakes out. On the #3337
     // stack the same fixes measured +485 B (22,381 -> 22,866). Measured at
     // 22,457; 43 bytes of headroom.
-    expect(minifiedBytes).toBeLessThan(22_500);
+    //
+    // CONSCIOUS BUMP (2026-09-09): +~316B net for "writes become visible at
+    // flush" — ONE write path: every staging write marks its node UNFLUSHED
+    // and defers BOTH remaining halves of the write, the companion sync and
+    // the subscriber walk, to promotion (markUnflushed / promoteUnflushed,
+    // CONFIG_UNFLUSHED, the `_flushedStaged` ext slot for a held node
+    // rewritten in the same tick, and the flushed-view arm at read()'s three
+    // value selections). Consumers promote: the flush top, a recompute's
+    // tail (its own writes, by cursor), and the in-flush steps a heap run
+    // follows — no "is this a machinery write?" heuristic at the write site.
+    // One rule replaces per-channel answers: latest(), isPending(), and
+    // tracked reads of a same-tick computation all see the flushed world, so
+    // nothing derives from a write before its flush. Core-retained by
+    // necessity: it is the write path. Paid for in part by deleting §12d
+    // (the `_notifiedAt` signal field, the notify epoch bumped on every
+    // recompute and link, and setSignal's staged-rewrite skip, ~-90B) —
+    // deferral makes repeated same-tick writes walk once without it — and by
+    // deleting latestRead's #2922 mid-tick pull and #3104 probe suspension
+    // (verdict layer, not in this floor). Measured at 22,252 post-change (rebased on #3324 two-tier literals).
+    //
+    // CONSCIOUS BUMP (2026-09-10, #3337 CodSpeed): +27 B. The unflushed list
+    // lives in core.ts so recompute's tail is a local length compare (two
+    // cross-module calls per run cost update1to1 ~25% under the test
+    // transform's live-binding getters); promoteUnflushed returns before its
+    // truncating `length =` on an empty list; plain nodes skip the override
+    // probe (CONFIG_OPTIMISTIC gate). Measured at 22,279.
+    //
+    // CONSCIOUS BUMP (2026-09-10, A28 for optimistic writes): +52 B. A
+    // user's optimistic write parks in the `_pendingOverride` ext slot and
+    // installs at its promotion — promoteUnflushed's override arm dispatches
+    // through GlobalQueue._promoteOverride, so the install itself
+    // (promoteOverride/installOverride) rides the optimistic module. The
+    // floor pays the slot's initializer, the arm and the hook slot; the
+    // alternative (install eagerly and mask the override from readers until
+    // the flush) would have put the mask on read()'s hot path for every
+    // optimistic read. Measured at 22,331.
+    //
+    // NOTE (2026-09-11, rebased on `next` @ 6bf2bf85): +50 B, none of it this
+    // branch's. `next`'s #3350 (insertIntoHeap marks the incoming node in
+    // place — a markNode call where a flag clear was) and #3351 (`_prevChild`
+    // on the signal literals, linkFirewallChild/unlinkFirewallChild) moved
+    // `next`'s own floor 21,890 -> 21,994; this branch's delta over `next`
+    // is 387 B (was 441 on the previous base; no source on this branch
+    // changed in the rebase beyond taking `next`'s heap.ts line, so the
+    // difference is how the merged core minifies). Measured at 22,381;
+    // budget 22,400 -> 22,450 for headroom.
+    //
+    // NOTE (2026-09-11, rebased on `next` @ b5bd6fba): the lane-authority
+    // fixes (#3335, #3334, #3330, #3331, A15 re-rule) merged to `next` as
+    // #3370 at +463 B (21,994 -> 22,457); on this branch they compose with
+    // A28's deferred landing (asyncWrite defers to promoteUnflushed, whose
+    // override arm dispatches to _supersedeOverride) and the store twins add
+    // the held-FOLD case (#3336). Measured at 22,866 — the same source
+    // measured 22,866 on #3347 before it was split — so this branch's delta
+    // over `next` is 409 B (was 387 on the previous base; the +22 is the
+    // landing dispatch living in promoteUnflushed's override arm here where
+    // #3370 has it inline in asyncWrite — the same call, minifying a little
+    // differently in the merged core). Budget 22,450 -> 22,900.
+    expect(minifiedBytes).toBeLessThan(22_900);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

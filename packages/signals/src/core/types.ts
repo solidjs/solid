@@ -88,6 +88,24 @@ export interface NodeExtension {
   _optimisticLane: OptimisticLane | undefined;
   _pendingSignal: Signal<boolean> | undefined; // Lazy signal for isPending()
   _latestValueComputed: Computed<any> | undefined; // Lazy computed for latest()
+  /**
+   * The flushed staged value a held node carried before an unflushed rewrite
+   * overwrote `_pendingValue` (CONFIG_UNFLUSHED). `latest()` and the
+   * verdict serve this until the rewrite flushes — a companion created in
+   * that window must answer the same as one that already existed, and the
+   * node is the only place the value survives. NOT_PENDING when absent;
+   * cleared with the flag.
+   */
+  _flushedStaged: unknown | typeof NOT_PENDING;
+  /**
+   * An optimistic write no flush has processed yet (CONFIG_UNFLUSHED on an
+   * optimistic node). Writes become visible at flush — overrides included
+   * (A28): the write is recorded here at write time and installed as
+   * `_overrideValue` by its promotion, so until the flush every reader keeps
+   * the flushed view (the previous override, or committed) and only the
+   * setter's own functional updater sees it. NOT_PENDING when absent.
+   */
+  _pendingOverride: unknown | typeof NOT_PENDING;
   _parentSource: Signal<any> | Computed<any> | undefined; // Back-reference for parent-child lane relationship
   /**
    * Live `affects()` marks on this node (refcount). Non-zero is declared
@@ -150,11 +168,6 @@ export interface RawSignal<T> {
    * (setSignal's transition-init check) and on recompute scheduling — the
    * per-write extension chase measurably taxed propagation chains. */
   _transition: Transition | null;
-  /** Notify-epoch stamp of the last subscriber walk (§12d). A re-write to an
-   * already-staged node whose stamp still equals the global epoch skips the
-   * whole walk — marking is idempotent, and the epoch bumps on every
-   * recompute and new subscriber edge (either can invalidate the skip). */
-  _notifiedAt: number;
   _pendingValue: T | typeof NOT_PENDING;
   /** Cold extension — see NodeExtension. */
   _x: NodeExtension | null;

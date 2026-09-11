@@ -319,12 +319,12 @@ const user = createMemo(() => fetchUser(id()));
 
 The resource tuple features map to standalone APIs:
 
-| 1.x resource feature | 2.0 replacement                                                             |
-| -------------------- | --------------------------------------------------------------------------- |
+| 1.x resource feature | 2.0 replacement                                                                                                                                                                                                |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `resource.loading`   | `Loading` (initial), `isPending(() => resource())` (in-flight input change); a bare `refresh()` is silent — use `affects(resource); refresh(resource)` or a co-written optimistic flag for refetch affordances |
-| `resource.error`     | `Errored` boundary or effect `error` option                                 |
-| `refetch()`          | `refresh(resource)`                                                         |
-| `mutate()`           | `createOptimisticStore` + `action` (see [RFC 06](06-actions-optimistic.md)) |
+| `resource.error`     | `Errored` boundary or effect `error` option                                                                                                                                                                    |
+| `refetch()`          | `refresh(resource)`                                                                                                                                                                                            |
+| `mutate()`           | `createOptimisticStore` + `action` (see [RFC 06](06-actions-optimistic.md))                                                                                                                                    |
 
 See [RFC 05 — createResource migration](05-async-data.md#createresource--async-computations--loading) for detailed before/after examples of each pattern.
 
@@ -347,6 +347,17 @@ const listPending = () => isPending(() => users() || posts());
 ```js
 const latestId = () => latest(id);
 ```
+
+`latest` shows the newest value a **flush** has processed, even while a transition is still holding it back from the screen. It is not a way to read a write before the flush that carries it — a write becomes visible to every channel at flush, and `latest` is no exception:
+
+```js
+setCount(30);
+latest(count); // still the previous value — nothing downstream has run yet
+flush();
+latest(count); // 30, and latest(doubled) is 60 in the same instant
+```
+
+Updates are batched, so inside an event handler this is rarely what you want anyway: prefer to write, and let the graph derive. If you do need to read back imperatively after a write, `flush()` first.
 
 ### “Refetch/refresh” patterns → `refresh()`
 
@@ -376,6 +387,15 @@ const addTodo = action(function* (todo) {
 
   // recompute reads derived from the source-of-truth
   refresh(todos);
+});
+```
+
+Optimistic writes follow the same rule as every other write: they become visible at the flush that carries them, not synchronously. Reading `optimisticTodos.list` on the line after `setOptimisticTodos(...)` still answers the previous value (the same as React's `useOptimistic`, which shows the optimistic value on the next render). The setter's draft does see the writes earlier setters made in the same tick, so two `s.count++` in a row are +2, and `affects(parent)` covers everything under the parent as the writer sees it — a row you just pushed included. To mark only one slot of a row you are adding, name it on the draft, where it already exists:
+
+```js
+setOptimisticMessages(s => {
+  s.list.push({ text, status: "sending" });
+  affects(s.list[s.list.length - 1], "status"); // not `messages.list[...]` — that row is not readable yet
 });
 ```
 
@@ -592,10 +612,12 @@ In Solid 1.x, a ref callback ran inside the reactive owner of the component that
 
 ```jsx
 // 1.x — the ref callback ran owned, so cleanup could live inside it
-<div ref={(el) => {
-  el.addEventListener("pointerdown", onDown);
-  onCleanup(() => el.removeEventListener("pointerdown", onDown));
-}} />
+<div
+  ref={el => {
+    el.addEventListener("pointerdown", onDown);
+    onCleanup(() => el.removeEventListener("pointerdown", onDown));
+  }}
+/>
 ```
 
 In Solid 2.0, ref callbacks are **unowned** — `getOwner()` returns `null` inside them. This makes plain refs consistent with the apply phase of directive factories (below): the callback's only job is to capture or touch the element. Lifecycle work belongs in an owned scope, in one of two packagings.
@@ -610,7 +632,7 @@ onSettled(() => {
   return () => el.removeEventListener("pointerdown", onDown);
 });
 
-<div ref={el} />
+<div ref={el} />;
 ```
 
 For reusable behavior, use a directive factory: its setup half runs owned at component creation — primitives and `onCleanup` live there — and the returned apply callback (the actual ref) is unowned and only captures the element:
@@ -621,17 +643,17 @@ function tooltip(options) {
   const instance = createTooltipInstance();
   createEffect(
     () => options.content,
-    (content) => el && instance.setContent(content)
+    content => el && instance.setContent(content)
   );
   onCleanup(() => instance.destroy());
 
-  return (nextEl) => {
+  return nextEl => {
     el = nextEl;
     instance.attach(nextEl);
   };
 }
 
-<button ref={tooltip({ content: "Save" })} />
+<button ref={tooltip({ content: "Save" })} />;
 ```
 
 Note the timing difference: `onSettled` runs post-settle with the element already in hand, so element work can sit directly inside it; a factory's setup half runs during render before any element exists, so element-dependent work rides the apply callback or an effect.

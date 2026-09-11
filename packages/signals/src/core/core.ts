@@ -49,6 +49,7 @@ import {
   REACTIVE_REASK,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SNAPSHOT_STALE,
+  CONFIG_UNFLUSHED,
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
@@ -66,7 +67,7 @@ import {
   markNode,
   queueFor
 } from "./heap.js";
-import { type OptimisticLane } from "./lanes.js";
+import { hasActiveOverride, type OptimisticLane } from "./lanes.js";
 import {
   clearSignals,
   DEV,
@@ -82,8 +83,6 @@ import { devTrackHeldPending } from "./invariants.js";
 import { cleanup, disposeChildren, inheritId, markDisposal } from "./owner.js";
 import type { Transition } from "./scheduler.js";
 import {
-  notifyEpoch,
-  bumpNotifyEpoch,
   reaskArmed,
   activeTransition,
   armReaskClear,
@@ -219,8 +218,6 @@ export function clearSnapshots(): void {
 }
 
 export function recompute(el: Computed<any>, create: boolean = false): void {
-  // §12d: any recompute can clean a marked subscriber — invalidate skips.
-  bumpNotifyEpoch();
   const isEffect = (el as any)._type;
   // Attribution hook: fired before this run touches the dep list — `_deps`
   // still holds the previous run's links (the subscriptions that could have
@@ -336,6 +333,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // if they are served the committed view again (a lane's committed read).
   if (isEffect && activeTransition !== null && activeTransition._gatedSubs.size)
     activeTransition._gatedSubs.delete(el);
+  // Writes this run issues (a firewall staging its leaves, a boundary's
+  // status signal) are part of this pass: promoted at the tail below, in
+  // this run's posture (context, lane, RECOMPUTING_DEPS still set). Local
+  // length reads: this is the hottest function in the library, and the
+  // common case (a run that wrote nothing) must cost one comparison.
+  const unflushedFrom = unflushedNodes.length;
   try {
     if (!__DEV__ && el._config & CONFIG_SYNC) {
       value = el._fn(value);
@@ -402,6 +405,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       if (reaskChanged) GlobalQueue._repollVerdicts!(el);
     }
   } finally {
+    if (unflushedNodes.length !== unflushedFrom) promoteUnflushed(unflushedFrom);
     tracking = prevTracking;
     latestReadActive = prevLatestRead;
     if (__DEV__) strictRead = prevStrictRead;
@@ -741,7 +745,6 @@ export function computed<T>(
         _time: clock,
         _pendingValue: NOT_PENDING,
         _transition: null,
-        _notifiedAt: -1,
         _loading: loading,
         _x: null,
         _name: options?.name ?? "computed"
@@ -780,7 +783,6 @@ export function computed<T>(
         _time: clock,
         _pendingValue: NOT_PENDING,
         _transition: null,
-        _notifiedAt: -1,
         _loading: loading,
         // Cold machinery (async/transition/optimistic/verdict slots) lives one
         // hop away in the lazily-allocated extension — the core literal MUST
@@ -806,6 +808,8 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _optimisticLane: undefined,
     _pendingSignal: undefined,
     _latestValueComputed: undefined,
+    _flushedStaged: NOT_PENDING,
+    _pendingOverride: NOT_PENDING,
     _parentSource: undefined,
     _affectsCount: 0,
     _inFlight: null,
@@ -876,7 +880,6 @@ export function createEffectNode<T>(
         _time: clock,
         _pendingValue: NOT_PENDING,
         _transition: null,
-        _notifiedAt: -1,
         _loading: false,
         _modified: false,
         _prevValue: undefined as T | undefined,
@@ -920,7 +923,6 @@ export function createEffectNode<T>(
         _time: clock,
         _pendingValue: NOT_PENDING,
         _transition: null,
-        _notifiedAt: -1,
         _loading: false,
         _modified: false,
         _prevValue: undefined as T | undefined,
@@ -1036,7 +1038,6 @@ export function signal<T>(
         _prevChild: null,
         _pendingValue: NOT_PENDING,
         _transition: null,
-        _notifiedAt: -1,
         _x: null,
         _name: options?.name ?? "signal",
         _owner: null as Owner | null
@@ -1060,7 +1061,6 @@ export function signal<T>(
         // typed error-retry gating); _fn/_statusFlags read falsy-identically as
         // missing properties on the shared paths (undefined masks to 0).
         _transition: null,
-        _notifiedAt: -1,
         _x: null
       };
   if (__DEV__) (s as any)._internal = !!firewall;
@@ -1150,7 +1150,6 @@ export function slotSignal<T>(
         _prevChild: null,
         _pendingValue: NOT_PENDING,
         _transition: null,
-        _notifiedAt: -1,
         _x: null,
         _host: host,
         _key: key,
@@ -1171,7 +1170,6 @@ export function slotSignal<T>(
         _prevChild: null,
         _pendingValue: NOT_PENDING,
         _transition: null,
-        _notifiedAt: -1,
         _x: null,
         // Slot backrefs: what the equals/unobserved closures used to capture.
         _host: host,
@@ -1355,6 +1353,19 @@ function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boole
   return true;
 }
 
+/**
+ * Value selection for a node carrying an unflushed write (CONFIG_UNFLUSHED):
+ * writes become visible at flush, so a tracked reader running between the
+ * write and its flush — a computation created in the same tick, a companion's
+ * first compute — sees the FLUSHED world: the staged value the node was
+ * holding, else committed. It is re-marked when the write flushes
+ * (promoteUnflushed's re-walk), so it never goes stale on it.
+ */
+function unflushedView<T>(el: Signal<T> | Computed<T>): T {
+  const staged = el._x?._flushedStaged;
+  return (staged !== undefined && staged !== NOT_PENDING ? staged : el._value) as T;
+}
+
 export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
   if (
     latestReadActive ||
@@ -1388,7 +1399,9 @@ export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
     (stale && heldFromStale(el, c as Computed<any>))
       ? el._value
-      : el._pendingValue
+      : el._config & CONFIG_UNFLUSHED
+        ? unflushedView(el)
+        : el._pendingValue
   ) as T;
 }
 
@@ -1433,7 +1446,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       c._config & CONFIG_CHILDREN_FORBIDDEN ||
       (stale && heldFromStale(el, c as Computed<any>))
         ? el._value
-        : el._pendingValue
+        : el._config & CONFIG_UNFLUSHED
+          ? unflushedView(el)
+          : el._pendingValue
     ) as T;
   }
 
@@ -1629,7 +1644,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       !latestReadActive &&
       !((c as Computed<any>)._config & CONFIG_AUTHORITATIVE_READ))
       ? el._value
-      : (el._pendingValue as T);
+      : el._config & CONFIG_UNFLUSHED
+        ? unflushedView(el)
+        : (el._pendingValue as T);
   // Record that this isPending() probe observed the fresh pending value, so
   // the probe doesn't pair "pending" with the new value (#2831).
   if (pendingCheckActive) GlobalQueue._recordFresh!(el, value);
@@ -1651,6 +1668,102 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     schedule();
   }
   return value;
+}
+
+/**
+ * Nodes carrying an unflushed write (CONFIG_UNFLUSHED), in write order.
+ * There is ONE write path — every staging write lands here — and the
+ * consumers promote: `promoteUnflushed` runs wherever a heap pass is about
+ * to compute against the writes issued since the last promotion. The top of
+ * a flush (the tick's imperative writes), the tail of a recompute (its own
+ * writes, by cursor), and inside a flush after each commit-hook / boundary
+ * sweep step that a heap run follows — so a write and the derivation it
+ * dirties land in the same clock cycle, which the clock-gated re-asks
+ * (an errored source's retry) key on.
+ */
+const unflushedNodes: Array<Signal<any> | Computed<any>> = [];
+
+/**
+ * Writes become visible at flush. Every staging write calls this after
+ * setting `_pendingValue`, with the staged value it replaced (`prevStaged`,
+ * NOT_PENDING if none): the write is UNFLUSHED — both of its remaining
+ * halves, the companion sync and the subscriber walk, are deferred to
+ * `promoteUnflushed`. Imperative writes (handler, action body, async
+ * landing) are promoted at the top of the next flush; writes issued inside
+ * a recompute (a boundary's status signal, a firewall staging its leaves)
+ * are promoted at that recompute's tail, so they are part of its pass
+ * whether it runs in a flush or as a lazy init. With no walk, nothing
+ * downstream is dirty before the flush, so a mid-tick pull cannot derive
+ * from an imperative write; and the tick's first write to a HELD node
+ * stashes the flushed staged value it overwrites so latest() and isPending()
+ * keep serving the flushed world until the rewrite flushes.
+ */
+export function markUnflushed(el: Signal<any> | Computed<any>, prevStaged: unknown): void {
+  if (el._config & CONFIG_UNFLUSHED) return;
+  el._config |= CONFIG_UNFLUSHED;
+  if (prevStaged !== NOT_PENDING) ext(el)._flushedStaged = prevStaged;
+  unflushedNodes.push(el);
+}
+
+/**
+ * Unflushed writes from list position `from` on become the world in
+ * progress. For each node, clear the mark and the stashed flushed-staged
+ * value, then perform the write's deferred halves in the classic order —
+ * push the value into the companions (the latest() shadow, an optimistic
+ * node, so latest() readers wake on its lane ahead of a held transaction;
+ * the isPending() verdict), then walk the subscribers. At the top of a flush
+ * (`from` 0) this runs before runHeap so everything marked computes in THIS
+ * pass — a subscriber that linked in between (a computation created in the
+ * same tick read the flushed view) is marked by the walk like any other. At
+ * a recompute's tail it promotes only that recompute's own writes.
+ */
+export function promoteUnflushed(from: number = 0): void {
+  // Callers check the list first (recompute compares lengths locally); the
+  // guard here covers the flush sites. The truncating `length =` below is a
+  // runtime call V8 does not inline — paying it once per recompute with an
+  // empty list cost update1to1 ~25% (CodSpeed on #3337).
+  if (unflushedNodes.length === from) return;
+  const sync = GlobalQueue._syncCompanions;
+  // A companion sync is itself a write (the pendingSignal, the shadow) and
+  // lands on the list mid-promotion: the loop bound is live so it is
+  // promoted in the same pass; the list is truncated once nothing new arrives.
+  for (let i = from; i < unflushedNodes.length; i++) {
+    const node = unflushedNodes[i];
+    node._config &= ~CONFIG_UNFLUSHED;
+    if (node._x !== null) {
+      node._x._flushedStaged = NOT_PENDING;
+      // An optimistic write flushes here: the engine installs the override,
+      // syncs the companions to it and walks the subscribers on its lane —
+      // the write's deferred halves, like a plain write's below. It is the
+      // value for every reader from this instant (A17), so a plain staged
+      // write the same tick left on the node needs no walk of its own.
+      if (node._x._pendingOverride !== NOT_PENDING) {
+        GlobalQueue._promoteOverride!(node);
+        continue;
+      }
+    }
+    // The write may already have committed (a sweep's write staged before
+    // finalize's commitPendingNodes ran) — the walk is still owed.
+    if (node._config & CONFIG_HAS_COMPANIONS && sync !== null)
+      sync(node, node._pendingValue === NOT_PENDING ? node._value : node._pendingValue);
+    // Under an active override every reader sees the override (A17), so the
+    // hold is not visible to them and the revert is their notification. The
+    // engine decides what the arrival means for the override (A18
+    // supersession, #3331): own-source truth that differs ends the optimism
+    // for the graph now (plain channel, lane demoted); a matching arrival is
+    // silent except to an authoritative-view reader (until()'s predicate)
+    // waiting on exactly this staged truth (#3164). The hook is installed
+    // with the engine, which an active override implies. Only
+    // CONFIG_OPTIMISTIC nodes carry an override slot (see constants.ts):
+    // plain nodes skip the probe.
+    if (!(node._config & CONFIG_OPTIMISTIC) || !hasActiveOverride(node)) insertSubs(node);
+    else
+      GlobalQueue._supersedeOverride!(
+        node,
+        node._pendingValue === NOT_PENDING ? node._value : node._pendingValue
+      );
+  }
+  unflushedNodes.length = from;
 }
 
 /**
@@ -1743,27 +1856,15 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   if (!wasStaged) queuePendingNode(el);
   el._pendingValue = v;
   if (__DEV__) devTrackHeldPending(el);
-
-  // syncCompanions only pokes _pendingSignal/_latestValueComputed — with
-  // neither companion present the call is a guaranteed no-op (companions are
-  // only ever created, never removed, and creating one installs the hook and
-  // sets CONFIG_HAS_COMPANIONS — one masked read replaces two optional-field
-  // probes on every write).
-  el._config & CONFIG_HAS_COMPANIONS &&
-    GlobalQueue._syncCompanions !== null &&
-    GlobalQueue._syncCompanions(el, v);
-
   // _time is a computed-only slot (§12e): writing it on a signal would fork
   // the lean shape. Every read site is computed-typed.
   if ((el as any)._fn !== undefined) el._time = clock;
-  // Staged-rewrite fast path (§12d): a re-write to a node whose subscribers
-  // were already walked — and where nothing has recomputed or linked since
-  // (epoch) — re-stages the value and stops. The walk is idempotent (subs
-  // marked, heap entries flag-guarded, effects queued once); lane and reask
-  // contexts change what a walk MEANS, so they always walk.
-  if (wasStaged && el._notifiedAt === notifyEpoch && currentOptimisticLane === null && !reaskArmed)
-    return v;
-  insertSubs(el);
+
+  // Writes become visible at flush (markUnflushed): the companion sync and
+  // the subscriber walk run when the write is promoted — at the next flush's
+  // top, or at the tail of the recompute that issued it. Repeated writes to
+  // one node before then walk once.
+  markUnflushed(el, wasStaged ? currentValue : NOT_PENDING);
   schedule();
   return v;
 }

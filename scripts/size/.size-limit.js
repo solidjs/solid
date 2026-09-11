@@ -185,7 +185,40 @@ module.exports = [
     // comparison, lane demotion, replay gating, the landing) lives in
     // optimistic.ts and shakes out of this floor. In-package floor 22,252 ->
     // 22,737.
-    limit: "8.40 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 8.18 -> 8.29 KB,
+    // measured at 8268 B. One write path: every staging write marks the node
+    // UNFLUSHED and defers its companion sync and subscriber walk to the
+    // flush (`markUnflushed`/`promoteUnflushed`, `unflushedView` for the
+    // setter's own updater and `latest()`); the notify-epoch machinery it
+    // replaces is deleted. Lazily created companions and store keys first
+    // read under a hold are born holding, and every store read channel
+    // answers like read() (`heldFromReader`/`foreignHold`). Core-retained by
+    // nature: the write path IS the seam. In-package floor 21,936 -> 22,252.
+    //
+    // Promotion hot-path fix (#3337 CodSpeed, 2026-09-10): 8.29 -> 8.30 KB,
+    // measured at 8280 B (was 8268). The unflushed list moved from scheduler.ts
+    // into core.ts so recompute's tail compares lengths locally instead of
+    // calling out twice per run; promoteUnflushed returns before its
+    // truncating `length =` when nothing is queued, and plain nodes skip the
+    // override probe. +27 B raw in the floor; the rest is brotli reordering
+    // from the code motion. Floor 22,252 -> 22,279.
+    //
+    // Optimistic writes visible at flush (A28 for overrides, #3337,
+    // 2026-09-10): 8.30 -> 8.32 KB, measured at 8312 B (was 8280). A user's
+    // optimistic write parks in the `_pendingOverride` ext slot and installs
+    // at promotion (promoteUnflushed's override arm dispatching through
+    // GlobalQueue._promoteOverride); the floor pays the slot's initializer,
+    // the arm and the hook slot — +52 B raw (22,279 -> 22,331). The install
+    // itself (promoteOverride/installOverride) rides the optimistic module.
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 8.40 -> 8.56 KB, measured at 8524 B against `next`'s 8188 (+336) and
+    // #3370's 8369 (+155 — A28's own cost on the lane base: the deferred
+    // promotion, `unflushedView`, the `_flushedStaged`/`_pendingOverride`
+    // slots). The lane fixes' +181 is #3370's and is already in `next`.
+    // In-package floor 22,866 (the same source measured 22,866 on #3347).
+    limit: "8.56 KB",
     modifyEsbuildConfig
   },
   {
@@ -393,7 +426,47 @@ module.exports = [
     // `notifyOptimisticWrites` judging against the view readers see, and
     // the authoritative landing on an override-covered node dispatching to
     // the engine.
-    limit: "15.35 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 14.70 -> 14.91 KB,
+    // measured at 14884 B. The core write-path change above plus the store
+    // half of #3336: a key first read under a held adoption or fold is born
+    // holding (`stageHeldKey`), and the store's read channels (`in`, keys,
+    // deep witness, `nodeValue`) apply read()'s foreign-transaction rule.
+    //
+    // Promotion hot-path fix (#3337 CodSpeed, 2026-09-10): 14.91 -> 15.02 KB,
+    // measured at 14999 B (was 14884). The unflushed list moved from scheduler.ts
+    // into core.ts so recompute's tail compares lengths locally instead of
+    // calling out twice per run; promoteUnflushed returns before its
+    // truncating `length =` when nothing is queued, and plain nodes skip the
+    // override probe. +27 B raw in the floor; the rest is brotli reordering
+    // from the code motion.
+    //
+    // Optimistic writes visible at flush (A28 for overrides, #3337,
+    // 2026-09-10): 15.02 -> 15.03 KB, measured at 15029 B (was 14999). The
+    // core bytes above plus `draftOverride` (the writer's view of a node: the
+    // tick's parked write ahead of the flushed override) at the opt-gated
+    // draft read sites in store.ts — retained here because the gates are on
+    // always-retained trap code; the sites that only optimistic families
+    // reach (ensurePB seeding, notifyOptimisticWrites, optimisticView) ride
+    // the optimistic module.
+    //
+    // Rebased on `next` @ 6bf2bf85 (2026-09-11): 15.03 -> 15.15 KB, measured at
+    // 15120 B (was 15029). `next`'s #3351 firewall-chain unlinking (the slot
+    // literal's `_prevChild`, four unobserved-hook unlink calls) and #3352's
+    // overlay path for projection/derived roots landing under the A28 write
+    // seams; `next` itself moved 14.70 -> 14.83 KB on these.
+    //
+    // Rebased on `next` @ 4935c7dd (2026-09-11): 15.15 -> 15.42 KB, measured at
+    // 15384 B (was 15120). `next`'s #3360 narrow-store write floor and
+    // ownership stamp (#3367/#3368: scan grade, spread arm, overlay gate,
+    // `$OWNER` lookups and trap guards) — `next` moved 14.83 -> 15.06 KB on
+    // the same; this branch's delta over `next` is unchanged (~370 B).
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 15.42 -> 15.74 KB, measured at 15701 B against `next`'s 15012 (+689)
+    // and #3370's 15318 (+383 — A28 plus #3336's store half: born-holding
+    // fold keys, `heldFromReader`/`foreignHold` on every store channel).
+    limit: "15.74 KB",
     modifyEsbuildConfig
   },
   {
@@ -488,7 +561,27 @@ module.exports = [
     // store landing (`landOnOverride`), the per-node merged-lane hold
     // (`laneHeld` over `waitingTransition`), `laneLive`, and the
     // lane-routed settle entering the waiting transaction.
-    limit: "10.70 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 10.27 -> 10.40 KB,
+    // measured at 10372 B — the core write-path change (see the core floor note).
+    //
+    // Optimistic writes visible at flush (A28 for overrides, #3337,
+    // 2026-09-10): 10.40 -> 10.47 KB, measured at 10462 B (was 10371). The
+    // core bytes plus the optimistic module this scenario retains via
+    // latest(): optimisticWrite reads the parked value ahead of the override
+    // for its updater, parks user writes and installs companion writes
+    // eagerly (`_parentSource`), and promoteOverride/installOverride are the
+    // split-out flush half.
+    //
+    // Rebased on `next` @ 6bf2bf85 (2026-09-11): 10.47 -> 10.50 KB, measured at
+    // 10484 B (was 10462). `next`'s #3350 in-place heap marking and #3351
+    // `_prevChild` on the core literals; `next` moved 10.27 -> 10.32 KB.
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 10.70 -> 10.97 KB, measured at 10937 B against `next`'s 10253 (+684)
+    // and #3370's 10667 (+270 — A28 for overrides rides the optimistic
+    // module this scenario retains: `_promoteOverride`, the parked install).
+    limit: "10.97 KB",
     modifyEsbuildConfig
   },
   {
@@ -562,7 +655,22 @@ module.exports = [
     // at 11121 B against `next`'s 10924 (+197 B) — the core seams (see the
     // core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
-    limit: "11.15 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 10.92 -> 11.05 KB,
+    // measured at 11028 B — the core write-path change (see the core floor note).
+    //
+    // Optimistic writes visible at flush (A28 for overrides, #3337,
+    // 2026-09-10): 11.05 -> 11.06 KB, measured at 11058 B (was 11040) — the
+    // core floor's slot + promote arm (see that note).
+    //
+    // Rebased on `next` @ 6bf2bf85 (2026-09-11): 11.06 -> 11.10 KB, measured at
+    // 11062 B (was 11058). Brotli noise from `next`'s #3350/#3351 core bytes;
+    // `next` moved 10.92 -> 10.96 KB.
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 11.15 -> 11.30 KB, measured at 11261 B against `next`'s 10924 (+337)
+    // and #3370's 11121 (+140 — the core A28 write path).
+    limit: "11.30 KB",
     modifyEsbuildConfig
   },
   {
@@ -650,7 +758,23 @@ module.exports = [
     // at 18529 B against `next`'s 18295 (+234 B) — the core seams (see the
     // core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
-    limit: "18.56 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 18.34 -> 18.42 KB,
+    // measured at 18397 B — the core write-path change (see the core floor note).
+    //
+    // Optimistic writes visible at flush (A28 for overrides, #3337,
+    // 2026-09-10): 18.42 -> 18.48 KB, measured at 18476 B (was 18418) — the
+    // core floor's slot + promote arm, compressing worse on this layout
+    // (the CSR twin below moved -10 B).
+    //
+    // Rebased on `next` @ 4935c7dd (2026-09-11): 18.48 -> 18.52 KB, measured at
+    // 18484 B (was 18451). No stores in this scenario; brotli layout across
+    // the shared core after `next`'s #3367/#3368 (the CSR twin moved +7 B).
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 18.56 -> 18.74 KB, measured at 18705 B against `next`'s 18295 (+410)
+    // and #3370's 18529 (+176 — the core A28 write path).
+    limit: "18.74 KB",
     modifyEsbuildConfig
   },
   {
@@ -779,7 +903,41 @@ module.exports = [
     // `notifyOptimisticWrites` judging against the view readers see, and
     // the authoritative landing on an override-covered node dispatching to
     // the engine.
-    limit: "28.24 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 27.34 -> 27.56 KB,
+    // measured at 27534 B. The core write-path change above plus the store
+    // half of #3336: a key first read under a held adoption or fold is born
+    // holding (`stageHeldKey`), and the store's read channels (`in`, keys,
+    // deep witness, `nodeValue`) apply read()'s foreign-transaction rule.
+    //
+    // Promotion hot-path fix (#3337 CodSpeed, 2026-09-10): 27.56 -> 27.69 KB,
+    // measured at 27664 B (was 27534). The unflushed list moved from scheduler.ts
+    // into core.ts so recompute's tail compares lengths locally instead of
+    // calling out twice per run; promoteUnflushed returns before its
+    // truncating `length =` when nothing is queued, and plain nodes skip the
+    // override probe. +27 B raw in the floor; the rest is brotli reordering
+    // from the code motion.
+    //
+    // Optimistic writes visible at flush (A28 for overrides, #3337,
+    // 2026-09-10): 27.69 -> 27.76 KB, measured at 27753 B (was 27664). This
+    // scenario retains every store family, so it pays the core bytes, the
+    // optimistic module's parked-write halves (see the isPending/latest
+    // note) and the store draft view (see the createStore note).
+    //
+    // Rebased on `next` @ 6bf2bf85 (2026-09-11): 27.76 -> 27.90 KB, measured at
+    // 27894 B (was 27753). `next`'s #3351 firewall-chain unlinking (+80 B of
+    // it in the createStore arm, per its own note) and #3352's overlay path
+    // for projection roots; `next` moved 27.34 -> 27.48 KB on these.
+    //
+    // Rebased on `next` @ 4935c7dd (2026-09-11): 27.90 -> 28.15 KB, measured at
+    // 28112 B (was 27894). `next`'s #3367/#3368 createStore arm (see that
+    // note); `next` moved 27.48 -> 27.66 KB on the same.
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 28.24 -> 28.67 KB, measured at 28635 B against `next`'s 27608 (+1027)
+    // and #3370's 28208 (+427 — A28 plus #3336's store half, as in the
+    // createStore scenario; every store family is retained here).
+    limit: "28.67 KB",
     modifyEsbuildConfig
   },
   {
@@ -838,7 +996,22 @@ module.exports = [
     // at 13921 B against `next`'s 13738 (+183 B) — the core seams (see the
     // core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
-    limit: "13.95 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 13.75 -> 13.84 KB,
+    // measured at 13820 B — the core write-path change (see the core floor note).
+    //
+    // Promotion hot-path fix (#3337 CodSpeed, 2026-09-10): 13.84 -> 13.87 KB,
+    // measured at 13849 B (was 13820). The unflushed list moved from scheduler.ts
+    // into core.ts so recompute's tail compares lengths locally instead of
+    // calling out twice per run; promoteUnflushed returns before its
+    // truncating `length =` when nothing is queued, and plain nodes skip the
+    // override probe. +27 B raw in the floor; the rest is brotli reordering
+    // from the code motion.
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 13.95 -> 14.10 KB, measured at 14062 B against `next`'s 13738 (+324)
+    // and #3370's 13921 (+141 — the core A28 write path).
+    limit: "14.10 KB",
     modifyEsbuildConfig
   },
   {
@@ -893,7 +1066,15 @@ module.exports = [
     // at 15269 B against `next`'s 15037 (+232 B) — the core seams (see the
     // core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
-    limit: "15.30 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 15.08 -> 15.23 KB,
+    // measured at 15205 B — the core write-path change (see the core floor note).
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 15.30 -> 15.52 KB, measured at 15485 B against `next`'s 15037 (+448)
+    // and #3370's 15269 (+216 — the core A28 write path on the observe
+    // artifacts, where the promotion walk carries its attribution hooks).
+    limit: "15.52 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -968,7 +1149,18 @@ module.exports = [
     // at 26819 B against `next`'s 26652 (+167 B) — the core seams (see the
     // core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
-    limit: "26.85 KB",
+    //
+    // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 26.65 -> 26.75 KB,
+    // measured at 26727 B — the core write-path change (see the core floor note).
+    //
+    // Rebased on `next` @ 6bf2bf85 (2026-09-11): 26.75 -> 26.80 KB, measured at
+    // 26772 B (was 26734). `next`'s #3350 in-place heap marking under the
+    // attribution build; `next` moved 26.65 -> 26.68 KB.
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 26.85 -> 27.00 KB, measured at 26965 B against `next`'s 26652 (+313)
+    // and #3370's 26819 (+146 — the core A28 write path).
+    limit: "27.00 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

@@ -75,12 +75,12 @@ describe("heap marking stays incremental across mid-tick pulls", () => {
     expect(large / small).toBeLessThan(24);
   });
 
-  it("a write landing between two mid-tick pulls is visible through a memo chain in the same pass", () => {
-    // The first sync render effect's read marks the heap; the row's write
-    // then inserts an UNMARKED subscriber (doubled) into the marked heap.
-    // Its downstream memo (label) must be pulled fresh by the next sync
-    // reader in the same flush — the eager mark has to propagate CHECK past
-    // the inserted node, not just flag the node itself.
+  it("a write landing between two mid-tick pulls is visible through a memo chain in the same flush", () => {
+    // The first sync render effect's read marks the heap; the row's write is
+    // promoted by the flush, which inserts an UNMARKED subscriber (doubled)
+    // into the marked heap. Its downstream memo (label) must be pulled fresh
+    // by the sync readers in the same flush — the eager mark has to propagate
+    // CHECK past the inserted node, not just flag the node itself.
     const seen: string[] = [];
     createRoot(() => {
       const [base] = createSignal(1);
@@ -115,9 +115,11 @@ describe("heap marking stays incremental across mid-tick pulls", () => {
       setItems([1, 2, 3]);
       flush();
     });
-    // Each row's first run sees its own write; earlier rows' effects then
-    // settle on the final value when the label memo lands in the heap pass.
-    expect(seen.slice(0, 3)).toEqual(["n=22", "n=24", "n=26"]);
-    expect(seen.slice(3)).toEqual(["n=26", "n=26"]);
+    // A28: a write becomes visible at flush — each row's first run answers the
+    // flushed value (its own write is unflushed until the promotion), then
+    // the promotion lands the last write (13 * 2) and every row's effect
+    // settles on it within the same flush. A stale tail would be n=0.
+    expect(seen.slice(0, 3)).toEqual(["n=0", "n=0", "n=0"]);
+    expect(seen.slice(3)).toEqual(["n=26", "n=26", "n=26"]);
   });
 });
