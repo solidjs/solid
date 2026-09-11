@@ -58,14 +58,29 @@ function resolveSecret() {
   return configuredSecret !== undefined ? configuredSecret : globalThis.__SOLID_SECRET__;
 }
 
-// The flash key is a DOMAIN-SEPARATED derivation of the deployment secret:
-// SHA-256 over the domain string then the secret's UTF-8 bytes, imported as
-// raw AES-256-GCM key material. The digest normalizes arbitrary-length
-// secrets to the key size and keeps the secret itself out of the CryptoKey;
-// the domain prefix means a future feature deriving its own key from the
-// same secret (a different domain string) shares no key material with the
-// flash — one secret, per-purpose keys, never cross-decryptable.
+// The flash key is a DOMAIN-SEPARATED derivation of the deployment secret,
+// stretched with PBKDF2-HMAC-SHA-256 into raw AES-256-GCM key material.
+//
+// The domain string is the salt, so a future feature deriving its own key
+// from the same secret (a different domain string) shares no key material
+// with the flash: one secret, per-purpose keys, never cross-decryptable.
+// It is a fixed salt, so the iteration count is what buys the work factor,
+// not salt uniqueness.
+//
+// Stretching is the point. `secret` accepts any non-empty string, so a
+// deployment may hand this a short human-chosen value, and a single captured
+// cookie is an offline oracle for it. Under a bare digest that recovers the
+// secret at full hash speed, and recovering it means reading every flash
+// payload (the submitted form input, passwords included) and forging new
+// ones. The iterations do not make a weak secret safe, they only raise the
+// price; the `secret` option documents the entropy requirement.
 const FLASH_KEY_DOMAIN = "solid.flash.v1\0";
+
+// Capped at 100k because that is the ceiling some edge runtimes enforce on
+// PBKDF2, and a key that cannot derive there is a flash that never sends.
+// Paid once per process per secret (the derived key is cached) and only on
+// the no-JS path, so the cost never reaches an ordinary request.
+const FLASH_KEY_ITERATIONS = 100_000;
 
 let cachedSecret;
 let cachedKey;
@@ -75,10 +90,22 @@ function resolveFlashKey() {
   if (typeof secret !== "string" || secret.length === 0) return null;
   if (secret !== cachedSecret) {
     cachedSecret = secret;
+    const encoder = new TextEncoder();
     cachedKey = crypto.subtle
-      .digest("SHA-256", new TextEncoder().encode(FLASH_KEY_DOMAIN + secret))
-      .then(digest =>
-        crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"])
+      .importKey("raw", encoder.encode(secret), "PBKDF2", false, ["deriveKey"])
+      .then(material =>
+        crypto.subtle.deriveKey(
+          {
+            name: "PBKDF2",
+            salt: encoder.encode(FLASH_KEY_DOMAIN),
+            iterations: FLASH_KEY_ITERATIONS,
+            hash: "SHA-256"
+          },
+          material,
+          { name: "AES-GCM", length: 256 },
+          false,
+          ["encrypt", "decrypt"]
+        )
       );
   }
   return cachedKey;
