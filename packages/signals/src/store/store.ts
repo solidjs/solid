@@ -289,7 +289,8 @@ export function setNextAffectsNodeResolver(fn: (target: any, key: PropertyKey) =
 
 /** Next-store optimistic view for the declaration walk (optimistic rows
  * pushed before the declaration are in motion too — legacy reads its write
- * overlays; next composes armed-node overrides). */
+ * overlays; next composes the writer's view: this tick's parked overrides
+ * ahead of the flushed ones). */
 export let nextOptimisticViewResolver: ((target: any, raw: any) => any) | null = null;
 export function setNextOptimisticViewResolver(fn: (target: any, raw: any) => any): void {
   nextOptimisticViewResolver = fn;
@@ -330,8 +331,9 @@ function walkAffectsScope(
   visited.add(raw);
   entry.scope.add(raw);
   if (target && (target as any).pb) entry.scope.add(target[STORE_VALUE]);
-  // Next optimistic families: enumerate the VISIBLE view (armed-node
-  // overrides compose membership/values the raw doesn't carry).
+  // Next optimistic families: enumerate the WRITER's view — this tick's parked
+  // optimistic writes ahead of the flushed overrides — so a row pushed in the
+  // same tick is in the declared scope, as a plain store's `pb` row is.
   if (target && (target as any).fam?.opt && nextOptimisticViewResolver)
     raw = nextOptimisticViewResolver(target, raw);
   if (target) {

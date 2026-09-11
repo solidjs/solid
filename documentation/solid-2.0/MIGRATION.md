@@ -390,12 +390,12 @@ const addTodo = action(function* (todo) {
 });
 ```
 
-Optimistic writes follow the same rule as every other write: they become visible at the flush that carries them, not synchronously. Reading `optimisticTodos.list` on the line after `setOptimisticTodos(...)` still answers the previous value (the same as React's `useOptimistic`, which shows the optimistic value on the next render). The setter's draft does see the writes earlier setters made in the same tick, so two `s.count++` in a row are +2. When you need to declare a row you are adding as pending, declare it on the draft, where it already exists:
+Optimistic writes follow the same rule as every other write: they become visible at the flush that carries them, not synchronously. Reading `optimisticTodos.list` on the line after `setOptimisticTodos(...)` still answers the previous value (the same as React's `useOptimistic`, which shows the optimistic value on the next render). The setter's draft does see the writes earlier setters made in the same tick, so two `s.count++` in a row are +2, and `affects(parent)` covers everything under the parent as the writer sees it — a row you just pushed included. To mark only one slot of a row you are adding, name it on the draft, where it already exists:
 
 ```js
 setOptimisticMessages(s => {
   s.list.push({ text, status: "sending" });
-  affects(s.list[s.list.length - 1], "status"); // not `messages.list[...]` — that row is not visible yet
+  affects(s.list[s.list.length - 1], "status"); // not `messages.list[...]` — that row is not readable yet
 });
 ```
 
