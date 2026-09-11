@@ -3,8 +3,6 @@ dist/
 lib/
 # ...but an example's source tree may legitimately have one (src/lib/api.ts).
 !examples/*/src/lib/
-.cursor/*
-!.cursor/rules/
 coverage/
 types/
 types-cjs/
@@ -14,3 +12,18 @@ packages/babel-plugin/index.js
 .types-build/
 
 packages/test-integration/tests/fixtures/downloaded/
+
+# Common editor / OS artifacts. Kept in-repo deliberately (carried over from
+# the 1.x branch): a stray .DS_Store or editor workspace dir must never show
+# up as untracked or get committed by accident, regardless of whether a
+# contributor has a global excludesfile configured. Shared Cursor rules stay
+# versioned as project convention.
+.DS_Store
+.vscode/
+.idea/
+.cursor/*
+!.cursor/rules/
+
+# vscode devcontainers see issues #419 and #421 for context
+/.devcontainer.json
+/devcontainer
