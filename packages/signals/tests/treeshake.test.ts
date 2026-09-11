@@ -262,6 +262,16 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // alternative (install eagerly and mask the override from readers until
     // the flush) would have put the mask on read()'s hot path for every
     // optimistic read. Measured at 22,331.
+    //
+    // NOTE (2026-09-11, rebased on `next` @ 6bf2bf85): +50 B, none of it this
+    // branch's. `next`'s #3350 (insertIntoHeap marks the incoming node in
+    // place — a markNode call where a flag clear was) and #3351 (`_prevChild`
+    // on the signal literals, linkFirewallChild/unlinkFirewallChild) moved
+    // `next`'s own floor 21,890 -> 21,994; this branch's delta over `next`
+    // is 387 B (was 441 on the previous base; no source on this branch
+    // changed in the rebase beyond taking `next`'s heap.ts line, so the
+    // difference is how the merged core minifies). Measured at 22,381;
+    // budget 22,400 -> 22,450 for headroom.
     // MEASURE_PLACEHOLDER
     expect(minifiedBytes).toBeLessThan(23_000);
   });
