@@ -2,8 +2,8 @@
   "valid": true,
   "functions": [
     {
-      "id": "handlers.save-32e00052",
-      "name": "handlers.save",
+      "id": "handlers.save.saveRecord-32e00052",
+      "name": "handlers.save.saveRecord",
       "exports": []
     },
     {

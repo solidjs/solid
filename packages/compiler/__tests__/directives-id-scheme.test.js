@@ -239,9 +239,7 @@ describe("the wire id scheme, differentially", () => {
     const hash = hashHex("src/containers.js");
     expect(
       ids(source, { filename: "/project/src/containers.js", root: "/project" }).sort()
-    ).toEqual(
-      [`handlers.save-${hash}`, `handlers.drop-${hash}`, `Api.refresh-${hash}`].sort()
-    );
+    ).toEqual([`handlers.save-${hash}`, `handlers.drop-${hash}`, `Api.refresh-${hash}`].sort());
   });
 
   it("keeps non-ascii binding names in the path", () => {
@@ -265,6 +263,56 @@ describe("the wire id scheme, differentially", () => {
     const hash = hashHex("src/keys.js");
     expect(ids(source, { filename: "/project/src/keys.js", root: "/project" })).toEqual([
       `handlers-${hash}`
+    ]);
+  });
+
+  it("takes a segment from a named function expression that has no binding of its own", () => {
+    // Passed straight to a call, the function's own name is the only thing
+    // that tells it apart from its sibling. Dropping it in favour of the
+    // container alone would put both back on a positional ordinal.
+    const source = `
+      export function wire() {
+        register(function saveHandler() { "use server"; return 1; });
+        register(function dropHandler() { "use server"; return 2; });
+      }
+    `;
+    const hash = hashHex("src/named.js");
+    expect(ids(source, { filename: "/project/src/named.js", root: "/project" })).toEqual([
+      `wire.saveHandler-${hash}`,
+      `wire.dropHandler-${hash}`
+    ]);
+  });
+
+  it("does not repeat a function name that matches the binding it is assigned to", () => {
+    // `const submit = function submit() {}` is one name, not two. Bubbled
+    // top-level declarations take this shape, so `makeA` stays `makeA`.
+    const source = `
+      export function makeA() {
+        const submit = function submit() { "use server"; return 1; };
+        return submit;
+      }
+    `;
+    const hash = hashHex("src/same.js");
+    expect(ids(source, { filename: "/project/src/same.js", root: "/project" })).toEqual([
+      `makeA.submit-${hash}`
+    ]);
+  });
+
+  it("takes a segment from a nested function declaration", () => {
+    // Declarations nested inside another function are not bubbled into a
+    // `const`, so the function itself has to contribute the segment, or two
+    // same-named arrows in sibling declarations collide on `outer.s`.
+    const source = `
+      export function outer() {
+        function a() { const s = async () => { "use server"; return 1; }; return s; }
+        function b() { const s = async () => { "use server"; return 2; }; return s; }
+        return [a(), b()];
+      }
+    `;
+    const hash = hashHex("src/decl.js");
+    expect(ids(source, { filename: "/project/src/decl.js", root: "/project" })).toEqual([
+      `outer.a.s-${hash}`,
+      `outer.b.s-${hash}`
     ]);
   });
 

@@ -472,9 +472,12 @@ impl<'a> DirectivesTransform<'a> {
                         &export.declaration,
                         ExportDefaultDeclarationKind::FunctionDeclaration(function)
                             if function.id.is_none()
-                    ) || export.declaration.as_expression().is_some_and(|expression| {
-                        !matches!(unwrap_expression(expression), Expression::Identifier(_))
-                    }) =>
+                    ) || export
+                        .declaration
+                        .as_expression()
+                        .is_some_and(|expression| {
+                            !matches!(unwrap_expression(expression), Expression::Identifier(_))
+                        }) =>
                 {
                     let mut export = export;
                     let placeholder =
@@ -777,9 +780,9 @@ struct FunctionLevelVisitor<'ctx, 'a> {
     /// Enclosing binding names, outermost first: the dotted path that names
     /// an extracted function. Every named container on the way down
     /// contributes a segment (variable declarators, object property keys,
-    /// class names, class member keys), so two same-named functions in
-    /// sibling scopes get distinct names instead of sharing one and being
-    /// told apart by a positional ordinal.
+    /// class names, class member keys, and named functions), so two
+    /// same-named functions in sibling scopes get distinct names instead of
+    /// sharing one and being told apart by a positional ordinal.
     name_path: Vec<String>,
 }
 
@@ -815,6 +818,21 @@ impl<'a> FunctionLevelVisitor<'_, 'a> {
         if pushed {
             self.name_path.pop();
         }
+    }
+
+    /// The segment a function's own name contributes. A named function is a
+    /// named container like any other, so `register(function handler() {})`
+    /// inside `wire` is `wire.handler` and stays apart from its siblings by
+    /// name rather than by ordinal. The name is skipped when it repeats the
+    /// segment already on the path: a bubbled declaration is
+    /// `const makeA = function makeA() {}`, and `const submit = function
+    /// submit() {}` is the same binding named twice.
+    fn own_name_segment(&self, own_name: Option<&str>) -> Option<String> {
+        let segment = identifier_segment(own_name?)?;
+        if self.name_path.last() == Some(&segment) {
+            return None;
+        }
+        Some(segment)
     }
 
     fn body_has_directive(&self, body: &oxc_ast::ast::FunctionBody<'a>) -> bool {
@@ -865,15 +883,17 @@ impl<'a> FunctionLevelVisitor<'_, 'a> {
             }
             _ => unreachable!("shape checked above"),
         }
-        // The enclosing path names the function. A function expression's own
-        // name is the fallback for a function with no named container at all
-        // (`register(function handler() {})`); when a path exists it already
-        // identifies the position, and appending the label too would only add
-        // a second name for the same thing.
-        let name = if self.name_path.is_empty() {
-            own_name.unwrap_or_else(|| "anonymous".to_string())
+        // The enclosing path plus the function's own name, if it adds one.
+        // `anonymous` only when nothing on the way down was named at all.
+        let own_segment = self.own_name_segment(own_name.as_deref());
+        let mut segments: Vec<&str> = self.name_path.iter().map(String::as_str).collect();
+        if let Some(own_segment) = own_segment.as_deref() {
+            segments.push(own_segment);
+        }
+        let name = if segments.is_empty() {
+            "anonymous".to_string()
         } else {
-            self.name_path.join(".")
+            segments.join(".")
         };
         let top_index = self.top_index;
         let mut insertions = std::mem::take(&mut self.insertions);
@@ -902,6 +922,23 @@ impl<'a> VisitMut<'a> for FunctionLevelVisitor<'_, 'a> {
         });
     }
 
+    /// A named function that is not itself extracted names what is inside it.
+    /// Top-level declarations are bubbled into `const name = function name`
+    /// and contribute their segment through the declarator; a declaration
+    /// nested in another function is not bubbled, so this is the only place
+    /// it can contribute one. Marked functions never reach here because
+    /// `visit_expression` replaces them before walking in.
+    fn visit_function(
+        &mut self,
+        function: &mut oxc_ast::ast::Function<'a>,
+        flags: oxc_syntax::scope::ScopeFlags,
+    ) {
+        let segment = self.own_name_segment(function.id.as_ref().map(|id| id.name.as_str()));
+        self.with_segment(segment, |visitor| {
+            walk_mut::walk_function(visitor, function, flags);
+        });
+    }
+
     /// `class Api { save = async () => {} }` names its field `Api.save`.
     fn visit_class(&mut self, class: &mut oxc_ast::ast::Class<'a>) {
         let segment = class
@@ -913,10 +950,7 @@ impl<'a> VisitMut<'a> for FunctionLevelVisitor<'_, 'a> {
         });
     }
 
-    fn visit_property_definition(
-        &mut self,
-        property: &mut oxc_ast::ast::PropertyDefinition<'a>,
-    ) {
+    fn visit_property_definition(&mut self, property: &mut oxc_ast::ast::PropertyDefinition<'a>) {
         let segment = static_key_segment(&property.key);
         self.with_segment(segment, |visitor| {
             walk_mut::walk_property_definition(visitor, property);
