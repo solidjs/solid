@@ -153,7 +153,7 @@ result.functions; // [{ id, name, exports }] for manifest building
 
 A function-level `"use server"` function is extracted out of its lexical position, so it may only reference its own parameters and locals, module top-level bindings, and globals. Capturing anything else is a compile error. That includes `this` and `arguments` in a marked arrow, which an arrow takes from the function it was written in. Use a `function` if the server function needs its own `this` or `arguments`.
 
-A function-level directive only works where the pass can extract the function: a function declaration, a function expression, or an arrow with a block body. Methods, getters, and setters are never extracted, so a directive on one is a compile error rather than a directive that silently does nothing. Assign a function to a property instead.
+A function-level directive only works where the pass can extract the function: a function declaration (at any nesting depth), a function expression, or an arrow with a block body. Methods, getters, and setters are never extracted, so a directive on one is a compile error rather than a directive that silently does nothing. Assign a function to a property instead.
 
 A module-level `"use server"` module can only export server functions. Its client build is rebuilt from those exports alone, so anything else would be missing from the browser bundle. Re-exports, `export *`, class and enum exports, destructured exports, and exports declared without an initializer are compile errors naming the export and its position. Type-only and `declare` exports are erased and are fine.
 
