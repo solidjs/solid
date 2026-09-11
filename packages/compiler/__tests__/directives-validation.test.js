@@ -131,6 +131,79 @@ describe('"use server" closure-capture validation', () => {
       ].join("\n");
       expect(() => compile(code)).toThrow(/`conn` is declared in an enclosing function/);
     });
+
+    it("rejects an arrow capturing `this`", () => {
+      const code = [
+        "class Box {",
+        "  make() {",
+        "    return async () => {",
+        '      "use server";',
+        "      return this.value;",
+        "    };",
+        "  }",
+        "}",
+        "export { Box };"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(
+        /server functions cannot capture `this` from an enclosing function/
+      );
+    });
+
+    it("rejects `this` in a class field initializer", () => {
+      const code = [
+        "export class Service {",
+        "  refresh = async () => {",
+        '    "use server";',
+        "    return this.id;",
+        "  };",
+        "}"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(/cannot capture `this`/);
+    });
+
+    it("rejects `this` read from a nested arrow", () => {
+      const code = [
+        "class Box {",
+        "  make() {",
+        "    return async () => {",
+        '      "use server";',
+        "      return [1, 2].map(() => this.value);",
+        "    };",
+        "  }",
+        "}",
+        "export { Box };"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(/cannot capture `this`/);
+    });
+
+    it("rejects an arrow capturing `arguments`", () => {
+      const code = [
+        "export function outer() {",
+        "  return async () => {",
+        '    "use server";',
+        "    return arguments.length;",
+        "  };",
+        "}"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(
+        /server functions cannot capture `arguments` from an enclosing function/
+      );
+    });
+
+    it("rejects `this` captures in client mode too", () => {
+      const code = [
+        "class Box {",
+        "  make() {",
+        "    return async () => {",
+        '      "use server";',
+        "      return this.value;",
+        "    };",
+        "  }",
+        "}",
+        "export { Box };"
+      ].join("\n");
+      expect(() => compile(code, { mode: "client" })).toThrow(/cannot capture `this`/);
+    });
   });
 
   describe("allowed", () => {
@@ -181,6 +254,43 @@ describe('"use server" closure-capture validation', () => {
         '  "use server";',
         "  console.log(process.env.NODE_ENV);",
         "  return globalThis.crypto.randomUUID();",
+        "};"
+      ].join("\n");
+      expect(compile(code).valid).toBe(true);
+    });
+
+    it("allows `this` and `arguments` in a marked function expression", () => {
+      // A `function` carries its own `this` and `arguments` with it, so
+      // extraction does not change what they mean.
+      const code = [
+        "export function outer() {",
+        "  return function () {",
+        '    "use server";',
+        "    return [this, arguments.length];",
+        "  };",
+        "}"
+      ].join("\n");
+      expect(compile(code).valid).toBe(true);
+    });
+
+    it("allows `this` inside a function or class nested in the server function", () => {
+      const code = [
+        "export const go = async () => {",
+        '  "use server";',
+        "  class Row { label() { return this.name; } }",
+        "  const build = function () { return this.kind; };",
+        "  return { Row, build, m() { return this.own; } };",
+        "};"
+      ].join("\n");
+      expect(compile(code).valid).toBe(true);
+    });
+
+    it("allows a declared binding named `arguments`", () => {
+      const code = [
+        "export const go = async (...args) => {",
+        '  "use server";',
+        "  const argumentsList = args;",
+        "  return argumentsList.length;",
         "};"
       ].join("\n");
       expect(compile(code).valid).toBe(true);
