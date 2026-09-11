@@ -18,7 +18,8 @@ import {
  *
  * The complexity guard is deterministic, not timed: `cloneRaw` is the only
  * store code that calls `Object.getOwnPropertyDescriptors`, so a spy on it
- * counts container clones exactly. One clone is legitimate per lifetime —
+ * counts descriptor clones exactly (plain-data records clone by spread since
+ * #3360 and register zero). At most one clone is legitimate per lifetime —
  * privatizing the user's seed at the first fold (never-mutate-user-data).
  */
 const KEYS = 2000;
@@ -100,9 +101,11 @@ describe("projection root writes are O(written) (#3352)", () => {
     const spy = clones();
     setGone("b");
     flush();
-    // Exactly the one-time seed privatization (the first derive wrote nothing,
+    // At most the one-time seed privatization (the first derive wrote nothing,
     // so no fold had cloned the user's object yet) — not a per-derive clone.
-    expect(recordClones(spy, "a")).toBe(1);
+    // A plain-data record clones by spread (#3360), which the descriptor spy
+    // does not see at all — hence "at most".
+    expect(recordClones(spy, "a")).toBeLessThanOrEqual(1);
     expect("b" in proj).toBe(false);
     expect(proj.b).toBeUndefined();
     expect(Object.keys(proj)).toEqual(["a", "c"]);
@@ -116,7 +119,7 @@ describe("projection root writes are O(written) (#3352)", () => {
     // Now owned: the next derive's root delete opens an overlay, no clone.
     setGone("c");
     flush();
-    expect(recordClones(spy, "a")).toBe(1);
+    expect(recordClones(spy, "a")).toBeLessThanOrEqual(1);
     expect(Object.keys(proj)).toEqual(["a"]);
     expect(seenKeys).toHaveLength(3);
   });

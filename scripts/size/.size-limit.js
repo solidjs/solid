@@ -356,7 +356,12 @@ module.exports = [
     // measured at 14.776 (was 14.696). The core-floor arm plus the slot-node
     // literal's `_prevChild` and the unlink calls in the four unobserved
     // hooks (value, presence, key-set, deep witness).
-    limit: "14.83 KB",
+    // Narrow-store write floor (#3360, 2026-09-10): 14.83 -> 14.97 KB,
+    // measured at 14.921 (was 14.770). The scan grade + own-key count on
+    // the target, the spread arm in cloneRaw, the width/ownership gate on
+    // the overlay, and the bare-assignment arms in the set trap and
+    // flatten. Buys 1.85x on per-write cost (629 -> 340 ns steady state).
+    limit: "14.97 KB",
     modifyEsbuildConfig
   },
   {
@@ -705,7 +710,9 @@ module.exports = [
     // Firewall child chain doubly linked (#3351, 2026-09-10): 27.34 -> 27.48 KB,
     // measured at 27.430 (was 27.273; +80 B of it is the createStore arm, the
     // rest brotli layout across the store family bundle). See the createStore note.
-    limit: "27.48 KB",
+    // Narrow-store write floor (#3360, 2026-09-10): 27.48 -> 27.57 KB,
+    // measured at 27.518 (was 27.391). The createStore arm; see that note.
+    limit: "27.57 KB",
     modifyEsbuildConfig
   },
   {

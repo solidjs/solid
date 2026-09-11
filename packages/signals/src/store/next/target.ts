@@ -99,9 +99,17 @@ export interface StoreNextTarget {
    * this target (first-read scan, defineProperty, or clone scan). Gates the
    * fold diff's descriptor-safe path and the get trap's descriptor path. */
   a: boolean;
-  /** Accessor scan performed (scan-once on first trap read; adopted data is
-   * not rescanned — legacy-parity behavior). */
-  sc: boolean;
+  /** Accessor scan grade: 0 = not yet scanned (adoption resets — adopted data
+   * is not rescanned until the next draft), 1 = scanned, 2 = scanned and
+   * PLAIN DATA — `Object.prototype` with every own key an enumerable data
+   * property. Grade 2 unlocks the spread clone (cloneRaw), bare-assignment
+   * overlay writes and flatten (#3360); a non-plain defineProperty through
+   * the draft downgrades it to 1. */
+  sc: 0 | 1 | 2;
+  /** Own-key count: exact at scan, then bumped by set-trap writes of keys new
+   * to the container (never decremented — an estimate for the overlay/clone
+   * choice only, #3360). */
+  kc: number;
   /** Adoption diff base, non-null when the backing was swapped by adoption
    * this batch: the view the nodes were LAST TOLD — the pre-batch committed
    * backing, or the draft's pending backing when a draft preceded the

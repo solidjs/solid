@@ -130,6 +130,7 @@ function TargetShape(this: any) {
   this.d = undefined;
   this.a = undefined;
   this.sc = undefined;
+  this.kc = undefined;
   this.nc = undefined;
   this.ab = undefined;
   this.fam = undefined;
@@ -169,7 +170,8 @@ function createTarget(
   t.px = null;
   t.d = false;
   t.a = false;
-  t.sc = false;
+  t.sc = 0;
+  t.kc = 0;
   t.nc = 0;
   t.ab = null;
   t.fam = fam;
@@ -419,6 +421,15 @@ const foldOlds = new Map<StoreNextTarget, Record<PropertyKey, any>>();
 let hookInstalled = false;
 
 function cloneRaw(source: Record<PropertyKey, any>, t?: StoreNextTarget): Record<PropertyKey, any> {
+  // Plain-data fast path (#3360): a scanned `Object.prototype` container
+  // whose own keys are all enumerable data clones by spread — the same
+  // result as the descriptor walk below (own enumerable string+symbol keys,
+  // normalized writable+configurable), at ~1/50th the cost. Callers always
+  // pass their own committed backing as `source`.
+  if (t) {
+    t.sc || scanAccessorsOnce(t);
+    if (t.sc === 2) return { ...source };
+  }
   // Descriptor-preserving shallow clone (R29: installed getters stay live;
   // ruled 2026-08-17: frozen sources clone unfrozen — theirs stays frozen).
   // Data descriptors normalize to writable+configurable (the clone is OURS to
@@ -450,19 +461,34 @@ function copyOwn(to: object, from: object, key: PropertyKey): void {
 }
 
 /** One-time own-accessor scan (Annex-B probes, no descriptor allocation);
- * returns true when the container is plain data (overlay-safe). */
+ * returns true when the container is plain data (overlay-safe). Also grades
+ * the container for the plain-data fast paths (`sc` = 2): `Object.prototype`
+ * and every own key an enumerable data property — what a spread copies
+ * exactly and what a bare assignment lands exactly. */
 function scanAccessorsOnce(target: StoreNextTarget): boolean {
   const src = target.v;
-  for (const key of Reflect.ownKeys(src)) {
+  const keys = Reflect.ownKeys(src);
+  let plain = Object.getPrototypeOf(src) === Object.prototype;
+  for (const key of keys) {
     // Own keys shadow prototype accessors, so the lookups are exact here.
     if (lookupGetter.call(src, key) !== undefined || lookupSetter.call(src, key) !== undefined) {
       target.a = true;
+      plain = false;
       break;
     }
+    if (plain && !propertyIsEnumerable.call(src, key)) plain = false;
   }
-  target.sc = true;
+  target.sc = plain ? 2 : 1;
+  target.kc = keys.length;
   return !target.a;
 }
+
+/** Own-key count above which a draft opens as a prototype overlay rather
+ * than a clone (#3360). Below it a spread clone of a plain container is
+ * cheaper than the overlay's `Object.create` (V8 converts the committed
+ * backing into a prototype, and every later flatten writes into that
+ * prototype); above it the clone's O(keys) copy dominates (#3044). */
+const OVERLAY_MIN_KEYS = 32;
 
 /** Downgrade a prototype-overlay pending backing to the clone path: builds
  * the real container (committed + overlay writes − deletes) that fold will
@@ -522,15 +548,26 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
     // backings (the committed layer is another store's proxy — an overlay
     // would route every read-through into its traps), accessor containers
     // (live getters).
+    // The overlay pays off only for a WIDE container over an OWNED committed
+    // backing (#3360). Narrow containers clone cheaper than they overlay (a
+    // spread is a fast-path copy; `Object.create` turns the backing into a
+    // V8 prototype and every later flatten writes into that prototype). An
+    // unowned backing has to be privatized (cloned) at commit anyway, so an
+    // overlay there would cost the create PLUS the clone PLUS a per-key
+    // copy — the clone path does the one clone and swaps it in. The first
+    // write on a fresh store is exactly that case.
+    const v = target.v;
     if (
       !target.fam?.opt &&
       !target.ch &&
-      !Array.isArray(target.v) &&
-      (target.sc ? !target.a : scanAccessorsOnce(target))
+      !Array.isArray(v) &&
+      (target.sc !== 0 ? !target.a : scanAccessorsOnce(target)) &&
+      target.kc > OVERLAY_MIN_KEYS &&
+      ownedRaw.has(v)
     ) {
-      pb = target.pb = Object.create(target.v) as Record<PropertyKey, any>;
+      pb = target.pb = Object.create(v) as Record<PropertyKey, any>;
       target.ovl = true;
-    } else pb = target.pb = cloneRaw(target.v, target);
+    } else pb = target.pb = cloneRaw(v, target);
     // Optimistic families: seed USER drafts from the OPTIMISTIC VIEW
     // (committed + active node overrides), so follow-up writes compose on
     // optimism instead of clobbering from base (#2951's compose half).
@@ -639,7 +676,7 @@ export function adoptPB(
   // draft rescans once (#3044 audit follow-up).
   target.ovl = false;
   target.del = null;
-  target.sc = false;
+  target.sc = 0;
   target.a = false;
   target.wk = null; // adoption supersedes staged trap writes
   target.v = incoming;
@@ -763,7 +800,12 @@ function parentSlotKey(target: StoreNextTarget, expected: unknown): PropertyKey 
 function flattenOverlay(t: StoreNextTarget, pb: Record<PropertyKey, any>): void {
   privatizeCommitted(t);
   const v = t.v;
-  for (const key of Reflect.ownKeys(pb)) copyOwn(v, pb, key);
+  // Plain-data grade (sc 2): every own key on the overlay is an enumerable
+  // writable data slot (set-trap writes; a non-plain defineProperty
+  // downgrades the grade) — a bare assignment lands it without the
+  // descriptor round trip.
+  for (const key of Reflect.ownKeys(pb))
+    t.sc === 2 ? ((v as any)[key] = pb[key as any]) : copyOwn(v, pb, key);
   if (t.del !== null) {
     for (const key of t.del) delete (v as any)[key];
     t.del = null;
@@ -1504,6 +1546,7 @@ const hasOwn = Object.prototype.hasOwnProperty;
 // shadow prototype accessors, so hasOwn + lookup is an exact own-check.
 const lookupGetter = (Object.prototype as any).__lookupGetter__;
 const lookupSetter = (Object.prototype as any).__lookupSetter__;
+const propertyIsEnumerable = Object.prototype.propertyIsEnumerable;
 function isOwnAccessor(src: Record<PropertyKey, any>, key: PropertyKey): boolean {
   return (
     hasOwn.call(src, key) &&
@@ -1984,7 +2027,14 @@ const traps: ProxyHandler<StoreNextTarget> = {
         wk.add(key);
         wk.add("length");
       }
-    } else if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
+    } else {
+      if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
+      // Live own-key estimate for the overlay/clone choice (#3360): `in`
+      // sees through an overlay to the committed keys, so this counts keys
+      // NEW to the container. Deletes are not un-counted (a stale high
+      // count only picks the overlay a little early).
+      if (!(key in pb)) target.kc++;
+    }
     // Own data keys literally named "prototype"/"constructor" land as data —
     // defineProperty sidesteps a proto-chain setter named the same.
     if (UNSAFE_KEYS.has(key)) {
@@ -1999,8 +2049,10 @@ const traps: ProxyHandler<StoreNextTarget> = {
     }
     // Overlay first-write DEFINES the own key: assignment through the proto
     // chain would reject on a non-writable committed property (the clone
-    // path normalized descriptors for exactly this — R51 parity).
-    if (target.ovl && !hasOwn.call(pb, key)) {
+    // path normalized descriptors for exactly this — R51 parity). A
+    // plain-data-graded backing (sc 2, owned: every slot writable) takes the
+    // bare assignment — it lands as an own key on the overlay all the same.
+    if (target.ovl && target.sc !== 2 && !hasOwn.call(pb, key)) {
       Object.defineProperty(pb, key, {
         value: uv,
         writable: true,
@@ -2027,6 +2079,10 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // Unwrap before ensurePB (see the set trap: self-reference materializes).
     if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };
     const pb = ensurePB(target);
+    // A non-default data descriptor (or an accessor) leaves the plain-data
+    // grade: the key reaches the committed backing as defined, so the spread
+    // clone and bare-assignment paths no longer describe it.
+    if (target.a || !(desc.enumerable && desc.writable && desc.configurable)) target.sc = 1;
     pendingNotify.add(target);
     if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
     Object.defineProperty(pb, key, desc);
