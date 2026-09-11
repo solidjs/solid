@@ -211,7 +211,14 @@ module.exports = [
     // GlobalQueue._promoteOverride); the floor pays the slot's initializer,
     // the arm and the hook slot — +52 B raw (22,279 -> 22,331). The install
     // itself (promoteOverride/installOverride) rides the optimistic module.
-    limit: "8.40 KB",
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 8.40 -> 8.56 KB, measured at 8524 B against `next`'s 8188 (+336) and
+    // #3370's 8369 (+155 — A28's own cost on the lane base: the deferred
+    // promotion, `unflushedView`, the `_flushedStaged`/`_pendingOverride`
+    // slots). The lane fixes' +181 is #3370's and is already in `next`.
+    // In-package floor 22,866 (the same source measured 22,866 on #3347).
+    limit: "8.56 KB",
     modifyEsbuildConfig
   },
   {
@@ -454,7 +461,12 @@ module.exports = [
     // ownership stamp (#3367/#3368: scan grade, spread arm, overlay gate,
     // `$OWNER` lookups and trap guards) — `next` moved 14.83 -> 15.06 KB on
     // the same; this branch's delta over `next` is unchanged (~370 B).
-    limit: "15.42 KB",
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 15.42 -> 15.74 KB, measured at 15701 B against `next`'s 15012 (+689)
+    // and #3370's 15318 (+383 — A28 plus #3336's store half: born-holding
+    // fold keys, `heldFromReader`/`foreignHold` on every store channel).
+    limit: "15.74 KB",
     modifyEsbuildConfig
   },
   {
@@ -564,7 +576,12 @@ module.exports = [
     // Rebased on `next` @ 6bf2bf85 (2026-09-11): 10.47 -> 10.50 KB, measured at
     // 10484 B (was 10462). `next`'s #3350 in-place heap marking and #3351
     // `_prevChild` on the core literals; `next` moved 10.27 -> 10.32 KB.
-    limit: "10.70 KB",
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 10.70 -> 10.97 KB, measured at 10937 B against `next`'s 10253 (+684)
+    // and #3370's 10667 (+270 — A28 for overrides rides the optimistic
+    // module this scenario retains: `_promoteOverride`, the parked install).
+    limit: "10.97 KB",
     modifyEsbuildConfig
   },
   {
@@ -649,7 +666,11 @@ module.exports = [
     // Rebased on `next` @ 6bf2bf85 (2026-09-11): 11.06 -> 11.10 KB, measured at
     // 11062 B (was 11058). Brotli noise from `next`'s #3350/#3351 core bytes;
     // `next` moved 10.92 -> 10.96 KB.
-    limit: "11.15 KB",
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 11.15 -> 11.30 KB, measured at 11261 B against `next`'s 10924 (+337)
+    // and #3370's 11121 (+140 — the core A28 write path).
+    limit: "11.30 KB",
     modifyEsbuildConfig
   },
   {
@@ -749,7 +770,11 @@ module.exports = [
     // Rebased on `next` @ 4935c7dd (2026-09-11): 18.48 -> 18.52 KB, measured at
     // 18484 B (was 18451). No stores in this scenario; brotli layout across
     // the shared core after `next`'s #3367/#3368 (the CSR twin moved +7 B).
-    limit: "18.56 KB",
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 18.56 -> 18.74 KB, measured at 18705 B against `next`'s 18295 (+410)
+    // and #3370's 18529 (+176 — the core A28 write path).
+    limit: "18.74 KB",
     modifyEsbuildConfig
   },
   {
@@ -907,7 +932,12 @@ module.exports = [
     // Rebased on `next` @ 4935c7dd (2026-09-11): 27.90 -> 28.15 KB, measured at
     // 28112 B (was 27894). `next`'s #3367/#3368 createStore arm (see that
     // note); `next` moved 27.48 -> 27.66 KB on the same.
-    limit: "28.24 KB",
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 28.24 -> 28.67 KB, measured at 28635 B against `next`'s 27608 (+1027)
+    // and #3370's 28208 (+427 — A28 plus #3336's store half, as in the
+    // createStore scenario; every store family is retained here).
+    limit: "28.67 KB",
     modifyEsbuildConfig
   },
   {
@@ -977,7 +1007,11 @@ module.exports = [
     // truncating `length =` when nothing is queued, and plain nodes skip the
     // override probe. +27 B raw in the floor; the rest is brotli reordering
     // from the code motion.
-    limit: "13.95 KB",
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 13.95 -> 14.10 KB, measured at 14062 B against `next`'s 13738 (+324)
+    // and #3370's 13921 (+141 — the core A28 write path).
+    limit: "14.10 KB",
     modifyEsbuildConfig
   },
   {
@@ -1035,7 +1069,12 @@ module.exports = [
     //
     // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 15.08 -> 15.23 KB,
     // measured at 15205 B — the core write-path change (see the core floor note).
-    limit: "15.30 KB",
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 15.30 -> 15.52 KB, measured at 15485 B against `next`'s 15037 (+448)
+    // and #3370's 15269 (+216 — the core A28 write path on the observe
+    // artifacts, where the promotion walk carries its attribution hooks).
+    limit: "15.52 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -1117,7 +1156,11 @@ module.exports = [
     // Rebased on `next` @ 6bf2bf85 (2026-09-11): 26.75 -> 26.80 KB, measured at
     // 26772 B (was 26734). `next`'s #3350 in-place heap marking under the
     // attribution build; `next` moved 26.65 -> 26.68 KB.
-    limit: "26.85 KB",
+    //
+    // Rebased on `next` @ b5bd6fba (2026-09-11, lane authority #3370 merged):
+    // 26.85 -> 27.00 KB, measured at 26965 B against `next`'s 26652 (+313)
+    // and #3370's 26819 (+146 — the core A28 write path).
+    limit: "27.00 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

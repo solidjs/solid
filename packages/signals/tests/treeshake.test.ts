@@ -272,8 +272,19 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // changed in the rebase beyond taking `next`'s heap.ts line, so the
     // difference is how the merged core minifies). Measured at 22,381;
     // budget 22,400 -> 22,450 for headroom.
-    // MEASURE_PLACEHOLDER
-    expect(minifiedBytes).toBeLessThan(23_000);
+    //
+    // NOTE (2026-09-11, rebased on `next` @ b5bd6fba): the lane-authority
+    // fixes (#3335, #3334, #3330, #3331, A15 re-rule) merged to `next` as
+    // #3370 at +463 B (21,994 -> 22,457); on this branch they compose with
+    // A28's deferred landing (asyncWrite defers to promoteUnflushed, whose
+    // override arm dispatches to _supersedeOverride) and the store twins add
+    // the held-FOLD case (#3336). Measured at 22,866 — the same source
+    // measured 22,866 on #3347 before it was split — so this branch's delta
+    // over `next` is 409 B (was 387 on the previous base; the +22 is the
+    // landing dispatch living in promoteUnflushed's override arm here where
+    // #3370 has it inline in asyncWrite — the same call, minifying a little
+    // differently in the merged core). Budget 22,450 -> 22,900.
+    expect(minifiedBytes).toBeLessThan(22_900);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {
