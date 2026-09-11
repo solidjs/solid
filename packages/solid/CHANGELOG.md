@@ -1,5 +1,130 @@
 # solid-js
 
+## 2.0.0-rc.8
+
+### Patch Changes
+
+- 01ac18c: Compiler `componentNames` option: component owner labels that survive minification. With the flag on, DOM output carries the tag as written in source as a third `createComponent` argument — `<Home />` compiles to `createComponent(Home, props, "Home")`, `<Ui.Button />` to `"Ui.Button"`, `<this.Row />` to `"this.Row"` — and the dev and observe runtimes label the component's owner with it (`<Home>` in diagnostic `ownerPath`s, attribution chains, and the devtools `_component.name`), falling back to `Comp.name` as before. Until now an observe-tier production bundle reported hot scopes and holds under whatever the minifier left of the function name (`<Xt> › <Kn>`), and a `lazy()` or HMR wrapper hid the tag name even in dev. Off by default and byte-identical output when off; SSR (which inlines the call) and universal output never emit it; the production `createComponent` ignores the argument. Both compilers implement it in parity (shared fixtures, cross-mode ratchet). `@solidjs/vite-plugin` enables it for the dev and `observe` postures.
+- 711b557: Move the #3338 diagnostics out of prod bytes. The `lazy()` "not preloaded" explanation and the document-root preload-failure framing are dev-only; prod keeps terse messages and, at a document root, hands the preload failure itself to `reportError` (no wrapper `Error`). The `haltReactivity` `reportError` hand-off is compacted.
+- 7d985b6: Fix SSR XSS: strings yielded by flow-control memos rendered unescaped
+
+  `<Show when={s}>{s}</Show>`, `<For>{v => v}</For>`, `<Dynamic component={() => s} />`,
+  `<Switch>/<Match>`, boundary fallbacks and any component that returns a string through a
+  memo rendered that string raw on the server. The server flow controls return memos for
+  hydration-id alignment; `escape()` passed functions through by identity, and the resolver
+  appended whatever they later produced without escaping.
+
+  One rule now: `escape(x)` at a hole covers everything reachable from `x` — strings, array
+  items, and what a function yields when the resolver calls it (a deferred-escape wrapper).
+  Finished `{ t }` nodes pass through. `Loading` escapes its content the way it already
+  escaped its fallback. The compilers stop wrapping fragment / mixed component children in
+  `_$escape` (they are values; escaping them too double-escaped through
+  `<Comp>{props.children}</Comp>`), and a single-expression fragment at a hole keeps the
+  hole's wrap. Live-hole tags ride the wrapper and `$slot` survives the array copy, so
+  frames behave as before.
+
+- fe3ab92: Make a failed lazy() hydration observable instead of a silently dead page (#3338):
+  - The client's "was not preloaded before hydration" error no longer says to add a Loading boundary — none is required for root-level `lazy()`. It now names the actual cause: the server serialized no client entry for the module (check the server log for "Asset manifest returned no client assets for module"), or the hydration id namespaces are misaligned.
+  - An uncaught error that halts the reactive system is handed to `reportError` where the platform provides it, so it reaches `window.onerror` / error monitoring. Creation-time throws (a lazy miss during the hydration render) are converted to status by ancestor recomputes and never reached the top; console.error was their only trace.
+  - `hydrate()`'s "module preload failed → fall back to client render" path no longer runs for a document root, where a client render is impossible (the shell cannot be created) and died deep in the walk with an unrelated "Hydration Mismatch" as an unhandled rejection. It now reports an explicit error carrying the preload failure as its cause.
+
+- 0961d97: Observe tier: first-class interaction records and a typed record channel.
+  - `attribution.interactions()` and `InteractionEvent`: one record per `withInteraction` dispatch with `at`, `handlerMs`, `writes`, `runs`, `created` (computations built in its runs), `runMs`, the `holds` and `navigations` attached, and `settledMs`/`outcome` (`idle` | `committed` | `held`) once everything it caused is through.
+  - `attribution.subscribe(type, listener)` for `"rerun" | "interaction" | "hold" | "navigation"`, delivered synchronously as each record completes; the bare `subscribe(listener)` form is unchanged.
+  - `RerunEvent.at` and `HoldEvent.at` — absolute times on the `performance.now()` clock beside the existing durations.
+  - `HoldEvent.acknowledgements` replaces `acknowledgedBy`: one `{ kind, source, reader? }` per affordance, `reader` the owner path of the effect that painted it. `feedback().sources[].acknowledgedBy` still ranks by `kind:source`. `@solidjs/diagnostics` artifact format version 4 (holds carry `acknowledgements`; assertion evidence likewise).
+  - `NavigationRef.params` values may be `undefined` (an optional segment left unbound).
+  - `OBSERVE.exclude(owner)` / `OBSERVE.isExcluded(subject)` — an observer rendering inside the app it watches marks its own subtree; diagnostics about it are suppressed and the engine records none of its runs.
+  - `solid-js` re-exports the tier types from its root: `InteractionRef`, `NavigationRef`, `OriginRef`, `DiagnosticEvent` and friends, and the engine's record types (`ChangeOrigin`, `RerunEvent`, `HoldEvent`, `NavigationEvent`, `InteractionEvent`, …).
+
+- 1807f7f: Observe tier: split dev-only checks from production-legal observability wiring.
+
+  **Breaking (pre-release):** `DEV.diagnostics` moved to a new `OBSERVE` export
+  — `OBSERVE.diagnostics.{subscribe,capture,emit}`, `OBSERVE.subjectOf(event)`.
+  `DEV` keeps the devtools surface (`hooks`, `getChildren`/`getSignals`/
+  `getParent`/`getSources`/`getObservers`) and gains the console face
+  (`DEV.report`, `DEV.setConsoleFooter` — formerly
+  `DEV.diagnostics.setConsoleFooter`). Both are exported from `@solidjs/signals`
+  and `solid-js` (client and server).
+
+  **Breaking (pre-release):** the attribution engine is its own entry.
+  `DEV.attribution.enable()` and friends are now
+  `import { attribution } from "solid-js/attribution"` (or
+  `@solidjs/signals/attribution`) — `enable/disable/subscribe/history/why/
+subscriptions/costs/waterfalls/holds/feedback/markFlight/format/formatOrigin`,
+  plus the record types (`RerunEvent`, `ChangeRecord`, `ChangeOrigin`,
+  `HoldEvent`, …) which were previously unexported. The runtime keeps only the
+  core's side as `OBSERVE.attribution`: `install(hooks)`/`installed` (the hook
+  slot an engine — built-in or a devtools' own — installs into) and
+  `withInteraction(ref, fn)` (the frame the web runtime opens around every event
+  dispatch; `fn()` when no engine is installed). A build that never imports the
+  engine never ships it: the observe tier costs ~1.3 KB brotli over prod on the
+  CSR scenario, the engine 9.7 KB more when enabled. The import is legal in
+  every tier — prod resolves an inert engine with the same surface.
+  `@solidjs/diagnostics` requires `OBSERVE` and imports the engine itself; it now
+  works against observe builds.
+
+  **New build tier.** Every package with wiring ships `<entry>.observe.{js,cjs}`
+  beside its prod and dev artifacts, selected by a new `observe` export condition
+  (listed after `development`, so dev still wins when both are set): signals
+  `dist/observe/` + `dist/node.observe.cjs` (each with an `attribution` entry
+  beside `index`; the flat dev/CJS builds are code-split so both entries share
+  one module instance), solid-js `solid.observe.*` and
+  `server.observe.*`, web `web.observe.*`, universal `universal.observe.*`.
+  Observe builds keep attribution hook sites, owner labels (`_name`, flow-control
+  memo names, component roots), graph edge counters and the diagnostics channel;
+  they fold out strict-read checks, invariants, forbidden-scope guards, devtools
+  brands and all console output. Entries without wiring (frames, server-functions,
+  storage, h, html, element) fall through to prod under `observe`. Signals gates
+  on `__OBSERVE__` (dev implies observe; asserted at init), solid-js/web/universal
+  on the `"_SOLID_OBSERVE_"` literal. Default prod artifacts are unchanged apart
+  from the new `OBSERVE = undefined` export; `_name` is reserved from property
+  mangling so the cross-package label survives in the observe tree.
+  `OBSERVE.diagnostics.emit` accepts an explicit `ownerPath` for hosts whose
+  owners are not signals' owners (the SSR runtime).
+
+- a39415c: **Breaking:** all runtime packages are ESM only and declare `engines.node >= 22.12`.
+
+  Every `.cjs` artifact, every `require` branch in the exports maps, and the `types-cjs/` declaration mirrors are gone. Node 22.12+ loads ESM through `require()` natively, so a CommonJS host resolves the same files through the same export conditions it always did (`browser`, `node`, `development`, `observe`, …) — there is one module graph per tier rather than two to keep in step. `main` now points at the ESM server entry.
+
+  For consumers:
+  - ESM apps, Vite, Vitest, Bun, Deno, workers: no change.
+  - CommonJS Node apps: require Node 22.12 or later. `require("solid-js")` keeps working.
+  - TypeScript CommonJS projects: use `module: "NodeNext"` (TS 5.8+), which type-checks `require()` of ESM packages; `module: "Node16"` will report TS1479.
+  - Jest: needs Node 22.12+ for `require(esm)`; any preset that maps specifiers to `.cjs` paths (as `solid-jest` does for Solid 1.x) has nothing to map to and must be updated.
+
+  `@solidjs/signals` drops its flat `dist/node*.cjs` builds; its ESM entries (`dist/prod/`, `dist/observe/`, `dist/dev.js`) are the only ones. `@solidjs/babel-plugin` and `@solidjs/compiler` (build-time tooling loaded by Babel/Node) are unchanged.
+
+- 8cfa272: Require `seroval` and `seroval-plugins` `~1.6.7` (minor-locked, as before). Seroval 1.6 ships bundled declarations with no extensionless relative imports, so the `@solidjs/web` `server-functions`, `serialization` and `frames` type surfaces now type-check under `module: NodeNext` from a CommonJS project without `skipLibCheck` — the packaged-types check covers every public `@solidjs/web` specifier.
+- 4e730a9: `spread()` reads a `merge()` proxy through its sources instead of through the proxy. A spread mixed with other attributes compiles to `spread(el, merge(statics, () => rest))`; going through the proxy cost merge's `keys()` (a `Set` plus an own-enumerable scan of every source) and then, per key, a right-to-left `in` walk of the sources, on every run. The spread now iterates the flattened sources directly — the union of own string keys, later sources overriding earlier, `children`/`ref` excluded — and enumerates each source through the same single-trap path as `readShallow()`. `omit()` is not a merge and stays opaque: it is enumerated through its own filtering trap. Own keys only, per source: a key an earlier source owns and a later source merely inherits resolves to the earlier source's value (the proxy's `in` walk saw the inherited one) — spread has always applied own properties only. `@solidjs/signals` gains an `@internal` `mergeSources()`. Guarded by the Tier-1 `spread-enumerate` bench (`merge(static, reactive)` row). `readShallow()` re-maps a class array element-wise instead of copy-on-write (−58 B brotli on `web.js`; `className` allocates for an array anyway, measured at parity).
+- Updated dependencies [21c5460]
+- Updated dependencies [711b557]
+- Updated dependencies [1354a53]
+- Updated dependencies [ae0ec3f]
+- Updated dependencies [1c9e9e7]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [05725e8]
+- Updated dependencies [27aee36]
+- Updated dependencies [fe3ab92]
+- Updated dependencies [51c201f]
+- Updated dependencies [2fa7539]
+- Updated dependencies [0961d97]
+- Updated dependencies [1807f7f]
+- Updated dependencies [645ec0d]
+- Updated dependencies [12c3be9]
+- Updated dependencies [3a5fe8c]
+- Updated dependencies [a39415c]
+- Updated dependencies [dd1d4ed]
+- Updated dependencies [4e730a9]
+- Updated dependencies [4935c7d]
+- Updated dependencies [0f14430]
+  - @solidjs/signals@2.0.0-rc.8
+
 ## 2.0.0-rc.7
 
 ### Patch Changes

@@ -1,5 +1,31 @@
 # @solidjs/babel-plugin
 
+## 2.0.0-rc.8
+
+### Patch Changes
+
+- 01ac18c: Compiler `componentNames` option: component owner labels that survive minification. With the flag on, DOM output carries the tag as written in source as a third `createComponent` argument — `<Home />` compiles to `createComponent(Home, props, "Home")`, `<Ui.Button />` to `"Ui.Button"`, `<this.Row />` to `"this.Row"` — and the dev and observe runtimes label the component's owner with it (`<Home>` in diagnostic `ownerPath`s, attribution chains, and the devtools `_component.name`), falling back to `Comp.name` as before. Until now an observe-tier production bundle reported hot scopes and holds under whatever the minifier left of the function name (`<Xt> › <Kn>`), and a `lazy()` or HMR wrapper hid the tag name even in dev. Off by default and byte-identical output when off; SSR (which inlines the call) and universal output never emit it; the production `createComponent` ignores the argument. Both compilers implement it in parity (shared fixtures, cross-mode ratchet). `@solidjs/vite-plugin` enables it for the dev and `observe` postures.
+- 7d985b6: Fix SSR XSS: strings yielded by flow-control memos rendered unescaped
+
+  `<Show when={s}>{s}</Show>`, `<For>{v => v}</For>`, `<Dynamic component={() => s} />`,
+  `<Switch>/<Match>`, boundary fallbacks and any component that returns a string through a
+  memo rendered that string raw on the server. The server flow controls return memos for
+  hydration-id alignment; `escape()` passed functions through by identity, and the resolver
+  appended whatever they later produced without escaping.
+
+  One rule now: `escape(x)` at a hole covers everything reachable from `x` — strings, array
+  items, and what a function yields when the resolver calls it (a deferred-escape wrapper).
+  Finished `{ t }` nodes pass through. `Loading` escapes its content the way it already
+  escaped its fallback. The compilers stop wrapping fragment / mixed component children in
+  `_$escape` (they are values; escaping them too double-escaped through
+  `<Comp>{props.children}</Comp>`), and a single-expression fragment at a hole keeps the
+  hole's wrap. Live-hole tags ride the wrapper and `$slot` survives the array copy, so
+  frames behave as before.
+
+- ab4c40c: Object-valued `style` / `class` bindings are read in the TRACKED half of their effect. `style()` and `className()` enumerate their object in the effect's untracked commit phase, so a proxy value — a store sub-object (`style={state.style}`, `class={row.classes}`), merged props, anything arriving through a spread — was identity-reactive only: in-place key mutations never re-applied, and every leaf read tripped `STRICT_READ_UNTRACKED` in dev. Both compilers now wrap the compute value of a non-inline `style={expr}` / `class={expr}` in a new compiler primitive, `readShallow()`, and `spread()` applies it to those two keys as it copies. `readShallow` is an identity passthrough for strings, plain objects and proxy-free arrays (a fresh literal is already the compute's own — the common case pays a `typeof`); a proxy is copied with one `ownKeys` trap (its own trap keeps the key set tracked) plus one tracked read per key; arrays are re-mapped only when an element is a proxy. Inline literals are untouched — they already compile per property. Provably-string expressions (string/template literals, concatenation) and literal objects/arrays skip the wrap at compile time. New Tier-1 bench `style-class-object`: plain-object rows at parity; store-backed rows go from identity-only (and, in dev, ~97 ms per 500 elements of diagnostics) to per-key reactive at ~3.5 ms. Octane svg-dashboard (prod build, store-backed style/attrs through spread): mount at parity, style_spread_pulse −6%, select_toggle −7%.
+
+  `spread()` shares the same enumeration: its compute half copied the source with `for…in` + `hasOwn`, which on a proxy source (`merge()`/`omit()`, `{...props}` in a component, store records — nearly every spread) is an `ownKeys` trap plus two `getOwnPropertyDescriptor` traps per key, each allocating a descriptor and a getter closure. It now takes the key set from one `Reflect.ownKeys` trap (the trap keeps the key set tracked) and reads each string key once; plain sources use `Object.keys`, the exact own-enumerable set the old loop yielded. New Tier-1 bench `spread-enumerate` (500 elements, 8 keys): `merge(static, reactive)` 376 → 537 ops/s (+43%), store record 253 → 415 ops/s (+64%), plain object at parity.
+
 ## 2.0.0-rc.7
 
 ### Patch Changes

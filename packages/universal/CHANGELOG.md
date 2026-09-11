@@ -1,5 +1,78 @@
 # @solidjs/universal
 
+## 2.0.0-rc.8
+
+### Patch Changes
+
+- 1807f7f: Observe tier: split dev-only checks from production-legal observability wiring.
+
+  **Breaking (pre-release):** `DEV.diagnostics` moved to a new `OBSERVE` export
+  — `OBSERVE.diagnostics.{subscribe,capture,emit}`, `OBSERVE.subjectOf(event)`.
+  `DEV` keeps the devtools surface (`hooks`, `getChildren`/`getSignals`/
+  `getParent`/`getSources`/`getObservers`) and gains the console face
+  (`DEV.report`, `DEV.setConsoleFooter` — formerly
+  `DEV.diagnostics.setConsoleFooter`). Both are exported from `@solidjs/signals`
+  and `solid-js` (client and server).
+
+  **Breaking (pre-release):** the attribution engine is its own entry.
+  `DEV.attribution.enable()` and friends are now
+  `import { attribution } from "solid-js/attribution"` (or
+  `@solidjs/signals/attribution`) — `enable/disable/subscribe/history/why/
+subscriptions/costs/waterfalls/holds/feedback/markFlight/format/formatOrigin`,
+  plus the record types (`RerunEvent`, `ChangeRecord`, `ChangeOrigin`,
+  `HoldEvent`, …) which were previously unexported. The runtime keeps only the
+  core's side as `OBSERVE.attribution`: `install(hooks)`/`installed` (the hook
+  slot an engine — built-in or a devtools' own — installs into) and
+  `withInteraction(ref, fn)` (the frame the web runtime opens around every event
+  dispatch; `fn()` when no engine is installed). A build that never imports the
+  engine never ships it: the observe tier costs ~1.3 KB brotli over prod on the
+  CSR scenario, the engine 9.7 KB more when enabled. The import is legal in
+  every tier — prod resolves an inert engine with the same surface.
+  `@solidjs/diagnostics` requires `OBSERVE` and imports the engine itself; it now
+  works against observe builds.
+
+  **New build tier.** Every package with wiring ships `<entry>.observe.{js,cjs}`
+  beside its prod and dev artifacts, selected by a new `observe` export condition
+  (listed after `development`, so dev still wins when both are set): signals
+  `dist/observe/` + `dist/node.observe.cjs` (each with an `attribution` entry
+  beside `index`; the flat dev/CJS builds are code-split so both entries share
+  one module instance), solid-js `solid.observe.*` and
+  `server.observe.*`, web `web.observe.*`, universal `universal.observe.*`.
+  Observe builds keep attribution hook sites, owner labels (`_name`, flow-control
+  memo names, component roots), graph edge counters and the diagnostics channel;
+  they fold out strict-read checks, invariants, forbidden-scope guards, devtools
+  brands and all console output. Entries without wiring (frames, server-functions,
+  storage, h, html, element) fall through to prod under `observe`. Signals gates
+  on `__OBSERVE__` (dev implies observe; asserted at init), solid-js/web/universal
+  on the `"_SOLID_OBSERVE_"` literal. Default prod artifacts are unchanged apart
+  from the new `OBSERVE = undefined` export; `_name` is reserved from property
+  mangling so the cross-package label survives in the observe tree.
+  `OBSERVE.diagnostics.emit` accepts an explicit `ownerPath` for hosts whose
+  owners are not signals' owners (the SSR runtime).
+
+- a39415c: **Breaking:** all runtime packages are ESM only and declare `engines.node >= 22.12`.
+
+  Every `.cjs` artifact, every `require` branch in the exports maps, and the `types-cjs/` declaration mirrors are gone. Node 22.12+ loads ESM through `require()` natively, so a CommonJS host resolves the same files through the same export conditions it always did (`browser`, `node`, `development`, `observe`, …) — there is one module graph per tier rather than two to keep in step. `main` now points at the ESM server entry.
+
+  For consumers:
+  - ESM apps, Vite, Vitest, Bun, Deno, workers: no change.
+  - CommonJS Node apps: require Node 22.12 or later. `require("solid-js")` keeps working.
+  - TypeScript CommonJS projects: use `module: "NodeNext"` (TS 5.8+), which type-checks `require()` of ESM packages; `module: "Node16"` will report TS1479.
+  - Jest: needs Node 22.12+ for `require(esm)`; any preset that maps specifiers to `.cjs` paths (as `solid-jest` does for Solid 1.x) has nothing to map to and must be updated.
+
+  `@solidjs/signals` drops its flat `dist/node*.cjs` builds; its ESM entries (`dist/prod/`, `dist/observe/`, `dist/dev.js`) are the only ones. `@solidjs/babel-plugin` and `@solidjs/compiler` (build-time tooling loaded by Babel/Node) are unchanged.
+
+- Updated dependencies [01ac18c]
+- Updated dependencies [711b557]
+- Updated dependencies [7d985b6]
+- Updated dependencies [fe3ab92]
+- Updated dependencies [0961d97]
+- Updated dependencies [1807f7f]
+- Updated dependencies [a39415c]
+- Updated dependencies [8cfa272]
+- Updated dependencies [4e730a9]
+  - solid-js@2.0.0-rc.8
+
 ## 2.0.0-rc.7
 
 ### Patch Changes
