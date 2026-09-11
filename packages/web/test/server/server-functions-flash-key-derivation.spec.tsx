@@ -84,7 +84,7 @@ async function stretchedKey(secret: string, iterations = FLASH_KEY_ITERATIONS) {
   );
 }
 
-async function opens(packed: Uint8Array, key: CryptoKey) {
+async function opens(packed: Uint8Array<ArrayBuffer>, key: CryptoKey) {
   try {
     await crypto.subtle.decrypt(
       { name: "AES-GCM", iv: packed.subarray(0, IV_BYTES) },
