@@ -694,9 +694,10 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
       pb = target.pb = Object.create(v) as Record<PropertyKey, any>;
       target.ovl = true;
     } else pb = target.pb = cloneRaw(v, target);
-    // Optimistic families: seed USER drafts from the OPTIMISTIC VIEW
-    // (committed + active node overrides), so follow-up writes compose on
-    // optimism instead of clobbering from base (#2951's compose half).
+    // Optimistic families: seed USER drafts from the DRAFT VIEW (committed +
+    // node overrides, this tick's parked writes ahead of flushed ones —
+    // draftOverride), so follow-up writes compose on optimism instead of
+    // clobbering from base (#2951's compose half).
     // AUTHORITATIVE drafts (projection recompute / write-override landings)
     // seed from committed truth — seeding overrides there would fold a lane
     // value into the committed home ("authority wins at reveal" would break).
@@ -705,16 +706,15 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
       const nodes = target.n;
       if (nodes !== null) {
         for (const key of Reflect.ownKeys(nodes)) {
-          const node = nodes[key as any];
-          if (hasActiveOverride(node)) pb[key as any] = unwrapOverride(node._x?._overrideValue);
+          const ov = draftOverride(nodes[key as any]);
+          if (ov !== NOT_PENDING) pb[key as any] = unwrapOverride(ov);
         }
       }
       const has = target.h;
       if (has !== null) {
         for (const key of Reflect.ownKeys(has)) {
-          const node = has[key as any];
-          if (hasActiveOverride(node) && !unwrapOverride(node._x?._overrideValue))
-            delete pb[key as any];
+          const ov = draftOverride(has[key as any]);
+          if (ov !== NOT_PENDING && !unwrapOverride(ov)) delete pb[key as any];
         }
       }
     }
@@ -1743,6 +1743,21 @@ export function hasActiveOverride(node: Signal<any>): boolean {
   return node._x?._overrideValue !== undefined && node._x?._overrideValue !== NOT_PENDING;
 }
 
+/** The override a tentative DRAFT composes on: the tick's own parked write
+ * (`_pendingOverride` — an optimistic write no flush has carried, A28)
+ * ahead of the flushed override. The draft is the writer's channel, the
+ * store twin of a functional updater: consecutive setters in one tick
+ * compose (`count++` twice is +2; a push after a push lands in the next
+ * slot; a toggle toggled back diffs against the first toggle and emits the
+ * write that cancels it). Readers never consult this — they see the flushed
+ * override or nothing. NOT_PENDING when the node carries neither. */
+export function draftOverride(node: Signal<any>): unknown {
+  const x = node._x;
+  if (x === null) return NOT_PENDING;
+  if (x._pendingOverride !== NOT_PENDING) return x._pendingOverride;
+  return x._overrideValue === undefined ? NOT_PENDING : x._overrideValue;
+}
+
 /** The reading computation is until()'s authoritative-view predicate — same
  * source of truth as core read()'s A17 carve-out (`context`, which persists
  * under untrack). optimisticView()'s composition gate consults exactly this:
@@ -1858,7 +1873,9 @@ function serveDataKey(
     // Truth authors read the backing's own length — an optimistic row from
     // the caller's transaction must not shift where the author's next write
     // lands (#3108).
-    return ((authoritativeServe() ? src : optHooks!.optimisticView(target, src)) as any[]).length;
+    return (
+      (authoritativeServe() ? src : optHooks!.optimisticView(target, src, inDraft(target))) as any[]
+    ).length;
   }
   if (inDraft(target)) {
     // Optimistic drafts before their first write have no pending backing yet;
@@ -1868,8 +1885,10 @@ function serveDataKey(
     // seeding rule, applied to the read side (#3108).
     if (target.fam?.opt && draftSeesOverrides(target) && !authoritativeServe()) {
       const node = target.n?.[key as any];
-      if (node !== undefined && hasActiveOverride(node))
-        v = unwrapOverride(node._x?._overrideValue);
+      if (node !== undefined) {
+        const ov = draftOverride(node);
+        if (ov !== NOT_PENDING) v = unwrapOverride(ov);
+      }
     }
   } else {
     // §7b: a lane value on the outer node SHADOWS read-through — an active
@@ -2115,8 +2134,10 @@ const traps: ProxyHandler<StoreNextTarget> = {
         !authoritativeServe()
       ) {
         const node = target.n?.[key];
-        if (node !== undefined && hasActiveOverride(node))
-          v = unwrapOverride(node._x?._overrideValue);
+        if (node !== undefined) {
+          const ov = draftOverride(node);
+          if (ov !== NOT_PENDING) v = unwrapOverride(ov);
+        }
       }
       if (target.s) return serveShallow(target, key, v);
       return isWrappable(v) ? draftServe(target, wrapNext(v, target, key)) : v;
@@ -2153,8 +2174,10 @@ const traps: ProxyHandler<StoreNextTarget> = {
       }
     } else if (target.fam?.opt && draftSeesOverrides(target) && !authoritativeServe()) {
       const node = target.h?.[key as any];
-      if (node !== undefined && hasActiveOverride(node))
-        present = !!unwrapOverride(node._x?._overrideValue);
+      if (node !== undefined) {
+        const ov = draftOverride(node);
+        if (ov !== NOT_PENDING) present = !!unwrapOverride(ov);
+      }
     }
     return present;
   },
@@ -2440,12 +2463,20 @@ function visibleKeys(target: StoreNextTarget, src: Record<PropertyKey, any>): (s
     target.h !== null &&
     (!inDraft(target) || draftSeesOverrides(target))
   ) {
+    const draft = inDraft(target);
     let set: Set<PropertyKey> | null = null;
     for (const key of Reflect.ownKeys(target.h)) {
       const node = target.h[key as any];
-      if (!hasActiveOverride(node)) continue;
+      let ov: unknown;
+      if (draft) {
+        ov = draftOverride(node);
+        if (ov === NOT_PENDING) continue;
+      } else {
+        if (!hasActiveOverride(node)) continue;
+        ov = node._x?._overrideValue;
+      }
       set ??= new Set(keys);
-      if (unwrapOverride(node._x?._overrideValue)) set.add(key);
+      if (unwrapOverride(ov)) set.add(key);
       else set.delete(key);
     }
     if (set !== null) return [...set] as (string | symbol)[];

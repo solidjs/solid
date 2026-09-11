@@ -436,12 +436,25 @@ describe("new questions pend and cannot be silenced (the foos bug, fixed without
 describe("plain optimistic stores (no source)", () => {
   it("writes display and revert without ever pending", () => {
     const [state, setState] = createOptimisticStore({ count: 0 });
+    const seen: number[] = [];
+    createRoot(() =>
+      createRenderEffect(
+        () => state.count,
+        v => {
+          seen.push(v);
+        }
+      )
+    );
+    flush();
     setState(s => {
       s.count++;
     });
-    expect(state.count).toBe(1);
+    // A28: unflushed — readers see the flushed value, and nothing is pending
+    expect(state.count).toBe(0);
     expect(isPending(() => state.count)).toBe(false);
     flush();
+    // The flush displayed the write, then reverted the ambient override
+    expect(seen).toEqual([0, 1, 0]);
     expect(state.count).toBe(0);
     expect(isPending(() => state.count)).toBe(false);
   });
@@ -594,8 +607,11 @@ describe("affects — the declaration verb", () => {
     const send = action(function* () {
       setState(s => {
         s.messages.push({ text: "new", status: "sending" });
+        // A28: the pushed row is not readable through `state` until the flush
+        // carries the write, so a row born in this write is declared on the
+        // draft — the writer's channel, which composes on its own writes.
+        affects(s.messages[1], "status");
       });
-      affects(state.messages[1], "status");
       yield new Promise<void>(r => (resolveSend = r));
     });
 
@@ -889,6 +905,10 @@ describe("affects — captured proxies (#2882)", () => {
       setState(s => {
         s.rows.push({ name: "c", tags: { primary: "z" } });
       });
+      // A28: the push is visible once a flush has carried it — after the
+      // yield, not before (a same-tick declaration would snapshot the
+      // pre-push view; see "not visible at declaration time" below).
+      yield Promise.resolve();
       affects(state); // second mark while the first is live: must re-snapshot
       yield new Promise<void>(r => (resolveSecond = r));
     });
@@ -898,6 +918,10 @@ describe("affects — captured proxies (#2882)", () => {
     const doneSecond = second();
     flush();
     const added = state.rows[2];
+    expect(added.name).toBe("c"); // the flush carried the push…
+    expect(isPending(() => added.name)).toBe(false); // …the second declaration has not run yet
+    await tick();
+    flush();
     expect(isPending(() => added.name)).toBe(true); // in the second declaration's scope
 
     resolveFirst();
@@ -918,7 +942,11 @@ describe("affects — captured proxies (#2882)", () => {
     expect(() => (affects as any)(state, "rows", "length")).toThrow(/single optional key/);
   });
 
-  it("optimistically written records visible at declaration time are covered", async () => {
+  // A28: an optimistic write is visible at flush, to every channel — the
+  // declaration walk included. A record pushed in the same tick is not in
+  // the flushed view the walk snapshots; the writer declares it on the
+  // draft instead (the writer's channel composes on its own writes).
+  it("a record written in the same tick is not visible at declaration time", async () => {
     const [state, setState] = createOptimisticStore<{ rows: Row[] }>({ rows: seedRows() });
 
     let resolveIt!: () => void;
@@ -926,7 +954,32 @@ describe("affects — captured proxies (#2882)", () => {
       setState(s => {
         s.rows.push({ name: "c", tags: { primary: "z" } });
       });
-      affects(state); // declared AFTER the write: the walk must read through overlays
+      affects(state); // declared after the write, before any flush: snapshots the pre-push view
+      yield new Promise<void>(r => (resolveIt = r));
+    });
+
+    const done = act();
+    flush();
+    const added = state.rows[2];
+    expect(added.name).toBe("c"); // the flush carried the push…
+    expect(isPending(() => state.rows[0].name)).toBe(true); // …the seeded rows are in scope…
+    expect(isPending(() => added.name)).toBe(false); // …the unflushed one was not
+
+    resolveIt();
+    await done;
+    flush();
+    expect(isPending(() => state.rows[0].name)).toBe(false);
+  });
+
+  it("a record written in the same tick is covered when declared on the draft", async () => {
+    const [state, setState] = createOptimisticStore<{ rows: Row[] }>({ rows: seedRows() });
+
+    let resolveIt!: () => void;
+    const act = action(function* () {
+      setState(s => {
+        s.rows.push({ name: "c", tags: { primary: "z" } });
+        affects(s.rows[2]); // the draft row: the same target the flush will serve
+      });
       yield new Promise<void>(r => (resolveIt = r));
     });
 
@@ -935,6 +988,8 @@ describe("affects — captured proxies (#2882)", () => {
     const added = state.rows[2];
     expect(added.name).toBe("c");
     expect(isPending(() => added.name)).toBe(true);
+    expect(isPending(() => added.tags.primary)).toBe(true);
+    expect(isPending(() => state.rows[0].name)).toBe(false); // siblings stay crisp
 
     resolveIt();
     await done;

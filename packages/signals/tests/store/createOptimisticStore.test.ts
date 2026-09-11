@@ -31,52 +31,91 @@ describe("createOptimisticStore", () => {
       expect(state.age).toBe(30);
     });
 
+    // A28: an optimistic write becomes visible at flush. An ambient one (no
+    // action in flight) is installed when the flush starts and reverted when
+    // it ends, so effects are the only channel that sees it; plain reads
+    // answer the flushed value on both sides of the flush.
     it("should update store via setter and revert on flush", () => {
       const [state, setState] = createOptimisticStore({ name: "John" });
+      const values: string[] = [];
+      createRoot(() =>
+        createRenderEffect(
+          () => state.name,
+          v => {
+            values.push(v);
+          }
+        )
+      );
+      flush();
+
       setState(s => {
         s.name = "Jake";
       });
-      // Optimistic update should be immediately visible
-      expect(state.name).toBe("Jake");
-      // Without an active transition, flush reverts to original value
+      expect(state.name).toBe("John"); // unflushed — not visible yet
       flush();
+      expect(values).toEqual(["John", "Jake", "John"]); // shown by the flush, then reverted
       expect(state.name).toBe("John");
     });
 
     it("should allow multiple optimistic updates before flush", () => {
       const [state, setState] = createOptimisticStore({ count: 1 });
+      const values: number[] = [];
+      createRoot(() =>
+        createRenderEffect(
+          () => state.count,
+          v => {
+            values.push(v);
+          }
+        )
+      );
+      flush();
+
       setState(s => {
         s.count = 2;
       });
-      expect(state.count).toBe(2);
       setState(s => {
         s.count = 3;
       });
-      expect(state.count).toBe(3);
       setState(s => {
-        s.count = s.count + 10;
+        s.count = s.count + 10; // the draft sees its own tick's writes (3)
       });
-      expect(state.count).toBe(13);
-      // All revert on flush
+      expect(state.count).toBe(1); // readers do not
       flush();
+      expect(values).toEqual([1, 13, 1]);
       expect(state.count).toBe(1);
     });
 
     it("should handle multiple properties independently", () => {
       const [state, setState] = createOptimisticStore({ a: 1, b: 10 });
+      const values: Array<{ a: number; b: number }> = [];
+      createRoot(() =>
+        createRenderEffect(
+          () => ({ a: state.a, b: state.b }),
+          v => {
+            values.push(v);
+          }
+        )
+      );
+      flush();
+
       setState(s => {
         s.a = 2;
       });
-      expect(state.a).toBe(2);
+      expect(state.a).toBe(1);
       expect(state.b).toBe(10);
 
       setState(s => {
         s.b = 20;
       });
-      expect(state.a).toBe(2);
-      expect(state.b).toBe(20);
+      expect(state.a).toBe(1);
+      expect(state.b).toBe(10);
 
       flush();
+      expect(values).toEqual([
+        { a: 1, b: 10 },
+        { a: 2, b: 20 },
+        { a: 1, b: 10 }
+      ]);
       expect(state.a).toBe(1);
       expect(state.b).toBe(10);
     });
@@ -88,18 +127,29 @@ describe("createOptimisticStore", () => {
         user: { name: "John", address: { city: "NYC" } }
       });
 
+      const values: string[] = [];
+      createRoot(() =>
+        createRenderEffect(
+          () => `${state.user.name}/${state.user.address.city}`,
+          v => {
+            values.push(v);
+          }
+        )
+      );
+      flush();
+
       setState(s => {
         s.user.name = "Jake";
       });
-      expect(state.user.name).toBe("Jake");
-      expect(state.user.address.city).toBe("NYC");
-
       setState(s => {
         s.user.address.city = "LA";
       });
-      expect(state.user.address.city).toBe("LA");
+      // A28: unflushed until the flush carries them
+      expect(state.user.name).toBe("John");
+      expect(state.user.address.city).toBe("NYC");
 
       flush();
+      expect(values).toEqual(["John/NYC", "Jake/LA", "John/NYC"]);
       expect(state.user.name).toBe("John");
       expect(state.user.address.city).toBe("NYC");
     });
@@ -108,13 +158,24 @@ describe("createOptimisticStore", () => {
       const [state, setState] = createOptimisticStore({
         user: { name: "John" }
       });
+      const values: string[] = [];
+      createRoot(() =>
+        createRenderEffect(
+          () => state.user.name,
+          v => {
+            values.push(v);
+          }
+        )
+      );
+      flush();
 
       setState(s => {
         s.user = { name: "Jake" };
       });
-      expect(state.user.name).toBe("Jake");
+      expect(state.user.name).toBe("John");
 
       flush();
+      expect(values).toEqual(["John", "Jake", "John"]);
       expect(state.user.name).toBe("John");
     });
   });
@@ -128,13 +189,30 @@ describe("createOptimisticStore", () => {
         ]
       });
 
+      const values: boolean[][] = [];
+      createRoot(() =>
+        createRenderEffect(
+          () => state.todos.map(t => t.done),
+          v => {
+            values.push(v);
+          }
+        )
+      );
+      flush();
+
       setState(s => {
         s.todos[0].done = true;
       });
-      expect(state.todos[0].done).toBe(true);
+      // A28: unflushed until the flush carries it
+      expect(state.todos[0].done).toBe(false);
       expect(state.todos[1].done).toBe(false);
 
       flush();
+      expect(values).toEqual([
+        [false, false],
+        [true, false],
+        [false, false]
+      ]);
       expect(state.todos[0].done).toBe(false);
     });
 
@@ -142,14 +220,29 @@ describe("createOptimisticStore", () => {
       const [state, setState] = createOptimisticStore({
         items: [1, 2, 3]
       });
+      const values: number[][] = [];
+      createRoot(() =>
+        createRenderEffect(
+          () => [...state.items],
+          v => {
+            values.push(v);
+          }
+        )
+      );
+      flush();
 
       setState(s => {
         s.items.push(4);
       });
-      expect(state.items.length).toBe(4);
-      expect(state.items[3]).toBe(4);
+      expect(state.items.length).toBe(3);
+      expect(state.items[3]).toBeUndefined();
 
       flush();
+      expect(values).toEqual([
+        [1, 2, 3],
+        [1, 2, 3, 4],
+        [1, 2, 3]
+      ]);
       expect(state.items.length).toBe(3);
       expect(state.items[3]).toBeUndefined();
     });
@@ -158,13 +251,28 @@ describe("createOptimisticStore", () => {
       const [state, setState] = createOptimisticStore({
         items: ["a", "b", "c"]
       });
+      const values: string[][] = [];
+      createRoot(() =>
+        createRenderEffect(
+          () => [...state.items],
+          v => {
+            values.push(v);
+          }
+        )
+      );
+      flush();
 
       setState(s => {
         s.items.splice(1, 1); // remove "b"
       });
-      expect(state.items).toEqual(["a", "c"]);
+      expect(state.items).toEqual(["a", "b", "c"]);
 
       flush();
+      expect(values).toEqual([
+        ["a", "b", "c"],
+        ["a", "c"],
+        ["a", "b", "c"]
+      ]);
       expect(state.items).toEqual(["a", "b", "c"]);
     });
 
@@ -173,18 +281,32 @@ describe("createOptimisticStore", () => {
         { id: 1, name: "First" },
         { id: 2, name: "Second" }
       ]);
+      const values: string[][] = [];
+      createRoot(() =>
+        createRenderEffect(
+          () => state.map(r => r.name),
+          v => {
+            values.push(v);
+          }
+        )
+      );
+      flush();
 
       setState(s => {
         s[0].name = "Updated First";
       });
-      expect(state[0].name).toBe("Updated First");
-
       setState(s => {
         s.push({ id: 3, name: "Third" });
       });
-      expect(state.length).toBe(3);
+      expect(state[0].name).toBe("First");
+      expect(state.length).toBe(2);
 
       flush();
+      expect(values).toEqual([
+        ["First", "Second"],
+        ["Updated First", "Second", "Third"],
+        ["First", "Second"]
+      ]);
       expect(state[0].name).toBe("First");
       expect(state.length).toBe(2);
     });
@@ -373,17 +495,27 @@ describe("createOptimisticStore", () => {
         { value: 0 }
       );
 
+      const values: number[] = [];
+      createRoot(() =>
+        createRenderEffect(
+          () => state.value,
+          v => {
+            values.push(v);
+          }
+        )
+      );
       flush();
       expect(state.value).toBe(2);
 
-      // Optimistic write
+      // Optimistic write — unflushed until the flush carries it (A28)
       setState(s => {
         s.value = 100;
       });
-      expect(state.value).toBe(100);
+      expect(state.value).toBe(2);
 
-      // On flush, reverts to derived value
+      // The flush shows 100, then reverts the ambient write to the derived value
       flush();
+      expect(values).toEqual([2, 100, 2]);
       expect(state.value).toBe(2);
 
       // Source change propagates through
@@ -395,6 +527,15 @@ describe("createOptimisticStore", () => {
     it("should allow return value reconciliation and revert optimistic", () => {
       const [$x, setX] = createSignal(1);
       const [state, setState] = createOptimisticStore(() => ({ value: $x() * 2 }), { value: 0 });
+      const values: number[] = [];
+      createRoot(() =>
+        createRenderEffect(
+          () => state.value,
+          v => {
+            values.push(v);
+          }
+        )
+      );
 
       flush();
       expect(state.value).toBe(2);
@@ -402,9 +543,10 @@ describe("createOptimisticStore", () => {
       setState(s => {
         s.value = 50;
       });
-      expect(state.value).toBe(50);
+      expect(state.value).toBe(2);
 
       flush();
+      expect(values).toEqual([2, 50, 2]);
       expect(state.value).toBe(2);
 
       setX(10);
@@ -442,7 +584,7 @@ describe("createOptimisticStore", () => {
         s.id = 99;
         s.name = "optimistic";
       });
-      expect(state.id).toBe(99);
+      expect(state.id).toBe(1); // unflushed (A28); the flush installs the overlay before the derive runs
 
       setId(2);
       flush();
@@ -487,10 +629,13 @@ describe("createOptimisticStore", () => {
         { value: 0 }
       );
 
+      const values: number[] = [];
       createRoot(() => {
         createRenderEffect(
           () => state.value,
-          () => {}
+          v => {
+            values.push(v);
+          }
         );
       });
 
@@ -498,15 +643,17 @@ describe("createOptimisticStore", () => {
       await Promise.resolve();
       await Promise.resolve();
       expect(state.value).toBe(2);
+      expect(values).toEqual([2]);
 
-      // Optimistic write
+      // Optimistic write — unflushed until the flush carries it (A28)
       setState(s => {
         s.value = 8;
       });
-      expect(state.value).toBe(8);
+      expect(state.value).toBe(2);
 
       // Just flush without source update - this simpler case should still revert
       flush();
+      expect(values).toEqual([2, 8, 2]);
       // After the async projection completes and transition ends, optimistic should revert
       await Promise.resolve();
       await Promise.resolve();
@@ -802,7 +949,19 @@ describe("createOptimisticStore", () => {
       flush();
       expect(lengths).toEqual([1]);
 
-      // Rapid successive pushes - each should see the updated length from previous
+      // Rapid successive pushes - each draft sees the length the previous one
+      // left (the draft is the writer's channel and composes on the tick's
+      // own writes); readers see nothing until the flush (A28)
+      const items: number[][] = [];
+      createRoot(() => {
+        createRenderEffect(
+          () => [...state.items],
+          v => {
+            items.push(v);
+          }
+        );
+      });
+      flush();
       setState(s => {
         s.items.push(2);
       });
@@ -813,13 +972,13 @@ describe("createOptimisticStore", () => {
         s.items.push(4);
       });
 
-      expect(state.items.length).toBe(4);
-      expect(state.items[1]).toBe(2);
-      expect(state.items[2]).toBe(3);
-      expect(state.items[3]).toBe(4);
+      expect(state.items.length).toBe(1);
+      expect(state.items[1]).toBeUndefined();
 
-      // All revert on flush
+      // The flush shows all three pushes at once, then reverts the ambient writes
       flush();
+      expect(lengths).toEqual([1, 4, 1]);
+      expect(items).toEqual([[1], [1, 2, 3, 4], [1]]);
       expect(state.items.length).toBe(1);
       expect(state.items[0]).toBe(1);
     });
@@ -846,17 +1005,35 @@ describe("createOptimisticStore", () => {
       flush();
       expect(lengths).toEqual([4]);
 
-      // Rapid successive deletions - each filter returns a new array that gets applied
+      // Rapid successive deletions - each filter returns a new array that gets
+      // applied; the second draft filters the first one's result (the draft
+      // composes on the tick's own writes) while readers see nothing until
+      // the flush (A28)
+      const ids: number[][] = [];
+      createRoot(() => {
+        createRenderEffect(
+          () => [...state].map(i => i.id),
+          v => {
+            ids.push(v);
+          }
+        );
+      });
+      flush();
       setState(s => s.filter(item => item.id !== 2));
-      expect(state.length).toBe(3);
+      expect(state.length).toBe(4);
 
       setState(s => s.filter(item => item.id !== 4));
-      expect(state.length).toBe(2);
+      expect(state.length).toBe(4);
+      expect([...state].map(i => i.id)).toEqual([1, 2, 3, 4]);
 
-      expect([...state].map(i => i.id)).toEqual([1, 3]);
-
-      // All revert on flush
+      // The flush shows both deletions at once, then reverts the ambient writes
       flush();
+      expect(lengths).toEqual([4, 2, 4]);
+      expect(ids).toEqual([
+        [1, 2, 3, 4],
+        [1, 3],
+        [1, 2, 3, 4]
+      ]);
       expect(state.length).toBe(4);
       expect([...state].map(i => i.id)).toEqual([1, 2, 3, 4]);
     });
@@ -1575,11 +1752,17 @@ describe("createOptimisticStore", () => {
         setState(s => {
           s.value = 100;
         });
-        expect(state.value).toBe(100);
+        // A28: the writer's own plain read does not see its unflushed write
+        expect(state.value).toBe(1);
         yield Promise.resolve();
       });
 
       doAsync();
+      expect(state.value).toBe(1);
+
+      // Once a flush has carried it, the override is readable outside any
+      // effect/memo for as long as the action holds it
+      flush();
       expect(state.value).toBe(100);
 
       await Promise.resolve();
@@ -1615,13 +1798,22 @@ describe("createOptimisticStore", () => {
   // #2850: snapshot()/deep() must agree with every other reader — an active
   // optimistic overlay is THE value (A17), and snapshot's documented behavior
   // on regular stores is to read the pending-write overlay synchronously. The
-  // optimistic overlay is the same concept under a different key.
+  // optimistic overlay is the same concept under a different key. Under A28
+  // the overlay becomes active at flush: before it, snapshot agrees with the
+  // plain read on the flushed value.
   describe("snapshot and deep see optimistic writes (#2850)", () => {
-    it("snapshot sees an optimistic write immediately", () => {
+    it("snapshot sees an optimistic write once the flush carries it", () => {
       const [state, setState] = createOptimisticStore({ name: "John" });
-      setState(s => {
-        s.name = "Jake";
+      const doAsync = action(function* () {
+        setState(s => {
+          s.name = "Jake";
+        });
+        yield Promise.resolve();
       });
+      doAsync();
+      expect(state.name).toBe("John");
+      expect(snapshot(state).name).toBe("John");
+      flush();
       expect(state.name).toBe("Jake");
       expect(snapshot(state).name).toBe("Jake");
     });

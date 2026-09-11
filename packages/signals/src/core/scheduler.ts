@@ -596,6 +596,9 @@ export class GlobalQueue extends Queue {
   // once the gate holds.
   static _optimisticWrite: (<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)) => T) | null =
     null;
+  /** Installs an optimistic write's pending override at its promotion
+   * (promoteUnflushed) — the deferred half of _optimisticWrite. */
+  static _promoteOverride: ((el: Signal<any> | Computed<any>) => void) | null = null;
   static _resolveOptimistic: ((nodes: OptimisticNode[]) => void) | null = null;
   static _transitionBlocked: ((transition: Transition) => boolean) | null = null;
   static _cleanupLanes: ((completingTransition: Transition | null) => void) | null = null;

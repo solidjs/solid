@@ -204,10 +204,13 @@ it("#2899: delete under a concurrent action survives the other action's settle",
 it("#2899: ambient write reverts at flush end without touching an in-flight action's keys", async () => {
   const gateA = deferred();
   const [s, setS] = createOptimisticStore({ a: 1, c: 3 });
+  const sums: number[] = [];
   createRoot(() => {
     createRenderEffect(
       () => s.a + s.c,
-      () => {}
+      v => {
+        sums.push(v);
+      }
     );
   });
   flush();
@@ -220,13 +223,16 @@ it("#2899: ambient write reverts at flush end without touching an in-flight acti
   })();
   flush();
   expect(s.a).toBe(10);
+  expect(sums).toEqual([4, 13]);
 
-  // Ambient optimistic write (no action): visible until its flush, then reverts.
+  // Ambient optimistic write (no action): unflushed until its flush (A28),
+  // shown by that flush, then reverted at its end.
   setS(d => {
     d.c = 30;
   });
-  expect(s.c).toBe(30);
+  expect(s.c).toBe(3);
   flush();
+  expect(sums).toEqual([4, 13, 40, 13]);
   expect(s.c).toBe(3);
   expect(s.a).toBe(10); // action A's override untouched
 

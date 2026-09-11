@@ -64,6 +64,7 @@ import { runProjectionComputedNext } from "./projection.js";
 import {
   bumpDeep,
   authoritativeRead,
+  draftOverride,
   getHasNode,
   getKeySetNode,
   getNode,
@@ -563,19 +564,17 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
   // as-is marked every untouched row changed, and the overlay then served
   // each from an override as a fresh non-chained target — row identities
   // churned for the life of the action and snapped back at settle (#3323).
+  // The diff base is the DRAFT view — this tick's parked writes ahead of the
+  // flushed override (draftOverride), the same view ensurePB seeded from.
   const visible = (key: PropertyKey, fallback: any): any => {
     const node = t.n?.[key as any];
-    return unwrapValue(
-      node !== undefined && hasActiveOverride(node)
-        ? unwrapOverride(node._x?._overrideValue)
-        : fallback
-    );
+    const ov = node !== undefined ? draftOverride(node) : NOT_PENDING;
+    return unwrapValue(ov !== NOT_PENDING ? unwrapOverride(ov) : fallback);
   };
   const visiblePresent = (key: PropertyKey): boolean => {
     const node = t.h?.[key as any];
-    return node !== undefined && hasActiveOverride(node)
-      ? !!unwrapOverride(node._x?._overrideValue)
-      : key in old;
+    const ov = node !== undefined ? draftOverride(node) : NOT_PENDING;
+    return ov !== NOT_PENDING ? !!unwrapOverride(ov) : key in old;
   };
   let structural = false;
   const isArr = Array.isArray(pb);
@@ -629,20 +628,27 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
  * RUL-12). Returns `src` untouched when no override is active on `t`.
  * Authoritative-view reads (until()'s predicate) skip composition entirely:
  * the predicate observes authoritative truth, never the caller's tentative
- * overlay. (Write-side emission callers never run under such a compute.) */
+ * overlay. (Write-side emission callers never run under such a compute.)
+ * `draft` selects the writer's view (draftOverride: this tick's parked
+ * writes ahead of flushed overrides) for reads inside a tentative draft —
+ * the one ensurePB seeded it from, so composing it over the seeded clone is
+ * idempotent. */
 export function optimisticView(
   t: StoreNextTarget,
-  src: Record<PropertyKey, any>
+  src: Record<PropertyKey, any>,
+  draft = false
 ): Record<PropertyKey, any> {
   if (t.fam?.opt !== true || authoritativeRead()) return src;
   let out: Record<PropertyKey, any> | null = null;
   const ensure = () => (out ??= Array.isArray(src) ? [...(src as any[])] : { ...src });
+  const overrideOf = (node: Signal<any>): unknown =>
+    draft ? draftOverride(node) : hasActiveOverride(node) ? node._x!._overrideValue : NOT_PENDING;
   const nodes = t.n;
   if (nodes !== null) {
     for (const key of Reflect.ownKeys(nodes)) {
-      const node = nodes[key as any];
-      if (!hasActiveOverride(node)) continue;
-      const ov = unwrapOverride(node._x?._overrideValue);
+      const raw = overrideOf(nodes[key as any]);
+      if (raw === NOT_PENDING) continue;
+      const ov = unwrapOverride(raw);
       if (key === "length" && Array.isArray(src)) {
         if ((src as any[]).length !== ov) (ensure() as any[]).length = ov;
       } else if (!isEqual(src[key as any], ov)) ensure()[key as any] = ov;
@@ -651,9 +657,9 @@ export function optimisticView(
   const has = t.h;
   if (has !== null) {
     for (const key of Reflect.ownKeys(has)) {
-      const node = has[key as any];
-      if (!hasActiveOverride(node)) continue;
-      const present = !!unwrapOverride(node._x?._overrideValue);
+      const raw = overrideOf(has[key as any]);
+      if (raw === NOT_PENDING) continue;
+      const present = !!unwrapOverride(raw);
       if (!present && key in (out ?? src)) delete ensure()[key as any];
     }
   }

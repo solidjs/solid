@@ -124,15 +124,18 @@ export const CONFIG_HELD_TRUTH = 1 << 17;
  * (warm dbmon profile: store node machinery ~36% + GC ~29%). */
 export const CONFIG_SLOT_NODE = 1 << 18;
 /**
- * `_pendingValue` holds a write that no flush has processed yet. Writes
- * become visible at flush — to every read channel: an unflushed write is
- * seen by no reader (plain, `latest()`, `isPending()`), only by the setter's
- * own functional updater. `setSignal` sets the bit on the tick's first write
- * to a node (stashing the previously FLUSHED staged value, if the node was
- * held, in `_x._flushedStaged` so `latest()` keeps answering with it); the
- * flush clears it before running the heap and syncs the node's companions
- * with the value it is about to process. Writes issued from inside a
- * recompute are part of the flush in progress and are never flagged. A
+ * The node carries a write that no flush has processed yet — a staged
+ * `_pendingValue`, or an optimistic write parked in `_x._pendingOverride`.
+ * Writes become visible at flush — to every read channel: an unflushed
+ * write is seen by no reader (plain, `latest()`, `isPending()`), only by
+ * the setter's own functional updater (and, for stores, the draft).
+ * `setSignal` sets the bit on the tick's first write to a node (stashing
+ * the previously FLUSHED staged value, if the node was held, in
+ * `_x._flushedStaged` so `latest()` keeps answering with it; an unheld
+ * node's flushed value is simply `_value`); the flush clears it before
+ * running the heap and syncs the node's companions with the value it is
+ * about to process (for a parked override: installs it). Writes issued
+ * from inside a recompute are promoted at that recompute's tail. A
  * dynamic bit on `_config` (like the presence bits) because the lean signal
  * shape has no `_flags`. Bit 19 is reserved for the createDeferred proposal.
  */

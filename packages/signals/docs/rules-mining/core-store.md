@@ -113,9 +113,9 @@ Files: **CS** = `tests/store/createStore.test.ts`, **SP** = `tests/store/storePa
 **R33. Action/async lane semantics on store properties: a write held by an action makes isPending true for that property (per-property, not whole-store) while showing the committed value; applies on settle.** Aligned: the node-lane model's purpose.
 - CS "isPending sees a derived store property update held by an action", "…held by async work".
 
-**R34. Optimistic writes visible immediately at write time (before flush), never touch base raw; ambient (non-action) optimistic writes auto-revert at flush end.**
+**R34. ~~Optimistic writes visible immediately at write time (before flush)~~, never touch base raw; ambient (non-action) optimistic writes auto-revert at flush end.**
 - SH "optimistic shallow store: replacement stages, base rows untouched, children raw".
-- **CONFLICT (asymmetry to define):** ordinary writes invisible pre-flush (R24) but optimistic writes visible pre-flush. Read-path table needs a "pre-flush" column.
+- ~~**CONFLICT (asymmetry to define):** ordinary writes invisible pre-flush (R24) but optimistic writes visible pre-flush. Read-path table needs a "pre-flush" column.~~ **Resolved 2026-09-10 by A28(5):** the asymmetry is gone — optimistic writes, like ordinary ones, become visible at the flush that carries them. The SH test was re-expected in place (the replacement is shown by the flush, to effects, then reverted).
 
 **R35. Mid-refetch optimistic overlays are consumed when data lands — identical via direct reads, mapArray, wrapper views, Object.keys, snapshot.**
 - SIS 5 tests.
