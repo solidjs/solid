@@ -84,8 +84,8 @@ export interface SourceMapValue {
 
 export interface SignalState<T> extends SourceMapValue {
   value: T;
-  observers: Computation<any>[] | null;
-  observerSlots: number[] | null;
+  // packed [observer, slotInObserverSources, ...] pairs
+  observers: (Computation<any> | number)[] | null;
   tValue?: T;
   comparator?: (prev: T, next: T) => boolean;
   // development-only
@@ -105,8 +105,8 @@ export interface Computation<Init, Next extends Init = Init> extends Owner {
   fn: EffectFunction<Init, Next>;
   state: ComputationState;
   tState?: ComputationState;
-  sources: SignalState<Next>[] | null;
-  sourceSlots: number[] | null;
+  // packed [source, slotInSourceObservers, ...] pairs
+  sources: (SignalState<Next> | number)[] | null;
   value?: Init;
   updatedAt: number | null;
   pure: boolean;
@@ -235,7 +235,6 @@ export function createSignal<T>(
   const s: SignalState<T | undefined> = {
     value,
     observers: null,
-    observerSlots: null,
     comparator: options.equals || undefined
   };
 
@@ -455,7 +454,6 @@ export function createMemo<Next extends Prev, Init, Prev>(
   ) as Partial<Memo<Init, Next>>;
 
   c.observers = null;
-  c.observerSlots = null;
   c.comparator = options.equals || undefined;
   if (Scheduler && Transition && Transition.running) {
     c.tState = STALE;
@@ -1155,7 +1153,6 @@ export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
   ) as DevComponent<P>;
   c.props = props;
   c.observers = null;
-  c.observerSlots = null;
   c.name = Comp.name;
   c.component = Comp;
   updateComputation(c);
@@ -1316,21 +1313,19 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
   }
   if (Listener) {
     const observers = this.observers;
-    if (!observers || observers[observers.length - 1] !== Listener) {
-      const sSlot = observers ? observers.length : 0;
-      if (!Listener.sources) {
-        Listener.sources = [this];
-        Listener.sourceSlots = [sSlot];
+    if (!observers || observers[observers.length - 2] !== Listener) {
+      const sources = Listener.sources,
+        sSlot = observers ? observers.length >> 1 : 0,
+        cSlot = sources ? sources.length >> 1 : 0;
+      if (!sources) {
+        Listener.sources = [this, sSlot];
       } else {
-        Listener.sources.push(this);
-        Listener.sourceSlots!.push(sSlot);
+        sources.push(this, sSlot);
       }
       if (!observers) {
-        this.observers = [Listener];
-        this.observerSlots = [Listener.sources.length - 1];
+        this.observers = [Listener, cSlot];
       } else {
-        observers.push(Listener);
-        this.observerSlots!.push(Listener.sources.length - 1);
+        observers.push(Listener, cSlot);
       }
     }
   }
@@ -1352,8 +1347,8 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
     } else node.value = value;
     if (node.observers && node.observers.length) {
       runUpdates(() => {
-        for (let i = 0; i < node.observers!.length; i += 1) {
-          const o = node.observers![i];
+        for (let i = 0; i < node.observers!.length; i += 2) {
+          const o = node.observers![i] as Computation<any>;
           const TransitionRunning = Transition && Transition.running;
           if (TransitionRunning && Transition!.disposed.has(o)) continue;
           if (TransitionRunning ? !o.tState : !o.state) {
@@ -1451,7 +1446,6 @@ function createComputation<Next, Init = unknown>(
     updatedAt: null,
     owned: null,
     sources: null,
-    sourceSlots: null,
     cleanups: null,
     value: init,
     owner: Owner,
@@ -1671,7 +1665,7 @@ function lookUpstream(node: Computation<any>, ignore?: Computation<any>) {
   const runningTransition = Transition && Transition.running;
   if (runningTransition) node.tState = 0;
   else node.state = 0;
-  for (let i = 0; i < node.sources!.length; i += 1) {
+  for (let i = 0; i < node.sources!.length; i += 2) {
     const source = node.sources![i] as Memo<any>;
     if (source.sources) {
       const state = runningTransition ? source.tState : source.state;
@@ -1685,8 +1679,8 @@ function lookUpstream(node: Computation<any>, ignore?: Computation<any>) {
 
 function markDownstream(node: Memo<any>) {
   const runningTransition = Transition && Transition.running;
-  for (let i = 0; i < node.observers!.length; i += 1) {
-    const o = node.observers![i];
+  for (let i = 0; i < node.observers!.length; i += 2) {
+    const o = node.observers![i] as Computation<any>;
     if (runningTransition ? !o.tState : !o.state) {
       if (runningTransition) o.tState = PENDING;
       else o.state = PENDING;
@@ -1700,17 +1694,18 @@ function markDownstream(node: Memo<any>) {
 function cleanNode(node: Owner) {
   let i;
   if ((node as Computation<any>).sources) {
-    while ((node as Computation<any>).sources!.length) {
-      const source = (node as Computation<any>).sources!.pop()!,
-        index = (node as Computation<any>).sourceSlots!.pop()!,
+    const sources = (node as Computation<any>).sources!;
+    while (sources.length) {
+      const index = sources.pop() as number,
+        source = sources.pop() as SignalState<any>,
         obs = source.observers;
       if (obs && obs.length) {
-        const n = obs.pop()!,
-          s = source.observerSlots!.pop()!;
-        if (index < obs.length) {
-          n.sourceSlots![s] = index;
-          obs[index] = n;
-          source.observerSlots![index] = s;
+        const s = obs.pop() as number,
+          n = obs.pop() as Computation<any>;
+        if (index < obs.length >> 1) {
+          n.sources![(s << 1) + 1] = index;
+          obs[index << 1] = n;
+          obs[(index << 1) + 1] = s;
         }
       }
     }
