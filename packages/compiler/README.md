@@ -155,6 +155,8 @@ A function-level `"use server"` function is extracted out of its lexical positio
 
 A function-level directive only works where the pass can extract the function: a function declaration, a function expression, or an arrow with a block body. Methods, getters, and setters are never extracted, so a directive on one is a compile error rather than a directive that silently does nothing. Assign a function to a property instead.
 
+A module-level `"use server"` module can only export server functions. Its client build is rebuilt from those exports alone, so anything else would be missing from the browser bundle. Re-exports, `export *`, class and enum exports, destructured exports, and exports declared without an initializer are compile errors naming the export and its position. Type-only and `declare` exports are erased and are fine.
+
 The runtime module defaults to `@solidjs/web/server-functions`. Function IDs use `xxhash32(root-relative path)-<count>` (name-suffixed with `env: "development"`). There are also experimental `transformLazy` and `transformRefresh` passes.
 
 ## Rust compiler core

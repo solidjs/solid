@@ -21,7 +21,7 @@ use oxc_ast::ast::{
     ImportOrExportKind, Program, Statement, VariableDeclarationKind,
 };
 use oxc_ast_visit::{VisitMut, walk_mut};
-use oxc_span::Span;
+use oxc_span::{GetSpan, Span};
 
 use crate::shared::ast::{expression_to_argument, variable_statement};
 use crate::shared::ast_builder::AstBuilder;
@@ -138,7 +138,7 @@ impl<'a> DirectivesTransform<'a> {
         self.valid && self.count > 0 && !self.module_level_applied
     }
 
-    pub(crate) fn run(&mut self, program: &mut Program<'a>) {
+    pub(crate) fn run(&mut self, program: &mut Program<'a>) -> Result<(), UnsupportedExport> {
         self.scan_taken_names(program);
         let is_module_level = program
             .directives
@@ -149,7 +149,7 @@ impl<'a> DirectivesTransform<'a> {
             program
                 .directives
                 .retain(|directive| directive.expression.value != self.directive);
-            self.transform_module_level(program);
+            self.transform_module_level(program)?;
             self.valid = true;
         } else {
             self.transform_function_level(program);
@@ -162,6 +162,7 @@ impl<'a> DirectivesTransform<'a> {
         for import in self.prepended_imports.drain(..).rev() {
             program.body.insert(0, import);
         }
+        Ok(())
     }
 
     // --- Naming -------------------------------------------------------------
@@ -373,11 +374,15 @@ impl<'a> DirectivesTransform<'a> {
 
     // --- Module-level directive ------------------------------------------------
 
-    fn transform_module_level(&mut self, program: &mut Program<'a>) {
+    fn transform_module_level(&mut self, program: &mut Program<'a>) -> Result<(), UnsupportedExport> {
         self.bubble_top_level_functions(program);
 
         let bindings = collect_top_level_bindings(program);
         let exports = collect_exported_bindings(program, &bindings);
+        // The client build is rebuilt from the traced exports alone, so an
+        // export the tracer did not reach would simply be missing from it
+        // while the server build still has it. Reject it here instead.
+        check_supported_exports(program, &exports)?;
 
         // Module-level contract: each export's *evaluated value* is the
         // server function. The server build registers the binding's terminal
@@ -392,6 +397,7 @@ impl<'a> DirectivesTransform<'a> {
             Mode::Server => self.module_level_server(program, &exports),
             Mode::Client => self.module_level_client(program, &exports),
         }
+        Ok(())
     }
 
     /// Rewrites top-level function declarations into `const` function
@@ -1077,6 +1083,242 @@ fn binding_descriptive_name(program: &Program<'_>, key: BindingKey) -> Option<St
         return Some(id.name.to_string());
     }
     Some("anonymous".to_string())
+}
+
+/// An export a module-level directive cannot turn into a server function.
+pub(crate) struct UnsupportedExport {
+    pub(crate) span: Span,
+    pub(crate) name: String,
+    pub(crate) reason: UnsupportedReason,
+}
+
+pub(crate) enum UnsupportedReason {
+    ReExport { source: String },
+    /// A declaration form with a runtime value that is not a binding the
+    /// pass can register. `kind` carries its article, so the clause reads
+    /// "is a class declaration" or "is an enum declaration".
+    Declaration { kind: &'static str },
+    NoInitializer,
+    DestructuringPattern,
+    NotABinding,
+}
+
+impl UnsupportedReason {
+    /// Completes "`name` ...".
+    pub(crate) fn clause(&self) -> String {
+        match self {
+            UnsupportedReason::ReExport { source } => {
+                format!("is re-exported from \"{source}\"")
+            }
+            UnsupportedReason::Declaration { kind } => format!("is {kind} declaration"),
+            UnsupportedReason::NoInitializer => "is declared without an initializer".to_string(),
+            UnsupportedReason::DestructuringPattern => {
+                "is bound by a destructuring pattern".to_string()
+            }
+            UnsupportedReason::NotABinding => {
+                "does not resolve to a top-level binding with an initializer".to_string()
+            }
+        }
+    }
+
+    pub(crate) fn hint(&self) -> &'static str {
+        match self {
+            UnsupportedReason::ReExport { .. } => {
+                "Re-export it from a module without the directive."
+            }
+            UnsupportedReason::NoInitializer => {
+                "Give it an initializer, or move it to a module without the directive."
+            }
+            UnsupportedReason::DestructuringPattern => {
+                "Export a single initialized binding instead."
+            }
+            UnsupportedReason::Declaration { .. } | UnsupportedReason::NotABinding => {
+                "Move it to a module without the directive."
+            }
+        }
+    }
+}
+
+/// Reports the first export the module-level path cannot register. Runs on
+/// the post-bubble program, so `export function name() {}` has already
+/// become a traceable `const` plus an `export { name }` specifier and never
+/// reaches this check.
+fn check_supported_exports(
+    program: &Program<'_>,
+    exports: &ExportedBindings,
+) -> Result<(), UnsupportedExport> {
+    let is_traced = |name: &str| exports.exported.iter().any(|(exported, _)| exported == name);
+
+    for statement in &program.body {
+        match statement {
+            // `export * from "./x"` and `export * as ns from "./x"`.
+            Statement::ExportAllDeclaration(export) => {
+                if export.export_kind == ImportOrExportKind::Type {
+                    continue;
+                }
+                let name = export
+                    .exported
+                    .as_ref()
+                    .and_then(|exported| exported.identifier_name())
+                    .map(|name| name.to_string())
+                    .unwrap_or_else(|| "*".to_string());
+                return Err(UnsupportedExport {
+                    span: export.span,
+                    name,
+                    reason: UnsupportedReason::ReExport {
+                        source: export.source.value.to_string(),
+                    },
+                });
+            }
+            // `export { a, b as c } from "./x"`.
+            Statement::ExportFromDeclaration(export) => {
+                if export.export_kind == ImportOrExportKind::Type {
+                    continue;
+                }
+                for specifier in &export.specifiers {
+                    if specifier.export_kind == ImportOrExportKind::Type {
+                        continue;
+                    }
+                    return Err(UnsupportedExport {
+                        span: specifier.span,
+                        name: export_specifier_name(specifier),
+                        reason: UnsupportedReason::ReExport {
+                            source: export.source.value.to_string(),
+                        },
+                    });
+                }
+            }
+            // `export { a, b as c }` over local bindings.
+            Statement::ExportNamedDeclaration(export) => {
+                if export.export_kind == ImportOrExportKind::Type {
+                    continue;
+                }
+                for specifier in &export.specifiers {
+                    if specifier.export_kind == ImportOrExportKind::Type {
+                        continue;
+                    }
+                    let name = export_specifier_name(specifier);
+                    if !is_traced(&name) {
+                        return Err(UnsupportedExport {
+                            span: specifier.span,
+                            name,
+                            reason: UnsupportedReason::NotABinding,
+                        });
+                    }
+                }
+            }
+            Statement::ExportDeclaration(export) => {
+                if let Some(unsupported) = check_exported_declaration(&export.declaration, &is_traced)
+                {
+                    return Err(unsupported);
+                }
+            }
+            Statement::ExportDefaultDeclaration(export) => {
+                if is_traced("default") {
+                    continue;
+                }
+                let reason = match &export.declaration {
+                    ExportDefaultDeclarationKind::ClassDeclaration(_) => {
+                        UnsupportedReason::Declaration { kind: "a class" }
+                    }
+                    // Bubbling gives every other default form a synthesized
+                    // binding, so anything still untraced here is a TS
+                    // declaration form with no runtime value.
+                    _ => UnsupportedReason::NotABinding,
+                };
+                return Err(UnsupportedExport {
+                    span: export.span,
+                    name: "default".to_string(),
+                    reason,
+                });
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn check_exported_declaration(
+    declaration: &Declaration<'_>,
+    is_traced: &impl Fn(&str) -> bool,
+) -> Option<UnsupportedExport> {
+    match declaration {
+        Declaration::VariableDeclaration(variable) => {
+            // `export declare const x: number` is ambient and erased.
+            if variable.declare {
+                return None;
+            }
+            for declarator in &variable.declarations {
+                let BindingPattern::BindingIdentifier(id) = &declarator.id else {
+                    return Some(UnsupportedExport {
+                        span: declarator.span,
+                        name: "this export".to_string(),
+                        reason: UnsupportedReason::DestructuringPattern,
+                    });
+                };
+                if declarator.init.is_none() {
+                    return Some(UnsupportedExport {
+                        span: declarator.span,
+                        name: id.name.to_string(),
+                        reason: UnsupportedReason::NoInitializer,
+                    });
+                }
+                if !is_traced(&id.name) {
+                    return Some(UnsupportedExport {
+                        span: declarator.span,
+                        name: id.name.to_string(),
+                        reason: UnsupportedReason::NotABinding,
+                    });
+                }
+            }
+            None
+        }
+        Declaration::ClassDeclaration(class) => {
+            if class.declare {
+                return None;
+            }
+            Some(UnsupportedExport {
+                span: class.span,
+                name: class
+                    .id
+                    .as_ref()
+                    .map(|id| id.name.to_string())
+                    .unwrap_or_else(|| "this class".to_string()),
+                reason: UnsupportedReason::Declaration { kind: "a class" },
+            })
+        }
+        // `export enum`, `export namespace`, and `export import`: runtime
+        // values that bubbling did not turn into a traceable binding.
+        Declaration::TSEnumDeclaration(declared) => Some(UnsupportedExport {
+            span: declared.span,
+            name: declared.id.name.to_string(),
+            reason: UnsupportedReason::Declaration { kind: "an enum" },
+        }),
+        Declaration::TSNamespaceDeclaration(declared) => Some(UnsupportedExport {
+            span: declared.span,
+            name: declared.id.name.to_string(),
+            reason: UnsupportedReason::Declaration { kind: "a namespace" },
+        }),
+        Declaration::TSExternalModuleDeclaration(_)
+        | Declaration::TSImportEqualsDeclaration(_) => Some(UnsupportedExport {
+            span: declaration.span(),
+            name: "this export".to_string(),
+            reason: UnsupportedReason::NotABinding,
+        }),
+        // Function declarations are bubbled away before this runs, and the
+        // remaining forms (`type`, `interface`) are erased.
+        _ => None,
+    }
+}
+
+fn export_specifier_name(specifier: &oxc_ast::ast::ExportSpecifier<'_>) -> String {
+    match &specifier.exported {
+        oxc_ast::ast::ModuleExportName::StringLiteral(literal) => literal.value.to_string(),
+        other => other
+            .identifier_name()
+            .map(|name| name.to_string())
+            .unwrap_or_default(),
+    }
 }
 
 /// Mutable access to the function expression stored in a traced binding's
