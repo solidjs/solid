@@ -391,10 +391,24 @@ export interface ServerFunctionsServerConfig {
    * back to the one the Solid bundler plugin injects into the server build
    * (a fresh value per build), and with neither present the outcome is
    * simply not flashed — the form post still redirects cleanly, and dev
-   * builds warn once. Any non-empty string works; rotating it (or
-   * redeploying with the plugin's value) invalidates in-flight flashes,
-   * which are 60-second one-shot cookies — the next render reads "no
-   * flash".
+   * builds warn once.
+   *
+   * Use a HIGH-ENTROPY value, 32 bytes or more, and keep it out of source
+   * control:
+   *
+   * ```sh
+   * node -e "console.log(crypto.randomBytes(32).toString('base64url'))"
+   * ```
+   *
+   * A captured cookie is an offline oracle for this value. Key derivation
+   * stretches it (PBKDF2-HMAC-SHA-256), which raises the price of a guess
+   * but does not make a guessable secret safe, and recovering it means
+   * reading every flash payload and forging new ones. A passphrase, an app
+   * name, or anything else a person would think up is not enough.
+   *
+   * Rotating it (or redeploying with the plugin's value) invalidates
+   * in-flight flashes. They are 60-second one-shot cookies, so the next
+   * render reads "no flash".
    */
   secret?: string;
 }
