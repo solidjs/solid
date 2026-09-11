@@ -87,6 +87,15 @@ export interface NodeExtension {
    * cleared with the flag.
    */
   _flushedStaged: unknown | typeof NOT_PENDING;
+  /**
+   * An optimistic write no flush has processed yet (CONFIG_UNFLUSHED on an
+   * optimistic node). Writes become visible at flush — overrides included
+   * (A28): the write is recorded here at write time and installed as
+   * `_overrideValue` by its promotion, so until the flush every reader keeps
+   * the flushed view (the previous override, or committed) and only the
+   * setter's own functional updater sees it. NOT_PENDING when absent.
+   */
+  _pendingOverride: unknown | typeof NOT_PENDING;
   _parentSource: Signal<any> | Computed<any> | undefined; // Back-reference for parent-child lane relationship
   /**
    * Live `affects()` marks on this node (refcount). Non-zero is declared

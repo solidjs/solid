@@ -198,7 +198,17 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // transform's live-binding getters); promoteUnflushed returns before its
     // truncating `length =` on an empty list; plain nodes skip the override
     // probe (CONFIG_OPTIMISTIC gate). Measured at 22,279.
-    expect(minifiedBytes).toBeLessThan(22_350);
+    //
+    // CONSCIOUS BUMP (2026-09-10, A28 for optimistic writes): +52 B. A
+    // user's optimistic write parks in the `_pendingOverride` ext slot and
+    // installs at its promotion — promoteUnflushed's override arm dispatches
+    // through GlobalQueue._promoteOverride, so the install itself
+    // (promoteOverride/installOverride) rides the optimistic module. The
+    // floor pays the slot's initializer, the arm and the hook slot; the
+    // alternative (install eagerly and mask the override from readers until
+    // the flush) would have put the mask on read()'s hot path for every
+    // optimistic read. Measured at 22,331.
+    expect(minifiedBytes).toBeLessThan(22_400);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

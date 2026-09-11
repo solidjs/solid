@@ -120,54 +120,88 @@ describe("createOptimistic", () => {
       expect($x()).toBe(1);
     });
 
+    // A28: an optimistic write, like any write, becomes visible at flush. An
+    // ambient one (no action in flight) is installed when the flush starts and
+    // reverted when it ends, so effects are the only channel that sees it;
+    // plain reads answer the flushed value on both sides of the flush.
     it("should update signal via setter and revert on flush", () => {
       const [$x, setX] = createOptimistic(1);
-      setX(2);
-      // Optimistic signals write directly to _value, should be immediately visible
-      expect($x()).toBe(2);
-      // Without an active transition, flush reverts to original value
+      const values: number[] = [];
+      createRoot(() =>
+        createRenderEffect($x, v => {
+          values.push(v);
+        })
+      );
       flush();
+
+      setX(2);
+      expect($x()).toBe(1); // unflushed — not visible yet
+      flush();
+      expect(values).toEqual([1, 2, 1]); // the flush shows 2, then reverts the ambient write
       expect($x()).toBe(1);
     });
 
     it("should update signal via update function and revert on flush", () => {
       const [$x, setX] = createOptimistic(1);
-      setX(n => n + 1);
-      expect($x()).toBe(2);
+      const values: number[] = [];
+      createRoot(() =>
+        createRenderEffect($x, v => {
+          values.push(v);
+        })
+      );
       flush();
+
+      setX(n => n + 1);
+      expect($x()).toBe(1);
+      flush();
+      expect(values).toEqual([1, 2, 1]);
       expect($x()).toBe(1);
     });
 
     it("should allow multiple optimistic updates before flush", () => {
       const [$x, setX] = createOptimistic(1);
-      setX(2);
-      expect($x()).toBe(2);
-      setX(3);
-      expect($x()).toBe(3);
-      setX(n => n + 10);
-      expect($x()).toBe(13);
-      // All revert on flush
+      const values: number[] = [];
+      createRoot(() =>
+        createRenderEffect($x, v => {
+          values.push(v);
+        })
+      );
       flush();
+
+      setX(2);
+      setX(3);
+      setX(n => n + 10); // the updater sees its own tick's write (3)
+      expect($x()).toBe(1); // readers do not
+      flush();
+      expect(values).toEqual([1, 13, 1]); // one flush carries the last write, then reverts
       expect($x()).toBe(1);
     });
 
     it("should provide current optimistic value in update callback", () => {
       const [$x, setX] = createOptimistic(10);
+      const values: number[] = [];
+      createRoot(() =>
+        createRenderEffect($x, v => {
+          values.push(v);
+        })
+      );
+      flush();
 
       setX(prev => {
         expect(prev).toBe(10);
         return 20;
       });
-      expect($x()).toBe(20);
+      expect($x()).toBe(10);
 
       setX(prev => {
-        // Should see the optimistic value, not original
+        // The updater is the one channel that sees the unflushed write
         expect(prev).toBe(20);
         return prev + 5;
       });
-      expect($x()).toBe(25);
+      expect($x()).toBe(10);
 
       flush();
+      expect(values).toEqual([10, 25, 10]);
       expect($x()).toBe(10);
     });
   });
@@ -480,15 +514,22 @@ describe("createOptimistic", () => {
       const [$x, setX] = createSignal(1);
       const [$y, setY] = createOptimistic(() => $x() + 1);
 
+      const values: number[] = [];
+      createRoot(() =>
+        createRenderEffect($y, v => {
+          values.push(v);
+        })
+      );
       flush();
       expect($y()).toBe(2);
 
-      // Optimistic write
+      // Optimistic write — unflushed until the flush carries it (A28)
       setY(100);
-      expect($y()).toBe(100);
+      expect($y()).toBe(2);
 
-      // On flush, reverts to computed value
+      // The flush shows 100 to effects, then reverts the ambient write
       flush();
+      expect(values).toEqual([2, 100, 2]);
       expect($y()).toBe(2);
 
       // Source change propagates through
@@ -517,14 +558,14 @@ describe("createOptimistic", () => {
       await Promise.resolve(); // Extra tick for async function's internal await
       expect($y()).toBe(2);
 
-      // Optimistic write
+      // Optimistic write — not visible until the flush carries it (A28)
       setY(8);
-      expect($y()).toBe(8);
+      expect($y()).toBe(2);
 
       // Source update - but held during transition
       setX(5);
       flush();
-      expect($y()).toBe(8); // still optimistic
+      expect($y()).toBe(8); // the flush installed the override; the transition holds it
       expect($x()).toBe(1); // held at original
 
       await Promise.resolve();
@@ -656,13 +697,17 @@ describe("createOptimistic", () => {
 
       const doAsync = action(function* () {
         setX(100);
-        // Read outside any effect/memo
-        expect($x()).toBe(100);
+        // A28: the writer's own plain read does not see its unflushed write
+        expect($x()).toBe(1);
         yield Promise.resolve();
       });
 
       doAsync();
-      // Also readable outside
+      expect($x()).toBe(1);
+
+      // Once a flush has carried it, the override is readable outside any
+      // effect/memo for as long as the action holds it
+      flush();
       expect($x()).toBe(100);
 
       await Promise.resolve();
@@ -5071,12 +5116,13 @@ describe("createOptimistic", () => {
       expect($opt()).toBe(10);
       expect(values).toEqual([10]);
 
-      // Write an optimistic override
+      // Write an optimistic override — unflushed until the flush (A28)
       setOpt(999);
-      expect($opt()).toBe(999);
+      expect($opt()).toBe(10);
 
-      // On flush, the override reverts to the source value
+      // The flush shows the override, then reverts it to the source value
       flush();
+      expect(values).toEqual([10, 999, 10]);
       expect($opt()).toBe(10);
     });
   });

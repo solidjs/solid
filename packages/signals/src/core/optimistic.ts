@@ -26,7 +26,7 @@ import {
   STATUS_UNINITIALIZED,
   CONFIG_HAS_LANE
 } from "./constants.js";
-import { currentOptimisticLane, latestReadActive, stale, ext } from "./core.js";
+import { currentOptimisticLane, latestReadActive, stale, ext, markUnflushed } from "./core.js";
 import { NotReadyError } from "./error.js";
 import { devCheckMergedLaneEmpty, devTrackOptimistic } from "./invariants.js";
 import {
@@ -55,10 +55,25 @@ import type { Computed, Link, Signal } from "./types.js";
 
 type OptimisticNode = Signal<any> | Computed<any>;
 
-/** The optimistic half of setSignal, fired when `_overrideValue !== undefined`. */
+/**
+ * The optimistic half of setSignal, fired when `_overrideValue !== undefined`.
+ * Writes become visible at flush (A28) — overrides included: the write-time
+ * half is the bookkeeping that needs the writer's posture (the action's
+ * transition, the lane, provenance), and the value itself is parked in
+ * `_pendingOverride` for `promoteOverride` to install when the flush carries
+ * it. Until then every reader keeps the flushed view — the previous override
+ * or committed truth — exactly as after a plain write, and a same-tick
+ * functional updater is the only thing that sees the parked value.
+ */
 function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
-  const hasOverride = el._x?._overrideValue !== NOT_PENDING;
-  const currentValue = hasOverride ? unwrapOverride<T>(el._x?._overrideValue) : el._value;
+  const pending = el._x?._pendingOverride;
+  const hasPending = pending !== undefined && pending !== NOT_PENDING;
+  const hasOverride = hasPending || el._x?._overrideValue !== NOT_PENDING;
+  const currentValue = hasPending
+    ? unwrapOverride<T>(pending)
+    : hasOverride
+      ? unwrapOverride<T>(el._x?._overrideValue)
+      : el._value;
 
   if (typeof v === "function") v = (v as (prev: T) => T)(currentValue);
 
@@ -101,19 +116,53 @@ function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)
   // Literal undefined must not land raw: the slot doubles as the optimistic
   // brand, and erasing it makes the write invisible and routes follow-up
   // writes off the optimistic path into permanent commits (#2898).
-  ext(el)._overrideValue = v === undefined ? (OVERRIDE_UNDEFINED as T) : v;
+  const value = v === undefined ? (OVERRIDE_UNDEFINED as T) : v;
+  if ((el as any)._fn !== undefined) el._time = clock; // §12e: computed-only slot
+
+  // A companion (the latest() shadow, the isPending() verdict — `_parentSource`
+  // set) is an override the system writes FOR ITSELF to mirror state its
+  // owner already carries in the flushed world (A8): written from inside the
+  // flush, after the promotions that flush runs, so it installs eagerly —
+  // deferred, it would answer one flush late. A user's optimistic write
+  // parks: no flushed-staged stash is needed, since the flushed view of an
+  // optimistic node is its current override (or committed), which read()
+  // serves ahead of the staged slot and nothing here overwrites.
+  if (el._x!._parentSource !== undefined) installOverride(el, value);
+  else {
+    el._x!._pendingOverride = value;
+    markUnflushed(el, NOT_PENDING);
+  }
+  schedule();
+  return v;
+}
+
+/**
+ * The flush half of an optimistic write: the value becomes the override —
+ * the value for every reader (A17) — then the companions take it (the
+ * latest() shadow, the isPending() verdict) and the subscribers are walked
+ * on the node's lane. Eager for companions; for a user's write, run by
+ * promoteUnflushed's override arm (`promoteOverride`).
+ */
+function installOverride(el: Signal<any> | Computed<any>, value: unknown): void {
+  const x = el._x!;
+  x._overrideValue = value;
   if (__DEV__) devTrackOptimistic(el);
 
   // syncCompanions only pokes _pendingSignal/_latestValueComputed — with
   // neither companion present the call is a guaranteed no-op.
-  (el._x?._pendingSignal !== undefined || el._x?._latestValueComputed !== undefined) &&
+  (x._pendingSignal !== undefined || x._latestValueComputed !== undefined) &&
     GlobalQueue._syncCompanions !== null &&
-    GlobalQueue._syncCompanions(el, v);
+    GlobalQueue._syncCompanions(el, unwrapOverride(value));
 
-  if ((el as any)._fn !== undefined) el._time = clock; // §12e: computed-only slot
   insertSubs(el, true);
-  schedule();
-  return v;
+}
+
+/** promoteUnflushed's override arm: a parked user write flushes. */
+function promoteOverride(el: Signal<any> | Computed<any>): void {
+  const x = el._x!;
+  const v = x._pendingOverride;
+  x._pendingOverride = NOT_PENDING;
+  installOverride(el, v);
 }
 
 /**
@@ -369,6 +418,7 @@ function trackOptimisticStore(store: any): void {
 export function installOptimisticEngine(): void {
   if (GlobalQueue._optimisticWrite !== null) return;
   GlobalQueue._optimisticWrite = optimisticWrite;
+  GlobalQueue._promoteOverride = promoteOverride;
   GlobalQueue._resolveOptimistic = resolveOptimisticNodes;
   GlobalQueue._transitionBlocked = transitionBlocked;
   GlobalQueue._cleanupLanes = cleanupCompletedLanes;

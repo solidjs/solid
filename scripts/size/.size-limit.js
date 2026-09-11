@@ -186,7 +186,15 @@ module.exports = [
     // truncating `length =` when nothing is queued, and plain nodes skip the
     // override probe. +27 B raw in the floor; the rest is brotli reordering
     // from the code motion. Floor 22,252 -> 22,279.
-    limit: "8.30 KB",
+    //
+    // Optimistic writes visible at flush (A28 for overrides, #3337,
+    // 2026-09-10): 8.30 -> 8.32 KB, measured at 8312 B (was 8280). A user's
+    // optimistic write parks in the `_pendingOverride` ext slot and installs
+    // at promotion (promoteUnflushed's override arm dispatching through
+    // GlobalQueue._promoteOverride); the floor pays the slot's initializer,
+    // the arm and the hook slot — +52 B raw (22,279 -> 22,331). The install
+    // itself (promoteOverride/installOverride) rides the optimistic module.
+    limit: "8.32 KB",
     modifyEsbuildConfig
   },
   {
@@ -398,6 +406,15 @@ module.exports = [
     // truncating `length =` when nothing is queued, and plain nodes skip the
     // override probe. +27 B raw in the floor; the rest is brotli reordering
     // from the code motion.
+    //
+    // Optimistic writes visible at flush (A28 for overrides, #3337,
+    // 2026-09-10): 15.02 -> 15.03 KB, measured at 15029 B (was 14999). The
+    // core bytes above plus `draftOverride` (the writer's view of a node: the
+    // tick's parked write ahead of the flushed override) at the opt-gated
+    // draft read sites in store.ts — retained here because the gates are on
+    // always-retained trap code; the sites that only optimistic families
+    // reach (ensurePB seeding, notifyOptimisticWrites, optimisticView) ride
+    // the optimistic module.
     limit: "15.06 KB",
     modifyEsbuildConfig
   },
@@ -485,7 +502,15 @@ module.exports = [
     //
     // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 10.27 -> 10.40 KB,
     // measured at 10372 B — the core write-path change (see the core floor note).
-    limit: "10.40 KB",
+    //
+    // Optimistic writes visible at flush (A28 for overrides, #3337,
+    // 2026-09-10): 10.40 -> 10.47 KB, measured at 10462 B (was 10371). The
+    // core bytes plus the optimistic module this scenario retains via
+    // latest(): optimisticWrite reads the parked value ahead of the override
+    // for its updater, parks user writes and installs companion writes
+    // eagerly (`_parentSource`), and promoteOverride/installOverride are the
+    // split-out flush half.
+    limit: "10.47 KB",
     modifyEsbuildConfig
   },
   {
@@ -556,7 +581,11 @@ module.exports = [
     //
     // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 10.92 -> 11.05 KB,
     // measured at 11028 B — the core write-path change (see the core floor note).
-    limit: "11.05 KB",
+    //
+    // Optimistic writes visible at flush (A28 for overrides, #3337,
+    // 2026-09-10): 11.05 -> 11.06 KB, measured at 11058 B (was 11040) — the
+    // core floor's slot + promote arm (see that note).
+    limit: "11.06 KB",
     modifyEsbuildConfig
   },
   {
@@ -641,7 +670,12 @@ module.exports = [
     //
     // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 18.34 -> 18.42 KB,
     // measured at 18397 B — the core write-path change (see the core floor note).
-    limit: "18.42 KB",
+    //
+    // Optimistic writes visible at flush (A28 for overrides, #3337,
+    // 2026-09-10): 18.42 -> 18.48 KB, measured at 18476 B (was 18418) — the
+    // core floor's slot + promote arm, compressing worse on this layout
+    // (the CSR twin below moved -10 B).
+    limit: "18.48 KB",
     modifyEsbuildConfig
   },
   {
@@ -774,7 +808,13 @@ module.exports = [
     // truncating `length =` when nothing is queued, and plain nodes skip the
     // override probe. +27 B raw in the floor; the rest is brotli reordering
     // from the code motion.
-    limit: "27.69 KB",
+    //
+    // Optimistic writes visible at flush (A28 for overrides, #3337,
+    // 2026-09-10): 27.69 -> 27.76 KB, measured at 27753 B (was 27664). This
+    // scenario retains every store family, so it pays the core bytes, the
+    // optimistic module's parked-write halves (see the isPending/latest
+    // note) and the store draft view (see the createStore note).
+    limit: "27.76 KB",
     modifyEsbuildConfig
   },
   {

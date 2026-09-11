@@ -777,6 +777,7 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _pendingSignal: undefined,
     _latestValueComputed: undefined,
     _flushedStaged: NOT_PENDING,
+    _pendingOverride: NOT_PENDING,
     _parentSource: undefined,
     _affectsCount: 0,
     _inFlight: null,
@@ -1657,7 +1658,18 @@ export function promoteUnflushed(from: number = 0): void {
   for (let i = from; i < unflushedNodes.length; i++) {
     const node = unflushedNodes[i];
     node._config &= ~CONFIG_UNFLUSHED;
-    if (node._x !== null) node._x._flushedStaged = NOT_PENDING;
+    if (node._x !== null) {
+      node._x._flushedStaged = NOT_PENDING;
+      // An optimistic write flushes here: the engine installs the override,
+      // syncs the companions to it and walks the subscribers on its lane —
+      // the write's deferred halves, like a plain write's below. It is the
+      // value for every reader from this instant (A17), so a plain staged
+      // write the same tick left on the node needs no walk of its own.
+      if (node._x._pendingOverride !== NOT_PENDING) {
+        GlobalQueue._promoteOverride!(node);
+        continue;
+      }
+    }
     // The write may already have committed (a sweep's write staged before
     // finalize's commitPendingNodes ran) — the walk is still owed.
     if (node._config & CONFIG_HAS_COMPANIONS && sync !== null)
