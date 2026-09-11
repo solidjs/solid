@@ -151,6 +151,8 @@ result.code;
 result.functions; // [{ id, name, exports }] for manifest building
 ```
 
+A function-level `"use server"` function is extracted out of its lexical position, so it may only reference its own parameters and locals, module top-level bindings, and globals. Capturing anything else is a compile error. That includes `this` and `arguments` in a marked arrow, which an arrow takes from the function it was written in. Use a `function` if the server function needs its own `this` or `arguments`.
+
 The runtime module defaults to `@solidjs/web/server-functions`. Function IDs use `xxhash32(root-relative path)-<count>` (name-suffixed with `env: "development"`). There are also experimental `transformLazy` and `transformRefresh` passes.
 
 ## Rust compiler core
