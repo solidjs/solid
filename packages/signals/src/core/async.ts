@@ -1,7 +1,7 @@
 import {
-  CONFIG_AUTHORITATIVE_OBSERVED,
   CONFIG_CHILD_COMPANIONS,
   CONFIG_AUTO_DISPOSE,
+  CONFIG_INPUTS_PUBLISHED,
   CONFIG_SYNC,
   EFFECT_TRACKED,
   EFFECT_USER,
@@ -32,8 +32,11 @@ import {
   GlobalQueue,
   globalQueue,
   insertSubs,
+  origin,
   queuePendingNode,
   schedule,
+  setOrigin,
+  waitingTransition,
   zombieQueue
 } from "./scheduler.js";
 import type { Computed, FirewallSignal, Link } from "./types.js";
@@ -347,6 +350,11 @@ export function handleAsync<T>(
   // fired _flightTeardown. A future non-recompute registration path must
   // release it here before overwriting _inFlight.
   ext(el)._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
+  // Provenance of the question this flight asks (#3331): the action whose
+  // window is registering it, or the flight whose landing is. Its landings
+  // propagate under it (asyncWrite) so an override downstream can tell a
+  // stale answer from its own.
+  const flightOrigin = origin;
   // Attribution hook: a new flight is registered. Fired here (not in the
   // branches below) so every flight shape — plain thenable, iterator, the
   // flattened combinations — is announced exactly once, while the recompute
@@ -366,7 +374,15 @@ export function handleAsync<T>(
   // keeps transition scheduling; initialized (value-holding) pending settles
   // are the transaction's reveal machinery and always re-enter.
   const settleTransition = () => {
-    const transition = resolveTransition(el as any);
+    let transition = resolveTransition(el as any);
+    // A lane-routed node's landing is revealed by its lane, ahead of the
+    // transaction that owns the lane (whose own commit is only the override's
+    // confirm/revert). Entering that owner here would fold every transaction
+    // waiting on this flight into it at the landing — a reveal that
+    // discovered the flight (#3305) would then wait on the owner's action
+    // instead of on the flight (#3334). Enter the waiter: the transaction
+    // whose blocker this landing clears.
+    if (el._x?._optimisticLane) transition = waitingTransition(el) ?? transition;
     if (
       transition &&
       el._statusFlags & STATUS_UNINITIALIZED &&
@@ -430,6 +446,9 @@ export function handleAsync<T>(
     // skip this stale async result — the upcoming flush will recompute the node
     // with the new value, creating a fresh Promise that supersedes this one.
     if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY)) return;
+    // The landing propagates under the flight's provenance (#3331) — through
+    // the flush below, which clears it.
+    setOrigin(flightOrigin);
     settleTransition();
     const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
     // Captured before clearStatus wipes it: a quiet re-ask's landing may be
@@ -476,22 +495,21 @@ export function handleAsync<T>(
       // only notified when the hold is visible to them: under an active
       // override every reader sees the override (A17), so waking subs would
       // re-show an unchanged view — the revert is the notification point.
+      // Under an override the landing is handed to the engine's
+      // supersedeOverride (A18 supersession, #3331): own-source truth that
+      // differs from the override ends the optimism for the graph now (plain
+      // channel, lane demoted); a matching arrival is silent except to an
+      // authoritative-view reader (until()'s predicate) waiting on exactly
+      // this staged truth (#3164 — without the wake the hold deadlocks: the
+      // landing waits on the transaction, the transaction on the action, the
+      // action on an until() never re-notified). The hook is installed with
+      // the engine, which an active override implies. The propagation runs
+      // under this flight's provenance (setOrigin above).
       GlobalQueue._syncCompanions?.(el, value);
       if (!hasActiveOverride(el)) {
         if (__OBSERVE__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, true);
         insertSubs(el);
-      } else if (el._config & CONFIG_AUTHORITATIVE_OBSERVED) {
-        // A17 silence is stated over ordinary readers; an authoritative-view
-        // reader (until()'s predicate) observed this node PAST its override
-        // and is waiting for exactly this staged truth. Without the wake the
-        // hold deadlocks: the landing waits on the transaction, the
-        // transaction on the action, the action on an until() that was never
-        // re-notified (#3164). Same selective wake as the equal-landing
-        // branch in recompute(). Optional call: the bit implies the
-        // optimistic engine WAS consulted, but the hook only installs with
-        // it — a bare-core build must not crash here.
-        GlobalQueue._notifyAuthoritativeObservers?.(el);
-      }
+      } else GlobalQueue._supersedeOverride!(el, value);
       el._time = clock;
     } else if (lane) {
       // Route through lane's effect queue for independent flushing
@@ -849,6 +867,10 @@ export function notifyStatus(
   if (!blockStatus) {
     if (status === STATUS_PENDING && pendingSource) {
       addPendingSource(el, pendingSource);
+      // A fresh flight from a settled state starts with its inputs unpublished
+      // (a replacement flight while still pending keeps the mark: the first
+      // flight's committed inputs are still the frame).
+      if (!(el._statusFlags & STATUS_PENDING)) el._config &= ~CONFIG_INPUTS_PUBLISHED;
       el._statusFlags = STATUS_PENDING | (el._statusFlags & STATUS_UNINITIALIZED);
       // Preserve the current source on this propagation so render-effect notification
       // can register every distinct pending source with the transition.

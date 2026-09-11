@@ -173,7 +173,60 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // to where lanes live (optimistic.ts ORs LANE_RUN into the run `type`,
     // as does effect()'s creation-time immediate run). contestEffect inlined
     // into its single call site in recompute. Measured at 21,890 post-change.
-    expect(minifiedBytes).toBeLessThan(22_050);
+    // (`next` @ 4935c7dd measures 21,994 after #3350/#3351.)
+    //
+    // CONSCIOUS BUMP (2026-09-11, lane authority on `next`): +463 B over
+    // `next`'s 21,994 for the lane-authority fixes (#3335, #3334, #3331,
+    // #3330, the A15 re-rule; ported from #3347, which sat on #3337's A28
+    // write path — here the landing branch dispatches eagerly, as `next`
+    // does). Reveal-hold: read()'s pending branch
+    // drops the stale/foreign-transaction carve-out (-), asyncWrite's
+    // settleTransition routes a lane-owned landing to the waiting transaction
+    // (waitingTransition, which laneHeld shares). Override supersession: the
+    // landing branch and recompute's two override branches each collapse to
+    // one engine hook call (the authoritative-observer wake moved into the
+    // hook), read()'s override arm gains a bit test plus a hook call for
+    // tracked readers of a superseded node, runEffect's owner gate learns
+    // that a lane runner for a lane-less effect belongs to the still-held
+    // transaction, and the ext literal gains `_overrideTime` and
+    // `_overrideStamp`. Two GlobalQueue hook slots. INV-11 adds one term to
+    // recompute's compare-slot select. Supersession provenance: the scheduler
+    // carries the running action's sequence (`origin` + setter, cleared at
+    // the end of flush()), handleAsync captures it per flight and asyncWrite
+    // re-arms it for the landing's propagation. Core-retained by necessity: read visibility, the landing branch, the
+    // effect gate, and the provenance carrier are the seams themselves; the
+    // decision logic (equality, ordering, provenance comparison, lane
+    // demotion, value selection, replay gating) lives in optimistic.ts and
+    // shakes out. Store twins (#3330/#3331): setSignal's
+    // CONFIG_OPTIMISTIC dispatch gains the authoritative-write case — an
+    // override test plus one engine hook call (`_landOnOverride`, one
+    // GlobalQueue slot); the landing itself (staging, companions,
+    // supersession) lives in optimistic.ts and shakes out. The
+    // stale-reader term of read()'s three value selections becomes
+    // `heldFromStale`: a reader served the committed value of a node another
+    // live transaction staged is recorded for that transaction's commit
+    // replay unless the transaction computed it — the commit is silent, and
+    // a reader that linked after the staging walk otherwise never learns of
+    // the reveal (the record is core-retained because the read visibility
+    // seam is). A settle that reverts optimism re-derives its contested
+    // effects (#3322) after the revert, not ahead of the heap run
+    // (finalizePureQueue): between commitPendingNodes and _resolveOptimistic
+    // the truth is committed but the overrides still display, and a
+    // re-derive there composed the two (the #3164 tear — surfaced by deep()
+    // over an optimistic store whose held adoption was eagerly visible to
+    // the committing transaction's own readers). A15 re-rule: the reveal
+    // carve-out returns, gated on input visibility (A15 reveal corollary,
+    // re-ruled): read()'s pending branch tests three node bits
+    // (uninitialized, CONFIG_INPUTS_PUBLISHED, CONFIG_HAS_LANE → one engine
+    // hook call, `_laneLive`) before `heldFromStale` serves the committed
+    // value and records the reader; commitPendingNode's computed branch marks
+    // a still-pending node's inputs published, notifyStatus clears the mark
+    // on a fresh flight; recompute drops an effect's stale replay recording
+    // when it recomputes under the recording transaction (one Set.delete).
+    // The lane predicate itself (`resolveLane`) shakes out. On the #3337
+    // stack the same fixes measured +485 B (22,381 -> 22,866). Measured at
+    // 22,457; 43 bytes of headroom.
+    expect(minifiedBytes).toBeLessThan(22_500);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

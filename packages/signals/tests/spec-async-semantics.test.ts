@@ -283,6 +283,188 @@ describe("A15 (was B3): overlapping transitions settle as one unit", () => {
     }
   );
 
+  // #3334 — the flight the reveal discovers is lane-owned: the optimistic (or
+  // latest) value revealed through its lane ahead of the transaction that
+  // owns it, and that transaction stays open (a live action). The reveal
+  // joins the transition whose blocker the flight is and completes when the
+  // flight lands — it must not fold into the lane's owning transaction,
+  // whose commit is only the override's confirm/revert. Same timing as the
+  // plain-signal case above; the owning transaction's lifetime is irrelevant.
+  it.each(["optimistic", "latest"] as const)(
+    "holds a reveal of an existing LANE flight until the flight lands, not until the lane's transaction completes (%s, #3334)",
+    async kind => {
+      const [show, setShow] = createSignal(false);
+      const fetcher = deferredFetcher(v => v);
+      let release!: () => void;
+      const hold = new Promise<void>(r => (release = r));
+      let get!: () => number;
+      let write!: (v: number) => Promise<unknown>;
+      let valueLine: number | undefined;
+      let showLine: readonly [boolean, boolean] | undefined;
+      let slot: number | string | undefined;
+      let dispose!: () => void;
+
+      createRoot(d => {
+        dispose = d;
+        if (kind === "optimistic") {
+          const [b, setB] = createOptimistic(0);
+          get = b;
+          const act = action(function* (v: number) {
+            setB(v);
+            yield hold;
+          });
+          write = v => act(v);
+        } else {
+          const [c, setC] = createSignal(0);
+          get = () => latest(c);
+          const act = action(function* (v: number) {
+            setC(v);
+            yield hold;
+          });
+          write = v => act(v);
+        }
+        const details = createMemo(() => fetcher.fetch(get()));
+        createRenderEffect(get, v => {
+          valueLine = v;
+        });
+        createRenderEffect(
+          () => [show(), isPending(show)] as const,
+          v => {
+            showLine = v;
+          }
+        );
+        createRenderEffect(
+          () => (show() ? details() : "hidden"),
+          v => {
+            slot = v;
+          }
+        );
+      });
+
+      try {
+        flush();
+        fetcher.resolveAll();
+        await settle();
+        expect([valueLine, showLine, slot]).toEqual([0, [false, false], "hidden"]);
+
+        // The lane reveals the value at once; its flight (details) is in the
+        // air but unobserved, so nothing holds.
+        const done = write(1);
+        await settle();
+        expect([valueLine, showLine, slot]).toEqual([1, [false, false], "hidden"]);
+
+        // The reveal discovers the flight started in the earlier flush: held,
+        // exactly as for a plain signal.
+        setShow(true);
+        flush();
+        expect([valueLine, showLine, slot]).toEqual([1, [false, true], "hidden"]);
+        expect(show()).toBe(false);
+
+        // The flight lands. The lane's owning transaction is still open (the
+        // action has not finished) — the reveal does not wait for it.
+        fetcher.resolveAll();
+        await settle();
+        expect([valueLine, showLine, slot]).toEqual([1, [true, false], 1]);
+        expect(show()).toBe(true);
+
+        release();
+        await done;
+        await settle();
+      } finally {
+        dispose();
+      }
+    }
+  );
+
+  // Two reveals, in separate flushes, discovering the same flight: each holds
+  // on it and both complete at the landing (they settle as one unit). The
+  // second reveal finds the flight already observed — and its source already
+  // stamped by the first reveal's transaction — which must not turn it into a
+  // "show the committed value" read (#3305 with a plain signal, #3334 with a
+  // lane-owned flight).
+  it.each(["signal", "optimistic"] as const)(
+    "holds every reveal that discovers the same flight; all complete at the landing (%s)",
+    async kind => {
+      const [show1, setShow1] = createSignal(false);
+      const [show2, setShow2] = createSignal(false);
+      const fetcher = deferredFetcher(v => v);
+      let release!: () => void;
+      const hold = new Promise<void>(r => (release = r));
+      let get!: () => number;
+      let write!: (v: number) => Promise<unknown> | void;
+      const frames: unknown[] = [];
+      let dispose!: () => void;
+
+      createRoot(d => {
+        dispose = d;
+        if (kind === "optimistic") {
+          const [b, setB] = createOptimistic(0);
+          get = b;
+          const act = action(function* (v: number) {
+            setB(v);
+            yield hold;
+          });
+          write = v => act(v);
+        } else {
+          const [c, setC] = createSignal(0);
+          get = c;
+          write = v => setC(v);
+        }
+        const details = createMemo(() => fetcher.fetch(get()));
+        createRenderEffect(
+          () => (show1() ? details() : "h1"),
+          v => void frames.push(["1", v, isPending(show1)])
+        );
+        createRenderEffect(
+          () => (show2() ? details() : "h2"),
+          v => void frames.push(["2", v, isPending(show2)])
+        );
+        createRenderEffect(get, v => void frames.push(["value", v]));
+      });
+
+      try {
+        flush();
+        fetcher.resolveAll();
+        await settle();
+        frames.length = 0;
+
+        const done = write(1);
+        await settle();
+        expect(frames).toEqual([["value", 1]]);
+        frames.length = 0;
+
+        setShow1(true);
+        flush();
+        setShow2(true);
+        flush();
+        expect(frames).toEqual([]);
+        expect([show1(), show2()]).toEqual([false, false]);
+
+        fetcher.resolveAll();
+        await settle();
+        expect([show1(), show2()]).toEqual([true, true]);
+        // No frame ever shows a revealed panel with the pre-flight value 0.
+        // (With a lane-owned flight, the lane's own landing pass first
+        // re-applies each panel under the lane's committed view — `show` still
+        // false there, so the same "hidden" value it already showed — before
+        // the reveal commits; `laneReadsCommitted` records it for replay at
+        // commit. Redundant, consistent, and not what this pin is about.)
+        const revealed = frames.filter(f => typeof (f as unknown[])[1] === "number");
+        expect(revealed).toEqual([
+          ["1", 1, false],
+          ["2", 1, false]
+        ]);
+        expect(frames.filter(f => (f as unknown[])[1] === 0)).toEqual([]);
+
+        release();
+        await done;
+        await settle();
+      } finally {
+        dispose();
+      }
+    }
+  );
+
   it.each(["new", "reset"])(
     "lets a %s loading boundary catch an existing flight without holding the reveal",
     async mode => {
@@ -590,6 +772,117 @@ describe("A17 (was C4): an active override is THE value — every reader, until 
     expect(derivedLog).toEqual(["derived(99)", "derived(20)"]);
   });
 
+  // #3330 (INV-11): a lane recompute publishes to `_value` — the lane's own
+  // reveal — so its change detection compares against `_value`, not against a
+  // `_pendingValue` some transaction staged earlier. Here the action stages
+  // `serverValue = 1` first (so `doubled` already HOLDS 2 for the commit) and
+  // only later writes the override; the lane's recompute of `doubled` also
+  // yields 2, which "equals" the held value but not the screen's 0. Before
+  // the fix the lane called it unchanged and revealed `value = 1` beside
+  // `doubled = 0` — a torn frame — until the action's commit caught up.
+  it("a derivation of the override reveals with it even when the transaction already holds the same result (#3330)", async () => {
+    const tick = () => new Promise<void>(r => setTimeout(r, 0));
+    const drain = async () => {
+      for (let i = 0; i < 6; i++) await tick();
+      flush();
+    };
+    const [serverValue, setServerValue] = createSignal(0);
+    const log: string[] = [];
+    let release!: () => void;
+    let releaseEnd!: () => void;
+    let value!: SourceAccessor<number>;
+    let setOptimistic!: (v: number) => void;
+    createRoot(() => {
+      [value, setOptimistic] = createOptimistic(serverValue);
+      const doubled = createMemo(() => value() * 2);
+      createRenderEffect(
+        () => `v=${value()} d=${doubled()}`,
+        s => {
+          log.push(s);
+        }
+      );
+    });
+    flush();
+    expect(log).toEqual(["v=0 d=0"]);
+
+    const run = action(function* () {
+      setServerValue(1);
+      yield new Promise<void>(r => (release = r));
+      setOptimistic(1);
+      yield new Promise<void>(r => (releaseEnd = r));
+    });
+    const done = run();
+    await drain();
+    // Transaction held: the staged truth (and its staged derivation) is
+    // invisible.
+    expect(log).toEqual(["v=0 d=0"]);
+
+    release();
+    await drain();
+    // The override reveals on its lane WITH its derivation — one frame.
+    expect(log).toEqual(["v=0 d=0", "v=1 d=2"]);
+
+    releaseEnd();
+    await done;
+    await drain();
+    // The commit changes nothing the effect read (the lane already published
+    // `doubled`'s value, so its staged copy promotes to the same view) and so
+    // does not replay it (laneReadsCommitted records only a real
+    // staged-vs-committed gap). One frame per change, never a torn one.
+    expect(log).toEqual(["v=0 d=0", "v=1 d=2"]);
+    expect(value()).toBe(1);
+    expect(isPending(value)).toBe(false);
+  });
+
+  // Companion to the above: skipping the replay is per value. When the lane
+  // later publishes a DIFFERENT frame, the commit still restores and applies
+  // the transaction's frame over the optimistic one.
+  it("a later lane frame differs: the commit re-applies the transaction's frame", async () => {
+    const tick = () => new Promise<void>(r => setTimeout(r, 0));
+    const drain = async () => {
+      for (let i = 0; i < 6; i++) await tick();
+      flush();
+    };
+    const [serverValue, setServerValue] = createSignal(0);
+    const log: string[] = [];
+    let release!: () => void;
+    let value!: SourceAccessor<number>;
+    let setOptimistic!: (v: number) => void;
+    createRoot(() => {
+      [value, setOptimistic] = createOptimistic(serverValue);
+      const doubled = createMemo(() => value() * 2);
+      createRenderEffect(
+        () => `v=${value()} d=${doubled()}`,
+        s => {
+          log.push(s);
+        }
+      );
+    });
+    flush();
+    log.length = 0;
+
+    const run = action(function* () {
+      setServerValue(1);
+      yield new Promise<void>(r => (release = r));
+      setOptimistic(1); // lane applies the frame the transaction already holds
+      yield Promise.resolve();
+      setOptimistic(5); // lane applies a different frame; the mark clears
+      yield new Promise<void>(r => (release = r));
+    });
+    const done = run();
+    await drain();
+    release();
+    await drain();
+    expect(log).toEqual(["v=1 d=2", "v=5 d=10"]);
+
+    release();
+    await done;
+    await drain();
+    // Commit: the override reverts and the transaction's frame is back.
+    expect(value()).toBe(1);
+    expect(log.at(-1)).toBe("v=1 d=2");
+  });
+
   it("simple graph: override visible ambiently until its own fetch settles", async () => {
     const [id, setId] = createSignal(1);
     const fetcher = deferredFetcher((t: number) => t * 10);
@@ -623,7 +916,17 @@ describe("A18 (was B4): an override's lifetime is bound to its own async source,
   // needs correction and triggers further async." The authoritative value
   // wins the moment it arrives; the correction cascade (and any async it
   // triggers) must not wait for strangers in a merged transition.
-  it("entangled: own-source resolution clears the override while an unrelated fetch is still pending", async () => {
+  // Re-ruled 2026-07-07b and again 2026-09-09 (#3331): own-source resolution
+  // ends the optimism for the GRAPH at once — tracked readers derive from the
+  // arrived truth, and that corrected work belongs to the transaction — while
+  // the override remains the DISPLAYED value (untracked reads, the applied
+  // frame) until the transaction commits. Here `joined` re-derives from the
+  // truth and, doing so, observes the unrelated fetch still pending: the
+  // transaction holds for it (A15), and the correction reveals with it — one
+  // frame, "20|200", never "20|100". (Before, the lane read `mOther`'s
+  // committed value, so the transaction closed at the landing and committed
+  // `other = 2` while the screen still showed mOther(1).)
+  it("entangled: own-source resolution supersedes the override for the graph; display and untracked reads keep it until the merged commit", async () => {
     const [id, setId] = createSignal(1);
     const [other, setOther] = createSignal(1);
     const dataFetch = deferredFetcher((t: number) => t * 10);
@@ -652,17 +955,24 @@ describe("A18 (was B4): an override's lifetime is bound to its own async source,
     setData(99);
     flush();
     expect(data()).toBe(99); // override active while own fetch is in flight (A17)
+    expect(log).toEqual(["99|100"]);
 
-    // Own source resolves: the fresh value wins NOW — the override must not be
-    // held hostage by the still-pending unrelated fetch in the merged transition.
+    // Own source resolves with a DIFFERENT value: the graph moves to it now
+    // (latest() sees it; the verdict says the displayed value is not final),
+    // while the displayed frame and untracked reads keep the override until
+    // the transaction — now holding for the re-derived `joined` — commits.
     dataFetch.resolveAll();
     await settle();
-    expect(data()).toBe(20);
+    expect(latest(data)).toBe(20);
+    expect(isPending(data)).toBe(true);
+    expect(data()).toBe(99);
+    expect(log).toEqual(["99|100"]);
 
     otherFetch.resolveAll();
     await settle();
     expect(data()).toBe(20);
-    expect(log[log.length - 1]).toBe("20|200");
+    expect(isPending(data)).toBe(false);
+    expect(log).toEqual(["99|100", "20|200"]);
   });
 
   // In the simple (unentangled) graph, own-source resolution and transition
@@ -700,6 +1010,426 @@ describe("A18 (was B4): an override's lifetime is bound to its own async source,
     // pre-write value.
     expect(data()).toBe(20);
     expect(valueLog).toEqual([99, 20]);
+  });
+
+  // #3331 (ruled 2026-09-09): "a new value from the source should remove the
+  // optimism immediately.. if it matches then no more work, if it doesn't
+  // match then that work gets folded into the parent transition." The arrival
+  // is authoritative for the GRAPH the moment it lands — downstream async
+  // re-derives from it now, so no waterfall forms behind the override's own
+  // downstream flight — while the override stays the DISPLAYED value (the
+  // applied frame, untracked reads) until the transaction commits: "when the
+  // optimism drops we might not see it until end of transition because it
+  // folds into the parent's transition."
+  describe("#3331: own-source arrival supersedes the override on landing", () => {
+    // The reporter's shape: an optimistic node whose own async derives from a
+    // signal, with a further async memo downstream. Click = signal change +
+    // override; the override's downstream flight and the source refetch
+    // overlap. Before the fix the graph kept deriving from the override until
+    // the override's downstream flight landed and only THEN started deriving
+    // from the arrived truth — two sequential flights, ~double the delay.
+    function reporterGraph() {
+      const [value, setValue] = createSignal(0);
+      const doubleFetch = deferredFetcher((v: number) => v * 2);
+      const flights: Array<{ n: number; resolve: () => void }> = [];
+      const log: string[] = [];
+      let double!: SourceAccessor<number>;
+      let setDouble!: (v: number) => void;
+      createRoot(() => {
+        [double, setDouble] = createOptimistic(() => doubleFetch.fetch(value()));
+        const asyncMemo = createMemo(() => {
+          const n = double();
+          return new Promise<string>(resolve =>
+            flights.push({ n, resolve: () => resolve(`${n} async`) })
+          );
+        });
+        const b = createLoadingBoundary(
+          () => `double=${double()} async=${asyncMemo()}`,
+          () => "loading"
+        );
+        createRenderEffect(b, s => {
+          log.push(s);
+        });
+      });
+      return { setValue, doubleFetch, flights, log, double, setDouble };
+    }
+
+    async function primed() {
+      const g = reporterGraph();
+      flush();
+      g.doubleFetch.resolveAll();
+      await settle();
+      g.flights.shift()!.resolve();
+      await settle();
+      expect(g.log.at(-1)).toBe("double=0 async=0 async");
+      g.log.length = 0;
+      return g;
+    }
+
+    it("differing arrival: downstream async restarts from the truth immediately; screen and untracked reads keep the override until commit", async () => {
+      const g = await primed();
+
+      g.setValue(1);
+      g.setDouble(3);
+      flush();
+      // The override's downstream flight (3) is in the air; the screen holds
+      // for it (A17: lane effects wait for their downstream async).
+      expect(g.flights.map(f => f.n)).toEqual([3]);
+      expect(g.log).toEqual([]);
+      expect(g.double()).toBe(3);
+
+      // The source lands with 2 ≠ 3. The graph moves to 2 NOW: a flight for 2
+      // starts without waiting for the 3-flight.
+      g.doubleFetch.resolveAll();
+      await settle();
+      expect(g.flights.map(f => f.n)).toEqual([3, 2]);
+      expect(latest(g.double)).toBe(2); // the arrived truth
+      expect(g.double()).toBe(3); // untracked read: still the displayed override
+      expect(isPending(g.double)).toBe(true); // displayed ≠ final
+      expect(g.log).toEqual([]);
+
+      // The superseded 3-flight landing changes nothing — it is not the truth.
+      g.flights.shift()!.resolve();
+      await settle();
+      expect(g.log).toEqual([]);
+      expect(g.double()).toBe(3);
+
+      // The 2-flight lands: the transaction commits, the optimism is gone.
+      g.flights.shift()!.resolve();
+      await settle();
+      expect(g.log).toEqual(["double=2 async=2 async"]);
+      expect(g.double()).toBe(2);
+      expect(isPending(g.double)).toBe(false);
+    });
+
+    it("equal arrival: confirms silently — no new work, the lane's flight completes the frame", async () => {
+      const g = await primed();
+
+      g.setValue(1);
+      g.setDouble(2); // the user guessed right
+      flush();
+      expect(g.flights.map(f => f.n)).toEqual([2]);
+
+      g.doubleFetch.resolveAll();
+      await settle();
+      // Nothing restarted; the value is simply confirmed.
+      expect(g.flights.map(f => f.n)).toEqual([2]);
+      expect(latest(g.double)).toBe(2);
+      expect(g.double()).toBe(2);
+      expect(g.log).toEqual([]); // still held for the downstream flight
+
+      g.flights.shift()!.resolve();
+      await settle();
+      expect(g.log).toEqual(["double=2 async=2 async"]);
+      expect(isPending(g.double)).toBe(false);
+    });
+
+    // The source need not be the node's own async. The common real-world
+    // shape wraps an async memo synchronously — `createOptimistic(() =>
+    // userCategory())` — and the truth reaches the optimistic node as a SYNC
+    // recompute when the upstream memo lands. "If the source recomputes it
+    // doesn't matter if it is async or not" (maintainer, 2026-09-10).
+    it("sync wrapper over an async source: the upstream landing supersedes just the same", async () => {
+      const [value, setValue] = createSignal(0);
+      const doubleFetch = deferredFetcher((v: number) => v * 2);
+      const flights: Array<{ n: number; resolve: () => void }> = [];
+      const log: string[] = [];
+      let double!: SourceAccessor<number>;
+      let setDouble!: (v: number) => void;
+      createRoot(() => {
+        const upstream = createMemo(() => doubleFetch.fetch(value()));
+        [double, setDouble] = createOptimistic(() => upstream());
+        const asyncMemo = createMemo(() => {
+          const n = double();
+          return new Promise<string>(resolve =>
+            flights.push({ n, resolve: () => resolve(`${n} async`) })
+          );
+        });
+        const b = createLoadingBoundary(
+          () => `double=${double()} async=${asyncMemo()}`,
+          () => "loading"
+        );
+        createRenderEffect(b, s => {
+          log.push(s);
+        });
+      });
+      flush();
+      doubleFetch.resolveAll();
+      await settle();
+      flights.shift()!.resolve();
+      await settle();
+      expect(log.at(-1)).toBe("double=0 async=0 async");
+      log.length = 0;
+
+      setValue(1);
+      setDouble(3);
+      flush();
+      expect(flights.map(f => f.n)).toEqual([3]);
+
+      doubleFetch.resolveAll();
+      await settle();
+      expect(flights.map(f => f.n)).toEqual([3, 2]);
+      expect(latest(double)).toBe(2);
+      expect(double()).toBe(3);
+      expect(isPending(double)).toBe(true);
+      expect(log).toEqual([]);
+
+      flights.shift()!.resolve();
+      await settle();
+      expect(log).toEqual([]);
+      flights.shift()!.resolve();
+      await settle();
+      expect(log).toEqual(["double=2 async=2 async"]);
+      expect(double()).toBe(2);
+      expect(isPending(double)).toBe(false);
+    });
+
+    // Ordering: "a new value from the source" postdates the override. A
+    // source write and an override in the SAME batch derive nothing new —
+    // the override is written over that batch's truth knowingly and stays the
+    // graph's value until the commit reveals it.
+    it("same-batch source write and override: the override is the newer intent, no supersession", async () => {
+      const [sig, setSig] = createSignal(1);
+      const log: number[] = [];
+      let node!: SourceAccessor<number>;
+      let setNode!: (v: number) => void;
+      createRoot(() => {
+        [node, setNode] = createOptimistic(() => sig() * 2);
+        const derived = createMemo(() => node() + 1);
+        createRenderEffect(derived, v => {
+          log.push(v);
+        });
+      });
+      flush();
+      expect(log).toEqual([3]);
+
+      let release!: () => void;
+      const run = action(function* () {
+        setSig(2); // truth: 4
+        setNode(9); // override written over it, same batch
+        yield new Promise<void>(r => (release = r));
+      });
+      const done = run();
+      await settle();
+      expect(node()).toBe(9);
+      expect(latest(node)).toBe(9); // not superseded: the override is the graph's value
+      expect(isPending(node)).toBe(true); // ...though the held 4 differs (A24)
+      expect(log).toEqual([3, 10]); // derivation follows the override
+
+      release();
+      await done;
+      await settle();
+      await settle();
+      expect(node()).toBe(4);
+      expect(log.at(-1)).toBe(5);
+    });
+
+    // Provenance: "the source" means the override's own question or a newer
+    // one. Two rapid actions on one node merge into one transaction, and the
+    // OLDER action's refetch can land after the newer override — a slow
+    // source leaking back in over the user's latest intent. That answer is
+    // stale: it is staged for the commit like any landing, but it does not
+    // move the graph (no downstream refetch, no pending flip on downstream
+    // readers). The newer action's own answer supersedes as usual. Mainline
+    // (no action) is always the current question.
+    it("provenance: an older action's answer arriving over a newer action's override holds silently — no leak-back", async () => {
+      const resolveUp: Array<(v: number) => void> = [];
+      const flights: Array<{ n: number; resolve: () => void }> = [];
+      const log: string[] = [];
+      let upstream!: SourceAccessor<number>;
+      let double!: SourceAccessor<number>;
+      let setDouble!: (v: number) => void;
+      createRoot(() => {
+        upstream = createMemo(() => new Promise<number>(r => resolveUp.push(r)));
+        [double, setDouble] = createOptimistic(() => upstream());
+        const asyncMemo = createMemo(() => {
+          const n = double();
+          return new Promise<string>(resolve =>
+            flights.push({ n, resolve: () => resolve(`${n} async`) })
+          );
+        });
+        const b = createLoadingBoundary(
+          () => `double=${double()} async=${asyncMemo()}`,
+          () => "loading"
+        );
+        createRenderEffect(b, s => {
+          log.push(s);
+        });
+      });
+      flush();
+      resolveUp.shift()!(0);
+      await settle();
+      flights.shift()!.resolve();
+      await settle();
+      expect(log.at(-1)).toBe("double=0 async=0 async");
+      log.length = 0;
+
+      const releases: Array<() => void> = [];
+      const select = action(function* (guess: number) {
+        setDouble(guess);
+        yield new Promise<void>(r => releases.push(r));
+        refresh(upstream);
+      });
+
+      const a = select(3);
+      flush();
+      const b = select(5);
+      flush();
+      expect(flights.map(f => f.n)).toEqual([3, 5]);
+      expect(double()).toBe(5);
+      flights.shift()!.resolve();
+      flights.shift()!.resolve();
+      await settle();
+      expect(log.at(-1)).toBe("double=5 async=5 async");
+      log.length = 0;
+
+      // Action A (older) completes: its refetch answers 2 ≠ the displayed 5.
+      releases[0]();
+      await settle();
+      expect(resolveUp).toHaveLength(1);
+      resolveUp.shift()!(2);
+      await settle();
+      // Stale question: held for the commit, nothing moves.
+      expect(flights).toEqual([]); // no downstream refetch for 2
+      expect(latest(double)).toBe(5); // not superseded
+      expect(double()).toBe(5);
+      expect(isPending(double)).toBe(true); // ...though the held 2 differs (A24)
+      expect(log).toEqual([]);
+
+      // Action B (the override's own) completes: its answer 6 ≠ 5 supersedes.
+      releases[1]();
+      await settle();
+      expect(resolveUp).toHaveLength(1);
+      resolveUp.shift()!(6);
+      await settle();
+      expect(flights.map(f => f.n)).toEqual([6]);
+      expect(latest(double)).toBe(6);
+      expect(double()).toBe(5);
+      expect(log).toEqual([]);
+
+      flights.shift()!.resolve();
+      await a;
+      await b;
+      await settle();
+      expect(log).toEqual(["double=6 async=6 async"]);
+      expect(double()).toBe(6);
+      expect(isPending(double)).toBe(false);
+    });
+
+    // Same-value twin (review on #3347): the newer action predicts the SAME
+    // value as the older one. The write takes the same-value fast path — no
+    // new override, the transaction entangles — and must still renew the
+    // override's provenance: the user re-asked the question, so the older
+    // action's answer is stale to it exactly as with a differing guess. It
+    // used to keep the older stamp, and A's slow source then superseded a
+    // 5 the user had just re-confirmed: a corrective downstream refetch and a
+    // pending flip for nothing.
+    it("provenance: a same-value re-prediction by a newer action renews the override's provenance", async () => {
+      const resolveUp: Array<(v: number) => void> = [];
+      const flights: Array<{ n: number; resolve: () => void }> = [];
+      const pendingLog: boolean[] = [];
+      let upstream!: SourceAccessor<number>;
+      let double!: SourceAccessor<number>;
+      let asyncMemo!: SourceAccessor<string>;
+      let setDouble!: (v: number) => void;
+      createRoot(() => {
+        upstream = createMemo(() => new Promise<number>(r => resolveUp.push(r)));
+        [double, setDouble] = createOptimistic(() => upstream());
+        asyncMemo = createMemo(() => {
+          const n = double();
+          return new Promise<string>(resolve =>
+            flights.push({ n, resolve: () => resolve(`${n} async`) })
+          );
+        });
+        createRenderEffect(
+          () => [double(), asyncMemo(), isPending(asyncMemo)] as const,
+          () => {}
+        );
+        createRenderEffect(
+          () => isPending(asyncMemo),
+          p => void pendingLog.push(p)
+        );
+      });
+      flush();
+      resolveUp.shift()!(0);
+      await settle();
+      flights.shift()!.resolve();
+      await settle();
+      pendingLog.length = 0;
+
+      const releases: Array<() => void> = [];
+      const select = action(function* (guess: number) {
+        setDouble(guess);
+        yield new Promise<void>(r => releases.push(r));
+        refresh(upstream);
+      });
+
+      const a = select(5);
+      flush();
+      const b = select(5); // same value: fast path
+      flush();
+      expect(flights.map(f => f.n)).toEqual([5]);
+      flights.shift()!.resolve();
+      await settle();
+      expect([double(), isPending(asyncMemo)]).toEqual([5, false]);
+      pendingLog.length = 0;
+
+      // Action A (older) completes: its refetch answers 2 ≠ the displayed 5.
+      // B re-asked for 5 — A's answer is a stale question: held silently.
+      releases[0]();
+      await settle();
+      expect(resolveUp).toHaveLength(1);
+      resolveUp.shift()!(2);
+      await settle();
+      expect(flights).toEqual([]); // no downstream refetch for 2
+      expect(latest(double)).toBe(5); // not superseded
+      expect(isPending(asyncMemo)).toBe(false);
+      expect(pendingLog).toEqual([]);
+
+      // Action B (the override's own) completes: its answer supersedes.
+      releases[1]();
+      await settle();
+      expect(resolveUp).toHaveLength(1);
+      resolveUp.shift()!(6);
+      await settle();
+      expect(flights.map(f => f.n)).toEqual([6]);
+      expect(latest(double)).toBe(6);
+      flights.shift()!.resolve();
+      await a;
+      await b;
+      await settle();
+      expect([double(), isPending(asyncMemo)]).toEqual([6, false]);
+    });
+
+    it("no downstream async: a differing arrival corrects at the landing (simple graph, unchanged)", async () => {
+      const [value, setValue] = createSignal(0);
+      const doubleFetch = deferredFetcher((v: number) => v * 2);
+      const log: number[] = [];
+      let double!: SourceAccessor<number>;
+      let setDouble!: (v: number) => void;
+      createRoot(() => {
+        [double, setDouble] = createOptimistic(() => doubleFetch.fetch(value()));
+        createRenderEffect(double, v => {
+          log.push(v);
+        });
+      });
+      flush();
+      doubleFetch.resolveAll();
+      await settle();
+      log.length = 0;
+
+      setValue(1);
+      setDouble(3);
+      flush();
+      expect(log).toEqual([3]);
+
+      doubleFetch.resolveAll();
+      await settle();
+      // Nothing else is held: the correction is the commit.
+      expect(log).toEqual([3, 2]);
+      expect(double()).toBe(2);
+      expect(isPending(double)).toBe(false);
+    });
   });
 });
 
@@ -1430,5 +2160,94 @@ describe("V1–V5: verdicts in and after the blocked-merged window (fixed 2026-0
     expect(data()).toBe(20);
     expect(latest(data)).toBe(20);
     expect(isPending(data)).toBe(false);
+  });
+});
+
+// A transaction's commit is silent: the staging walk was the notification, and
+// every subscriber it marked recomputed under the transaction and parked. A
+// reader that links to a held node AFTER that walk — an effect created during
+// the hold, a memo first pulled under it — is served the committed value
+// (stale-reader rule) and would never hear of the reveal. read() records such
+// a reader for the transaction's commit replay (the `_gatedSubs` contract
+// lanes use); the transaction's own effects are not recorded — they re-derive
+// on their own (parked run / contested re-derive, #3322) and a replay would
+// publish the frame twice. Surfaced by the #3330 store twin (a store key first
+// read under a held adoption), but a plain signal shows it as well.
+describe("a reader that links to a held node during the hold re-derives at the commit", () => {
+  const tick = () => new Promise<void>(r => setTimeout(r, 0));
+  const drain = async () => {
+    for (let i = 0; i < 6; i++) await tick();
+    flush();
+  };
+
+  it("a render effect created while an action holds a signal write: committed now, the truth at the commit", async () => {
+    const [s, setS] = createSignal(0);
+    const early: number[] = [];
+    createRoot(() => {
+      createRenderEffect(
+        () => s(),
+        v => {
+          early.push(v);
+        }
+      );
+    });
+    flush();
+    let release!: () => void;
+    const run = action(function* () {
+      setS(1);
+      yield new Promise<void>(r => (release = r));
+    });
+    const done = run();
+    await drain();
+    const late: number[] = [];
+    createRoot(() => {
+      createRenderEffect(
+        () => s(),
+        v => {
+          late.push(v);
+        }
+      );
+    });
+    flush();
+    expect(early).toEqual([0]);
+    expect(late).toEqual([0]);
+    release();
+    await done;
+    await drain();
+    expect(early).toEqual([0, 1]);
+    expect(late).toEqual([0, 1]);
+    expect(s()).toBe(1);
+  });
+
+  it("the transaction's own effect is not replayed: one frame per reveal", async () => {
+    const [a, setA] = createSignal(0);
+    const [b, setB] = createSignal(0);
+    const log: string[] = [];
+    createRoot(() => {
+      createRenderEffect(
+        () => `${a()}:${b()}`,
+        v => {
+          log.push(v);
+        }
+      );
+    });
+    flush();
+    let release!: () => void;
+    const run = action(function* () {
+      setA(1);
+      yield new Promise<void>(r => (release = r));
+    });
+    const done = run();
+    await drain();
+    // A mainline write mid-hold re-runs the effect as a stale reader of the
+    // held `a` (masked to 0) — it is the transaction's own effect and
+    // re-derives at the commit through the contested path, not a replay.
+    setB(1);
+    flush();
+    expect(log).toEqual(["0:0", "0:1"]);
+    release();
+    await done;
+    await drain();
+    expect(log).toEqual(["0:0", "0:1", "1:1"]);
   });
 });

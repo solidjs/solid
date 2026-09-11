@@ -1,8 +1,10 @@
-// A stale (render) reader that lands on an async memo which is pending in a
-// DIFFERENT transition normally keeps showing that memo's committed value
-// (no entanglement). An UNINITIALIZED memo has no committed value to show:
-// falling through served `undefined` as if settled and left the reader
-// stamped into neither transaction, so it never re-ran when either landed.
+// A (render) reader that lands on an async memo which is pending in a
+// DIFFERENT transition suspends on it and its reveal settles with that
+// flight (A15; #3305, #3334). An UNINITIALIZED memo was the first shape
+// where the old "show the committed value, no entanglement" carve-out broke:
+// it has no committed value to show, so falling through served `undefined`
+// as if settled and left the reader stamped into neither transaction, so it
+// never re-ran when either landed.
 //
 //   effA: a -> memo("foo" + a)          setA(1) opens T1 (memo foo1 in flight)
 //   effB: b -> memo("foo" + b)          setB(1) opens T2; effB now reads foo1,
@@ -95,9 +97,15 @@ describe("stale reader of an uninitialized memo held by another transition", () 
     expect(outC).toEqual(["bar0", "bar1"]);
   });
 
-  it("still shows the committed value (no entanglement) when the held memo is initialized", async () => {
-    // Control: the reader's new dependency already has a committed value, so
-    // the stale-read rule applies and the transitions stay independent.
+  it("shows the committed value (no entanglement) when the held memo is initialized and its inputs are unpublished", async () => {
+    // Control: the reader's new dependency already has a committed value,
+    // and that value is coherent with the frame — the flight's input (`a`)
+    // is itself held in T1, still 0 on screen. Parallel transactions: the
+    // reader shows "v0", the transactions stay independent, and the reader
+    // re-derives at T1's commit (`heldFromStale` records it). The carve-out
+    // is refused only when the flight's inputs are already visible — committed
+    // by a batch that left the flight in the air (#3305) or lane-revealed
+    // (#3334) — see spec-async-semantics for those pins.
     const [a, setA] = createSignal(0);
     const [pick, setPick] = createSignal(0);
     const gate = deferred<void>();
@@ -137,6 +145,7 @@ describe("stale reader of an uninitialized memo held by another transition", () 
     setPick(1); // T2: reader switches onto shared — shows committed "v0", no suspend.
     flush();
     expect(out).toEqual(["other", "v0"]);
+    expect(pick()).toBe(1);
 
     gate.resolve();
     await settle();

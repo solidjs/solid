@@ -291,4 +291,119 @@ describe("lane async holds on observation, like a transaction (#3289)", () => {
       dispose();
     });
   });
+
+  /**
+   * #3335 — a hold is a property of the async node, not of the root lane's
+   * transaction. Two optimistic writes from two transactions merge through a
+   * shared reader (A15 for lanes: one reveal unit). Each lane's observed
+   * async was recorded in ITS transaction; after the merge the root belongs
+   * to one of them. The merged lane is held while ANY member's observed
+   * async is in flight — the check must follow each node to the transaction
+   * that observed it, never the root's.
+   */
+  describe("merged lanes across transactions hold on every member's async (#3335)", () => {
+    function setup() {
+      const [a, setAInner] = createOptimistic(0);
+      const [b, setBInner] = createOptimistic(0);
+      const gateA = deferred();
+      const gateB = deferred();
+      const cells = { A: 0, B: 0, pair: "0:0" };
+      const frames: string[] = [];
+      const snap = () => `A=${cells.A} B=${cells.B} pair=${cells.pair}`;
+      let dispose!: () => void;
+      createRoot(d => {
+        dispose = d;
+        const asyncA = createMemo(async () => {
+          const v = a();
+          if (v !== 0) await gateA.promise;
+          return v;
+        });
+        const asyncB = createMemo(async () => {
+          const v = b();
+          if (v !== 0) await gateB.promise;
+          return v;
+        });
+        const pair = createMemo(() => `${a()}:${b()}`);
+        // Per-cell readers, as compiled JSX produces: the pair memo is the
+        // only shared reader, and it is what merges the two lanes.
+        createRenderEffect(asyncA, v => {
+          cells.A = v;
+          frames.push(snap());
+        });
+        createRenderEffect(asyncB, v => {
+          cells.B = v;
+          frames.push(snap());
+        });
+        createRenderEffect(pair, v => {
+          cells.pair = v;
+          frames.push(snap());
+        });
+      });
+      flush();
+      const holdA = deferred();
+      const holdB = deferred();
+      const actA = action(function* (v: number) {
+        setAInner(v);
+        yield holdA.promise;
+      });
+      const actB = action(function* (v: number) {
+        setBInner(v);
+        yield holdB.promise;
+      });
+      return { actA, actB, gateA, gateB, holdA, holdB, frames, dispose };
+    }
+
+    it("the later lane's flight landing first does not release the merged reveal", async () => {
+      const { actA, actB, gateA, gateB, holdA, holdB, frames, dispose } = setup();
+      await tick();
+      frames.length = 0;
+      const doneA = actA(1);
+      await tick();
+      expect(frames).toEqual([]); // A's async observed pending: lane A held
+      const doneB = actB(1);
+      await tick();
+      expect(frames).toEqual([]); // merged: still held on A's flight
+      gateB.resolve();
+      await tick();
+      // B landed, but A — observed in A's transaction — is still in flight.
+      expect(frames).toEqual([]);
+      gateA.resolve();
+      await tick();
+      // One reveal unit: nothing ran before this round (asserted above) and
+      // all three cells land in it. Effects apply sequentially inside the
+      // round; the frame the screen shows is its end state.
+      expect(frames).toHaveLength(3);
+      expect(frames.at(-1)).toBe("A=1 B=1 pair=1:1");
+      holdA.resolve();
+      holdB.resolve();
+      await doneA;
+      await doneB;
+      await tick();
+      dispose();
+    });
+
+    it("the earlier lane's flight landing first does not release the merged reveal", async () => {
+      const { actA, actB, gateA, gateB, holdA, holdB, frames, dispose } = setup();
+      await tick();
+      frames.length = 0;
+      const doneA = actA(1);
+      await tick();
+      const doneB = actB(1);
+      await tick();
+      gateA.resolve();
+      await tick();
+      // A landed; B — the root's own transaction — is still in flight.
+      expect(frames).toEqual([]);
+      gateB.resolve();
+      await tick();
+      expect(frames).toHaveLength(3);
+      expect(frames.at(-1)).toBe("A=1 B=1 pair=1:1");
+      holdA.resolve();
+      holdB.resolve();
+      await doneA;
+      await doneB;
+      await tick();
+      dispose();
+    });
+  });
 });

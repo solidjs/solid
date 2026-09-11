@@ -21,8 +21,10 @@ import {
   CONFIG_HAS_COMPANIONS,
   CONFIG_HAS_LANE,
   CONFIG_HAS_SNAPSHOT,
+  CONFIG_INPUTS_PUBLISHED,
   CONFIG_NO_SNAPSHOT,
   CONFIG_OPTIMISTIC,
+  CONFIG_OVERRIDE_SUPERSEDED,
   CONFIG_OWNED_WRITE,
   CONFIG_SLOT_NODE,
   CONFIG_SYNC,
@@ -326,6 +328,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   const isStaleEffect = isEffect && isEffect !== EFFECT_USER;
   const prevStale = stale;
   if (isStaleEffect) stale = true;
+  // An effect recorded for this transaction's commit replay (it once read a
+  // node the transaction held and showed the committed value) and now
+  // recomputing UNDER the transaction sees its staged view: the value this
+  // run produces is applied by the commit itself, and the stale recording
+  // would publish the frame a second time. Drop it; the reads below re-record
+  // if they are served the committed view again (a lane's committed read).
+  if (isEffect && activeTransition !== null && activeTransition._gatedSubs.size)
+    activeTransition._gatedSubs.delete(el);
   try {
     if (!__DEV__ && el._config & CONFIG_SYNC) {
       value = el._fn(value);
@@ -420,9 +430,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       for (let d = el._deps; d !== null; d = d._nextDep) fanIn++;
       if (fanIn >= GRAPH_SIZE_WARN_AT) noteFanIn(el, fanIn);
     }
+    // INV-11 (#3330): the equality gate compares against the slot this run
+    // publishes to. An override-covered node publishes the override; a lane
+    // recompute (OPT-dirty) direct-commits `_value` — the lane's own reveal
+    // schedule — so a transaction-held `_pendingValue` that already equals
+    // the new result is not "unchanged": the screen still shows `_value`.
+    // Only a transaction-staged run compares against `_pendingValue`.
     const compareValue = hasOverride
       ? unwrapOverride(el._x?._overrideValue)
-      : el._pendingValue === NOT_PENDING
+      : isOptimisticDirty || el._pendingValue === NOT_PENDING
         ? el._value
         : el._pendingValue;
     let valueChanged = false;
@@ -546,6 +562,19 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         (!hasOverride || isOptimisticDirty || el._x?._overrideValue !== prevVisible)
       )
         insertSubs(el, isOptimisticDirty || hasOverride);
+      // A18 supersession, sync twin of asyncWrite's override branch (#3331):
+      // this pass published truth that differs from the override (the gate
+      // compared against it) into the transaction-held slot. Whether the
+      // source is this node's own async or an upstream node it derives from
+      // synchronously makes no difference — "the source recomputed". The
+      // override stays displayed until the commit; the graph moves to the
+      // staged truth now (plain channel, lane demoted). Ordering: "a new
+      // value from the source" postdates the override — an override written
+      // in this same tick (optimisticWrite stamps `_overrideTime`) is the
+      // newer intent over whatever this pass derives from the batch's staged
+      // inputs, and is not superseded by it.
+      else if (hasOverride && !isOptimisticDirty && el._x!._overrideTime !== clock)
+        GlobalQueue._supersedeOverride!(el, value);
     } else if (hasOverride) {
       // Unchanged value (equals the override) recomputed while the override
       // is active: _value may still be stale, so hold the authoritative value
@@ -554,13 +583,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._pendingValue = value;
       if (__DEV__) devTrackHeldPending(el);
       if (wasLoading) el._loading = true; // see the held branch above (#2990)
-      // An authoritative-view reader (until()'s predicate, refresh()'s waiter)
-      // observed this node past its override — and "authoritative arrival
-      // equal to the override" is exactly the acknowledgment it waits for.
-      // Wake those readers only; A17 silence holds for every ordinary
-      // subscriber. (Hook installed by both setters of the gating bit, #3303.)
-      if (el._config & CONFIG_AUTHORITATIVE_OBSERVED)
-        GlobalQueue._notifyAuthoritativeObservers!(el);
+      // A confirmation after a supersession restores the override as the
+      // graph's value and notifies; a plain confirmation wakes only an
+      // authoritative-view reader (until()'s predicate, refresh()'s waiter)
+      // that observed this node past its override — "authoritative arrival
+      // equal to the override" is exactly the acknowledgment it waits for;
+      // A17 silence holds for every ordinary subscriber. Both live in the
+      // engine's supersedeOverride.
+      GlobalQueue._supersedeOverride!(el, value);
     } else if (el._height != oldHeight) {
       for (let s = el._subs; s !== null; s = s._nextSub) {
         insertIntoHeapHeight(s._sub, queueFor(s._sub));
@@ -771,6 +801,8 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
   return (el._x ??= {
     _overrideValue: undefined,
     _overrideOwner: undefined,
+    _overrideTime: 0,
+    _overrideStamp: 0,
     _optimisticLane: undefined,
     _pendingSignal: undefined,
     _latestValueComputed: undefined,
@@ -1303,6 +1335,26 @@ export function installAuthoritativeRead(): void {
     GlobalQueue._notifyAuthoritativeObservers = notifyAuthoritativeObservers;
 }
 
+/**
+ * Stale-reader term of the value selections below: a render effect reading a
+ * node some OTHER live transaction has staged sees the committed value. The
+ * commit is silent — the staging walk was the notification — so a reader
+ * that linked AFTER that walk (an effect created during the hold, a store
+ * key first read under it) would show the old value past the reveal: record
+ * it for the transaction's commit replay (the `_gatedSubs` contract lanes
+ * already use). An effect the transaction itself computed re-derives at its
+ * commit on its own (parked run, or the contested re-derive, #3322) and is
+ * not recorded — replaying it too would publish the frame twice.
+ */
+function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boolean {
+  const t = el._transition;
+  if (t === null || t === activeTransition) return false;
+  const txn = currentTransition(t);
+  const vt: Transition | null | undefined = (c as any)._valueTransition;
+  if (vt == null || currentTransition(vt) !== txn) txn._gatedSubs.add(c);
+  return true;
+}
+
 export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
   if (
     latestReadActive ||
@@ -1334,7 +1386,7 @@ export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
     !c ||
     el._pendingValue === NOT_PENDING ||
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
-    (stale && el._transition !== null)
+    (stale && heldFromStale(el, c as Computed<any>))
       ? el._value
       : el._pendingValue
   ) as T;
@@ -1379,7 +1431,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       !c ||
       el._pendingValue === NOT_PENDING ||
       c._config & CONFIG_CHILDREN_FORBIDDEN ||
-      (stale && el._transition !== null)
+      (stale && heldFromStale(el, c as Computed<any>))
         ? el._value
         : el._pendingValue
     ) as T;
@@ -1422,7 +1474,32 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
 
   if (owner._statusFlags & STATUS_PENDING) {
-    if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
+    // A reader landing on a pending node throws — the reveal that discovered
+    // the flight holds on it (A15: observed async settles as one unit) — with
+    // one carve-out: a stale (render) reader of a node pending in some OTHER
+    // transaction keeps showing the node's committed value, no entanglement
+    // (parallel transactions; the reader is recorded for that transaction's
+    // commit replay, `heldFromStale`). The carve-out is sound only while the
+    // committed value is coherent with the visible frame, i.e. while the
+    // flight's inputs are themselves unpublished: the stamp alone does not
+    // say so (it is pending-node bookkeeping), so it is refused when the
+    // inputs are on screen — committed by a batch that left the flight in
+    // the air (CONFIG_INPUTS_PUBLISHED, #3305) or revealed through a lane
+    // (optimistic / latest, #3334) — and the reader holds instead. An
+    // UNINITIALIZED node has no committed value to show and holds too
+    // (firewall-backed store reads always did; plain memos since the #3043
+    // port): falling through served `undefined` as if settled and stranded
+    // the reader outside both transactions, so it never re-ran.
+    if (
+      c &&
+      !(
+        stale &&
+        !(owner._statusFlags & STATUS_UNINITIALIZED) &&
+        !(owner._config & CONFIG_INPUTS_PUBLISHED) &&
+        !(owner._config & CONFIG_HAS_LANE && GlobalQueue._laneLive!(owner as Computed<any>)) &&
+        heldFromStale(owner, c as Computed<any>)
+      )
+    ) {
       if (__DEV__ && c && c._config & CONFIG_CHILDREN_FORBIDDEN) {
         const message =
           "[PENDING_ASYNC_FORBIDDEN_SCOPE] Reading a pending async value inside createTrackedEffect or onSettled will throw. " +
@@ -1451,19 +1528,6 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         if (!tracking && el !== c) link(el, c as Computed<any>);
         throw owner._x?._error;
       }
-    } else if (c && owner._statusFlags & STATUS_UNINITIALIZED) {
-      // A stale (render) reader of a node held pending in ANOTHER transition
-      // normally keeps showing the node's committed value instead of
-      // entangling the two transactions — but an uninitialized node has no
-      // committed value to show. Suspend on it (firewall-backed store reads
-      // always took this branch; plain memos now do too): the reader
-      // registers as a reporter of that source, and its pending-node stamp
-      // ties it to the active transaction, so the two transactions merge
-      // when the source settles. Falling through served `undefined` as if
-      // settled and stranded the reader outside both transactions, so it
-      // never re-ran when either landed (#3043 port).
-      if (!tracking && el !== c) link(el, c as Computed<any>);
-      throw owner._x?._error;
     } else if (!c && owner._statusFlags & STATUS_UNINITIALIZED) {
       throw owner._x?._error;
     }
@@ -1511,8 +1575,16 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // authoritative — optimism never lives there); the sticky mark makes the
     // A17-silent "landing equals override" paths notify this node's subs so
     // the reader re-runs when truth arrives.
-    if (!(c && c._config & CONFIG_AUTHORITATIVE_READ))
+    if (!(c && c._config & CONFIG_AUTHORITATIVE_READ)) {
+      // A18 supersession (#3331): the node's own source answered with a
+      // DIFFERENT value. The optimism is over for the graph — a tracked
+      // reader sees the staged truth — while the override remains the
+      // DISPLAYED value for untracked reads (and for a stale reader of some
+      // other transaction). The selection lives with the engine.
+      if (c && el._config & CONFIG_OVERRIDE_SUPERSEDED)
+        return GlobalQueue._supersededRead!(el) as T;
       return unwrapOverride<T>(el._x?._overrideValue);
+    }
     el._config |= CONFIG_AUTHORITATIVE_OBSERVED;
   }
 
@@ -1544,7 +1616,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       GlobalQueue._laneReadsCommitted!(el, owner, c as Computed<any>)) ||
     el._pendingValue === NOT_PENDING ||
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
-    (stale && el._transition && activeTransition !== el._transition) ||
+    (stale && heldFromStale(el, c as Computed<any>)) ||
     // A17 for HELD truth (#3164, see CONFIG_HELD_TRUTH): staged confirming
     // truth — fold-staged onto an armed family, or entangle-stolen by an
     // awaited until() — is masked from ordinary readers until its
@@ -1644,8 +1716,13 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // _overrideValue slot (flagged by CONFIG_OPTIMISTIC — a masked read of the
   // always-present config instead of a missing-property probe), and every
   // module that installs one installs the engine first.
-  if (el._config & CONFIG_OPTIMISTIC && !projectionWriteActive)
-    return GlobalQueue._optimisticWrite!(el, v);
+  if (el._config & CONFIG_OPTIMISTIC) {
+    if (!projectionWriteActive) return GlobalQueue._optimisticWrite!(el, v);
+    // An authoritative store landing on an override-covered node: the store
+    // twin of asyncWrite's override branch, decided by the engine (#3331).
+    const o = el._x?._overrideValue;
+    if (o !== undefined && o !== NOT_PENDING) return GlobalQueue._landOnOverride!(el, v);
+  }
 
   const currentValue = el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T);
 

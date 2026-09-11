@@ -13,6 +13,7 @@ import {
   CONFIG_HAS_COMPANIONS,
   CONFIG_HAS_LANE,
   CONFIG_HAS_SNAPSHOT,
+  CONFIG_INPUTS_PUBLISHED,
   CONFIG_SLOT_NODE,
   REACTIVE_IN_HEAP_HEIGHT,
   REACTIVE_MANUAL_WRITE,
@@ -607,6 +608,11 @@ export class GlobalQueue extends Queue {
     | ((el: Signal<any>, owner: OptimisticNode, c: Computed<any>) => boolean)
     | null = null;
   static _laneSuspends: ((owner: OptimisticNode) => boolean) | null = null;
+  /** Is the node routed through a LIVE lane (`resolveLane`)? read()'s reveal
+   * carve-out asks before showing a foreign-held pending node's committed
+   * value: a lane-derived flight's inputs are already revealed through the
+   * lane (#3334). Gated on CONFIG_HAS_LANE, which only the engine sets. */
+  static _laneLive: ((el: Computed<any>) => boolean) | null = null;
   static _laneReadsCommitted:
     | ((el: OptimisticNode, owner: OptimisticNode, c: Computed<any>) => boolean)
     | null = null;
@@ -620,6 +626,28 @@ export class GlobalQueue extends Queue {
    * the gate holds (#3303). */
   static _notifyAuthoritativeObservers: ((el: Signal<any> | Computed<any>) => void) | null = null;
   static _laneAsyncSettled: ((el: Computed<any>) => void) | null = null;
+  /** A18 supersession (#3331): own-source truth `value` landed under an active
+   * override. The engine decides whether the graph re-derives — the value
+   * differs from the override and is not a stale (older-action) answer (mark
+   * the node, demote its lane cascade, notify), or returns to it after an
+   * earlier differing arrival (clear the mark, notify) — and owns the
+   * authoritative-observer wake for a silent confirm. Installed with the
+   * optimistic engine; only reachable on a node that has an override. */
+  static _supersedeOverride: ((el: Signal<any> | Computed<any>, value: unknown) => void) | null =
+    null;
+  /** read()'s value for a TRACKED reader of a superseded node (#3331): the
+   * staged truth, unless the reader is a stale (render) reader of another
+   * transaction — then the displayed override, as it keeps a foreign
+   * transaction's committed value over its staged write. */
+  static _supersededRead: ((el: Signal<any> | Computed<any>) => unknown) | null = null;
+  /** setSignal's authoritative (projection-write) landing on an override-
+   * covered node (#3331 store twin): stage the truth for its transaction's
+   * commit whatever its relation to the committed value — a landing equal to
+   * committed still differs from the override — then _supersedeOverride
+   * decides. Installed with the optimistic engine; only reachable on a node
+   * that has an override. */
+  static _landOnOverride: (<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)) => T) | null =
+    null;
   static _trackOptimisticStore: ((store: any) => void) | null = null;
   flush() {
     if (this._running) return;
@@ -914,6 +942,26 @@ export function armReaskClear(): void {
   reaskArmed = true;
 }
 
+/** Provenance of the work currently running (A18 supersession, #3331): the
+ * invocation sequence of the action whose ambient window this is — set by
+ * action() for each slice; the flush that ends the window clears it — or,
+ * inside an async landing, the sequence captured when that flight was
+ * registered (asyncWrite sets it for the landing's synchronous propagation,
+ * so a sync recompute downstream of the landing — an optimistic wrapper over
+ * the async source — derives under the flight's provenance, and flights it
+ * registers inherit it). 0 is mainline: no action, always the current
+ * question. An override stamps this at its write (`_overrideStamp`); an
+ * answer whose flight an OLDER action issued is a stale question the user
+ * has since changed — it holds silently to commit instead of superseding. A
+ * slow source must not leak back in over a newer intent. Transactions merge,
+ * so the transition object cannot say WHICH action asked; this can. */
+export let origin = 0;
+export function setOrigin(seq: number): number {
+  const prev = origin;
+  origin = seq;
+  return prev;
+}
+
 export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolean = false): void {
   // §12d: stamp before walking — setSignal's staged-rewrite fast path skips
   // the next walk for this node while the epoch holds (marking is idempotent).
@@ -999,6 +1047,10 @@ function commitPendingNode(n: Signal<any>): void {
   c._loading = false;
   c._flags! &= ~REACTIVE_MANUAL_WRITE;
   if (!(c._statusFlags! & STATUS_PENDING)) c._statusFlags! &= ~STATUS_UNINITIALIZED;
+  // A flight this commit leaves in the air (unobserved, or observed only by
+  // a boundary) now has PUBLISHED inputs: its committed value is stale
+  // against the frame. read()'s reveal carve-out keys on the mark (#3305).
+  else n._config |= CONFIG_INPUTS_PUBLISHED;
   if (c._x != null && (c._x._pendingFirstChild !== null || c._x._pendingDisposal !== null))
     GlobalQueue._dispose(c as Computed<unknown>, false, true);
   if (n._config & CONFIG_HAS_COMPANIONS) GlobalQueue._snapCompanions!(n);
@@ -1075,9 +1127,16 @@ export function finalizePureQueue(
   // the recompute and the effect phase land in this same pass and the value
   // the other transaction wrote into the slot is never published.
   // (No clear: a completed transition is never finalized again.)
-  if (completingTransition?._contested)
-    for (const el of completingTransition._contested)
-      if (!(el._flags & REACTIVE_DISPOSED)) enqueueSub(el);
+  // A transaction whose settle reverts optimism re-derives them post-revert
+  // instead (below, with the gated replay): between commitPendingNodes and
+  // _resolveOptimistic the truth is committed but the overrides still
+  // display, and a re-derive here would compose the two — the #3164 tear,
+  // one window later. The slot meanwhile holds the frame that is on screen.
+  const contested = completingTransition?._contested;
+  const revertsOptimism =
+    resolvePending && (completingTransition ?? finalizingBatch)._optimisticNodes.length !== 0;
+  if (contested && !revertsOptimism)
+    for (const el of contested) if (!(el._flags & REACTIVE_DISPOSED)) enqueueSub(el);
   const ranHeap = dirtyQueue._max >= dirtyQueue._min;
   if (ranHeap) runHeap(dirtyQueue, GlobalQueue._update);
   if (resolvePending) {
@@ -1097,6 +1156,10 @@ export function finalizePureQueue(
     // Optimistic reversion: a non-empty batch means _optimisticWrite ran,
     // which installed the engine's hooks.
     if (batch._optimisticNodes.length) GlobalQueue._resolveOptimistic!(batch._optimisticNodes);
+    if (contested && revertsOptimism) {
+      for (const el of contested) if (!(el._flags & REACTIVE_DISPOSED)) enqueueSub(el);
+      schedule();
+    }
     // Replay entanglement: subs recorded by the read-time gate get rescheduled
     // so they re-run with the now-committed values visible. The ambient batch
     // replays too — laneReadsCommitted records readers whose committed-view
@@ -1305,6 +1368,9 @@ export function flush<T>(fn?: () => T): T | void {
     globalQueue.flush();
     if (__OBSERVE__) drained = true;
   }
+  // Provenance ends with the drain: every ambient window (an action's first
+  // slice, a landing's propagation) runs to this flush.
+  origin = 0;
   // Outside every try in this function (see the rule in attribution-hooks.ts):
   // the drain loop above is the one place all scheduled work funnels through,
   // so this is the "committed and effects ran, or parked" instant for
@@ -1384,6 +1450,20 @@ export function createTransition(): Transition {
 export function currentTransition(transition: Transition) {
   while (transition._done && typeof transition._done === "object") transition = transition._done;
   return transition;
+}
+
+/**
+ * The live transition blocked on `source` — the one whose render reader
+ * observed it pending (INV-3 records the observation in whichever transaction
+ * was active when the reader was notified). The observation is a fact about
+ * the node, so a hold check must not assume it was recorded in the transaction
+ * it happens to hold — lanes merge across transactions (#2912), and a merged
+ * root's transaction knows nothing of the async its members' transactions
+ * observed (#3335). Null when nobody is waiting.
+ */
+export function waitingTransition(source: Computed<any>): Transition | null {
+  for (const t of transitions) if (t._asyncReporters.has(source)) return t;
+  return null;
 }
 
 export function setActiveTransition(transition: Transition | null) {

@@ -7,6 +7,7 @@ import {
   flush,
   globalQueue,
   schedule,
+  setOrigin,
   type Transition
 } from "./scheduler.js";
 import { isThenable } from "./async.js";
@@ -19,7 +20,14 @@ const ACTION_CALLED_IN_OWNED_SCOPE_MESSAGE =
   "[ACTION_CALLED_IN_OWNED_SCOPE] Calling an action inside an owned scope (component, computation) is not allowed. " +
   "Call it from an event handler or another imperative scope.";
 
-function restoreTransition<T>(transition: Transition, fn: () => T): T {
+/** Invocation order across all actions — the provenance every slice of an
+ * action runs under (scheduler `origin`): the flights and overrides its
+ * ambient windows issue are stamped with it, so a later action's override
+ * can tell this action's late answer from its own (#3331). */
+let actionSeq = 0;
+
+function restoreTransition<T>(seq: number, transition: Transition, fn: () => T): T {
+  const prevOrigin = setOrigin(seq);
   globalQueue.initTransition(transition);
   const result = fn();
   // A nested action resuming synchronously (its body yielded a non-thenable)
@@ -27,6 +35,7 @@ function restoreTransition<T>(transition: Transition, fn: () => T): T {
   // shared transaction and detach the outer body's remaining writes (the
   // flush() rule, scheduler.ts). The outer step's own return drains.
   if (actionStepDepth === 0) flush();
+  setOrigin(prevOrigin);
   return result;
 }
 
@@ -121,6 +130,10 @@ export function action<Args extends any[], Y, R>(
     }
     return new Promise((resolve, reject) => {
       const it = genFn(...args);
+      const seq = ++actionSeq;
+      // The first slice's window runs to the scheduled flush, which clears
+      // the provenance with the window — no restore here.
+      setOrigin(seq);
       globalQueue.initTransition();
       let ctx = activeTransition!;
       ctx._actions.push(it);
@@ -181,20 +194,20 @@ export function action<Args extends any[], Y, R>(
               v => {
                 if (settled) return;
                 settled = true;
-                restoreTransition(ctx, () => step(v));
+                restoreTransition(seq, ctx, () => step(v));
               },
               e => {
                 if (settled) return;
                 settled = true;
-                restoreTransition(ctx, () => step(e, true));
+                restoreTransition(seq, ctx, () => step(e, true));
               }
             );
         } catch (e) {
           if (settled) return;
           settled = true;
-          return void restoreTransition(ctx, () => step(e, true));
+          return void restoreTransition(seq, ctx, () => step(e, true));
         }
-        restoreTransition(ctx, () => step(r.value));
+        restoreTransition(seq, ctx, () => step(r.value));
       };
 
       step();

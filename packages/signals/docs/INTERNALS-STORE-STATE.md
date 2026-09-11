@@ -146,6 +146,32 @@ there is nothing to diff.)
   graph, which is what makes post-reconcile `snapshot` free.
 - Commit hook: lane settle folds the winning lane value into raw, then the
   node returns to passthrough (no pending state retained).
+- **Adoption under a live transaction** (#3074, extended for the #3330 store
+  twin): `adoptPB` swaps the backing eagerly but records a hold (`ht` = the
+  transaction, `hv` = the pre-hold committed view) that committed-visibility
+  readers are served through `heldMaskView` — on optimistic families too (a
+  sync derive adopting truth under a transaction is held truth, not lane
+  business; unheld, handlers read the swapped-in backing early and an
+  optimistic write equal to it compared as a no-op, so no override and no
+  lane formed). A held adoption's nodes are notified at the outermost setter
+  exit (`stageHeldAdoptions`, the adoption twin of `notifyWrites`): staged
+  under the transaction's batch, transition-stamped, subscribers recompute in
+  that flush and park with the transaction, and the commit promotes silently
+  — the drain, which for a parked transaction IS the commit, would otherwise
+  deliver the adopted values as fresh writes and re-run every subscriber
+  against a frame the lane already published. `ab` moves to the adopted
+  backing (the view the nodes were last told, #3296) so the drain only
+  path-copies. `notifyOptimisticWrites` judges a tentative write against the
+  view readers see (`heldMaskView(t) ?? t.v`), not the backing slot. A plain
+  store's eager adoption (`reconcile` in a setter) under a live transaction
+  takes the same hold — its inline notify already staged the nodes; the
+  backing must not show handlers what the tracked read masks. A key first
+  read under a held adoption is **born holding** (`heldAdoptionTransition` /
+  `stageHeldKey` in `getNode`): committed value from `hv`, the adopted value
+  staged under the transaction — the adoption's notification ran before the
+  node existed and the drain has nothing left to say. (The #3336 PR adds the
+  same for setter-staged `pb` holds and makes the first tracked read serve
+  the node's value; the two compose.)
 
 ## 4. Identity rules
 
