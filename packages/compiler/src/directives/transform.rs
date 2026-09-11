@@ -702,11 +702,34 @@ impl<'a> DirectivesTransform<'a> {
 
 /// Babel's function-level pre-pass bubbles *every* function declaration to a
 /// `const` at the top of its enclosing block (so exports keep working and the
-/// directive transform only has to handle expression forms). Declarations
-/// nested inside another bubbled declaration are skipped, matching Babel's
-/// `tmp.skip()`.
+/// directive transform only has to handle expression forms).
+///
+/// Babel skipped the body of each bubbled declaration (`tmp.skip()`), so a
+/// declaration nested inside another function was never bubbled, never became
+/// an expression, and a `"use server"` directive on it was silently ignored,
+/// while the capture validator still treated it as a server function. This
+/// pass descends into bubbled bodies too, so nested declarations are
+/// extracted like every other marked function. Only files that extract at
+/// least one function keep the pass's output, so the extra bubbling never
+/// reaches a file without server functions.
 struct Bubbler<'ctx, 'a> {
     transform: &'ctx mut DirectivesTransform<'a>,
+}
+
+impl<'ctx, 'a> Bubbler<'ctx, 'a> {
+    /// Bubbles the declarations inside `function`'s body, then turns the
+    /// declaration itself into `const name = function name() {}`.
+    fn bubble_declaration(
+        &mut self,
+        mut function: oxc_allocator::Box<'a, oxc_ast::ast::Function<'a>>,
+    ) -> Statement<'a> {
+        walk_mut::walk_function(
+            self,
+            &mut function,
+            oxc_syntax::scope::ScopeFlags::Function,
+        );
+        self.transform.function_declaration_to_const(function)
+    }
 }
 
 impl<'a> VisitMut<'a> for Bubbler<'_, 'a> {
@@ -718,7 +741,7 @@ impl<'a> VisitMut<'a> for Bubbler<'_, 'a> {
         for statement in old {
             match statement {
                 Statement::FunctionDeclaration(function) if function.id.is_some() => {
-                    hoisted.push(self.transform.function_declaration_to_const(function));
+                    hoisted.push(self.bubble_declaration(function));
                 }
                 Statement::ExportDeclaration(export)
                     if matches!(
@@ -731,7 +754,7 @@ impl<'a> VisitMut<'a> for Bubbler<'_, 'a> {
                         unreachable!("shape checked above");
                     };
                     let name = function.id.as_ref().unwrap().name.to_string();
-                    hoisted.push(self.transform.function_declaration_to_const(function));
+                    hoisted.push(self.bubble_declaration(function));
                     rest.push(
                         self.transform
                             .export_named_specifier_statement(&name, &name),
@@ -753,7 +776,7 @@ impl<'a> VisitMut<'a> for Bubbler<'_, 'a> {
                         unreachable!("shape checked above");
                     };
                     let name = function.id.as_ref().unwrap().name.to_string();
-                    hoisted.push(self.transform.function_declaration_to_const(function));
+                    hoisted.push(self.bubble_declaration(function));
                     export.declaration =
                         ExportDefaultDeclarationKind::from(self.transform.identifier(&name));
                     rest.push(Statement::ExportDefaultDeclaration(export));

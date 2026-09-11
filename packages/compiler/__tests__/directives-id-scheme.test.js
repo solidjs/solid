@@ -299,9 +299,10 @@ describe("the wire id scheme, differentially", () => {
   });
 
   it("takes a segment from a nested function declaration", () => {
-    // Declarations nested inside another function are not bubbled into a
-    // `const`, so the function itself has to contribute the segment, or two
-    // same-named arrows in sibling declarations collide on `outer.s`.
+    // Two same-named arrows in sibling declarations must not collide on
+    // `outer.s`. Reported in post-bubble order (nested declarations hoist in
+    // reverse source order like top-level ones), which moves the reporting
+    // order without moving an id.
     const source = `
       export function outer() {
         function a() { const s = async () => { "use server"; return 1; }; return s; }
@@ -310,9 +311,23 @@ describe("the wire id scheme, differentially", () => {
       }
     `;
     const hash = hashHex("src/decl.js");
-    expect(ids(source, { filename: "/project/src/decl.js", root: "/project" })).toEqual([
-      `outer.a.s-${hash}`,
-      `outer.b.s-${hash}`
+    expect(ids(source, { filename: "/project/src/decl.js", root: "/project" }).sort()).toEqual(
+      [`outer.a.s-${hash}`, `outer.b.s-${hash}`].sort()
+    );
+  });
+
+  it("names a marked nested function declaration by its path", () => {
+    // A declaration nested in another function is bubbled into a `const`
+    // like a top-level one, so it is extracted and named the same way.
+    const source = `
+      export function outer() {
+        async function inner() { "use server"; return 1; }
+        return inner;
+      }
+    `;
+    const hash = hashHex("src/nested-decl.js");
+    expect(ids(source, { filename: "/project/src/nested-decl.js", root: "/project" })).toEqual([
+      `outer.inner-${hash}`
     ]);
   });
 
