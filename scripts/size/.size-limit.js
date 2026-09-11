@@ -195,6 +195,14 @@ module.exports = [
     // read under a hold are born holding, and every store read channel
     // answers like read() (`heldFromReader`/`foreignHold`). Core-retained by
     // nature: the write path IS the seam. In-package floor 21,936 -> 22,252.
+    //
+    // Promotion hot-path fix (#3337 CodSpeed, 2026-09-10): 8.29 -> 8.30 KB,
+    // measured at 8280 B (was 8268). The unflushed list moved from scheduler.ts
+    // into core.ts so recompute's tail compares lengths locally instead of
+    // calling out twice per run; promoteUnflushed returns before its
+    // truncating `length =` when nothing is queued, and plain nodes skip the
+    // override probe. +27 B raw in the floor; the rest is brotli reordering
+    // from the code motion. Floor 22,252 -> 22,279.
     limit: "8.40 KB",
     modifyEsbuildConfig
   },
@@ -409,6 +417,14 @@ module.exports = [
     // half of #3336: a key first read under a held adoption or fold is born
     // holding (`stageHeldKey`), and the store's read channels (`in`, keys,
     // deep witness, `nodeValue`) apply read()'s foreign-transaction rule.
+    //
+    // Promotion hot-path fix (#3337 CodSpeed, 2026-09-10): 14.91 -> 15.02 KB,
+    // measured at 14999 B (was 14884). The unflushed list moved from scheduler.ts
+    // into core.ts so recompute's tail compares lengths locally instead of
+    // calling out twice per run; promoteUnflushed returns before its
+    // truncating `length =` when nothing is queued, and plain nodes skip the
+    // override probe. +27 B raw in the floor; the rest is brotli reordering
+    // from the code motion.
     limit: "15.35 KB",
     modifyEsbuildConfig
   },
@@ -810,6 +826,14 @@ module.exports = [
     // half of #3336: a key first read under a held adoption or fold is born
     // holding (`stageHeldKey`), and the store's read channels (`in`, keys,
     // deep witness, `nodeValue`) apply read()'s foreign-transaction rule.
+    //
+    // Promotion hot-path fix (#3337 CodSpeed, 2026-09-10): 27.56 -> 27.69 KB,
+    // measured at 27664 B (was 27534). The unflushed list moved from scheduler.ts
+    // into core.ts so recompute's tail compares lengths locally instead of
+    // calling out twice per run; promoteUnflushed returns before its
+    // truncating `length =` when nothing is queued, and plain nodes skip the
+    // override probe. +27 B raw in the floor; the rest is brotli reordering
+    // from the code motion.
     limit: "28.24 KB",
     modifyEsbuildConfig
   },
@@ -872,6 +896,14 @@ module.exports = [
     //
     // Writes visible at flush (A28, #3337; #3336, 2026-09-10): 13.75 -> 13.84 KB,
     // measured at 13820 B — the core write-path change (see the core floor note).
+    //
+    // Promotion hot-path fix (#3337 CodSpeed, 2026-09-10): 13.84 -> 13.87 KB,
+    // measured at 13849 B (was 13820). The unflushed list moved from scheduler.ts
+    // into core.ts so recompute's tail compares lengths locally instead of
+    // calling out twice per run; promoteUnflushed returns before its
+    // truncating `length =` when nothing is queued, and plain nodes skip the
+    // override probe. +27 B raw in the floor; the rest is brotli reordering
+    // from the code motion.
     limit: "13.95 KB",
     modifyEsbuildConfig
   },

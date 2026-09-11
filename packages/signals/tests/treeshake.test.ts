@@ -245,6 +245,13 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // deferral makes repeated same-tick writes walk once without it — and by
     // deleting latestRead's #2922 mid-tick pull and #3104 probe suspension
     // (verdict layer, not in this floor). Measured at 22,252 post-change (rebased on #3324 two-tier literals).
+    //
+    // CONSCIOUS BUMP (2026-09-10, #3337 CodSpeed): +27 B. The unflushed list
+    // lives in core.ts so recompute's tail is a local length compare (two
+    // cross-module calls per run cost update1to1 ~25% under the test
+    // transform's live-binding getters); promoteUnflushed returns before its
+    // truncating `length =` on an empty list; plain nodes skip the override
+    // probe (CONFIG_OPTIMISTIC gate). Measured at 22,279.
     // MEASURE_PLACEHOLDER
     expect(minifiedBytes).toBeLessThan(23_000);
   });
