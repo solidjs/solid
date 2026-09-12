@@ -245,7 +245,12 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // dirty, staged or optimistic ambient work to adopt); the fast drain
     // defers to the full path while a wake is outstanding. +135 B
     // (22,780 → 22,915).
-    expect(minifiedBytes).toBeLessThan(23_000);
+    // Held reader disposed / lane direct-commit over a stale hold (#3372,
+    // #3377): disposing a pending reader parked in a transaction wakes it
+    // (`wokenTransitions`, deduped), and a lane recompute (OPT-dirty,
+    // override or not) drops the transaction hold it supersedes. +58 B
+    // (22,915 → 22,973).
+    expect(minifiedBytes).toBeLessThan(23_050);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

@@ -537,9 +537,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // Lane-propagated correction: upstream data is fresh, correct the
         // override unconditionally. The direct _value commit is the lane's
         // own reveal schedule; drop any superseded older hold so its queued
-        // commit can't clobber the fresh value.
-        if (hasOverride && isOptimisticDirty) {
-          ext(el)._overrideValue = value === undefined ? OVERRIDE_UNDEFINED : value;
+        // commit can't clobber the fresh value. Override or not: a node that
+        // adopted the lane through its deps (a `latest()` read — the
+        // companion is an optimistic node) direct-commits the same way, and
+        // a hold it staged on an earlier, lane-free pass of the SAME
+        // transaction is just as superseded — left in place, the commit
+        // published the older frame over the fresh one (#3377).
+        if (isOptimisticDirty) {
+          if (hasOverride)
+            ext(el)._overrideValue = value === undefined ? OVERRIDE_UNDEFINED : value;
           el._pendingValue = NOT_PENDING;
         }
       } else {

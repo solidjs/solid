@@ -205,7 +205,11 @@ module.exports = [
     // transactions can be woken for re-judgement (`wokenTransitions`, entered
     // from the finally of an idle pass). +135 B minified in the in-package
     // floor (22,780 -> 22,915).
-    limit: "8.55 KB",
+    // Held reader disposed / lane direct-commit over a stale hold (#3372,
+    // #3377; 2026-09-12): 8.55 -> 8.60 KB, measured at 8556 B against 8507
+    // (+49) — the disposal wake site and the lane hold drop. +58 B minified
+    // in the in-package floor (22,915 -> 22,973).
+    limit: "8.60 KB",
     modifyEsbuildConfig
   },
   {
@@ -416,7 +420,9 @@ module.exports = [
     // Second write while an async chain is in flight (#3373–#3376,
     // 2026-09-12): 15.35 -> 15.45 KB, measured at 15413 B against `next`'s
     // 15340 (+73 — the core seams, see the core floor note).
-    limit: "15.45 KB",
+    // #3372/#3377 (2026-09-12): 15.45 -> 15.50 KB, measured at 15485 B against 15427
+    // (+58); see the core floor note.
+    limit: "15.50 KB",
     modifyEsbuildConfig
   },
   {
@@ -523,7 +529,9 @@ module.exports = [
     // 10713 (+71 — the core seams, see the core floor note).
     // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 10.82 -> 10.85 KB,
     // measured at 10820 B against 10784 (+36); see the core floor note.
-    limit: "10.85 KB",
+    // #3372/#3377 (2026-09-12): 10.85 -> 10.90 KB, measured at 10857 B against 10820
+    // (+37); see the core floor note.
+    limit: "10.90 KB",
     modifyEsbuildConfig
   },
   {
@@ -602,7 +610,9 @@ module.exports = [
     // 11145 (+67 — the core seams, see the core floor note).
     // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 11.25 -> 11.30 KB,
     // measured at 11243 B against 11212 (+31); see the core floor note.
-    limit: "11.30 KB",
+    // #3372/#3377 (2026-09-12): 11.30 -> 11.35 KB, measured at 11295 B against 11243
+    // (+52); see the core floor note.
+    limit: "11.35 KB",
     modifyEsbuildConfig
   },
   {
@@ -703,7 +713,9 @@ module.exports = [
     // every source its effect is pending on, `CollectionQueue.notify`).
     // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 18.70 -> 18.75 KB,
     // measured at 18721 B against 18678 (+43); see the core floor note.
-    limit: "18.75 KB",
+    // #3372/#3377 (2026-09-12): 18.75 -> 18.80 KB, measured at 18749 B against 18721
+    // (+28); see the core floor note.
+    limit: "18.80 KB",
     modifyEsbuildConfig
   },
   {
@@ -915,7 +927,9 @@ module.exports = [
     // 13975 (+54 — the core seams and the collecting boundary).
     // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 14.05 -> 14.15 KB,
     // measured at 14098 B against 14029 (+69); see the core floor note.
-    limit: "14.15 KB",
+    // #3372/#3377 (2026-09-12): 14.15 -> 14.20 KB, measured at 14169 B against 14098
+    // (+71); see the core floor note.
+    limit: "14.20 KB",
     modifyEsbuildConfig
   },
   {
@@ -982,7 +996,9 @@ module.exports = [
     // 15371 (+39 — the core seams and the collecting boundary).
     // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 15.45 -> 15.50 KB,
     // measured at 15465 B against 15410 (+55); see the core floor note.
-    limit: "15.50 KB",
+    // #3372/#3377 (2026-09-12): 15.50 -> 15.55 KB, measured at 15511 B against 15465
+    // (+46); see the core floor note.
+    limit: "15.55 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -1069,7 +1085,9 @@ module.exports = [
     // 26888 (+42 — the core seams and the collecting boundary).
     // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 26.95 -> 27.05 KB,
     // measured at 26978 B against 26930 (+48); see the core floor note.
-    limit: "27.05 KB",
+    // #3372/#3377 (2026-09-12): 27.05 -> 27.10 KB, measured at 27066 B against 26978
+    // (+88); see the core floor note.
+    limit: "27.10 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
