@@ -138,7 +138,7 @@ describe("a second write while an async chain is in flight", () => {
     expect(log).toEqual(["Pending: false", "Pending: true", "Pending: false"]);
   });
 
-  it("#3375 a Loading boundary reset twice holds its fallback until the downstream async lands", async () => {
+  it("#3375 a Loading boundary reset ends the hold on writes only its readers observed and waits for the downstream async", async () => {
     reset();
     const log: string[] = [];
     const when: number[] = [];
@@ -169,25 +169,78 @@ describe("a second write while an async chain is in flight", () => {
     setCount(1);
     await settle();
     await advanceTo(4000);
-    // page=1 resets the boundary (`on`): fallback, pageData1 due 5000. Its landing
-    // joins the hold (its reader details lives there) and re-asks details (due 7000).
+    // page=1 resets the boundary (`on`): fallback, pageData1 due 5000. The only
+    // reader of details is now behind the fallback, so the hold on count=1 is
+    // over (ruled 2026-09-12): the reset wakes the parked transaction and it
+    // commits in the idle pass that follows — same drain, one pass after the
+    // ambient page=1 commit, hence two Sum publishes at 4000.
     setPage(1);
     await settle();
     await advanceTo(5500);
-    // page=2 resets again. The boundary was still collecting; the effect it hears
-    // from is pending on details AND pageData. pageData2 lands at 6500 and re-asks
-    // details (due 8500) — the boundary must keep waiting on details.
+    // page=2 resets again. Nothing is held any more: pageData2 lands at 6500 and
+    // re-asks details (due 8500) under the collecting boundary, which waits on
+    // details AND pageData (the effect it hears from is pending on both).
     setPage(2);
     await settle();
     await advanceTo(12000);
     expect(frames(log, when)).toEqual([
       "0: Boundary: Loading... | Sum: 0",
       "3000: Boundary: content | Details: 0",
-      "4000: Boundary: Loading... | Sum: 1",
-      // page=2 rides the count hold (A15: pageData, a reader of page, lives in it)
-      // and everything reveals together with details' answer.
-      "8500: Boundary: content | Details: 3 | Sum: 3"
+      "4000: Boundary: Loading... | Sum: 1 | Sum: 2",
+      "5500: Sum: 3",
+      "8500: Boundary: content | Details: 3"
     ]);
+  });
+
+  it("a Loading boundary reset keeps the hold while a reader outside the boundary observes the flight", async () => {
+    reset();
+    const log: string[] = [];
+    const when: number[] = [];
+    let setCount!: (v: number) => void, setPage!: (v: number) => void;
+    createRoot(() => {
+      const [count, sc] = createSignal(0);
+      const [page, sp] = createSignal(0);
+      setCount = sc;
+      setPage = sp;
+      const pageData = createMemo(() => delay(1000, page()));
+      const details = createMemo(() => delay(2000, pageData() + count()));
+      text(() => `Sum: ${page() + count()}`, log, when);
+      text(() => `Outside: ${details()}`, log, when);
+      const b = createLoadingBoundary(
+        () => {
+          text(() => `Details: ${details()}`, log, when);
+          return "content";
+        },
+        () => "Loading...",
+        { on: () => page() }
+      );
+      text(() => `Boundary: ${b()}`, log, when);
+    });
+    flush();
+    await settle();
+    await advanceTo(3500);
+    setCount(1); // details re-asks (due 5500); Details and Outside both report it
+    await settle();
+    await advanceTo(4000);
+    // The reset frees Details, but Outside still consumes the flight: count=1
+    // stays held. page=1 joins the hold too (its reader details lives there),
+    // so nothing publishes at 4000 — not even the fallback. pageData1 lands at
+    // 5000 and re-asks details (due 7000); everything reveals with its answer.
+    setPage(1);
+    await settle();
+    await advanceTo(12000);
+    const f = frames(log, when);
+    expect(f.slice(0, 2)).toEqual([
+      "0: Boundary: Loading... | Sum: 0",
+      "3000: Boundary: content | Details: 0 | Outside: 0"
+    ]);
+    expect(f).toHaveLength(3);
+    expect(f[2].startsWith("7000: ")).toBe(true);
+    for (const v of ["Details: 2", "Outside: 2", "Sum: 2"]) expect(f[2]).toContain(v);
+    // Not asserted exactly: the 7000 frame also carries a stale `Sum: 1` —
+    // the slot Sum computed mainline at 4000 (page=1, committed count) is
+    // published before the #3322 contested re-derive publishes `Sum: 2`.
+    // Pre-existing (identical on the branch base), tracked separately.
   });
 
   it("#3374 repeating the held write after remounting the reader publishes with the derived value", async () => {

@@ -237,7 +237,15 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // instead of `_error.source`, and the stale-reader carve-out joins the
     // reporters of a node the transaction already waits on (one Map lookup
     // in heldFromStale). +132 B (22,648 → 22,780).
-    expect(minifiedBytes).toBeLessThan(22_850);
+    // Boundary reset ends the hold (#3375 ruling): a reporter whose queue
+    // chain passes through a collecting loading boundary does not block
+    // (`reporterBlocksSource` walks `_queue._parent`), and a parked
+    // transaction can be woken for re-judgement — `wokenTransitions`,
+    // deduped, entered from the finally of an idle pass (`!scheduled`: no
+    // dirty, staged or optimistic ambient work to adopt); the fast drain
+    // defers to the full path while a wake is outstanding. +135 B
+    // (22,780 → 22,915).
+    expect(minifiedBytes).toBeLessThan(23_000);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

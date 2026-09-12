@@ -26,7 +26,7 @@ import {
 import type { IQueue, Signal } from "./core/index.js";
 import { emitDiagnostic, reportDiagnostic } from "./core/dev.js";
 import { attrHooks } from "./core/attribution-hooks.js";
-import { haltReactivity, schedule } from "./core/scheduler.js";
+import { haltReactivity, schedule, wakeParked } from "./core/scheduler.js";
 import { accessor, type Accessor } from "./signals.js";
 
 export interface BoundaryComputed<T> extends Computed<T> {
@@ -307,6 +307,10 @@ export class CollectionQueue extends Queue {
         this._prevOn = currentOn;
         this._initialized = false;
         this._sources.clear();
+        // Readers forwarded while this boundary showed content are behind the
+        // fallback now: they stop blocking (`reporterBlocksSource`), and the
+        // transactions they were holding must be re-judged for it (#3375).
+        wakeParked();
       }
     }
 
