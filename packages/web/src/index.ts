@@ -1,6 +1,7 @@
 import {
   getNextElement,
   insert,
+  runHydrationEvents,
   spread,
   SVGElements,
   MathMLElements,
@@ -363,15 +364,23 @@ export function dynamic<T extends ValidComponent>(
           return untrack(() => (component as Function)(props));
         }
 
-        case "string":
-          const el = sharedConfig.hydrating
+        case "string": {
+          const hydrating = sharedConfig.hydrating;
+          const el = hydrating
             ? getNextElement()
             : createElement(
                 component as string,
                 untrack(() => (props as any).is)
               );
           spread(el, props);
+          // Compiled JSX emits runHydrationEvents() after an element that
+          // carries event handlers. Handlers bound through spread() here need
+          // the same call, or events the hydration script queued for this
+          // element are only replayed if some other compiled element happens
+          // to hydrate after it.
+          if (hydrating) runHydrationEvents();
           return el;
+        }
 
         default:
           break;
