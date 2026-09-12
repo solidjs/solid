@@ -3236,7 +3236,7 @@ function nativePromise(value) {
  *
  * @example
  * ```ts
- * import { handleServerFunctionRequest } from "@solidjs/web/server-functions";
+ * import { handleServerFunctionRequest } from "@solidjs/web/server-functions/server";
  * import "virtual:solid-server-function-manifest";
  *
  * // in the server's request handling:

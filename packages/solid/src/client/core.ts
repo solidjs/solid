@@ -61,9 +61,11 @@ export interface Context<T> extends ContextProviderComponent<T> {
  *   static fallback (theme, locale, frozen config). Outside any Provider,
  *   `useContext` returns `defaultValue`.
  *
- * If you want truly app-wide state, **don't use Context** — a module-scope
- * signal/store *is* a global. Context is for scoping state to a subtree;
- * that's why a Provider is required.
+ * Context is for state that belongs to a subtree, which includes app-wide
+ * state in an app that renders on the server: a value created inside a
+ * component is created once per request, and the Provider owns and disposes
+ * it. Module scope is shared by every request in the same process, so reserve
+ * it for constants.
  *
  * @param defaultValue optional default; only meaningful for primitive
  *   fallbacks. Omit for any context carrying reactive state.
@@ -87,6 +89,7 @@ export interface Context<T> extends ContextProviderComponent<T> {
  * function TodoList() {
  *   const [todos, { addTodo }] = useContext(TodosContext); // typed as TodosCtx
  *   // ...
+ *   return null;
  * }
  * ```
  *
@@ -142,6 +145,7 @@ export function createContext<T>(defaultValue?: T, options?: EffectOptions): Con
  * function TodoList() {
  *   const [todos, { addTodo }] = useContext(TodosContext); // throws if no Provider
  *   // ...
+ *   return null;
  * }
  * ```
  *
