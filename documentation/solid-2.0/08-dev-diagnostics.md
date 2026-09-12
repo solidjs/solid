@@ -492,6 +492,27 @@ Each `DiagnosticEvent` has:
 | `nodeName`  | `string?`                     | Debug name of the signal/node involved                                                                                        |
 | `data`      | `object?`                     | Additional context                                                                                                            |
 
+### `OBSERVE.server` — the server runtime's observe surface
+
+`OBSERVE` is one object per process, shared by every package that reads it, so it is also where the **server** runtime publishes what it has to observe. `OBSERVE.server` is an empty slot on the object `@solidjs/signals` ships; `@solidjs/web`'s server entries populate it when they load (idempotently — the `.`, `server-functions`, and `frames` server bundles each carry a copy of the populating module, and whichever loads first wins). Same tiers as the rest of `OBSERVE`: present in dev and observe builds, absent in prod — the prod server artifacts fold the surface and every emit site out, so an observer that finds `OBSERVE === undefined` (or `OBSERVE.server` empty, before the web runtime has loaded) has nothing to subscribe to.
+
+The type is an augmentable interface — `ServerObserve`, declared empty in `solid-js` and filled in by `@solidjs/web` through `declare module "solid-js"` — so `OBSERVE.server.invocations` types without `@solidjs/web` having to be the place `OBSERVE` is imported from. Observers import `OBSERVE` from `solid-js`, as on the client.
+
+The first channel is **server-function invocations**:
+
+```js
+import { OBSERVE } from "solid-js";
+
+const off = OBSERVE.server.invocations.subscribe("invocation", (event, live) => {
+  // event: { id, direct, at, durationMs, outcome: "ok" | "error", deferred? }
+  // live:  { event: RequestEvent, request?, args, result? | error? }
+});
+```
+
+One record per call, delivered when the call **settles** — synchronously for a synchronous direct call, at resolution for a promise. `id` is the function's registered id; `direct` says whether this was an in-process SSR call (`true`, no `request`) or HTTP dispatch (`false`, `request` is the `Request` the handler dispatched). `outcome: "error"` carries the value **as thrown** in `live.error` — the sanitized `Error` the wire gets in production is the client's view, not the observer's. `deferred: true` marks a result the caller drives after the record (a stream or async generator): `durationMs` then measures to the handoff, not to the last chunk. Listeners are observers: a throwing listener is reported through `console.error` and the call and the other listeners are unaffected; nothing a listener does reaches the result. The record is the settled, serializable summary; the second argument holds the live handles beside it for observers that want them.
+
+This is the seam for tooling that watches the server — APM adapters, devtools — and deliberately not a policy hook: `configureServerFunctionsServer({ wrapInvocation })` remains the single, last-writer-wins wrap around execution for code that must **change** a call (guards, error mapping), and an observer that installed itself there would either displace the host's policy or be displaced by it. Subscribe here, wrap there.
+
 ## Diagnostic codes (quick reference)
 
 | Code                               | Severity  | Category       | Trigger                                                                                                                    |

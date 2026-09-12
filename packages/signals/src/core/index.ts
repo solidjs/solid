@@ -79,6 +79,7 @@ export {
   type AttributionSlot,
   type Dev,
   type Observe,
+  type ServerObserve,
   type DevHooks,
   type DiagnosticCapture,
   type DiagnosticCode,

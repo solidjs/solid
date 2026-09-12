@@ -125,8 +125,9 @@ describe("export conditions: dev/prod artifact pairing", () => {
       "signals/dist/dev.js"
     ]);
     expect(requireHops(["observe"])).toEqual([
-      // web's server has no wiring yet, so it has no observe artifact.
-      "web/dist/server.js",
+      // web's server observe artifact populates `OBSERVE.server` — it has
+      // to meet solid-js's (and so signals') observe object at the hop.
+      "web/dist/server.observe.js",
       "solid/dist/server.observe.js",
       "signals/dist/observe/index.js"
     ]);
@@ -162,25 +163,31 @@ describe("export conditions: dev/prod artifact pairing", () => {
 
   test("`observe` selects the observe artifacts where wiring exists and falls through to prod elsewhere", () => {
     // The observe tier is a build flavor only for entries that contain
-    // wiring (labels, attribution hook sites): solid-js (client and server),
-    // @solidjs/web's client, @solidjs/universal, and @solidjs/signals. Frames
-    // and server-functions have none, so under `observe` they must resolve to
-    // their PROD artifacts — never dev (dev would re-enable the checks).
+    // wiring (labels, attribution hook sites, the server observe surface):
+    // solid-js (client and server), @solidjs/web's client and every
+    // @solidjs/web SERVER entry, @solidjs/universal, and @solidjs/signals.
+    // The frames and server-functions CLIENT halves have none, so under
+    // `observe` they must resolve to their PROD artifacts — never dev (dev
+    // would re-enable the checks).
     expect(resolveAll(["browser", "observe"])).toEqual({
       "solid-js": "solid/dist/solid.observe.js",
       "@solidjs/web": "web/dist/web.observe.js",
       "@solidjs/web/frames": "web/frames/dist/client.js",
-      "@solidjs/web/frames/server": "web/frames/dist/server.js",
+      // `./frames/server` is server-only by name; the server tier applies.
+      "@solidjs/web/frames/server": "web/frames/dist/server.observe.js",
       "@solidjs/web/server-functions": "web/server-functions/dist/client.js"
     });
     expect(resolveAll(["observe"])).toEqual({
-      // solid-js's server has a server.observe.* so `OBSERVE` agrees with
-      // signals' in one process; web's server has no wiring yet.
+      // Every server entry flips together: each server bundle carries its
+      // own copy of the runtime module that populates `OBSERVE.server`, and
+      // the server-functions bundle carries the invocation observation, so a
+      // prod artifact in the mix would be a bundle that silently never
+      // reports.
       "solid-js": "solid/dist/server.observe.js",
-      "@solidjs/web": "web/dist/server.js",
-      "@solidjs/web/frames": "web/frames/dist/server.js",
-      "@solidjs/web/frames/server": "web/frames/dist/server.js",
-      "@solidjs/web/server-functions": "web/server-functions/dist/server.js"
+      "@solidjs/web": "web/dist/server.observe.js",
+      "@solidjs/web/frames": "web/frames/dist/server.observe.js",
+      "@solidjs/web/frames/server": "web/frames/dist/server.observe.js",
+      "@solidjs/web/server-functions": "web/server-functions/dist/server.observe.js"
     });
   });
 
@@ -227,16 +234,19 @@ describe("export conditions: dev/prod artifact pairing", () => {
     expect(run(["observe", "development"])).toEqual(run(["development"]));
   });
 
-  test("worker and deno conditions carry the same dev/prod pairing as node", () => {
+  test("worker and deno conditions carry the same dev/observe/prod pairing as node", () => {
     // Node always adds its own `node` condition; passing `worker`/`deno` on top
     // exercises those keys' nesting (they precede `node` in every exports map
-    // here, so they win and must carry their own nested `development`).
+    // here, so they win and must carry their own nested `development` and
+    // `observe`).
     for (const platform of ["worker", "deno"]) {
       const prod = resolveAll([platform]);
       const dev = resolveAll([platform, "development"]);
+      const observe = resolveAll([platform, "observe"]);
       for (const s of SPECIFIERS) {
         expect(prod[s], `${s} under ${platform}`).toMatch(/\/server\.js$/);
         expect(dev[s], `${s} under ${platform}+development`).toMatch(/\/server\.dev\.js$/);
+        expect(observe[s], `${s} under ${platform}+observe`).toMatch(/\/server\.observe\.js$/);
       }
     }
   });

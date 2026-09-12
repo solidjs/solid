@@ -55,6 +55,7 @@ export type {
   OriginRef,
   Dev,
   Observe,
+  ServerObserve,
   DevHooks,
   DiagnosticCapture,
   DiagnosticCode,

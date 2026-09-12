@@ -102,6 +102,17 @@ export interface RequestEvent {
 
 export type { CookieOptions } from "./cookies.js";
 
+// The server observe surface's types (`OBSERVE.server.invocations`), and
+// with them the `ServerObserve` augmentation that module declares: the
+// published types resolve to this entry under every condition, so this
+// re-export is what puts the augmentation in a consumer's program.
+export type {
+  InvocationChannel,
+  InvocationEvent,
+  InvocationListener,
+  InvocationLive
+} from "./server-observe.js";
+
 export type {
   ServerFunction,
   ServerFunctionMetadata,

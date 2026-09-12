@@ -157,6 +157,7 @@ export const DEV: Dev | undefined = IS_DEV ? _DEV : undefined;
 export type {
   Dev,
   Observe,
+  ServerObserve,
   AttributionHooks,
   AttributionSlot,
   InteractionRef,
