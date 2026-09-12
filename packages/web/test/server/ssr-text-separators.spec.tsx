@@ -4,6 +4,7 @@
 import { describe, expect, test } from "vitest";
 import { renderToString, ssrElement, Dynamic } from "@solidjs/web";
 import { createMemo, createComponent } from "solid-js";
+import type { JSX } from "@solidjs/web";
 
 const SEP = "<!--!$-->";
 // Keys out, and any whitespace left behind in the opening tag (#3382).
@@ -17,7 +18,10 @@ const count = (html: string) => html.split(SEP).length - 1;
 // item RESOLVES to.
 describe("SSR text separators (#3383)", () => {
   test("adjacent memos that yield elements get no separator", () => {
-    const Item = (p: { i: number }) => createMemo(() => ssrElement("li", {}, () => p.i, true));
+    // Memos are valid children at runtime (function children); the cast is
+    // for the Component type, which only admits JSX.Element.
+    const Item = (p: { i: number }) =>
+      createMemo(() => ssrElement("li", {}, () => p.i, true)) as unknown as JSX.Element;
     const html = renderToString(() => <ul>{[1, 2, 3].map(i => createComponent(Item, { i }))}</ul>);
     expect(strip(html)).toBe("<ul><li>1</li><li>2</li><li>3</li></ul>");
   });
@@ -64,7 +68,7 @@ describe("SSR text separators (#3383)", () => {
   });
 
   test("a large list of element-returning components emits no separators", () => {
-    const Row = (p: { i: number }) => createMemo(() => <li>{p.i}</li>);
+    const Row = (p: { i: number }) => createMemo(() => <li>{p.i}</li>) as unknown as JSX.Element;
     const html = renderToString(() => (
       <ul>{Array.from({ length: 200 }, (_, i) => createComponent(Row, { i }))}</ul>
     ));

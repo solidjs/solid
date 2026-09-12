@@ -34,7 +34,15 @@ import {
   Errored,
   Repeat
 } from "solid-js";
-import { Portal, Dynamic, httpStatus, httpHeader, clientOnly, isServer } from "@solidjs/web";
+import {
+  Portal,
+  Dynamic,
+  httpStatus,
+  httpHeader,
+  clientOnly,
+  isServer,
+  type JSX
+} from "@solidjs/web";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -1592,12 +1600,14 @@ function PropConditionForwarded() {
 // `<li>`s themselves must survive: the lists are `.map`, not `For`.
 let setSepSuffix!: (v: string) => void;
 function SepRow(props: { i: number; suffix: () => string }) {
+  // A memo is a valid child at runtime (resolved as a function child); the
+  // Component type only admits JSX.Element, hence the cast.
   return createMemo(() => (
     <li>
       {props.i}
       {props.suffix()}
     </li>
-  ));
+  )) as unknown as JSX.Element;
 }
 function MemoElementList() {
   // Non-empty initially: an empty text hole hydrates to a client-created
