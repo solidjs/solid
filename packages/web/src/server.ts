@@ -3577,7 +3577,10 @@ export function ssrElement(tag, props, children, needsId) {
   if (props == null) props = {};
   const skipChildren = VOID_ELEMENTS.test(tag);
   const keys = Object.keys(props);
-  let result = `<${tag}${hk} `;
+  // Each emitted attribute carries its own leading space (the hydration key
+  // already does), so skipped props leave no stray whitespace behind:
+  // `<li _hk=0>` rather than `<li _hk=0 >` (#3382).
+  let result = `<${tag}${hk}`;
   for (let i = 0; i < keys.length; i++) {
     const prop = keys[i];
     // Every branch reads `props[prop]` itself, and only when it will use it.
@@ -3606,11 +3609,10 @@ export function ssrElement(tag, props, children, needsId) {
       continue;
     }
     const value = props[prop];
-    if (prop === "style") {
-      result += `style="${ssrStyle(value)}"`;
-    } else if (prop === "class") {
-      result += `class="${ssrClassName(value)}"`;
-    } else if (
+    // Nullish is "not set" for every attribute, `style`/`class` included —
+    // the client removes the attribute for `undefined`, and emitting
+    // `style=""` here made the server disagree with it (#3382).
+    if (
       value == undefined ||
       prop === "ref" ||
       prop.slice(0, 2) === "on" ||
@@ -3632,16 +3634,21 @@ export function ssrElement(tag, props, children, needsId) {
         );
       }
       continue;
+    } else if (prop === "style") {
+      result += ` style="${ssrStyle(value)}"`;
+    } else if (prop === "class") {
+      result += ` class="${ssrClassName(value)}"`;
     } else if (typeof value === "boolean") {
       if (!value) continue;
-      result += escape(prop);
+      result += ` ${escape(prop)}`;
     } else {
-      result += value === "" ? escape(prop) : `${escape(prop)}="${escape(value, true)}"`;
+      result += value === "" ? ` ${escape(prop)}` : ` ${escape(prop)}="${escape(value, true)}"`;
     }
-    if (i !== keys.length - 1) result += " ";
   }
 
-  if (skipChildren) return { t: result + "/>" };
+  // The hydration key is unquoted, so a void element needs the space before
+  // `/>` or the slash becomes part of the key's value.
+  if (skipChildren) return { t: result + " />" };
   if (typeof children === "function") children = children();
   return ssr([result + ">", `</${tag}>`], resolveSSRNode(children, undefined, true));
 }

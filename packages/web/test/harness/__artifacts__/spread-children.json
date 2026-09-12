@@ -1,5 +1,5 @@
 {
   "name": "spread-children",
-  "shell": "<div _hk=1 class=\"sp\" ><em _hk=0>spread</em></div>",
+  "shell": "<div _hk=1 class=\"sp\"><em _hk=0>spread</em></div>",
   "rest": ""
 }
