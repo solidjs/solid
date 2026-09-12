@@ -364,7 +364,7 @@ function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
     setPendingCheckActive(false);
     const prevContext = context;
     setContextInternal(null); // Detach from owner so it isn't disposed with effects
-    lvc = optimisticComputed(() => read(el));
+    lvc = optimisticComputed(() => read(el), { ownedWrite: true });
     ext(el)._latestValueComputed = lvc;
     el._config |= CONFIG_HAS_COMPANIONS;
     markFirewallChildCompanions(el);
