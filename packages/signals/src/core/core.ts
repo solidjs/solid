@@ -1353,6 +1353,24 @@ export function installAuthoritativeRead(): void {
  * already use). An effect the transaction itself computed re-derives at its
  * commit on its own (parked run, or the contested re-derive, #3322) and is
  * not recorded — replaying it too would publish the frame twice.
+ *
+ * Flight twin (the pending-branch carve-out): the reader is served the
+ * node's committed, pre-flight value and now observes that flight — A15:
+ * async work observed by a reader settles as one unit with the writes that
+ * asked it — so it joins the transaction's reporters for the node. The
+ * reporter the transaction recorded when the flight started may be gone (a
+ * keyed remount disposed it, #3374); a completion check that found no live
+ * reporter committed the writes ahead of the answer, tearing the new
+ * reader's frame (`Count: 1` beside `Details: 0`). Joins only an entry the
+ * transaction already holds — a staged signal or a settled node has none;
+ * INV-3: entries open from queue notification alone, so a boundary-consumed
+ * flight stays consumed — and dies with the reader like every reporter
+ * (reporterBlocksSource: the read linked it as a dep). The node's own entry
+ * is the only one that can matter: a chain's intermediate memo is re-pulled
+ * by the read (updateIfNecessary's retry) and enters the transaction, so the
+ * reader holds through the normal path; a node with its own flight that is
+ * also pending on an upstream re-ask blocks through that flight until it
+ * lands, and its landing re-runs the reader into the normal path.
  */
 function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boolean {
   const t = el._transition;
@@ -1360,6 +1378,7 @@ function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boole
   const txn = currentTransition(t);
   const vt: Transition | null | undefined = (c as any)._valueTransition;
   if (vt == null || currentTransition(vt) !== txn) txn._gatedSubs.add(c);
+  txn._asyncReporters.get(el as Computed<any>)?.add(c);
   return true;
 }
 

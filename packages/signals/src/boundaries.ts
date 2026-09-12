@@ -329,6 +329,15 @@ export class CollectionQueue extends Queue {
       if (source) {
         const wasEmpty = this._sources.size === 0;
         this._sources.add(source);
+        // A collecting boundary waits on everything the effect is pending on,
+        // not only the source this notification carries. Status propagation
+        // dedupes on the effect's `_pendingSources`: a source it already
+        // carries (a flight that started before an `on` reset cleared the
+        // set) is never re-reported, and that source's later re-flight
+        // stays invisible — the boundary revealed when its one collected
+        // source settled while the effect was still pending (#3375).
+        if (this._collectionType & STATUS_PENDING)
+          node._x?._pendingSources?.forEach(s => this._sources.add(s));
         if (wasEmpty) {
           setSignal(this._disabled, true);
           if (__OBSERVE__ && attrHooks !== null && this._collectionType & STATUS_PENDING)

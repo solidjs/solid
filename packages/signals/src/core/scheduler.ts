@@ -1417,10 +1417,15 @@ function transitionComplete(transition: Transition): boolean {
       reporters.delete(reporter);
     }
     if (!hasLive) transition._asyncReporters.delete(source);
-    else if (
-      source._statusFlags & STATUS_PENDING &&
-      (source._x?._error as NotReadyError)?.source === source
-    ) {
+    // The source blocks while its OWN flight is up — the self entry in its
+    // pending sources (added by notifyStatus's source path, with status;
+    // retired by the landing and the supersede sweep, so it implies
+    // STATUS_PENDING). `_error.source` is not that test: propagation from an
+    // input that went pending later overwrites it with the input (#3375 — a
+    // boundary-consumed load re-asked under a held derivation), and the
+    // still-flying source read as settled, committing the writes it was
+    // asked with ahead of its answer.
+    else if (source._x?._pendingSources?.has(source)) {
       done = false;
       break;
     }
