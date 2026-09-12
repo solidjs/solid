@@ -422,7 +422,10 @@ module.exports = [
     // 15340 (+73 — the core seams, see the core floor note).
     // #3372/#3377 (2026-09-12): 15.45 -> 15.50 KB, measured at 15485 B against 15427
     // (+58); see the core floor note.
-    limit: "15.50 KB",
+    // Companion lane parented (#3379, 2026-09-12): 15.50 -> 15.55 KB, measured
+    // at 15522 B against 15485 (+37 brotli on a -4 B minified reorder — the
+    // statement moved across a block boundary; noise, not weight).
+    limit: "15.55 KB",
     modifyEsbuildConfig
   },
   {

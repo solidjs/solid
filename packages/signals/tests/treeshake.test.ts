@@ -250,6 +250,8 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // (`wokenTransitions`, deduped), and a lane recompute (OPT-dirty,
     // override or not) drops the transaction hold it supersedes. +58 B
     // (22,915 → 22,973).
+    // Companion lane parented (#3379): `notifyStatus` assigns the node's lane
+    // before poking its companions — a reorder, -4 B (22,973 → 22,969).
     expect(minifiedBytes).toBeLessThan(23_050);
   });
 
