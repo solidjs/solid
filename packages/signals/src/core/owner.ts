@@ -6,7 +6,8 @@ import {
   REACTIVE_DISPOSED,
   REACTIVE_IN_HEAP,
   REACTIVE_IN_HEAP_HEIGHT,
-  REACTIVE_ZOMBIE
+  REACTIVE_ZOMBIE,
+  STATUS_PENDING
 } from "./constants.js";
 import {
   context,
@@ -20,7 +21,14 @@ import {
 import { clearSignals, DEV, emitDiagnostic } from "./dev.js";
 import { clearDeps, unobserved } from "./graph.js";
 import { deleteFromHeap, insertIntoHeap, insertIntoHeapHeight, queueFor } from "./heap.js";
-import { dirtyQueue, GlobalQueue, globalQueue, zombieQueue } from "./scheduler.js";
+import {
+  dirtyQueue,
+  GlobalQueue,
+  globalQueue,
+  schedule,
+  wokenTransitions,
+  zombieQueue
+} from "./scheduler.js";
 import type { Computed, Disposable, Link, Owner, Root } from "./types.js";
 
 const PENDING_OWNER = {} as Owner; // Dummy owner to trigger store's read() path
@@ -71,6 +79,12 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     // false, and notifies subscribers still watching the companion.
     const n = node as Computed<unknown>;
     if (n._x?._pendingSignal || n._x?._latestValueComputed) GlobalQueue._snapCompanions!(n);
+    // A pending reader parked in a transaction may be the only thing holding
+    // it (#3372): its death is a completion event the transaction must be
+    // re-judged for, and nothing else re-enters a parked transaction.
+    const t = n._transition;
+    if (t && n._statusFlags & STATUS_PENDING && !wokenTransitions.includes(t))
+      (wokenTransitions.push(t), schedule());
   }
   if (self && __DEV__) clearSignals(node);
   if (self && (node as any)._fn && (node as Computed<unknown>)._x !== null)
