@@ -63,7 +63,7 @@ import {
   setProjectionWriteActive,
   setStoreCommitHook
 } from "../../core/scheduler.js";
-import type { Signal } from "../../core/types.js";
+import type { Owner, Signal } from "../../core/types.js";
 import { pendingCheckActive, strictRead } from "../../core/core.js";
 import {
   DEV,
@@ -310,7 +310,10 @@ export function getNode(
     // "signal". Gated on the engine being installed — node creation is
     // the hottest store path, and the disabled cost must stay one null
     // check (nodes created before enable() stay generically named).
-    if (__OBSERVE__ && attrHooks !== null) (created as any)._name = "store." + String(key);
+    if (__OBSERVE__ && attrHooks !== null) {
+      (created as any)._name = "store." + String(key);
+      stampNodeOwner(created, target);
+    }
     // Optimistic families: arm the override slot — setSignal routes armed
     // nodes through the core engine (lanes, ownership, reverts all native).
     if (target.fam?.opt) {
@@ -364,6 +367,24 @@ function sameLogicalSlot(target: StoreNextTarget, a: any, b: any): boolean {
   return at !== undefined && at === lookupTarget(b, target.fam);
 }
 
+/**
+ * Observe-tier: the owner each store root was created under. The proxy
+ * cannot carry `_owner` itself (`registerGraph`'s stamp is swallowed by the
+ * set trap outside a draft), so the root target keys it here and the store's
+ * nodes copy it into `_owner` as they are created — an `OBSERVE.exclude`d
+ * panel's store nodes are then excluded subjects, exactly like its signals.
+ * Gated with the naming on the engine being installed: node creation is the
+ * hottest store path, and the disabled cost stays one null check.
+ */
+const storeOwners: WeakMap<StoreNextTarget, Owner | null> | null = __OBSERVE__
+  ? new WeakMap()
+  : null;
+function stampNodeOwner(created: Signal<any>, target: StoreNextTarget): void {
+  let root = target;
+  while (root.u !== null) root = root.u;
+  (created as any)._owner = storeOwners!.get(root) ?? null;
+}
+
 export function getHasNode(
   target: StoreNextTarget,
   key: PropertyKey,
@@ -387,6 +408,7 @@ export function getHasNode(
       (target.fam?.node as any) ?? undefined
     ));
     created._config |= CONFIG_OWNED_WRITE;
+    if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(created, target);
     if (target.fam?.opt) {
       ext(created)._overrideValue = NOT_PENDING;
       created._config |= CONFIG_OPTIMISTIC;
@@ -415,6 +437,7 @@ export function getKeySetNode(target: StoreNextTarget): Signal<number> {
       (target.fam?.node as any) ?? undefined
     ));
     created._config |= CONFIG_OWNED_WRITE;
+    if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(created, target);
     if (target.fam?.opt) {
       ext(created)._overrideValue = NOT_PENDING;
       created._config |= CONFIG_OPTIMISTIC;
@@ -442,6 +465,7 @@ function getDeepNode(target: StoreNextTarget): Signal<number> {
       (target.fam?.node as any) ?? undefined
     ));
     created._config |= CONFIG_OWNED_WRITE;
+    if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(created, target);
     if (target.fam?.opt) {
       ext(created)._overrideValue = NOT_PENDING;
       created._config |= CONFIG_OPTIMISTIC;
@@ -2265,7 +2289,13 @@ export function createStoreNext<T extends Record<PropertyKey, any>>(
     ((proxy as any)[$TARGET] as StoreNextTarget).s = true;
     markRawIngest(initialValue);
   }
-  if (__OBSERVE__) registerGraph(proxy, getOwner());
+  if (__OBSERVE__) {
+    const owner = getOwner();
+    // Dev-tier graph registration (owner signal lists, onGraph); the
+    // `_owner` write itself never reaches the proxy, see storeOwners.
+    registerGraph(proxy, owner);
+    storeOwners!.set((proxy as any)[$TARGET] as StoreNextTarget, owner);
+  }
   const setter: SetStoreNextFunction<T> = fn => storeSetterNext(proxy, fn);
   return [proxy, setter];
 }
