@@ -59,6 +59,18 @@ function applyChunk(container: HTMLDivElement, chunk: string, first: boolean) {
   for (const s of scripts) (0, eval)(s);
 }
 
+function allNodes(root: Node): Node[] {
+  const out: Node[] = [];
+  const walk = (n: Node) => {
+    for (let c = n.firstChild; c; c = c.nextSibling) {
+      out.push(c);
+      walk(c);
+    }
+  };
+  walk(root);
+  return out;
+}
+
 async function settle() {
   await sleep(50);
   flush();
@@ -83,6 +95,7 @@ async function runScenario(scenario: Scenario, mode: "loaded" | "streamed") {
   try {
     applyChunk(container, shell, true);
     if (mode === "loaded" && rest) applyChunk(container, rest, false);
+    const serverNodes = scenario.adoptAll ? new Set(allNodes(container)) : null;
 
     dispose = hydrate(() => <scenario.App />, container);
     flush();
@@ -101,6 +114,21 @@ async function runScenario(scenario: Scenario, mode: "loaded" | "streamed") {
       (mode === "streamed" && scenario.expectedTextStreamed) || scenario.expectedText
     );
 
+    // Every node in the container must be one the server rendered — after
+    // hydration AND after the update pass. A text item whose claim failed
+    // (the server merged two texts into one node) is a phantom until the
+    // first update, which then reconciles by creating nodes; textContent
+    // reads correctly at both points and can't tell.
+    const expectAllAdopted = (when: string) => {
+      if (!serverNodes) return;
+      for (const node of allNodes(container)) {
+        const what =
+          node.nodeType === 3 ? `text "${node.nodeValue}"` : `<${(node as Element).localName}>`;
+        expect(serverNodes.has(node), `client-created ${what} ${when}`).toBe(true);
+      }
+    };
+    expectAllAdopted("after hydration");
+
     if (scenario.update) {
       // Elements outside the updated hole must keep identity across the
       // update — recreation means insert's bookkeeping drifted (#2801 bug 1).
@@ -118,6 +146,7 @@ async function runScenario(scenario: Scenario, mode: "loaded" | "streamed") {
           expect(after[i], `stable node <${stable[i].localName}> was replaced`).toBe(stable[i]);
         }
       }
+      expectAllAdopted("after update");
     }
 
     expect(warn).not.toHaveBeenCalled();

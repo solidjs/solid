@@ -174,7 +174,9 @@ describe("SSR escaping of values a function yields", () => {
         </div>
       ))
     );
-    expect(html).toBe(`<div>${ESCAPED}<b>${ESCAPED}</b>7${ESCAPED}</div>`);
+    // `7` and the last string are adjacent text once the null is dropped, so
+    // they carry a text separator (#3383); the escaping is what's under test.
+    expect(html).toBe(`<div>${ESCAPED}<b>${ESCAPED}</b>7<!--!$-->${ESCAPED}</div>`);
   });
 
   test("top-level render of a bare string escapes", () => {
