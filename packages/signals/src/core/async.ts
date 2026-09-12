@@ -362,6 +362,13 @@ export function handleAsync<T>(
   // fired _flightTeardown. A future non-recompute registration path must
   // release it here before overwriting _inFlight.
   ext(el)._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
+  // The run that asked this flight read every input without throwing: an
+  // input still in flight was masked for it (an active override, A17), so
+  // pending state those inputs propagated onto the node earlier does not
+  // describe this answer. Drop it — the flight is the node's pending now.
+  // The landing retires only the flight's own entry (landStatus, #3373), so
+  // an entry that survived here would hold the node past its own answer.
+  el._x!._pendingSources = undefined;
   // Provenance of the question this flight asks (#3331): the action whose
   // window is registering it, or the flight whose landing is. Its landings
   // propagate under it (asyncWrite) so an override downstream can tell a
@@ -471,7 +478,7 @@ export function handleAsync<T>(
     // A truthy capture implies `_x` exists, so the restore writes it directly.
     const wasReask = el._x?._reask;
     trimStaleDeps(el);
-    clearStatus(el);
+    landStatus(el);
     if (wasReask) el._x!._reask = true;
     const lane = resolveLane(el as any);
     if (lane) lane._pendingAsync.delete(el);
@@ -486,7 +493,7 @@ export function handleAsync<T>(
         handleError(error);
         return;
       }
-      if (wasUninitialized) clearStatus(el, true);
+      if (wasUninitialized) landStatus(el, true);
     } else if (el._x?._overrideValue !== undefined) {
       // Optimistic node — resting OR covered by an active override — holds
       // through the shared pending-node path, exactly like a plain async memo,
@@ -852,6 +859,42 @@ export function clearStatus(el: Computed<any>, clearUninitialized: boolean = fal
     GlobalQueue._updateChildCompanions(el);
   const notify = statusNotifierOf(el);
   if (notify) notify.call(el);
+}
+
+/**
+ * Status clear for a flight LANDING (asyncWrite). A landing answers the
+ * node's OWN question — it retires the node's self entry, not the pending
+ * state its sources propagated onto it. An input re-asked while this flight
+ * was up (a second write to the signal feeding `a` while `b`'s first flight
+ * is in the air, #3373) marks `b` pending on `a` by propagation, with `b`'s
+ * flight still current: nothing superseded it (the re-ask only changed `a`'s
+ * status, not yet its value), so the landing arrives, and a full clear made
+ * `b` answer with the stale value — the transaction's reporter for `a` found
+ * nothing pending below it and committed the newer signal beside the older
+ * derived value (`2 / 1`); `isPending(b)` read false for the gap (#3376).
+ * With another source still pending the node stays derivatively pending on
+ * it; the landed value is written below (the staged answer is still the
+ * answer for the inputs it was asked with) and the input's own settle
+ * releases it, or its value change recomputes the node into a fresh flight.
+ * `_blocked` clears like a full clear: a landing that passed the `_inFlight`
+ * guard was not superseded by a re-run (recompute nulls `_inFlight` first),
+ * so the flag is the flight's own registration throw — the input settling
+ * unchanged must not re-run the node (an extra flight for the same inputs).
+ * The node is already STATUS_PENDING in that branch (only notifyStatus fills
+ * the set, with status; a loading-window park cannot coexist with a live
+ * flight since registration drops the set), so the flags only change when
+ * the first landing retires UNINITIALIZED. `_error` must move off self: a
+ * reader thrown NotReady(self) would park on a retired entry. Companions
+ * keep their verdict (pending before and after; the write re-syncs them).
+ */
+function landStatus(el: Computed<any>, clearUninitialized: boolean = false): void {
+  const sources = el._x?._pendingSources;
+  // (The full clear below drops the set whether or not self was retired first.)
+  if (sources && (sources.delete(el), sources.size)) {
+    el._x!._blocked = false;
+    if (clearUninitialized) el._statusFlags = STATUS_PENDING;
+    setPendingError(el, sources.values().next().value);
+  } else clearStatus(el, clearUninitialized);
 }
 
 export function notifyStatus(

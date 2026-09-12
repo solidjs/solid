@@ -381,6 +381,27 @@ export function schedule() {
 }
 
 /**
+ * Parked transactions whose reporter set changed without a write. A
+ * transaction completes when nothing live reports a flight it waits on, but
+ * the flush only judges the ACTIVE transaction: a parked one is re-entered by
+ * a stamped node's landing or an action's resume. A reporter that stops
+ * counting for another reason — its loading boundary flipped to the fallback
+ * (#3375), or it was disposed by ambient work (#3372) — is neither: the
+ * pruning in `reporterBlocksSource` would drop it at the next check, but no
+ * check comes, and the writes held with it stay staged. Such sites record the
+ * transaction here (deduped: one idle pass per transaction, however many
+ * reporters changed); the flush re-enters it on an otherwise idle pass, so
+ * the re-evaluation adopts no unrelated ambient work.
+ */
+export const wokenTransitions: Transition[] = [];
+/** Wake every parked transaction — for a site that knows a reporter stopped
+ * counting but not whose (a boundary reset). */
+export function wakeParked(): void {
+  for (const t of transitions) wokenTransitions.includes(t) || wokenTransitions.push(t);
+  schedule();
+}
+
+/**
  * Permanently halts the reactive system. Called when a user error escapes
  * every boundary — app state is undefined at that point, so scheduling stops
  * entirely rather than limping along with a half-applied update.
@@ -440,6 +461,11 @@ export interface IQueue {
   stashQueues(stub: QueueStub): void;
   restoreQueues(stub: QueueStub): void;
   _parent: IQueue | null;
+  /** Loading/error boundary queues (boundaries.ts): the status dimension the
+   * queue consumes, and whether it currently shows content (initialized) or
+   * its fallback (collecting). Read by `reporterBlocksSource`. */
+  _collectionType?: number;
+  _initialized?: boolean;
 }
 
 // Identifies one child-traversal pass in `Queue.run` so a rescan after the
@@ -663,6 +689,7 @@ export class GlobalQueue extends Queue {
       this._queues[0].length === 0 &&
       this._queues[1].length === 0 &&
       this._children.length === 0 &&
+      !wokenTransitions.length &&
       canUseSimpleSyncFlush(this)
     ) {
       this._running = true;
@@ -799,6 +826,17 @@ export class GlobalQueue extends Queue {
       }
       if (__DEV__) DEV.hooks.onUpdate?.();
     } finally {
+      // Re-enter a woken transaction (see wokenTransitions) only from an
+      // idle pass: entering adopts the ambient batch, and staged or dirty
+      // ambient work would be held behind flights it never read. `scheduled`
+      // is that test here — after the park exit as well as the normal one:
+      // it was recomputed from the heap this pass, every write since re-armed
+      // it, and optimistic ambient nodes reverted with the finalize — so a
+      // wake in a pass with work simply falls to the next. Entering re-arms
+      // it itself; a dead (completed) wake is a bare return in
+      // initTransition, and the loop moves on to the next.
+      while (!scheduled && !activeTransition && wokenTransitions.length)
+        this.initTransition(wokenTransitions.pop());
       this._running = false;
     }
   }
@@ -1384,6 +1422,14 @@ function runQueue(queue: QueueCallback[], type: number): void {
 
 function reporterBlocksSource(reporter: Computed<any>, source: Computed<any>): boolean {
   if (reporter._flags & (REACTIVE_ZOMBIE | REACTIVE_DISPOSED)) return false;
+  // Fallback-caught async holds nothing. A collecting loading boundary
+  // consumes the notification, so a reader under a fallback never registers —
+  // but a reader registered while its boundary showed content stays
+  // registered when the boundary's `on` later changes and it flips to the
+  // fallback. The reader is behind the fallback now; if nothing outside the
+  // boundary consumes the flight, the hold is over (ruled 2026-09-12, #3375).
+  for (let q: IQueue | null = reporter._queue; q; q = q._parent)
+    if (q._collectionType! & STATUS_PENDING && !q._initialized) return false;
   if (reporter._x?._pendingSources?.has(source)) return true;
   for (let dep = reporter._deps; dep; dep = dep._nextDep) {
     let current = dep._dep as Signal<any> | Computed<any> | undefined;
@@ -1417,10 +1463,15 @@ function transitionComplete(transition: Transition): boolean {
       reporters.delete(reporter);
     }
     if (!hasLive) transition._asyncReporters.delete(source);
-    else if (
-      source._statusFlags & STATUS_PENDING &&
-      (source._x?._error as NotReadyError)?.source === source
-    ) {
+    // The source blocks while its OWN flight is up — the self entry in its
+    // pending sources (added by notifyStatus's source path, with status;
+    // retired by the landing and the supersede sweep, so it implies
+    // STATUS_PENDING). `_error.source` is not that test: propagation from an
+    // input that went pending later overwrites it with the input (#3375 — a
+    // boundary-consumed load re-asked under a held derivation), and the
+    // still-flying source read as settled, committing the writes it was
+    // asked with ahead of its answer.
+    else if (source._x?._pendingSources?.has(source)) {
       done = false;
       break;
     }

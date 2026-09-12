@@ -192,7 +192,20 @@ module.exports = [
     // `source`; retryReaches is core-retained as the alternate-path
     // guard). +191 B minified in the in-package floor (22,457 -> 22,648);
     // measured here at 8428 B against the 8.40 KB cap.
-    limit: "8.45 KB",
+    // Second write while an async chain is in flight (#3373/#3376, #3375,
+    // #3374; 2026-09-12): 8.45 -> 8.50 KB, measured at 8471 B against
+    // `next`'s 8428 (+43) — a landing retires only its own pending entry
+    // (`landStatus`), a fresh flight drops inherited entries, the
+    // transaction tests a source's own flight by its self entry, and the
+    // stale-reader carve-out joins the reporters of a node the transaction
+    // waits on. +132 B minified in the in-package floor (22,648 -> 22,780).
+    // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 8.50 -> 8.55 KB,
+    // measured at 8507 B against 8471 (+36) — a reporter behind a collecting
+    // loading boundary no longer blocks its transaction, and parked
+    // transactions can be woken for re-judgement (`wokenTransitions`, entered
+    // from the finally of an idle pass). +135 B minified in the in-package
+    // floor (22,780 -> 22,915).
+    limit: "8.55 KB",
     modifyEsbuildConfig
   },
   {
@@ -400,7 +413,10 @@ module.exports = [
     // `notifyOptimisticWrites` judging against the view readers see, and
     // the authoritative landing on an override-covered node dispatching to
     // the engine.
-    limit: "15.35 KB",
+    // Second write while an async chain is in flight (#3373–#3376,
+    // 2026-09-12): 15.35 -> 15.45 KB, measured at 15413 B against `next`'s
+    // 15340 (+73 — the core seams, see the core floor note).
+    limit: "15.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -502,7 +518,12 @@ module.exports = [
     // `source`; retryReaches is core-retained as the alternate-path
     // guard). +191 B minified in the in-package floor (22,457 -> 22,648);
     // measured here at 10713 B against the 10.70 KB cap.
-    limit: "10.75 KB",
+    // Second write while an async chain is in flight (#3373–#3376,
+    // 2026-09-12): 10.75 -> 10.82 KB, measured at 10784 B against `next`'s
+    // 10713 (+71 — the core seams, see the core floor note).
+    // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 10.82 -> 10.85 KB,
+    // measured at 10820 B against 10784 (+36); see the core floor note.
+    limit: "10.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -576,7 +597,12 @@ module.exports = [
     // at 11121 B against `next`'s 10924 (+197 B) — the core seams (see the
     // core floor note)
     // and, where the app retains lanes, the engine they dispatch to.
-    limit: "11.15 KB",
+    // Second write while an async chain is in flight (#3373–#3376,
+    // 2026-09-12): 11.15 -> 11.25 KB, measured at 11212 B against `next`'s
+    // 11145 (+67 — the core seams, see the core floor note).
+    // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 11.25 -> 11.30 KB,
+    // measured at 11243 B against 11212 (+31); see the core floor note.
+    limit: "11.30 KB",
     modifyEsbuildConfig
   },
   {
@@ -671,7 +697,13 @@ module.exports = [
     // `source`; retryReaches is core-retained as the alternate-path
     // guard). +191 B minified in the in-package floor (22,457 -> 22,648);
     // measured here at 18622 B against the 18.56 KB cap.
-    limit: "18.65 KB",
+    // Second write while an async chain is in flight (#3373–#3376,
+    // 2026-09-12): 18.65 -> 18.70 KB, measured at 18678 B against `next`'s
+    // 18622 (+56 — the core seams plus the collecting boundary recording
+    // every source its effect is pending on, `CollectionQueue.notify`).
+    // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 18.70 -> 18.75 KB,
+    // measured at 18721 B against 18678 (+43); see the core floor note.
+    limit: "18.75 KB",
     modifyEsbuildConfig
   },
   {
@@ -807,7 +839,12 @@ module.exports = [
     // `source`; retryReaches is core-retained as the alternate-path
     // guard). +191 B minified in the in-package floor (22,457 -> 22,648);
     // measured here at 28268 B against the 28.24 KB cap.
-    limit: "28.30 KB",
+    // Second write while an async chain is in flight (#3373–#3376,
+    // 2026-09-12): 28.30 -> 28.35 KB, measured at 28300 B against `next`'s
+    // 28268 (+32 — the core seams and the collecting boundary).
+    // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 28.35 -> 28.40 KB,
+    // measured at 28380 B against 28300 (+80); see the core floor note.
+    limit: "28.40 KB",
     modifyEsbuildConfig
   },
   {
@@ -873,7 +910,12 @@ module.exports = [
     // `source`; retryReaches is core-retained as the alternate-path
     // guard). +191 B minified in the in-package floor (22,457 -> 22,648);
     // measured here at 13975 B against the 13.95 KB cap.
-    limit: "14.00 KB",
+    // Second write while an async chain is in flight (#3373–#3376,
+    // 2026-09-12): 14.00 -> 14.05 KB, measured at 14029 B against `next`'s
+    // 13975 (+54 — the core seams and the collecting boundary).
+    // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 14.05 -> 14.15 KB,
+    // measured at 14098 B against 14029 (+69); see the core floor note.
+    limit: "14.15 KB",
     modifyEsbuildConfig
   },
   {
@@ -935,7 +977,12 @@ module.exports = [
     // `source`; retryReaches is core-retained as the alternate-path
     // guard). +191 B minified in the in-package floor (22,457 -> 22,648);
     // measured here at 15371 B against the 15.30 KB cap.
-    limit: "15.40 KB",
+    // Second write while an async chain is in flight (#3373–#3376,
+    // 2026-09-12): 15.40 -> 15.45 KB, measured at 15410 B against `next`'s
+    // 15371 (+39 — the core seams and the collecting boundary).
+    // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 15.45 -> 15.50 KB,
+    // measured at 15465 B against 15410 (+55); see the core floor note.
+    limit: "15.50 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -1017,7 +1064,12 @@ module.exports = [
     // `source`; retryReaches is core-retained as the alternate-path
     // guard). +191 B minified in the in-package floor (22,457 -> 22,648);
     // measured here at 26888 B against the 26.85 KB cap.
-    limit: "26.92 KB",
+    // Second write while an async chain is in flight (#3373–#3376,
+    // 2026-09-12): 26.92 -> 26.95 KB, measured at 26930 B against `next`'s
+    // 26888 (+42 — the core seams and the collecting boundary).
+    // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 26.95 -> 27.05 KB,
+    // measured at 26978 B against 26930 (+48); see the core floor note.
+    limit: "27.05 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
