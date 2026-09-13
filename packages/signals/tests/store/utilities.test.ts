@@ -7,6 +7,7 @@ import {
   flush,
   getOwner,
   merge,
+  mergeSources,
   omit,
   reconcile,
   snapshot,
@@ -176,6 +177,69 @@ describe("merge", () => {
     const props = merge({ a: 1 }, { b });
     b.value = 2;
     expect(props.b.value).toBe(2);
+  });
+  // #3384: the plain-object result is a real object callers may copy or
+  // mutate. A later merge must read what is on the object, not tunnel back
+  // to the sources it was built from.
+  it("re-merging a descriptor copy of a merged object reads the copy (#3384)", () => {
+    const props = merge({ href: "/x", title: "t" }, { $active: true, children: "hi" });
+    const out: Record<PropertyKey, unknown> = {};
+    for (const key of Reflect.ownKeys(props)) {
+      if (key === "$active") continue;
+      Object.defineProperty(out, key, Reflect.getOwnPropertyDescriptor(props, key)!);
+    }
+    Object.defineProperty(out, "class", {
+      get: () => "yak-abc",
+      enumerable: true,
+      configurable: true
+    });
+    const final = merge(out, { rel: "noopener" }) as Record<string, unknown>;
+    expect(final.class).toBe("yak-abc");
+    expect(final.$active).toBeUndefined();
+    expect(final.href).toBe("/x");
+    expect(final.children).toBe("hi");
+    expect(Object.keys(final).sort()).toEqual(["children", "class", "href", "rel", "title"]);
+  });
+  it("re-merging a spread copy of a merged object reads the copy (#3384)", () => {
+    const props = merge({ a: 1, b: 2 }, { c: 3 });
+    const copy = { ...props, b: 20, d: 4 } as Record<string, unknown>;
+    delete copy.a;
+    const final = merge(copy, { e: 5 }) as Record<string, unknown>;
+    expect(final.a).toBeUndefined();
+    expect(final.b).toBe(20);
+    expect(final.d).toBe(4);
+    expect(Object.getOwnPropertySymbols(final)).toEqual([]);
+  });
+  it("re-merging a merged object mutated afterwards reads the mutations (#3384)", () => {
+    // @solidjs/html assigns props and a children getter onto merge()'s result
+    // after spreading; a component's own merge(defaults, props) must see them.
+    const props = merge({ type: "button", label: "a" }, { disabled: false }) as Record<
+      string,
+      unknown
+    >;
+    props.label = "b";
+    props.extra = 1;
+    Object.defineProperty(props, "children", { get: () => "kids", configurable: true });
+    const final = merge({ type: "submit", size: "m" }, props) as Record<string, unknown>;
+    expect(final.type).toBe("button");
+    expect(final.label).toBe("b");
+    expect(final.extra).toBe(1);
+    expect(final.children).toBe("kids");
+    expect(final.size).toBe("m");
+  });
+  it("still flattens merge proxies (writes are no-ops, so the sources are the truth)", () => {
+    const [store] = createStore({ a: 1 });
+    const b = { b: 2 };
+    const c = { c: 3 };
+    const inner = merge(b, store);
+    const outer = merge(inner, c);
+    expect(mergeSources(outer)).toEqual([b, store, c]);
+    expect(outer.a).toBe(1);
+    expect(outer.b).toBe(2);
+    expect(outer.c).toBe(3);
+    expect(Object.keys(outer).sort()).toEqual(["a", "b", "c"]);
+    // and a plain-object result is not a source list
+    expect(mergeSources(merge(b, c))).toBeUndefined();
   });
   it("handles undefined values", () => {
     const props = merge({ a: 1 }, { a: undefined });
