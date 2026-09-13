@@ -171,6 +171,31 @@ describe("merge", () => {
     expect(merge(merge({ value: 1 }, { value: 2 }), { value: 3 }).value).toBe(3);
     expect(merge({ value: 1 }, merge({ value: 2 }, { value: 3 })).value).toBe(3);
   });
+  it("keeps proxy state off the visible surface and safe from defines", () => {
+    const [store, setStore] = createStore({ id: 1, title: "Title" });
+    const merged = merge({ size: "m" }, store);
+    const rest = omit(merged, "size");
+    expect(Object.getOwnPropertySymbols(merged)).toEqual([]);
+    expect(Object.getOwnPropertySymbols(rest)).toEqual([]);
+    expect(Object.keys(merged).sort()).toEqual(["id", "size", "title"]);
+    expect(Object.keys(rest).sort()).toEqual(["id", "title"]);
+    // string defines land on the target and stay invisible; reads still go to the sources
+    Object.defineProperty(merged, "sources", { value: [], configurable: true });
+    Object.defineProperty(rest, "props", { value: { id: 99 }, configurable: true });
+    expect(merged.id).toBe(1);
+    expect(rest.id).toBe(1);
+    expect("sources" in merged).toBe(false);
+    expect("props" in rest).toBe(false);
+    expect(Object.keys(merged).sort()).toEqual(["id", "size", "title"]);
+    setStore(s => {
+      s.id = 2;
+    });
+    flush();
+    expect(merged.id).toBe(2);
+    expect(rest.id).toBe(2);
+    expect(Object.getOwnPropertyDescriptor(merged, "id")!.get!()).toBe(2);
+    expect(Object.getOwnPropertyDescriptor(rest, "size")!.get!()).toBeUndefined();
+  });
   it("does not clone nested objects", () => {
     const b = { value: 1 };
     const props = merge({ a: 1 }, { b });

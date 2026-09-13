@@ -7,34 +7,101 @@ function trueFn() {
   return true;
 }
 
-const propTraps: ProxyHandler<{
-  get: (k: string | number | symbol) => any;
-  has: (k: string | number | symbol) => boolean;
-  keys: () => (string | symbol)[];
-}> = {
-  get(_, property, receiver) {
+// The merge() and omit() proxies keep their per-instance state on the proxy
+// TARGET under symbol keys and share one handler each, so creating one costs
+// a proxy plus a one- or two-slot object — no per-instance trap closures —
+// and a read goes straight from the trap to the sources. The state keys are
+// never reported by `ownKeys` and never answered by `get`/`has`, so they are
+// invisible through the proxy.
+
+const $SOURCES = Symbol(__DEV__ ? "MERGE_SOURCE" : 0);
+type MergeTarget = { [$SOURCES]: any[] };
+
+function mergeGet(sources: any[], property: PropertyKey) {
+  for (let i = sources.length - 1; i >= 0; i--) {
+    const s = resolveSource(sources[i]);
+    if (property in s) return s[property];
+  }
+}
+
+const mergeTraps: ProxyHandler<MergeTarget> = {
+  get(target, property, receiver) {
     if (property === $PROXY) return receiver;
-    return _.get(property);
+    const sources = target[$SOURCES];
+    // The flat source list, for mergeSources() and for a nested merge.
+    if (property === $SOURCES) return sources;
+    return mergeGet(sources, property);
   },
-  has(_, property) {
+  has(target, property) {
     if (property === $PROXY) return true;
-    return _.has(property);
+    const sources = target[$SOURCES];
+    for (let i = sources.length - 1; i >= 0; i--) {
+      if (property in resolveSource(sources[i])) return true;
+    }
+    return false;
   },
   set: trueFn,
   deleteProperty: trueFn,
-  getOwnPropertyDescriptor(_, property) {
+  getOwnPropertyDescriptor(target, property) {
     return {
       configurable: true,
       enumerable: true,
-      get() {
-        return _.get(property);
-      },
-      set: trueFn,
-      deleteProperty: trueFn
+      get: () => mergeGet(target[$SOURCES], property),
+      set: trueFn
     };
   },
-  ownKeys(_) {
-    return _.keys();
+  ownKeys(target) {
+    const sources = target[$SOURCES];
+    const keys = new Set<string | symbol>();
+    for (let i = 0; i < sources.length; i++) {
+      const sourceKeys = ownEnumerableKeys(resolveSource(sources[i]));
+      for (let j = 0; j < sourceKeys.length; j++) keys.add(sourceKeys[j]);
+    }
+    return [...keys];
+  }
+};
+
+const $OMIT_PROPS = Symbol(__DEV__ ? "OMIT_PROPS" : 0);
+const $OMIT_KEYS = Symbol(__DEV__ ? "OMIT_KEYS" : 0);
+type OmitTarget = { [$OMIT_PROPS]: Record<PropertyKey, any>; [$OMIT_KEYS]: readonly PropertyKey[] };
+
+function omitGet(target: OmitTarget, property: PropertyKey) {
+  // $SOURCES must not tunnel through the filter: merge() flattens whatever
+  // answers it, so forwarding would hand a re-merge the UNFILTERED sources
+  // of an underlying merge proxy and the omitted keys leak back in (#3014 —
+  // the SSR element-spread path re-merges static attributes with the rest
+  // object). Opaque here: merge composes omit proxies through their traps.
+  return property === $SOURCES || target[$OMIT_KEYS].includes(property)
+    ? undefined
+    : target[$OMIT_PROPS][property];
+}
+
+const omitTraps: ProxyHandler<OmitTarget> = {
+  get(target, property, receiver) {
+    if (property === $PROXY) return receiver;
+    return omitGet(target, property);
+  },
+  has(target, property) {
+    if (property === $PROXY) return true;
+    return (
+      property !== $SOURCES &&
+      !target[$OMIT_KEYS].includes(property) &&
+      property in target[$OMIT_PROPS]
+    );
+  },
+  set: trueFn,
+  deleteProperty: trueFn,
+  getOwnPropertyDescriptor(target, property) {
+    return {
+      configurable: true,
+      enumerable: true,
+      get: () => omitGet(target, property),
+      set: trueFn
+    };
+  },
+  ownKeys(target) {
+    const keys = target[$OMIT_KEYS];
+    return ownEnumerableKeys(target[$OMIT_PROPS]).filter(k => !keys.includes(k));
   }
 };
 
@@ -79,7 +146,6 @@ function resolveSource(s: any) {
   return !(s = typeof s === "function" ? s() : s) ? {} : s;
 }
 
-const $SOURCES = Symbol(__DEV__ ? "MERGE_SOURCE" : 0);
 /** @internal The flattened sources behind a `merge()` PROXY, or undefined.
  * Only the proxy form: its writes are no-ops, so the sources are the whole
  * truth. merge()'s plain-object form also records `$SOURCES` (so nested
@@ -125,32 +191,7 @@ export function merge<T extends unknown[]>(...sources: T): Merge<T> {
       );
   }
   if (SUPPORTS_PROXY && proxy) {
-    return new Proxy(
-      {
-        get(property: string | number | symbol) {
-          if (property === $SOURCES) return flattened;
-          for (let i = flattened.length - 1; i >= 0; i--) {
-            const s = resolveSource(flattened[i]);
-            if (property in s) return s[property];
-          }
-        },
-        has(property: string | number | symbol) {
-          for (let i = flattened.length - 1; i >= 0; i--) {
-            if (property in resolveSource(flattened[i])) return true;
-          }
-          return false;
-        },
-        keys() {
-          const keys = new Set<string | symbol>();
-          for (let i = 0; i < flattened.length; i++) {
-            const sourceKeys = ownEnumerableKeys(resolveSource(flattened[i]));
-            for (let j = 0; j < sourceKeys.length; j++) keys.add(sourceKeys[j]);
-          }
-          return [...keys];
-        }
-      },
-      propTraps
-    ) as unknown as Merge<T>;
+    return new Proxy({ [$SOURCES]: flattened }, mergeTraps) as unknown as Merge<T>;
   }
 
   const defined: Record<string, PropertyDescriptor> = Object.create(null);
@@ -226,28 +267,10 @@ export function omit<T extends Record<any, any>, K extends readonly (keyof T)[]>
   ...keys: K
 ): Omit<T, K> {
   if (SUPPORTS_PROXY && $PROXY in props) {
-    return new Proxy(
-      {
-        get(property) {
-          // $SOURCES must not tunnel through the filter: merge() flattens
-          // whatever answers it, so forwarding would hand a re-merge the
-          // UNFILTERED sources of an underlying merge proxy and the omitted
-          // keys leak back in (#3014 — the SSR element-spread path re-merges
-          // static attributes with the rest object). Opaque here: merge
-          // composes omit proxies through their traps instead.
-          return property === $SOURCES || keys.includes(property as keyof T)
-            ? undefined
-            : props[property as any];
-        },
-        has(property) {
-          return property !== $SOURCES && !keys.includes(property as keyof T) && property in props;
-        },
-        keys() {
-          return ownEnumerableKeys(props).filter(k => !keys.includes(k as keyof T));
-        }
-      },
-      propTraps
-    ) as unknown as Omit<T, K>;
+    return new Proxy({ [$OMIT_PROPS]: props, [$OMIT_KEYS]: keys }, omitTraps) as unknown as Omit<
+      T,
+      K
+    >;
   }
   const result: Record<string, any> = {};
   const propNames = Object.getOwnPropertyNames(props);
