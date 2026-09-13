@@ -19,6 +19,7 @@ import {
   CONFIG_FRESH_READ,
   CONFIG_IN_SNAPSHOT_SCOPE,
   CONFIG_HAS_COMPANIONS,
+  CONFIG_HELD_CHILDREN,
   CONFIG_HAS_LANE,
   CONFIG_HAS_SNAPSHOT,
   CONFIG_INPUTS_PUBLISHED,
@@ -240,8 +241,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // work that replaced it. Idempotent with the cleanup-channel close.
       releaseFlightTeardown(el);
     }
-    // Tracked effects run after finalizePureQueue, so dispose immediately instead of deferring
-    if (el._transition || isEffect === EFFECT_TRACKED) disposeChildren(el);
+    // Tracked effects run after finalizePureQueue, so dispose immediately
+    // instead of deferring. Children built by an uncommitted recompute
+    // (CONFIG_HELD_CHILDREN) die immediately too: no frame ever showed them.
+    // Everything else is the committed frame's and is deferred as zombies
+    // until this node's commit — a transaction-owned node included (#3404):
+    // a parked node's children predate the hold, and tearing them down when
+    // the source lands ran cleanups before the transaction's atomic reveal.
+    if (isEffect === EFFECT_TRACKED || el._config & CONFIG_HELD_CHILDREN) disposeChildren(el);
     else if (el._firstChild !== null || el._disposal !== null) {
       markDisposal(el);
       const x = ext(el);
@@ -649,10 +656,28 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // under the override (A17). Revert no longer commits anything, so an
   // unqueued covered hold would leak (INV-7) once the revert clears
   // _transition.
-  needsPendingCommit &&
-    (!create || el._statusFlags & STATUS_PENDING) &&
-    (!el._transition || hasOverride) &&
-    queuePendingNode(el);
+  //
+  // While a pass's result waits on a commit, its children (and `_disposal`)
+  // wait with it, and a re-run may tear them down immediately
+  // (CONFIG_HELD_CHILDREN, #3404). One exception: a transaction-owned effect
+  // recomputed mainline (contested, #3322) published its value directly — a
+  // `_pendingValue` left from an earlier held pass is that transaction's,
+  // not this one's — so this pass's children are the frame's, and any
+  // zombies deferred at the top are superseded on that same frame. Its
+  // commit rides the transaction, not this flush: release them here rather
+  // than let two generations render at once.
+  let held = needsPendingCommit && (!create || (el._statusFlags & STATUS_PENDING) !== 0);
+  if (held && (!el._transition || hasOverride)) queuePendingNode(el);
+  else if (
+    held &&
+    activeTransition === null &&
+    !(el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED))
+  ) {
+    held = false;
+    disposeChildren(el, false, true);
+  }
+  if (held) el._config |= CONFIG_HELD_CHILDREN;
+  else el._config &= ~CONFIG_HELD_CHILDREN;
   el._transition &&
     isEffect &&
     activeTransition !== el._transition &&

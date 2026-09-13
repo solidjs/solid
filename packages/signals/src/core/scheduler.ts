@@ -11,6 +11,7 @@ import {
   REACTIVE_DISPOSED,
   REACTIVE_IN_HEAP,
   CONFIG_HAS_COMPANIONS,
+  CONFIG_HELD_CHILDREN,
   CONFIG_HAS_LANE,
   CONFIG_HAS_SNAPSHOT,
   CONFIG_INPUTS_PUBLISHED,
@@ -1084,6 +1085,8 @@ function commitPendingNode(n: Signal<any>): void {
   // store to an always-present computed slot.
   c._loading = false;
   c._flags! &= ~REACTIVE_MANUAL_WRITE;
+  // The children this commit publishes are the frame's now (#3404).
+  c._config! &= ~CONFIG_HELD_CHILDREN;
   if (!(c._statusFlags! & STATUS_PENDING)) c._statusFlags! &= ~STATUS_UNINITIALIZED;
   // A flight this commit leaves in the air (unobserved, or observed only by
   // a boundary) now has PUBLISHED inputs: its committed value is stale
