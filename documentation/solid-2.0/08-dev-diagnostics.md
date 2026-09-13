@@ -498,7 +498,7 @@ Each `DiagnosticEvent` has:
 
 The type is an augmentable interface — `ServerObserve`, declared empty in `solid-js` and filled in by `@solidjs/web` through `declare module "solid-js"` — so `OBSERVE.server.invocations` types without `@solidjs/web` having to be the place `OBSERVE` is imported from. Observers import `OBSERVE` from `solid-js`, as on the client.
 
-The first channel is **server-function invocations**:
+Two members so far. The first is the **server-function invocation channel**:
 
 ```js
 import { OBSERVE } from "solid-js";
@@ -512,6 +512,27 @@ const off = OBSERVE.server.invocations.subscribe("invocation", (event, live) => 
 One record per call, delivered when the call **settles** — synchronously for a synchronous direct call, at resolution for a promise. `id` is the function's registered id; `direct` says whether this was an in-process SSR call (`true`, no `request`) or HTTP dispatch (`false`, `request` is the `Request` the handler dispatched). `outcome: "error"` carries the value **as thrown** in `live.error` — the sanitized `Error` the wire gets in production is the client's view, not the observer's. `deferred: true` marks a result the caller drives after the record (a stream or async generator): `durationMs` then measures to the handoff, not to the last chunk. Listeners are observers: a throwing listener is reported through `console.error` and the call and the other listeners are unaffected; nothing a listener does reaches the result. The record is the settled, serializable summary; the second argument holds the live handles beside it for observers that want them.
 
 This is the seam for tooling that watches the server — APM adapters, devtools — and deliberately not a policy hook: `configureServerFunctionsServer({ wrapInvocation })` remains the single, last-writer-wins wrap around execution for code that must **change** a call (guards, error mapping), and an observer that installed itself there would either displace the host's policy or be displaced by it. Subscribe here, wrap there.
+
+The second member is the **trace-provider slot**, `OBSERVE.server.trace`:
+
+```js
+import { OBSERVE } from "solid-js";
+
+const uninstall = OBSERVE.server.trace.provide(request => {
+  // an APM answering from its active span; `request` is undefined for a
+  // render outside any request scope
+  const span = tracer.activeSpan();
+  if (!span) return undefined; // leave the runtime's derivation alone
+  return {
+    traceId: span.traceId,
+    spanId: span.spanId,
+    sampled: span.sampled,
+    entries: { "sentry-trace": span.toSentryTrace(), baggage: span.toBaggage() }
+  };
+});
+```
+
+The runtime derives a request's trace itself in every tier — the W3C `traceparent` half is core HTTP behavior, see `getTraceContext()` in [RFC 12](12-ssr-http.md#the-trace-the-request-belongs-to-gettracecontext) — and this slot is how an observer overrides or extends that derivation **once, globally**, without a per-request entry point into the host: the provider is asked once per request (or per render), at the first read or at shell flush, and its answer merges over the derivation — fields it returns replace the derived ones, its `entries` merge by name over the runtime's `traceparent`. Everything the runtime emits for the browser (the `Server-Timing` metrics, the shell `<meta>` tags) then reflects the merged context, vendor entries included. One provider at a time — a later `provide` replaces the current one, the single-plugin shape rather than a chain — and a throwing provider is reported through `console.error` with the derivation left standing. A provider that answered is also what tells the runtime the trace is being recorded, so it is advertised to the browser even when nothing came in upstream.
 
 ## Diagnostic codes (quick reference)
 

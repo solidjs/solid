@@ -19,6 +19,16 @@ import { effect, memo } from "./render.js";
 // bundle that carries this module — main, server-functions, frames — fills
 // the slot, whichever loads first.
 import { installServerObserve } from "./server-observe.js";
+// Trace context (W3C `traceparent`): derived per request, exposed through
+// `getTraceContext()`, emitted on the response head at commit and in the
+// shell head — see trace.ts for the tiering and the carriers.
+import {
+  traceFor,
+  appendTraceServerTiming,
+  mergeServerTiming,
+  traceMetaMarkup,
+  type TraceContext
+} from "./trace.js";
 import {
   createHydrationSerializer,
   getLocalHeaderScript
@@ -1138,7 +1148,14 @@ function headGroupSignature(winner) {
 // retitle script for embedded (`onHead`) hosts whose bytes it cannot see.
 // `noScripts` rides along for the embedded case — there is no script channel,
 // so the title falls back to a literal tag in the delivered string.
-function renderShellHead(registry, nonce, isPendingFragment, noScripts) {
+//
+// `traceMetas` is the request's trace as `<meta>` tags (trace.ts) — shell-
+// only by nature. They join the `</head>` splice with the app's metas (NOT
+// the prelude: that splices right after `<head>`, ahead of a shell's static
+// `<meta charset>`, whose first-1024-bytes constraint is the prelude's whole
+// reason to exist) and ride wherever that content does: the `</head>`
+// splice, the `onHead` string, or nowhere for a headless fragment.
+function renderShellHead(registry, nonce, isPendingFragment, noScripts, traceMetas = "") {
   commitHeadBoundary(registry, "", isPendingFragment);
   registry.shellFlushed = true;
   const winners = resolveHead(registry.committed);
@@ -1166,7 +1183,12 @@ function renderShellHead(registry, nonce, isPendingFragment, noScripts) {
       else others += markup;
     }
   }
-  return { prelude, html: registry.eagerHtml + links + metas + others + scripts, title, noScripts };
+  return {
+    prelude,
+    html: registry.eagerHtml + links + metas + traceMetas + others + scripts,
+    title,
+    noScripts
+  };
 }
 
 // Fragment flush: commit the boundary's registrations, re-resolve, and diff
@@ -1538,9 +1560,19 @@ export function renderToString(code, options = {}) {
   };
   applyAssetTracking(sharedConfig.context, tracking, manifest, noScripts);
   registerEntryAssets(manifest);
+  // The trace this render belongs to (see `getTraceContext`): the request's
+  // under a request scope, the render's own otherwise — cleared with the
+  // render's deferred dispose so a later read outside any render does not
+  // find a stale one on the lingering context.
+  const context = sharedConfig.context;
+  const requestEvent = peekRequestEvent();
+  context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
   let html = root(
     d => {
-      setTimeout(d);
+      setTimeout(() => {
+        context.trace = undefined;
+        d();
+      });
       return resolveSSRSync(escape(code()));
     },
     { id: renderId }
@@ -1548,7 +1580,13 @@ export function renderToString(code, options = {}) {
   serializeFragmentAssets("", tracking.boundaryModules, sharedConfig.context, renderId);
   sharedConfig.context.noHydrate = true;
   serializer.close();
-  const head = renderShellHead(headRegistry, nonce, null, noScripts);
+  const head = renderShellHead(
+    headRegistry,
+    nonce,
+    null,
+    noScripts,
+    traceMetaMarkup(context.trace)
+  );
   return assembleDocument(
     resolveSSRSelectValues(html),
     tracking.emittedAssets,
@@ -2271,11 +2309,20 @@ export function renderToStream(code, options = {}) {
   // library and has no other channel to fail the request from an async
   // retry.
   context.failRender = failRender;
+  // The trace this render belongs to (see `getTraceContext`): the request's
+  // under a request scope, the render's own otherwise. Set before the render
+  // pass so the per-component context clones carry it; cleared at completion
+  // (below) so a read outside any render never finds a stale one.
+  context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
   registerEntryAssets(manifest);
 
   let html = root(
     d => {
-      dispose = d;
+      dispose = () => {
+        // The render is over: no later read finds its trace (see above).
+        context.trace = undefined;
+        d();
+      };
       const res = resolveSSRNode(escape(code()));
       if (!res.h.length) return res.t[0];
       rootHoles = [];
@@ -2356,7 +2403,13 @@ export function renderToStream(code, options = {}) {
     flushStubBatch();
     // Shell head flush: commits every registration not owned by a
     // still-pending fragment (those flush with their fragment later).
-    const head = renderShellHead(headRegistry, nonce, k => registry.has(k), noScripts);
+    const head = renderShellHead(
+      headRegistry,
+      nonce,
+      k => registry.has(k),
+      noScripts,
+      traceMetaMarkup(context.trace)
+    );
     // `preloads`, `preloadLinks` and `inlineStyles` are the LIVE tracking
     // containers, not snapshots: a post-shell registration pushes into them
     // AND arrives separately through `sink.asset`. Consume them inside this
@@ -2537,7 +2590,8 @@ export function renderToStream(code, options = {}) {
     // `createSSRResponse`/`commitEventResponse` pass through idempotently.
     then(onFulfilled, onRejected) {
       const freezeHead = () => {
-        if (requestEvent && requestEvent.response) commitResponseStub(requestEvent.response);
+        if (requestEvent && requestEvent.response)
+          commitResponseStub(requestEvent.response, { event: requestEvent });
       };
       const p = new Promise(resolve => {
         function complete() {
@@ -4652,7 +4706,53 @@ export function getRequestEvent() {
 function peekRequestEvent() {
   const store = (globalThis as any)[RequestContext];
   return store ? store.getStore() : undefined;
-} /** A fresh, uncommitted response head. */
+}
+
+// --- Trace context -----------------------------------------------------------
+//
+// The trace a request belongs to is derived once and memoized — keyed on the
+// event's `request` (shared by the derived events direct server-function
+// calls run under, so a call during a render sees the render's trace), or
+// on the render context for a render outside any request scope. The record
+// also says whether the browser is told (a continued trace, or a provider
+// answered); see trace.ts.
+
+function traceForEvent(event) {
+  return traceFor(event.request || event, event.request);
+}
+
+/**
+ * The trace the current request belongs to — continued from the incoming
+ * W3C `traceparent` when there was one, originated by the runtime
+ * otherwise; in observe/dev builds, merged with the installed provider's
+ * answer (`OBSERVE.server.trace`). Same object for every read within the
+ * request, direct server-function calls included. For a render outside a
+ * request scope, the render's own trace. `undefined` outside both, and on
+ * the client. Forward it downstream from a server function with
+ * `getTraceContext()?.entries.traceparent`.
+ */
+export function getTraceContext(): TraceContext | undefined;
+
+export function getTraceContext() {
+  const event = peekRequestEvent();
+  if (event) return traceForEvent(event).context;
+  const ctx = sharedConfig.context;
+  return ctx && ctx.trace ? ctx.trace.context : undefined;
+}
+
+// The record a response head is emitted from: the event named by the
+// committer, else the ambient event when THIS stub is its head (an
+// integration deriving its own head under `provideRequestEvent`). No event
+// matched → nothing to say.
+function traceForStub(stub, event) {
+  if (!event) {
+    event = peekRequestEvent();
+    if (!event || event.response !== stub) return undefined;
+  }
+  return traceForEvent(event);
+}
+
+/** A fresh, uncommitted response head. */
 export function createResponseStub(): ResponseStub;
 
 // --- HTTP response-head lifecycle ---------------------------------------
@@ -4723,10 +4823,15 @@ function reportLostHeaderWrite(method, name) {
  * `Location` set after the shell flushed is still honored client-side
  * (stream completion appends a `window.location` script), so that one
  * write stays permitted there.
+ *
+ * The commit is also where the request's trace reaches the head: its
+ * `Server-Timing` entries (see `getTraceContext`) are appended for the
+ * request `event` — defaulting to the ambient event when this stub is its
+ * `response` — immediately before the head freezes.
  */
 export function commitResponseStub(
   stub: ResponseStub,
-  options?: { allowLateLocation?: boolean }
+  options?: { allowLateLocation?: boolean; event?: RequestEvent }
 ): ResponseStub;
 
 /**
@@ -4747,10 +4852,17 @@ export function commitResponseStub(
  * honored — stream completion appends a `window.location` script — so
  * that one write stays permitted there.
  */
-export function commitResponseStub(stub, { allowLateLocation = false } = {}) {
+export function commitResponseStub(stub, { allowLateLocation = false, event } = {}) {
   if (!stub || stub.committed) return stub;
-  stub.committed = true;
   const headers = stub.headers;
+  // The trace's Server-Timing entries: the last write before the head
+  // freezes, so the app's own `Server-Timing` (an `httpHeader` declaration,
+  // an integration's write) is already there to be respected by name.
+  if (headers && typeof headers.append === "function") {
+    const trace = traceForStub(stub, event);
+    if (trace) appendTraceServerTiming(headers, trace);
+  }
+  stub.committed = true;
   if (!headers || typeof headers.set !== "function") return stub;
   for (const method of ["set", "append", "delete"]) {
     const original = headers[method].bind(headers);
@@ -4785,11 +4897,14 @@ export function getExpectedRedirectStatus(response) {
 
 // Merge the stub's headers over a base Headers. Set-Cookie is the one
 // header where multiple values must survive as separate entries, so it is
-// appended cookie-by-cookie rather than set.
+// appended cookie-by-cookie rather than set; Server-Timing is a list whose
+// entries are folded by name (the stub's trace entries beside the base's
+// own metrics — see trace.ts) rather than one replacing the other.
 function mergeStubHeaders(target, stub) {
   if (!stub) return target;
   stub.headers.forEach((value, key) => {
-    if (key !== "set-cookie") target.set(key, value);
+    if (key === "server-timing") mergeServerTiming(target, value);
+    else if (key !== "set-cookie") target.set(key, value);
   });
   const setCookies = stub.headers.getSetCookie ? stub.headers.getSetCookie() : [];
   for (const cookie of setCookies) target.append("set-cookie", cookie);
@@ -4885,14 +5000,35 @@ export function commitEventResponse(response: Response, event?: RequestEvent): R
  */
 export function commitEventResponse(response, event = getRequestEvent()) {
   const stub = event && event.response;
-  if (!stub || !stub.headers || stub.committed) return response;
+  if (!stub || !stub.headers || stub.committed) {
+    // No head to fold. The trace is the REQUEST's, not the stub's: an event
+    // without a `response` (the server-function handler's default event, a
+    // bare integration) still hands it on — the response is rebuilt only
+    // when there is something to say. An already-committed stub said it.
+    if (!event || stub) return response;
+    const trace = traceForEvent(event);
+    if (!trace.emit) return response;
+    const headers = copyInitHeaders(response.headers);
+    appendTraceServerTiming(headers, trace);
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    });
+  }
   const cookies = stub.headers.getSetCookie ? stub.headers.getSetCookie() : [];
-  commitResponseStub(stub);
+  commitResponseStub(stub, { event });
   let hasGaps = false;
   stub.headers.forEach((value, key) => {
     if (fillsStubGap(key, response.headers, response)) hasGaps = true;
   });
-  if (!cookies.length && !hasGaps) return response;
+  // Server-Timing is a list: when both sides carry one, the stub's entries
+  // (the trace's) fold in by name beside the response's own metrics —
+  // neither gap-fill (the response's would silently drop the trace) nor
+  // replace.
+  const timing = stub.headers.get("server-timing");
+  const mergesTiming = timing !== null && response.headers.has("server-timing");
+  if (!cookies.length && !hasGaps && !mergesTiming) return response;
   // Always fold onto a rebuilt Response, never in place: the response is the
   // application's object, and an app may return the same one again — a
   // module-level redirect singleton, a memoized per-tenant Response. Folding
@@ -4905,6 +5041,7 @@ export function commitEventResponse(response, event = getRequestEvent()) {
   stub.headers.forEach((value, key) => {
     if (fillsStubGap(key, headers, response)) headers.set(key, value);
   });
+  if (mergesTiming) mergeServerTiming(headers, timing);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -4971,7 +5108,7 @@ export function createSSRResponse(result, event, options = {}) {
   const nonce = normalizeNonce(options.nonce);
 
   if (typeof result === "string") {
-    if (stub) commitResponseStub(stub);
+    if (stub) commitResponseStub(stub, { event });
     const head = deriveHead(stub, responseInit);
     if (stub && stub.headers.get("Location")) {
       return new Response(null, { status: getExpectedRedirectStatus(stub), headers: head.headers });
@@ -5007,7 +5144,7 @@ export function createSSRResponse(result, event, options = {}) {
           flushed = true;
           // Late-Location stays writable: this path honors it client-side
           // through the completion script below.
-          if (stub) commitResponseStub(stub, { allowLateLocation: true });
+          if (stub) commitResponseStub(stub, { allowLateLocation: true, event });
           const head = deriveHead(stub, responseInit);
           if (stub && stub.headers.get("Location")) {
             // Pre-flush redirect: the shell never reaches the wire.

@@ -25,6 +25,7 @@ import { effect, memo, tagElement } from "./render.js";
 import { JSX } from "../jsx/jsx.js";
 
 import type { RequestEventLocals } from "./server.js";
+import type { TraceContext } from "./trace.js";
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
 
@@ -112,6 +113,9 @@ export type {
   InvocationListener,
   InvocationLive
 } from "./server-observe.js";
+// The trace context's types (`getTraceContext()`, `OBSERVE.server.trace`),
+// with the `ServerObserve.trace` augmentation, for the same reason.
+export type { TraceContext, TraceProvider, TraceSlot } from "./trace.js";
 
 export type {
   ServerFunction,
@@ -195,6 +199,12 @@ export { effect, memo, untrack, getOwner, createComponent };
  */
 export { mergeProps };
 export const getRequestEvent: () => RequestEvent | undefined = voidFn;
+/**
+ * Client stub — the trace a request belongs to is a server-side reading
+ * (the incoming `traceparent`, the render's origination); the browser SDK
+ * that continues it reads the document's `<meta>`/`Server-Timing` instead.
+ */
+export const getTraceContext: () => TraceContext | undefined = voidFn;
 
 // The cookie codec (the platform-gap primitives — see cookies.js): the
 // REAL implementation, not a stub — a pure value transformer has
