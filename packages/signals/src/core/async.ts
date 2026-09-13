@@ -920,6 +920,13 @@ export function notifyStatus(
   const startsBlocking = isOptimisticBoundary && hasActiveOverride(el);
 
   if (!blockStatus) {
+    // Lane before companions: the companion pokes below may create the
+    // node's pending-signal lane, whose parent is read from the node's lane
+    // at creation. Assigned after them (as it was), a node made pending by
+    // propagation before it rode the lane got a parentless companion lane,
+    // and the isPending reader that also depends on the node merged it into
+    // the held lane — the verdict then waited on the async it reports (#3379).
+    if (lane) assignOrMergeLane(el, lane);
     if (status === STATUS_PENDING && pendingSource) {
       addPendingSource(el, pendingSource);
       // A fresh flight from a settled state starts with its inputs unpublished
@@ -943,10 +950,6 @@ export function notifyStatus(
       GlobalQueue._updateChildCompanions !== null
     )
       GlobalQueue._updateChildCompanions(el);
-  }
-
-  if (lane && !blockStatus) {
-    assignOrMergeLane(el, lane);
   }
 
   const downstreamBlockStatus = blockStatus || startsBlocking;
