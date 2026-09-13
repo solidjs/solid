@@ -81,11 +81,12 @@ function resolveSource(s: any) {
 
 const $SOURCES = Symbol(__DEV__ ? "MERGE_SOURCE" : 0);
 /** @internal The flattened sources behind a `merge()` PROXY, or undefined.
- * Only the proxy form: its writes are no-ops, so the sources are the whole
- * truth. merge()'s plain-object form also records `$SOURCES` (so nested
- * merges flatten), but it is a real object callers may mutate afterwards
- * (html's tagged templates assign props after spreading) — those own writes
- * live on the object, not in the sources, so it must be read directly. */
+ * Only the proxy form carries sources: its writes are no-ops, so they are
+ * the whole truth. The plain-object form is a real object callers may copy
+ * (descriptor copies, `{...props}`) or mutate afterwards (html's tagged
+ * templates assign props and a children getter after spreading) — what is
+ * on the object is the truth there, so it records nothing and every consumer,
+ * a nested merge included, reads it directly (#3384). */
 export function mergeSources(o: any): any[] | undefined {
   return o != null && o[$PROXY] === o ? o[$SOURCES] : undefined;
 }
@@ -115,14 +116,25 @@ export function merge<T extends unknown[]>(...sources: T): Merge<T> {
   const flattened: T[] = [];
   for (let i = 0; i < sources.length; i++) {
     const s = sources[i];
-    proxy = proxy || (!!s && $PROXY in (s as object));
-    const childSources = !!s && (s as object)[$SOURCES];
-    if (childSources) {
-      for (let i = 0; i < childSources.length; i++) flattened.push(childSources[i]);
-    } else
-      flattened.push(
-        typeof s === "function" ? ((proxy = true), createMemo(s as () => any)) : (s as any)
-      );
+    if (typeof s === "function") {
+      proxy = true;
+      flattened.push(createMemo(s as () => any) as any);
+      continue;
+    }
+    if (s && $PROXY in (s as object)) {
+      proxy = true;
+      // Only a merge() PROXY is flattened through: its writes are no-ops, so
+      // its sources are exactly what it reads. A plain-object merge result
+      // is an ordinary source — it may have been copied or mutated since,
+      // and what is on the object is the truth (#3384). omit() proxies
+      // answer $SOURCES with undefined on purpose (#3014).
+      const childSources = (s as object)[$SOURCES];
+      if (childSources) {
+        for (let j = 0; j < childSources.length; j++) flattened.push(childSources[j]);
+        continue;
+      }
+    }
+    flattened.push(s as any);
   }
   if (SUPPORTS_PROXY && proxy) {
     return new Proxy(
@@ -188,7 +200,6 @@ export function merge<T extends unknown[]>(...sources: T): Merge<T> {
     if (desc.get) Object.defineProperty(target, key, desc);
     else target[key] = desc.value;
   }
-  (target as any)[$SOURCES] = flattened;
   return target as any;
 }
 
