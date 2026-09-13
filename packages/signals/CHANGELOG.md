@@ -1,5 +1,29 @@
 # @solidjs/signals
 
+## 2.0.0-rc.9
+
+### Patch Changes
+
+- d7cb456: Fix a second write arriving while an async chain is still in flight (#3373, #3374, #3375, #3376).
+  - A flight's landing now retires only the node's own pending entry. When an input was re-asked mid-flight (`a` restarted while `b`'s first flight was up), `b` stays pending on `a`; the stale landing no longer let the transaction commit the newer signal beside the older derived value (`2 / 1`, #3373) or blip `isPending` to `false` (#3376). A fresh flight drops pending entries its inputs propagated earlier — the run read them, so a masked input (an active override, A17) does not hold it.
+  - A transaction now tests whether a source's own flight is still up by its self entry rather than `_error.source`, which a later-pending input overwrites; the held write no longer commits ahead of its answer once the load is re-asked under an `on`-scoped boundary (#3375).
+  - A collecting `Loading` boundary records every source the notifying effect is pending on, not only the one the notification carries — an `on` reset no longer reveals content when the boundary's one collected source settles while the effect is still pending on a flight it already carried (#3375).
+  - A render effect served a pending node's committed value (the A15 reveal carve-out) joins the transaction's reporters for that node, so a keyed remount that disposes the original reader no longer lets a same-value rewrite commit the held write while the derivation is in flight (`Count: 1` beside `Details: 0`, #3374).
+  - A `Loading` boundary's `on` reset ends the hold on writes that only its readers observed: a reader registered while the boundary showed content stops blocking once the boundary flips to its fallback, and the parked transaction is woken and re-judged in the same drain. A reader outside the boundary that also observes the flight still holds it (#3375).
+
+- 6095955: Two ways a held write stayed staged past the point it should have revealed:
+  - A transaction whose only reporter is disposed by ambient work (a `<Show>` unmounting the reader of a pending memo) was never re-judged — the flush only evaluates the active transaction, and nothing re-entered a parked one. The writes held with that reader (a signal set while it was pending) stayed staged forever. Disposing a pending reader parked in a transaction now wakes it; the flush re-enters a woken transaction on an otherwise idle pass, prunes the dead reporter and commits (#3372).
+  - An effect that reads `latest()` (or otherwise adopts an optimistic lane through its deps) direct-commits on a lane pass, but a hold it had staged on an earlier, lane-free pass of the same transaction was left in place and the transaction's commit published that older frame over the fresh value — `Pair: 0 / 0` for good. A lane recompute now drops the hold it supersedes, override or not (#3377).
+
+- 9da7f0a: `isPending(details)` reports the load of an optimistic value when `details` derives it through an async memo (#3379). `notifyStatus` now assigns the node's optimistic lane before poking its companions, so a companion lane created by the poke is parented to the node's lane: the indicator effect flushes on the companion's child lane immediately instead of merging it into the held lane and waiting on the async it reports.
+- 632e45c: Give the latest() shadow companion the `ownedWrite` flag its isPending companion already carries (#3378). A companion sync is internal plumbing that can run from inside a computation — a transition-held memo recompute pulled mid-tick by a reader creating or refreshing its latest() shadow — and the dev owned-scope write guard halted the app on the shadow write. Toggling a JSX branch that reads `latest(memo)` off while an action is pending and restoring it as the action resumes threw REACTIVE_WRITE_IN_OWNED_SCOPE.
+- ca05917: `OBSERVE.exclude` now covers writes: a root write to an excluded subject (the observer's own store or signal) no longer counts toward the interaction that made it, and an interaction whose writes all went to excluded subjects with none of the app's work run — a click on a devtools panel's own button — is not recorded. Store nodes carry the owner their store was created under, so an excluded panel's store is an excluded subject like its signals.
+- af94f67: Server observe surface: `OBSERVE.server` and the invocation channel
+
+  `OBSERVE` gains a `server` slot — an augmentable `ServerObserve` interface declared empty in `@solidjs/signals` (re-exported by `solid-js`) and populated by `@solidjs/web`'s server runtime, so server-side observability consumers subscribe on the one `OBSERVE` object they already know from the client. The first channel is `OBSERVE.server.invocations`: `subscribe("invocation", (event, live) => …)` delivers one `{ id, direct, at, durationMs, outcome, deferred? }` record per server-function execution — HTTP dispatch and direct SSR calls alike — when it settles, with the request event, `request`, `args`, and the result or the error as thrown beside it. Observers, not policy: any number of listeners, none able to alter the call; `wrapInvocation` remains the single policy hook.
+
+  `@solidjs/web` now publishes observe-tier server artifacts (`dist/server.observe.js`, `server-functions/dist/server.observe.js`, `frames/dist/server.observe.js`) under the `observe` export condition, alongside the existing dev/prod pairs. The surface and every emit site fold out of the prod artifacts.
+
 ## 2.0.0-rc.8
 
 ### Patch Changes
