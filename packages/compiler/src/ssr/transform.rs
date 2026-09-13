@@ -19,6 +19,7 @@ use crate::shared::attr_plan::{AttrPlan, AttrPlanner, PlanValue};
 use crate::shared::bindings::BindingTable;
 use crate::shared::classify::{Classify, jsx_text_is_filtered, significant_children};
 use crate::shared::component_callee::{ComponentCalleeContext, component_callee_expression};
+use crate::shared::component_children::component_children_coverage_pragma_span;
 use crate::shared::component_props::{
     ComponentPropContext, component_property, component_props_expression,
     component_spread_expression, flush_component_props,
@@ -1012,7 +1013,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             }
         }
 
-        if let Some((children, dynamic)) = self.component_children_expression(&element.children)? {
+        if let Some((children, dynamic, coverage_pragma_span)) =
+            self.component_children_expression(&element.children)?
+        {
             if dynamic {
                 // Babel's getter-body inlining for dynamic children: unwrap a
                 // `memo(fn)` call to `fn.body`, a plain function to its body,
@@ -1021,7 +1024,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     component_children_getter_statements(self.allocator, element.span, children);
                 running_props.push(crate::shared::ast::object_getter_property_with_statements(
                     self.allocator,
-                    element.span,
+                    coverage_pragma_span.unwrap_or(element.span),
                     "children",
                     statements,
                 ));
@@ -1054,7 +1057,8 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     fn component_children_expression(
         &mut self,
         children: &[JSXChild<'a>],
-    ) -> Result<Option<(Expression<'a>, bool)>> {
+    ) -> Result<Option<(Expression<'a>, bool, Option<Span>)>> {
+        let coverage_pragma_span = component_children_coverage_pragma_span(children, self.source);
         // `filterChildren`: drop empty expression containers and JSXText whose
         // raw starts with a newline and contains only whitespace.
         let filtered: std::vec::Vec<&JSXChild<'a>> = children
@@ -1204,7 +1208,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             1 => {
                 let child = values.pop().expect("component child exists");
                 if child.expression_source {
-                    Some((child.value, child.dynamic))
+                    Some((child.value, child.dynamic, coverage_pragma_span))
                 } else {
                     // Elements/fragments force a thunk (Babel's single-child
                     // branch in `transformComponentChildren`): a zero-arg
@@ -1218,7 +1222,11 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     let mut statements = self.ast().vec();
                     statements.extend(setup);
                     statements.push(self.ast().statement_return(span, Some(value)));
-                    Some((arrow_iife(self.allocator, span, statements), true))
+                    Some((
+                        arrow_iife(self.allocator, span, statements),
+                        true,
+                        coverage_pragma_span,
+                    ))
                 }
             }
             _ => {
@@ -1232,6 +1240,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     self.ast()
                         .expression_array(span, self.ast().vec_from_iter(elements)),
                     true,
+                    coverage_pragma_span,
                 ))
             }
         })

@@ -234,6 +234,45 @@ pub(crate) fn source_from_span(span: Span, source: &str) -> &str {
     &source[span.start as usize..span.end as usize]
 }
 
+/// Whether a JSX empty expression carries a coverage pragma that should be
+/// retained when its following child is lowered into a component getter.
+pub(crate) fn is_coverage_ignore_pragma(source: &str, span: Span) -> bool {
+    let source = source_from_span(span, source);
+    let mut rest = source;
+    while let Some(comment_start) = rest.find("/*") {
+        let after_start = &rest[comment_start + 2..];
+        let Some(comment_end) = after_start.find("*/") else {
+            break;
+        };
+        if is_coverage_ignore_comment(&after_start[..comment_end]) {
+            return true;
+        }
+        rest = &after_start[comment_end + 2..];
+    }
+    source
+        .lines()
+        .filter_map(|line| line.split_once("//").map(|(_, comment)| comment))
+        .any(is_coverage_ignore_comment)
+}
+
+fn is_coverage_ignore_comment(comment: &str) -> bool {
+    let comment = comment.trim_start();
+    ["istanbul", "c8"].iter().any(|tool| {
+        let Some(rest) = comment.strip_prefix(tool) else {
+            return false;
+        };
+        if !rest.chars().next().is_some_and(char::is_whitespace) {
+            return false;
+        }
+        let Some(rest) = rest.trim_start().strip_prefix("ignore") else {
+            return false;
+        };
+        !rest.chars().next().is_some_and(|character| {
+            character.is_alphanumeric() || character == '_' || character == '$'
+        })
+    })
+}
+
 /// Exact port of Babel's `trimWhitespace`: strip `\r`; for multiline text,
 /// drop each continuation line's indentation and all-whitespace lines, then
 /// join with spaces (the first line keeps its leading, and the last line its

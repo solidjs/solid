@@ -163,7 +163,7 @@ pub(crate) fn lower_component_with_setup<'a, C: ComponentLower<'a>>(
         if children.needs_getter {
             running_props.push(crate::shared::ast::object_getter_property_with_setup(
                 allocator,
-                element.span,
+                children.coverage_pragma_span.unwrap_or(element.span),
                 "children",
                 children.setup,
                 children.value,

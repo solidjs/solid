@@ -19,8 +19,8 @@ use crate::shared::condition::{
 };
 use crate::shared::refs::{assignment_fallback, callable_test};
 use crate::shared::utils::{
-    decode_html_entities, element_name, get_numbered_id, is_component_name,
-    static_jsx_expression, trim_jsx_text,
+    decode_html_entities, element_name, get_numbered_id, is_component_name, static_jsx_expression,
+    trim_jsx_text,
 };
 
 pub(crate) struct AstUniversalTransform<'a, 'source> {
@@ -1830,6 +1830,10 @@ impl<'a> crate::shared::component_children::ComponentChildLower<'a>
 }
 
 impl<'a> crate::shared::mode_lower::ModeLower<'a> for AstUniversalTransform<'a, '_> {
+    fn source(&self) -> &str {
+        self.source
+    }
+
     fn wrap_conditionals_enabled(&self) -> bool {
         self.wrap_conditionals
     }
