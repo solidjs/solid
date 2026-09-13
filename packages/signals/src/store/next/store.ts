@@ -373,8 +373,11 @@ function sameLogicalSlot(target: StoreNextTarget, a: any, b: any): boolean {
  * set trap outside a draft), so the root target keys it here and the store's
  * nodes copy it into `_owner` as they are created — an `OBSERVE.exclude`d
  * panel's store nodes are then excluded subjects, exactly like its signals.
- * Gated with the naming on the engine being installed: node creation is the
- * hottest store path, and the disabled cost stays one null check.
+ * Both ends are gated with the naming on the engine being installed: node
+ * creation is the hottest store path, store creation is next, and the
+ * disabled cost of each stays one null check. A store created before
+ * `enable()` therefore has no recorded owner and its nodes are never excluded
+ * subjects — the same boundary the naming draws; a panel enables first.
  */
 const storeOwners: WeakMap<StoreNextTarget, Owner | null> | null = __OBSERVE__
   ? new WeakMap()
@@ -2294,7 +2297,12 @@ export function createStoreNext<T extends Record<PropertyKey, any>>(
     // Dev-tier graph registration (owner signal lists, onGraph); the
     // `_owner` write itself never reaches the proxy, see storeOwners.
     registerGraph(proxy, owner);
-    storeOwners!.set((proxy as any)[$TARGET] as StoreNextTarget, owner);
+    // Only once the engine is installed, like the node stamping it feeds: a
+    // WeakMap.set per fresh store is a growing ephemeron table (~+35% on the
+    // 2000-store create+commit shape, CodSpeed −11.7% on #3380's first cut)
+    // and, disabled, buys nothing — a store created before enable() has no
+    // excluded owner to inherit either way.
+    if (attrHooks !== null) storeOwners!.set((proxy as any)[$TARGET] as StoreNextTarget, owner);
   }
   const setter: SetStoreNextFunction<T> = fn => storeSetterNext(proxy, fn);
   return [proxy, setter];

@@ -1088,10 +1088,11 @@ module.exports = [
     // #3372/#3377 (2026-09-12): 27.05 -> 27.10 KB, measured at 27066 B against 26978
     // (+88); see the core floor note.
     //
-    // Excluded writes (#3380, 2026-09-12, rebased): +56 B over the entry above. A root write to
-    // an excluded subject (the observer's own store) no longer counts toward
-    // the interaction, and an interaction whose writes all went there with
-    // none of the app's work run is forgotten rather than reported idle.
+    // Excluded writes (#3380, 2026-09-12): 27.10 -> 27.16 KB, measured at
+    // 27090 B against 27066 (+24; +56 on the pre-rebase base). A root write
+    // to an excluded subject (the observer's own store) no longer counts
+    // toward the interaction, and an interaction whose writes all went there
+    // with none of the app's work run is forgotten rather than reported idle.
     // Store nodes now carry their root's creating owner (`_owner`) so they
     // are excluded subjects like signals — that part lives in store.ts and
     // no observe scenario bundles stores; the observe CSR scenario above did
