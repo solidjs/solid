@@ -18,11 +18,18 @@
 // (frames, RPC responses and redirects have no `<head>`; also the carrier
 // Sentry's browser SDK reads since 10.45) and `<meta>` tags in the HTML
 // shell (what OTel web's document-load instrumentation reads). The browser
-// is told about a trace only when something upstream or an observer is
-// recording it — a continued trace, or a provider that answered. A trace the
-// runtime originated alone has no recorded server span for the browser to
-// attach to, and advertising it with flags `00` would make a parent-based
-// browser sampler DROP the pageload it would otherwise record.
+// is told about a trace only when something is RECORDING it — an incoming
+// `traceparent` whose sampled flag is set (the caller says it recorded), or a
+// provider that answered. Neither a trace the runtime originated alone nor
+// an unsampled upstream one qualifies: there is no recorded server span for
+// the browser to attach to, and advertising a parent with flags `00` would
+// make a parent-based browser sampler DROP the pageload it would otherwise
+// record. That last case is common infrastructure, not an edge: load
+// balancers and meshes (GCP, Envoy/Istio, Azure Front Door) stamp
+// `00-…-00` on every request they forward, and an app on them with no APM
+// must see zero wire change. The unsampled trace is still the request's —
+// `getTraceContext()` exposes it, and forwarding it downstream stays
+// correct W3C propagation.
 //
 // State hangs off the shared `OBSERVE` object under a registered symbol for
 // the same reason as `server-observe.ts`: each server bundle carries its own
@@ -238,7 +245,11 @@ export function traceFor(key: object, request: Request | undefined): TraceRecord
   // page; a provider that wants its own `baggage` in the document adds it.
   context.entries.traceparent = formatTraceparent(context);
   if (providedEntries) Object.assign(context.entries, providedEntries);
-  record = { context, emit: incoming !== undefined || answered };
+  // Told to the browser only when something is recording the trace: a
+  // SAMPLED upstream trace, or a provider that answered (its own vendor
+  // entries may well carry a "not sampled" decision — that is the
+  // provider's call to propagate). See the header note.
+  record = { context, emit: (incoming !== undefined && incoming.sampled) || answered };
   store.set(key, record);
   return record;
 }

@@ -141,7 +141,10 @@ describe("getTraceContext: derivation", () => {
       getTraceContext()
     )!;
     expect(notSampled.sampled).toBe(false);
-    expect(notSampled.entries.traceparent.endsWith("-00")).toBe(true);
+    expect(notSampled.parentId).toBe(PARENT_ID);
+    // Continued and formatted for forwarding — but see the emission block:
+    // an unsampled upstream trace is not advertised to the browser.
+    expect(notSampled.entries.traceparent).toBe(`00-${TRACE_ID}-${notSampled.spanId}-00`);
     const future = inScope(event({ traceparent: `01-${TRACE_ID}-${PARENT_ID}-01-extra` }), () =>
       getTraceContext()
     )!;
@@ -325,6 +328,43 @@ describe("Server-Timing at head commit", () => {
     expect(html).not.toContain('name="traceparent"');
     // ...but it exists for the server's own use (downstream propagation, logs).
     expect(inScope(evt, () => getTraceContext())).toBeDefined();
+  });
+
+  test("an UNSAMPLED upstream trace is continued but not advertised — infra-stamped traceparents are a no-op", () => {
+    // What a load balancer / mesh (GCP, Envoy, Front Door) puts on every
+    // request it forwards when nothing sampled it: flags `00`. Nobody is
+    // recording this trace, so an app on that infra with no APM must see
+    // zero wire change — and an OTel-web parent-based sampler must not be
+    // handed an unsampled parent that would drop its pageload.
+    const infra = `00-${TRACE_ID}-${PARENT_ID}-00`;
+    const evt = event({ traceparent: infra });
+    const html = inScope(evt, () => renderToString(() => <Doc />));
+    const response = createSSRResponse(html, evt);
+    expect(response.headers.has("server-timing")).toBe(false);
+    expect(html).not.toContain("traceparent");
+    // Still the request's trace, continued, for downstream forwarding.
+    const ctx = inScope(evt, () => getTraceContext())!;
+    expect(ctx.traceId).toBe(TRACE_ID);
+    expect(ctx.parentId).toBe(PARENT_ID);
+    expect(ctx.entries.traceparent).toBe(`00-${TRACE_ID}-${ctx.spanId}-00`);
+
+    // The other exit says nothing either; the response comes back as-is.
+    const bare = {
+      request: new Request("https://app.example/", { headers: { traceparent: infra } }),
+      locals: {}
+    };
+    const original = new Response("ok");
+    expect(inScope(bare as any, () => commitEventResponse(original, bare as any))).toBe(original);
+
+    // A provider's answer overrides that silence: it is the recorder now,
+    // and propagating its own "not sampled" decision is its call.
+    provide(() => ({ entries: { "sentry-trace": `${TRACE_ID}-${"c".repeat(16)}-0` } }));
+    const observed = event({ traceparent: infra });
+    const observedHtml = inScope(observed, () => renderToString(() => <Doc />));
+    const timing = serverTiming(createSSRResponse(observedHtml, observed).headers);
+    expect(timing.get("traceparent")).toMatch(/-00"$/);
+    expect(timing.has("sentry-trace")).toBe(true);
+    expect(observedHtml).toContain('name="sentry-trace"');
   });
 
   test("a provider's answer is advertised, vendor entries included, commas quoted", () => {
