@@ -21,6 +21,7 @@
 // loads first creates the channel, later copies find it.
 import { OBSERVE } from "solid-js";
 import type { RequestEvent } from "./server.js";
+import { createTraceSlot } from "./trace.js";
 
 /**
  * One server function execution, delivered on `OBSERVE.server.invocations`
@@ -136,6 +137,7 @@ export function installServerObserve(): void {
   // The `server` member is signals' — present on every observe-tier `OBSERVE`.
   const server = OBSERVE.server as Partial<typeof OBSERVE.server>;
   if (server.invocations === undefined) server.invocations = createInvocationChannel();
+  if (server.trace === undefined) server.trace = createTraceSlot();
 }
 
 function invocationListeners(): Set<InvocationListener> | undefined {

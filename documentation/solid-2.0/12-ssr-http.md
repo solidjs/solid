@@ -136,6 +136,38 @@ Under streaming this implies the natural constraint: status and headers must be 
 
 Said plainly, `httpHeader` is a **shell-time API**. Headers declared by streamed route content — anything below a `<Loading>` boundary that resolves after the shell went out — run post-flush and are committed no-ops by contract. There is no queue that holds them for a later response; the head is on the wire. If a header matters, it belongs to the shell (or to a `deferStream`-held source that keeps the shell waiting for it).
 
+### The trace the request belongs to: `getTraceContext()`
+
+A distributed trace follows one user action across every service it touches; each hop needs the trace's id and the id of the span that called it, carried across HTTP by the W3C Trace Context header `traceparent` (`00-<traceId>-<parentId>-<flags>`, with `tracestate` and `baggage` beside it). The runtime reads that half of the exchange once per request and exposes it:
+
+```ts
+import { getTraceContext } from "@solidjs/web";
+
+// in a server function: forward the trace to the service it calls
+const trace = getTraceContext();
+const res = await fetch("https://orders.internal/api", {
+  headers: trace ? { traceparent: trace.entries.traceparent } : {}
+});
+```
+
+```ts
+interface TraceContext {
+  traceId: string; // 32 hex — the whole trace
+  spanId: string; // 16 hex — this request's span
+  parentId?: string; // the incoming parent span, when the request continued a trace
+  sampled?: boolean; // the incoming flags' sampled bit; undefined when the runtime originated
+  state?: string; // incoming `tracestate`, verbatim
+  baggage?: string; // incoming `baggage`, verbatim
+  entries: Record<string, string>; // what the browser is handed — `traceparent`, plus a provider's
+}
+```
+
+`getTraceContext()` **continues** an incoming `traceparent` (version `00`, or a later version read as `00`; malformed values — version `ff`, all-zero ids, wrong lengths — are ignored) and **originates** a trace when none came in (random ids, no parent, no sampled decision). It is one object per request: repeated reads, and the derived events direct (SSR-time) server-function calls run under, return the same context. A render outside any request scope has its own; outside both, and on the client, it is `undefined`. This is core HTTP behavior in every build tier, like `getRequestEvent()` — forwarding a trace to a traced backend must work in production with no observer installed.
+
+The runtime also hands the trace **down to the browser**, which cannot send a header on the initial document request and has to learn the server's trace from the response: `entries` are emitted as `Server-Timing` metrics (`traceparent;desc="00-…"`) on the response head when it commits — every exit, so frames, server-function responses and redirects carry it too — and, for HTML documents, as `<meta name="traceparent" content="…">` in the shell head (the `</head>` splice or the `onHead` string; a headless fragment ships only the header). A `Server-Timing` name the application already wrote (an `httpHeader` declaration, an integration's metrics) is respected; the runtime's entries fold in beside it. One rule governs when the browser is told: **only when something is recording the trace** — it was continued from upstream, or (observe/dev builds) a provider answered. A trace the runtime originated alone is still there for `getTraceContext()`, but is not advertised: there is no recorded server span for the browser to attach to, and a parent with flags `00` would make a parent-based browser sampler drop the pageload it would otherwise record. The incoming `baggage` is likewise never echoed to the page — it is upstream context; a provider that wants its own in the document adds it.
+
+**The provider** (observe and dev builds — `OBSERVE.server.trace`, see RFC 08) is how an APM overrides or extends the derivation once, globally: Sentry's server SDK answers from OpenTelemetry's active span and adds its `sentry-trace`/`baggage` entries, which the browser SDK reads from the same two carriers. That is the entire integration surface a server-side observer needs from the render — it never owns the head, never re-streams the body, and never has to know the host.
+
 ### Cookies: the codec + native `Headers`
 
 ```ts
@@ -246,14 +278,14 @@ export function handleRequest(request: Request): Promise<Response> {
 
 - `createRequestEvent(request, init?)` builds the canonical event: `request`, `locals`, and a fresh uncommitted `response` stub (`createResponseStub()` is exported separately). `init` spreads over the defaults, so a framework extends the shape — or substitutes its own structurally-compatible `response` — while every event still looks the same to code reading it.
 - `createSSRResponse(result, event, options?)` accepts a string (from `renderToString`, or an awaited stream) or a `renderToStream` result, and runs the head lifecycle against `event.response`:
-  - **At shell flush** — the moment the head freezes — the stub is `committed` and its status/headers are merged over `options.responseInit` (`Set-Cookie` values survive as separate entries; `content-type` defaults to `text/html; charset=utf-8`).
+  - **At shell flush** — the moment the head freezes — the stub is `committed` and its status/headers are merged over `options.responseInit` (`Set-Cookie` values survive as separate entries; `Server-Timing` folds entry by entry; `content-type` defaults to `text/html; charset=utf-8`). The commit is also where the request's trace reaches the head (`Server-Timing: traceparent;desc="…"` — see `getTraceContext()`).
   - **A `Location` present before the flush** becomes a real redirect instead of an HTML response: bodyless, carrying the stub’s cookies, with the status from `getExpectedRedirectStatus` (also exported — the stub’s own status when it is a redirect status, `302` otherwise, because a status set for the page render doesn’t describe the redirect that preempts it).
   - **A `Location` set after the flush** can only be honored client-side: stream completion appends `<script>window.location=…</script>` before closing, carrying `options.nonce` so a strict `script-src` CSP doesn’t block it.
   - `options.transformChunk(chunk)` rewrites each outgoing HTML chunk — the seam handlers use for entry-script injection and doctype prefixes.
 
   String results return a `Response` synchronously; stream results return a promise that resolves at shell flush, so returning it from a fetch handler sends the head at the right moment by construction.
 
-- `commitEventResponse(response, event?)` is the **other exit** — handler-lifecycle plumbing for a `Response` that did not go through `createSSRResponse` (a middleware early return, an API result), the same fold the server-function handler's own responses take. It folds the event's stub onto the response — `Set-Cookie` appends entry-by-entry alongside the response's own, other stub headers fill gaps only (never the wire-protocol family the handlers own, never `Content-Type`/`Content-Length` on a bodiless response), the status is never taken from the stub — then commits the stub, so later writes fail loudly. `event` defaults to the ambient `getRequestEvent()`. It is **idempotent at the handler edge**: an already-committed stub passes the response through untouched, so a handler applies it unconditionally after its middleware chain fully unwinds — page responses come back from `createSSRResponse` committed and do not double-fold. Like `createResponseStub` and `getExpectedRedirectStatus`, this is an integrator-tier export: application middleware never calls it — writes to `event.response` inside the request scope are the application surface; the handler edge runs the fold once.
+- `commitEventResponse(response, event?)` is the **other exit** — handler-lifecycle plumbing for a `Response` that did not go through `createSSRResponse` (a middleware early return, an API result), the same fold the server-function handler's own responses take. It folds the event's stub onto the response — `Set-Cookie` appends entry-by-entry alongside the response's own, `Server-Timing` folds by name beside the response's own metrics, other stub headers fill gaps only (never the wire-protocol family the handlers own, never `Content-Type`/`Content-Length` on a bodiless response), the status is never taken from the stub — then commits the stub, so later writes fail loudly. An event **without** a `response` stub (the server-function handler's default event, a bare integration) still hands the request's trace on: the response is rebuilt with the `Server-Timing` entries when there is something to say, and comes back untouched otherwise. `event` defaults to the ambient `getRequestEvent()`. It is **idempotent at the handler edge**: an already-committed stub passes the response through untouched, so a handler applies it unconditionally after its middleware chain fully unwinds — page responses come back from `createSSRResponse` committed and do not double-fold. Like `createResponseStub` and `getExpectedRedirectStatus`, this is an integrator-tier export: application middleware never calls it — writes to `event.response` inside the request scope are the application surface; the handler edge runs the fold once.
 
 Handlers compose request middleware with the same web-standard shape everything else uses — `(request, next) => Response | Promise<Response>`:
 

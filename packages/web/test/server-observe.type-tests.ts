@@ -9,7 +9,15 @@
 // `test-types` against the BUILT package types via the self-link (`pnpm
 // types` first), so the augmentation is checked exactly as published.
 import { OBSERVE } from "solid-js";
-import type { InvocationChannel, InvocationEvent, InvocationLive } from "@solidjs/web";
+import type {
+  InvocationChannel,
+  InvocationEvent,
+  InvocationLive,
+  TraceContext,
+  TraceProvider,
+  TraceSlot
+} from "@solidjs/web";
+import { getTraceContext } from "@solidjs/web";
 
 declare const observe: NonNullable<typeof OBSERVE>;
 
@@ -39,6 +47,33 @@ observe.server.invocations.subscribe("boundary", () => {});
 // The unsubscribe is a plain thunk.
 const off: () => void = observe.server.invocations.subscribe("invocation", () => {});
 off();
+
+// The trace-provider slot (trace.ts) augments the same interface, from a
+// second module: both merges land.
+observe.server.trace satisfies TraceSlot;
+const provider: TraceProvider = request => {
+  request satisfies Request | undefined;
+  // A partial answer: fields and entries are both optional.
+  return { sampled: true, entries: { "sentry-trace": "…" } };
+};
+const uninstall: () => void = observe.server.trace.provide(provider);
+uninstall();
+// A provider may decline.
+observe.server.trace.provide(() => undefined);
+// @ts-expect-error the answer is a Partial<TraceContext>, not arbitrary
+observe.server.trace.provide(() => ({ traceId: 42 }));
+
+// `getTraceContext()` — the core (every-tier) accessor — is typed the same
+// on both entries: the server derives, the client stub answers undefined.
+const trace: TraceContext | undefined = getTraceContext();
+if (trace) {
+  trace.traceId satisfies string;
+  trace.spanId satisfies string;
+  trace.parentId satisfies string | undefined;
+  trace.sampled satisfies boolean | undefined;
+  trace.entries satisfies Record<string, string>;
+  trace.entries.traceparent satisfies string;
+}
 
 // Nothing else was added to the slot: an unknown member is an error, which
 // is what distinguishes a merged interface from a permissive one.

@@ -30,6 +30,7 @@ export type {
   InvocationListener,
   InvocationLive
 } from "./server-observe.js";
+export type { TraceContext, TraceProvider, TraceSlot } from "./trace.js";
 export type { JSX } from "../jsx/jsx.js";
 
 export {

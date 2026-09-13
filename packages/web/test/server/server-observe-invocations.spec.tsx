@@ -95,7 +95,9 @@ describe("the install point", () => {
     // Source (`@solidjs/web` alias), the prod artifact and the observe
     // artifact have all loaded by now; the channel is one object.
     expect(typeof channel().subscribe).toBe("function");
-    expect(Object.keys(OBSERVE!.server)).toEqual(["invocations"]);
+    // The surface as shipped: the invocation channel and the trace-provider
+    // slot (see trace.ts / server-trace.spec.tsx). A new member joins here.
+    expect(Object.keys(OBSERVE!.server).sort()).toEqual(["invocations", "trace"]);
   });
 });
 
