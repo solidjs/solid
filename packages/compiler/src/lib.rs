@@ -25,6 +25,7 @@ mod error;
 mod lazy;
 #[cfg(feature = "node")]
 mod node_adapter;
+mod optimize;
 #[cfg(feature = "node")]
 mod refresh;
 mod shared;

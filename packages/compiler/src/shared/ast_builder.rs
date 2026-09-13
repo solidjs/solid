@@ -756,6 +756,36 @@ impl<'a> AstBuilder<'a> {
         ))
     }
 
+    /// An intrinsic element (`<div />`), whose tag the parser spells as a
+    /// `JSXIdentifier` rather than the identifier *reference* a component tag
+    /// carries.
+    pub(crate) fn expression_jsx_intrinsic_element(
+        &self,
+        span: Span,
+        name: &str,
+        attributes: ArenaVec<'a, JSXAttributeItem<'a>>,
+        children: ArenaVec<'a, JSXChild<'a>>,
+        self_closing: bool,
+    ) -> Expression<'a> {
+        let opening_name =
+            JSXElementName::Identifier(JSXIdentifier::boxed(span, self.str(name), &self.inner()));
+        let closing = (!self_closing).then(|| {
+            let closing_name = JSXElementName::Identifier(JSXIdentifier::boxed(
+                span,
+                self.str(name),
+                &self.inner(),
+            ));
+            JSXClosingElement::boxed(span, closing_name, &self.inner())
+        });
+        Expression::JSXElement(JSXElement::boxed(
+            span,
+            JSXOpeningElement::boxed(span, opening_name, None, attributes, &self.inner()),
+            children,
+            closing,
+            &self.inner(),
+        ))
+    }
+
     pub(crate) fn jsx_child_expression(
         &self,
         span: Span,
