@@ -61,6 +61,7 @@ export type {
   Omit,
   Owner,
   ProjectionOptions,
+  SeededProjectionOptions,
   Refreshable,
   Signal,
   SignalOptions,
