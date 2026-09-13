@@ -9,7 +9,7 @@
 
 use crate::error::Result;
 use crate::shared::ast_builder::AstBuilder;
-use oxc_ast::ast::{Expression, JSXElement, JSXFragment};
+use oxc_ast::ast::{Expression, JSXChild, JSXElement, JSXFragment};
 use oxc_span::Span;
 
 use crate::shared::ast::arrow_return_expression;
@@ -25,6 +25,16 @@ pub(crate) trait ModeLower<'a>: ConditionBuilder<'a> {
     /// expression: the dom generate returns the template IIFE, ssr a
     /// hydration-keyed `_$ssr` node, universal a setup IIFE.
     fn lower_child_element(&mut self, element: &JSXElement<'a>) -> Result<Expression<'a>>;
+
+    /// Gives a renderer a chance to lower several adjacent static fragment
+    /// roots as one value. Non-DOM modes keep the default one-child path.
+    fn lower_static_fragment_run(
+        &mut self,
+        _children: &[JSXChild<'a>],
+        _start: usize,
+    ) -> Result<Option<(usize, Expression<'a>)>> {
+        Ok(None)
+    }
 
     /// Babel's `createTemplate(wrap: true)` for a dynamic child thunk:
     /// `memo(thunk)` in the client generates; ssr wraps the accessor body

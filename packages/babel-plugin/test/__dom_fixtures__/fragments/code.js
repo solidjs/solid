@@ -81,3 +81,34 @@ const multiLineTrailing = (
     <span>3</span>
   </>
 );
+
+const groupedAroundExpression = (
+  <>
+    <header>First</header>
+    <div>Second</div>
+    {inserted}
+    <span>Third</span>
+    <footer>Fourth</footer>
+  </>
+);
+
+const adjacentDynamicRoots = (
+  <>
+    <div id={state.first}>First</div>
+    <div id={state.last}>Last</div>
+  </>
+);
+
+const adjacentVoidRoots = (
+  <>
+    <input />
+    <img />
+  </>
+);
+
+const adjacentImportRoots = (
+  <>
+    <img loading="lazy" />
+    <iframe loading="lazy" />
+  </>
+);

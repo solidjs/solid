@@ -307,25 +307,40 @@ function create(html, bypassGuard, flag) {
     );
   const t = document.createElement("template");
   t.innerHTML = html;
-  return flag === 2 ? t.content.firstChild.firstChild : t.content.firstChild;
+  return flag & 4
+    ? flag & 2
+      ? t.content.firstChild
+      : t.content
+    : flag & 2
+      ? t.content.firstChild.firstChild
+      : t.content.firstChild;
 } /**
  * Compiler-emitted primitive; not for hand-written code.
  * @param flag
  * - `undefined` — clone the template as-is (uses `cloneNode`).
  * - `1` — use `document.importNode` instead of `cloneNode`.
  * - `2` — the template html is wrapped; the outer tag is stripped at clone time.
+ * - `4` — clone a multi-root template and return its child nodes as an array.
+ *
+ * Flags are a bitmask, so the compiler may combine them.
  * @internal
  */
-export function template(html: string, flag?: 1 | 2): () => Element;
+export function template(html: string, flag?: 1 | 2 | 3): () => Element;
+export function template(html: string, flag: 4 | 5 | 6 | 7): () => Node[];
 
 export function template(html, flag) {
   let node;
+  const getSource = bypassGuard => node || (node = create(html, bypassGuard, flag));
   const fn =
-    flag === 1
-      ? bypassGuard => document.importNode(node || (node = create(html, bypassGuard, flag)), true)
-      : bypassGuard => (node || (node = create(html, bypassGuard, flag))).cloneNode(true);
+    flag & 4
+      ? flag & 1
+        ? bypassGuard => Array.from(document.importNode(getSource(bypassGuard), true).childNodes)
+        : bypassGuard => Array.from(getSource(bypassGuard).cloneNode(true).childNodes)
+      : flag & 1
+        ? bypassGuard => document.importNode(getSource(bypassGuard), true)
+        : bypassGuard => getSource(bypassGuard).cloneNode(true);
 
-  if ("_SOLID_DEV_") fn._html = flag === 2 ? html.replace(/^<[^>]+>/, "") : html;
+  if ("_SOLID_DEV_") fn._html = flag & 2 ? html.replace(/^<[^>]+>/, "") : html;
   return fn;
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function delegateEvents(eventNames: string[]): void;
