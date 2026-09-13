@@ -34,7 +34,15 @@ import {
   Errored,
   Repeat
 } from "solid-js";
-import { Portal, httpStatus, httpHeader, clientOnly, isServer } from "@solidjs/web";
+import {
+  Portal,
+  Dynamic,
+  httpStatus,
+  httpHeader,
+  clientOnly,
+  isServer,
+  type JSX
+} from "@solidjs/web";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -73,6 +81,15 @@ export type Scenario = {
    * then late chunks — live streaming with $df swaps).
    */
   async?: boolean;
+  /**
+   * Every node in the container after hydration must be a server node — no
+   * client-created text or elements. Stronger than textContent, which reads
+   * the same whether a text item adopted the server node or created its own
+   * beside it (#3383).
+   */
+  adoptAll?: boolean;
+  /** the server-rendered HTML must contain no `<!--!$-->` text separators */
+  noSeparators?: boolean;
   /** known-broken on main; hydrate spec wraps in test.fails */
   knownFailure?: string;
   /** known-broken only in the streamed replay mode */
@@ -1572,6 +1589,78 @@ function PropConditionForwarded() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Text separators (#3383). The server decides `<!--!$-->` on what each array
+// item RESOLVES to; the client claims a flattened value positionally. These
+// pin both directions: no separators (and no client-created nodes) for lists
+// of element-yielding memos/components, and separators wherever two items
+// land as adjacent text — including across a dropped nullish item or a
+// nested array boundary, which the old static-type rule got wrong.
+// Updates change text INSIDE the elements (a shared suffix signal) so the
+// `<li>`s themselves must survive: the lists are `.map`, not `For`.
+let setSepSuffix!: (v: string) => void;
+function SepRow(props: { i: number; suffix: () => string }) {
+  // A memo is a valid child at runtime (resolved as a function child); the
+  // Component type only admits JSX.Element, hence the cast.
+  return createMemo(() => (
+    <li>
+      {props.i}
+      {props.suffix()}
+    </li>
+  )) as unknown as JSX.Element;
+}
+function MemoElementList() {
+  // Non-empty initially: an empty text hole hydrates to a client-created
+  // placeholder node, which is unrelated to what this scenario pins.
+  const [suffix, set] = createSignal(".");
+  setSepSuffix = set;
+  return (
+    <ul>
+      {[1, 2, 3, 4, 5].map(i => (
+        <SepRow i={i} suffix={suffix} />
+      ))}
+    </ul>
+  );
+}
+
+let setSepDynSuffix!: (v: string) => void;
+function DynamicElementList() {
+  const [suffix, set] = createSignal("");
+  setSepDynSuffix = set;
+  return (
+    <ul>
+      {[1, 2, 3].map(i => (
+        <Dynamic component="li">{`${i}${suffix()}`}</Dynamic>
+      ))}
+    </ul>
+  );
+}
+
+let setSepCount!: (v: number) => void;
+function TextAfterNull() {
+  const [count, set] = createSignal(7);
+  setSepCount = set;
+  const label = () => "x";
+  return <div>{[count(), null, label()]}</div>;
+}
+
+let setSepLabel!: (v: string) => void;
+function NestedArrayText() {
+  const [label, set] = createSignal("c");
+  setSepLabel = set;
+  // Hoisted so the update re-evaluates the array without re-creating it.
+  const el = <i>i</i>;
+  return <div>{["a", ["b", el], label(), ["d"]]}</div>;
+}
+
+let setSepMixed!: (v: string) => void;
+function MixedMemoResults() {
+  const [t, set] = createSignal("c");
+  setSepMixed = set;
+  const items = [() => "a", () => <b>1</b>, () => t(), () => "d", () => <i>2</i>, () => 5];
+  return <div>{items.map(f => createMemo(f))}</div>;
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -2113,5 +2202,52 @@ export const scenarios: Scenario[] = [
     update: () => setTeamId(undefined),
     expectedTextAfterUpdate: "Some Team",
     stableSelector: "main, div, h1"
+  },
+  {
+    name: "separator-memo-element-list",
+    App: MemoElementList,
+    expectedText: "1.2.3.4.5.",
+    adoptAll: true,
+    noSeparators: true,
+    update: () => setSepSuffix("!"),
+    expectedTextAfterUpdate: "1!2!3!4!5!",
+    stableSelector: "ul, li"
+  },
+  {
+    name: "separator-dynamic-element-list",
+    App: DynamicElementList,
+    expectedText: "123",
+    adoptAll: true,
+    noSeparators: true,
+    update: () => setSepDynSuffix("!"),
+    expectedTextAfterUpdate: "1!2!3!",
+    stableSelector: "ul, li"
+  },
+  {
+    name: "separator-text-after-null",
+    App: TextAfterNull,
+    expectedText: "7x",
+    adoptAll: true,
+    update: () => setSepCount(8),
+    expectedTextAfterUpdate: "8x",
+    stableSelector: "div"
+  },
+  {
+    name: "separator-nested-array-text",
+    App: NestedArrayText,
+    expectedText: "abicd",
+    adoptAll: true,
+    update: () => setSepLabel("C"),
+    expectedTextAfterUpdate: "abiCd",
+    stableSelector: "div, i"
+  },
+  {
+    name: "separator-mixed-memo-results",
+    App: MixedMemoResults,
+    expectedText: "a1cd25",
+    adoptAll: true,
+    update: () => setSepMixed("C"),
+    expectedTextAfterUpdate: "a1Cd25",
+    stableSelector: "div, b, i"
   }
 ];

@@ -1,0 +1,5 @@
+{
+  "name": "separator-nested-array-text",
+  "shell": "<div _hk=1>a<!--!$-->b<i _hk=0>i</i>c<!--!$-->d</div>",
+  "rest": ""
+}

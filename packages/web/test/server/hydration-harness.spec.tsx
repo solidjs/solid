@@ -80,6 +80,8 @@ describe("hydration parity harness — server render", () => {
         .filter(Boolean)) {
         expect(visible).toContain(token);
       }
+      // Element-yielding items need no text separator between them (#3383).
+      if (scenario.noSeparators) expect(full).not.toContain("<!--!$-->");
 
       writeFileSync(
         resolve(artifactsDir, `${scenario.name}.json`),

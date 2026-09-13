@@ -1,0 +1,5 @@
+{
+  "name": "separator-text-after-null",
+  "shell": "<div _hk=0>7<!--!$-->x</div>",
+  "rest": ""
+}

@@ -4448,22 +4448,46 @@ function flattenClassList(list, result) {
 //                 whose backing component rebuilds an owner subtree on
 //                 each access, producing a divergent hydration tree.
 function tryResolveString(node) {
+  ssrTextTail = false;
+  return tryResolveStr(node);
+}
+
+// Text-hole separators. The client claims a multi-insert's nodes positionally
+// after FLATTENING its value (memos resolved, nested arrays spliced, nullish
+// dropped), so two consecutive items that both land as TEXT must arrive in
+// distinct text nodes: `<!--!$-->` between them keeps the parser from merging
+// them into one. Elements and template markup are nodes of their own and need
+// no separator on either side. The decision is therefore made on the RESOLVED
+// value, not the item's static type: a memo or component is a function here
+// and may yield either, and separating every adjacent pair of functions cost
+// eight bytes plus a comment node per component in a list (#3383).
+//
+// `ssrTextTail`: whether the last thing appended to the output of the region
+// being walked was text. Leaves maintain it; arrays and functions pass it
+// through (flattening semantics); an unresolved async hole counts as text on
+// both sides since its content is unknown. Each independent region — a root
+// resolve, a template hole, an element's children — starts fresh through the
+// exported wrappers; only the internal walkers recurse.
+let ssrTextTail = false;
+
+function tryResolveStr(node) {
   const t = typeof node;
-  if (t === "string") return node;
-  if (t === "number") return "" + node;
+  if (t === "string" || t === "number") {
+    const s = ssrTextTail ? "<!--!$-->" + node : "" + node;
+    ssrTextTail = true;
+    return s;
+  }
   if (node == null || t === "boolean") return "";
   if (t === "object") {
     if (Array.isArray(node)) {
       const joined = tryJoinPlainSSRArray(node);
-      if (joined !== undefined) return joined;
+      if (joined !== undefined) {
+        ssrTextTail = false;
+        return joined;
+      }
       let s = "";
-      let prevNonObj = false;
       for (let i = 0, len = node.length; i < len; i++) {
-        const item = node[i];
-        const itemNonObj = item !== null && typeof item !== "object";
-        if (prevNonObj && itemNonObj) s += "<!--!$-->";
-        prevNonObj = itemNonObj;
-        const r = tryResolveString(item);
+        const r = tryResolveStr(node[i]);
         if (typeof r !== "string") return { bail: node };
         s += r;
       }
@@ -4476,6 +4500,7 @@ function tryResolveString(node) {
       if ("_SOLID_DEV_") console.warn(`Unrecognized value. Skipped inserting`, node);
       return "";
     }
+    ssrTextTail = false;
     return Array.isArray(node.t) ? node.t[0] : node.t;
   }
   if (t === "function") {
@@ -4483,12 +4508,14 @@ function tryResolveString(node) {
     try {
       v = node();
     } catch (err) {
-      return buildAsyncWrap(err, node) || "";
+      const wrap = buildAsyncWrap(err, node);
+      if (wrap) ssrTextTail = true;
+      return wrap || "";
     }
     // Recurse on the evaluated value. If recursion bails, propagate the
     // bail object unchanged — its `bail` field already carries the
     // deepest evaluated form, so the caller never re-invokes `node`.
-    return tryResolveString(v);
+    return tryResolveStr(v);
   }
   return "";
 }
@@ -4503,9 +4530,15 @@ export function resolveSSRNode(
   },
   top
 ) {
+  ssrTextTail = false;
+  return walkSSRNode(node, result, top);
+}
+
+function walkSSRNode(node, result, top) {
   const t = typeof node;
   if (t === "string" || t === "number") {
-    result.t[result.t.length - 1] += node;
+    result.t[result.t.length - 1] += ssrTextTail ? "<!--!$-->" + node : node;
+    ssrTextTail = true;
   } else if (node == null || t === "boolean") {
   } else if (Array.isArray(node)) {
     // A `$slot`-tagged array is a slot RANGE reaching the walker as a plain
@@ -4516,13 +4549,11 @@ export function resolveSSRNode(
     const slotLive = node.$slot && sharedConfig.context && sharedConfig.context.liveHoles;
     if (slotLive) slotLive.suppressed++;
     try {
-      let prevNonObj = false;
       for (let i = 0, len = node.length; i < len; i++) {
-        const item = node[i];
-        const itemNonObj = item !== null && typeof item !== "object";
-        if (!top && prevNonObj && itemNonObj) result.t[result.t.length - 1] += `<!--!$-->`;
-        prevNonObj = itemNonObj;
-        resolveSSRNode(item, result);
+        // An element's direct children (`top`) are never separated from each
+        // other; separators still apply inside any nested array.
+        if (top) ssrTextTail = false;
+        walkSSRNode(node[i], result, false);
       }
     } finally {
       if (slotLive) slotLive.suppressed--;
@@ -4535,8 +4566,10 @@ export function resolveSSRNode(
         result.h.push(...node.h);
         result.p.push(...node.p);
       }
+      ssrTextTail = false;
     } else if (node.t !== undefined) {
       result.t[result.t.length - 1] += node.t;
+      ssrTextTail = false;
     } else if ("_SOLID_DEV_") console.warn(`Unrecognized value. Skipped inserting`, node);
   } else if (t === "function") {
     // Function nodes reaching the tree resolver are content by construction
@@ -4548,17 +4581,23 @@ export function resolveSSRNode(
     const live = sharedConfig.context && sharedConfig.context.liveHoles;
     let liveNode = null;
     if (live && (liveNode = live.content(node)) !== null) {
-      if (typeof liveNode === "string") result.t[result.t.length - 1] += liveNode;
-      else resolveSSRNode(liveNode, result);
+      if (typeof liveNode === "string") {
+        // Engine-rendered hole text: content of unknown shape, treated like
+        // an unresolved hole.
+        result.t[result.t.length - 1] += ssrTextTail ? "<!--!$-->" + liveNode : liveNode;
+        ssrTextTail = true;
+      } else walkSSRNode(liveNode, result, false);
     } else {
       try {
-        resolveSSRNode(node(), result);
+        walkSSRNode(node(), result, false);
       } catch (err) {
         const wrap = buildAsyncWrap(err, node);
         if (wrap) {
+          if (ssrTextTail) result.t[result.t.length - 1] += "<!--!$-->";
           result.h.push(wrap.fn);
           result.p.push(wrap.p);
           result.t.push("");
+          ssrTextTail = true;
         }
       }
     }

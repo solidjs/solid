@@ -1,0 +1,5 @@
+{
+  "name": "separator-dynamic-element-list",
+  "shell": "<ul _hk=0><li _hk=110>1</li><li _hk=130>2</li><li _hk=150>3</li></ul>",
+  "rest": ""
+}
