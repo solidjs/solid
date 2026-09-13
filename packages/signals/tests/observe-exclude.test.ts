@@ -110,6 +110,43 @@ describe("OBSERVE.exclude", () => {
     expect(seen.filter(e => e.code === "IMMUTABLE_UPDATE_IN_STORE")).toHaveLength(1);
   });
 
+  it("forgets an interaction whose only writes went to the panel's own store", () => {
+    arm();
+    const delivered: unknown[] = [];
+    attribution.subscribe("interaction", e => delivered.push(e));
+    const { owner, result: setPanel } = excludedRoot(() => {
+      const [panel, setPanel] = createStore<{ items: number[] }>({ items: [] });
+      // The panel renders its list, so the store has live nodes to write.
+      createEffect(
+        () => panel.items.length,
+        () => {},
+        { name: "panelList" }
+      );
+      return setPanel;
+    });
+    flush();
+    // The panel's own "clear" button: a real DOM click the runtime stamps,
+    // whose handler writes nothing but the panel's store.
+    OBSERVE!.attribution.withInteraction({ type: "click", target: "button" }, () =>
+      runWithOwner(owner, () => setPanel(s => void s.items.push(1)))
+    );
+    flush();
+    expect(attribution.interactions()).toHaveLength(0);
+    expect(delivered).toHaveLength(0);
+
+    // A click that also writes the app is the app's: recorded, with the
+    // panel write not counted among its writes.
+    const [, setApp] = createSignal(0, { name: "app" });
+    OBSERVE!.attribution.withInteraction({ type: "click" }, () => {
+      runWithOwner(owner, () => setPanel(s => void s.items.push(2)));
+      setApp(1);
+    });
+    flush();
+    expect(attribution.interactions()).toHaveLength(1);
+    expect(delivered).toHaveLength(1);
+    expect(attribution.interactions()[0].writes).toBe(1);
+  });
+
   it("records no runs for the panel's computations", () => {
     arm();
     const [tick, setTick] = createSignal(0, { name: "tick" });

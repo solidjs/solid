@@ -292,7 +292,7 @@ interface AttributedNode {
  * engine records nothing about the node. Cached per node once any exclusion
  * exists; before that the answer is a flag read.
  */
-function excludedNode(el: Computed<any>): boolean {
+function excludedNode(el: Computed<any> | Signal<any>): boolean {
   if (!anyExcluded()) return false;
   const node = el as AttributedNode;
   if (node._devExcluded === undefined) node._devExcluded = isExcluded(el);
@@ -713,7 +713,7 @@ function stampWrite(
   const prior = (node as AttributedNode)._devChange;
   (node as AttributedNode)._devChange = record;
   noteNavigationWrite(prior, record);
-  noteInteractionWrite(record.origin);
+  noteInteractionWrite(record.origin, excludedNode(node));
   if (kind === "write") trackEffectWrite(node, record, value);
   // stampWrite is the single funnel for committed root invalidations (sync
   // writes, refresh(), async landings), which makes it the one place the
@@ -2732,6 +2732,8 @@ interface InteractionState {
   heldIn: Set<Transition>;
   /** A flush parked its writes at some point (hold tracking on or off). */
   held: boolean;
+  /** Root writes to excluded subjects (the observer's own store): not the app's. */
+  excludedWrites: number;
 }
 const interactionStates = new WeakMap<ChangeOrigin, InteractionState>();
 /** Opened, not yet settled. */
@@ -2757,7 +2759,8 @@ function openInteraction(frame: ChangeOrigin): void {
     open: true,
     writeDrain: drainSeq,
     heldIn: new Set(),
-    held: false
+    held: false,
+    excludedWrites: 0
   };
   interactionStates.set(frame, state);
   openInteractions.add(state);
@@ -2784,9 +2787,13 @@ function openInteractionOf(origin: ChangeOrigin | undefined): InteractionState |
 }
 
 /** stampWrite: a root write stamped `origin`. */
-function noteInteractionWrite(origin: ChangeOrigin): void {
+function noteInteractionWrite(origin: ChangeOrigin, excluded: boolean): void {
   const state = openInteractionOf(origin);
   if (state === undefined) return;
+  if (excluded) {
+    state.excludedWrites++;
+    return;
+  }
   state.event.writes++;
   state.writeDrain = drainSeq;
 }
@@ -2845,6 +2852,14 @@ function maybeSettleInteraction(state: InteractionState, end: number = now()): v
   if (event.writes > 0 && drainSeq <= state.writeDrain) return;
   for (const nav of event.navigations) if (nav.outcome === undefined) return;
   openInteractions.delete(state);
+  // Every write went to an excluded subject and nothing of the app's ran: the
+  // click was on the observer's own UI (a devtools panel's button). Not a
+  // fact about the app — forget it rather than report a dead interaction.
+  if (event.writes === 0 && state.excludedWrites > 0 && event.runs === 0 && event.created === 0) {
+    const i = interactionLog.indexOf(event);
+    if (i !== -1) interactionLog.splice(i, 1);
+    return;
+  }
   event.settledMs = end - event.at;
   event.outcome = event.writes === 0 ? "idle" : state.held ? "held" : "committed";
   emitRecord("interaction", event);
