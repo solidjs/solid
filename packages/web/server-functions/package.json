@@ -15,6 +15,10 @@
         "types": "../types/server-functions/server.d.ts",
         "default": "./dist/server.dev.js"
       },
+      "observe": {
+        "types": "../types/server-functions/server.d.ts",
+        "default": "./dist/server.observe.js"
+      },
       "types": "../types/server-functions/server.d.ts",
       "default": "./dist/server.js"
     }

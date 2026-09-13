@@ -1001,6 +1001,12 @@ module.exports = [
     // measured at 15465 B against 15410 (+55); see the core floor note.
     // #3372/#3377 (2026-09-12): 15.50 -> 15.55 KB, measured at 15511 B against 15465
     // (+46); see the core floor note.
+    //
+    // Server observe slot (#3398, 2026-09-12): `OBSERVE.server` — the empty
+    // object the server runtime populates (invocation channel, trace
+    // provider). One literal property on the observe object, inert on the
+    // client by design. Measured at 15501 B against 15485 without the slot
+    // on the same `next` (+16), within the 15.55 KB cap. Observe-only.
     limit: "15.55 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },

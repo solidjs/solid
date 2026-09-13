@@ -14,6 +14,11 @@ import {
   ssrScope as scope
 } from "solid-js";
 import { effect, memo } from "./render.js";
+// Populates `OBSERVE.server` on load (observe/dev builds; folds out of prod).
+// Called from the runtime module rather than the entry so every server
+// bundle that carries this module — main, server-functions, frames — fills
+// the slot, whichever loads first.
+import { installServerObserve } from "./server-observe.js";
 import {
   createHydrationSerializer,
   getLocalHeaderScript
@@ -58,6 +63,9 @@ import {
 import { JSX } from "../jsx/jsx.js";
 
 import { SerializerPlugin } from "../serialization/src/serializer-decode.js";
+
+// The server observe surface, filled in at load (see the import above).
+installServerObserve();
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
 

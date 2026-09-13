@@ -21,6 +21,7 @@ import {
 } from "../../src/response.js";
 import { COMPOSED_BODY_FRAMING, isHttpNavigationTarget } from "../../src/constants.js";
 import { RequestContext, commitEventResponse, getRequestEvent } from "../../src/server.js";
+import { observeInvocation } from "../../src/server-observe.js";
 import { encodeFlashCookie, setFlashSecret } from "./flash.js";
 import {
   BODY_FORMAT_HEADER,
@@ -1251,8 +1252,12 @@ export function createServerReference({ id, fn, name }) {
       let result = provideEventOnce(provideEvent, evt, () => {
         const run = () => fn.apply(thisArg, args);
         // The wrapper must return run()'s value (this path stays
-        // synchronous for synchronous functions).
-        return wrap ? wrap(run, { id, args, event: evt, direct: true }) : run();
+        // synchronous for synchronous functions). Observed as a whole —
+        // policy included — on `OBSERVE.server.invocations`; a no-op with
+        // no listener and outside observe builds.
+        return observeInvocation({ id, direct: true, event: evt, args }, () =>
+          wrap ? wrap(run, { id, args, event: evt, direct: true }) : run()
+        );
       });
       // A generator or stream body runs when the caller pulls it, after the
       // call-time scope above has gone. Bind the WRAPPER'S result (not merely
@@ -3668,9 +3673,16 @@ export async function handleServerFunctionRequest(request, options = {}) {
         // ahead of run() (auth, logging) included.
         INVOCATIONS.set(event, { id: functionId });
         const run = () => serverFunction(...parsed);
-        return wrapInvocation
-          ? wrapInvocation(run, { id: functionId, args: parsed, event, request, direct: false })
-          : run();
+        // Same observation as the direct leg (see `observeInvocation`): the
+        // wrapped execution as a whole, the error as thrown — before the
+        // catch below sanitizes it for the wire.
+        return observeInvocation(
+          { id: functionId, direct: false, event, request, args: parsed },
+          () =>
+            wrapInvocation
+              ? wrapInvocation(run, { id: functionId, args: parsed, event, request, direct: false })
+              : run()
+        );
       };
       let result = await provideEventOnce(provide, event, invokeOnce);
 

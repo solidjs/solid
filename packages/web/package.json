@@ -47,6 +47,10 @@
           "types": "./types/index.d.ts",
           "default": "./dist/server.dev.js"
         },
+        "observe": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.observe.js"
+        },
         "types": "./types/index.d.ts",
         "default": "./dist/server.js"
       },
@@ -67,6 +71,10 @@
           "types": "./types/index.d.ts",
           "default": "./dist/server.dev.js"
         },
+        "observe": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.observe.js"
+        },
         "types": "./types/index.d.ts",
         "default": "./dist/server.js"
       },
@@ -74,6 +82,10 @@
         "development": {
           "types": "./types/index.d.ts",
           "default": "./dist/server.dev.js"
+        },
+        "observe": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.observe.js"
         },
         "types": "./types/index.d.ts",
         "default": "./dist/server.js"
@@ -115,6 +127,10 @@
           "types": "./types/server-functions/server.d.ts",
           "default": "./server-functions/dist/server.dev.js"
         },
+        "observe": {
+          "types": "./types/server-functions/server.d.ts",
+          "default": "./server-functions/dist/server.observe.js"
+        },
         "types": "./types/server-functions/server.d.ts",
         "default": "./server-functions/dist/server.js"
       },
@@ -127,6 +143,10 @@
           "types": "./types/server-functions/server.d.ts",
           "default": "./server-functions/dist/server.dev.js"
         },
+        "observe": {
+          "types": "./types/server-functions/server.d.ts",
+          "default": "./server-functions/dist/server.observe.js"
+        },
         "types": "./types/server-functions/server.d.ts",
         "default": "./server-functions/dist/server.js"
       },
@@ -134,6 +154,10 @@
         "development": {
           "types": "./types/server-functions/server.d.ts",
           "default": "./server-functions/dist/server.dev.js"
+        },
+        "observe": {
+          "types": "./types/server-functions/server.d.ts",
+          "default": "./server-functions/dist/server.observe.js"
         },
         "types": "./types/server-functions/server.d.ts",
         "default": "./server-functions/dist/server.js"
@@ -145,6 +169,10 @@
       "development": {
         "types": "./types/server-functions/server.d.ts",
         "default": "./server-functions/dist/server.dev.js"
+      },
+      "observe": {
+        "types": "./types/server-functions/server.d.ts",
+        "default": "./server-functions/dist/server.observe.js"
       },
       "types": "./types/server-functions/server.d.ts",
       "default": "./server-functions/dist/server.js"
@@ -163,6 +191,10 @@
           "types": "./types/frames/server.d.ts",
           "default": "./frames/dist/server.dev.js"
         },
+        "observe": {
+          "types": "./types/frames/server.d.ts",
+          "default": "./frames/dist/server.observe.js"
+        },
         "types": "./types/frames/server.d.ts",
         "default": "./frames/dist/server.js"
       },
@@ -179,6 +211,10 @@
           "types": "./types/frames/server.d.ts",
           "default": "./frames/dist/server.dev.js"
         },
+        "observe": {
+          "types": "./types/frames/server.d.ts",
+          "default": "./frames/dist/server.observe.js"
+        },
         "types": "./types/frames/server.d.ts",
         "default": "./frames/dist/server.js"
       },
@@ -186,6 +222,10 @@
         "development": {
           "types": "./types/frames/server.d.ts",
           "default": "./frames/dist/server.dev.js"
+        },
+        "observe": {
+          "types": "./types/frames/server.d.ts",
+          "default": "./frames/dist/server.observe.js"
         },
         "types": "./types/frames/server.d.ts",
         "default": "./frames/dist/server.js"
@@ -201,6 +241,10 @@
       "development": {
         "types": "./types/frames/server.d.ts",
         "default": "./frames/dist/server.dev.js"
+      },
+      "observe": {
+        "types": "./types/frames/server.d.ts",
+        "default": "./frames/dist/server.observe.js"
       },
       "types": "./types/frames/server.d.ts",
       "default": "./frames/dist/server.js"

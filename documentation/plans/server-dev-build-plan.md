@@ -237,6 +237,24 @@ Output: a short section appended to the sketch choosing between (a) the same
 applicable subset, or (b) a smaller `ServerHooks` interface. Leaning (a) for
 type/tooling reuse, with unused members no-op.
 
+> **Resolved 2026-09-12 — (b), and not as a hooks interface.** The server
+> has no re-runs to attribute, so what an observer wants from it is not
+> engine hooks but _events_: a server-function execution settled, a render
+> failed, a boundary flushed. That surface is `OBSERVE.server` — an empty
+> `ServerObserve` interface declared in `@solidjs/signals`, re-exported by
+> `solid-js`, and populated (object at load, type by `declare module
+> "solid-js"` augmentation) by `@solidjs/web`'s server entries. First channel:
+> `OBSERVE.server.invocations` (`subscribe("invocation", (event, live) =>
+> …)`), emitted from both server-function legs. Observe-tier only: web now
+> ships `dist/server.observe.js`, `server-functions/dist/server.observe.js`
+> and `frames/dist/server.observe.js` under the `observe` condition (the P0
+> plumbing, third flavour), and every emit site folds out of prod behind
+> `"_SOLID_OBSERVE_"`. State hangs off the shared `OBSERVE` object under a
+> registered symbol because each web server bundle carries its own copy of
+> the runtime; `AttributionHooks` stays client-only. Spec:
+> `packages/web/test/server/server-observe-invocations.spec.tsx`; user docs
+> in RFC 08 (`OBSERVE.server`) and RFC 10 (observing invocations).
+
 ### P4 — `@solidjs/diagnostics` server scenario
 
 One test: `captureArtifact(() => renderToStream(<App/>))` on the dev server

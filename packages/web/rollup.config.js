@@ -171,6 +171,17 @@ export default [
     plugins: [replaceDev(true)].concat(plugins)
   },
   {
+    // Observe server build (`observe` condition nested under node/worker/deno
+    // like `development`): the server observe surface — `OBSERVE.server`
+    // population in src/server-observe.ts — survives at production speed
+    // while every `_SOLID_DEV_` check folds out. Pairs with solid-js's
+    // dist/server.observe.* so `OBSERVE` is one live object across the hop.
+    input: "src/index.server.ts",
+    output: { file: "dist/server.observe.js", format: "es" },
+    external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
+    plugins: [replaceFlags(false, true)].concat(plugins)
+  },
+  {
     input: "src/index.ts",
     output: { file: "dist/web.dev.js", format: "es" },
     external: ["solid-js"],
@@ -233,6 +244,16 @@ export default [
     output: { file: "server-functions/dist/server.dev.js", format: "es" },
     external: ["solid-js", "seroval", "seroval-plugins/web"],
     plugins: [replaceDev(true)].concat(plugins)
+  },
+  {
+    // Observe build: the invocation observation around both dispatch legs
+    // (`observeInvocation`) stays, error sanitization and the diagnostic
+    // bodies stay production. Selected by the `observe` condition nested
+    // under node/worker/deno, exactly like `development`.
+    input: "server-functions/src/server.ts",
+    output: { file: "server-functions/dist/server.observe.js", format: "es" },
+    external: ["solid-js", "seroval", "seroval-plugins/web"],
+    plugins: [replaceFlags(false, true)].concat(plugins)
   },
   // @solidjs/web/frames — the server-component transport. The client half
   // bundles the frame runtime (store/morph/host/transport; frame-client is
@@ -305,5 +326,14 @@ export default [
     output: { file: "frames/dist/server.dev.js", format: "es" },
     external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
     plugins: [replaceDev(true)].concat(plugins)
+  },
+  {
+    // Observe server build for frames: the bundled SSR pipeline carries the
+    // `OBSERVE.server` population (and, later, the server facade's emit
+    // sites) at production speed. Same nesting as the other two.
+    input: "frames/src/server.ts",
+    output: { file: "frames/dist/server.observe.js", format: "es" },
+    external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
+    plugins: [replaceFlags(false, true)].concat(plugins)
   }
 ];

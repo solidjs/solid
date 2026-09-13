@@ -163,6 +163,18 @@ export interface AttributionSlot {
 }
 
 /**
+ * The server runtime's observe surface — the one place a server-side
+ * consumer (an APM adapter's `init()`) installs on, beside `diagnostics`.
+ * Declared EMPTY here and filled in by the runtime that owns the facts:
+ * `@solidjs/web`'s server entry populates the object at module init and
+ * augments this interface with its members (the server-function
+ * invocation channel, …), so the core never learns those shapes and the
+ * consumer still finds everything on the one `OBSERVE`. Empty on the
+ * client, and in a server process until a server runtime has loaded.
+ */
+export interface ServerObserve {}
+
+/**
  * The observe tier: the structured channel and the attribution wiring —
  * everything a production observability consumer needs, and nothing that
  * assumes a developer at a console. Present in dev and observe builds
@@ -172,6 +184,8 @@ export interface Observe {
   diagnostics: Diagnostics;
   /** The attribution hook slot and interaction frame — see `AttributionSlot`. */
   attribution: AttributionSlot;
+  /** The server runtime's surface — see `ServerObserve`. */
+  server: ServerObserve;
   /**
    * The live node an emitted event was about, when the emitter knew it.
    * Events are serializable records and never carry the node; consumers that
@@ -272,6 +286,7 @@ export const OBSERVE: Observe = __OBSERVE__
   ? {
       diagnostics,
       attribution: attributionSlot,
+      server: {},
       subjectOf(event) {
         return eventSubjects.get(event);
       },
