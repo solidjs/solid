@@ -4440,6 +4440,10 @@ function flattenClassList(list, result) {
   }
 }
 
+function isIterable(value: any): value is Iterable<any> {
+  return value != null && typeof value === "object" && typeof value[Symbol.iterator] === "function";
+}
+
 // Best-effort sync resolution. Returns a string when the entire `node`
 // resolves synchronously to text. Otherwise returns one of three shapes
 // shared with `ssrFirstGroupHit`:
@@ -4501,6 +4505,7 @@ function tryResolveStr(node) {
       }
       return s;
     }
+    if (isIterable(node)) return tryResolveString(Array.from(node));
     if (node.h && node.h.length > 0) return { merge: node };
     if (node.t === undefined) {
       // Not a template object — mirror the client's dev warn-and-skip
@@ -4566,6 +4571,8 @@ function walkSSRNode(node, result, top) {
     } finally {
       if (slotLive) slotLive.suppressed--;
     }
+  } else if (isIterable(node)) {
+    return resolveSSRNode(Array.from(node), result, top);
   } else if (t === "object") {
     if (node.h) {
       result.t[result.t.length - 1] += node.t[0];
