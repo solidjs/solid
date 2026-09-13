@@ -1,5 +1,29 @@
 # @solidjs/web
 
+## 2.0.0-rc.9
+
+### Patch Changes
+
+- 1af28a1: Call `runHydrationEvents()` after `dynamic()` spreads props onto a string tag, so events the hydration script queued for a `<Dynamic>` element are replayed instead of being dropped until `_$HY.done`.
+- 5b31076: `ssrElement` no longer emits `style=""` / `class=""` for nullish values; they are omitted like every other attribute, matching the client. Skipped props also leave no stray whitespace in the opening tag (#3382).
+- 084e621: SSR emits the `<!--!$-->` text separator only between items that resolve to text. Adjacent memos and components that yield elements — every `Dynamic`, `Show`, or wrapper-library instance in a list — no longer carry a separator and a comment node each. Text that becomes adjacent through a nested array or a dropped nullish item is now separated, so it hydrates into distinct text nodes (#3383).
+- af94f67: Server observe surface: `OBSERVE.server` and the invocation channel
+
+  `OBSERVE` gains a `server` slot — an augmentable `ServerObserve` interface declared empty in `@solidjs/signals` (re-exported by `solid-js`) and populated by `@solidjs/web`'s server runtime, so server-side observability consumers subscribe on the one `OBSERVE` object they already know from the client. The first channel is `OBSERVE.server.invocations`: `subscribe("invocation", (event, live) => …)` delivers one `{ id, direct, at, durationMs, outcome, deferred? }` record per server-function execution — HTTP dispatch and direct SSR calls alike — when it settles, with the request event, `request`, `args`, and the result or the error as thrown beside it. Observers, not policy: any number of listeners, none able to alter the call; `wrapInvocation` remains the single policy hook.
+
+  `@solidjs/web` now publishes observe-tier server artifacts (`dist/server.observe.js`, `server-functions/dist/server.observe.js`, `frames/dist/server.observe.js`) under the `observe` export condition, alongside the existing dev/prod pairs. The surface and every emit site fold out of the prod artifacts.
+
+- 042b540: Trace context: `getTraceContext()`, W3C `traceparent` on the exchange, and the `OBSERVE.server.trace` provider slot
+
+  The server runtime now reads the W3C Trace Context half of the HTTP exchange once per request — continuing an incoming `traceparent` (with `tracestate`/`baggage` beside it) or originating a trace when none came in — and exposes it through `getTraceContext()` from `@solidjs/web`: `{ traceId, spanId, parentId?, sampled?, state?, baggage?, entries }`, one object per request (direct SSR-time server-function calls included), the render's own for a render outside a request scope, `undefined` outside both and on the client. Application code forwards a trace downstream with `entries.traceparent`. This is core HTTP behavior in every build tier.
+
+  The trace is also handed down to the browser: `entries` are emitted as `Server-Timing` metrics (`traceparent;desc="00-…"`) when the response head commits — `createSSRResponse`, `commitEventResponse` (now also for an event without a response stub, such as the server-function handler's default event), and `commitResponseStub` (which accepts the owning `event` in its options) — and as `<meta name="…" content="…">` tags in the HTML shell head, delivered wherever the head content goes (`</head>` splice, `onHead`). A `Server-Timing` name the application already wrote is respected; `Server-Timing` now folds entry by entry when a stub and a response/`responseInit` both carry one. The browser is told only when something is recording the trace — the incoming `traceparent` was sampled, or a provider answered — never for a trace the runtime originated alone or an unsampled upstream one (what load balancers and meshes stamp on every request), so an app with no APM sees zero wire change.
+
+  In observe/dev builds, `OBSERVE.server.trace.provide(provider)` installs a single global provider whose answer merges over the derivation (fields replace, `entries` merge by name) — how an APM's server SDK contributes its active span and vendor entries (`sentry-trace`/`baggage`) once, with no per-request entry point into the host.
+
+- Updated dependencies [af94f67]
+  - solid-js@2.0.0-rc.9
+
 ## 2.0.0-rc.8
 
 ### Patch Changes
