@@ -88,24 +88,27 @@ const staticChildren = _$ssr(_tmpl$7);
 const foldedChildren = _$ssr(_tmpl$7);
 const childrenBeforeSpread = _$ssrElement(
   "module",
-  _$mergeProps(
+  [
     {
       get children() {
         return fallback();
       }
     },
     props
-  ),
+  ],
   undefined,
   false
 );
 const childrenAfterSpread = _$ssrElement(
   "module",
-  _$mergeProps(props, {
-    get children() {
-      return later();
+  [
+    props,
+    {
+      get children() {
+        return later();
+      }
     }
-  }),
+  ],
   undefined,
   false
 );

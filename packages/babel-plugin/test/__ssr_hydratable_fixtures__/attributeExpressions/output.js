@@ -9,7 +9,6 @@ import { ssrHydrationKey as _$ssrHydrationKey } from "r-server";
 import { memo as _$memo } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
-import { mergeProps as _$mergeProps } from "r-server";
 import { ssr as _$ssr } from "r-server";
 var _ref$, _v$, _v$2, _v$44, _v$45, _v$46, _v$47, _v$48, _v$49;
 var _tmpl$ = ['<a href="/" class="', '">Welcome</a>'],
@@ -81,53 +80,51 @@ let id = "my-h1";
 let link;
 const template = _$ssrElement(
   "div",
-  () =>
-    _$mergeProps(
-      {
-        id: "main"
+  [
+    {
+      id: "main"
+    },
+    results,
+    {
+      class: {
+        selected: unknown
       },
-      results,
-      {
-        class: {
-          selected: unknown
-        },
-        style: {
-          color
-        }
+      style: {
+        color
       }
-    ),
+    }
+  ],
   () =>
     _$ssrElement(
       "h1",
-      () =>
-        _$mergeProps(
-          {
-            id: "my-h1"
+      [
+        {
+          id: "my-h1"
+        },
+        results,
+        {
+          foo: true,
+          disabled: true,
+          get title() {
+            return welcoming();
           },
-          results,
-          {
-            foo: true,
-            disabled: true,
-            get title() {
-              return welcoming();
-            },
-            get style() {
-              return {
-                "background-color": color(),
-                "margin-right": "40px"
-              };
-            },
-            get ["class"]() {
-              return [
-                "base",
-                {
-                  dynamic: dynamic(),
-                  selected
-                }
-              ];
-            }
+          get style() {
+            return {
+              "background-color": color(),
+              "margin-right": "40px"
+            };
+          },
+          get ["class"]() {
+            return [
+              "base",
+              {
+                dynamic: dynamic(),
+                selected
+              }
+            ];
           }
-        ),
+        }
+      ],
       () => ((_ref$ = link), _$ssr(_tmpl$, "ccc ddd")),
       false
     ),
@@ -272,10 +269,12 @@ var _v$32 = _$ssrHydrationKey(),
 const template23 = _$ssr(_tmpl$18, _v$32, _v$33, _v$34);
 const template24 = _$ssrElement(
   "a",
-  () =>
-    _$mergeProps(props, {
+  [
+    props,
+    {
       something: true
-    }),
+    }
+  ],
   undefined,
   true
 );
@@ -283,40 +282,40 @@ var _v$35 = _$ssrHydrationKey(),
   _v$36 = _$scope(() => _$escape(props.children)),
   _v$37 = _$ssrElement(
     "a",
-    () =>
-      _$mergeProps(props, {
+    [
+      props,
+      {
         something: true
-      }),
+      }
+    ],
     undefined,
     false
   );
 const template25 = _$ssr(_tmpl$19, _v$35, _v$36, _v$37);
 const template26 = _$ssrElement(
   "div",
-  () =>
-    _$mergeProps(
-      {
-        start: "Hi",
-        middle: middle
-      },
-      spread
-    ),
+  [
+    {
+      start: "Hi",
+      middle: middle
+    },
+    spread
+  ],
   () => "Hi",
   true
 );
 const template27 = _$ssrElement(
   "div",
-  () =>
-    _$mergeProps(
-      {
-        start: "Hi"
-      },
-      first,
-      {
-        middle: middle
-      },
-      second
-    ),
+  [
+    {
+      start: "Hi"
+    },
+    first,
+    {
+      middle: middle
+    },
+    second
+  ],
   () => "Hi",
   true
 );
@@ -539,37 +538,45 @@ const template80 = _$ssrElement("div", propsSpread, undefined, true);
 const template81 = _$ssrElement("div", propsSpread, undefined, true);
 const template82 = _$ssrElement(
   "div",
-  () =>
-    _$mergeProps(propsSpread, {
+  [
+    propsSpread,
+    {
       get ["data-dynamic"]() {
         return color();
       },
       "data-static": color()
-    }),
+    }
+  ],
   undefined,
   true
 );
 const template83 = _$ssrElement(
   "div",
-  () =>
-    _$mergeProps(propsSpread, {
+  [
+    propsSpread,
+    {
       get ["data-dynamic"]() {
         return color();
       },
       "data-static": color()
-    }),
+    }
+  ],
   undefined,
   true
 );
 const template84 = _$ssrElement(
   "div",
-  () =>
-    _$mergeProps(propsSpread1, propsSpread2, propsSpread3, {
+  [
+    propsSpread1,
+    propsSpread2,
+    propsSpread3,
+    {
       get ["data-dynamic"]() {
         return color();
       },
       "data-static": color()
-    }),
+    }
+  ],
   undefined,
   true
 );
@@ -631,15 +638,17 @@ function MyVideo() {
 // (parity with the dom generate — neither side allocates a hydration id).
 const template97 = _$ssrElement(
   "svg",
-  () =>
-    _$mergeProps(spread, {
+  [
+    spread,
+    {
       get ["stroke-width"]() {
         return cond() ? width() : 2;
       },
       get fill() {
         return cond() && color();
       }
-    }),
+    }
+  ],
   undefined,
   true
 );

@@ -3,7 +3,6 @@ import { delegateEvents as _$delegateEvents } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { spread as _$spread } from "r-dom";
-import { mergeProps as _$mergeProps } from "r-dom";
 import { ref as _$ref } from "r-dom";
 import { runHydrationEvents as _$runHydrationEvents } from "r-dom";
 import { effect as _$effect } from "r-dom";
@@ -72,13 +71,16 @@ const refValue = _el$6;
 var _el$7 = _$getNextElement(_tmpl$2);
 _$spread(
   _el$7,
-  _$mergeProps(props, {
-    get data() {
-      var _el$13 = _$getNextElement(_tmpl$5);
-      _$insert(_el$13, () => state.value);
-      return _el$13;
+  [
+    props,
+    {
+      get data() {
+        var _el$13 = _$getNextElement(_tmpl$5);
+        _$insert(_el$13, () => state.value);
+        return _el$13;
+      }
     }
-  }),
+  ],
   false
 );
 _$runHydrationEvents();

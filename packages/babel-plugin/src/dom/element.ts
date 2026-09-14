@@ -1691,11 +1691,12 @@ function processSpreads(
   // A lone spread — reactive included — passes straight through: spread()
   // resolves a function source inside its own tracking scopes, and merging
   // one source would mint a memo that consumes a hydration id the SSR fast
-  // path never allocates (#3105).
-  const props =
-    spreadArgs.length === 1
-      ? spreadArgs[0]
-      : t.callExpression(registerImportMethod(path, "mergeProps"), spreadArgs);
+  // path never allocates (#3105). Several sources go as an ARRAY, not a
+  // mergeProps() call: spread() reads the sources directly (later wins per
+  // key, only the winner read) with no merge proxy to build and walk, and a
+  // reactive source is called inside the tracking scope with no memo — so
+  // no hydration id here either, matching the ssrElement array form.
+  const props = spreadArgs.length === 1 ? spreadArgs[0] : t.arrayExpression(spreadArgs);
 
   return [
     filteredAttributes,

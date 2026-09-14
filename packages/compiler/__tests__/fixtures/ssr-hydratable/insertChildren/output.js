@@ -128,16 +128,12 @@ var _v$28 = _$ssrHydrationKey();
 const staticChildren = _$ssr(_tmpl$7, _v$28);
 var _v$29 = _$ssrHydrationKey();
 const foldedChildren = _$ssr(_tmpl$7, _v$29);
-const childrenBeforeSpread = _$ssrElement("module", () => {
-	return _$mergeProps({ get children() {
-		return fallback();
-	} }, props);
-}, undefined, true);
-const childrenAfterSpread = _$ssrElement("module", () => {
-	return _$mergeProps(props, { get children() {
-		return later();
-	} });
-}, undefined, true);
+const childrenBeforeSpread = _$ssrElement("module", [{ get children() {
+	return fallback();
+} }, props], undefined, true);
+const childrenAfterSpread = _$ssrElement("module", [props, { get children() {
+	return later();
+} }], undefined, true);
 function OrderedParent(props) {
 	var _v$30 = _$ssrHydrationKey(), _v$31 = _$scope(() => {
 		return _$escape(props.children);

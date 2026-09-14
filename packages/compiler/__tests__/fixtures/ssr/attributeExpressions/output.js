@@ -8,7 +8,6 @@ import { ssrStyle as _$ssrStyle } from "r-server";
 import { ssrStyleProperty as _$ssrStyleProperty } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
-import { mergeProps as _$mergeProps } from "r-server";
 var _ref$, _v$, _v$2, _v$22, _v$23, _v$37, _v$38, _v$39, _v$40, _v$41;
 var _tmpl$ = ["<a href=\"/\" class=\"", "\">Welcome</a>"];
 var _tmpl$2 = ["<div>", "</div>"];
@@ -129,28 +128,36 @@ const refConst = null;
 const selected = true;
 let id = "my-h1";
 let link;
-const template = _$ssrElement("div", _$mergeProps({ id: "main" }, results, {
-	class: { selected: unknown },
-	style: { color }
-}), _$ssrElement("h1", _$mergeProps({ id }, results, {
-	foo: true,
-	disabled: true,
-	get title() {
-		return welcoming();
-	},
-	get style() {
-		return {
-			"background-color": color(),
-			"margin-right": "40px"
-		};
-	},
-	get ["class"]() {
-		return ["base", {
-			dynamic: dynamic(),
-			selected
-		}];
+const template = _$ssrElement("div", [
+	{ id: "main" },
+	results,
+	{
+		class: { selected: unknown },
+		style: { color }
 	}
-}), (_ref$ = link, _$ssr(_tmpl$, "ccc ddd")), false), false);
+], _$ssrElement("h1", [
+	{ id },
+	results,
+	{
+		foo: true,
+		disabled: true,
+		get title() {
+			return welcoming();
+		},
+		get style() {
+			return {
+				"background-color": color(),
+				"margin-right": "40px"
+			};
+		},
+		get ["class"]() {
+			return ["base", {
+				dynamic: dynamic(),
+				selected
+			}];
+		}
+	}
+], (_ref$ = link, _$ssr(_tmpl$, "ccc ddd")), false), false);
 const template2 = _$ssrElement("div", getProps("test"), [
 	(_v$ = _$escape(rowId), _$ssr(_tmpl$2, _v$)),
 	(_v$2 = () => {
@@ -231,16 +238,21 @@ var _v$16 = () => {
 	return "t" in test && "true";
 };
 const template23 = _$ssr(_tmpl$20, _v$16, _v$17);
-const template24 = _$ssrElement("a", _$mergeProps(props, { something: true }), undefined, false);
+const template24 = _$ssrElement("a", [props, { something: true }], undefined, false);
 var _v$18 = () => {
 	return _$escape(props.children);
-}, _v$19 = _$ssrElement("a", _$mergeProps(props, { something: true }), undefined, false);
+}, _v$19 = _$ssrElement("a", [props, { something: true }], undefined, false);
 const template25 = _$ssr(_tmpl$21, _v$18, _v$19);
-const template26 = _$ssrElement("div", _$mergeProps({
+const template26 = _$ssrElement("div", [{
 	start: "Hi",
 	middle
-}, spread), "Hi", false);
-const template27 = _$ssrElement("div", _$mergeProps({ start: "Hi" }, first, { middle }, second), "Hi", false);
+}, spread], "Hi", false);
+const template27 = _$ssrElement("div", [
+	{ start: "Hi" },
+	first,
+	{ middle },
+	second
+], "Hi", false);
 const template28 = _$ssrElement("label", api(), [
 	_$ssrElement("span", api(), ["Input is ", () => {
 		return api() ? "checked" : "unchecked";
@@ -362,24 +374,29 @@ const propsSpread = {
 };
 const template80 = _$ssrElement("div", propsSpread, undefined, false);
 const template81 = _$ssrElement("div", propsSpread, undefined, false);
-const template82 = _$ssrElement("div", _$mergeProps(propsSpread, {
+const template82 = _$ssrElement("div", [propsSpread, {
 	get ["data-dynamic"]() {
 		return color();
 	},
 	"data-static": /* @static */ color()
-}), undefined, false);
-const template83 = _$ssrElement("div", _$mergeProps(propsSpread, {
+}], undefined, false);
+const template83 = _$ssrElement("div", [propsSpread, {
 	get ["data-dynamic"]() {
 		return color();
 	},
 	"data-static": /* @static */ color()
-}), undefined, false);
-const template84 = _$ssrElement("div", _$mergeProps(propsSpread1, propsSpread2, propsSpread3, {
-	get ["data-dynamic"]() {
-		return color();
-	},
-	"data-static": /* @static */ color()
-}), undefined, false);
+}], undefined, false);
+const template84 = _$ssrElement("div", [
+	propsSpread1,
+	propsSpread2,
+	propsSpread3,
+	{
+		get ["data-dynamic"]() {
+			return color();
+		},
+		"data-static": /* @static */ color()
+	}
+], undefined, false);
 // STATIC PROPERTY OF OBJECT ACCESS
 // https://github.com/ryansolid/dom-expressions/issues/252#issuecomment-1572220563
 const styleProp = { style: {
@@ -439,18 +456,18 @@ const template90 = [
 	_$ssrElement("style", styleProps(), () => {
 		return css();
 	}, false),
-	_$ssrElement("style", _$mergeProps(styleProps, { get children() {
+	_$ssrElement("style", [styleProps, { get children() {
 		return css();
-	} }), undefined, false),
-	_$ssrElement("style", _$mergeProps(styleProps, { get innerHTML() {
+	} }], undefined, false),
+	_$ssrElement("style", [styleProps, { get innerHTML() {
 		return css();
-	} }), undefined, false),
-	_$ssrElement("style", _$mergeProps(styleProps, { get innerText() {
+	} }], undefined, false),
+	_$ssrElement("style", [styleProps, { get innerText() {
 		return css();
-	} }), undefined, false),
-	_$ssrElement("style", _$mergeProps(styleProps, { get textContent() {
+	} }], undefined, false),
+	_$ssrElement("style", [styleProps, { get textContent() {
 		return css();
-	} }), undefined, false)
+	} }], undefined, false)
 ];
 const nope = () => undefined;
 var _v$42 = () => {

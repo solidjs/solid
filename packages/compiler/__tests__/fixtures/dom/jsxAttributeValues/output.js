@@ -2,7 +2,6 @@ import { template as _$template } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { spread as _$spread } from "r-dom";
-import { mergeProps as _$mergeProps } from "r-dom";
 import { ref as _$ref } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
@@ -67,13 +66,13 @@ _$ref(() => {
 }, _el$6);
 const refValue = _el$6;
 var _el$7 = _tmpl$2();
-_$spread(_el$7, _$mergeProps(props, { get data() {
+_$spread(_el$7, [props, { get data() {
 	var _el$15 = _tmpl$5();
 	_$insert(_el$15, () => {
 		return state.value;
 	});
 	return _el$15;
-} }), false);
+} }], false);
 const spreadValue = _el$7;
 var _el$8 = _tmpl$2();
 _$insert(_el$8, _$createComponent(Comp, { get fallback() {

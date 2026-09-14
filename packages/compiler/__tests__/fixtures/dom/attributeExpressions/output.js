@@ -3,7 +3,6 @@ import { insert as _$insert } from "r-dom";
 import { memo as _$memo } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { spread as _$spread } from "r-dom";
-import { mergeProps as _$mergeProps } from "r-dom";
 import { applyRef as _$applyRef } from "r-dom";
 import { ref as _$ref } from "r-dom";
 import { style as _$style } from "r-dom";
@@ -80,29 +79,37 @@ let link;
 var _el$ = _tmpl$();
 var _el$2 = _el$.firstChild;
 var _el$3 = _el$2.firstChild;
-_$spread(_el$, _$mergeProps({ id: "main" }, results, {
-	class: { selected: unknown },
-	style: { color }
-}), true);
-_$spread(_el$2, _$mergeProps({ id }, results, {
-	foo: true,
-	disabled: true,
-	get title() {
-		return welcoming();
-	},
-	get style() {
-		return {
-			"background-color": color(),
-			"margin-right": "40px"
-		};
-	},
-	get ["class"]() {
-		return ["base", {
-			dynamic: dynamic(),
-			selected
-		}];
+_$spread(_el$, [
+	{ id: "main" },
+	results,
+	{
+		class: { selected: unknown },
+		style: { color }
 	}
-}), true);
+], true);
+_$spread(_el$2, [
+	{ id },
+	results,
+	{
+		foo: true,
+		disabled: true,
+		get title() {
+			return welcoming();
+		},
+		get style() {
+			return {
+				"background-color": color(),
+				"margin-right": "40px"
+			};
+		},
+		get ["class"]() {
+			return ["base", {
+				dynamic: dynamic(),
+				selected
+			}];
+		}
+	}
+], true);
 var _ref$ = link;
 typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => {
 	return _ref$;
@@ -243,7 +250,7 @@ _$effect(() => "t" in test, (_v$) => {
 const template23 = _el$30;
 var _el$31 = _tmpl$16();
 _$claimElement(_el$31);
-_$spread(_el$31, _$mergeProps(props, { something: true }), false);
+_$spread(_el$31, [props, { something: true }], false);
 const template24 = _el$31;
 var _el$32 = _tmpl$17();
 var _el$33 = _el$32.firstChild;
@@ -251,16 +258,21 @@ _$insert(_el$32, () => {
 	return props.children;
 }, _el$33);
 _$claimElement(_el$33);
-_$spread(_el$33, _$mergeProps(props, { something: true }), false);
+_$spread(_el$33, [props, { something: true }], false);
 const template25 = _el$32;
 var _el$34 = _tmpl$18();
-_$spread(_el$34, _$mergeProps({
+_$spread(_el$34, [{
 	start: "Hi",
 	middle
-}, spread), true);
+}, spread], true);
 const template26 = _el$34;
 var _el$35 = _tmpl$18();
-_$spread(_el$35, _$mergeProps({ start: "Hi" }, first, { middle }, second), true);
+_$spread(_el$35, [
+	{ start: "Hi" },
+	first,
+	{ middle },
+	second
+], true);
 const template27 = _el$35;
 var _el$36 = _tmpl$19();
 var _el$37 = _el$36.firstChild;
@@ -490,28 +502,33 @@ var _el$98 = _tmpl$4();
 _$spread(_el$98, { ...propsSpread }, false);
 const template81 = _el$98;
 var _el$99 = _tmpl$4();
-_$spread(_el$99, _$mergeProps(propsSpread, {
+_$spread(_el$99, [propsSpread, {
 	get ["data-dynamic"]() {
 		return color();
 	},
 	"data-static": /* @static */ color()
-}), false);
+}], false);
 const template82 = _el$99;
 var _el$100 = _tmpl$4();
-_$spread(_el$100, _$mergeProps({ ...propsSpread }, {
+_$spread(_el$100, [{ ...propsSpread }, {
 	get ["data-dynamic"]() {
 		return color();
 	},
 	"data-static": /* @static */ color()
-}), false);
+}], false);
 const template83 = _el$100;
 var _el$101 = _tmpl$4();
-_$spread(_el$101, _$mergeProps({ ...propsSpread1 }, propsSpread2, { ...propsSpread3 }, {
-	get ["data-dynamic"]() {
-		return color();
-	},
-	"data-static": /* @static */ color()
-}), false);
+_$spread(_el$101, [
+	{ ...propsSpread1 },
+	propsSpread2,
+	{ ...propsSpread3 },
+	{
+		get ["data-dynamic"]() {
+			return color();
+		},
+		"data-static": /* @static */ color()
+	}
+], false);
 const template84 = _el$101;
 // STATIC PROPERTY OF OBJECT ACCESS
 // https://github.com/ryansolid/dom-expressions/issues/252#issuecomment-1572220563

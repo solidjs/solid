@@ -43,29 +43,50 @@ describe("intrinsic ref and spread sources", () => {
     expect(output).not.toContain("mergeProps");
   });
 
+  // Several sources compile to an ARRAY, never to mergeProps(): the runtimes
+  // read the sources directly and a function source is a plain thunk — no
+  // merge proxy, no memo, no hydration id on either side. The server drops
+  // event and property sources, and a `children` attribute shadowed by JSX
+  // children, so those leave a lone thunk behind.
   test.each([
-    ["an ordinary attribute", 'const view = <div id="x" {...attrs()} />;'],
+    ["an ordinary attribute", 'const view = <div id="x" {...attrs()} />;', "["],
     [
       "a ref and an ordinary attribute",
-      'let node; const view = <div ref={node} id="x" {...attrs()} />;'
+      'let node; const view = <div ref={node} id="x" {...attrs()} />;',
+      "["
     ],
-    ["two spreads", "const view = <div {...a()} {...b()} />;"],
-    ["an event", "let node; const view = <div ref={node} onClick={click} {...attrs()} />;"],
+    ["two spreads", "const view = <div {...a()} {...b()} />;", "[a, b]"],
+    [
+      "an event",
+      "let node; const view = <div ref={node} onClick={click} {...attrs()} />;",
+      "attrs,"
+    ],
     [
       "a property",
-      "let node; const view = <input ref={node} prop:value={value()} {...attrs()} />;"
+      "let node; const view = <input ref={node} prop:value={value()} {...attrs()} />;",
+      "attrs,"
     ],
     [
       "an explicit children source",
-      "let node; const view = <div ref={node} children={fallback()} {...attrs()}>child</div>;"
+      "let node; const view = <div ref={node} children={fallback()} {...attrs()}>child</div>;",
+      "attrs,"
     ],
     [
       "several attributes and spreads",
-      'let node; const view = <div ref={node} id="x" {...a()} title="y" {...b()} />;'
+      'let node; const view = <div ref={node} id="x" {...a()} title="y" {...b()} />;',
+      "["
     ]
-  ])("keeps mergeProps for %s", (_, source) => {
-    expect(compile(source)).toContain("mergeProps");
-    expect(compile(source, "dom")).toContain("mergeProps");
+  ])("passes several sources as an array for %s", (_, source, ssrProps) => {
+    for (const hydratable of [true, false]) {
+      const ssr = compile(source, "ssr", hydratable);
+      expect(ssr).toContain(
+        `ssrElement("${source.includes("<input") ? "input" : "div"}", ${ssrProps}`
+      );
+      expect(ssr).not.toContain("mergeProps");
+    }
+    const dom = compile(source, "dom");
+    expect(dom).toMatch(/spread\([^,]+, \[/);
+    expect(dom).not.toContain("mergeProps");
   });
 
   test("does not change component ref props", () => {

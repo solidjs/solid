@@ -1,5 +1,4 @@
 import { ssrElement as _$ssrElement } from "r-server";
-import { mergeProps as _$mergeProps } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
@@ -65,14 +64,16 @@ var _v$1 = _$ssrHydrationKey(),
 const refValue = _$ssr(_tmpl$5, _v$1);
 const spreadValue = _$ssrElement(
   "div",
-  () =>
-    _$mergeProps(props, {
+  [
+    props,
+    {
       get data() {
         var _v$10 = _$ssrHydrationKey(),
           _v$11 = () => _$escape(state.value);
         return _$ssr(_tmpl$6, _v$10, _v$11);
       }
-    }),
+    }
+  ],
   undefined,
   true
 );

@@ -108,25 +108,28 @@ const foldedChildren = _tmpl$6();
 var _el$19 = _tmpl$2();
 _$spread(
   _el$19,
-  _$mergeProps(
+  [
     {
       get children() {
         return fallback();
       }
     },
     props
-  ),
+  ],
   false
 );
 const childrenBeforeSpread = _el$19;
 var _el$20 = _tmpl$2();
 _$spread(
   _el$20,
-  _$mergeProps(props, {
-    get children() {
-      return later();
+  [
+    props,
+    {
+      get children() {
+        return later();
+      }
     }
-  }),
+  ],
   false
 );
 const childrenAfterSpread = _el$20;

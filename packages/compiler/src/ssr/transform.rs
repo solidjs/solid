@@ -1321,16 +1321,19 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         }
         let mut prop_objects = std::vec::Vec::new();
         let mut running_props = std::vec::Vec::new();
-        let mut dynamic_spread = false;
         for attr in attributes {
             match attr {
                 JSXAttributeItem::SpreadAttribute(spread) => {
                     flush_component_props(self, &mut running_props, &mut prop_objects, spread.span);
                     let mut argument = spread.argument.clone_in(self.allocator);
-                    // Dynamic spreads defer behind a thunk and force the
-                    // mergeProps wrap (Babel's `dynamicSpread`).
+                    // A dynamic spread defers behind a thunk: evaluated in
+                    // argument position it would run before `ssrElement`
+                    // allocates the element's own hydration id, while the
+                    // client claims the element (getNextElement) before
+                    // applying the spread — shifting the element's id by one
+                    // and leaving it unclaimed. `ssrElement` calls function
+                    // sources after allocating the key, matching that order.
                     if self.classify().is_dynamic(None, &argument, false) {
-                        dynamic_spread = true;
                         argument = self.inline_call_expression(argument);
                     }
                     prop_objects.push(argument);
@@ -1352,27 +1355,17 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 );
             }
         }
-        Ok(if prop_objects.len() > 1 || dynamic_spread {
-            self.uses_merge_props = true;
-            let merged = self.call_expression(
-                Span::new(0, 0),
-                self.ast()
-                    .expression_identifier(Span::new(0, 0), self.ast().ident("_$mergeProps")),
-                prop_objects,
-            );
-            // Defer the merge behind a thunk when hydratable: `mergeProps`
-            // with a function source creates a memo, which consumes a
-            // hydration child id. Evaluated in argument position it would
-            // run before `ssrElement` allocates the element's own id,
-            // while the client claims the element (getNextElement) before
-            // applying the spread — shifting the element's id by one and
-            // leaving it unclaimed. `ssrElement` resolves function props
-            // after allocating the hydration key, matching the client.
-            if self.hydratable {
-                self.arrow_return_expression(Span::new(0, 0), merged)
-            } else {
-                merged
-            }
+        // Several sources go as an ARRAY, not a mergeProps() call: ssrElement
+        // serializes straight from the sources (later wins per key, only the
+        // winner read) with no merged object to build and walk once, and a
+        // function source is a plain thunk called after the key — no memo,
+        // so no hydration id, matching the client spread() array form. A
+        // single source, thunk included, passes through as the props
+        // argument itself.
+        Ok(if prop_objects.len() > 1 {
+            let elements = prop_objects.into_iter().map(expression_to_array_element);
+            self.ast()
+                .expression_array(Span::new(0, 0), self.ast().vec_from_iter(elements))
         } else {
             prop_objects
                 .pop()

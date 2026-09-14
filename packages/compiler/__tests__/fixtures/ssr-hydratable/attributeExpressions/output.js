@@ -10,7 +10,6 @@ import { ssrStyle as _$ssrStyle } from "r-server";
 import { ssrStyleProperty as _$ssrStyleProperty } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
-import { mergeProps as _$mergeProps } from "r-server";
 var _ref$, _v$, _v$2, _v$46, _v$47, _v$48, _v$49, _v$50, _v$51;
 var _tmpl$ = ["<a href=\"/\" class=\"", "\">Welcome</a>"];
 var _tmpl$2 = ["<div>", "</div>"];
@@ -179,14 +178,18 @@ const refConst = null;
 const selected = true;
 let id = "my-h1";
 let link;
-const template = _$ssrElement("div", () => {
-	return _$mergeProps({ id: "main" }, results, {
+const template = _$ssrElement("div", [
+	{ id: "main" },
+	results,
+	{
 		class: { selected: unknown },
 		style: { color }
-	});
-}, () => {
-	return _$ssrElement("h1", () => {
-		return _$mergeProps({ id }, results, {
+	}
+], () => {
+	return _$ssrElement("h1", [
+		{ id },
+		results,
+		{
 			foo: true,
 			disabled: true,
 			get title() {
@@ -204,8 +207,8 @@ const template = _$ssrElement("div", () => {
 					selected
 				}];
 			}
-		});
-	}, () => {
+		}
+	], () => {
 		return _ref$ = link, _$ssr(_tmpl$, "ccc ddd");
 	}, false);
 }, true);
@@ -296,26 +299,23 @@ var _v$34 = _$ssrHydrationKey(), _v$35 = () => {
 	return "t" in test && "true";
 };
 const template23 = _$ssr(_tmpl$20, _v$34, _v$35, _v$36);
-const template24 = _$ssrElement("a", () => {
-	return _$mergeProps(props, { something: true });
-}, undefined, true);
+const template24 = _$ssrElement("a", [props, { something: true }], undefined, true);
 var _v$37 = _$ssrHydrationKey(), _v$38 = _$scope(() => {
 	return _$escape(props.children);
-}), _v$39 = _$ssrElement("a", () => {
-	return _$mergeProps(props, { something: true });
-}, undefined, false);
+}), _v$39 = _$ssrElement("a", [props, { something: true }], undefined, false);
 const template25 = _$ssr(_tmpl$21, _v$37, _v$38, _v$39);
-const template26 = _$ssrElement("div", () => {
-	return _$mergeProps({
-		start: "Hi",
-		middle
-	}, spread);
-}, () => {
+const template26 = _$ssrElement("div", [{
+	start: "Hi",
+	middle
+}, spread], () => {
 	return "Hi";
 }, true);
-const template27 = _$ssrElement("div", () => {
-	return _$mergeProps({ start: "Hi" }, first, { middle }, second);
-}, () => {
+const template27 = _$ssrElement("div", [
+	{ start: "Hi" },
+	first,
+	{ middle },
+	second
+], () => {
 	return "Hi";
 }, true);
 const template28 = _$ssrElement("label", api(), () => {
@@ -480,30 +480,29 @@ const propsSpread = {
 };
 const template80 = _$ssrElement("div", propsSpread, undefined, true);
 const template81 = _$ssrElement("div", propsSpread, undefined, true);
-const template82 = _$ssrElement("div", () => {
-	return _$mergeProps(propsSpread, {
+const template82 = _$ssrElement("div", [propsSpread, {
+	get ["data-dynamic"]() {
+		return color();
+	},
+	"data-static": /* @static */ color()
+}], undefined, true);
+const template83 = _$ssrElement("div", [propsSpread, {
+	get ["data-dynamic"]() {
+		return color();
+	},
+	"data-static": /* @static */ color()
+}], undefined, true);
+const template84 = _$ssrElement("div", [
+	propsSpread1,
+	propsSpread2,
+	propsSpread3,
+	{
 		get ["data-dynamic"]() {
 			return color();
 		},
 		"data-static": /* @static */ color()
-	});
-}, undefined, true);
-const template83 = _$ssrElement("div", () => {
-	return _$mergeProps(propsSpread, {
-		get ["data-dynamic"]() {
-			return color();
-		},
-		"data-static": /* @static */ color()
-	});
-}, undefined, true);
-const template84 = _$ssrElement("div", () => {
-	return _$mergeProps(propsSpread1, propsSpread2, propsSpread3, {
-		get ["data-dynamic"]() {
-			return color();
-		},
-		"data-static": /* @static */ color()
-	});
-}, undefined, true);
+	}
+], undefined, true);
 // STATIC PROPERTY OF OBJECT ACCESS
 // https://github.com/ryansolid/dom-expressions/issues/252#issuecomment-1572220563
 const styleProp = { style: {
@@ -557,16 +556,14 @@ function MyVideo() {
 }
 // #2959: conditional attribute merged into a spread stays a bare expression
 // (parity with the dom generate — neither side allocates a hydration id).
-const template97 = _$ssrElement("svg", () => {
-	return _$mergeProps(spread, {
-		get ["stroke-width"]() {
-			return cond() ? width() : 2;
-		},
-		get fill() {
-			return cond() && color();
-		}
-	});
-}, undefined, true);
+const template97 = _$ssrElement("svg", [spread, {
+	get ["stroke-width"]() {
+		return cond() ? width() : 2;
+	},
+	get fill() {
+		return cond() && color();
+	}
+}], undefined, true);
 var _v$120 = _$ssrHydrationKey(), _v$121 = () => {
 	return createIcon(props.radius);
 }, _v$122 = () => {

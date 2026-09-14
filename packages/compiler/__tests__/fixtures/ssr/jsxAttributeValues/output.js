@@ -3,7 +3,6 @@ import { ssr as _$ssr } from "r-server";
 import { ssrAttribute as _$ssrAttribute } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
-import { mergeProps as _$mergeProps } from "r-server";
 var _tmpl$ = ["<div", ">after</div>"];
 var _tmpl$2 = ["<div", "></div>"];
 var _tmpl$3 = [
@@ -46,12 +45,12 @@ const multiValues = _$ssr(_tmpl$3, _g$, _g$);
 const handlerValue = _$ssr(_tmpl$4);
 var _ref$ = (el) => el.appendChild(_$ssr(_tmpl$10));
 const refValue = _$ssr(_tmpl$5);
-const spreadValue = _$ssrElement("div", _$mergeProps(props, { get data() {
+const spreadValue = _$ssrElement("div", [props, { get data() {
 	var _v$6 = () => {
 		return _$escape(state.value);
 	};
 	return _$ssr(_tmpl$6, _v$6);
-} }), undefined, false);
+} }], undefined, false);
 var _v$7 = _$escape(Comp({ get fallback() {
 	return _$ssr(_tmpl$11);
 } }));

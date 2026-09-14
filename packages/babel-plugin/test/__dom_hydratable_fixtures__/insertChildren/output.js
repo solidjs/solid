@@ -149,14 +149,14 @@ const foldedChildren = _$getNextElement(_tmpl$7);
 var _el$25 = _$getNextElement(_tmpl$2);
 _$spread(
   _el$25,
-  _$mergeProps(
+  [
     {
       get children() {
         return fallback();
       }
     },
     props
-  ),
+  ],
   false
 );
 _$runHydrationEvents();
@@ -164,11 +164,14 @@ const childrenBeforeSpread = _el$25;
 var _el$26 = _$getNextElement(_tmpl$2);
 _$spread(
   _el$26,
-  _$mergeProps(props, {
-    get children() {
-      return later();
+  [
+    props,
+    {
+      get children() {
+        return later();
+      }
     }
-  }),
+  ],
   false
 );
 _$runHydrationEvents();

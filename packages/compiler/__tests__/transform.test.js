@@ -676,18 +676,21 @@ describe("@solidjs/compiler transform", () => {
     expect(result.code).not.toContain('url("${');
   });
 
-  it("lowers DOM spread attributes through spread and mergeProps", () => {
+  it("lowers DOM spread attributes through spread with a sources array", () => {
     const result = transform('<div id="main" {...props} title={title()} />', {
       filename: "input.jsx",
       moduleName: "r-dom"
     });
 
+    // Several sources go as an array, never through mergeProps(): no merge
+    // proxy, and no memo that would consume a hydration id.
     expect(result.code).toContain('import { spread as _$spread } from "r-dom";');
-    expect(result.code).toContain('import { mergeProps as _$mergeProps } from "r-dom";');
-    expect(result.code).toContain("_$spread(");
-    expect(result.code).toContain("_$mergeProps(");
+    expect(result.code).not.toContain("mergeProps");
+    expect(result.code).toMatch(/_\$spread\(_el\$\d*, \[\s*\{/);
     expect(result.code).toContain('id: "main"');
     expect(result.code).toContain("get title()");
+    expect(result.code).toMatch(/\},\s*props,\s*\{\s*get title\(\)/);
+    expect(result.code).toMatch(/\}\s*\], false\)/);
   });
 
   it("lowers plain dynamic DOM attributes through effect and setAttribute", () => {

@@ -7,7 +7,6 @@ import { ssrStyleProperty as _$ssrStyleProperty } from "r-server";
 import { ssrAttribute as _$ssrAttribute } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
-import { mergeProps as _$mergeProps } from "r-server";
 import { ssr as _$ssr } from "r-server";
 var _ref$, _v$, _v$2, _v$20, _v$21, _v$35, _v$36, _v$37, _v$38, _v$39;
 var _tmpl$ = ['<a href="/" class="', '">Welcome</a>'],
@@ -84,7 +83,7 @@ let id = "my-h1";
 let link;
 const template = _$ssrElement(
   "div",
-  _$mergeProps(
+  [
     {
       id: "main"
     },
@@ -97,10 +96,10 @@ const template = _$ssrElement(
         color
       }
     }
-  ),
+  ],
   _$ssrElement(
     "h1",
-    _$mergeProps(
+    [
       {
         id: "my-h1"
       },
@@ -127,7 +126,7 @@ const template = _$ssrElement(
           ];
         }
       }
-    ),
+    ],
     ((_ref$ = link), _$ssr(_tmpl$, "ccc ddd")),
     false
   ),
@@ -246,37 +245,43 @@ var _v$14 = () => _$ssrAttribute("disabled", "t" in _$escape(test, true)),
 const template23 = _$ssr(_tmpl$18, _v$14, _v$15);
 const template24 = _$ssrElement(
   "a",
-  _$mergeProps(props, {
-    something: true
-  }),
+  [
+    props,
+    {
+      something: true
+    }
+  ],
   undefined,
   false
 );
 var _v$16 = () => _$escape(props.children),
   _v$17 = _$ssrElement(
     "a",
-    _$mergeProps(props, {
-      something: true
-    }),
+    [
+      props,
+      {
+        something: true
+      }
+    ],
     undefined,
     false
   );
 const template25 = _$ssr(_tmpl$19, _v$16, _v$17);
 const template26 = _$ssrElement(
   "div",
-  _$mergeProps(
+  [
     {
       start: "Hi",
       middle: middle
     },
     spread
-  ),
+  ],
   "Hi",
   false
 );
 const template27 = _$ssrElement(
   "div",
-  _$mergeProps(
+  [
     {
       start: "Hi"
     },
@@ -285,7 +290,7 @@ const template27 = _$ssrElement(
       middle: middle
     },
     second
-  ),
+  ],
   "Hi",
   false
 );
@@ -438,34 +443,45 @@ const template80 = _$ssrElement("div", propsSpread, undefined, false);
 const template81 = _$ssrElement("div", propsSpread, undefined, false);
 const template82 = _$ssrElement(
   "div",
-  _$mergeProps(propsSpread, {
-    get ["data-dynamic"]() {
-      return color();
-    },
-    "data-static": color()
-  }),
+  [
+    propsSpread,
+    {
+      get ["data-dynamic"]() {
+        return color();
+      },
+      "data-static": color()
+    }
+  ],
   undefined,
   false
 );
 const template83 = _$ssrElement(
   "div",
-  _$mergeProps(propsSpread, {
-    get ["data-dynamic"]() {
-      return color();
-    },
-    "data-static": color()
-  }),
+  [
+    propsSpread,
+    {
+      get ["data-dynamic"]() {
+        return color();
+      },
+      "data-static": color()
+    }
+  ],
   undefined,
   false
 );
 const template84 = _$ssrElement(
   "div",
-  _$mergeProps(propsSpread1, propsSpread2, propsSpread3, {
-    get ["data-dynamic"]() {
-      return color();
-    },
-    "data-static": color()
-  }),
+  [
+    propsSpread1,
+    propsSpread2,
+    propsSpread3,
+    {
+      get ["data-dynamic"]() {
+        return color();
+      },
+      "data-static": color()
+    }
+  ],
   undefined,
   false
 );
@@ -507,41 +523,53 @@ const template90 = [
   _$ssrElement("style", styleProps(), () => css(), false),
   _$ssrElement(
     "style",
-    _$mergeProps(styleProps, {
-      get children() {
-        return css();
+    [
+      styleProps,
+      {
+        get children() {
+          return css();
+        }
       }
-    }),
+    ],
     undefined,
     false
   ),
   _$ssrElement(
     "style",
-    _$mergeProps(styleProps, {
-      get innerHTML() {
-        return css();
+    [
+      styleProps,
+      {
+        get innerHTML() {
+          return css();
+        }
       }
-    }),
+    ],
     undefined,
     false
   ),
   _$ssrElement(
     "style",
-    _$mergeProps(styleProps, {
-      get innerText() {
-        return css();
+    [
+      styleProps,
+      {
+        get innerText() {
+          return css();
+        }
       }
-    }),
+    ],
     undefined,
     false
   ),
   _$ssrElement(
     "style",
-    _$mergeProps(styleProps, {
-      get textContent() {
-        return css();
+    [
+      styleProps,
+      {
+        get textContent() {
+          return css();
+        }
       }
-    }),
+    ],
     undefined,
     false
   )

@@ -121,14 +121,14 @@ const hello = "hello";
 const staticChildren = _$getNextElement(_tmpl$7);
 const foldedChildren = _$getNextElement(_tmpl$7);
 var _el$29 = _$getNextElement(_tmpl$2);
-_$spread(_el$29, _$mergeProps({ get children() {
+_$spread(_el$29, [{ get children() {
 	return fallback();
-} }, props), false);
+} }, props], false);
 _$runHydrationEvents();
 const childrenBeforeSpread = _el$29;
 var _el$30 = _$getNextElement(_tmpl$2);
-_$spread(_el$30, _$mergeProps(props, { get children() {
+_$spread(_el$30, [props, { get children() {
 	return later();
-} }), false);
+} }], false);
 _$runHydrationEvents();
 const childrenAfterSpread = _el$30;

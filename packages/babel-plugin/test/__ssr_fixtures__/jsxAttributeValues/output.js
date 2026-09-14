@@ -1,5 +1,4 @@
 import { ssrElement as _$ssrElement } from "r-server";
-import { mergeProps as _$mergeProps } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
@@ -37,12 +36,15 @@ var _ref$ = el => el.appendChild(_$ssr(_tmpl$0));
 const refValue = _$ssr(_tmpl$5);
 const spreadValue = _$ssrElement(
   "div",
-  _$mergeProps(props, {
-    get data() {
-      var _v$6 = () => _$escape(state.value);
-      return _$ssr(_tmpl$6, _v$6);
+  [
+    props,
+    {
+      get data() {
+        var _v$6 = () => _$escape(state.value);
+        return _$ssr(_tmpl$6, _v$6);
+      }
     }
-  }),
+  ],
   undefined,
   false
 );
