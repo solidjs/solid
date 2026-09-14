@@ -148,12 +148,32 @@ export function dynamic<T extends ValidComponent>(
   };
 }
 
+/** @deprecated Props of the deprecated `<Dynamic>`; see `dynamic()`. */
 export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
   [K in keyof P]: P[K];
 } & {
   component: T | null | undefined | false;
 };
 
+/**
+ * @deprecated Use `dynamic()`. `<Dynamic>` is the same primitive, but its
+ * shape puts the tag in the same bag as the element's props: every instance
+ * merges `component` in at the call site, `omit()`s it back out here, and
+ * builds a fresh `dynamic()` factory (with its memo) because there is nowhere
+ * to hoist one. `dynamic()` has none of that and is one line longer:
+ *
+ * ```tsx
+ * // before
+ * <Dynamic component={multiline() ? RichTextEditor : "input"} value={value()} />
+ *
+ * // after — hoist per component instance (or per module for a constant)
+ * const Field = dynamic(() => multiline() ? RichTextEditor : "input");
+ * <Field value={value()} />
+ * ```
+ *
+ * Kept through the 2.0 release candidates for migration; removed before the
+ * stable release.
+ */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
   const Comp = dynamic<T>(() => props.component as T | null | undefined | false);
   return createComponent(Comp, omit(props, "component") as ComponentProps<T>);
