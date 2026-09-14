@@ -279,6 +279,10 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // committed frame's, like its children). Core-retained by necessity:
     // both sit on read()'s value selection and recompute's tail. Measured at
     // 23,318 on top of #3434 (23,195 → 23,318).
+    // NOTE (2026-09-14, no bump): +35 B for the effect arm of A30 (#3438) —
+    // recompute's tail keeps an effect's dependency tail while a run is owed
+    // (`_modified`), and runEffect trims it once the run applies. Measured
+    // at 23,353 post-change.
     expect(minifiedBytes).toBeLessThan(23_400);
   });
 

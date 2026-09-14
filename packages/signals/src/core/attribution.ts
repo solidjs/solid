@@ -754,10 +754,20 @@ function markSeen(el: Computed<any>): void {
   (el as AttributedNode)._devSeenSeq = changeSeq;
 }
 
-/** Snapshot the node's current dep identities (call before a run replaces them). */
+/**
+ * Snapshot the dep identities of the node's last pass (call before a run
+ * replaces them, or after it to read the fresh set). The validated prefix
+ * [`_deps`..`_depsTail`] is that pass's set; links past the tail are a
+ * previous pass's, kept linked while the frame they fed is still the
+ * committed one (A30 — a staged memo pass, or an effect pass whose run is
+ * still owed) and not part of the subscription diff.
+ */
 function captureDeps(el: Computed<any>): unknown[] {
   const deps: unknown[] = [];
-  for (let l = el._deps; l !== null; l = l._nextDep) deps.push(l._dep);
+  for (let l = el._deps; l !== null; l = l._nextDep) {
+    deps.push(l._dep);
+    if (l === el._depsTail) break;
+  }
   return deps;
 }
 
@@ -775,6 +785,7 @@ function checkDepWidth(el: Computed<any>): void {
   for (let l = el._deps; l !== null; l = l._nextDep) {
     count++;
     if (names.length < 12) names.push(nodeName(l._dep));
+    if (l === el._depsTail) break; // the validated prefix, as captureDeps
   }
   const node = el as AttributedNode;
   if (count < limit || count < (node._devWideWarnedAt ?? 0) * 1.5) return;

@@ -653,7 +653,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // changed nothing, trims now. An errored pass (a throw, NotReady included,
   // or a comparator throw above) keeps its full list as before — `_depsTail`
   // marks where it stopped — and the commit skips it by the same `_error`.
-  if (!el._x?._error && el._pendingValue === NOT_PENDING) trimStaleDeps(el);
+  // An effect's frame is the run its value is applied by, not the value slot
+  // (#3438): a direct-committed pass that still owes a run (`_modified`) has
+  // not replaced what the last run published — the same flush may stash that
+  // run into a transaction it opens later — so its tail waits for `runEffect`
+  // to trim once the run applies. A pass that changed nothing owes no run
+  // and trims here.
+  if (!el._x?._error && el._pendingValue === NOT_PENDING && !(isEffect && (el as any)._modified))
+    trimStaleDeps(el);
   // Attribution hook: fired before the lane restore so `currentOptimisticLane`
   // still reflects THIS run's posture. The facts distinguish an overlay
   // recompute (optimistic lane, transition replay, transition-held commit)
