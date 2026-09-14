@@ -913,26 +913,20 @@ export namespace JSX {
     slot?: string | RemoveAttribute;
     style?: CSSProperties | string | RemoveAttribute;
     tabindex?: number | string | RemoveAttribute;
-    /**
-     * Namespace URI of the element. Accepted on every tag because the compiler
-     * reads it to disambiguate tags that exist in both HTML and SVG (`a`,
-     * `script`, `style`, `title`) — `<a xmlns="http://www.w3.org/2000/svg">`
-     * is created in the SVG namespace — and `dynamic()` honors it the same way
-     * when creating a tag-name element at runtime.
-     */
-    xmlns?: string | RemoveAttribute;
   }
   /** Global `SVGElement` interface keys only. */
   interface SVGAttributes<T> extends ElementAttributes<T> {
     id?: string | RemoveAttribute;
     lang?: string | RemoveAttribute;
     tabindex?: number | string | RemoveAttribute;
+    xmlns?: string | RemoveAttribute;
   }
   /** Global `MathMLElement` interface keys only. */
   interface MathMLAttributes<T> extends ElementAttributes<T> {
     dir?: HTMLDir | RemoveAttribute;
     displaystyle?: BooleanAttribute | RemoveAttribute;
     scriptlevel?: string | RemoveAttribute;
+    xmlns?: string | RemoveAttribute;
 
     /** @deprecated */
     href?: string | RemoveAttribute;
@@ -1115,7 +1109,17 @@ export namespace JSX {
   type HTMLPreloadAs = "fetch" | "font" | "image" | "script" | "style" | "track";
   type HTMLLinkAs = HTMLPreloadAs | "audio" | "document" | "embed" | "object" | "video" | "worker";
 
-  interface AnchorHTMLAttributes<T> extends HTMLAttributes<T> {
+  /**
+   * `xmlns` on the tags that exist in both HTML and SVG (`a`, `script`, `style`,
+   * `title`). The compiler reads it to pick the namespace when the tag is not
+   * nested under `<svg>` at compile time (e.g. an XML partial), and `dynamic()`
+   * honors it the same way when creating a tag-name element at runtime.
+   */
+  interface AmbiguousNamespaceAttributes {
+    xmlns?: string | RemoveAttribute;
+  }
+
+  interface AnchorHTMLAttributes<T> extends HTMLAttributes<T>, AmbiguousNamespaceAttributes {
     download?: string | EnumeratedAcceptsEmpty | RemoveAttribute;
     href?: string | SerializableAttributeValue | RemoveAttribute;
     hreflang?: string | RemoveAttribute;
@@ -1704,7 +1708,7 @@ export namespace JSX {
     max?: number | string | RemoveAttribute;
     value?: string | string[] | number | RemoveAttribute;
   }
-  interface ScriptHTMLAttributes<T> extends HTMLAttributes<T> {
+  interface ScriptHTMLAttributes<T> extends HTMLAttributes<T>, AmbiguousNamespaceAttributes {
     async?: BooleanAttribute | RemoveAttribute;
     blocking?: "render" | RemoveAttribute;
     crossorigin?: HTMLCrossorigin | RemoveAttribute;
@@ -1766,7 +1770,7 @@ export namespace JSX {
     type?: string | RemoveAttribute;
     width?: number | string | RemoveAttribute;
   }
-  interface StyleHTMLAttributes<T> extends HTMLAttributes<T> {
+  interface StyleHTMLAttributes<T> extends HTMLAttributes<T>, AmbiguousNamespaceAttributes {
     blocking?: "render" | RemoveAttribute;
     media?: string | RemoveAttribute;
 
@@ -1867,6 +1871,7 @@ export namespace JSX {
   interface TimeHTMLAttributes<T> extends HTMLAttributes<T> {
     datetime?: string | RemoveAttribute;
   }
+  interface TitleHTMLAttributes<T> extends HTMLAttributes<T>, AmbiguousNamespaceAttributes {}
   interface TrackHTMLAttributes<T> extends HTMLAttributes<T> {
     default?: BooleanAttribute | RemoveAttribute;
     kind?:
@@ -3595,7 +3600,7 @@ export namespace JSX {
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/title
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTitleElement
      */
-    title: HTMLAttributes<HTMLTitleElement> & Properties<HTMLTitleElement>;
+    title: TitleHTMLAttributes<HTMLTitleElement> & Properties<HTMLTitleElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/tr
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTableRowElement
