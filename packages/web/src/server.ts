@@ -3621,13 +3621,14 @@ export function ssrStyleProperty(name, value) {
 }
 export function ssrElement(
   name: string,
-  props: any,
+  props: any | any[] | (() => any | any[]),
   children: any,
-  needsId: boolean
+  needsId: boolean,
+  skip?: (key: string) => boolean
 ): { t: string };
 
 // review with new ssr
-export function ssrElement(tag, props, children, needsId) {
+export function ssrElement(tag, props, children, needsId, skip) {
   // The hydration key must be allocated before the props thunk runs: dynamic
   // props (`mergeProps(() => ...)`) create a memo, which consumes a child id.
   // The client claims the element (getNextElement) before applying the spread,
@@ -3635,76 +3636,113 @@ export function ssrElement(tag, props, children, needsId) {
   // shifts by one and it is left unclaimed on hydration.
   const hk = needsId ? ssrHydrationKey() : "";
   if (typeof props === "function") props = props();
-  // A nullish source (static or resolved) is an empty spread (#3297).
-  if (props == null) props = {};
+  // `props` is now one props object or an ARRAY of prop sources (either may
+  // arrive through the thunk above, which runs after the key is taken). The
+  // array form serializes straight from the sources as if they had been
+  // merged (`ssrElement(tag, merge(...sources), ...)`): later sources win per
+  // key, and the attribute order is the merged one — every key at the
+  // position of the LAST source that carries it. It exists so libraries and
+  // the compilers can spread several sources without building an
+  // intermediate object that only gets walked once. Unlike
+  // `mergeProps(() => x)`, a function source here is a plain thunk: it is
+  // called once and creates no memo, so the array form allocates no
+  // hydration ids of its own — the client `spread` array form follows the
+  // same rule. A nullish source is an empty source.
+  let sources = null;
+  if (Array.isArray(props)) {
+    sources = props;
+    for (let i = 0; i < sources.length; i++) {
+      if (typeof sources[i] === "function") {
+        // Resolve into a copy: the caller's array stays as passed.
+        if (sources === props) sources = sources.slice();
+        sources[i] = sources[i]();
+      }
+    }
+  } else if (props == null) {
+    // A nullish source (static or resolved) is an empty spread (#3297).
+    props = {};
+  }
   const skipChildren = VOID_ELEMENTS.test(tag);
-  const keys = Object.keys(props);
   // Each emitted attribute carries its own leading space (the hydration key
   // already does), so skipped props leave no stray whitespace behind:
   // `<li _hk=0>` rather than `<li _hk=0 >` (#3382).
   let result = `<${tag}${hk}`;
-  for (let i = 0; i < keys.length; i++) {
-    const prop = keys[i];
-    // Every branch reads `props[prop]` itself, and only when it will use it.
-    // On a spread these are compiled getters: `children` builds the child
-    // element and consumes hydration ids as it goes. Reading it more than
-    // once — or at all when JSX children already own the slot — burns ids
-    // the client never allocates, and every element after it hydrates
-    // against the wrong node (#3313). Keep the general read below the two
-    // early-outs.
-    //
-    // The compiler moves static textarea values into children, but an
-    // element with a spread is serialized here instead. Keep the runtime
-    // path equivalent: textarea value/defaultValue are its text content,
-    // never HTML attributes (#3286).
-    if (tag === "textarea" && (prop === "value" || prop === "defaultValue")) {
-      const value = props[prop];
-      if (value !== null) children = escape(value);
-      continue;
-    }
-    if (ChildProperties.has(prop)) {
-      if (children === undefined && !skipChildren)
-        children =
-          tag === "script" || tag === "style" || prop === "innerHTML"
-            ? props[prop]
-            : escape(props[prop]);
-      continue;
-    }
-    const value = props[prop];
-    // Nullish is "not set" for every attribute, `style`/`class` included —
-    // the client removes the attribute for `undefined`, and emitting
-    // `style=""` here made the server disagree with it (#3382).
-    if (
-      value == undefined ||
-      prop === "ref" ||
-      prop.slice(0, 2) === "on" ||
-      prop.slice(0, 5) === "prop:"
-    ) {
-      // Behavior claims ride NAMED ref/on* positions only — the compiler
-      // can't see through a spread, so a claim-carrying stub landing here
-      // silently drops. Say so where the author can act on it.
-      if (
-        "_SOLID_DEV_" &&
-        typeof value === "function" &&
-        value[CLAIM_PROP] !== undefined &&
-        (prop === "ref" || prop.slice(0, 2) === "on")
-      ) {
-        console.warn(
-          `A spread on a server-rendered <${tag}> carries \`${prop}\` from client props — ` +
-            `spreads don't participate in behavior claims, so this drops. ` +
-            `Write the position out: \`${prop}={props.${String(value[CLAIM_PROP])}}\`.`
-        );
+  // One walk over one prop body: the outer loop runs once for a single props
+  // object and once per source otherwise.
+  const last = sources === null ? 0 : sources.length - 1;
+  for (let s = 0; s <= last; s++) {
+    if (sources !== null && (props = sources[s]) == null) continue;
+    const keys = Object.keys(props);
+    nextKey: for (let i = 0; i < keys.length; i++) {
+      const prop = keys[i];
+      if (skip !== undefined && skip(prop)) continue;
+      // A later source that has the key (`in`, so merge/omit proxies answer
+      // through their traps) owns it; this source's getter stays unread.
+      for (let j = s + 1; j <= last; j++) {
+        const later = sources[j];
+        if (later != null && prop in later) continue nextKey;
       }
-      continue;
-    } else if (prop === "style") {
-      result += ` style="${ssrStyle(value)}"`;
-    } else if (prop === "class") {
-      result += ` class="${ssrClassName(value)}"`;
-    } else if (typeof value === "boolean") {
-      if (!value) continue;
-      result += ` ${escape(prop)}`;
-    } else {
-      result += value === "" ? ` ${escape(prop)}` : ` ${escape(prop)}="${escape(value, true)}"`;
+      // Every branch reads `props[prop]` itself, and only when it will use it.
+      // On a spread these are compiled getters: `children` builds the child
+      // element and consumes hydration ids as it goes. Reading it more than
+      // once — or at all when JSX children already own the slot — burns ids
+      // the client never allocates, and every element after it hydrates
+      // against the wrong node (#3313). Keep the general read below the two
+      // early-outs.
+      //
+      // The compiler moves static textarea values into children, but an
+      // element with a spread is serialized here instead. Keep the runtime
+      // path equivalent: textarea value/defaultValue are its text content,
+      // never HTML attributes (#3286).
+      if (tag === "textarea" && (prop === "value" || prop === "defaultValue")) {
+        const value = props[prop];
+        if (value !== null) children = escape(value);
+        continue;
+      }
+      if (ChildProperties.has(prop)) {
+        if (children === undefined && !skipChildren)
+          children =
+            tag === "script" || tag === "style" || prop === "innerHTML"
+              ? props[prop]
+              : escape(props[prop]);
+        continue;
+      }
+      const value = props[prop];
+      // Nullish is "not set" for every attribute, `style`/`class` included —
+      // the client removes the attribute for `undefined`, and emitting
+      // `style=""` here made the server disagree with it (#3382).
+      if (
+        value == undefined ||
+        prop === "ref" ||
+        prop.slice(0, 2) === "on" ||
+        prop.slice(0, 5) === "prop:"
+      ) {
+        // Behavior claims ride NAMED ref/on* positions only — the compiler
+        // can't see through a spread, so a claim-carrying stub landing here
+        // silently drops. Say so where the author can act on it.
+        if (
+          "_SOLID_DEV_" &&
+          typeof value === "function" &&
+          value[CLAIM_PROP] !== undefined &&
+          (prop === "ref" || prop.slice(0, 2) === "on")
+        ) {
+          console.warn(
+            `A spread on a server-rendered <${tag}> carries \`${prop}\` from client props — ` +
+              `spreads don't participate in behavior claims, so this drops. ` +
+              `Write the position out: \`${prop}={props.${String(value[CLAIM_PROP])}}\`.`
+          );
+        }
+        continue;
+      } else if (prop === "style") {
+        result += ` style="${ssrStyle(value)}"`;
+      } else if (prop === "class") {
+        result += ` class="${ssrClassName(value)}"`;
+      } else if (typeof value === "boolean") {
+        if (!value) continue;
+        result += ` ${escape(prop)}`;
+      } else {
+        result += value === "" ? ` ${escape(prop)}` : ` ${escape(prop)}="${escape(value, true)}"`;
+      }
     }
   }
 
