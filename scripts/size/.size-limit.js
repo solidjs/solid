@@ -425,7 +425,10 @@ module.exports = [
     // Companion lane parented (#3379, 2026-09-12): 15.50 -> 15.55 KB, measured
     // at 15522 B against 15485 (+37 brotli on a -4 B minified reorder — the
     // statement moved across a block boundary; noise, not weight).
-    limit: "15.55 KB",
+    // Held children (#3404, 2026-09-13): 15.55 -> 15.60 KB, measured at
+    // 15552 B on the merge with `next` — CONFIG_HELD_CHILDREN set/cleared
+    // around recompute and commitPendingNode.
+    limit: "15.60 KB",
     modifyEsbuildConfig
   },
   {
@@ -859,7 +862,10 @@ module.exports = [
     // 28268 (+32 — the core seams and the collecting boundary).
     // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 28.35 -> 28.40 KB,
     // measured at 28380 B against 28300 (+80); see the core floor note.
-    limit: "28.40 KB",
+    // Held children (#3404, 2026-09-13): 28.40 -> 28.45 KB, measured at
+    // 28414 B on the merge with `next`; see the createStore note. (#3412's
+    // ownership save/restore measures +8 B on the same entry.)
+    limit: "28.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -1007,7 +1013,9 @@ module.exports = [
     // provider). One literal property on the observe object, inert on the
     // client by design. Measured at 15501 B against 15485 without the slot
     // on the same `next` (+16), within the 15.55 KB cap. Observe-only.
-    limit: "15.55 KB",
+    // Held children (#3404, 2026-09-13): 15.55 -> 15.60 KB, measured at
+    // 15562 B on the merge with `next`; see the createStore note.
+    limit: "15.60 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
