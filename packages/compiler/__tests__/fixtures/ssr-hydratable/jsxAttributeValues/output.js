@@ -4,7 +4,6 @@ import { ssrHydrationKey as _$ssrHydrationKey } from "r-server";
 import { ssrAttribute as _$ssrAttribute } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
-import { mergeProps as _$mergeProps } from "r-server";
 var _tmpl$ = [
 	"<div",
 	"",
@@ -73,14 +72,12 @@ var _v$11 = _$ssrHydrationKey(), _ref$ = (el) => {
 	return el.appendChild((_v$23 = _$ssrHydrationKey(), _$ssr(_tmpl$10, _v$23)));
 };
 const refValue = _$ssr(_tmpl$5, _v$11);
-const spreadValue = _$ssrElement("div", () => {
-	return _$mergeProps(props, { get data() {
-		var _v$12 = _$ssrHydrationKey(), _v$13 = () => {
-			return _$escape(state.value);
-		};
-		return _$ssr(_tmpl$6, _v$12, _v$13);
-	} });
-}, undefined, true);
+const spreadValue = _$ssrElement("div", [props, { get data() {
+	var _v$12 = _$ssrHydrationKey(), _v$13 = () => {
+		return _$escape(state.value);
+	};
+	return _$ssr(_tmpl$6, _v$12, _v$13);
+} }], undefined, true);
 var _v$14 = _$ssrHydrationKey(), _v$15 = _$escape(Comp({ get fallback() {
 	var _v$24 = _$ssrHydrationKey();
 	return _$ssr(_tmpl$11, _v$24);

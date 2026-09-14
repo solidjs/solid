@@ -1,27 +1,27 @@
-@@ -41,12 +41,7 @@
- }, () => {
-   return _$ssrElement__r_server("h1", () => {
-     return _$mergeProps__r_server({
--      get ["class"]() {
--        return `base ${_$ssrClassName__r_server(["base", {
--          dynamic: dynamic(),
--          selected: selected
--        }]) || ""}`;
--      }
-+      class: "base"
-     }, results, {
-       disabled: true,
-       readonly: "",
-@@ -58,6 +53,12 @@
-           "background-color": color(),
-           "margin-right": "40px"
-         };
-+      },
-+      get ["class"]() {
-+        return ["base", {
-+          dynamic: dynamic(),
-+          selected: selected
-+        }];
-       }
-     });
-   }, () => {
+@@ -37,12 +37,7 @@
+   }
+ }], () => {
+   return _$ssrElement__r_server("h1", [{
+-    get ["class"]() {
+-      return `base ${_$ssrClassName__r_server(["base", {
+-        dynamic: dynamic(),
+-        selected: selected
+-      }]) || ""}`;
+-    }
++    class: "base"
+   }, results, {
+     disabled: true,
+     readonly: "",
+@@ -54,6 +49,12 @@
+         "background-color": color(),
+         "margin-right": "40px"
+       };
++    },
++    get ["class"]() {
++      return ["base", {
++        dynamic: dynamic(),
++        selected: selected
++      }];
+     }
+   }], () => {
+     return _g1$ = link, _$ssr__r_server(_g4$, _$ssrAttribute__r_server("readonly", _$escape__r_server(value, true)));

@@ -1,4 +1,4 @@
-@@ -68,10 +68,9 @@
+@@ -67,10 +67,9 @@
  var _g54$ = ["<div", "><video></video></div>"];
  var _g55$ = ["<div", " style=\"", "\"", "></div>"];
  var _g56$ = ["<button", " type=\"button\"", " style=\"", "\" class=\"", "\">", "</button>"];
@@ -12,7 +12,7 @@
  _$ssrSelectValues__r_server();
  import * as styles from "./styles.module.css";
  import { binding } from "somewhere";
-@@ -122,118 +121,118 @@
+@@ -117,114 +116,114 @@
      return _$escape__r_server(row.label || " ");
    }, _$ssr__r_server(_g11$, _g3$)), _$ssr__r_server("<div><div/></div>")];
  }, true);
@@ -161,29 +161,25 @@
  };
 -const template23 = _$ssr__r_server(_g28$, _g92$, _g93$, _g94$);
 +const template23 = _$ssr__r_server(_g28$, _g91$, _g92$, _g93$);
- const template24 = _$ssrElement__r_server("a", () => {
-   return _$mergeProps__r_server(props, {
-     something: true
-   });
- }, undefined, true);
+ const template24 = _$ssrElement__r_server("a", [props, {
+   something: true
+ }], undefined, true);
 -var _g95$ = _$ssrHydrationKey__r_server();
 -var _g96$ = _$scope__r_server(() => {
 +var _g94$ = _$ssrHydrationKey__r_server();
 +var _g95$ = _$scope__r_server(() => {
    return _$escape__r_server(props.children);
  });
--var _g97$ = _$ssrElement__r_server("a", () => {
-+var _g96$ = _$ssrElement__r_server("a", () => {
-   return _$mergeProps__r_server(props, {
-     something: true
-   });
- }, undefined, false);
+-var _g97$ = _$ssrElement__r_server("a", [props, {
++var _g96$ = _$ssrElement__r_server("a", [props, {
+   something: true
+ }], undefined, false);
 -const template25 = _$ssr__r_server(_g29$, _g95$, _g96$, _g97$);
 +const template25 = _$ssr__r_server(_g29$, _g94$, _g95$, _g96$);
- const template26 = _$ssrElement__r_server("div", () => {
-   return _$mergeProps__r_server({
-     start: "Hi",
-@@ -258,146 +257,146 @@
+ const template26 = _$ssrElement__r_server("div", [{
+   start: "Hi",
+   middle: middle
+@@ -245,146 +244,146 @@
      }, "<!--/-->"];
    }, false), _$ssrElement__r_server("input", api(), undefined, false), _$ssrElement__r_server("div", api(), undefined, false)];
  }, true);
@@ -416,7 +412,7 @@
  const propsSpread = {
    something: color(),
    style: {
-@@ -438,39 +437,39 @@
+@@ -419,39 +418,39 @@
      height: props.height
    }
  };
@@ -472,7 +468,7 @@
  const o = {
    ref: null
  };
-@@ -479,76 +478,76 @@
+@@ -460,76 +459,76 @@
  };
  const valid = Div({
    ref(r$) {

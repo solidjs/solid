@@ -107,12 +107,12 @@ const hello = "hello";
 const staticChildren = _tmpl$7();
 const foldedChildren = _tmpl$7();
 var _el$23 = _tmpl$2();
-_$spread(_el$23, _$mergeProps({ get children() {
+_$spread(_el$23, [{ get children() {
 	return fallback();
-} }, props), false);
+} }, props], false);
 const childrenBeforeSpread = _el$23;
 var _el$24 = _tmpl$2();
-_$spread(_el$24, _$mergeProps(props, { get children() {
+_$spread(_el$24, [props, { get children() {
 	return later();
-} }), false);
+} }], false);
 const childrenAfterSpread = _el$24;

@@ -83,9 +83,9 @@ const double = _$ssr(_tmpl$6, _v$12);
 const hello = "hello";
 const staticChildren = _$ssr(_tmpl$7);
 const foldedChildren = _$ssr(_tmpl$7);
-const childrenBeforeSpread = _$ssrElement("module", _$mergeProps({ get children() {
+const childrenBeforeSpread = _$ssrElement("module", [{ get children() {
 	return fallback();
-} }, props), undefined, false);
-const childrenAfterSpread = _$ssrElement("module", _$mergeProps(props, { get children() {
+} }, props], undefined, false);
+const childrenAfterSpread = _$ssrElement("module", [props, { get children() {
 	return later();
-} }), undefined, false);
+} }], undefined, false);

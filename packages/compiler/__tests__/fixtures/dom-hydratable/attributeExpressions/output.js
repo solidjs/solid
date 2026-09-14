@@ -5,7 +5,6 @@ import { insert as _$insert } from "r-dom";
 import { scope as _$scope } from "r-dom";
 import { memo as _$memo } from "r-dom";
 import { spread as _$spread } from "r-dom";
-import { mergeProps as _$mergeProps } from "r-dom";
 import { ref as _$ref } from "r-dom";
 import { style as _$style } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
@@ -80,29 +79,37 @@ let link;
 var _el$ = _$getNextElement(_tmpl$);
 var _el$2 = _el$.firstChild;
 var _el$3 = _el$2.firstChild;
-_$spread(_el$, _$mergeProps({ id: "main" }, results, {
-	class: { selected: unknown },
-	style: { color }
-}), true);
-_$spread(_el$2, _$mergeProps({ id }, results, {
-	foo: true,
-	disabled: true,
-	get title() {
-		return welcoming();
-	},
-	get style() {
-		return {
-			"background-color": color(),
-			"margin-right": "40px"
-		};
-	},
-	get ["class"]() {
-		return ["base", {
-			dynamic: dynamic(),
-			selected
-		}];
+_$spread(_el$, [
+	{ id: "main" },
+	results,
+	{
+		class: { selected: unknown },
+		style: { color }
 	}
-}), true);
+], true);
+_$spread(_el$2, [
+	{ id },
+	results,
+	{
+		foo: true,
+		disabled: true,
+		get title() {
+			return welcoming();
+		},
+		get style() {
+			return {
+				"background-color": color(),
+				"margin-right": "40px"
+			};
+		},
+		get ["class"]() {
+			return ["base", {
+				dynamic: dynamic(),
+				selected
+			}];
+		}
+	}
+], true);
 var _ref$ = link;
 typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => {
 	return _ref$;
@@ -253,7 +260,7 @@ _$effect(() => "t" in test, (_v$) => {
 const template23 = _el$30;
 var _el$31 = _$getNextElement(_tmpl$16);
 _$claimElement(_el$31);
-_$spread(_el$31, _$mergeProps(props, { something: true }), false);
+_$spread(_el$31, [props, { something: true }], false);
 _$runHydrationEvents();
 const template24 = _el$31;
 var _el$32 = _$getNextElement(_tmpl$17);
@@ -264,18 +271,23 @@ _$insert(_el$32, _$scope(() => {
 	return props.children;
 }), _el$34, _el$35);
 _$claimElement(_el$36);
-_$spread(_el$36, _$mergeProps(props, { something: true }), false);
+_$spread(_el$36, [props, { something: true }], false);
 _$runHydrationEvents();
 const template25 = _el$32;
 var _el$37 = _$getNextElement(_tmpl$18);
-_$spread(_el$37, _$mergeProps({
+_$spread(_el$37, [{
 	start: "Hi",
 	middle
-}, spread), true);
+}, spread], true);
 _$runHydrationEvents();
 const template26 = _el$37;
 var _el$38 = _$getNextElement(_tmpl$18);
-_$spread(_el$38, _$mergeProps({ start: "Hi" }, first, { middle }, second), true);
+_$spread(_el$38, [
+	{ start: "Hi" },
+	first,
+	{ middle },
+	second
+], true);
 _$runHydrationEvents();
 const template27 = _el$38;
 var _el$39 = _$getNextElement(_tmpl$19);
@@ -509,30 +521,35 @@ _$spread(_el$104, { ...propsSpread }, false);
 _$runHydrationEvents();
 const template81 = _el$104;
 var _el$105 = _$getNextElement(_tmpl$4);
-_$spread(_el$105, _$mergeProps(propsSpread, {
+_$spread(_el$105, [propsSpread, {
 	get ["data-dynamic"]() {
 		return color();
 	},
 	"data-static": /* @static */ color()
-}), false);
+}], false);
 _$runHydrationEvents();
 const template82 = _el$105;
 var _el$106 = _$getNextElement(_tmpl$4);
-_$spread(_el$106, _$mergeProps({ ...propsSpread }, {
+_$spread(_el$106, [{ ...propsSpread }, {
 	get ["data-dynamic"]() {
 		return color();
 	},
 	"data-static": /* @static */ color()
-}), false);
+}], false);
 _$runHydrationEvents();
 const template83 = _el$106;
 var _el$107 = _$getNextElement(_tmpl$4);
-_$spread(_el$107, _$mergeProps({ ...propsSpread1 }, propsSpread2, { ...propsSpread3 }, {
-	get ["data-dynamic"]() {
-		return color();
-	},
-	"data-static": /* @static */ color()
-}), false);
+_$spread(_el$107, [
+	{ ...propsSpread1 },
+	propsSpread2,
+	{ ...propsSpread3 },
+	{
+		get ["data-dynamic"]() {
+			return color();
+		},
+		"data-static": /* @static */ color()
+	}
+], false);
 _$runHydrationEvents();
 const template84 = _el$107;
 // STATIC PROPERTY OF OBJECT ACCESS
@@ -637,14 +654,14 @@ _$effect(() => [
 });
 const template95 = _el$118;
 var _el$119 = _$getNextElement(_tmpl$51);
-_$spread(_el$119, _$mergeProps(spread, {
+_$spread(_el$119, [spread, {
 	get ["stroke-width"]() {
 		return cond() ? width() : 2;
 	},
 	get fill() {
 		return cond() && color();
 	}
-}), false);
+}], false);
 _$runHydrationEvents();
 // #2959: conditional attribute merged into a spread must stay a bare
 // expression — a client-only condition memo would allocate a hydration id

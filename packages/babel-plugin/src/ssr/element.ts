@@ -991,7 +991,6 @@ function createElement(
   } else {
     props = [];
     let runningObject: Array<babelTypes.ObjectProperty | babelTypes.ObjectMethod> = [],
-      dynamicSpread = false,
       hasChildren = path.node.children.length > 0;
 
     attributes.forEach(attribute => {
@@ -1001,10 +1000,16 @@ function createElement(
           props.push(t.objectExpression(runningObject));
           runningObject = [];
         }
+        // A dynamic spread defers behind a thunk: evaluated in argument
+        // position it would run before `ssrElement` allocates the element's
+        // own hydration id, while the client claims the element
+        // (getNextElement) before applying the spread — shifting the
+        // element's id by one and leaving it unclaimed. `ssrElement` calls
+        // function sources after allocating the key, matching that order.
         props.push(
           isDynamic(attribute.get("argument"), {
             checkMember: true
-          }) && (dynamicSpread = true)
+          })
             ? inlineCallExpression(node.argument)
             : node.argument
         );
@@ -1043,21 +1048,13 @@ function createElement(
 
     if (runningObject.length || !props.length) props.push(t.objectExpression(runningObject));
 
-    if (props.length > 1 || dynamicSpread) {
-      let merged: babelTypes.Expression = t.callExpression(
-        registerImportMethod(path, "mergeProps"),
-        props
-      );
-      // Defer the merge behind a thunk when hydratable: `mergeProps` with a
-      // function source creates a memo, which consumes a hydration child id.
-      // Evaluated in argument position it would run before `ssrElement`
-      // allocates the element's own id, while the client claims the element
-      // (getNextElement) before applying the spread — shifting the element's
-      // id by one and leaving it unclaimed. `ssrElement` resolves function
-      // props after allocating the hydration key, matching the client order.
-      if (hydratable) merged = t.arrowFunctionExpression([], merged);
-      props = [merged];
-    }
+    // Several sources go as an ARRAY, not a mergeProps() call: ssrElement
+    // serializes straight from the sources (later wins per key, only the
+    // winner read) with no merged object to build and walk once, and a
+    // function source is a plain thunk called after the key — no memo, so no
+    // hydration id, matching the client spread() array form. A single
+    // source, thunk included, passes through as the props argument itself.
+    if (props.length > 1) props = [t.arrayExpression(props)];
   }
 
   const exprs = [

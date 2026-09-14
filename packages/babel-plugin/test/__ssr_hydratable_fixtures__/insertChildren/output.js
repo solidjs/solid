@@ -123,26 +123,27 @@ var _v$27 = _$ssrHydrationKey();
 const foldedChildren = _$ssr(_tmpl$7, _v$27);
 const childrenBeforeSpread = _$ssrElement(
   "module",
-  () =>
-    _$mergeProps(
-      {
-        get children() {
-          return fallback();
-        }
-      },
-      props
-    ),
+  [
+    {
+      get children() {
+        return fallback();
+      }
+    },
+    props
+  ],
   undefined,
   true
 );
 const childrenAfterSpread = _$ssrElement(
   "module",
-  () =>
-    _$mergeProps(props, {
+  [
+    props,
+    {
       get children() {
         return later();
       }
-    }),
+    }
+  ],
   undefined,
   true
 );
