@@ -495,8 +495,10 @@ export interface HandleServerFunctionOptions {
    * Observes or replaces the function's result before encoding — the
    * extension point for response metadata policies (headers, statuses,
    * substituted results). Runs for returned and thrown results alike
-   * (`context.thrown` distinguishes); `context.instance` is null for no-JS
-   * calls. The context carries the call's identity — the function `id` and
+   * (`context.thrown` distinguishes); `context.instance` is null for calls
+   * that carry no instance header — no-JS form posts, direct HTTP, and the
+   * transport's own GET-encoded reads, which stay header-free so caches
+   * and preloads can match them (#3406). The context carries the call's identity — the function `id` and
    * the parsed `args` the implementation was invoked with — matching the
    * direct-call mirror (`transformDirectResult`), so a policy keying state
    * by the call works over either dispatch path. Return the result
@@ -533,14 +535,14 @@ export interface HandleServerFunctionOptions {
     context: { id: string; args: unknown[]; instance: string | null; request: Request }
   ): Response | undefined | Promise<Response | undefined>;
   /**
-   * Builds the response for calls made without the client runtime (no
-   * instance header — no-JS form posts, direct HTTP). Receives the
+   * Builds the response for calls made without the client runtime (at
+   * the bare address — no-JS form posts, direct HTTP). Receives the
    * (transformed) result, the request, and the decoded arguments; `thrown`
    * is set when the result was thrown rather than returned.
    *
    * Overrides the configured hook, which in turn overrides the built-in
    * `createNoJSHandler()` applied to browser form posts. Other
-   * no-instance callers get the normal serialized response.
+   * bare-address callers get the normal serialized response.
    */
   handleNoJS?(
     result: unknown,
@@ -3394,8 +3396,9 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // plain HTTP. On the url, not a header, because shared caches key on the
   // url and store one answer per key — a header-driven shape means one
   // caller kind's cached answer can be replayed to the other (#3094). The
-  // instance header does not shape the answer; it still identifies the
-  // call (invocation context, no-JS gating).
+  // instance header does not shape the answer; it only identifies a POST
+  // transport call to the hooks (`context.instance`) — reads carry none,
+  // so caches and preloads can match them (#3406).
   const scripted = address.data;
 
   // Method allowlist: POST always dispatches (the default transport);
