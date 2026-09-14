@@ -268,7 +268,8 @@ describe("children stay a separate effect", () => {
 
   test("plain data children that are a function still resolve reactively", () => {
     const [count, setCount] = createSignal(0);
-    const props = { children: () => `n=${count()}` };
+    // A function is not a JSX.Element type-wise, but insert() resolves it.
+    const props = { children: () => `n=${count()}` } as any;
     const m = mount(() => <div {...props} />);
     expect(m.el().textContent).toBe("n=0");
     setCount(1);
